@@ -337,7 +337,11 @@ def main(args=None):
     # A STAGED SCRIPT DOES NOTHING AT IMPORT - its bodies only register - so it
     # is run through the runner, which owns the environment and the stage order.
     # An unmigrated script still runs itself, unchanged.
-    staged = "layout_stage" in open(script).read()
+    # THE DECORATOR IS THE MARKER. A staged script is one that registers
+    # bodies, and `@stage(` is what does that - the import line it arrives
+    # through is not, and changed once already.
+    _src = open(script).read()
+    staged = "@stage(" in _src
     # the layout runner is part of placemat, so it is invoked as one - never by
     # a path into the project, which is where it used to live
     cmd = ([sys.executable, "-m", "placemat.tools.layout", board_dir, "--board-file", pcb]
@@ -373,10 +377,14 @@ def main(args=None):
 
     # 3. occupancy
     occ_log = os.path.join(run, "occupancy.txt")
-    rc, dt = sh([sys.executable, os.path.join(_root(), "tools", "board_occupancy.py"), pcb, "--cells"], _root(), 600, occ_log)
+    rc, dt = sh([sys.executable, "-m", "placemat.tools.board_occupancy", pcb, "--cells"], _root(), 600, occ_log)
     occ = open(occ_log).read()
     hard = sum(int(m) for m in re.findall(r"\bhard\s+(\d+)", occ))
-    rec["steps"]["occupancy"] = {"seconds": round(dt, 1), "hard": hard, "rc": rc}
+    # A GATE THAT DID NOT RUN IS NOT A GATE THAT PASSED. Zero overlaps out of a
+    # tool that exited non-zero is zero because nothing counted them, and that
+    # reads on the round line exactly like a clean board.
+    rec["steps"]["occupancy"] = ({"seconds": round(dt, 1), "hard": hard, "rc": rc} if rc == 0
+                                 else {"seconds": round(dt, 1), "rc": rc, "failed": True})
 
     # 4. DRC
     drc = run_drc(pcb, os.path.join(run, "drc.json"))
@@ -400,7 +408,7 @@ def main(args=None):
     #     cell's, and only shows up once the cell is on a board.
     con_log = os.path.join(run, "contract.txt")
     con_json = os.path.join(run, "contract.json")
-    rc, dt = sh([kicad_python(), os.path.join(_root(), "tools", "stamp_contract.py"), pcb, "--json", con_json],
+    rc, dt = sh([kicad_python(), "-m", "placemat.tools.stamp_contract", pcb, "--json", con_json],
                 _root(), 600, con_log)
     contract = None
     if os.path.exists(con_json):
@@ -446,7 +454,7 @@ def main(args=None):
     # 4b. airwires (the ratsnest measure, from the geometry oracle)
     aw = None
     aw_json = os.path.join(run, "airwires.json")
-    rc, dt = sh([kicad_python(), os.path.join(_root(), "tools", "airwires.py"), pcb, "--json", aw_json, "--top", "6"],
+    rc, dt = sh([kicad_python(), "-m", "placemat.tools.airwires", pcb, "--json", aw_json, "--top", "6"],
                 _root(), 600, os.path.join(run, "airwires.log"))
     if rc == 0 and os.path.exists(aw_json):
         aw = json.load(open(aw_json))
@@ -463,7 +471,7 @@ def main(args=None):
         tdir = os.path.join(run, "trial")
         shutil.rmtree(tdir, ignore_errors=True)
         targs = ["--iterations", str(a.iterations), "--out", tdir] + (["--quick"] if a.quick else []) + (["--render"] if (a.render or a.record) else [])
-        rc, dt = sh([sys.executable, os.path.join(_root(), "tools", "route_trial.py"), pcb, "--layers"] + a.layers + targs,
+        rc, dt = sh([sys.executable, "-m", "placemat.tools.route_trial", pcb, "--layers"] + a.layers + targs,
                     _root(), 3600, os.path.join(run, "trial.log"))
         recs = glob.glob(os.path.join(tdir, "*.route_trial.json"))
         if rc == 0 and recs:
@@ -543,13 +551,15 @@ def main(args=None):
     links_ok = not links or not any(r.get("over_limit") for r in links)
     contract_ok = contract is None or (not contract["unlanded_vias"]
                                        and not contract["empty_copper_layers"])
-    gate_ok = not real and hard == 0 and contract_ok and links_ok and (trial is None or trial["valid"])
+    occ_ok = not rec["steps"]["occupancy"].get("failed")
+    gate_ok = (not real and hard == 0 and occ_ok and contract_ok and links_ok
+               and (trial is None or trial["valid"]))
     bits = ["round %s (%s): board %s" % (a.label, name, "cached" if rec["steps"]["generate"]["cached"] else "fresh %.0fs" % rec["steps"]["generate"]["seconds"]),
             "script ok %.0fs%s" % (rec["steps"]["script"]["seconds"],
                                    "" if not legacy else
                                    " (%d legacy idiom(s): %s - migrate first, `placemat lint`)"
                                    % (len(legacy), ", ".join(sorted({f["rule"] for f in legacy})[:4]))),
-            "occupancy hard %d" % hard,
+            "occupancy hard %d" % hard if occ_ok else "occupancy DID NOT RUN (rc %s)" % rec["steps"]["occupancy"]["rc"],
             "DRC %s, unconnected %d%s" % (counted(real), unconnected,
                                           (", outstanding " + counted(outstanding)) if outstanding else "")]
     if links:

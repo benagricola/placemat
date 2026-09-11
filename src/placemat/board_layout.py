@@ -2206,14 +2206,13 @@ class BoardLayout:
             # which module is this instance? the same question the derived
             # clearance floors answer, so ask them rather than parse again
             from placemat import clearance_floors
-            root = clearance_floors.repo_root()
             mod = None
-            for zens, pcb in clearance_floors.boards(root):
+            for zens, pcb in clearance_floors.boards():
                 exact, prefix = clearance_floors.instances(zens)
                 mod = clearance_floors.module_of(name, exact, prefix)
                 if mod:
                     break
-            module_dir = clearance_floors.module_dirs(root).get(mod) if mod else None
+            module_dir = clearance_floors.module_dirs().get(mod) if mod else None
             if module_dir is None:
                 return 0
         f = os.path.join(module_dir, "layout", "links.json")
