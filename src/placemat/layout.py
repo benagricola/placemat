@@ -55,6 +55,7 @@ class Row:
         self.start = self.end = None
         self.centres = []
         self.anchor = None            # ("centre"|"end"|"before"|"after"|"outline", value): how a deferred row finds its start
+        self.line = "centre"          # how the items align across the row
         self.needs: frozenset = frozenset()   # refdes the anchor refers to
         if start is not None:
             self.begin(start)
@@ -393,13 +394,17 @@ class Board:
         return intent
 
     def row(self, items, edge: Edge, *, gap: float, start: float | None = None, align: str = "start",
-            clearance: float | None = None, rotation: float | None = None, line: str = "edge",
+            clearance: float | None = None, rotation: float | None = None, line: str = "centre",
             centre=None, end=None, before: Row | None = None, after: Row | None = None, why: str = "") -> Row:
-        """Items down `edge` in order, `gap` apart, each flush to the edge
-        with its outward side out (`rotation=`, one value or one per item,
-        overrides that turn for parts with no outward side). `line="centre"`
-        aligns the items' centres instead, on the line the deepest item's
-        centre falls on. Where the row sits along the edge: `start=` a
+        """Items down `edge` in order, `gap` apart, with their outward sides
+        out (`rotation=`, one value or one per item, overrides that turn for
+        parts with no outward side). Across the row the items align on one
+        line: `line="centre"` (the default) puts their centres on the line
+        the deepest item's centre falls on, `clearance` in from the edge;
+        `"outer"` puts every outward edge `clearance` in from the board edge
+        (connectors edge-hard); `"inner"` aligns the inboard edges. A row
+        butted `before=` or `after=` another takes that row's line. Where
+        the row sits along the edge: `start=` a
         number (default: the edge margin); `align="center"` on the board;
         `centre=` or `end=` a reference (a pad's X()/Y(), a Mid); `before=`
         or `after=` another row, one gap away. A row placed by a reference
@@ -437,10 +442,12 @@ class Board:
         else:
             row.begin(float(clr if start is None else start))
         row.items = list(items)
-        if line == "centre":
-            clears = [clr + (max(depths) - d) / 2.0 for d in depths]     # shallower items sit further in
-        else:
-            clears = [clr] * len(depths)
+        if line not in ("centre", "outer", "inner"):
+            raise ValueError("a row's line is centre, outer or inner, not %r" % (line,))
+        base = row.anchor[1] if row.anchor and row.anchor[0] in ("before", "after") else row
+        ref = base.clearance + {"centre": base.depth / 2.0, "outer": 0.0, "inner": base.depth}[line]   # the line, from the edge
+        clears = [ref - {"centre": d / 2.0, "outer": 0.0, "inner": d}[line] for d in depths]
+        row.line = line
         for n, (item, r, c) in enumerate(zip(items, rots, clears)):
             along = row.centres[n] if row.start is not None else _RowSlot(row, n)
             self.place(item, edge=edge, along=along, clearance=c, rotation=r, why=why)

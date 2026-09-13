@@ -41,13 +41,17 @@ placement that collides is reported as a finding, not moved.
 **Rows.** Things down one edge, in order, equally gapped, each flush to the
 edge with its outward side out (a cell generated with its connector's bulk
 on local +Y turns 270 on the west edge, 90 east, 180 north, 0 south;
-`rotation=` overrides that, one value or one per item; `line="centre"`
-aligns items of different depths on their centres instead of the edge):
+`rotation=` overrides that, one value or one per item). Across the row the
+items align on one line: `line="centre"` (the default) puts their centres
+on one line, `"outer"` puts every outward edge `clearance` in from the
+board edge (connectors edge-hard), `"inner"` aligns their inboard edges;
+a row butted before or after another takes that row's line:
 
 ```python
-power = board.row(PD, Edge.WEST, gap=3.0, start=TOP)              # starts TOP along the edge
-trunk = board.row([CN, U13], Edge.NORTH, gap=2.5, align="center")  # centred, once the size is known
-board.row(parts, Edge.NORTH, gap=1.5, clearance=12.0, rotation=180, line="centre", start=trunk.centre(U13) - 4)
+power = board.row(PD, Edge.WEST, gap=3.0, start=TOP, clearance=3.5, line="outer")   # connectors edge-hard
+trunk = board.row([CN, U13], Edge.NORTH, gap=2.5, align="center", clearance=3.5, line="outer")
+pair = board.row([RB, RA], Edge.NORTH, gap=1.5, clearance=18.0, rotation=180, centre=X(Mid(pin_n, pin_p)))
+board.row([JUMPER], Edge.NORTH, gap=1.5, rotation=180, before=pair)   # on the resistors' centre line
 board.size(width=EDGE + power.depth + 4 + bus.depth + EDGE, height=max(power.end, bus.end) + TOP)
 ```
 Where a row sits along its edge, one of: `start=` a number; `align="center"`

@@ -97,6 +97,9 @@ coordinates nobody chose.
 - Every design number is a named constant at the top of the file with a
   one-line reason it was chosen. Arithmetic on named values is fine; a bare
   scalar inside a `place()`, `track()` or `X()` is not.
+- Every script is for one board: name it `<Board>_layout.py` after the
+  `Board(name=)` or `Layout(name=)` in the `.zen` beside it; a directory
+  with several boards is told apart by that name.
 - Measure, do not type: `board.extent(cell, rotation=)`, `board.pitch(part)`,
   `board.pad(part, n).box` and the pad references give the generated board's
   real geometry, so a part swapped in the `.zen` cannot leave a stale number
@@ -138,6 +141,16 @@ coordinates nobody chose.
 - A high-current path is copper you draw (a pour or a wide track), declared
   FIXED so no loose part settles on it. A plane serves what it reaches by a
   via; a bypass capacitor served through a via is a bulk capacitor.
+- Tracks are drawn as KiCad draws them, and the tool enforces it: every
+  leg at 0, 45 or 90 degrees (an odd leg becomes a 45 and a straight, the
+  45 at the pad end) and every right angle cut into two 45s (`chamfer=0`
+  keeps one). Draw a daisy chain as a chain: the run bows out at 45 to an
+  apex and one line leaves the apex for the pin; never a bus with stubs.
+- Rows and references before numbers: things down an edge are a `row`
+  (connectors `line="outer"`, small parts on their centre line); a part
+  between two pads sits at `Mid()` of them; a row under a pin pair is
+  `centre=X(Mid(...))`, a row beside another is `before=`/`after=`. A
+  number typed where a reference would do is a defect.
 - A bus down a board is one long track per net and a short track per pad
   into it. Two same-layer nets may cross only where the one that yields is
   declared `bridge=True`; who yields is decided by `priority`, never by

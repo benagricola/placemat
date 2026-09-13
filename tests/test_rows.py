@@ -20,7 +20,7 @@ def make_board():
 
 def test_cells_stack_down_an_edge_in_order_with_the_gap():
     b = make_board()
-    row = b.row([Cell("a"), Cell("b"), Cell("c")], Edge.WEST, gap=3.0, start=10.0)
+    row = b.row([Cell("a"), Cell("b"), Cell("c")], Edge.WEST, gap=3.0, start=10.0, line="outer")   # connectors: edge-hard
     plan = b.resolve()
     a, bb, c = plan.box("a"), plan.box("b"), plan.box("c")
     assert a.left == pytest.approx(2.0) and bb.left == pytest.approx(2.0) and c.left == pytest.approx(2.0)
@@ -87,3 +87,25 @@ def test_a_row_may_align_its_items_on_their_centre_line():
     assert plan.box("r1").center.y == pytest.approx(plan.box("h1").center.y)
     assert plan.box("h1").top == pytest.approx(10.0)                 # the deepest sets the line: 10 + 2.0 / 2
     assert plan.box("r1").center.y == pytest.approx(11.0)
+
+
+def test_rows_align_on_centres_by_default_and_a_butted_row_shares_the_line():
+    """A jumper butted before two resistors sits on the resistors' centre
+    line, not on its own; `line="outer"` aligns the edges instead."""
+    fps = [footprint("R1", 5, 5, w=3, h=1.3, inst="r1", nets=("A", "B")),
+           footprint("R2", 9, 5, w=3, h=1.3, inst="r2", nets=("B", "C")),
+           footprint("H1", 15, 5, w=4, h=2.0, inst="h1", nets=("A", "C"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=2.0)
+    pair = b.row([Part("r1"), Part("r2")], Edge.NORTH, gap=1.5, clearance=10.0, rotation=0, start=20.0)
+    b.row([Part("h1")], Edge.NORTH, gap=1.5, rotation=0, before=pair)
+    plan = b.resolve()
+    assert plan.box("h1").center.y == pytest.approx(plan.box("r1").center.y)
+    assert plan.box("r1").center.y == pytest.approx(10.0 + 1.3 / 2)
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=2.0)
+    b.row([Part("r1"), Part("h1")], Edge.NORTH, gap=1.5, clearance=10.0, rotation=0, start=20.0, line="outer")
+    plan = b.resolve()
+    assert plan.box("r1").top == pytest.approx(10.0) and plan.box("h1").top == pytest.approx(10.0)
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=2.0)
+    b.row([Part("r1"), Part("h1")], Edge.NORTH, gap=1.5, clearance=10.0, rotation=0, start=20.0, line="inner")
+    plan = b.resolve()
+    assert plan.box("r1").bottom == pytest.approx(plan.box("h1").bottom)

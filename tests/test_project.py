@@ -39,3 +39,17 @@ def test_a_module_fragment_declares_its_layout_with_layout(tmp_path):
     (tmp_path / "BusDrop_layout.py").write_text("")
     src = find_board(tmp_path / "BusDrop_layout.py")
     assert src.name == "BusDrop" and src.layout_dir == tmp_path / "layout" and src.zen == tmp_path / "BusDrop.zen"
+
+
+def test_a_directory_with_several_boards_picks_the_one_the_script_is_named_for(tmp_path):
+    """middleweight/ holds the board and an encoder fragment; Middleweight_layout.py
+    means the board called Middleweight, not the first .zen in the listing."""
+    (tmp_path / "encoder.zen").write_text('Layout(name = "MiddleweightEncoder", path = "layout/MiddleweightEncoder")\n')
+    (tmp_path / "middleweight.zen").write_text('Board(name = "Middleweight", layout_path = "layout/Middleweight")\n')
+    (tmp_path / "Middleweight_layout.py").write_text("")
+    (tmp_path / "MiddleweightEncoder_layout.py").write_text("")
+    assert find_board(tmp_path / "Middleweight_layout.py").name == "Middleweight"
+    assert find_board(tmp_path / "MiddleweightEncoder_layout.py").name == "MiddleweightEncoder"
+    (tmp_path / "other_layout.py").write_text("")
+    with pytest.raises(FileNotFoundError):
+        find_board(tmp_path / "other_layout.py")            # two boards, neither named by the script

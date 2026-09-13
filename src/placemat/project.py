@@ -26,9 +26,14 @@ _LAYOUT_RE = re.compile(r'\b(?:layout_path|path)\s*=\s*"([^"]+)"')
 
 
 def find_board(script_or_dir) -> BoardSource:
+    """The board a script is for: the .zen beside it declaring Board() or
+    Layout(). When several do, the script's name says which
+    (`Middleweight_layout.py` means the one named Middleweight)."""
     p = Path(script_or_dir).resolve()
     board_dir = p if p.is_dir() else p.parent
+    wanted = p.stem[:-len("_layout")] if p.is_file() and p.stem.endswith("_layout") else None
     candidates = sorted(board_dir.glob("*.zen"))
+    found = []
     for zen in candidates:
         text = zen.read_text(errors="replace")
         m = _BOARD_RE.search(text)
@@ -50,9 +55,17 @@ def find_board(script_or_dir) -> BoardSource:
             continue
         name = name_m.group(1)
         layout_dir = board_dir / (layout_m.group(1) if layout_m else "layout/%s" % name)
-        return BoardSource(name, zen, layout_dir, board_dir)
-    raise FileNotFoundError("no .zen declaring Board(name=...) or Layout(name=...) in %s (looked at %s)" % (
-        board_dir, ", ".join(c.name for c in candidates) or "nothing"))
+        found.append(BoardSource(name, zen, layout_dir, board_dir))
+    if not found:
+        raise FileNotFoundError("no .zen declaring Board(name=...) or Layout(name=...) in %s (looked at %s)" % (
+            board_dir, ", ".join(c.name for c in candidates) or "nothing"))
+    if len(found) == 1:
+        return found[0]
+    for src in found:
+        if src.name == wanted:
+            return src
+    raise FileNotFoundError("%s declares %d boards (%s); name the script <Board>_layout.py to say which" % (
+        board_dir, len(found), ", ".join(s.name for s in found)))
 
 
 @dataclass(frozen=True)
