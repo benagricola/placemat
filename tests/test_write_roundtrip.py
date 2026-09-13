@@ -71,3 +71,13 @@ def test_writing_the_same_plan_twice_is_byte_identical(breakout_pcb, tmp_path):
     plan2.place(Part("trunk_pwr"), at=Location(30.0, 12.0), rotation=180)
     apply_plan(pcb, plan2.resolve())
     assert pcb.read_bytes() == first
+
+
+def test_writing_leaves_only_the_boards_own_project_file(breakout_pcb, tmp_path):
+    """pcbnew writes a project beside whatever name it saves; saving through a
+    temporary name left a layout.kicad_pcb.kicad_pro beside every board."""
+    pcb = _copy(breakout_pcb, tmp_path)
+    b = Board(read_board(pcb), edge_margin=0.0)
+    apply_plan(pcb, b.resolve())
+    stray = sorted(p.name for p in tmp_path.iterdir() if p.suffix in (".kicad_pro", ".kicad_prl") and p.stem != "layout")
+    assert stray == []

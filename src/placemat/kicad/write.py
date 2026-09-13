@@ -323,11 +323,20 @@ def render_board(pcb_path, log, both_faces: bool = False) -> list:
 
 
 def save(board, path: str):
-    """Atomic save: write beside the target and move it into place."""
-    tmp = path + ".writing"
+    """Atomic save: write beside the target and move it into place. pcbnew
+    writes a project file beside whatever name it saves, so the temporary
+    name keeps the board's own stem and the project it makes for the
+    temporary name is removed."""
+    d, name = os.path.split(path)
+    stem = os.path.splitext(name)[0]
+    tmp = os.path.join(d, ".%s.writing.kicad_pcb" % stem)
     with quiet_stderr():
         board.Save(tmp)
     os.replace(tmp, path)
+    for ext in (".kicad_pro", ".kicad_prl"):
+        stray = os.path.join(d, ".%s.writing%s" % (stem, ext))
+        if os.path.exists(stray):
+            os.remove(stray)
 
 
 def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
