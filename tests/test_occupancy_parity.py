@@ -44,7 +44,7 @@ def test_a_station_moved_onto_its_neighbour_is_rejected(breakout):
 
 def test_thousands_of_candidates_are_cheap(breakout):
     occ = Occupancy(breakout, edge_margin=3.0)
-    r15 = breakout.footprint("R15")
+    r15 = breakout.footprint("term_near_ra")            # by instance: refdes numbering follows the drop count
     t0 = time.time()
     result = scan(occ, r15, Placement(r15.location, r15.rotation, Face.FRONT), radius=6.0, step=0.25)
     dt = time.time() - t0

@@ -27,14 +27,10 @@ H = TOP + 3 * STATION + 2 * GAP + 30.0
 board.size(width=W, height=H, chamfer=2.0)
 board.place(Part("trunk_pwr"), edge=Edge.NORTH, along=W / 2 - 14.0, rotation=180, clearance=3.0)
 board.place(Part("trunk_sig"), edge=Edge.NORTH, along=W / 2 + 14.0, rotation=180, clearance=3.0)
-for d in range(6):
-    right = d < 3
-    y0 = TOP + (d % 3) * (STATION + GAP)
-    rot = 90 if right else 270
-    pd_x = W - EDGE - PD_DEPTH / 2 if right else EDGE + PD_DEPTH / 2
-    bd_x = W - EDGE - BD_DEPTH / 2 if right else EDGE + BD_DEPTH / 2
-    board.place(Cell("power_drop%d" % d), center=Location(pd_x, y0 + PD_ALONG / 2), rotation=rot)
-    board.place(Cell("bus_drop%d" % d), center=Location(bd_x, y0 + PD_ALONG + INNER + BD_ALONG / 2), rotation=rot)
+for d in range(3):
+    y0 = TOP + d * (STATION + GAP)
+    board.place(Cell("power_drop%d" % d), center=Location(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2), rotation=270)
+    board.place(Cell("bus_drop%d" % d), center=Location(W - EDGE - BD_DEPTH / 2, y0 + BD_ALONG / 2), rotation=90)
 board.place(Part("mh1"), at=Location(8, 8)); board.place(Part("mh2"), at=Location(W - 8, 8))
 board.place(Part("mh3"), at=Location(8, H - 8)); board.place(Part("mh4"), at=Location(W - 8, H - 8))
 '''
@@ -74,7 +70,7 @@ def test_a_run_generates_places_writes_and_records(scratch_ecosystem):
     out = scratch_ecosystem / "breakout/.placemat/runs/first"
     data = json.loads((out / "run.json").read_text())
     assert data["board"] == "Breakout" and data["status"] == "ok"
-    assert set(data["placements"]) >= {"trunk_pwr", "trunk_sig", "power_drop0", "bus_drop5", "mh1"}
+    assert set(data["placements"]) >= {"trunk_pwr", "trunk_sig", "power_drop0", "bus_drop2", "mh1"}
     assert data["metrics"]["drc_real"] == {}
     assert data["metrics"]["unconnected"] > 0            # nothing routed yet
     assert (out / "generate.log").exists() and (out / "script.log").exists()
@@ -95,7 +91,7 @@ def test_the_cli_runs_and_prints_a_one_line_verdict(scratch_ecosystem):
     script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
     proc = subprocess.run([sys.executable, "-m", "placemat", "run", str(script), "--label", "cli", "--no-render"],
                           capture_output=True, text=True, cwd=str(scratch_ecosystem), timeout=600)
-    assert proc.returncode == 0, proc.stderr[-2000:]
+    assert proc.returncode == 0, proc.stdout[-1500:] + proc.stderr[-1500:]
     assert "(label cli)" in proc.stdout and "DRC" in proc.stdout
 
 

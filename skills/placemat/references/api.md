@@ -14,9 +14,11 @@ board; declarations are collected and resolved together.
 | `board.extent(item, rotation=0, face=Face.FRONT)` | body box of a `Part`/`Cell` at that rotation, placed at the origin: a size |
 | `board.part(Part("j1"))` | the footprint: `.ref`, `.inst`, `.pads`, `.body_box`, `.courtyard_box` |
 | `board.cell(Cell("mcu"))` | the cell: `.members`, `.box`, `.member("conn")` |
-| `board.pad(Part("j1"), 3)` / `board.pad(Part("j1"), "GND")` | a pad by number (int) or net (str) |
+| `board.pad(Part("j1"), 3)` / `board.pad(Part("j1"), "GND")` | a pad by number (int) or net (str): `.box` (size, centre), `.through`, `.drill_mm`, `.layers` |
+| `board.pitch(Part("j1"))` | the part's pad spacing, read from its pads: a connector's pin pitch |
 | `board.cell_pad(Cell("bd0"), net="CANH", ref_prefix="H")` | one pad inside a cell |
 | `board.net(Net("V48"))` | the net name, or `KeyError` |
+| `board.netclass(Net("CAN_P"))` | its class: `.track_width`, `.clearance`, `.diff_pair_width`, `.diff_pair_gap` |
 
 ## Setup
 
@@ -39,12 +41,13 @@ placement that collides is reported as a finding, not moved.
 **Rows.** Things down one edge, in order, equally gapped, each flush to the
 edge with its outward side out (a cell generated with its connector's bulk
 on local +Y turns 270 on the west edge, 90 east, 180 north, 0 south;
-`rotation=` overrides that, one value or one per item):
+`rotation=` overrides that, one value or one per item; `line="centre"`
+aligns items of different depths on their centres instead of the edge):
 
 ```python
 power = board.row(PD, Edge.WEST, gap=3.0, start=TOP)              # starts TOP along the edge
 trunk = board.row([CN, U13], Edge.NORTH, gap=2.5, align="center")  # centred, once the size is known
-board.row(parts, Edge.NORTH, gap=1.5, clearance=12.0, rotation=180, start=trunk.centre(U13) - 4)
+board.row(parts, Edge.NORTH, gap=1.5, clearance=12.0, rotation=180, line="centre", start=trunk.centre(U13) - 4)
 board.size(width=EDGE + power.depth + 4 + bus.depth + EDGE, height=max(power.end, bus.end) + TOP)
 ```
 A row's `depth` (how far inboard it reaches), `length`, `start`, `end` and
@@ -182,7 +185,9 @@ out of the terminal; every line of it is in `kicad-stderr.log` in the run
 directory, and `PLACEMAT_SHOW_KICAD=1` prints it all. Anything KiCad says
 that is not one of the known noise patterns is printed regardless.
 
-A run leaves `.placemat/runs/<label>/` beside the board: `run.json`,
+A run leaves `.placemat/runs/<id>/` beside the board (`<id>` is the hash of
+the script, the generated board and the tool; `--label` adds a symlink
+alias): `run.json`,
 `script.log`, `drc.json`, `generate.log`, `impact.txt`, the written
 `layout.kicad_pcb`, and `route/` (the routed copy, `route.json`,
 `router.log`, DRC before and after) when routing ran. The generation is

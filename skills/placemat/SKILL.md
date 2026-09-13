@@ -16,9 +16,11 @@ work, not what to call.
 
 ## The loop
 
-1. **Run** `placemat run boards/<x>/<X>_layout.py --label <what-changed>`.
-   Read the terminal stream: placed/copper/findings, then one DRC line, then
-   the impact. `-v` prints every step as it resolves.
+1. **Run** `placemat run boards/<x>/<X>_layout.py`. A run is named by a
+   short hash of the script, the generated board and the tool, so the same
+   inputs are the same run; `--label <name>` adds an alias you can pass to
+   `impact` later. Read the terminal stream: placed/copper/findings, then
+   one DRC line, then the impact. `-v` prints every step as it resolves.
 2. **Read the numbers before the picture.** `real` DRC buckets and
    `unconnected` are the gate; `outstanding` (dangling copper) says what has
    not been drawn yet. `airwires` (count, length), `crossings` (ratsnest
@@ -30,8 +32,9 @@ work, not what to call.
    collides or a searched part that had nowhere to go, with the reason.
 3. **Look** at `layout/<X>/layout.png` (and `layout-bottom.png` on a
    two-face board) only after the numbers say the change did what you meant.
-4. **Change one thing, label it, run again.** The impact text says what
-   moved and which numbers changed. If it says "nothing moved" and you
+4. **Change one thing, run again.** The impact text says what moved and
+   which numbers changed (`placemat impact <run> <run>` compares any two, by
+   id, id prefix, label or path). If it says "nothing moved" and you
    expected movement, your change was not where you thought.
 5. **Route only when the placement has settled.** Routing is a separate,
    slow step you ask for: `placemat run ... --route` (after the checks) or
@@ -43,7 +46,7 @@ work, not what to call.
    while big parts are still moving; read `still open` for the nets that
    name the next placement problem. The routed copy is evidence, not the
    layout: the script does not change because the router found a path.
-6. Full record: `.placemat/runs/<label>/run.json`, `script.log`,
+6. Full record: `.placemat/runs/<id>/run.json`, `script.log`,
    `drc.json`, `generate.log`, `layout.kicad_pcb`, and `route/` when routing
    ran. Logs are files; read the tail, not the whole thing.
 
@@ -59,8 +62,10 @@ coordinates nobody chose.
 1. **Read the board `.zen`**: every instance, every net, the net classes,
    which nets are planes, each module's `io()` ports, which parts are
    connectors and which edge or face their mating side needs.
-2. **Read each cell's `LAYOUT-INTENT.md`** and the datasheet layout section
-   of every active part that has one.
+2. **Read each cell's layout script**: its docstring is the cell's intent
+   (what it is, which side is outward, what continues at board level) and
+   its declarations are the geometry. Read the datasheet layout section of
+   every active part that has one.
 3. **Build the electrical model.** Classify every relationship:
    - high-current paths: source to consumer (an input connector to the
      bridge it feeds, switching FETs to the output connector). Short for
@@ -84,18 +89,23 @@ coordinates nobody chose.
 
 ## Script standard
 
-- The script is the only intent document. Requirements live as comments
-  beside the declaration that implements them, and as `assert`s where a
-  number can be checked. No separate intent file.
-- Every design number is a named constant with a one-line reason. Arithmetic
-  on named values is fine; a bare scalar inside a `place()` or `track()` is
-  not.
-- Measure, do not type: `board.extent(cell, rotation=)` and the pad
-  references give the generated board's real geometry. A board dimension is
-  derived from measured cells plus named margins.
+- The script is the only intent document: its docstring says what the
+  board is, which edge carries what and why, what is fixed and what
+  outranks what; requirements live as comments beside the declaration that
+  implements them, and as `assert`s where a number can be checked. There is
+  no separate intent file for a board or a cell.
+- Every design number is a named constant at the top of the file with a
+  one-line reason it was chosen. Arithmetic on named values is fine; a bare
+  scalar inside a `place()`, `track()` or `X()` is not.
+- Measure, do not type: `board.extent(cell, rotation=)`, `board.pitch(part)`,
+  `board.pad(part, n).box` and the pad references give the generated board's
+  real geometry, so a part swapped in the `.zen` cannot leave a stale number
+  behind. A board dimension is derived from rows plus named margins.
 - Declarations, not procedures: one `place()` per item, one copper call per
-  net feature. A loop over stations is fine; a data table passed to one
-  call is not. No globals, no helpers defined inside a phase.
+  net feature. Write each call out where a reader must see what it does:
+  three drops are three lines, not a loop; two ends are two blocks, not a
+  table of dicts. A short function called once per thing is fine when its
+  name says what it lays out. No globals, no helpers defined inside a phase.
 - Priority, not order: file order never decides execution. Say how firm a
   thing is (`at=`/`center=` are FIXED, `edge=` is EDGE, `near=` is searched;
   `priority=Priority.FIXED` on copper that nothing may cut into; `HIGH`,

@@ -246,6 +246,21 @@ class Board:
     def cell_pad(self, cell, **kw):
         return self.geometry.cell_pad(cell, **kw)
 
+    def netclass(self, net):
+        """The net's class: `.track_width`, `.clearance`, `.diff_pair_width`, `.diff_pair_gap`."""
+        return self.geometry.netclass(net)
+
+    def pitch(self, part) -> float:
+        """The spacing of a part's pads: the distance between neighbouring
+        pad centres, read from the footprint (a connector's pin pitch, a
+        two-pad part's pad spacing)."""
+        fp = self.geometry.footprint(part)
+        centres = [p.box.center for p in fp.pads]
+        if len(centres) < 2:
+            raise ValueError("%s has %d pad(s): no pitch" % (fp.ref, len(centres)))
+        nearest = [min(a.distance(b) for b in centres if b is not a) for a in centres]
+        return round(min(nearest), 6)
+
     def net(self, net) -> str:
         return self.geometry.require_net(net)
 
@@ -338,12 +353,15 @@ class Board:
         return intent
 
     def row(self, items, edge: Edge, *, gap: float, start: float | None = None, align: str = "start",
-            clearance: float | None = None, rotation: float | None = None, why: str = "") -> Row:
+            clearance: float | None = None, rotation: float | None = None, line: str = "edge",
+            why: str = "") -> Row:
         """Items down `edge` in order, `gap` apart, each flush to the edge
         with its outward side out (`rotation=`, one value or one per item,
-        overrides that turn for parts with no outward side). The row starts `start` along the edge
-        (default: the edge margin), or is centred with align="center" (once
-        the board size is known). Returns the Row, whose numbers copper may use."""
+        overrides that turn for parts with no outward side). `line="centre"`
+        aligns the items' centres instead, on the line the deepest item's
+        centre falls on. The row starts `start` along the edge (default: the
+        edge margin), or is centred with align="center" (once the board size
+        is known). Returns the Row, whose numbers copper may use."""
         rots = [_OUTWARD_ROTATION[edge]] * len(items) if rotation is None else \
             ([float(r) for r in rotation] if isinstance(rotation, (list, tuple)) else [float(rotation)] * len(items))
         rot = rots[0] if rots else _OUTWARD_ROTATION[edge]
@@ -363,11 +381,15 @@ class Board:
         else:
             row = Row(edge, clr, gap, float(clr if start is None else start), keys, alongs, max(depths))
         row.items = list(items)
-        if row.start is None:
-            self._deferred_rows.append((row, list(items), rots, why))    # placed at resolve, once the size is known
+        if line == "centre":
+            clears = [clr + (max(depths) - d) / 2.0 for d in depths]     # shallower items sit further in
         else:
-            for item, centre, r in zip(items, row.centres, rots):
-                self.place(item, edge=edge, along=centre, clearance=clr, rotation=r, why=why)
+            clears = [clr] * len(depths)
+        if row.start is None:
+            self._deferred_rows.append((row, list(items), rots, clears, why))   # placed at resolve, once the size is known
+        else:
+            for item, centre, r, c in zip(items, row.centres, rots, clears):
+                self.place(item, edge=edge, along=centre, clearance=c, rotation=r, why=why)
         return row
 
     def _is_searched(self, refdes: str) -> bool:
@@ -569,12 +591,12 @@ class Board:
 
     # ------------------------------------------------------------ resolution
     def resolve(self, progress=None) -> Plan:
-        for row, items, rots, why in self._deferred_rows:
+        for row, items, rots, clears, why in self._deferred_rows:
             if self._outline is None:
                 raise ValueError("a centred row needs a board outline: declare the size")
             row.begin(row.centre_of(self._outline))     # the script's size, or the board's own outline
-            for item, centre, r in zip(items, row.centres, rots):
-                self.place(item, edge=row.edge, along=centre, clearance=row.clearance, rotation=r, why=why)
+            for item, centre, r, c in zip(items, row.centres, rots, clears):
+                self.place(item, edge=row.edge, along=centre, clearance=c, rotation=r, why=why)
         self._deferred_rows = []
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline)
         plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius)

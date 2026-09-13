@@ -23,7 +23,7 @@ def test_station_cell_extents_match_the_measured_module_contract(breakout):
 
 def test_cells_are_indexed_by_group_name(breakout):
     assert sorted(breakout.cells) == sorted(
-        ["power_drop%d" % d for d in range(6)] + ["bus_drop%d" % d for d in range(6)])
+        ["power_drop%d" % d for d in range(3)] + ["bus_drop%d" % d for d in range(3)])
     conn = breakout.cell("power_drop0").member("conn")
     assert conn.ref.startswith("U") and conn.cell == "power_drop0"
     assert breakout.cell("power_drop0").member("fuse").inst == "power_drop0.fuse"
@@ -57,8 +57,8 @@ def test_cell_pad_lookup_finds_the_jumper_pad_on_a_net(breakout):
 
 def test_copper_and_outline_are_collected(breakout):
     kinds = {c.kind for c in breakout.copper}
-    assert {"pad", "track", "via", "poly"} <= kinds
-    assert breakout.outline_box.width > 50 and breakout.outline_box.height > 200   # a tall panel, whatever its width today
+    assert {"pad", "track", "poly", "zone"} <= kinds       # this board has no via: nothing changes face
+    assert breakout.outline_box.height > breakout.outline_box.width          # a tall panel, whatever its size today
 
 
 def test_netclass_clearance_is_resolved_from_the_project(breakout):
