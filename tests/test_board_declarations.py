@@ -2,7 +2,7 @@
 they are declared, and resolves them in priority order, never file order."""
 import pytest
 
-from placemat.board import Board
+from placemat.layout import Board
 from placemat.values import Box, Cell, Edge, Face, Location, Part, Priority
 from tests.fixtures import footprint, snapshot
 

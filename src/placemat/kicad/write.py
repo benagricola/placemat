@@ -12,7 +12,7 @@ import os
 
 import pcbnew
 
-from ..board import Plan
+from ..layout import Plan
 from ..copper import Pour, Track, Via, Zone
 from ..geometry import Transform
 from ..placement import Placement
@@ -205,6 +205,118 @@ def draw_copper(board, ops):
             zones.append(_draw_zone(board, op))
     if zones:
         pcbnew.ZONE_FILLER(board).Fill(board.Zones())
+
+
+def refs_to_fab(board, text_mm: float = 0.8, thick_mm: float = 0.15):
+    """Every reference designator onto the fab layer of its own face, nudged
+    clear of pads and of refs already placed; smallest parts first."""
+    clr = nm(0.12)
+    pad_boxes = []
+    fps = list(board.GetFootprints())
+    for fp in fps:
+        for p in fp.Pads():
+            bb = p.GetBoundingBox()
+            bb.Inflate(clr)
+            pad_boxes.append(bb)
+    placed = []
+    dirs = [(0, -1), (0, 1), (1, 0), (-1, 0), (1, -1), (-1, -1), (1, 1), (-1, 1)]
+    for fp in sorted(fps, key=lambda f: (f.GetBoundingBox(False, False).GetArea(), f.GetReference())):
+        t = fp.Reference()
+        t.SetLayer(pcbnew.B_Fab if fp.IsFlipped() else pcbnew.F_Fab)
+        t.SetMirrored(fp.IsFlipped())
+        t.SetTextSize(pcbnew.VECTOR2I(nm(text_mm), nm(text_mm)))
+        t.SetTextThickness(nm(thick_mm))
+        fx, fy = fp.GetPosition().x, fp.GetPosition().y
+        best, best_hits = None, 10 ** 9
+        for r in (0.9, 1.4, 1.9, 2.5, 3.1, 3.8):
+            for dx, dy in dirs:
+                n = (dx * dx + dy * dy) ** 0.5
+                t.SetPosition(pcbnew.VECTOR2I(fx + int(nm(r) * dx / n), fy + int(nm(r) * dy / n)))
+                box = t.GetBoundingBox()
+                box.Inflate(clr)
+                hits = sum(1 for pb in pad_boxes if box.Intersects(pb)) + sum(1 for rb in placed if box.Intersects(rb))
+                if hits < best_hits:
+                    best, best_hits = t.GetPosition(), hits
+                if hits == 0:
+                    break
+            if best_hits == 0:
+                break
+        t.SetPosition(best)
+        placed.append(t.GetBoundingBox())
+
+
+def patch_stackup_colors(path: str, mask: str = "Green", silk: str = "White") -> bool:
+    """House render convention: green mask, white silk, so copper reads in a
+    render. pcbnew exposes no setter, so this edits the (stackup) block of the
+    saved file. Idempotent; a board with no stackup block is left alone."""
+    import re
+    src = open(path).read()
+    if "(stackup" not in src:
+        return False
+    for names, color in ((("F.Mask", "B.Mask"), mask), (("F.SilkS", "B.SilkS"), silk)):
+        for name in names:
+            pat = re.compile(r'(\(layer "%s"\s*\n\s*\(type "[^"]*(?:Silk Screen|Solder Mask)"\))'
+                             r'(\s*\n\s*\(color "[^"]*"\))?' % re.escape(name))
+            src, _ = pat.subn(lambda m: m.group(1) + '\n\t\t\t\t(color "%s")' % color, src, count=1)
+    open(path, "w").write(src)
+    return True
+
+
+def patch_project_presets(pcb_path: str, fab) -> None:
+    """Track-width and via presets from the fab profile into the sibling
+    .kicad_pro, so a hand edit in KiCad can pick real widths."""
+    import json
+    pro = os.path.splitext(pcb_path)[0] + ".kicad_pro"
+    if not os.path.exists(pro):
+        return
+    try:
+        d = json.load(open(pro))
+    except json.JSONDecodeError:
+        return
+    ds = d.setdefault("board", {}).setdefault("design_settings", {})
+    ds["trace_widths"] = list(fab.track_widths)
+    ds["via_dimensions"] = [{"diameter": fab.via_size, "drill": fab.via_drill}]
+    json.dump(d, open(pro, "w"), indent=2)
+
+
+def finish_board(pcb_path, fab, refs_to_fab_layer: bool = True, refs_to_fab=None) -> None:
+    """The save-time work every board gets: refs onto fab, render colours,
+    project presets."""
+    pcb_path = str(pcb_path)
+    if refs_to_fab is None:
+        refs_to_fab = refs_to_fab_layer
+    if refs_to_fab:
+        board = pcbnew.LoadBoard(pcb_path)
+        seed_uuids()
+        globals()["refs_to_fab"](board)
+        save(board, pcb_path)
+    patch_stackup_colors(pcb_path)
+    patch_project_presets(pcb_path, fab)
+
+
+def render_board(pcb_path, log, both_faces: bool = False) -> list:
+    """layout.png (top), layout-iso.png, and layout-bottom.png when the board
+    carries parts on both faces, beside the board file."""
+    import subprocess
+    pcb_path = str(pcb_path)
+    out_dir = os.path.dirname(pcb_path)
+    views = [("layout.png", "top", []), ("layout-iso.png", "top", ["--rotate", "-45,0,45", "--perspective"])]
+    if both_faces:
+        views.append(("layout-bottom.png", "bottom", []))
+    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
+    done = []
+    with open(log, "w") as f:
+        for name, side, extra in views:
+            cmd = ["kicad-cli", "pcb", "render", "--side", side, "--background", "opaque", "--quality", "high",
+                   "--use-board-stackup-colors", "-o", os.path.join(out_dir, name), pcb_path] + extra
+            f.write("$ %s\n" % " ".join(cmd))
+            f.flush()
+            try:
+                subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, timeout=300, env=env)
+                done.append(name)
+            except Exception as e:
+                f.write("render %s failed: %s\n" % (name, e))
+    return done
 
 
 def save(board, path: str):

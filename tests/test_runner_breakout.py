@@ -1,0 +1,99 @@
+"""End to end on a scratch copy of the Breakout: generate the board with the
+pcb toolchain, run a script, write, check, record."""
+import json
+import os
+import shutil
+import subprocess
+import sys
+
+import pytest
+
+from placemat.runner import run
+from tests.conftest import ECOSYSTEM, needs_kicad
+
+needs_pcb = pytest.mark.skipif(shutil.which("pcb") is None, reason="pcb toolchain not on PATH")
+pytestmark = [needs_kicad, needs_pcb, pytest.mark.skipif(not (ECOSYSTEM / "breakout").exists(), reason="no ecosystem")]
+
+SCRIPT = '''
+from placemat import board, Part, Cell, Location, Edge, Net, CopperLayer
+
+# module extents, measured off the generated cells (unrotated: along = width)
+PD_ALONG, PD_DEPTH = board.extent(Cell("power_drop0")).width, board.extent(Cell("power_drop0")).height
+BD_ALONG, BD_DEPTH = board.extent(Cell("bus_drop0")).width, board.extent(Cell("bus_drop0")).height
+EDGE, INNER, GAP, TOP = 3.0, 2.0, 3.0, 35.0
+STATION = PD_ALONG + INNER + BD_ALONG
+W = 140.0
+H = TOP + 3 * STATION + 2 * GAP + 30.0
+board.size(width=W, height=H, chamfer=2.0)
+board.place(Part("trunk_pwr"), edge=Edge.NORTH, along=W / 2 - 14.0, rotation=180, clearance=3.0)
+board.place(Part("trunk_sig"), edge=Edge.NORTH, along=W / 2 + 14.0, rotation=180, clearance=3.0)
+for d in range(6):
+    right = d < 3
+    y0 = TOP + (d % 3) * (STATION + GAP)
+    rot = 90 if right else 270
+    pd_x = W - EDGE - PD_DEPTH / 2 if right else EDGE + PD_DEPTH / 2
+    bd_x = W - EDGE - BD_DEPTH / 2 if right else EDGE + BD_DEPTH / 2
+    board.place(Cell("power_drop%d" % d), center=Location(pd_x, y0 + PD_ALONG / 2), rotation=rot)
+    board.place(Cell("bus_drop%d" % d), center=Location(bd_x, y0 + PD_ALONG + INNER + BD_ALONG / 2), rotation=rot)
+board.place(Part("mh1"), at=Location(8, 8)); board.place(Part("mh2"), at=Location(W - 8, 8))
+board.place(Part("mh3"), at=Location(8, H - 8)); board.place(Part("mh4"), at=Location(W - 8, H - 8))
+'''
+
+
+@pytest.fixture(scope="module")
+def scratch_ecosystem(tmp_path_factory):
+    root = tmp_path_factory.mktemp("eco")
+    for name in ("pcb.toml", "fab-profile.json"):
+        shutil.copy(ECOSYSTEM / name, root / name)
+    # pcb resolves symlinks and then refuses a part "outside the workspace", so
+    # the part library is hard-linked into the scratch workspace (a copy when
+    # /tmp is another filesystem)
+    def link_or_copy(src, dst, *, follow_symlinks=True):
+        try:
+            os.link(src, dst)
+        except OSError:
+            shutil.copy2(src, dst)
+    shutil.copytree(ECOSYSTEM / "parts", root / "parts", copy_function=link_or_copy)
+    shutil.copytree(ECOSYSTEM / "modules", root / "modules", copy_function=link_or_copy,
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    def skip(d, names):        # the board's own generated output and the old script; module fragments stay
+        out = {n for n in names if n in ("__pycache__", ".placemat", "Breakout_layout.py")}
+        if d == str(ECOSYSTEM / "breakout"):
+            out.add("layout")
+        return out
+    shutil.copytree(ECOSYSTEM / "breakout", root / "breakout", ignore=skip)
+    (root / "breakout" / "Breakout_layout.py").write_text(SCRIPT)
+    return root
+
+
+def test_a_run_generates_places_writes_and_records(scratch_ecosystem):
+    script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
+    rec = run(script, label="first", render=False)
+    assert rec.status == "ok"
+    assert (scratch_ecosystem / "breakout/layout/Breakout/layout.kicad_pcb").exists()
+    out = scratch_ecosystem / "breakout/.placemat/runs/first"
+    data = json.loads((out / "run.json").read_text())
+    assert data["board"] == "Breakout" and data["status"] == "ok"
+    assert set(data["placements"]) >= {"trunk_pwr", "trunk_sig", "power_drop0", "bus_drop5", "mh1"}
+    assert data["metrics"]["drc_real"] == {}
+    assert data["metrics"]["unconnected"] > 0            # nothing routed yet
+    assert (out / "generate.log").exists() and (out / "script.log").exists()
+    assert "steps" in data and any(s["item"] == "trunk_pwr" for s in data["steps"])
+
+
+def test_a_second_run_reuses_the_generation_and_reports_no_movement(scratch_ecosystem):
+    script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
+    rec = run(script, label="second", render=False)
+    assert rec.generated is False                 # restored from the cache, not regenerated
+    assert "nothing moved" in rec.impact_text
+    a = (scratch_ecosystem / "breakout/.placemat/runs/first/layout.kicad_pcb").read_bytes()
+    b = (scratch_ecosystem / "breakout/layout/Breakout/layout.kicad_pcb").read_bytes()
+    assert a == b
+
+
+def test_the_cli_runs_and_prints_a_one_line_verdict(scratch_ecosystem):
+    script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
+    proc = subprocess.run([sys.executable, "-m", "placemat", "run", str(script), "--label", "cli", "--no-render"],
+                          capture_output=True, text=True, cwd=str(scratch_ecosystem), timeout=600)
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    assert "run cli" in proc.stdout and "DRC" in proc.stdout

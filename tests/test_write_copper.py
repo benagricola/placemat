@@ -2,7 +2,7 @@
 result is readable as numbers."""
 import shutil
 
-from placemat.board import Board
+from placemat.layout import Board
 from placemat.kicad.drc import run_drc
 from placemat.kicad.read import read_board
 from placemat.kicad.write import apply_plan

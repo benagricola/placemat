@@ -1,7 +1,7 @@
 """Lanes: a bus run down a board at a fixed x, tapping pads at their own y.
 A tap that would cross another same-layer lane hops to the far layer round
 it; the hop is derived from the registered lanes, never typed."""
-from placemat.board import Board
+from placemat.layout import Board
 from placemat.copper import Track, Via
 from placemat.values import CopperLayer, Location, Net, Part, PadRef
 from tests.fixtures import footprint, snapshot

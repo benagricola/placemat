@@ -2,7 +2,7 @@
 against where the pads actually landed."""
 import pytest
 
-from placemat.board import Board
+from placemat.layout import Board
 from placemat.copper import Track, Via, Pour
 from placemat.values import (Box, CopperLayer, Location, Net, Part, PadRef, Priority)
 from tests.fixtures import footprint, snapshot

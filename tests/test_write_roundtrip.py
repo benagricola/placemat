@@ -2,7 +2,7 @@
 cells exactly, draws the outline, and writes the same bytes twice."""
 import shutil
 
-from placemat.board import Board
+from placemat.layout import Board
 from placemat.kicad.read import read_board
 from placemat.kicad.write import apply_plan
 from placemat.values import Cell, Location, Part
