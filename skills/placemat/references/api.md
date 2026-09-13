@@ -105,7 +105,10 @@ no outline, so its script declares no size; its anchor part goes down at a
 coordinate and the rest is said in terms of the anchor's pads.
 
 **How a searched item finds its place.** With `near=` it scans around the
-hint. Without one it is SEEDED: the hint is the weighted centroid of the
+hint. A scored scan over a wide radius is coarse first (four steps apart)
+and fine only around its best spots, so a wide `radius=` costs little;
+a part the script will place later is not an obstacle where the
+generator left it, only once it is placed. Without one it is SEEDED: the hint is the weighted centroid of the
 pads already placed that it connects to (plane nets and free nets do not
 count), and every legal candidate in the scan is scored by its links, the
 lowest kept. If nothing it connects to is placed yet it takes a POCKET: the
@@ -240,7 +243,7 @@ with the run gets a lead along its line. The pair is one step,
 ## Commands
 
 ```
-placemat run <script> [--label L] [--fresh] [--no-render] [--no-drc] [-v] [--json] [--route [--route-full] [--route-exclude NET ...]]
+placemat run <script> [--label L] [--fresh] [--no-render] [--no-drc] [-v] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]]
 placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--json]
 placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
