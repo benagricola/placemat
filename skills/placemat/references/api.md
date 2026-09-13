@@ -128,6 +128,17 @@ connection not declared weighs DEFAULT. A `limit_mm` is a bound: the run
 reports each link's achieved length, and one over its limit is a finding
 quoting `why`.
 
+## Rules
+
+```python
+board.rule(clearance=0.2, within=Cell("tmc"), why="0.5 mm pitch cannot meet the class between adjacent pads")
+board.rule(clearance=0.6, between=(Net("V48"), Net("GND")), why="48 V to ground")
+board.rule(clearance=0.4, on=Net("V48"), why="the bus")
+```
+A rule is one scope and a `why`; it is written as a KiCad custom rule in
+`layout.kicad_dru` beside the board, named by its `why`, and the run's
+DRC judges by it. A plan with no rules removes the file.
+
 ## Blocks
 
 ```python

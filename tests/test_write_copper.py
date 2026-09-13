@@ -51,3 +51,15 @@ def test_drc_on_the_committed_board_reads_as_numbers(breakout_pcb, tmp_path):
     assert report.unconnected == 0
     assert set(report.outstanding) <= {"via_dangling", "track_dangling", "isolated_copper"}
     assert report.violations >= 0 and report.path.exists()
+
+
+def test_a_declared_clearance_is_written_beside_the_board_and_its_drc_reads_it(breakout_pcb, tmp_path):
+    pcb = _copy(breakout_pcb, tmp_path)
+    before = read_board(pcb)
+    b = Board(before, edge_margin=0.0)
+    b.size(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
+    b.rule(clearance=5.0, on=Net("GND"), why="an impossible clearance, to prove the rule is read")
+    apply_plan(pcb, b.resolve())
+    assert (tmp_path / "layout.kicad_dru").read_text().startswith("(version 1)")
+    report = run_drc(pcb, tmp_path / "drc.json")
+    assert report.by_type.get("clearance", 0) > 0            # the committed board is clean without the rule

@@ -359,4 +359,6 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     draw_copper(board, plan.copper)
     out = str(out_path or pcb_path)
     save(board, out)
+    from ..rules import write_rules
+    write_rules(out, plan.rules)
     return out

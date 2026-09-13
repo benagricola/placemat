@@ -134,6 +134,9 @@ coordinates nobody chose.
   competes for one rectangle. `near=` is for a requirement the netlist
   cannot say (a thermal sensor by the FETs it shares no net with); a part
   with a wired neighbour on the board is linked and left bare.
+- A clearance that must differ in one place (a fine-pitch part inside a
+  wide-clearance class, a high-voltage pair) is `board.rule(clearance=,
+  within=|between=|on=, why=)`, never a hand edit of the project file.
 - Price the connections, not the parts: a bypass capacitor is a SHORT link
   with a limit at its pin; a series resistor between two distant parts is
   PREFER on both links and lands where there is room between them; a net

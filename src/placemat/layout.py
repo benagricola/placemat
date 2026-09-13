@@ -217,6 +217,7 @@ class Plan:
     findings: list[str] = field(default_factory=list)
     copper: list = field(default_factory=list)
     links: list = field(default_factory=list)
+    rules: list = field(default_factory=list)
     outline: Box | None = None
     chamfer: float = 0.0
     radius: float = 0.0
@@ -263,6 +264,7 @@ class Board:
         self._intents: list[PlaceIntent] = []
         self._copper: list[CopperIntent] = []
         self._links: list[Link] = []
+        self._rules: list = []
         self._free_nets: set = set()
         self._outline: Box | None = geometry.outline_box
         self._sized = False                 # the script has declared the board size
@@ -478,6 +480,23 @@ class Board:
         run dwarfs it): it seeds nothing and pulls nothing."""
         self._free_nets.add(self.geometry.require_net(net))
 
+    def rule(self, *, clearance: float, within=None, between=None, on=None, why: str = ""):
+        """A design rule KiCad's DRC judges by: a `clearance` in one scope,
+        `within=` a cell (its members to each other), `between=(net, net)`,
+        or `on=` a net. Written as a custom rule beside the board; `why`
+        names it, and a violation quotes the name."""
+        from .rules import Rule
+        if sum(x is not None for x in (within, between, on)) != 1:
+            raise ValueError("a rule has one scope: within=, between= or on=")
+        if not why:
+            raise ValueError("a rule says why: it is named by it")
+        rule = Rule("clearance", float(clearance), why,
+                    within=self.geometry.cell(within).name if within is not None else None,
+                    between=(self.geometry.require_net(between[0]), self.geometry.require_net(between[1])) if between else None,
+                    on=self.geometry.require_net(on) if on is not None else None)
+        self._rules.append(rule)
+        return rule
+
     def _plane_nets(self) -> set:
         return {c.net for c in self._copper if c.key.split(" ")[0] in ("pour", "plane", "finger")}
 
@@ -671,7 +690,8 @@ class Board:
     # ------------------------------------------------------------ resolution
     def resolve(self, progress=None) -> Plan:
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline)
-        plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius)
+        plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius,
+                    rules=list(self._rules))
         ctx = _CopperContext(self, occ)
         placements = sorted(self._intents, key=lambda i: i.rank)
         fixed_copper = [c for c in self._copper if c.priority is Priority.FIXED]
