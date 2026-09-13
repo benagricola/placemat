@@ -84,7 +84,8 @@ coordinates nobody chose.
   call is not. No globals, no helpers defined inside a phase.
 - Priority, not order: file order never decides execution. Say how firm a
   thing is (`at=`/`center=` are FIXED, `edge=` is EDGE, `near=` is searched;
-  `priority=Priority.FIXED` on copper that nothing may cut into). The runner
+  `priority=Priority.FIXED` on copper that nothing may cut into; `HIGH`,
+  `DEFAULT`, `LOW` on tracks to say who passes under whom). The runner
   schedules: setup, FIXED, EDGE, cells, FIXED copper, loose parts, copper.
 - Copper is declared against pads and lanes (`PadRef`, `CellPadRef`, `X()`,
   `Y()`), never against coordinates that were true before the parts moved.
@@ -104,11 +105,11 @@ coordinates nobody chose.
 - A high-current path is copper you draw (a pour or a wide track), declared
   FIXED so no loose part settles on it. A plane serves what it reaches by a
   via; a bypass capacitor served through a via is a bulk capacitor.
-- A lane is a straight line, in any direction, that one net's tracks run
-  along (the vocabulary is defined in `references/api.md`): register every
-  lane, then tap, hop, chain and cross. Same-layer lanes a tap must pass are
-  bridged under for you; two same-layer nets that would cross anywhere else
-  are a layout error, not a routing problem.
+- A bus down a board is one long track per net and a short track per pad
+  into it. Two same-layer nets may cross only where the one that yields is
+  declared `bridge=True`; who yields is decided by `priority`, never by
+  declaration order, and a crossing nobody may bridge is a finding. Give
+  the long runs the higher priority and the short reaches `bridge=True`.
 - Use placemat's words in the script's comments, and define any word of
   your own (a "corridor", a "column", a "bank") where it first appears, in
   terms of what is on the board. A comment and the run log must mean the

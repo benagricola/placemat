@@ -57,10 +57,18 @@ class Edge(str, Enum):
 
 class Priority(str, Enum):
     """How firm a declaration is. The runner orders work by this, never by
-    where a call sits in the file."""
+    where a call sits in the file. For copper: FIXED is planned before the
+    loose parts and nothing may cut into it; where two tracks cross, the
+    lower priority one passes under."""
     FIXED = "fixed"        # a mechanical fact: placed first, never moved
     EDGE = "edge"          # one degree of freedom along an edge
+    HIGH = "high"
     DEFAULT = "default"    # searched; yields to everything firmer
+    LOW = "low"
+
+    @property
+    def rank(self) -> int:
+        return {"fixed": 4, "edge": 3, "high": 2, "default": 1, "low": 0}[self.value]
 
 
 @dataclass(frozen=True, order=True)

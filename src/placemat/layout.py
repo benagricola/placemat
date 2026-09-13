@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .copper import (CopperOp, Lane, LanePlanner, Pour, Track, Via, Zone, board_zone_outline,
-                     finger_ops, polyline_tracks)
+from .copper import (CopperOp, Pour, Track, Via, Zone, board_zone_outline, finger_ops, polyline_tracks,
+                     resolve_bridges)
 from .geometry import polygon_box
 from .occupancy import Occupancy, Shape
 from .placement import Placement
@@ -61,6 +61,7 @@ class CopperIntent:
     refs: tuple = ()            # every PadRef/CellPadRef it depends on
     why: str = ""
     index: int = 0
+    bridge: bool = False        # tracks: may pass under copper they cross
 
     @property
     def rank(self):
@@ -121,7 +122,6 @@ class Board:
         self.via_drill, self.via_size = via_drill, via_size
         self._intents: list[PlaceIntent] = []
         self._copper: list[CopperIntent] = []
-        self._lanes: list[Lane] = []
         self._outline: Box | None = geometry.outline_box
         self._chamfer = 0.0
         self._radius = 0.0
@@ -221,7 +221,7 @@ class Board:
         return False
 
     # ------------------------------------------------------------ copper
-    def _copper_intent(self, key, net, priority, plan, refs, why):
+    def _copper_intent(self, key, net, priority, plan, refs, why, bridge=False):
         name = self.geometry.require_net(net)
         pads = tuple(self._pad_ref(r) for r in refs)
         if priority is Priority.FIXED:
@@ -229,7 +229,7 @@ class Board:
                 if self._is_searched(owner):
                     raise ValueError("%s: FIXED copper may not reference %s, a searched part; "
                                      "fix the part or drop the priority" % (key, owner))
-        ci = CopperIntent(key, name, priority, plan, tuple(refs), why, len(self._copper))
+        ci = CopperIntent(key, name, priority, plan, tuple(refs), why, len(self._copper), bridge)
         self._copper.append(ci)
         return ci
 
@@ -237,10 +237,13 @@ class Board:
         return float(width) if width is not None else self.geometry.netclass(net).track_width
 
     def track(self, net, points, *, layer: CopperLayer, width: float | None = None,
-              priority: Priority = Priority.DEFAULT, why: str = ""):
+              priority: Priority = Priority.DEFAULT, bridge: bool = False, why: str = ""):
         """Straight track segments through `points` in order, on one layer.
         A point is a Location, a pad reference, or an (x, y) pair whose
-        members may be numbers or X()/Y() of a pad."""
+        members may be numbers or X()/Y() of a pad. `bridge=True` lets it
+        pass under a same-layer track of another net it crosses (a via, a
+        track on the opposite face, a via back) when it is the one that must
+        yield: the lower priority, or at equal priority the shorter."""
         layer = CopperLayer.of(layer)
         refs = _refs_in(points)
         name = self.geometry.require_net(net)
@@ -248,7 +251,7 @@ class Board:
 
         def plan(ctx):
             return polyline_tracks(name, layer, w, [ctx.locate(p) for p in points])
-        return self._copper_intent("track %s" % name, net, priority, plan, refs, why)
+        return self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge)
 
     def via(self, net, at, *, drill: float | None = None, size: float | None = None,
             priority: Priority = Priority.DEFAULT, why: str = ""):
@@ -293,49 +296,20 @@ class Board:
         refs = [] if outline is None else _refs_in(outline)
         return self._copper_intent("plane %s" % name, net, priority, plan, refs, why)
 
-    def lane(self, net, *, layer: CopperLayer, x: float | None = None, y: float | None = None,
-             through: Location | None = None, angle: float | None = None, width: float | None = None,
-             priority: Priority = Priority.DEFAULT) -> Lane:
-        """Register a lane: a straight line on `layer` that `net` runs along.
-        `x=` is a vertical lane (positions along it are y values), `y=` a
-        horizontal one (positions are x values), `through=` + `angle=` any
-        direction (positions are mm from the point; angle 0 points +x, 90
-        points down the board). Declare its runs, taps, hops, chains and
-        crossings on the returned Lane. All lanes are planned together, so a
-        tap or crossing that passes another same-layer lane is bridged under
-        it."""
-        import math
-        name = self.geometry.require_net(net)
-        given = sum(v is not None for v in (x, y, through))
-        if given != 1:
-            raise ValueError("lane %s: give exactly one of x=, y= or through=" % name)
-        if x is not None:
-            origin, direction = Location(float(x), 0.0), (0.0, 1.0)
-        elif y is not None:
-            origin, direction = Location(0.0, float(y)), (1.0, 0.0)
-        else:
-            if angle is None:
-                raise ValueError("lane %s: through= needs angle=" % name)
-            r = math.radians(angle)
-            origin, direction = through, (round(math.cos(r), 12), round(math.sin(r), 12))
-        lane = Lane(name, origin, direction, CopperLayer.of(layer), self._width(name, width), self, priority=priority)
-        self._lanes.append(lane)
-        return lane
-
     def finger(self, net, *, layer: CopperLayer, from_, to, width: float,
                bridge_width: float = 1.0, priority: Priority = Priority.DEFAULT, why: str = ""):
         """A finger: a rectangular pour of `width` along the centreline from
         `from_` to `to` (points, pads, or (x, y) pairs with X()/Y()), cut
-        either side of every registered same-layer lane it crosses and
-        bridged under each on the opposite face so the pieces stay one net."""
+        either side of every same-layer track of another net it crosses and
+        bridged under each on the opposite face so the pieces stay one net.
+        Fingers always yield to tracks."""
         layer = CopperLayer.of(layer)
         name = self.geometry.require_net(net)
         refs = _refs_in([from_, to])
 
         def plan(ctx):
             a, b = ctx.locate(from_), ctx.locate(to)
-            segs = [ctx.lane_segment(l) for l in self._lanes if l.layer is layer and l.net != name]
-            segs = [sg for sg in segs if sg is not None]
+            segs = [((t.start.x, t.start.y), (t.end.x, t.end.y)) for t in ctx.tracks_on(layer) if t.net != name]
             return finger_ops(name, layer, a, b, width, segs, self.via_drill, self.via_size, bridge_width)
         return self._copper_intent("finger %s" % name, net, priority, plan, refs, why)
 
@@ -344,28 +318,81 @@ class Board:
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline)
         plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius)
         ctx = _CopperContext(self, occ)
-        work = [(i.rank, "place", i) for i in self._intents] + [(c.rank, "copper", c) for c in self._copper]
-        lanes_fixed = [l for l in self._lanes if l.priority is Priority.FIXED]
-        lanes_default = [l for l in self._lanes if l.priority is not Priority.FIXED]
-        if lanes_fixed:
-            work.append(((RANK_FIXED_COPPER, len(self._copper)), "lanes", lanes_fixed))
-        if lanes_default:
-            work.append(((RANK_COPPER, len(self._copper) + 1), "lanes", lanes_default))
-        for rank, what, obj in sorted(work, key=lambda w: w[0]):
-            if what == "place":
-                plan._items[obj.key] = obj.item
-                step = self._settle(occ, obj, plan)
-                plan.steps.append(step)
-                occ.commit(obj.item, step.placement)
-            elif what == "copper":
-                step = self._draw(occ, ctx, obj, plan)
-                plan.steps.append(step)
-            else:
-                step = self._draw_lanes(occ, ctx, obj, plan)
-                plan.steps.append(step)
+        placements = sorted(self._intents, key=lambda i: i.rank)
+        fixed_copper = [c for c in self._copper if c.priority is Priority.FIXED]
+        other_copper = [c for c in self._copper if c.priority is not Priority.FIXED]
+
+        def place_ranked(lo, hi):
+            for obj in placements:
+                if lo <= obj.rank[0] <= hi:
+                    plan._items[obj.key] = obj.item
+                    step = self._settle(occ, obj, plan)
+                    plan.steps.append(step)
+                    occ.commit(obj.item, step.placement)
+                    if progress:
+                        progress(_fmt(step))
+
+        place_ranked(RANK_FIXED, RANK_CELL)
+        self._plan_copper(occ, ctx, fixed_copper, plan, progress)
+        place_ranked(RANK_LOOSE, RANK_LOOSE)
+        self._plan_copper(occ, ctx, other_copper, plan, progress)
+        return plan
+
+    def _plan_copper(self, occ, ctx, intents, plan: Plan, progress):
+        """Plan a batch of copper together. Tracks are collected first and
+        their crossings settled by priority; pours, zones, vias and fingers
+        follow (a finger yields to every track already planned)."""
+        tracks, others = [], []
+        deferred = []
+        for c in sorted(intents, key=lambda c: c.index):
+            if c.key.startswith("finger"):
+                deferred.append(c)          # a finger is cut by the tracks planned in this batch
+                continue
+            for op in c.plan(ctx):
+                (tracks if isinstance(op, Track) else others).append((c, op))
+        entries = [(op, c.priority.rank, c.bridge) for c, op in tracks]
+        ops, notes, findings = resolve_bridges(entries, ctx.fixed_tracks, self.via_drill, self.via_size)
+        plan.findings += findings
+        ctx.planned_tracks += [op for op in ops if isinstance(op, Track)]
+        for c in deferred:
+            for op in c.plan(ctx):
+                others.append((c, op))
+        by_key = {}
+        for c, _ in tracks:
+            by_key.setdefault(c.key, [c.priority, 0, c.why])
+        for c, _ in others:
+            by_key.setdefault(c.key, [c.priority, 0, c.why])
+        n_by_net = {}
+        for op in ops:
+            n_by_net[op.net] = n_by_net.get(op.net, 0) + 1
+        for c, _ in tracks:
+            by_key[c.key][1] = n_by_net.get(c.net, 0)
+        all_ops = list(ops)
+        for c, op in others:
+            by_key.setdefault(c.key, [c.priority, 0, c.why])
+            all_ops.append(op)
+            by_key[c.key][1] += 1
+        shapes = []
+        for op in all_ops:
+            plan.copper.append(op)
+            shape = _shape_of(op)
+            if shape is None:
+                continue
+            for hit in occ.copper_conflicts(shape):
+                plan.findings.append("copper %s: %s" % (op.net, hit))
+            shapes.append(shape)
+        occ.add_copper(shapes)
+        if any(c.priority is Priority.FIXED for c in intents):
+            ctx.fixed_tracks += [op for op in ops]
+        for key, (prio, n, why) in by_key.items():
+            step = Step(key, "copper", prio, None, 0.0, "%d op(s)" % n, why, n)
+            plan.steps.append(step)
             if progress:
                 progress(_fmt(step))
-        return plan
+        for note in notes:
+            plan.steps.append(Step("bridge", "copper", Priority.DEFAULT, None, 0.0, note, "", 0))
+            if progress:
+                progress("   bridge: " + note)
 
     def _settle(self, occ: Occupancy, i: PlaceIntent, plan: Plan) -> Step:
         clr = self.clearance
@@ -394,35 +421,11 @@ class Board:
             note = "moved %.2f mm off the hint: %s" % (result.moved_mm, first)
         return Step(i.key, i.kind, i.priority, result.chosen, result.moved_mm, note, i.why)
 
-    def _draw(self, occ, ctx, c: CopperIntent, plan: Plan) -> Step:
-        ops = c.plan(ctx)
-        return self._record_ops(occ, plan, c.key, c.priority, ops, c.why)
-
-    def _draw_lanes(self, occ, ctx, lanes, plan: Plan) -> Step:
-        planner = LanePlanner(lanes, ctx, self.via_drill, self.via_size)
-        ops = planner.plan()
-        prio = lanes[0].priority if lanes else Priority.DEFAULT
-        key = "lanes " + ", ".join(dict.fromkeys(l.net for l in lanes))
-        return self._record_ops(occ, plan, key, prio or Priority.DEFAULT, ops, "")
-
-    def _record_ops(self, occ, plan, key, priority, ops, why) -> Step:
-        shapes = []
-        for op in ops:
-            plan.copper.append(op)
-            shape = _shape_of(op)
-            if shape is None:
-                continue
-            for hit in occ.copper_conflicts(shape):
-                plan.findings.append("%s: %s" % (key, hit))
-            shapes.append(shape)
-        occ.add_copper(shapes)
-        return Step(key, "copper", priority, None, 0.0, "%d op(s)" % len(ops), why, len(ops))
-
-
 class _CopperContext:
     def __init__(self, board: Board, occ: Occupancy):
         self.board, self.occ = board, occ
-        self._planner = None
+        self.planned_tracks: list = []     # every track planned so far (any batch)
+        self.fixed_tracks: list = []       # tracks from the FIXED batch: never yield
 
     def locate(self, ref) -> Location:
         if isinstance(ref, Location):
@@ -444,12 +447,8 @@ class _CopperContext:
             return l.x if axis == "x" else l.y
         return float(v)
 
-    def lane_segment(self, lane):
-        """The segment a lane's copper occupies, once every lane is known."""
-        if self._planner is None:
-            self._planner = LanePlanner(self.board._lanes, self, self.board.via_drill, self.board.via_size)
-            self._planner.compute_extents()
-        return self._planner.extent_segment(lane)
+    def tracks_on(self, layer) -> list:
+        return [t for t in self.planned_tracks if t.layer is layer]
 
 
 def _refs_in(points) -> list:
@@ -459,7 +458,7 @@ def _refs_in(points) -> list:
         if isinstance(p, (PadRef, CellPadRef)):
             out.append(p)
         elif isinstance(p, (X, Y)):
-            out.append(p.ref)
+            out += _refs_in([p.ref])        # the ref may itself be a point or a pad
         elif isinstance(p, tuple):
             out += _refs_in(p)
     return out

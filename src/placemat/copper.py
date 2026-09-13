@@ -8,10 +8,10 @@ from dataclasses import dataclass, field
 import math
 
 from .geometry import Polygon
-from .values import Box, CopperLayer, Location, Net, X, Y
+from .values import Box, CopperLayer, Location, Net
 
-# A far-layer bridge round a crossed lane: via land (0.30) + clearance (0.20)
-# + lane half-width (0.15) + margin (0.45) each side of the crossed lane.
+# A bridge passes under a crossed track: via land (0.30) + clearance (0.20)
+# + crossed track half-width (0.15) + margin (0.45) each side of the crossing.
 BRIDGE_HALF = 1.1
 
 
@@ -113,77 +113,12 @@ def polyline_tracks(net: str, layer: CopperLayer, width: float, points) -> list[
     return [Track(net, layer, width, a, b) for a, b in zip(pts, pts[1:]) if a != b]
 
 
-# ------------------------------------------------------------------ lanes
-@dataclass
-class Lane:
-    """A lane is a straight line on one layer, in any direction, that one
-    net's tracks run along: a bus bar drawn as tracks. It is defined by a
-    point it passes through and a direction; positions along it are
-    distances from that point. Its tracks and vias are planned after
-    placement; the methods only record what the lane does. The lane words:
-
-    run       a track along the lane between two positions
-    tap       a track from the lane to a pad, perpendicular to the lane
-    hop       tap out of one pad, run, tap into the next
-    chain     one net over many pads: tap, run, tap, run, ... each pad once
-    crossing  a track from a position on this lane to another lane
-    """
-    net: str
-    origin: Location
-    direction: tuple[float, float]      # unit vector
-    layer: CopperLayer
-    width: float
-    board: object = field(repr=False)
-    ops: list = field(default_factory=list)
-    priority: object = None
-
-    @property
-    def normal(self) -> tuple[float, float]:
-        return (-self.direction[1], self.direction[0])
-
-    def at(self, s: float) -> Location:
-        """The point `s` mm along the lane from its origin."""
-        return Location(round(self.origin.x + s * self.direction[0], 6), round(self.origin.y + s * self.direction[1], 6))
-
-    def along(self, p: Location) -> float:
-        """The position along the lane of the foot of the perpendicular from `p`."""
-        return (p.x - self.origin.x) * self.direction[0] + (p.y - self.origin.y) * self.direction[1]
-
-    def _add(self, kind, **kw):
-        self.ops.append((kind, kw))
-        return self
-
-    def run(self, a, b):
-        """A track along the lane between two positions (a distance along the
-        lane, or a point/pad whose projection onto the lane is meant)."""
-        return self._add("run", a=a, b=b)
-
-    def tap(self, pad):
-        """A track from the lane to the pad, perpendicular to the lane, bridged
-        under any same-layer lane between them."""
-        return self._add("tap", pad=pad)
-
-    def hop(self, pad_from, pad_to):
-        """Tap out of one pad, run the lane to the other pad, tap into it."""
-        return self._add("hop", pad_from=pad_from, pad_to=pad_to)
-
-    def chain(self, pads):
-        """Tap the first pad, then run and tap to each following pad in turn;
-        every pad is tapped exactly once."""
-        return self._add("chain", pads=list(pads))
-
-    def run_to(self, a, pad, tap: bool = True):
-        """Run the lane from a position to a pad's position, then tap the pad
-        (tap=False when the pad is tapped by a following chain)."""
-        return self._add("run_to", a=a, pad=pad, tap=tap)
-
-    def cross_to(self, other: "Lane", at, from_=None, to=None):
-        """A crossing: a track from the position `at` on this lane to the
-        nearest point of `other`, bridged under any same-layer lane it passes.
-        `from_` adds a run along this lane to the crossing; `to` adds a run
-        along `other` from the crossing onward. Positions are distances along
-        the lane, or points/pads whose projection is meant."""
-        return self._add("cross", other=other, at=at, from_=from_, to=to)
+# ------------------------------------------------------------------ bridges
+@dataclass(frozen=True)
+class Crossing:
+    net_a: str
+    net_b: str
+    at: Location
 
 
 def _seg_intersection(p1, p2, q1, q2):
@@ -199,157 +134,98 @@ def _seg_intersection(p1, p2, q1, q2):
     return None
 
 
-class LanePlanner:
-    """Turns lane declarations into tracks and vias, given resolved pad
-    locations. Every lane's extent (the segment its copper occupies) is
-    computed first so a tap or crossing knows which lanes it passes."""
+def _crossing_point(a: Track, b: Track):
+    if a.layer is not b.layer or a.net == b.net:
+        return None
+    return _seg_intersection((a.start.x, a.start.y), (a.end.x, a.end.y), (b.start.x, b.start.y), (b.end.x, b.end.y))
 
-    def __init__(self, lanes: list[Lane], ctx, via_drill: float, via_size: float,
-                 bridge_half: float = BRIDGE_HALF):
-        self.lanes = lanes
-        self.locate = ctx.locate
-        self.coord = ctx.coord
-        self.via_drill, self.via_size = via_drill, via_size
-        self.bridge_half = bridge_half
-        self.extents: dict[int, tuple[float, float]] = {}
 
-    def _pos(self, lane: Lane, v) -> float:
-        """A position along `lane`: a number as given; an X()/Y() as the point
-        with that coordinate on the line through the lane's origin, projected;
-        else the projection of a point or pad."""
-        if isinstance(v, (int, float)):
-            return float(v)
-        if isinstance(v, X):
-            return lane.along(Location(self.coord(v, "x"), lane.origin.y))
-        if isinstance(v, Y):
-            return lane.along(Location(lane.origin.x, self.coord(v, "y")))
-        return lane.along(self.locate(v))
+def bridge_track(track: Track, points, via_drill: float, via_size: float, half: float = BRIDGE_HALF) -> list:
+    """Cut `track` at each of `points` and pass under: a via, a track on the
+    opposite face `half` either side of the point, and a via back."""
+    length = track.start.distance(track.end)
+    ux, uy = (track.end.x - track.start.x) / length, (track.end.y - track.start.y) / length
+    ordered = sorted(points, key=lambda p: math.hypot(p[0] - track.start.x, p[1] - track.start.y))
+    ops = []
+    cur = track.start
+    for cx, cy in ordered:
+        near = Location(round(cx - ux * half, 6), round(cy - uy * half, 6))
+        far = Location(round(cx + ux * half, 6), round(cy + uy * half, 6))
+        ops += polyline_tracks(track.net, track.layer, track.width, [cur, near])
+        ops.append(Via(track.net, near, via_drill, via_size))
+        ops.append(Via(track.net, far, via_drill, via_size))
+        ops += polyline_tracks(track.net, track.layer.other_face, track.width, [near, far])
+        cur = far
+    ops += polyline_tracks(track.net, track.layer, track.width, [cur, track.end])
+    return ops
 
-    def compute_extents(self) -> dict:
-        """Every lane's along-range, counting a crossing's far-side run toward
-        the lane it runs along."""
-        ss: dict[int, list] = {id(l): [] for l in self.lanes}
-        for lane in self.lanes:
-            for kind, kw in lane.ops:
-                if kind == "run":
-                    ss[id(lane)] += [self._pos(lane, kw["a"]), self._pos(lane, kw["b"])]
-                elif kind == "tap":
-                    ss[id(lane)].append(self._pos(lane, kw["pad"]))
-                elif kind == "hop":
-                    ss[id(lane)] += [self._pos(lane, kw["pad_from"]), self._pos(lane, kw["pad_to"])]
-                elif kind == "chain":
-                    ss[id(lane)] += [self._pos(lane, p) for p in kw["pads"]]
-                elif kind == "run_to":
-                    ss[id(lane)] += [self._pos(lane, kw["a"]), self._pos(lane, kw["pad"])]
-                elif kind == "cross":
-                    other = kw["other"]
-                    here = lane.at(self._pos(lane, kw["at"]))
-                    ss[id(lane)].append(self._pos(lane, kw["at"]))
-                    if kw["from_"] is not None:
-                        ss[id(lane)].append(self._pos(lane, kw["from_"]))
-                    ss.setdefault(id(other), []).append(other.along(here))
-                    if kw["to"] is not None:
-                        ss[id(other)].append(self._pos(other, kw["to"]))
-        self.extents = {k: (min(v), max(v)) for k, v in ss.items() if v}
-        return self.extents
 
-    def extent_segment(self, lane: Lane):
-        ext = self.extents.get(id(lane))
-        if ext is None:
-            return None
-        return (tuple(lane.at(ext[0])), tuple(lane.at(ext[1])))
+def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float):
+    """Decide every same-layer crossing between tracks of different nets.
 
-    def crossings_on(self, lane: Lane, p_from: Location, p_to: Location) -> list:
-        """Where the segment p_from-p_to crosses the copper of another lane on
-        the same layer, ordered from p_from."""
-        hits = []
-        for other in self.lanes:
-            if other is lane or other.layer is not lane.layer or other.net == lane.net:
+    `entries` are (Track, priority_rank, may_bridge) for the copper being
+    planned; `fixed_tracks` are tracks already on the board, which never
+    yield. At each crossing the lower priority track passes under; at equal
+    priority the shorter one does. A crossing where the track that should
+    yield may not bridge is returned as a finding and both tracks are drawn
+    as declared. Returns (ops, notes, findings). The result does not depend
+    on the order of `entries`."""
+    entries = list(entries)
+    cuts = {i: [] for i in range(len(entries))}
+    notes, findings = [], []
+
+    def yielder(i, j):
+        (ta, pa, ba), (tb, pb, bb) = entries[i], entries[j]
+        if pa != pb:
+            return (i, "") if pa < pb else (j, "")
+        la, lb = ta.start.distance(ta.end), tb.start.distance(tb.end)
+        if abs(la - lb) > 1e-9:
+            return (i, "shorter") if la < lb else (j, "shorter")
+        return (i, "first by name") if (ta.net, ta.start) < (tb.net, tb.start) else (j, "first by name")
+
+    for i in range(len(entries)):
+        for j in range(i + 1, len(entries)):
+            pt = _crossing_point(entries[i][0], entries[j][0])
+            if pt is None:
                 continue
-            seg = self.extent_segment(other)
-            if seg is None:
+            k, why = yielder(i, j)
+            other = j if k == i else i
+            if entries[k][2]:
+                cuts[k].append(pt)
+                if why:
+                    notes.append("%s passes under %s at (%.2f, %.2f): %s" % (
+                        entries[k][0].net, entries[other][0].net, pt[0], pt[1], why))
+            else:
+                findings.append("%s and %s cross on %s at (%.2f, %.2f) and neither may bridge" % (
+                    entries[i][0].net, entries[j][0].net, entries[i][0].layer.value, pt[0], pt[1]))
+        for ft in fixed_tracks:
+            pt = _crossing_point(entries[i][0], ft)
+            if pt is None:
                 continue
-            pt = _seg_intersection((p_from.x, p_from.y), (p_to.x, p_to.y), seg[0], seg[1])
-            if pt is not None:
-                hits.append((math.hypot(pt[0] - p_from.x, pt[1] - p_from.y), (round(pt[0], 6), round(pt[1], 6))))
-        hits.sort()
-        out = []
-        for d, pt in hits:
-            if not out or abs(d - out[-1][0]) > 1e-6:
-                out.append((d, pt))
-        return [pt for _, pt in out]
-
-    def bridged(self, lane: Lane, p_from: Location, p_to: Location) -> list:
-        """A straight track from p_from to p_to on the lane's layer, bridged
-        under every same-layer lane it crosses: a via, a track on the
-        opposite face, and a via back, `bridge_half` either side of the
-        crossing point."""
-        ops = []
-        length = p_from.distance(p_to)
-        if length < 1e-9:
-            return ops
-        ux, uy = (p_to.x - p_from.x) / length, (p_to.y - p_from.y) / length
-        h = self.bridge_half
-        cur = p_from
-        for cx, cy in self.crossings_on(lane, p_from, p_to):
-            near = Location(round(cx - ux * h, 6), round(cy - uy * h, 6))
-            far = Location(round(cx + ux * h, 6), round(cy + uy * h, 6))
-            ops += polyline_tracks(lane.net, lane.layer, lane.width, [cur, near])
-            ops.append(Via(lane.net, near, self.via_drill, self.via_size))
-            ops.append(Via(lane.net, far, self.via_drill, self.via_size))
-            ops += polyline_tracks(lane.net, lane.layer.other_face, lane.width, [near, far])
-            cur = far
-        ops += polyline_tracks(lane.net, lane.layer, lane.width, [cur, p_to])
-        return ops
-
-    def _tap(self, lane: Lane, pad_ref) -> list:
-        p = self.locate(pad_ref)
-        return self.bridged(lane, lane.at(lane.along(p)), p)
-
-    def _run(self, lane: Lane, a, b) -> list:
-        return polyline_tracks(lane.net, lane.layer, lane.width, [lane.at(self._pos(lane, a)), lane.at(self._pos(lane, b))])
-
-    def plan(self) -> list:
-        self.compute_extents()
-        ops = []
-        for lane in self.lanes:
-            for kind, kw in lane.ops:
-                if kind == "run":
-                    ops += self._run(lane, kw["a"], kw["b"])
-                elif kind == "tap":
-                    ops += self._tap(lane, kw["pad"])
-                elif kind == "hop":
-                    a, b = kw["pad_from"], kw["pad_to"]
-                    ops += self._tap(lane, a) + self._run(lane, a, b) + self._tap(lane, b)
-                elif kind == "chain":
-                    pads = kw["pads"]
-                    ops += self._tap(lane, pads[0])
-                    for prev, nxt in zip(pads, pads[1:]):
-                        ops += self._run(lane, prev, nxt) + self._tap(lane, nxt)
-                elif kind == "run_to":
-                    ops += self._run(lane, kw["a"], kw["pad"])
-                    if kw.get("tap", True):
-                        ops += self._tap(lane, kw["pad"])
-                elif kind == "cross":
-                    other = kw["other"]
-                    here = lane.at(self._pos(lane, kw["at"]))
-                    there = other.at(other.along(here))
-                    if kw["from_"] is not None:
-                        ops += self._run(lane, kw["from_"], kw["at"])
-                    ops += self.bridged(lane, here, there)
-                    if kw["to"] is not None:
-                        ops += polyline_tracks(lane.net, other.layer, other.width, [there, other.at(self._pos(other, kw["to"]))])
-        return ops
+            if entries[i][2]:
+                cuts[i].append(pt)
+            else:
+                findings.append("%s crosses FIXED %s on %s at (%.2f, %.2f) and may not bridge" % (
+                    entries[i][0].net, ft.net, ft.layer.value, pt[0], pt[1]))
+    ops = []
+    for i, (t, _, _) in enumerate(entries):
+        seen = []
+        for pt in cuts[i]:
+            if not any(math.hypot(pt[0] - q[0], pt[1] - q[1]) < 1e-6 for q in seen):
+                seen.append(pt)
+        ops += bridge_track(t, seen, via_drill, via_size) if seen else [t]
+    return ops, notes, findings
 
 
 def finger_ops(net: str, layer: CopperLayer, a: Location, b: Location, width: float, lane_segments,
                via_drill: float, via_size: float, bridge_width: float = 1.0,
                notch_half: float = BRIDGE_HALF) -> list:
     """A finger: a rectangular pour of `width` along the centreline a-b (a
-    wide copper reach from a spine to a pad). Where a same-layer lane in
-    `lane_segments` crosses the centreline the rectangle is cut into pieces
-    either side of the lane, and each cut is bridged: a via, a track on the
-    opposite face under the lane, and a via, so the pieces stay one net."""
+    wide copper reach from a big pour to a pad). Where a same-layer track of
+    another net (given as segments) crosses the centreline the rectangle is
+    cut into pieces either side of it, and each cut is bridged: a via, a
+    track on the opposite face under the crossing track, and a via, so the
+    pieces stay one net."""
     length = a.distance(b)
     if length < 1e-9:
         return []

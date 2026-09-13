@@ -89,11 +89,13 @@ Slices 1-6 are built and green (81 tests; the end-to-end test builds a
 scratch workspace and runs the pcb toolchain). The new
 `breakout/Breakout_layout.py` in the ecosystem regenerates the Breakout to
 the committed board's gate state: DRC clean, unconnected 0, the same 36
-dangling module stubs, zero crossings, 126.5 x 229.89. Open: slice 7 (the
-Middleweight as second consumer: search-driven cells, compaction, blocks,
-plane serve, spines, labels are not in the API yet), the routing trial as an
-optional diagnostic, and the ecosystem's dependency still points at the old
-placemat checkout.
+dangling module stubs, zero crossings, 126.5 x 229.89. Next, in order: crossings per net and a congestion figure in the run
+record (from the ratsnest and the occupancy's free area, no routing
+needed); routing as `placemat run --route` and `placemat route`, explicit
+and never default; then STOP and plan the placer search kinds (pocket scan,
+net-seeded search, compaction, blocks) before building them against the
+Middleweight. The ecosystem's dependency still points at the old placemat
+checkout.
 
 ## Build order (each slice has a test that runs without KiCad where possible)
 
@@ -119,6 +121,13 @@ placemat checkout.
   once what a decision did to DRC, connectivity, occupancy and airwires.
 - No fluent handles. No author-controlled sub-phases. TDD throughout.
 - The first phase is `setup`, not `frame`. Board size is derived there.
+- Copper has no lane object. A bus is one long track per net and a short
+  track per pad into it; where two tracks of different nets cross on a
+  layer, priority (FIXED > HIGH > DEFAULT > LOW, then the shorter) decides
+  who passes under, only a track declared bridge=True may, and a crossing
+  nobody may bridge is a finding. "Lane" is reserved for a future bundle
+  object (several nets at a pitch, pin-order sorting, length per net),
+  backlog with the Middleweight.
 - Ordering is PRIORITY, not authoring order. A declaration says how firm it
   is; the runner decides when it runs and what may yield to it:
     placement  FIXED (mechanical fact, first, never moved)
