@@ -84,8 +84,10 @@ class RouteReport:
 
 def lock_copper(pcb_path: str) -> int:
     """Lock every track, via and copper polygon so the router keeps them."""
-    import pcbnew
-    board = pcbnew.LoadBoard(pcb_path)
+    from .quiet import import_pcbnew, quiet_stderr
+    pcbnew = import_pcbnew()
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(pcb_path)
     n = 0
     for t in board.GetTracks():
         t.SetLocked(True)
@@ -94,13 +96,16 @@ def lock_copper(pcb_path: str) -> int:
         if d.GetClass() == "PCB_SHAPE" and d.IsOnCopperLayer():
             d.SetLocked(True)
             n += 1
-    board.Save(pcb_path)
+    with quiet_stderr():
+        board.Save(pcb_path)
     return n
 
 
 def _copper_layers(pcb_path: str) -> list:
-    import pcbnew
-    board = pcbnew.LoadBoard(pcb_path)
+    from .quiet import import_pcbnew, quiet_stderr
+    pcbnew = import_pcbnew()
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(pcb_path)
     return [board.GetLayerName(l) for l in board.GetEnabledLayers().CuStack()]
 
 

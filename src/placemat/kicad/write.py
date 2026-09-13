@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import os
 
-import pcbnew
+from .quiet import import_pcbnew, quiet_stderr
+
+pcbnew = import_pcbnew()
 
 from ..layout import Plan
 from ..copper import Pour, Track, Via, Zone
@@ -286,7 +288,8 @@ def finish_board(pcb_path, fab, refs_to_fab_layer: bool = True, refs_to_fab=None
     if refs_to_fab is None:
         refs_to_fab = refs_to_fab_layer
     if refs_to_fab:
-        board = pcbnew.LoadBoard(pcb_path)
+        with quiet_stderr():
+            board = pcbnew.LoadBoard(pcb_path)
         seed_uuids()
         globals()["refs_to_fab"](board)
         save(board, pcb_path)
@@ -322,13 +325,15 @@ def render_board(pcb_path, log, both_faces: bool = False) -> list:
 def save(board, path: str):
     """Atomic save: write beside the target and move it into place."""
     tmp = path + ".writing"
-    board.Save(tmp)
+    with quiet_stderr():
+        board.Save(tmp)
     os.replace(tmp, path)
 
 
 def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     pcb_path = str(pcb_path)
-    board = pcbnew.LoadBoard(pcb_path)
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(pcb_path)
     seed_uuids()
     groups = {g.GetName(): g for g in board.Groups()}
     by_ref = {fp.GetReference(): fp for fp in board.GetFootprints()}

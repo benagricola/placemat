@@ -12,6 +12,7 @@ import sys
 import time
 import traceback
 
+from .console import Console
 from .layout import Board
 from .context import run_script
 from .project import BoardSource, fab_profile, find_board
@@ -37,9 +38,16 @@ class RunResult:
         return self.record.status
 
 
-def _say(quiet, *parts):
-    if not quiet:
-        print(*parts, flush=True)
+_console = Console()
+
+
+def _say(quiet, *parts, level=None):
+    """Kept for the generate() helper: routes to the console."""
+    if quiet:
+        return
+    text = " ".join(str(p) for p in parts)
+    stage, _, rest = text.partition("   ")
+    _console.say(stage.strip() or "note", rest.strip(), level=level)
 
 
 def _sh(cmd, cwd, log: Path, timeout: int, env=None) -> tuple[int, float]:
@@ -95,6 +103,9 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool) -> bool:
 def run(script, label: str | None = None, fresh: bool = False, render: bool = True, drc: bool = True,
         quiet: bool = False, verbose: bool = False, route: bool = False, route_quick: bool = True,
         route_exclude=()) -> RunResult:
+    global _console
+    _console = Console(quiet=quiet)
+    say = _console.say
     script = Path(script).resolve()
     src = find_board(script)
     runs = src.board_dir / ".placemat" / "runs"
@@ -104,7 +115,7 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
     run_dir = staging
     rec = RunRecord(run_id="", board=src.name, status="running",
                     paths={"pcb": str(src.pcb), "script": str(script)})
-    _say(quiet, "run %s: %s" % (src.name, script.relative_to(src.board_dir)))
+    say("run", "%s: %s" % (src.name, script.relative_to(src.board_dir)))
     generated = False
     plan = None
     try:
@@ -126,7 +137,7 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
                 alias.unlink() if alias.is_symlink() else shutil.rmtree(alias)
             alias.symlink_to(rid)
             rec.paths["label"] = label
-        _say(quiet, "id      %s%s" % (rid, ("  (label %s)" % label) if label else ""))
+        say("id", "%s%s" % (rid, ("  (label %s)" % label) if label else ""))
 
         from .kicad.read import read_board
         from .kicad.write import apply_plan, finish_board, render_board
@@ -151,25 +162,25 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
         def progress(line):
             log_lines.append(line)
             if verbose:
-                print("   " + line, flush=True)
+                say("bridge" if line.strip().startswith("bridge:") else "step", line.strip())
         plan = board.resolve(progress=progress)
         (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
         rec.timing_s["resolve"] = round(time.time() - t0, 1)
         n_place = sum(1 for s in plan.steps if s.placement is not None)
         n_copper = sum(s.ops for s in plan.steps)
-        _say(quiet, "script  %d placed, %d copper op(s), %d finding(s)  (%.1fs)" % (
+        say("script", "%d placed, %d copper op(s), %d finding(s)  (%.1fs)" % (
             n_place, n_copper, len(plan.findings), rec.timing_s["resolve"]))
         for f in plan.findings[: (50 if verbose else 8)]:
-            _say(quiet, "   ! " + f)
+            say("finding", f, level="finding")
         if len(plan.findings) > 8 and not verbose:
-            _say(quiet, "   ... %d more in %s" % (len(plan.findings) - 8, run_dir / "run.json"))
+            say("finding", "... %d more in %s" % (len(plan.findings) - 8, run_dir / "run.json"), level="finding")
 
         t0 = time.time()
         apply_plan(src.pcb, plan)
         finish_board(src.pcb, fab, refs_to_fab=getattr(board, "refs_on_fab", True))
         rec.timing_s["write"] = round(time.time() - t0, 1)
         shutil.copy(src.pcb, run_dir / "layout.kicad_pcb")
-        _say(quiet, "board   written %s (%.1fs)" % (src.pcb.relative_to(src.board_dir), rec.timing_s["write"]))
+        say("board", "written %s (%.1fs)" % (src.pcb.relative_to(src.board_dir), rec.timing_s["write"]))
 
         metrics = {"board": [round(plan.outline.width, 3), round(plan.outline.height, 3)] if plan.outline else None,
                    "findings": len(plan.findings), "placed": n_place, "copper_ops": n_copper}
@@ -185,30 +196,30 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
                             "free_area_mm2": round(free, 1), "congestion": cong,
                             "open_nets": dict(report.open_nets)})
             rec.timing_s["drc"] = round(time.time() - t0, 1)
-            _say(quiet, "check   %s | airwires %d, %.1f mm, %d crossings, congestion %s  (%.1fs)" % (
+            say("check", "%s | airwires %d, %.1f mm, %d crossings, congestion %s  (%.1fs)" % (
                 report.summary(), aw["count"], aw["total_mm"], aw["crossings"],
                 "-" if cong is None else "%.2f/cm2" % cong, rec.timing_s["drc"]))
             busiest = list(aw["crossings_per_net"].items())[:5]
             if busiest:
-                _say(quiet, "        crossings by net: " + ", ".join("%s %d" % kv for kv in busiest))
+                say("check", "crossings by net: " + ", ".join("%s %d" % kv for kv in busiest))
         if route:
             from .kicad.route import route_board
             t0 = time.time()
-            _say(quiet, "route   %s routing on a copy of the board ..." % ("quick" if route_quick else "full"))
+            say("route", "%s routing on a copy of the board ..." % ("quick" if route_quick else "full"))
             report = route_board(src.pcb, run_dir / "route", exclude_nets=set(plan.plane_nets) | set(route_exclude),
                                  quick=route_quick)
             metrics["route"] = report.as_dict()
             metrics["closure_clean"] = report.closure_clean
             rec.timing_s["route"] = round(time.time() - t0, 1)
-            _say(quiet, "route   %s  (%.0fs)" % (report.summary(), rec.timing_s["route"]))
+            say("route", "%s  (%.0fs)" % (report.summary(), rec.timing_s["route"]))
             if report.open_nets:
                 worst = sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:8]
-                _say(quiet, "        still open: " + ", ".join("%s %d" % kv for kv in worst))
+                say("route", "still open: " + ", ".join("%s %d" % kv for kv in worst))
         if render:
             t0 = time.time()
             render_board(src.pcb, run_dir / "render.log", both_faces=getattr(board, "both_faces", False))
             rec.timing_s["render"] = round(time.time() - t0, 1)
-            _say(quiet, "render  %s  (%.1fs)" % (", ".join(p.name for p in src.layout_dir.glob("layout*.png")), rec.timing_s["render"]))
+            say("render", "%s  (%.1fs)" % (", ".join(p.name for p in src.layout_dir.glob("layout*.png")), rec.timing_s["render"]))
         rec.metrics = metrics
         rec.placements = {s.item: {"x": s.placement.location.x, "y": s.placement.location.y,
                                    "rotation": s.placement.rotation, "face": s.placement.face.value}
@@ -220,14 +231,14 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
     except RunFailure as e:
         rec.status = "failed"
         rec.failure = {"kind": e.kind, "message": str(e), **e.details}
-        _say(quiet, "\n%s" % e)
+        say("fail", str(e), level="fail")
         for k in ("script", "line", "source", "error", "command", "cwd", "exit_code", "log"):
             if e.details.get(k) is not None:
-                _say(quiet, "  %-9s %s" % (k, e.details[k]))
+                say("fail", "%-9s %s" % (k, e.details[k]))
         if e.details.get("tail"):
-            _say(quiet, "  --- last lines ---\n" + e.details["tail"])
+            _console.lines("fail", e.details["tail"])
         if verbose and e.details.get("traceback"):
-            _say(quiet, e.details["traceback"])
+            _console.lines("fail", e.details["traceback"])
     if not rec.run_id:                       # generation failed before the id could be taken
         rec.run_id = run_dir.name.lstrip(".")
         rec.paths["run_dir"] = str(run_dir)
@@ -243,9 +254,9 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
                 else:
                     text = "same inputs as the previous run: id %s again, nothing to compare" % rec.run_id
                 (run_dir / "impact.txt").write_text(text + "\n")
-                _say(quiet, text)
+                _console.lines("impact", text)
             except (json.JSONDecodeError, TypeError):
                 pass
         shutil.copy(run_dir / "run.json", latest)
-    _say(quiet, "record  %s" % (run_dir / "run.json"))
+    say("record", str(run_dir / "run.json"))
     return RunResult(rec, run_dir, generated, text, plan)

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pcbnew
+from .quiet import import_pcbnew, quiet_stderr
+
+pcbnew = import_pcbnew()
 
 from ..board_geometry import CellGeom, CopperItem, Footprint, NetClass, PadGeom, BoardGeometry
 from ..values import Box, CopperLayer, Face, Location
@@ -221,7 +223,8 @@ def _netclasses(board) -> tuple[dict[str, NetClass], float]:
 
 def read_board(path, courtyard_excess_mm: float = 0.10) -> BoardGeometry:
     path = str(Path(path))
-    board = pcbnew.LoadBoard(path)
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(path)
     return board_geometry_of(board, path, courtyard_excess_mm)
 
 
