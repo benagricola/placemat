@@ -20,7 +20,7 @@ def make_board():
 
 
 def order_of(plan):
-    return [s.item for s in plan.steps if s.placement is not None]
+    return [s.item for s in plan.steps if s.kind != "part" or s.placement is not None or "UNPLACED" in s.note]
 
 
 def test_fixed_then_edge_then_cells_then_loose_whatever_the_file_order():

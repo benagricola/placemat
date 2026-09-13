@@ -111,9 +111,12 @@ a part the script will place later is not an obstacle where the
 generator left it, only once it is placed. Without one it is SEEDED: the hint is the weighted centroid of the
 pads already placed that it connects to (plane nets and free nets do not
 count), and every legal candidate in the scan is scored by its links, the
-lowest kept. If nothing it connects to is placed yet it takes a POCKET: the
-biggest free rectangle its envelope fits on its face. The step note says
-which happened.
+lowest kept; it may step at least its own size away from the seed, or
+`radius=` when that is larger. If nothing it connects to is placed yet it
+takes a POCKET: the biggest free rectangle its envelope fits on its face.
+An item that finds no legal spot is left off the board: it pulls nothing
+and blocks nothing, and the finding says what stopped it. The step note
+says which happened.
 
 **Order.** FIXED and EDGE items go down as declared. Searched items are
 ordered by the placer, re-measured after each: cells, then blocks, then

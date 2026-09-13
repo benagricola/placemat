@@ -68,3 +68,14 @@ def test_a_block_with_nothing_placed_to_pull_it_starts_from_the_board_not_where_
     plan = b.resolve()
     assert plan.findings == []
     assert 0 < plan.box("ldo").center.x < 50 and 0 < plan.box("ldo").center.y < 50
+
+
+def test_a_block_with_a_placed_neighbour_searches_from_that_neighbour():
+    fps = [footprint("U9", 150, 60, w=4, h=2, inst="ldo", nets=("VIN", "VOUT")),
+           footprint("C8", 160, 60, w=2, h=1, inst="cin", nets=("VIN", "GND")),
+           footprint("J1", 5, 5, w=4, h=2, inst="j1", nets=("VIN", "GND"))]
+    b = Board(board_geometry(fps, width=50, height=50), edge_margin=1.0)
+    b.place(Part("j1"), at=Location(40, 40))
+    b.place(b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")]), radius=4.0)
+    plan = b.resolve()
+    assert plan.findings == [] and plan.box("ldo").center.distance(Location(40, 40)) < 10

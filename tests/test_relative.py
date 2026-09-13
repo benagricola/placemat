@@ -89,3 +89,17 @@ def test_a_seeded_part_wired_to_a_pad_numbered_with_a_prime_still_seeds():
     b.place(Part("r1"))
     plan = b.resolve()
     assert "seeded on A" in plan.step("r1").note
+
+
+def test_an_unplaced_item_pulls_nothing_and_blocks_nothing():
+    """A part that found no legal spot is not committed at its hint: it is
+    left off the board, so nothing later seeds toward it or collides with it."""
+    fps = [footprint("U1", 10, 10, w=4, h=2, nets=("A", "B")), footprint("U9", 30, 30, w=30, h=30, nets=("B", "C")),
+           footprint("R1", 50, 50, nets=("B", "D"))]
+    b = Board(board_geometry(fps, width=40, height=40), edge_margin=1.0)
+    b.place(Part("u1"), at=Location(10, 10))
+    b.place(Part("u9"))                                      # 30 x 30 on a 40 board with u1 in the corner: nowhere fits
+    b.place(Part("r1"))                                      # wired to u1 and u9: seeds toward u1 only
+    plan = b.resolve()
+    assert "UNPLACED" in plan.step("u9").note and plan.placement("u9") is None
+    assert "seeded on B" in plan.step("r1").note and plan.box("r1").center.distance(Location(10, 10)) < 8

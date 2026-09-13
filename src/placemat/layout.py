@@ -535,6 +535,19 @@ class Board:
                     out.append(((fp.ref, p.number), occ.pad_location(other.owner, other.number), w))
         return out
 
+    def _seed_hint(self, item, occ: Occupancy, targets: list, rotation: float, face) -> Placement:
+        """Where the item's origin should go for its wired pads to sit on
+        the weighted centroid of the placed pads they connect to."""
+        current = occ._geometry(item).reference
+        wsum = sum(w for _, _, w in targets)
+        cx = sum(t.x * w for _, t, w in targets) / wsum
+        cy = sum(t.y * w for _, t, w in targets) / wsum
+        pads_now = occ.candidate_pad_locations(item, Placement(current.location, rotation, face))
+        own = [pads_now[k] for k, _, _ in targets if k in pads_now]
+        ox = sum(p.x for p in own) / len(own) - current.location.x if own else 0.0
+        oy = sum(p.y for p in own) / len(own) - current.location.y if own else 0.0
+        return Placement(Location(round(cx - ox, 3), round(cy - oy, 3)), rotation, face)
+
     def _scorer(self, item, occ: Occupancy, targets: list):
         def score(placement: Placement) -> float:
             pads = occ.candidate_pad_locations(item, placement)
@@ -717,7 +730,9 @@ class Board:
             if why_now:
                 step.note = (why_now + "; " + step.note) if step.note else why_now
             plan.steps.append(step)
-            if obj.kind == "block":
+            if step.placement is None:
+                pass                    # unplaced: left off the board, pulls nothing, blocks nothing
+            elif obj.kind == "block":
                 occ.commit(obj.item.anchor, step.placement)
                 placed.update(fp.ref for fp in obj.item.members)
             else:
@@ -777,8 +792,7 @@ class Board:
             i.key, "%.1f x %.1f" % (occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).width,
                                     occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).height),
             i.face.value, len(tried)))
-        return Step(i.key, i.kind, i.priority, Placement(current.location, i.rotation, i.face), 0.0,
-                    "UNPLACED: no pocket fits", i.why)
+        return Step(i.key, i.kind, i.priority, None, 0.0, "UNPLACED: no pocket fits", i.why)
 
     def _plan_copper(self, occ, ctx, intents, plan: Plan, progress):
         """Plan a batch of copper together. Tracks are collected first and
@@ -877,19 +891,23 @@ class Board:
             current = occ._geometry(spec.anchor).reference
             if i.near is not None:
                 hint = Placement(i.near, i.rotation, i.face)
-            elif targets or self._outline is None:
-                hint = Placement(current.location, i.rotation, i.face)
-            else:                       # nothing placed pulls it: search from the board, not from where the generator dropped it
+            elif targets:
+                hint = self._seed_hint(spec.anchor, occ, targets, i.rotation, i.face)
+            elif self._outline is not None:  # nothing placed pulls it: search from the board, not from where the generator dropped it
                 hint = Placement(self._outline.center, i.rotation, i.face)
+            else:
+                hint = Placement(current.location, i.rotation, i.face)
             score = None
             if targets:
                 def score(members):
                     return self._scorer(spec.anchor, occ, targets)(members[spec.anchor.inst])
-            best, tried, rejected, reasons = scan_block(occ, spec, hint, i.radius, i.step, i.rotations or (i.rotation,), clr, score)
+            body = occ._geometry(spec.anchor).body
+            radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)
+            best, tried, rejected, reasons = scan_block(occ, spec, hint, radius, i.step, i.rotations or (i.rotation,), clr, score)
             if best is None:
                 plan.findings.append("%s: no legal spot within %.1f mm of %s (%s)" % (
-                    i.key, i.radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in rejected.most_common(3))))
-                members = {spec.anchor.inst: hint}
+                    i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in rejected.most_common(3))))
+                members = {}
                 note = "UNPLACED"
             else:
                 _, anchor, members = best
@@ -905,8 +923,9 @@ class Board:
                 plan.steps.append(Step(fp.inst, "part", i.priority, members[fp.inst], 0.0, "in %s" % i.key))
                 occ.commit(fp, members[fp.inst])
         plan._items[spec.anchor.inst] = spec.anchor
-        plan.steps.append(Step(spec.anchor.inst, "part", i.priority, members[spec.anchor.inst], 0.0, "anchor of %s" % i.key))
-        return Step(i.key, "block", i.priority, members[spec.anchor.inst], 0.0, note, i.why)
+        anchor_at = members.get(spec.anchor.inst)
+        plan.steps.append(Step(spec.anchor.inst, "part", i.priority, anchor_at, 0.0, "anchor of %s" % i.key))
+        return Step(i.key, "block", i.priority, anchor_at, 0.0, note, i.why)
 
     def _settle(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set = frozenset()) -> Step:
         if i.kind == "block":
@@ -930,15 +949,7 @@ class Board:
         if i.near is not None:
             hint = Placement(i.near, i.rotation, i.face)
         elif targets:
-            wsum = sum(w for _, _, w in targets)
-            cx = sum(t.x * w for _, t, w in targets) / wsum
-            cy = sum(t.y * w for _, t, w in targets) / wsum
-            # the hint is where the part's ORIGIN should go for its pads to sit on the centroid
-            pads_now = occ.candidate_pad_locations(i.item, Placement(current.location, i.rotation, i.face))
-            own = [pads_now[k] for k, _, _ in targets if k in pads_now]
-            ox = sum(p.x for p in own) / len(own) - current.location.x if own else 0.0
-            oy = sum(p.y for p in own) / len(own) - current.location.y if own else 0.0
-            hint = Placement(Location(round(cx - ox, 3), round(cy - oy, 3)), i.rotation, i.face)
+            hint = self._seed_hint(i.item, occ, targets, i.rotation, i.face)
             # k[1] here is always a raw pad NUMBER string from _targets() (never
             # a net name) - some real footprints number pads like "1'" for a
             # mechanically doubled leg, which is not all-digit, so this matches
@@ -951,11 +962,14 @@ class Board:
         else:
             return self._settle_in_pocket(occ, i, plan, clr)
         score = self._scorer(i.item, occ, targets) if targets else None
-        result = scan(occ, i.item, hint, i.radius, i.step, i.rotations or (i.rotation,), clr, score=score)
+        # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
+        body = occ._geometry(i.item).body
+        radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)
+        result = scan(occ, i.item, hint, radius, i.step, i.rotations or (i.rotation,), clr, score=score)
         if result.chosen is None:
             plan.findings.append("%s: no legal location within %.1f mm of %s (%s)" % (
-                i.key, i.radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in result.rejected.most_common(3))))
-            return Step(i.key, i.kind, i.priority, hint, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()), i.why)
+                i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in result.rejected.most_common(3))))
+            return Step(i.key, i.kind, i.priority, None, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()), i.why)
         note = seeded
         if result.moved_mm > 0:
             first = next(iter(result.reasons.values()), "")
