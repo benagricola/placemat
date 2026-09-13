@@ -33,9 +33,10 @@ def parser() -> argparse.ArgumentParser:
     rt.add_argument("--out", help="work directory (default: <board dir>/.placemat/route)")
     rt.add_argument("--json", action="store_true")
 
-    imp = sub.add_parser("impact", help="what changed between two run records")
+    imp = sub.add_parser("impact", help="what changed between two runs (ids, id prefixes, labels, or paths)")
     imp.add_argument("before")
     imp.add_argument("after")
+    imp.add_argument("--board", help="board directory holding .placemat/runs (default: found under the cwd)")
 
     drc = sub.add_parser("drc", help="kicad-cli DRC on a board, as buckets")
     drc.add_argument("pcb")
@@ -60,13 +61,31 @@ def cmd_run(args) -> int:
 
 def cmd_impact(args) -> int:
     from .report import RunRecord, impact
-    print(impact(RunRecord.load(_record(args.before)), RunRecord.load(_record(args.after))))
+    print(impact(RunRecord.load(_record(args.before, args.board)), RunRecord.load(_record(args.after, args.board))))
     return 0
 
 
-def _record(p) -> Path:
-    p = Path(p)
-    return p / "run.json" if p.is_dir() else p
+def _runs_dirs(board) -> list:
+    if board:
+        return [Path(board) / ".placemat" / "runs"]
+    here = Path.cwd()
+    found = [d for d in [here / ".placemat/runs"] + sorted(here.glob("*/.placemat/runs")) if d.is_dir()]
+    return found
+
+
+def _record(ref, board=None) -> Path:
+    """A run.json from a path, or a run id / prefix / label looked up in the
+    runs directories under the cwd (or --board)."""
+    from .report import resolve_run
+    p = Path(ref)
+    if p.exists():
+        return p / "run.json" if p.is_dir() else p
+    for runs in _runs_dirs(board):
+        try:
+            return resolve_run(runs, ref) / "run.json"
+        except FileNotFoundError:
+            continue
+    raise SystemExit("no run %r; looked in %s" % (ref, ", ".join(str(r) for r in _runs_dirs(board)) or "no runs dir"))
 
 
 def cmd_drc(args) -> int:

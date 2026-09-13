@@ -75,3 +75,12 @@ def test_impact_shows_congestion_when_it_changes():
                                   "outstanding": {}, "findings": 0, "board": [1, 1]})
     text = impact(a, b)
     assert "crossings 8 -> 2" in text and "congestion 2.50 -> 0.60" in text
+
+
+def test_a_run_id_is_a_short_hash_of_the_inputs():
+    from placemat.report import run_id
+    a = run_id(script_text="board.size(1, 1)\n", board_bytes=b"pcb", tool_version="0.2.0-dev")
+    b = run_id(script_text="board.size(1, 1)\n", board_bytes=b"pcb", tool_version="0.2.0-dev")
+    c = run_id(script_text="board.size(2, 1)\n", board_bytes=b"pcb", tool_version="0.2.0-dev")
+    assert a == b and a != c
+    assert len(a) == 8 and all(ch in "0123456789abcdef" for ch in a)

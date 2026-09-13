@@ -32,6 +32,34 @@ class RunRecord:
         return RunRecord(**json.loads(Path(path).read_text()))
 
 
+def run_id(script_text: str, board_bytes: bytes, tool_version: str) -> str:
+    """A run is named by a short hash of everything that decides its result:
+    the script, the generated board it starts from, and the tool version.
+    Same inputs, same id; a label is only an alias for one."""
+    import hashlib
+    h = hashlib.sha256()
+    h.update(tool_version.encode())
+    h.update(b"\0")
+    h.update(script_text.encode())
+    h.update(b"\0")
+    h.update(board_bytes)
+    return h.hexdigest()[:8]
+
+
+def resolve_run(runs_dir, ref: str) -> Path:
+    """A run directory from an id, a unique id prefix, or a label alias."""
+    runs_dir = Path(runs_dir)
+    direct = runs_dir / ref
+    if direct.exists():
+        return direct.resolve() if direct.is_symlink() else direct
+    matches = [d for d in runs_dir.iterdir() if d.is_dir() and not d.is_symlink() and d.name.startswith(ref)]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise FileNotFoundError("no run %r in %s" % (ref, runs_dir))
+    raise ValueError("%r matches %d runs in %s: %s" % (ref, len(matches), runs_dir, ", ".join(m.name for m in matches)))
+
+
 def airwires_from_drc(drc: dict) -> dict:
     """The ratsnest KiCad reports as unconnected items: count, straight-line
     length, crossings between different nets, and length per net."""

@@ -85,8 +85,8 @@ def test_a_second_run_reuses_the_generation_and_reports_no_movement(scratch_ecos
     script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
     rec = run(script, label="second", render=False)
     assert rec.generated is False                 # restored from the cache, not regenerated
-    assert "nothing moved" in rec.impact_text
-    a = (scratch_ecosystem / "breakout/.placemat/runs/first/layout.kicad_pcb").read_bytes()
+    assert "same inputs" in rec.impact_text and rec.record.run_id in rec.impact_text
+    a = (scratch_ecosystem / "breakout/.placemat/runs/first/layout.kicad_pcb").read_bytes()   # via the label alias
     b = (scratch_ecosystem / "breakout/layout/Breakout/layout.kicad_pcb").read_bytes()
     assert a == b
 
@@ -96,4 +96,18 @@ def test_the_cli_runs_and_prints_a_one_line_verdict(scratch_ecosystem):
     proc = subprocess.run([sys.executable, "-m", "placemat", "run", str(script), "--label", "cli", "--no-render"],
                           capture_output=True, text=True, cwd=str(scratch_ecosystem), timeout=600)
     assert proc.returncode == 0, proc.stderr[-2000:]
-    assert "run cli" in proc.stdout and "DRC" in proc.stdout
+    assert "(label cli)" in proc.stdout and "DRC" in proc.stdout
+
+
+def test_runs_are_named_by_hash_and_labels_are_aliases(scratch_ecosystem):
+    script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
+    rec = run(script, render=False, drc=False)
+    assert len(rec.record.run_id) == 8
+    runs = scratch_ecosystem / "breakout/.placemat/runs"
+    assert (runs / rec.record.run_id / "run.json").exists()
+    again = run(script, render=False, drc=False, label="same-inputs")
+    assert again.record.run_id == rec.record.run_id            # same inputs, same id
+    assert (runs / "same-inputs").is_symlink() and (runs / "same-inputs").resolve() == (runs / rec.record.run_id).resolve()
+    from placemat.report import RunRecord, resolve_run
+    assert resolve_run(runs, "same-inputs") == runs / rec.record.run_id
+    assert resolve_run(runs, rec.record.run_id[:6]) == runs / rec.record.run_id   # a unique prefix is enough

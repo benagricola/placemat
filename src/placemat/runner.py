@@ -15,7 +15,7 @@ import traceback
 from .layout import Board
 from .context import run_script
 from .project import BoardSource, fab_profile, find_board
-from .report import RunRecord, airwires_from_drc, congestion, impact
+from .report import RunRecord, airwires_from_drc, congestion, impact, run_id
 
 
 class RunFailure(Exception):
@@ -97,19 +97,36 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
         route_exclude=()) -> RunResult:
     script = Path(script).resolve()
     src = find_board(script)
-    label = label or time.strftime("%Y%m%d-%H%M%S")
-    run_dir = src.board_dir / ".placemat" / "runs" / label
-    shutil.rmtree(run_dir, ignore_errors=True)
-    run_dir.mkdir(parents=True)
-    rec = RunRecord(run_id=label, board=src.name, status="running",
-                    paths={"run_dir": str(run_dir), "pcb": str(src.pcb), "script": str(script)})
-    _say(quiet, "run %s (%s): %s" % (label, src.name, script.relative_to(src.board_dir)))
+    runs = src.board_dir / ".placemat" / "runs"
+    staging = runs / ("." + time.strftime("%Y%m%d-%H%M%S-") + str(os.getpid()))
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
+    run_dir = staging
+    rec = RunRecord(run_id="", board=src.name, status="running",
+                    paths={"pcb": str(src.pcb), "script": str(script)})
+    _say(quiet, "run %s: %s" % (src.name, script.relative_to(src.board_dir)))
     generated = False
     plan = None
     try:
         t0 = time.time()
         generated = generate(src, run_dir, fresh, quiet)
         rec.timing_s["generate"] = round(time.time() - t0, 1)
+        # The run's name: a hash of the script, the generated board and the tool.
+        from . import __version__
+        rid = run_id(script.read_text(), src.pcb.read_bytes(), __version__)
+        final_dir = runs / rid
+        shutil.rmtree(final_dir, ignore_errors=True)
+        staging.rename(final_dir)
+        run_dir = final_dir
+        rec.run_id = rid
+        rec.paths["run_dir"] = str(run_dir)
+        if label:
+            alias = runs / label
+            if alias.is_symlink() or alias.exists():
+                alias.unlink() if alias.is_symlink() else shutil.rmtree(alias)
+            alias.symlink_to(rid)
+            rec.paths["label"] = label
+        _say(quiet, "id      %s%s" % (rid, ("  (label %s)" % label) if label else ""))
 
         from .kicad.read import read_board
         from .kicad.write import apply_plan, finish_board, render_board
@@ -211,6 +228,9 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
             _say(quiet, "  --- last lines ---\n" + e.details["tail"])
         if verbose and e.details.get("traceback"):
             _say(quiet, e.details["traceback"])
+    if not rec.run_id:                       # generation failed before the id could be taken
+        rec.run_id = run_dir.name.lstrip(".")
+        rec.paths["run_dir"] = str(run_dir)
     rec.save(run_dir / "run.json")
     latest = run_dir.parent / "latest.json"
     text = ""
@@ -218,10 +238,12 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
         if latest.exists():
             try:
                 previous = RunRecord.load(latest)
-                if previous.run_id != label:
+                if previous.run_id != rec.run_id:
                     text = impact(previous, rec)
-                    (run_dir / "impact.txt").write_text(text + "\n")
-                    _say(quiet, text)
+                else:
+                    text = "same inputs as the previous run: id %s again, nothing to compare" % rec.run_id
+                (run_dir / "impact.txt").write_text(text + "\n")
+                _say(quiet, text)
             except (json.JSONDecodeError, TypeError):
                 pass
         shutil.copy(run_dir / "run.json", latest)
