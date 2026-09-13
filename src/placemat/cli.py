@@ -42,10 +42,9 @@ def parser() -> argparse.ArgumentParser:
     drc.add_argument("pcb")
     drc.add_argument("--json", action="store_true")
 
-    m = sub.add_parser("measure", help="what the generated board measures: a cell or part's extents and pads")
+    m = sub.add_parser("measure", help="what the generated board measures: each cell's size and members, a part's size and pads")
     m.add_argument("pcb")
     m.add_argument("items", nargs="*", help="cell names or part instances (default: every cell)")
-    m.add_argument("--rotation", type=float, default=0.0)
     return root
 
 
@@ -126,22 +125,17 @@ def cmd_route(args) -> int:
 
 def cmd_measure(args) -> int:
     from .kicad.read import read_board
-    from .layout import Board
-    from .values import Cell, Part
     snap = read_board(args.pcb)
-    b = Board(snap)
     items = args.items or sorted(snap.cells)
     for name in items:
         if name in snap.cells:
-            e = b.extent(Cell(name), rotation=args.rotation)
             c = snap.cell(name)
-            print("cell %-16s %.3f x %.3f (rot %g)  members %s" % (
-                name, e.width, e.height, args.rotation, " ".join(fp.ref for fp in c.members)))
+            print("cell %-16s %.3f x %.3f  members %s" % (
+                name, c.box.width, c.box.height, " ".join(fp.ref for fp in c.members)))
         else:
             fp = snap.footprint(name)
-            e = b.extent(Part(fp.inst), rotation=args.rotation)
-            print("part %-16s %s  %.3f x %.3f (rot %g)  pads %s" % (
-                fp.inst, fp.ref, e.width, e.height, args.rotation,
+            print("part %-16s %s  %.3f x %.3f  pads %s" % (
+                fp.inst, fp.ref, fp.body_box.width, fp.body_box.height,
                 " ".join("%s:%s" % (p.number, p.net) for p in fp.pads)))
     return 0
 

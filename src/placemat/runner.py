@@ -171,7 +171,7 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
         shutil.copy(src.pcb, run_dir / "layout.kicad_pcb")
         _say(quiet, "board   written %s (%.1fs)" % (src.pcb.relative_to(src.board_dir), rec.timing_s["write"]))
 
-        metrics = {"board": [plan.outline.width, plan.outline.height] if plan.outline else None,
+        metrics = {"board": [round(plan.outline.width, 3), round(plan.outline.height, 3)] if plan.outline else None,
                    "findings": len(plan.findings), "placed": n_place, "copper_ops": n_copper}
         if drc:
             t0 = time.time()

@@ -97,7 +97,7 @@ placemat run <script> [--label L] [--fresh] [--no-render] [--no-drc] [-v] [--jso
 placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--json]
 placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
-placemat measure <layout.kicad_pcb> [cell-or-part ...] [--rotation 90]
+placemat measure <layout.kicad_pcb> [cell-or-part ...]
 ```
 A run leaves `.placemat/runs/<label>/` beside the board: `run.json`,
 `script.log`, `drc.json`, `generate.log`, `impact.txt`, the written

@@ -139,3 +139,47 @@ checkout.
   -> groups -> loose -> copper -> repair (nudge loose only) -> drops -> silk
   -> report. A FIXED copper intent whose endpoint is a loose part is an
   error at declaration time, not a surprise at run time.
+
+## The placer: plan before code (agreed 2026-09-13, not built)
+
+What the placer has: an occupancy model over the generated board's geometry
+that checks member courtyards, holes and pad clearance (so two cells may
+overlap by box when their parts do not), and a grid scan around a hint.
+What it lacks is everything that chooses the hint and the order.
+
+1. **Links price the search.** `board.link(pad_a, pad_b, weight, limit_mm=,
+   why=)`. Weight is an enum with a default (SHORT, PREFER, DEFAULT, FREE)
+   or any integer; 0 means the link adds nothing to the score. A candidate
+   scores the sum over the part's links of weight times distance; SHORT with
+   a limit is a hard bound, reported against the achieved length. A net
+   whose off-board run dwarfs the board (an endstop, a motor phase) is FREE:
+   nothing is pulled toward its connector. A bypass cap is SHORT at its pin.
+   A series resistor between two far parts is PREFER on both links and lands
+   wherever there is room between them.
+2. **Net-seeded search.** The hint is where the part's non-FREE nets already
+   are (the link-weighted centroid of the placed pads it connects to), then
+   the grid scan, scored by links, not only legality.
+3. **Pocket scan.** For a cell or part with no placed partner: enumerate the
+   free rectangles that fit its envelope and take the best by score. This is
+   the case the old scripts hand-typed hints for.
+4. **Blocks.** A part with satellites placed by rule off its real pads (the
+   input cap on the input pin's axis, one courtyard step out). The rules
+   are declared once; the placer lays the block out at every candidate from
+   real pad geometry, so its envelope is exact. No inflation factor.
+5. **Order is the placer's, derived, never the script's.** Tiers first:
+   FIXED, then EDGE (a cell containing an edge-bound connector inherits the
+   edge: connector outward, pins inboard), then free cells, then blocks,
+   then loose parts. Within a tier: the largest and most awkward first
+   (fit = area over remaining free area, shape), then by link pull toward
+   what is already placed, then declared separation. Each choice is logged
+   with the sentence that made it.
+6. **Rotation** is only interesting off the 90-degree grid, and then the
+   thing to measure is the occupied polygon (union of member courtyards),
+   not the bounding box. Not built until a board needs it.
+7. **Separation scoring** (keep power, analogue, digital and noisy regions
+   apart, by classifying nets and parts): an idea to develop after the
+   above works on the Middleweight, not part of this round.
+8. **Routing config per board**: the router's grid and clearance must be
+   chosen per board (the Breakout at 0.1 mm grid is 12M cells a layer and
+   every net fails "boxed in" in 220 s); an open question alongside the
+   placer, not a placer feature.

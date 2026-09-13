@@ -155,8 +155,9 @@ def impact(before: RunRecord, after: RunRecord) -> str:
             d = _delta(kind, was.get(kind, 0), now.get(kind, 0), "%d")
             if d:
                 deltas.append("  " + d)
-    if a.get("board") != b.get("board"):
-        deltas.append("  board %s -> %s" % (a.get("board"), b.get("board")))
+    ab, bb = a.get("board"), b.get("board")
+    if (ab is None) != (bb is None) or (ab and bb and any(abs(x - y) > 0.005 for x, y in zip(ab, bb))):
+        deltas.append("  board %s -> %s" % (ab, bb))
     if deltas:
         lines.append("metrics:")
         lines += deltas

@@ -90,3 +90,16 @@ def test_free_area_is_the_board_less_the_courtyards_on_a_face():
     assert abs(occ.free_area(Face.FRONT) - (2000.0 - 9.24)) < 1e-6
     assert abs(occ.free_area(Face.BACK) - (2000.0 - 9.24)) < 1e-6
     assert abs(occ.free_area() - (4000.0 - 18.48)) < 1e-6
+
+
+def test_two_cells_may_overlap_by_box_when_their_parts_do_not():
+    # an L-shaped cell: a wide part at the top, a narrow one below it on the left
+    fps = [footprint("U1", 10, 10, w=10, h=2, cell="a", inst="a.u"),
+           footprint("R1", 6, 14, w=2, h=2, cell="a", inst="a.r"),
+           footprint("R2", 30, 30, w=2, h=2, cell="b", inst="b.r")]
+    occ = Occupancy(board_geometry(fps, cells=["a", "b"], width=50, height=50), edge_margin=0.0)
+    a, b = occ.geometry.cell("a"), occ.geometry.cell("b")
+    # drop b's part into the empty corner of a's box (right of R1, below U1)
+    inside_a = Location(12.0, 14.0)
+    assert a.box.contains_point(inside_a)
+    assert occ.legal(b, Placement(inside_a, 0, Face.FRONT)) is None
