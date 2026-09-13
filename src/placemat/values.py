@@ -241,6 +241,14 @@ class Y:
     dy: float = 0.0
 
 
+@dataclass(frozen=True)
+class Mid:
+    """The midpoint of two references (pads, points), for a part or a row
+    that sits between them: `X(Mid(pin_p, pin_n))`."""
+    a: object
+    b: object
+
+
 class LinkWeight(IntEnum):
     """What a millimetre costs on one connection when a part is placed. Any
     integer works; these are the usual values. FREE (0) means the connection

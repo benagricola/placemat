@@ -50,12 +50,20 @@ trunk = board.row([CN, U13], Edge.NORTH, gap=2.5, align="center")  # centred, on
 board.row(parts, Edge.NORTH, gap=1.5, clearance=12.0, rotation=180, line="centre", start=trunk.centre(U13) - 4)
 board.size(width=EDGE + power.depth + 4 + bus.depth + EDGE, height=max(power.end, bus.end) + TOP)
 ```
-A row's `depth` (how far inboard it reaches), `length`, `start`, `end` and
-`centre(item)` are numbers at declaration (a centred row's along numbers
-once the size is set). `row.inner` and `row.outer` are its inboard boundary
-and its edge line, usable as a coordinate in copper (`(power.inner + 1.0,
-y)`). Declare the size after the rows that set it; a centred row declared
-before `size()` is placed at resolve.
+Where a row sits along its edge, one of: `start=` a number; `align="center"`
+on the board; `centre=` or `end=` a reference (`X(Mid(pin_n, pin_p))`,
+`X(pad, -2.0)`); `before=` or `after=` another row, one gap away. A row's
+`depth` (how far inboard it reaches) and `length` are numbers at
+declaration; `start`, `end` and `centre(item)` too when it starts at a
+number, otherwise refer to its items' pads. `row.inner` and `row.outer` are
+its inboard boundary and its edge line, usable as a coordinate in copper
+(`(power.inner + 1.0, y)`). Declare the size after the rows that set it.
+
+**Positions said in terms of pads.** `at=` and `center=` take a Location
+or a point of references, resolved when the item is placed:
+`center=(X(Mid(rb_mid, ra_mid)), Y(rb_mid, 3.0))` puts a cap under the
+midpoint of two pads. An item placed that way goes down after what it
+refers to, which must be FIXED or EDGE.
 
 **Modules.** A module's fragment runs the same way: `placemat run
 modules/X/X_layout.py` finds the `Layout(name=, path=)` in the `.zen`
@@ -118,6 +126,11 @@ A bus down a board is written as it looks: one vertical (or horizontal)
 track per net between the first and last pad it serves, `(x, Y(pad))` to
 `(x, Y(other_pad))`, and one short track per pad from the pad to that line,
 `[pad, (x, Y(pad))]`. No object stands for the bus.
+
+**Corners.** Every track corner is cut back `chamfer` (default 1.0 mm) along
+both legs, so a right angle is two 45s; `chamfer=0` keeps it sharp. A tap
+that must return is written as one chain: `..., (band, Y(pin)), pin,
+(X(pin, -2), Y(pin, 2)), (band, Y(pin, 2)), ...`.
 
 **Who bridges.** Where two tracks of different nets cross on one layer, the
 lower `priority` passes under; at equal priority the shorter one does; a

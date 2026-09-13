@@ -274,7 +274,7 @@ def _unit(a: Location, b: Location):
     return (dx / n, dy / n) if n > 1e-12 else (0.0, 0.0)
 
 
-def _chamfered(pts: list, c: float) -> list:
+def chamfered(pts: list, c: float) -> list:
     """Cut every corner of a polyline back by `c` along both legs, so a 90
     degree turn becomes two 45s (shorter where a leg is short)."""
     if c <= 0 or len(pts) < 3:
@@ -283,7 +283,8 @@ def _chamfered(pts: list, c: float) -> list:
     for i in range(1, len(pts) - 1):
         a, v, b = pts[i - 1], pts[i], pts[i + 1]
         u1, u2 = _unit(a, v), _unit(v, b)
-        if u1[0] * u2[0] + u1[1] * u2[1] > 0.999:
+        dot = u1[0] * u2[0] + u1[1] * u2[1]
+        if dot > 0.999 or dot < -0.999:      # straight on, or a reversal: nothing to cut
             out.append(v)
             continue
         k = min(c, a.distance(v) / 2.0, v.distance(b) / 2.0)
@@ -364,7 +365,7 @@ def pair_ops(net_p: str, net_n: str, layer: CopperLayer, width: float, gap: floa
     the pair's layer, or whose pad has no copper there, goes over the other
     face from a via stepped `via_step` away from the partner."""
     h = (width + gap) / 2.0
-    centre = _chamfered([q if isinstance(q, Location) else Location(*q) for q in path], chamfer)
+    centre = chamfered([q if isinstance(q, Location) else Location(*q) for q in path], chamfer)
 
     def side(a, b, q):
         return (b.x - a.x) * (q.y - a.y) - (b.y - a.y) * (q.x - a.x)

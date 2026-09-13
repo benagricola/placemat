@@ -1,0 +1,51 @@
+"""Positions said in terms of other things: a part at the midpoint of two
+pads, a row centred on a pad pair or butted before or after another row,
+a row that ends at a pad. No number a pad already knows is typed."""
+import pytest
+
+from placemat.layout import Board
+from placemat.values import Edge, Location, Mid, Part, PadRef, X, Y
+from tests.fixtures import board_geometry, footprint
+
+
+def make_board():
+    fps = [footprint("J1", 10, 5, w=12, h=4, inst="j1", nets=("A", "B")),        # pads at x 4.6 and 15.4 when at 10
+           footprint("R1", 30, 30, w=3, h=1.3, inst="r1", nets=("A", "M")),
+           footprint("R2", 40, 30, w=3, h=1.3, inst="r2", nets=("M", "B")),
+           footprint("H1", 50, 30, w=4, h=2, inst="h1", nets=("B", "A")),
+           footprint("C1", 20, 40, w=3, h=1.3, inst="c1", nets=("M", "GND"))]
+    return Board(board_geometry(fps, width=60, height=60), edge_margin=2.0)
+
+
+def test_a_part_may_be_placed_at_the_midpoint_of_two_pads():
+    b = make_board()
+    b.place(Part("j1"), edge=Edge.NORTH, along=20.0, rotation=0, clearance=2.0)
+    b.place(Part("c1"), center=(X(Mid(PadRef(Part("j1"), "A"), PadRef(Part("j1"), "B"))), Y(PadRef(Part("j1"), "A"), 6.0)),
+            rotation=90)
+    plan = b.resolve()
+    pa, pb = plan.occupancy.pad_location("J1", "1"), plan.occupancy.pad_location("J1", "2")
+    assert plan.box("c1").center.x == pytest.approx((pa.x + pb.x) / 2)
+    assert plan.box("c1").center.y == pytest.approx(pa.y + 6.0)
+
+
+def test_a_row_may_be_centred_on_a_reference_and_another_butted_before_it():
+    b = make_board()
+    b.place(Part("j1"), edge=Edge.NORTH, along=30.0, rotation=0, clearance=2.0)
+    pa, pb = PadRef(Part("j1"), "A"), PadRef(Part("j1"), "B")
+    pair = b.row([Part("r1"), Part("r2")], Edge.NORTH, gap=1.0, clearance=10.0, rotation=0, centre=X(Mid(pa, pb)))
+    b.row([Part("h1")], Edge.NORTH, gap=1.0, clearance=10.0, rotation=0, before=pair)
+    plan = b.resolve()
+    ja, jb = plan.occupancy.pad_location("J1", "1"), plan.occupancy.pad_location("J1", "2")
+    r1, r2, h1 = plan.box("r1"), plan.box("r2"), plan.box("h1")
+    assert (r1.right + r2.left) / 2 == pytest.approx((ja.x + jb.x) / 2)      # the gap between them is under the midpoint
+    assert h1.right == pytest.approx(r1.left - 1.0)                            # butted before, one gap away
+
+
+def test_a_row_may_end_at_a_reference():
+    b = make_board()
+    b.place(Part("j1"), edge=Edge.NORTH, along=40.0, rotation=0, clearance=2.0)
+    b.row([Part("r1"), Part("r2")], Edge.NORTH, gap=1.0, clearance=10.0, rotation=0,
+          end=X(PadRef(Part("j1"), "A"), -2.0))
+    plan = b.resolve()
+    ja = plan.occupancy.pad_location("J1", "1")
+    assert plan.box("r2").right == pytest.approx(ja.x - 2.0)

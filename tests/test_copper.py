@@ -41,7 +41,7 @@ def test_a_pad_reference_with_an_unknown_net_fails_at_declaration():
 
 def test_a_polyline_becomes_one_track_per_leg_and_vias_are_ops():
     b = make_board()
-    b.track(Net("MID"), [Location(0, 0), Location(5, 0), Location(5, 5)], layer=CopperLayer.B, width=0.5)
+    b.track(Net("MID"), [Location(0, 0), Location(5, 0), Location(5, 5)], layer=CopperLayer.B, width=0.5, chamfer=0)
     b.via(Net("MID"), Location(5, 5))
     plan = b.resolve()
     tracks = [o for o in plan.copper if isinstance(o, Track)]
@@ -108,7 +108,7 @@ def test_a_point_may_mix_a_fixed_coordinate_with_a_pads():
     b = make_board()
     b.place(Part("r1"), at=Location(30, 30))
     b.track(Net("MID"), [PadRef(Part("r1"), "MID"), (10.0, Y(PadRef(Part("r1"), "MID"))),
-                         (X(PadRef(Part("r1"), "MID"), dx=1.0), 50.0)], layer=CopperLayer.F)
+                         (X(PadRef(Part("r1"), "MID"), dx=1.0), 50.0)], layer=CopperLayer.F, chamfer=0)
     plan = b.resolve()
     t1, t2 = plan.copper
     assert t1.end == Location(10.0, 30.0)
@@ -127,3 +127,20 @@ def test_a_finger_band_may_be_placed_around_a_pads_y():
     ys = sorted({y for _, y in p.points})
     xs = sorted({x for x, _ in p.points})
     assert ys == [27.0, 33.0] and xs == [33.4, 60.0]
+
+
+def test_a_tracks_right_angle_corner_is_chamfered_at_45_unless_told_not():
+    """Two 45s survive vibration better than one 90: every right-angle
+    corner of a track becomes a chamfer, `chamfer=0` keeps the corner."""
+    b = make_board()
+    b.place(Part("r1"), at=Location(30, 30))
+    b.track(Net("MID"), [PadRef(Part("r1"), "MID"), (40.0, 30.0), (40.0, 40.0)], layer=CopperLayer.F, width=0.3)
+    plan = b.resolve()
+    legs = [op for op in plan.copper if isinstance(op, Track)]
+    diag = [t for t in legs if abs(abs(t.end.x - t.start.x) - abs(t.end.y - t.start.y)) < 1e-9 and t.start != t.end]
+    assert len(legs) == 3 and len(diag) == 1
+    assert diag[0].start == Location(39.0, 30.0) and diag[0].end == Location(40.0, 31.0)      # 1 mm legs
+    b = make_board()
+    b.place(Part("r1"), at=Location(30, 30))
+    b.track(Net("MID"), [PadRef(Part("r1"), "MID"), (40.0, 30.0), (40.0, 40.0)], layer=CopperLayer.F, width=0.3, chamfer=0)
+    assert len([op for op in b.resolve().copper if isinstance(op, Track)]) == 2
