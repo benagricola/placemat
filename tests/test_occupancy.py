@@ -1,4 +1,5 @@
 from placemat.occupancy import Occupancy
+import pytest
 from placemat.placement import Placement
 from placemat.values import Face, Location
 from tests.fixtures import board_geometry, footprint, track
@@ -119,3 +120,31 @@ def test_a_zone_fill_never_blocks_a_placement():
     g = board_geometry([fp], copper=[zone], width=50, height=50)
     occ = Occupancy(g, 1.0)
     assert occ.legal(fp, Placement(Location(25, 25), 0, Face.FRONT)) is None
+
+
+def test_a_scan_may_hand_legal_a_prefiltered_obstacle_list_and_get_the_same_answer():
+    """The obstacles near a search region are gathered once per scan; a
+    candidate is then checked against those only, with the same verdict."""
+    from placemat.placement import Placement
+    from placemat.values import Face
+    fps = [footprint("U1", 10, 10, w=4, h=2), footprint("R1", 13, 10, w=2, h=1), footprint("R9", 40, 40, w=2, h=1)]
+    g = board_geometry(fps, width=50, height=50)
+    occ = Occupancy(g, edge_margin=0.0, board_box=g.outline_box)
+    geom = occ._geometry(fps[0])
+    near = occ.obstacles(geom, Box(5, 5, 20, 15))
+    assert {s.owner for s in near} == {"R1"}                       # R9 is far from the region
+    p = Placement(Location(11.5, 10), 0, Face.FRONT)
+    assert occ.legal(fps[0], p) == occ.legal(fps[0], p, others=near) and occ.legal(fps[0], p)
+    far = Placement(Location(20, 30), 0, Face.FRONT)
+    assert occ.legal(fps[0], far) is None and occ.legal(fps[0], far, others=near) is None
+
+
+def test_candidate_pad_locations_are_the_transformed_pad_centres():
+    from placemat.placement import Placement
+    from placemat.values import Face
+    fps = [footprint("U1", 10, 10, w=4, h=2)]
+    occ = Occupancy(board_geometry(fps, width=50, height=50), edge_margin=0.0)
+    pads = occ.candidate_pad_locations(fps[0], Placement(Location(20, 20), 90, Face.FRONT))
+    # pad 1 sits 1.4 west of the origin at rotation 0; at 90 (KiCad's sense) it turns onto the y axis
+    assert pads[("U1", "1")].distance(Location(20, 20)) == pytest.approx(1.4)
+    assert pads[("U1", "1")].x == pytest.approx(20.0)

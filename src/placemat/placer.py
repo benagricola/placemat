@@ -58,11 +58,15 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     reasons: dict = {}
     tried = 0
     best = None
+    geom = occ._geometry(item)
+    reach = radius + max(geom.body.width, geom.body.height)       # any rotation of the body, anywhere in the scan
+    region = Box(hint.location.x - reach, hint.location.y - reach, hint.location.x + reach, hint.location.y + reach)
+    others = occ.obstacles(geom, region)
     for d, x, y in _grid(hint.location, radius, step):
         for rot in rots:
             cand = Placement(Location(x, y), rot, hint.face)
             tried += 1
-            why = occ.legal(item, cand, clearance)
+            why = occ.legal(item, cand, clearance, others=others)
             if why is None:
                 if score is None:
                     best = (0.0, d, rot, cand)

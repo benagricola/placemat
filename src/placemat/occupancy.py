@@ -51,6 +51,7 @@ class ItemGeometry:
 
 
 _BOTH = frozenset([Face.FRONT, Face.BACK])
+_GAP = 1.0      # how far outside a box a conflict can still reach: the largest clearance a rule asks for
 
 
 def _fp_shapes(fp: Footprint) -> list[Shape]:
@@ -80,6 +81,7 @@ class Occupancy:
         self.items: dict[str, ItemGeometry] = {}
         self.reservations: list[Reservation] = []
         self.copper: list[Shape] = []
+        self._cells: dict[str, ItemGeometry] = {}        # a cell's geometry, until something moves
         for fp in geometry.footprints:
             self._register(fp)
         for c in geometry.copper:
@@ -105,15 +107,18 @@ class Occupancy:
         if isinstance(item, Footprint):
             return self.items.get(item.ref) or self._register(item)
         if isinstance(item, CellGeom):
+            if item.name in self._cells:
+                return self._cells[item.name]
             members = [self.items[fp.ref] for fp in item.members]
             shapes = tuple(s for m in members for s in m.shapes)
             for c in self.copper:
                 if c.owner == item.name:
                     shapes += (c,)
             body = Box.union([m.body for m in members] + [s.box for s in shapes if s.owner == item.name])
-            return ItemGeometry(frozenset(m for mg in members for m in mg.owners) | {item.name},
-                                Placement(body.center, 0.0, Face.FRONT), shapes, body,
-                                frozenset(n for m in members for n in m.nets))
+            self._cells[item.name] = ItemGeometry(frozenset(m for mg in members for m in mg.owners) | {item.name},
+                                                  Placement(body.center, 0.0, Face.FRONT), shapes, body,
+                                                  frozenset(n for m in members for n in m.nets))
+            return self._cells[item.name]
         raise TypeError("cannot place a %s" % type(item).__name__)
 
     @staticmethod
@@ -148,13 +153,15 @@ class Occupancy:
         return geom, out
 
     def candidate_pad_locations(self, item, placement: Placement) -> dict:
-        """{(refdes, pad number): Location} for the item at a candidate placement."""
-        _, shapes = self.candidate_shapes(item, placement)
+        """{(refdes, pad number): Location} for the item at a candidate
+        placement: the pad centres at the reference, moved as points."""
+        geom = self._geometry(item)
+        t = self._transform(geom, placement)
         boxes: dict = {}
-        for s in shapes:
+        for s in geom.shapes:
             if s.kind in ("pad", "through"):
                 boxes.setdefault((s.owner, s.label), []).append(s.box)
-        return {k: Box.union(v).center for k, v in boxes.items()}
+        return {k: t.apply_location(Box.union(v).center) for k, v in boxes.items()}
 
     def pad_location(self, ref: str, number: str) -> Location:
         """Where a pad is NOW (after every commit so far): its outline's box centre."""
@@ -196,6 +203,7 @@ class Occupancy:
     def commit(self, item, placement: Placement):
         """Record that `item` now sits at `placement`; later checks see it there."""
         geom, shapes = self.candidate_shapes(item, placement)
+        self._cells.clear()
         if isinstance(item, Footprint):
             self.items[item.ref] = ItemGeometry(geom.owners, placement, tuple(shapes),
                                                 self.body_box(item, placement), geom.nets)
@@ -234,10 +242,21 @@ class Occupancy:
         return total
 
     # ------------------------------------------------------------ legality
-    def legal(self, item, placement: Placement, clearance: float | None = None) -> str | None:
+    def obstacles(self, geom: ItemGeometry, region: Box | None = None) -> list:
+        """Every shape not owned by `geom`, within `region` (plus the
+        conflict gap) when one is given: gathered once for a whole scan."""
+        out = [s for owner, g in self.items.items() if owner not in geom.owners for s in g.shapes]
+        out += [c for c in self.copper if c.owner not in geom.owners]
+        if region is not None:
+            out = [o for o in out if o.box.overlaps(region, gap=_GAP)]
+        return out
+
+    def legal(self, item, placement: Placement, clearance: float | None = None, others=None) -> str | None:
         """None when `item` may sit at `placement`, else one sentence saying
-        what stops it. The first failure found is reported."""
-        geom, shapes = self.candidate_shapes(item, placement)
+        what stops it. The first failure found is reported. `others` is a
+        prefiltered obstacle list from `obstacles()`; without one every
+        shape on the board is a candidate obstacle."""
+        geom = self._geometry(item)
         body = self.body_box(item, placement)
         if self.board_box is not None and self.edge_margin is not None:
             inner = self.board_box.inflate(-self.edge_margin)
@@ -246,13 +265,25 @@ class Occupancy:
         for r in self.reservations:
             if r.box.overlaps(body) and not (geom.nets & r.allow):
                 return "sits in the reservation for %s" % r.why
-        others = [s for owner, g in self.items.items() if owner not in geom.owners for s in g.shapes]
-        others += [c for c in self.copper if c.owner not in geom.owners]
-        for s in shapes:
-            for o in others:
-                if not s.box.overlaps(o.box, gap=1.0):
-                    continue
-                why = self._conflict(s, o, clearance)
+        if others is None:
+            others = self.obstacles(geom)
+        near = [o for o in others if o.box.overlaps(body, gap=_GAP)]
+        if not near:
+            return None
+        # Only a shape whose moved box reaches an obstacle is worth moving as a polygon.
+        t = self._transform(geom, placement)
+        flip = placement.face != geom.reference.face
+        for s in geom.shapes:
+            sb = transform_box(s.box, t)
+            close = [o for o in near if sb.overlaps(o.box, gap=_GAP)]
+            if not close:
+                continue
+            poly = transform_polygon(s.poly, t, clean=False)
+            faces = self._flip_faces(s.faces) if (flip and len(s.faces) == 1) else s.faces
+            layers = self._flip_layers(s.layers) if flip else s.layers
+            moved = Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label)
+            for o in close:
+                why = self._conflict(moved, o, clearance)
                 if why:
                     return why
         return None
