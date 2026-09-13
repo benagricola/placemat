@@ -72,3 +72,20 @@ def test_two_firm_placements_that_collide_stop_the_resolve_before_anything_is_se
     b.place(Part("r1"))
     plan = b.resolve()
     assert any("u2 (fixed)" in f for f in plan.findings) and plan.placement("r1") is not None
+
+
+def test_a_seeded_part_wired_to_a_pad_numbered_with_a_prime_still_seeds():
+    """Some footprints number a mechanically doubled leg "1'": a pad number
+    that is not all digits must not be read as a net name."""
+    from placemat.board_geometry import Footprint
+    from placemat.values import Box, Face
+    from tests.fixtures import pad
+    pads = (pad("SW2", "sw2", "1", "A", 9.4, 10), pad("SW2", "sw2", "1'", "A", 10.6, 10), pad("SW2", "sw2", "2", "B", 12, 10))
+    body = Box(8, 9, 13, 11)
+    sw = Footprint("SW2", "sw2", None, "SW2", Location(10.5, 10), 0.0, Face.FRONT, body, body.inflate(0.1), body, pads)
+    r = footprint("R1", 30, 30, nets=("A", "C"))
+    b = Board(board_geometry([sw, r], width=60, height=60), edge_margin=1.0)
+    b.place(Part("sw2"), at=Location(20, 20))
+    b.place(Part("r1"))
+    plan = b.resolve()
+    assert "seeded on A" in plan.step("r1").note
