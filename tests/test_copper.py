@@ -1,5 +1,7 @@
 """Copper is declared against pads and lanes, and planned after placement
 against where the pads actually landed."""
+import math
+
 import pytest
 
 from placemat.layout import Board
@@ -110,9 +112,9 @@ def test_a_point_may_mix_a_fixed_coordinate_with_a_pads():
     b.track(Net("MID"), [PadRef(Part("r1"), "MID"), (10.0, Y(PadRef(Part("r1"), "MID"))),
                          (X(PadRef(Part("r1"), "MID"), dx=1.0), 50.0)], layer=CopperLayer.F, chamfer=0)
     plan = b.resolve()
-    t1, t2 = plan.copper
+    t1, t2, t3 = plan.copper                            # the second leg is off the 45 grid: a 45 and a straight
     assert t1.end == Location(10.0, 30.0)
-    assert t2.end == Location(31.4 + 1.0, 50.0)
+    assert t3.end == Location(31.4 + 1.0, 50.0)
 
 
 def test_a_finger_band_may_be_placed_around_a_pads_y():
@@ -144,3 +146,21 @@ def test_a_tracks_right_angle_corner_is_chamfered_at_45_unless_told_not():
     b.place(Part("r1"), at=Location(30, 30))
     b.track(Net("MID"), [PadRef(Part("r1"), "MID"), (40.0, 30.0), (40.0, 40.0)], layer=CopperLayer.F, width=0.3, chamfer=0)
     assert len([op for op in b.resolve().copper if isinstance(op, Track)]) == 2
+
+
+def test_a_track_leg_off_the_45_grid_becomes_a_45_and_a_straight():
+    """KiCad draws at 0, 45 and 90 only; so does placemat. A leg between two
+    points at an odd angle leaves the first point at 45 and runs straight
+    from there."""
+    b = make_board()
+    b.track(Net("MID"), [Location(0, 0), Location(10, 3)], layer=CopperLayer.F, width=0.3)
+    legs = [op for op in b.resolve().copper if isinstance(op, Track)]
+    assert [(t.start, t.end) for t in legs] == [(Location(0, 0), Location(3, 3)), (Location(3, 3), Location(10, 3))]
+    b = make_board()
+    b.track(Net("MID"), [Location(0, 0), Location(10, 10)], layer=CopperLayer.F, width=0.3)
+    assert len([op for op in b.resolve().copper if isinstance(op, Track)]) == 1        # a true 45 is one leg
+    b = make_board()
+    b.place(Part("r1"), at=Location(30, 30))
+    b.track(Net("MID"), [Location(20, 40), PadRef(Part("r1"), "MID")], layer=CopperLayer.F, width=0.3)
+    legs = [op for op in b.resolve().copper if isinstance(op, Track)]
+    assert legs[-1].start.distance(legs[-1].end) == pytest.approx(10 * math.sqrt(2)) and legs[-1].end == Location(31.4, 30)   # arriving at a pad: the 45 is last

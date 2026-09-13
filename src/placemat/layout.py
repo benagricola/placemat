@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .copper import (CopperOp, Pour, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, pair_ops, polyline_tracks,
+from .copper import (CopperOp, Pour, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
                      resolve_bridges)
 from .geometry import polygon_box
 from .occupancy import Occupancy, Shape
@@ -535,9 +535,11 @@ class Board:
               priority: Priority = Priority.DEFAULT, bridge: bool = False, why: str = ""):
         """Track segments through `points` in order, on one layer. A point is
         a Location, a pad reference, a Mid, or an (x, y) pair whose members
-        may be numbers or X()/Y() of a reference. Every corner is cut back
-        `chamfer` along both legs (a right angle becomes two 45s; a short leg
-        gets a shorter cut; `chamfer=0` keeps sharp corners). `bridge=True`
+        may be numbers or X()/Y() of a reference. Legs run at 0, 45 or 90
+        degrees only: a leg at another angle is a 45 and a straight, the 45
+        at the pad end. Every corner is cut back `chamfer`
+        along both legs (a right angle becomes two 45s; a short leg gets a
+        shorter cut; `chamfer=0` keeps sharp corners). `bridge=True`
         lets it pass under a same-layer track of another net it crosses (a
         via, a track on the opposite face, a via back) when it is the one
         that must yield: the lower priority, or at equal priority the shorter."""
@@ -547,7 +549,8 @@ class Board:
         w = self._width(name, width)
 
         def plan(ctx):
-            return polyline_tracks(name, layer, w, chamfered([ctx.locate(p) for p in points], chamfer))
+            pads = [isinstance(p, (PadRef, CellPadRef)) for p in points]
+            return polyline_tracks(name, layer, w, chamfered(octilinear([ctx.locate(p) for p in points], pads), chamfer))
         return self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge)
 
     def pair(self, net_p, net_n, path, *, layer: CopperLayer, width: float | None = None, gap: float | None = None,

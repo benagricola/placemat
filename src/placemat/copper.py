@@ -275,8 +275,9 @@ def _unit(a: Location, b: Location):
 
 
 def chamfered(pts: list, c: float) -> list:
-    """Cut every corner of a polyline back by `c` along both legs, so a 90
-    degree turn becomes two 45s (shorter where a leg is short)."""
+    """Cut every right-angle corner of a polyline back by `c` along both
+    legs, so it becomes two 45s (shorter where a leg is short). Other turns
+    are left: a 45 is already on the grid, and cutting it would not be."""
     if c <= 0 or len(pts) < 3:
         return list(pts)
     out = [pts[0]]
@@ -284,7 +285,8 @@ def chamfered(pts: list, c: float) -> list:
         a, v, b = pts[i - 1], pts[i], pts[i + 1]
         u1, u2 = _unit(a, v), _unit(v, b)
         dot = u1[0] * u2[0] + u1[1] * u2[1]
-        if dot > 0.999 or dot < -0.999:      # straight on, or a reversal: nothing to cut
+        axis = all(abs(u[0]) < 1e-9 or abs(u[1]) < 1e-9 for u in (u1, u2))
+        if abs(dot) > 1e-6 or not axis:       # only a right angle between axis legs is cut: a turn made of 45s is drawn as meant
             out.append(v)
             continue
         k = min(c, a.distance(v) / 2.0, v.distance(b) / 2.0)
@@ -338,6 +340,25 @@ def _nearest(pts: list, q: Location):
         if best is None or dist < best[0]:
             best = (dist, n, i, t)
     return best[1], best[2], best[3]
+
+
+def octilinear(pts: list, at_pad=None) -> list:
+    """The polyline with every leg at 0, 45 or 90 degrees: a leg at another
+    angle becomes a 45 and a straight, as KiCad's own router draws. The 45
+    sits at the pad end of the leg (leaving a pad, or arriving at one), so
+    the straight never runs along a pad row into a neighbour."""
+    at_pad = at_pad or [False] * len(pts)
+    out = [pts[0]] if pts else []
+    for i, (a, b) in enumerate(zip(pts, pts[1:])):
+        dx, dy = b.x - a.x, b.y - a.y
+        if abs(dx) > 1e-9 and abs(dy) > 1e-9 and abs(abs(dx) - abs(dy)) > 1e-9:
+            m = min(abs(dx), abs(dy))
+            if at_pad[i + 1] and not at_pad[i]:       # arriving at a pad: straight first, 45 last
+                out.append(Location(round(b.x - math.copysign(m, dx), 6), round(b.y - math.copysign(m, dy), 6)))
+            else:                                    # leaving a pad, or neither: 45 first
+                out.append(Location(round(a.x + math.copysign(m, dx), 6), round(a.y + math.copysign(m, dy), 6)))
+        out.append(b)
+    return out
 
 
 def _dogleg(a: Location, b: Location) -> list:
