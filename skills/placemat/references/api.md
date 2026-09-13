@@ -131,11 +131,16 @@ track per net between the first and last pad it serves, `(x, Y(pad))` to
 `(x, Y(other_pad))`, and one short track per pad from the pad to that line,
 `[pad, (x, Y(pad))]`. No object stands for the bus.
 
-**Corners.** Every leg is at 0, 45 or 90 degrees: an off-grid leg is a 45
-and a straight, in the order that turns least against its neighbours (a
-chamfered right angle counts as two turns). Every right angle between axis
-legs is cut back `chamfer` (default 1.0 mm) along both legs into two 45s;
-`chamfer=0` keeps it sharp. A tap
+**Corners and routing between points.** Every leg is at 0, 45 or 90
+degrees. Between two points that are not on the grid the tool tries the
+octilinear ways of up to three legs (the 45 at the start, at the end or
+between two straights, two 45s round a straight, the two L shapes), drops
+those whose legs touch another net's pad or copper, and keeps the one with
+the fewest direction changes against the legs either side (a chamfered
+right angle counting two), then the shortest. So a track is best given only
+its ends and the waypoints where it must go; the tool routes round what it
+knows is there. Every right angle between axis legs is cut back `chamfer`
+(default 1.0 mm) along both legs into two 45s; `chamfer=0` keeps it sharp. A tap
 that must return is written as one chain: `..., (band, Y(pin)), pin,
 (X(pin, -2), Y(pin, 2)), (band, Y(pin, 2)), ...`.
 

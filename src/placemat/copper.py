@@ -359,35 +359,67 @@ def _turns(dirs: list) -> int:
     return n
 
 
+def _leg_candidates(a: Location, b: Location) -> list:
+    """Octilinear ways from a to b with at most three legs, each a list of
+    points including a and b: the 45 at the start, at the end, or between
+    two straights; two 45s round one straight; and the two right-angle
+    L shapes. Every leg is at 0, 45 or 90 degrees."""
+    dx, dy = b.x - a.x, b.y - a.y
+    if abs(dx) < 1e-9 or abs(dy) < 1e-9 or abs(abs(dx) - abs(dy)) < 1e-9:
+        return [[a, b]]
+    sx, sy = math.copysign(1, dx), math.copysign(1, dy)
+    m = min(abs(dx), abs(dy))                      # the diagonal's reach on each axis
+    M = max(abs(dx), abs(dy))
+    major_x = abs(dx) >= abs(dy)                   # the straight runs along the major axis
+
+    def step(p, along, diag):
+        """p moved `along` on the major axis and `diag` on both (45)."""
+        ax = along + diag if major_x else diag
+        ay = diag if major_x else along + diag
+        return Location(round(p.x + sx * ax, 6), round(p.y + sy * ay, 6))
+    out = []
+    out.append([a, step(a, 0, m), b])                          # 45 then straight
+    out.append([a, step(a, M - m, 0), b])                      # straight then 45
+    for f in (0.25, 0.5, 0.75):                                # straight, 45, straight
+        s1 = (M - m) * f
+        out.append([a, step(a, s1, 0), step(a, s1, m), b])
+    for f in (0.25, 0.5, 0.75):                                # 45, straight, 45
+        d1 = m * f
+        out.append([a, step(a, 0, d1), step(a, M - m, d1), b])
+    out.append([a, Location(b.x, a.y), b])                     # the L shapes
+    out.append([a, Location(a.x, b.y), b])
+    return out
+
+
+def route_leg(a: Location, b: Location, pad_a: bool, pad_b: bool, prev, nxt, clear) -> list:
+    """The best octilinear way from a to b: among the candidates whose legs
+    all `clear`, the fewest direction changes against the legs either side
+    (a chamfered right angle counting two), then the shortest, then the 45
+    at the pad end. If none clears, the fewest-turn candidate is returned
+    and the conflict is left for the run to report."""
+    scored = []
+    for k, cand in enumerate(_leg_candidates(a, b)):
+        dirs = [prev] + [_dir(p, q) for p, q in zip(cand, cand[1:])] + [nxt]
+        turns = _turns(dirs)
+        length = sum(p.distance(q) for p, q in zip(cand, cand[1:]))
+        first = len(cand) == 3 and _dir(cand[0], cand[1])[0] != 0 and _dir(cand[0], cand[1])[1] != 0
+        tie = 0 if (first and not (pad_b and not pad_a)) or (not first and pad_b and not pad_a) else 1
+        ok = all(clear(p, q) for p, q in zip(cand, cand[1:])) if clear is not None else True
+        scored.append((0 if ok else 1, turns, round(length, 6), tie, k, cand))
+    scored.sort(key=lambda t: t[:5])
+    return scored[0][5]
+
+
 def octilinear(pts: list, at_pad=None, clear=None) -> list:
     """The polyline with every leg at 0, 45 or 90 degrees: a leg at another
-    angle becomes a 45 and a straight, as KiCad's own router draws. The
-    order is the one that turns least against the legs either side (a
-    chamfered right angle counts as two turns); on a tie the 45 sits at the
-    pad end of the leg, so the straight never runs along a pad row into a
-    neighbour. An order whose legs `clear(a, b)` says would hit something
-    is not taken while the other would not. Fewer turns, better signal
-    integrity."""
+    angle is routed by route_leg, the best clear octilinear way between its
+    ends given the legs either side."""
     at_pad = at_pad or [False] * len(pts)
     out = [pts[0]] if pts else []
     for i, (a, b) in enumerate(zip(pts, pts[1:])):
-        dx, dy = b.x - a.x, b.y - a.y
-        if abs(dx) > 1e-9 and abs(dy) > 1e-9 and abs(abs(dx) - abs(dy)) > 1e-9:
-            m = min(abs(dx), abs(dy))
-            diag_first = Location(round(a.x + math.copysign(m, dx), 6), round(a.y + math.copysign(m, dy), 6))
-            diag_last = Location(round(b.x - math.copysign(m, dx), 6), round(b.y - math.copysign(m, dy), 6))
-            prev = _dir(out[-2], out[-1]) if len(out) > 1 else None
-            nxt = _dir(b, pts[i + 2]) if i + 2 < len(pts) else None
-            first = _turns([prev, _dir(a, diag_first), _dir(diag_first, b), nxt])
-            last = _turns([prev, _dir(a, diag_last), _dir(diag_last, b), nxt])
-            prefer_first = first < last or (first == last and not (at_pad[i + 1] and not at_pad[i]))
-            if clear is not None:
-                ok_first = clear(a, diag_first) and clear(diag_first, b)
-                ok_last = clear(a, diag_last) and clear(diag_last, b)
-                if ok_first != ok_last:
-                    prefer_first = ok_first
-            out.append(diag_first if prefer_first else diag_last)
-        out.append(b)
+        prev = _dir(out[-2], out[-1]) if len(out) > 1 else None
+        nxt = _dir(b, pts[i + 2]) if i + 2 < len(pts) else None
+        out += route_leg(a, b, at_pad[i], at_pad[i + 1], prev, nxt, clear)[1:]
     return out
 
 

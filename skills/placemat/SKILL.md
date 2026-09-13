@@ -145,8 +145,11 @@ coordinates nobody chose.
   leg at 0, 45 or 90 degrees (an odd leg becomes a 45 and a straight,
   ordered to turn least against the legs either side, the 45 at the pad
   end on a tie) and every right angle cut into two 45s (`chamfer=0` keeps
-  one). Every turn costs signal integrity: give a track the fewest
-  waypoints that say where it must go and let the tool find the rest. Draw a daisy chain as a chain: the run bows out at 45 to an
+  one). Between two points the tool tries the octilinear routes of up to
+  three legs, drops those that touch another net's pad or copper, and keeps
+  the one with the fewest turns, then the shortest. Every turn costs signal
+  integrity: give a track its ends and only the waypoints that say where it
+  must go, and let the tool find the rest. Draw a daisy chain as a chain: the run bows out at 45 to an
   apex and one line leaves the apex for the pin; never a bus with stubs.
 - Rows and references before numbers: things down an edge are a `row`
   (connectors `line="outer"`, small parts on their centre line); a part
@@ -167,10 +170,11 @@ coordinates nobody chose.
 
 ## When a track or a placement fails
 
-- Read the finding as a claim about the script, not about the board. A
-  track that hits a pad has a waypoint in it that put it there; a run's
-  finding names that waypoint when pad to pad would clear. Remove the
-  waypoint and run again before anything else.
+- Read the finding as a claim about the script first. A track that hits
+  a pad may have a waypoint steering it there (the run says so when pad to
+  pad would clear), or its two ends may be placed so that no clean route
+  exists, or the tool may have no candidate that fits. Take those in that
+  order: remove the waypoint, then look at the placement, then at the tool.
 - Never say a route is impossible from one run. Draw the thing the plain
   way (pad to pad, no waypoints, no offsets), run, and read the numbers.
   "The geometry forbids it" is a claim to be tested like any other, and it

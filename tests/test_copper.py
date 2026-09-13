@@ -226,3 +226,46 @@ def test_a_waypoint_that_forces_a_track_into_a_pad_is_named():
     b.track(Net("B"), [hb, (X(hb), Y(hb, -1.0)), (X(hb, 2.0), Y(hb, -4.0)), ub], layer=CopperLayer.F, width=0.3)   # a waypoint inside pin A's pad
     plan = b.resolve()
     assert any("waypoint" in f and "pad to pad" in f for f in plan.findings), plan.findings
+
+
+def _pin_board():
+    """Two pins in a row and a jumper pad under the first: the case where the
+    straight shot from the jumper to the far pin clips the near pin."""
+    from placemat.board_geometry import Footprint
+    from placemat.values import Box, Face
+    from tests.fixtures import pad, footprint
+    pins = (pad("U1", "u1", 1, "A", 42.3, 14.2, 3.0, 3.0, True), pad("U1", "u1", 2, "B", 47.4, 14.2, 3.0, 3.0, True))
+    body = Box(38.0, 8.0, 52.0, 16.0)
+    conn = Footprint("U1", "u1", None, "U1", Location(44.85, 12.0), 0.0, Face.FRONT, body, body, body, pins)
+    jumper = footprint("H1", 43.7, 19.5, w=4, h=2, inst="h1", nets=("B", "C"), through=True)   # pad B at (42.3, 19.5): straight under pin A
+    b = Board(board_geometry([conn, jumper], width=60, height=60), edge_margin=1.0)
+    b.place(Part("u1"), at=Location(44.85, 12.0))
+    b.place(Part("h1"), at=Location(43.7, 19.5))
+    return b
+
+
+def test_a_leg_is_routed_round_a_pad_in_its_way_with_the_fewest_turns():
+    """Pad to pad, no waypoint: the direct 45 would clip pin A, so the tool
+    tries the octilinear candidates and keeps the clear one with the fewest
+    turns and then the shortest length."""
+    b = _pin_board()
+    hb, ub = PadRef(Part("h1"), "B"), PadRef(Part("u1"), "B")
+    b.track(Net("B"), [hb, ub], layer=CopperLayer.F, width=0.3)
+    plan = b.resolve()
+    legs = [op for op in plan.copper if isinstance(op, Track)]
+    assert not plan.findings
+    assert legs[0].start == Location(42.3, 19.5) and legs[-1].end == Location(47.4, 14.2)
+    assert len(legs) <= 4                                              # three legs, or a chamfered two
+    for t in legs:                                                     # every leg on the 45 grid
+        dx, dy = abs(t.end.x - t.start.x), abs(t.end.y - t.start.y)
+        assert dx < 1e-9 or dy < 1e-9 or abs(dx - dy) < 1e-9
+
+
+def test_the_candidate_with_the_fewest_turns_wins_then_the_shortest():
+    from placemat.copper import route_leg
+    # open board: (0,0) to (10,4). Candidates with one turn: 45-then-straight or straight-then-45; both 1 turn, equal length
+    pts = route_leg(Location(0, 0), Location(10, 4), False, False, None, None, lambda a, b: True)
+    assert len(pts) == 3
+    # arriving horizontally at the far end is needed next: the straight should come last
+    pts = route_leg(Location(0, 0), Location(10, 4), False, False, None, (1, 0), lambda a, b: True)
+    assert pts[1] == Location(4, 4)
