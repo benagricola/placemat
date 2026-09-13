@@ -26,7 +26,7 @@ from .placement import Placement
 from .placer import box_centered_placement, edge_placement, scan
 from .snapshot import CellGeom, Footprint, Snapshot
 from .values import (Box, Cell, CellPadRef, CopperLayer, Edge, Face, Location, Net, PadRef, Part,
-                     Priority)
+                     Priority, X, Y)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_LOOSE, RANK_COPPER = range(6)
 
@@ -245,9 +245,10 @@ class Board:
 
     def track(self, net, points, *, layer: CopperLayer, width: float | None = None,
               priority: Priority = Priority.DEFAULT, why: str = ""):
-        """A polyline of tracks through `points` (Locations and pad references)."""
+        """A polyline of tracks through `points`: Locations, pad references,
+        or (x, y) pairs whose members may be numbers or X()/Y() of a pad."""
         layer = CopperLayer.of(layer)
-        refs = [p for p in points if not isinstance(p, Location)]
+        refs = _refs_in(points)
         name = self.snapshot.require_net(net)
         w = self._width(name, width)
 
@@ -258,7 +259,7 @@ class Board:
     def via(self, net, at, *, drill: float | None = None, size: float | None = None,
             priority: Priority = Priority.DEFAULT, why: str = ""):
         name = self.snapshot.require_net(net)
-        refs = [] if isinstance(at, Location) else [at]
+        refs = _refs_in([at])
         d, s = drill or self.via_drill, size or self.via_size
 
         def plan(ctx):
@@ -271,7 +272,7 @@ class Board:
         same-net pads its outline touches)."""
         layer = CopperLayer.of(layer)
         name = self.snapshot.require_net(net)
-        refs = [p for p in points if not isinstance(p, Location)]
+        refs = _refs_in(points)
 
         def plan(ctx):
             pts = tuple((l.x, l.y) for l in (ctx.locate(p) for p in points))
@@ -292,7 +293,7 @@ class Board:
                 ch = self._chamfer if chamfer is None else chamfer
                 pts = board_zone_outline(self.width, self.height, inset, ch)
             return [Zone(name, l, pts, clearance, min_thickness, solid_pads) for l in layers]
-        refs = [] if outline is None else [p for p in outline if not isinstance(p, Location)]
+        refs = [] if outline is None else _refs_in(outline)
         return self._copper_intent("plane %s" % name, net, priority, plan, refs, why)
 
     def lane(self, net, *, x: float, layer: CopperLayer, width: float | None = None,
@@ -312,14 +313,17 @@ class Board:
         far layer so it stays one net."""
         layer = CopperLayer.of(layer)
         name = self.snapshot.require_net(net)
-        lo, hi = min(y_lo, y_hi), max(y_lo, y_hi)
+        refs = _refs_in([(x_from, y_lo), (x_to, y_hi)])
 
         def plan(ctx):
-            xs = [l.x for l in self._lanes if l.layer is layer and l.net != name
-                  and ctx.lane_extent(l) is not None
-                  and ctx.lane_extent(l)[0] <= hi and lo <= ctx.lane_extent(l)[1]]
-            return finger_ops(name, layer, lo, hi, x_from, x_to, xs, self.via_drill, self.via_size, bridge_width)
-        return self._copper_intent("finger %s" % name, net, priority, plan, [], why)
+            ylo, yhi = ctx.coord(y_lo, "y"), ctx.coord(y_hi, "y")
+            lo, hi = min(ylo, yhi), max(ylo, yhi)
+            xa, xb = ctx.coord(x_from, "x"), ctx.coord(x_to, "x")
+            xs = sorted({l.x for l in self._lanes if l.layer is layer and l.net != name
+                         and ctx.lane_extent(l) is not None
+                         and ctx.lane_extent(l)[0] <= hi and lo <= ctx.lane_extent(l)[1]})
+            return finger_ops(name, layer, lo, hi, xa, xb, xs, self.via_drill, self.via_size, bridge_width)
+        return self._copper_intent("finger %s" % name, net, priority, plan, refs, why)
 
     # ------------------------------------------------------------ resolution
     def resolve(self, progress=None) -> Plan:
@@ -381,7 +385,7 @@ class Board:
         return self._record_ops(occ, plan, c.key, c.priority, ops, c.why)
 
     def _draw_lanes(self, occ, ctx, lanes, plan: Plan) -> Step:
-        planner = LanePlanner(lanes, ctx.locate, self.via_drill, self.via_size)
+        planner = LanePlanner(lanes, ctx, self.via_drill, self.via_size)
         ops = planner.plan()
         ctx.lane_extents.update(planner.extents)
         prio = lanes[0].priority if lanes else Priority.DEFAULT
@@ -411,16 +415,41 @@ class _CopperContext:
         if isinstance(ref, Location):
             return ref
         if isinstance(ref, tuple) and len(ref) == 2:
-            return Location(*ref)
+            return Location(self.coord(ref[0], "x"), self.coord(ref[1], "y"))
         owner, number, dx, dy = self.board._pad_ref(ref)
         return self.occ.pad_location(owner, number).offset(dx, dy)
 
+    def coord(self, v, axis: str) -> float:
+        """One coordinate: a number, X()/Y() of a pad reference, or a pad
+        reference/point whose `axis` coordinate is meant."""
+        if isinstance(v, X):
+            return self.locate(v.ref).x + v.dx
+        if isinstance(v, Y):
+            return self.locate(v.ref).y + v.dy
+        if isinstance(v, (PadRef, CellPadRef, Location, tuple)):
+            l = self.locate(v)
+            return l.x if axis == "x" else l.y
+        return float(v)
+
     def lane_extent(self, lane):
-        if id(lane) not in self.lane_extents:
-            planner = LanePlanner(self.board._lanes, self.locate, self.board.via_drill, self.board.via_size)
-            ext = planner._extent(lane)
-            self.lane_extents[id(lane)] = ext
-        return self.lane_extents[id(lane)]
+        if not self.lane_extents:
+            planner = LanePlanner(self.board._lanes, self, self.board.via_drill, self.board.via_size)
+            self.lane_extents = dict(planner.compute_extents())
+            self.lane_extents.setdefault("_computed", True)
+        return self.lane_extents.get(id(lane))
+
+
+def _refs_in(points) -> list:
+    """Every pad reference a list of points depends on (inside tuples and X/Y too)."""
+    out = []
+    for p in points:
+        if isinstance(p, (PadRef, CellPadRef)):
+            out.append(p)
+        elif isinstance(p, (X, Y)):
+            out.append(p.ref)
+        elif isinstance(p, tuple):
+            out += _refs_in(p)
+    return out
 
 
 def _shape_of(op) -> Shape | None:

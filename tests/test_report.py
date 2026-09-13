@@ -25,6 +25,14 @@ def test_impact_reports_moves_and_metric_deltas_only():
     assert "track_dangling 4 -> 0" in text
 
 
+def test_impact_includes_the_other_drc_buckets():
+    a = _rec(metrics={"drc_real": {}, "unconnected": 0, "airwire_mm": 0.0, "crossings": 0, "outstanding": {},
+                      "other": {"tracks_crossing": 3}, "findings": 0, "board": [1, 1]})
+    b = _rec(run_id="b", metrics={"drc_real": {}, "unconnected": 0, "airwire_mm": 0.0, "crossings": 0,
+                                  "outstanding": {}, "other": {}, "findings": 0, "board": [1, 1]})
+    assert "tracks_crossing 3 -> 0" in impact(a, b)
+
+
 def test_impact_says_when_nothing_moved():
     a, b = _rec(), _rec(run_id="b")
     assert "nothing moved" in impact(a, b)

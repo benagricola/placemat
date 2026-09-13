@@ -5,7 +5,7 @@ A script imports `board` and the value types, declares what goes where, and
 """
 from .context import board
 from .values import (Box, Cell, CellPadRef, CopperLayer, Edge, Face, Location, Net, PadRef, Part,
-                     Priority)
+                     Priority, X, Y)
 
 __all__ = ["board", "Box", "Cell", "CellPadRef", "CopperLayer", "Edge", "Face", "Location", "Net",
-           "PadRef", "Part", "Priority"]
+           "PadRef", "Part", "Priority", "X", "Y"]

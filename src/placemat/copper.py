@@ -143,14 +143,16 @@ class Lane:
         """One continuous net over many pads: each pad tapped exactly once."""
         return self._add("chain", pads=list(pads))
 
-    def run_to(self, y_from, pad):
-        """Run the lane from a y (or a pad's y) to a pad's y, then tap it."""
-        return self._add("run_to", y_from=y_from, pad=pad)
+    def run_to(self, y_from, pad, tap: bool = True):
+        """Run the lane from a y (or a pad's y) to a pad's y, then tap the pad
+        (tap=False when the pad is tapped by a following chain)."""
+        return self._add("run_to", y_from=y_from, pad=pad, tap=tap)
 
     def cross_to(self, other: "Lane", y: float, from_y=None, to_y=None):
         """Jump to `other` (the lane bank on the far side) along y=`y`,
         bridging any same-layer lane the horizontal passes. `from_y`/`to_y`
-        extend this lane down to the crossing and the other lane onward."""
+        (a y, or a pad whose y is meant) extend this lane down to the
+        crossing and the other lane onward."""
         return self._add("cross", other=other, y=y, from_y=from_y, to_y=to_y)
 
 
@@ -158,16 +160,17 @@ class LanePlanner:
     """Turns lane declarations into ops, given resolved pad locations and the
     set of every lane's y-extent (so a tap knows which lanes it crosses)."""
 
-    def __init__(self, lanes: list[Lane], locate, via_drill: float, via_size: float,
+    def __init__(self, lanes: list[Lane], ctx, via_drill: float, via_size: float,
                  bridge_half: float = BRIDGE_HALF):
         self.lanes = lanes
-        self.locate = locate
+        self.locate = ctx.locate
+        self.coord = ctx.coord
         self.via_drill, self.via_size = via_drill, via_size
         self.bridge_half = bridge_half
         self.extents: dict[int, tuple[float, float]] = {}
 
     def _pad_y(self, ref) -> float:
-        return self.locate(ref).y
+        return self.coord(ref, "y")
 
     def _extent(self, lane: Lane) -> tuple[float, float] | None:
         ys = []
@@ -181,12 +184,11 @@ class LanePlanner:
             elif kind == "chain":
                 ys += [self._pad_y(p) for p in kw["pads"]]
             elif kind == "run_to":
-                y0 = kw["y_from"] if isinstance(kw["y_from"], (int, float)) else self._pad_y(kw["y_from"])
-                ys += [y0, self._pad_y(kw["pad"])]
+                ys += [self._pad_y(kw["y_from"]), self._pad_y(kw["pad"])]
             elif kind == "cross":
                 ys.append(kw["y"])
                 if kw["from_y"] is not None:
-                    ys.append(kw["from_y"])
+                    ys.append(self._pad_y(kw["from_y"]))
         return (min(ys), max(ys)) if ys else None
 
     def crossed_lanes(self, lane: Lane, x_from: float, x_to: float, y: float) -> list[float]:
@@ -202,7 +204,7 @@ class LanePlanner:
                 continue
             if ext[0] - 1e-9 <= y <= ext[1] + 1e-9:
                 xs.append(other.x)
-        return sorted(xs)
+        return sorted(set(xs))
 
     def _horizontal(self, lane: Lane, x_from: float, x_to: float, y: float) -> list:
         """A horizontal run on the lane's layer, via-bridged round crossed lanes."""
@@ -229,11 +231,25 @@ class LanePlanner:
     def _run(self, lane: Lane, y1: float, y2: float) -> list:
         return polyline_tracks(lane.net, lane.layer, lane.width, [(lane.x, y1), (lane.x, y2)])
 
-    def plan(self) -> list:
+    def compute_extents(self) -> dict:
+        """Every lane's y-extent, counting a crossing's far-side run toward
+        the lane whose x it occupies."""
+        ys: dict[int, list] = {id(l): [] for l in self.lanes}
         for lane in self.lanes:
             ext = self._extent(lane)
             if ext:
-                self.extents[id(lane)] = ext
+                ys[id(lane)] += list(ext)
+            for kind, kw in lane.ops:
+                if kind == "cross" and kw["to_y"] is not None:
+                    ys.setdefault(id(kw["other"]), []).append(kw["y"])
+                    ys[id(kw["other"])].append(self._pad_y(kw["to_y"]))
+                elif kind == "cross":
+                    ys.setdefault(id(kw["other"]), []).append(kw["y"])
+        self.extents = {k: (min(v), max(v)) for k, v in ys.items() if v}
+        return self.extents
+
+    def plan(self) -> list:
+        self.compute_extents()
         ops = []
         for lane in self.lanes:
             for kind, kw in lane.ops:
@@ -250,15 +266,17 @@ class LanePlanner:
                     for prev, nxt in zip(pads, pads[1:]):
                         ops += self._run(lane, self._pad_y(prev), self._pad_y(nxt)) + self._tap(lane, nxt)
                 elif kind == "run_to":
-                    y0 = kw["y_from"] if isinstance(kw["y_from"], (int, float)) else self._pad_y(kw["y_from"])
-                    ops += self._run(lane, y0, self._pad_y(kw["pad"])) + self._tap(lane, kw["pad"])
+                    ops += self._run(lane, self._pad_y(kw["y_from"]), self._pad_y(kw["pad"]))
+                    if kw.get("tap", True):
+                        ops += self._tap(lane, kw["pad"])
                 elif kind == "cross":
                     other, y = kw["other"], kw["y"]
                     if kw["from_y"] is not None:
-                        ops += self._run(lane, kw["from_y"], y)
+                        ops += self._run(lane, self._pad_y(kw["from_y"]), y)
                     ops += self._horizontal(lane, lane.x, other.x, y)
                     if kw["to_y"] is not None:
-                        ops += polyline_tracks(lane.net, other.layer, other.width, [(other.x, y), (other.x, kw["to_y"])])
+                        ops += polyline_tracks(lane.net, other.layer, other.width,
+                                               [(other.x, y), (other.x, self._pad_y(kw["to_y"]))])
         return ops
 
 

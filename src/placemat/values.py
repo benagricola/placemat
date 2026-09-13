@@ -215,3 +215,18 @@ class CellPadRef:
 
     def offset(self, dx: float = 0.0, dy: float = 0.0) -> "CellPadRef":
         return CellPadRef(self.cell, self.net, self.number, self.ref_prefix, self.dx + dx, self.dy + dy)
+
+
+@dataclass(frozen=True)
+class X:
+    """The x of a pad reference (plus dx), for a point that mixes a pad's
+    coordinate with a fixed one: `(X(pad, 2.0), 40.0)`."""
+    ref: object
+    dx: float = 0.0
+
+
+@dataclass(frozen=True)
+class Y:
+    """The y of a pad reference (plus dy)."""
+    ref: object
+    dy: float = 0.0

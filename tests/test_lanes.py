@@ -87,3 +87,46 @@ def test_a_finger_is_notched_round_same_layer_lanes_and_bridged():
     assert len(pours) == 2 and len(vias) == 2 and len(bridges) == 1
     xs = sorted(x for p in pours for x, _ in p.points)
     assert 50.0 not in xs and any(48 < x < 50 for x in xs) and any(50 < x < 52 for x in xs)
+
+
+def test_run_to_may_reach_a_pad_without_tapping_it():
+    b = make_board()
+    lane = b.lane(Net("CANH_S0"), x=30.0, layer=CopperLayer.F, width=0.3)
+    lane.run_to(10.0, PadRef(Part("h1"), "CANH_S0"), tap=False)
+    plan = b.resolve()
+    tracks = [o for o in plan.copper if isinstance(o, Track)]
+    assert len(tracks) == 1 and tracks[0].start.x == tracks[0].end.x == 30.0
+    assert {tracks[0].start.y, tracks[0].end.y} == {10.0, 30.0}
+
+
+def test_a_crossing_may_start_and_end_at_pad_rows():
+    b = make_board()
+    left = b.lane(Net("CANH_S0"), x=30.0, layer=CopperLayer.F, width=0.3)
+    right = b.lane(Net("CANH_S0"), x=70.0, layer=CopperLayer.F, width=0.3)
+    left.cross_to(right, y=110.0, from_y=PadRef(Part("h1"), "CANH_S0"), to_y=PadRef(Part("h2"), "CANH_S0"))
+    plan = b.resolve()
+    tracks = [o for o in plan.copper if isinstance(o, Track)]
+    verticals = sorted((t.start.x, min(t.start.y, t.end.y), max(t.start.y, t.end.y)) for t in tracks if t.start.x == t.end.x)
+    assert verticals == [(30.0, 30.0, 110.0), (70.0, 60.0, 110.0)]
+
+
+def test_lanes_sharing_an_x_are_bridged_once():
+    b = make_board()
+    for net in ("PERMIT_B", "X"):
+        b.lane(Net(net), x=20.0, layer=CopperLayer.F, width=0.3).run(0.0, 120.0)
+    outer = b.lane(Net("CANH_S0"), x=30.0, layer=CopperLayer.F, width=0.3)
+    outer.tap(PadRef(Part("h1"), "CANH_S0"))
+    plan = b.resolve()
+    assert len([o for o in plan.copper if isinstance(o, Via) and o.net == "CANH_S0"]) == 2
+
+
+def test_a_crossings_far_side_run_counts_toward_the_other_lanes_extent():
+    b = make_board()
+    left = b.lane(Net("CANH_S0"), x=30.0, layer=CopperLayer.F, width=0.3)
+    right = b.lane(Net("CANH_S0"), x=70.0, layer=CopperLayer.F, width=0.3)
+    right.cross_to(left, y=110.0, from_y=100.0, to_y=PadRef(Part("h1"), "CANH_S0"))     # left now runs 30..110
+    other = b.lane(Net("PERMIT_B"), x=40.0, layer=CopperLayer.F, width=0.3)
+    other.tap(PadRef(Part("h3"), "PERMIT_B"))          # at y=90, west across x=30: inside the far-side run
+    plan = b.resolve()
+    vias = [o for o in plan.copper if isinstance(o, Via) and o.net == "PERMIT_B"]
+    assert len(vias) == 2 and all(v.at.y == 90.0 for v in vias)

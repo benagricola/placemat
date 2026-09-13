@@ -68,8 +68,8 @@ def airwires_from_drc(drc: dict) -> dict:
     return {"count": len(edges), "total_mm": round(total, 3), "crossings": crossings, "per_net": per_net}
 
 
-def _delta(label, was, now, fmt="%g"):
-    if was == now:
+def _delta(label, was, now, fmt="%g", tol=0.0):
+    if was == now or (isinstance(was, (int, float)) and isinstance(now, (int, float)) and abs(now - was) <= tol):
         return None
     return "%s %s -> %s" % (label, fmt % was, fmt % now)
 
@@ -100,13 +100,13 @@ def impact(before: RunRecord, after: RunRecord) -> str:
         lines.append("placements: nothing moved")
     a, b = before.metrics, after.metrics
     deltas = []
-    for label, key, fmt in (("unconnected", "unconnected", "%d"), ("airwire", "airwire_mm", "%.1f"),
-                            ("crossings", "crossings", "%d"), ("findings", "findings", "%d")):
+    for label, key, fmt, tol in (("unconnected", "unconnected", "%d", 0), ("airwire", "airwire_mm", "%.1f", 0.5),
+                                 ("crossings", "crossings", "%d", 0), ("findings", "findings", "%d", 0)):
         if key in a or key in b:
-            d = _delta(label, a.get(key, 0), b.get(key, 0), fmt)
+            d = _delta(label, a.get(key, 0), b.get(key, 0), fmt, tol)
             if d:
                 deltas.append("  " + d)
-    for bucket in ("drc_real", "outstanding"):
+    for bucket in ("drc_real", "outstanding", "other"):
         was, now = a.get(bucket, {}) or {}, b.get(bucket, {}) or {}
         for kind in sorted(set(was) | set(now)):
             d = _delta(kind, was.get(kind, 0), now.get(kind, 0), "%d")
@@ -114,6 +114,9 @@ def impact(before: RunRecord, after: RunRecord) -> str:
                 deltas.append("  " + d)
     if a.get("board") != b.get("board"):
         deltas.append("  board %s -> %s" % (a.get("board"), b.get("board")))
-    lines.append("metrics: " + ("no change" if not deltas else ""))
-    lines += deltas
-    return "\n".join(l for l in lines if l.strip() != "metrics:") if not deltas else "\n".join(lines)
+    if deltas:
+        lines.append("metrics:")
+        lines += deltas
+    else:
+        lines.append("metrics: no change")
+    return "\n".join(lines)

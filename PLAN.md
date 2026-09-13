@@ -83,6 +83,18 @@ the search. `path()` shapes: straight, polyline, lane, crossing, finger.
 height may be derived: `board.frame(width=expr, height=expr)` inside frame
 may reference measured cell extents from the snapshot.
 
+## Status
+
+Slices 1-6 are built and green (81 tests; the end-to-end test builds a
+scratch workspace and runs the pcb toolchain). The new
+`breakout/Breakout_layout.py` in the ecosystem regenerates the Breakout to
+the committed board's gate state: DRC clean, unconnected 0, the same 36
+dangling module stubs, zero crossings, 126.5 x 229.89. Open: slice 7 (the
+Middleweight as second consumer: search-driven cells, compaction, blocks,
+plane serve, spines, labels are not in the API yet), the routing trial as an
+optional diagnostic, and the ecosystem's dependency still points at the old
+placemat checkout.
+
 ## Build order (each slice has a test that runs without KiCad where possible)
 
 1. values + snapshot + kicad/read against the committed Breakout board;
