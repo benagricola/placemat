@@ -56,17 +56,30 @@ def airwires_from_drc(drc: dict) -> dict:
         return ccw(ax, ay, cx, cy, dx, dy) != ccw(bx, by, cx, cy, dx, dy) and ccw(ax, ay, bx, by, cx, cy) != ccw(ax, ay, bx, by, dx, dy)
 
     crossings = 0
+    crossings_per_net: dict = {}
     for i in range(len(edges)):
         for j in range(i + 1, len(edges)):
             if edges[i][0] != edges[j][0] and cross(edges[i], edges[j]):
                 crossings += 1
+                for net in (edges[i][0], edges[j][0]):
+                    crossings_per_net[net] = crossings_per_net.get(net, 0) + 1
     per_net: dict = {}
     total = 0.0
     for net, a, b in edges:
         d = math.hypot(a[0] - b[0], a[1] - b[1])
         total += d
         per_net[net] = round(per_net.get(net, 0.0) + d, 3)
-    return {"count": len(edges), "total_mm": round(total, 3), "crossings": crossings, "per_net": per_net}
+    return {"count": len(edges), "total_mm": round(total, 3), "crossings": crossings, "per_net": per_net,
+            "crossings_per_net": dict(sorted(crossings_per_net.items(), key=lambda kv: (-kv[1], kv[0])))}
+
+
+def congestion(crossings: int, free_area_mm2: float):
+    """Ratsnest crossings per square centimetre of free board: how much
+    routing is being asked of how little room. None when there is no free
+    board to speak of."""
+    if free_area_mm2 <= 0:
+        return None
+    return round(crossings / (free_area_mm2 / 100.0), 2)
 
 
 def _delta(label, was, now, fmt="%g", tol=0.0):
@@ -102,8 +115,9 @@ def impact(before: RunRecord, after: RunRecord) -> str:
     a, b = before.metrics, after.metrics
     deltas = []
     for label, key, fmt, tol in (("unconnected", "unconnected", "%d", 0), ("airwire", "airwire_mm", "%.1f", 0.5),
-                                 ("crossings", "crossings", "%d", 0), ("findings", "findings", "%d", 0)):
-        if key in a or key in b:
+                                 ("crossings", "crossings", "%d", 0), ("congestion", "congestion", "%.2f", 0.05),
+                                 ("findings", "findings", "%d", 0)):
+        if (key in a or key in b) and a.get(key) is not None and b.get(key) is not None:
             d = _delta(label, a.get(key, 0), b.get(key, 0), fmt, tol)
             if d:
                 deltas.append("  " + d)

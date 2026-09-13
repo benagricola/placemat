@@ -70,7 +70,7 @@ def cmd_drc(args) -> int:
         print(report.summary())
         print("airwires %d, %.1f mm, %d crossings" % (aw["count"], aw["total_mm"], aw["crossings"]))
         for net, mm in sorted(aw["per_net"].items(), key=lambda kv: -kv[1])[:10]:
-            print("   %-20s %.1f mm" % (net, mm))
+            print("   %-20s %6.1f mm  %d crossing(s)" % (net, mm, aw["crossings_per_net"].get(net, 0)))
     return 1 if report.real else 0
 
 

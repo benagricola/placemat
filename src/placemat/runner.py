@@ -15,7 +15,7 @@ import traceback
 from .layout import Board
 from .context import run_script
 from .project import BoardSource, fab_profile, find_board
-from .report import RunRecord, airwires_from_drc, impact
+from .report import RunRecord, airwires_from_drc, congestion, impact
 
 
 class RunFailure(Exception):
@@ -159,12 +159,20 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
             t0 = time.time()
             report = run_drc(src.pcb, run_dir / "drc.json")
             aw = airwires_from_drc(json.loads((run_dir / "drc.json").read_text()))
+            free = plan.occupancy.free_area()
+            cong = congestion(aw["crossings"], free)
             metrics.update({"drc_real": report.real, "outstanding": report.outstanding, "other": report.other,
                             "unconnected": report.unconnected, "airwire_mm": aw["total_mm"],
-                            "crossings": aw["crossings"], "open_nets": dict(report.open_nets)})
+                            "crossings": aw["crossings"], "crossings_per_net": aw["crossings_per_net"],
+                            "free_area_mm2": round(free, 1), "congestion": cong,
+                            "open_nets": dict(report.open_nets)})
             rec.timing_s["drc"] = round(time.time() - t0, 1)
-            _say(quiet, "check   %s | airwires %d, %.1f mm, %d crossings  (%.1fs)" % (
-                report.summary(), aw["count"], aw["total_mm"], aw["crossings"], rec.timing_s["drc"]))
+            _say(quiet, "check   %s | airwires %d, %.1f mm, %d crossings, congestion %s  (%.1fs)" % (
+                report.summary(), aw["count"], aw["total_mm"], aw["crossings"],
+                "-" if cong is None else "%.2f/cm2" % cong, rec.timing_s["drc"]))
+            busiest = list(aw["crossings_per_net"].items())[:5]
+            if busiest:
+                _say(quiet, "        crossings by net: " + ", ".join("%s %d" % kv for kv in busiest))
         if render:
             t0 = time.time()
             render_board(src.pcb, run_dir / "render.log", both_faces=getattr(board, "both_faces", False))

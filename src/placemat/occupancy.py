@@ -204,6 +204,24 @@ class Occupancy:
         own = by_owner.get(item.name, [])
         self.copper = [c for c in self.copper if c.owner != item.name] + own
 
+    # ------------------------------------------------------------ measures
+    def free_area(self, face: Face | None = None) -> float:
+        """Board area not under a courtyard, on one face or summed over both.
+        Courtyards are taken as their boxes; overlaps (which are findings)
+        are not corrected for."""
+        if self.board_box is None:
+            return 0.0
+        faces = [face] if face is not None else [Face.FRONT, Face.BACK]
+        total = 0.0
+        for f in faces:
+            used = 0.0
+            for g in self.items.values():
+                for s in g.shapes:
+                    if s.kind == "courtyard" and f in s.faces:
+                        used += s.box.area
+            total += self.board_box.area - used
+        return total
+
     # ------------------------------------------------------------ legality
     def legal(self, item, placement: Placement, clearance: float | None = None) -> str | None:
         """None when `item` may sit at `placement`, else one sentence saying

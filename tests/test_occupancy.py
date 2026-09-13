@@ -81,3 +81,12 @@ def test_a_reservation_blocks_parts_but_lets_its_own_nets_through():
 
 
 from placemat.values import Box  # noqa: E402  (used by the reservation test)
+
+
+def test_free_area_is_the_board_less_the_courtyards_on_a_face():
+    occ = Occupancy(board_geometry([footprint("R1", 10, 10, w=4, h=2), footprint("R2", 30, 30, w=4, h=2, face=Face.BACK)],
+                                   width=50, height=40), edge_margin=0.0)
+    # courtyard = body inflated by 0.1: (4.2 x 2.2) = 9.24 mm2 each
+    assert abs(occ.free_area(Face.FRONT) - (2000.0 - 9.24)) < 1e-6
+    assert abs(occ.free_area(Face.BACK) - (2000.0 - 9.24)) < 1e-6
+    assert abs(occ.free_area() - (4000.0 - 18.48)) < 1e-6

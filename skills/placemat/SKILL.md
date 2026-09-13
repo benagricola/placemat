@@ -21,9 +21,13 @@ work, not what to call.
    the impact. `-v` prints every step as it resolves.
 2. **Read the numbers before the picture.** `real` DRC buckets and
    `unconnected` are the gate; `outstanding` (dangling copper) says what has
-   not been drawn yet; `airwires`/`crossings` say how far routing is.
-   Findings name a fixed placement that collides or a searched part that had
-   nowhere to go, with the reason.
+   not been drawn yet. `airwires` (count, length), `crossings` (ratsnest
+   lines of different nets that cross), `crossings by net` and `congestion`
+   (crossings per square centimetre of free board) say how hard the board
+   will be to route BEFORE any routing is run: a placement change that cuts
+   crossings and congestion is the one to keep, and the nets with the most
+   crossings name the parts to move. Findings name a fixed placement that
+   collides or a searched part that had nowhere to go, with the reason.
 3. **Look** at `layout/<X>/layout.png` (and `layout-bottom.png` on a
    two-face board) only after the numbers say the change did what you meant.
 4. **Change one thing, label it, run again.** The impact text says what
