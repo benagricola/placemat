@@ -216,7 +216,8 @@ def _netclasses(board) -> tuple[dict[str, NetClass], float]:
         nc = ni.GetNetClassSlow()
         parts = [p for p in str(nc.GetName()).split(",") if p and p != "Default"]
         classes[name] = NetClass(",".join(parts) or "Default", mm(nc.GetTrackWidth()),
-                                 mm(nc.GetClearance()), mm(nc.GetViaDiameter()), mm(nc.GetViaDrill()))
+                                 mm(nc.GetClearance()), mm(nc.GetViaDiameter()), mm(nc.GetViaDrill()),
+                                 mm(nc.GetDiffPairWidth()) or None, mm(nc.GetDiffPairGap()) or None)
     default = mm(board.GetDesignSettings().m_NetSettings.GetDefaultNetclass().GetClearance())
     return classes, default
 

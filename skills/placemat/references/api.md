@@ -36,6 +36,29 @@ board.place(item)                                                       # search
 (below). One declaration per item. `why=` is recorded in the run. A FIXED
 placement that collides is reported as a finding, not moved.
 
+**Rows.** Things down one edge, in order, equally gapped, each flush to the
+edge with its outward side out (a cell generated with its connector's bulk
+on local +Y turns 270 on the west edge, 90 east, 180 north, 0 south;
+`rotation=` overrides that, one value or one per item):
+
+```python
+power = board.row(PD, Edge.WEST, gap=3.0, start=TOP)              # starts TOP along the edge
+trunk = board.row([CN, U13], Edge.NORTH, gap=2.5, align="center")  # centred, once the size is known
+board.row(parts, Edge.NORTH, gap=1.5, clearance=12.0, rotation=180, start=trunk.centre(U13) - 4)
+board.size(width=EDGE + power.depth + 4 + bus.depth + EDGE, height=max(power.end, bus.end) + TOP)
+```
+A row's `depth` (how far inboard it reaches), `length`, `start`, `end` and
+`centre(item)` are numbers at declaration (a centred row's along numbers
+once the size is set). `row.inner` and `row.outer` are its inboard boundary
+and its edge line, usable as a coordinate in copper (`(power.inner + 1.0,
+y)`). Declare the size after the rows that set it; a centred row declared
+before `size()` is placed at resolve.
+
+**Modules.** A module's fragment runs the same way: `placemat run
+modules/X/X_layout.py` finds the `Layout(name=, path=)` in the `.zen`
+beside it, generates the fragment and applies the script. A fragment has
+no outline, so its script declares no size and places by coordinate.
+
 **How a searched item finds its place.** With `near=` it scans around the
 hint. Without one it is SEEDED: the hint is the weighted centroid of the
 pads already placed that it connects to (plane nets and free nets do not
@@ -123,6 +146,23 @@ board.finger(net, layer=, from_=point, to=point, width=)               # pour al
 All take `priority=`. `Priority.FIXED` copper is planned before the loose
 parts and becomes an obstacle to them, and may not reference a searched
 part. `HIGH`, `DEFAULT` and `LOW` only decide who bridges at a crossing.
+
+**Pairs.** Two nets drawn together at a gap along one centreline, the way
+KiCad's differential tool does:
+
+```python
+board.pair(CAN_P, CAN_N, [(padP, padN), (x, y), (x, y2), (padP2, padN2)], layer=B)
+```
+The path starts and ends with a (P pad, N pad) tuple; the points between
+are the centreline. Width and gap come from the P net's class
+(`diff_pair_width`, `diff_pair_gap`; else the track width and clearance) or
+`width=`/`gap=`. Corners are chamfered at 45 (`chamfer=`), each track leaves
+its pad at 45 then straight to the nearest point of its line, and a lead
+that would touch the partner on the pair's layer, or whose pad has no copper
+there, goes over the other face from a via stepped `via_step` clear of the
+partner. Pads side by side across the run fan straight in; a pad in line
+with the run gets a lead along its line. The pair is one step,
+`pair P/N`, and bridges as one.
 
 ## Layers and faces
 

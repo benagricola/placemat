@@ -94,6 +94,8 @@ class NetClass:
     clearance: float
     via_diameter: float
     via_drill: float
+    diff_pair_width: float | None = None     # a pair's track width, when the class says
+    diff_pair_gap: float | None = None       # and its gap
 
 
 @dataclass(frozen=True)

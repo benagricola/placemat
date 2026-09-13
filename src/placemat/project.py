@@ -1,5 +1,5 @@
-"""Finds a script's board (the .zen beside it that declares Board(...)) and
-reads the nearest fab-profile.json."""
+"""Finds a script's board: the .zen beside it that declares Board(...), or
+a module fragment's Layout(...). Also reads the nearest fab-profile.json."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -20,9 +20,9 @@ class BoardSource:
         return self.layout_dir / "layout.kicad_pcb"
 
 
-_BOARD_RE = re.compile(r"\bBoard\s*\(", re.S)
+_BOARD_RE = re.compile(r"\b(Board|Layout)\s*\(", re.S)
 _NAME_RE = re.compile(r'\bname\s*=\s*"([^"]+)"')
-_LAYOUT_RE = re.compile(r'\blayout_path\s*=\s*"([^"]+)"')
+_LAYOUT_RE = re.compile(r'\b(?:layout_path|path)\s*=\s*"([^"]+)"')
 
 
 def find_board(script_or_dir) -> BoardSource:
@@ -51,7 +51,7 @@ def find_board(script_or_dir) -> BoardSource:
         name = name_m.group(1)
         layout_dir = board_dir / (layout_m.group(1) if layout_m else "layout/%s" % name)
         return BoardSource(name, zen, layout_dir, board_dir)
-    raise FileNotFoundError("no .zen declaring Board(name=...) in %s (looked at %s)" % (
+    raise FileNotFoundError("no .zen declaring Board(name=...) or Layout(name=...) in %s (looked at %s)" % (
         board_dir, ", ".join(c.name for c in candidates) or "nothing"))
 
 

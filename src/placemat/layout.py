@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .copper import (CopperOp, Pour, Track, Via, Zone, board_zone_outline, finger_ops, polyline_tracks,
+from .copper import (CopperOp, Pour, Track, Via, Zone, board_zone_outline, finger_ops, pair_ops, polyline_tracks,
                      resolve_bridges)
 from .geometry import polygon_box
 from .occupancy import Occupancy, Shape
@@ -21,6 +21,79 @@ from .values import (Box, Cell, CellPadRef, CopperLayer, Edge, Face, LinkWeight,
                      Priority, X, Y)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
+
+
+# A cell generated with its connector's body bulk on local +Y ("outward")
+# faces out of each edge at this rotation.
+_OUTWARD_ROTATION = {Edge.SOUTH: 0.0, Edge.EAST: 90.0, Edge.NORTH: 180.0, Edge.WEST: 270.0}
+
+
+@dataclass(frozen=True)
+class RowCoord:
+    """A coordinate of a row that needs the board outline: resolved when
+    copper is planned, usable wherever a number is."""
+    row: "Row"
+    what: str        # inner | outer
+
+    def __add__(self, dx):
+        return RowCoord(self.row, "%s%+g" % (self.what, dx))
+
+
+class Row:
+    """Items down one edge, in order, `gap` apart, each flush to the edge with
+    its outward side out. Along-edge numbers (start, end, length, centre of
+    each item) are known at declaration; the inboard boundary (`inner`) and
+    the edge line (`outer`) are references resolved against the outline."""
+
+    def __init__(self, edge: Edge, clearance: float, gap: float, start: float | None, keys, alongs, depth: float):
+        self.edge, self.clearance, self.gap = edge, clearance, gap
+        self.keys, self.alongs, self.depth = list(keys), list(alongs), depth
+        self.items: list = []
+        self.length = sum(alongs) + gap * (len(alongs) - 1)
+        self.start = self.end = None
+        self.centres = []
+        if start is not None:
+            self.begin(start)
+
+    def begin(self, start: float):
+        """Fix where the row starts along its edge (a centred row learns this
+        from the outline at resolve)."""
+        self.start, self.end = start, start + self.length
+        self.centres = []
+        cursor = start
+        for a in self.alongs:
+            self.centres.append(cursor + a / 2.0)
+            cursor += a + self.gap
+
+    def centre_of(self, outline: Box) -> float:
+        total = outline.height if self.edge in (Edge.EAST, Edge.WEST) else outline.width
+        return (total - self.length) / 2.0
+
+    def centre(self, item) -> float:
+        """The along-edge centre of one item (the item, or its key)."""
+        i = self.items.index(item) if item in self.items else self.keys.index(item)
+        return self.centres[i]
+
+    @property
+    def inner(self) -> RowCoord:
+        return RowCoord(self, "inner")
+
+    @property
+    def outer(self) -> RowCoord:
+        return RowCoord(self, "outer")
+
+    def resolve(self, what: str, board_box: Box) -> float:
+        base, dx = (what.split("+")[0] if "+" in what else what.split("-")[0]), 0.0
+        if len(what) > len(base):
+            dx = float(what[len(base):])
+        depth = self.clearance + (self.depth if base == "inner" else 0.0)
+        if self.edge is Edge.WEST:
+            return board_box.left + depth + dx
+        if self.edge is Edge.EAST:
+            return board_box.right - depth + dx
+        if self.edge is Edge.NORTH:
+            return board_box.top + depth + dx
+        return board_box.bottom - depth + dx
 
 
 @dataclass
@@ -120,10 +193,12 @@ class Plan:
         return self.step(key).placement
 
     def box(self, key: str) -> Box:
+        """The item's body box where it was placed (the occupancy's committed
+        geometry, so a turned cell reads turned)."""
         item = self._items[key]
-        if isinstance(item, BlockSpec):
-            return Box.union([self.occupancy.body_box(m, self.placement(m.inst)) for m in item.members])
-        return self.occupancy.body_box(item, self.placement(key))
+        if isinstance(item, (BlockSpec, CellGeom)):
+            return Box.union([self.occupancy.items[m.ref].body for m in item.members])
+        return self.occupancy.items[item.ref].body
 
     @property
     def placements(self) -> dict[str, Placement]:
@@ -151,6 +226,8 @@ class Board:
         self._links: list[Link] = []
         self._free_nets: set = set()
         self._outline: Box | None = geometry.outline_box
+        self._deferred_rows: list = []      # centred rows declared before the size
+        self._sized = False                 # the script has declared the board size
         self._chamfer = 0.0
         self._radius = 0.0
         self.width = self._outline.width if self._outline else None
@@ -210,6 +287,7 @@ class Board:
         self._outline = Box(0.0, 0.0, float(width), float(height))
         self._chamfer, self._radius = chamfer, radius
         self.width, self.height = float(width), float(height)
+        self._sized = True
 
     # ------------------------------------------------------------ blocks
     def block(self, anchor, satellites, gap: float = 0.5) -> BlockSpec:
@@ -258,6 +336,39 @@ class Board:
                              tuple(rotations), why, len(self._intents))
         self._intents.append(intent)
         return intent
+
+    def row(self, items, edge: Edge, *, gap: float, start: float | None = None, align: str = "start",
+            clearance: float | None = None, rotation: float | None = None, why: str = "") -> Row:
+        """Items down `edge` in order, `gap` apart, each flush to the edge
+        with its outward side out (`rotation=`, one value or one per item,
+        overrides that turn for parts with no outward side). The row starts `start` along the edge
+        (default: the edge margin), or is centred with align="center" (once
+        the board size is known). Returns the Row, whose numbers copper may use."""
+        rots = [_OUTWARD_ROTATION[edge]] * len(items) if rotation is None else \
+            ([float(r) for r in rotation] if isinstance(rotation, (list, tuple)) else [float(rotation)] * len(items))
+        rot = rots[0] if rots else _OUTWARD_ROTATION[edge]
+        clr = clearance if clearance is not None else self.edge_margin
+        along_axis = edge in (Edge.EAST, Edge.WEST)
+        keys, alongs, depths = [], [], []
+        for item, r in zip(items, rots):
+            geom, key, kind = self._item(item)
+            box = self.extent(item, r)
+            keys.append(key)
+            alongs.append(box.height if along_axis else box.width)
+            depths.append(box.width if along_axis else box.height)
+        if align == "center":
+            row = Row(edge, clr, gap, None, keys, alongs, max(depths))
+            if self._sized:                     # the script's own size, not the generator's frame
+                row.begin(row.centre_of(self._outline))
+        else:
+            row = Row(edge, clr, gap, float(clr if start is None else start), keys, alongs, max(depths))
+        row.items = list(items)
+        if row.start is None:
+            self._deferred_rows.append((row, list(items), rots, why))    # placed at resolve, once the size is known
+        else:
+            for item, centre, r in zip(items, row.centres, rots):
+                self.place(item, edge=edge, along=centre, clearance=clr, rotation=r, why=why)
+        return row
 
     def _is_searched(self, refdes: str) -> bool:
         fp = self.geometry.footprint(refdes)
@@ -361,6 +472,41 @@ class Board:
             return polyline_tracks(name, layer, w, [ctx.locate(p) for p in points])
         return self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge)
 
+    def pair(self, net_p, net_n, path, *, layer: CopperLayer, width: float | None = None, gap: float | None = None,
+             chamfer: float = 0.5, via_step: float = 0.4, priority: Priority = Priority.DEFAULT,
+             bridge: bool = False, why: str = ""):
+        """Two nets drawn together at `gap` along one centreline. `path`
+        starts and ends with a (P pad, N pad) tuple; the points between are
+        the centreline. Width and gap default to the P net's class. Corners
+        are chamfered at 45, each track leaves its pad at 45, and a lead that
+        would touch the partner goes over the other face from a via."""
+        layer = CopperLayer.of(layer)
+        p_name, n_name = self.geometry.require_net(net_p), self.geometry.require_net(net_n)
+        nc = self.geometry.netclass(p_name)
+        w = float(width) if width is not None else (nc.diff_pair_width or nc.track_width)
+        g = float(gap) if gap is not None else (nc.diff_pair_gap or nc.clearance)
+        if len(path) < 3:
+            raise ValueError("a pair needs its two pad pairs and at least one centreline point between")
+        (sp, sn), (ep, en), mids = path[0], path[-1], path[1:-1]
+        refs = _refs_in(path)
+
+        def pad_end(rp, rn, ctx):
+            out = []
+            for r in (rp, rn):
+                owner, number, _, _ = self._pad_ref(r)
+                pad = next(p for p in self.geometry.footprint(owner).pads if p.number == number)
+                out.append((ctx.locate(r), pad.through, layer if layer in pad.layers else next(iter(pad.layers))))
+            (lp, tp, fp), (ln, tn, fn) = out
+            return (lp, ln, tp, tn), (fp, fn)
+
+        def plan(ctx):
+            start, sfaces = pad_end(sp, sn, ctx)
+            end, efaces = pad_end(ep, en, ctx)
+            centre = [ctx.locate(m) for m in mids]
+            return pair_ops(p_name, n_name, layer, w, g, start, centre, end, self.via_drill, self.via_size,
+                            via_step, chamfer, self.geometry.clearance(p_name, n_name), sfaces, efaces)
+        return self._copper_intent("pair %s/%s" % (p_name, n_name), net_p, priority, plan, refs, why, bridge)
+
     def via(self, net, at, *, drill: float | None = None, size: float | None = None,
             priority: Priority = Priority.DEFAULT, why: str = ""):
         name = self.geometry.require_net(net)
@@ -423,6 +569,13 @@ class Board:
 
     # ------------------------------------------------------------ resolution
     def resolve(self, progress=None) -> Plan:
+        for row, items, rots, why in self._deferred_rows:
+            if self._outline is None:
+                raise ValueError("a centred row needs a board outline: declare the size")
+            row.begin(row.centre_of(self._outline))     # the script's size, or the board's own outline
+            for item, centre, r in zip(items, row.centres, rots):
+                self.place(item, edge=row.edge, along=centre, clearance=row.clearance, rotation=r, why=why)
+        self._deferred_rows = []
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline)
         plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius)
         ctx = _CopperContext(self, occ)
@@ -691,6 +844,8 @@ class _CopperContext:
         if isinstance(v, (PadRef, CellPadRef, Location, tuple)):
             l = self.locate(v)
             return l.x if axis == "x" else l.y
+        if isinstance(v, RowCoord):
+            return v.row.resolve(v.what, self.occ.board_box)
         return float(v)
 
     def tracks_on(self, layer) -> list:

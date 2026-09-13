@@ -1,7 +1,7 @@
 """Plans copper. The concrete shapes the writer draws (Track, Via, Pour,
-Zone), the Lane a script declares bus copper on, the planner that turns lane
-declarations into tracks and vias once the pads are placed, and the finger
-pour that steps round lanes."""
+Zone), the bridge resolver that settles same-layer crossings by priority,
+the pair drawn at a gap along one centreline, the finger pour that steps
+round tracks, and the board-sized zone outline."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -265,3 +265,164 @@ def board_zone_outline(width: float, height: float, inset: float, chamfer: float
         return ((ch + i, i), (W - ch - i, i), (W - i, ch + i), (W - i, H - ch - i),
                 (W - ch - i, H - i), (ch + i, H - i), (i, H - ch - i), (i, ch + i))
     return ((i, i), (W - i, i), (W - i, H - i), (i, H - i))
+
+
+# ------------------------------------------------------------------ pairs
+def _unit(a: Location, b: Location):
+    dx, dy = b.x - a.x, b.y - a.y
+    n = math.hypot(dx, dy)
+    return (dx / n, dy / n) if n > 1e-12 else (0.0, 0.0)
+
+
+def _chamfered(pts: list, c: float) -> list:
+    """Cut every corner of a polyline back by `c` along both legs, so a 90
+    degree turn becomes two 45s (shorter where a leg is short)."""
+    if c <= 0 or len(pts) < 3:
+        return list(pts)
+    out = [pts[0]]
+    for i in range(1, len(pts) - 1):
+        a, v, b = pts[i - 1], pts[i], pts[i + 1]
+        u1, u2 = _unit(a, v), _unit(v, b)
+        if u1[0] * u2[0] + u1[1] * u2[1] > 0.999:
+            out.append(v)
+            continue
+        k = min(c, a.distance(v) / 2.0, v.distance(b) / 2.0)
+        out.append(Location(round(v.x - u1[0] * k, 6), round(v.y - u1[1] * k, 6)))
+        out.append(Location(round(v.x + u2[0] * k, 6), round(v.y + u2[1] * k, 6)))
+    out.append(pts[-1])
+    return out
+
+
+def _offset(pts: list, d: float) -> list:
+    """The polyline `d` to the left of `pts` (left of the direction of travel,
+    y down), its corners mitred so the two lines stay parallel."""
+    normals = []
+    for a, b in zip(pts, pts[1:]):
+        ux, uy = _unit(a, b)
+        normals.append((uy, -ux))
+    out = []
+    for i, p in enumerate(pts):
+        if i == 0:
+            nx, ny = normals[0]
+        elif i == len(pts) - 1:
+            nx, ny = normals[-1]
+        else:
+            n1, n2 = normals[i - 1], normals[i]
+            s = 1.0 + n1[0] * n2[0] + n1[1] * n2[1]
+            nx, ny = (n1, ) [0] if s < 1e-6 else ((n1[0] + n2[0]) / s, (n1[1] + n2[1]) / s)
+        out.append(Location(round(p.x + d * nx, 6), round(p.y + d * ny, 6)))
+    return out
+
+
+def _point_seg(q: Location, a: Location, b: Location):
+    """(distance, nearest point, t) from q to segment a-b."""
+    dx, dy = b.x - a.x, b.y - a.y
+    l2 = dx * dx + dy * dy
+    t = 0.0 if l2 < 1e-12 else max(0.0, min(1.0, ((q.x - a.x) * dx + (q.y - a.y) * dy) / l2))
+    n = Location(a.x + t * dx, a.y + t * dy)
+    return q.distance(n), n, t
+
+
+def _seg_seg_dist(a, b, c, d) -> float:
+    if _seg_intersection((a.x, a.y), (b.x, b.y), (c.x, c.y), (d.x, d.y)) is not None:
+        return 0.0
+    return min(_point_seg(a, c, d)[0], _point_seg(b, c, d)[0], _point_seg(c, a, b)[0], _point_seg(d, a, b)[0])
+
+
+def _nearest(pts: list, q: Location):
+    """The nearest point of a polyline to q: (point, segment index, t)."""
+    best = None
+    for i, (a, b) in enumerate(zip(pts, pts[1:])):
+        dist, n, t = _point_seg(q, a, b)
+        if best is None or dist < best[0]:
+            best = (dist, n, i, t)
+    return best[1], best[2], best[3]
+
+
+def _dogleg(a: Location, b: Location) -> list:
+    """From a to b as one 45 then one straight, the way a track leaves a pad."""
+    dx, dy = b.x - a.x, b.y - a.y
+    m = min(abs(dx), abs(dy))
+    mid = Location(round(a.x + math.copysign(m, dx), 6), round(a.y + math.copysign(m, dy), 6))
+    pts = [a, mid, b]
+    return [p for i, p in enumerate(pts) if i == 0 or p != pts[i - 1]]
+
+
+def _conflicts(path: list, other: list, limit: float) -> bool:
+    return any(_seg_seg_dist(a, b, c, d) < limit for a, b in zip(path, path[1:]) for c, d in zip(other, other[1:]))
+
+
+def pair_ops(net_p: str, net_n: str, layer: CopperLayer, width: float, gap: float, start, path, end,
+             via_drill: float, via_size: float, via_step: float = 0.4, chamfer: float = 0.5,
+             clearance: float = 0.2, start_faces=None, end_faces=None) -> list:
+    """Two tracks at `gap` either side of the centreline `path`, from the pads
+    in `start` to the pads in `end`. `start` and `end` are (P location, N
+    location, P through-hole?, N through-hole?); `start_faces`/`end_faces`
+    name the copper layer of a surface pad (default: the pair's layer).
+    Corners are chamfered at 45. Each track leaves its pad at 45 then straight
+    to the nearest point of its line. A lead that would touch the partner on
+    the pair's layer, or whose pad has no copper there, goes over the other
+    face from a via stepped `via_step` away from the partner."""
+    h = (width + gap) / 2.0
+    centre = _chamfered([q if isinstance(q, Location) else Location(*q) for q in path], chamfer)
+
+    def side(a, b, q):
+        return (b.x - a.x) * (q.y - a.y) - (b.y - a.y) * (q.x - a.x)
+    # P takes the side its pads lean to; on a tie, the left of travel
+    lean = side(centre[0], centre[1], start[1]) - side(centre[0], centre[1], start[0]) + \
+        side(centre[-2], centre[-1], end[1]) - side(centre[-2], centre[-1], end[0])
+    p_sign = 1.0 if lean >= 0 else -1.0
+    lines = {net_p: _offset(centre, p_sign * h), net_n: _offset(centre, -p_sign * h)}
+    partner = {net_p: net_n, net_n: net_p}
+    other = layer.other_face
+    limit = width + clearance
+    ends = ((0, start, start_faces or (layer, layer)), (-1, end, end_faces or (layer, layer)))
+    leads = {net_p: [], net_n: []}       # (at_end_index, pad, plain lead, must lift)
+    for k, (pad_p, pad_n, thru_p, thru_n), faces in ends:
+        for net, pad, thru, face in ((net_p, pad_p, thru_p, faces[0]), (net_n, pad_n, thru_n, faces[1])):
+            target, i, t = _nearest(lines[net], pad)
+            plain = _dogleg(pad, target)
+            leads[net].append([k, pad, plain, (i, t), not thru and face is not layer, thru or face is other])
+    # a lead that touches the partner's line lifts; if only the two leads touch, the longer one does
+    for k in (0, 1):
+        lp, ln = leads[net_p][k], leads[net_n][k]
+        hit_p = _conflicts(lp[2], lines[net_n], limit)
+        hit_n = _conflicts(ln[2], lines[net_p], limit)
+        if not hit_p and not hit_n and _conflicts(lp[2], ln[2], limit):
+            if lp[1].distance(lp[2][-1]) >= ln[1].distance(ln[2][-1]):
+                hit_p = True
+            else:
+                hit_n = True
+        if hit_p and lp[5]:
+            lp[4] = True
+        if hit_n and ln[5]:
+            ln[4] = True
+    ops = []
+    for net in (net_p, net_n):
+        line = list(lines[net])
+        pline = lines[partner[net]]
+        extra = []
+        for k, pad, plain, (i, t), lift, _ in sorted(leads[net], key=lambda e: (-e[3][0], -e[3][1])):   # later points first: earlier indices stay valid
+            if not lift:
+                extra += polyline_tracks(net, layer, width, plain)
+                continue
+            target = plain[-1]
+            # the via sits off the line, away from the partner, joined by 45s
+            near_partner = _nearest(pline, target)[0]
+            nx, ny = _unit(near_partner, target)
+            via_at = Location(round(target.x + nx * via_step, 6), round(target.y + ny * via_step, 6))
+            if t <= 1e-9 and i == 0:
+                u = _unit(line[0], line[1])
+                line = [via_at, Location(round(line[0].x + u[0] * via_step, 6), round(line[0].y + u[1] * via_step, 6))] + line[1:]
+            elif t >= 1 - 1e-9 and i == len(line) - 2:
+                u = _unit(line[-1], line[-2])
+                line = line[:-1] + [Location(round(line[-1].x + u[0] * via_step, 6), round(line[-1].y + u[1] * via_step, 6)), via_at]
+            else:
+                u = _unit(line[i], line[i + 1])
+                before = Location(round(target.x - u[0] * via_step, 6), round(target.y - u[1] * via_step, 6))
+                after = Location(round(target.x + u[0] * via_step, 6), round(target.y + u[1] * via_step, 6))
+                line = line[:i + 1] + [before, via_at, after] + line[i + 1:]
+            extra.append(Via(net, via_at, via_drill, via_size))
+            extra += polyline_tracks(net, other, width, _dogleg(pad, via_at))
+        ops += polyline_tracks(net, layer, width, line) + extra
+    return ops

@@ -30,3 +30,12 @@ def test_the_fab_profile_is_found_walking_up_and_has_defaults(tmp_path):
     assert fab.via_drill == 0.25 and fab.via_size == 0.5
     assert fab.courtyard_excess == 0.10                     # default when the file does not say
     assert fab_profile(Path("/")).via_drill == 0.3          # no file at all: defaults
+
+
+def test_a_module_fragment_declares_its_layout_with_layout(tmp_path):
+    """A module's .zen carries Layout(name=, path=) instead of Board(); its
+    fragment is generated and scripted the same way."""
+    (tmp_path / "BusDrop.zen").write_text('conn = Module("x")\nLayout(name = "BusDrop", path = "layout")\n')
+    (tmp_path / "BusDrop_layout.py").write_text("")
+    src = find_board(tmp_path / "BusDrop_layout.py")
+    assert src.name == "BusDrop" and src.layout_dir == tmp_path / "layout" and src.zen == tmp_path / "BusDrop.zen"

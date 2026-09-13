@@ -25,7 +25,7 @@ def test_tracks_vias_pours_and_a_plane_round_trip(breakout_pcb, tmp_path):
     before = read_board(pcb)
     b = Board(before, edge_margin=0.0)
     b.size(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
-    b.track(Net("TERM_MID"), [PadRef(Part("term_ra"), "TERM_MID"), PadRef(Part("term_rb"), "TERM_MID")],
+    b.track(Net("TERM_NEAR_MID"), [PadRef(Part("term_near_ra"), "TERM_NEAR_MID"), PadRef(Part("term_near_rb"), "TERM_NEAR_MID")],
             layer=CopperLayer.F, width=0.3)
     b.via(Net("GND"), Location(5.0, 100.0))
     b.pour(Net("V48P"), [Location(50, 100), Location(60, 100), Location(60, 105), Location(50, 105)],
@@ -39,9 +39,9 @@ def test_tracks_vias_pours_and_a_plane_round_trip(breakout_pcb, tmp_path):
     assert n_tracks == len([c for c in before.copper if c.kind == "track"]) + 1
     assert n_vias == len([c for c in before.copper if c.kind == "via"]) + 1
     assert any(c.kind == "poly" and c.net == "V48P" and abs(c.box.left - 50.0) <= 0.11 for c in after.copper)   # the 0.2 stroke rounds the outline outward
-    zones = [c for c in after.copper if c.kind == "zone"]
-    assert zones and zones[0].net == "GND" and CopperLayer.B in zones[0].layers
-    assert zones[0].box.width > 100     # filled, not an empty outline
+    zones = [c for c in after.copper if c.kind == "zone" and c.net == "GND" and CopperLayer.B in c.layers]
+    assert zones                                                    # the one this plan added (the board may carry its own)
+    assert zones[0].box.width > after.outline_box.width * 0.9     # filled across the board, not an empty outline
 
 
 def test_drc_on_the_committed_board_reads_as_numbers(breakout_pcb, tmp_path):

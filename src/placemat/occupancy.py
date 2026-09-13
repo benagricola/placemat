@@ -85,6 +85,8 @@ class Occupancy:
         for c in geometry.copper:
             if c.kind == "pad":
                 continue          # pads travel with their footprint
+            if c.kind == "zone":
+                continue          # a fill pulls back round whatever is placed; it never blocks anything
             faces = frozenset(l.face for l in c.layers if l.face is not None)
             if c.kind == "via":
                 faces = _BOTH

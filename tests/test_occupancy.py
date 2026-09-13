@@ -103,3 +103,19 @@ def test_two_cells_may_overlap_by_box_when_their_parts_do_not():
     inside_a = Location(12.0, 14.0)
     assert a.box.contains_point(inside_a)
     assert occ.legal(b, Placement(inside_a, 0, Face.FRONT)) is None
+
+
+def test_a_zone_fill_never_blocks_a_placement():
+    """A board read back with a ground fill on it must still accept a part
+    where the fill is: the fill pulls back round the part when refilled."""
+    from placemat.occupancy import Occupancy
+    from placemat.placement import Placement
+    from placemat.board_geometry import CopperItem
+    from placemat.values import CopperLayer, Face, Location
+    from tests.fixtures import board_geometry, footprint, rect
+    fp = footprint("R1", 10, 10, inst="r1", nets=("A", "B"))
+    fill = rect(25, 25, 40, 40)
+    zone = CopperItem("zone", "GND", frozenset([CopperLayer.F]), (fill,), __import__("placemat.values", fromlist=["Box"]).Box.of_points(fill), None)
+    g = board_geometry([fp], copper=[zone], width=50, height=50)
+    occ = Occupancy(g, 1.0)
+    assert occ.legal(fp, Placement(Location(25, 25), 0, Face.FRONT)) is None

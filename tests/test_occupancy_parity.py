@@ -34,20 +34,19 @@ def test_every_cell_is_legal_where_it_sits(breakout):
 
 def test_a_station_moved_onto_its_neighbour_is_rejected(breakout):
     occ = Occupancy(breakout, edge_margin=0.0)
-    pd0, bd0 = breakout.cell("power_drop0"), breakout.cell("bus_drop0")
-    # slide power_drop0 south by half its neighbour's height: it stays on the
-    # board and lands on bus_drop0's connector
-    onto = Placement(pd0.box.center.offset(0, bd0.box.height / 2 + 2.0), 0.0, Face.FRONT)
+    pd0, pd1 = breakout.cell("power_drop0"), breakout.cell("power_drop1")
+    # put power_drop0 over its neighbour, wherever the board has them
+    onto = Placement(pd1.box.center, 0.0, Face.FRONT)
     why = occ.legal(pd0, onto)
-    assert why is not None and "bus_drop0" not in why   # reported by member refdes, not cell name
-    assert any(fp.ref in why for fp in bd0.members), why
+    assert why is not None and "power_drop1" not in why   # reported by member refdes, not cell name
+    assert any(fp.ref in why for fp in pd1.members), why
 
 
 def test_thousands_of_candidates_are_cheap(breakout):
     occ = Occupancy(breakout, edge_margin=3.0)
     r15 = breakout.footprint("R15")
     t0 = time.time()
-    result = scan(occ, r15, Placement(r15.location, 0, Face.FRONT), radius=6.0, step=0.25)
+    result = scan(occ, r15, Placement(r15.location, r15.rotation, Face.FRONT), radius=6.0, step=0.25)
     dt = time.time() - t0
     assert result.chosen is not None
     assert result.tried >= 1
