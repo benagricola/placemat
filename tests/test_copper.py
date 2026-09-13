@@ -206,3 +206,23 @@ def test_the_fewest_turn_split_yields_to_a_pad_in_its_way():
     last = legs[-1]
     assert abs(abs(last.end.x - last.start.x) - abs(last.end.y - last.start.y)) < 1e-9 and last.end == Location(47.4, 14.2)
     assert all(t.start.x >= 43.8 + 0.2 or t.start.y >= 15.7 + 0.2 for t in legs)           # nothing inside pin A's pad
+
+
+def test_a_waypoint_that_forces_a_track_into_a_pad_is_named():
+    """When a track with waypoints hits a pad of another net and the same
+    track drawn pad to pad would clear, the finding says so: the waypoint is
+    the defect, not the geometry."""
+    from placemat.board_geometry import Footprint
+    from placemat.values import Box, Face, X, Y
+    from tests.fixtures import pad, footprint
+    pins = (pad("U1", "u1", 1, "A", 42.3, 14.2, 3.0, 3.0, True), pad("U1", "u1", 2, "B", 47.4, 14.2, 3.0, 3.0, True))
+    body = Box(38.0, 8.0, 52.0, 16.0)
+    conn = Footprint("U1", "u1", None, "U1", Location(44.85, 12.0), 0.0, Face.FRONT, body, body, body, pins)
+    jumper = footprint("H1", 42.8, 19.5, w=4, h=2, inst="h1", nets=("B", "C"), through=True)
+    b = Board(board_geometry([conn, jumper], width=60, height=60), edge_margin=1.0)
+    b.place(Part("u1"), at=Location(44.85, 12.0))
+    b.place(Part("h1"), at=Location(42.8, 19.5))
+    hb, ub = PadRef(Part("h1"), "B"), PadRef(Part("u1"), "B")
+    b.track(Net("B"), [hb, (X(hb), Y(hb, -1.0)), (X(hb, 2.0), Y(hb, -4.0)), ub], layer=CopperLayer.F, width=0.3)   # a waypoint inside pin A's pad
+    plan = b.resolve()
+    assert any("waypoint" in f and "pad to pad" in f for f in plan.findings), plan.findings

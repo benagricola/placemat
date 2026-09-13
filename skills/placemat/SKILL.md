@@ -165,6 +165,20 @@ coordinates nobody chose.
 - Keep a corridor open by not placing in it; reservations are for copper the
   script has not drawn yet, not for space you like.
 
+## When a track or a placement fails
+
+- Read the finding as a claim about the script, not about the board. A
+  track that hits a pad has a waypoint in it that put it there; a run's
+  finding names that waypoint when pad to pad would clear. Remove the
+  waypoint and run again before anything else.
+- Never say a route is impossible from one run. Draw the thing the plain
+  way (pad to pad, no waypoints, no offsets), run, and read the numbers.
+  "The geometry forbids it" is a claim to be tested like any other, and it
+  is usually a waypoint or a constant in the script.
+- When a number in the script was chosen to dodge something, it is a
+  workaround for a rule the tool should carry. Say so in the run notes so
+  the rule gets built instead of the number being copied.
+
 ## Gates, in order
 
 `real` DRC buckets empty; `unconnected` 0 (or only the nets you have not

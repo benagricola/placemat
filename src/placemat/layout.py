@@ -561,8 +561,16 @@ class Board:
             def clear(a, b):          # a leg that touches no pad of another net
                 shape = _shape_of(Track(name, layer, w, a, b))
                 return not ctx.occ.copper_conflicts(shape)
-            pts = octilinear([ctx.locate(p) for p in points], pads, clear)
-            return polyline_tracks(name, layer, w, chamfered(pts, chamfer))
+            located = [ctx.locate(p) for p in points]
+            pts = octilinear(located, pads, clear)
+            ops = polyline_tracks(name, layer, w, chamfered(pts, chamfer))
+            if len(points) > 2 and any(not clear(t.start, t.end) for t in ops):
+                # the script's waypoints steer this track into a pad: would pad to pad clear?
+                direct = polyline_tracks(name, layer, w, chamfered(octilinear([located[0], located[-1]], [pads[0], pads[-1]], clear), chamfer))
+                if all(clear(t.start, t.end) for t in direct):
+                    ctx.notes.append("track %s: a waypoint steers it into another net's pad; drawn pad to pad it clears, "
+                                     "so drop the waypoint(s) unless the route must go there" % name)
+            return ops
         return self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge)
 
     def pair(self, net_p, net_n, path, *, layer: CopperLayer, width: float | None = None, gap: float | None = None,
@@ -750,7 +758,8 @@ class Board:
                 (tracks if isinstance(op, Track) else others).append((c, op))
         entries = [(op, c.priority.rank, c.bridge) for c, op in tracks]
         ops, notes, findings = resolve_bridges(entries, ctx.fixed_tracks, self.via_drill, self.via_size)
-        plan.findings += findings
+        plan.findings += findings + ctx.notes
+        ctx.notes = []
         ctx.planned_tracks += [op for op in ops if isinstance(op, Track)]
         for c in deferred:
             for op in c.plan(ctx):
@@ -947,6 +956,7 @@ class _CopperContext:
         self.board, self.occ = board, occ
         self.planned_tracks: list = []     # every track planned so far (any batch)
         self.fixed_tracks: list = []       # tracks from the FIXED batch: never yield
+        self.notes: list = []              # findings a copper plan raises about itself
 
     def locate(self, ref) -> Location:
         return _locate(self.board, self.occ, ref)
