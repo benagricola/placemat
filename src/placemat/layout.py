@@ -293,35 +293,50 @@ class Board:
         refs = [] if outline is None else _refs_in(outline)
         return self._copper_intent("plane %s" % name, net, priority, plan, refs, why)
 
-    def lane(self, net, *, x: float, layer: CopperLayer, width: float | None = None,
+    def lane(self, net, *, layer: CopperLayer, x: float | None = None, y: float | None = None,
+             through: Location | None = None, angle: float | None = None, width: float | None = None,
              priority: Priority = Priority.DEFAULT) -> Lane:
-        """Register a lane: a vertical line at `x` on `layer` that `net` runs
-        along. Declare its runs, taps, hops, chains and crossings on the
-        returned Lane. All lanes are planned together, so a tap or crossing
-        that passes another same-layer lane is bridged under it."""
+        """Register a lane: a straight line on `layer` that `net` runs along.
+        `x=` is a vertical lane (positions along it are y values), `y=` a
+        horizontal one (positions are x values), `through=` + `angle=` any
+        direction (positions are mm from the point; angle 0 points +x, 90
+        points down the board). Declare its runs, taps, hops, chains and
+        crossings on the returned Lane. All lanes are planned together, so a
+        tap or crossing that passes another same-layer lane is bridged under
+        it."""
+        import math
         name = self.geometry.require_net(net)
-        lane = Lane(name, float(x), CopperLayer.of(layer), self._width(name, width), self, priority=priority)
+        given = sum(v is not None for v in (x, y, through))
+        if given != 1:
+            raise ValueError("lane %s: give exactly one of x=, y= or through=" % name)
+        if x is not None:
+            origin, direction = Location(float(x), 0.0), (0.0, 1.0)
+        elif y is not None:
+            origin, direction = Location(0.0, float(y)), (1.0, 0.0)
+        else:
+            if angle is None:
+                raise ValueError("lane %s: through= needs angle=" % name)
+            r = math.radians(angle)
+            origin, direction = through, (round(math.cos(r), 12), round(math.sin(r), 12))
+        lane = Lane(name, origin, direction, CopperLayer.of(layer), self._width(name, width), self, priority=priority)
         self._lanes.append(lane)
         return lane
 
-    def finger(self, net, *, layer: CopperLayer, y_lo: float, y_hi: float, x_from: float, x_to: float,
+    def finger(self, net, *, layer: CopperLayer, from_, to, width: float,
                bridge_width: float = 1.0, priority: Priority = Priority.DEFAULT, why: str = ""):
-        """A finger: a horizontal rectangular pour from x_from to x_to between
-        y_lo and y_hi, cut either side of every registered same-layer lane it
-        would cover and bridged under each on the opposite face so the
-        pieces stay one net."""
+        """A finger: a rectangular pour of `width` along the centreline from
+        `from_` to `to` (points, pads, or (x, y) pairs with X()/Y()), cut
+        either side of every registered same-layer lane it crosses and
+        bridged under each on the opposite face so the pieces stay one net."""
         layer = CopperLayer.of(layer)
         name = self.geometry.require_net(net)
-        refs = _refs_in([(x_from, y_lo), (x_to, y_hi)])
+        refs = _refs_in([from_, to])
 
         def plan(ctx):
-            ylo, yhi = ctx.coord(y_lo, "y"), ctx.coord(y_hi, "y")
-            lo, hi = min(ylo, yhi), max(ylo, yhi)
-            xa, xb = ctx.coord(x_from, "x"), ctx.coord(x_to, "x")
-            xs = sorted({l.x for l in self._lanes if l.layer is layer and l.net != name
-                         and ctx.lane_extent(l) is not None
-                         and ctx.lane_extent(l)[0] <= hi and lo <= ctx.lane_extent(l)[1]})
-            return finger_ops(name, layer, lo, hi, xa, xb, xs, self.via_drill, self.via_size, bridge_width)
+            a, b = ctx.locate(from_), ctx.locate(to)
+            segs = [ctx.lane_segment(l) for l in self._lanes if l.layer is layer and l.net != name]
+            segs = [sg for sg in segs if sg is not None]
+            return finger_ops(name, layer, a, b, width, segs, self.via_drill, self.via_size, bridge_width)
         return self._copper_intent("finger %s" % name, net, priority, plan, refs, why)
 
     # ------------------------------------------------------------ resolution
@@ -386,7 +401,6 @@ class Board:
     def _draw_lanes(self, occ, ctx, lanes, plan: Plan) -> Step:
         planner = LanePlanner(lanes, ctx, self.via_drill, self.via_size)
         ops = planner.plan()
-        ctx.lane_extents.update(planner.extents)
         prio = lanes[0].priority if lanes else Priority.DEFAULT
         key = "lanes " + ", ".join(dict.fromkeys(l.net for l in lanes))
         return self._record_ops(occ, plan, key, prio or Priority.DEFAULT, ops, "")
@@ -408,7 +422,7 @@ class Board:
 class _CopperContext:
     def __init__(self, board: Board, occ: Occupancy):
         self.board, self.occ = board, occ
-        self.lane_extents: dict = {}
+        self._planner = None
 
     def locate(self, ref) -> Location:
         if isinstance(ref, Location):
@@ -430,12 +444,12 @@ class _CopperContext:
             return l.x if axis == "x" else l.y
         return float(v)
 
-    def lane_extent(self, lane):
-        if not self.lane_extents:
-            planner = LanePlanner(self.board._lanes, self, self.board.via_drill, self.board.via_size)
-            self.lane_extents = dict(planner.compute_extents())
-            self.lane_extents.setdefault("_computed", True)
-        return self.lane_extents.get(id(lane))
+    def lane_segment(self, lane):
+        """The segment a lane's copper occupies, once every lane is known."""
+        if self._planner is None:
+            self._planner = LanePlanner(self.board._lanes, self, self.board.via_drill, self.board.via_size)
+            self._planner.compute_extents()
+        return self._planner.extent_segment(lane)
 
 
 def _refs_in(points) -> list:

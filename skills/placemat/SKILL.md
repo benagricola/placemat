@@ -104,11 +104,15 @@ coordinates nobody chose.
 - A high-current path is copper you draw (a pour or a wide track), declared
   FIXED so no loose part settles on it. A plane serves what it reaches by a
   via; a bypass capacitor served through a via is a bulk capacitor.
-- A lane is a vertical line at a fixed x that one net runs along (the
-  vocabulary is defined in `references/api.md`): register every lane, then
-  tap, hop, chain and cross. Same-layer lanes a tap must pass are bridged
-  under for you; two same-layer nets that would cross anywhere else are a
-  layout error, not a routing problem.
+- A lane is a straight line, in any direction, that one net's tracks run
+  along (the vocabulary is defined in `references/api.md`): register every
+  lane, then tap, hop, chain and cross. Same-layer lanes a tap must pass are
+  bridged under for you; two same-layer nets that would cross anywhere else
+  are a layout error, not a routing problem.
+- Use placemat's words in the script's comments, and define any word of
+  your own (a "corridor", a "column", a "bank") where it first appears, in
+  terms of what is on the board. A comment and the run log must mean the
+  same thing by the same word.
 - Keep a corridor open by not placing in it; reservations are for copper the
   script has not drawn yet, not for space you like.
 

@@ -47,20 +47,26 @@ Every copper call is named for the shape it leaves on the board:
 | pour | a filled polygon of exactly the shape given, on one layer; it never pulls back from other copper, so it is drawn where nothing foreign is |
 | zone | a filled area KiCad fills and refills, pulling back by the clearance round every foreign pad, track and via; what a plane is made of |
 | plane | a zone covering the whole board (or an outline) on one or more layers, for a net that everything reaches by a via |
-| lane | a vertical line at a fixed x on one layer that one net runs along, like a bus bar down the board |
-| run | a vertical track down a lane between two y values |
-| tap | a horizontal track from a lane to a pad, at the pad's own y |
-| hop | tap out of a pad, run down the lane, tap into the next pad |
+| bridge | a via, a short track on the opposite face passing under one or more tracks, and a via back: how a track gets past copper on its own layer without touching it. The lane planner and the finger make them; nothing else does yet |
+| finger | a rectangular pour of a width along a centreline (a wide reach from a big pour to a pad), cut and bridged where a lane crosses it |
+| lane | a straight line on one layer, in any direction, that one net's tracks run along: a bus bar drawn as tracks. Vertical (`x=`), horizontal (`y=`) or through a point at an angle. Positions along a lane are distances from its point; for `x=`/`y=` lanes those are plain y/x values |
+
+The lane words, which only mean something on a lane:
+
+| lane word | the shape on the board |
+|---|---|
+| run | a track along the lane between two positions |
+| tap | a track from the lane to a pad, perpendicular to the lane, bridged under any same-layer lane between |
+| hop | tap out of a pad, run along the lane, tap into the next pad |
 | chain | tap, run, tap, run ... over many pads, each tapped once |
-| crossing | a horizontal track at one y from one lane's x to another lane's x (the net moving from one side of the board to the other) |
-| bridge | a via, a short track on the opposite face passing under another lane, and a via back: how a tap or crossing gets past a same-layer lane without touching it |
-| finger | a horizontal rectangular pour reaching from a wide pour to a pad, cut and bridged where it would cover a lane |
+| crossing | a track from a position on this lane to the nearest point of another lane (for parallel lanes, perpendicular to both), bridged under any same-layer lane it passes |
 
 Not in this API (they were verbs in the previous library): route45 and
 l45 (45-degree legs: give `track` the corner points), spine and plane_serve
 (joining plane drops with planned runs), band_with_notches, reserve,
 drop_via and stitch (via-in-pad drops). They return only when a board
-needs them.
+needs them. A script that needs a word of its own (a "corridor", a
+"column") defines it where it first uses it, in these terms.
 
 ## Copper (planned after placement, against the placed pads)
 
@@ -72,10 +78,10 @@ board.track(net, [p1, p2, ...], layer=CopperLayer.F, width=None)     # polyline;
 board.via(net, point)
 board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False)     # filled polygon
 board.plane(net, layers=(CopperLayer.IN1,), outline=None, inset=0.4)  # zone(s), whole board or outline
-board.finger(net, layer=, y_lo=, y_hi=, x_from=, x_to=)               # pour notched round same-layer lanes, bridged
-lane = board.lane(net, x=, layer=, width=None)
-lane.run(y1, y2); lane.tap(pad); lane.hop(pad_a, pad_b); lane.chain([pads]); lane.run_to(y_or_pad, pad, tap=True)
-lane.cross_to(other_lane, y=, from_y=pad_or_y, to_y=pad_or_y)
+board.finger(net, layer=, from_=point, to=point, width=)               # pour along a centreline, cut and bridged at lanes
+lane = board.lane(net, layer=, x=)  |  board.lane(net, layer=, y=)  |  board.lane(net, layer=, through=Location, angle=)
+lane.run(a, b); lane.tap(pad); lane.hop(pad_a, pad_b); lane.chain([pads]); lane.run_to(a, pad, tap=True)
+lane.cross_to(other_lane, at=, from_=, to=)        # positions: a distance along the lane, or a point/pad projected onto it
 ```
 All take `priority=Priority.FIXED` to be planned before loose parts (and
 become an obstacle to them); FIXED copper may not reference a searched part.

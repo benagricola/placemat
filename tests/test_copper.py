@@ -121,7 +121,7 @@ def test_a_finger_band_may_be_placed_around_a_pads_y():
     b = make_board()
     b.place(Part("r1"), at=Location(30, 30))
     pad = PadRef(Part("r1"), "MID")
-    b.finger(Net("V48"), layer=CopperLayer.F, y_lo=Y(pad, -3.0), y_hi=Y(pad, 3.0), x_from=60.0, x_to=X(pad, 2.0))
+    b.finger(Net("V48"), layer=CopperLayer.F, from_=(60.0, Y(pad)), to=(X(pad, 2.0), Y(pad)), width=6.0)
     plan = b.resolve()
     p = [o for o in plan.copper if isinstance(o, Pour)][0]
     ys = sorted({y for _, y in p.points})
