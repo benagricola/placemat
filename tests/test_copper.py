@@ -164,3 +164,45 @@ def test_a_track_leg_off_the_45_grid_becomes_a_45_and_a_straight():
     b.track(Net("MID"), [Location(20, 40), PadRef(Part("r1"), "MID")], layer=CopperLayer.F, width=0.3)
     legs = [op for op in b.resolve().copper if isinstance(op, Track)]
     assert legs[-1].start.distance(legs[-1].end) == pytest.approx(10 * math.sqrt(2)) and legs[-1].end == Location(31.4, 30)   # arriving at a pad: the 45 is last
+
+
+def test_an_off_grid_leg_is_split_the_way_that_turns_least():
+    """Every turn costs signal integrity. Leaving a pad vertically and then
+    heading for another pad up and to the right: the 45 goes next to the
+    turn, so the track is vertical, 45, horizontal (two turns), not
+    vertical, chamfered right angle, 45 (three)."""
+    b = make_board()
+    b.track(Net("MID"), [Location(0, 0), Location(0, -2.5), Location(6.75, -5.3)], layer=CopperLayer.F, width=0.3)
+    legs = [op for op in b.resolve().copper if isinstance(op, Track)]
+    assert [(t.start, t.end) for t in legs] == [(Location(0, 0), Location(0, -2.5)),
+                                                (Location(0, -2.5), Location(2.8, -5.3)),
+                                                (Location(2.8, -5.3), Location(6.75, -5.3))]
+    # and the mirror case: arriving along an axis, the 45 goes next to that turn too
+    b = make_board()
+    b.track(Net("MID"), [Location(6.75, -5.3), Location(0, -2.5), Location(0, 0)], layer=CopperLayer.F, width=0.3)
+    legs = [op for op in b.resolve().copper if isinstance(op, Track)]
+    assert [(t.start, t.end) for t in legs] == [(Location(6.75, -5.3), Location(2.8, -5.3)),
+                                                (Location(2.8, -5.3), Location(0, -2.5)),
+                                                (Location(0, -2.5), Location(0, 0))]
+
+
+def test_the_fewest_turn_split_yields_to_a_pad_in_its_way():
+    """The turn-saving order is only taken when its legs clear every pad of
+    another net; if they would clip one (a neighbouring pin), the other
+    order is drawn."""
+    from placemat.board_geometry import Footprint
+    from placemat.values import Box, Face, X, Y
+    from tests.fixtures import pad, footprint
+    pins = (pad("U1", "u1", 1, "A", 42.3, 14.2, 3.0, 3.0, True), pad("U1", "u1", 2, "B", 47.4, 14.2, 3.0, 3.0, True))
+    body = Box(38.0, 8.0, 52.0, 16.0)
+    conn = Footprint("U1", "u1", None, "U1", Location(44.85, 12.0), 0.0, Face.FRONT, body, body, body, pins)
+    jumper = footprint("H1", 42.8, 19.5, w=4, h=2, inst="h1", nets=("B", "C"), through=True)     # pad B at (41.4, 19.5), under pin A
+    b = Board(board_geometry([conn, jumper], width=60, height=60), edge_margin=1.0)
+    b.place(Part("u1"), at=Location(44.85, 12.0))
+    b.place(Part("h1"), at=Location(42.8, 19.5))
+    hb, ub = PadRef(Part("h1"), "B"), PadRef(Part("u1"), "B")
+    b.track(Net("B"), [hb, (X(hb), Y(hb, -2.5)), ub], layer=CopperLayer.F, width=0.3)
+    legs = [op for op in b.resolve().copper if isinstance(op, Track)]
+    last = legs[-1]
+    assert abs(abs(last.end.x - last.start.x) - abs(last.end.y - last.start.y)) < 1e-9 and last.end == Location(47.4, 14.2)
+    assert all(t.start.x >= 43.8 + 0.2 or t.start.y >= 15.7 + 0.2 for t in legs)           # nothing inside pin A's pad

@@ -142,9 +142,11 @@ coordinates nobody chose.
   FIXED so no loose part settles on it. A plane serves what it reaches by a
   via; a bypass capacitor served through a via is a bulk capacitor.
 - Tracks are drawn as KiCad draws them, and the tool enforces it: every
-  leg at 0, 45 or 90 degrees (an odd leg becomes a 45 and a straight, the
-  45 at the pad end) and every right angle cut into two 45s (`chamfer=0`
-  keeps one). Draw a daisy chain as a chain: the run bows out at 45 to an
+  leg at 0, 45 or 90 degrees (an odd leg becomes a 45 and a straight,
+  ordered to turn least against the legs either side, the 45 at the pad
+  end on a tie) and every right angle cut into two 45s (`chamfer=0` keeps
+  one). Every turn costs signal integrity: give a track the fewest
+  waypoints that say where it must go and let the tool find the rest. Draw a daisy chain as a chain: the run bows out at 45 to an
   apex and one line leaves the apex for the pin; never a bus with stubs.
 - Rows and references before numbers: things down an edge are a `row`
   (connectors `line="outer"`, small parts on their centre line); a part

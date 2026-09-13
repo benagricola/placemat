@@ -557,7 +557,12 @@ class Board:
 
         def plan(ctx):
             pads = [isinstance(p, (PadRef, CellPadRef)) for p in points]
-            return polyline_tracks(name, layer, w, chamfered(octilinear([ctx.locate(p) for p in points], pads), chamfer))
+
+            def clear(a, b):          # a leg that touches no pad of another net
+                shape = _shape_of(Track(name, layer, w, a, b))
+                return not ctx.occ.copper_conflicts(shape)
+            pts = octilinear([ctx.locate(p) for p in points], pads, clear)
+            return polyline_tracks(name, layer, w, chamfered(pts, chamfer))
         return self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge)
 
     def pair(self, net_p, net_n, path, *, layer: CopperLayer, width: float | None = None, gap: float | None = None,

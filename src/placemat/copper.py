@@ -342,21 +342,51 @@ def _nearest(pts: list, q: Location):
     return best[1], best[2], best[3]
 
 
-def octilinear(pts: list, at_pad=None) -> list:
+def _dir(a: Location, b: Location):
+    return (0 if abs(b.x - a.x) < 1e-9 else math.copysign(1, b.x - a.x),
+            0 if abs(b.y - a.y) < 1e-9 else math.copysign(1, b.y - a.y))
+
+
+def _turns(dirs: list) -> int:
+    """Direction changes along a run of legs, a right angle between axis
+    legs counting two: the chamfer will make it two 45s."""
+    n = 0
+    for d1, d2 in zip(dirs, dirs[1:]):
+        if d1 is None or d2 is None or d1 == d2:
+            continue
+        axis1, axis2 = (d1[0] == 0 or d1[1] == 0), (d2[0] == 0 or d2[1] == 0)
+        n += 2 if axis1 and axis2 and d1[0] * d2[0] + d1[1] * d2[1] == 0 else 1
+    return n
+
+
+def octilinear(pts: list, at_pad=None, clear=None) -> list:
     """The polyline with every leg at 0, 45 or 90 degrees: a leg at another
-    angle becomes a 45 and a straight, as KiCad's own router draws. The 45
-    sits at the pad end of the leg (leaving a pad, or arriving at one), so
-    the straight never runs along a pad row into a neighbour."""
+    angle becomes a 45 and a straight, as KiCad's own router draws. The
+    order is the one that turns least against the legs either side (a
+    chamfered right angle counts as two turns); on a tie the 45 sits at the
+    pad end of the leg, so the straight never runs along a pad row into a
+    neighbour. An order whose legs `clear(a, b)` says would hit something
+    is not taken while the other would not. Fewer turns, better signal
+    integrity."""
     at_pad = at_pad or [False] * len(pts)
     out = [pts[0]] if pts else []
     for i, (a, b) in enumerate(zip(pts, pts[1:])):
         dx, dy = b.x - a.x, b.y - a.y
         if abs(dx) > 1e-9 and abs(dy) > 1e-9 and abs(abs(dx) - abs(dy)) > 1e-9:
             m = min(abs(dx), abs(dy))
-            if at_pad[i + 1] and not at_pad[i]:       # arriving at a pad: straight first, 45 last
-                out.append(Location(round(b.x - math.copysign(m, dx), 6), round(b.y - math.copysign(m, dy), 6)))
-            else:                                    # leaving a pad, or neither: 45 first
-                out.append(Location(round(a.x + math.copysign(m, dx), 6), round(a.y + math.copysign(m, dy), 6)))
+            diag_first = Location(round(a.x + math.copysign(m, dx), 6), round(a.y + math.copysign(m, dy), 6))
+            diag_last = Location(round(b.x - math.copysign(m, dx), 6), round(b.y - math.copysign(m, dy), 6))
+            prev = _dir(out[-2], out[-1]) if len(out) > 1 else None
+            nxt = _dir(b, pts[i + 2]) if i + 2 < len(pts) else None
+            first = _turns([prev, _dir(a, diag_first), _dir(diag_first, b), nxt])
+            last = _turns([prev, _dir(a, diag_last), _dir(diag_last, b), nxt])
+            prefer_first = first < last or (first == last and not (at_pad[i + 1] and not at_pad[i]))
+            if clear is not None:
+                ok_first = clear(a, diag_first) and clear(diag_first, b)
+                ok_last = clear(a, diag_last) and clear(diag_last, b)
+                if ok_first != ok_last:
+                    prefer_first = ok_first
+            out.append(diag_first if prefer_first else diag_last)
         out.append(b)
     return out
 
