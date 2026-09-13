@@ -64,3 +64,28 @@ def test_edge_placement_of_a_cell_moves_every_member():
     box = occ.body_box(cell, p)
     assert abs(box.left - 2.0) < 1e-9 and abs(box.center.y - 50.0) < 1e-9
     assert abs(box.height - 6.0) < 1e-9
+
+
+def test_a_scored_scan_over_a_wide_radius_is_coarse_then_fine_and_tries_far_fewer_candidates():
+    """With a score every legal candidate is weighed, so a wide radius at a
+    fine step is thousands of checks. The scan runs coarse first (four
+    steps) and refines to the fine step only around the best coarse spots;
+    it still lands on a fine-grid point with the lowest score."""
+    occ = Occupancy(board_geometry([footprint("R1", 10, 10)], width=80, height=80), edge_margin=1.0)
+    r2 = footprint("R2", 30, 30)
+    target = Location(41.3, 33.1)
+    score = lambda p: p.location.distance(target)
+    wide = scan(occ, r2, hint=Placement(Location(30, 30), 0, Face.FRONT), radius=16.0, step=0.2, score=score)
+    assert wide.chosen is not None and wide.chosen.location.distance(target) < 0.15      # on the fine grid, next to the target
+    full_grid = sum(1 for _ in range(int(16 / 0.2) * 2 + 1)) ** 2
+    assert wide.tried < full_grid / 8
+
+
+def test_a_scored_scan_still_finds_a_spot_that_only_the_fine_grid_reaches():
+    # a 2.2 wide slot between two blocks: the coarse 0.8 grid may straddle it, the fine pass must not miss it
+    fps = [footprint("A1", 20, 20, w=10, h=10), footprint("A2", 32.2, 20, w=10, h=10)]
+    occ = Occupancy(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    r = footprint("R2", 50, 50, w=1.6, h=1.0)
+    score = lambda p: p.location.distance(Location(26.1, 20))
+    result = scan(occ, r, hint=Placement(Location(26.3, 20), 0, Face.FRONT), radius=2.0, step=0.2, score=score)
+    assert result.chosen is not None and abs(result.chosen.location.x - 26.1) < 0.25

@@ -45,6 +45,16 @@ def _grid(center: Location, radius: float, step: float):
     return pts
 
 
+COARSE_STEPS = 4
+"""A scored scan over a wide radius first walks a grid this many steps
+apart and refines to the step only around its best spots."""
+COARSE_FROM = 12
+"""Radius-to-step ratio from which a scored scan goes coarse first: below
+it the fine grid is a few hundred points and not worth two passes."""
+REFINE_AROUND = 3
+"""How many of the best coarse spots get a fine pass."""
+
+
 def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
          rotations=None, clearance: float | None = None, commit: bool = False, score=None) -> ScanResult:
     """A legal location within `radius` of `hint`, on a `step` grid, trying
@@ -52,36 +62,56 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     candidate to the hint; with `score(placement) -> float` it is the legal
     candidate with the lowest score, ties broken by distance from the hint,
     then rotation. Rotations are tried in numeric order regardless of how
-    they were passed."""
+    they were passed. A scored scan over a wide radius is coarse first,
+    then fine around its best spots."""
     rots = tuple(sorted({(r % 360) for r in (rotations or (hint.rotation,))}))
     rejected: Counter = Counter()
     reasons: dict = {}
     tried = 0
-    best = None
     geom = occ._geometry(item)
     reach = radius + max(geom.body.width, geom.body.height)       # any rotation of the body, anywhere in the scan
     region = Box(hint.location.x - reach, hint.location.y - reach, hint.location.x + reach, hint.location.y + reach)
     others = occ.obstacles(geom, region)
-    for d, x, y in _grid(hint.location, radius, step):
-        for rot in rots:
-            cand = Placement(Location(x, y), rot, hint.face)
-            tried += 1
-            why = occ.legal(item, cand, clearance, others=others)
-            if why is None:
-                if score is None:
-                    best = (0.0, d, rot, cand)
-                    break
-                key = (score(cand), d, rot, cand)
-                if best is None or key[:3] < best[:3]:
-                    best = key
-                continue
-            key = _reason_key(why)
-            rejected[key] += 1
-            reasons.setdefault(key, why)
-        if best is not None and score is None:
-            break
-    if best is None:
+    seen: set = set()
+
+    def sweep(points, stop_at_first: bool) -> list:
+        """Evaluate every (x, y) in `points` at every rotation; the legal
+        ones as (score, distance from the hint, rotation, placement)."""
+        nonlocal tried
+        legal = []
+        for x, y in points:
+            for rot in rots:
+                if (x, y, rot) in seen:
+                    continue
+                seen.add((x, y, rot))
+                cand = Placement(Location(x, y), rot, hint.face)
+                tried += 1
+                why = occ.legal(item, cand, clearance, others=others)
+                if why is None:
+                    d = math.hypot(x - hint.location.x, y - hint.location.y)
+                    legal.append((score(cand) if score else 0.0, d, rot, cand))
+                    if stop_at_first:
+                        return legal
+                    continue
+                key = _reason_key(why)
+                rejected[key] += 1
+                reasons.setdefault(key, why)
+        return legal
+
+    if score is None or radius / step < COARSE_FROM:
+        legal = sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), stop_at_first=score is None)
+    else:
+        coarse = step * COARSE_STEPS
+        legal = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse)), False)
+        if not legal:
+            legal = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse / 2)), False)
+        if legal:
+            legal.sort(key=lambda k: k[:3])
+            for _, _, _, cand in legal[:REFINE_AROUND]:
+                legal += sweep(((x, y) for _, x, y in _grid(cand.location, coarse, step)), False)
+    if not legal:
         return ScanResult(None, hint, tried, rejected, reasons)
+    best = min(legal, key=lambda k: k[:3])
     chosen = best[3]
     if commit:
         occ.commit(item, chosen)

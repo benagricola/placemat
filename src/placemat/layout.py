@@ -875,8 +875,12 @@ class Board:
         else:
             targets = self._targets(spec.anchor, occ, placed)
             current = occ._geometry(spec.anchor).reference
-            hint = Placement(i.near, i.rotation, i.face) if i.near is not None else \
-                Placement(current.location, i.rotation, i.face)
+            if i.near is not None:
+                hint = Placement(i.near, i.rotation, i.face)
+            elif targets or self._outline is None:
+                hint = Placement(current.location, i.rotation, i.face)
+            else:                       # nothing placed pulls it: search from the board, not from where the generator dropped it
+                hint = Placement(self._outline.center, i.rotation, i.face)
             score = None
             if targets:
                 def score(members):
