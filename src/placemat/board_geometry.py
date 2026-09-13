@@ -43,6 +43,7 @@ class Footprint:
     phys_box: Box               # pads + drawn graphics, courtyard excluded
     pads: tuple[PadGeom, ...]
     npth: tuple[tuple[Location, float], ...] = ()   # (centre, drill) of unplated holes
+    fields: dict = field(default_factory=dict, compare=False)   # the footprint's text fields (the capture's Pm.* facts)
 
     @property
     def box(self) -> Box:

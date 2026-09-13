@@ -17,14 +17,14 @@ def pad(owner, inst, number, net, cx, cy, w=1.0, h=1.0, through=False, face=Face
 
 
 def footprint(ref, cx, cy, w=4.0, h=2.0, nets=("A", "B"), through=False, face=Face.FRONT,
-              rotation=0.0, cell=None, inst=None, excess=0.1):
+              rotation=0.0, cell=None, inst=None, excess=0.1, fields=None):
     """A two-pad part: pad 1 at the west end, pad 2 at the east end (rotation 0)."""
     inst = inst or ref.lower()
     pads = (pad(ref, inst, 1, nets[0], cx - w / 2 + 0.6, cy, 1.0, 1.0, through, face),
             pad(ref, inst, 2, nets[1], cx + w / 2 - 0.6, cy, 1.0, 1.0, through, face))
     body = Box(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
     return Footprint(ref, inst, cell, ref, Location(cx, cy), rotation, face,
-                     body, body.inflate(excess), body, pads)
+                     body, body.inflate(excess), body, pads, fields=dict(fields or {}))
 
 
 def board_geometry(footprints, cells=(), copper=(), width=50.0, height=50.0, clearance=0.2, extra_nets=()):

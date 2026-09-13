@@ -232,7 +232,13 @@ placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--layers L ...] 
 placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
 placemat measure <layout.kicad_pcb> [cell-or-part ...]
+placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise C] [--copper-oz OZ] [--limit CHECK=VALUE ...] [--json]
 ```
+`check` reads the `Pm.*` facts the capture put on its parts (the
+placemat-design skill says which) and reports hot loop area, switch node
+copper, keep-out distance, crossings under sense tracks, current path
+width against IPC-2221 and junction temperature; exit 1 on a failed
+verdict. A board with no facts reports nothing to check.
 KiCad's own stderr (assertion notes, image-handler debug lines) is kept
 out of the terminal; every line of it is in `kicad-stderr.log` in the run
 directory, and `PLACEMAT_SHOW_KICAD=1` prints it all. Anything KiCad says

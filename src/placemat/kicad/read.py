@@ -153,7 +153,8 @@ def _footprint(board, fp, excess_mm, cell) -> Footprint:
                      rotation=fp.GetOrientationDegrees(),
                      face=Face.BACK if fp.IsFlipped() else Face.FRONT,
                      body_box=body_box(fp, excess_mm), courtyard_box=courtyard_box(fp),
-                     phys_box=phys_box(fp), pads=_pads(board, fp), npth=_npth(fp))
+                     phys_box=phys_box(fp), pads=_pads(board, fp), npth=_npth(fp),
+                     fields={f.GetName(): f.GetText() for f in fp.GetFields()})
 
 
 def _copper(board, groups_of) -> tuple[CopperItem, ...]:

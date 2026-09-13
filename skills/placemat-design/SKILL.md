@@ -39,12 +39,17 @@ use these:
 | `Pm.Role` | `switcher`, `inductor`, `output`, `bypass`, `sense`, `barrier`, `connector` | placement tactics, every check |
 | `Pm.Loop` | `hot` (the fast-current loop: input caps, the switch), a name for any other loop | loop area |
 | `Pm.Aggressor` | `true` | keep-out, parallel-run, crossing-under |
-| `Pm.Sensitive` | `fb`, `sense`, `clk`, a name | keep-out, plane-split, crossing-under |
-| `Pm.I` | amps at full load, e.g. `3A` | current path capacity, IR drop |
+| `Pm.Sensitive` | the net on the part's pads that must stay clear, by name: `VFB` | keep-out, crossings-under |
+| `Pm.I` | amps at full load per net the part's pads carry: `vin:3A sw:3A`; a bare `3A` means every pad | current path capacity |
 | `Pm.Pd` | watts at full load, worst case, from the datasheet | heat |
 | `Pm.TjMax` | e.g. `125C` | heat |
-| `Pm.Rth` | junction-to-board, e.g. `20K/W` | heat |
-| `Pm.Creepage` | mm across a `barrier` part | isolation |
+| `Pm.ThetaJa` | junction-to-ambient for the footprint's copper, e.g. `80C/W` | heat |
+| `Pm.Creepage` | mm across a `barrier` part | isolation (not built) |
+
+Name the net `Pm.Sensitive` protects as the capture names it; a name no pad
+of the part carries makes placemat take the part's least-connected net and
+say so in the verdict. Give `Pm.I` per net: a bare current on a switcher
+sizes its feedback pin for the load path.
 
 A value is a plain string with its unit. A placeholder is allowed while the
 datasheet is pending, but say so in a comment beside it: a number with no
@@ -73,23 +78,29 @@ copper between the parts marked `Pm.Loop: hot`, the feedback net is what the
 
 ## What placemat checks from these
 
-Given the annotations and classes, a run reports, per check, a number and
-a verdict; the layout script may set the limits it is judged against:
+`placemat check <board>` reports, per check, a number, the limit it is
+judged against and a verdict; a check whose fact is missing says which
+fact, and a check with no limit reports the number. Built:
 
-- hot loop area and longest leg, per declared loop
-- switch node copper area and perimeter
-- keep-out: sensitive-class copper within a radius of an aggressor
-- parallel run length of an aggressor beside a sensitive net, same layer and adjacent layers
-- plane continuity under a sensitive track; crossings under it by other nets
-- current path capacity: the narrowest cross-section between declared pads on a current path and its IPC-2221 rise
-- IR drop along a declared path against the rail's tolerance
-- heat: copper area and vias at a dissipating part's pad and the estimated junction rise at a stated ambient
-- isolation: no copper of a high-side net on the low side, nothing under a barrier part, creepage across it
-- group checks per net class: length spread, same layer, same corridor
+- `hot-loop`: per `Pm.Loop` name, the area (mm2) of the hull of its parts'
+  pads on the nets two or more of them share, and the longest pad-to-pad
+  reach on one of those nets; `--limit hot-loop=<mm2>` judges it
+- `switch-node`: a net whose every pad belongs to an aggressor, its copper
+  area (pads, tracks, pours) and extent; `--limit switch-node=<mm2>`
+- `keep-out`: the nearest sensitive-net copper to each switch node,
+  against `--keep-out` (default 2 mm)
+- `crossings-under`: other nets' copper on the other face under a
+  sensitive net's tracks; zones do not count, the limit is zero
+- `current-path`: per net a `Pm.I` names, the narrowest track against the
+  IPC-2221 outer-layer width for that current at `--rise` (default 10 C)
+  on `--copper-oz` (default 1 oz); an unrouted net is reported, not judged
+- `heat`: ambient (`--ambient`, default 100 C) plus `Pm.Pd` times
+  `Pm.ThetaJa`, against `Pm.TjMax`
 
-Which of these exist in the installed placemat is listed in the placemat
-skill's `references/api.md` under Checks; a capture may carry facts for
-checks not built yet.
+Not built, and the capture may carry facts for them: parallel run length
+beside an aggressor, plane continuity under a sensitive track, IR drop,
+isolation and creepage across a `barrier` part, per-class group checks
+(length spread, same layer, same corridor).
 
 ## Writing the capture
 

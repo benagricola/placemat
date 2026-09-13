@@ -1,4 +1,4 @@
-"""The placemat command line: run, impact, drc, measure."""
+"""The placemat command line: run, route, impact, drc, measure, check."""
 from __future__ import annotations
 
 import argparse
@@ -47,6 +47,17 @@ def parser() -> argparse.ArgumentParser:
     m = sub.add_parser("measure", help="what the generated board measures: each cell's size and members, a part's size and pads")
     m.add_argument("pcb")
     m.add_argument("items", nargs="*", help="cell names or part instances (default: every cell)")
+
+    ck = sub.add_parser("check", help="design checks from the parts' Pm.* facts: hot loops, switch nodes, keep-out, "
+                                      "crossings under sense tracks, current path widths, junction temperature")
+    ck.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
+    ck.add_argument("--ambient", type=float, default=None, help="board temperature in C (default: %g)" % 100.0)
+    ck.add_argument("--keep-out", type=float, default=None, help="sense copper's distance from a switch node, mm")
+    ck.add_argument("--rise", type=float, default=None, help="track temperature rise the widths are sized for, C")
+    ck.add_argument("--copper-oz", type=float, default=None, help="outer copper weight the widths are sized for")
+    ck.add_argument("--limit", action="append", default=[], metavar="CHECK=VALUE",
+                    help="a bound for a reporting check, e.g. hot-loop=20 (mm2) or switch-node=15 (mm2)")
+    ck.add_argument("--json", action="store_true")
     return root
 
 
@@ -144,10 +155,34 @@ def cmd_measure(args) -> int:
     return 0
 
 
+def cmd_check(args) -> int:
+    from . import checks
+    from .kicad import read
+    from .project import find_board
+    p = Path(args.pcb)
+    pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
+    geometry = read.read_board(pcb)
+    limits = {}
+    for item in args.limit:
+        name, _, value = item.partition("=")
+        limits[name] = float(value)
+    kw = {k: v for k, v in (("ambient_c", args.ambient), ("keep_out_mm", args.keep_out),
+                            ("rise_c", args.rise), ("copper_oz", args.copper_oz)) if v is not None}
+    verdicts = checks.run_checks(geometry, limits=limits, **kw)
+    if args.json:
+        console.data(json.dumps([v.__dict__ for v in verdicts], indent=2))
+    else:
+        for v in verdicts:
+            console.say("check", v.line())
+        if not verdicts:
+            console.say("check", "no Pm.* facts on this board: nothing to check")
+    return 1 if any(v.ok is False for v in verdicts) else 0
+
+
 def main(argv=None) -> int:
     args = parser().parse_args(argv)
     return {"run": cmd_run, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
-            "route": cmd_route}[args.command](args)
+            "route": cmd_route, "check": cmd_check}[args.command](args)
 
 
 if __name__ == "__main__":
