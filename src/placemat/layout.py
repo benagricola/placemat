@@ -15,7 +15,7 @@ from .copper import (CopperOp, Pour, Track, Via, Zone, board_zone_outline, finge
 from .geometry import polygon_box
 from .occupancy import Occupancy, Shape
 from .placement import Placement
-from .placer import box_centered_placement, edge_placement, scan
+from .placer import box_centered_placement, edge_placement, pockets, scan
 from .board_geometry import CellGeom, Footprint, BoardGeometry
 from .values import (Box, Cell, CellPadRef, CopperLayer, Edge, Face, LinkWeight, Location, Net, PadRef, Part,
                      Priority, X, Y)
@@ -428,6 +428,30 @@ class Board:
         self._report_links(occ, plan, placed)
         return plan
 
+    def _settle_in_pocket(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
+        """Nothing this item connects to is placed and no hint was given: put
+        it in the biggest free rectangle its envelope fits, trying each
+        rotation asked for (and the two orthogonal ones when none was)."""
+        rots = list(i.rotations) or [i.rotation, (i.rotation + 90) % 360]
+        tried = []
+        for rot in rots:
+            env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, i.face))
+            for pocket in pockets(occ, env.width, env.height, i.face, step=max(i.step, 0.5)):
+                hint = box_centered_placement(occ, i.item, pocket.box.center, rot, i.face)
+                result = scan(occ, i.item, hint, max(pocket.box.width, pocket.box.height) / 2, i.step, (rot,), clr)
+                if result.chosen is not None:
+                    note = "pocket %.1f x %.1f at (%.1f, %.1f): nothing it connects to is placed" % (
+                        pocket.box.width, pocket.box.height, pocket.box.center.x, pocket.box.center.y)
+                    return Step(i.key, i.kind, i.priority, result.chosen, 0.0, note, i.why)
+                tried.append(pocket)
+        current = occ._geometry(i.item).reference
+        plan.findings.append("%s: no pocket fits its %s envelope on the %s face (%d pocket(s) tried)" % (
+            i.key, "%.1f x %.1f" % (occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).width,
+                                    occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).height),
+            i.face.value, len(tried)))
+        return Step(i.key, i.kind, i.priority, Placement(current.location, i.rotation, i.face), 0.0,
+                    "UNPLACED: no pocket fits", i.why)
+
     def _plan_copper(self, occ, ctx, intents, plan: Plan, progress):
         """Plan a batch of copper together. Tracks are collected first and
         their crossings settled by priority; pours, zones, vias and fingers
@@ -516,7 +540,7 @@ class Board:
                            for k, _, _ in targets if k[0] in {fp.ref for fp in (i.item.members if i.kind == "cell" else (i.item,))}})
             seeded = "seeded on %s" % ", ".join(nets)
         else:
-            hint = Placement(current.location, i.rotation, i.face)
+            return self._settle_in_pocket(occ, i, plan, clr)
         score = self._scorer(i.item, occ, targets) if targets else None
         result = scan(occ, i.item, hint, i.radius, i.step, i.rotations or (i.rotation,), clr, score=score)
         if result.chosen is None:

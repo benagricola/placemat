@@ -123,3 +123,75 @@ def box_centered_placement(occ: Occupancy, item, center: Location, rotation: flo
     box = occ.body_box(item, probe)
     return Placement(Location(round(center.x - box.center.x, 6), round(center.y - box.center.y, 6)),
                      rotation, face)
+
+
+@dataclass(frozen=True)
+class Pocket:
+    """A free rectangle on one face, found by scanning the board."""
+    box: Box
+    face: Face
+
+
+def _largest_rectangle(free, rows, cols):
+    """Largest all-free axis-aligned rectangle in a boolean grid, by the
+    histogram method. Returns (area, r0, c0, r1, c1) exclusive, or None."""
+    heights = [0] * cols
+    best = None
+    for r in range(rows):
+        for c in range(cols):
+            heights[c] = heights[c] + 1 if free[r][c] else 0
+        stack = []
+        for c in range(cols + 1):
+            h = heights[c] if c < cols else 0
+            start = c
+            while stack and stack[-1][1] >= h:
+                s, sh = stack.pop()
+                area = sh * (c - s)
+                if sh and (best is None or area > best[0]):
+                    best = (area, r - sh + 1, s, r + 1, c)
+                start = s
+            stack.append((start, h))
+    return best
+
+
+def pockets(occ: Occupancy, width: float, height: float, face: Face = Face.FRONT, step: float = 0.5,
+            limit: int = 8) -> list:
+    """The free rectangles on `face` at least `width` x `height`, biggest
+    first: the board rastered at `step`, courtyards and holes on that face
+    blocked, the edge margin excluded, the largest free rectangle taken and
+    masked out until nothing fits or `limit` pockets are found."""
+    board = occ.board_box
+    if board is None:
+        return []
+    inner = board.inflate(-occ.edge_margin)
+    cols = int(inner.width / step)
+    rows = int(inner.height / step)
+    if cols <= 0 or rows <= 0:
+        return []
+    free = [[True] * cols for _ in range(rows)]
+    blocks = [s.box for g in occ.items.values() for s in g.shapes
+              if s.kind in ("courtyard", "npth", "through") and face in s.faces]
+    for b in blocks:
+        c0 = max(0, int((b.left - inner.left) / step))
+        c1 = min(cols, int(math.ceil((b.right - inner.left) / step)))
+        r0 = max(0, int((b.top - inner.top) / step))
+        r1 = min(rows, int(math.ceil((b.bottom - inner.top) / step)))
+        for r in range(r0, r1):
+            row = free[r]
+            for c in range(c0, c1):
+                row[c] = False
+    need_c, need_r = int(math.ceil(width / step)), int(math.ceil(height / step))
+    out = []
+    while len(out) < limit:
+        best = _largest_rectangle(free, rows, cols)
+        if best is None:
+            break
+        area, r0, c0, r1, c1 = best
+        if (c1 - c0) < need_c or (r1 - r0) < need_r:
+            break
+        out.append(Pocket(Box(inner.left + c0 * step, inner.top + r0 * step,
+                              inner.left + c1 * step, inner.top + r1 * step), face))
+        for r in range(r0, r1):
+            for c in range(c0, c1):
+                free[r][c] = False
+    return out
