@@ -125,9 +125,15 @@ coordinates nobody chose.
 ## Placement tactics
 
 - Say what is FIXED (a mechanical fact) and what is EDGE; leave the rest
-  searched. The placer orders searched items itself (cells, blocks, loose
-  parts; biggest need and strongest pull first) and says why in each step.
-  Do not hand-order them with hints.
+  searched with a bare `place(item)`. The placer orders searched items
+  itself (cells, blocks, loose parts; biggest need and strongest pull
+  first), seeds each from the placed pads it is wired to, and says why in
+  each step. Do not hand-order them with hints.
+- No floorplan by coordinate: a `Location` constant that means "the power
+  area" is the placer's job typed by hand, and every part hinted at it
+  competes for one rectangle. `near=` is for a requirement the netlist
+  cannot say (a thermal sensor by the FETs it shares no net with); a part
+  with a wired neighbour on the board is linked and left bare.
 - Price the connections, not the parts: a bypass capacitor is a SHORT link
   with a limit at its pin; a series resistor between two distant parts is
   PREFER on both links and lands where there is room between them; a net

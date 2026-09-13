@@ -27,16 +27,43 @@ top-left, y down.
 
 ## Placement
 
+Say how firm each thing is; the netlist does the rest.
+
 ```python
-board.place(item, at=Location(x, y), rotation=0, face=Face.FRONT)      # FIXED: origin (cell: box centre)
-board.place(item, center=Location(x, y), rotation=0)                    # FIXED: body box centre
+board.place(item)                                                       # searched: SEEDED from its links
 board.place(item, edge=Edge.NORTH, along=x, clearance=3.0, rotation=180)  # EDGE: flush to an edge
-board.place(item, near=Location(x, y), radius=3.0, step=0.2, rotations=(0, 90))  # searched
-board.place(item)                                                       # searched from where it is
+board.place(item, at=Location(x, y), rotation=0, face=Face.FRONT)      # FIXED: a mechanical fact (a hole, a cell)
+board.place(item, center=(X(Mid(a, b)), Y(a, 3.0)), rotation=0)         # FIXED: said in terms of pads
+board.place(item, near=Location(x, y), radius=3.0, step=0.2, rotations=(0, 90))  # searched round a hint
 ```
 `item` is a `Part` (schematic instance), a `Cell` (module group) or a block
 (below). One declaration per item. `why=` is recorded in the run. A FIXED
 placement that collides is reported as a finding, not moved.
+
+**The default is a bare `place()`.** A part with a wired neighbour already
+on the board needs no position: price the connection and leave it to seed.
+
+```python
+board.place(Part("j_pwr"), edge=Edge.WEST, along=PWR_ALONG, clearance=EDGE_CLEAR)     # the connector is EDGE
+board.link(PadRef(Part("rpf"), "V48_IN"), PadRef(Part("j_pwr"), "V48"), weight=LinkWeight.SHORT,
+           why="the reverse-polarity FET sits at the inlet")
+board.place(Part("rpf"))                                                # seeds beside J_PWR's V48 pin
+board.link(PadRef(Part("c_bulk"), "V48"), PadRef(Part("rpf"), "V48_OUT"), weight=LinkWeight.SHORT, limit_mm=3.0,
+           why="bulk cap at the FET's output")
+board.place(Part("c_bulk"))                                             # seeds beside the FET, once it is down
+```
+The step note reads `seeded on V48` and the achieved link lengths are in
+the run. A chain of small parts is the same thing repeated: each stage
+linked to the stage before it and the two ends linked to the real pads
+they terminate on, every stage a bare `place()`.
+
+**`near=` is for what the netlist cannot say**: a thermal sensor that must
+sit by the FETs it shares no net with, a test point wanted at the edge.
+A `Location` constant that stands for "the power area" or "the CAN
+corner" is a floorplan typed by hand; the placer floorplans from the
+links, and a hint on a part that has a wired, placed neighbour is a
+defect. Many parts hinted at one point compete for the same rectangle and
+the last of them fails to place.
 
 **Rows.** Things down one edge, in order, equally gapped, each flush to the
 edge with its outward side out (a cell generated with its connector's bulk
@@ -72,7 +99,8 @@ refers to, which must be FIXED or EDGE.
 **Modules.** A module's fragment runs the same way: `placemat run
 modules/X/X_layout.py` finds the `Layout(name=, path=)` in the `.zen`
 beside it, generates the fragment and applies the script. A fragment has
-no outline, so its script declares no size and places by coordinate.
+no outline, so its script declares no size; its anchor part goes down at a
+coordinate and the rest is said in terms of the anchor's pads.
 
 **How a searched item finds its place.** With `near=` it scans around the
 hint. Without one it is SEEDED: the hint is the weighted centroid of the
@@ -104,7 +132,7 @@ quoting `why`.
 
 ```python
 ldo = board.block(Part("ldo"), satellites=[(Part("cin"), "VIN"), (Part("cout"), "VOUT")], gap=0.5)
-board.place(ldo, near=Location(30, 22))
+board.place(ldo)                                                    # seeds from the links of its members
 ```
 A block is a part and the satellites that sit at its pins: each satellite's
 pad on the named net lands on that pin's axis `gap` beyond it, body
