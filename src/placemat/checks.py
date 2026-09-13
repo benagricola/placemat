@@ -53,7 +53,8 @@ class Facts:
     currents: dict | None = None        # `Pm.I: vin:3A fb:1mA`, per net (lower-cased names)
     dissipation_w: float | None = None
     tj_max_c: float | None = None
-    theta_ja_c_per_w: float | None = None
+    theta_ja_c_per_w: float | None = None       # junction to ambient, the datasheet's JEDEC-board figure
+    theta_jb_c_per_w: float | None = None       # junction to board: the figure a board temperature wants
 
 
 @dataclass(frozen=True)
@@ -129,7 +130,7 @@ def _facts_of(fp: Footprint) -> Facts:
     return Facts(ref=fp.ref, role=get("role"), loop=get("loop"),
                  aggressor=(get("aggressor") or "").lower() in ("true", "yes", "1"),
                  sensitive=get("sensitive"), current_a=current_a, currents=currents, dissipation_w=number("pd"),
-                 tj_max_c=number("tjmax"), theta_ja_c_per_w=number("thetaja"))
+                 tj_max_c=number("tjmax"), theta_ja_c_per_w=number("thetaja"), theta_jb_c_per_w=number("thetajb"))
 
 
 def facts(geometry: BoardGeometry) -> dict[str, Facts]:
@@ -161,6 +162,45 @@ def _hull(points):
             upper.pop()
         upper.append(p)
     return lower[:-1] + upper[:-1]
+
+
+def neck_mm(poly) -> float:
+    """A polygon's narrowest section: from points along each edge, the
+    distance across the interior along the edge's inward normal to the
+    boundary opposite. A rectangle's neck is its short side; a rounded
+    corner, whose short edges sit close together, does not read as one."""
+    n = len(poly)
+    signed = sum(poly[i][0] * poly[(i + 1) % n][1] - poly[(i + 1) % n][0] * poly[i][1] for i in range(n))
+    inward = 1.0 if signed > 0 else -1.0             # left of the edge when the ring is counter-clockwise
+    best = math.inf
+    for i in range(n):
+        a, b = poly[i], poly[(i + 1) % n]
+        ex, ey = b[0] - a[0], b[1] - a[1]
+        length = math.hypot(ex, ey)
+        if length < 1e-9:
+            continue
+        nx, ny = -ey / length * inward, ex / length * inward
+        for f in (0.25, 0.5, 0.75):
+            mx, my = a[0] + ex * f, a[1] + ey * f
+            for j in range(n):
+                if j == i:
+                    continue
+                t = _ray_hits(mx, my, nx, ny, poly[j], poly[(j + 1) % n])
+                if t is not None and t > 1e-6:
+                    best = min(best, t)
+    return best
+
+
+def _ray_hits(px, py, dx, dy, c, d):
+    """Distance along the ray (px, py) + t (dx, dy) to segment c-d, or None."""
+    sx, sy = d[0] - c[0], d[1] - c[1]
+    den = dx * sy - dy * sx
+    if abs(den) < 1e-12:
+        return None
+    qx, qy = c[0] - px, c[1] - py
+    t = (qx * sy - qy * sx) / den
+    u = (qx * dy - qy * dx) / den
+    return t if t >= 0 and -1e-9 <= u <= 1 + 1e-9 else None
 
 
 def _copper_on(geometry: BoardGeometry, net: str, kinds=("pad", "track", "via", "poly")) -> list[CopperItem]:
@@ -298,22 +338,21 @@ def current_paths(geometry: BoardGeometry, rise_c: float = TRACK_RISE_C, copper_
     out = []
     for net, amps in sorted(current.items()):
         tracks = [c for c in geometry.copper if c.net == net and c.kind == "track"]
+        pours = [c for c in geometry.copper if c.net == net and c.kind == "poly"]
         need = ipc2221_width_mm(amps, rise_c, copper_oz)
+        sized = "for %g A at %g C rise on %g oz" % (amps, rise_c, copper_oz)
+        if pours:
+            neck = min(neck_mm(o) for c in pours for o in c.outlines)
+            leads = "; the %d track(s) are pin leads, narrowest %.2f mm" % (
+                len(tracks), min(c.width_mm for c in tracks)) if tracks else ""
+            out.append(Verdict("current-path", net, neck, "mm", need, neck >= need,
+                               "narrowest neck of the pour %s%s" % (sized, leads)))
+            continue
         if not tracks:
-            pours = [c for c in geometry.copper if c.net == net and c.kind == "poly"]
-            what = "a pour carries the %g A; its narrowest neck is not measured yet" % amps if pours \
-                else "no track on the net yet (%g A)" % amps
-            out.append(Verdict("current-path", net, 0.0, "mm", need, None, what))
+            out.append(Verdict("current-path", net, 0.0, "mm", need, None, "no track on the net yet (%g A)" % amps))
             continue
         narrowest = min(c.width_mm for c in tracks)
-        pours = [c for c in geometry.copper if c.net == net and c.kind == "poly"]
-        if pours:
-            out.append(Verdict("current-path", net, narrowest, "mm", need, None,
-                               "a pour carries the %g A; its narrowest neck is not measured yet, "
-                               "the %d track(s) are pin leads (narrowest %.2f mm)" % (amps, len(tracks), narrowest)))
-            continue
-        out.append(Verdict("current-path", net, narrowest, "mm", need, narrowest >= need,
-                           "narrowest track for %g A at %g C rise on %g oz" % (amps, rise_c, copper_oz)))
+        out.append(Verdict("current-path", net, narrowest, "mm", need, narrowest >= need, "narrowest track " + sized))
     return out
 
 
@@ -325,12 +364,16 @@ def heat(geometry: BoardGeometry, ambient_c: float = AMBIENT_C) -> list[Verdict]
         fact = _facts_of(fp)
         if fact.dissipation_w is None:
             continue
-        if fact.theta_ja_c_per_w is None:
+        if fact.theta_jb_c_per_w is not None:
+            theta, how = fact.theta_jb_c_per_w, "junction-to-board from a %g C board" % ambient_c
+        elif fact.theta_ja_c_per_w is not None:
+            theta, how = fact.theta_ja_c_per_w, "junction-to-ambient (the JEDEC board figure, pessimistic on a real board) from %g C" % ambient_c
+        else:
             out.append(Verdict("heat", fp.ref, fact.dissipation_w, "W", fact.tj_max_c, None,
-                               "no Pm.ThetaJa on the part: junction rise not estimated"))
+                               "no Pm.ThetaJb or Pm.ThetaJa on the part: junction rise not estimated"))
             continue
-        tj = ambient_c + fact.dissipation_w * fact.theta_ja_c_per_w
-        note = "%g W at %g C/W from %g C ambient" % (fact.dissipation_w, fact.theta_ja_c_per_w, ambient_c)
+        tj = ambient_c + fact.dissipation_w * theta
+        note = "%g W at %g C/W, %s" % (fact.dissipation_w, theta, how)
         if fact.tj_max_c is None:
             out.append(Verdict("heat", fp.ref, tj, "C", None, None, note + "; no Pm.TjMax to judge against"))
         else:

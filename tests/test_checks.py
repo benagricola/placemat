@@ -106,7 +106,7 @@ def test_a_current_path_is_judged_by_its_narrowest_track():
 def test_heat_needs_a_thermal_resistance_and_judges_junction_against_its_maximum():
     cin, u, l, cout, rfb = buck()
     (v,) = heat(board_geometry([cin, u, l, cout, rfb]), ambient_c=AMBIENT_C)
-    assert v.subject == "U1" and v.ok is None and "Pm.ThetaJa" in v.note      # unknown: no thermal resistance
+    assert v.subject == "U1" and v.ok is None and "Pm.ThetaJb" in v.note      # unknown: no thermal resistance
     hot = footprint("U1", 14, 13, nets=("VIN", "SW"),
                     fields={"Pm.Pd": "0.6W", "Pm.Tjmax": "125C", "Pm.Thetaja": "80C/W"})
     (v,) = heat(board_geometry([cin, hot, l, cout, rfb]), ambient_c=100.0)
@@ -156,7 +156,7 @@ def test_a_sensitive_net_named_wrongly_falls_back_to_the_parts_local_node_and_sa
     assert v.subject == "VFB" and "no pad of R1 is on a net called fb" in v.note
 
 
-def test_a_net_carried_by_a_pour_is_not_judged_by_its_pin_leads():
+def test_a_net_carried_by_a_pour_is_judged_by_the_pour_not_its_pin_leads():
     from placemat.board_geometry import CopperItem
     from placemat.values import Box
     from tests.fixtures import rect
@@ -165,7 +165,7 @@ def test_a_net_carried_by_a_pour_is_not_judged_by_its_pin_leads():
     outline = rect(12.6, 8, 6, 4)
     pour = CopperItem("poly", "VIN", frozenset([F]), (outline,), Box.of_points(outline))
     (v,) = current_paths(board_geometry([u], copper=[lead, pour]))
-    assert v.ok is None and "pour" in v.note and v.value == pytest.approx(0.2)
+    assert v.ok and v.value == pytest.approx(4.0) and "pin leads, narrowest 0.20" in v.note
 
 
 def test_keep_out_ignores_a_parts_own_adjacent_pins():
@@ -178,3 +178,30 @@ def test_keep_out_ignores_a_parts_own_adjacent_pins():
     sw = track("SW", 15.4, 13, 18.6, 13, w=0.3)
     (v,) = keep_out(board_geometry([u, l], copper=[sw]), limit_mm=2.0)
     assert v.value == pytest.approx(15.4 - 0.15 - (12.6 + 0.5))       # the track's end to U1's FB pad edge
+
+
+def test_a_pours_narrowest_neck_is_the_current_paths_width():
+    from placemat.checks import neck_mm
+    from placemat.board_geometry import CopperItem
+    from placemat.values import Box
+    # two 4 x 4 pads of copper joined by a 1.0 wide, 3 long neck
+    dumbbell = ((0, 0), (4, 0), (4, 1.5), (7, 1.5), (7, 0), (11, 0), (11, 4), (7, 4), (7, 2.5), (4, 2.5), (4, 4), (0, 4))
+    assert neck_mm(dumbbell) == pytest.approx(1.0)
+    u = footprint("U1", 2, 2, nets=("VIN", "SW"), fields={"Pm.I": "vin:3A"})
+    pour = CopperItem("poly", "VIN", frozenset([F]), (dumbbell,), Box.of_points(dumbbell))
+    (v,) = current_paths(board_geometry([u], copper=[pour]))
+    assert v.value == pytest.approx(1.0) and v.ok is False and "neck" in v.note
+    wide = CopperItem("poly", "VIN", frozenset([F]), (((0, 0), (11, 0), (11, 4), (0, 4)),), Box(0, 0, 11, 4))
+    (v,) = current_paths(board_geometry([u], copper=[wide]))
+    assert v.value == pytest.approx(4.0) and v.ok
+
+
+def test_heat_from_a_board_temperature_uses_junction_to_board_when_the_part_gives_it():
+    cin, u, l, cout, rfb = buck()
+    both = footprint("U1", 14, 13, nets=("VIN", "SW"),
+                     fields={"Pm.Pd": "0.74W", "Pm.Tjmax": "125C", "Pm.Thetaja": "92.6C/W", "Pm.Thetajb": "15.5C/W"})
+    (v,) = heat(board_geometry([cin, both, l, cout, rfb]), ambient_c=100.0)
+    assert v.value == pytest.approx(100 + 0.74 * 15.5) and v.ok and "board" in v.note
+    ja_only = footprint("U1", 14, 13, nets=("VIN", "SW"), fields={"Pm.Pd": "0.74W", "Pm.Tjmax": "125C", "Pm.Thetaja": "92.6C/W"})
+    (v,) = heat(board_geometry([cin, ja_only, l, cout, rfb]), ambient_c=100.0)
+    assert v.value == pytest.approx(100 + 0.74 * 92.6) and not v.ok and "JEDEC" in v.note

@@ -43,7 +43,8 @@ use these:
 | `Pm.I` | amps at full load per net the part's pads carry: `vin:3A sw:3A`; a bare `3A` means every pad | current path capacity |
 | `Pm.Pd` | watts at full load, worst case, from the datasheet | heat |
 | `Pm.TjMax` | e.g. `125C` | heat |
-| `Pm.ThetaJa` | junction-to-ambient for the footprint's copper, e.g. `80C/W` | heat |
+| `Pm.ThetaJb` | junction-to-board, e.g. `15.5C/W`: what a board temperature wants | heat |
+| `Pm.ThetaJa` | junction-to-ambient, the datasheet's JEDEC-board figure, used only without `Pm.ThetaJb` | heat |
 | `Pm.Creepage` | mm across a `barrier` part | isolation (not built) |
 
 Name the net `Pm.Sensitive` protects as the capture names it; a name no pad
@@ -91,11 +92,14 @@ fact, and a check with no limit reports the number. Built:
   against `--keep-out` (default 2 mm)
 - `crossings-under`: other nets' copper on the other face under a
   sensitive net's tracks; zones do not count, the limit is zero
-- `current-path`: per net a `Pm.I` names, the narrowest track against the
-  IPC-2221 outer-layer width for that current at `--rise` (default 10 C)
-  on `--copper-oz` (default 1 oz); an unrouted net is reported, not judged
-- `heat`: ambient (`--ambient`, default 100 C) plus `Pm.Pd` times
-  `Pm.ThetaJa`, against `Pm.TjMax`
+- `current-path`: per net a `Pm.I` names, the narrowest section of its
+  copper (a pour's neck across its interior, else its narrowest track)
+  against the IPC-2221 outer-layer width for that current at `--rise`
+  (default 10 C) on `--copper-oz` (default 1 oz); an unrouted net is
+  reported, not judged
+- `heat`: the board temperature (`--ambient`, default 100 C) plus `Pm.Pd`
+  times `Pm.ThetaJb` (or `Pm.ThetaJa` when that is all the part has, which
+  is pessimistic), against `Pm.TjMax`
 
 Not built, and the capture may carry facts for them: parallel run length
 beside an aggressor, plane continuity under a sensitive track, IR drop,
