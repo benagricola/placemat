@@ -54,7 +54,8 @@ def quiet_stderr():
                     continue
                 captured.append(raw)
                 if show_all or not _is_noise(raw):
-                    print(raw, file=sys.stderr)
+                    from ..console import errors
+                    errors.say("kicad", raw)
 
 
 def import_pcbnew():

@@ -1,6 +1,7 @@
-"""Prints the run's progress: one line per event with a timestamp and the
-stage it belongs to, coloured when stdout is a terminal (NO_COLOR or a
-pipe turns colour off)."""
+"""The one place placemat writes human-facing text: one line per event with
+a timestamp and the stage it belongs to, coloured when the stream is a
+terminal (NO_COLOR or a pipe turns colour off). Structured output asked
+for with --json goes to stdout as data, through `data()`."""
 from __future__ import annotations
 
 import os
@@ -10,7 +11,8 @@ import time
 _COLOURS = {
     "run": "1;36", "board": "36", "id": "1", "script": "36", "step": "2", "bridge": "35",
     "check": "36", "route": "36", "render": "36", "impact": "33", "record": "2",
-    "finding": "33", "fail": "1;31", "note": "2",
+    "finding": "33", "fail": "1;31", "note": "2", "kicad": "2",
+    "drc": "36", "measure": "36",
 }
 
 
@@ -38,3 +40,16 @@ class Console:
         """A multi-line message, every line stamped and labelled."""
         for line in text.splitlines():
             self.say(stage, line, level=level)
+
+    def data(self, text: str):
+        """Structured output the caller asked for (JSON): raw to stdout."""
+        print(text, file=sys.stdout, flush=True)
+
+
+console = Console()
+errors = Console(stream=sys.stderr)
+
+
+def configure(quiet: bool = False):
+    """Set the shared console's quiet flag for this process."""
+    console.quiet = quiet

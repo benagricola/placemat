@@ -12,7 +12,7 @@ import sys
 import time
 import traceback
 
-from .console import Console
+from .console import configure, console
 from .layout import Board
 from .context import run_script
 from .project import BoardSource, fab_profile, find_board
@@ -38,16 +38,13 @@ class RunResult:
         return self.record.status
 
 
-_console = Console()
-
-
 def _say(quiet, *parts, level=None):
     """Kept for the generate() helper: routes to the console."""
     if quiet:
         return
     text = " ".join(str(p) for p in parts)
     stage, _, rest = text.partition("   ")
-    _console.say(stage.strip() or "note", rest.strip(), level=level)
+    console.say(stage.strip() or "note", rest.strip(), level=level)
 
 
 def _sh(cmd, cwd, log: Path, timeout: int, env=None) -> tuple[int, float]:
@@ -103,9 +100,8 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool) -> bool:
 def run(script, label: str | None = None, fresh: bool = False, render: bool = True, drc: bool = True,
         quiet: bool = False, verbose: bool = False, route: bool = False, route_quick: bool = True,
         route_exclude=()) -> RunResult:
-    global _console
-    _console = Console(quiet=quiet)
-    say = _console.say
+    configure(quiet=quiet)
+    say = console.say
     script = Path(script).resolve()
     src = find_board(script)
     runs = src.board_dir / ".placemat" / "runs"
@@ -236,9 +232,9 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
             if e.details.get(k) is not None:
                 say("fail", "%-9s %s" % (k, e.details[k]))
         if e.details.get("tail"):
-            _console.lines("fail", e.details["tail"])
+            console.lines("fail", e.details["tail"])
         if verbose and e.details.get("traceback"):
-            _console.lines("fail", e.details["traceback"])
+            console.lines("fail", e.details["traceback"])
     try:
         from .kicad.quiet import drain
         text = drain()
@@ -262,7 +258,7 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
                 else:
                     text = "same inputs as the previous run: id %s again, nothing to compare" % rec.run_id
                 (run_dir / "impact.txt").write_text(text + "\n")
-                _console.lines("impact", text)
+                console.lines("impact", text)
             except (json.JSONDecodeError, TypeError):
                 pass
         shutil.copy(run_dir / "run.json", latest)

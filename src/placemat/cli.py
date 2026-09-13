@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 import sys
 
+from .console import console
+
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="placemat", description=__doc__)
@@ -54,13 +56,14 @@ def cmd_run(args) -> int:
                  drc=not args.no_drc, quiet=args.quiet or args.json, verbose=args.verbose,
                  route=args.route, route_quick=not args.route_full, route_exclude=args.route_exclude)
     if args.json:
-        print(json.dumps(json.loads((result.run_dir / "run.json").read_text()), indent=2))
+        console.data(json.dumps(json.loads((result.run_dir / "run.json").read_text()), indent=2))
     return 0 if result.status == "ok" else 1
 
 
 def cmd_impact(args) -> int:
     from .report import RunRecord, impact
-    print(impact(RunRecord.load(_record(args.before, args.board)), RunRecord.load(_record(args.after, args.board))))
+    console.lines("impact", impact(RunRecord.load(_record(args.before, args.board)),
+                                   RunRecord.load(_record(args.after, args.board))))
     return 0
 
 
@@ -95,13 +98,14 @@ def cmd_drc(args) -> int:
     report = run_drc(pcb, out)
     aw = airwires_from_drc(json.loads(out.read_text()))
     if args.json:
-        print(json.dumps({"by_type": report.by_type, "real": report.real, "outstanding": report.outstanding,
-                          "unconnected": report.unconnected, "open_nets": dict(report.open_nets), "airwires": aw}, indent=2))
+        console.data(json.dumps({"by_type": report.by_type, "real": report.real, "outstanding": report.outstanding,
+                                 "unconnected": report.unconnected, "open_nets": dict(report.open_nets),
+                                 "airwires": aw}, indent=2))
     else:
-        print(report.summary())
-        print("airwires %d, %.1f mm, %d crossings" % (aw["count"], aw["total_mm"], aw["crossings"]))
+        console.say("drc", report.summary())
+        console.say("drc", "airwires %d, %.1f mm, %d crossings" % (aw["count"], aw["total_mm"], aw["crossings"]))
         for net, mm in sorted(aw["per_net"].items(), key=lambda kv: -kv[1])[:10]:
-            print("   %-20s %6.1f mm  %d crossing(s)" % (net, mm, aw["crossings_per_net"].get(net, 0)))
+            console.say("drc", "%-20s %6.1f mm  %d crossing(s)" % (net, mm, aw["crossings_per_net"].get(net, 0)))
     return 1 if report.real else 0
 
 
@@ -114,12 +118,12 @@ def cmd_route(args) -> int:
     report = route_board(pcb, work, exclude_nets=set(args.exclude), layers=args.layers, quick=not args.full,
                          iterations=args.iterations)
     if args.json:
-        print(json.dumps(report.as_dict(), indent=2))
+        console.data(json.dumps(report.as_dict(), indent=2))
     else:
-        print(report.summary())
+        console.say("route", report.summary())
         for net, n in sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:15]:
-            print("   %-20s %d open" % (net, n))
-        print("routed board: %s" % report.routed_pcb)
+            console.say("route", "%-20s %d open" % (net, n))
+        console.say("route", "routed board: %s" % report.routed_pcb)
     return 0 if report.valid else 1
 
 
@@ -130,11 +134,11 @@ def cmd_measure(args) -> int:
     for name in items:
         if name in snap.cells:
             c = snap.cell(name)
-            print("cell %-16s %.3f x %.3f  members %s" % (
+            console.say("measure", "cell %-16s %.3f x %.3f  members %s" % (
                 name, c.box.width, c.box.height, " ".join(fp.ref for fp in c.members)))
         else:
             fp = snap.footprint(name)
-            print("part %-16s %s  %.3f x %.3f  pads %s" % (
+            console.say("measure", "part %-16s %s  %.3f x %.3f  pads %s" % (
                 fp.inst, fp.ref, fp.body_box.width, fp.body_box.height,
                 " ".join("%s:%s" % (p.number, p.net) for p in fp.pads)))
     return 0
