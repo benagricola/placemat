@@ -1,0 +1,42 @@
+from placemat.geometry import (Transform, poly_distance, polys_overlap, transform_box,
+                               transform_polygon)
+from placemat.values import Box, Location
+from tests.fixtures import rect
+
+
+def test_rotating_a_polygon_by_90_swaps_its_extents():
+    poly = rect(10, 10, 4, 2)
+    t = Transform.rotate_about(Location(10, 10), 90)
+    box = Box.of_points(transform_polygon(poly, t))
+    assert abs(box.width - 2) < 1e-9 and abs(box.height - 4) < 1e-9
+    assert box.center == Location(10, 10)
+
+
+def test_transform_composes_rotation_then_translation():
+    t = Transform.rotate_about(Location(0, 0), 90).then(Transform.translate(5, 0))
+    x, y = t.apply((1, 0))
+    # KiCad's y grows downward, so a +90 rotation sends +x to -y
+    assert abs(x - 5) < 1e-9 and abs(y - (-1)) < 1e-9
+
+
+def test_mirroring_about_a_vertical_axis_flips_x_only():
+    t = Transform.mirror_x(Location(10, 0))
+    assert t.apply((12, 3)) == (8, 3)
+
+
+def test_box_transform_is_the_transformed_polygon_box():
+    b = Box(0, 0, 4, 2)
+    assert transform_box(b, Transform.translate(1, 1)) == Box(1, 1, 5, 3)
+
+
+def test_overlapping_and_separated_polygons_are_told_apart():
+    a, b, c = rect(0, 0, 2, 2), rect(1, 0, 2, 2), rect(5, 0, 2, 2)
+    assert polys_overlap(a, b)
+    assert not polys_overlap(a, c)
+    assert abs(poly_distance(a, c) - 3.0) < 1e-9
+    assert poly_distance(a, b) == 0.0
+
+
+def test_a_polygon_wholly_inside_another_overlaps_it():
+    outer, inner = rect(0, 0, 10, 10), rect(0, 0, 1, 1)
+    assert polys_overlap(outer, inner) and polys_overlap(inner, outer)

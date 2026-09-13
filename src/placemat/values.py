@@ -13,6 +13,14 @@ class CopperLayer(str, Enum):
     B = "B.Cu"
 
     @property
+    def face(self) -> "Face | None":
+        if self is CopperLayer.F:
+            return Face.FRONT
+        if self is CopperLayer.B:
+            return Face.BACK
+        return None
+
+    @property
     def other_face(self) -> "CopperLayer":
         if self is CopperLayer.F:
             return CopperLayer.B
