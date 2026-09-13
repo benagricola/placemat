@@ -410,16 +410,30 @@ class Board:
         other_copper = [c for c in self._copper if c.priority is not Priority.FIXED]
         placed: set = set()
 
+        def place_one(obj, why_now=""):
+            plan._items[obj.key] = obj.item
+            step = self._settle(occ, obj, plan, placed)
+            if why_now:
+                step.note = (why_now + "; " + step.note) if step.note else why_now
+            plan.steps.append(step)
+            occ.commit(obj.item, step.placement)
+            placed.update(fp.ref for fp in (obj.item.members if obj.kind == "cell" else (obj.item,)))
+            if progress:
+                progress(_fmt(step))
+
         def place_ranked(lo, hi):
+            """FIXED and EDGE go down in declaration order: nothing yields to
+            them, so their order changes nothing. Searched tiers are ordered
+            by the placer, one choice at a time, re-measured after each."""
             for obj in placements:
-                if lo <= obj.rank[0] <= hi:
-                    plan._items[obj.key] = obj.item
-                    step = self._settle(occ, obj, plan, placed)
-                    plan.steps.append(step)
-                    occ.commit(obj.item, step.placement)
-                    placed.update(fp.ref for fp in (obj.item.members if obj.kind == "cell" else (obj.item,)))
-                    if progress:
-                        progress(_fmt(step))
+                if lo <= obj.rank[0] <= hi and obj.priority in (Priority.FIXED, Priority.EDGE):
+                    place_one(obj)
+            pending = [obj for obj in placements if lo <= obj.rank[0] <= hi
+                       and obj.priority not in (Priority.FIXED, Priority.EDGE)]
+            while pending:
+                obj, why_now = self._next_to_place(pending, occ, placed)
+                pending.remove(obj)
+                place_one(obj, why_now)
 
         place_ranked(RANK_FIXED, RANK_CELL)
         self._plan_copper(occ, ctx, fixed_copper, plan, progress)
@@ -507,6 +521,30 @@ class Board:
             plan.steps.append(Step("bridge", "copper", Priority.DEFAULT, None, 0.0, note, "", 0))
             if progress:
                 progress("   bridge: " + note)
+
+    def _next_to_place(self, pending: list, occ: Occupancy, placed: set):
+        """Which searched item goes down next, and why. Fit (the item's
+        courtyard over the free board) dominates: an item needing more than
+        a quarter of what is left goes now. Otherwise the strongest pull
+        toward what is already placed, then the largest, then the name."""
+        free = max(occ.free_area(), 1e-9)
+
+        def measure(obj):
+            geom = occ._geometry(obj.item)
+            area = sum(s.box.area for s in geom.shapes if s.kind == "courtyard")
+            pull = sum(w for _, _, w in self._targets(obj.item, occ, placed))
+            return area / free, pull, area
+
+        scored = sorted(((measure(o), o) for o in pending), key=lambda m: (-(m[0][0] > 0.25), -m[0][1], -m[0][2], m[1].key))
+        (fit, pull, area), obj = scored[0]
+        kind = "cells" if obj.kind == "cell" else "parts"
+        if fit > 0.25:
+            why = "next among %s: needs %.0f%% of the free board" % (kind, 100 * fit)
+        elif pull > 0:
+            why = "next among %s: strongest pull (%d) toward what is placed" % (kind, pull)
+        else:
+            why = "next among %s: largest (%.0f mm2), nothing placed pulls any" % (kind, area)
+        return obj, why
 
     def _settle(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set = frozenset()) -> Step:
         clr = self.clearance
