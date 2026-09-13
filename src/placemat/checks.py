@@ -250,11 +250,13 @@ def keep_out(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list[Ver
     sensitive = _sensitive_nets(geometry)
     out = []
     for node in switch_nodes(geometry):
-        node_outlines = [o for c in _copper_on(geometry, node.net) for o in c.outlines]
-        sense_outlines = [o for net in sensitive for c in _copper_on(geometry, net) for o in c.outlines]
-        if not node_outlines or not sense_outlines:
+        node_items = _copper_on(geometry, node.net)
+        sense_items = [c for net in sensitive for c in _copper_on(geometry, net)]
+        pairs = [(a, b) for a in node_items for b in sense_items
+                 if not (a.kind == "pad" and b.kind == "pad" and a.owner == b.owner)]   # a part's own pins: package, not layout
+        if not pairs:
             continue
-        d = min(poly_distance(a, b) for a in node_outlines for b in sense_outlines)
+        d = min(poly_distance(oa, ob) for a, b in pairs for oa in a.outlines for ob in b.outlines)
         out.append(Verdict("keep-out", node.net, d, "mm", limit_mm, d >= limit_mm,
                            "nearest copper of %s" % ", ".join(sorted(sensitive))))
     return out
@@ -298,9 +300,18 @@ def current_paths(geometry: BoardGeometry, rise_c: float = TRACK_RISE_C, copper_
         tracks = [c for c in geometry.copper if c.net == net and c.kind == "track"]
         need = ipc2221_width_mm(amps, rise_c, copper_oz)
         if not tracks:
-            out.append(Verdict("current-path", net, 0.0, "mm", need, None, "no track on the net yet (%g A)" % amps))
+            pours = [c for c in geometry.copper if c.net == net and c.kind == "poly"]
+            what = "a pour carries the %g A; its narrowest neck is not measured yet" % amps if pours \
+                else "no track on the net yet (%g A)" % amps
+            out.append(Verdict("current-path", net, 0.0, "mm", need, None, what))
             continue
         narrowest = min(c.width_mm for c in tracks)
+        pours = [c for c in geometry.copper if c.net == net and c.kind == "poly"]
+        if pours:
+            out.append(Verdict("current-path", net, narrowest, "mm", need, None,
+                               "a pour carries the %g A; its narrowest neck is not measured yet, "
+                               "the %d track(s) are pin leads (narrowest %.2f mm)" % (amps, len(tracks), narrowest)))
+            continue
         out.append(Verdict("current-path", net, narrowest, "mm", need, narrowest >= need,
                            "narrowest track for %g A at %g C rise on %g oz" % (amps, rise_c, copper_oz)))
     return out

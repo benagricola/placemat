@@ -154,3 +154,27 @@ def test_a_sensitive_net_named_wrongly_falls_back_to_the_parts_local_node_and_sa
     misnamed = footprint("R1", 20, 20, nets=("VOUT", "VFB"), fields={"Pm.Sensitive": "fb"})
     (v,) = crossings_under(board_geometry([cin, u, l, cout, misnamed]))
     assert v.subject == "VFB" and "no pad of R1 is on a net called fb" in v.note
+
+
+def test_a_net_carried_by_a_pour_is_not_judged_by_its_pin_leads():
+    from placemat.board_geometry import CopperItem
+    from placemat.values import Box
+    from tests.fixtures import rect
+    u = footprint("U1", 14, 13, nets=("VIN", "SW"), fields={"Pm.I": "vin:3A"})
+    lead = track("VIN", 12.6, 13, 12.6, 11, w=0.2)                       # the pin's lead into the pour
+    outline = rect(12.6, 8, 6, 4)
+    pour = CopperItem("poly", "VIN", frozenset([F]), (outline,), Box.of_points(outline))
+    (v,) = current_paths(board_geometry([u], copper=[lead, pour]))
+    assert v.ok is None and "pour" in v.note and v.value == pytest.approx(0.2)
+
+
+def test_keep_out_ignores_a_parts_own_adjacent_pins():
+    """The switcher's FB pin sits next to its own BST pin: package geometry,
+    not layout. Only copper of another part, or a track or pour, counts."""
+    u = footprint("U1", 14, 13, nets=("FB", "SW"), fields={"Pm.Aggressor": "true", "Pm.Sensitive": "FB"})
+    l = footprint("L1", 20, 13, nets=("SW", "VOUT"), fields={"Pm.Aggressor": "true"})
+    (v,) = keep_out(board_geometry([u, l]), limit_mm=2.0)
+    assert v.value == pytest.approx(5.0) and v.ok                      # L1's SW pad, not U1's own SW pad next door
+    sw = track("SW", 15.4, 13, 18.6, 13, w=0.3)
+    (v,) = keep_out(board_geometry([u, l], copper=[sw]), limit_mm=2.0)
+    assert v.value == pytest.approx(15.4 - 0.15 - (12.6 + 0.5))       # the track's end to U1's FB pad edge
