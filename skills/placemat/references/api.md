@@ -36,6 +36,32 @@ board.place(item)                                                       # search
 declaration per item. `why=` is recorded in the run. A FIXED placement that
 collides is reported as a finding, not moved.
 
+## Copper vocabulary
+
+Every copper call is named for the shape it leaves on the board:
+
+| word | the shape on the board |
+|---|---|
+| track | one straight trace segment of a width, on one layer; `board.track` draws several end to end |
+| via | a plated hole joining all copper layers at one point |
+| pour | a filled polygon of exactly the shape given, on one layer; it never pulls back from other copper, so it is drawn where nothing foreign is |
+| zone | a filled area KiCad fills and refills, pulling back by the clearance round every foreign pad, track and via; what a plane is made of |
+| plane | a zone covering the whole board (or an outline) on one or more layers, for a net that everything reaches by a via |
+| lane | a vertical line at a fixed x on one layer that one net runs along, like a bus bar down the board |
+| run | a vertical track down a lane between two y values |
+| tap | a horizontal track from a lane to a pad, at the pad's own y |
+| hop | tap out of a pad, run down the lane, tap into the next pad |
+| chain | tap, run, tap, run ... over many pads, each tapped once |
+| crossing | a horizontal track at one y from one lane's x to another lane's x (the net moving from one side of the board to the other) |
+| bridge | a via, a short track on the opposite face passing under another lane, and a via back: how a tap or crossing gets past a same-layer lane without touching it |
+| finger | a horizontal rectangular pour reaching from a wide pour to a pad, cut and bridged where it would cover a lane |
+
+Not in this API (they were verbs in the previous library): route45 and
+l45 (45-degree legs: give `track` the corner points), spine and plane_serve
+(joining plane drops with planned runs), band_with_notches, reserve,
+drop_via and stitch (via-in-pad drops). They return only when a board
+needs them.
+
 ## Copper (planned after placement, against the placed pads)
 
 Points: `Location`, `PadRef(Part, int|net)`, `CellPadRef(Cell, net=|number=, ref_prefix=)`,

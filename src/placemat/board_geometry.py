@@ -1,6 +1,7 @@
-"""An immutable geometric picture of a board: footprints, pads, cells,
-copper, outline and net classes. Read once from a .kicad_pcb by
-placemat.kicad.read; everything else queries this instead of pcbnew."""
+"""BoardGeometry: everything geometric about one generated KiCad board,
+read once from its .kicad_pcb: footprints with their boxes and pads, the
+cells (module groups), the copper, the outline and the net classes.
+Immutable; placement and copper planning query this instead of pcbnew."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -96,7 +97,7 @@ class NetClass:
 
 
 @dataclass(frozen=True)
-class Snapshot:
+class BoardGeometry:
     path: str
     footprints: tuple[Footprint, ...]
     cells: dict[str, CellGeom]

@@ -1,6 +1,6 @@
-"""Synthetic snapshot builders so the geometry, occupancy and placer tests run
+"""Synthetic BoardGeometry builders so the geometry, occupancy and placer tests run
 without KiCad. A footprint here is a rectangle of pads on a body box."""
-from placemat.snapshot import CellGeom, CopperItem, Footprint, NetClass, PadGeom, Snapshot
+from placemat.board_geometry import CellGeom, CopperItem, Footprint, NetClass, PadGeom, BoardGeometry
 from placemat.values import Box, CopperLayer, Face, Location
 
 
@@ -27,7 +27,7 @@ def footprint(ref, cx, cy, w=4.0, h=2.0, nets=("A", "B"), through=False, face=Fa
                      body, body.inflate(excess), body, pads)
 
 
-def snapshot(footprints, cells=(), copper=(), width=50.0, height=50.0, clearance=0.2, extra_nets=()):
+def board_geometry(footprints, cells=(), copper=(), width=50.0, height=50.0, clearance=0.2, extra_nets=()):
     nets = {p.net for fp in footprints for p in fp.pads} | {c.net for c in copper} | set(extra_nets)
     classes = {n: NetClass("Default", 0.2, clearance, 0.6, 0.3) for n in nets}
     outline = (((0.0, 0.0), (width, 0.0), (width, height), (0.0, height)),)
@@ -42,7 +42,7 @@ def snapshot(footprints, cells=(), copper=(), width=50.0, height=50.0, clearance
                                Box.union(own))
     pads = tuple(CopperItem("pad", p.net, p.layers, p.outlines, p.box, fp.ref)
                  for fp in footprints for p in fp.pads)
-    return Snapshot("synthetic", tuple(footprints), cell_map, pads + tuple(copper), outline,
+    return BoardGeometry("synthetic", tuple(footprints), cell_map, pads + tuple(copper), outline,
                     frozenset(nets), classes, clearance, (CopperLayer.F, CopperLayer.B))
 
 

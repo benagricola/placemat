@@ -5,7 +5,7 @@ import pytest
 from placemat.layout import Board
 from placemat.copper import Track, Via, Pour
 from placemat.values import (Box, CopperLayer, Location, Net, Part, PadRef, Priority)
-from tests.fixtures import footprint, snapshot
+from tests.fixtures import board_geometry, footprint
 
 
 def make_board():
@@ -14,7 +14,7 @@ def make_board():
            footprint("R2", 25, 20, inst="r2", nets=("MID", "GND")),
            footprint("H1", 40, 40, w=6, h=2, cell="pd", inst="pd.jumper", nets=("CANH", "CANH_S0")),
            footprint("F1", 40, 44, w=6, h=2, cell="pd", inst="pd.fuse", nets=("V48", "FUSE_OUT"))]
-    return Board(snapshot(fps, cells=["pd"], width=100, height=100), edge_margin=1.0)
+    return Board(board_geometry(fps, cells=["pd"], width=100, height=100), edge_margin=1.0)
 
 
 def test_a_track_between_pads_follows_the_placed_pads():

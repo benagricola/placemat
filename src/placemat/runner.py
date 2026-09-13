@@ -116,8 +116,8 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
 
         fab = fab_profile(src.board_dir)
         t0 = time.time()
-        snapshot = read_board(src.pcb, courtyard_excess_mm=fab.courtyard_excess)
-        board = Board(snapshot, via_drill=fab.via_drill, via_size=fab.via_size)
+        geometry = read_board(src.pcb, courtyard_excess_mm=fab.courtyard_excess)
+        board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size)
         try:
             run_script(script, board)
         except Exception as e:

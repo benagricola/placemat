@@ -1,11 +1,11 @@
 from placemat.occupancy import Occupancy
 from placemat.placement import Placement
 from placemat.values import Face, Location
-from tests.fixtures import footprint, snapshot, track
+from tests.fixtures import board_geometry, footprint, track
 
 
 def occ_with(*fps, **kw):
-    return Occupancy(snapshot(list(fps), **kw), edge_margin=1.0)
+    return Occupancy(board_geometry(list(fps), **kw), edge_margin=1.0)
 
 
 def test_a_part_may_sit_where_nothing_else_is():
@@ -35,7 +35,7 @@ def test_a_through_hole_part_blocks_both_faces():
 
 
 def test_a_pad_may_not_come_within_clearance_of_foreign_copper():
-    occ = Occupancy(snapshot([footprint("R1", 10, 10)],
+    occ = Occupancy(board_geometry([footprint("R1", 10, 10)],
                              copper=[track("X", 20, 5, 20, 40)]), edge_margin=1.0)
     r2 = footprint("R2", 30, 30)
     # pad 2's east edge would land 0.1 mm short of the track: inside the 0.2 clearance
@@ -45,7 +45,7 @@ def test_a_pad_may_not_come_within_clearance_of_foreign_copper():
 
 
 def test_same_net_copper_is_not_an_obstacle_to_a_pad():
-    occ = Occupancy(snapshot([footprint("R1", 10, 10)],
+    occ = Occupancy(board_geometry([footprint("R1", 10, 10)],
                              copper=[track("B", 20, 5, 20, 40)]), edge_margin=1.0)
     r2 = footprint("R2", 30, 30)          # pad 2 carries net B
     assert occ.legal(r2, Placement(Location(18.0, 20), 0, Face.FRONT)) is None

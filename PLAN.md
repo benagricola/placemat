@@ -16,12 +16,12 @@ script is written from.
 
     placemat/
       values.py      Net, Part, Pad, Location, Rotation, Face, CopperLayer, Edge
-      snapshot.py    neutral geometry read ONCE from a .kicad_pcb: footprints,
+      board_geometry.py  the generated board's geometry read ONCE from a .kicad_pcb: footprints,
                      pads (net, layer, polygon), courtyards, bodies, through
                      features, groups (cells), existing copper, outline, netclass
                      clearances. Immutable. Every query the scripts make
                      (bbox, pad by net, group pad, clearance) answers from here.
-      occupancy.py   two-face raster + exact polygon occupancy over a snapshot,
+      occupancy.py   two-face raster + exact polygon occupancy over the board geometry,
                      with reservations. Legality checks: courtyard, through,
                      copper clearance, keepout, edge margin.
       placer.py      the offline placer: candidate enumeration for a part,
@@ -30,14 +30,14 @@ script is written from.
                      tie-break, rejection counts. Search kinds: fixed, edge,
                      ring/scan, pocket (free-rectangle), slide (compact).
       copper.py      path(), plane(), via(), drop(): geometry planning against
-                     the snapshot (clearance corridors, lane, crossing, finger,
+                     the board geometry (clearance corridors, lane, crossing, finger,
                      notch-around-vias, plane serve) producing copper intents
       lifecycle.py   the runner: collects declarations from phase blocks,
                      executes frame -> anchors -> cells -> groups -> loose ->
                      copper -> repair -> drops -> silk -> report, refreshing the
-                     snapshot at each phase boundary
+                     board geometry at each phase boundary
       kicad/
-        read.py      pcbnew -> snapshot (the port of oracle.collect, geometry
+        read.py      pcbnew -> BoardGeometry (the port of oracle.collect, geometry
                      outlines_of/pad_items, fp_*_box, group_items)
         write.py     apply resolved locations/rotations/faces, tracks, vias,
                      polys, zones + fill, rule areas, Edge.Cuts, labels,
@@ -47,7 +47,7 @@ script is written from.
       cli.py         run, impact, scan/query commands
 
 Rule: `pcbnew` is imported only under `kicad/`. Everything else is pure
-Python over the snapshot and is unit-testable without KiCad.
+Python over the BoardGeometry and is unit-testable without KiCad.
 
 ## What is ported from the original (mechanics, ~1/6 of it)
 
@@ -81,7 +81,7 @@ One `place()`; the item kind (part, cell, group) and the keyword set select
 the search. `path()` shapes: straight, polyline, lane, crossing, finger.
 `Net`/`Part` are typed references; numeric pads are ints. Board width and
 height may be derived: `board.frame(width=expr, height=expr)` inside frame
-may reference measured cell extents from the snapshot.
+may reference measured cell extents read off the generated board.
 
 ## Status
 
@@ -97,7 +97,7 @@ placemat checkout.
 
 ## Build order (each slice has a test that runs without KiCad where possible)
 
-1. values + snapshot + kicad/read against the committed Breakout board;
+1. values + board geometry + kicad/read against the committed Breakout board;
    test: extents of power_drop0 match the 28.600 x 40.250 the old script asserts
 2. occupancy + placer fixed/edge/scan; test: Breakout stations re-place
    deterministically, second run byte-identical record

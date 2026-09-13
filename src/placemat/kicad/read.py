@@ -1,4 +1,4 @@
-"""Reads a .kicad_pcb through pcbnew into a Snapshot.
+"""Reads a generated .kicad_pcb through pcbnew into a BoardGeometry.
 
 Box conventions: the body box is the courtyard deflated by the fab's
 courtyard excess, unioned with the pads (a courtyard is an assembly keepout,
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pcbnew
 
-from ..snapshot import CellGeom, CopperItem, Footprint, NetClass, PadGeom, Snapshot
+from ..board_geometry import CellGeom, CopperItem, Footprint, NetClass, PadGeom, BoardGeometry
 from ..values import Box, CopperLayer, Face, Location
 
 CLEAR_ERR_NM = 5000     # arc approximation error for TransformShapeToPolySet
@@ -219,14 +219,14 @@ def _netclasses(board) -> tuple[dict[str, NetClass], float]:
     return classes, default
 
 
-def read_board(path, courtyard_excess_mm: float = 0.10) -> Snapshot:
+def read_board(path, courtyard_excess_mm: float = 0.10) -> BoardGeometry:
     path = str(Path(path))
     board = pcbnew.LoadBoard(path)
-    return snapshot_of(board, path, courtyard_excess_mm)
+    return board_geometry_of(board, path, courtyard_excess_mm)
 
 
-def snapshot_of(board, path: str, courtyard_excess_mm: float = 0.10) -> Snapshot:
-    """Build a Snapshot from an already-loaded pcbnew BOARD."""
+def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10) -> BoardGeometry:
+    """Build a BoardGeometry from an already-loaded pcbnew BOARD."""
     member_cell = {}
     groups_of = {}
     group_items = {}
@@ -253,6 +253,6 @@ def snapshot_of(board, path: str, courtyard_excess_mm: float = 0.10) -> Snapshot
     classes, default_clr = _netclasses(board)
     layers = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack()
                    if board.GetLayerName(l) in {m.value for m in CopperLayer})
-    return Snapshot(path=path, footprints=fps, cells=cells, copper=copper, outline=_outline(board),
+    return BoardGeometry(path=path, footprints=fps, cells=cells, copper=copper, outline=_outline(board),
                     nets=frozenset(classes), netclasses=classes, default_clearance=default_clr,
                     layers=layers)

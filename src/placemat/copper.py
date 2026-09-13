@@ -18,6 +18,7 @@ BRIDGE_HALF = 1.1
 # ------------------------------------------------------------------ concrete ops
 @dataclass(frozen=True)
 class Track:
+    """One straight trace segment of `width` on one copper layer."""
     net: str
     layer: CopperLayer
     width: float
@@ -35,6 +36,7 @@ class Track:
 
 @dataclass(frozen=True)
 class Via:
+    """A plated through hole joining every copper layer at one point."""
     net: str
     at: Location
     drill: float
@@ -53,6 +55,10 @@ class Via:
 
 @dataclass(frozen=True)
 class Pour:
+    """A filled copper polygon of fixed shape on one layer. It is drawn exactly
+    as given and never pulls back from other copper: a pour that touches a
+    foreign pad is a short. `swallow_pads` grows it over the same-net pads
+    its outline touches."""
     net: str
     layer: CopperLayer
     points: tuple[tuple[float, float], ...]
@@ -70,6 +76,10 @@ class Pour:
 
 @dataclass(frozen=True)
 class Zone:
+    """A KiCad zone: a filled area on one layer that KiCad fills, pulling back
+    by the clearance round every pad, track and via of another net, and
+    refills after any change. Use it for a plane; use a Pour where the copper
+    must keep exactly the shape drawn."""
     net: str
     layer: CopperLayer
     points: tuple[tuple[float, float], ...]
@@ -106,8 +116,21 @@ def polyline_tracks(net: str, layer: CopperLayer, width: float, points) -> list[
 # ------------------------------------------------------------------ lanes
 @dataclass
 class Lane:
-    """A bus lane: `net` runs at `x` on `layer`. Its copper is emitted by the
-    board's copper planning; the methods only record what the lane does."""
+    """A lane is a vertical line at a fixed x on one layer along which one
+    net's tracks run down the board. Its tracks and vias are planned after
+    placement; the methods only record what the lane does. Shapes, in the
+    words the run log and this file use:
+
+    run       a vertical track down the lane between two y values
+    tap       a horizontal track from the lane to a pad, at the pad's own y
+    hop       tap out of one pad, run, tap into the next
+    chain     one net over many pads: tap, run, tap, run, ... each pad once
+    crossing  a horizontal track at a fixed y from this lane's x to another
+              lane's x (the same net continuing on the far side of a board)
+    bridge    where a tap or crossing would pass another lane on its own
+              layer: a via, a short track on the opposite face under the
+              other lane, and a via back, so the two nets never touch
+    """
     net: str
     x: float
     layer: CopperLayer
@@ -121,19 +144,21 @@ class Lane:
         return self
 
     def run(self, y1: float, y2: float):
-        """Straight copper down the lane between two y values."""
+        """A vertical track down the lane from y1 to y2."""
         return self._add("run", y1=y1, y2=y2)
 
     def tap(self, pad):
-        """Lane -> pad at the pad's own y (via-hopping any same-layer lane between)."""
+        """A horizontal track from the lane's x to the pad, at the pad's own y,
+        bridged under any same-layer lane between them."""
         return self._add("tap", pad=pad)
 
     def hop(self, pad_from, pad_to):
-        """Tap out of one pad, run the lane, tap into the next."""
+        """Tap out of one pad, run the lane to the other pad's y, tap into it."""
         return self._add("hop", pad_from=pad_from, pad_to=pad_to)
 
     def chain(self, pads):
-        """One continuous net over many pads: each pad tapped exactly once."""
+        """Tap the first pad, then run and tap to each following pad in turn;
+        every pad is tapped exactly once."""
         return self._add("chain", pads=list(pads))
 
     def run_to(self, y_from, pad, tap: bool = True):
@@ -142,10 +167,10 @@ class Lane:
         return self._add("run_to", y_from=y_from, pad=pad, tap=tap)
 
     def cross_to(self, other: "Lane", y: float, from_y=None, to_y=None):
-        """Jump to `other` (the lane bank on the far side) along y=`y`,
-        bridging any same-layer lane the horizontal passes. `from_y`/`to_y`
-        (a y, or a pad whose y is meant) extend this lane down to the
-        crossing and the other lane onward."""
+        """A horizontal track at y=`y` from this lane's x to `other`'s x,
+        bridged under any same-layer lane it passes. `from_y` adds a run
+        down this lane to the crossing; `to_y` adds a run along `other` from
+        the crossing onward. Either is a y or a pad whose y is meant."""
         return self._add("cross", other=other, y=y, from_y=from_y, to_y=to_y)
 
 
@@ -276,9 +301,11 @@ class LanePlanner:
 def finger_ops(net: str, layer: CopperLayer, y_lo: float, y_hi: float, x_from: float, x_to: float,
                lane_xs, via_drill: float, via_size: float, bridge_width: float = 1.0,
                notch_half: float = BRIDGE_HALF) -> list:
-    """A finger pour from x_from to x_to between y_lo and y_hi, notched round
-    each same-layer lane in `lane_xs` and bridged on the far layer so the
-    segments stay one net."""
+    """A finger: a horizontal rectangular pour from x_from to x_to, y_lo to
+    y_hi (a wide copper reach from a spine to a pad). Where it would cover a
+    same-layer lane in `lane_xs` the rectangle is cut into pieces either side
+    of the lane, and each cut is bridged: a via, a track on the opposite
+    face under the lane, and a via, so the pieces stay one net."""
     x0, x1 = (x_from, x_to) if x_to >= x_from else (x_to, x_from)
     bounds = [x0]
     notches = []

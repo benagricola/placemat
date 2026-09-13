@@ -1,4 +1,4 @@
-"""Copper ops written through pcbnew come back in the snapshot, and DRC on the
+"""Copper ops written through pcbnew come back when the board file is read again, and DRC on the
 result is readable as numbers."""
 import shutil
 

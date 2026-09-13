@@ -16,7 +16,7 @@ from .geometry import polygon_box
 from .occupancy import Occupancy, Shape
 from .placement import Placement
 from .placer import box_centered_placement, edge_placement, scan
-from .snapshot import CellGeom, Footprint, Snapshot
+from .board_geometry import CellGeom, Footprint, BoardGeometry
 from .values import (Box, Cell, CellPadRef, CopperLayer, Edge, Face, Location, Net, PadRef, Part,
                      Priority, X, Y)
 
@@ -81,7 +81,7 @@ class Step:
 
 @dataclass
 class Plan:
-    snapshot: Snapshot
+    geometry: BoardGeometry
     occupancy: Occupancy
     steps: list[Step] = field(default_factory=list)
     findings: list[str] = field(default_factory=list)
@@ -109,19 +109,20 @@ class Plan:
 
 
 class Board:
-    """One board being laid out: queries answer from the snapshot the board
-    was generated with; declarations are collected and resolved together."""
+    """One board being laid out. Questions are answered from the geometry read
+    off the generated .kicad_pcb; declarations are collected and resolved
+    together."""
 
-    def __init__(self, snapshot: Snapshot, edge_margin: float = 0.0, clearance: float | None = None,
+    def __init__(self, geometry: BoardGeometry, edge_margin: float = 0.0, clearance: float | None = None,
                  via_drill: float = 0.3, via_size: float = 0.6):
-        self.snapshot = snapshot
+        self.geometry = geometry
         self.edge_margin = edge_margin
         self.clearance = clearance
         self.via_drill, self.via_size = via_drill, via_size
         self._intents: list[PlaceIntent] = []
         self._copper: list[CopperIntent] = []
         self._lanes: list[Lane] = []
-        self._outline: Box | None = snapshot.outline_box
+        self._outline: Box | None = geometry.outline_box
         self._chamfer = 0.0
         self._radius = 0.0
         self.width = self._outline.width if self._outline else None
@@ -129,25 +130,25 @@ class Board:
 
     # ------------------------------------------------------------ questions
     def part(self, key) -> Footprint:
-        return self.snapshot.footprint(key)
+        return self.geometry.footprint(key)
 
     def cell(self, key) -> CellGeom:
-        return self.snapshot.cell(key)
+        return self.geometry.cell(key)
 
     def pad(self, part, key):
-        return self.snapshot.pad(part, key)
+        return self.geometry.pad(part, key)
 
     def cell_pad(self, cell, **kw):
-        return self.snapshot.cell_pad(cell, **kw)
+        return self.geometry.cell_pad(cell, **kw)
 
     def net(self, net) -> str:
-        return self.snapshot.require_net(net)
+        return self.geometry.require_net(net)
 
     def _item(self, item):
         if isinstance(item, Cell):
-            return self.snapshot.cell(item), item.name, "cell"
+            return self.geometry.cell(item), item.name, "cell"
         if isinstance(item, Part):
-            fp = self.snapshot.footprint(item)
+            fp = self.geometry.footprint(item)
             return fp, fp.inst, "part"
         if isinstance(item, CellGeom):
             return item, item.name, "cell"
@@ -158,16 +159,16 @@ class Board:
     def extent(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
         """The item's body box at `rotation`, placed at the origin: a size, not a place."""
         geom, _, _ = self._item(item)
-        occ = Occupancy(self.snapshot, self.edge_margin, board_box=None)
+        occ = Occupancy(self.geometry, self.edge_margin, board_box=None)
         return occ.body_box(geom, Placement(Location(0.0, 0.0), rotation, face))
 
     def _pad_ref(self, ref):
         """Validate a pad reference now; return (refdes, pad number, dx, dy)."""
         if isinstance(ref, PadRef):
-            p = self.snapshot.pad(ref.part, ref.key)
+            p = self.geometry.pad(ref.part, ref.key)
             return (p.owner, p.number, ref.dx, ref.dy)
         if isinstance(ref, CellPadRef):
-            p = self.snapshot.cell_pad(ref.cell, net=ref.net, number=ref.number, ref_prefix=ref.ref_prefix)
+            p = self.geometry.cell_pad(ref.cell, net=ref.net, number=ref.number, ref_prefix=ref.ref_prefix)
             return (p.owner, p.number, ref.dx, ref.dy)
         raise TypeError("not a pad reference: %r" % (ref,))
 
@@ -213,7 +214,7 @@ class Board:
         return intent
 
     def _is_searched(self, refdes: str) -> bool:
-        fp = self.snapshot.footprint(refdes)
+        fp = self.geometry.footprint(refdes)
         for i in self._intents:
             if i.priority is Priority.DEFAULT and (i.key == fp.inst or (i.kind == "cell" and fp.cell == i.key)):
                 return True
@@ -221,7 +222,7 @@ class Board:
 
     # ------------------------------------------------------------ copper
     def _copper_intent(self, key, net, priority, plan, refs, why):
-        name = self.snapshot.require_net(net)
+        name = self.geometry.require_net(net)
         pads = tuple(self._pad_ref(r) for r in refs)
         if priority is Priority.FIXED:
             for owner, *_ in pads:
@@ -233,15 +234,16 @@ class Board:
         return ci
 
     def _width(self, net: str, width) -> float:
-        return float(width) if width is not None else self.snapshot.netclass(net).track_width
+        return float(width) if width is not None else self.geometry.netclass(net).track_width
 
     def track(self, net, points, *, layer: CopperLayer, width: float | None = None,
               priority: Priority = Priority.DEFAULT, why: str = ""):
-        """A polyline of tracks through `points`: Locations, pad references,
-        or (x, y) pairs whose members may be numbers or X()/Y() of a pad."""
+        """Straight track segments through `points` in order, on one layer.
+        A point is a Location, a pad reference, or an (x, y) pair whose
+        members may be numbers or X()/Y() of a pad."""
         layer = CopperLayer.of(layer)
         refs = _refs_in(points)
-        name = self.snapshot.require_net(net)
+        name = self.geometry.require_net(net)
         w = self._width(name, width)
 
         def plan(ctx):
@@ -250,7 +252,7 @@ class Board:
 
     def via(self, net, at, *, drill: float | None = None, size: float | None = None,
             priority: Priority = Priority.DEFAULT, why: str = ""):
-        name = self.snapshot.require_net(net)
+        name = self.geometry.require_net(net)
         refs = _refs_in([at])
         d, s = drill or self.via_drill, size or self.via_size
 
@@ -260,10 +262,11 @@ class Board:
 
     def pour(self, net, points, *, layer: CopperLayer, stroke: float = 0.2, swallow_pads: bool = False,
              priority: Priority = Priority.DEFAULT, why: str = ""):
-        """A filled polygon on one layer, as drawn (optionally grown over the
-        same-net pads its outline touches)."""
+        """A filled copper polygon of exactly this shape on one layer. It does
+        not pull back from foreign copper; `swallow_pads` grows it over the
+        same-net pads its outline touches."""
         layer = CopperLayer.of(layer)
-        name = self.snapshot.require_net(net)
+        name = self.geometry.require_net(net)
         refs = _refs_in(points)
 
         def plan(ctx):
@@ -274,8 +277,10 @@ class Board:
     def plane(self, net, layers, *, outline=None, inset: float = 0.4, chamfer: float | None = None,
               clearance: float = 0.2, min_thickness: float = 0.2, solid_pads: bool = True,
               priority: Priority = Priority.DEFAULT, why: str = ""):
-        """A filled zone per layer: the whole board (inset) or `outline`."""
-        name = self.snapshot.require_net(net)
+        """A KiCad zone per layer, filled by KiCad and pulled back round every
+        foreign pad, track and via: the whole board inset from the edge, or
+        the polygon `outline`."""
+        name = self.geometry.require_net(net)
         layers = tuple(dict.fromkeys(CopperLayer.of(l) for l in layers))
 
         def plan(ctx):
@@ -290,21 +295,23 @@ class Board:
 
     def lane(self, net, *, x: float, layer: CopperLayer, width: float | None = None,
              priority: Priority = Priority.DEFAULT) -> Lane:
-        """Register a bus lane. Its taps, runs, hops and crossings are
-        declared on the returned Lane; all lanes are planned together so a
-        tap knows which same-layer lanes it must bridge."""
-        name = self.snapshot.require_net(net)
+        """Register a lane: a vertical line at `x` on `layer` that `net` runs
+        along. Declare its runs, taps, hops, chains and crossings on the
+        returned Lane. All lanes are planned together, so a tap or crossing
+        that passes another same-layer lane is bridged under it."""
+        name = self.geometry.require_net(net)
         lane = Lane(name, float(x), CopperLayer.of(layer), self._width(name, width), self, priority=priority)
         self._lanes.append(lane)
         return lane
 
     def finger(self, net, *, layer: CopperLayer, y_lo: float, y_hi: float, x_from: float, x_to: float,
                bridge_width: float = 1.0, priority: Priority = Priority.DEFAULT, why: str = ""):
-        """A pour finger between y_lo..y_hi from x_from to x_to, notched round
-        every registered same-layer lane it would swallow and bridged on the
-        far layer so it stays one net."""
+        """A finger: a horizontal rectangular pour from x_from to x_to between
+        y_lo and y_hi, cut either side of every registered same-layer lane it
+        would cover and bridged under each on the opposite face so the
+        pieces stay one net."""
         layer = CopperLayer.of(layer)
-        name = self.snapshot.require_net(net)
+        name = self.geometry.require_net(net)
         refs = _refs_in([(x_from, y_lo), (x_to, y_hi)])
 
         def plan(ctx):
@@ -319,8 +326,8 @@ class Board:
 
     # ------------------------------------------------------------ resolution
     def resolve(self, progress=None) -> Plan:
-        occ = Occupancy(self.snapshot, self.edge_margin, board_box=self._outline)
-        plan = Plan(self.snapshot, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius)
+        occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline)
+        plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius)
         ctx = _CopperContext(self, occ)
         work = [(i.rank, "place", i) for i in self._intents] + [(c.rank, "copper", c) for c in self._copper]
         lanes_fixed = [l for l in self._lanes if l.priority is Priority.FIXED]

@@ -3,8 +3,8 @@ cells, draws the outline and copper, fills zones, moves reference
 designators to the fab layers, patches render colours and project presets,
 renders PNGs.
 
-Cells move as rigid bodies about their box centre in the snapshot the plan
-was resolved against. KiCad's UUID generator is seeded before new items are
+Cells move as rigid bodies about the box centre they had in the generated
+board the plan was resolved against. KiCad's UUID generator is seeded before new items are
 created, so an unchanged plan writes an unchanged file."""
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from ..layout import Plan
 from ..copper import Pour, Track, Via, Zone
 from ..geometry import Transform
 from ..placement import Placement
-from ..snapshot import CellGeom, Footprint
+from ..board_geometry import CellGeom, Footprint
 from ..values import Face, Location
 
 def nm(v: float) -> int:

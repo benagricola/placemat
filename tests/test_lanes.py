@@ -4,14 +4,14 @@ it; the hop is derived from the registered lanes, never typed."""
 from placemat.layout import Board
 from placemat.copper import Track, Via
 from placemat.values import CopperLayer, Location, Net, Part, PadRef
-from tests.fixtures import footprint, snapshot
+from tests.fixtures import board_geometry, footprint
 
 
 def make_board():
     fps = [footprint("H1", 10, 30, inst="h1", nets=("CANH", "CANH_S0")),
            footprint("H2", 10, 60, inst="h2", nets=("CANH_S0", "CANH_S1")),
            footprint("H3", 10, 90, inst="h3", nets=("PERMIT_B", "X"))]
-    return Board(snapshot(fps, width=100, height=120, extra_nets=("V48P",)), edge_margin=1.0)
+    return Board(board_geometry(fps, width=100, height=120, extra_nets=("V48P",)), edge_margin=1.0)
 
 
 def test_a_lane_tap_is_a_straight_track_at_the_pads_own_y():

@@ -4,7 +4,7 @@ import pytest
 
 from placemat.layout import Board
 from placemat.values import Box, Cell, Edge, Face, Location, Part, Priority
-from tests.fixtures import footprint, snapshot
+from tests.fixtures import board_geometry, footprint
 
 
 def make_board():
@@ -13,7 +13,7 @@ def make_board():
            footprint("R2", 25, 20, inst="r2"),
            footprint("U1", 40, 40, w=6, h=2, cell="pd", inst="pd.conn"),
            footprint("F1", 40, 44, w=6, h=2, cell="pd", inst="pd.fuse")]
-    return Board(snapshot(fps, cells=["pd"], width=60, height=60), edge_margin=1.0)
+    return Board(board_geometry(fps, cells=["pd"], width=60, height=60), edge_margin=1.0)
 
 
 def test_an_unknown_part_is_refused_when_declared():

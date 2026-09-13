@@ -1,4 +1,4 @@
-"""Slice 1: a snapshot read from the committed Breakout board answers the
+"""Slice 1: the BoardGeometry read from the committed Breakout .kicad_pcb answers the
 questions the old layout script asked pcbnew directly."""
 import pytest
 

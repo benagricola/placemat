@@ -2,11 +2,11 @@ from placemat.occupancy import Occupancy
 from placemat.placer import edge_placement, scan
 from placemat.placement import Placement
 from placemat.values import Box, Edge, Face, Location
-from tests.fixtures import footprint, snapshot
+from tests.fixtures import board_geometry, footprint
 
 
 def test_scan_returns_the_hint_when_it_is_legal():
-    occ = Occupancy(snapshot([footprint("R1", 10, 10)]), edge_margin=1.0)
+    occ = Occupancy(board_geometry([footprint("R1", 10, 10)]), edge_margin=1.0)
     r2 = footprint("R2", 30, 30)
     result = scan(occ, r2, hint=Placement(Location(30, 30), 0, Face.FRONT), radius=3.0, step=0.5)
     assert result.chosen.location == Location(30, 30)
@@ -14,7 +14,7 @@ def test_scan_returns_the_hint_when_it_is_legal():
 
 
 def test_scan_moves_off_an_obstacle_to_the_nearest_legal_location():
-    occ = Occupancy(snapshot([footprint("R1", 10, 10)]), edge_margin=1.0)
+    occ = Occupancy(board_geometry([footprint("R1", 10, 10)]), edge_margin=1.0)
     r2 = footprint("R2", 30, 30)
     result = scan(occ, r2, hint=Placement(Location(10, 10), 0, Face.FRONT), radius=6.0, step=0.5)
     chosen = result.chosen
@@ -26,7 +26,7 @@ def test_scan_moves_off_an_obstacle_to_the_nearest_legal_location():
 
 
 def test_scan_is_deterministic_and_prefers_the_smaller_rotation_on_ties():
-    occ = Occupancy(snapshot([footprint("R1", 10, 10)]), edge_margin=1.0)
+    occ = Occupancy(board_geometry([footprint("R1", 10, 10)]), edge_margin=1.0)
     r2 = footprint("R2", 30, 30, w=2, h=2)
     a = scan(occ, r2, hint=Placement(Location(30, 30), 0, Face.FRONT), radius=2.0, step=0.5,
              rotations=(0, 90, 180, 270))
@@ -36,7 +36,7 @@ def test_scan_is_deterministic_and_prefers_the_smaller_rotation_on_ties():
 
 
 def test_scan_reports_failure_with_reasons_when_nothing_fits():
-    occ = Occupancy(snapshot([footprint("R1", 10, 10, w=20, h=20)]), edge_margin=1.0)
+    occ = Occupancy(board_geometry([footprint("R1", 10, 10, w=20, h=20)]), edge_margin=1.0)
     r2 = footprint("R2", 30, 30)
     result = scan(occ, r2, hint=Placement(Location(10, 10), 0, Face.FRONT), radius=2.0, step=1.0)
     assert result.chosen is None
@@ -44,7 +44,7 @@ def test_scan_reports_failure_with_reasons_when_nothing_fits():
 
 
 def test_edge_placement_puts_the_body_box_at_the_margin():
-    occ = Occupancy(snapshot([], width=100, height=60), edge_margin=1.0)
+    occ = Occupancy(board_geometry([], width=100, height=60), edge_margin=1.0)
     r = footprint("J1", 50, 30, w=10, h=4)
     p = edge_placement(occ, r, Edge.NORTH, along=40.0, rotation=0, clearance=3.0)
     box = occ.body_box(r, p)
@@ -58,8 +58,8 @@ def test_edge_placement_puts_the_body_box_at_the_margin():
 def test_edge_placement_of_a_cell_moves_every_member():
     fps = [footprint("U1", 10, 10, w=6, h=2, cell="pd", inst="pd.conn"),
            footprint("F1", 10, 14, w=6, h=2, cell="pd", inst="pd.fuse")]
-    occ = Occupancy(snapshot(fps, cells=["pd"], width=100, height=100), edge_margin=1.0)
-    cell = occ.snapshot.cell("pd")
+    occ = Occupancy(board_geometry(fps, cells=["pd"], width=100, height=100), edge_margin=1.0)
+    cell = occ.geometry.cell("pd")
     p = edge_placement(occ, cell, Edge.WEST, along=50.0, rotation=0, clearance=2.0)
     box = occ.body_box(cell, p)
     assert abs(box.left - 2.0) < 1e-9 and abs(box.center.y - 50.0) < 1e-9

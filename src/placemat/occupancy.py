@@ -1,7 +1,8 @@
 """Tracks what occupies each face of the board and decides whether a
 candidate placement is legal, without pcbnew.
 
-Built from a Snapshot and updated as placements are committed. Checks: body
+Built from the geometry read off the generated .kicad_pcb and updated as
+placements are committed. Checks: body
 box inside the edge margin, courtyards on a face do not overlap, through
 features block both faces, pads keep net-class clearance from foreign
 copper, reservations block parts unless they carry an allowed net."""
@@ -12,7 +13,7 @@ from dataclasses import dataclass, field
 from .geometry import (Polygon, Transform, box_polygon, circle_polygon, poly_distance,
                        polys_overlap, transform_box, transform_polygon)
 from .placement import Placement
-from .snapshot import CellGeom, Footprint, Snapshot
+from .board_geometry import CellGeom, Footprint, BoardGeometry
 from .values import Box, CopperLayer, Face, Location, Net
 
 
@@ -70,18 +71,18 @@ def _fp_shapes(fp: Footprint) -> list[Shape]:
 
 
 class Occupancy:
-    def __init__(self, snapshot: Snapshot, edge_margin: float = 0.0, board_box: Box | None = None,
+    def __init__(self, geometry: BoardGeometry, edge_margin: float = 0.0, board_box: Box | None = None,
                  vias_block_courtyards: bool = False):
-        self.snapshot = snapshot
+        self.geometry = geometry
         self.edge_margin = edge_margin
         self.vias_block_courtyards = vias_block_courtyards
-        self.board_box = board_box or snapshot.outline_box
+        self.board_box = board_box or geometry.outline_box
         self.items: dict[str, ItemGeometry] = {}
         self.reservations: list[Reservation] = []
         self.copper: list[Shape] = []
-        for fp in snapshot.footprints:
+        for fp in geometry.footprints:
             self._register(fp)
-        for c in snapshot.copper:
+        for c in geometry.copper:
             if c.kind == "pad":
                 continue          # pads travel with their footprint
             faces = frozenset(l.face for l in c.layers if l.face is not None)
@@ -252,8 +253,8 @@ class Occupancy:
                 return None
             clr = clearance
             if clr is None:
-                clr = self.snapshot.clearance(s.net, o.net) if (s.net in self.snapshot.nets and o.net in self.snapshot.nets) \
-                    else self.snapshot.default_clearance
+                clr = self.geometry.clearance(s.net, o.net) if (s.net in self.geometry.nets and o.net in self.geometry.nets) \
+                    else self.geometry.default_clearance
             gap = poly_distance(s.poly, o.poly)
             if gap < clr - 1e-9:
                 return "%s pad %s is %.2f mm from %s copper on %s (needs %.2f)" % (
