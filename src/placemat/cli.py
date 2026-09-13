@@ -31,7 +31,7 @@ def parser() -> argparse.ArgumentParser:
     rt.add_argument("--exclude", nargs="*", default=[], help="nets to leave unrouted (planes, pours)")
     rt.add_argument("--layers", nargs="*", help="copper layers to route on (default: all)")
     rt.add_argument("--full", action="store_true", help="the router's full run, not one round")
-    rt.add_argument("--iterations", type=int, default=2000)
+    rt.add_argument("--iterations", type=int, help="cap the router's search per net (default: the router's own)")
     rt.add_argument("--out", help="work directory (default: <board dir>/.placemat/route)")
     rt.add_argument("--json", action="store_true")
 

@@ -129,8 +129,22 @@ def router_version(router_dir: str) -> str:
         return "unknown"
 
 
+def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
+                   iterations: int | None = None, probe: int | None = None) -> list:
+    """The router's command line. The search budget is the router's own
+    default unless the caller sets one."""
+    cmd = [str(python), str(script), str(pcb_in), str(pcb_out), "--nets", "*"] + \
+          ["!" + n for n in sorted(excluded)] + ["--layers"] + list(layers) + ["--escalation", "off"]
+    if iterations is not None:
+        cmd += ["--max-iterations", str(iterations)]
+    if probe is not None:
+        cmd += ["--max-probe-iterations", str(probe)]
+    return cmd + ["--json-out", str(summary)]
+
+
 def route_board(pcb, work, exclude_nets=(), layers=None, router_dir: str = ROUTER_DEFAULT,
-                quick: bool = False, iterations: int = 2000, probe: int = 400, timeout: int = 3600) -> RouteReport:
+                quick: bool = False, iterations: int | None = None, probe: int | None = None,
+                timeout: int = 3600) -> RouteReport:
     pcb, work = Path(pcb), Path(work)
     rpy = Path(router_dir) / ".venv/bin/python"
     route_py = Path(router_dir) / "py_router/route.py"
@@ -156,9 +170,7 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir: str = ROUTE
     pcb_out = work / "routed.kicad_pcb"
     summary = work / "router_summary.json"
     script = str(ONE_ROUND) if quick else str(route_py)
-    cmd = [str(rpy), script, str(pcb_in), str(pcb_out), "--nets", "*"] + ["!" + n for n in sorted(excluded)] + \
-          ["--layers"] + layers + ["--escalation", "off", "--max-iterations", str(iterations),
-                                   "--max-probe-iterations", str(probe), "--json-out", str(summary)]
+    cmd = router_command(rpy, script, pcb_in, pcb_out, excluded, layers, summary, iterations, probe)
     env = dict(os.environ)
     env.pop("KICAD_ROUTE_TRACE", None)
     env["KRT_DIR"] = str(router_dir)
