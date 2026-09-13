@@ -239,6 +239,14 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
             _console.lines("fail", e.details["tail"])
         if verbose and e.details.get("traceback"):
             _console.lines("fail", e.details["traceback"])
+    try:
+        from .kicad.quiet import drain
+        text = drain()
+        if text:
+            (run_dir / "kicad-stderr.log").write_text(text + "\n")
+            rec.paths["kicad_stderr"] = str(run_dir / "kicad-stderr.log")
+    except ImportError:
+        pass
     if not rec.run_id:                       # generation failed before the id could be taken
         rec.run_id = run_dir.name.lstrip(".")
         rec.paths["run_dir"] = str(run_dir)

@@ -137,6 +137,11 @@ placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
 placemat measure <layout.kicad_pcb> [cell-or-part ...]
 ```
+KiCad's own stderr (assertion notes, image-handler debug lines) is kept
+out of the terminal; every line of it is in `kicad-stderr.log` in the run
+directory, and `PLACEMAT_SHOW_KICAD=1` prints it all. Anything KiCad says
+that is not one of the known noise patterns is printed regardless.
+
 A run leaves `.placemat/runs/<label>/` beside the board: `run.json`,
 `script.log`, `drc.json`, `generate.log`, `impact.txt`, the written
 `layout.kicad_pcb`, and `route/` (the routed copy, `route.json`,
