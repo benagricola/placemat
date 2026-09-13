@@ -140,7 +140,7 @@ checkout.
   -> report. A FIXED copper intent whose endpoint is a loose part is an
   error at declaration time, not a surprise at run time.
 
-## The placer: plan before code (agreed 2026-09-13, not built)
+## The placer (agreed 2026-09-13; items 1-5 built, 6-8 open)
 
 What the placer has: an occupancy model over the generated board's geometry
 that checks member courtyards, holes and pad clearance (so two cells may

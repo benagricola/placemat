@@ -32,9 +32,47 @@ board.place(item, edge=Edge.NORTH, along=x, clearance=3.0, rotation=180)  # EDGE
 board.place(item, near=Location(x, y), radius=3.0, step=0.2, rotations=(0, 90))  # searched
 board.place(item)                                                       # searched from where it is
 ```
-`item` is a `Part` (schematic instance) or a `Cell` (module group). One
-declaration per item. `why=` is recorded in the run. A FIXED placement that
-collides is reported as a finding, not moved.
+`item` is a `Part` (schematic instance), a `Cell` (module group) or a block
+(below). One declaration per item. `why=` is recorded in the run. A FIXED
+placement that collides is reported as a finding, not moved.
+
+**How a searched item finds its place.** With `near=` it scans around the
+hint. Without one it is SEEDED: the hint is the weighted centroid of the
+pads already placed that it connects to (plane nets and free nets do not
+count), and every legal candidate in the scan is scored by its links, the
+lowest kept. If nothing it connects to is placed yet it takes a POCKET: the
+biggest free rectangle its envelope fits on its face. The step note says
+which happened.
+
+**Order.** FIXED and EDGE items go down as declared. Searched items are
+ordered by the placer, re-measured after each: cells, then blocks, then
+loose parts; within a tier, an item needing more than a quarter of the
+free board goes now, else the strongest link pull toward what is placed,
+else the largest. The sentence that chose each is in its step.
+
+## Links
+
+```python
+board.link(PadRef(Part("c1"), "VIN"), PadRef(Part("u1"), "VIN"), weight=LinkWeight.SHORT, limit_mm=2.0, why="bypass at its pin")
+board.free_net(Net("ENDSTOP"))      # its off-board run dwarfs the board: pulls nothing, seeds nothing
+```
+`weight` is `LinkWeight.FREE` (0), `DEFAULT` (1), `PREFER` (2), `SHORT` (8)
+or any integer; 0 means the connection's length does not matter. Every
+connection not declared weighs DEFAULT. A `limit_mm` is a bound: the run
+reports each link's achieved length, and one over its limit is a finding
+quoting `why`.
+
+## Blocks
+
+```python
+ldo = board.block(Part("ldo"), satellites=[(Part("cin"), "VIN"), (Part("cout"), "VOUT")], gap=0.5)
+board.place(ldo, near=Location(30, 22))
+```
+A block is a part and the satellites that sit at its pins: each satellite's
+pad on the named net lands on that pin's axis `gap` beyond it, body
+outward. The block is laid out from the anchor's REAL pads at every
+candidate, so its envelope is exact, and placed as one thing (after cells,
+before loose parts). Its members appear as their own steps and placements.
 
 ## Copper vocabulary
 

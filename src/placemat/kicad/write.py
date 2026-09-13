@@ -333,8 +333,8 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     groups = {g.GetName(): g for g in board.Groups()}
     by_ref = {fp.GetReference(): fp for fp in board.GetFootprints()}
     for step in plan.steps:
-        if step.placement is None:
-            continue                     # copper: drawn below
+        if step.placement is None or step.kind == "block":
+            continue                     # copper is drawn below; a block's members have their own steps
         item = plan._items[step.item]
         if isinstance(item, Footprint):
             fp = by_ref[item.ref]

@@ -15,12 +15,12 @@ from .copper import (CopperOp, Pour, Track, Via, Zone, board_zone_outline, finge
 from .geometry import polygon_box
 from .occupancy import Occupancy, Shape
 from .placement import Placement
-from .placer import box_centered_placement, edge_placement, pockets, scan
+from .placer import BlockSpec, box_centered_placement, edge_placement, layout_block, pockets, scan, scan_block
 from .board_geometry import CellGeom, Footprint, BoardGeometry
 from .values import (Box, Cell, CellPadRef, CopperLayer, Edge, Face, LinkWeight, Location, Net, PadRef, Part,
                      Priority, X, Y)
 
-RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_LOOSE, RANK_COPPER = range(6)
+RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
 
 
 @dataclass
@@ -49,7 +49,7 @@ class PlaceIntent:
             return (RANK_FIXED, self.index)
         if self.priority is Priority.EDGE:
             return (RANK_EDGE, self.index)
-        return (RANK_CELL if self.kind == "cell" else RANK_LOOSE, self.index)
+        return ({"cell": RANK_CELL, "block": RANK_BLOCK}.get(self.kind, RANK_LOOSE), self.index)
 
 
 @dataclass
@@ -120,7 +120,10 @@ class Plan:
         return self.step(key).placement
 
     def box(self, key: str) -> Box:
-        return self.occupancy.body_box(self._items[key], self.placement(key))
+        item = self._items[key]
+        if isinstance(item, BlockSpec):
+            return Box.union([self.occupancy.body_box(m, self.placement(m.inst)) for m in item.members])
+        return self.occupancy.body_box(item, self.placement(key))
 
     @property
     def placements(self) -> dict[str, Placement]:
@@ -179,7 +182,9 @@ class Board:
             return item, item.name, "cell"
         if isinstance(item, Footprint):
             return item, item.inst, "part"
-        raise TypeError("place() takes a Part or a Cell, not %r" % (item,))
+        if isinstance(item, BlockSpec):
+            return item, item.key, "block"
+        raise TypeError("place() takes a Part, a Cell or a block, not %r" % (item,))
 
     def extent(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
         """The item's body box at `rotation`, placed at the origin: a size, not a place."""
@@ -205,6 +210,22 @@ class Board:
         self._outline = Box(0.0, 0.0, float(width), float(height))
         self._chamfer, self._radius = chamfer, radius
         self.width, self.height = float(width), float(height)
+
+    # ------------------------------------------------------------ blocks
+    def block(self, anchor, satellites, gap: float = 0.5) -> BlockSpec:
+        """A part and the satellites that sit at its pins: `satellites` is a
+        list of (Part, net) pairs, each placed on that pin's axis `gap` out,
+        body outward of its pad. Place the returned block like a part; it is
+        laid out from the anchor's real pads at every candidate."""
+        a = self.geometry.footprint(anchor)
+        sats = []
+        for part, net in satellites:
+            fp = self.geometry.footprint(part)
+            name = self.geometry.require_net(net)
+            a.pad(name)              # the anchor must carry the net
+            fp.pad(name)             # and so must the satellite
+            sats.append((fp, name))
+        return BlockSpec(a, tuple(sats), gap)
 
     # ------------------------------------------------------------ placement
     def place(self, item, *, at: Location | None = None, center: Location | None = None,
@@ -416,8 +437,12 @@ class Board:
             if why_now:
                 step.note = (why_now + "; " + step.note) if step.note else why_now
             plan.steps.append(step)
-            occ.commit(obj.item, step.placement)
-            placed.update(fp.ref for fp in (obj.item.members if obj.kind == "cell" else (obj.item,)))
+            if obj.kind == "block":
+                occ.commit(obj.item.anchor, step.placement)
+                placed.update(fp.ref for fp in obj.item.members)
+            else:
+                occ.commit(obj.item, step.placement)
+                placed.update(fp.ref for fp in (obj.item.members if obj.kind == "cell" else (obj.item,)))
             if progress:
                 progress(_fmt(step))
 
@@ -437,6 +462,7 @@ class Board:
 
         place_ranked(RANK_FIXED, RANK_CELL)
         self._plan_copper(occ, ctx, fixed_copper, plan, progress)
+        place_ranked(RANK_BLOCK, RANK_BLOCK)
         place_ranked(RANK_LOOSE, RANK_LOOSE)
         self._plan_copper(occ, ctx, other_copper, plan, progress)
         self._report_links(occ, plan, placed)
@@ -530,14 +556,14 @@ class Board:
         free = max(occ.free_area(), 1e-9)
 
         def measure(obj):
-            geom = occ._geometry(obj.item)
-            area = sum(s.box.area for s in geom.shapes if s.kind == "courtyard")
-            pull = sum(w for _, _, w in self._targets(obj.item, occ, placed))
+            parts = obj.item.members if obj.kind == "block" else (obj.item,)
+            area = sum(s.box.area for it in parts for s in occ._geometry(it).shapes if s.kind == "courtyard")
+            pull = sum(w for it in parts for _, _, w in self._targets(it, occ, placed))
             return area / free, pull, area
 
         scored = sorted(((measure(o), o) for o in pending), key=lambda m: (-(m[0][0] > 0.25), -m[0][1], -m[0][2], m[1].key))
         (fit, pull, area), obj = scored[0]
-        kind = "cells" if obj.kind == "cell" else "parts"
+        kind = {"cell": "cells", "block": "blocks"}.get(obj.kind, "parts")
         if fit > 0.25:
             why = "next among %s: needs %.0f%% of the free board" % (kind, 100 * fit)
         elif pull > 0:
@@ -546,7 +572,52 @@ class Board:
             why = "next among %s: largest (%.0f mm2), nothing placed pulls any" % (kind, area)
         return obj, why
 
+    def _settle_block(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set) -> Step:
+        spec = i.item
+        clr = self.clearance
+        if i.at is not None or i.center is not None:
+            anchor = Placement(i.at, i.rotation, i.face) if i.at is not None else \
+                box_centered_placement(occ, spec.anchor, i.center, i.rotation, i.face)
+            members, why = layout_block(occ, spec, anchor, clr)
+            if members is None:
+                plan.findings.append("%s (fixed): %s" % (i.key, why))
+                members = {spec.anchor.inst: anchor}
+            note = why or ""
+        else:
+            targets = self._targets(spec.anchor, occ, placed)
+            current = occ._geometry(spec.anchor).reference
+            hint = Placement(i.near, i.rotation, i.face) if i.near is not None else \
+                Placement(current.location, i.rotation, i.face)
+            score = None
+            if targets:
+                def score(members):
+                    return self._scorer(spec.anchor, occ, targets)(members[spec.anchor.inst])
+            best, tried, rejected, reasons = scan_block(occ, spec, hint, i.radius, i.step, i.rotations or (i.rotation,), clr, score)
+            if best is None:
+                plan.findings.append("%s: no legal spot within %.1f mm of %s (%s)" % (
+                    i.key, i.radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in rejected.most_common(3))))
+                members = {spec.anchor.inst: hint}
+                note = "UNPLACED"
+            else:
+                _, anchor, members = best
+                moved = anchor.location.distance(hint.location)
+                note = "block of %d laid out from the anchor's pads" % len(members)
+                if moved > 0:
+                    note += "; moved %.2f mm off the hint" % moved
+                    first = next(iter(reasons.values()), "")
+                    note += (": " + first) if first else ""
+        for fp in spec.members:
+            if fp.inst in members and fp is not spec.anchor:
+                plan._items[fp.inst] = fp
+                plan.steps.append(Step(fp.inst, "part", i.priority, members[fp.inst], 0.0, "in %s" % i.key))
+                occ.commit(fp, members[fp.inst])
+        plan._items[spec.anchor.inst] = spec.anchor
+        plan.steps.append(Step(spec.anchor.inst, "part", i.priority, members[spec.anchor.inst], 0.0, "anchor of %s" % i.key))
+        return Step(i.key, "block", i.priority, members[spec.anchor.inst], 0.0, note, i.why)
+
     def _settle(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set = frozenset()) -> Step:
+        if i.kind == "block":
+            return self._settle_block(occ, i, plan, placed)
         clr = self.clearance
         if i.priority in (Priority.FIXED, Priority.EDGE):
             if i.at is not None:

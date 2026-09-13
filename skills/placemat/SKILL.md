@@ -111,9 +111,18 @@ coordinates nobody chose.
 
 ## Placement tactics
 
-- Fixed and edge things first, then the largest and most constrained cells,
-  then whatever is left. Adjacency and separation are scarce; the first to
-  ask gets them.
+- Say what is FIXED (a mechanical fact) and what is EDGE; leave the rest
+  searched. The placer orders searched items itself (cells, blocks, loose
+  parts; biggest need and strongest pull first) and says why in each step.
+  Do not hand-order them with hints.
+- Price the connections, not the parts: a bypass capacitor is a SHORT link
+  with a limit at its pin; a series resistor between two distant parts is
+  PREFER on both links and lands where there is room between them; a net
+  whose off-board cable dwarfs the board is `free_net`, so nothing is
+  dragged toward its connector. Every undeclared connection weighs DEFAULT.
+- A part with satellites at its pins (a regulator and its caps) is a block:
+  declare the satellites by the net each serves; the placer lays the block
+  out from the real pads and searches it as one.
 - A cell faces its partner: its handoff pads toward the cell they connect
   to, its quiet side away from the aggressor.
 - A high-current path is copper you draw (a pour or a wide track), declared

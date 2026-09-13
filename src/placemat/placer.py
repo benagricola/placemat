@@ -7,6 +7,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 import math
 
+from .geometry import polys_overlap
 from .occupancy import Occupancy
 from .placement import Placement
 from .values import Box, Edge, Face, Location
@@ -195,3 +196,107 @@ def pockets(occ: Occupancy, width: float, height: float, face: Face = Face.FRONT
             for c in range(c0, c1):
                 free[r][c] = False
     return out
+
+
+@dataclass(frozen=True)
+class BlockSpec:
+    """A part and the satellites that sit at its pins: (satellite footprint,
+    the net it serves) pairs, each placed on its pin's axis `gap` out."""
+    anchor: object                   # Footprint
+    satellites: tuple                # ((Footprint, net), ...)
+    gap: float = 0.5
+
+    @property
+    def key(self) -> str:
+        return "block %s" % self.anchor.inst
+
+    @property
+    def members(self):
+        return (self.anchor,) + tuple(fp for fp, _ in self.satellites)
+
+
+def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=None):
+    """Satellite placements for the block with its anchor at `anchor`, or a
+    reason the block cannot sit there. Each satellite's pad on its served
+    net lands on the anchor pin's axis, `gap` beyond the pin, with the
+    satellite's body outward of its pad."""
+    why = occ.legal(spec.anchor, anchor, clearance)
+    if why:
+        return None, "anchor: " + why
+    pads = occ.candidate_pad_locations(spec.anchor, anchor)
+    centre = occ.body_box(spec.anchor, anchor).center
+    out = {spec.anchor.inst: anchor}
+    taken = []          # courtyard polygons of members already laid, for member-vs-member checks
+    _, ashapes = occ.candidate_shapes(spec.anchor, anchor)
+    taken += [sh.poly for sh in ashapes if sh.kind == "courtyard"]
+    for sat, net in spec.satellites:
+        pin = spec.anchor.pad(net)
+        p = pads[(spec.anchor.ref, pin.number)]
+        ux, uy = p.x - centre.x, p.y - centre.y
+        n = math.hypot(ux, uy)
+        if n < 1e-9:
+            ux, uy = 1.0, 0.0
+        else:
+            ux, uy = ux / n, uy / n
+        sat_pin = sat.pad(net)
+        half_anchor = _half_extent(pin.box, ux, uy)
+        half_sat = _half_extent(sat_pin.box, ux, uy)
+        target = Location(p.x + ux * (half_anchor + spec.gap + half_sat), p.y + uy * (half_anchor + spec.gap + half_sat))
+        best = None
+        for rot in (0, 90, 180, 270):
+            probe = Placement(Location(0.0, 0.0), rot, anchor.face)
+            sp = occ.candidate_pad_locations(sat, probe)[(sat.ref, sat_pin.number)]
+            cand = Placement(Location(round(target.x - sp.x, 6), round(target.y - sp.y, 6)), rot, anchor.face)
+            body = occ.body_box(sat, cand).center
+            outward = (body.x - target.x) * ux + (body.y - target.y) * uy      # body beyond its pad, away from the anchor
+            if outward < -1e-6:
+                continue
+            reason = occ.legal(sat, cand, clearance)
+            if reason:
+                continue
+            _, sshapes = occ.candidate_shapes(sat, cand)
+            mine = [sh.poly for sh in sshapes if sh.kind == "courtyard"]
+            if any(polys_overlap(a, b) for a in mine for b in taken):
+                continue
+            key = (-outward, rot)
+            if best is None or key < best[0]:
+                best = (key, cand, mine)
+        if best is None:
+            return None, "%s: no legal spot on the %s pin's axis" % (sat.inst, net)
+        out[sat.inst] = best[1]
+        taken += best[2]
+    return out, None
+
+
+def _half_extent(box: Box, ux: float, uy: float) -> float:
+    return abs(ux) * box.width / 2.0 + abs(uy) * box.height / 2.0
+
+
+def scan_block(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float, step: float,
+               rotations=None, clearance=None, score=None):
+    """The block's anchor placement (and its members') nearest the hint, or
+    with the lowest score, where every member is legal."""
+    rots = tuple(sorted({(r % 360) for r in (rotations or (hint.rotation,))}))
+    rejected: Counter = Counter()
+    reasons: dict = {}
+    best = None
+    tried = 0
+    for d, x, y in _grid(hint.location, radius, step):
+        for rot in rots:
+            cand = Placement(Location(x, y), rot, hint.face)
+            tried += 1
+            members, why = layout_block(occ, spec, cand, clearance)
+            if members is None:
+                key = _reason_key(why)
+                rejected[key] += 1
+                reasons.setdefault(key, why)
+                continue
+            sc = score(members) if score else 0.0
+            k = (sc, d, rot)
+            if best is None or k < best[0]:
+                best = (k, cand, members)
+            if score is None:
+                break
+        if best is not None and score is None:
+            break
+    return best, tried, rejected, reasons
