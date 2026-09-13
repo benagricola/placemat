@@ -33,9 +33,19 @@ work, not what to call.
 4. **Change one thing, label it, run again.** The impact text says what
    moved and which numbers changed. If it says "nothing moved" and you
    expected movement, your change was not where you thought.
-5. Full record: `.placemat/runs/<label>/run.json`, `script.log`,
-   `drc.json`, `generate.log`, `layout.kicad_pcb`. Logs are files; read the
-   tail, not the whole thing.
+5. **Route only when the placement has settled.** Routing is a separate,
+   slow step you ask for: `placemat run ... --route` (after the checks) or
+   `placemat route <board>`. It routes a COPY with every existing track and
+   pour locked and the plane nets excluded, then reports closure: the share
+   of open signal connections it closed under the board's own rules, and the
+   clean closure that counts a net closed through a violation as still
+   open. Run it when crossings and congestion have stopped falling, never
+   while big parts are still moving; read `still open` for the nets that
+   name the next placement problem. The routed copy is evidence, not the
+   layout: the script does not change because the router found a path.
+6. Full record: `.placemat/runs/<label>/run.json`, `script.log`,
+   `drc.json`, `generate.log`, `layout.kicad_pcb`, and `route/` when routing
+   ran. Logs are files; read the tail, not the whole thing.
 
 Never edit `layout.kicad_pcb` by hand as the fix. The script is the layout;
 a hand edit is a measurement that gets folded back into the script.

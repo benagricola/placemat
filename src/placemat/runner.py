@@ -93,7 +93,8 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool) -> bool:
 
 
 def run(script, label: str | None = None, fresh: bool = False, render: bool = True, drc: bool = True,
-        quiet: bool = False, verbose: bool = False) -> RunResult:
+        quiet: bool = False, verbose: bool = False, route: bool = False, route_quick: bool = True,
+        route_exclude=()) -> RunResult:
     script = Path(script).resolve()
     src = find_board(script)
     label = label or time.strftime("%Y%m%d-%H%M%S")
@@ -173,6 +174,19 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
             busiest = list(aw["crossings_per_net"].items())[:5]
             if busiest:
                 _say(quiet, "        crossings by net: " + ", ".join("%s %d" % kv for kv in busiest))
+        if route:
+            from .kicad.route import route_board
+            t0 = time.time()
+            _say(quiet, "route   %s routing on a copy of the board ..." % ("quick" if route_quick else "full"))
+            report = route_board(src.pcb, run_dir / "route", exclude_nets=set(plan.plane_nets) | set(route_exclude),
+                                 quick=route_quick)
+            metrics["route"] = report.as_dict()
+            metrics["closure_clean"] = report.closure_clean
+            rec.timing_s["route"] = round(time.time() - t0, 1)
+            _say(quiet, "route   %s  (%.0fs)" % (report.summary(), rec.timing_s["route"]))
+            if report.open_nets:
+                worst = sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:8]
+                _say(quiet, "        still open: " + ", ".join("%s %d" % kv for kv in worst))
         if render:
             t0 = time.time()
             render_board(src.pcb, run_dir / "render.log", both_faces=getattr(board, "both_faces", False))

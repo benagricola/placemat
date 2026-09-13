@@ -116,7 +116,7 @@ def impact(before: RunRecord, after: RunRecord) -> str:
     deltas = []
     for label, key, fmt, tol in (("unconnected", "unconnected", "%d", 0), ("airwire", "airwire_mm", "%.1f", 0.5),
                                  ("crossings", "crossings", "%d", 0), ("congestion", "congestion", "%.2f", 0.05),
-                                 ("findings", "findings", "%d", 0)):
+                                 ("closure", "closure_clean", "%.3f", 0.0005), ("findings", "findings", "%d", 0)):
         if (key in a or key in b) and a.get(key) is not None and b.get(key) is not None:
             d = _delta(label, a.get(key, 0), b.get(key, 0), fmt, tol)
             if d:

@@ -93,12 +93,17 @@ part. `HIGH`, `DEFAULT` and `LOW` only decide who bridges at a crossing.
 ## Commands
 
 ```
-placemat run <script> [--label L] [--fresh] [--no-render] [--no-drc] [-v] [--json]
+placemat run <script> [--label L] [--fresh] [--no-render] [--no-drc] [-v] [--json] [--route [--route-full] [--route-exclude NET ...]]
+placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--json]
 placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
 placemat measure <layout.kicad_pcb> [cell-or-part ...] [--rotation 90]
 ```
 A run leaves `.placemat/runs/<label>/` beside the board: `run.json`,
 `script.log`, `drc.json`, `generate.log`, `impact.txt`, the written
-`layout.kicad_pcb`. The generation is cached in `.placemat/generated/`;
-`--fresh` regenerates.
+`layout.kicad_pcb`, and `route/` (the routed copy, `route.json`,
+`router.log`, DRC before and after) when routing ran. The generation is
+cached in `.placemat/generated/`; `--fresh` regenerates. Routing needs
+KiCadRoutingTools at `$KRT_DIR` (default `~/work/KiCadRoutingTools`) with
+its own venv; quick mode is one routing round, `--full` adds the router's
+reconciliation rounds.

@@ -89,12 +89,10 @@ Slices 1-6 are built and green (81 tests; the end-to-end test builds a
 scratch workspace and runs the pcb toolchain). The new
 `breakout/Breakout_layout.py` in the ecosystem regenerates the Breakout to
 the committed board's gate state: DRC clean, unconnected 0, the same 36
-dangling module stubs, zero crossings, 126.5 x 229.89. Next, in order: crossings per net and a congestion figure in the run
-record (from the ratsnest and the occupancy's free area, no routing
-needed); routing as `placemat run --route` and `placemat route`, explicit
-and never default; then STOP and plan the placer search kinds (pocket scan,
-net-seeded search, compaction, blocks) before building them against the
-Middleweight. The ecosystem's dependency still points at the old placemat
+dangling module stubs, zero crossings, 126.5 x 229.89. Crossings per net, congestion and routing (`placemat run --route`,
+`placemat route`, explicit and never default) are in. Next: STOP and plan
+the placer search kinds (pocket scan, net-seeded search, compaction,
+blocks) before building them against the Middleweight. The ecosystem's dependency still points at the old placemat
 checkout.
 
 ## Build order (each slice has a test that runs without KiCad where possible)

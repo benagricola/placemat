@@ -108,6 +108,11 @@ class Plan:
     def placements(self) -> dict[str, Placement]:
         return {s.item: s.placement for s in self.steps if s.placement is not None}
 
+    @property
+    def plane_nets(self) -> set:
+        """Nets served by a pour, plane or finger: routing leaves them alone."""
+        return {op.net for op in self.copper if isinstance(op, (Pour, Zone))}
+
 
 class Board:
     """One board being laid out. Questions are answered from the geometry read
