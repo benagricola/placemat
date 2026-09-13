@@ -15,3 +15,13 @@ def test_an_iteration_cap_is_passed_through():
     cmd = router_command("py", "route.py", "in.kicad_pcb", "out.kicad_pcb", {"GND"}, ["F.Cu"], "s.json", iterations=200)
     assert cmd[cmd.index("--max-iterations") + 1] == "200"
     assert "!GND" in cmd
+
+
+def test_a_quick_route_skips_the_smoothing_pass():
+    """One round is a measurement: the octolinear smoothing the router runs
+    after routing cannot change what closed, and on the Breakout it cost two
+    of the run's two and a half minutes."""
+    cmd = router_command("py", "route.py", "in.kicad_pcb", "out.kicad_pcb", set(), ["F.Cu"], "s.json", quick=True)
+    assert "--no-smoothing" in cmd
+    full = router_command("py", "route.py", "in.kicad_pcb", "out.kicad_pcb", set(), ["F.Cu"], "s.json", quick=False)
+    assert "--no-smoothing" not in full

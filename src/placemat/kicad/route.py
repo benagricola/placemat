@@ -130,11 +130,15 @@ def router_version(router_dir: str) -> str:
 
 
 def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
-                   iterations: int | None = None, probe: int | None = None) -> list:
+                   iterations: int | None = None, probe: int | None = None, quick: bool = False) -> list:
     """The router's command line. The search budget is the router's own
-    default unless the caller sets one."""
+    default unless the caller sets one. A quick route is a measurement, so
+    it skips the router's post-route smoothing pass: that pass cannot change
+    what closed in one round and costs most of the run."""
     cmd = [str(python), str(script), str(pcb_in), str(pcb_out), "--nets", "*"] + \
           ["!" + n for n in sorted(excluded)] + ["--layers"] + list(layers) + ["--escalation", "off"]
+    if quick:
+        cmd.append("--no-smoothing")
     if iterations is not None:
         cmd += ["--max-iterations", str(iterations)]
     if probe is not None:
@@ -170,7 +174,7 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir: str = ROUTE
     pcb_out = work / "routed.kicad_pcb"
     summary = work / "router_summary.json"
     script = str(ONE_ROUND) if quick else str(route_py)
-    cmd = router_command(rpy, script, pcb_in, pcb_out, excluded, layers, summary, iterations, probe)
+    cmd = router_command(rpy, script, pcb_in, pcb_out, excluded, layers, summary, iterations, probe, quick)
     env = dict(os.environ)
     env.pop("KICAD_ROUTE_TRACE", None)
     env["KRT_DIR"] = str(router_dir)

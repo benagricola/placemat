@@ -148,5 +148,7 @@ A run leaves `.placemat/runs/<label>/` beside the board: `run.json`,
 `router.log`, DRC before and after) when routing ran. The generation is
 cached in `.placemat/generated/`; `--fresh` regenerates. Routing needs
 KiCadRoutingTools at `$KRT_DIR` (default `~/work/KiCadRoutingTools`) with
-its own venv; quick mode is one routing round, `--full` adds the router's
-reconciliation rounds.
+its own venv; quick mode is one routing round with the router's post-route
+smoothing off (a measurement: the Breakout routes in about 10 s), `--full`
+is the router's whole run. The search budget per net is the router's own
+unless `--iterations` caps it.
