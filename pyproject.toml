@@ -1,7 +1,7 @@
 [project]
 name = "placemat"
-version = "0.1.0"
-description = "PCB layout as code: placement, copper, and the gates around them"
+version = "0.2.0-dev"
+description = "Deterministic PCB layout intent and position scanning"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
@@ -28,8 +28,5 @@ packages = ["src/placemat"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m 'not board and not trial' --strict-markers -q"
-markers = [
-    "board: builds or loads a real board and gates the result",
-    "trial: runs the router to score closure (slower still)",
-]
+addopts = "-q"
+filterwarnings = ["ignore:The SWIG-based Python interface:DeprecationWarning"]
