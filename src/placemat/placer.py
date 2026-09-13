@@ -19,6 +19,7 @@ class ScanResult:
     tried: int
     rejected: Counter = field(default_factory=Counter)
     reasons: dict = field(default_factory=dict)
+    score: float = 0.0
 
     @property
     def moved_mm(self) -> float:
@@ -44,27 +45,44 @@ def _grid(center: Location, radius: float, step: float):
 
 
 def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
-         rotations=None, clearance: float | None = None, commit: bool = False) -> ScanResult:
-    """The nearest legal location to `hint` within `radius`, on a `step` grid,
-    trying each rotation at each location. Rotations are tried in numeric
-    order regardless of how they were passed."""
+         rotations=None, clearance: float | None = None, commit: bool = False, score=None) -> ScanResult:
+    """A legal location within `radius` of `hint`, on a `step` grid, trying
+    each rotation at each location. Without `score` it is the nearest legal
+    candidate to the hint; with `score(placement) -> float` it is the legal
+    candidate with the lowest score, ties broken by distance from the hint,
+    then rotation. Rotations are tried in numeric order regardless of how
+    they were passed."""
     rots = tuple(sorted({(r % 360) for r in (rotations or (hint.rotation,))}))
     rejected: Counter = Counter()
     reasons: dict = {}
     tried = 0
+    best = None
     for d, x, y in _grid(hint.location, radius, step):
         for rot in rots:
             cand = Placement(Location(x, y), rot, hint.face)
             tried += 1
             why = occ.legal(item, cand, clearance)
             if why is None:
-                if commit:
-                    occ.commit(item, cand)
-                return ScanResult(cand, hint, tried, rejected, reasons)
+                if score is None:
+                    best = (0.0, d, rot, cand)
+                    break
+                key = (score(cand), d, rot, cand)
+                if best is None or key[:3] < best[:3]:
+                    best = key
+                continue
             key = _reason_key(why)
             rejected[key] += 1
             reasons.setdefault(key, why)
-    return ScanResult(None, hint, tried, rejected, reasons)
+        if best is not None and score is None:
+            break
+    if best is None:
+        return ScanResult(None, hint, tried, rejected, reasons)
+    chosen = best[3]
+    if commit:
+        occ.commit(item, chosen)
+    result = ScanResult(chosen, hint, tried, rejected, reasons)
+    result.score = best[0]
+    return result
 
 
 def _reason_key(why: str) -> str:

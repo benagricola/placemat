@@ -145,6 +145,15 @@ class Occupancy:
             out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label))
         return geom, out
 
+    def candidate_pad_locations(self, item, placement: Placement) -> dict:
+        """{(refdes, pad number): Location} for the item at a candidate placement."""
+        _, shapes = self.candidate_shapes(item, placement)
+        boxes: dict = {}
+        for s in shapes:
+            if s.kind in ("pad", "through"):
+                boxes.setdefault((s.owner, s.label), []).append(s.box)
+        return {k: Box.union(v).center for k, v in boxes.items()}
+
     def pad_location(self, ref: str, number: str) -> Location:
         """Where a pad is NOW (after every commit so far): its outline's box centre."""
         boxes = [s.box for s in self.items[ref].shapes if s.kind in ("pad", "through") and s.label == number]

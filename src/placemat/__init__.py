@@ -5,8 +5,8 @@ script uses. Only placemat.kicad imports pcbnew."""
 __version__ = "0.2.0-dev"
 
 from .context import board
-from .values import (Box, Cell, CellPadRef, CopperLayer, Edge, Face, Location, Net, PadRef, Part,
-                     Priority, X, Y)
+from .values import (Box, Cell, CellPadRef, CopperLayer, Edge, Face, LinkWeight, Location, Net, PadRef,
+                     Part, Priority, X, Y)
 
-__all__ = ["board", "Box", "Cell", "CellPadRef", "CopperLayer", "Edge", "Face", "Location", "Net",
-           "PadRef", "Part", "Priority", "X", "Y"]
+__all__ = ["board", "Box", "Cell", "CellPadRef", "CopperLayer", "Edge", "Face", "LinkWeight", "Location",
+           "Net", "PadRef", "Part", "Priority", "X", "Y"]

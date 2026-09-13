@@ -17,7 +17,7 @@ from .occupancy import Occupancy, Shape
 from .placement import Placement
 from .placer import box_centered_placement, edge_placement, scan
 from .board_geometry import CellGeom, Footprint, BoardGeometry
-from .values import (Box, Cell, CellPadRef, CopperLayer, Edge, Face, Location, Net, PadRef, Part,
+from .values import (Box, Cell, CellPadRef, CopperLayer, Edge, Face, LinkWeight, Location, Net, PadRef, Part,
                      Priority, X, Y)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_LOOSE, RANK_COPPER = range(6)
@@ -69,6 +69,23 @@ class CopperIntent:
 
 
 @dataclass
+class Link:
+    """One priced connection: pad a to pad b, and what a millimetre costs."""
+    a: tuple                    # (refdes, pad number)
+    b: tuple
+    weight: int
+    limit_mm: float | None
+    why: str
+    a_ref: object
+    b_ref: object
+    achieved_mm: float | None = None
+
+    @property
+    def within_limit(self) -> bool:
+        return self.limit_mm is None or (self.achieved_mm is not None and self.achieved_mm <= self.limit_mm + 1e-9)
+
+
+@dataclass
 class Step:
     item: str
     kind: str
@@ -87,6 +104,7 @@ class Plan:
     steps: list[Step] = field(default_factory=list)
     findings: list[str] = field(default_factory=list)
     copper: list = field(default_factory=list)
+    links: list = field(default_factory=list)
     outline: Box | None = None
     chamfer: float = 0.0
     radius: float = 0.0
@@ -127,6 +145,8 @@ class Board:
         self.via_drill, self.via_size = via_drill, via_size
         self._intents: list[PlaceIntent] = []
         self._copper: list[CopperIntent] = []
+        self._links: list[Link] = []
+        self._free_nets: set = set()
         self._outline: Box | None = geometry.outline_box
         self._chamfer = 0.0
         self._radius = 0.0
@@ -224,6 +244,68 @@ class Board:
             if i.priority is Priority.DEFAULT and (i.key == fp.inst or (i.kind == "cell" and fp.cell == i.key)):
                 return True
         return False
+
+    # ------------------------------------------------------------ links
+    def link(self, a, b, weight=LinkWeight.DEFAULT, limit_mm: float | None = None, why: str = "") -> Link:
+        """Price one connection between two pads. `weight` is a LinkWeight or
+        any integer (0: the length of this connection does not matter);
+        `limit_mm` makes it a bound the run reports against."""
+        w = int(weight)
+        if w < 0:
+            raise ValueError("a link weight is 0 or more, not %r" % (weight,))
+        ka, kb = self._pad_ref(a), self._pad_ref(b)
+        link = Link((ka[0], ka[1]), (kb[0], kb[1]), w, limit_mm, why, a, b)
+        self._links.append(link)
+        return link
+
+    def free_net(self, net):
+        """A net whose length on this board does not matter (its off-board
+        run dwarfs it): it seeds nothing and pulls nothing."""
+        self._free_nets.add(self.geometry.require_net(net))
+
+    def _plane_nets(self) -> set:
+        return {c.net for c in self._copper if c.key.split(" ")[0] in ("pour", "plane", "finger")}
+
+    def _link_weight(self, pad_a: tuple, pad_b: tuple) -> int:
+        for l in self._links:
+            if {l.a, l.b} == {pad_a, pad_b}:
+                return l.weight
+        return int(LinkWeight.DEFAULT)
+
+    def _targets(self, item, occ: Occupancy, placed: set) -> list:
+        """(own pad key, target location, weight) for every connection from
+        this item's pads to a pad already placed, on a net that pulls."""
+        quiet = self._plane_nets() | self._free_nets
+        fps = item.members if isinstance(item, CellGeom) else (item,)
+        own_refs = {fp.ref for fp in fps}
+        out = []
+        for fp in fps:
+            for p in fp.pads:
+                if not p.net or p.net in quiet:
+                    continue
+                for other in self.geometry.pads_on_net(p.net):
+                    if other.owner in own_refs or other.owner not in placed:
+                        continue
+                    w = self._link_weight((fp.ref, p.number), (other.owner, other.number))
+                    if w <= 0:
+                        continue
+                    out.append(((fp.ref, p.number), occ.pad_location(other.owner, other.number), w))
+        return out
+
+    def _scorer(self, item, occ: Occupancy, targets: list):
+        def score(placement: Placement) -> float:
+            pads = occ.candidate_pad_locations(item, placement)
+            return sum(w * pads[key].distance(target) for key, target, w in targets if key in pads)
+        return score
+
+    def _report_links(self, occ: Occupancy, plan: Plan, placed: set):
+        for l in self._links:
+            if l.a[0] in placed and l.b[0] in placed:
+                l.achieved_mm = round(occ.pad_location(*l.a).distance(occ.pad_location(*l.b)), 3)
+                if not l.within_limit:
+                    plan.findings.append("link %s.%s to %s.%s is %.2f mm, over its %.2f mm limit%s" % (
+                        l.a[0], l.a[1], l.b[0], l.b[1], l.achieved_mm, l.limit_mm, (": " + l.why) if l.why else ""))
+            plan.links.append(l)
 
     # ------------------------------------------------------------ copper
     def _copper_intent(self, key, net, priority, plan, refs, why, bridge=False):
@@ -326,14 +408,16 @@ class Board:
         placements = sorted(self._intents, key=lambda i: i.rank)
         fixed_copper = [c for c in self._copper if c.priority is Priority.FIXED]
         other_copper = [c for c in self._copper if c.priority is not Priority.FIXED]
+        placed: set = set()
 
         def place_ranked(lo, hi):
             for obj in placements:
                 if lo <= obj.rank[0] <= hi:
                     plan._items[obj.key] = obj.item
-                    step = self._settle(occ, obj, plan)
+                    step = self._settle(occ, obj, plan, placed)
                     plan.steps.append(step)
                     occ.commit(obj.item, step.placement)
+                    placed.update(fp.ref for fp in (obj.item.members if obj.kind == "cell" else (obj.item,)))
                     if progress:
                         progress(_fmt(step))
 
@@ -341,6 +425,7 @@ class Board:
         self._plan_copper(occ, ctx, fixed_copper, plan, progress)
         place_ranked(RANK_LOOSE, RANK_LOOSE)
         self._plan_copper(occ, ctx, other_copper, plan, progress)
+        self._report_links(occ, plan, placed)
         return plan
 
     def _plan_copper(self, occ, ctx, intents, plan: Plan, progress):
@@ -399,7 +484,7 @@ class Board:
             if progress:
                 progress("   bridge: " + note)
 
-    def _settle(self, occ: Occupancy, i: PlaceIntent, plan: Plan) -> Step:
+    def _settle(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set = frozenset()) -> Step:
         clr = self.clearance
         if i.priority in (Priority.FIXED, Priority.EDGE):
             if i.at is not None:
@@ -413,17 +498,40 @@ class Board:
                 plan.findings.append("%s (%s): %s" % (i.key, i.priority.value, why))
             return Step(i.key, i.kind, i.priority, p, 0.0, why or "", i.why)
         current = occ._geometry(i.item).reference
-        hint = Placement(i.near, i.rotation, i.face) if i.near is not None else \
-            Placement(current.location, i.rotation, i.face)
-        result = scan(occ, i.item, hint, i.radius, i.step, i.rotations or (i.rotation,), clr)
+        targets = self._targets(i.item, occ, placed)
+        seeded = ""
+        if i.near is not None:
+            hint = Placement(i.near, i.rotation, i.face)
+        elif targets:
+            wsum = sum(w for _, _, w in targets)
+            cx = sum(t.x * w for _, t, w in targets) / wsum
+            cy = sum(t.y * w for _, t, w in targets) / wsum
+            # the hint is where the part's ORIGIN should go for its pads to sit on the centroid
+            pads_now = occ.candidate_pad_locations(i.item, Placement(current.location, i.rotation, i.face))
+            own = [pads_now[k] for k, _, _ in targets if k in pads_now]
+            ox = sum(p.x for p in own) / len(own) - current.location.x if own else 0.0
+            oy = sum(p.y for p in own) / len(own) - current.location.y if own else 0.0
+            hint = Placement(Location(round(cx - ox, 3), round(cy - oy, 3)), i.rotation, i.face)
+            nets = sorted({self.geometry.footprint(k[0]).pad(int(k[1]) if k[1].isdigit() else k[1]).net
+                           for k, _, _ in targets if k[0] in {fp.ref for fp in (i.item.members if i.kind == "cell" else (i.item,))}})
+            seeded = "seeded on %s" % ", ".join(nets)
+        else:
+            hint = Placement(current.location, i.rotation, i.face)
+        score = self._scorer(i.item, occ, targets) if targets else None
+        result = scan(occ, i.item, hint, i.radius, i.step, i.rotations or (i.rotation,), clr, score=score)
         if result.chosen is None:
             plan.findings.append("%s: no legal location within %.1f mm of %s (%s)" % (
                 i.key, i.radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in result.rejected.most_common(3))))
             return Step(i.key, i.kind, i.priority, hint, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()), i.why)
-        note = ""
+        note = seeded
         if result.moved_mm > 0:
             first = next(iter(result.reasons.values()), "")
-            note = "moved %.2f mm off the hint: %s" % (result.moved_mm, first)
+            moved = "moved %.2f mm off the hint" % result.moved_mm
+            if first:
+                moved += ": " + first
+            elif score:
+                moved += " for a better link score"
+            note = (note + "; " if note else "") + moved
         return Step(i.key, i.kind, i.priority, result.chosen, result.moved_mm, note, i.why)
 
 class _CopperContext:

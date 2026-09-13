@@ -3,7 +3,7 @@ locations, boxes, and references to nets, parts, cells and pads."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, IntEnum
 import math
 
 
@@ -239,3 +239,13 @@ class Y:
     """The y of a pad reference (plus dy)."""
     ref: object
     dy: float = 0.0
+
+
+class LinkWeight(IntEnum):
+    """What a millimetre costs on one connection when a part is placed. Any
+    integer works; these are the usual values. FREE (0) means the connection
+    pulls nothing: its length does not matter (an off-board run dwarfs it)."""
+    FREE = 0
+    DEFAULT = 1
+    PREFER = 2
+    SHORT = 8
