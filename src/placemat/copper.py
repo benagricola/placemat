@@ -1,14 +1,7 @@
-"""Copper: what a script declares (against pads and lanes) and what the writer
-draws (concrete tracks, vias, pours and zones in board mm).
-
-A declaration is planned only after placement, against where the pads
-landed. Lanes are the bus vocabulary: a run at a fixed x on one layer, taps
-into pads at the pad's own y, hops pad to pad, a chain over many pads, and a
-crossing from one lane to another at a fixed y. Where a tap or crossing
-would pass another lane on the same layer it hops to the far layer round
-it. The lanes it must hop are found from the lanes the script registered,
-never typed by hand.
-"""
+"""Plans copper. The concrete shapes the writer draws (Track, Via, Pour,
+Zone), the Lane a script declares bus copper on, the planner that turns lane
+declarations into tracks and vias once the pads are placed, and the finger
+pour that steps round lanes."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

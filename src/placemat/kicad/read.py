@@ -1,11 +1,10 @@
-"""pcbnew -> Snapshot. The only module that reads a board through pcbnew.
+"""Reads a .kicad_pcb through pcbnew into a Snapshot.
 
-Box conventions (ported from the previous library, which learned them by DRC):
-- body box: courtyard deflated by the house courtyard excess, unioned with the
-  pads. A courtyard is an assembly keepout; F.Fab and silk over-draw bodies.
-- courtyard box: courtyard outlines + pads. What the part claims for assembly.
-- phys box: pads + drawn graphics on physical layers, courtyard excluded.
-"""
+Box conventions: the body box is the courtyard deflated by the fab's
+courtyard excess, unioned with the pads (a courtyard is an assembly keepout,
+and fab and silk drawings over-draw bodies); the courtyard box is courtyard
+outlines plus pads; the physical box is pads plus drawn graphics, courtyard
+excluded."""
 from __future__ import annotations
 
 from pathlib import Path

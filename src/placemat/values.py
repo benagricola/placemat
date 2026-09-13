@@ -1,4 +1,5 @@
-"""Typed values a layout script speaks in. Nothing here touches pcbnew."""
+"""The typed values a layout script uses: layers, faces, edges, priorities,
+locations, boxes, and references to nets, parts, cells and pads."""
 from __future__ import annotations
 
 from dataclasses import dataclass

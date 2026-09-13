@@ -1,11 +1,11 @@
-"""Apply a resolved Plan to a .kicad_pcb through pcbnew, then save.
+"""Writes a resolved Plan into a .kicad_pcb through pcbnew: moves parts and
+cells, draws the outline and copper, fills zones, moves reference
+designators to the fab layers, patches render colours and project presets,
+renders PNGs.
 
-Cells move as rigid bodies: every member footprint and every piece of the
-cell's own copper takes the same transform, computed from the cell's box
-centre in the snapshot the plan was resolved against. New drawings get
-deterministic UUIDs derived from their geometry, so an unchanged plan
-writes an unchanged file.
-"""
+Cells move as rigid bodies about their box centre in the snapshot the plan
+was resolved against. KiCad's UUID generator is seeded before new items are
+created, so an unchanged plan writes an unchanged file."""
 from __future__ import annotations
 
 import os

@@ -1,4 +1,5 @@
-"""kicad-cli DRC as numbers a run record can carry."""
+"""Runs kicad-cli DRC on a board and parses the JSON report into violation
+buckets, unconnected count and open nets."""
 from __future__ import annotations
 
 from collections import Counter

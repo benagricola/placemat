@@ -1,6 +1,6 @@
-"""The offline placer: candidate locations tested against an Occupancy, never
-against pcbnew. Every search is deterministic: candidates are enumerated in
-a fixed order and ties break on (distance from hint, rotation, x, y)."""
+"""Searches for legal placements against an Occupancy: a grid scan around a
+hint, edge-flush placement, box-centred placement. Deterministic: candidates
+enumerate in a fixed order and ties break on distance, rotation, x, y."""
 from __future__ import annotations
 
 from collections import Counter

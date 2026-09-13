@@ -1,6 +1,5 @@
-"""One reproducible layout attempt: generate, script, resolve, write, check,
-record. Progress goes to the terminal as it happens; every subprocess's
-full output goes to a file in the run directory; the record is JSON."""
+"""Runs one layout attempt: generate the board with pcb, execute the script,
+resolve, write through pcbnew, run DRC, render, and save the run record."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

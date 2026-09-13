@@ -1,6 +1,4 @@
-"""A resolved location, rotation and face. This is what the placer produces
-and what the writer applies. A script never types one for a searched part;
-it appears in the run record."""
+"""Placement: a resolved location, rotation and face for a part or cell."""
 from __future__ import annotations
 
 from dataclasses import dataclass

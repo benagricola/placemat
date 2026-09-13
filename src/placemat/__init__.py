@@ -1,8 +1,7 @@
-"""placemat: lay out a KiCad board from a Python script.
+"""placemat: lays out a KiCad board from a Python script.
 
-A script imports `board` and the value types, declares what goes where, and
-`placemat run` does the rest. Only `placemat.kicad` touches pcbnew.
-"""
+Exports `board` (the proxy a script declares to) and the typed values a
+script uses. Only placemat.kicad imports pcbnew."""
 from .context import board
 from .values import (Box, Cell, CellPadRef, CopperLayer, Edge, Face, Location, Net, PadRef, Part,
                      Priority, X, Y)

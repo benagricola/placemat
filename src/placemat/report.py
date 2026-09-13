@@ -1,4 +1,5 @@
-"""Run records, and the impact between two: what changed, in a few lines."""
+"""Run records: what a run placed and measured, saved as JSON, and the
+impact text that compares two of them."""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field

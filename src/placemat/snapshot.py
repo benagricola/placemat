@@ -1,9 +1,6 @@
-"""An immutable picture of a board, read once, queried many times.
-
-Every geometric question a layout script asks - where a pad is, how big a
-cell is, what copper is on a layer, what clearance two nets owe each other -
-is answered here without touching pcbnew. `placemat.kicad.read` builds one
-from a .kicad_pcb; the placer and copper planner only ever see this."""
+"""An immutable geometric picture of a board: footprints, pads, cells,
+copper, outline and net classes. Read once from a .kicad_pcb by
+placemat.kicad.read; everything else queries this instead of pcbnew."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

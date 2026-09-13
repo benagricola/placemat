@@ -1,6 +1,6 @@
-"""Pure 2-D geometry in board millimetres. y grows downward, as in KiCad; a
-positive rotation turns counter-clockwise on screen, as a footprint's
-orientation does. Nothing here imports pcbnew."""
+"""2-D geometry in board millimetres: affine transforms, polygon overlap and
+distance, boxes. y grows downward and a positive rotation turns
+counter-clockwise on screen, as in KiCad. Imports nothing from pcbnew."""
 from __future__ import annotations
 
 from dataclasses import dataclass

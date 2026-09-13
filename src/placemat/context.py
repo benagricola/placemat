@@ -1,4 +1,5 @@
-"""The `board` a script imports is a proxy to the Board the runner bound."""
+"""Binds the Board a script declares to. `board` is the proxy the script
+imports; run_script executes a script file against a bound Board."""
 from __future__ import annotations
 
 from contextlib import contextmanager

@@ -1,15 +1,10 @@
-"""What is where on each face, and whether a candidate placement is legal.
+"""Tracks what occupies each face of the board and decides whether a
+candidate placement is legal, without pcbnew.
 
-Built once from a Snapshot, then updated as the placer commits placements,
-so thousands of candidates can be tested without touching pcbnew. The
-checks are the ones DRC and the courtyard gate would make afterwards:
-
-- the body box stays inside the board by the edge margin
-- courtyards on one face do not overlap
-- a through feature (plated pad, via, unplated hole) blocks BOTH faces
-- a pad keeps the net-class clearance from foreign copper on its layers
-- a reservation blocks every part except one carrying an allowed net
-"""
+Built from a Snapshot and updated as placements are committed. Checks: body
+box inside the edge margin, courtyards on a face do not overlap, through
+features block both faces, pads keep net-class clearance from foreign
+copper, reservations block parts unless they carry an allowed net."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

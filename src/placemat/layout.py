@@ -1,19 +1,11 @@
-"""The surface a layout script talks to.
+"""The Board object a layout script declares to, and the Plan resolve()
+produces from it.
 
-A script declares what it wants - this part at that location, this cell
-against that edge, this one near its connector, this net down that lane -
-and asks questions of the board as generated. Nothing moves when a call is
-made: `resolve()` orders every declaration by how firm it is and settles
-each one against the occupancy model. Where a call sits in the file never
-decides when it runs.
-
-    setup (outline, size)
-    FIXED placements, then EDGE placements
-    searched cells
-    FIXED copper (planned; from here on it is an obstacle)
-    searched loose parts
-    remaining copper
-"""
+Board answers questions about the generated board, records placement and
+copper declarations, and resolves them in priority order (setup, FIXED,
+EDGE, searched cells, FIXED copper, loose parts, remaining copper) against
+the occupancy model. Plan holds the resolved placements, copper ops and
+findings for the writer and the run record."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field

@@ -1,8 +1,5 @@
-"""Where a board lives and what the fab can do.
-
-A layout script sits in its board's directory beside the `.zen` that
-declares `Board(name=..., layout_path=...)`. The fab profile is the
-`fab-profile.json` nearest above the board directory."""
+"""Finds a script's board (the .zen beside it that declares Board(...)) and
+reads the nearest fab-profile.json."""
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,4 +1,4 @@
-"""placemat: lay out a KiCad board from a Python script and see what changed."""
+"""The placemat command line: run, impact, drc, measure."""
 from __future__ import annotations
 
 import argparse
