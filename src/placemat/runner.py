@@ -155,6 +155,11 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
                 "traceback": "".join(traceback.format_exception(e))})
         log_lines = []
 
+        from .layout import STEP_HEADER
+        log_lines.append(STEP_HEADER)
+        if verbose:
+            say("step", STEP_HEADER, level="note")
+
         def progress(line):
             log_lines.append(line)
             if verbose:

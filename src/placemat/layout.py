@@ -727,11 +727,16 @@ def _loc(l: Location) -> str:
     return "(%.2f, %.2f)" % (l.x, l.y)
 
 
+STEP_HEADER = "%-28s %-6s %-8s %s" % ("item", "kind", "priority", "result")
+
+
 def _fmt(s: Step) -> str:
+    """One step, in the columns STEP_HEADER names. A placement's result is
+    `at (x, y) rot R face F`; copper's is its op count."""
     if s.placement is None:
-        return "%-7s %-6s %-28s %s" % (s.priority.value, s.kind, s.item, s.note)
-    out = "%-7s %-6s %-28s %s rot %g %s" % (s.priority.value, s.kind, s.item, _loc(s.placement.location),
-                                             s.placement.rotation, s.placement.face.value)
+        return "%-28s %-6s %-8s %s" % (s.item, s.kind, s.priority.value, s.note)
+    out = "%-28s %-6s %-8s at %s rot %g face %s" % (s.item, s.kind, s.priority.value, _loc(s.placement.location),
+                                                     s.placement.rotation, s.placement.face.value)
     if s.note:
         out += "  " + s.note
     return out
