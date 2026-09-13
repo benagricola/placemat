@@ -27,8 +27,8 @@ def footprint(ref, cx, cy, w=4.0, h=2.0, nets=("A", "B"), through=False, face=Fa
                      body, body.inflate(excess), body, pads)
 
 
-def snapshot(footprints, cells=(), copper=(), width=50.0, height=50.0, clearance=0.2):
-    nets = {p.net for fp in footprints for p in fp.pads} | {c.net for c in copper}
+def snapshot(footprints, cells=(), copper=(), width=50.0, height=50.0, clearance=0.2, extra_nets=()):
+    nets = {p.net for fp in footprints for p in fp.pads} | {c.net for c in copper} | set(extra_nets)
     classes = {n: NetClass("Default", 0.2, clearance, 0.6, 0.3) for n in nets}
     outline = (((0.0, 0.0), (width, 0.0), (width, height), (0.0, height)),)
     cell_map = {}

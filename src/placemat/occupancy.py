@@ -32,6 +32,7 @@ class Shape:
     net: str
     poly: Polygon
     box: Box
+    label: str = ""                 # pad number for a pad shape
 
 
 @dataclass(frozen=True)
@@ -66,7 +67,7 @@ def _fp_shapes(fp: Footprint) -> list[Shape]:
         for poly in p.outlines:
             shapes.append(Shape(fp.ref, "through" if p.through else "pad",
                                 _BOTH if p.through else frozenset([fp.face]),
-                                p.layers, p.net, poly, Box.of_points(poly)))
+                                p.layers, p.net, poly, Box.of_points(poly), p.number))
     for center, drill in fp.npth:
         poly = circle_polygon(center, drill / 2.0)
         shapes.append(Shape(fp.ref, "npth", _BOTH, frozenset(CopperLayer), "", poly, Box.of_points(poly)))
@@ -145,8 +146,37 @@ class Occupancy:
             poly = transform_polygon(s.poly, t)
             faces = self._flip_faces(s.faces) if (flip and len(s.faces) == 1) else s.faces
             layers = self._flip_layers(s.layers) if flip else s.layers
-            out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly)))
+            out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label))
         return geom, out
+
+    def pad_location(self, ref: str, number: str) -> Location:
+        """Where a pad is NOW (after every commit so far): its outline's box centre."""
+        boxes = [s.box for s in self.items[ref].shapes if s.kind in ("pad", "through") and s.label == number]
+        if not boxes:
+            raise KeyError("%s has no pad %s" % (ref, number))
+        return Box.union(boxes).center
+
+    def add_copper(self, shapes) -> None:
+        """Planned copper becomes an obstacle for everything placed after it."""
+        self.copper.extend(shapes)
+
+    def copper_conflicts(self, shape: Shape) -> list[str]:
+        """Every pad or copper of another net within clearance of `shape`."""
+        out = []
+        for owner, g in self.items.items():
+            for o in g.shapes:
+                if o.kind not in ("pad", "through") or not shape.box.overlaps(o.box, gap=1.0):
+                    continue
+                why = self._conflict(shape, o, None)
+                if why:
+                    out.append(why)
+        for o in self.copper:
+            if o is shape or not shape.box.overlaps(o.box, gap=1.0):
+                continue
+            why = self._conflict(shape, o, None)
+            if why:
+                out.append(why)
+        return out
 
     def body_box(self, item, placement: Placement) -> Box:
         geom = self._geometry(item)
@@ -219,7 +249,7 @@ class Occupancy:
                 if polys_overlap(court.poly, other.poly):
                     return "%s courtyard sits over a %s (%s)" % (court.owner, other.kind, other.owner or "via")
             return None
-        if ks in ("pad", "through") and ko in ("pad", "through", "copper"):
+        if ks in ("pad", "through", "copper") and ko in ("pad", "through", "copper"):
             common = s.layers & o.layers
             if not common:
                 return None

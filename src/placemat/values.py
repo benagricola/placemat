@@ -184,3 +184,34 @@ def pad_key(key):
             raise TypeError("pad key %r looks like a pad number: pass it as an int" % key)
         return ("net", key)
     raise TypeError("pad key must be an int pad number or a net name, not %r" % (key,))
+
+
+@dataclass(frozen=True)
+class PadRef:
+    """A pad on a part, resolved to a location only after placement: the
+    part's pad by number (int) or by net (str). `dx`/`dy` offset the point."""
+    part: Part
+    key: object
+    dx: float = 0.0
+    dy: float = 0.0
+
+    def __post_init__(self):
+        pad_key(self.key)
+
+    def offset(self, dx: float = 0.0, dy: float = 0.0) -> "PadRef":
+        return PadRef(self.part, self.key, self.dx + dx, self.dy + dy)
+
+
+@dataclass(frozen=True)
+class CellPadRef:
+    """A pad inside a cell, found by net or number, optionally only on members
+    whose refdes starts with `ref_prefix`; resolved after the cell is placed."""
+    cell: Cell
+    net: object = None
+    number: int | None = None
+    ref_prefix: str | None = None
+    dx: float = 0.0
+    dy: float = 0.0
+
+    def offset(self, dx: float = 0.0, dy: float = 0.0) -> "CellPadRef":
+        return CellPadRef(self.cell, self.net, self.number, self.ref_prefix, self.dx + dx, self.dy + dy)
