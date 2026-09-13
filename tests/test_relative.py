@@ -49,3 +49,26 @@ def test_a_row_may_end_at_a_reference():
     plan = b.resolve()
     ja = plan.occupancy.pad_location("J1", "1")
     assert plan.box("r2").right == pytest.approx(ja.x - 2.0)
+
+
+def test_two_firm_placements_that_collide_stop_the_resolve_before_anything_is_searched():
+    """A FIXED or EDGE item that lands on another is a script error: the
+    resolve stops there with the collisions, instead of spending minutes
+    placing the rest onto a broken skeleton. `keep_going=True` records
+    them as findings and carries on, the old behaviour."""
+    import pytest
+    from placemat.layout import PlacementCollision
+    fps = [footprint("U1", 10, 10, w=4, h=2), footprint("U2", 30, 10, w=4, h=2), footprint("R1", 40, 40, w=2, h=1)]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.place(Part("u1"), at=Location(20, 20))
+    b.place(Part("u2"), at=Location(21, 20))                  # on top of u1
+    b.place(Part("r1"))
+    with pytest.raises(PlacementCollision) as e:
+        b.resolve()
+    assert "u2" in str(e.value) and "U1" in str(e.value)
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0, keep_going=True)
+    b.place(Part("u1"), at=Location(20, 20))
+    b.place(Part("u2"), at=Location(21, 20))
+    b.place(Part("r1"))
+    plan = b.resolve()
+    assert any("u2 (fixed)" in f for f in plan.findings) and plan.placement("r1") is not None

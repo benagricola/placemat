@@ -38,7 +38,9 @@ board.place(item, near=Location(x, y), radius=3.0, step=0.2, rotations=(0, 90)) 
 ```
 `item` is a `Part` (schematic instance), a `Cell` (module group) or a block
 (below). One declaration per item. `why=` is recorded in the run. A FIXED
-placement that collides is reported as a finding, not moved.
+or EDGE item that lands on another is a script error: the run stops
+there with the collisions, before anything is searched (`placemat run
+--keep-going` records them as findings and carries on).
 
 **The default is a bare `place()`.** A part with a wired neighbour already
 on the board needs no position: price the connection and leave it to seed.

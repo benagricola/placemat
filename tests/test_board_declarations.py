@@ -7,13 +7,13 @@ from placemat.values import Box, Cell, Edge, Face, Location, Part, Priority
 from tests.fixtures import board_geometry, footprint
 
 
-def make_board():
+def make_board(**kw):
     fps = [footprint("J1", 5, 5, w=8, h=3, inst="j_in"),
            footprint("R1", 20, 20, inst="r1"),
            footprint("R2", 25, 20, inst="r2"),
            footprint("U1", 40, 40, w=6, h=2, cell="pd", inst="pd.conn"),
            footprint("F1", 40, 44, w=6, h=2, cell="pd", inst="pd.fuse")]
-    return Board(board_geometry(fps, cells=["pd"], width=60, height=60), edge_margin=1.0)
+    return Board(board_geometry(fps, cells=["pd"], width=60, height=60), edge_margin=1.0, **kw)
 
 
 def test_an_unknown_part_is_refused_when_declared():
@@ -61,8 +61,15 @@ def test_a_searched_part_moves_off_a_fixed_one_and_says_so():
     assert step.moved_mm > 0 and "courtyard" in step.note
 
 
-def test_a_fixed_part_that_collides_is_reported_not_moved():
+def test_a_fixed_part_that_collides_stops_the_run_or_is_reported_not_moved():
+    import pytest
+    from placemat.layout import PlacementCollision
     b = make_board()
+    b.place(Part("r2"), at=Location(10, 50))
+    b.place(Part("r1"), at=Location(10, 50))
+    with pytest.raises(PlacementCollision):
+        b.resolve()
+    b = make_board(keep_going=True)
     b.place(Part("r2"), at=Location(10, 50))
     b.place(Part("r1"), at=Location(10, 50))
     plan = b.resolve()

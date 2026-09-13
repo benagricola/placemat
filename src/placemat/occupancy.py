@@ -82,6 +82,7 @@ class Occupancy:
         self.reservations: list[Reservation] = []
         self.copper: list[Shape] = []
         self._cells: dict[str, ItemGeometry] = {}        # a cell's geometry, until something moves
+        self.pending: set[str] = set()                    # owners the script will place: not obstacles where the generator left them
         for fp in geometry.footprints:
             self._register(fp)
         for c in geometry.copper:
@@ -204,6 +205,7 @@ class Occupancy:
         """Record that `item` now sits at `placement`; later checks see it there."""
         geom, shapes = self.candidate_shapes(item, placement)
         self._cells.clear()
+        self.pending -= geom.owners
         if isinstance(item, Footprint):
             self.items[item.ref] = ItemGeometry(geom.owners, placement, tuple(shapes),
                                                 self.body_box(item, placement), geom.nets)
@@ -245,8 +247,9 @@ class Occupancy:
     def obstacles(self, geom: ItemGeometry, region: Box | None = None) -> list:
         """Every shape not owned by `geom`, within `region` (plus the
         conflict gap) when one is given: gathered once for a whole scan."""
-        out = [s for owner, g in self.items.items() if owner not in geom.owners for s in g.shapes]
-        out += [c for c in self.copper if c.owner not in geom.owners]
+        skip = geom.owners | self.pending
+        out = [s for owner, g in self.items.items() if owner not in skip for s in g.shapes]
+        out += [c for c in self.copper if c.owner not in skip]
         if region is not None:
             out = [o for o in out if o.box.overlaps(region, gap=_GAP)]
         return out

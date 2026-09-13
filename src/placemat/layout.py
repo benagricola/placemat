@@ -250,17 +250,26 @@ class Plan:
         return {op.net for op in self.copper if isinstance(op, (Pour, Zone))}
 
 
+class PlacementCollision(Exception):
+    """Two things the script declared firm (FIXED or EDGE) land on each
+    other: a script error, reported before anything is searched."""
+    def __init__(self, collisions):
+        self.collisions = list(collisions)
+        super().__init__("%d firm placement(s) collide:\n  " % len(self.collisions) + "\n  ".join(self.collisions))
+
+
 class Board:
     """One board being laid out. Questions are answered from the geometry read
     off the generated .kicad_pcb; declarations are collected and resolved
     together."""
 
     def __init__(self, geometry: BoardGeometry, edge_margin: float = 0.0, clearance: float | None = None,
-                 via_drill: float = 0.3, via_size: float = 0.6):
+                 via_drill: float = 0.3, via_size: float = 0.6, keep_going: bool = False):
         self.geometry = geometry
         self.edge_margin = edge_margin
         self.clearance = clearance
         self.via_drill, self.via_size = via_drill, via_size
+        self.keep_going = keep_going            # carry on past colliding FIXED/EDGE items, as findings
         self._intents: list[PlaceIntent] = []
         self._copper: list[CopperIntent] = []
         self._links: list[Link] = []
@@ -690,6 +699,10 @@ class Board:
     # ------------------------------------------------------------ resolution
     def resolve(self, progress=None) -> Plan:
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline)
+        for intent in self._intents:
+            declared = [intent.item.anchor] + [fp for fp, _ in intent.item.satellites] if intent.kind == "block" else [intent.item]
+            for item in declared:
+                occ.pending |= occ._geometry(item).owners
         plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius,
                     rules=list(self._rules))
         ctx = _CopperContext(self, occ)
@@ -725,6 +738,9 @@ class Board:
                                      "items may be referred to)" % (firm[0].key, ", ".join(sorted(firm[0].needs - placed))))
                 place_one(ready[0])
                 firm.remove(ready[0])
+            collisions = [f for f in plan.findings if f.split(" ")[1] in ("(fixed):", "(edge):")]
+            if collisions and not self.keep_going:
+                raise PlacementCollision(collisions)
             pending = [obj for obj in placements if lo <= obj.rank[0] <= hi
                        and obj.priority not in (Priority.FIXED, Priority.EDGE)]
             while pending:

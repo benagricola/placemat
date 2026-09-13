@@ -25,6 +25,8 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--route", action="store_true", help="after the checks, route a copy with KiCadRoutingTools and score closure")
     run.add_argument("--route-full", action="store_true", help="with --route: the router's full run, not one round")
     run.add_argument("--route-exclude", nargs="*", default=[], help="with --route: extra nets to leave unrouted")
+    run.add_argument("--keep-going", action="store_true",
+                     help="carry on past FIXED/EDGE items that collide (recorded as findings) instead of stopping there")
 
     rt = sub.add_parser("route", help="route a copy of a placed board with KiCadRoutingTools and score closure")
     rt.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
@@ -65,7 +67,8 @@ def cmd_run(args) -> int:
     from .runner import run
     result = run(args.script, label=args.label, fresh=args.fresh, render=not args.no_render,
                  drc=not args.no_drc, quiet=args.quiet or args.json, verbose=args.verbose,
-                 route=args.route, route_quick=not args.route_full, route_exclude=args.route_exclude)
+                 route=args.route, route_quick=not args.route_full, route_exclude=args.route_exclude,
+                 keep_going=args.keep_going)
     if args.json:
         console.data(json.dumps(json.loads((result.run_dir / "run.json").read_text()), indent=2))
     return 0 if result.status == "ok" else 1

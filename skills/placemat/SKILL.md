@@ -28,8 +28,9 @@ work, not what to call.
    (crossings per square centimetre of free board) say how hard the board
    will be to route BEFORE any routing is run: a placement change that cuts
    crossings and congestion is the one to keep, and the nets with the most
-   crossings name the parts to move. Findings name a fixed placement that
-   collides or a searched part that had nowhere to go, with the reason.
+   crossings name the parts to move. Two firm placements that collide stop
+   the run at once with the reason: fix the declaration, do not search
+   around it. Findings name a searched part that had nowhere to go.
 3. **Look** at `layout/<X>/layout.png` (and `layout-bottom.png` on a
    two-face board) only after the numbers say the change did what you meant.
 4. **Change one thing, run again.** The impact text says what moved and

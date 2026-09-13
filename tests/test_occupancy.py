@@ -148,3 +148,23 @@ def test_candidate_pad_locations_are_the_transformed_pad_centres():
     # pad 1 sits 1.4 west of the origin at rotation 0; at 90 (KiCad's sense) it turns onto the y axis
     assert pads[("U1", "1")].distance(Location(20, 20)) == pytest.approx(1.4)
     assert pads[("U1", "1")].x == pytest.approx(20.0)
+
+
+def test_a_declared_part_not_yet_placed_is_not_an_obstacle_where_the_generator_left_it():
+    """A fresh generation drops every part somewhere. A part the script
+    will place later must not block a firm item now; an undeclared part
+    stays where it is and does block."""
+    from placemat.layout import Board
+    from placemat.values import Part
+    fps = [footprint("U1", 10, 10, w=4, h=2), footprint("R1", 20, 20, w=2, h=1), footprint("R2", 30, 30, w=2, h=1)]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.place(Part("u1"), at=Location(20, 20))                  # where R1 sits now
+    b.place(Part("r1"))                                       # R1 will be searched later
+    plan = b.resolve()
+    assert plan.findings == [] and plan.box("r1").overlaps(plan.box("u1")) is False
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.place(Part("u1"), at=Location(30, 30))                  # where the undeclared R2 sits
+    import pytest
+    from placemat.layout import PlacementCollision
+    with pytest.raises(PlacementCollision):
+        b.resolve()

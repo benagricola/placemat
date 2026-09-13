@@ -13,7 +13,7 @@ def make_board():
     fps = [footprint("U1", 10, 10, w=8, h=4, cell="a", inst="a.u", nets=("A", "GND")),
            footprint("U2", 30, 10, w=8, h=6, cell="b", inst="b.u", nets=("B", "GND")),
            footprint("U3", 50, 10, w=8, h=4, cell="c", inst="c.u", nets=("C", "GND")),
-           footprint("J1", 5, 40, w=10, h=3, inst="j1", nets=("A", "B"))]
+           footprint("J1", 80, 80, w=10, h=3, inst="j1", nets=("A", "B"))]     # off the west edge: undeclared, it stays put
     b = Board(board_geometry(fps, cells=["a", "b", "c"], width=100, height=100), edge_margin=2.0)
     return b
 
