@@ -3,7 +3,7 @@
   "owner": { "name": "Ben Agricola" },
   "metadata": {
     "description": "PCB layout as code for KiCad",
-    "version": "0.4.7"
+    "version": "0.4.8"
   },
   "plugins": [
     {
