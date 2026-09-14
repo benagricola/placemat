@@ -66,13 +66,15 @@ def test_a_label_may_mark_one_pad():
     assert t.at.x == pytest.approx(pad.x) and t.at.y == pytest.approx(pad.y + 0.5 + 0.3) and t.size == 0.6
 
 
-def test_a_label_that_lands_on_another_part_is_a_finding():
+def test_a_fixed_part_on_a_reserved_label_is_a_collision_that_stops_the_run():
+    from placemat.layout import PlacementCollision
     b = make_board()
     b.place(Part("j1"), at=Location(20, 20))
     b.place(Part("r1"), at=Location(20, 16.4))              # right where a north label goes
     b.label(Part("j1"), "MOTOR", side=Edge.NORTH, gap=0.5)
-    plan = b.resolve()
-    assert any("label j1 MOTOR" in f and "R1" in f for f in plan.findings)
+    with pytest.raises(PlacementCollision) as e:
+        b.resolve()
+    assert "label j1 MOTOR" in str(e.value) and "r1" in str(e.value)
 
 
 def test_a_label_on_an_undeclared_part_uses_where_the_board_has_it_but_an_unplaced_one_is_an_error():
@@ -86,3 +88,29 @@ def test_a_label_on_an_undeclared_part_uses_where_the_board_has_it_but_an_unplac
     b.label(Part("j1"), "MOTOR")
     with pytest.raises(ValueError):
         b.resolve()
+
+
+def test_a_label_reserves_its_space_so_nothing_is_placed_over_it():
+    """A label marks what a user must read; a part landing on it is worse
+    than a part landing anywhere else. The label is reserved as soon as
+    its item is placed, so everything placed later goes round it."""
+    b = make_board()
+    b.place(Part("j1"), at=Location(20, 20))
+    b.label(Part("j1"), "MOTOR", side=Edge.NORTH, gap=0.5, size=1.2)
+    b.place(Part("r1"), at=Near(Location(20, 16.4), radius=6.0))      # the hint is right on the label
+    plan = b.resolve()
+    (t,) = labels(plan)
+    assert plan.findings == []
+    assert not plan.box("r1").overlaps(t.box)
+    assert any("label j1 MOTOR" in r.why for r in plan.occupancy.reservations)
+
+
+def test_a_label_may_decline_to_reserve_and_then_only_reports_what_lands_on_it():
+    b = make_board()
+    b.place(Part("j1"), at=Location(20, 20))
+    b.label(Part("j1"), "MOTOR", side=Edge.NORTH, gap=0.5, size=1.2, reserve=False)
+    b.place(Part("r1"), at=Near(Location(20, 16.4), radius=0.1))
+    plan = b.resolve()
+    (t,) = labels(plan)
+    assert plan.box("r1").overlaps(t.box)
+    assert any("label j1 MOTOR" in f and "R1" in f for f in plan.findings)

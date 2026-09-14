@@ -287,7 +287,10 @@ class Occupancy:
             inner = self.board_box.inflate(-self.edge_margin)
             if not inner.contains(body):
                 return "body box %s crosses the board edge margin (%.2f mm)" % (_fmt(body), self.edge_margin)
+        faces = {placement.face} | ({Face.FRONT, Face.BACK} if any(s.kind in ("through", "npth") for s in geom.shapes) else set())
         for r in self.reservations:
+            if r.layer is not None and r.layer.face not in faces:
+                continue                                   # reserved on the other face only
             if r.box.overlaps(body) and not (geom.nets & r.allow):
                 return "sits in the reservation for %s" % r.why
         if others is None:

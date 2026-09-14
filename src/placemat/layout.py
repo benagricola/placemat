@@ -706,14 +706,16 @@ class Board:
 
     def label(self, item, text: str, *, side: Edge = Edge.NORTH, gap: float = 0.5, align: str = "centre",
               size: float = 1.0, thickness: float = 0.15, knockout: bool = False, rotation: float = 0.0,
-              why: str = ""):
+              reserve: bool = True, why: str = ""):
         """Silkscreen text that marks a user-facing feature: a connector,
         jumper, switch or LED. It sits `gap` off `side` of the item's reach
         (a Part or Cell) or of one pad (a PadRef/CellPadRef), on the item's
         own face, aligned `"centre"`, `"start"` (west or north end) or
         `"end"` along that side; `rotation=90` runs it up the page;
-        `knockout` cuts it out of a filled box. Written after placement,
-        so it follows the item wherever it lands."""
+        `knockout` cuts it out of a filled box. The label is worked out the
+        moment its item is placed and, unless `reserve=False`, its box (one
+        gap round it, on its face) is reserved, so nothing placed later
+        lands on it."""
         if align not in ("centre", "start", "end"):
             raise ValueError("a label aligns centre, start or end, not %r" % (align,))
         if rotation not in (0, 90):
@@ -724,7 +726,7 @@ class Board:
         else:
             key = "label %s %s" % (self._item(item)[1], text)
         self._labels.append((key, item, text, Edge(side), float(gap), align, float(size), float(thickness),
-                             bool(knockout), float(rotation), why))
+                             bool(knockout), float(rotation), why, bool(reserve)))
         return key
 
     def _width(self, net: str, width) -> float:
@@ -875,6 +877,7 @@ class Board:
         fixed_copper = [c for c in self._copper if c.priority is Priority.FIXED]
         other_copper = [c for c in self._copper if c.priority is not Priority.FIXED]
         placed: set = set()
+        self._place_labels(occ, plan, placed, progress)        # labels on parts the script never moves
 
         def place_one(obj, why_now=""):
             plan._items[obj.key] = obj.item
@@ -899,6 +902,7 @@ class Board:
                 placed.update(fp.ref for fp in (obj.item.members if obj.kind == "cell" else (obj.item,)))
             if progress:
                 progress(_fmt(step))
+            self._place_labels(occ, plan, placed, progress)
 
         def place_ranked(lo, hi):
             """FIXED and EDGE go down in declaration order: nothing yields to
@@ -928,7 +932,7 @@ class Board:
         place_ranked(RANK_LOOSE, RANK_LOOSE)
         self._plan_copper(occ, ctx, other_copper, plan, progress)
         self._report_links(occ, plan, placed)
-        self._place_labels(occ, plan, placed, progress)
+        self._place_labels(occ, plan, placed, progress, final=True)
         if self._faces is not None:
             text, why = self._faces
             box = self._outline or self.geometry.outline_box or Box.union([fp.body_box for fp in self.geometry.footprints])
@@ -968,33 +972,58 @@ class Board:
             out |= {fp.ref for fp in parts}
         return out
 
-    def _place_labels(self, occ, plan: Plan, placed: set, progress):
+    def _label_refs(self, item) -> list:
+        if isinstance(item, (PadRef, CellPadRef)):
+            return [self._pad_ref(item)[0]]
+        geom, ikey, kind = self._item(item)
+        return [fp.ref for fp in (geom.members if kind == "cell" else (geom,))]
+
+    def _place_labels(self, occ, plan: Plan, placed: set, progress, final: bool = False):
+        """Every label whose item is down and not yet labelled: its text op,
+        its reservation, and a finding when it sits on something already
+        placed. Called after each placement and once more at the end, when
+        an item that was declared but found no place is an error."""
         declared = self._declared_refs()
-        for key, item, text, side, gap, align, size, thick, knockout, rotation, why in self._labels:
+        done = plan.__dict__.setdefault("_labelled", {})
+        if final:                       # what landed on a label after it was worked out
+            for key, (op, own, face) in done.items():
+                hits = sorted({occ.who(r) for r, g in occ.items.items()
+                               if g.reference.face is face and r not in occ.pending and (g.reach or g.body).overlaps(op.box)} - own)
+                for h in hits:
+                    if not any(f.startswith("%s: sits on" % key) and h in f for f in plan.findings):
+                        plan.findings.append("%s: sits on %s" % (key, h))
+        for entry in self._labels:
+            key, item, text, side, gap, align, size, thick, knockout, rotation, why, reserve = entry
+            if key in done:
+                continue
+            refs = self._label_refs(item)
+            waiting = [r for r in refs if r in declared and r not in placed]
+            if waiting:
+                if final:
+                    raise ValueError("%s: %s was declared but found no place" % (key, waiting[0]))
+                continue
             if isinstance(item, (PadRef, CellPadRef)):
                 owner, number, _, _ = self._pad_ref(item)
-                if owner in declared and owner not in placed:
-                    raise ValueError("%s: %s was declared but found no place" % (key, owner))
                 g = occ.items[owner]
                 box = Box.union([s.box for s in g.shapes if s.kind in ("pad", "through") and s.label == number])
                 face = g.reference.face
             else:
-                geom, ikey, kind = self._item(item)
-                refs = [fp.ref for fp in (geom.members if kind == "cell" else (geom,))]
-                if any(r in declared and r not in placed for r in refs):
-                    raise ValueError("%s: %s was declared but found no place" % (key, ikey))
                 box = Box.union([occ.items[r].reach or occ.items[r].body for r in refs])
                 face = occ.items[refs[0]].reference.face
             op = _label_op(text, box, face, side, gap, align, size, thick, knockout, rotation)
             plan.copper.append(op)
+            own = {occ.who(r) for r in refs}
             hits = sorted({occ.who(r) for r, g in occ.items.items()
-                           if g.reference.face is face and (g.reach or g.body).overlaps(op.box)} - {occ.who(r) for r in
-                          ([self._pad_ref(item)[0]] if isinstance(item, (PadRef, CellPadRef)) else refs)})
+                           if g.reference.face is face and r not in occ.pending and (g.reach or g.body).overlaps(op.box)} - own)
             note = "%s of %s" % (side.name.lower(), key.split(" ", 2)[1])
             if hits:
                 plan.findings.append("%s: sits on %s" % (key, ", ".join(hits)))
                 note += "; sits on " + ", ".join(hits)
+            if reserve:
+                occ.reserve(op.box.inflate(gap), "label %s" % key.split(" ", 1)[1], layer=face.copper)
+                note += "; reserved"
             plan.steps.append(Step(key, "copper", Priority.DEFAULT, None, 0.0, note, why, 1))
+            done[key] = (op, own, face)
             if progress:
                 progress("%-28s copper  label    %s" % (key, note))
 
