@@ -53,7 +53,7 @@ class ItemGeometry:
 
 _BOTH = frozenset([Face.FRONT, Face.BACK])
 _GAP = 1.0      # how far outside a box a conflict can still reach: the largest clearance a rule asks for
-_TOUCH = 1e-6   # two courtyards this close along an axis are touching, not overlapping
+_TOUCH = 0.02   # two courtyards this close along an axis are touching, not overlapping: a footprint's courtyard stroke rounds by this much
 
 
 def _fp_shapes(fp: Footprint) -> list[Shape]:

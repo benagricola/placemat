@@ -121,3 +121,15 @@ def test_a_part_or_cell_may_be_a_reference_meaning_its_body_centre():
     assert sw2.center.y == pytest.approx(sw1.center.y) and sw2.center.x == pytest.approx(sw1.center.x + 8.6)
     assert pd.center.x == pytest.approx(sw2.center.x) and pd.center.y == pytest.approx(sw2.center.y + 6.0)
     assert plan.steps[0].item == "sw1" and [s.item for s in plan.steps[:3]] == ["sw1", "sw2", "pd"]     # each waits for its referent
+
+
+def test_a_part_may_be_placed_by_where_one_of_its_pads_lands():
+    from placemat.values import Pin
+    b = make_board()
+    b.place(Part("j1"), at=OnEdge(Edge.NORTH, along=20.0), rotation=0)
+    b.place(Part("r1"), at=Pin("A", X(PadRef(Part("j1"), "A")), Y(PadRef(Part("j1"), "A"), 6.0)), rotation=90)
+    plan = b.resolve()
+    ja = plan.occupancy.pad_location("J1", "1")
+    ra = plan.occupancy.pad_location("R1", "1")
+    assert (ra.x, ra.y) == pytest.approx((ja.x, ja.y + 6.0))          # R1's A pad sits on the point, at that rotation
+    assert plan.step("r1").priority is Priority.FIXED

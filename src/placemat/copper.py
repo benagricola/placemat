@@ -76,9 +76,14 @@ class Text:
     @property
     def box(self) -> Box:
         """Where the text lands, estimated from the stroke font's advance
-        (about nine tenths of the size per character)."""
-        w = len(self.text) * self.size * 0.9 + self.thickness
+        (about nine tenths of the size per character); a knockout's frame
+        stands a ninth of the size past the glyphs on every side, as KiCad
+        draws it."""
+        w = len(self.text) * self.size * 0.914 + self.thickness
         h = self.size + self.thickness
+        if self.knockout:
+            w += 2 * self.size / 9
+            h += 2 * self.size / 9
         if self.rotation % 180 == 90:
             w, h = h, w
         # anchored: hjust runs along the text, vjust across it; at rotation 0 that is x and y

@@ -138,3 +138,20 @@ def test_a_label_group_needs_one_text_per_item():
     b = make_board()
     with pytest.raises(ValueError):
         b.label([Part("j1"), Part("r1")], ["MOTOR"], side=Edge.SOUTH)
+
+
+def test_a_knockout_label_is_boxed_as_kicad_draws_it():
+    from placemat.copper import Text
+    plain = Text("MOTOR", Location(20, 20), Face.FRONT, 1.0, 0.15, vjust="top")
+    boxed = Text("MOTOR", Location(20, 20), Face.FRONT, 1.0, 0.15, vjust="top", knockout=True)
+    assert boxed.box.height > plain.box.height              # the knockout frame stands round the glyphs
+    assert boxed.box.top == plain.box.top                   # anchored on the same edge
+
+
+def test_pad_labels_may_stand_off_their_part_instead_of_their_pads():
+    b = make_board()
+    b.place(Part("j1"), at=Location(20, 20))                       # body 8 x 4: reach top at 18
+    b.label([PadRef(Part("j1"), "A"), PadRef(Part("j1"), "B")], ["A", "B"], side=Edge.NORTH, line=Part("j1"))
+    ts = labels(b.resolve())
+    pa, pb = b.resolve().occupancy.pad_location("J1", "1"), b.resolve().occupancy.pad_location("J1", "2")
+    assert ts[0].at == Location(pa.x, 18.0) and ts[1].at == Location(pb.x, 18.0)   # over their pads, off the part's reach

@@ -16,9 +16,9 @@ from .copper import (CopperOp, Pour, Text, Track, Via, Zone, board_zone_outline,
 from .geometry import polygon_box, transform_box
 from .occupancy import Occupancy, Shape
 from .placement import Placement
-from .placer import BlockSpec, _reason_key, box_centered_placement, edge_placement, layout_block, pockets, scan, scan_block
+from .placer import BlockSpec, _reason_key, box_centered_placement, pad_anchored_placement, edge_placement, layout_block, pockets, scan, scan_block
 from .board_geometry import CellGeom, Footprint, BoardGeometry
-from .values import (Along, Box, Cell, CellPadRef, Centre, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Along, Box, Cell, CellPadRef, Centre, Pin, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -184,6 +184,7 @@ class PlaceIntent:
     priority_source: str = "auto"      # "script" when the declaration said, else worked out
     faces_note: str = ""               # when the rotation fell back to the generic rule
     pinned_by: str = ""                # "at" (the origin sits on the line) or "center" (the body centre does)
+    pin: object = None                 # a pad key: `center` is where that pad lands, not the body centre
 
     @property
     def rank(self):
@@ -457,6 +458,8 @@ class Board:
                                 a reference                                -> FIXED, no freedom
         Location(x, None)       one axis pinned, the other free: the item
         Centre(None, y)         slides along the line, sharing it evenly  -> searched, one freedom
+        Pin(key, x, y)          the item's own pad `key` (number or net)
+                                lands on the point                        -> FIXED, no freedom
         OnEdge(edge, along=)    its reach at the keep-in, at that distance
                                 (mm, a reference, Along.MID, Fraction(f))  -> EDGE, no freedom
         OnEdge(edge)            on that edge, wherever there is room:
@@ -474,8 +477,14 @@ class Board:
         overhang = 0.0
         pin_x = pin_y = None
         pinned = ""
+        pin = None
         if at is None:
             pass
+        elif isinstance(at, Pin):
+            if kind != "part":
+                raise TypeError("%s: a Pin places a part by its pad; a cell has no pad of its own" % key)
+            geom.pad(at.key)                                # a real pad of this part, checked now
+            pin, center, at = at.key, (at.x, at.y), None
         elif isinstance(at, OnEdge):
             edge, along, overhang = at.edge, at.along, at.overhang
             if isinstance(along, (Along, Fraction)):
@@ -501,7 +510,7 @@ class Board:
             elif isinstance(at, Centre):
                 center, at = (at.x, at.y), None
         else:
-            raise TypeError("%s: at= takes a Location, a Centre, an OnEdge, a Near or a point of references, not %r" % (key, at))
+            raise TypeError("%s: at= takes a Location, a Centre, a Pin, an OnEdge, a Near or a point of references, not %r" % (key, at))
         source = "auto" if priority is None else "script"
         if priority is None:
             priority = Priority.FIXED if (at is not None or center is not None) else \
@@ -519,7 +528,7 @@ class Board:
         standoff = _standoff if _standoff is not None else (-float(overhang) if overhang else self.keep_in)
         intent = PlaceIntent(key, geom, kind, priority, float(rotation), face, at, center, edge, along,
                              standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs),
-                             pin_x, pin_y, source, faces_note, pinned)
+                             pin_x, pin_y, source, faces_note, pinned, pin)
         self._intents.append(intent)
         return intent
 
@@ -728,7 +737,7 @@ class Board:
 
     def label(self, item, text: str, *, side: Edge = Edge.NORTH, gap: float = 0.0, align: str = "centre",
               size: float = 1.0, thickness: float = 0.15, knockout: bool = False, rotation: float = 0.0,
-              reserve: bool = True, why: str = ""):
+              reserve: bool = True, line=None, why: str = ""):
         """Silkscreen text that marks a user-facing feature: a connector,
         jumper, switch or LED. It sits `gap` off `side` of the item's reach
         (a Part or Cell) or of one pad (a PadRef/CellPadRef), on the item's
@@ -736,7 +745,9 @@ class Board:
         `"end"` along that side; `rotation=90` runs it up the page;
         a list of items with a list of texts is one label each, all on
         one line: `gap` off `side` of the deepest of them, each aligned
-        on its own item, so the labels of a row read as a row;
+        on its own item, so the labels of a row read as a row; `line=`
+        names the item (a Part or Cell) whose reach that line stands off
+        instead, so pin labels sit over their pads but clear of the part;
         `knockout` cuts it out of a filled box. The label is worked out the
         moment its item is placed and, unless `reserve=False`, the text's
         own box on its face is reserved, so nothing placed later lands on
@@ -752,6 +763,9 @@ class Board:
             group = tuple(items)
         else:
             items, texts, group = [item], [text], None
+        if line is not None:
+            self._item(line)                                    # a real part or cell, checked now
+            group = (line,)
         keys = []
         for one, txt in zip(items, texts):
             if isinstance(one, (PadRef, CellPadRef)):
@@ -1356,6 +1370,8 @@ class Board:
         if i.priority in (Priority.FIXED, Priority.EDGE):
             if i.at is not None:
                 p = Placement(_locate(self, occ, i.at), i.rotation, i.face)
+            elif i.center is not None and i.pin is not None:
+                p = pad_anchored_placement(occ, i.item, i.pin, _locate(self, occ, i.center), i.rotation, i.face)
             elif i.center is not None:
                 p = box_centered_placement(occ, i.item, _locate(self, occ, i.center), i.rotation, i.face)
             else:

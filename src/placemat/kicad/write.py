@@ -146,8 +146,9 @@ def _draw_text(board, op: Text):
     t.SetPosition(vec(op.at.x, op.at.y))
     if op.side is not None:
         # KiCad's box round the text (descenders, the knockout margin) reaches past the
-        # anchor: slide the text so the edge facing the item sits exactly at the anchor.
-        bb = t.GetBoundingBox()
+        # anchor: slide the text so the edge of what it draws (the glyphs, or the
+        # knockout frame) facing the item sits exactly at the anchor.
+        bb = t.GetEffectiveShape().BBox()
         name = op.side.name
         if name == "NORTH":
             t.Move(pcbnew.VECTOR2I(0, nm(op.at.y) - bb.GetBottom()))

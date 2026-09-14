@@ -84,6 +84,21 @@ class Centre:
 
 
 @dataclass(frozen=True)
+class Pin:
+    """A place for one of the item's own pads: the pad `key` (a number or a
+    net name) lands on (x, y), each axis a number or a reference, and the
+    part sits round it at its rotation. How a part is put where its pin
+    must be: a cap's pad on a pin's axis, a diode's pad facing another's."""
+    key: object
+    x: object
+    y: object
+
+    def __post_init__(self):
+        if self.x is None or self.y is None:
+            raise ValueError("a Pin places both axes: the pad lands on one point")
+
+
+@dataclass(frozen=True)
 class OnEdge:
     """A place on a board edge: the item's reach at the keep-in (or
     `overhang` past it), and `along` the edge a number in mm, a reference,

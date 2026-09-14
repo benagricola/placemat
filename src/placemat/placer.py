@@ -7,7 +7,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 import math
 
-from .geometry import polys_overlap
+from .geometry import polys_overlap, transform_box
 from .occupancy import Occupancy
 from .placement import Placement
 from .values import Box, Edge, Face, Location
@@ -160,6 +160,19 @@ def box_centered_placement(occ: Occupancy, item, center: Location, rotation: flo
     box = occ.body_box(item, probe)
     return Placement(Location(round(center.x - box.center.x, 6), round(center.y - box.center.y, 6)),
                      rotation, face)
+
+
+def pad_anchored_placement(occ: Occupancy, item, key, point: Location, rotation: float = 0.0,
+                           face: Face = Face.FRONT) -> Placement:
+    """The placement that puts the item's pad `key` (a number or a net) on
+    `point` at `rotation`."""
+    probe = Placement(Location(0.0, 0.0), rotation, face)
+    number = item.pad(key).number
+    geom = occ._geometry(item)
+    t = occ._transform(geom, probe)
+    boxes = [transform_box(s.box, t) for s in geom.shapes if s.kind in ("pad", "through") and s.label == number]
+    at = Box.union(boxes).center
+    return Placement(Location(round(point.x - at.x, 6), round(point.y - at.y, 6)), rotation, face)
 
 
 @dataclass(frozen=True)

@@ -1,7 +1,7 @@
 # The script surface
 
 ```python
-from placemat import board, Net, Part, Cell, PadRef, CellPadRef, X, Y, Location, Edge, Face, CopperLayer, Priority
+from placemat import board, Net, Part, Cell, PadRef, CellPadRef, X, Y, Location, Centre, Pin, OnEdge, Near, Edge, Face, CopperLayer, Priority
 ```
 
 `board` is the board being laid out. Questions answer from the generated
@@ -40,6 +40,7 @@ board.place(item, at=Centre(X(Mid(pad_a, pad_b)), None))                # x pinn
 board.place(item, at=OnEdge(Edge.WEST, along=Along.MID), rotation=180)  # EDGE: on that edge at that distance (no freedom)
 board.place(item, at=Location(x, y), rotation=0, face=Face.FRONT)      # FIXED: the origin, a mechanical fact (no freedom)
 board.place(item, at=Centre(X(Mid(a, b)), Y(a, 3.0)), rotation=0)       # FIXED: the body centre, said in terms of pads
+board.place(item, at=Pin("VIN", X(pin), Y(pin, 2.0)), rotation=90)       # FIXED: the item's own pad lands on the point
 board.place(item, at=Near(Location(x, y)), radius=3.0, step=0.2, rotations=(0, 90))  # searched round a hint
 ```
 `item` is a `Part` (schematic instance), a `Cell` (module group) or a block
@@ -50,9 +51,11 @@ there with the collisions, before anything is searched (`placemat run
 a cell member with its cell: `j_mot (edge): J5 courtyard overlaps cell
 a1's R2 courtyard`.
 
-**Degrees of freedom.** Each kind of place takes some away. `Location(x, y)`
-and `Centre(x, y)` fix both coordinates (the origin, or the body centre,
-each axis a number or a reference). `Location(30, None)` or
+**Degrees of freedom.** Each kind of place takes some away. `Location(x, y)`,
+`Centre(x, y)` and `Pin(key, x, y)` fix both coordinates (the origin, the
+body centre, or the item's own pad `key` (a number or a net), each axis a
+number or a reference): a cap whose pad must sit on a pin's axis, a diode
+whose pad faces another's, is a `Pin`. `Location(30, None)` or
 `Centre(None, y)` fix one: the item slides along the line, at its middle
 alone, sharing it evenly with the items pinned to the same value, aside
 from what is there. `OnEdge(edge, along=)` fixes both: the reach at the
@@ -311,13 +314,16 @@ board.label(Cell("usb"), "USB-C", side=Edge.NORTH, align="start", size=1.2)
 board.label(PadRef(Part("jp1"), 1), "1", side=Edge.WEST, gap=0.3, size=0.6)
 board.label(Part("j_bus"), "CAN", side=Edge.EAST, rotation=90, why="reads along the edge it plugs into")
 board.label([SW_BOOT, SW_RUN, LED], ["BOOT", "RUN", "MCU"], side=Edge.SOUTH, knockout=True)   # one line for a row
+board.label([PadRef(J, 1), PadRef(J, 2)], ["GND", "CLK"], side=Edge.NORTH, line=J)           # pin labels clear of the part
 ```
 Text `gap` off `side` of the item's reach (or of one pad), on the item's
 own face (mirrored on the back), aligned `centre`, `start` (the west or
 north end of that side) or `end`; `rotation=90` runs it up the page.
 A list of items with a list of texts is one label each on ONE line,
 `gap` off the deepest of them, each over its own item: the labels of a
-row of parts of different heights read as a row;
+row of parts of different heights read as a row; `line=` names the part
+or cell whose reach that line stands off instead, so labels of pads sit
+over their pads but past the part's outline;
 `knockout` cuts it out of a filled box, which reads better over a busy
 board. `size` and `thickness` default to 1.0 and 0.15 mm. A label is
 worked out the moment its item is placed and the text's own box on

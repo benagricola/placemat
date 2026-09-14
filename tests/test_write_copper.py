@@ -88,8 +88,8 @@ def test_a_knockout_label_is_written_as_silk_text_beside_its_part(breakout_pcb, 
     t = texts[0]
     assert t.IsKnockout() and t.GetLayer() == pcbnew.F_SilkS
     part = before.footprint("trunk_pwr").phys_box                 # undeclared: it stays where the board has it
-    bb = t.GetBoundingBox()
-    assert abs(bb.GetTop() / 1e6 - (part.bottom + 0.5)) < 0.02       # its box starts exactly one gap below the part
+    bb = t.GetEffectiveShape().BBox()                                 # what is drawn: the knockout frame
+    assert abs(bb.GetTop() / 1e6 - (part.bottom + 0.5)) < 0.02       # its frame starts exactly one gap below the part
     assert abs((bb.GetLeft() + bb.GetRight()) / 2e6 - part.center.x) < 0.3
 
 
