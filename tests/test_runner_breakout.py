@@ -107,3 +107,20 @@ def test_runs_are_named_by_hash_and_labels_are_aliases(scratch_ecosystem):
     from placemat.report import RunRecord, resolve_run
     assert resolve_run(runs, "same-inputs") == runs / rec.record.run_id
     assert resolve_run(runs, rec.record.run_id[:6]) == runs / rec.record.run_id   # a unique prefix is enough
+
+
+def test_a_critical_item_that_cannot_place_fails_the_run_but_writes_the_board_as_it_stood(scratch_ecosystem):
+    script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
+    original = script.read_text()
+    script.write_text(original.replace(
+        'board.place(Cell("power_drop%d" % d), center=Location(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2), rotation=270)',
+        'board.place(Cell("power_drop%d" % d), center=Location(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2), rotation=270) if d else None')
+        + '\nfrom placemat import Priority\n'
+          'board.place(Cell("power_drop0"), near=Location(8, 8), radius=0.4, priority=Priority.HIGH)   # on MH1: nowhere to go\n')
+    try:
+        rec = run(script, label="critical", render=False)
+    finally:
+        script.write_text(original)
+    assert rec.status == "failed" and rec.record.failure["kind"] == "placement"
+    assert "power_drop0" in rec.record.failure["message"]
+    assert (scratch_ecosystem / "breakout/.placemat/runs/critical/layout.kicad_pcb").exists()   # the board as it stood

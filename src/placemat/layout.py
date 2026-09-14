@@ -260,6 +260,15 @@ class PlacementCollision(Exception):
         super().__init__("%d firm placement(s) collide:\n  " % len(self.collisions) + "\n  ".join(self.collisions))
 
 
+class CriticalUnplaced(Exception):
+    """A HIGH priority searched item found no place. The resolve stops here
+    with the plan as it stood, so what is free at this moment is what gets
+    looked at, not a board where the furniture has since taken the space."""
+    def __init__(self, key: str, message: str, plan):
+        self.key, self.plan = key, plan
+        super().__init__(message)
+
+
 class Board:
     """One board being laid out. Questions are answered from the geometry read
     off the generated .kicad_pcb; declarations are collected and resolved
@@ -497,7 +506,7 @@ class Board:
     def _is_searched(self, refdes: str) -> bool:
         fp = self.geometry.footprint(refdes)
         for i in self._intents:
-            if i.priority is Priority.DEFAULT and (i.key == fp.inst or (i.kind == "cell" and fp.cell == i.key)):
+            if i.priority not in (Priority.FIXED, Priority.EDGE) and (i.key == fp.inst or (i.kind == "cell" and fp.cell == i.key)):
                 return True
         return False
 
@@ -783,6 +792,8 @@ class Board:
             if why_now:
                 step.note = (why_now + "; " + step.note) if step.note else why_now
             plan.steps.append(step)
+            if step.placement is None and obj.priority is Priority.HIGH and not self.keep_going:
+                raise CriticalUnplaced(obj.key, self._no_place_report(occ, obj, step), plan)
             if step.placement is None:
                 pass                    # unplaced: left off the board, pulls nothing, blocks nothing
             elif obj.kind == "block":
@@ -944,6 +955,19 @@ class Board:
             if progress:
                 progress("   bridge: " + note)
 
+    def _no_place_report(self, occ: Occupancy, obj, step) -> str:
+        """Why a critical item stopped the run: its envelope, the reason, and
+        the biggest free rectangles on its face, so the reader can see what
+        would have to move."""
+        item = obj.item.anchor if obj.kind == "block" else obj.item
+        env = occ.body_box(item, Placement(Location(0, 0), obj.rotation, obj.face))
+        free = pockets(occ, 2.0, 2.0, obj.face, step=0.5, limit=4)
+        rects = "; ".join("%.1f x %.1f at (%.1f, %.1f)" % (p.box.width, p.box.height, p.box.center.x, p.box.center.y)
+                          for p in free) or "none"
+        return ("%s (HIGH priority) found no place for its %.1f x %.1f envelope on the %s face: %s. "
+                "Biggest free rectangles there now: %s. The board as it stood is written; nothing was placed after it."
+                % (obj.key, env.width, env.height, obj.face.value, step.note.replace("UNPLACED: ", ""), rects))
+
     def _next_to_place(self, pending: list, occ: Occupancy, placed: set):
         """Which searched item goes down next, and why. Fit (the item's
         courtyard over the free board) dominates: an item needing more than
@@ -957,7 +981,8 @@ class Board:
             pull = sum(w for it in parts for _, _, w in self._targets(it, occ, placed))
             return area / free, pull, area
 
-        scored = sorted(((measure(o), o) for o in pending), key=lambda m: (-(m[0][0] > 0.25), -m[0][1], -m[0][2], m[1].key))
+        scored = sorted(((measure(o), o) for o in pending),
+                        key=lambda m: (-m[1].priority.rank, -(m[0][0] > 0.25), -m[0][1], -m[0][2], m[1].key))
         (fit, pull, area), obj = scored[0]
         kind = {"cell": "cells", "block": "blocks"}.get(obj.kind, "parts")
         if fit > 0.25:

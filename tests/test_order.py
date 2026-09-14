@@ -74,3 +74,23 @@ def test_the_order_is_the_same_whatever_the_declaration_order():
             b.place(Cell(name))
         return order_of(b.resolve())
     assert run(("small", "strip", "big")) == run(("big", "small", "strip")) == run(("strip", "big", "small"))
+
+
+def test_a_high_priority_cell_goes_before_the_others_whatever_pulls_them():
+    """MCU, driver, bridge: the script says which searched items matter,
+    with a priority, never by where the line sits in the file."""
+    from placemat.values import Priority
+    b = make_board()
+    b.place(Part("j1"), at=Location(10, 10))          # net A pulls the big cell
+    b.place(Cell("strip"))                            # nets C, D: nothing pulls it
+    b.place(Cell("small"))                            # pulled by nothing placed
+    b.place(Cell("big"))
+    order = order_of(b.resolve())
+    assert order.index("big") < order.index("strip")   # by pull: the default order
+    b = make_board()
+    b.place(Part("j1"), at=Location(10, 10))
+    b.place(Cell("big"))
+    b.place(Cell("small"))
+    b.place(Cell("strip"), priority=Priority.HIGH)    # declared last, placed first
+    order = order_of(b.resolve())
+    assert order.index("strip") < order.index("big") < order.index("small")

@@ -164,13 +164,21 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
             log_lines.append(line)
             if verbose:
                 say("bridge" if line.strip().startswith("bridge:") else "step", line.strip())
-        from .layout import PlacementCollision
+        from .layout import CriticalUnplaced, PlacementCollision
         try:
             plan = board.resolve(progress=progress)
         except PlacementCollision as e:
             (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
             raise RunFailure("placement", "Firm placements collide; fix the script (or --keep-going to see the rest)",
                              {"collisions": e.collisions, "tail": "\n".join(e.collisions)})
+        except CriticalUnplaced as e:
+            (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
+            apply_plan(src.pcb, e.plan)                      # the board as it stood when the critical item failed
+            finish_board(src.pcb, fab, refs_to_fab=getattr(board, "refs_on_fab", True))
+            shutil.copy(src.pcb, run_dir / "layout.kicad_pcb")
+            if render:
+                render_board(src.pcb, run_dir / "render.log", both_faces=True)
+            raise RunFailure("placement", str(e), {"item": e.key, "tail": "board written as it stood: %s" % src.pcb})
         (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
         rec.timing_s["resolve"] = round(time.time() - t0, 1)
         n_place = sum(1 for s in plan.steps if s.placement is not None)

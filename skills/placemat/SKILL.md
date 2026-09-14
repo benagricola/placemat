@@ -115,6 +115,14 @@ coordinates nobody chose.
   `priority=Priority.FIXED` on copper that nothing may cut into; `HIGH`,
   `DEFAULT`, `LOW` on tracks to say who passes under whom). The runner
   schedules: setup, FIXED, EDGE, cells, FIXED copper, loose parts, copper.
+- Say which searched items are critical: `priority=Priority.HIGH` on the
+  MCU, the driver, the bridge. They go down first in their tier, and one
+  that finds no place stops the run with the free rectangles on its face
+  and the board written as it stood, so what was free at that moment is
+  what you look at; nothing else is placed into that space first. Firm
+  only what is mechanical: furniture (test points, LEDs, buttons) is
+  searched, not EDGE, so it cannot take an edge before the critical
+  cells have their room.
 - Copper is declared against pads and lanes (`PadRef`, `CellPadRef`, `X()`,
   `Y()`), never against coordinates that were true before the parts moved.
 - Typed values: `Net`, `Part`, `Cell`, `CopperLayer`, `Edge`, `Location`.

@@ -33,6 +33,7 @@ Say how firm each thing is; the netlist does the rest.
 
 ```python
 board.place(item)                                                       # searched: SEEDED from its links
+board.place(item, priority=Priority.HIGH)                               # critical: first in its tier; no place stops the run
 board.place(item, edge=Edge.NORTH, along=x, rotation=180)                 # EDGE: its reach at the board's keep-in
 board.place(item, at=Location(x, y), rotation=0, face=Face.FRONT)      # FIXED: a mechanical fact (a hole, a cell)
 board.place(item, center=(X(Mid(a, b)), Y(a, 3.0)), rotation=0)         # FIXED: said in terms of pads
