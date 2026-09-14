@@ -8,7 +8,7 @@ from placemat.layout import Board
 from placemat.kicad.drc import run_drc
 from placemat.kicad.read import read_board
 from placemat.kicad.write import apply_plan
-from placemat.values import CopperLayer, Location, Net, Part, PadRef
+from placemat.values import CopperLayer, Edge, Location, Net, Part, PadRef
 from tests.conftest import needs_breakout, needs_kicad
 
 pytestmark = [needs_kicad, needs_breakout]
@@ -70,3 +70,24 @@ def test_a_declared_clearance_is_written_beside_the_board_and_its_drc_reads_it(b
 def test_the_boards_copper_to_edge_clearance_is_read(breakout):
     assert breakout.edge_clearance == pytest.approx(0.4)
     assert Board(breakout).keep_in == pytest.approx(0.4)
+
+
+def test_a_knockout_label_is_written_as_silk_text_beside_its_part(breakout_pcb, tmp_path):
+    import pcbnew
+    from placemat.values import Edge
+    pcb = _copy(breakout_pcb, tmp_path)
+    before = read_board(pcb)
+    b = Board(before, edge_margin=0.0, keep_going=True)
+    b.size(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
+    b.label(Part("trunk_pwr"), "TRUNK IN", side=Edge.SOUTH, gap=0.5, knockout=True, size=1.2)
+    plan = b.resolve()
+    apply_plan(pcb, plan)
+    board = pcbnew.LoadBoard(str(pcb))
+    texts = [d for d in board.GetDrawings() if d.GetClass() == "PCB_TEXT" and d.GetText() == "TRUNK IN"]
+    assert len(texts) == 1
+    t = texts[0]
+    assert t.IsKnockout() and t.GetLayer() == pcbnew.F_SilkS
+    part = before.footprint("trunk_pwr").phys_box                 # undeclared: it stays where the board has it
+    bb = t.GetBoundingBox()
+    assert abs(bb.GetTop() / 1e6 - (part.bottom + 0.5)) < 0.02       # its box starts exactly one gap below the part
+    assert abs((bb.GetLeft() + bb.GetRight()) / 2e6 - part.center.x) < 0.3

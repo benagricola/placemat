@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import math
 
 from .geometry import Polygon
-from .values import Box, CopperLayer, Location, Net
+from .values import Box, CopperLayer, Face, Location, Net
 
 # A bridge passes under a crossed track: via land (0.30) + clearance (0.20)
 # + crossed track half-width (0.15) + margin (0.45) each side of the crossing.
@@ -51,6 +51,43 @@ class Via:
     @property
     def box(self) -> Box:
         return Box.of_points(self.polygon)
+
+
+@dataclass(frozen=True)
+class Text:
+    """Silkscreen text on one face: a label for a user-facing feature. `at`
+    is the anchor KiCad justifies the text about (`hjust` left/centre/right
+    along the text, `vjust` top/centre/bottom across it), `rotation` in
+    degrees counter-clockwise, `knockout` cuts the text out of a filled box."""
+    text: str
+    at: Location
+    face: Face
+    size: float
+    thickness: float
+    rotation: float = 0.0
+    hjust: str = "centre"
+    vjust: str = "centre"
+    knockout: bool = False
+    mirrored: bool = False
+    net: str = ""                       # a label has no net; the field keeps it a copper op
+    side: object = None                 # the Edge the text sits off: its facing edge is snapped to the anchor when written
+
+    @property
+    def box(self) -> Box:
+        """Where the text lands, estimated from the stroke font's advance
+        (about nine tenths of the size per character)."""
+        w = len(self.text) * self.size * 0.9 + self.thickness
+        h = self.size + self.thickness
+        if self.rotation % 180 == 90:
+            w, h = h, w
+        # anchored: hjust runs along the text, vjust across it; at rotation 0 that is x and y
+        if self.rotation % 180 == 0:
+            left = self.at.x + {"left": 0.0, "centre": -w / 2, "right": -w}[self.hjust]
+            top = self.at.y + {"top": 0.0, "centre": -h / 2, "bottom": -h}[self.vjust]
+        else:                                   # 90 counter-clockwise: the text runs up the page
+            top = self.at.y + {"left": -w, "centre": -w / 2, "right": 0.0}[self.hjust]
+            left = self.at.x + {"top": 0.0, "centre": -h / 2, "bottom": -h}[self.vjust]
+        return Box(left, top, left + w, top + h)
 
 
 @dataclass(frozen=True)

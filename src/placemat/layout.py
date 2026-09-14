@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .copper import (CopperOp, Pour, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
+from .copper import (CopperOp, Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
                      resolve_bridges)
 from .geometry import polygon_box
 from .occupancy import Occupancy, Shape
@@ -274,6 +274,7 @@ class Board:
         self.keep_going = keep_going            # carry on past colliding FIXED/EDGE items, as findings
         self._intents: list[PlaceIntent] = []
         self._copper: list[CopperIntent] = []
+        self._labels: list = []
         self._links: list[Link] = []
         self._rules: list = []
         self._free_nets: set = set()
@@ -605,6 +606,29 @@ class Board:
         self._copper.append(ci)
         return ci
 
+    def label(self, item, text: str, *, side: Edge = Edge.NORTH, gap: float = 0.5, align: str = "centre",
+              size: float = 1.0, thickness: float = 0.15, knockout: bool = False, rotation: float = 0.0,
+              why: str = ""):
+        """Silkscreen text that marks a user-facing feature: a connector,
+        jumper, switch or LED. It sits `gap` off `side` of the item's reach
+        (a Part or Cell) or of one pad (a PadRef/CellPadRef), on the item's
+        own face, aligned `"centre"`, `"start"` (west or north end) or
+        `"end"` along that side; `rotation=90` runs it up the page;
+        `knockout` cuts it out of a filled box. Written after placement,
+        so it follows the item wherever it lands."""
+        if align not in ("centre", "start", "end"):
+            raise ValueError("a label aligns centre, start or end, not %r" % (align,))
+        if rotation not in (0, 90):
+            raise ValueError("a label reads across (0) or up the page (90), not %r" % (rotation,))
+        if isinstance(item, (PadRef, CellPadRef)):
+            self._pad_ref(item)                             # a real pad, checked now
+            key = "label %s %s" % (self._pad_ref(item)[0], text)
+        else:
+            key = "label %s %s" % (self._item(item)[1], text)
+        self._labels.append((key, item, text, Edge(side), float(gap), align, float(size), float(thickness),
+                             bool(knockout), float(rotation), why))
+        return key
+
     def _width(self, net: str, width) -> float:
         return float(width) if width is not None else self.geometry.netclass(net).track_width
 
@@ -798,6 +822,7 @@ class Board:
         place_ranked(RANK_LOOSE, RANK_LOOSE)
         self._plan_copper(occ, ctx, other_copper, plan, progress)
         self._report_links(occ, plan, placed)
+        self._place_labels(occ, plan, placed, progress)
         return plan
 
     def _settle_in_pocket(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
@@ -822,6 +847,45 @@ class Board:
                                     occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).height),
             i.face.value, len(tried)))
         return Step(i.key, i.kind, i.priority, None, 0.0, "UNPLACED: no pocket fits", i.why)
+
+    def _declared_refs(self) -> set:
+        """Every refdes a placement declaration covers."""
+        out = set()
+        for i in self._intents:
+            parts = [i.item.anchor] + [fp for fp, _ in i.item.satellites] if i.kind == "block" else \
+                (list(i.item.members) if i.kind == "cell" else [i.item])
+            out |= {fp.ref for fp in parts}
+        return out
+
+    def _place_labels(self, occ, plan: Plan, placed: set, progress):
+        declared = self._declared_refs()
+        for key, item, text, side, gap, align, size, thick, knockout, rotation, why in self._labels:
+            if isinstance(item, (PadRef, CellPadRef)):
+                owner, number, _, _ = self._pad_ref(item)
+                if owner in declared and owner not in placed:
+                    raise ValueError("%s: %s was declared but found no place" % (key, owner))
+                g = occ.items[owner]
+                box = Box.union([s.box for s in g.shapes if s.kind in ("pad", "through") and s.label == number])
+                face = g.reference.face
+            else:
+                geom, ikey, kind = self._item(item)
+                refs = [fp.ref for fp in (geom.members if kind == "cell" else (geom,))]
+                if any(r in declared and r not in placed for r in refs):
+                    raise ValueError("%s: %s was declared but found no place" % (key, ikey))
+                box = Box.union([occ.items[r].reach or occ.items[r].body for r in refs])
+                face = occ.items[refs[0]].reference.face
+            op = _label_op(text, box, face, side, gap, align, size, thick, knockout, rotation)
+            plan.copper.append(op)
+            hits = sorted({occ.who(r) for r, g in occ.items.items()
+                           if g.reference.face is face and (g.reach or g.body).overlaps(op.box)} - {occ.who(r) for r in
+                          ([self._pad_ref(item)[0]] if isinstance(item, (PadRef, CellPadRef)) else refs)})
+            note = "%s of %s" % (side.name.lower(), key.split(" ", 2)[1])
+            if hits:
+                plan.findings.append("%s: sits on %s" % (key, ", ".join(hits)))
+                note += "; sits on " + ", ".join(hits)
+            plan.steps.append(Step(key, "copper", Priority.DEFAULT, None, 0.0, note, why, 1))
+            if progress:
+                progress("%-28s copper  label    %s" % (key, note))
 
     def _plan_copper(self, occ, ctx, intents, plan: Plan, progress):
         """Plan a batch of copper together. Tracks are collected first and
@@ -1009,6 +1073,36 @@ class Board:
                 moved += " for a better link score"
             note = (note + "; " if note else "") + moved
         return Step(i.key, i.kind, i.priority, result.chosen, result.moved_mm, note, i.why)
+
+def _label_op(text, box: Box, face: Face, side: Edge, gap: float, align: str, size: float, thick: float,
+              knockout: bool, rotation: float) -> Text:
+    """The anchor and justification that put the text `gap` off `side` of
+    `box`, aligned along that side. Along a north or south side `start` is
+    the west end; along an east or west side it is the north end."""
+    mirrored = face is Face.BACK
+    def T(*a):
+        return Text(*a, side=side)
+    if rotation == 0:
+        along = {"centre": ("centre", box.center.x), "start": ("left", box.left), "end": ("right", box.right)}
+        across = {"centre": ("centre", box.center.y), "start": ("top", box.top), "end": ("bottom", box.bottom)}
+        if side is Edge.NORTH:
+            hj, x = along[align]; return T(text, Location(x, box.top - gap), face, size, thick, 0.0, hj, "bottom", knockout, mirrored)
+        if side is Edge.SOUTH:
+            hj, x = along[align]; return T(text, Location(x, box.bottom + gap), face, size, thick, 0.0, hj, "top", knockout, mirrored)
+        if side is Edge.WEST:
+            vj, y = across[align]; return T(text, Location(box.left - gap, y), face, size, thick, 0.0, "right", vj, knockout, mirrored)
+        vj, y = across[align]; return T(text, Location(box.right + gap, y), face, size, thick, 0.0, "left", vj, knockout, mirrored)
+    # 90 counter-clockwise: the text runs up the page, its top faces west
+    along = {"centre": ("centre", box.center.y), "start": ("right", box.top), "end": ("left", box.bottom)}
+    across = {"centre": ("centre", box.center.x), "start": ("bottom", box.left), "end": ("top", box.right)}
+    if side is Edge.WEST:
+        hj, y = along[align]; return T(text, Location(box.left - gap, y), face, size, thick, 90.0, hj, "bottom", knockout, mirrored)
+    if side is Edge.EAST:
+        hj, y = along[align]; return T(text, Location(box.right + gap, y), face, size, thick, 90.0, hj, "top", knockout, mirrored)
+    if side is Edge.NORTH:
+        vj, x = across[align]; return T(text, Location(x, box.top - gap), face, size, thick, 90.0, "left", vj, knockout, mirrored)
+    vj, x = across[align]; return T(text, Location(x, box.bottom + gap), face, size, thick, 90.0, "right", vj, knockout, mirrored)
+
 
 def _locate(board: "Board", occ: Occupancy, ref) -> Location:
     """A point on the board as things stand: a Location, a pad reference

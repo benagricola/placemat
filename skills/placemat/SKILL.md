@@ -173,6 +173,10 @@ coordinates nobody chose.
   beside each other are placed relative to each other (`behind=`,
   `after=`, a pad reference), never by independent numbers from opposite
   edges: the first collision is the run stopping, not a finding to tune.
+- Label what a user touches: every connector, jumper, switch and LED gets
+  a `board.label()` on the face it is used from, saying what it does
+  ("MOTOR", "CAN IN", "TERM"), knocked out where the silk is busy; a pin
+  1 mark on every keyed connector. A refdes is not a label.
 - A bus down a board is one long track per net and a short track per pad
   into it. Two same-layer nets may cross only where the one that yields is
   declared `bridge=True`; who yields is decided by `priority`, never by

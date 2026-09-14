@@ -253,6 +253,23 @@ partner. Pads side by side across the run fan straight in; a pad in line
 with the run gets a lead along its line. The pair is one step,
 `pair P/N`, and bridges as one.
 
+## Labels (silkscreen text for what a user touches)
+
+```python
+board.label(Part("j_mot"), "MOTOR", side=Edge.SOUTH, gap=0.5, knockout=True)
+board.label(Cell("usb"), "USB-C", side=Edge.NORTH, align="start", size=1.2)
+board.label(PadRef(Part("jp1"), 1), "1", side=Edge.WEST, gap=0.3, size=0.6)
+board.label(Part("j_bus"), "CAN", side=Edge.EAST, rotation=90, why="reads along the edge it plugs into")
+```
+Text `gap` off `side` of the item's reach (or of one pad), on the item's
+own face (mirrored on the back), aligned `centre`, `start` (the west or
+north end of that side) or `end`; `rotation=90` runs it up the page;
+`knockout` cuts it out of a filled box, which reads better over a busy
+board. `size` and `thickness` default to 1.0 and 0.15 mm. Labels are
+written after placement, so they follow the item; a label that lands on
+another part on the same face is a finding. Mark what a user handles:
+every connector, jumper, switch and LED, by what it does, not its refdes.
+
 ## Layers and faces
 
 `CopperLayer.F / IN1 / IN2 / B`, `Face.FRONT / BACK`, `Edge.NORTH / SOUTH / EAST / WEST`.
