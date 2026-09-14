@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 from .copper import (CopperOp, Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
                      resolve_bridges)
-from .geometry import polygon_box
+from .geometry import polygon_box, transform_box
 from .occupancy import Occupancy, Shape
 from .placement import Placement
 from .placer import BlockSpec, _reason_key, box_centered_placement, edge_placement, layout_block, pockets, scan, scan_block
@@ -304,8 +304,9 @@ class Board:
     together."""
 
     def __init__(self, geometry: BoardGeometry, edge_margin: float | None = None, clearance: float | None = None,
-                 via_drill: float = 0.3, via_size: float = 0.6, keep_going: bool = False):
+                 via_drill: float = 0.3, via_size: float = 0.6, keep_going: bool = False, courtyard_excess: float = 0.1):
         self.geometry = geometry
+        self.courtyard_excess = courtyard_excess    # the fab's assembly margin round a part: the only spacing that comes free
         self.edge_margin = geometry.edge_clearance if edge_margin is None else edge_margin
         self.clearance = clearance
         self.via_drill, self.via_size = via_drill, via_size
@@ -383,6 +384,17 @@ class Board:
         occ = Occupancy(self.geometry, self.edge_margin, board_box=None)
         return occ.body_box(geom, Placement(Location(0.0, 0.0), rotation, face))
 
+    def claim(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
+        """Everything the item claims at `rotation`, at the origin: its reach
+        (body, pads, silk) and its courtyard together. What a row spaces by,
+        so a zero gap is courtyards touching."""
+        geom, _, _ = self._item(item)
+        occ = Occupancy(self.geometry, self.edge_margin, board_box=None)
+        p = Placement(Location(0.0, 0.0), rotation, face)
+        courts = [transform_box(s.box, occ._transform(occ._geometry(geom), p))
+                  for s in occ._geometry(geom).shapes if s.kind == "courtyard"]
+        return Box.union([occ.reach_box(geom, p)] + courts)
+
     def reach(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
         """Everything the item physically is (body, pads, silk) at
         `rotation`, at the origin: what edge placement and rows measure."""
@@ -417,11 +429,12 @@ class Board:
         self._draw_outline = draw          # a fragment's frame is for placement only, never written
 
     # ------------------------------------------------------------ blocks
-    def block(self, anchor, satellites, gap: float = 0.5) -> BlockSpec:
+    def block(self, anchor, satellites, gap: float | None = None) -> BlockSpec:
         """A part and the satellites that sit at its pins: `satellites` is a
         list of (Part, net) pairs, each placed on that pin's axis `gap` out,
-        body outward of its pad. Place the returned block like a part; it is
-        laid out from the anchor's real pads at every candidate."""
+        body outward of its pad; the default gap is the two courtyards
+        touching. Place the returned block like a part; it is laid out from
+        the anchor's real pads at every candidate."""
         a = self.geometry.footprint(anchor)
         sats = []
         for part, net in satellites:
@@ -510,11 +523,12 @@ class Board:
         self._intents.append(intent)
         return intent
 
-    def row(self, items, edge: Edge, *, gap: float, start=None, align: str = "start",
+    def row(self, items, edge: Edge, *, gap: float = 0.0, start=None, align: str = "start",
             rotation: float | None = None, line: str = "centre", behind: Row | None = None, inboard: float | None = None,
             overhang: float = 0.0,
             centre=None, end=None, before: Row | None = None, after: Row | None = None, why: str = "") -> Row:
-        """Items down `edge` in order, `gap` apart, with their outward sides
+        """Items down `edge` in order, `gap` apart (default: courtyards
+        touching), with their outward sides
         out (`rotation=`, one value or one per item, overrides that turn for
         parts with no outward side). The row's outer line is the board's
         keep-in, or `inboard` (default `gap`) behind the inner line of the
@@ -543,10 +557,10 @@ class Board:
         keys, alongs, depths = [], [], []
         for item, r in zip(items, rots):
             geom, key, kind = self._item(item)
-            box = self.reach(item, r)
+            claim, reach = self.claim(item, r), self.reach(item, r)      # spaced by what they claim, deep as they reach
             keys.append(key)
-            alongs.append(box.height if along_axis else box.width)
-            depths.append(box.width if along_axis else box.height)
+            alongs.append(claim.height if along_axis else claim.width)
+            depths.append(reach.width if along_axis else reach.height)
         by_ref = start is not None and not isinstance(start, (int, float))
         anchors = [("centre", centre), ("end", end), ("before", before), ("after", after), ("start", start if by_ref else None)]
         given = [(k, v) for k, v in anchors if v is not None]
@@ -712,7 +726,7 @@ class Board:
             return _OUTWARD_ROTATION[edge], "" if kind != "cell" else "no faces declared: turned as if its outward side were local +Y"
         return _rotation_taking(Edge(declared), edge), ""
 
-    def label(self, item, text: str, *, side: Edge = Edge.NORTH, gap: float = 0.5, align: str = "centre",
+    def label(self, item, text: str, *, side: Edge = Edge.NORTH, gap: float = 0.0, align: str = "centre",
               size: float = 1.0, thickness: float = 0.15, knockout: bool = False, rotation: float = 0.0,
               reserve: bool = True, why: str = ""):
         """Silkscreen text that marks a user-facing feature: a connector,

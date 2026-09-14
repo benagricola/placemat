@@ -1,3 +1,4 @@
+import pytest
 """A block: a part and the satellites that sit at its pins by rule. The
 block is laid out from the anchor's real pads at every candidate, so its
 envelope is exact, and searched as one thing."""
@@ -79,3 +80,19 @@ def test_a_block_with_a_placed_neighbour_searches_from_that_neighbour():
     b.place(b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")]), radius=4.0)
     plan = b.resolve()
     assert plan.findings == [] and plan.box("ldo").center.distance(Location(40, 40)) < 10
+
+
+def test_a_blocks_gap_defaults_to_the_courtyards_touching():
+    """A satellite's pad sits as close to its pin as the two courtyards
+    allow: twice the excess, no more, unless the script says."""
+    fps = [footprint("U9", 20, 20, w=4, h=2, inst="ldo", nets=("VIN", "VOUT")),
+           footprint("C8", 40, 40, w=2, h=1, inst="cin", nets=("VIN", "GND"))]
+    b = Board(board_geometry(fps, width=50, height=50), edge_margin=1.0, courtyard_excess=0.1)
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")])
+    assert blk.gap is None                                        # as close as the courtyards allow
+    b.place(blk, at=Location(25, 25))
+    plan = b.resolve()
+    assert plan.findings == []
+    cin, ldo = plan.box("cin"), plan.box("ldo")
+    touch = min(abs(cin.right - ldo.left), abs(cin.left - ldo.right))
+    assert touch == pytest.approx(2 * 0.1, abs=0.06)              # bodies two excesses apart: the courtyards meet

@@ -164,3 +164,37 @@ def impact(before: RunRecord, after: RunRecord) -> str:
     else:
         lines.append("metrics: no change")
     return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class Extent:
+    """How big what was placed is, and how much of that box is air."""
+    width: float
+    height: float
+    empty: float            # 1 - (courtyard area) / (extent area)
+
+
+def extent_of(plan) -> "Extent | None":
+    """The box round every placed item's courtyard and the fraction of it
+    no courtyard covers: a fat cell shows as a high number."""
+    from .values import Box
+    boxes, area = [], 0.0
+    for step in plan.steps:
+        if step.placement is None or step.kind not in ("part", "cell"):
+            continue
+        item = plan._items.get(step.item)
+        if item is None:
+            continue
+        members = item.members if hasattr(item, "members") else (item,)
+        for fp in members:
+            g = plan.occupancy.items.get(fp.ref)
+            if g is None:
+                continue
+            for s in g.shapes:
+                if s.kind == "courtyard":
+                    boxes.append(s.box)
+                    area += s.box.area
+    if not boxes:
+        return None
+    box = Box.union(boxes)
+    return Extent(box.width, box.height, max(0.0, 1.0 - area / box.area) if box.area else 0.0)

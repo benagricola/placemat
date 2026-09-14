@@ -53,6 +53,7 @@ class ItemGeometry:
 
 _BOTH = frozenset([Face.FRONT, Face.BACK])
 _GAP = 1.0      # how far outside a box a conflict can still reach: the largest clearance a rule asks for
+_TOUCH = 1e-6   # two courtyards this close along an axis are touching, not overlapping
 
 
 def _fp_shapes(fp: Footprint) -> list[Shape]:
@@ -322,6 +323,11 @@ class Occupancy:
         rule for boards that pair through-feature cells with via-free parts)."""
         ks, ko = s.kind, o.kind
         if ks == "courtyard" and ko == "courtyard":
+            # courtyards may touch: a shared edge, to a rounding, is packing, not a collision
+            depth = min(min(s.box.right, o.box.right) - max(s.box.left, o.box.left),
+                        min(s.box.bottom, o.box.bottom) - max(s.box.top, o.box.top))
+            if depth <= _TOUCH and (s.box.width > 0 and o.box.width > 0):
+                return None
             if s.faces & o.faces and polys_overlap(s.poly, o.poly):
                 return "%s courtyard overlaps %s courtyard" % (self.who(s.owner), self.who(o.owner))
             return None

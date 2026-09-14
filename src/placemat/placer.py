@@ -242,7 +242,7 @@ class BlockSpec:
     the net it serves) pairs, each placed on its pin's axis `gap` out."""
     anchor: object                   # Footprint
     satellites: tuple                # ((Footprint, net), ...)
-    gap: float = 0.5
+    gap: float | None = None         # pad edge to pin edge; None: as close as the two courtyards allow
 
     @property
     def key(self) -> str:
@@ -251,6 +251,13 @@ class BlockSpec:
     @property
     def members(self):
         return (self.anchor,) + tuple(fp for fp, _ in self.satellites)
+
+
+GAP_STEP = 0.05
+"""How finely a block's tightest gap is searched: the fab's placement grid."""
+GAP_REACH = 2.0
+"""How far a satellite may stand off its pin before the block gives up: past
+this the part is not at its pin."""
 
 
 def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=None):
@@ -279,26 +286,31 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
         sat_pin = sat.pad(net)
         half_anchor = _half_extent(pin.box, ux, uy)
         half_sat = _half_extent(sat_pin.box, ux, uy)
-        target = Location(p.x + ux * (half_anchor + spec.gap + half_sat), p.y + uy * (half_anchor + spec.gap + half_sat))
+        # the gap the script named, else the smallest at which the two courtyards no longer touch
+        gaps = [spec.gap] if spec.gap is not None else [round(g * GAP_STEP, 6) for g in range(int(GAP_REACH / GAP_STEP) + 1)]
         best = None
-        for rot in (0, 90, 180, 270):
-            probe = Placement(Location(0.0, 0.0), rot, anchor.face)
-            sp = occ.candidate_pad_locations(sat, probe)[(sat.ref, sat_pin.number)]
-            cand = Placement(Location(round(target.x - sp.x, 6), round(target.y - sp.y, 6)), rot, anchor.face)
-            body = occ.body_box(sat, cand).center
-            outward = (body.x - target.x) * ux + (body.y - target.y) * uy      # body beyond its pad, away from the anchor
-            if outward < -1e-6:
-                continue
-            reason = occ.legal(sat, cand, clearance)
-            if reason:
-                continue
-            _, sshapes = occ.candidate_shapes(sat, cand)
-            mine = [sh.poly for sh in sshapes if sh.kind == "courtyard"]
-            if any(polys_overlap(a, b) for a in mine for b in taken):
-                continue
-            key = (-outward, rot)
-            if best is None or key < best[0]:
-                best = (key, cand, mine)
+        for gap in gaps:
+            target = Location(p.x + ux * (half_anchor + gap + half_sat), p.y + uy * (half_anchor + gap + half_sat))
+            for rot in (0, 90, 180, 270):
+                probe = Placement(Location(0.0, 0.0), rot, anchor.face)
+                sp = occ.candidate_pad_locations(sat, probe)[(sat.ref, sat_pin.number)]
+                cand = Placement(Location(round(target.x - sp.x, 6), round(target.y - sp.y, 6)), rot, anchor.face)
+                body = occ.body_box(sat, cand).center
+                outward = (body.x - target.x) * ux + (body.y - target.y) * uy      # body beyond its pad, away from the anchor
+                if outward < -1e-6:
+                    continue
+                reason = occ.legal(sat, cand, clearance)
+                if reason:
+                    continue
+                _, sshapes = occ.candidate_shapes(sat, cand)
+                mine = [sh.poly for sh in sshapes if sh.kind == "courtyard"]
+                if any(polys_overlap(a, b) for a in mine for b in taken):
+                    continue
+                key = (-outward, rot)
+                if best is None or key < best[0]:
+                    best = (key, cand, mine)
+            if best is not None:
+                break                       # the tightest gap that works
         if best is None:
             return None, "%s: no legal spot on the %s pin's axis" % (sat.inst, net)
         out[sat.inst] = best[1]

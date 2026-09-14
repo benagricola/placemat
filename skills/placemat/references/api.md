@@ -101,7 +101,8 @@ rule; an edge item's reach (body, pads and silk together, `board.reach(item,
 rotation)`) lands there. A face that must stand proud of the edge says
 `OnEdge(edge, overhang=)` with a why. A row inboard of an edge row is `behind=` it.
 
-**Rows.** Things along one edge, in order, equally gapped, their outward
+**Rows.** Things along one edge, in order, `gap` apart (default 0:
+courtyards touching), their outward
 sides out (a cell generated with its connector's bulk on local +Y turns
 270 on the west edge, 90 east, 180 north, 0 south; `rotation=` overrides
 that, one value or one per item). A row's outer line is the keep-in, or
@@ -113,7 +114,7 @@ their inboard edges; a row butted before or after another takes that
 row's line:
 
 ```python
-power = board.row(PD, Edge.WEST, gap=3.0, start=TOP, line="outer")                  # connectors edge-hard
+power = board.row(PD, Edge.WEST, gap=3.0, start=TOP, line="outer")                  # connectors edge-hard; gap= only with a reason (default 0: courtyards touch)
 trunk = board.row([CN, U13], Edge.NORTH, gap=2.5, align="center", line="outer")
 pair = board.row([RB, RA], Edge.NORTH, gap=1.5, behind=trunk, inboard=2.0, rotation=180, centre=X(Mid(pin_n, pin_p)))
 board.row([JUMPER], Edge.NORTH, gap=1.5, rotation=180, before=pair)   # on the resistors' centre line
@@ -213,7 +214,7 @@ DRC judges by it. A plan with no rules removes the file.
 ## Blocks
 
 ```python
-ldo = board.block(Part("ldo"), satellites=[(Part("cin"), "VIN"), (Part("cout"), "VOUT")], gap=0.5)
+ldo = board.block(Part("ldo"), satellites=[(Part("cin"), "VIN"), (Part("cout"), "VOUT")])   # gap= only with a reason (default: courtyards touch)
 board.place(ldo)                                                    # seeds from the links of its members
 ```
 A block is a part and the satellites that sit at its pins: each satellite's
@@ -305,7 +306,7 @@ with the run gets a lead along its line. The pair is one step,
 ## Labels (silkscreen text for what a user touches)
 
 ```python
-board.label(Part("j_mot"), "MOTOR", side=Edge.SOUTH, gap=0.5, knockout=True)
+board.label(Part("j_mot"), "MOTOR", side=Edge.SOUTH, knockout=True)              # gap= only with a reason (default 0)
 board.label(Cell("usb"), "USB-C", side=Edge.NORTH, align="start", size=1.2)
 board.label(PadRef(Part("jp1"), 1), "1", side=Edge.WEST, gap=0.3, size=0.6)
 board.label(Part("j_bus"), "CAN", side=Edge.EAST, rotation=90, why="reads along the edge it plugs into")

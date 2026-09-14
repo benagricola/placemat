@@ -124,3 +124,19 @@ def test_a_critical_item_that_cannot_place_fails_the_run_but_writes_the_board_as
     assert rec.status == "failed" and rec.record.failure["kind"] == "placement"
     assert "power_drop0" in rec.record.failure["message"]
     assert (scratch_ecosystem / "breakout/.placemat/runs/critical/layout.kicad_pcb").exists()   # the board as it stood
+
+
+def test_a_plan_reports_its_extent_and_how_much_of_it_is_empty():
+    """A module run says how big the cell is and how much of that is
+    air, so a fat cell shows in the log."""
+    from placemat.report import extent_of
+    from placemat.layout import Board
+    from placemat.values import Location, Part
+    from tests.fixtures import board_geometry, footprint
+    fps = [footprint("R1", 5, 5, w=2, h=1, inst="r1"), footprint("R2", 5, 5, w=2, h=1, inst="r2")]
+    b = Board(board_geometry(fps, width=50, height=50), edge_margin=0.0)
+    b.place(Part("r1"), at=Location(10, 10))
+    b.place(Part("r2"), at=Location(18, 10))                     # 2 x 1 parts, 8 apart: a 10 x 1 extent, 60% empty
+    ext = extent_of(b.resolve())
+    assert ext.width == pytest.approx(10.2) and ext.height == pytest.approx(1.2)      # courtyards: the excess is part of what is claimed
+    assert ext.empty == pytest.approx(1 - 2 * (2.2 * 1.2) / (10.2 * 1.2))

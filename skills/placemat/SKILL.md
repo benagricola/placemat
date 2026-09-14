@@ -98,6 +98,20 @@ coordinates nobody chose.
 - Every design number is a named constant at the top of the file with a
   one-line reason it was chosen. Arithmetic on named values is fine; a bare
   scalar inside a `place()`, `track()` or `X()` is not.
+- As tight as physically possible, then loosen where a reason says. The
+  fab profile's courtyard excess is the only spacing the assembly needs,
+  and the tool's defaults are that: rows, blocks and labels pack with
+  courtyards touching, tracks are their class width, edge items sit at
+  the keep-in. Every increase to a gap, a clearance or a width must be
+  justified by something the board or the case needs, named beside the
+  number (a pin through a wall, a light pipe, a current, a creepage). A
+  module's run prints its extent and how much of it is empty: a fat cell
+  shows there before it costs a board.
+- A module drops a via only for ground and for a rail it owns, which the
+  board serves from planes. A net the board chooses (a switch's common,
+  a selectable reference) and a signal that leaves the module end at
+  their part; the board routes them, and a via placed for them is either
+  unused or in the way.
 - Every script is for one board: name it `<Board>_layout.py` after the
   `Board(name=)` or `Layout(name=)` in the `.zen` beside it; a directory
   with several boards is told apart by that name.

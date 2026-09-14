@@ -24,8 +24,8 @@ def test_cells_stack_down_an_edge_in_order_with_the_gap():
     plan = b.resolve()
     a, bb, c = plan.box("a"), plan.box("b"), plan.box("c")
     assert a.left == pytest.approx(2.0) and bb.left == pytest.approx(2.0) and c.left == pytest.approx(2.0)
-    assert a.top == pytest.approx(10.0)
-    assert bb.top == pytest.approx(a.bottom + 3.0) and c.top == pytest.approx(bb.bottom + 3.0)
+    assert a.top == pytest.approx(10.1)   # a row spaces by what parts claim: the courtyard excess (0.1 a side in these fixtures) is in every gap
+    assert bb.top == pytest.approx(a.bottom + 3.2) and c.top == pytest.approx(bb.bottom + 3.2)
     assert plan.placement("a").rotation == 270            # outward (local +Y) faces west
 
 
@@ -33,7 +33,7 @@ def test_a_row_knows_its_depth_and_length_at_declaration():
     b = make_board()
     row = b.row([Cell("a"), Cell("b"), Cell("c")], Edge.WEST, gap=3.0, start=10.0)
     assert row.depth == pytest.approx(6.0)                # the deepest cell, turned onto the edge
-    assert row.length == pytest.approx(8 + 3 + 8 + 3 + 8)
+    assert row.length == pytest.approx(8.2 + 3 + 8.2 + 3 + 8.2)   # a row spaces by what parts claim: the courtyard excess (0.1 a side in these fixtures) is in every gap
 
 
 def test_copper_may_refer_to_a_rows_inner_boundary_and_ends():
@@ -42,7 +42,7 @@ def test_copper_may_refer_to_a_rows_inner_boundary_and_ends():
     b.track(Net("GND"), [(row.inner, row.start), (row.inner, row.end)], layer=CopperLayer.B, width=0.5)
     plan = b.resolve()
     t = [op for op in plan.copper if op.net == "GND"][0]
-    assert t.start == Location(8.0, 10.0) and t.end == Location(8.0, 40.0)
+    assert t.start == Location(8.0, 10.0) and (t.end.x, round(t.end.y, 6)) == (8.0, 40.6)   # a row spaces by what parts claim: the courtyard excess (0.1 a side in these fixtures) is in every gap
 
 
 def test_a_row_may_be_centred_on_its_edge():
@@ -59,7 +59,7 @@ def test_a_row_after_another_starts_where_it_ends():
     first = b.row([Cell("a"), Cell("b")], Edge.WEST, gap=3.0, start=10.0)
     second = b.row([Cell("c")], Edge.WEST, gap=3.0, start=first.end + 5.0)
     plan = b.resolve()
-    assert plan.box("c").top == pytest.approx(plan.box("b").bottom + 5.0)
+    assert plan.box("c").top == pytest.approx(plan.box("b").bottom + 5.2)   # a row spaces by what parts claim: the courtyard excess (0.1 a side in these fixtures) is in every gap
 
 
 def test_a_centred_row_may_be_declared_before_the_board_size():
@@ -136,7 +136,7 @@ def test_a_row_may_start_at_a_reference():
     row = b.row([Cell("a"), Cell("b")], Edge.WEST, gap=3.0, start=Y(PadRef(Part("j1"), "B"), 4.0))
     plan = b.resolve()
     jb = plan.occupancy.pad_location("J1", "2")
-    assert plan.box("a").top == pytest.approx(jb.y + 4.0)
+    assert plan.box("a").top == pytest.approx(jb.y + 4.1)   # a row spaces by what parts claim: the courtyard excess (0.1 a side in these fixtures) is in every gap
 
 
 def test_a_rows_depth_and_the_edge_standoff_measure_the_parts_reach_not_its_body():
@@ -149,3 +149,13 @@ def test_a_rows_depth_and_the_edge_standoff_measure_the_parts_reach_not_its_body
     assert plan.box("j1").top == pytest.approx(0.4 + 3.0)
     assert row.depth == pytest.approx(3.0 + 3.0)
     assert b.keep_in == pytest.approx(0.4)
+
+
+def test_a_rows_gap_defaults_to_courtyards_touching():
+    """The tightest legal packing is the default; a gap is a cost the
+    script names a reason for."""
+    b = make_board()
+    row = b.row([Cell("a"), Cell("b")], Edge.WEST, start=10.0)
+    plan = b.resolve()
+    assert plan.box("b").top == pytest.approx(plan.box("a").bottom + 0.2)   # bodies two excesses apart: the courtyards meet
+    assert row.gap == 0.0

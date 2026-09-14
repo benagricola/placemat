@@ -143,7 +143,8 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
         fab = fab_profile(src.board_dir)
         t0 = time.time()
         geometry = read_board(src.pcb, courtyard_excess_mm=fab.courtyard_excess)
-        board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size, keep_going=keep_going)
+        board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size, keep_going=keep_going,
+                      courtyard_excess=fab.courtyard_excess)
         try:
             run_script(script, board)
         except Exception as e:
@@ -186,6 +187,12 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
         n_copper = sum(s.ops for s in plan.steps)
         say("script", "%d placed, %d copper op(s), %d finding(s)  (%.1fs)" % (
             n_place, n_copper, len(plan.findings), rec.timing_s["resolve"]))
+        from .report import extent_of
+        ext = extent_of(plan)
+        extent_metrics = {}
+        if ext is not None:
+            say("script", "extent %.2f x %.2f mm, %.0f%% of it empty" % (ext.width, ext.height, 100 * ext.empty))
+            extent_metrics = {"extent": [round(ext.width, 3), round(ext.height, 3)], "empty": round(ext.empty, 3)}
         for f in plan.findings[: (50 if verbose else 8)]:
             say("finding", f, level="finding")
         if len(plan.findings) > 8 and not verbose:
@@ -199,7 +206,7 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
         say("board", "written %s (%.1fs)" % (src.pcb.relative_to(src.board_dir), rec.timing_s["write"]))
 
         metrics = {"board": [round(plan.outline.width, 3), round(plan.outline.height, 3)] if plan.outline else None,
-                   "findings": len(plan.findings), "placed": n_place, "copper_ops": n_copper}
+                   "findings": len(plan.findings), "placed": n_place, "copper_ops": n_copper, **extent_metrics}
         if drc:
             t0 = time.time()
             report = run_drc(src.pcb, run_dir / "drc.json")

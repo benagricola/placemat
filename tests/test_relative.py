@@ -38,7 +38,7 @@ def test_a_row_may_be_centred_on_a_reference_and_another_butted_before_it():
     ja, jb = plan.occupancy.pad_location("J1", "1"), plan.occupancy.pad_location("J1", "2")
     r1, r2, h1 = plan.box("r1"), plan.box("r2"), plan.box("h1")
     assert (r1.right + r2.left) / 2 == pytest.approx((ja.x + jb.x) / 2)      # the gap between them is under the midpoint
-    assert h1.right == pytest.approx(r1.left - 1.0)                            # butted before, one gap away
+    assert h1.right == pytest.approx(r1.left - 1.2)                            # butted before, one gap away, claims touching the gap   # a row spaces by what parts claim: the courtyard excess (0.1 a side in these fixtures) is in every gap
 
 
 def test_a_row_may_end_at_a_reference():
@@ -48,7 +48,7 @@ def test_a_row_may_end_at_a_reference():
           end=X(PadRef(Part("j1"), "A"), -2.0))
     plan = b.resolve()
     ja = plan.occupancy.pad_location("J1", "1")
-    assert plan.box("r2").right == pytest.approx(ja.x - 2.0)
+    assert plan.box("r2").right == pytest.approx(ja.x - 2.1)   # a row spaces by what parts claim: the courtyard excess (0.1 a side in these fixtures) is in every gap
 
 
 def test_two_firm_placements_that_collide_stop_the_resolve_before_anything_is_searched():

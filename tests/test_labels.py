@@ -81,7 +81,7 @@ def test_a_label_on_an_undeclared_part_uses_where_the_board_has_it_but_an_unplac
     b = make_board()
     b.label(Part("j1"), "MOTOR")                            # j1 stays where the board has it
     (t,) = labels(b.resolve())
-    assert t.at.y == pytest.approx(10 - 2 - 0.5)
+    assert t.at.y == pytest.approx(10 - 2)
     b = make_board()
     b.place(Part("j1"), at=Near(Location(30, 30), radius=0.2))
     b.place(Part("j2"), at=Location(30, 30), face=Face.FRONT)  # j1 has nowhere to go
@@ -114,3 +114,11 @@ def test_a_label_may_decline_to_reserve_and_then_only_reports_what_lands_on_it()
     (t,) = labels(plan)
     assert plan.box("r1").overlaps(t.box)
     assert any("label j1 MOTOR" in f and "R1" in f for f in plan.findings)
+
+
+def test_a_labels_gap_defaults_to_touching_its_item():
+    b = make_board()
+    b.place(Part("j1"), at=Location(20, 20))
+    b.label(Part("j1"), "MOTOR", side=Edge.NORTH)
+    (t,) = labels(b.resolve())
+    assert t.at.y == pytest.approx(20 - 2)                       # the reach's top: no gap unless asked
