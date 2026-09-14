@@ -129,5 +129,8 @@ def test_the_faces_command_writes_the_fact_into_a_fragment_and_replaces_an_old_o
     assert cli.main(["faces", str(pcb), "outward=S"]) == 0
     import pcbnew
     board = pcbnew.LoadBoard(str(pcb))
-    texts = [d.GetText() for d in board.GetDrawings() if d.GetClass() == "PCB_TEXT" and d.GetText().startswith("placemat faces")]
-    assert texts == ["placemat faces outward=S"]
+    texts = [d for d in board.GetDrawings() if d.GetClass() == "PCB_TEXT" and d.GetText().startswith("placemat faces")]
+    assert [t.GetText() for t in texts] == ["placemat faces outward=S"]
+    # the note sits clear of the module: below everything it draws, not over its origin
+    lowest = max(fp.GetBoundingBox(True, True).GetBottom() for fp in board.GetFootprints())
+    assert texts[0].GetBoundingBox().GetTop() > lowest

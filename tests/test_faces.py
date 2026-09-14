@@ -17,6 +17,7 @@ def test_a_module_script_declares_its_faces_and_they_are_written_into_the_fragme
     plan = b.resolve()
     (t,) = [op for op in plan.copper if isinstance(op, Text)]
     assert t.text == "placemat faces outward=N quiet=S handoff=E" and t.layer == "User.Comments"
+    assert t.box.top > plan.geometry.cell("ui").courtyard_box.bottom            # below the cell, not over it
 
 
 def test_a_cell_whose_outward_side_is_local_north_turns_that_side_to_every_edge():

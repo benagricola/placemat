@@ -466,13 +466,19 @@ def write_faces(pcb_path, faces: dict) -> str:
         for d in list(board.GetDrawings()):
             if isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith("placemat faces "):
                 board.Delete(d)
-        bb = board.ComputeBoundingBox(False)
+        # Below everything the module draws (courtyards included), left-aligned with it:
+        # a note in the margin, never over the module's origin or a part.
+        boxes = [fp.GetBoundingBox(True, True) for fp in board.GetFootprints()]
+        left = min(b.GetLeft() for b in boxes) if boxes else 0
+        bottom = max(b.GetBottom() for b in boxes) if boxes else 0
         t = pcbnew.PCB_TEXT(board)
         t.SetText(text)
         t.SetLayer(pcbnew.Cmts_User)
         t.SetTextSize(pcbnew.VECTOR2I(nm(0.5), nm(0.5)))
         t.SetTextThickness(nm(0.1))
-        t.SetPosition(bb.GetCenter())
+        t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_LEFT)
+        t.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_TOP)
+        t.SetPosition(pcbnew.VECTOR2I(left, bottom + nm(1.0)))
         board.Add(t)
         seed_uuids()
         save(board, str(pcb_path))

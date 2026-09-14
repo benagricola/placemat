@@ -935,8 +935,9 @@ class Board:
         self._place_labels(occ, plan, placed, progress, final=True)
         if self._faces is not None:
             text, why = self._faces
-            box = self._outline or self.geometry.outline_box or Box.union([fp.body_box for fp in self.geometry.footprints])
-            plan.copper.append(Text(text, box.center, Face.FRONT, 0.5, 0.1, layer="User.Comments"))
+            box = Box.union([fp.courtyard_box for fp in self.geometry.footprints])     # below everything the module draws
+            plan.copper.append(Text(text, Location(box.left, box.bottom + 1.0), Face.FRONT, 0.5, 0.1, 0.0, "left", "top",
+                                    layer="User.Comments"))
             plan.steps.append(Step("faces", "copper", Priority.DEFAULT, None, 0.0, text[len("placemat faces "):], why, 1))
         return plan
 
