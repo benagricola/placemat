@@ -1490,7 +1490,9 @@ def _locate(board: "Board", occ: Occupancy, ref) -> Location:
     (where that pad now is), the Mid of two points, or an (x, y) pair whose
     members may be numbers, X()/Y() of references, or row coordinates."""
     if isinstance(ref, Location):
-        return ref
+        if isinstance(ref.x, (int, float)) and isinstance(ref.y, (int, float)):
+            return ref
+        return Location(_coord(board, occ, ref.x, "x"), _coord(board, occ, ref.y, "y"))   # a Location said in references
     if isinstance(ref, Mid):
         a, b = _locate(board, occ, ref.a), _locate(board, occ, ref.b)
         return Location((a.x + b.x) / 2.0, (a.y + b.y) / 2.0)
@@ -1550,7 +1552,7 @@ def _refs_in(points) -> list:
             out += _refs_in([p.a, p.b])
         elif isinstance(p, tuple):
             out += _refs_in(p)
-        elif isinstance(p, Centre):
+        elif isinstance(p, (Centre, Location)):
             out += _refs_in([p.x, p.y])
     return out
 

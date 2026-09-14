@@ -133,3 +133,12 @@ def test_a_part_may_be_placed_by_where_one_of_its_pads_lands():
     ra = plan.occupancy.pad_location("R1", "1")
     assert (ra.x, ra.y) == pytest.approx((ja.x, ja.y + 6.0))          # R1's A pad sits on the point, at that rotation
     assert plan.step("r1").priority is Priority.FIXED
+
+
+def test_a_location_may_be_said_in_references_too():
+    b = make_board()
+    b.place(Part("j1"), at=OnEdge(Edge.NORTH, along=20.0), rotation=0)
+    b.place(Part("r1"), at=Location(X(PadRef(Part("j1"), "A")), Y(PadRef(Part("j1"), "A"), 6.0)), rotation=0)
+    plan = b.resolve()
+    ja = plan.occupancy.pad_location("J1", "1")
+    assert plan.placement("r1").location == Location(ja.x, ja.y + 6.0)    # the origin lands on the referenced point
