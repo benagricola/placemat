@@ -91,3 +91,43 @@ def test_a_knockout_label_is_written_as_silk_text_beside_its_part(breakout_pcb, 
     bb = t.GetBoundingBox()
     assert abs(bb.GetTop() / 1e6 - (part.bottom + 0.5)) < 0.02       # its box starts exactly one gap below the part
     assert abs((bb.GetLeft() + bb.GetRight()) / 2e6 - part.center.x) < 0.3
+
+
+def test_faces_written_into_a_cells_group_are_read_back_as_the_cells_faces(breakout_pcb, tmp_path):
+    """The fact rides inside the group, which is what pcb layout stamps."""
+    import pcbnew
+    pcb = _copy(breakout_pcb, tmp_path)
+    board = pcbnew.LoadBoard(str(pcb))
+    group = [g for g in board.Groups() if g.GetName() == "bus_drop0"][0]
+    t = pcbnew.PCB_TEXT(board)
+    t.SetText("placemat faces outward=N handoff=W")
+    t.SetLayer(pcbnew.User_1)
+    t.SetPosition(pcbnew.VECTOR2I(int(20e6), int(20e6)))
+    board.Add(t)
+    group.AddItem(t)
+    board.Save(str(pcb))
+    after = read_board(pcb)
+    assert after.cell("bus_drop0").faces == {"outward": "N", "handoff": "W"}
+    assert after.cell("bus_drop1").faces == {}
+
+
+def test_show_renders_one_cell_on_its_own_with_a_pad_map(breakout_pcb, tmp_path, capsys):
+    from placemat import cli
+    pcb = _copy(breakout_pcb, tmp_path)
+    assert cli.main(["show", str(pcb), "bus_drop0"]) == 0
+    out = capsys.readouterr().out
+    assert "bus_drop0" in out and "CAN_S0_P" in out
+    pngs = sorted((tmp_path / ".placemat" / "show").glob("bus_drop0-*.png"))
+    assert [p.name for p in pngs] == ["bus_drop0-bottom.png", "bus_drop0-top.png"]
+    assert all(p.stat().st_size > 1000 for p in pngs)
+
+
+def test_the_faces_command_writes_the_fact_into_a_fragment_and_replaces_an_old_one(breakout_pcb, tmp_path):
+    from placemat import cli
+    pcb = _copy(breakout_pcb, tmp_path)
+    assert cli.main(["faces", str(pcb), "outward=n", "handoff=E"]) == 0
+    assert cli.main(["faces", str(pcb), "outward=S"]) == 0
+    import pcbnew
+    board = pcbnew.LoadBoard(str(pcb))
+    texts = [d.GetText() for d in board.GetDrawings() if d.GetClass() == "PCB_TEXT" and d.GetText().startswith("placemat faces")]
+    assert texts == ["placemat faces outward=S"]

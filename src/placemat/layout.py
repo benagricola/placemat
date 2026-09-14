@@ -164,6 +164,7 @@ class PlaceIntent:
     pin_x: object = None               # x pinned (a number or a reference), y free
     pin_y: object = None               # y pinned, x free
     priority_source: str = "auto"      # "script" when the declaration said, else worked out
+    faces_note: str = ""               # when the rotation fell back to the generic rule
 
     @property
     def rank(self):
@@ -293,6 +294,7 @@ class Board:
         self._weights: dict = {}
         self._copper: list[CopperIntent] = []
         self._labels: list = []
+        self._faces: tuple | None = None
         self._links: list[Link] = []
         self._rules: list = []
         self._free_nets: set = set()
@@ -432,8 +434,9 @@ class Board:
                 Priority.EDGE if (edge is not None and along is not None) else Priority.DEFAULT
         if edge is not None and along is None and priority in (Priority.FIXED, Priority.EDGE):
             raise ValueError("%s: an edge item with no along= is free to slide; it cannot be %s" % (key, priority.value))
+        faces_note = ""
         if rotation is None:
-            rotation = _OUTWARD_ROTATION[edge] if (edge is not None and along is None) else 0.0
+            rotation, faces_note = self.outward_rotation(item, edge) if (edge is not None and along is None) else (0.0, "")
         if kind == "cell" and at is not None and center is None:
             center, at = at, None
         needs = {self._pad_ref(ref)[0] for ref in _refs_in([at, center, along, x, y])}   # a real pad, placed before this
@@ -444,7 +447,7 @@ class Board:
         standoff = _standoff if _standoff is not None else (-float(overhang) if overhang else self.keep_in)
         intent = PlaceIntent(key, geom, kind, priority, float(rotation), face, at, center, edge, along,
                              standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs),
-                             x, y, source)
+                             x, y, source, faces_note)
         self._intents.append(intent)
         return intent
 
@@ -467,9 +470,8 @@ class Board:
         pad's X()/Y(), a Mid); `before=` or `after=` another row, one gap
         away. A row placed by a reference is measured when its items are
         placed. Returns the Row."""
-        rots = [_OUTWARD_ROTATION[edge]] * len(items) if rotation is None else \
+        rots = [self.outward_rotation(it, edge)[0] for it in items] if rotation is None else \
             ([float(r) for r in rotation] if isinstance(rotation, (list, tuple)) else [float(rotation)] * len(items))
-        rot = rots[0] if rots else _OUTWARD_ROTATION[edge]
         if behind is not None:
             if behind.edge is not edge:
                 raise ValueError("a row is behind a row on its own edge")
@@ -630,6 +632,26 @@ class Board:
         ci = CopperIntent(key, name, priority, plan, tuple(refs), why, len(self._copper), bridge)
         self._copper.append(ci)
         return ci
+
+    def faces(self, *, outward: Edge | None = None, quiet: Edge | None = None, handoff: Edge | None = None, why: str = ""):
+        """A module's sides, said once in its own script: `outward` is the
+        side that faces the board edge (the connector mouth, the plungers),
+        `quiet` the side to keep away from aggressors, `handoff` the side
+        its signals leave from. Written into the fragment as a fact that
+        rides with every stamped instance; a board turns the cell by it."""
+        words = [k + "=" + Edge(v).value for k, v in (("outward", outward), ("quiet", quiet), ("handoff", handoff)) if v is not None]
+        if not words:
+            raise ValueError("faces() names at least one side")
+        self._faces = ("placemat faces " + " ".join(words), why)
+
+    def outward_rotation(self, item, edge: Edge) -> tuple[float, str]:
+        """The rotation that turns the item's outward side to `edge`, and a
+        note when the item declared none (the generic rule: local +Y out)."""
+        geom, key, kind = self._item(item)
+        declared = geom.faces.get("outward") if kind == "cell" else None
+        if not declared:
+            return _OUTWARD_ROTATION[edge], "" if kind != "cell" else "no faces declared: turned as if its outward side were local +Y"
+        return _rotation_taking(Edge(declared), edge), ""
 
     def label(self, item, text: str, *, side: Edge = Edge.NORTH, gap: float = 0.5, align: str = "centre",
               size: float = 1.0, thickness: float = 0.15, knockout: bool = False, rotation: float = 0.0,
@@ -811,6 +833,8 @@ class Board:
             if obj.priority not in (Priority.FIXED, Priority.EDGE):
                 tag = "priority %s (%s)" % (obj.priority.value, self._weights.get(obj.key, obj.priority_source))
                 step.note = (tag + "; " + step.note) if step.note else tag
+            if obj.faces_note:
+                step.note = (step.note + "; " if step.note else "") + obj.faces_note
             plan.steps.append(step)
             if step.placement is None and obj.priority is Priority.HIGH and not self.keep_going:
                 raise CriticalUnplaced(obj.key, self._no_place_report(occ, obj, step), plan)
@@ -854,6 +878,11 @@ class Board:
         self._plan_copper(occ, ctx, other_copper, plan, progress)
         self._report_links(occ, plan, placed)
         self._place_labels(occ, plan, placed, progress)
+        if self._faces is not None:
+            text, why = self._faces
+            box = self._outline or self.geometry.outline_box or Box.union([fp.body_box for fp in self.geometry.footprints])
+            plan.copper.append(Text(text, box.center, Face.FRONT, 0.5, 0.1, layer="User.1"))
+            plan.steps.append(Step("faces", "copper", Priority.DEFAULT, None, 0.0, text[len("placemat faces "):], why, 1))
         return plan
 
     def _settle_in_pocket(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
@@ -1231,6 +1260,22 @@ class Board:
                 moved += " for a better link score"
             note = (note + "; " if note else "") + moved
         return Step(i.key, i.kind, i.priority, result.chosen, result.moved_mm, note, i.why)
+
+_EDGE_DIR = {Edge.NORTH: (0.0, -1.0), Edge.SOUTH: (0.0, 1.0), Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0)}
+
+
+def _rotation_taking(local: Edge, edge: Edge) -> float:
+    """The rotation (0, 90, 180 or 270) that turns a cell's `local` side
+    (named at rotation 0) to face the board's `edge`: found by turning the
+    side's direction, so no sign is guessed."""
+    from .geometry import Transform
+    want = _EDGE_DIR[edge]
+    for r in (0.0, 90.0, 180.0, 270.0):
+        x, y = Transform.rotate(r).apply(_EDGE_DIR[local])
+        if abs(x - want[0]) < 1e-9 and abs(y - want[1]) < 1e-9:
+            return r
+    raise ValueError("no rotation takes %s to %s" % (local, edge))
+
 
 def _label_op(text, box: Box, face: Face, side: Edge, gap: float, align: str, size: float, thick: float,
               knockout: bool, rotation: float) -> Text:

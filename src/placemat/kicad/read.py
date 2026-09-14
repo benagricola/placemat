@@ -230,6 +230,9 @@ def read_board(path, courtyard_excess_mm: float = 0.10) -> BoardGeometry:
     return board_geometry_of(board, path, courtyard_excess_mm)
 
 
+FACES_PREFIX = "placemat faces "     # a text item a module fragment carries: `placemat faces outward=N quiet=S handoff=E`
+
+
 def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10) -> BoardGeometry:
     """Build a BoardGeometry from an already-loaded pcbnew BOARD."""
     member_cell = {}
@@ -254,7 +257,14 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10) -> Bo
         box = Box.union([fp.body_box for fp in members] + own)
         phys = Box.union([fp.phys_box for fp in members] + own)
         court = Box.union([fp.courtyard_box for fp in members] + own)
-        cells[name] = CellGeom(name, members, box, phys, court, copper_box)
+        faces = {}
+        for it in items:
+            if isinstance(it, pcbnew.PCB_TEXT) and it.GetText().startswith(FACES_PREFIX):
+                for word in it.GetText()[len(FACES_PREFIX):].split():
+                    k, _, v = word.partition("=")
+                    if v:
+                        faces[k] = v
+        cells[name] = CellGeom(name, members, box, phys, court, copper_box, faces)
     classes, default_clr = _netclasses(board)
     layers = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack()
                    if board.GetLayerName(l) in {m.value for m in CopperLayer})

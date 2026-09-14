@@ -50,6 +50,17 @@ def parser() -> argparse.ArgumentParser:
     m.add_argument("pcb")
     m.add_argument("items", nargs="*", help="cell names or part instances (default: every cell)")
 
+    sh = sub.add_parser("show", help="one cell or part on its own: a render from above and below, its pads by net, "
+                                     "and the sides its module declared (outward, quiet, handoff)")
+    sh.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
+    sh.add_argument("item", help="a cell name, a part instance or a refdes")
+    sh.add_argument("--out", help="where the PNGs go (default: <board dir>/.placemat/show)")
+
+    fc = sub.add_parser("faces", help="write a module fragment's sides into it: outward=N (faces the board edge), "
+                                      "quiet=S (away from aggressors), handoff=E (where its signals leave)")
+    fc.add_argument("fragment", help="the module's layout/layout.kicad_pcb")
+    fc.add_argument("sides", nargs="+", metavar="SIDE=N|S|E|W", help="outward=, quiet=, handoff=")
+
     ck = sub.add_parser("check", help="design checks from the parts' Pm.* facts: hot loops, switch nodes, keep-out, "
                                       "crossings under sense tracks, current path widths, junction temperature")
     ck.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
@@ -158,6 +169,57 @@ def cmd_measure(args) -> int:
     return 0
 
 
+def cmd_show(args) -> int:
+    from .kicad.read import read_board
+    from .kicad.write import show_item
+    from .project import find_board
+    p = Path(args.pcb)
+    pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
+    snap = read_board(pcb)
+    name = args.item
+    if name in snap.cells:
+        c = snap.cell(name)
+        console.say("show", "cell %s  %.2f x %.2f mm  %d members  faces: %s" % (
+            name, c.box.width, c.box.height, len(c.members),
+            ", ".join("%s=%s" % kv for kv in sorted(c.faces.items())) or "none declared (edge placement assumes local +Y outward)"))
+        fps = list(c.members)
+    else:
+        fp = snap.footprint(name)
+        console.say("show", "part %s (%s)  %.2f x %.2f mm  face %s  rotation %g" % (
+            fp.inst, fp.ref, fp.body_box.width, fp.body_box.height, fp.face.value, fp.rotation))
+        fps = [fp]
+        name = fp.ref
+    ref_box = snap.cell(name).box if name in snap.cells else fps[0].body_box
+    for fp in fps:
+        console.say("show", "  %-6s %-24s at (%+.2f, %+.2f) from the %s centre, rot %g, %s" % (
+            fp.ref, fp.inst, fp.location.x - ref_box.center.x, fp.location.y - ref_box.center.y,
+            "cell" if name in snap.cells else "part", fp.rotation, fp.face.value))
+        for pad in fp.pads:
+            side = ("N" if pad.location.y < ref_box.center.y - 0.01 else "S" if pad.location.y > ref_box.center.y + 0.01 else "") + \
+                   ("W" if pad.location.x < ref_box.center.x - 0.01 else "E" if pad.location.x > ref_box.center.x + 0.01 else "")
+            console.say("show", "      pad %-4s %-20s %s of centre" % (pad.number, pad.net or "-", side or "at the"))
+    out = Path(args.out) if args.out else pcb.parent.parent.parent / ".placemat" / "show" if pcb.parent.name != "." else pcb.parent / ".placemat" / "show"
+    if not args.out:
+        # <board dir>/.placemat/show: the board dir holds layout/<Board>/layout.kicad_pcb
+        out = pcb.parents[2] / ".placemat" / "show" if pcb.parent.parent.name == "layout" else pcb.parent / ".placemat" / "show"
+    pngs = show_item(pcb, name, out)
+    for png in pngs:
+        console.say("show", "render %s" % png)
+    return 0
+
+
+def cmd_faces(args) -> int:
+    from .kicad.write import write_faces
+    faces = {}
+    for item in args.sides:
+        k, _, v = item.partition("=")
+        if k not in ("outward", "quiet", "handoff") or v.upper() not in ("N", "S", "E", "W"):
+            raise SystemExit("a side is outward=, quiet= or handoff= with N, S, E or W, not %r" % item)
+        faces[k] = v.upper()
+    console.say("faces", "%s: %s" % (args.fragment, write_faces(args.fragment, faces)))
+    return 0
+
+
 def cmd_check(args) -> int:
     from . import checks
     from .kicad import read
@@ -185,7 +247,7 @@ def cmd_check(args) -> int:
 def main(argv=None) -> int:
     args = parser().parse_args(argv)
     return {"run": cmd_run, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
-            "route": cmd_route, "check": cmd_check}[args.command](args)
+            "route": cmd_route, "check": cmd_check, "show": cmd_show, "faces": cmd_faces}[args.command](args)
 
 
 if __name__ == "__main__":

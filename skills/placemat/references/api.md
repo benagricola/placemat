@@ -34,8 +34,12 @@ Say how firm each thing is; the netlist does the rest.
 ```python
 board.place(item)                                                       # searched: SEEDED from its links
 board.place(item, priority=Priority.HIGH)                               # critical: first in its tier; no place stops the run
+# Unless the script says, a searched item's priority is worked out: how much of the largest
+# item's area it needs, its connections to other declared items, its part count; HIGH also
+# needs a real share of the board. Every step prints `priority high (auto: ...)` or `(script; would be ...)`.
 board.place(item, edge=Edge.NORTH, along=x, rotation=180)                 # EDGE: fixed on that edge, no freedom
 board.place(item, edge=Edge.NORTH)                                      # on that edge, wherever there is room: one freedom
+board.place(item, x=X(Mid(pad_a, pad_b)))                               # x pinned (a number or a reference), y free: one freedom
 board.place(item, at=Location(x, y), rotation=0, face=Face.FRONT)      # FIXED: a mechanical fact (a hole, a cell)
 board.place(item, center=(X(Mid(a, b)), Y(a, 3.0)), rotation=0)         # FIXED: said in terms of pads
 board.place(item, near=Location(x, y), radius=3.0, step=0.2, rotations=(0, 90))  # searched round a hint
@@ -54,9 +58,11 @@ layout that stops the run. `edge=` alone has one: the item slides along
 its edge, sits at the edge's midpoint when it is the only free item
 there, shares the edge evenly with its fellows (the k-th of n at
 (k+1)/(n+1) of the length), and slides aside from whatever is already
-there. It is searched, so it goes down with the searched items in
-priority order and its rotation defaults to outward for that edge. A
-bare `place()` has two. Test points, LEDs, buttons and a connector whose
+there. `x=` or `y=` pins one coordinate the same way and the item
+slides on the other, sharing the line with items pinned to the same
+value. These are searched, so they go down with the searched items in
+priority order, and an edge item's rotation defaults to the cell's
+declared outward side (see Faces). A bare `place()` has two. Test points, LEDs, buttons and a connector whose
 exact spot does not matter are `edge=` alone, never `along=`.
 
 **The default is a bare `place()`.** A part with a wired neighbour already
@@ -162,6 +168,23 @@ or any integer; 0 means the connection's length does not matter. Every
 connection not declared weighs DEFAULT. A `limit_mm` is a bound: the run
 reports each link's achieved length, and one over its limit is a finding
 quoting `why`.
+
+## Faces (a module's sides, declared once)
+
+```python
+board.faces(outward=Edge.NORTH, quiet=Edge.SOUTH, handoff=Edge.EAST, why="the plungers are pressed from the north")
+```
+In a module's own script: `outward` is the side that faces the board
+edge (a connector mouth, the plungers of a switch row), `quiet` the side
+to keep from aggressors, `handoff` the side its signals leave from, all
+named at the cell's rotation 0. The fact is written into the fragment
+and rides with every stamped instance; a board's rows and edge
+placements turn the cell by it, and a cell with none is turned as if
+its outward side were local +Y, which the step says. `placemat faces
+<fragment> outward=N` stamps the fact into an existing fragment.
+`placemat show <board> <cell>` renders the cell alone from above and
+below and lists its pads by net and side: look before choosing a
+rotation.
 
 ## Rules
 
@@ -295,6 +318,8 @@ placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--layers L ...] 
 placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
 placemat measure <layout.kicad_pcb> [cell-or-part ...]
+placemat show <layout.kicad_pcb | script> <cell | part> [--out DIR]
+placemat faces <module layout.kicad_pcb> outward=N [quiet=S] [handoff=E]
 placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise C] [--copper-oz OZ] [--limit CHECK=VALUE ...] [--json]
 ```
 `check` reads the `Pm.*` facts the capture put on its parts (the

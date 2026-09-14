@@ -115,8 +115,12 @@ coordinates nobody chose.
   `priority=Priority.FIXED` on copper that nothing may cut into; `HIGH`,
   `DEFAULT`, `LOW` on tracks to say who passes under whom). The runner
   schedules: setup, FIXED, EDGE, cells, FIXED copper, loose parts, copper.
-- Say which searched items are critical: `priority=Priority.HIGH` on the
-  MCU, the driver, the bridge. They go down first in their tier, and one
+- Priority is worked out for you: the tool weighs each searched item by
+  the board it needs, its connections and its part count, prints the
+  priority and the reason on every step, and stops the run when a HIGH
+  item finds no place. Read the printed priority before overriding it;
+  `priority=Priority.HIGH` is for a critical item the weighing missed,
+  never a list of part names. A HIGH item goes down first in its tier, and one
   that finds no place stops the run with the free rectangles on its face
   and the board written as it stood, so what was free at that moment is
   what you look at; nothing else is placed into that space first. Firm
@@ -183,6 +187,12 @@ coordinates nobody chose.
   beside each other are placed relative to each other (`behind=`,
   `after=`, a pad reference), never by independent numbers from opposite
   edges: the first collision is the run stopping, not a finding to tune.
+- Look before you turn: `placemat show <board> <cell>` renders a cell on
+  its own with its pads by net and side. A module declares its outward
+  side (`board.faces()` in its script, or `placemat faces` on its
+  fragment) and edge placement turns it right by itself; a step saying
+  "no faces declared" means the module needs that fact, not a rotation
+  typed in the board script.
 - Label what a user touches: every connector, jumper, switch and LED gets
   a `board.label()` on the face it is used from, saying what it does
   ("MOTOR", "CAN IN", "TERM"), knocked out where the silk is busy; a pin

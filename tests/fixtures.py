@@ -31,7 +31,7 @@ def footprint(ref, cx, cy, w=4.0, h=2.0, nets=("A", "B"), through=False, face=Fa
 
 
 def board_geometry(footprints, cells=(), copper=(), width=50.0, height=50.0, clearance=0.2, extra_nets=(),
-                   edge_clearance=0.4):
+                   edge_clearance=0.4, faces=None):
     nets = {p.net for fp in footprints for p in fp.pads} | {c.net for c in copper} | set(extra_nets)
     classes = {n: NetClass("Default", 0.2, clearance, 0.6, 0.3) for n in nets}
     outline = (((0.0, 0.0), (width, 0.0), (width, height), (0.0, height)),)
@@ -43,7 +43,7 @@ def board_geometry(footprints, cells=(), copper=(), width=50.0, height=50.0, cle
         cell_map[c] = CellGeom(c, members, box,
                                Box.union([fp.phys_box for fp in members] + own),
                                Box.union([fp.courtyard_box for fp in members] + own),
-                               Box.union(own))
+                               Box.union(own), dict((faces or {}).get(c, {})))
     pads = tuple(CopperItem("pad", p.net, p.layers, p.outlines, p.box, fp.ref)
                  for fp in footprints for p in fp.pads)
     return BoardGeometry("synthetic", tuple(footprints), cell_map, pads + tuple(copper), outline,

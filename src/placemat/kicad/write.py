@@ -9,6 +9,7 @@ created, so an unchanged plan writes an unchanged file."""
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from .quiet import import_pcbnew, quiet_stderr
 
@@ -132,7 +133,7 @@ _VJUST = {"top": pcbnew.GR_TEXT_V_ALIGN_TOP, "centre": pcbnew.GR_TEXT_V_ALIGN_CE
 def _draw_text(board, op: Text):
     t = pcbnew.PCB_TEXT(board)
     t.SetText(op.text)
-    t.SetLayer(pcbnew.B_SilkS if op.face is Face.BACK else pcbnew.F_SilkS)
+    t.SetLayer(board.GetLayerID(op.layer) if op.layer else (pcbnew.B_SilkS if op.face is Face.BACK else pcbnew.F_SilkS))
     t.SetMirrored(op.mirrored)
     t.SetTextSize(pcbnew.VECTOR2I(nm(op.size), nm(op.size)))
     t.SetTextThickness(nm(op.thickness))
@@ -396,3 +397,80 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     from ..rules import write_rules
     write_rules(out, plan.rules)
     return out
+
+
+def _kiid(item) -> str:
+    return item.m_Uuid.AsString()
+
+
+def _extract_item(pcb_path: str, name: str, scratch: str) -> None:
+    """Save a board that holds only the group (or footprint) called `name`:
+    the kept items are duplicated into a fresh board. Nothing is removed
+    from the loaded one, which pcbnew's Python proxies do not survive."""
+    src = pcbnew.LoadBoard(pcb_path)
+    keep = set()
+    for g in src.Groups():
+        if g.GetName() == name:
+            keep = {_kiid(it) for it in g.GetItems()}
+    if not keep:
+        for fp in src.GetFootprints():
+            if fp.GetReference() == name or fp.GetFieldText("Path").rsplit(".", 1)[0] == name:
+                keep = {_kiid(fp)}
+    if not keep:
+        raise KeyError("no cell or part named %r on the board" % name)
+    new = pcbnew.BOARD()
+    for coll in (list(src.GetFootprints()), list(src.GetTracks()), list(src.GetDrawings())):
+        for it in coll:
+            if _kiid(it) in keep:
+                new.Add(it.Duplicate(False) if isinstance(it, pcbnew.FOOTPRINT) else it.Duplicate())
+    new.Save(scratch)
+
+
+def show_item(pcb_path, name: str, out_dir, quality: str = "basic") -> list:
+    """Render one cell or part on its own, from above and below. Returns
+    the PNG paths written, top then bottom."""
+    import subprocess
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    scratch = out_dir / (".%s.show.kicad_pcb" % name)
+    with quiet_stderr():
+        _extract_item(str(pcb_path), name, str(scratch))
+    env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
+    done = []
+    for side in ("top", "bottom"):
+        png = out_dir / ("%s-%s.png" % (name, side))
+        cmd = ["kicad-cli", "pcb", "render", "--side", side, "--background", "opaque", "--quality", quality,
+               "-w", "1000", "-h", "600", "-o", str(png), str(scratch)]
+        subprocess.run(cmd, capture_output=True, timeout=300, env=env)
+        if png.exists():
+            done.append(png)
+    for ext in (".kicad_pcb", ".kicad_pro", ".kicad_prl"):
+        stray = out_dir / (".%s.show%s" % (name, ext))
+        if stray.exists():
+            stray.unlink()
+    return done
+
+
+def write_faces(pcb_path, faces: dict) -> str:
+    """Put a module fragment's faces fact into it (replacing any it has):
+    a User.1 text `placemat faces outward=N ...` that pcb layout stamps
+    with the cell. Returns the text written."""
+    from ..values import Edge
+    words = ["%s=%s" % (k, Edge(v).value) for k, v in faces.items() if v]
+    text = "placemat faces " + " ".join(words)
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(str(pcb_path))
+        for d in list(board.GetDrawings()):
+            if isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith("placemat faces "):
+                board.Delete(d)
+        bb = board.ComputeBoundingBox(False)
+        t = pcbnew.PCB_TEXT(board)
+        t.SetText(text)
+        t.SetLayer(pcbnew.User_1)
+        t.SetTextSize(pcbnew.VECTOR2I(nm(0.5), nm(0.5)))
+        t.SetTextThickness(nm(0.1))
+        t.SetPosition(bb.GetCenter())
+        board.Add(t)
+        seed_uuids()
+        save(board, str(pcb_path))
+    return text
