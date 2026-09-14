@@ -249,6 +249,7 @@ class Plan:
     links: list = field(default_factory=list)
     rules: list = field(default_factory=list)
     outline: Box | None = None
+    draw_outline: bool = True           # False: the outline is a placement frame only (a module fragment)
     chamfer: float = 0.0
     radius: float = 0.0
     _items: dict = field(default_factory=dict, repr=False)
@@ -319,6 +320,7 @@ class Board:
         self._free_nets: set = set()
         self._outline: Box | None = geometry.outline_box
         self._sized = False                 # the script has declared the board size
+        self._draw_outline = True
         self._chamfer = 0.0
         self._radius = 0.0
         self.width = self._outline.width if self._outline else None
@@ -389,7 +391,12 @@ class Board:
         return occ.reach_box(geom, Placement(Location(0.0, 0.0), rotation, face))
 
     def _pad_ref(self, ref):
-        """Validate a pad reference now; return (refdes, pad number, dx, dy)."""
+        """Validate a pad reference now; return (refdes, pad number, dx, dy).
+        A Part or Cell reference (its body centre) yields its first refdes
+        and no pad: enough for the placement order to wait for it."""
+        if isinstance(ref, (Part, Cell)):
+            geom, key, kind = self._item(ref)
+            return ((geom.members[0].ref if kind == "cell" else geom.ref), None, 0.0, 0.0)
         if isinstance(ref, PadRef):
             p = self.geometry.pad(ref.part, ref.key)
             return (p.owner, p.number, ref.dx, ref.dy)
@@ -399,7 +406,7 @@ class Board:
         raise TypeError("not a pad reference: %r" % (ref,))
 
     # ------------------------------------------------------------ setup
-    def size(self, width: float, height: float, chamfer: float = 0.0, radius: float = 0.0):
+    def size(self, width: float, height: float, chamfer: float = 0.0, radius: float = 0.0, draw: bool = True):
         """The board outline: a rectangle at the origin, chamfered or rounded."""
         if width <= 0 or height <= 0:
             raise ValueError("board size must be positive")
@@ -407,6 +414,7 @@ class Board:
         self._chamfer, self._radius = chamfer, radius
         self.width, self.height = float(width), float(height)
         self._sized = True
+        self._draw_outline = draw          # a fragment's frame is for placement only, never written
 
     # ------------------------------------------------------------ blocks
     def block(self, anchor, satellites, gap: float = 0.5) -> BlockSpec:
@@ -870,7 +878,7 @@ class Board:
             for item in declared:
                 occ.pending |= occ._geometry(item).owners
         plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius,
-                    rules=list(self._rules))
+                    rules=list(self._rules), draw_outline=self._draw_outline)
         ctx = _CopperContext(self, occ)
         self._weigh(occ)
         placements = sorted(self._intents, key=lambda i: i.rank)
@@ -1441,6 +1449,10 @@ def _locate(board: "Board", occ: Occupancy, ref) -> Location:
         return Location(_coord(board, occ, ref[0], "x"), _coord(board, occ, ref[1], "y"))
     if isinstance(ref, Centre):
         return Location(_coord(board, occ, ref.x, "x"), _coord(board, occ, ref.y, "y"))
+    if isinstance(ref, (Part, Cell)):
+        geom, key, kind = board._item(ref)
+        refs = [fp.ref for fp in (geom.members if kind == "cell" else (geom,))]
+        return Box.union([occ.items[r].body for r in refs]).center      # where its body is now
     owner, number, dx, dy = board._pad_ref(ref)
     return occ.pad_location(owner, number).offset(dx, dy)
 
@@ -1452,7 +1464,7 @@ def _coord(board: "Board", occ: Occupancy, v, axis: str) -> float:
         return _locate(board, occ, v.ref).x + v.dx
     if isinstance(v, Y):
         return _locate(board, occ, v.ref).y + v.dy
-    if isinstance(v, (PadRef, CellPadRef, Location, tuple, Mid)):
+    if isinstance(v, (PadRef, CellPadRef, Location, tuple, Mid, Part, Cell)):
         l = _locate(board, occ, v)
         return l.x if axis == "x" else l.y
     if isinstance(v, RowCoord):
@@ -1478,10 +1490,10 @@ class _CopperContext:
 
 
 def _refs_in(points) -> list:
-    """Every pad reference a list of points depends on (inside tuples and X/Y too)."""
+    """Every pad, part or cell reference a list of points depends on (inside tuples and X/Y too)."""
     out = []
     for p in points:
-        if isinstance(p, (PadRef, CellPadRef)):
+        if isinstance(p, (PadRef, CellPadRef, Part, Cell)):
             out.append(p)
         elif isinstance(p, (X, Y)):
             out += _refs_in([p.ref])        # the ref may itself be a point or a pad
@@ -1489,6 +1501,8 @@ def _refs_in(points) -> list:
             out += _refs_in([p.a, p.b])
         elif isinstance(p, tuple):
             out += _refs_in(p)
+        elif isinstance(p, Centre):
+            out += _refs_in([p.x, p.y])
     return out
 
 

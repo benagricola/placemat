@@ -62,6 +62,8 @@ def _move_cell(board, cell: CellGeom, target: Placement, groups: dict):
 
 
 def _draw_outline(board, plan: Plan):
+    if not plan.draw_outline:
+        return                       # a frame for placement only: Edge.Cuts is left exactly as it was
     for d in list(board.GetDrawings()):
         if isinstance(d, pcbnew.PCB_SHAPE) and d.GetLayer() == pcbnew.Edge_Cuts:
             board.Delete(d)      # Remove() orphans the item and corrupts a later in-process LoadBoard

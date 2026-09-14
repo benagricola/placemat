@@ -4,7 +4,7 @@ a row that ends at a pad. No number a pad already knows is typed."""
 import pytest
 
 from placemat.layout import Board
-from placemat.values import OnEdge, Centre, Edge, Location, Mid, Part, PadRef, Priority, X, Y
+from placemat.values import OnEdge, Cell, Centre, Edge, Location, Mid, Part, PadRef, Priority, X, Y
 from tests.fixtures import board_geometry, footprint
 
 
@@ -103,3 +103,21 @@ def test_an_unplaced_item_pulls_nothing_and_blocks_nothing():
     plan = b.resolve()
     assert "UNPLACED" in plan.step("u9").note and plan.placement("u9") is None
     assert "seeded on B" in plan.step("r1").note and plan.box("r1").center.distance(Location(10, 10)) < 8
+
+
+def test_a_part_or_cell_may_be_a_reference_meaning_its_body_centre():
+    """Aligning two parts on their centres, or standing one a distance
+    from another, needs no pad: X(Part) and Y(Part) are the placed
+    body's centre, so a second switch sits exactly beside the first."""
+    fps = [footprint("SW1", 5, 5, w=5, h=3, inst="sw1", nets=("A", "B")),
+           footprint("SW2", 30, 30, w=5, h=3, inst="sw2", nets=("C", "D")),
+           footprint("U1", 40, 40, w=6, h=2, cell="pd", inst="pd.u", nets=("E", "F"))]
+    b = Board(board_geometry(fps, cells=["pd"], width=60, height=60), edge_margin=1.0)
+    b.place(Part("sw1"), at=Location(20, 20))
+    b.place(Part("sw2"), at=Centre(X(Part("sw1"), 8.6), Y(Part("sw1"))))
+    b.place(Cell("pd"), at=Centre(X(Part("sw2")), Y(Part("sw2"), 6.0)))
+    plan = b.resolve()
+    sw1, sw2, pd = plan.box("sw1"), plan.box("sw2"), plan.box("pd")
+    assert sw2.center.y == pytest.approx(sw1.center.y) and sw2.center.x == pytest.approx(sw1.center.x + 8.6)
+    assert pd.center.x == pytest.approx(sw2.center.x) and pd.center.y == pytest.approx(sw2.center.y + 6.0)
+    assert plan.steps[0].item == "sw1" and [s.item for s in plan.steps[:3]] == ["sw1", "sw2", "pd"]     # each waits for its referent

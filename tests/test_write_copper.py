@@ -157,3 +157,16 @@ def test_the_faces_note_clears_a_label_drawn_below_the_parts(breakout_pcb, tmp_p
     note = [d for d in board.GetDrawings() if d.GetClass() == "PCB_TEXT" and d.GetText().startswith("placemat faces")][0]
     term = [d for d in board.GetDrawings() if d.GetClass() == "PCB_TEXT" and d.GetText() == "TERM"][0]
     assert note.GetBoundingBox().GetTop() > term.GetBoundingBox().GetBottom()
+
+
+def test_an_undrawn_frame_writes_no_outline(breakout_pcb, tmp_path):
+    import pcbnew
+    pcb = _copy(breakout_pcb, tmp_path)
+    before = read_board(pcb)
+    b = Board(before, edge_margin=0.0, keep_going=True)
+    b.size(width=before.outline_box.width + 5.0, height=before.outline_box.height, chamfer=2.0, draw=False)
+    n_before = len([d for d in pcbnew.LoadBoard(str(pcb)).GetDrawings() if d.GetLayer() == pcbnew.Edge_Cuts])
+    apply_plan(pcb, b.resolve())
+    board = pcbnew.LoadBoard(str(pcb))
+    edges = [d for d in board.GetDrawings() if d.GetLayer() == pcbnew.Edge_Cuts]
+    assert len(edges) == n_before and n_before > 0            # Edge.Cuts untouched: the frame is for placement only

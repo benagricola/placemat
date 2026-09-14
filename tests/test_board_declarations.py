@@ -99,3 +99,16 @@ def test_placing_the_same_item_twice_is_an_error():
     b.place(Part("r1"), at=Location(1, 1))
     with pytest.raises(ValueError):
         b.place(Part("r1"), at=Location(2, 2))
+
+
+def test_a_fragment_may_have_a_frame_for_rows_and_edges_that_is_not_drawn():
+    """A module fragment has no outline of its own, but its script may
+    still want rows against an edge: size(..., draw=False) gives the
+    placer a frame and writes no Edge.Cuts."""
+    from placemat.values import OnEdge
+    b = make_board()
+    b.size(width=40.0, height=30.0, draw=False)
+    b.place(Part("j_in"), at=OnEdge(Edge.NORTH))
+    plan = b.resolve()
+    assert plan.outline is not None and plan.draw_outline is False
+    assert plan.box("j_in").top == pytest.approx(1.0)

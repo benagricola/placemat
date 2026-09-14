@@ -130,17 +130,25 @@ number, otherwise refer to its items' pads. `row.inner` and `row.outer` are
 its inboard boundary and its outer line, usable as a coordinate in copper
 (`(power.inner + 1.0, y)`). Declare the size after the rows that set it.
 
-**Positions said in terms of pads.** `Centre` (and a point of references
-in `at=`) resolve when the item is placed:
+**Positions said in terms of pads and parts.** `Centre` (and a point of
+references in `at=`) resolve when the item is placed:
 `Centre(X(Mid(rb_mid, ra_mid)), Y(rb_mid, 3.0))` puts a cap under the
-midpoint of two pads. An item placed that way goes down after what it
+midpoint of two pads; `X(Part("sw_run"), 4.8)` and `Y(Part("sw_run"))`
+are that part's placed body centre, so `Centre(X(SW_RUN, 4.8), Y(SW_RUN))`
+stands an LED level with a switch. A part or cell named this way is
+placed first. An item placed that way goes down after what it
 refers to, which must be FIXED or EDGE.
 
 **Modules.** A module's fragment runs the same way: `placemat run
 modules/X/X_layout.py` finds the `Layout(name=, path=)` in the `.zen`
-beside it, generates the fragment and applies the script. A fragment has
-no outline, so its script declares no size; its anchor part goes down at a
-coordinate and the rest is said in terms of the anchor's pads.
+beside it, generates the fragment and applies the script. A zen may
+declare one Layout per variant (an `if` on a `config()`), each with its
+own script named for it; the script's first line `# placemat generate:
+--config key=value` tells the generator which. A fragment has no outline
+to write, but its script may give it a frame, `board.size(w, h,
+draw=False)`, sized from its own rows, so the controls that must meet
+a board edge are a `row` on the frame's edge; the board supplies the
+real outline. What is not on an edge is said in terms of parts and pads.
 
 **How a searched item finds its place.** With `Near` it scans around the
 hint. A scored scan over a wide radius is coarse first (four steps apart)
