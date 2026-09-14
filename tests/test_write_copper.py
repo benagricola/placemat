@@ -101,7 +101,7 @@ def test_faces_written_into_a_cells_group_are_read_back_as_the_cells_faces(break
     group = [g for g in board.Groups() if g.GetName() == "bus_drop0"][0]
     t = pcbnew.PCB_TEXT(board)
     t.SetText("placemat faces outward=N handoff=W")
-    t.SetLayer(pcbnew.User_1)
+    t.SetLayer(pcbnew.Cmts_User)
     t.SetPosition(pcbnew.VECTOR2I(int(20e6), int(20e6)))
     board.Add(t)
     group.AddItem(t)
@@ -118,7 +118,7 @@ def test_show_renders_one_cell_on_its_own_with_a_pad_map(breakout_pcb, tmp_path,
     out = capsys.readouterr().out
     assert "bus_drop0" in out and "CAN_S0_P" in out
     pngs = sorted((tmp_path / ".placemat" / "show").glob("bus_drop0-*.png"))
-    assert [p.name for p in pngs] == ["bus_drop0-bottom.png", "bus_drop0-top.png"]
+    assert [p.name for p in pngs] == ["bus_drop0-bottom.png", "bus_drop0-iso-bottom.png", "bus_drop0-iso.png", "bus_drop0-top.png"]
     assert all(p.stat().st_size > 1000 for p in pngs)
 
 

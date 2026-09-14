@@ -188,7 +188,7 @@ coordinates nobody chose.
   `after=`, a pad reference), never by independent numbers from opposite
   edges: the first collision is the run stopping, not a finding to tune.
 - Look before you turn: `placemat show <board> <cell>` renders a cell on
-  its own with its pads by net and side. A module declares its outward
+  its own, ISO views first, with its pads by net and side. A module declares its outward
   side (`board.faces()` in its script, or `placemat faces` on its
   fragment) and edge placement turns it right by itself; a step saying
   "no faces declared" means the module needs that fact, not a rotation

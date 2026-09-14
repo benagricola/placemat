@@ -230,7 +230,7 @@ def read_board(path, courtyard_excess_mm: float = 0.10) -> BoardGeometry:
     return board_geometry_of(board, path, courtyard_excess_mm)
 
 
-FACES_PREFIX = "placemat faces "     # a text item a module fragment carries: `placemat faces outward=N quiet=S handoff=E`
+FACES_PREFIX = "placemat faces "     # a Cmts.User text a module fragment carries: `placemat faces outward=N quiet=S handoff=E`
 
 
 def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10) -> BoardGeometry:

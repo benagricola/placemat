@@ -182,8 +182,8 @@ and rides with every stamped instance; a board's rows and edge
 placements turn the cell by it, and a cell with none is turned as if
 its outward side were local +Y, which the step says. `placemat faces
 <fragment> outward=N` stamps the fact into an existing fragment.
-`placemat show <board> <cell>` renders the cell alone from above and
-below and lists its pads by net and side: look before choosing a
+`placemat show <board> <cell>` renders the cell alone in ISO from both
+faces and from above and below and lists its pads by net and side: look before choosing a
 rotation.
 
 ## Rules

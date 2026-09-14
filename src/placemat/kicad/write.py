@@ -437,10 +437,13 @@ def show_item(pcb_path, name: str, out_dir, quality: str = "basic") -> list:
         _extract_item(str(pcb_path), name, str(scratch))
     env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
     done = []
-    for side in ("top", "bottom"):
-        png = out_dir / ("%s-%s.png" % (name, side))
+    views = [("iso", "top", ["--rotate", "-45,0,45", "--perspective"]),
+             ("iso-bottom", "bottom", ["--rotate", "45,0,45", "--perspective"]),
+             ("top", "top", []), ("bottom", "bottom", [])]
+    for view, side, extra in views:
+        png = out_dir / ("%s-%s.png" % (name, view))
         cmd = ["kicad-cli", "pcb", "render", "--side", side, "--background", "opaque", "--quality", quality,
-               "-w", "1000", "-h", "600", "-o", str(png), str(scratch)]
+               "-w", "1000", "-h", "600", "-o", str(png), str(scratch)] + extra
         subprocess.run(cmd, capture_output=True, timeout=300, env=env)
         if png.exists():
             done.append(png)
@@ -466,7 +469,7 @@ def write_faces(pcb_path, faces: dict) -> str:
         bb = board.ComputeBoundingBox(False)
         t = pcbnew.PCB_TEXT(board)
         t.SetText(text)
-        t.SetLayer(pcbnew.User_1)
+        t.SetLayer(pcbnew.Cmts_User)
         t.SetTextSize(pcbnew.VECTOR2I(nm(0.5), nm(0.5)))
         t.SetTextThickness(nm(0.1))
         t.SetPosition(bb.GetCenter())
