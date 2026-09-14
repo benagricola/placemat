@@ -4,7 +4,7 @@ footprint already knows is typed into a script."""
 import pytest
 
 from placemat.layout import Board
-from placemat.values import Part
+from placemat.values import Location, Part
 from placemat.board_geometry import Footprint
 from tests.fixtures import board_geometry, footprint, pad
 from placemat.values import Box, Face, Location
@@ -35,3 +35,22 @@ def test_a_pad_answers_its_size():
     b = Board(board_geometry([connector("J1", "j1", 5.08)]), edge_margin=1.0)
     p = b.pad(Part("j1"), 1)
     assert p.box.width == pytest.approx(1.5) and p.through
+
+
+def test_a_pad_number_that_is_not_all_digits_is_still_a_pad_number():
+    """Some footprints number a doubled leg 1': PadRef(part, "1'") means
+    that pad, not a net called 1'. A string names a net first; when no pad
+    of the part is on a net of that name, it is tried as a pad number."""
+    from placemat.board_geometry import Footprint
+    from placemat.values import Box, Face
+    from tests.fixtures import pad
+    pads = (pad("SW2", "sw2", "1", "A", 9.4, 10), pad("SW2", "sw2", "1'", "A", 10.6, 10), pad("SW2", "sw2", "2", "B", 12, 10))
+    body = Box(8, 9, 13, 11)
+    sw = Footprint("SW2", "sw2", None, "SW2", Location(10.5, 10), 0.0, Face.FRONT, body, body.inflate(0.1), body, pads)
+    b = Board(board_geometry([sw], width=60, height=60), edge_margin=1.0)
+    assert b.pad(Part("sw2"), "1'").location == Location(10.6, 10)
+    assert b.pad(Part("sw2"), "A").number == "1"                      # a net name still wins
+    with pytest.raises(TypeError):
+        b.pad(Part("sw2"), "9")                                       # an all-digit string is neither: pass an int
+    with pytest.raises(KeyError):
+        b.pad(Part("sw2"), "zz")

@@ -713,9 +713,9 @@ class Board:
         own face, aligned `"centre"`, `"start"` (west or north end) or
         `"end"` along that side; `rotation=90` runs it up the page;
         `knockout` cuts it out of a filled box. The label is worked out the
-        moment its item is placed and, unless `reserve=False`, its box (one
-        gap round it, on its face) is reserved, so nothing placed later
-        lands on it."""
+        moment its item is placed and, unless `reserve=False`, the text's
+        own box on its face is reserved, so nothing placed later lands on
+        it."""
         if align not in ("centre", "start", "end"):
             raise ValueError("a label aligns centre, start or end, not %r" % (align,))
         if rotation not in (0, 90):
@@ -1023,7 +1023,7 @@ class Board:
                 plan.findings.append("%s: sits on %s" % (key, ", ".join(hits)))
                 note += "; sits on " + ", ".join(hits)
             if reserve:
-                occ.reserve(op.box.inflate(gap), "label %s" % key.split(" ", 1)[1], layer=face.copper)
+                occ.reserve(op.box, "label %s" % key.split(" ", 1)[1], layer=face.copper)     # the text's own box, no more
                 note += "; reserved"
             plan.steps.append(Step(key, "copper", Priority.DEFAULT, None, 0.0, note, why, 1))
             done[key] = (op, own, face)

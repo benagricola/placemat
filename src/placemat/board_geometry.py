@@ -54,6 +54,10 @@ class Footprint:
         for p in self.pads:
             if (kind == "number" and p.number == value) or (kind == "net" and p.net == value):
                 return p
+        if kind == "net":                       # no net of that name on this part: a pad number like 1'
+            for p in self.pads:
+                if p.number == value:
+                    return p
         raise KeyError("%s has no pad %s %r" % (self.ref, kind, value))
 
     def pads_on(self, net) -> list[PadGeom]:

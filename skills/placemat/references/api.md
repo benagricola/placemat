@@ -307,8 +307,8 @@ own face (mirrored on the back), aligned `centre`, `start` (the west or
 north end of that side) or `end`; `rotation=90` runs it up the page;
 `knockout` cuts it out of a filled box, which reads better over a busy
 board. `size` and `thickness` default to 1.0 and 0.15 mm. A label is
-worked out the moment its item is placed and its box, one gap round it
-on its face, is reserved: nothing placed later lands on it, and a firm
+worked out the moment its item is placed and the text's own box on
+its face is reserved: nothing placed later lands on it, and a firm
 item declared on top of it is a collision that stops the run.
 `reserve=False` keeps the label out of the way of placement and only
 reports what lands on it. Mark what a user handles:
