@@ -456,7 +456,7 @@ def show_item(pcb_path, name: str, out_dir, quality: str = "basic") -> list:
 
 def write_faces(pcb_path, faces: dict) -> str:
     """Put a module fragment's faces fact into it (replacing any it has):
-    a User.1 text `placemat faces outward=N ...` that pcb layout stamps
+    a User.Comments text `placemat faces outward=N ...` that pcb layout stamps
     with the cell. Returns the text written."""
     from ..values import Edge
     words = ["%s=%s" % (k, Edge(v).value) for k, v in faces.items() if v]

@@ -178,7 +178,7 @@ In a module's own script: `outward` is the side that faces the board
 edge (a connector mouth, the plungers of a switch row), `quiet` the side
 to keep from aggressors, `handoff` the side its signals leave from, all
 named at the cell's rotation 0. The fact is written into the fragment
-and rides with every stamped instance; a board's rows and edge
+as a text on User.Comments and rides with every stamped instance; a board's rows and edge
 placements turn the cell by it, and a cell with none is turned as if
 its outward side were local +Y, which the step says. `placemat faces
 <fragment> outward=N` stamps the fact into an existing fragment.
