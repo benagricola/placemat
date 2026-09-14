@@ -122,3 +122,19 @@ def test_a_labels_gap_defaults_to_touching_its_item():
     b.label(Part("j1"), "MOTOR", side=Edge.NORTH)
     (t,) = labels(b.resolve())
     assert t.at.y == pytest.approx(20 - 2)                       # the reach's top: no gap unless asked
+
+
+def test_labels_of_several_items_share_one_line_past_the_deepest_of_them():
+    b = make_board()
+    b.place(Part("j1"), at=Location(20, 20))                       # 4 tall: its reach ends at 22
+    b.place(Part("r1"), at=Location(30, 20))                       # 1 tall: its reach ends at 20.5
+    b.label([Part("j1"), Part("r1")], ["MOTOR", "LED"], side=Edge.SOUTH, gap=0.5)
+    ts = labels(b.resolve())
+    assert [t.text for t in ts] == ["MOTOR", "LED"]
+    assert ts[0].at == Location(20.0, 22.5) and ts[1].at == Location(30.0, 22.5)   # one line, each over its own item
+
+
+def test_a_label_group_needs_one_text_per_item():
+    b = make_board()
+    with pytest.raises(ValueError):
+        b.label([Part("j1"), Part("r1")], ["MOTOR"], side=Edge.SOUTH)

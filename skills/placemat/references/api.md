@@ -310,10 +310,14 @@ board.label(Part("j_mot"), "MOTOR", side=Edge.SOUTH, knockout=True)             
 board.label(Cell("usb"), "USB-C", side=Edge.NORTH, align="start", size=1.2)
 board.label(PadRef(Part("jp1"), 1), "1", side=Edge.WEST, gap=0.3, size=0.6)
 board.label(Part("j_bus"), "CAN", side=Edge.EAST, rotation=90, why="reads along the edge it plugs into")
+board.label([SW_BOOT, SW_RUN, LED], ["BOOT", "RUN", "MCU"], side=Edge.SOUTH, knockout=True)   # one line for a row
 ```
 Text `gap` off `side` of the item's reach (or of one pad), on the item's
 own face (mirrored on the back), aligned `centre`, `start` (the west or
-north end of that side) or `end`; `rotation=90` runs it up the page;
+north end of that side) or `end`; `rotation=90` runs it up the page.
+A list of items with a list of texts is one label each on ONE line,
+`gap` off the deepest of them, each over its own item: the labels of a
+row of parts of different heights read as a row;
 `knockout` cuts it out of a filled box, which reads better over a busy
 board. `size` and `thickness` default to 1.0 and 0.15 mm. A label is
 worked out the moment its item is placed and the text's own box on

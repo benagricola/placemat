@@ -734,6 +734,9 @@ class Board:
         (a Part or Cell) or of one pad (a PadRef/CellPadRef), on the item's
         own face, aligned `"centre"`, `"start"` (west or north end) or
         `"end"` along that side; `rotation=90` runs it up the page;
+        a list of items with a list of texts is one label each, all on
+        one line: `gap` off `side` of the deepest of them, each aligned
+        on its own item, so the labels of a row read as a row;
         `knockout` cuts it out of a filled box. The label is worked out the
         moment its item is placed and, unless `reserve=False`, the text's
         own box on its face is reserved, so nothing placed later lands on
@@ -742,14 +745,24 @@ class Board:
             raise ValueError("a label aligns centre, start or end, not %r" % (align,))
         if rotation not in (0, 90):
             raise ValueError("a label reads across (0) or up the page (90), not %r" % (rotation,))
-        if isinstance(item, (PadRef, CellPadRef)):
-            self._pad_ref(item)                             # a real pad, checked now
-            key = "label %s %s" % (self._pad_ref(item)[0], text)
+        if isinstance(item, (list, tuple)):
+            items, texts = list(item), list(text) if isinstance(text, (list, tuple)) else [text]
+            if len(texts) != len(items):
+                raise ValueError("labels for %d items need %d texts, not %d" % (len(items), len(items), len(texts)))
+            group = tuple(items)
         else:
-            key = "label %s %s" % (self._item(item)[1], text)
-        self._labels.append((key, item, text, Edge(side), float(gap), align, float(size), float(thickness),
-                             bool(knockout), float(rotation), why, bool(reserve)))
-        return key
+            items, texts, group = [item], [text], None
+        keys = []
+        for one, txt in zip(items, texts):
+            if isinstance(one, (PadRef, CellPadRef)):
+                self._pad_ref(one)                             # a real pad, checked now
+                key = "label %s %s" % (self._pad_ref(one)[0], txt)
+            else:
+                key = "label %s %s" % (self._item(one)[1], txt)
+            self._labels.append((key, one, txt, Edge(side), float(gap), align, float(size), float(thickness),
+                                 bool(knockout), float(rotation), why, bool(reserve), group))
+            keys.append(key)
+        return keys[0] if group is None else keys
 
     def _width(self, net: str, width) -> float:
         return float(width) if width is not None else self.geometry.netclass(net).track_width
@@ -1017,25 +1030,28 @@ class Board:
                 for h in hits:
                     if not any(f.startswith("%s: sits on" % key) and h in f for f in plan.findings):
                         plan.findings.append("%s: sits on %s" % (key, h))
+        def box_of(item):
+            refs = self._label_refs(item)
+            if isinstance(item, (PadRef, CellPadRef)):
+                owner, number, _, _ = self._pad_ref(item)
+                g = occ.items[owner]
+                return (Box.union([s.box for s in g.shapes if s.kind in ("pad", "through") and s.label == number]),
+                        g.reference.face)
+            return Box.union([occ.items[r].reach or occ.items[r].body for r in refs]), occ.items[refs[0]].reference.face
         for entry in self._labels:
-            key, item, text, side, gap, align, size, thick, knockout, rotation, why, reserve = entry
+            key, item, text, side, gap, align, size, thick, knockout, rotation, why, reserve, group = entry
             if key in done:
                 continue
             refs = self._label_refs(item)
-            waiting = [r for r in refs if r in declared and r not in placed]
+            group_refs = [r for one in (group or ()) for r in self._label_refs(one)]
+            waiting = [r for r in refs + group_refs if r in declared and r not in placed]
             if waiting:
                 if final:
                     raise ValueError("%s: %s was declared but found no place" % (key, waiting[0]))
                 continue
-            if isinstance(item, (PadRef, CellPadRef)):
-                owner, number, _, _ = self._pad_ref(item)
-                g = occ.items[owner]
-                box = Box.union([s.box for s in g.shapes if s.kind in ("pad", "through") and s.label == number])
-                face = g.reference.face
-            else:
-                box = Box.union([occ.items[r].reach or occ.items[r].body for r in refs])
-                face = occ.items[refs[0]].reference.face
-            op = _label_op(text, box, face, side, gap, align, size, thick, knockout, rotation)
+            box, face = box_of(item)
+            line = Box.union([box_of(one)[0] for one in group]) if group else None
+            op = _label_op(text, box, face, side, gap, align, size, thick, knockout, rotation, line)
             plan.copper.append(op)
             own = {occ.who(r) for r in refs}
             hits = sorted({occ.who(r) for r, g in occ.items.items()
@@ -1421,33 +1437,36 @@ def _rotation_taking(local: Edge, edge: Edge) -> float:
 
 
 def _label_op(text, box: Box, face: Face, side: Edge, gap: float, align: str, size: float, thick: float,
-              knockout: bool, rotation: float) -> Text:
+              knockout: bool, rotation: float, line: Box | None = None) -> Text:
     """The anchor and justification that put the text `gap` off `side` of
     `box`, aligned along that side. Along a north or south side `start` is
-    the west end; along an east or west side it is the north end."""
+    the west end; along an east or west side it is the north end. `line`,
+    when given, is the box the text stands off instead (a group of labels
+    sharing one line); `box` still sets where it sits along the side."""
     mirrored = face is Face.BACK
+    off = line or box
     def T(*a):
         return Text(*a, side=side)
     if rotation == 0:
         along = {"centre": ("centre", box.center.x), "start": ("left", box.left), "end": ("right", box.right)}
         across = {"centre": ("centre", box.center.y), "start": ("top", box.top), "end": ("bottom", box.bottom)}
         if side is Edge.NORTH:
-            hj, x = along[align]; return T(text, Location(x, box.top - gap), face, size, thick, 0.0, hj, "bottom", knockout, mirrored)
+            hj, x = along[align]; return T(text, Location(x, off.top - gap), face, size, thick, 0.0, hj, "bottom", knockout, mirrored)
         if side is Edge.SOUTH:
-            hj, x = along[align]; return T(text, Location(x, box.bottom + gap), face, size, thick, 0.0, hj, "top", knockout, mirrored)
+            hj, x = along[align]; return T(text, Location(x, off.bottom + gap), face, size, thick, 0.0, hj, "top", knockout, mirrored)
         if side is Edge.WEST:
-            vj, y = across[align]; return T(text, Location(box.left - gap, y), face, size, thick, 0.0, "right", vj, knockout, mirrored)
-        vj, y = across[align]; return T(text, Location(box.right + gap, y), face, size, thick, 0.0, "left", vj, knockout, mirrored)
+            vj, y = across[align]; return T(text, Location(off.left - gap, y), face, size, thick, 0.0, "right", vj, knockout, mirrored)
+        vj, y = across[align]; return T(text, Location(off.right + gap, y), face, size, thick, 0.0, "left", vj, knockout, mirrored)
     # 90 counter-clockwise: the text runs up the page, its top faces west
     along = {"centre": ("centre", box.center.y), "start": ("right", box.top), "end": ("left", box.bottom)}
     across = {"centre": ("centre", box.center.x), "start": ("bottom", box.left), "end": ("top", box.right)}
     if side is Edge.WEST:
-        hj, y = along[align]; return T(text, Location(box.left - gap, y), face, size, thick, 90.0, hj, "bottom", knockout, mirrored)
+        hj, y = along[align]; return T(text, Location(off.left - gap, y), face, size, thick, 90.0, hj, "bottom", knockout, mirrored)
     if side is Edge.EAST:
-        hj, y = along[align]; return T(text, Location(box.right + gap, y), face, size, thick, 90.0, hj, "top", knockout, mirrored)
+        hj, y = along[align]; return T(text, Location(off.right + gap, y), face, size, thick, 90.0, hj, "top", knockout, mirrored)
     if side is Edge.NORTH:
-        vj, x = across[align]; return T(text, Location(x, box.top - gap), face, size, thick, 90.0, "left", vj, knockout, mirrored)
-    vj, x = across[align]; return T(text, Location(x, box.bottom + gap), face, size, thick, 90.0, "right", vj, knockout, mirrored)
+        vj, x = across[align]; return T(text, Location(x, off.top - gap), face, size, thick, 90.0, "left", vj, knockout, mirrored)
+    vj, x = across[align]; return T(text, Location(x, off.bottom + gap), face, size, thick, 90.0, "right", vj, knockout, mirrored)
 
 
 def _locate(board: "Board", occ: Occupancy, ref) -> Location:
