@@ -27,7 +27,7 @@ def test_fixed_then_edge_then_cells_then_loose_whatever_the_file_order():
     b = make_board()
     b.place(Part("r1"))                                                  # loose
     b.place(Cell("small"))                                               # cell
-    b.place(Part("j1"), edge=Edge.NORTH, along=50.0)      # edge
+    b.place(Part("j1"), edge=Edge.NORTH, spot=50.0)      # edge
     b.place(Part("mh"), at=Location(3, 3))                               # fixed
     b.place(Cell("big"))
     order = order_of(b.resolve())

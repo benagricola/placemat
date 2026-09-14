@@ -19,7 +19,7 @@ def make_board():
 
 def test_a_part_may_be_placed_at_the_midpoint_of_two_pads():
     b = make_board()
-    b.place(Part("j1"), edge=Edge.NORTH, along=20.0, rotation=0)
+    b.place(Part("j1"), edge=Edge.NORTH, spot=20.0, rotation=0)
     b.place(Part("c1"), center=(X(Mid(PadRef(Part("j1"), "A"), PadRef(Part("j1"), "B"))), Y(PadRef(Part("j1"), "A"), 6.0)),
             rotation=90)
     plan = b.resolve()
@@ -43,7 +43,7 @@ def test_a_row_may_be_centred_on_a_reference_and_another_butted_before_it():
 
 def test_a_row_may_end_at_a_reference():
     b = make_board()
-    b.place(Part("j1"), edge=Edge.NORTH, along=40.0, rotation=0)
+    b.place(Part("j1"), edge=Edge.NORTH, spot=40.0, rotation=0)
     b.row([Part("r1"), Part("r2")], Edge.NORTH, gap=1.0, rotation=0,
           end=X(PadRef(Part("j1"), "A"), -2.0))
     plan = b.resolve()

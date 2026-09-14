@@ -408,17 +408,23 @@ class Board:
     # ------------------------------------------------------------ placement
     def place(self, item, *, at: Location | None = None, center: Location | None = None,
               rotation: float | None = None, face: Face = Face.FRONT, edge: Edge | None = None,
-              along: float | None = None, overhang: float = 0.0, x=None, y=None,
+              spot=None, overhang: float = 0.0, x=None, y=None,
               near: Location | None = None, radius: float = 3.0, step: float = 0.2,
               rotations=(), priority: Priority | None = None, why: str = "", _standoff: float | None = None) -> PlaceIntent:
         """Declare where an item goes.
 
+        Each of these takes away freedom: at= and center= both coordinates;
+        edge= the coordinate across the edge (its reach sits at the keep-in);
+        spot= the item's place along that edge (a number or a reference, on
+        the board's axis that runs along the edge, whichever edge it is);
+        x= or y= that coordinate, a number or a reference.
+
         at=       a part's origin (a cell's box centre)      -> FIXED
         center=   the body box centre                        -> FIXED
-        edge=, along=   its reach at the board's keep-in     -> EDGE (no freedom: it never moves)
+        edge=, spot=    on that edge at that spot            -> EDGE (no freedom: it never moves)
         edge=           on that edge, wherever there is room -> DEFAULT: slides along it, at the
                         midpoint alone, spread evenly with its fellows, aside from what is there
-        x= or y=        one coordinate pinned (a number or a reference), the other free the same way
+        x= or y=        one coordinate pinned, the other free the same way -> DEFAULT
                   (`overhang=` past the edge, for a face that must stand proud)
         near=     a hint; the placer searches around it      -> DEFAULT
         nothing   searched from where the generator left it  -> DEFAULT
@@ -426,14 +432,17 @@ class Board:
         geom, key, kind = self._item(item)
         if any(i.key == key for i in self._intents):
             raise ValueError("%s is already placed; one declaration per item" % key)
-        if sum(v is not None for v in (at, center, edge, near, x, y)) > 1:
-            raise ValueError("%s: give one of at=, center=, edge=, near=, x= or y=" % key)
+        if sum(v is not None for v in (at, center, near, edge, x, y)) > 1:
+            raise ValueError("%s: give one of at=, center=, near=, edge=, x= or y=" % key)
+        if spot is not None and edge is None:
+            raise ValueError("%s: spot= is a place along an edge; give edge=" % key)
+        along = spot
         source = "auto" if priority is None else "script"
         if priority is None:
             priority = Priority.FIXED if (at is not None or center is not None) else \
                 Priority.EDGE if (edge is not None and along is not None) else Priority.DEFAULT
         if edge is not None and along is None and priority in (Priority.FIXED, Priority.EDGE):
-            raise ValueError("%s: an edge item with no along= is free to slide; it cannot be %s" % (key, priority.value))
+            raise ValueError("%s: an edge item with no spot along it is free to slide; it cannot be %s" % (key, priority.value))
         faces_note = ""
         if rotation is None:
             rotation, faces_note = self.outward_rotation(item, edge) if (edge is not None and along is None) else (0.0, "")
@@ -518,7 +527,7 @@ class Board:
         row.line = line
         for n, (item, r, c) in enumerate(zip(items, rots, clears)):
             along = row.centres[n] if row.start is not None else _RowSlot(row, n)
-            self.place(item, edge=edge, along=along, _standoff=c, rotation=r, why=why)
+            self.place(item, edge=edge, spot=along, _standoff=c, rotation=r, why=why)
         return row
 
     def _is_searched(self, refdes: str) -> bool:

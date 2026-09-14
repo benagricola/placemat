@@ -1,4 +1,4 @@
-"""Degrees of freedom. `edge=` with `along=` is fixed on that edge: zero
+"""Degrees of freedom. `edge=` with `spot=` is fixed on that edge: zero
 freedom, it never moves and two such things that meet are an invalid
 layout. `edge=` alone is one degree of freedom: it slides along its edge,
 sits at the edge's midpoint when alone, spreads evenly with its fellows,
@@ -40,7 +40,7 @@ def test_edge_items_with_no_position_spread_evenly_along_their_edge():
 
 def test_a_free_edge_item_slides_aside_for_a_fixed_one_at_the_midpoint():
     b = make_board()
-    b.place(Part("j1"), edge=Edge.NORTH, along=30.0)              # zero freedom: the midpoint is taken
+    b.place(Part("j1"), edge=Edge.NORTH, spot=30.0)              # zero freedom: the midpoint is taken
     b.place(Part("j2"), edge=Edge.NORTH)
     b.place(Part("j3"), edge=Edge.NORTH)
     plan = b.resolve()
@@ -54,8 +54,8 @@ def test_a_free_edge_item_slides_aside_for_a_fixed_one_at_the_midpoint():
 
 def test_two_fixed_edge_items_that_meet_are_an_invalid_layout():
     b = make_board()
-    b.place(Part("j1"), edge=Edge.NORTH, along=30.0)
-    b.place(Part("j2"), edge=Edge.NORTH, along=32.0)
+    b.place(Part("j1"), edge=Edge.NORTH, spot=30.0)
+    b.place(Part("j2"), edge=Edge.NORTH, spot=32.0)
     with pytest.raises(PlacementCollision):
         b.resolve()
 
@@ -107,3 +107,15 @@ def test_a_pinned_coordinate_may_be_a_reference():
     plan = b.resolve()
     pa, pb = plan.occupancy.pad_location("J1", "1"), plan.occupancy.pad_location("J1", "2")
     assert plan.box("j2").center.x == pytest.approx((pa.x + pb.x) / 2)
+
+
+def test_a_spot_is_a_place_along_whichever_edge_and_needs_an_edge():
+    b = make_board()
+    with pytest.raises(ValueError):
+        b.place(Part("j1"), spot=5.0)                             # a spot is along an edge
+    b.place(Part("j1"), edge=Edge.EAST, spot=20.0)                # on the east edge, 20 down
+    b.place(Part("j2"), edge=Edge.NORTH, spot=20.0)               # on the north edge, 20 across: same keyword
+    plan = b.resolve()
+    assert plan.box("j1").center.y == pytest.approx(20.0) and plan.box("j1").right == pytest.approx(59.0)
+    assert plan.box("j2").center.x == pytest.approx(20.0) and plan.box("j2").top == pytest.approx(1.0)
+    assert plan.step("j1").priority is Priority.EDGE

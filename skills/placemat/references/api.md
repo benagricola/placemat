@@ -37,7 +37,7 @@ board.place(item, priority=Priority.HIGH)                               # critic
 # Unless the script says, a searched item's priority is worked out: how much of the largest
 # item's area it needs, its connections to other declared items, its part count; HIGH also
 # needs a real share of the board. Every step prints `priority high (auto: ...)` or `(script; would be ...)`.
-board.place(item, edge=Edge.NORTH, along=x, rotation=180)                 # EDGE: fixed on that edge, no freedom
+board.place(item, edge=Edge.NORTH, spot=30.0, rotation=180)               # EDGE: on that edge at that spot, no freedom
 board.place(item, edge=Edge.NORTH)                                      # on that edge, wherever there is room: one freedom
 board.place(item, x=X(Mid(pad_a, pad_b)))                               # x pinned (a number or a reference), y free: one freedom
 board.place(item, at=Location(x, y), rotation=0, face=Face.FRONT)      # FIXED: a mechanical fact (a hole, a cell)
@@ -52,8 +52,11 @@ there with the collisions, before anything is searched (`placemat run
 a cell member with its cell: `j_mot (edge): J5 courtyard overlaps cell
 a1's R2 courtyard`.
 
-**Degrees of freedom.** `at=`, `center=`, and `edge=` with `along=` have
-none: the item never moves, and two such things that meet are an invalid
+**Degrees of freedom.** Each keyword takes one away: `edge=` fixes the
+coordinate across the edge, `spot=` the place along it (on the board's
+axis that runs along that edge, so the same keyword serves every edge),
+`x=` or `y=` fixes that coordinate. `at=`, `center=`, and `edge=` with
+`spot=` have none: the item never moves, and two such things that meet are an invalid
 layout that stops the run. `edge=` alone has one: the item slides along
 its edge, sits at the edge's midpoint when it is the only free item
 there, shares the edge evenly with its fellows (the k-th of n at
@@ -63,13 +66,13 @@ slides on the other, sharing the line with items pinned to the same
 value. These are searched, so they go down with the searched items in
 priority order, and an edge item's rotation defaults to the cell's
 declared outward side (see Faces). A bare `place()` has two. Test points, LEDs, buttons and a connector whose
-exact spot does not matter are `edge=` alone, never `along=`.
+exact spot does not matter are `edge=` alone, never `spot=`.
 
 **The default is a bare `place()`.** A part with a wired neighbour already
 on the board needs no position: price the connection and leave it to seed.
 
 ```python
-board.place(Part("j_pwr"), edge=Edge.WEST, along=PWR_ALONG)                          # the connector is EDGE
+board.place(Part("j_pwr"), edge=Edge.WEST, spot=PWR_SPOT)                            # the connector is EDGE
 board.link(PadRef(Part("rpf"), "V48_IN"), PadRef(Part("j_pwr"), "V48"), weight=LinkWeight.SHORT,
            why="the reverse-polarity FET sits at the inlet")
 board.place(Part("rpf"))                                                # seeds beside J_PWR's V48 pin

@@ -124,7 +124,7 @@ def test_a_row_may_sit_behind_another_on_the_same_edge():
 
 def test_a_connector_may_overhang_the_edge():
     b = make_board()
-    b.place(Part("j1"), edge=Edge.NORTH, along=20.0, overhang=1.5, why="the mating face stands proud of the case wall")
+    b.place(Part("j1"), edge=Edge.NORTH, spot=20.0, overhang=1.5, why="the mating face stands proud of the case wall")
     plan = b.resolve()
     assert plan.box("j1").top == pytest.approx(-1.5)
 
