@@ -153,7 +153,8 @@ def _footprint(board, fp, excess_mm, cell) -> Footprint:
                      rotation=fp.GetOrientationDegrees(),
                      face=Face.BACK if fp.IsFlipped() else Face.FRONT,
                      body_box=body_box(fp, excess_mm), courtyard_box=courtyard_box(fp),
-                     phys_box=phys_box(fp), pads=_pads(board, fp), npth=_npth(fp))
+                     phys_box=phys_box(fp), pads=_pads(board, fp), npth=_npth(fp),
+                     fields={f.GetName(): f.GetText() for f in fp.GetFields()})
 
 
 def _copper(board, groups_of) -> tuple[CopperItem, ...]:
@@ -259,4 +260,4 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10) -> Bo
                    if board.GetLayerName(l) in {m.value for m in CopperLayer})
     return BoardGeometry(path=path, footprints=fps, cells=cells, copper=copper, outline=_outline(board),
                     nets=frozenset(classes), netclasses=classes, default_clearance=default_clr,
-                    layers=layers)
+                    layers=layers, edge_clearance=mm(board.GetDesignSettings().m_CopperEdgeClearance))

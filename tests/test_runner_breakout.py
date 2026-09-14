@@ -25,8 +25,8 @@ STATION = PD_ALONG + INNER + BD_ALONG
 W = 140.0
 H = TOP + 3 * STATION + 2 * GAP + 30.0
 board.size(width=W, height=H, chamfer=2.0)
-board.place(Part("trunk_pwr"), edge=Edge.NORTH, along=W / 2 - 14.0, rotation=180, clearance=3.0)
-board.place(Part("trunk_sig"), edge=Edge.NORTH, along=W / 2 + 14.0, rotation=180, clearance=3.0)
+board.place(Part("trunk_pwr"), edge=Edge.NORTH, along=W / 2 - 14.0, rotation=180)
+board.place(Part("trunk_sig"), edge=Edge.NORTH, along=W / 2 + 14.0, rotation=180)
 for d in range(3):
     y0 = TOP + d * (STATION + GAP)
     board.place(Cell("power_drop%d" % d), center=Location(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2), rotation=270)

@@ -56,3 +56,26 @@ def test_a_block_goes_down_after_cells_and_before_loose_parts():
     b.place(Cell("c"))
     order = [s.item for s in b.resolve().steps if s.placement is not None]
     assert order.index("c") < order.index("block ldo") < order.index("r1")
+
+
+def test_a_block_with_nothing_placed_to_pull_it_starts_from_the_board_not_where_the_generator_left_it():
+    """A fresh generation drops parts off the outline; a block with no
+    placed neighbour and no hint searches from the board's centre."""
+    fps = [footprint("U9", 150, 60, w=4, h=2, inst="ldo", nets=("VIN", "VOUT")),
+           footprint("C8", 160, 60, w=2, h=1, inst="cin", nets=("VIN", "GND"))]
+    b = Board(board_geometry(fps, width=50, height=50), edge_margin=1.0)
+    b.place(b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")]))
+    plan = b.resolve()
+    assert plan.findings == []
+    assert 0 < plan.box("ldo").center.x < 50 and 0 < plan.box("ldo").center.y < 50
+
+
+def test_a_block_with_a_placed_neighbour_searches_from_that_neighbour():
+    fps = [footprint("U9", 150, 60, w=4, h=2, inst="ldo", nets=("VIN", "VOUT")),
+           footprint("C8", 160, 60, w=2, h=1, inst="cin", nets=("VIN", "GND")),
+           footprint("J1", 5, 5, w=4, h=2, inst="j1", nets=("VIN", "GND"))]
+    b = Board(board_geometry(fps, width=50, height=50), edge_margin=1.0)
+    b.place(Part("j1"), at=Location(40, 40))
+    b.place(b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")]), radius=4.0)
+    plan = b.resolve()
+    assert plan.findings == [] and plan.box("ldo").center.distance(Location(40, 40)) < 10

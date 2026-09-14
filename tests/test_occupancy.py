@@ -1,4 +1,5 @@
 from placemat.occupancy import Occupancy
+import pytest
 from placemat.placement import Placement
 from placemat.values import Face, Location
 from tests.fixtures import board_geometry, footprint, track
@@ -119,3 +120,60 @@ def test_a_zone_fill_never_blocks_a_placement():
     g = board_geometry([fp], copper=[zone], width=50, height=50)
     occ = Occupancy(g, 1.0)
     assert occ.legal(fp, Placement(Location(25, 25), 0, Face.FRONT)) is None
+
+
+def test_a_scan_may_hand_legal_a_prefiltered_obstacle_list_and_get_the_same_answer():
+    """The obstacles near a search region are gathered once per scan; a
+    candidate is then checked against those only, with the same verdict."""
+    from placemat.placement import Placement
+    from placemat.values import Face
+    fps = [footprint("U1", 10, 10, w=4, h=2), footprint("R1", 13, 10, w=2, h=1), footprint("R9", 40, 40, w=2, h=1)]
+    g = board_geometry(fps, width=50, height=50)
+    occ = Occupancy(g, edge_margin=0.0, board_box=g.outline_box)
+    geom = occ._geometry(fps[0])
+    near = occ.obstacles(geom, Box(5, 5, 20, 15))
+    assert {s.owner for s in near} == {"R1"}                       # R9 is far from the region
+    p = Placement(Location(11.5, 10), 0, Face.FRONT)
+    assert occ.legal(fps[0], p) == occ.legal(fps[0], p, others=near) and occ.legal(fps[0], p)
+    far = Placement(Location(20, 30), 0, Face.FRONT)
+    assert occ.legal(fps[0], far) is None and occ.legal(fps[0], far, others=near) is None
+
+
+def test_candidate_pad_locations_are_the_transformed_pad_centres():
+    from placemat.placement import Placement
+    from placemat.values import Face
+    fps = [footprint("U1", 10, 10, w=4, h=2)]
+    occ = Occupancy(board_geometry(fps, width=50, height=50), edge_margin=0.0)
+    pads = occ.candidate_pad_locations(fps[0], Placement(Location(20, 20), 90, Face.FRONT))
+    # pad 1 sits 1.4 west of the origin at rotation 0; at 90 (KiCad's sense) it turns onto the y axis
+    assert pads[("U1", "1")].distance(Location(20, 20)) == pytest.approx(1.4)
+    assert pads[("U1", "1")].x == pytest.approx(20.0)
+
+
+def test_a_declared_part_not_yet_placed_is_not_an_obstacle_where_the_generator_left_it():
+    """A fresh generation drops every part somewhere. A part the script
+    will place later must not block a firm item now; an undeclared part
+    stays where it is and does block."""
+    from placemat.layout import Board
+    from placemat.values import Part
+    fps = [footprint("U1", 10, 10, w=4, h=2), footprint("R1", 20, 20, w=2, h=1), footprint("R2", 30, 30, w=2, h=1)]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.place(Part("u1"), at=Location(20, 20))                  # where R1 sits now
+    b.place(Part("r1"))                                       # R1 will be searched later
+    plan = b.resolve()
+    assert plan.findings == [] and plan.box("r1").overlaps(plan.box("u1")) is False
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.place(Part("u1"), at=Location(30, 30))                  # where the undeclared R2 sits
+    import pytest
+    from placemat.layout import PlacementCollision
+    with pytest.raises(PlacementCollision):
+        b.resolve()
+
+
+def test_a_collision_with_a_cell_member_names_the_cell():
+    fps = [footprint("R2", 10, 10, w=2, h=1, cell="a1", inst="a1.rg", nets=("A", "B")),
+           footprint("J5", 30, 30, w=10, h=8, nets=("C", "D"))]
+    g = board_geometry(fps, cells=["a1"], width=60, height=60)
+    occ = Occupancy(g, edge_margin=0.0, board_box=g.outline_box)
+    why = occ.legal(fps[1], Placement(Location(10, 10), 0, Face.FRONT))
+    assert why == "J5 courtyard overlaps cell a1's R2 courtyard"

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .copper import (CopperOp, Pour, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
+from .copper import (CopperOp, Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
                      resolve_bridges)
 from .geometry import polygon_box
 from .occupancy import Occupancy, Shape
@@ -47,8 +47,8 @@ class Row:
     boundary (`inner`) and the edge line (`outer`) are references resolved
     against the outline."""
 
-    def __init__(self, edge: Edge, clearance: float, gap: float, start: float | None, keys, alongs, depth: float):
-        self.edge, self.clearance, self.gap = edge, clearance, gap
+    def __init__(self, edge: Edge, standoff: float, gap: float, start: float | None, keys, alongs, depth: float):
+        self.edge, self.standoff, self.gap = edge, standoff, gap     # standoff: the outer line, in from the edge
         self.keys, self.alongs, self.depth = list(keys), list(alongs), depth
         self.items: list = []
         self.length = sum(alongs) + gap * (len(alongs) - 1)
@@ -72,6 +72,8 @@ class Row:
             self.begin(_coord(board, occ, value, axis) - self.length / 2.0)
         elif kind == "end":
             self.begin(_coord(board, occ, value, axis) - self.length)
+        elif kind == "start":
+            self.begin(_coord(board, occ, value, axis))
         elif kind == "before":
             value.begin_from(board, occ)
             self.begin(value.start - self.gap - self.length)
@@ -113,7 +115,7 @@ class Row:
         base, dx = (what.split("+")[0] if "+" in what else what.split("-")[0]), 0.0
         if len(what) > len(base):
             dx = float(what[len(base):])
-        depth = self.clearance + (self.depth if base == "inner" else 0.0)
+        depth = self.standoff + (self.depth if base == "inner" else 0.0)
         if self.edge is Edge.WEST:
             return board_box.left + depth + dx
         if self.edge is Edge.EAST:
@@ -217,6 +219,7 @@ class Plan:
     findings: list[str] = field(default_factory=list)
     copper: list = field(default_factory=list)
     links: list = field(default_factory=list)
+    rules: list = field(default_factory=list)
     outline: Box | None = None
     chamfer: float = 0.0
     radius: float = 0.0
@@ -249,20 +252,31 @@ class Plan:
         return {op.net for op in self.copper if isinstance(op, (Pour, Zone))}
 
 
+class PlacementCollision(Exception):
+    """Two things the script declared firm (FIXED or EDGE) land on each
+    other: a script error, reported before anything is searched."""
+    def __init__(self, collisions):
+        self.collisions = list(collisions)
+        super().__init__("%d firm placement(s) collide:\n  " % len(self.collisions) + "\n  ".join(self.collisions))
+
+
 class Board:
     """One board being laid out. Questions are answered from the geometry read
     off the generated .kicad_pcb; declarations are collected and resolved
     together."""
 
-    def __init__(self, geometry: BoardGeometry, edge_margin: float = 0.0, clearance: float | None = None,
-                 via_drill: float = 0.3, via_size: float = 0.6):
+    def __init__(self, geometry: BoardGeometry, edge_margin: float | None = None, clearance: float | None = None,
+                 via_drill: float = 0.3, via_size: float = 0.6, keep_going: bool = False):
         self.geometry = geometry
-        self.edge_margin = edge_margin
+        self.edge_margin = geometry.edge_clearance if edge_margin is None else edge_margin
         self.clearance = clearance
         self.via_drill, self.via_size = via_drill, via_size
+        self.keep_going = keep_going            # carry on past colliding FIXED/EDGE items, as findings
         self._intents: list[PlaceIntent] = []
         self._copper: list[CopperIntent] = []
+        self._labels: list = []
         self._links: list[Link] = []
+        self._rules: list = []
         self._free_nets: set = set()
         self._outline: Box | None = geometry.outline_box
         self._sized = False                 # the script has declared the board size
@@ -316,11 +330,24 @@ class Board:
             return item, item.key, "block"
         raise TypeError("place() takes a Part, a Cell or a block, not %r" % (item,))
 
+    @property
+    def keep_in(self) -> float:
+        """How close anything may come to the board edge: the board's own
+        copper-to-edge rule. Edge placement puts an item's reach here."""
+        return self.edge_margin
+
     def extent(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
         """The item's body box at `rotation`, placed at the origin: a size, not a place."""
         geom, _, _ = self._item(item)
         occ = Occupancy(self.geometry, self.edge_margin, board_box=None)
         return occ.body_box(geom, Placement(Location(0.0, 0.0), rotation, face))
+
+    def reach(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
+        """Everything the item physically is (body, pads, silk) at
+        `rotation`, at the origin: what edge placement and rows measure."""
+        geom, _, _ = self._item(item)
+        occ = Occupancy(self.geometry, self.edge_margin, board_box=None)
+        return occ.reach_box(geom, Placement(Location(0.0, 0.0), rotation, face))
 
     def _pad_ref(self, ref):
         """Validate a pad reference now; return (refdes, pad number, dx, dy)."""
@@ -361,14 +388,15 @@ class Board:
     # ------------------------------------------------------------ placement
     def place(self, item, *, at: Location | None = None, center: Location | None = None,
               rotation: float = 0.0, face: Face = Face.FRONT, edge: Edge | None = None,
-              along: float | None = None, clearance: float | None = None,
+              along: float | None = None, overhang: float = 0.0,
               near: Location | None = None, radius: float = 3.0, step: float = 0.2,
-              rotations=(), priority: Priority | None = None, why: str = "") -> PlaceIntent:
+              rotations=(), priority: Priority | None = None, why: str = "", _standoff: float | None = None) -> PlaceIntent:
         """Declare where an item goes.
 
         at=       a part's origin (a cell's box centre)      -> FIXED
         center=   the body box centre                        -> FIXED
-        edge=, along=, clearance=   flush to a board edge    -> EDGE
+        edge=, along=   its reach at the board's keep-in     -> EDGE
+                  (`overhang=` past the edge, for a face that must stand proud)
         near=     a hint; the placer searches around it      -> DEFAULT
         nothing   searched from where the generator left it  -> DEFAULT
         """
@@ -387,43 +415,56 @@ class Board:
         needs = {self._pad_ref(ref)[0] for ref in _refs_in([at, center, along])}   # a real pad, placed before this
         if isinstance(along, _RowSlot):
             needs |= along.row.needs
+        if overhang and edge is None:
+            raise ValueError("%s: overhang= goes with edge=" % key)
+        standoff = _standoff if _standoff is not None else (-float(overhang) if overhang else self.keep_in)
         intent = PlaceIntent(key, geom, kind, priority, float(rotation), face, at, center, edge, along,
-                             clearance if clearance is not None else self.edge_margin, near, radius, step,
-                             tuple(rotations), why, len(self._intents), frozenset(needs))
+                             standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs))
         self._intents.append(intent)
         return intent
 
-    def row(self, items, edge: Edge, *, gap: float, start: float | None = None, align: str = "start",
-            clearance: float | None = None, rotation: float | None = None, line: str = "centre",
+    def row(self, items, edge: Edge, *, gap: float, start=None, align: str = "start",
+            rotation: float | None = None, line: str = "centre", behind: Row | None = None, inboard: float | None = None,
+            overhang: float = 0.0,
             centre=None, end=None, before: Row | None = None, after: Row | None = None, why: str = "") -> Row:
         """Items down `edge` in order, `gap` apart, with their outward sides
         out (`rotation=`, one value or one per item, overrides that turn for
-        parts with no outward side). Across the row the items align on one
-        line: `line="centre"` (the default) puts their centres on the line
-        the deepest item's centre falls on, `clearance` in from the edge;
-        `"outer"` puts every outward edge `clearance` in from the board edge
-        (connectors edge-hard); `"inner"` aligns the inboard edges. A row
-        butted `before=` or `after=` another takes that row's line. Where
-        the row sits along the edge: `start=` a
-        number (default: the edge margin); `align="center"` on the board;
-        `centre=` or `end=` a reference (a pad's X()/Y(), a Mid); `before=`
-        or `after=` another row, one gap away. A row placed by a reference
-        is measured when its items are placed. Returns the Row."""
+        parts with no outward side). The row's outer line is the board's
+        keep-in, or `inboard` (default `gap`) behind the inner line of the
+        row it is `behind=`; `overhang=` puts a face that far past the edge. Across the row the items align
+        on one line: `line="centre"` (the default) puts their centres on
+        the line the deepest item's centre falls on; `"outer"` puts every
+        outward reach on the outer line (connectors edge-hard); `"inner"`
+        aligns the inboard edges. A row butted `before=` or `after=`
+        another takes that row's line. Where the row sits along the edge:
+        `start=` a number (default: the keep-in) or a reference;
+        `align="center"` on the board; `centre=` or `end=` a reference (a
+        pad's X()/Y(), a Mid); `before=` or `after=` another row, one gap
+        away. A row placed by a reference is measured when its items are
+        placed. Returns the Row."""
         rots = [_OUTWARD_ROTATION[edge]] * len(items) if rotation is None else \
             ([float(r) for r in rotation] if isinstance(rotation, (list, tuple)) else [float(rotation)] * len(items))
         rot = rots[0] if rots else _OUTWARD_ROTATION[edge]
-        clr = clearance if clearance is not None else self.edge_margin
+        if behind is not None:
+            if behind.edge is not edge:
+                raise ValueError("a row is behind a row on its own edge")
+            if overhang:
+                raise ValueError("a row behind another has no edge to overhang")
+            clr = behind.standoff + behind.depth + (gap if inboard is None else float(inboard))
+        else:
+            clr = -float(overhang) if overhang else self.keep_in
         along_axis = edge in (Edge.EAST, Edge.WEST)
         keys, alongs, depths = [], [], []
         for item, r in zip(items, rots):
             geom, key, kind = self._item(item)
-            box = self.extent(item, r)
+            box = self.reach(item, r)
             keys.append(key)
             alongs.append(box.height if along_axis else box.width)
             depths.append(box.width if along_axis else box.height)
-        anchors = [("centre", centre), ("end", end), ("before", before), ("after", after)]
+        by_ref = start is not None and not isinstance(start, (int, float))
+        anchors = [("centre", centre), ("end", end), ("before", before), ("after", after), ("start", start if by_ref else None)]
         given = [(k, v) for k, v in anchors if v is not None]
-        if len(given) > 1 or (given and (start is not None or align == "center")):
+        if len(given) > 1 or (given and ((start is not None and not by_ref) or align == "center")):
             raise ValueError("a row is placed one way: start=, align=\"center\", centre=, end=, before= or after=")
         row = Row(edge, clr, gap, None, keys, alongs, max(depths))
         if given:
@@ -440,17 +481,17 @@ class Board:
             else:
                 row.anchor = ("outline", None)
         else:
-            row.begin(float(clr if start is None else start))
+            row.begin(float(self.keep_in if start is None else start))
         row.items = list(items)
         if line not in ("centre", "outer", "inner"):
             raise ValueError("a row's line is centre, outer or inner, not %r" % (line,))
         base = row.anchor[1] if row.anchor and row.anchor[0] in ("before", "after") else row
-        ref = base.clearance + {"centre": base.depth / 2.0, "outer": 0.0, "inner": base.depth}[line]   # the line, from the edge
+        ref = base.standoff + {"centre": base.depth / 2.0, "outer": 0.0, "inner": base.depth}[line]   # the line, from the edge
         clears = [ref - {"centre": d / 2.0, "outer": 0.0, "inner": d}[line] for d in depths]
         row.line = line
         for n, (item, r, c) in enumerate(zip(items, rots, clears)):
             along = row.centres[n] if row.start is not None else _RowSlot(row, n)
-            self.place(item, edge=edge, along=along, clearance=c, rotation=r, why=why)
+            self.place(item, edge=edge, along=along, _standoff=c, rotation=r, why=why)
         return row
 
     def _is_searched(self, refdes: str) -> bool:
@@ -477,6 +518,23 @@ class Board:
         """A net whose length on this board does not matter (its off-board
         run dwarfs it): it seeds nothing and pulls nothing."""
         self._free_nets.add(self.geometry.require_net(net))
+
+    def rule(self, *, clearance: float, within=None, between=None, on=None, why: str = ""):
+        """A design rule KiCad's DRC judges by: a `clearance` in one scope,
+        `within=` a cell (its members to each other), `between=(net, net)`,
+        or `on=` a net. Written as a custom rule beside the board; `why`
+        names it, and a violation quotes the name."""
+        from .rules import Rule
+        if sum(x is not None for x in (within, between, on)) != 1:
+            raise ValueError("a rule has one scope: within=, between= or on=")
+        if not why:
+            raise ValueError("a rule says why: it is named by it")
+        rule = Rule("clearance", float(clearance), why,
+                    within=self.geometry.cell(within).name if within is not None else None,
+                    between=(self.geometry.require_net(between[0]), self.geometry.require_net(between[1])) if between else None,
+                    on=self.geometry.require_net(on) if on is not None else None)
+        self._rules.append(rule)
+        return rule
 
     def _plane_nets(self) -> set:
         return {c.net for c in self._copper if c.key.split(" ")[0] in ("pour", "plane", "finger")}
@@ -507,6 +565,19 @@ class Board:
                     out.append(((fp.ref, p.number), occ.pad_location(other.owner, other.number), w))
         return out
 
+    def _seed_hint(self, item, occ: Occupancy, targets: list, rotation: float, face) -> Placement:
+        """Where the item's origin should go for its wired pads to sit on
+        the weighted centroid of the placed pads they connect to."""
+        current = occ._geometry(item).reference
+        wsum = sum(w for _, _, w in targets)
+        cx = sum(t.x * w for _, t, w in targets) / wsum
+        cy = sum(t.y * w for _, t, w in targets) / wsum
+        pads_now = occ.candidate_pad_locations(item, Placement(current.location, rotation, face))
+        own = [pads_now[k] for k, _, _ in targets if k in pads_now]
+        ox = sum(p.x for p in own) / len(own) - current.location.x if own else 0.0
+        oy = sum(p.y for p in own) / len(own) - current.location.y if own else 0.0
+        return Placement(Location(round(cx - ox, 3), round(cy - oy, 3)), rotation, face)
+
     def _scorer(self, item, occ: Occupancy, targets: list):
         def score(placement: Placement) -> float:
             pads = occ.candidate_pad_locations(item, placement)
@@ -534,6 +605,29 @@ class Board:
         ci = CopperIntent(key, name, priority, plan, tuple(refs), why, len(self._copper), bridge)
         self._copper.append(ci)
         return ci
+
+    def label(self, item, text: str, *, side: Edge = Edge.NORTH, gap: float = 0.5, align: str = "centre",
+              size: float = 1.0, thickness: float = 0.15, knockout: bool = False, rotation: float = 0.0,
+              why: str = ""):
+        """Silkscreen text that marks a user-facing feature: a connector,
+        jumper, switch or LED. It sits `gap` off `side` of the item's reach
+        (a Part or Cell) or of one pad (a PadRef/CellPadRef), on the item's
+        own face, aligned `"centre"`, `"start"` (west or north end) or
+        `"end"` along that side; `rotation=90` runs it up the page;
+        `knockout` cuts it out of a filled box. Written after placement,
+        so it follows the item wherever it lands."""
+        if align not in ("centre", "start", "end"):
+            raise ValueError("a label aligns centre, start or end, not %r" % (align,))
+        if rotation not in (0, 90):
+            raise ValueError("a label reads across (0) or up the page (90), not %r" % (rotation,))
+        if isinstance(item, (PadRef, CellPadRef)):
+            self._pad_ref(item)                             # a real pad, checked now
+            key = "label %s %s" % (self._pad_ref(item)[0], text)
+        else:
+            key = "label %s %s" % (self._item(item)[1], text)
+        self._labels.append((key, item, text, Edge(side), float(gap), align, float(size), float(thickness),
+                             bool(knockout), float(rotation), why))
+        return key
 
     def _width(self, net: str, width) -> float:
         return float(width) if width is not None else self.geometry.netclass(net).track_width
@@ -671,7 +765,12 @@ class Board:
     # ------------------------------------------------------------ resolution
     def resolve(self, progress=None) -> Plan:
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline)
-        plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius)
+        for intent in self._intents:
+            declared = [intent.item.anchor] + [fp for fp, _ in intent.item.satellites] if intent.kind == "block" else [intent.item]
+            for item in declared:
+                occ.pending |= occ._geometry(item).owners
+        plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius,
+                    rules=list(self._rules))
         ctx = _CopperContext(self, occ)
         placements = sorted(self._intents, key=lambda i: i.rank)
         fixed_copper = [c for c in self._copper if c.priority is Priority.FIXED]
@@ -684,7 +783,9 @@ class Board:
             if why_now:
                 step.note = (why_now + "; " + step.note) if step.note else why_now
             plan.steps.append(step)
-            if obj.kind == "block":
+            if step.placement is None:
+                pass                    # unplaced: left off the board, pulls nothing, blocks nothing
+            elif obj.kind == "block":
                 occ.commit(obj.item.anchor, step.placement)
                 placed.update(fp.ref for fp in obj.item.members)
             else:
@@ -705,6 +806,9 @@ class Board:
                                      "items may be referred to)" % (firm[0].key, ", ".join(sorted(firm[0].needs - placed))))
                 place_one(ready[0])
                 firm.remove(ready[0])
+            collisions = [f for f in plan.findings if f.split(" ")[1] in ("(fixed):", "(edge):")]
+            if collisions and not self.keep_going:
+                raise PlacementCollision(collisions)
             pending = [obj for obj in placements if lo <= obj.rank[0] <= hi
                        and obj.priority not in (Priority.FIXED, Priority.EDGE)]
             while pending:
@@ -718,6 +822,7 @@ class Board:
         place_ranked(RANK_LOOSE, RANK_LOOSE)
         self._plan_copper(occ, ctx, other_copper, plan, progress)
         self._report_links(occ, plan, placed)
+        self._place_labels(occ, plan, placed, progress)
         return plan
 
     def _settle_in_pocket(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
@@ -741,8 +846,46 @@ class Board:
             i.key, "%.1f x %.1f" % (occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).width,
                                     occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).height),
             i.face.value, len(tried)))
-        return Step(i.key, i.kind, i.priority, Placement(current.location, i.rotation, i.face), 0.0,
-                    "UNPLACED: no pocket fits", i.why)
+        return Step(i.key, i.kind, i.priority, None, 0.0, "UNPLACED: no pocket fits", i.why)
+
+    def _declared_refs(self) -> set:
+        """Every refdes a placement declaration covers."""
+        out = set()
+        for i in self._intents:
+            parts = [i.item.anchor] + [fp for fp, _ in i.item.satellites] if i.kind == "block" else \
+                (list(i.item.members) if i.kind == "cell" else [i.item])
+            out |= {fp.ref for fp in parts}
+        return out
+
+    def _place_labels(self, occ, plan: Plan, placed: set, progress):
+        declared = self._declared_refs()
+        for key, item, text, side, gap, align, size, thick, knockout, rotation, why in self._labels:
+            if isinstance(item, (PadRef, CellPadRef)):
+                owner, number, _, _ = self._pad_ref(item)
+                if owner in declared and owner not in placed:
+                    raise ValueError("%s: %s was declared but found no place" % (key, owner))
+                g = occ.items[owner]
+                box = Box.union([s.box for s in g.shapes if s.kind in ("pad", "through") and s.label == number])
+                face = g.reference.face
+            else:
+                geom, ikey, kind = self._item(item)
+                refs = [fp.ref for fp in (geom.members if kind == "cell" else (geom,))]
+                if any(r in declared and r not in placed for r in refs):
+                    raise ValueError("%s: %s was declared but found no place" % (key, ikey))
+                box = Box.union([occ.items[r].reach or occ.items[r].body for r in refs])
+                face = occ.items[refs[0]].reference.face
+            op = _label_op(text, box, face, side, gap, align, size, thick, knockout, rotation)
+            plan.copper.append(op)
+            hits = sorted({occ.who(r) for r, g in occ.items.items()
+                           if g.reference.face is face and (g.reach or g.body).overlaps(op.box)} - {occ.who(r) for r in
+                          ([self._pad_ref(item)[0]] if isinstance(item, (PadRef, CellPadRef)) else refs)})
+            note = "%s of %s" % (side.name.lower(), key.split(" ", 2)[1])
+            if hits:
+                plan.findings.append("%s: sits on %s" % (key, ", ".join(hits)))
+                note += "; sits on " + ", ".join(hits)
+            plan.steps.append(Step(key, "copper", Priority.DEFAULT, None, 0.0, note, why, 1))
+            if progress:
+                progress("%-28s copper  label    %s" % (key, note))
 
     def _plan_copper(self, occ, ctx, intents, plan: Plan, progress):
         """Plan a batch of copper together. Tracks are collected first and
@@ -839,17 +982,25 @@ class Board:
         else:
             targets = self._targets(spec.anchor, occ, placed)
             current = occ._geometry(spec.anchor).reference
-            hint = Placement(i.near, i.rotation, i.face) if i.near is not None else \
-                Placement(current.location, i.rotation, i.face)
+            if i.near is not None:
+                hint = Placement(i.near, i.rotation, i.face)
+            elif targets:
+                hint = self._seed_hint(spec.anchor, occ, targets, i.rotation, i.face)
+            elif self._outline is not None:  # nothing placed pulls it: search from the board, not from where the generator dropped it
+                hint = Placement(self._outline.center, i.rotation, i.face)
+            else:
+                hint = Placement(current.location, i.rotation, i.face)
             score = None
             if targets:
                 def score(members):
                     return self._scorer(spec.anchor, occ, targets)(members[spec.anchor.inst])
-            best, tried, rejected, reasons = scan_block(occ, spec, hint, i.radius, i.step, i.rotations or (i.rotation,), clr, score)
+            body = occ._geometry(spec.anchor).body
+            radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)
+            best, tried, rejected, reasons = scan_block(occ, spec, hint, radius, i.step, i.rotations or (i.rotation,), clr, score)
             if best is None:
                 plan.findings.append("%s: no legal spot within %.1f mm of %s (%s)" % (
-                    i.key, i.radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in rejected.most_common(3))))
-                members = {spec.anchor.inst: hint}
+                    i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in rejected.most_common(3))))
+                members = {}
                 note = "UNPLACED"
             else:
                 _, anchor, members = best
@@ -865,8 +1016,9 @@ class Board:
                 plan.steps.append(Step(fp.inst, "part", i.priority, members[fp.inst], 0.0, "in %s" % i.key))
                 occ.commit(fp, members[fp.inst])
         plan._items[spec.anchor.inst] = spec.anchor
-        plan.steps.append(Step(spec.anchor.inst, "part", i.priority, members[spec.anchor.inst], 0.0, "anchor of %s" % i.key))
-        return Step(i.key, "block", i.priority, members[spec.anchor.inst], 0.0, note, i.why)
+        anchor_at = members.get(spec.anchor.inst)
+        plan.steps.append(Step(spec.anchor.inst, "part", i.priority, anchor_at, 0.0, "anchor of %s" % i.key))
+        return Step(i.key, "block", i.priority, anchor_at, 0.0, note, i.why)
 
     def _settle(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set = frozenset()) -> Step:
         if i.kind == "block":
@@ -880,7 +1032,7 @@ class Board:
             else:
                 along = i.along.resolve(self, occ) if isinstance(i.along, _RowSlot) else _coord(self, occ, i.along, "x" if i.edge in (Edge.NORTH, Edge.SOUTH) else "y")
                 p = edge_placement(occ, i.item, i.edge, along, i.rotation, i.clearance, i.face)
-            why = occ.legal(i.item, p, clr)
+            why = occ.legal(i.item, p, clr, past_edge=i.edge is not None and i.clearance < self.keep_in)
             if why:
                 plan.findings.append("%s (%s): %s" % (i.key, i.priority.value, why))
             return Step(i.key, i.kind, i.priority, p, 0.0, why or "", i.why)
@@ -890,15 +1042,7 @@ class Board:
         if i.near is not None:
             hint = Placement(i.near, i.rotation, i.face)
         elif targets:
-            wsum = sum(w for _, _, w in targets)
-            cx = sum(t.x * w for _, t, w in targets) / wsum
-            cy = sum(t.y * w for _, t, w in targets) / wsum
-            # the hint is where the part's ORIGIN should go for its pads to sit on the centroid
-            pads_now = occ.candidate_pad_locations(i.item, Placement(current.location, i.rotation, i.face))
-            own = [pads_now[k] for k, _, _ in targets if k in pads_now]
-            ox = sum(p.x for p in own) / len(own) - current.location.x if own else 0.0
-            oy = sum(p.y for p in own) / len(own) - current.location.y if own else 0.0
-            hint = Placement(Location(round(cx - ox, 3), round(cy - oy, 3)), i.rotation, i.face)
+            hint = self._seed_hint(i.item, occ, targets, i.rotation, i.face)
             # k[1] here is always a raw pad NUMBER string from _targets() (never
             # a net name) - some real footprints number pads like "1'" for a
             # mechanically doubled leg, which is not all-digit, so this matches
@@ -911,11 +1055,14 @@ class Board:
         else:
             return self._settle_in_pocket(occ, i, plan, clr)
         score = self._scorer(i.item, occ, targets) if targets else None
-        result = scan(occ, i.item, hint, i.radius, i.step, i.rotations or (i.rotation,), clr, score=score)
+        # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
+        body = occ._geometry(i.item).body
+        radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)
+        result = scan(occ, i.item, hint, radius, i.step, i.rotations or (i.rotation,), clr, score=score)
         if result.chosen is None:
             plan.findings.append("%s: no legal location within %.1f mm of %s (%s)" % (
-                i.key, i.radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in result.rejected.most_common(3))))
-            return Step(i.key, i.kind, i.priority, hint, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()), i.why)
+                i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in result.rejected.most_common(3))))
+            return Step(i.key, i.kind, i.priority, None, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()), i.why)
         note = seeded
         if result.moved_mm > 0:
             first = next(iter(result.reasons.values()), "")
@@ -926,6 +1073,36 @@ class Board:
                 moved += " for a better link score"
             note = (note + "; " if note else "") + moved
         return Step(i.key, i.kind, i.priority, result.chosen, result.moved_mm, note, i.why)
+
+def _label_op(text, box: Box, face: Face, side: Edge, gap: float, align: str, size: float, thick: float,
+              knockout: bool, rotation: float) -> Text:
+    """The anchor and justification that put the text `gap` off `side` of
+    `box`, aligned along that side. Along a north or south side `start` is
+    the west end; along an east or west side it is the north end."""
+    mirrored = face is Face.BACK
+    def T(*a):
+        return Text(*a, side=side)
+    if rotation == 0:
+        along = {"centre": ("centre", box.center.x), "start": ("left", box.left), "end": ("right", box.right)}
+        across = {"centre": ("centre", box.center.y), "start": ("top", box.top), "end": ("bottom", box.bottom)}
+        if side is Edge.NORTH:
+            hj, x = along[align]; return T(text, Location(x, box.top - gap), face, size, thick, 0.0, hj, "bottom", knockout, mirrored)
+        if side is Edge.SOUTH:
+            hj, x = along[align]; return T(text, Location(x, box.bottom + gap), face, size, thick, 0.0, hj, "top", knockout, mirrored)
+        if side is Edge.WEST:
+            vj, y = across[align]; return T(text, Location(box.left - gap, y), face, size, thick, 0.0, "right", vj, knockout, mirrored)
+        vj, y = across[align]; return T(text, Location(box.right + gap, y), face, size, thick, 0.0, "left", vj, knockout, mirrored)
+    # 90 counter-clockwise: the text runs up the page, its top faces west
+    along = {"centre": ("centre", box.center.y), "start": ("right", box.top), "end": ("left", box.bottom)}
+    across = {"centre": ("centre", box.center.x), "start": ("bottom", box.left), "end": ("top", box.right)}
+    if side is Edge.WEST:
+        hj, y = along[align]; return T(text, Location(box.left - gap, y), face, size, thick, 90.0, hj, "bottom", knockout, mirrored)
+    if side is Edge.EAST:
+        hj, y = along[align]; return T(text, Location(box.right + gap, y), face, size, thick, 90.0, hj, "top", knockout, mirrored)
+    if side is Edge.NORTH:
+        vj, x = across[align]; return T(text, Location(x, box.top - gap), face, size, thick, 90.0, "left", vj, knockout, mirrored)
+    vj, x = across[align]; return T(text, Location(x, box.bottom + gap), face, size, thick, 90.0, "right", vj, knockout, mirrored)
+
 
 def _locate(board: "Board", occ: Occupancy, ref) -> Location:
     """A point on the board as things stand: a Location, a pad reference

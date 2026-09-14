@@ -19,6 +19,8 @@ board; declarations are collected and resolved together.
 | `board.cell_pad(Cell("bd0"), net="CANH", ref_prefix="H")` | one pad inside a cell |
 | `board.net(Net("V48"))` | the net name, or `KeyError` |
 | `board.netclass(Net("CAN_P"))` | its class: `.track_width`, `.clearance`, `.diff_pair_width`, `.diff_pair_gap` |
+| `board.keep_in` | the board's copper-to-edge rule: where an EDGE item's reach lands |
+| `board.reach(item, rotation=)` | the item's body, pads and silk together, as a box at the origin |
 
 ## Setup
 
@@ -31,20 +33,24 @@ Say how firm each thing is; the netlist does the rest.
 
 ```python
 board.place(item)                                                       # searched: SEEDED from its links
-board.place(item, edge=Edge.NORTH, along=x, clearance=3.0, rotation=180)  # EDGE: flush to an edge
+board.place(item, edge=Edge.NORTH, along=x, rotation=180)                 # EDGE: its reach at the board's keep-in
 board.place(item, at=Location(x, y), rotation=0, face=Face.FRONT)      # FIXED: a mechanical fact (a hole, a cell)
 board.place(item, center=(X(Mid(a, b)), Y(a, 3.0)), rotation=0)         # FIXED: said in terms of pads
 board.place(item, near=Location(x, y), radius=3.0, step=0.2, rotations=(0, 90))  # searched round a hint
 ```
 `item` is a `Part` (schematic instance), a `Cell` (module group) or a block
 (below). One declaration per item. `why=` is recorded in the run. A FIXED
-placement that collides is reported as a finding, not moved.
+or EDGE item that lands on another is a script error: the run stops
+there with the collisions, before anything is searched (`placemat run
+--keep-going` records them as findings and carries on). A finding names
+a cell member with its cell: `j_mot (edge): J5 courtyard overlaps cell
+a1's R2 courtyard`.
 
 **The default is a bare `place()`.** A part with a wired neighbour already
 on the board needs no position: price the connection and leave it to seed.
 
 ```python
-board.place(Part("j_pwr"), edge=Edge.WEST, along=PWR_ALONG, clearance=EDGE_CLEAR)     # the connector is EDGE
+board.place(Part("j_pwr"), edge=Edge.WEST, along=PWR_ALONG)                          # the connector is EDGE
 board.link(PadRef(Part("rpf"), "V48_IN"), PadRef(Part("j_pwr"), "V48"), weight=LinkWeight.SHORT,
            why="the reverse-polarity FET sits at the inlet")
 board.place(Part("rpf"))                                                # seeds beside J_PWR's V48 pin
@@ -65,29 +71,39 @@ links, and a hint on a part that has a wired, placed neighbour is a
 defect. Many parts hinted at one point compete for the same rectangle and
 the last of them fails to place.
 
-**Rows.** Things down one edge, in order, equally gapped, each flush to the
-edge with its outward side out (a cell generated with its connector's bulk
-on local +Y turns 270 on the west edge, 90 east, 180 north, 0 south;
-`rotation=` overrides that, one value or one per item). Across the row the
-items align on one line: `line="centre"` (the default) puts their centres
-on one line, `"outer"` puts every outward edge `clearance` in from the
-board edge (connectors edge-hard), `"inner"` aligns their inboard edges;
-a row butted before or after another takes that row's line:
+**The edge is the board's.** Nothing in a script says how far from the
+edge a thing sits. `board.keep_in` is the board's own copper-to-edge
+rule; an EDGE item's reach (body, pads and silk together, `board.reach(item,
+rotation)`) lands there. A face that must stand proud of the edge says
+`overhang=` with a why. A row inboard of an edge row is `behind=` it.
+
+**Rows.** Things along one edge, in order, equally gapped, their outward
+sides out (a cell generated with its connector's bulk on local +Y turns
+270 on the west edge, 90 east, 180 north, 0 south; `rotation=` overrides
+that, one value or one per item). A row's outer line is the keep-in, or
+`inboard` (default `gap`) behind the inner line of the row it is
+`behind=`. Across the row the items align on one line: `line="centre"`
+(the default) puts their centres on one line, `"outer"` puts every
+outward reach on the outer line (connectors edge-hard), `"inner"` aligns
+their inboard edges; a row butted before or after another takes that
+row's line:
 
 ```python
-power = board.row(PD, Edge.WEST, gap=3.0, start=TOP, clearance=3.5, line="outer")   # connectors edge-hard
-trunk = board.row([CN, U13], Edge.NORTH, gap=2.5, align="center", clearance=3.5, line="outer")
-pair = board.row([RB, RA], Edge.NORTH, gap=1.5, clearance=18.0, rotation=180, centre=X(Mid(pin_n, pin_p)))
+power = board.row(PD, Edge.WEST, gap=3.0, start=TOP, line="outer")                  # connectors edge-hard
+trunk = board.row([CN, U13], Edge.NORTH, gap=2.5, align="center", line="outer")
+pair = board.row([RB, RA], Edge.NORTH, gap=1.5, behind=trunk, inboard=2.0, rotation=180, centre=X(Mid(pin_n, pin_p)))
 board.row([JUMPER], Edge.NORTH, gap=1.5, rotation=180, before=pair)   # on the resistors' centre line
-board.size(width=EDGE + power.depth + 4 + bus.depth + EDGE, height=max(power.end, bus.end) + TOP)
+legs = board.row(LEGS, Edge.SOUTH, gap=1.0, behind=mot_aux, start=Y(PadRef(MH3, 1), 4.0))   # after the hole
+board.size(width=board.keep_in + power.depth + 4 + bus.depth + board.keep_in, height=max(power.end, bus.end) + TOP)
 ```
-Where a row sits along its edge, one of: `start=` a number; `align="center"`
-on the board; `centre=` or `end=` a reference (`X(Mid(pin_n, pin_p))`,
-`X(pad, -2.0)`); `before=` or `after=` another row, one gap away. A row's
-`depth` (how far inboard it reaches) and `length` are numbers at
+Where a row sits along its edge, one of: `start=` a number or a
+reference; `align="center"` on the board; `centre=` or `end=` a reference
+(`X(Mid(pin_n, pin_p))`, `X(pad, -2.0)`); `before=` or `after=` another
+row, one gap away. A row's `depth` (how far inboard its reach goes),
+`standoff` (its outer line, in from the edge) and `length` are numbers at
 declaration; `start`, `end` and `centre(item)` too when it starts at a
 number, otherwise refer to its items' pads. `row.inner` and `row.outer` are
-its inboard boundary and its edge line, usable as a coordinate in copper
+its inboard boundary and its outer line, usable as a coordinate in copper
 (`(power.inner + 1.0, y)`). Declare the size after the rows that set it.
 
 **Positions said in terms of pads.** `at=` and `center=` take a Location
@@ -103,12 +119,18 @@ no outline, so its script declares no size; its anchor part goes down at a
 coordinate and the rest is said in terms of the anchor's pads.
 
 **How a searched item finds its place.** With `near=` it scans around the
-hint. Without one it is SEEDED: the hint is the weighted centroid of the
+hint. A scored scan over a wide radius is coarse first (four steps apart)
+and fine only around its best spots, so a wide `radius=` costs little;
+a part the script will place later is not an obstacle where the
+generator left it, only once it is placed. Without one it is SEEDED: the hint is the weighted centroid of the
 pads already placed that it connects to (plane nets and free nets do not
 count), and every legal candidate in the scan is scored by its links, the
-lowest kept. If nothing it connects to is placed yet it takes a POCKET: the
-biggest free rectangle its envelope fits on its face. The step note says
-which happened.
+lowest kept; it may step at least its own size away from the seed, or
+`radius=` when that is larger. If nothing it connects to is placed yet it
+takes a POCKET: the biggest free rectangle its envelope fits on its face.
+An item that finds no legal spot is left off the board: it pulls nothing
+and blocks nothing, and the finding says what stopped it. The step note
+says which happened.
 
 **Order.** FIXED and EDGE items go down as declared. Searched items are
 ordered by the placer, re-measured after each: cells, then blocks, then
@@ -127,6 +149,17 @@ or any integer; 0 means the connection's length does not matter. Every
 connection not declared weighs DEFAULT. A `limit_mm` is a bound: the run
 reports each link's achieved length, and one over its limit is a finding
 quoting `why`.
+
+## Rules
+
+```python
+board.rule(clearance=0.2, within=Cell("tmc"), why="0.5 mm pitch cannot meet the class between adjacent pads")
+board.rule(clearance=0.6, between=(Net("V48"), Net("GND")), why="48 V to ground")
+board.rule(clearance=0.4, on=Net("V48"), why="the bus")
+```
+A rule is one scope and a `why`; it is written as a KiCad custom rule in
+`layout.kicad_dru` beside the board, named by its `why`, and the run's
+DRC judges by it. A plan with no rules removes the file.
 
 ## Blocks
 
@@ -220,6 +253,23 @@ partner. Pads side by side across the run fan straight in; a pad in line
 with the run gets a lead along its line. The pair is one step,
 `pair P/N`, and bridges as one.
 
+## Labels (silkscreen text for what a user touches)
+
+```python
+board.label(Part("j_mot"), "MOTOR", side=Edge.SOUTH, gap=0.5, knockout=True)
+board.label(Cell("usb"), "USB-C", side=Edge.NORTH, align="start", size=1.2)
+board.label(PadRef(Part("jp1"), 1), "1", side=Edge.WEST, gap=0.3, size=0.6)
+board.label(Part("j_bus"), "CAN", side=Edge.EAST, rotation=90, why="reads along the edge it plugs into")
+```
+Text `gap` off `side` of the item's reach (or of one pad), on the item's
+own face (mirrored on the back), aligned `centre`, `start` (the west or
+north end of that side) or `end`; `rotation=90` runs it up the page;
+`knockout` cuts it out of a filled box, which reads better over a busy
+board. `size` and `thickness` default to 1.0 and 0.15 mm. Labels are
+written after placement, so they follow the item; a label that lands on
+another part on the same face is a finding. Mark what a user handles:
+every connector, jumper, switch and LED, by what it does, not its refdes.
+
 ## Layers and faces
 
 `CopperLayer.F / IN1 / IN2 / B`, `Face.FRONT / BACK`, `Edge.NORTH / SOUTH / EAST / WEST`.
@@ -227,12 +277,18 @@ with the run gets a lead along its line. The pair is one step,
 ## Commands
 
 ```
-placemat run <script> [--label L] [--fresh] [--no-render] [--no-drc] [-v] [--json] [--route [--route-full] [--route-exclude NET ...]]
+placemat run <script> [--label L] [--fresh] [--no-render] [--no-drc] [-v] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]]
 placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--json]
 placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
 placemat measure <layout.kicad_pcb> [cell-or-part ...]
+placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise C] [--copper-oz OZ] [--limit CHECK=VALUE ...] [--json]
 ```
+`check` reads the `Pm.*` facts the capture put on its parts (the
+placemat-design skill says which) and reports hot loop area, switch node
+copper, keep-out distance, crossings under sense tracks, current path
+width against IPC-2221 and junction temperature; exit 1 on a failed
+verdict. A board with no facts reports nothing to check.
 KiCad's own stderr (assertion notes, image-handler debug lines) is kept
 out of the terminal; every line of it is in `kicad-stderr.log` in the run
 directory, and `PLACEMAT_SHOW_KICAD=1` prints it all. Anything KiCad says

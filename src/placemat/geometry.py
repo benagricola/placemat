@@ -68,7 +68,12 @@ def _clean(v: float) -> float:
     return 0.0 if r == 0 else r
 
 
-def transform_polygon(poly: Polygon, t: Transform) -> Polygon:
+def transform_polygon(poly: Polygon, t: Transform, clean: bool = True) -> Polygon:
+    """`clean=False` skips the rounding that keeps written coordinates
+    tidy: for a candidate that is only checked, never written."""
+    if not clean:
+        a, b, c, d, tx, ty = t.a, t.b, t.c, t.d, t.tx, t.ty
+        return tuple((a * x + b * y + tx, c * x + d * y + ty) for x, y in poly)
     return tuple(t.apply(p) for p in poly)
 
 

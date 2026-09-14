@@ -17,17 +17,21 @@ def pad(owner, inst, number, net, cx, cy, w=1.0, h=1.0, through=False, face=Face
 
 
 def footprint(ref, cx, cy, w=4.0, h=2.0, nets=("A", "B"), through=False, face=Face.FRONT,
-              rotation=0.0, cell=None, inst=None, excess=0.1):
-    """A two-pad part: pad 1 at the west end, pad 2 at the east end (rotation 0)."""
+              rotation=0.0, cell=None, inst=None, excess=0.1, fields=None, silk=(0.0, 0.0, 0.0, 0.0)):
+    """A two-pad part: pad 1 at the west end, pad 2 at the east end (rotation 0).
+    `silk` is how far drawn graphics reach past the body: (west, north, east, south)."""
     inst = inst or ref.lower()
     pads = (pad(ref, inst, 1, nets[0], cx - w / 2 + 0.6, cy, 1.0, 1.0, through, face),
             pad(ref, inst, 2, nets[1], cx + w / 2 - 0.6, cy, 1.0, 1.0, through, face))
     body = Box(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
+    sw, sn, se, ss = silk
+    phys = Box(body.left - sw, body.top - sn, body.right + se, body.bottom + ss)
     return Footprint(ref, inst, cell, ref, Location(cx, cy), rotation, face,
-                     body, body.inflate(excess), body, pads)
+                     body, body.inflate(excess), phys, pads, fields=dict(fields or {}))
 
 
-def board_geometry(footprints, cells=(), copper=(), width=50.0, height=50.0, clearance=0.2, extra_nets=()):
+def board_geometry(footprints, cells=(), copper=(), width=50.0, height=50.0, clearance=0.2, extra_nets=(),
+                   edge_clearance=0.4):
     nets = {p.net for fp in footprints for p in fp.pads} | {c.net for c in copper} | set(extra_nets)
     classes = {n: NetClass("Default", 0.2, clearance, 0.6, 0.3) for n in nets}
     outline = (((0.0, 0.0), (width, 0.0), (width, height), (0.0, height)),)
@@ -43,7 +47,7 @@ def board_geometry(footprints, cells=(), copper=(), width=50.0, height=50.0, cle
     pads = tuple(CopperItem("pad", p.net, p.layers, p.outlines, p.box, fp.ref)
                  for fp in footprints for p in fp.pads)
     return BoardGeometry("synthetic", tuple(footprints), cell_map, pads + tuple(copper), outline,
-                    frozenset(nets), classes, clearance, (CopperLayer.F, CopperLayer.B))
+                    frozenset(nets), classes, clearance, (CopperLayer.F, CopperLayer.B), edge_clearance=edge_clearance)
 
 
 def track(net, x1, y1, x2, y2, w=0.3, layer=CopperLayer.F, owner=None):

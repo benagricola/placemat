@@ -38,7 +38,7 @@ def test_a_station_moved_onto_its_neighbour_is_rejected(breakout):
     # put power_drop0 over its neighbour, wherever the board has them
     onto = Placement(pd1.box.center, 0.0, Face.FRONT)
     why = occ.legal(pd0, onto)
-    assert why is not None and "power_drop1" not in why   # reported by member refdes, not cell name
+    assert why is not None and "cell power_drop1's" in why   # the cell is named, with the member that collided
     assert any(fp.ref in why for fp in pd1.members), why
 
 

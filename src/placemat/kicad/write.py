@@ -15,7 +15,7 @@ from .quiet import import_pcbnew, quiet_stderr
 pcbnew = import_pcbnew()
 
 from ..layout import Plan
-from ..copper import Pour, Track, Via, Zone
+from ..copper import Pour, Text, Track, Via, Zone
 from ..geometry import Transform
 from ..placement import Placement
 from ..board_geometry import CellGeom, Footprint
@@ -125,6 +125,38 @@ def _draw_via(board, op: Via):
     board.Add(v)
 
 
+_HJUST = {"left": pcbnew.GR_TEXT_H_ALIGN_LEFT, "centre": pcbnew.GR_TEXT_H_ALIGN_CENTER, "right": pcbnew.GR_TEXT_H_ALIGN_RIGHT}
+_VJUST = {"top": pcbnew.GR_TEXT_V_ALIGN_TOP, "centre": pcbnew.GR_TEXT_V_ALIGN_CENTER, "bottom": pcbnew.GR_TEXT_V_ALIGN_BOTTOM}
+
+
+def _draw_text(board, op: Text):
+    t = pcbnew.PCB_TEXT(board)
+    t.SetText(op.text)
+    t.SetLayer(pcbnew.B_SilkS if op.face is Face.BACK else pcbnew.F_SilkS)
+    t.SetMirrored(op.mirrored)
+    t.SetTextSize(pcbnew.VECTOR2I(nm(op.size), nm(op.size)))
+    t.SetTextThickness(nm(op.thickness))
+    t.SetHorizJustify(_HJUST[op.hjust])
+    t.SetVertJustify(_VJUST[op.vjust])
+    t.SetTextAngleDegrees(op.rotation)
+    t.SetIsKnockout(op.knockout)
+    t.SetPosition(vec(op.at.x, op.at.y))
+    if op.side is not None:
+        # KiCad's box round the text (descenders, the knockout margin) reaches past the
+        # anchor: slide the text so the edge facing the item sits exactly at the anchor.
+        bb = t.GetBoundingBox()
+        name = op.side.name
+        if name == "NORTH":
+            t.Move(pcbnew.VECTOR2I(0, nm(op.at.y) - bb.GetBottom()))
+        elif name == "SOUTH":
+            t.Move(pcbnew.VECTOR2I(0, nm(op.at.y) - bb.GetTop()))
+        elif name == "WEST":
+            t.Move(pcbnew.VECTOR2I(nm(op.at.x) - bb.GetRight(), 0))
+        else:
+            t.Move(pcbnew.VECTOR2I(nm(op.at.x) - bb.GetLeft(), 0))
+    board.Add(t)
+
+
 def _draw_pour(board, op: Pour):
     code = _netcode(board, op.net)
     ps = pcbnew.SHAPE_POLY_SET()
@@ -203,6 +235,8 @@ def draw_copper(board, ops):
             _draw_via(board, op)
         elif isinstance(op, Pour):
             _draw_pour(board, op)
+        elif isinstance(op, Text):
+            _draw_text(board, op)
         elif isinstance(op, Zone):
             zones.append(_draw_zone(board, op))
     if zones:
@@ -359,4 +393,6 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     draw_copper(board, plan.copper)
     out = str(out_path or pcb_path)
     save(board, out)
+    from ..rules import write_rules
+    write_rules(out, plan.rules)
     return out

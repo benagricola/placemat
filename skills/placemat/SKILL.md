@@ -28,8 +28,9 @@ work, not what to call.
    (crossings per square centimetre of free board) say how hard the board
    will be to route BEFORE any routing is run: a placement change that cuts
    crossings and congestion is the one to keep, and the nets with the most
-   crossings name the parts to move. Findings name a fixed placement that
-   collides or a searched part that had nowhere to go, with the reason.
+   crossings name the parts to move. Two firm placements that collide stop
+   the run at once with the reason: fix the declaration, do not search
+   around it. Findings name a searched part that had nowhere to go.
 3. **Look** at `layout/<X>/layout.png` (and `layout-bottom.png` on a
    two-face board) only after the numbers say the change did what you meant.
 4. **Change one thing, run again.** The impact text says what moved and
@@ -134,6 +135,9 @@ coordinates nobody chose.
   competes for one rectangle. `near=` is for a requirement the netlist
   cannot say (a thermal sensor by the FETs it shares no net with); a part
   with a wired neighbour on the board is linked and left bare.
+- A clearance that must differ in one place (a fine-pitch part inside a
+  wide-clearance class, a high-voltage pair) is `board.rule(clearance=,
+  within=|between=|on=, why=)`, never a hand edit of the project file.
 - Price the connections, not the parts: a bypass capacitor is a SHORT link
   with a limit at its pin; a series resistor between two distant parts is
   PREFER on both links and lands where there is room between them; a net
@@ -157,11 +161,22 @@ coordinates nobody chose.
   integrity: give a track its ends and only the waypoints that say where it
   must go, and let the tool find the rest. Draw a daisy chain as a chain: the run bows out at 45 to an
   apex and one line leaves the apex for the pin; never a bus with stubs.
-- Rows and references before numbers: things down an edge are a `row`
-  (connectors `line="outer"`, small parts on their centre line); a part
-  between two pads sits at `Mid()` of them; a row under a pin pair is
-  `centre=X(Mid(...))`, a row beside another is `before=`/`after=`. A
-  number typed where a reference would do is a defect.
+- Rows and references before numbers: things along an edge are a `row`
+  (connectors `line="outer"`, small parts on their centre line); a row
+  inboard of an edge row is `behind=` it; a part between two pads sits at
+  `Mid()` of them; a row under a pin pair is `centre=X(Mid(...))`, a row
+  beside another is `before=`/`after=`, a row after a hole starts at
+  `Y(pad, gap)`. A number typed where a reference would do is a defect.
+- The edge is the board's: no script carries an edge standoff. An EDGE
+  item's reach sits at `board.keep_in`; a face that must stand proud of
+  the edge says `overhang=` with a why. Two firm things that must sit
+  beside each other are placed relative to each other (`behind=`,
+  `after=`, a pad reference), never by independent numbers from opposite
+  edges: the first collision is the run stopping, not a finding to tune.
+- Label what a user touches: every connector, jumper, switch and LED gets
+  a `board.label()` on the face it is used from, saying what it does
+  ("MOTOR", "CAN IN", "TERM"), knocked out where the silk is busy; a pin
+  1 mark on every keyed connector. A refdes is not a label.
 - A bus down a board is one long track per net and a short track per pad
   into it. Two same-layer nets may cross only where the one that yields is
   declared `bridge=True`; who yields is decided by `priority`, never by

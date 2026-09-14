@@ -99,7 +99,7 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool) -> bool:
 
 def run(script, label: str | None = None, fresh: bool = False, render: bool = True, drc: bool = True,
         quiet: bool = False, verbose: bool = False, route: bool = False, route_quick: bool = True,
-        route_exclude=()) -> RunResult:
+        route_exclude=(), keep_going: bool = False) -> RunResult:
     configure(quiet=quiet)
     say = console.say
     script = Path(script).resolve()
@@ -142,7 +142,7 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
         fab = fab_profile(src.board_dir)
         t0 = time.time()
         geometry = read_board(src.pcb, courtyard_excess_mm=fab.courtyard_excess)
-        board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size)
+        board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size, keep_going=keep_going)
         try:
             run_script(script, board)
         except Exception as e:
@@ -164,7 +164,13 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
             log_lines.append(line)
             if verbose:
                 say("bridge" if line.strip().startswith("bridge:") else "step", line.strip())
-        plan = board.resolve(progress=progress)
+        from .layout import PlacementCollision
+        try:
+            plan = board.resolve(progress=progress)
+        except PlacementCollision as e:
+            (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
+            raise RunFailure("placement", "Firm placements collide; fix the script (or --keep-going to see the rest)",
+                             {"collisions": e.collisions, "tail": "\n".join(e.collisions)})
         (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
         rec.timing_s["resolve"] = round(time.time() - t0, 1)
         n_place = sum(1 for s in plan.steps if s.placement is not None)

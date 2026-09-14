@@ -43,6 +43,7 @@ class Footprint:
     phys_box: Box               # pads + drawn graphics, courtyard excluded
     pads: tuple[PadGeom, ...]
     npth: tuple[tuple[Location, float], ...] = ()   # (centre, drill) of unplated holes
+    fields: dict = field(default_factory=dict, compare=False)   # the footprint's text fields (the capture's Pm.* facts)
 
     @property
     def box(self) -> Box:
@@ -109,6 +110,7 @@ class BoardGeometry:
     netclasses: dict[str, NetClass]       # net name -> resolved class
     default_clearance: float
     layers: tuple[CopperLayer, ...]
+    edge_clearance: float = 0.0           # copper to the board edge, from the board's rules: the keep-in
     _by_ref: dict = field(default_factory=dict, repr=False, compare=False)
     _by_inst: dict = field(default_factory=dict, repr=False, compare=False)
 

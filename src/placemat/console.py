@@ -19,8 +19,12 @@ _COLOURS = {
 class Console:
     def __init__(self, quiet: bool = False, stream=None):
         self.quiet = quiet
-        self.stream = stream or sys.stdout
+        self._stream = stream                  # None: whatever sys.stdout is when we write
         self.colour = (os.environ.get("NO_COLOR") is None and hasattr(self.stream, "isatty") and self.stream.isatty())
+
+    @property
+    def stream(self):
+        return self._stream if self._stream is not None else sys.stdout
 
     def _paint(self, code: str, text: str) -> str:
         return "\033[%sm%s\033[0m" % (code, text) if self.colour and code else text
