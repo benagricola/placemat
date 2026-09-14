@@ -935,7 +935,9 @@ class Board:
         self._place_labels(occ, plan, placed, progress, final=True)
         if self._faces is not None:
             text, why = self._faces
-            box = Box.union([fp.courtyard_box for fp in self.geometry.footprints])     # below everything the module draws
+            drawn = [fp.courtyard_box for fp in self.geometry.footprints] + [c.box for c in self.geometry.copper] + \
+                    [op.box for op in plan.copper if hasattr(op, "box")]
+            box = Box.union(drawn)                                                       # below everything the module draws
             plan.copper.append(Text(text, Location(box.left, box.bottom + 1.0), Face.FRONT, 0.5, 0.1, 0.0, "left", "top",
                                     layer="User.Comments"))
             plan.steps.append(Step("faces", "copper", Priority.DEFAULT, None, 0.0, text[len("placemat faces "):], why, 1))
@@ -1204,6 +1206,21 @@ class Board:
                            lambda along: edge_placement(occ, i.item, i.edge, along, i.rotation, i.clearance, i.face),
                            "along the %s edge" % i.edge.name.lower())
 
+    def _no_pocket_note(self, occ: Occupancy, i: PlaceIntent) -> str:
+        """A search cannot succeed where no free rectangle holds the item's
+        envelope at any of its rotations: say so instead of scanning."""
+        if occ.board_box is None:
+            return ""
+        envs = []
+        for rot in (i.rotations or (i.rotation,)):
+            env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, i.face))
+            if pockets(occ, env.width, env.height, i.face, step=max(i.step, 0.5), limit=1):
+                return ""
+            envs.append(env)
+        env = envs[0]
+        return "no pocket fits its %.1f x %.1f envelope on the %s face at any rotation asked for" % (
+            env.width, env.height, i.face.value)
+
     def _no_place_report(self, occ: Occupancy, obj, step) -> str:
         """Why a critical item stopped the run: its envelope, the reason, and
         the biggest free rectangles on its face, so the reader can see what
@@ -1345,6 +1362,10 @@ class Board:
         # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
         body = occ._geometry(i.item).body
         radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)
+        hopeless = self._no_pocket_note(occ, i)
+        if hopeless:
+            plan.findings.append("%s: %s" % (i.key, hopeless))
+            return Step(i.key, i.kind, i.priority, None, 0.0, "UNPLACED: " + hopeless, i.why)
         result = scan(occ, i.item, hint, radius, i.step, i.rotations or (i.rotation,), clr, score=score)
         if result.chosen is None:
             plan.findings.append("%s: no legal location within %.1f mm of %s (%s)" % (

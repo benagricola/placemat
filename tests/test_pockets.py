@@ -3,7 +3,7 @@ at all, found by scanning the free board for rectangles its envelope fits."""
 from placemat.occupancy import Occupancy
 from placemat.placer import pockets
 from placemat.placement import Placement
-from placemat.values import Face, Location
+from placemat.values import CopperLayer, Face, Location
 from placemat.layout import Board
 from placemat.values import Cell, Part
 from tests.fixtures import board_geometry, footprint
@@ -46,3 +46,40 @@ def test_no_pocket_is_a_finding_not_a_crash():
     b.place(Part("r1"))
     plan = b.resolve()
     assert any("r1" in f and "pocket" in f for f in plan.findings)
+
+
+def test_a_through_via_of_another_cell_takes_space_from_a_pocket_on_both_faces():
+    """A front cell's ground vias come through the board; the pocket under
+    them on the back is not free, so the report must not promise it."""
+    from placemat.occupancy import Occupancy
+    from placemat.placer import pockets
+    from placemat.values import Face
+    from tests.fixtures import board_geometry, footprint
+    from placemat.board_geometry import CopperItem
+    from placemat.values import Box
+    from tests.fixtures import rect
+    outline = rect(25, 25, 0.6, 0.6)
+    via = CopperItem("via", "GND", frozenset([CopperLayer.F, CopperLayer.B]), (outline,), Box.of_points(outline), owner="mcu")
+    g = board_geometry([footprint("U1", 10, 10, w=4, h=2, cell="mcu", inst="mcu.u")], cells=["mcu"], copper=[via], width=50, height=50)
+    occ = Occupancy(g, edge_margin=1.0, board_box=g.outline_box)
+    back = pockets(occ, 30.0, 30.0, Face.BACK, step=0.5, limit=1)
+    assert back == []                                          # the via splits the 48 x 48 free square
+    front_small = pockets(occ, 20.0, 20.0, Face.BACK, step=0.5, limit=1)
+    b = front_small[0].box
+    assert front_small and not (b.left < 25 < b.right and b.top < 25 < b.bottom)      # the pocket goes round the via
+
+
+def test_a_search_that_no_pocket_can_satisfy_is_not_run():
+    """A scan cannot find what pockets rule out: an item bigger than every
+    free rectangle on its face is reported unplaced at once, with the
+    reason, instead of trying thousands of candidates."""
+    from placemat.values import Priority
+    fps = [footprint("W1", 25, 25, w=30, h=30, inst="w1", nets=("A", "B")),
+           footprint("B1", 5, 5, w=15, h=15, inst="b1", nets=("A", "C"))]
+    b = Board(board_geometry(fps, width=50, height=50), edge_margin=1.0, keep_going=True)
+    b.place(Part("w1"), at=Location(25, 25))
+    b.place(Part("b1"), priority=Priority.DEFAULT)
+    plan = b.resolve()
+    note = plan.step("b1").note
+    assert "UNPLACED" in note and "no pocket fits" in note and "15.0 x 15.0" in note
+    assert not any("no legal location within" in f for f in plan.findings)

@@ -86,10 +86,11 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool) -> bool:
     shutil.rmtree(src.layout_dir, ignore_errors=True)
     src.layout_dir.mkdir(parents=True, exist_ok=True)
     _say(quiet, "board   generating %s with pcb layout ..." % src.zen.name)
-    rc, dt = _sh(["pcb", "layout", "--no-open", src.zen.name], src.board_dir, log, 900, env)
+    cmd = ["pcb", "layout", "--no-open"] + list(src.generate_args) + [src.zen.name]
+    rc, dt = _sh(cmd, src.board_dir, log, 900, env)
     if rc != 0 or not src.pcb.exists():
         raise RunFailure("generation", "Schematic generation failed",
-                         {"command": "pcb layout --no-open %s" % src.zen.name, "cwd": str(src.board_dir),
+                         {"command": " ".join(cmd), "cwd": str(src.board_dir),
                           "exit_code": rc, "log": str(log), "tail": _tail(log)})
     shutil.rmtree(cache, ignore_errors=True)
     shutil.copytree(src.layout_dir, cache)

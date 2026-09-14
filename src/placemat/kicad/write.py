@@ -469,6 +469,9 @@ def write_faces(pcb_path, faces: dict) -> str:
         # Below everything the module draws (courtyards included), left-aligned with it:
         # a note in the margin, never over the module's origin or a part.
         boxes = [fp.GetBoundingBox(True, True) for fp in board.GetFootprints()]
+        boxes += [d.GetBoundingBox() for d in board.GetDrawings() if not (isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith("placemat faces "))]
+        boxes += [t.GetBoundingBox() for t in board.GetTracks()]
+        boxes += [z.GetBoundingBox() for z in board.Zones()]
         left = min(b.GetLeft() for b in boxes) if boxes else 0
         bottom = max(b.GetBottom() for b in boxes) if boxes else 0
         t = pcbnew.PCB_TEXT(board)

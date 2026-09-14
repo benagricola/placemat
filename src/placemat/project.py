@@ -14,6 +14,7 @@ class BoardSource:
     zen: Path
     layout_dir: Path
     board_dir: Path
+    generate_args: tuple = ()       # extra `pcb layout` arguments the script asks for (`# placemat generate: ...`)
 
     @property
     def pcb(self) -> Path:
@@ -23,6 +24,16 @@ class BoardSource:
 _BOARD_RE = re.compile(r"\b(Board|Layout)\s*\(", re.S)
 _NAME_RE = re.compile(r'\bname\s*=\s*"([^"]+)"')
 _LAYOUT_RE = re.compile(r'\b(?:layout_path|path)\s*=\s*"([^"]+)"')
+_GENERATE_RE = re.compile(r"^#\s*placemat generate:\s*(.+)$", re.M)
+
+
+def generate_args_of(script: Path) -> tuple:
+    """Arguments a script's header asks `pcb layout` to run with, e.g.
+    `# placemat generate: --config switch_style=side` for a variant."""
+    if not script.is_file():
+        return ()
+    m = _GENERATE_RE.search(script.read_text(errors="replace")[:4000])
+    return tuple(m.group(1).split()) if m else ()
 
 
 def find_board(script_or_dir) -> BoardSource:
@@ -36,26 +47,24 @@ def find_board(script_or_dir) -> BoardSource:
     found = []
     for zen in candidates:
         text = zen.read_text(errors="replace")
-        m = _BOARD_RE.search(text)
-        if not m:
-            continue
-        block = text[m.end():]
-        depth, end = 1, 0
-        for i, ch in enumerate(block):
-            if ch == "(":
-                depth += 1
-            elif ch == ")":
-                depth -= 1
-                if depth == 0:
-                    end = i
-                    break
-        block = block[:end]
-        name_m, layout_m = _NAME_RE.search(block), _LAYOUT_RE.search(block)
-        if not name_m:
-            continue
-        name = name_m.group(1)
-        layout_dir = board_dir / (layout_m.group(1) if layout_m else "layout/%s" % name)
-        found.append(BoardSource(name, zen, layout_dir, board_dir))
+        for m in _BOARD_RE.finditer(text):           # every Board()/Layout(): a module may declare one per variant
+            block = text[m.end():]
+            depth, end = 1, 0
+            for i, ch in enumerate(block):
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+            block = block[:end]
+            name_m, layout_m = _NAME_RE.search(block), _LAYOUT_RE.search(block)
+            if not name_m:
+                continue
+            name = name_m.group(1)
+            layout_dir = board_dir / (layout_m.group(1) if layout_m else "layout/%s" % name)
+            found.append(BoardSource(name, zen, layout_dir, board_dir, generate_args_of(p) if p.is_file() else ()))
     if not found:
         raise FileNotFoundError("no .zen declaring Board(name=...) or Layout(name=...) in %s (looked at %s)" % (
             board_dir, ", ".join(c.name for c in candidates) or "nothing"))

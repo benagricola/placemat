@@ -131,6 +131,29 @@ def test_the_faces_command_writes_the_fact_into_a_fragment_and_replaces_an_old_o
     board = pcbnew.LoadBoard(str(pcb))
     texts = [d for d in board.GetDrawings() if d.GetClass() == "PCB_TEXT" and d.GetText().startswith("placemat faces")]
     assert [t.GetText() for t in texts] == ["placemat faces outward=S"]
-    # the note sits clear of the module: below everything it draws, not over its origin
-    lowest = max(fp.GetBoundingBox(True, True).GetBottom() for fp in board.GetFootprints())
+    # the note sits clear of the module: below everything it draws, labels included, not over its origin
+    lowest = max([fp.GetBoundingBox(True, True).GetBottom() for fp in board.GetFootprints()] +
+                 [d.GetBoundingBox().GetBottom() for d in board.GetDrawings()
+                  if not (d.GetClass() == "PCB_TEXT" and d.GetText().startswith("placemat faces"))] +
+                 [t.GetBoundingBox().GetBottom() for t in board.GetTracks()])
     assert texts[0].GetBoundingBox().GetTop() > lowest
+
+
+def test_the_faces_note_clears_a_label_drawn_below_the_parts(breakout_pcb, tmp_path):
+    from placemat import cli
+    import pcbnew
+    pcb = _copy(breakout_pcb, tmp_path)
+    board = pcbnew.LoadBoard(str(pcb))
+    lowest = max(fp.GetBoundingBox(True, True).GetBottom() for fp in board.GetFootprints())
+    label = pcbnew.PCB_TEXT(board)
+    label.SetText("TERM")
+    label.SetLayer(pcbnew.F_SilkS)
+    label.SetTextSize(pcbnew.VECTOR2I(int(1e6), int(1e6)))
+    label.SetPosition(pcbnew.VECTOR2I(int(30e6), lowest + int(2e6)))      # a label 2 mm below the lowest part
+    board.Add(label)
+    board.Save(str(pcb))
+    assert cli.main(["faces", str(pcb), "outward=N"]) == 0
+    board = pcbnew.LoadBoard(str(pcb))
+    note = [d for d in board.GetDrawings() if d.GetClass() == "PCB_TEXT" and d.GetText().startswith("placemat faces")][0]
+    term = [d for d in board.GetDrawings() if d.GetClass() == "PCB_TEXT" and d.GetText() == "TERM"][0]
+    assert note.GetBoundingBox().GetTop() > term.GetBoundingBox().GetBottom()

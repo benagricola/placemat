@@ -195,8 +195,9 @@ def pockets(occ: Occupancy, width: float, height: float, face: Face = Face.FRONT
             limit: int = 8) -> list:
     """The free rectangles on `face` at least `width` x `height`, biggest
     first: the board rastered at `step`, courtyards and holes on that face
-    blocked, the edge margin excluded, the largest free rectangle taken and
-    masked out until nothing fits or `limit` pockets are found."""
+    and every through-via blocked, the edge margin excluded, the largest
+    free rectangle taken and masked out until nothing fits or `limit`
+    pockets are found. An upper bound on where a search can succeed."""
     board = occ.board_box
     if board is None:
         return []
@@ -208,6 +209,7 @@ def pockets(occ: Occupancy, width: float, height: float, face: Face = Face.FRONT
     free = [[True] * cols for _ in range(rows)]
     blocks = [s.box for g in occ.items.values() for s in g.shapes
               if s.kind in ("courtyard", "npth", "through") and face in s.faces]
+    blocks += [c.box for c in occ.copper if c.kind == "through"]        # vias come through: no face is free under them
     for b in blocks:
         c0 = max(0, int((b.left - inner.left) / step))
         c1 = min(cols, int(math.ceil((b.right - inner.left) / step)))

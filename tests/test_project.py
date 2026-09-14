@@ -53,3 +53,19 @@ def test_a_directory_with_several_boards_picks_the_one_the_script_is_named_for(t
     (tmp_path / "other_layout.py").write_text("")
     with pytest.raises(FileNotFoundError):
         find_board(tmp_path / "other_layout.py")            # two boards, neither named by the script
+
+
+def test_a_zen_may_declare_a_layout_per_variant_and_the_script_picks_by_name(tmp_path):
+    (tmp_path / "McuButtons.zen").write_text(
+        'style = config("style", str, default = "top")\n'
+        'if style == "top":\n    Layout(name = "McuButtons", path = "layout")\n'
+        'else:\n    Layout(name = "McuButtonsSide", path = "layout_side")\n')
+    side = tmp_path / "McuButtonsSide_layout.py"
+    side.write_text("# placemat generate: --config style=side\nfrom placemat import board\n")
+    top = tmp_path / "McuButtons_layout.py"
+    top.write_text("from placemat import board\n")
+    s = find_board(side)
+    assert s.name == "McuButtonsSide" and s.layout_dir == tmp_path / "layout_side"
+    assert s.generate_args == ("--config", "style=side")
+    t = find_board(top)
+    assert t.name == "McuButtons" and t.generate_args == ()
