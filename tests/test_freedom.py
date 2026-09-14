@@ -72,3 +72,38 @@ def test_a_critical_searched_cell_goes_before_free_edge_furniture_and_the_furnit
     assert plan.findings == []
     for k in ("j1", "j2"):
         assert not plan.box(k).overlaps(mcu)
+
+
+def test_a_placed_item_may_pin_one_coordinate_and_slide_on_the_other():
+    """x fixed at the board's middle, y free: it sits at the middle of the
+    free axis alone, and slides past whatever is already on that line."""
+    from placemat.values import X, PadRef
+    b = make_board()
+    b.place(Part("j1"), x=30.0)
+    plan = b.resolve()
+    box = plan.box("j1")
+    assert box.center.x == pytest.approx(30.0) and box.center.y == pytest.approx(30.0)
+    b = make_board()
+    b.place(Cell("mcu"), center=Location(30, 30))                    # holds the middle of the x = 30 line
+    b.place(Part("j1"), x=30.0)
+    b.place(Part("j2"), x=30.0)
+    plan = b.resolve()
+    mcu, j1, j2 = plan.box("mcu"), plan.box("j1"), plan.box("j2")
+    assert plan.findings == []
+    assert j1.center.x == pytest.approx(30.0) and j2.center.x == pytest.approx(30.0)
+    assert not j1.overlaps(mcu) and not j2.overlaps(mcu) and not j1.overlaps(j2)
+    b = make_board()
+    b.place(Part("j1"), at=Location(10.0, 40.0))
+    b.place(Part("j2"), y=X(PadRef(Part("j1"), "B"), 0.0) if False else 40.0)   # y pinned, x free
+    plan = b.resolve()
+    assert plan.box("j2").center.y == pytest.approx(40.0) and not plan.box("j2").overlaps(plan.box("j1"))
+
+
+def test_a_pinned_coordinate_may_be_a_reference():
+    from placemat.values import X, PadRef, Mid
+    b = make_board()
+    b.place(Part("j1"), at=Location(10.0, 10.0))
+    b.place(Part("j2"), x=X(Mid(PadRef(Part("j1"), "A"), PadRef(Part("j1"), "B"))))
+    plan = b.resolve()
+    pa, pb = plan.occupancy.pad_location("J1", "1"), plan.occupancy.pad_location("J1", "2")
+    assert plan.box("j2").center.x == pytest.approx((pa.x + pb.x) / 2)

@@ -28,6 +28,10 @@ RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RAN
 # faces out of each edge at this rotation.
 _OUTWARD_ROTATION = {Edge.SOUTH: 0.0, Edge.EAST: 90.0, Edge.NORTH: 180.0, Edge.WEST: 270.0}
 
+_CRITICAL_SHARE = 0.02
+"""A searched item is critical on its own only if it needs at least this
+much of the board: below it, being the largest thing left means little."""
+
 
 @dataclass(frozen=True)
 class RowCoord:
@@ -157,6 +161,9 @@ class PlaceIntent:
     why: str = ""
     index: int = 0
     needs: frozenset = frozenset()     # refdes this position refers to: placed first
+    pin_x: object = None               # x pinned (a number or a reference), y free
+    pin_y: object = None               # y pinned, x free
+    priority_source: str = "auto"      # "script" when the declaration said, else worked out
 
     @property
     def rank(self):
@@ -283,6 +290,7 @@ class Board:
         self.via_drill, self.via_size = via_drill, via_size
         self.keep_going = keep_going            # carry on past colliding FIXED/EDGE items, as findings
         self._intents: list[PlaceIntent] = []
+        self._weights: dict = {}
         self._copper: list[CopperIntent] = []
         self._labels: list = []
         self._links: list[Link] = []
@@ -398,7 +406,7 @@ class Board:
     # ------------------------------------------------------------ placement
     def place(self, item, *, at: Location | None = None, center: Location | None = None,
               rotation: float | None = None, face: Face = Face.FRONT, edge: Edge | None = None,
-              along: float | None = None, overhang: float = 0.0,
+              along: float | None = None, overhang: float = 0.0, x=None, y=None,
               near: Location | None = None, radius: float = 3.0, step: float = 0.2,
               rotations=(), priority: Priority | None = None, why: str = "", _standoff: float | None = None) -> PlaceIntent:
         """Declare where an item goes.
@@ -408,6 +416,7 @@ class Board:
         edge=, along=   its reach at the board's keep-in     -> EDGE (no freedom: it never moves)
         edge=           on that edge, wherever there is room -> DEFAULT: slides along it, at the
                         midpoint alone, spread evenly with its fellows, aside from what is there
+        x= or y=        one coordinate pinned (a number or a reference), the other free the same way
                   (`overhang=` past the edge, for a face that must stand proud)
         near=     a hint; the placer searches around it      -> DEFAULT
         nothing   searched from where the generator left it  -> DEFAULT
@@ -415,8 +424,9 @@ class Board:
         geom, key, kind = self._item(item)
         if any(i.key == key for i in self._intents):
             raise ValueError("%s is already placed; one declaration per item" % key)
-        if sum(x is not None for x in (at, center, edge, near)) > 1:
-            raise ValueError("%s: give one of at=, center=, edge= or near=" % key)
+        if sum(v is not None for v in (at, center, edge, near, x, y)) > 1:
+            raise ValueError("%s: give one of at=, center=, edge=, near=, x= or y=" % key)
+        source = "auto" if priority is None else "script"
         if priority is None:
             priority = Priority.FIXED if (at is not None or center is not None) else \
                 Priority.EDGE if (edge is not None and along is not None) else Priority.DEFAULT
@@ -426,14 +436,15 @@ class Board:
             rotation = _OUTWARD_ROTATION[edge] if (edge is not None and along is None) else 0.0
         if kind == "cell" and at is not None and center is None:
             center, at = at, None
-        needs = {self._pad_ref(ref)[0] for ref in _refs_in([at, center, along])}   # a real pad, placed before this
+        needs = {self._pad_ref(ref)[0] for ref in _refs_in([at, center, along, x, y])}   # a real pad, placed before this
         if isinstance(along, _RowSlot):
             needs |= along.row.needs
         if overhang and edge is None:
             raise ValueError("%s: overhang= goes with edge=" % key)
         standoff = _standoff if _standoff is not None else (-float(overhang) if overhang else self.keep_in)
         intent = PlaceIntent(key, geom, kind, priority, float(rotation), face, at, center, edge, along,
-                             standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs))
+                             standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs),
+                             x, y, source)
         self._intents.append(intent)
         return intent
 
@@ -786,6 +797,7 @@ class Board:
         plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius,
                     rules=list(self._rules))
         ctx = _CopperContext(self, occ)
+        self._weigh(occ)
         placements = sorted(self._intents, key=lambda i: i.rank)
         fixed_copper = [c for c in self._copper if c.priority is Priority.FIXED]
         other_copper = [c for c in self._copper if c.priority is not Priority.FIXED]
@@ -796,6 +808,9 @@ class Board:
             step = self._settle(occ, obj, plan, placed)
             if why_now:
                 step.note = (why_now + "; " + step.note) if step.note else why_now
+            if obj.priority not in (Priority.FIXED, Priority.EDGE):
+                tag = "priority %s (%s)" % (obj.priority.value, self._weights.get(obj.key, obj.priority_source))
+                step.note = (tag + "; " + step.note) if step.note else tag
             plan.steps.append(step)
             if step.placement is None and obj.priority is Priority.HIGH and not self.keep_going:
                 raise CriticalUnplaced(obj.key, self._no_place_report(occ, obj, step), plan)
@@ -960,6 +975,93 @@ class Board:
             if progress:
                 progress("   bridge: " + note)
 
+    def _weigh(self, occ: Occupancy):
+        """Every searched item's priority, unless the script said: from how
+        much of the largest item's area it needs, how many connections tie
+        it to other declared items, and how many parts it holds. The reason
+        is kept for the step."""
+        self._weights: dict = {}
+        searched = [i for i in self._intents if i.priority not in (Priority.FIXED, Priority.EDGE)]
+        if not searched:
+            return
+        declared = self._declared_refs()
+
+        def parts_of(i):
+            return [i.item.anchor] + [fp for fp, _ in i.item.satellites] if i.kind == "block" else \
+                (list(i.item.members) if i.kind == "cell" else [i.item])
+
+        def measure(i):
+            parts = parts_of(i)
+            own = {fp.ref for fp in parts}
+            area = sum(fp.courtyard_box.area for fp in parts)
+            conns = sum(1 for fp in parts for p in fp.pads if p.net
+                        and any(o.owner not in own and o.owner in declared for o in self.geometry.pads_on_net(p.net)))
+            return area, conns, len(parts)
+        m = {i.key: measure(i) for i in searched}
+        top = [max(v[k] for v in m.values()) or 1 for k in range(3)]
+        board_area = occ.board_box.area if occ.board_box is not None else sum(v[0] for v in m.values())
+        for i in searched:
+            area, conns, n = m[i.key]
+            score = 0.5 * area / top[0] + 0.3 * conns / top[1] + 0.2 * n / top[2]
+            share = area / board_area if board_area else 0.0
+            # critical: it dominates the other searched items AND it is a real piece of the board
+            auto = Priority.HIGH if (score >= 0.5 and share >= _CRITICAL_SHARE) else \
+                Priority.LOW if score <= 0.1 else Priority.DEFAULT
+            why = "%.0f%% of the largest area, %.1f%% of the board, %d connection(s), %d part(s)" % (
+                100 * area / top[0], 100 * share, conns, n)
+            if i.priority_source == "script":
+                self._weights[i.key] = "script; would be %s: %s" % (auto.value, why)
+            else:
+                i.priority = auto
+                self._weights[i.key] = "auto: " + why
+
+    def _slide(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, ideal: float, lo: float, hi: float,
+               placement_at, what: str) -> Step:
+        """One degree of freedom: from `ideal` outward along [lo, hi], the
+        first legal placement `placement_at(along)` gives."""
+        geom = occ._geometry(i.item)
+        others = occ.obstacles(geom, occ.board_box.inflate(2.0))
+        step = max(i.step, 0.2)
+        n = int((hi - lo) / step) + 1
+        candidates = sorted({min(max(ideal + d * step * sgn, lo), hi) for d in range(n) for sgn in (1, -1)},
+                            key=lambda a: (abs(a - ideal), a))
+        rejected: Counter = Counter()
+        reasons: dict = {}
+        for along in candidates:
+            p = placement_at(along)
+            why = occ.legal(i.item, p, clr, others=others, past_edge=i.edge is not None and i.clearance < self.keep_in)
+            if why is None:
+                moved = abs(along - ideal)
+                note = what
+                if moved > 1e-9:
+                    note += "; slid %.2f mm from its slot: %s" % (moved, next(iter(reasons.values()), ""))
+                return Step(i.key, i.kind, i.priority, p, moved, note, i.why)
+            key = _reason_key(why)
+            rejected[key] += 1
+            reasons.setdefault(key, why)
+        plan.findings.append("%s: no room anywhere %s (%s)" % (
+            i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3))))
+        return Step(i.key, i.kind, i.priority, None, 0.0, "UNPLACED: " + "; ".join(reasons.values()), i.why)
+
+    def _settle_along_line(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
+        """x or y pinned, the other free: the item's body centre sits on the
+        pinned line, shares it evenly with the items pinned to the same
+        value, and slides along it to the nearest legal spot."""
+        axis = "x" if i.pin_x is not None else "y"
+        pinned = _coord(self, occ, i.pin_x if axis == "x" else i.pin_y, axis)
+        fellows = [x for x in self._intents if (x.pin_x if axis == "x" else x.pin_y) is not None
+                   and (x.pin_x if axis == "x" else x.pin_y) == (i.pin_x if axis == "x" else i.pin_y)]
+        k, n = fellows.index(i), len(fellows)
+        box = occ.board_box
+        lo, hi = (box.top, box.bottom) if axis == "x" else (box.left, box.right)
+        lo, hi = lo + self.keep_in, hi - self.keep_in
+        ideal = lo + (hi - lo) * (k + 1) / (n + 1)
+
+        def at(along):
+            centre = Location(pinned, along) if axis == "x" else Location(along, pinned)
+            return box_centered_placement(occ, i.item, centre, i.rotation, i.face)
+        return self._slide(occ, i, plan, clr, ideal, lo, hi, at, "on the line %s = %.2f" % (axis, pinned))
+
     def _edge_slot(self, i: PlaceIntent, occ: Occupancy) -> float:
         """Where a free edge item would like to be: the edge's free items
         share it evenly, the k-th of n at (k + 1) / (n + 1) of the usable
@@ -976,31 +1078,11 @@ class Board:
         """One degree of freedom: the item slides along its edge from its
         slot to the nearest legal spot, its reach at the board's keep-in."""
         ideal = self._edge_slot(i, occ)
-        geom = occ._geometry(i.item)
-        others = occ.obstacles(geom, occ.board_box.inflate(2.0))
         box = occ.board_box
         lo, hi = (box.left, box.right) if i.edge in (Edge.NORTH, Edge.SOUTH) else (box.top, box.bottom)
-        step = max(i.step, 0.2)
-        n = int((hi - lo) / step) + 1
-        candidates = sorted({min(max(ideal + d * step * sgn, lo), hi) for d in range(n) for sgn in (1, -1)},
-                            key=lambda a: (abs(a - ideal), a))
-        rejected: Counter = Counter()
-        reasons: dict = {}
-        for along in candidates:
-            p = edge_placement(occ, i.item, i.edge, along, i.rotation, i.clearance, i.face)
-            why = occ.legal(i.item, p, clr, others=others, past_edge=i.clearance < self.keep_in)
-            if why is None:
-                moved = abs(along - ideal)
-                note = "along the %s edge" % i.edge.name.lower()
-                if moved > 1e-9:
-                    note += "; slid %.2f mm from its slot: %s" % (moved, next(iter(reasons.values()), ""))
-                return Step(i.key, i.kind, i.priority, p, moved, note, i.why)
-            key = _reason_key(why)
-            rejected[key] += 1
-            reasons.setdefault(key, why)
-        plan.findings.append("%s: no room anywhere along the %s edge (%s)" % (
-            i.key, i.edge.name.lower(), ", ".join("%s x%d" % kv for kv in rejected.most_common(3))))
-        return Step(i.key, i.kind, i.priority, None, 0.0, "UNPLACED: " + "; ".join(reasons.values()), i.why)
+        return self._slide(occ, i, plan, clr, ideal, lo, hi,
+                           lambda along: edge_placement(occ, i.item, i.edge, along, i.rotation, i.clearance, i.face),
+                           "along the %s edge" % i.edge.name.lower())
 
     def _no_place_report(self, occ: Occupancy, obj, step) -> str:
         """Why a critical item stopped the run: its envelope, the reason, and
@@ -1110,6 +1192,8 @@ class Board:
             return Step(i.key, i.kind, i.priority, p, 0.0, why or "", i.why)
         if i.edge is not None:
             return self._settle_along_edge(occ, i, plan, clr)
+        if i.pin_x is not None or i.pin_y is not None:
+            return self._settle_along_line(occ, i, plan, clr)
         current = occ._geometry(i.item).reference
         targets = self._targets(i.item, occ, placed)
         seeded = ""

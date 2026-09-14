@@ -4,7 +4,7 @@ a row that ends at a pad. No number a pad already knows is typed."""
 import pytest
 
 from placemat.layout import Board
-from placemat.values import Edge, Location, Mid, Part, PadRef, X, Y
+from placemat.values import Edge, Location, Mid, Part, PadRef, Priority, X, Y
 from tests.fixtures import board_geometry, footprint
 
 
@@ -98,7 +98,7 @@ def test_an_unplaced_item_pulls_nothing_and_blocks_nothing():
            footprint("R1", 50, 50, nets=("B", "D"))]
     b = Board(board_geometry(fps, width=40, height=40), edge_margin=1.0)
     b.place(Part("u1"), at=Location(10, 10))
-    b.place(Part("u9"))                                      # 30 x 30 on a 40 board with u1 in the corner: nowhere fits
+    b.place(Part("u9"), priority=Priority.DEFAULT)           # 30 x 30 on a 40 board with u1 in the corner: nowhere fits (not critical, by the script)
     b.place(Part("r1"))                                      # wired to u1 and u9: seeds toward u1 only
     plan = b.resolve()
     assert "UNPLACED" in plan.step("u9").note and plan.placement("u9") is None
