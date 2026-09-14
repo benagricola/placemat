@@ -71,7 +71,7 @@ class Text:
     mirrored: bool = False
     net: str = ""                       # a label has no net; the field keeps it a copper op
     side: object = None                 # the Edge the text sits off: its facing edge is snapped to the anchor when written
-    layer: str | None = None            # a named layer instead of the face's silk (User.1 for a fragment's facts)
+    layer: str | None = None            # a named layer instead of the face's silk (User.Comments for a fragment's facts)
 
     @property
     def box(self) -> Box:
