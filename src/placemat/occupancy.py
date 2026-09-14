@@ -48,6 +48,7 @@ class ItemGeometry:
     shapes: tuple[Shape, ...]
     body: Box
     nets: frozenset[str]
+    reach: Box | None = None            # everything the item physically is: pads and drawn graphics (silk), not the courtyard
 
 
 _BOTH = frozenset([Face.FRONT, Face.BACK])
@@ -100,7 +101,8 @@ class Occupancy:
     # ------------------------------------------------------------ geometry of a candidate
     def _register(self, fp: Footprint) -> ItemGeometry:
         g = ItemGeometry(frozenset([fp.ref]), Placement(fp.location, fp.rotation, fp.face),
-                         tuple(_fp_shapes(fp)), fp.body_box, frozenset(p.net for p in fp.pads))
+                         tuple(_fp_shapes(fp)), fp.body_box, frozenset(p.net for p in fp.pads),
+                         Box.union([fp.body_box, fp.phys_box]))
         self.items[fp.ref] = g
         return g
 
@@ -115,10 +117,12 @@ class Occupancy:
             for c in self.copper:
                 if c.owner == item.name:
                     shapes += (c,)
-            body = Box.union([m.body for m in members] + [s.box for s in shapes if s.owner == item.name])
+            own = [s.box for s in shapes if s.owner == item.name]
+            body = Box.union([m.body for m in members] + own)
+            reach = Box.union([m.reach or m.body for m in members] + own)
             self._cells[item.name] = ItemGeometry(frozenset(m for mg in members for m in mg.owners) | {item.name},
                                                   Placement(body.center, 0.0, Face.FRONT), shapes, body,
-                                                  frozenset(n for m in members for n in m.nets))
+                                                  frozenset(n for m in members for n in m.nets), reach)
             return self._cells[item.name]
         raise TypeError("cannot place a %s" % type(item).__name__)
 
@@ -197,6 +201,21 @@ class Occupancy:
         geom = self._geometry(item)
         return transform_box(geom.body, self._transform(geom, placement))
 
+    def reach_box(self, item, placement: Placement) -> Box:
+        """The item's outermost extent at a placement: body, pads and drawn
+        graphics, so a terminal's silk counts toward the edge; the courtyard
+        (an assembly margin) does not."""
+        geom = self._geometry(item)
+        return transform_box(geom.reach or geom.body, self._transform(geom, placement))
+
+    def who(self, owner: str) -> str:
+        """A refdes as a finding names it: with its cell when it has one."""
+        if self.geometry.has_footprint(owner):
+            cell = self.geometry.footprint(owner).cell
+            if cell:
+                return "cell %s's %s" % (cell, owner)
+        return owner
+
     # ------------------------------------------------------------ mutation
     def reserve(self, box: Box, why: str, allow=(), layer: CopperLayer | None = None):
         self.reservations.append(Reservation(box, why, frozenset(str(n) for n in allow), layer))
@@ -208,7 +227,8 @@ class Occupancy:
         self.pending -= geom.owners
         if isinstance(item, Footprint):
             self.items[item.ref] = ItemGeometry(geom.owners, placement, tuple(shapes),
-                                                self.body_box(item, placement), geom.nets)
+                                                self.body_box(item, placement), geom.nets,
+                                                self.reach_box(item, placement))
             return
         t = self._transform(geom, placement)
         by_owner: dict[str, list[Shape]] = {}
@@ -221,7 +241,7 @@ class Occupancy:
                                 (Face.BACK if m.reference.face is Face.FRONT else Face.FRONT)
                                 if placement.face != geom.reference.face else m.reference.face)
             self.items[fp.ref] = ItemGeometry(m.owners, new_ref, tuple(by_owner.get(fp.ref, ())),
-                                              transform_box(m.body, t), m.nets)
+                                              transform_box(m.body, t), m.nets, transform_box(m.reach or m.body, t))
         own = by_owner.get(item.name, [])
         self.copper = [c for c in self.copper if c.owner != item.name] + own
 
@@ -254,14 +274,16 @@ class Occupancy:
             out = [o for o in out if o.box.overlaps(region, gap=_GAP)]
         return out
 
-    def legal(self, item, placement: Placement, clearance: float | None = None, others=None) -> str | None:
+    def legal(self, item, placement: Placement, clearance: float | None = None, others=None,
+              past_edge: bool = False) -> str | None:
         """None when `item` may sit at `placement`, else one sentence saying
         what stops it. The first failure found is reported. `others` is a
         prefiltered obstacle list from `obstacles()`; without one every
-        shape on the board is a candidate obstacle."""
+        shape on the board is a candidate obstacle. `past_edge` allows a
+        body over the edge margin: a connector face declared to overhang."""
         geom = self._geometry(item)
         body = self.body_box(item, placement)
-        if self.board_box is not None and self.edge_margin is not None:
+        if self.board_box is not None and self.edge_margin is not None and not past_edge:
             inner = self.board_box.inflate(-self.edge_margin)
             if not inner.contains(body):
                 return "body box %s crosses the board edge margin (%.2f mm)" % (_fmt(body), self.edge_margin)
@@ -298,7 +320,7 @@ class Occupancy:
         ks, ko = s.kind, o.kind
         if ks == "courtyard" and ko == "courtyard":
             if s.faces & o.faces and polys_overlap(s.poly, o.poly):
-                return "%s courtyard overlaps %s courtyard" % (s.owner, o.owner)
+                return "%s courtyard overlaps %s courtyard" % (self.who(s.owner), self.who(o.owner))
             return None
         if "courtyard" in (ks, ko):
             other = o if ks == "courtyard" else s
@@ -306,7 +328,7 @@ class Occupancy:
             if other.kind == "npth" or (other.kind == "through" and self.vias_block_courtyards
                                         and other.owner not in self.items):
                 if polys_overlap(court.poly, other.poly):
-                    return "%s courtyard sits over a %s (%s)" % (court.owner, other.kind, other.owner or "via")
+                    return "%s courtyard sits over a %s (%s)" % (self.who(court.owner), other.kind, self.who(other.owner) if other.owner else "via")
             return None
         if ks in ("pad", "through", "copper") and ko in ("pad", "through", "copper"):
             common = s.layers & o.layers
@@ -321,11 +343,11 @@ class Occupancy:
             gap = poly_distance(s.poly, o.poly)
             if gap < clr - 1e-9:
                 return "%s pad %s is %.2f mm from %s copper on %s (needs %.2f)" % (
-                    s.owner, s.net or "-", gap, o.net or o.owner, "/".join(sorted(l.value for l in common)), clr)
+                    self.who(s.owner), s.net or "-", gap, o.net or self.who(o.owner), "/".join(sorted(l.value for l in common)), clr)
             return None
         if ks == "npth" and ko in ("pad", "through", "copper"):
             if polys_overlap(s.poly, o.poly):
-                return "%s hole cuts %s copper" % (s.owner, o.net or o.owner)
+                return "%s hole cuts %s copper" % (self.who(s.owner), o.net or self.who(o.owner))
         return None
 
 

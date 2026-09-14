@@ -161,11 +161,18 @@ coordinates nobody chose.
   integrity: give a track its ends and only the waypoints that say where it
   must go, and let the tool find the rest. Draw a daisy chain as a chain: the run bows out at 45 to an
   apex and one line leaves the apex for the pin; never a bus with stubs.
-- Rows and references before numbers: things down an edge are a `row`
-  (connectors `line="outer"`, small parts on their centre line); a part
-  between two pads sits at `Mid()` of them; a row under a pin pair is
-  `centre=X(Mid(...))`, a row beside another is `before=`/`after=`. A
-  number typed where a reference would do is a defect.
+- Rows and references before numbers: things along an edge are a `row`
+  (connectors `line="outer"`, small parts on their centre line); a row
+  inboard of an edge row is `behind=` it; a part between two pads sits at
+  `Mid()` of them; a row under a pin pair is `centre=X(Mid(...))`, a row
+  beside another is `before=`/`after=`, a row after a hole starts at
+  `Y(pad, gap)`. A number typed where a reference would do is a defect.
+- The edge is the board's: no script carries an edge standoff. An EDGE
+  item's reach sits at `board.keep_in`; a face that must stand proud of
+  the edge says `overhang=` with a why. Two firm things that must sit
+  beside each other are placed relative to each other (`behind=`,
+  `after=`, a pad reference), never by independent numbers from opposite
+  edges: the first collision is the run stopping, not a finding to tune.
 - A bus down a board is one long track per net and a short track per pad
   into it. Two same-layer nets may cross only where the one that yields is
   declared `bridge=True`; who yields is decided by `priority`, never by

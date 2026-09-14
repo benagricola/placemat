@@ -47,8 +47,8 @@ class Row:
     boundary (`inner`) and the edge line (`outer`) are references resolved
     against the outline."""
 
-    def __init__(self, edge: Edge, clearance: float, gap: float, start: float | None, keys, alongs, depth: float):
-        self.edge, self.clearance, self.gap = edge, clearance, gap
+    def __init__(self, edge: Edge, standoff: float, gap: float, start: float | None, keys, alongs, depth: float):
+        self.edge, self.standoff, self.gap = edge, standoff, gap     # standoff: the outer line, in from the edge
         self.keys, self.alongs, self.depth = list(keys), list(alongs), depth
         self.items: list = []
         self.length = sum(alongs) + gap * (len(alongs) - 1)
@@ -72,6 +72,8 @@ class Row:
             self.begin(_coord(board, occ, value, axis) - self.length / 2.0)
         elif kind == "end":
             self.begin(_coord(board, occ, value, axis) - self.length)
+        elif kind == "start":
+            self.begin(_coord(board, occ, value, axis))
         elif kind == "before":
             value.begin_from(board, occ)
             self.begin(value.start - self.gap - self.length)
@@ -113,7 +115,7 @@ class Row:
         base, dx = (what.split("+")[0] if "+" in what else what.split("-")[0]), 0.0
         if len(what) > len(base):
             dx = float(what[len(base):])
-        depth = self.clearance + (self.depth if base == "inner" else 0.0)
+        depth = self.standoff + (self.depth if base == "inner" else 0.0)
         if self.edge is Edge.WEST:
             return board_box.left + depth + dx
         if self.edge is Edge.EAST:
@@ -263,10 +265,10 @@ class Board:
     off the generated .kicad_pcb; declarations are collected and resolved
     together."""
 
-    def __init__(self, geometry: BoardGeometry, edge_margin: float = 0.0, clearance: float | None = None,
+    def __init__(self, geometry: BoardGeometry, edge_margin: float | None = None, clearance: float | None = None,
                  via_drill: float = 0.3, via_size: float = 0.6, keep_going: bool = False):
         self.geometry = geometry
-        self.edge_margin = edge_margin
+        self.edge_margin = geometry.edge_clearance if edge_margin is None else edge_margin
         self.clearance = clearance
         self.via_drill, self.via_size = via_drill, via_size
         self.keep_going = keep_going            # carry on past colliding FIXED/EDGE items, as findings
@@ -327,11 +329,24 @@ class Board:
             return item, item.key, "block"
         raise TypeError("place() takes a Part, a Cell or a block, not %r" % (item,))
 
+    @property
+    def keep_in(self) -> float:
+        """How close anything may come to the board edge: the board's own
+        copper-to-edge rule. Edge placement puts an item's reach here."""
+        return self.edge_margin
+
     def extent(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
         """The item's body box at `rotation`, placed at the origin: a size, not a place."""
         geom, _, _ = self._item(item)
         occ = Occupancy(self.geometry, self.edge_margin, board_box=None)
         return occ.body_box(geom, Placement(Location(0.0, 0.0), rotation, face))
+
+    def reach(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
+        """Everything the item physically is (body, pads, silk) at
+        `rotation`, at the origin: what edge placement and rows measure."""
+        geom, _, _ = self._item(item)
+        occ = Occupancy(self.geometry, self.edge_margin, board_box=None)
+        return occ.reach_box(geom, Placement(Location(0.0, 0.0), rotation, face))
 
     def _pad_ref(self, ref):
         """Validate a pad reference now; return (refdes, pad number, dx, dy)."""
@@ -372,14 +387,15 @@ class Board:
     # ------------------------------------------------------------ placement
     def place(self, item, *, at: Location | None = None, center: Location | None = None,
               rotation: float = 0.0, face: Face = Face.FRONT, edge: Edge | None = None,
-              along: float | None = None, clearance: float | None = None,
+              along: float | None = None, overhang: float = 0.0,
               near: Location | None = None, radius: float = 3.0, step: float = 0.2,
-              rotations=(), priority: Priority | None = None, why: str = "") -> PlaceIntent:
+              rotations=(), priority: Priority | None = None, why: str = "", _standoff: float | None = None) -> PlaceIntent:
         """Declare where an item goes.
 
         at=       a part's origin (a cell's box centre)      -> FIXED
         center=   the body box centre                        -> FIXED
-        edge=, along=, clearance=   flush to a board edge    -> EDGE
+        edge=, along=   its reach at the board's keep-in     -> EDGE
+                  (`overhang=` past the edge, for a face that must stand proud)
         near=     a hint; the placer searches around it      -> DEFAULT
         nothing   searched from where the generator left it  -> DEFAULT
         """
@@ -398,43 +414,56 @@ class Board:
         needs = {self._pad_ref(ref)[0] for ref in _refs_in([at, center, along])}   # a real pad, placed before this
         if isinstance(along, _RowSlot):
             needs |= along.row.needs
+        if overhang and edge is None:
+            raise ValueError("%s: overhang= goes with edge=" % key)
+        standoff = _standoff if _standoff is not None else (-float(overhang) if overhang else self.keep_in)
         intent = PlaceIntent(key, geom, kind, priority, float(rotation), face, at, center, edge, along,
-                             clearance if clearance is not None else self.edge_margin, near, radius, step,
-                             tuple(rotations), why, len(self._intents), frozenset(needs))
+                             standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs))
         self._intents.append(intent)
         return intent
 
-    def row(self, items, edge: Edge, *, gap: float, start: float | None = None, align: str = "start",
-            clearance: float | None = None, rotation: float | None = None, line: str = "centre",
+    def row(self, items, edge: Edge, *, gap: float, start=None, align: str = "start",
+            rotation: float | None = None, line: str = "centre", behind: Row | None = None, inboard: float | None = None,
+            overhang: float = 0.0,
             centre=None, end=None, before: Row | None = None, after: Row | None = None, why: str = "") -> Row:
         """Items down `edge` in order, `gap` apart, with their outward sides
         out (`rotation=`, one value or one per item, overrides that turn for
-        parts with no outward side). Across the row the items align on one
-        line: `line="centre"` (the default) puts their centres on the line
-        the deepest item's centre falls on, `clearance` in from the edge;
-        `"outer"` puts every outward edge `clearance` in from the board edge
-        (connectors edge-hard); `"inner"` aligns the inboard edges. A row
-        butted `before=` or `after=` another takes that row's line. Where
-        the row sits along the edge: `start=` a
-        number (default: the edge margin); `align="center"` on the board;
-        `centre=` or `end=` a reference (a pad's X()/Y(), a Mid); `before=`
-        or `after=` another row, one gap away. A row placed by a reference
-        is measured when its items are placed. Returns the Row."""
+        parts with no outward side). The row's outer line is the board's
+        keep-in, or `inboard` (default `gap`) behind the inner line of the
+        row it is `behind=`; `overhang=` puts a face that far past the edge. Across the row the items align
+        on one line: `line="centre"` (the default) puts their centres on
+        the line the deepest item's centre falls on; `"outer"` puts every
+        outward reach on the outer line (connectors edge-hard); `"inner"`
+        aligns the inboard edges. A row butted `before=` or `after=`
+        another takes that row's line. Where the row sits along the edge:
+        `start=` a number (default: the keep-in) or a reference;
+        `align="center"` on the board; `centre=` or `end=` a reference (a
+        pad's X()/Y(), a Mid); `before=` or `after=` another row, one gap
+        away. A row placed by a reference is measured when its items are
+        placed. Returns the Row."""
         rots = [_OUTWARD_ROTATION[edge]] * len(items) if rotation is None else \
             ([float(r) for r in rotation] if isinstance(rotation, (list, tuple)) else [float(rotation)] * len(items))
         rot = rots[0] if rots else _OUTWARD_ROTATION[edge]
-        clr = clearance if clearance is not None else self.edge_margin
+        if behind is not None:
+            if behind.edge is not edge:
+                raise ValueError("a row is behind a row on its own edge")
+            if overhang:
+                raise ValueError("a row behind another has no edge to overhang")
+            clr = behind.standoff + behind.depth + (gap if inboard is None else float(inboard))
+        else:
+            clr = -float(overhang) if overhang else self.keep_in
         along_axis = edge in (Edge.EAST, Edge.WEST)
         keys, alongs, depths = [], [], []
         for item, r in zip(items, rots):
             geom, key, kind = self._item(item)
-            box = self.extent(item, r)
+            box = self.reach(item, r)
             keys.append(key)
             alongs.append(box.height if along_axis else box.width)
             depths.append(box.width if along_axis else box.height)
-        anchors = [("centre", centre), ("end", end), ("before", before), ("after", after)]
+        by_ref = start is not None and not isinstance(start, (int, float))
+        anchors = [("centre", centre), ("end", end), ("before", before), ("after", after), ("start", start if by_ref else None)]
         given = [(k, v) for k, v in anchors if v is not None]
-        if len(given) > 1 or (given and (start is not None or align == "center")):
+        if len(given) > 1 or (given and ((start is not None and not by_ref) or align == "center")):
             raise ValueError("a row is placed one way: start=, align=\"center\", centre=, end=, before= or after=")
         row = Row(edge, clr, gap, None, keys, alongs, max(depths))
         if given:
@@ -451,17 +480,17 @@ class Board:
             else:
                 row.anchor = ("outline", None)
         else:
-            row.begin(float(clr if start is None else start))
+            row.begin(float(self.keep_in if start is None else start))
         row.items = list(items)
         if line not in ("centre", "outer", "inner"):
             raise ValueError("a row's line is centre, outer or inner, not %r" % (line,))
         base = row.anchor[1] if row.anchor and row.anchor[0] in ("before", "after") else row
-        ref = base.clearance + {"centre": base.depth / 2.0, "outer": 0.0, "inner": base.depth}[line]   # the line, from the edge
+        ref = base.standoff + {"centre": base.depth / 2.0, "outer": 0.0, "inner": base.depth}[line]   # the line, from the edge
         clears = [ref - {"centre": d / 2.0, "outer": 0.0, "inner": d}[line] for d in depths]
         row.line = line
         for n, (item, r, c) in enumerate(zip(items, rots, clears)):
             along = row.centres[n] if row.start is not None else _RowSlot(row, n)
-            self.place(item, edge=edge, along=along, clearance=c, rotation=r, why=why)
+            self.place(item, edge=edge, along=along, _standoff=c, rotation=r, why=why)
         return row
 
     def _is_searched(self, refdes: str) -> bool:
@@ -939,7 +968,7 @@ class Board:
             else:
                 along = i.along.resolve(self, occ) if isinstance(i.along, _RowSlot) else _coord(self, occ, i.along, "x" if i.edge in (Edge.NORTH, Edge.SOUTH) else "y")
                 p = edge_placement(occ, i.item, i.edge, along, i.rotation, i.clearance, i.face)
-            why = occ.legal(i.item, p, clr)
+            why = occ.legal(i.item, p, clr, past_edge=i.edge is not None and i.clearance < self.keep_in)
             if why:
                 plan.findings.append("%s (%s): %s" % (i.key, i.priority.value, why))
             return Step(i.key, i.kind, i.priority, p, 0.0, why or "", i.why)

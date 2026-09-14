@@ -19,7 +19,7 @@ def make_board():
 
 def test_a_part_may_be_placed_at_the_midpoint_of_two_pads():
     b = make_board()
-    b.place(Part("j1"), edge=Edge.NORTH, along=20.0, rotation=0, clearance=2.0)
+    b.place(Part("j1"), edge=Edge.NORTH, along=20.0, rotation=0)
     b.place(Part("c1"), center=(X(Mid(PadRef(Part("j1"), "A"), PadRef(Part("j1"), "B"))), Y(PadRef(Part("j1"), "A"), 6.0)),
             rotation=90)
     plan = b.resolve()
@@ -30,10 +30,10 @@ def test_a_part_may_be_placed_at_the_midpoint_of_two_pads():
 
 def test_a_row_may_be_centred_on_a_reference_and_another_butted_before_it():
     b = make_board()
-    b.place(Part("j1"), edge=Edge.NORTH, along=30.0, rotation=0, clearance=2.0)
+    front = b.row([Part("j1")], Edge.NORTH, gap=1.0, start=26.0, rotation=0)
     pa, pb = PadRef(Part("j1"), "A"), PadRef(Part("j1"), "B")
-    pair = b.row([Part("r1"), Part("r2")], Edge.NORTH, gap=1.0, clearance=10.0, rotation=0, centre=X(Mid(pa, pb)))
-    b.row([Part("h1")], Edge.NORTH, gap=1.0, clearance=10.0, rotation=0, before=pair)
+    pair = b.row([Part("r1"), Part("r2")], Edge.NORTH, gap=1.0, rotation=0, behind=front, centre=X(Mid(pa, pb)))
+    b.row([Part("h1")], Edge.NORTH, gap=1.0, rotation=0, before=pair)
     plan = b.resolve()
     ja, jb = plan.occupancy.pad_location("J1", "1"), plan.occupancy.pad_location("J1", "2")
     r1, r2, h1 = plan.box("r1"), plan.box("r2"), plan.box("h1")
@@ -43,8 +43,8 @@ def test_a_row_may_be_centred_on_a_reference_and_another_butted_before_it():
 
 def test_a_row_may_end_at_a_reference():
     b = make_board()
-    b.place(Part("j1"), edge=Edge.NORTH, along=40.0, rotation=0, clearance=2.0)
-    b.row([Part("r1"), Part("r2")], Edge.NORTH, gap=1.0, clearance=10.0, rotation=0,
+    b.place(Part("j1"), edge=Edge.NORTH, along=40.0, rotation=0)
+    b.row([Part("r1"), Part("r2")], Edge.NORTH, gap=1.0, rotation=0,
           end=X(PadRef(Part("j1"), "A"), -2.0))
     plan = b.resolve()
     ja = plan.occupancy.pad_location("J1", "1")

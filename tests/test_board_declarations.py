@@ -26,7 +26,7 @@ def test_declaration_order_does_not_decide_execution_order():
     b = make_board()
     b.place(Part("r1"), near=Location(30, 30))                           # searched: last
     b.place(Cell("pd"), center=Location(30, 30))                          # fixed cell
-    b.place(Part("j_in"), edge=Edge.NORTH, along=30.0, clearance=2.0)     # edge
+    b.place(Part("j_in"), edge=Edge.NORTH, along=30.0)     # edge
     b.place(Part("r2"), at=Location(10, 50))                              # fixed part
     plan = b.resolve()
     order = [step.item for step in plan.steps]

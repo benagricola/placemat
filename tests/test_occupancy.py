@@ -168,3 +168,12 @@ def test_a_declared_part_not_yet_placed_is_not_an_obstacle_where_the_generator_l
     from placemat.layout import PlacementCollision
     with pytest.raises(PlacementCollision):
         b.resolve()
+
+
+def test_a_collision_with_a_cell_member_names_the_cell():
+    fps = [footprint("R2", 10, 10, w=2, h=1, cell="a1", inst="a1.rg", nets=("A", "B")),
+           footprint("J5", 30, 30, w=10, h=8, nets=("C", "D"))]
+    g = board_geometry(fps, cells=["a1"], width=60, height=60)
+    occ = Occupancy(g, edge_margin=0.0, board_box=g.outline_box)
+    why = occ.legal(fps[1], Placement(Location(10, 10), 0, Face.FRONT))
+    assert why == "J5 courtyard overlaps cell a1's R2 courtyard"

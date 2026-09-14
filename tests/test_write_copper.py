@@ -2,6 +2,8 @@
 result is readable as numbers."""
 import shutil
 
+import pytest
+
 from placemat.layout import Board
 from placemat.kicad.drc import run_drc
 from placemat.kicad.read import read_board
@@ -63,3 +65,8 @@ def test_a_declared_clearance_is_written_beside_the_board_and_its_drc_reads_it(b
     assert (tmp_path / "layout.kicad_dru").read_text().startswith("(version 1)")
     report = run_drc(pcb, tmp_path / "drc.json")
     assert report.by_type.get("clearance", 0) > 0            # the committed board is clean without the rule
+
+
+def test_the_boards_copper_to_edge_clearance_is_read(breakout):
+    assert breakout.edge_clearance == pytest.approx(0.4)
+    assert Board(breakout).keep_in == pytest.approx(0.4)

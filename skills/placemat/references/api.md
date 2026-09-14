@@ -19,6 +19,8 @@ board; declarations are collected and resolved together.
 | `board.cell_pad(Cell("bd0"), net="CANH", ref_prefix="H")` | one pad inside a cell |
 | `board.net(Net("V48"))` | the net name, or `KeyError` |
 | `board.netclass(Net("CAN_P"))` | its class: `.track_width`, `.clearance`, `.diff_pair_width`, `.diff_pair_gap` |
+| `board.keep_in` | the board's copper-to-edge rule: where an EDGE item's reach lands |
+| `board.reach(item, rotation=)` | the item's body, pads and silk together, as a box at the origin |
 
 ## Setup
 
@@ -31,7 +33,7 @@ Say how firm each thing is; the netlist does the rest.
 
 ```python
 board.place(item)                                                       # searched: SEEDED from its links
-board.place(item, edge=Edge.NORTH, along=x, clearance=3.0, rotation=180)  # EDGE: flush to an edge
+board.place(item, edge=Edge.NORTH, along=x, rotation=180)                 # EDGE: its reach at the board's keep-in
 board.place(item, at=Location(x, y), rotation=0, face=Face.FRONT)      # FIXED: a mechanical fact (a hole, a cell)
 board.place(item, center=(X(Mid(a, b)), Y(a, 3.0)), rotation=0)         # FIXED: said in terms of pads
 board.place(item, near=Location(x, y), radius=3.0, step=0.2, rotations=(0, 90))  # searched round a hint
@@ -40,13 +42,15 @@ board.place(item, near=Location(x, y), radius=3.0, step=0.2, rotations=(0, 90)) 
 (below). One declaration per item. `why=` is recorded in the run. A FIXED
 or EDGE item that lands on another is a script error: the run stops
 there with the collisions, before anything is searched (`placemat run
---keep-going` records them as findings and carries on).
+--keep-going` records them as findings and carries on). A finding names
+a cell member with its cell: `j_mot (edge): J5 courtyard overlaps cell
+a1's R2 courtyard`.
 
 **The default is a bare `place()`.** A part with a wired neighbour already
 on the board needs no position: price the connection and leave it to seed.
 
 ```python
-board.place(Part("j_pwr"), edge=Edge.WEST, along=PWR_ALONG, clearance=EDGE_CLEAR)     # the connector is EDGE
+board.place(Part("j_pwr"), edge=Edge.WEST, along=PWR_ALONG)                          # the connector is EDGE
 board.link(PadRef(Part("rpf"), "V48_IN"), PadRef(Part("j_pwr"), "V48"), weight=LinkWeight.SHORT,
            why="the reverse-polarity FET sits at the inlet")
 board.place(Part("rpf"))                                                # seeds beside J_PWR's V48 pin
@@ -67,29 +71,39 @@ links, and a hint on a part that has a wired, placed neighbour is a
 defect. Many parts hinted at one point compete for the same rectangle and
 the last of them fails to place.
 
-**Rows.** Things down one edge, in order, equally gapped, each flush to the
-edge with its outward side out (a cell generated with its connector's bulk
-on local +Y turns 270 on the west edge, 90 east, 180 north, 0 south;
-`rotation=` overrides that, one value or one per item). Across the row the
-items align on one line: `line="centre"` (the default) puts their centres
-on one line, `"outer"` puts every outward edge `clearance` in from the
-board edge (connectors edge-hard), `"inner"` aligns their inboard edges;
-a row butted before or after another takes that row's line:
+**The edge is the board's.** Nothing in a script says how far from the
+edge a thing sits. `board.keep_in` is the board's own copper-to-edge
+rule; an EDGE item's reach (body, pads and silk together, `board.reach(item,
+rotation)`) lands there. A face that must stand proud of the edge says
+`overhang=` with a why. A row inboard of an edge row is `behind=` it.
+
+**Rows.** Things along one edge, in order, equally gapped, their outward
+sides out (a cell generated with its connector's bulk on local +Y turns
+270 on the west edge, 90 east, 180 north, 0 south; `rotation=` overrides
+that, one value or one per item). A row's outer line is the keep-in, or
+`inboard` (default `gap`) behind the inner line of the row it is
+`behind=`. Across the row the items align on one line: `line="centre"`
+(the default) puts their centres on one line, `"outer"` puts every
+outward reach on the outer line (connectors edge-hard), `"inner"` aligns
+their inboard edges; a row butted before or after another takes that
+row's line:
 
 ```python
-power = board.row(PD, Edge.WEST, gap=3.0, start=TOP, clearance=3.5, line="outer")   # connectors edge-hard
-trunk = board.row([CN, U13], Edge.NORTH, gap=2.5, align="center", clearance=3.5, line="outer")
-pair = board.row([RB, RA], Edge.NORTH, gap=1.5, clearance=18.0, rotation=180, centre=X(Mid(pin_n, pin_p)))
+power = board.row(PD, Edge.WEST, gap=3.0, start=TOP, line="outer")                  # connectors edge-hard
+trunk = board.row([CN, U13], Edge.NORTH, gap=2.5, align="center", line="outer")
+pair = board.row([RB, RA], Edge.NORTH, gap=1.5, behind=trunk, inboard=2.0, rotation=180, centre=X(Mid(pin_n, pin_p)))
 board.row([JUMPER], Edge.NORTH, gap=1.5, rotation=180, before=pair)   # on the resistors' centre line
-board.size(width=EDGE + power.depth + 4 + bus.depth + EDGE, height=max(power.end, bus.end) + TOP)
+legs = board.row(LEGS, Edge.SOUTH, gap=1.0, behind=mot_aux, start=Y(PadRef(MH3, 1), 4.0))   # after the hole
+board.size(width=board.keep_in + power.depth + 4 + bus.depth + board.keep_in, height=max(power.end, bus.end) + TOP)
 ```
-Where a row sits along its edge, one of: `start=` a number; `align="center"`
-on the board; `centre=` or `end=` a reference (`X(Mid(pin_n, pin_p))`,
-`X(pad, -2.0)`); `before=` or `after=` another row, one gap away. A row's
-`depth` (how far inboard it reaches) and `length` are numbers at
+Where a row sits along its edge, one of: `start=` a number or a
+reference; `align="center"` on the board; `centre=` or `end=` a reference
+(`X(Mid(pin_n, pin_p))`, `X(pad, -2.0)`); `before=` or `after=` another
+row, one gap away. A row's `depth` (how far inboard its reach goes),
+`standoff` (its outer line, in from the edge) and `length` are numbers at
 declaration; `start`, `end` and `centre(item)` too when it starts at a
 number, otherwise refer to its items' pads. `row.inner` and `row.outer` are
-its inboard boundary and its edge line, usable as a coordinate in copper
+its inboard boundary and its outer line, usable as a coordinate in copper
 (`(power.inner + 1.0, y)`). Declare the size after the rows that set it.
 
 **Positions said in terms of pads.** `at=` and `center=` take a Location

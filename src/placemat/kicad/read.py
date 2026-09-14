@@ -260,4 +260,4 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10) -> Bo
                    if board.GetLayerName(l) in {m.value for m in CopperLayer})
     return BoardGeometry(path=path, footprints=fps, cells=cells, copper=copper, outline=_outline(board),
                     nets=frozenset(classes), netclasses=classes, default_clearance=default_clr,
-                    layers=layers)
+                    layers=layers, edge_clearance=mm(board.GetDesignSettings().m_CopperEdgeClearance))

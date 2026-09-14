@@ -43,13 +43,23 @@ def test_scan_reports_failure_with_reasons_when_nothing_fits():
     assert result.rejected and result.tried > 0
 
 
+def test_edge_placement_puts_the_parts_reach_at_the_standoff():
+    occ = Occupancy(board_geometry([], width=100, height=60), edge_margin=1.0)
+    r = footprint("J1", 50, 30, w=10, h=4, silk=(0, 3.0, 0, 0))
+    p = edge_placement(occ, r, Edge.NORTH, along=40.0, rotation=0, standoff=0.4)
+    assert abs(occ.body_box(r, p).top - 3.4) < 1e-9                  # the silk sits at 0.4, the body 3 mm behind it
+    assert abs(occ.reach_box(r, p).top - 0.4) < 1e-9
+    p = edge_placement(occ, r, Edge.SOUTH, along=40.0, rotation=180, standoff=0.4)
+    assert abs(occ.body_box(r, p).bottom - (60 - 3.4)) < 1e-9        # turned outward: the silk faces south
+
+
 def test_edge_placement_puts_the_body_box_at_the_margin():
     occ = Occupancy(board_geometry([], width=100, height=60), edge_margin=1.0)
     r = footprint("J1", 50, 30, w=10, h=4)
-    p = edge_placement(occ, r, Edge.NORTH, along=40.0, rotation=0, clearance=3.0)
+    p = edge_placement(occ, r, Edge.NORTH, along=40.0, rotation=0, standoff=3.0)
     box = occ.body_box(r, p)
     assert abs(box.top - 3.0) < 1e-9 and abs(box.center.x - 40.0) < 1e-9
-    p = edge_placement(occ, r, Edge.EAST, along=20.0, rotation=90, clearance=3.0)
+    p = edge_placement(occ, r, Edge.EAST, along=20.0, rotation=90, standoff=3.0)
     box = occ.body_box(r, p)
     assert abs(box.right - 97.0) < 1e-9 and abs(box.center.y - 20.0) < 1e-9
     assert abs(box.width - 4.0) < 1e-9        # rotated: the 10 mm side runs along the edge
@@ -60,7 +70,7 @@ def test_edge_placement_of_a_cell_moves_every_member():
            footprint("F1", 10, 14, w=6, h=2, cell="pd", inst="pd.fuse")]
     occ = Occupancy(board_geometry(fps, cells=["pd"], width=100, height=100), edge_margin=1.0)
     cell = occ.geometry.cell("pd")
-    p = edge_placement(occ, cell, Edge.WEST, along=50.0, rotation=0, clearance=2.0)
+    p = edge_placement(occ, cell, Edge.WEST, along=50.0, rotation=0, standoff=2.0)
     box = occ.body_box(cell, p)
     assert abs(box.left - 2.0) < 1e-9 and abs(box.center.y - 50.0) < 1e-9
     assert abs(box.height - 6.0) < 1e-9

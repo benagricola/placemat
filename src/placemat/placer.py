@@ -128,20 +128,22 @@ def _reason_key(why: str) -> str:
 
 
 def edge_placement(occ: Occupancy, item, edge: Edge, along: float, rotation: float,
-                   clearance: float, face: Face = Face.FRONT) -> Placement:
-    """The placement that puts the item's body box `clearance` inside `edge`
-    with its centre at `along` (x for north/south, y for east/west)."""
+                   standoff: float, face: Face = Face.FRONT) -> Placement:
+    """The placement that puts the item's reach (courtyard and graphics)
+    `standoff` inside `edge` with its body centre at `along` (x for
+    north/south, y for east/west). A negative standoff overhangs the edge."""
     probe = Placement(Location(0.0, 0.0), rotation, face)
     box = occ.body_box(item, probe)
+    reach = occ.reach_box(item, probe)
     board = occ.board_box
     if edge is Edge.NORTH:
-        dx, dy = along - box.center.x, board.top + clearance - box.top
+        dx, dy = along - box.center.x, board.top + standoff - reach.top
     elif edge is Edge.SOUTH:
-        dx, dy = along - box.center.x, board.bottom - clearance - box.bottom
+        dx, dy = along - box.center.x, board.bottom - standoff - reach.bottom
     elif edge is Edge.WEST:
-        dx, dy = board.left + clearance - box.left, along - box.center.y
+        dx, dy = board.left + standoff - reach.left, along - box.center.y
     else:
-        dx, dy = board.right - clearance - box.right, along - box.center.y
+        dx, dy = board.right - standoff - reach.right, along - box.center.y
     return Placement(Location(round(dx, 6), round(dy, 6)), rotation, face)
 
 
