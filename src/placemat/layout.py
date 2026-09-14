@@ -899,8 +899,14 @@ class Board:
             ox = sum(p.x for p in own) / len(own) - current.location.x if own else 0.0
             oy = sum(p.y for p in own) / len(own) - current.location.y if own else 0.0
             hint = Placement(Location(round(cx - ox, 3), round(cy - oy, 3)), i.rotation, i.face)
-            nets = sorted({self.geometry.footprint(k[0]).pad(int(k[1]) if k[1].isdigit() else k[1]).net
-                           for k, _, _ in targets if k[0] in {fp.ref for fp in (i.item.members if i.kind == "cell" else (i.item,))}})
+            # k[1] here is always a raw pad NUMBER string from _targets() (never
+            # a net name) - some real footprints number pads like "1'" for a
+            # mechanically doubled leg, which is not all-digit, so this matches
+            # p.number directly instead of going through pad_key()'s int/net
+            # guess (which mis-reads a non-digit pad number as a net name).
+            nets = sorted({p.net for k, _, _ in targets
+                           if k[0] in {fp.ref for fp in (i.item.members if i.kind == "cell" else (i.item,))}
+                           for p in self.geometry.footprint(k[0]).pads if p.number == k[1]})
             seeded = "seeded on %s" % ", ".join(nets)
         else:
             return self._settle_in_pocket(occ, i, plan, clr)
