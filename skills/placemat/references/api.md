@@ -34,7 +34,8 @@ Say how firm each thing is; the netlist does the rest.
 ```python
 board.place(item)                                                       # searched: SEEDED from its links
 board.place(item, priority=Priority.HIGH)                               # critical: first in its tier; no place stops the run
-board.place(item, edge=Edge.NORTH, along=x, rotation=180)                 # EDGE: its reach at the board's keep-in
+board.place(item, edge=Edge.NORTH, along=x, rotation=180)                 # EDGE: fixed on that edge, no freedom
+board.place(item, edge=Edge.NORTH)                                      # on that edge, wherever there is room: one freedom
 board.place(item, at=Location(x, y), rotation=0, face=Face.FRONT)      # FIXED: a mechanical fact (a hole, a cell)
 board.place(item, center=(X(Mid(a, b)), Y(a, 3.0)), rotation=0)         # FIXED: said in terms of pads
 board.place(item, near=Location(x, y), radius=3.0, step=0.2, rotations=(0, 90))  # searched round a hint
@@ -46,6 +47,17 @@ there with the collisions, before anything is searched (`placemat run
 --keep-going` records them as findings and carries on). A finding names
 a cell member with its cell: `j_mot (edge): J5 courtyard overlaps cell
 a1's R2 courtyard`.
+
+**Degrees of freedom.** `at=`, `center=`, and `edge=` with `along=` have
+none: the item never moves, and two such things that meet are an invalid
+layout that stops the run. `edge=` alone has one: the item slides along
+its edge, sits at the edge's midpoint when it is the only free item
+there, shares the edge evenly with its fellows (the k-th of n at
+(k+1)/(n+1) of the length), and slides aside from whatever is already
+there. It is searched, so it goes down with the searched items in
+priority order and its rotation defaults to outward for that edge. A
+bare `place()` has two. Test points, LEDs, buttons and a connector whose
+exact spot does not matter are `edge=` alone, never `along=`.
 
 **The default is a bare `place()`.** A part with a wired neighbour already
 on the board needs no position: price the connection and leave it to seed.

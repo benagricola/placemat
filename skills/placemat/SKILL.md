@@ -120,9 +120,11 @@ coordinates nobody chose.
   that finds no place stops the run with the free rectangles on its face
   and the board written as it stood, so what was free at that moment is
   what you look at; nothing else is placed into that space first. Firm
-  only what is mechanical: furniture (test points, LEDs, buttons) is
-  searched, not EDGE, so it cannot take an edge before the critical
-  cells have their room.
+  only what is mechanical. Furniture (test points, LEDs, buttons) is
+  `edge=` with no `along=`: one degree of freedom, it slides along its
+  edge to the room that is left, so it cannot take an edge before the
+  critical cells have theirs. `along=` is for a spot that is a mechanical
+  fact, never for spacing things out.
 - Copper is declared against pads and lanes (`PadRef`, `CellPadRef`, `X()`,
   `Y()`), never against coordinates that were true before the parts moved.
 - Typed values: `Net`, `Part`, `Cell`, `CopperLayer`, `Edge`, `Location`.
