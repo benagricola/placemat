@@ -3,7 +3,7 @@ by the weight of each connection, and a SHORT link with a limit is a bound."""
 import pytest
 
 from placemat.layout import Board
-from placemat.values import CopperLayer, Face, LinkWeight, Location, Net, Part, PadRef, Priority
+from placemat.values import Near, CopperLayer, Face, LinkWeight, Location, Net, Part, PadRef, Priority
 from tests.fixtures import board_geometry, footprint
 
 
@@ -77,7 +77,7 @@ def test_a_free_net_never_pulls():
 def test_the_search_keeps_the_best_scoring_legal_candidate_not_the_first():
     b = make_board()
     b.place(Part("u1"), at=Location(30, 30))
-    b.place(Part("c1"), near=Location(30, 40), radius=6.0, step=0.5)   # a hint 10 mm south of the pin it serves
+    b.place(Part("c1"), at=Near(Location(30, 40), radius=6.0, step=0.5))   # a hint 10 mm south of the pin it serves
     plan = b.resolve()
     c1_vin = plan.occupancy.pad_location("C1", "1")
     u1_vin = plan.occupancy.pad_location("U1", "1")

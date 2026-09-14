@@ -3,7 +3,7 @@ FIXED, EDGE, then cells largest and most awkward first pulled by their
 links, then blocks, then loose parts by link pull. Every choice carries
 the sentence that made it."""
 from placemat.layout import Board
-from placemat.values import Cell, Edge, LinkWeight, Location, Part, PadRef
+from placemat.values import OnEdge, Cell, Edge, LinkWeight, Location, Part, PadRef
 from tests.fixtures import board_geometry, footprint
 
 
@@ -27,7 +27,7 @@ def test_fixed_then_edge_then_cells_then_loose_whatever_the_file_order():
     b = make_board()
     b.place(Part("r1"))                                                  # loose
     b.place(Cell("small"))                                               # cell
-    b.place(Part("j1"), edge=Edge.NORTH, spot=50.0)      # edge
+    b.place(Part("j1"), at=OnEdge(Edge.NORTH, along=50.0))      # edge
     b.place(Part("mh"), at=Location(3, 3))                               # fixed
     b.place(Cell("big"))
     order = order_of(b.resolve())

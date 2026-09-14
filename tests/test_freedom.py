@@ -1,12 +1,12 @@
-"""Degrees of freedom. `edge=` with `spot=` is fixed on that edge: zero
+"""Degrees of freedom. OnEdge with along is fixed on that edge: zero
 freedom, it never moves and two such things that meet are an invalid
-layout. `edge=` alone is one degree of freedom: it slides along its edge,
+layout. OnEdge alone is one degree of freedom: it slides along its edge,
 sits at the edge's midpoint when alone, spreads evenly with its fellows,
 and moves aside for anything already there. A searched item has two."""
 import pytest
 
 from placemat.layout import Board, PlacementCollision
-from placemat.values import Cell, Edge, Location, Part, Priority
+from placemat.values import Near, OnEdge, Centre, Cell, Edge, Location, Part, Priority
 from tests.fixtures import board_geometry, footprint
 
 
@@ -20,7 +20,7 @@ def make_board():
 
 def test_an_edge_item_with_no_position_sits_at_the_midpoint_of_its_edge():
     b = make_board()
-    b.place(Part("j1"), edge=Edge.NORTH)
+    b.place(Part("j1"), at=OnEdge(Edge.NORTH))
     plan = b.resolve()
     box = plan.box("j1")
     assert box.center.x == pytest.approx(30.0) and box.top == pytest.approx(1.0)
@@ -29,9 +29,9 @@ def test_an_edge_item_with_no_position_sits_at_the_midpoint_of_its_edge():
 
 def test_edge_items_with_no_position_spread_evenly_along_their_edge():
     b = make_board()
-    b.place(Part("j1"), edge=Edge.NORTH)
-    b.place(Part("j2"), edge=Edge.NORTH)
-    b.place(Part("j3"), edge=Edge.NORTH)
+    b.place(Part("j1"), at=OnEdge(Edge.NORTH))
+    b.place(Part("j2"), at=OnEdge(Edge.NORTH))
+    b.place(Part("j3"), at=OnEdge(Edge.NORTH))
     plan = b.resolve()
     xs = sorted(plan.box(k).center.x for k in ("j1", "j2", "j3"))
     usable = 60.0 - 2 * 1.0
@@ -40,9 +40,9 @@ def test_edge_items_with_no_position_spread_evenly_along_their_edge():
 
 def test_a_free_edge_item_slides_aside_for_a_fixed_one_at_the_midpoint():
     b = make_board()
-    b.place(Part("j1"), edge=Edge.NORTH, spot=30.0)              # zero freedom: the midpoint is taken
-    b.place(Part("j2"), edge=Edge.NORTH)
-    b.place(Part("j3"), edge=Edge.NORTH)
+    b.place(Part("j1"), at=OnEdge(Edge.NORTH, along=30.0))              # zero freedom: the midpoint is taken
+    b.place(Part("j2"), at=OnEdge(Edge.NORTH))
+    b.place(Part("j3"), at=OnEdge(Edge.NORTH))
     plan = b.resolve()
     j1, j2, j3 = plan.box("j1"), plan.box("j2"), plan.box("j3")
     assert plan.findings == []
@@ -54,17 +54,17 @@ def test_a_free_edge_item_slides_aside_for_a_fixed_one_at_the_midpoint():
 
 def test_two_fixed_edge_items_that_meet_are_an_invalid_layout():
     b = make_board()
-    b.place(Part("j1"), edge=Edge.NORTH, spot=30.0)
-    b.place(Part("j2"), edge=Edge.NORTH, spot=32.0)
+    b.place(Part("j1"), at=OnEdge(Edge.NORTH, along=30.0))
+    b.place(Part("j2"), at=OnEdge(Edge.NORTH, along=32.0))
     with pytest.raises(PlacementCollision):
         b.resolve()
 
 
 def test_a_critical_searched_cell_goes_before_free_edge_furniture_and_the_furniture_moves_aside():
     b = make_board()
-    b.place(Part("j1"), edge=Edge.NORTH)                            # furniture: one degree of freedom
-    b.place(Part("j2"), edge=Edge.NORTH)
-    b.place(Cell("mcu"), near=Location(30, 7), radius=1.0, priority=Priority.HIGH)   # wants the north middle
+    b.place(Part("j1"), at=OnEdge(Edge.NORTH))                            # furniture: one degree of freedom
+    b.place(Part("j2"), at=OnEdge(Edge.NORTH))
+    b.place(Cell("mcu"), at=Near(Location(30, 7), radius=1.0), priority=Priority.HIGH)   # wants the north middle
     plan = b.resolve()
     order = [s.item for s in plan.steps]
     assert order.index("mcu") < order.index("j1") and order.index("mcu") < order.index("j2")
@@ -74,19 +74,19 @@ def test_a_critical_searched_cell_goes_before_free_edge_furniture_and_the_furnit
         assert not plan.box(k).overlaps(mcu)
 
 
-def test_a_placed_item_may_pin_one_coordinate_and_slide_on_the_other():
-    """x fixed at the board's middle, y free: it sits at the middle of the
-    free axis alone, and slides past whatever is already on that line."""
-    from placemat.values import X, PadRef
+def test_a_location_with_one_axis_pins_that_coordinate_and_the_item_slides_on_the_other():
+    """at=Location(30, None): x fixed at 30, y free. It sits at the middle
+    of the free axis alone, and slides past whatever is already on that line."""
     b = make_board()
-    b.place(Part("j1"), x=30.0)
+    b.place(Part("j1"), at=Location(30.0, None))
     plan = b.resolve()
     box = plan.box("j1")
     assert box.center.x == pytest.approx(30.0) and box.center.y == pytest.approx(30.0)
+    assert plan.step("j1").priority is not Priority.FIXED                 # one freedom left: it is searched
     b = make_board()
-    b.place(Cell("mcu"), center=Location(30, 30))                    # holds the middle of the x = 30 line
-    b.place(Part("j1"), x=30.0)
-    b.place(Part("j2"), x=30.0)
+    b.place(Cell("mcu"), at=Centre(30, 30))                    # holds the middle of the x = 30 line
+    b.place(Part("j1"), at=Centre(30.0, None))
+    b.place(Part("j2"), at=Centre(30.0, None))
     plan = b.resolve()
     mcu, j1, j2 = plan.box("mcu"), plan.box("j1"), plan.box("j2")
     assert plan.findings == []
@@ -94,7 +94,7 @@ def test_a_placed_item_may_pin_one_coordinate_and_slide_on_the_other():
     assert not j1.overlaps(mcu) and not j2.overlaps(mcu) and not j1.overlaps(j2)
     b = make_board()
     b.place(Part("j1"), at=Location(10.0, 40.0))
-    b.place(Part("j2"), y=X(PadRef(Part("j1"), "B"), 0.0) if False else 40.0)   # y pinned, x free
+    b.place(Part("j2"), at=Centre(None, 40.0))                 # y pinned, x free
     plan = b.resolve()
     assert plan.box("j2").center.y == pytest.approx(40.0) and not plan.box("j2").overlaps(plan.box("j1"))
 
@@ -103,19 +103,45 @@ def test_a_pinned_coordinate_may_be_a_reference():
     from placemat.values import X, PadRef, Mid
     b = make_board()
     b.place(Part("j1"), at=Location(10.0, 10.0))
-    b.place(Part("j2"), x=X(Mid(PadRef(Part("j1"), "A"), PadRef(Part("j1"), "B"))))
+    b.place(Part("j2"), at=Centre(X(Mid(PadRef(Part("j1"), "A"), PadRef(Part("j1"), "B"))), None))
     plan = b.resolve()
     pa, pb = plan.occupancy.pad_location("J1", "1"), plan.occupancy.pad_location("J1", "2")
     assert plan.box("j2").center.x == pytest.approx((pa.x + pb.x) / 2)
 
 
-def test_a_spot_is_a_place_along_whichever_edge_and_needs_an_edge():
+def test_a_location_needs_at_least_one_axis_and_x_y_keywords_are_gone():
     b = make_board()
     with pytest.raises(ValueError):
-        b.place(Part("j1"), spot=5.0)                             # a spot is along an edge
-    b.place(Part("j1"), edge=Edge.EAST, spot=20.0)                # on the east edge, 20 down
-    b.place(Part("j2"), edge=Edge.NORTH, spot=20.0)               # on the north edge, 20 across: same keyword
+        Location(None, None)
+    with pytest.raises(TypeError):
+        b.place(Part("j1"), x=30.0)
+
+
+def test_along_is_a_distance_on_whichever_edge_a_named_place_or_a_fraction_and_needs_an_edge():
+    from placemat.values import Along, Fraction
+    b = make_board()
+    with pytest.raises(TypeError):
+        b.place(Part("j1"), along=5.0)                            # along lives inside OnEdge, not on place()
+    b.place(Part("j1"), at=OnEdge(Edge.EAST, along=20.0))               # on the east edge, 20 down
+    b.place(Part("j2"), at=OnEdge(Edge.NORTH, along=Along.MID))         # the north edge's midpoint
+    b.place(Part("j3"), at=OnEdge(Edge.SOUTH, along=Fraction(0.25)))    # a quarter of the usable south edge
     plan = b.resolve()
     assert plan.box("j1").center.y == pytest.approx(20.0) and plan.box("j1").right == pytest.approx(59.0)
-    assert plan.box("j2").center.x == pytest.approx(20.0) and plan.box("j2").top == pytest.approx(1.0)
-    assert plan.step("j1").priority is Priority.EDGE
+    assert plan.box("j2").center.x == pytest.approx(30.0) and plan.box("j2").top == pytest.approx(1.0)
+    assert plan.box("j3").center.x == pytest.approx(1.0 + 58.0 * 0.25)
+    assert all(plan.step(k).priority is Priority.EDGE for k in ("j1", "j2", "j3"))
+    with pytest.raises(TypeError):
+        b.place(Cell("mcu"), at=OnEdge(Edge.WEST, along="mid"))         # a string is a typo waiting to happen
+    with pytest.raises(ValueError):
+        Fraction(1.5)                                             # a fraction of the edge is between 0 and 1
+
+
+def test_along_start_and_end_are_the_ends_of_the_usable_edge():
+    from placemat.values import Along
+    b = make_board()
+    b.place(Part("j1"), at=OnEdge(Edge.NORTH, along=Along.START))
+    b.place(Part("j2"), at=OnEdge(Edge.NORTH, along=Along.END))
+    plan = b.resolve()
+    assert plan.box("j1").left == pytest.approx(1.0) and plan.box("j2").right == pytest.approx(59.0)
+
+

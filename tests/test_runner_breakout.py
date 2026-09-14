@@ -15,7 +15,7 @@ needs_pcb = pytest.mark.skipif(shutil.which("pcb") is None, reason="pcb toolchai
 pytestmark = [needs_kicad, needs_pcb, pytest.mark.skipif(not (ECOSYSTEM / "breakout").exists(), reason="no ecosystem")]
 
 SCRIPT = '''
-from placemat import board, Part, Cell, Location, Edge, Net, CopperLayer
+from placemat import board, Part, Cell, Centre, Location, Edge, Net, CopperLayer, OnEdge
 
 # module extents, measured off the generated cells (unrotated: along = width)
 PD_ALONG, PD_DEPTH = board.extent(Cell("power_drop0")).width, board.extent(Cell("power_drop0")).height
@@ -25,12 +25,12 @@ STATION = PD_ALONG + INNER + BD_ALONG
 W = 140.0
 H = TOP + 3 * STATION + 2 * GAP + 30.0
 board.size(width=W, height=H, chamfer=2.0)
-board.place(Part("trunk_pwr"), edge=Edge.NORTH, spot=W / 2 - 14.0, rotation=180)
-board.place(Part("trunk_sig"), edge=Edge.NORTH, spot=W / 2 + 14.0, rotation=180)
+board.place(Part("trunk_pwr"), at=OnEdge(Edge.NORTH, along=W / 2 - 14.0), rotation=180)
+board.place(Part("trunk_sig"), at=OnEdge(Edge.NORTH, along=W / 2 + 14.0), rotation=180)
 for d in range(3):
     y0 = TOP + d * (STATION + GAP)
-    board.place(Cell("power_drop%d" % d), center=Location(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2), rotation=270)
-    board.place(Cell("bus_drop%d" % d), center=Location(W - EDGE - BD_DEPTH / 2, y0 + BD_ALONG / 2), rotation=90)
+    board.place(Cell("power_drop%d" % d), at=Centre(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2), rotation=270)
+    board.place(Cell("bus_drop%d" % d), at=Centre(W - EDGE - BD_DEPTH / 2, y0 + BD_ALONG / 2), rotation=90)
 board.place(Part("mh1"), at=Location(8, 8)); board.place(Part("mh2"), at=Location(W - 8, 8))
 board.place(Part("mh3"), at=Location(8, H - 8)); board.place(Part("mh4"), at=Location(W - 8, H - 8))
 '''
@@ -113,10 +113,10 @@ def test_a_critical_item_that_cannot_place_fails_the_run_but_writes_the_board_as
     script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
     original = script.read_text()
     script.write_text(original.replace(
-        'board.place(Cell("power_drop%d" % d), center=Location(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2), rotation=270)',
-        'board.place(Cell("power_drop%d" % d), center=Location(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2), rotation=270) if d else None')
-        + '\nfrom placemat import Priority\n'
-          'board.place(Cell("power_drop0"), near=Location(8, 8), radius=0.4, priority=Priority.HIGH)   # on MH1: nowhere to go\n')
+        'board.place(Cell("power_drop%d" % d), at=Centre(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2), rotation=270)',
+        'board.place(Cell("power_drop%d" % d), at=Centre(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2), rotation=270) if d else None')
+        + '\nfrom placemat import Near, Priority\n'
+          'board.place(Cell("power_drop0"), at=Near(Location(8, 8), radius=0.4), priority=Priority.HIGH)   # on MH1: nowhere to go\n')
     try:
         rec = run(script, label="critical", render=False)
     finally:

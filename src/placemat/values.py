@@ -55,6 +55,77 @@ class Edge(str, Enum):
     WEST = "W"
 
 
+class Along(str, Enum):
+    """A named distance along an edge, of its usable length (keep-in to keep-in)."""
+    START = "start"
+    MID = "mid"
+    END = "end"
+
+    @property
+    def fraction(self) -> float:
+        return {"start": 0.0, "mid": 0.5, "end": 1.0}[self.value]
+
+
+@dataclass(frozen=True)
+class Centre:
+    """A place for an item's body centre. Each axis is a number, a reference
+    (X()/Y() of a pad, or a Mid inside X()/Y()), or None to leave that axis
+    free: Centre(30, None) pins x and lets the item slide in y."""
+    x: object
+    y: object
+
+    def __post_init__(self):
+        if self.x is None and self.y is None:
+            raise ValueError("a Centre needs at least one axis")
+
+    @property
+    def free_axis(self) -> str | None:
+        return "x" if self.x is None else "y" if self.y is None else None
+
+
+@dataclass(frozen=True)
+class OnEdge:
+    """A place on a board edge: the item's reach at the keep-in (or
+    `overhang` past it), and `along` the edge a number in mm, a reference,
+    Along.START/MID/END or Fraction(f) of the usable length. With no
+    `along` the item slides along the edge to the room that is left."""
+    edge: Edge
+    along: object = None
+    overhang: float = 0.0
+
+    def __post_init__(self):
+        if not isinstance(self.edge, Edge):
+            raise TypeError("OnEdge takes an Edge, not %r" % (self.edge,))
+        if self.along is not None and not isinstance(self.along, (int, float, X, Y, Mid, Along, Fraction)) \
+                and type(self.along).__name__ != "_RowSlot":
+            raise TypeError("along is a number, a reference, Along.START/MID/END or Fraction(f), not %r" % (self.along,))
+
+
+@dataclass(frozen=True)
+class Near:
+    """A hint to search round: the item is placed at the best legal spot
+    within `radius` of `location`, on a `step` grid, at each rotation
+    (each falls back to place()'s own radius=, step=, rotations=)."""
+    location: Location
+    radius: float | None = None
+    step: float | None = None
+    rotations: tuple | None = None
+
+
+@dataclass(frozen=True)
+class Fraction:
+    """A distance along an edge as a fraction of its usable length: Fraction(0.3)."""
+    value: float
+
+    def __post_init__(self):
+        if not 0.0 <= self.value <= 1.0:
+            raise ValueError("a Fraction of an edge is between 0 and 1, not %r" % (self.value,))
+
+    @property
+    def fraction(self) -> float:
+        return self.value
+
+
 class Priority(str, Enum):
     """How firm a declaration is. The runner orders work by this, never by
     where a call sits in the file. For copper: FIXED is planned before the
@@ -73,8 +144,19 @@ class Priority(str, Enum):
 
 @dataclass(frozen=True, order=True)
 class Location:
-    x: float
-    y: float
+    """A point. One axis may be None: then it names a line, and an item
+    placed at it is pinned on that axis and free on the other."""
+    x: float | None
+    y: float | None
+
+    def __post_init__(self):
+        if self.x is None and self.y is None:
+            raise ValueError("a Location needs at least one axis")
+
+    @property
+    def free_axis(self) -> str | None:
+        """'x' or 'y' when that axis is left free, else None."""
+        return "x" if self.x is None else "y" if self.y is None else None
 
     def offset(self, dx: float = 0.0, dy: float = 0.0) -> "Location":
         return Location(self.x + dx, self.y + dy)

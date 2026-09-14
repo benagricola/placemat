@@ -111,7 +111,7 @@ coordinates nobody chose.
   table of dicts. A short function called once per thing is fine when its
   name says what it lays out. No globals, no helpers defined inside a phase.
 - Priority, not order: file order never decides execution. Say how firm a
-  thing is (`at=`/`center=` are FIXED, `edge=` is EDGE, `near=` is searched;
+  thing is (`at=Location`/`Centre` are FIXED, `OnEdge` with `along` is EDGE, the rest is searched;
   `priority=Priority.FIXED` on copper that nothing may cut into; `HIGH`,
   `DEFAULT`, `LOW` on tracks to say who passes under whom). The runner
   schedules: setup, FIXED, EDGE, cells, FIXED copper, loose parts, copper.
@@ -125,10 +125,11 @@ coordinates nobody chose.
   and the board written as it stood, so what was free at that moment is
   what you look at; nothing else is placed into that space first. Firm
   only what is mechanical. Furniture (test points, LEDs, buttons) is
-  `edge=` alone: one degree of freedom, it slides along its edge to the
+  `OnEdge(edge)` alone: one degree of freedom, it slides along its edge to the
   room that is left, so it cannot take an edge before the critical cells
-  have theirs. `spot=` is for a place along the edge that is a
-  mechanical fact, never for spacing things out.
+  have theirs. `along=` (`Along.MID`, `Fraction(0.3)`, a reference, or
+  mm) is for a place along the edge that is a mechanical fact, never for
+  spacing things out.
 - Copper is declared against pads and lanes (`PadRef`, `CellPadRef`, `X()`,
   `Y()`), never against coordinates that were true before the parts moved.
 - Typed values: `Net`, `Part`, `Cell`, `CopperLayer`, `Edge`, `Location`.
@@ -146,7 +147,7 @@ coordinates nobody chose.
   each step. Do not hand-order them with hints.
 - No floorplan by coordinate: a `Location` constant that means "the power
   area" is the placer's job typed by hand, and every part hinted at it
-  competes for one rectangle. `near=` is for a requirement the netlist
+  competes for one rectangle. `Near` is for a requirement the netlist
   cannot say (a thermal sensor by the FETs it shares no net with); a part
   with a wired neighbour on the board is linked and left bare.
 - A clearance that must differ in one place (a fine-pitch part inside a

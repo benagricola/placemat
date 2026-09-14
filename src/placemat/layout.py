@@ -18,7 +18,7 @@ from .occupancy import Occupancy, Shape
 from .placement import Placement
 from .placer import BlockSpec, _reason_key, box_centered_placement, edge_placement, layout_block, pockets, scan, scan_block
 from .board_geometry import CellGeom, Footprint, BoardGeometry
-from .values import (Box, Cell, CellPadRef, CopperLayer, Edge, Face, LinkWeight, Location, Mid, Net, PadRef, Part,
+from .values import (Along, Box, Cell, CellPadRef, Centre, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -131,6 +131,24 @@ class Row:
 
 
 @dataclass(frozen=True)
+class _EdgeFraction:
+    """A distance along an edge as a fraction of its usable length, and how
+    the item sits on it: its centre there (Along.MID, Fraction), or its
+    near end flush with the edge's start, its far end with its end."""
+    fraction: float
+    anchor: str = "centre"          # start | centre | end
+
+
+def _free_axis(value):
+    """'x' or 'y' when a Location, Centre or (x, y) pair leaves that axis None."""
+    if isinstance(value, (Location, Centre)):
+        return value.free_axis
+    if isinstance(value, tuple) and len(value) == 2 and (value[0] is None) != (value[1] is None):
+        return "x" if value[0] is None else "y"
+    return None
+
+
+@dataclass(frozen=True)
 class _RowSlot:
     """One item's along-edge position in a row whose start is a reference."""
     row: Row
@@ -165,6 +183,7 @@ class PlaceIntent:
     pin_y: object = None               # y pinned, x free
     priority_source: str = "auto"      # "script" when the declaration said, else worked out
     faces_note: str = ""               # when the rotation fell back to the generic rule
+    pinned_by: str = ""                # "at" (the origin sits on the line) or "center" (the body centre does)
 
     @property
     def rank(self):
@@ -406,57 +425,80 @@ class Board:
         return BlockSpec(a, tuple(sats), gap)
 
     # ------------------------------------------------------------ placement
-    def place(self, item, *, at: Location | None = None, center: Location | None = None,
-              rotation: float | None = None, face: Face = Face.FRONT, edge: Edge | None = None,
-              spot=None, overhang: float = 0.0, x=None, y=None,
-              near: Location | None = None, radius: float = 3.0, step: float = 0.2,
-              rotations=(), priority: Priority | None = None, why: str = "", _standoff: float | None = None) -> PlaceIntent:
-        """Declare where an item goes.
+    def place(self, item, at=None, *, rotation: float | None = None, face: Face = Face.FRONT,
+              radius: float = 3.0, step: float = 0.2, rotations=(),
+              priority: Priority | None = None, why: str = "", _standoff: float | None = None) -> PlaceIntent:
+        """Declare where an item goes: `at=` a place, whose kind says how
+        much freedom is left.
 
-        Each of these takes away freedom: at= and center= both coordinates;
-        edge= the coordinate across the edge (its reach sits at the keep-in);
-        spot= the item's place along that edge (a number or a reference, on
-        the board's axis that runs along the edge, whichever edge it is);
-        x= or y= that coordinate, a number or a reference.
+        Location(x, y)          the origin (a cell: its box centre)        -> FIXED, no freedom
+        Centre(x, y)            the body box centre; each axis a number or
+                                a reference                                -> FIXED, no freedom
+        Location(x, None)       one axis pinned, the other free: the item
+        Centre(None, y)         slides along the line, sharing it evenly  -> searched, one freedom
+        OnEdge(edge, along=)    its reach at the keep-in, at that distance
+                                (mm, a reference, Along.MID, Fraction(f))  -> EDGE, no freedom
+        OnEdge(edge)            on that edge, wherever there is room:
+                                midpoint alone, spread with its fellows,
+                                aside from what is there                  -> searched, one freedom
+        Near(location)          searched round a hint                     -> searched, two freedoms
+        nothing                 seeded from its links                     -> searched, two freedoms
 
-        at=       a part's origin (a cell's box centre)      -> FIXED
-        center=   the body box centre                        -> FIXED
-        edge=, spot=    on that edge at that spot            -> EDGE (no freedom: it never moves)
-        edge=           on that edge, wherever there is room -> DEFAULT: slides along it, at the
-                        midpoint alone, spread evenly with its fellows, aside from what is there
-        x= or y=        one coordinate pinned, the other free the same way -> DEFAULT
-                  (`overhang=` past the edge, for a face that must stand proud)
-        near=     a hint; the placer searches around it      -> DEFAULT
-        nothing   searched from where the generator left it  -> DEFAULT
+        `radius=`, `step=` and `rotations=` tune a search (seeded or Near).
         """
         geom, key, kind = self._item(item)
         if any(i.key == key for i in self._intents):
             raise ValueError("%s is already placed; one declaration per item" % key)
-        if sum(v is not None for v in (at, center, near, edge, x, y)) > 1:
-            raise ValueError("%s: give one of at=, center=, near=, edge=, x= or y=" % key)
-        if spot is not None and edge is None:
-            raise ValueError("%s: spot= is a place along an edge; give edge=" % key)
-        along = spot
+        center = edge = along = near = None
+        overhang = 0.0
+        pin_x = pin_y = None
+        pinned = ""
+        if at is None:
+            pass
+        elif isinstance(at, OnEdge):
+            edge, along, overhang = at.edge, at.along, at.overhang
+            if isinstance(along, (Along, Fraction)):
+                along = _EdgeFraction(along.fraction, along.value if isinstance(along, Along) else "centre")
+            at = None
+        elif isinstance(at, Near):
+            near = at.location
+            radius = at.radius if at.radius is not None else radius
+            step = at.step if at.step is not None else step
+            rotations = at.rotations if at.rotations is not None else rotations
+            at = None
+        elif isinstance(at, (Location, Centre, tuple)):
+            free = _free_axis(at)
+            if free is not None:
+                pinned = "center" if isinstance(at, Centre) else "at"
+                xs = at.x if isinstance(at, (Location, Centre)) else at[0]
+                ys = at.y if isinstance(at, (Location, Centre)) else at[1]
+                if free == "y":
+                    pin_x = xs
+                else:
+                    pin_y = ys
+                at = None
+            elif isinstance(at, Centre):
+                center, at = (at.x, at.y), None
+        else:
+            raise TypeError("%s: at= takes a Location, a Centre, an OnEdge, a Near or a point of references, not %r" % (key, at))
         source = "auto" if priority is None else "script"
         if priority is None:
             priority = Priority.FIXED if (at is not None or center is not None) else \
                 Priority.EDGE if (edge is not None and along is not None) else Priority.DEFAULT
         if edge is not None and along is None and priority in (Priority.FIXED, Priority.EDGE):
-            raise ValueError("%s: an edge item with no spot along it is free to slide; it cannot be %s" % (key, priority.value))
+            raise ValueError("%s: an edge item with no distance along it is free to slide; it cannot be %s" % (key, priority.value))
         faces_note = ""
         if rotation is None:
             rotation, faces_note = self.outward_rotation(item, edge) if (edge is not None and along is None) else (0.0, "")
         if kind == "cell" and at is not None and center is None:
             center, at = at, None
-        needs = {self._pad_ref(ref)[0] for ref in _refs_in([at, center, along, x, y])}   # a real pad, placed before this
+        needs = {self._pad_ref(ref)[0] for ref in _refs_in([at, center, along, pin_x, pin_y])}   # a real pad, placed before this
         if isinstance(along, _RowSlot):
             needs |= along.row.needs
-        if overhang and edge is None:
-            raise ValueError("%s: overhang= goes with edge=" % key)
         standoff = _standoff if _standoff is not None else (-float(overhang) if overhang else self.keep_in)
         intent = PlaceIntent(key, geom, kind, priority, float(rotation), face, at, center, edge, along,
                              standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs),
-                             x, y, source, faces_note)
+                             pin_x, pin_y, source, faces_note, pinned)
         self._intents.append(intent)
         return intent
 
@@ -527,7 +569,7 @@ class Board:
         row.line = line
         for n, (item, r, c) in enumerate(zip(items, rots, clears)):
             along = row.centres[n] if row.start is not None else _RowSlot(row, n)
-            self.place(item, edge=edge, spot=along, _standoff=c, rotation=r, why=why)
+            self.place(item, at=OnEdge(edge, along=along), _standoff=c, rotation=r, why=why)
         return row
 
     def _is_searched(self, refdes: str) -> bool:
@@ -1087,8 +1129,8 @@ class Board:
         value, and slides along it to the nearest legal spot."""
         axis = "x" if i.pin_x is not None else "y"
         pinned = _coord(self, occ, i.pin_x if axis == "x" else i.pin_y, axis)
-        fellows = [x for x in self._intents if (x.pin_x if axis == "x" else x.pin_y) is not None
-                   and (x.pin_x if axis == "x" else x.pin_y) == (i.pin_x if axis == "x" else i.pin_y)]
+        fellows = [o for o in self._intents if (o.pin_x if axis == "x" else o.pin_y) is not None
+                   and (o.pin_x if axis == "x" else o.pin_y) == (i.pin_x if axis == "x" else i.pin_y)]
         k, n = fellows.index(i), len(fellows)
         box = occ.board_box
         lo, hi = (box.top, box.bottom) if axis == "x" else (box.left, box.right)
@@ -1096,9 +1138,19 @@ class Board:
         ideal = lo + (hi - lo) * (k + 1) / (n + 1)
 
         def at(along):
-            centre = Location(pinned, along) if axis == "x" else Location(along, pinned)
-            return box_centered_placement(occ, i.item, centre, i.rotation, i.face)
+            point = Location(pinned, along) if axis == "x" else Location(along, pinned)
+            if i.pinned_by == "at" and i.kind != "cell":
+                return Placement(point, i.rotation, i.face)
+            return box_centered_placement(occ, i.item, point, i.rotation, i.face)
         return self._slide(occ, i, plan, clr, ideal, lo, hi, at, "on the line %s = %.2f" % (axis, pinned))
+
+    def _edge_fraction(self, edge: Edge, occ: Occupancy, fraction: float) -> float:
+        """A distance along `edge` as a fraction of its usable length,
+        keep-in to keep-in."""
+        box = occ.board_box
+        lo, hi = (box.left, box.right) if edge in (Edge.NORTH, Edge.SOUTH) else (box.top, box.bottom)
+        lo, hi = lo + self.keep_in, hi - self.keep_in
+        return lo + (hi - lo) * fraction
 
     def _edge_slot(self, i: PlaceIntent, occ: Occupancy) -> float:
         """Where a free edge item would like to be: the edge's free items
@@ -1222,7 +1274,16 @@ class Board:
             elif i.center is not None:
                 p = box_centered_placement(occ, i.item, _locate(self, occ, i.center), i.rotation, i.face)
             else:
-                along = i.along.resolve(self, occ) if isinstance(i.along, _RowSlot) else _coord(self, occ, i.along, "x" if i.edge in (Edge.NORTH, Edge.SOUTH) else "y")
+                if isinstance(i.along, _RowSlot):
+                    along = i.along.resolve(self, occ)
+                elif isinstance(i.along, _EdgeFraction):
+                    along = self._edge_fraction(i.edge, occ, i.along.fraction)
+                    if i.along.anchor in ("start", "end"):
+                        reach = occ.reach_box(i.item, Placement(Location(0.0, 0.0), i.rotation, i.face))
+                        half = (reach.width if i.edge in (Edge.NORTH, Edge.SOUTH) else reach.height) / 2.0
+                        along += half if i.along.anchor == "start" else -half
+                else:
+                    along = _coord(self, occ, i.along, "x" if i.edge in (Edge.NORTH, Edge.SOUTH) else "y")
                 p = edge_placement(occ, i.item, i.edge, along, i.rotation, i.clearance, i.face)
             why = occ.legal(i.item, p, clr, past_edge=i.edge is not None and i.clearance < self.keep_in)
             if why:
@@ -1327,6 +1388,8 @@ def _locate(board: "Board", occ: Occupancy, ref) -> Location:
         return Location((a.x + b.x) / 2.0, (a.y + b.y) / 2.0)
     if isinstance(ref, tuple) and len(ref) == 2:
         return Location(_coord(board, occ, ref[0], "x"), _coord(board, occ, ref[1], "y"))
+    if isinstance(ref, Centre):
+        return Location(_coord(board, occ, ref.x, "x"), _coord(board, occ, ref.y, "y"))
     owner, number, dx, dy = board._pad_ref(ref)
     return occ.pad_location(owner, number).offset(dx, dy)
 

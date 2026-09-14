@@ -6,7 +6,7 @@ import pytest
 
 from placemat.layout import Board
 from placemat.copper import Track, Via, Pour
-from placemat.values import (Box, CopperLayer, Location, Net, Part, PadRef, Priority)
+from placemat.values import (Near, Centre, Box, CopperLayer, Location, Net, Part, PadRef, Priority)
 from tests.fixtures import board_geometry, footprint
 
 
@@ -66,7 +66,7 @@ def test_fixed_copper_is_planned_before_loose_parts_and_blocks_them():
     # a bar the loose part would otherwise settle on
     b.pour(Net("V48"), [Location(20, 18), Location(40, 18), Location(40, 22), Location(20, 22)],
            layer=CopperLayer.F, priority=Priority.FIXED)
-    b.place(Part("r2"), near=Location(30, 20), radius=6.0, step=0.5)      # MID/GND: foreign to V48
+    b.place(Part("r2"), at=Near(Location(30, 20), radius=6.0, step=0.5))      # MID/GND: foreign to V48
     plan = b.resolve()
     r2 = plan.box("r2")
     bar = Box(20, 18, 40, 22)
@@ -77,7 +77,7 @@ def test_fixed_copper_is_planned_before_loose_parts_and_blocks_them():
 
 def test_default_copper_is_planned_after_loose_parts():
     b = make_board()
-    b.place(Part("r2"), near=Location(30, 20), radius=6.0, step=0.5)
+    b.place(Part("r2"), at=Near(Location(30, 20), radius=6.0, step=0.5))
     b.pour(Net("V48"), [Location(20, 18), Location(40, 18), Location(40, 22), Location(20, 22)],
            layer=CopperLayer.F)
     plan = b.resolve()
@@ -87,7 +87,7 @@ def test_default_copper_is_planned_after_loose_parts():
 
 def test_fixed_copper_may_not_reference_a_searched_part():
     b = make_board()
-    b.place(Part("r2"), near=Location(30, 20))
+    b.place(Part("r2"), at=Near(Location(30, 20)))
     with pytest.raises(ValueError):
         b.track(Net("MID"), [PadRef(Part("r2"), "MID"), Location(0, 0)], layer=CopperLayer.F,
                 priority=Priority.FIXED)
@@ -96,7 +96,7 @@ def test_fixed_copper_may_not_reference_a_searched_part():
 def test_a_cell_pad_reference_follows_the_placed_cell():
     b = make_board()
     from placemat.values import Cell, CellPadRef
-    b.place(Cell("pd"), center=Location(60, 60), rotation=0)
+    b.place(Cell("pd"), at=Centre(60, 60), rotation=0)
     b.track(Net("CANH"), [CellPadRef(Cell("pd"), net="CANH", ref_prefix="H"), Location(0, 0)],
             layer=CopperLayer.F)
     plan = b.resolve()

@@ -2,7 +2,7 @@
 block is laid out from the anchor's real pads at every candidate, so its
 envelope is exact, and searched as one thing."""
 from placemat.layout import Board
-from placemat.values import Cell, Location, Part, PadRef
+from placemat.values import Near, Cell, Location, Part, PadRef
 from tests.fixtures import board_geometry, footprint
 
 
@@ -35,7 +35,7 @@ def test_a_block_is_searched_as_one_and_reports_its_envelope():
     b.place(Part("wall"), at=Location(30, 20))
     b.place(Part("j1"), at=Location(10, 40))
     blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN"), (Part("cout"), "VOUT")], gap=0.5)
-    b.place(blk, near=Location(30, 22), radius=8.0, step=0.5)     # hint on the wall: the whole block moves off it
+    b.place(blk, at=Near(Location(30, 22), radius=8.0, step=0.5))     # hint on the wall: the whole block moves off it
     plan = b.resolve()
     for name in ("ldo", "cin", "cout"):
         assert plan.placement(name) is not None

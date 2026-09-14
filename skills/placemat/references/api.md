@@ -29,20 +29,18 @@ top-left, y down.
 
 ## Placement
 
-Say how firm each thing is; the netlist does the rest.
+One argument says where a thing goes: `at=` a place, and the kind of
+place says how much freedom is left.
 
 ```python
-board.place(item)                                                       # searched: SEEDED from its links
+board.place(item)                                                       # searched: SEEDED from its links (two freedoms)
 board.place(item, priority=Priority.HIGH)                               # critical: first in its tier; no place stops the run
-# Unless the script says, a searched item's priority is worked out: how much of the largest
-# item's area it needs, its connections to other declared items, its part count; HIGH also
-# needs a real share of the board. Every step prints `priority high (auto: ...)` or `(script; would be ...)`.
-board.place(item, edge=Edge.NORTH, spot=30.0, rotation=180)               # EDGE: on that edge at that spot, no freedom
-board.place(item, edge=Edge.NORTH)                                      # on that edge, wherever there is room: one freedom
-board.place(item, x=X(Mid(pad_a, pad_b)))                               # x pinned (a number or a reference), y free: one freedom
-board.place(item, at=Location(x, y), rotation=0, face=Face.FRONT)      # FIXED: a mechanical fact (a hole, a cell)
-board.place(item, center=(X(Mid(a, b)), Y(a, 3.0)), rotation=0)         # FIXED: said in terms of pads
-board.place(item, near=Location(x, y), radius=3.0, step=0.2, rotations=(0, 90))  # searched round a hint
+board.place(item, at=OnEdge(Edge.NORTH))                                # on that edge, wherever there is room (one freedom)
+board.place(item, at=Centre(X(Mid(pad_a, pad_b)), None))                # x pinned to a reference, y free (one freedom)
+board.place(item, at=OnEdge(Edge.WEST, along=Along.MID), rotation=180)  # EDGE: on that edge at that distance (no freedom)
+board.place(item, at=Location(x, y), rotation=0, face=Face.FRONT)      # FIXED: the origin, a mechanical fact (no freedom)
+board.place(item, at=Centre(X(Mid(a, b)), Y(a, 3.0)), rotation=0)       # FIXED: the body centre, said in terms of pads
+board.place(item, at=Near(Location(x, y)), radius=3.0, step=0.2, rotations=(0, 90))  # searched round a hint
 ```
 `item` is a `Part` (schematic instance), a `Cell` (module group) or a block
 (below). One declaration per item. `why=` is recorded in the run. A FIXED
@@ -52,27 +50,31 @@ there with the collisions, before anything is searched (`placemat run
 a cell member with its cell: `j_mot (edge): J5 courtyard overlaps cell
 a1's R2 courtyard`.
 
-**Degrees of freedom.** Each keyword takes one away: `edge=` fixes the
-coordinate across the edge, `spot=` the place along it (on the board's
-axis that runs along that edge, so the same keyword serves every edge),
-`x=` or `y=` fixes that coordinate. `at=`, `center=`, and `edge=` with
-`spot=` have none: the item never moves, and two such things that meet are an invalid
-layout that stops the run. `edge=` alone has one: the item slides along
-its edge, sits at the edge's midpoint when it is the only free item
-there, shares the edge evenly with its fellows (the k-th of n at
-(k+1)/(n+1) of the length), and slides aside from whatever is already
-there. `x=` or `y=` pins one coordinate the same way and the item
-slides on the other, sharing the line with items pinned to the same
-value. These are searched, so they go down with the searched items in
-priority order, and an edge item's rotation defaults to the cell's
-declared outward side (see Faces). A bare `place()` has two. Test points, LEDs, buttons and a connector whose
-exact spot does not matter are `edge=` alone, never `spot=`.
+**Degrees of freedom.** Each kind of place takes some away. `Location(x, y)`
+and `Centre(x, y)` fix both coordinates (the origin, or the body centre,
+each axis a number or a reference). `Location(30, None)` or
+`Centre(None, y)` fix one: the item slides along the line, at its middle
+alone, sharing it evenly with the items pinned to the same value, aside
+from what is there. `OnEdge(edge, along=)` fixes both: the reach at the
+keep-in, and `along` the edge a number in mm, a reference, `Along.START`,
+`MID` or `END`, or `Fraction(0.3)` of the usable length, the same on
+every edge. `OnEdge(edge)` fixes one: it slides along the edge, midpoint
+alone, the k-th of n at (k+1)/(n+1) with its fellows. `Near(location)` and
+nothing fix none. Everything with a freedom left is searched, so it goes
+down with the searched items in priority order after the critical ones,
+and an edge item's rotation defaults to the cell's declared outward side
+(see Faces). Test points, LEDs, buttons and a connector whose exact spot
+does not matter are `OnEdge(edge)`, never `along=`. Unless the script says,
+a searched item's priority is worked out: how much of the largest item's
+area it needs, its connections to other declared items, its part count;
+HIGH also needs a real share of the board. Every step prints `priority
+high (auto: ...)` or `(script; would be ...)`.
 
 **The default is a bare `place()`.** A part with a wired neighbour already
 on the board needs no position: price the connection and leave it to seed.
 
 ```python
-board.place(Part("j_pwr"), edge=Edge.WEST, spot=PWR_SPOT)                            # the connector is EDGE
+board.place(Part("j_pwr"), at=OnEdge(Edge.WEST, along=Along.MID))     # the connector is EDGE
 board.link(PadRef(Part("rpf"), "V48_IN"), PadRef(Part("j_pwr"), "V48"), weight=LinkWeight.SHORT,
            why="the reverse-polarity FET sits at the inlet")
 board.place(Part("rpf"))                                                # seeds beside J_PWR's V48 pin
@@ -85,7 +87,7 @@ the run. A chain of small parts is the same thing repeated: each stage
 linked to the stage before it and the two ends linked to the real pads
 they terminate on, every stage a bare `place()`.
 
-**`near=` is for what the netlist cannot say**: a thermal sensor that must
+**`Near` is for what the netlist cannot say**: a thermal sensor that must
 sit by the FETs it shares no net with, a test point wanted at the edge.
 A `Location` constant that stands for "the power area" or "the CAN
 corner" is a floorplan typed by hand; the placer floorplans from the
@@ -95,9 +97,9 @@ the last of them fails to place.
 
 **The edge is the board's.** Nothing in a script says how far from the
 edge a thing sits. `board.keep_in` is the board's own copper-to-edge
-rule; an EDGE item's reach (body, pads and silk together, `board.reach(item,
+rule; an edge item's reach (body, pads and silk together, `board.reach(item,
 rotation)`) lands there. A face that must stand proud of the edge says
-`overhang=` with a why. A row inboard of an edge row is `behind=` it.
+`OnEdge(edge, overhang=)` with a why. A row inboard of an edge row is `behind=` it.
 
 **Rows.** Things along one edge, in order, equally gapped, their outward
 sides out (a cell generated with its connector's bulk on local +Y turns
@@ -128,9 +130,9 @@ number, otherwise refer to its items' pads. `row.inner` and `row.outer` are
 its inboard boundary and its outer line, usable as a coordinate in copper
 (`(power.inner + 1.0, y)`). Declare the size after the rows that set it.
 
-**Positions said in terms of pads.** `at=` and `center=` take a Location
-or a point of references, resolved when the item is placed:
-`center=(X(Mid(rb_mid, ra_mid)), Y(rb_mid, 3.0))` puts a cap under the
+**Positions said in terms of pads.** `Centre` (and a point of references
+in `at=`) resolve when the item is placed:
+`Centre(X(Mid(rb_mid, ra_mid)), Y(rb_mid, 3.0))` puts a cap under the
 midpoint of two pads. An item placed that way goes down after what it
 refers to, which must be FIXED or EDGE.
 
@@ -140,7 +142,7 @@ beside it, generates the fragment and applies the script. A fragment has
 no outline, so its script declares no size; its anchor part goes down at a
 coordinate and the rest is said in terms of the anchor's pads.
 
-**How a searched item finds its place.** With `near=` it scans around the
+**How a searched item finds its place.** With `Near` it scans around the
 hint. A scored scan over a wide radius is coarse first (four steps apart)
 and fine only around its best spots, so a wide `radius=` costs little;
 a part the script will place later is not an obstacle where the

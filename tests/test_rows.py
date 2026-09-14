@@ -4,7 +4,7 @@ the gap; the row does the arithmetic and lends its geometry to copper."""
 import pytest
 
 from placemat.layout import Board
-from placemat.values import Cell, CopperLayer, Edge, Location, Net, PadRef, Part, Y
+from placemat.values import OnEdge, Cell, CopperLayer, Edge, Location, Net, PadRef, Part, Y
 from tests.fixtures import board_geometry, footprint
 
 
@@ -124,7 +124,7 @@ def test_a_row_may_sit_behind_another_on_the_same_edge():
 
 def test_a_connector_may_overhang_the_edge():
     b = make_board()
-    b.place(Part("j1"), edge=Edge.NORTH, spot=20.0, overhang=1.5, why="the mating face stands proud of the case wall")
+    b.place(Part("j1"), at=OnEdge(Edge.NORTH, along=20.0, overhang=1.5), why="the mating face stands proud of the case wall")
     plan = b.resolve()
     assert plan.box("j1").top == pytest.approx(-1.5)
 

@@ -3,7 +3,7 @@ they are declared, and resolves them in priority order, never file order."""
 import pytest
 
 from placemat.layout import Board
-from placemat.values import Box, Cell, Edge, Face, Location, Part, Priority
+from placemat.values import Near, OnEdge, Centre, Box, Cell, Edge, Face, Location, Part, Priority
 from tests.fixtures import board_geometry, footprint
 
 
@@ -24,9 +24,9 @@ def test_an_unknown_part_is_refused_when_declared():
 
 def test_declaration_order_does_not_decide_execution_order():
     b = make_board()
-    b.place(Part("r1"), near=Location(30, 30))                           # searched: last
-    b.place(Cell("pd"), center=Location(30, 30))                          # fixed cell
-    b.place(Part("j_in"), edge=Edge.NORTH, spot=30.0)     # edge
+    b.place(Part("r1"), at=Near(Location(30, 30)))                           # searched: last
+    b.place(Cell("pd"), at=Centre(30, 30))                          # fixed cell
+    b.place(Part("j_in"), at=OnEdge(Edge.NORTH, along=30.0))     # edge
     b.place(Part("r2"), at=Location(10, 50))                              # fixed part
     plan = b.resolve()
     order = [step.item for step in plan.steps]
@@ -44,7 +44,7 @@ def test_a_fixed_part_lands_exactly_where_asked():
 
 def test_a_cell_placed_by_centre_puts_its_box_centre_there():
     b = make_board()
-    b.place(Cell("pd"), center=Location(30, 30), rotation=90)
+    b.place(Cell("pd"), at=Centre(30, 30), rotation=90)
     plan = b.resolve()
     box = plan.box("pd")
     assert box.center == Location(30, 30)
@@ -54,7 +54,7 @@ def test_a_cell_placed_by_centre_puts_its_box_centre_there():
 def test_a_searched_part_moves_off_a_fixed_one_and_says_so():
     b = make_board()
     b.place(Part("r2"), at=Location(10, 50))
-    b.place(Part("r1"), near=Location(10, 50), radius=4.0, step=0.5)
+    b.place(Part("r1"), at=Near(Location(10, 50), radius=4.0, step=0.5))
     plan = b.resolve()
     step = plan.step("r1")
     assert step.placement.location != Location(10, 50)
@@ -80,7 +80,7 @@ def test_a_fixed_part_that_collides_stops_the_run_or_is_reported_not_moved():
 def test_the_board_size_is_a_declaration_and_bounds_the_search():
     b = make_board()
     b.size(width=40.0, height=30.0, chamfer=2.0)
-    b.place(Part("r1"), near=Location(39, 15), radius=3.0, step=0.5)
+    b.place(Part("r1"), at=Near(Location(39, 15), radius=3.0, step=0.5))
     plan = b.resolve()
     assert plan.outline == Box(0, 0, 40.0, 30.0) and plan.chamfer == 2.0
     assert plan.box("r1").right <= 40.0 - 1.0 + 1e-9

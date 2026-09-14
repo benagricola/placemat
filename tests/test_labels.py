@@ -6,7 +6,7 @@ import pytest
 
 from placemat.copper import Text
 from placemat.layout import Board
-from placemat.values import Cell, Edge, Face, Location, Net, PadRef, Part
+from placemat.values import Near, Cell, Edge, Face, Location, Net, PadRef, Part
 from tests.fixtures import board_geometry, footprint
 
 
@@ -81,7 +81,7 @@ def test_a_label_on_an_undeclared_part_uses_where_the_board_has_it_but_an_unplac
     (t,) = labels(b.resolve())
     assert t.at.y == pytest.approx(10 - 2 - 0.5)
     b = make_board()
-    b.place(Part("j1"), near=Location(30, 30), radius=0.2)
+    b.place(Part("j1"), at=Near(Location(30, 30), radius=0.2))
     b.place(Part("j2"), at=Location(30, 30), face=Face.FRONT)  # j1 has nowhere to go
     b.label(Part("j1"), "MOTOR")
     with pytest.raises(ValueError):

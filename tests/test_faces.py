@@ -6,7 +6,7 @@ import pytest
 
 from placemat.copper import Text
 from placemat.layout import Board
-from placemat.values import Cell, Edge, Face, Location, Part
+from placemat.values import OnEdge, Cell, Edge, Face, Location, Part
 from tests.fixtures import board_geometry, footprint
 
 
@@ -26,7 +26,7 @@ def test_a_cell_whose_outward_side_is_local_north_turns_that_side_to_every_edge(
     assert g.cell("ui").faces["outward"] == "N"
     for edge, expect in ((Edge.NORTH, 0.0), (Edge.SOUTH, 180.0)):
         b = Board(g, edge_margin=1.0)
-        b.place(Cell("ui"), edge=edge)
+        b.place(Cell("ui"), at=OnEdge(edge))
         plan = b.resolve()
         assert plan.placement("ui").rotation == expect, edge
         sw, r = plan.box("ui.sw") if False else plan.occupancy.items["SW1"].body, plan.occupancy.items["R1"].body
@@ -34,11 +34,11 @@ def test_a_cell_whose_outward_side_is_local_north_turns_that_side_to_every_edge(
         inner = r.top if edge is Edge.NORTH else r.bottom
         assert (outer < inner) if edge is Edge.NORTH else (outer > inner)      # the switch is the outboard member
     b = Board(g, edge_margin=1.0)
-    b.place(Cell("ui"), edge=Edge.EAST)
+    b.place(Cell("ui"), at=OnEdge(Edge.EAST))
     plan = b.resolve()
     assert plan.occupancy.items["SW1"].body.right > plan.occupancy.items["R1"].body.right
     b = Board(g, edge_margin=1.0)
-    b.place(Cell("ui"), edge=Edge.WEST)
+    b.place(Cell("ui"), at=OnEdge(Edge.WEST))
     plan = b.resolve()
     assert plan.occupancy.items["SW1"].body.left < plan.occupancy.items["R1"].body.left
 
@@ -46,7 +46,7 @@ def test_a_cell_whose_outward_side_is_local_north_turns_that_side_to_every_edge(
 def test_a_cell_with_no_declared_faces_uses_the_generic_rule_and_the_step_says_so():
     fps = [footprint("J1", 10, 4, w=5, h=3, cell="pd", inst="pd.j", nets=("A", "B"))]
     b = Board(board_geometry(fps, cells=["pd"], width=60, height=60), edge_margin=1.0)
-    b.place(Cell("pd"), edge=Edge.NORTH)
+    b.place(Cell("pd"), at=OnEdge(Edge.NORTH))
     plan = b.resolve()
     assert plan.placement("pd").rotation == 180.0
     assert "no faces declared" in plan.step("pd").note
