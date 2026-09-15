@@ -1274,7 +1274,7 @@ class Board:
 
         def place_ranked(lo, hi):
             """FIXED and EDGE go down in declaration order: nothing yields to
-            them, so their order changes nothing. Searched tiers are ordered
+            them, so their order changes nothing. Searched items are ordered
             by the placer, one choice at a time, re-measured after each."""
             firm = [obj for obj in placements if lo <= obj.rank[0] <= hi and obj.priority in (Priority.FIXED, Priority.EDGE)]
             while firm:                     # declaration order, except that a position said in terms of a pad waits for it
@@ -1294,10 +1294,12 @@ class Board:
                 pending.remove(obj)
                 place_one(obj, why_now)
 
-        place_ranked(RANK_FIXED, RANK_CELL)
+        place_ranked(RANK_FIXED, RANK_EDGE)
         self._plan_copper(occ, ctx, fixed_copper, plan, progress)
-        place_ranked(RANK_BLOCK, RANK_BLOCK)
-        place_ranked(RANK_LOOSE, RANK_LOOSE)
+        # Every searched item is one queue, whatever kind it is: a connector can
+        # be the most important thing on a board, and it does not wait behind a
+        # tier of cells for being a single part. What it needs decides.
+        place_ranked(RANK_CELL, RANK_LOOSE)
         self._plan_copper(occ, ctx, other_copper, plan, progress)
         self._report_links(occ, plan, placed)
         self._place_labels(occ, plan, placed, progress, final=True)
@@ -1677,10 +1679,12 @@ class Board:
                 % (obj.key, env.width, env.height, obj.face.value, step.note.replace("UNPLACED: ", ""), rects))
 
     def _next_to_place(self, pending: list, occ: Occupancy, placed: set):
-        """Which searched item goes down next, and why. Fit (the item's
-        courtyard over the free board) dominates: an item needing more than
-        a quarter of what is left goes now. Otherwise the strongest pull
-        toward what is already placed, then the largest, then the name."""
+        """Which searched item goes down next, and why: a cell, a block and a
+        loose part all queue together. Priority leads (it is worked out from
+        what each item needs), then fit - the item's courtyard over the free
+        board - so one needing more than a quarter of what is left goes now;
+        then the strongest pull toward what is already placed, then the
+        largest, then the name."""
         free = max(occ.free_area(), 1e-9)
 
         def measure(obj):
@@ -1692,13 +1696,12 @@ class Board:
         scored = sorted(((measure(o), o) for o in pending),
                         key=lambda m: (-m[1].priority.rank, -(m[0][0] > 0.25), -m[0][1], -m[0][2], m[1].key))
         (fit, pull, area), obj = scored[0]
-        kind = {"cell": "cells", "block": "blocks"}.get(obj.kind, "parts")
         if fit > 0.25:
-            why = "next among %s: needs %.0f%% of the free board" % (kind, 100 * fit)
+            why = "next: needs %.0f%% of the free board" % (100 * fit)
         elif pull > 0:
-            why = "next among %s: strongest pull (%d) toward what is placed" % (kind, pull)
+            why = "next: strongest pull (%d) toward what is placed" % pull
         else:
-            why = "next among %s: largest (%.0f mm2), nothing placed pulls any" % (kind, area)
+            why = "next: largest (%.0f mm2), nothing placed pulls any" % area
         return obj, why
 
     def _settle_block(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set) -> Step:

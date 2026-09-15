@@ -1,7 +1,7 @@
-"""The placer decides the order things go down in, never the script:
-FIXED, EDGE, then cells largest and most awkward first pulled by their
-links, then blocks, then loose parts by link pull. Every choice carries
-the sentence that made it."""
+"""The placer decides the order things go down in, never the script: FIXED,
+EDGE, then every searched item in one queue - a cell, a block and a loose
+part together - by what each needs, the room it takes and the links pulling
+it. Every choice carries the sentence that made it."""
 from placemat.layout import Board
 from placemat.values import OnEdge, Cell, Edge, LinkWeight, Location, Part, PadRef
 from tests.fixtures import board_geometry, footprint
@@ -23,7 +23,7 @@ def order_of(plan):
     return [s.item for s in plan.steps if s.kind != "part" or s.placement is not None or "UNPLACED" in s.note]
 
 
-def test_fixed_then_edge_then_cells_then_loose_whatever_the_file_order():
+def test_firm_first_then_searched_by_what_they_need_whatever_the_file_order():
     b = make_board()
     b.place(Part("r1"))                                                  # loose
     b.place(Cell("small"))                                               # cell
@@ -31,8 +31,9 @@ def test_fixed_then_edge_then_cells_then_loose_whatever_the_file_order():
     b.place(Part("mh"), at=Location(3, 3))                               # fixed
     b.place(Cell("big"))
     order = order_of(b.resolve())
-    assert order[0] == "mh" and order[1] == "j1"
-    assert order.index("big") < order.index("r1") and order.index("small") < order.index("r1")
+    assert order[0] == "mh" and order[1] == "j1"                          # FIXED then EDGE, as declared
+    assert order.index("big") < order.index("r1")                         # then what needs the most room
+    assert order.index("big") < order.index("small")
 
 
 def test_among_cells_the_largest_goes_first_and_the_choice_is_explained():
@@ -94,3 +95,20 @@ def test_a_high_priority_cell_goes_before_the_others_whatever_pulls_them():
     b.place(Cell("strip"), priority=Priority.HIGH)    # declared last, placed first
     order = order_of(b.resolve())
     assert order.index("strip") < order.index("big") < order.index("small")
+
+
+def test_order_follows_what_an_item_needs_not_what_kind_it_is():
+    """A connector can be the most important thing on a board. Nothing waits
+    for a whole tier of cells and blocks just for being one part."""
+    from placemat.values import Priority
+    fps = [footprint("J9", 25, 45, w=20, h=6, inst="j_big", nets=("A", "GND")),
+           footprint("U9", 10, 10, w=4, h=3, cell="small", inst="small.u", nets=("A", "B")),
+           footprint("C9", 10, 14, w=3, h=1.5, cell="small", inst="small.c", nets=("B", "GND"))]
+    b = Board(board_geometry(fps, cells=["small"], width=50, height=50), edge_margin=1.0)
+    b.place(Cell("small"))
+    b.place(Part("j_big"))
+    plan = b.resolve()
+    assert plan.step("j_big").priority is Priority.HIGH      # it dominates the searched items and the board
+    assert plan.step("small").priority is Priority.DEFAULT
+    order = [s.item for s in plan.steps if s.item in ("j_big", "small")]
+    assert order == ["j_big", "small"]

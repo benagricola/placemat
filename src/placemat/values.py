@@ -148,8 +148,8 @@ class Fraction:
 
 class Priority(str, Enum):
     """How firm a declaration is. The runner orders work by this, never by
-    where a call sits in the file. For copper: FIXED is planned before the
-    loose parts and nothing may cut into it; where two tracks cross, the
+    where a call sits in the file. For copper: FIXED is planned before every
+    searched item and nothing may cut into it; where two tracks cross, the
     lower priority one passes under."""
     FIXED = "fixed"        # a mechanical fact: placed first, never moved
     EDGE = "edge"          # one degree of freedom along an edge

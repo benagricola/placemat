@@ -168,9 +168,13 @@ coordinates nobody chose.
 
 - Say what is FIXED (a mechanical fact) and what is EDGE; leave the rest
   searched with a bare `place(item)`. The placer orders searched items
-  itself (cells, blocks, loose parts; biggest need and strongest pull
-  first), seeds each from the placed pads it is wired to, and says why in
-  each step. Do not hand-order them with hints.
+  itself - a cell, a block and a loose part in one queue, by what each
+  needs and what pulls it, so a connector that dominates the board goes
+  before the cells rather than after them - seeds each from the placed pads
+  it is wired to, and says why in each step. Do not hand-order them with
+  hints, and do not reach for `priority=` to fix an order: read the printed
+  reason first, because it is worked out from the item's own area, its
+  connections and the parts it holds.
 - No floorplan by coordinate: a `Location` constant that means "the power
   area" is the placer's job typed by hand, and every part hinted at it
   competes for one rectangle. `Near` is for a requirement the netlist

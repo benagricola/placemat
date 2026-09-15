@@ -177,10 +177,12 @@ and blocks nothing, and the finding says what stopped it. The step note
 says which happened.
 
 **Order.** FIXED and EDGE items go down as declared. Searched items are
-ordered by the placer, re-measured after each: cells, then blocks, then
-loose parts; within a tier, an item needing more than a quarter of the
-free board goes now, else the strongest link pull toward what is placed,
-else the largest. The sentence that chose each is in its step.
+ordered by the placer, re-measured after each. A cell, a block and a loose
+part are ONE queue: a connector can be the most important thing on a board
+and does not wait behind the cells for being a single part. Priority leads
+(worked out from what each item needs), then an item needing more than a
+quarter of the free board goes now, else the strongest link pull toward what
+is placed, else the largest. The sentence that chose each is in its step.
 
 ## Boards of any shape
 
@@ -396,7 +398,7 @@ board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False)     # filled p
 board.plane(net, layers=(CopperLayer.IN1,), outline=None, inset=0.4)  # zone(s), whole board or outline
 board.finger(net, layer=, from_=point, to=point, width=)               # pour along a centreline, cut and bridged at tracks
 ```
-All take `priority=`. `Priority.FIXED` copper is planned before the loose
+All take `priority=`. `Priority.FIXED` copper is planned before everything searched
 parts and becomes an obstacle to them, and may not reference a searched
 part. `HIGH`, `DEFAULT` and `LOW` only decide who bridges at a crossing.
 
