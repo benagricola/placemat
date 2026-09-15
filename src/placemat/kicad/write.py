@@ -61,12 +61,37 @@ def _move_cell(board, cell: CellGeom, target: Placement, groups: dict):
         it.Move(delta)
 
 
+def _xy(p) -> tuple:
+    """A declared outline point as a pair, whether it came as one or as a Location."""
+    return (float(p.x), float(p.y)) if hasattr(p, "x") else (float(p[0]), float(p[1]))
+
+
 def _draw_outline(board, plan: Plan):
     if not plan.draw_outline:
         return                       # a frame for placement only: Edge.Cuts is left exactly as it was
     for d in list(board.GetDrawings()):
         if isinstance(d, pcbnew.PCB_SHAPE) and d.GetLayer() == pcbnew.Edge_Cuts:
             board.Delete(d)      # Remove() orphans the item and corrupts a later in-process LoadBoard
+    if plan.shape is not None and hasattr(plan.shape, "paths"):   # a shaped board: its own path, arcs and all
+        for path in plan.shape.paths:
+            here = _xy(path[0])
+            for piece in list(path[1:]) + [path[0]]:
+                if hasattr(piece, "via"):
+                    a = pcbnew.PCB_SHAPE(board, pcbnew.SHAPE_T_ARC)
+                    a.SetLayer(pcbnew.Edge_Cuts)
+                    a.SetWidth(nm(0.1))
+                    a.SetArcGeometry(vec(*here), vec(*_xy(piece.via)), vec(*_xy(piece.to)))
+                    board.Add(a)
+                    here = _xy(piece.to)
+                else:
+                    s = pcbnew.PCB_SHAPE(board, pcbnew.SHAPE_T_SEGMENT)
+                    s.SetLayer(pcbnew.Edge_Cuts)
+                    s.SetWidth(nm(0.1))
+                    s.SetStart(vec(*here))
+                    s.SetEnd(vec(*_xy(piece)))
+                    board.Add(s)
+                    here = _xy(piece)
+        return
     if plan.shape is not None:                   # a round board: the rim, and the bore when it has one
         c = plan.shape.centre
         for r in (plan.shape.radius, plan.shape.bore):

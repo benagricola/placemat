@@ -30,6 +30,9 @@ top-left, y down.
 `hole` wide through the middle when it goes round a shaft. Places on it are
 bearings and radii (below); `board.centre`, `board.radius` and `board.bore`
 answer where it is.
+`board.outline(path, holes=())` - a board of any shape (below).
+`board.centre` is the middle of the box round the board, whatever its shape,
+and `board.centroid` is where its area balances.
 
 ## Placement
 
@@ -179,6 +182,58 @@ loose parts; within a tier, an item needing more than a quarter of the
 free board goes now, else the strongest link pull toward what is placed,
 else the largest. The sentence that chose each is in its step.
 
+## Boards of any shape
+
+An outline is a closed path of straight legs and arcs. The first element is
+where it starts; each one after it is a point (a straight leg to it) or an
+`Arc(to=, via=)` that curves through a point; it closes back to the start.
+Three points fix a circle and the way round it, so an arc needs no flag for
+which way it bulges. `holes=` are cutouts, each a path of its own.
+
+```python
+board.outline([(0, 40), (0, 20), Arc(to=(40, 20), via=(20, 0)), (40, 40)])   # a square with a rounded top
+board.outline(SHELL, holes=[SHAFT])                        # and a cutout through it
+
+top = board.edge(facing=Edge.NORTH)                        # the stretch of edge that faces north
+board.place(J, at=OnEdge(top, along=Along.MID))            # reach at the keep-in, turned to the edge there
+board.place(J, at=OnEdge(top, along=8.0))                  # 8 mm along the run from its start
+board.place(TP, at=OnEdge(top))                            # slides along that run to the room left
+board.row([L1, L2, L3], top, align="center")               # a row that turns with the edge
+for run in board.edges(facing=Edge.EAST, within=10.0): ...  # every stretch facing that way
+```
+
+**A side is chosen, not named.** `board.edges(facing=, within=45.0)` returns
+the stretches of the outline whose outward side points within `within`
+degrees of a bearing (or an `Edge`), in the order the path runs.
+`board.edge(...)` returns the one, and raises when none or several match:
+several is a real question - a notch in the top edge has a floor that faces
+north as much as the top does - so the script narrows `within` or picks from
+`edges()`. Stretches that face the same way and run into each other come
+back as ONE run, so a rounded corner belongs to the side it flows into;
+narrow `within` to get the flat part alone. A shaped board refuses a named
+`Edge`, because "the north edge" is no longer one thing.
+
+**A run** carries `.length`, `.facing`, `.straight`, `.at(along)` (the point
+and the bearing the board faces there), `.project(point)` and
+`.curvature(along)`. On a run, `along` is length from the run's start: a
+number in mm, `Along.START/MID/END`, `Fraction(f)` of it, or a reference,
+which lands at the nearest place on the run. (On a plain `Edge` a number
+still means a coordinate, as it always did.)
+
+**Placed against a curve**, an item's reach is held at the keep-in from the
+edge and it is turned so its outward side follows the local normal, so a row
+along a rounded top fans with the curve. A row along a run takes `gap=`,
+`start=`, `align="center"`, `rotation=` and `overhang=`; the anchors that
+only mean something on a straight side (`line=`, `behind=`, `before=`,
+`after=`, `centre=`, `end=`) are refused for now. Claims on a curve are
+spaced by how much the edge bends under them - the items sit inboard, where
+the same angle spans less edge - and are left the rounding two courtyards
+may touch by, since round a curve two claims can only ever meet at a point.
+
+**The arithmetic is done on a flattened copy** of the outline (chords within
+0.02 mm of the true curve), so a part held at the keep-in can be that much
+further in than the real arc would need. Edge.Cuts gets the true arcs.
+
 ## Round boards
 
 A circle has no sides, so a disc takes no `Edge` and no `row`: it refuses
@@ -218,6 +273,11 @@ and shares the whole turn evenly - four mounting holes at 90 degrees. With
 no `radius` every item goes to the rim, its reach at the keep-in. The Ring
 it returns carries `.radius`, `.angles`, `.depth`, `.start`, `.end` and
 `.span`.
+
+**A rim is an edge too.** `board.edge(facing=)` works on a disc, giving the
+arc of the rim that faces that way, so `board.row(items, board.edge(facing=
+Edge.NORTH))` puts a row along the top of a round board. `ring()` is the
+better verb when the items go all the way round.
 
 **The keep-in is radial.** The rim holds an item's furthest corner back by
 `board.keep_in`; a bore holds its nearest point out by the same, and that is

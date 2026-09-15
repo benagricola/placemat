@@ -38,6 +38,11 @@ def far_from(plan, ref, centre):
     return max(c.distance(centre) for c in corners(reach_of(plan, ref)))
 
 
+# A solve stops a hair inside its answer so that rounding the placement to a
+# nanometre can never tip it past the keep-in: that hair is what AT_KEEP_IN allows.
+AT_KEEP_IN = 1e-4
+
+
 def bearing_at(plan, key, centre):
     c = plan.box(key).center
     return math.degrees(math.atan2(c.x - centre.x, centre.y - c.y)) % 360.0
@@ -57,7 +62,7 @@ def test_an_item_on_the_rim_sits_at_the_keep_in_on_its_bearing():
     b.disc(diameter=40.0)
     b.place(Part("j1"), at=OnRim(Edge.EAST))
     plan = b.resolve()
-    assert far_from(plan, "J1", b.centre) == pytest.approx(19.5, abs=1e-6)   # its reach at the board's keep-in
+    assert far_from(plan, "J1", b.centre) == pytest.approx(19.5, abs=AT_KEEP_IN)   # its reach at the board's keep-in
     assert plan.box("j1").center.y == pytest.approx(20.0)
     assert plan.box("j1").center.x > 20.0              # due east of the centre
     assert plan.step("j1").priority is Priority.EDGE
@@ -86,7 +91,7 @@ def test_an_item_may_overhang_the_rim():
     b.disc(diameter=40.0)
     b.place(Part("j1"), at=OnRim(Edge.EAST, overhang=0.5))
     plan = b.resolve()
-    assert far_from(plan, "J1", b.centre) == pytest.approx(20.5, abs=1e-6)
+    assert far_from(plan, "J1", b.centre) == pytest.approx(20.5, abs=AT_KEEP_IN)
     assert plan.findings == []                          # declared to overhang, so the keep-in does not refuse it
 
 
@@ -135,7 +140,7 @@ def test_an_item_at_the_bore_stands_off_it_and_faces_it():
     box = reach_of(plan, "D1")                          # the nearest POINT of it, an edge when it straddles the bore
     dx = max(box.left - b.centre.x, 0.0, b.centre.x - box.right)
     dy = max(box.top - b.centre.y, 0.0, b.centre.y - box.bottom)
-    assert math.hypot(dx, dy) == pytest.approx(5.5, abs=1e-6)   # the bore's radius plus the keep-in
+    assert math.hypot(dx, dy) == pytest.approx(5.5, abs=AT_KEEP_IN)   # the bore's radius plus the keep-in
     assert plan.box("d1").center.y < 20.0              # north of the centre
     assert plan.placement("d1").rotation == pytest.approx(0.0)   # its outward side turned to face the bore, southward
     assert plan.findings == []
@@ -148,7 +153,7 @@ def test_a_free_rim_item_slides_round_the_rim_to_the_room_that_is_left():
     b.place(Part("u1"), at=OnRim())
     plan = b.resolve()
     assert plan.findings == []                          # it found a place, and nothing is on anything
-    assert far_from(plan, "U1", b.centre) == pytest.approx(19.5, abs=1e-6)   # still hard against the keep-in
+    assert far_from(plan, "U1", b.centre) == pytest.approx(19.5, abs=AT_KEEP_IN)   # still hard against the keep-in
     landed = bearing_at(plan, "u1", b.centre)
     assert min(landed, 360.0 - landed) > 5.0                                 # it moved off the top, where J1 sits
     assert plan.placement("u1").rotation == pytest.approx((180.0 - landed) % 360.0, abs=1.0)   # facing out where it landed
@@ -190,7 +195,7 @@ def test_a_ring_with_no_radius_puts_every_item_at_the_rim():
     plan = b.resolve()
     assert plan.findings == []
     for ref in ("D1", "D2", "D3"):
-        assert far_from(plan, ref, b.centre) == pytest.approx(19.5, abs=1e-6)
+        assert far_from(plan, ref, b.centre) == pytest.approx(19.5, abs=AT_KEEP_IN)
 
 
 def test_a_disc_has_no_edges_and_a_rectangle_has_no_rim():

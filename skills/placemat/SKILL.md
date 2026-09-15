@@ -151,6 +151,13 @@ coordinates nobody chose.
   missing net fails when declared, not at write time.
 - Module cells are rigid: place them, never their members. A cell that does
   not fit is a module question, not a script workaround.
+- A board of any shape is declared `board.outline(path, holes=)`, a closed
+  path of legs and `Arc(to=, via=)` curves. Its sides are chosen by which
+  way they face, `board.edge(facing=Edge.NORTH)`, never named: that returns
+  a run, `along` it is a length from its start, and an item placed on it is
+  turned to the way the board faces where it sits. Several stretches can
+  face one way (a notch's floor faces north like the top does), so the call
+  raises and the script says which it meant.
 - A round board is declared `board.disc(diameter=, hole=)` and placed in
   bearings and radii: `OnRim`, `OnBore`, `Polar` and `ring()`. A bearing is
   degrees clockwise from the top, so `Edge.EAST` is 90. Nothing else

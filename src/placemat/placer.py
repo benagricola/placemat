@@ -10,7 +10,7 @@ import math
 from .geometry import polys_overlap, transform_box
 from .occupancy import Occupancy
 from .placement import Placement
-from .values import Box, Edge, Face, Location, bearing_vector
+from .values import Box, Edge, Face, Location, bearing_vector, box_support
 
 
 @dataclass
@@ -147,6 +147,10 @@ def edge_placement(occ: Occupancy, item, edge: Edge, along: float, rotation: flo
     return Placement(Location(round(dx, 6), round(dy, 6)), rotation, face)
 
 
+_SLACK = 1e-5       # a placement is rounded to the nanometre, so a solve stops ten of
+                    # them inside its own answer: rounding can never tip it past the keep-in
+
+
 def _far_from(box: Box, centre: Location) -> float:
     """How far the corner of `box` furthest from `centre` is: what the rim
     holds back."""
@@ -186,9 +190,9 @@ def disc_placement(occ: Occupancy, item, disc, angle: float, standoff: float, ro
     # the largest d the rim still holds, or the smallest the bore is clear of.
     lo, hi = 0.0, disc.radius + max(what.width, what.height) + abs(standoff)
     if bore:
-        d = hi if not held(hi) else _bisect(held, lo, hi, want_low=True)
+        d = hi if not held(hi) else _bisect(held, lo, hi, want_low=True) + _SLACK
     else:
-        d = 0.0 if not held(lo) else _bisect(held, lo, hi, want_low=False)
+        d = 0.0 if not held(lo) else _bisect(held, lo, hi, want_low=False) - _SLACK
     cx, cy = disc.centre.x + ux * d, disc.centre.y + uy * d
     return Placement(Location(round(cx - box.center.x, 6), round(cy - box.center.y, 6)), rotation, face)
 
@@ -205,6 +209,37 @@ def _bisect(held, lo: float, hi: float, want_low: bool, steps: int = 60) -> floa
         else:
             lo = mid
     return hi if want_low else lo
+
+
+def run_placement(occ: Occupancy, item, shape, run, along: float, standoff: float, rotation: float,
+                  face: Face = Face.FRONT) -> Placement:
+    """The placement that puts the item `standoff` inside the board at the
+    point `along` a run, its body centre on the inward normal there. Where
+    the board is straight the first guess is exact; where it curves the item
+    is stepped in until the board's own keep-in holds it, then tightened
+    back, so the same rule fits a side, a rounded top or an arc of a rim."""
+    point, out_b = run.at(along)
+    probe = Placement(Location(0.0, 0.0), rotation, face)
+    box = occ.body_box(item, probe)
+    what = Box.union([occ.reach_box(item, probe), box])
+    off = Box(what.left - box.center.x, what.top - box.center.y,
+              what.right - box.center.x, what.bottom - box.center.y)
+    ux, uy = bearing_vector(out_b)
+
+    def centre_at(d):
+        return point.x - ux * d, point.y - uy * d
+
+    def holds(d):
+        cx, cy = centre_at(d)
+        return shape.why_not(off.moved(cx, cy), standoff) is None
+    d = max(0.0, standoff + box_support(what, out_b) / 2.0)
+    limit = d + max(what.width, what.height) + 2.0
+    while d < limit and not holds(d):
+        d += 0.05
+    if holds(d):
+        d = _bisect(holds, 0.0, d, want_low=True) + _SLACK
+    cx, cy = centre_at(d)
+    return Placement(Location(round(cx - box.center.x, 6), round(cy - box.center.y, 6)), rotation, face)
 
 
 def fixed_placement(occ: Occupancy, item, location: Location, rotation: float = 0.0,

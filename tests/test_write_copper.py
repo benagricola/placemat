@@ -187,3 +187,22 @@ def test_a_round_board_writes_its_rim_and_bore_as_circles(breakout_pcb, tmp_path
     assert radii == [4.0, 21.0]
     centres = {(round(pcbnew.ToMM(e.GetCenter().x), 3), round(pcbnew.ToMM(e.GetCenter().y), 3)) for e in edges}
     assert centres == {(21.0, 21.0)}
+
+
+def test_a_shaped_board_writes_its_legs_as_segments_and_its_arcs_as_arcs(breakout_pcb, tmp_path):
+    """The fab gets the real curve: the outline is flattened for the
+    arithmetic, never for Edge.Cuts."""
+    import pcbnew
+    from placemat.outline import Arc
+    pcb = _copy(breakout_pcb, tmp_path)
+    b = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
+    b.outline([(0.0, 40.0), (0.0, 20.0), Arc(to=(40.0, 20.0), via=(20.0, 0.0)), (40.0, 40.0)])
+    apply_plan(pcb, b.resolve())
+    board = pcbnew.LoadBoard(str(pcb))
+    edges = [d for d in board.GetDrawings() if d.GetLayer() == pcbnew.Edge_Cuts]
+    kinds = sorted(e.GetShapeStr() for e in edges)
+    assert kinds == ["Arc", "Line", "Line", "Line"]
+    (arc,) = [e for e in edges if e.GetShapeStr() == "Arc"]
+    assert round(pcbnew.ToMM(arc.GetRadius()), 3) == 20.0
+    mid = arc.GetArcMid()
+    assert (round(pcbnew.ToMM(mid.x), 2), round(pcbnew.ToMM(mid.y), 2)) == (20.0, 0.0)

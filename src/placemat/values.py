@@ -103,14 +103,19 @@ class OnEdge:
     """A place on a board edge: the item's reach at the keep-in (or
     `overhang` past it), and `along` the edge a number in mm, a reference,
     Along.START/MID/END or Fraction(f) of the usable length. With no
-    `along` the item slides along the edge to the room that is left."""
+    `along` the item slides along the edge to the room that is left.
+
+    `edge` is an Edge - a side of a rectangular board, where `along` is a
+    coordinate - or a run off `board.edge(facing=)`, a stretch of an outline
+    of any shape, where `along` is measured as length from the run's start
+    and the item is turned to the way the board faces there."""
     edge: Edge
     along: object = None
     overhang: float = 0.0
 
     def __post_init__(self):
-        if not isinstance(self.edge, Edge):
-            raise TypeError("OnEdge takes an Edge, not %r" % (self.edge,))
+        if not isinstance(self.edge, Edge) and not (hasattr(self.edge, "at") and hasattr(self.edge, "length")):
+            raise TypeError("OnEdge takes an Edge or a run off board.edge(facing=), not %r" % (self.edge,))
         if self.along is not None and not isinstance(self.along, (int, float, X, Y, Mid, Along, Fraction)) \
                 and type(self.along).__name__ != "_RowSlot":
             raise TypeError("along is a number, a reference, Along.START/MID/END or Fraction(f), not %r" % (self.along,))
@@ -359,7 +364,8 @@ class LinkWeight(IntEnum):
 # ------------------------------------------------------------------ round boards
 _EDGE_BEARING = {Edge.NORTH: 0.0, Edge.EAST: 90.0, Edge.SOUTH: 180.0, Edge.WEST: 270.0}
 _CARDINAL = {0.0: (0.0, -1.0), 90.0: (1.0, 0.0), 180.0: (0.0, 1.0), 270.0: (-1.0, 0.0)}
-_NM = 1e-6      # a KiCad unit: a placement is rounded to it, so nothing is measured finer
+_NM = 1e-5      # ten KiCad units: a placement is rounded to the nanometre, and a keep-in
+                # is a design rule, so it is not judged finer than the arithmetic is honest
 
 
 def bearing(value) -> float:
