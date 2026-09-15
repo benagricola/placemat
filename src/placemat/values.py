@@ -148,14 +148,17 @@ class Fraction:
 
 class Priority(str, Enum):
     """How firm a declaration is. The runner orders work by this, never by
-    where a call sits in the file. For copper: FIXED is planned before every
-    searched item and nothing may cut into it; where two tracks cross, the
-    lower priority one passes under."""
-    FIXED = "fixed"        # a mechanical fact: placed first, never moved
-    EDGE = "edge"          # one degree of freedom along an edge
-    HIGH = "high"
+    where a call sits in the file. For a placement, FIXED and EDGE say the
+    declaration decided the position; they follow from the place given and a
+    script does not choose them. HIGH, DEFAULT and LOW order the items the
+    placer still has to find a spot for. For copper: FIXED is planned before
+    every searched item and nothing may cut into it; where two tracks cross,
+    the lower priority one passes under."""
+    FIXED = "fixed"        # a point: the origin, a body centre, a pad
+    EDGE = "edge"          # a distance along an edge or a run, or a bearing on a rim
+    HIGH = "high"          # searched, and wanted before the rest
     DEFAULT = "default"    # searched; yields to everything firmer
-    LOW = "low"
+    LOW = "low"            # searched, after the rest
 
     @property
     def rank(self) -> int:
