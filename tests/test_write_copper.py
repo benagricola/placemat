@@ -170,3 +170,20 @@ def test_an_undrawn_frame_writes_no_outline(breakout_pcb, tmp_path):
     board = pcbnew.LoadBoard(str(pcb))
     edges = [d for d in board.GetDrawings() if d.GetLayer() == pcbnew.Edge_Cuts]
     assert len(edges) == n_before and n_before > 0            # Edge.Cuts untouched: the frame is for placement only
+
+
+def test_a_round_board_writes_its_rim_and_bore_as_circles(breakout_pcb, tmp_path):
+    """A disc's Edge.Cuts is a circle, not a polygon: KiCad mills the arc and
+    clips the fills to it, and a bore is a second circle inside the first."""
+    import pcbnew
+    pcb = _copy(breakout_pcb, tmp_path)
+    b = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
+    b.disc(diameter=42.0, hole=8.0)
+    apply_plan(pcb, b.resolve())
+    board = pcbnew.LoadBoard(str(pcb))
+    edges = [d for d in board.GetDrawings() if d.GetLayer() == pcbnew.Edge_Cuts]
+    assert len(edges) == 2 and all(e.GetShapeStr() == "Circle" for e in edges)
+    radii = sorted(round(pcbnew.ToMM(e.GetRadius()), 3) for e in edges)
+    assert radii == [4.0, 21.0]
+    centres = {(round(pcbnew.ToMM(e.GetCenter().x), 3), round(pcbnew.ToMM(e.GetCenter().y), 3)) for e in edges}
+    assert centres == {(21.0, 21.0)}

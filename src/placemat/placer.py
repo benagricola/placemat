@@ -10,7 +10,7 @@ import math
 from .geometry import polys_overlap, transform_box
 from .occupancy import Occupancy
 from .placement import Placement
-from .values import Box, Edge, Face, Location
+from .values import Box, Edge, Face, Location, bearing_vector
 
 
 @dataclass
@@ -147,6 +147,66 @@ def edge_placement(occ: Occupancy, item, edge: Edge, along: float, rotation: flo
     return Placement(Location(round(dx, 6), round(dy, 6)), rotation, face)
 
 
+def _far_from(box: Box, centre: Location) -> float:
+    """How far the corner of `box` furthest from `centre` is: what the rim
+    holds back."""
+    return max(math.hypot(x - centre.x, y - centre.y)
+               for x in (box.left, box.right) for y in (box.top, box.bottom))
+
+
+def _near_to(box: Box, centre: Location) -> float:
+    """How close `box` comes to `centre` anywhere - an edge, not just a
+    corner, when the box straddles the centre's own row: what a bore holds
+    back."""
+    dx = max(box.left - centre.x, 0.0, centre.x - box.right)
+    dy = max(box.top - centre.y, 0.0, centre.y - box.bottom)
+    return math.hypot(dx, dy)
+
+
+def disc_placement(occ: Occupancy, item, disc, angle: float, standoff: float, rotation: float,
+                   face: Face = Face.FRONT, bore: bool = False) -> Placement:
+    """The placement that puts the item `standoff` inside the rim on the
+    bearing `angle` (with `bore`, that far outside the bore), its body centre
+    on that bearing. A negative standoff overhangs the rim. How far out it
+    goes is solved on what the item is - its reach and its body together -
+    by the same measures the board's keep-in is judged by, so a placement
+    this returns is one the keep-in accepts."""
+    probe = Placement(Location(0.0, 0.0), rotation, face)
+    box = occ.body_box(item, probe)
+    what = Box.union([occ.reach_box(item, probe), box])
+    ux, uy = bearing_vector(angle)
+    off = Box(what.left - box.center.x, what.top - box.center.y,
+              what.right - box.center.x, what.bottom - box.center.y)
+    limit = (disc.bore + standoff) if bore else (disc.radius - standoff)
+
+    def held(d: float) -> bool:
+        at = off.moved(disc.centre.x + ux * d, disc.centre.y + uy * d)
+        return _near_to(at, disc.centre) >= limit if bore else _far_from(at, disc.centre) <= limit
+    # Both measures grow with d along the bearing, so the answer is bisected:
+    # the largest d the rim still holds, or the smallest the bore is clear of.
+    lo, hi = 0.0, disc.radius + max(what.width, what.height) + abs(standoff)
+    if bore:
+        d = hi if not held(hi) else _bisect(held, lo, hi, want_low=True)
+    else:
+        d = 0.0 if not held(lo) else _bisect(held, lo, hi, want_low=False)
+    cx, cy = disc.centre.x + ux * d, disc.centre.y + uy * d
+    return Placement(Location(round(cx - box.center.x, 6), round(cy - box.center.y, 6)), rotation, face)
+
+
+def _bisect(held, lo: float, hi: float, want_low: bool, steps: int = 60) -> float:
+    """The boundary of a monotone predicate: the smallest `lo` that holds
+    (want_low) or the largest, to a nanometre."""
+    for _ in range(steps):
+        if hi - lo < 1e-7:
+            break
+        mid = (lo + hi) / 2.0
+        if held(mid) == want_low:
+            hi = mid
+        else:
+            lo = mid
+    return hi if want_low else lo
+
+
 def fixed_placement(occ: Occupancy, item, location: Location, rotation: float = 0.0,
                     face: Face = Face.FRONT) -> Placement:
     return Placement(location, rotation, face)
@@ -220,6 +280,14 @@ def pockets(occ: Occupancy, width: float, height: float, face: Face = Face.FRONT
     if cols <= 0 or rows <= 0:
         return []
     free = [[True] * cols for _ in range(rows)]
+    shape = occ.board_shape
+    if shape is not None:                # a board that is not a rectangle: only cells inside it are free
+        for r in range(rows):
+            y = inner.top + r * step
+            for c in range(cols):
+                x = inner.left + c * step
+                if shape.why_not(Box(x, y, x + step, y + step), occ.edge_margin) is not None:
+                    free[r][c] = False
     blocks = [s.box for g in occ.items.values() for s in g.shapes
               if s.kind in ("courtyard", "npth", "through") and face in s.faces]
     blocks += [c.box for c in occ.copper if c.kind == "through"]        # vias come through: no face is free under them

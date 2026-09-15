@@ -67,6 +67,18 @@ def _draw_outline(board, plan: Plan):
     for d in list(board.GetDrawings()):
         if isinstance(d, pcbnew.PCB_SHAPE) and d.GetLayer() == pcbnew.Edge_Cuts:
             board.Delete(d)      # Remove() orphans the item and corrupts a later in-process LoadBoard
+    if plan.shape is not None:                   # a round board: the rim, and the bore when it has one
+        c = plan.shape.centre
+        for r in (plan.shape.radius, plan.shape.bore):
+            if r <= 0:
+                continue
+            circle = pcbnew.PCB_SHAPE(board, pcbnew.SHAPE_T_CIRCLE)
+            circle.SetLayer(pcbnew.Edge_Cuts)
+            circle.SetWidth(nm(0.1))
+            circle.SetCenter(vec(c.x, c.y))
+            circle.SetEnd(vec(c.x + r, c.y))
+            board.Add(circle)
+        return
     if plan.outline is None:
         return
     W, H = plan.outline.width, plan.outline.height

@@ -53,7 +53,8 @@ class ItemGeometry:
 
 _BOTH = frozenset([Face.FRONT, Face.BACK])
 _GAP = 1.0      # how far outside a box a conflict can still reach: the largest clearance a rule asks for
-_TOUCH = 0.02   # two courtyards this close along an axis are touching, not overlapping: a footprint's courtyard stroke rounds by this much
+TOUCH = 0.02    # two courtyards this close are touching, not overlapping: a footprint's courtyard stroke rounds by this much
+_TOUCH = TOUCH
 
 
 def _fp_shapes(fp: Footprint) -> list[Shape]:
@@ -75,11 +76,14 @@ def _fp_shapes(fp: Footprint) -> list[Shape]:
 
 class Occupancy:
     def __init__(self, geometry: BoardGeometry, edge_margin: float = 0.0, board_box: Box | None = None,
-                 vias_block_courtyards: bool = False):
+                 vias_block_courtyards: bool = False, board_shape=None):
         self.geometry = geometry
         self.edge_margin = edge_margin
         self.vias_block_courtyards = vias_block_courtyards
-        self.board_box = board_box or geometry.outline_box
+        # The board a script declared, when it is not a rectangle (a Disc today):
+        # it answers `why_not(box, margin)` for the keep-in and owns the real area.
+        self.board_shape = board_shape
+        self.board_box = board_box or (board_shape.box if board_shape is not None else geometry.outline_box)
         self.items: dict[str, ItemGeometry] = {}
         self.reservations: list[Reservation] = []
         self.copper: list[Shape] = []
@@ -253,6 +257,7 @@ class Occupancy:
         are not corrected for."""
         if self.board_box is None:
             return 0.0
+        board_area = self.board_shape.area if self.board_shape is not None else self.board_box.area
         faces = [face] if face is not None else [Face.FRONT, Face.BACK]
         total = 0.0
         for f in faces:
@@ -261,7 +266,7 @@ class Occupancy:
                 for s in g.shapes:
                     if s.kind == "courtyard" and f in s.faces:
                         used += s.box.area
-            total += self.board_box.area - used
+            total += board_area - used
         return total
 
     # ------------------------------------------------------------ legality
@@ -284,10 +289,15 @@ class Occupancy:
         body over the edge margin: a connector face declared to overhang."""
         geom = self._geometry(item)
         body = self.body_box(item, placement)
-        if self.board_box is not None and self.edge_margin is not None and not past_edge:
-            inner = self.board_box.inflate(-self.edge_margin)
-            if not inner.contains(body):
-                return "body box %s crosses the board edge margin (%.2f mm)" % (_fmt(body), self.edge_margin)
+        if self.edge_margin is not None and not past_edge:
+            if self.board_shape is not None:
+                why = self.board_shape.why_not(body, self.edge_margin)
+                if why:
+                    return "body box %s is %s" % (_fmt(body), why)
+            elif self.board_box is not None:
+                inner = self.board_box.inflate(-self.edge_margin)
+                if not inner.contains(body):
+                    return "body box %s crosses the board edge margin (%.2f mm)" % (_fmt(body), self.edge_margin)
         faces = {placement.face} | ({Face.FRONT, Face.BACK} if any(s.kind in ("through", "npth") for s in geom.shapes) else set())
         for r in self.reservations:
             if r.layer is not None and r.layer.face not in faces:

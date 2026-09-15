@@ -354,3 +354,151 @@ class LinkWeight(IntEnum):
     DEFAULT = 1
     PREFER = 2
     SHORT = 8
+
+
+# ------------------------------------------------------------------ round boards
+_EDGE_BEARING = {Edge.NORTH: 0.0, Edge.EAST: 90.0, Edge.SOUTH: 180.0, Edge.WEST: 270.0}
+_CARDINAL = {0.0: (0.0, -1.0), 90.0: (1.0, 0.0), 180.0: (0.0, 1.0), 270.0: (-1.0, 0.0)}
+_NM = 1e-6      # a KiCad unit: a placement is rounded to it, so nothing is measured finer
+
+
+def bearing(value) -> float:
+    """An angle round a board: degrees clockwise from the top, the way a
+    compass and a clock read. A number, an Edge (NORTH 0, EAST 90, SOUTH
+    180, WEST 270) or Fraction(f) of a full turn."""
+    if isinstance(value, Edge):
+        return _EDGE_BEARING[value]
+    if isinstance(value, Fraction):
+        return value.fraction * 360.0
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError("a bearing is degrees clockwise from the top, an Edge or Fraction(f), not %r" % (value,))
+    return float(value)
+
+
+def bearing_vector(deg: float) -> tuple:
+    """The unit vector pointing out along that bearing. y grows downward, so
+    the top of the board is -y; the quarter turns are exact."""
+    b = float(deg) % 360.0
+    if b in _CARDINAL:
+        return _CARDINAL[b]
+    r = math.radians(b)
+    return (math.sin(r), -math.cos(r))
+
+
+def bearing_of(dx: float, dy: float) -> float:
+    """The bearing a vector points along."""
+    return math.degrees(math.atan2(dx, -dy)) % 360.0
+
+
+def box_support(box: Box, deg: float) -> float:
+    """How wide `box` is measured along that bearing: a box's own extent in
+    a direction that is not one of its axes."""
+    ux, uy = bearing_vector(deg)
+    return abs(box.width * ux) + abs(box.height * uy)
+
+
+@dataclass(frozen=True)
+class Disc:
+    """A round board: its centre, its diameter, and the diameter of a
+    central bore (0: none). Places on it are said as a bearing and a
+    radius, never as an edge: a circle has no sides."""
+    centre: Location
+    diameter: float
+    hole: float = 0.0
+
+    def __post_init__(self):
+        if self.diameter <= 0:
+            raise ValueError("a disc's diameter is positive, not %r" % (self.diameter,))
+        if not 0.0 <= self.hole < self.diameter:
+            raise ValueError("a bore is smaller than the board it is cut in")
+
+    @property
+    def radius(self) -> float:
+        return self.diameter / 2.0
+
+    @property
+    def bore(self) -> float:
+        """The bore's radius; 0 when the board is solid."""
+        return self.hole / 2.0
+
+    @property
+    def box(self) -> Box:
+        r = self.radius
+        return Box(self.centre.x - r, self.centre.y - r, self.centre.x + r, self.centre.y + r)
+
+    @property
+    def area(self) -> float:
+        return math.pi * (self.radius ** 2 - self.bore ** 2)
+
+    def point(self, angle, radius: float) -> Location:
+        """The point `radius` from the centre on that bearing."""
+        ux, uy = bearing_vector(bearing(angle))
+        return Location(round(self.centre.x + ux * radius, 6), round(self.centre.y + uy * radius, 6))
+
+    def why_not(self, box: Box, margin: float) -> str | None:
+        """None when `box` sits inside the board with `margin` to spare
+        everywhere, else which side of the board it crosses."""
+        far = max(math.hypot(x - self.centre.x, y - self.centre.y)
+                  for x in (box.left, box.right) for y in (box.top, box.bottom))
+        if far > self.radius - margin + _NM:
+            return "past the rim's keep-in (%.2f mm)" % margin
+        if self.bore:
+            dx = max(box.left - self.centre.x, 0.0, self.centre.x - box.right)
+            dy = max(box.top - self.centre.y, 0.0, self.centre.y - box.bottom)
+            if math.hypot(dx, dy) < self.bore + margin - _NM:
+                return "into the bore's keep-in (%.2f mm)" % margin
+        return None
+
+    def polygon(self, inset: float = 0.0, segments: int = 72) -> tuple:
+        """The rim, inset, as a polygon: what a zone or a pour is given."""
+        r = self.radius - inset
+        out = []
+        for i in range(segments):
+            ux, uy = bearing_vector(360.0 * i / segments)
+            out.append((round(self.centre.x + ux * r, 6), round(self.centre.y + uy * r, 6)))
+        return tuple(out)
+
+
+@dataclass(frozen=True)
+class Polar:
+    """A place on a round board: the item's body centre `radius` from the
+    board's centre on the bearing `angle`. Either may be None to leave that
+    freedom: Polar(16.0) slides round that ring, Polar(None, 90.0) slides
+    out along that spoke. A polar place is a coordinate, so it does not turn
+    the item; OnRim and ring() do."""
+    radius: object
+    angle: object = None
+
+    def __post_init__(self):
+        if self.radius is None and self.angle is None:
+            raise ValueError("a Polar place needs a radius, a bearing, or both")
+        if self.angle is not None:
+            bearing(self.angle)
+        if self.radius is not None and (isinstance(self.radius, bool)
+                                        or not isinstance(self.radius, (int, float)) or self.radius < 0):
+            raise ValueError("a Polar radius is a distance from the board's centre, not %r" % (self.radius,))
+
+
+@dataclass(frozen=True)
+class OnRim:
+    """A place on a round board's rim: the item's reach at the keep-in (or
+    `overhang` past it) on the bearing `angle`, turned to face outward.
+    With no angle it slides round the rim to the room that is left."""
+    angle: object = None
+    overhang: float = 0.0
+
+    def __post_init__(self):
+        if self.angle is not None:
+            bearing(self.angle)
+
+
+@dataclass(frozen=True)
+class OnBore:
+    """A place at the edge of a round board's bore: the item's reach at the
+    keep-in outside the bore on the bearing `angle`, turned to face the
+    bore. With no angle it slides round it."""
+    angle: object = None
+
+    def __post_init__(self):
+        if self.angle is not None:
+            bearing(self.angle)

@@ -113,7 +113,7 @@ coordinates nobody chose.
   their part; the board routes them, and a via placed for them is either
   unused or in the way.
 - Every script is for one board: name it `<Board>_layout.py` after the
-  `Board(name=)` or `Layout(name=)` in the `.zen` beside it; a directory
+  `Board(name=)`, `Project(name=)` or `Layout(name=)` in the `.zen` beside it; a directory
   with several boards is told apart by that name.
 - Measure, do not type: `board.extent(cell, rotation=)`, `board.pitch(part)`,
   `board.pad(part, n).box` and the pad references give the generated board's
@@ -151,6 +151,11 @@ coordinates nobody chose.
   missing net fails when declared, not at write time.
 - Module cells are rigid: place them, never their members. A cell that does
   not fit is a module question, not a script workaround.
+- A round board is declared `board.disc(diameter=, hole=)` and placed in
+  bearings and radii: `OnRim`, `OnBore`, `Polar` and `ring()`. A bearing is
+  degrees clockwise from the top, so `Edge.EAST` is 90. Nothing else
+  changes: links, faces, labels and copper are said in parts and pads, and
+  a disc refuses `Edge` and `row` rather than guessing what they mean.
 
 ## Placement tactics
 

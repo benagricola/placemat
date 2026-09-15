@@ -69,3 +69,12 @@ def test_a_zen_may_declare_a_layout_per_variant_and_the_script_picks_by_name(tmp
     assert s.generate_args == ("--config", "style=side")
     t = find_board(top)
     assert t.name == "McuButtons" and t.generate_args == ()
+
+
+def test_a_board_declared_as_a_project_is_found(tmp_path):
+    """Layout() is the stdlib's shim over Project(schematic=False), so a
+    board that wants a generated schematic declares Project() itself."""
+    (tmp_path / "gauge.zen").write_text('X = Module("x")\nProject(name = "Gauge", path = "layout/Gauge", schematic = True)\n')
+    (tmp_path / "Gauge_layout.py").write_text("")
+    src = find_board(tmp_path / "Gauge_layout.py")
+    assert src.name == "Gauge" and src.layout_dir == tmp_path / "layout/Gauge"

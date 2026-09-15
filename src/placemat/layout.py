@@ -10,15 +10,16 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+import math
 
 from .copper import (CopperOp, Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
                      resolve_bridges)
 from .geometry import polygon_box, transform_box
-from .occupancy import Occupancy, Shape
+from .occupancy import Occupancy, Shape, TOUCH
 from .placement import Placement
-from .placer import BlockSpec, _reason_key, box_centered_placement, pad_anchored_placement, edge_placement, layout_block, pockets, scan, scan_block
+from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, scan, scan_block
 from .board_geometry import CellGeom, Footprint, BoardGeometry
-from .values import (Along, Box, Cell, CellPadRef, Centre, Pin, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -185,6 +186,10 @@ class PlaceIntent:
     faces_note: str = ""               # when the rotation fell back to the generic rule
     pinned_by: str = ""                # "at" (the origin sits on the line) or "center" (the body centre does)
     pin: object = None                 # a pad key: `center` is where that pad lands, not the body centre
+    rim: str | None = None             # "rim" or "bore": a place against a round board's edge
+    angle: float | None = None         # its bearing, when the script gave one; None slides round
+    radius_at: object = None           # a Polar radius: the ring the item sits on
+    outward: bool = False              # turn it to face out wherever it lands
 
     @property
     def rank(self):
@@ -253,6 +258,7 @@ class Plan:
     draw_outline: bool = True           # False: the outline is a placement frame only (a module fragment)
     chamfer: float = 0.0
     radius: float = 0.0
+    shape: object | None = None         # the board when it is not a rectangle: a Disc
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -280,6 +286,30 @@ class Plan:
     def plane_nets(self) -> set:
         """Nets served by a pour, plane or finger: routing leaves them alone."""
         return {op.net for op in self.copper if isinstance(op, (Pour, Zone))}
+
+
+@dataclass
+class Ring:
+    """What ring() placed: the circle it used (None at the rim), the bearing
+    of each item, and how deep the deepest reaches along the radius."""
+    radius: float | None
+    angles: list
+    depth: float
+    items: list = field(default_factory=list)
+    keys: list = field(default_factory=list)
+
+    @property
+    def start(self) -> float:
+        return self.angles[0] if self.angles else 0.0
+
+    @property
+    def end(self) -> float:
+        return self.angles[-1] if self.angles else 0.0
+
+    @property
+    def span(self) -> float:
+        """How much of the turn it takes, from the first item to the last."""
+        return (self.end - self.start) % 360.0
 
 
 class PlacementCollision(Exception):
@@ -321,6 +351,7 @@ class Board:
         self._rules: list = []
         self._free_nets: set = set()
         self._outline: Box | None = geometry.outline_box
+        self._shape = None                  # a board that is not a rectangle (a Disc)
         self._sized = False                 # the script has declared the board size
         self._draw_outline = True
         self._chamfer = 0.0
@@ -429,6 +460,41 @@ class Board:
         self._sized = True
         self._draw_outline = draw          # a fragment's frame is for placement only, never written
 
+    def disc(self, diameter: float, hole: float = 0.0, draw: bool = True):
+        """The board outline: a round board at the origin, `hole` wide through
+        the middle when it goes round a shaft. A circle has no sides, so
+        places on it are said as a bearing and a radius: OnRim, OnBore,
+        Polar and ring()."""
+        d = float(diameter)
+        self._shape = Disc(Location(d / 2.0, d / 2.0), d, float(hole))
+        self._outline = self._shape.box
+        self._chamfer = self._radius = 0.0
+        self.width = self.height = d
+        self._sized = True
+        self._draw_outline = draw
+
+    @property
+    def centre(self) -> Location:
+        """The middle of the board."""
+        if self._outline is None:
+            raise ValueError("the board has no size yet: board.size() or board.disc() says what it is")
+        return self._outline.center
+
+    @property
+    def radius(self) -> float:
+        """A round board's radius."""
+        return self._disc().radius
+
+    @property
+    def bore(self) -> float:
+        """A round board's bore radius; 0 when it is solid."""
+        return self._disc().bore
+
+    def _disc(self) -> Disc:
+        if self._shape is None:
+            raise ValueError("this is not a round board: declare one with board.disc(diameter=...)")
+        return self._shape
+
     # ------------------------------------------------------------ blocks
     def block(self, anchor, satellites, gap: float | None = None) -> BlockSpec:
         """A part and the satellites that sit at its pins: `satellites` is a
@@ -474,6 +540,8 @@ class Board:
         if any(i.key == key for i in self._intents):
             raise ValueError("%s is already placed; one declaration per item" % key)
         center = edge = along = near = None
+        rim = angle = radius_at = None
+        outward = False
         overhang = 0.0
         pin_x = pin_y = None
         pinned = ""
@@ -486,10 +554,26 @@ class Board:
             geom.pad(at.key)                                # a real pad of this part, checked now
             pin, center, at = at.key, (at.x, at.y), None
         elif isinstance(at, OnEdge):
+            if self._shape is not None:
+                raise ValueError("%s: a disc has no edges; place it on the rim at a bearing, OnRim(angle)" % key)
             edge, along, overhang = at.edge, at.along, at.overhang
             if isinstance(along, (Along, Fraction)):
                 along = _EdgeFraction(along.fraction, along.value if isinstance(along, Along) else "centre")
             at = None
+        elif isinstance(at, (OnRim, OnBore)):
+            self._disc()
+            rim = "bore" if isinstance(at, OnBore) else "rim"
+            angle = None if at.angle is None else bearing(at.angle)
+            overhang = getattr(at, "overhang", 0.0)
+            outward = rotation is None          # it faces out at whatever bearing it ends up on
+            at = None
+        elif isinstance(at, Polar):
+            disc = self._disc()
+            if at.radius is not None and at.angle is not None:
+                center, at = disc.point(at.angle, at.radius), None
+            else:
+                radius_at, angle = at.radius, (None if at.angle is None else bearing(at.angle))
+                at = None
         elif isinstance(at, Near):
             near = at.location
             radius = at.radius if at.radius is not None else radius
@@ -510,16 +594,25 @@ class Board:
             elif isinstance(at, Centre):
                 center, at = (at.x, at.y), None
         else:
-            raise TypeError("%s: at= takes a Location, a Centre, a Pin, an OnEdge, a Near or a point of references, not %r" % (key, at))
+            raise TypeError("%s: at= takes a Location, a Centre, a Pin, an OnEdge, an OnRim, an OnBore, a Polar, a Near "
+                            "or a point of references, not %r" % (key, at))
         source = "auto" if priority is None else "script"
         if priority is None:
             priority = Priority.FIXED if (at is not None or center is not None) else \
-                Priority.EDGE if (edge is not None and along is not None) else Priority.DEFAULT
+                Priority.EDGE if ((edge is not None and along is not None) or (rim is not None and angle is not None)) \
+                else Priority.DEFAULT
         if edge is not None and along is None and priority in (Priority.FIXED, Priority.EDGE):
             raise ValueError("%s: an edge item with no distance along it is free to slide; it cannot be %s" % (key, priority.value))
+        if rim is not None and angle is None and priority in (Priority.FIXED, Priority.EDGE):
+            raise ValueError("%s: a %s item with no bearing is free to slide round; it cannot be %s" % (key, rim, priority.value))
         faces_note = ""
         if rotation is None:
-            rotation, faces_note = self.outward_rotation(item, edge) if (edge is not None and along is None) else (0.0, "")
+            if rim is not None and angle is not None:
+                rotation, faces_note = self.outward_rotation(item, angle + (180.0 if rim == "bore" else 0.0))
+            elif edge is not None and along is None:
+                rotation, faces_note = self.outward_rotation(item, edge)
+            else:
+                rotation, faces_note = 0.0, ""
         if kind == "cell" and at is not None and center is None:
             center, at = at, None
         needs = {self._pad_ref(ref)[0] for ref in _refs_in([at, center, along, pin_x, pin_y])}   # a real pad, placed before this
@@ -528,7 +621,7 @@ class Board:
         standoff = _standoff if _standoff is not None else (-float(overhang) if overhang else self.keep_in)
         intent = PlaceIntent(key, geom, kind, priority, float(rotation), face, at, center, edge, along,
                              standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs),
-                             pin_x, pin_y, source, faces_note, pinned, pin)
+                             pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward)
         self._intents.append(intent)
         return intent
 
@@ -552,6 +645,8 @@ class Board:
         pad's X()/Y(), a Mid); `before=` or `after=` another row, one gap
         away. A row placed by a reference is measured when its items are
         placed. Returns the Row."""
+        if self._shape is not None:
+            raise ValueError("a disc has no edges: board.ring(items, radius=) is the row of a round board")
         rots = [self.outward_rotation(it, edge)[0] for it in items] if rotation is None else \
             ([float(r) for r in rotation] if isinstance(rotation, (list, tuple)) else [float(rotation)] * len(items))
         if behind is not None:
@@ -602,6 +697,53 @@ class Board:
             along = row.centres[n] if row.start is not None else _RowSlot(row, n)
             self.place(item, at=OnEdge(edge, along=along), _standoff=c, rotation=r, why=why)
         return row
+
+    def ring(self, items, *, radius=None, start=Edge.NORTH, gap: float = 0.0, spread: bool = False,
+             rotation=None, why: str = "") -> "Ring":
+        """Items round a round board's centre, in order clockwise from the
+        bearing `start`, each turned to face outward: their body centres
+        `radius` from the centre, or with no radius their reach at the rim's
+        keep-in. Spaced by what they claim across the arc, `gap` mm of arc
+        between claims - two claims can only meet at a point round a
+        circle, so a gap of nothing leaves their inner corners the rounding
+        two courtyards may touch by; `spread=True` shares the whole turn evenly instead
+        (four mounting holes at 90 degrees). `rotation=` (one value or one
+        per item) overrides the outward turn. Returns the Ring."""
+        disc = self._disc()
+        b0 = bearing(start)
+        given = None
+        if rotation is not None:
+            given = [float(r) for r in rotation] if isinstance(rotation, (list, tuple)) else [float(rotation)] * len(items)
+        n = max(len(items), 1)
+        angles, rots, depths = [], [], []
+        angle, half_prev = b0, 0.0
+        for k, item in enumerate(items):
+            if spread:
+                angle = b0 + 360.0 * k / n
+            # An item facing out has its own width across the arc and its own depth
+            # along the radius: measured where outward is south, which the ring's
+            # own symmetry allows. A rotation the script gave has no such relation
+            # to the arc, so there the claim is projected onto the tangent.
+            base = given[k] if given is not None else self.outward_rotation(item, Edge.SOUTH)[0]
+            claim, reach = self.claim(item, base), self.reach(item, base)
+            across = box_support(claim, angle + 90.0) if given is not None else claim.width
+            stands = box_support(reach, angle) if given is not None else reach.height     # what the rim holds off
+            thick = box_support(claim, angle) if given is not None else claim.height      # what a neighbour must clear
+            arc_r = float(radius) if radius is not None else max(disc.radius - self.keep_in - stands / 2.0, 1e-6)
+            # Round a circle items are held apart by their INNER corners: the
+            # angle one takes is measured at the radius where it is narrowest,
+            # and it is the claim, not the reach, that has to clear.
+            half = math.degrees(math.atan2(across / 2.0, max(arc_r - thick / 2.0, 1e-6)))
+            if not spread and k:
+                angle += half_prev + math.degrees((gap + TOUCH) / arc_r) + half
+            half_prev = half
+            angles.append(angle)
+            rots.append(given[k] if given is not None else self.outward_rotation(item, angle)[0])
+            depths.append(thick)
+        for item, a, r in zip(items, angles, rots):
+            self.place(item, at=(OnRim(a) if radius is None else Polar(radius, a)), rotation=r, why=why)
+        return Ring(float(radius) if radius is not None else None, angles,
+                    max(depths) if depths else 0.0, list(items), [self._item(it)[1] for it in items])
 
     def _is_searched(self, refdes: str) -> bool:
         fp = self.geometry.footprint(refdes)
@@ -726,14 +868,21 @@ class Board:
             raise ValueError("faces() names at least one side")
         self._faces = ("placemat faces " + " ".join(words), why)
 
-    def outward_rotation(self, item, edge: Edge) -> tuple[float, str]:
-        """The rotation that turns the item's outward side to `edge`, and a
-        note when the item declared none (the generic rule: local +Y out)."""
+    def outward_rotation(self, item, edge) -> tuple[float, str]:
+        """The rotation that turns the item's outward side to `edge` - a board
+        edge, or a bearing on a round board's rim - and a note when the item
+        declared none (the generic rule: local +Y out)."""
         geom, key, kind = self._item(item)
         declared = geom.faces.get("outward") if kind == "cell" else None
-        if not declared:
-            return _OUTWARD_ROTATION[edge], "" if kind != "cell" else "no faces declared: turned as if its outward side were local +Y"
-        return _rotation_taking(Edge(declared), edge), ""
+        note = "" if kind != "cell" else "no faces declared: turned as if its outward side were local +Y"
+        if isinstance(edge, Edge):
+            if not declared:
+                return _OUTWARD_ROTATION[edge], note
+            return _rotation_taking(Edge(declared), edge), ""
+        # A bearing: turning by r takes a side pointing along bearing b to b - r,
+        # so the rotation is the side's own bearing less the one wanted.
+        local = _EDGE_BEARING[Edge(declared)] if declared else _EDGE_BEARING[Edge.SOUTH]
+        return (local - bearing(edge)) % 360.0, "" if declared else note
 
     def label(self, item, text: str, *, side: Edge = Edge.NORTH, gap: float = 0.0, align: str = "centre",
               size: float = 1.0, thickness: float = 0.15, knockout: bool = False, rotation: float = 0.0,
@@ -887,6 +1036,8 @@ class Board:
         def plan(ctx):
             if outline is not None:
                 pts = tuple((l.x, l.y) for l in (ctx.locate(p) for p in outline))
+            elif self._shape is not None:
+                pts = self._shape.polygon(inset)
             else:
                 ch = self._chamfer if chamfer is None else chamfer
                 pts = board_zone_outline(self.width, self.height, inset, ch)
@@ -913,12 +1064,12 @@ class Board:
 
     # ------------------------------------------------------------ resolution
     def resolve(self, progress=None) -> Plan:
-        occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline)
+        occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape)
         for intent in self._intents:
             declared = [intent.item.anchor] + [fp for fp, _ in intent.item.satellites] if intent.kind == "block" else [intent.item]
             for item in declared:
                 occ.pending |= occ._geometry(item).owners
-        plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius,
+        plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius, shape=self._shape,
                     rules=list(self._rules), draw_outline=self._draw_outline)
         ctx = _CopperContext(self, occ)
         self._weigh(occ)
@@ -1180,12 +1331,13 @@ class Board:
                 self._weights[i.key] = "auto: " + why
 
     def _slide(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, ideal: float, lo: float, hi: float,
-               placement_at, what: str) -> Step:
+               placement_at, what: str, step: float | None = None, units: str = "mm") -> Step:
         """One degree of freedom: from `ideal` outward along [lo, hi], the
-        first legal placement `placement_at(along)` gives."""
+        first legal placement `placement_at(along)` gives. Round a rim or a
+        ring the freedom is a bearing, so `step` and `units` are in degrees."""
         geom = occ._geometry(i.item)
         others = occ.obstacles(geom, occ.board_box.inflate(2.0))
-        step = max(i.step, 0.2)
+        step = step if step is not None else max(i.step, 0.2)
         n = int((hi - lo) / step) + 1
         candidates = sorted({min(max(ideal + d * step * sgn, lo), hi) for d in range(n) for sgn in (1, -1)},
                             key=lambda a: (abs(a - ideal), a))
@@ -1193,12 +1345,13 @@ class Board:
         reasons: dict = {}
         for along in candidates:
             p = placement_at(along)
-            why = occ.legal(i.item, p, clr, others=others, past_edge=i.edge is not None and i.clearance < self.keep_in)
+            why = occ.legal(i.item, p, clr, others=others,
+                            past_edge=(i.edge is not None or i.rim == "rim") and i.clearance < self.keep_in)
             if why is None:
                 moved = abs(along - ideal)
                 note = what
                 if moved > 1e-9:
-                    note += "; slid %.2f mm from its slot: %s" % (moved, next(iter(reasons.values()), ""))
+                    note += "; slid %.2f %s from its slot: %s" % (moved, units, next(iter(reasons.values()), ""))
                 return Step(i.key, i.kind, i.priority, p, moved, note, i.why)
             key = _reason_key(why)
             rejected[key] += 1
@@ -1257,6 +1410,52 @@ class Board:
         return self._slide(occ, i, plan, clr, ideal, lo, hi,
                            lambda along: edge_placement(occ, i.item, i.edge, along, i.rotation, i.clearance, i.face),
                            "along the %s edge" % i.edge.name.lower())
+
+    def _round_slot(self, i: PlaceIntent) -> float:
+        """Where a free item on a rim or a ring would like to be: everything
+        sharing that circle divides the turn evenly, the k-th of n at k/n of
+        it from the top, so one alone sits at the top."""
+        fellows = [x for x in self._intents if x.angle is None and (x.rim, x.radius_at) == (i.rim, i.radius_at)
+                   and x.priority not in (Priority.FIXED, Priority.EDGE)]
+        k, n = fellows.index(i), max(len(fellows), 1)
+        return 360.0 * k / n
+
+    def _settle_round_rim(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
+        """One degree of freedom: the item slides round the rim (or the bore)
+        from its slot, its reach at the keep-in, facing out wherever it lands."""
+        disc = self._disc()
+        bore = i.rim == "bore"
+        ideal = self._round_slot(i)
+        r = max(disc.bore if bore else disc.radius, 1e-6)
+
+        def at(angle):
+            rot = self.outward_rotation(i.item, angle + (180.0 if bore else 0.0))[0] if i.outward else i.rotation
+            return disc_placement(occ, i.item, disc, angle, i.clearance, rot, i.face, bore=bore)
+        return self._slide(occ, i, plan, clr, ideal, ideal - 180.0, ideal + 180.0, at,
+                           "round the %s" % ("bore" if bore else "rim"),
+                           step=math.degrees(max(i.step, 0.2) / r), units="deg")
+
+    def _settle_round_ring(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
+        """One degree of freedom: the item slides round the ring it was given."""
+        disc = self._disc()
+        ideal = self._round_slot(i)
+        r = max(float(i.radius_at), 1e-6)
+
+        def at(angle):
+            return box_centered_placement(occ, i.item, disc.point(angle, r), i.rotation, i.face)
+        return self._slide(occ, i, plan, clr, ideal, ideal - 180.0, ideal + 180.0, at,
+                           "round the %.2f mm ring" % r, step=math.degrees(max(i.step, 0.2) / r), units="deg")
+
+    def _settle_along_spoke(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
+        """One degree of freedom: the item slides out along its bearing,
+        between the bore's keep-in and the rim's."""
+        disc = self._disc()
+        lo, hi = disc.bore + self.keep_in, disc.radius - self.keep_in
+        ideal = (lo + hi) / 2.0
+
+        def at(r):
+            return box_centered_placement(occ, i.item, disc.point(i.angle, r), i.rotation, i.face)
+        return self._slide(occ, i, plan, clr, ideal, lo, hi, at, "out along the %.0f degree spoke" % i.angle)
 
     def _no_pocket_note(self, occ: Occupancy, i: PlaceIntent) -> str:
         """A search cannot succeed where no free rectangle holds the item's
@@ -1374,6 +1573,9 @@ class Board:
                 p = pad_anchored_placement(occ, i.item, i.pin, _locate(self, occ, i.center), i.rotation, i.face)
             elif i.center is not None:
                 p = box_centered_placement(occ, i.item, _locate(self, occ, i.center), i.rotation, i.face)
+            elif i.rim is not None:
+                p = disc_placement(occ, i.item, self._disc(), i.angle, i.clearance, i.rotation, i.face,
+                                   bore=i.rim == "bore")
             else:
                 if isinstance(i.along, _RowSlot):
                     along = i.along.resolve(self, occ)
@@ -1386,10 +1588,17 @@ class Board:
                 else:
                     along = _coord(self, occ, i.along, "x" if i.edge in (Edge.NORTH, Edge.SOUTH) else "y")
                 p = edge_placement(occ, i.item, i.edge, along, i.rotation, i.clearance, i.face)
-            why = occ.legal(i.item, p, clr, past_edge=i.edge is not None and i.clearance < self.keep_in)
+            why = occ.legal(i.item, p, clr,
+                            past_edge=(i.edge is not None or i.rim == "rim") and i.clearance < self.keep_in)
             if why:
                 plan.findings.append("%s (%s): %s" % (i.key, i.priority.value, why))
             return Step(i.key, i.kind, i.priority, p, 0.0, why or "", i.why)
+        if i.rim is not None:
+            return self._settle_round_rim(occ, i, plan, clr)
+        if i.radius_at is not None:
+            return self._settle_round_ring(occ, i, plan, clr)
+        if i.angle is not None:
+            return self._settle_along_spoke(occ, i, plan, clr)
         if i.edge is not None:
             return self._settle_along_edge(occ, i, plan, clr)
         if i.pin_x is not None or i.pin_y is not None:
@@ -1436,6 +1645,7 @@ class Board:
             note = (note + "; " if note else "") + moved
         return Step(i.key, i.kind, i.priority, result.chosen, result.moved_mm, note, i.why)
 
+_EDGE_BEARING = {Edge.NORTH: 0.0, Edge.EAST: 90.0, Edge.SOUTH: 180.0, Edge.WEST: 270.0}
 _EDGE_DIR = {Edge.NORTH: (0.0, -1.0), Edge.SOUTH: (0.0, 1.0), Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0)}
 
 

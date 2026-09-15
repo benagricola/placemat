@@ -1,5 +1,7 @@
-"""Finds a script's board: the .zen beside it that declares Board(...), or
-a module fragment's Layout(...). Also reads the nearest fab-profile.json."""
+"""Finds a script's board: the .zen beside it that declares Board(...),
+Project(...) or a module fragment's Layout(...) - the stdlib writes Layout()
+as Project(schematic=False), and a board that wants a generated schematic
+declares Project() itself. Also reads the nearest fab-profile.json."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,7 +23,7 @@ class BoardSource:
         return self.layout_dir / "layout.kicad_pcb"
 
 
-_BOARD_RE = re.compile(r"\b(Board|Layout)\s*\(", re.S)
+_BOARD_RE = re.compile(r"\b(Board|Layout|Project)\s*\(", re.S)
 _NAME_RE = re.compile(r'\bname\s*=\s*"([^"]+)"')
 _LAYOUT_RE = re.compile(r'\b(?:layout_path|path)\s*=\s*"([^"]+)"')
 _GENERATE_RE = re.compile(r"^#\s*placemat generate:\s*(.+)$", re.M)
@@ -37,8 +39,8 @@ def generate_args_of(script: Path) -> tuple:
 
 
 def find_board(script_or_dir) -> BoardSource:
-    """The board a script is for: the .zen beside it declaring Board() or
-    Layout(). When several do, the script's name says which
+    """The board a script is for: the .zen beside it declaring Board(),
+    Project() or Layout(). When several do, the script's name says which
     (`Middleweight_layout.py` means the one named Middleweight)."""
     p = Path(script_or_dir).resolve()
     board_dir = p if p.is_dir() else p.parent
@@ -47,7 +49,7 @@ def find_board(script_or_dir) -> BoardSource:
     found = []
     for zen in candidates:
         text = zen.read_text(errors="replace")
-        for m in _BOARD_RE.finditer(text):           # every Board()/Layout(): a module may declare one per variant
+        for m in _BOARD_RE.finditer(text):           # every Board()/Project()/Layout(): a module may declare one per variant
             block = text[m.end():]
             depth, end = 1, 0
             for i, ch in enumerate(block):
@@ -66,7 +68,7 @@ def find_board(script_or_dir) -> BoardSource:
             layout_dir = board_dir / (layout_m.group(1) if layout_m else "layout/%s" % name)
             found.append(BoardSource(name, zen, layout_dir, board_dir, generate_args_of(p) if p.is_file() else ()))
     if not found:
-        raise FileNotFoundError("no .zen declaring Board(name=...) or Layout(name=...) in %s (looked at %s)" % (
+        raise FileNotFoundError("no .zen declaring Board(name=...), Project(name=...) or Layout(name=...) in %s (looked at %s)" % (
             board_dir, ", ".join(c.name for c in candidates) or "nothing"))
     if len(found) == 1:
         return found[0]

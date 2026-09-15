@@ -26,6 +26,10 @@ board; declarations are collected and resolved together.
 
 `board.size(width, height, chamfer=0.0, radius=0.0)` - the outline, origin
 top-left, y down.
+`board.disc(diameter, hole=0.0)` - a round board at the origin, bored
+`hole` wide through the middle when it goes round a shaft. Places on it are
+bearings and radii (below); `board.centre`, `board.radius` and `board.bore`
+answer where it is.
 
 ## Placement
 
@@ -144,7 +148,8 @@ placed first. An item placed that way goes down after what it
 refers to, which must be FIXED or EDGE.
 
 **Modules.** A module's fragment runs the same way: `placemat run
-modules/X/X_layout.py` finds the `Layout(name=, path=)` in the `.zen`
+modules/X/X_layout.py` finds the `Layout(name=, path=)` (or the
+`Project(name=, path=)` the stdlib writes it as) in the `.zen`
 beside it, generates the fragment and applies the script. A zen may
 declare one Layout per variant (an `if` on a `config()`), each with its
 own script named for it; the script's first line `# placemat generate:
@@ -173,6 +178,52 @@ ordered by the placer, re-measured after each: cells, then blocks, then
 loose parts; within a tier, an item needing more than a quarter of the
 free board goes now, else the strongest link pull toward what is placed,
 else the largest. The sentence that chose each is in its step.
+
+## Round boards
+
+A circle has no sides, so a disc takes no `Edge` and no `row`: it refuses
+both and says what to use instead. Everything else - links, faces, labels,
+copper, rules - is unchanged, because those are said in parts and pads.
+
+```python
+board.disc(diameter=40.0, hole=6.0)                       # a 40 mm board round a 6 mm shaft
+board.place(J, at=OnRim(Edge.EAST))                       # reach at the keep-in, turned to face out
+board.place(J, at=OnRim(120.0, overhang=0.5))             # a face proud of the rim
+board.place(TP, at=OnRim())                               # slides round the rim to the room left
+board.place(SENSOR, at=OnBore(Edge.NORTH))                # at the bore's keep-in, facing the shaft
+board.place(LED, at=Polar(16.0, 30.0))                    # body centre 16 mm out, 30 degrees round
+board.place(R, at=Polar(16.0))                            # somewhere on that ring (one freedom)
+board.place(R, at=Polar(None, Edge.EAST))                 # somewhere out along that spoke
+ring = board.ring([L1, L2, L3], radius=16.0, start=Edge.NORTH)     # the row of a round board
+board.ring(HOLES, radius=18.0, spread=True)               # four holes, evenly round the turn
+board.ring([D1, D2], radius=None, start=90.0)             # at the rim, reach at the keep-in
+```
+
+**A bearing** is degrees clockwise from the top, the way a compass and a
+clock read: 90 is east, 180 south. An `Edge` is the bearing of that side
+(NORTH 0, EAST 90, SOUTH 180, WEST 270) and `Fraction(f)` is f of a full
+turn, so the same names work on a round board as on a rectangle.
+
+**What turns and what does not.** `OnRim` and `OnBore` turn the item so its
+outward side (its `faces(outward=)`, else local +Y) points away from the
+centre, or at the bore toward it; a free one is turned to wherever it slides
+to. `Polar` is a coordinate, so it does not turn anything - pass `rotation=`
+or use a ring.
+
+**A ring** is `row()` for a circle: items in order clockwise from `start`,
+each facing out, spaced by what they claim across the arc. They are held
+apart at their INNER corners, where a claim is narrowest, so `gap=0` leaves
+the rounding two courtyards may touch by. `spread=True` ignores the claims
+and shares the whole turn evenly - four mounting holes at 90 degrees. With
+no `radius` every item goes to the rim, its reach at the keep-in. The Ring
+it returns carries `.radius`, `.angles`, `.depth`, `.start`, `.end` and
+`.span`.
+
+**The keep-in is radial.** The rim holds an item's furthest corner back by
+`board.keep_in`; a bore holds its nearest point out by the same, and that is
+an edge, not a corner, when the item straddles the bore. A plane inset from
+the rim is a disc, and Edge.Cuts is written as a circle (two, with a bore),
+so KiCad mills the arc and clips every fill to it.
 
 ## Links
 
