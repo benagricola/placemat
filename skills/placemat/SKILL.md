@@ -128,7 +128,9 @@ coordinates nobody chose.
   thing is (`at=Location`/`Centre` are FIXED, `OnEdge` with `along` is EDGE, the rest is searched;
   `priority=Priority.FIXED` on copper that nothing may cut into; `HIGH`,
   `DEFAULT`, `LOW` on tracks to say who passes under whom). The runner
-  schedules: setup, FIXED, EDGE, cells, FIXED copper, loose parts, copper.
+  schedules: setup, FIXED, EDGE, FIXED copper, everything searched, copper.
+  `priority=` is for a searched item only: a decided position already goes
+  down before anything searched, so the two together are refused.
 - Priority is worked out for you: the tool weighs each searched item by
   the board it needs, its connections and its part count, prints the
   priority and the reason on every step, and stops the run when a HIGH

@@ -78,7 +78,10 @@ does not matter are `OnEdge(edge)`, never `along=`. Unless the script says,
 a searched item's priority is worked out: how much of the largest item's
 area it needs, its connections to other declared items, its part count;
 HIGH also needs a real share of the board. Every step prints `priority
-high (auto: ...)` or `(script; would be ...)`.
+high (auto: ...)` or `(script; would be ...)`. A place that leaves no
+freedom needs no priority and refuses one: `at=Location(...)` or `along=`
+goes down before anything searched already, so `priority=` on it has
+nothing to order.
 
 **The default is a bare `place()`.** A part with a wired neighbour already
 on the board needs no position: price the connection and leave it to seed.

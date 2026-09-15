@@ -692,10 +692,17 @@ class Board:
             raise TypeError("%s: at= takes a Location, a Centre, a Pin, an OnEdge, an OnRim, an OnBore, a Polar, a Near "
                             "or a point of references, not %r" % (key, at))
         source = "auto" if priority is None else "script"
+        # Whether the declaration decides the position is a different question
+        # from how important the item is. A decided position goes down before
+        # anything searched and nothing may push it; a priority orders the
+        # items that are still being searched a spot. FIXED and EDGE answer the
+        # first question, so they hold exactly when the position is decided.
+        decided = (at is not None or center is not None
+                   or ((edge is not None or run is not None) and along is not None)
+                   or (rim is not None and angle is not None))
         if priority is None:
-            priority = Priority.FIXED if (at is not None or center is not None) else \
-                Priority.EDGE if ((edge is not None and along is not None) or (rim is not None and angle is not None)
-                                  or (run is not None and along is not None)) else Priority.DEFAULT
+            priority = Priority.DEFAULT if not decided else \
+                Priority.FIXED if (at is not None or center is not None) else Priority.EDGE
         if edge is not None and along is None and priority in (Priority.FIXED, Priority.EDGE):
             raise ValueError("%s: an edge item with no distance along it is free to slide; it cannot be %s" % (key, priority.value))
         if run is not None and along is None and priority in (Priority.FIXED, Priority.EDGE):
@@ -703,6 +710,13 @@ class Board:
                              % (key, priority.value))
         if rim is not None and angle is None and priority in (Priority.FIXED, Priority.EDGE):
             raise ValueError("%s: a %s item with no bearing is free to slide round; it cannot be %s" % (key, rim, priority.value))
+        if priority in (Priority.FIXED, Priority.EDGE) and not decided:
+            raise ValueError("%s: %s is what an item with a decided position is; this one is searched, so give it "
+                             "a place to hold or leave the priority off" % (key, priority.value))
+        if decided and priority not in (Priority.FIXED, Priority.EDGE):
+            raise ValueError("%s: the declaration decided this position, so the item goes down before anything "
+                             "searched and priority=%s has nothing to order; drop the priority, or drop the "
+                             "position to have it searched" % (key, priority.value))
         faces_note = ""
         if rotation is None:
             if run is not None and along is not None:

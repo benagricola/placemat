@@ -2,6 +2,8 @@
 EDGE, then every searched item in one queue - a cell, a block and a loose
 part together - by what each needs, the room it takes and the links pulling
 it. Every choice carries the sentence that made it."""
+import pytest
+
 from placemat.layout import Board
 from placemat.values import OnEdge, Cell, Edge, LinkWeight, Location, Part, PadRef
 from tests.fixtures import board_geometry, footprint
@@ -112,3 +114,42 @@ def test_order_follows_what_an_item_needs_not_what_kind_it_is():
     assert plan.step("small").priority is Priority.DEFAULT
     order = [s.item for s in plan.steps if s.item in ("j_big", "small")]
     assert order == ["j_big", "small"]
+
+
+def test_a_decided_position_leaves_priority_nothing_to_order():
+    """Priority says when a searched item goes down. An item whose position
+    the script already decided is not searched at all, so a scheduling
+    priority on it cannot mean anything, and saying one is a mistake worth
+    a message: silently dropping either half would place the part somewhere
+    the script never asked for."""
+    from placemat.values import Along, Centre, OnEdge, Priority
+    for at in (OnEdge(Edge.NORTH, along=Along.MID), Location(20, 20), Centre(20, 20)):
+        b = make_board()
+        with pytest.raises(ValueError, match="decided"):
+            b.place(Part("j1"), at=at, priority=Priority.HIGH)
+
+
+def test_fixed_and_edge_need_a_position_to_hold():
+    """The other way round: nothing to hold is nothing to fix."""
+    from placemat.values import Priority
+    b = make_board()
+    with pytest.raises(ValueError, match="searched"):
+        b.place(Part("j1"), priority=Priority.FIXED)
+    with pytest.raises(ValueError, match="searched"):
+        b.place(Cell("small"), priority=Priority.EDGE)
+
+
+def test_an_item_free_to_slide_along_an_edge_still_takes_a_priority():
+    """One degree of freedom is still searched, so priority orders it: the
+    connector goes down before the cells that would otherwise crowd it."""
+    from placemat.values import Priority
+    b = make_board()
+    b.place(Cell("big"))
+    b.place(Cell("strip"))
+    b.place(Part("j1"), at=OnEdge(Edge.NORTH), priority=Priority.HIGH)
+    plan = b.resolve()
+    assert plan.findings == []
+    assert plan.step("j1").priority is Priority.HIGH
+    assert "along the north edge" in plan.step("j1").note
+    order = order_of(plan)
+    assert order.index("j1") < order.index("big") < order.index("strip")
