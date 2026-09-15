@@ -19,7 +19,7 @@ from .occupancy import Occupancy, Shape, TOUCH
 from .placement import Placement
 from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, scan, scan_block
 from .board_geometry import CellGeom, Footprint, BoardGeometry
-from .values import (Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -190,6 +190,7 @@ class PlaceIntent:
     angle: float | None = None         # its bearing, when the script gave one; None slides round
     radius_at: object = None           # a Polar radius: the ring the item sits on
     outward: bool = False              # turn it to face out wherever it lands
+    about: object = None               # the centre a radius and bearing are measured from
 
     @property
     def rank(self):
@@ -539,7 +540,7 @@ class Board:
         geom, key, kind = self._item(item)
         if any(i.key == key for i in self._intents):
             raise ValueError("%s is already placed; one declaration per item" % key)
-        center = edge = along = near = None
+        center = edge = along = near = about = None
         rim = angle = radius_at = None
         outward = False
         overhang = 0.0
@@ -568,9 +569,9 @@ class Board:
             outward = rotation is None          # it faces out at whatever bearing it ends up on
             at = None
         elif isinstance(at, Polar):
-            disc = self._disc()
+            about = self.centre if at.about is None else _as_point(at.about)
             if at.radius is not None and at.angle is not None:
-                center, at = disc.point(at.angle, at.radius), None
+                center, at = polar_point(about, at.angle, at.radius), None
             else:
                 radius_at, angle = at.radius, (None if at.angle is None else bearing(at.angle))
                 at = None
@@ -621,7 +622,7 @@ class Board:
         standoff = _standoff if _standoff is not None else (-float(overhang) if overhang else self.keep_in)
         intent = PlaceIntent(key, geom, kind, priority, float(rotation), face, at, center, edge, along,
                              standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs),
-                             pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward)
+                             pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward, about)
         self._intents.append(intent)
         return intent
 
@@ -699,17 +700,18 @@ class Board:
         return row
 
     def ring(self, items, *, radius=None, start=Edge.NORTH, gap: float = 0.0, spread: bool = False,
-             rotation=None, why: str = "") -> "Ring":
-        """Items round a round board's centre, in order clockwise from the
-        bearing `start`, each turned to face outward: their body centres
-        `radius` from the centre, or with no radius their reach at the rim's
-        keep-in. Spaced by what they claim across the arc, `gap` mm of arc
+             rotation=None, about=None, why: str = "") -> "Ring":
+        """Items round a centre - the board's, or `about` another point - in
+        order clockwise from the bearing `start`, each turned to face
+        outward: their body centres `radius` from that centre, or with no
+        radius (a round board only) their reach at the rim's keep-in. Spaced by what they claim across the arc, `gap` mm of arc
         between claims - two claims can only meet at a point round a
         circle, so a gap of nothing leaves their inner corners the rounding
         two courtyards may touch by; `spread=True` shares the whole turn evenly instead
         (four mounting holes at 90 degrees). `rotation=` (one value or one
         per item) overrides the outward turn. Returns the Ring."""
-        disc = self._disc()
+        centre = self.centre if about is None else _as_point(about)
+        disc = self._disc() if radius is None else None      # only a ring at the rim needs a rim
         b0 = bearing(start)
         given = None
         if rotation is not None:
@@ -741,7 +743,7 @@ class Board:
             rots.append(given[k] if given is not None else self.outward_rotation(item, angle)[0])
             depths.append(thick)
         for item, a, r in zip(items, angles, rots):
-            self.place(item, at=(OnRim(a) if radius is None else Polar(radius, a)), rotation=r, why=why)
+            self.place(item, at=(OnRim(a) if radius is None else Polar(radius, a, about=centre)), rotation=r, why=why)
         return Ring(float(radius) if radius is not None else None, angles,
                     max(depths) if depths else 0.0, list(items), [self._item(it)[1] for it in items])
 
@@ -1415,7 +1417,8 @@ class Board:
         """Where a free item on a rim or a ring would like to be: everything
         sharing that circle divides the turn evenly, the k-th of n at k/n of
         it from the top, so one alone sits at the top."""
-        fellows = [x for x in self._intents if x.angle is None and (x.rim, x.radius_at) == (i.rim, i.radius_at)
+        fellows = [x for x in self._intents if x.angle is None
+                   and (x.rim, x.radius_at, x.about) == (i.rim, i.radius_at, i.about)
                    and x.priority not in (Priority.FIXED, Priority.EDGE)]
         k, n = fellows.index(i), max(len(fellows), 1)
         return 360.0 * k / n
@@ -1437,24 +1440,28 @@ class Board:
 
     def _settle_round_ring(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
         """One degree of freedom: the item slides round the ring it was given."""
-        disc = self._disc()
+        centre = i.about or self.centre
         ideal = self._round_slot(i)
         r = max(float(i.radius_at), 1e-6)
 
         def at(angle):
-            return box_centered_placement(occ, i.item, disc.point(angle, r), i.rotation, i.face)
+            return box_centered_placement(occ, i.item, polar_point(centre, angle, r), i.rotation, i.face)
         return self._slide(occ, i, plan, clr, ideal, ideal - 180.0, ideal + 180.0, at,
                            "round the %.2f mm ring" % r, step=math.degrees(max(i.step, 0.2) / r), units="deg")
 
     def _settle_along_spoke(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
-        """One degree of freedom: the item slides out along its bearing,
-        between the bore's keep-in and the rim's."""
-        disc = self._disc()
-        lo, hi = disc.bore + self.keep_in, disc.radius - self.keep_in
+        """One degree of freedom: the item slides out along its bearing, from
+        the bore's keep-in (or the centre) to as far as the board reaches."""
+        centre = i.about or self.centre
+        if self._shape is not None and centre == self._shape.centre:
+            lo, hi = self._shape.bore + self.keep_in, self._shape.radius - self.keep_in
+        else:
+            box = occ.board_box
+            lo, hi = 0.0, max(box.width, box.height)     # the board's own keep-in prunes what is too far
         ideal = (lo + hi) / 2.0
 
         def at(r):
-            return box_centered_placement(occ, i.item, disc.point(i.angle, r), i.rotation, i.face)
+            return box_centered_placement(occ, i.item, polar_point(centre, i.angle, r), i.rotation, i.face)
         return self._slide(occ, i, plan, clr, ideal, lo, hi, at, "out along the %.0f degree spoke" % i.angle)
 
     def _no_pocket_note(self, occ: Occupancy, i: PlaceIntent) -> str:
@@ -1693,6 +1700,15 @@ def _label_op(text, box: Box, face: Face, side: Edge, gap: float, align: str, si
     if side is Edge.NORTH:
         vj, x = across[align]; return T(text, Location(x, off.top - gap), face, size, thick, 90.0, "left", vj, knockout, mirrored)
     vj, x = across[align]; return T(text, Location(x, off.bottom + gap), face, size, thick, 90.0, "right", vj, knockout, mirrored)
+
+
+def _as_point(value) -> Location:
+    """A centre a script gave: a Location, or an (x, y) pair."""
+    if isinstance(value, Location):
+        return value
+    if isinstance(value, tuple) and len(value) == 2 and all(isinstance(v, (int, float)) for v in value):
+        return Location(float(value[0]), float(value[1]))
+    raise TypeError("a centre is a Location or an (x, y) pair, not %r" % (value,))
 
 
 def _locate(board: "Board", occ: Occupancy, ref) -> Location:

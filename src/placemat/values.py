@@ -397,6 +397,12 @@ def box_support(box: Box, deg: float) -> float:
     return abs(box.width * ux) + abs(box.height * uy)
 
 
+def polar_point(centre: Location, angle, radius: float) -> Location:
+    """The point `radius` from `centre` on that bearing."""
+    ux, uy = bearing_vector(bearing(angle))
+    return Location(round(centre.x + ux * radius, 6), round(centre.y + uy * radius, 6))
+
+
 @dataclass(frozen=True)
 class Disc:
     """A round board: its centre, its diameter, and the diameter of a
@@ -432,8 +438,7 @@ class Disc:
 
     def point(self, angle, radius: float) -> Location:
         """The point `radius` from the centre on that bearing."""
-        ux, uy = bearing_vector(bearing(angle))
-        return Location(round(self.centre.x + ux * radius, 6), round(self.centre.y + uy * radius, 6))
+        return polar_point(self.centre, angle, radius)
 
     def why_not(self, box: Box, margin: float) -> str | None:
         """None when `box` sits inside the board with `margin` to spare
@@ -461,13 +466,16 @@ class Disc:
 
 @dataclass(frozen=True)
 class Polar:
-    """A place on a round board: the item's body centre `radius` from the
-    board's centre on the bearing `angle`. Either may be None to leave that
-    freedom: Polar(16.0) slides round that ring, Polar(None, 90.0) slides
-    out along that spoke. A polar place is a coordinate, so it does not turn
-    the item; OnRim and ring() do."""
+    """A place said as a radius and a bearing: the item's body centre
+    `radius` from `about` (the board's centre unless another point is given)
+    on the bearing `angle`. Any board can take one - it measures from a
+    centre, not from an outline. Either may be None to leave that freedom:
+    Polar(16.0) slides round that ring, Polar(None, 90.0) slides out along
+    that spoke. A polar place is a coordinate, so it does not turn the item;
+    OnRim and ring() do."""
     radius: object
     angle: object = None
+    about: object = None
 
     def __post_init__(self):
         if self.radius is None and self.angle is None:

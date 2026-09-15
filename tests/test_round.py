@@ -205,7 +205,7 @@ def test_a_disc_has_no_edges_and_a_rectangle_has_no_rim():
     with pytest.raises(ValueError, match="disc"):
         flat.place(Part("d1"), at=OnRim(Edge.NORTH))
     with pytest.raises(ValueError, match="disc"):
-        flat.ring([Part("d1")], radius=10.0)
+        flat.ring([Part("d1")], radius=None)        # a ring AT THE RIM needs a rim; one at a radius does not
 
 
 def test_the_plane_of_a_round_board_is_a_disc_inset_from_the_rim():
@@ -217,3 +217,44 @@ def test_the_plane_of_a_round_board_is_a_disc_inset_from_the_rim():
     radii = {round(math.hypot(x - 20.0, y - 20.0), 6) for x, y in zone.points}
     assert radii == {19.6}
     assert len(zone.points) >= 32                                  # a circle drawn as a polygon
+
+
+def test_a_round_board_still_takes_plain_coordinates():
+    """A disc changes what an EDGE means, nothing else: an origin, a body
+    centre said in references, and a pinned axis all work as they do on a
+    rectangle, so one board can mix the two."""
+    from placemat.values import Centre, X, Y
+    b = make_board("j1", "r1", "u1")
+    b.disc(diameter=40.0)
+    b.place(Part("j1"), at=Location(18.0, 6.0))                     # an origin, exactly as on any board
+    b.place(Part("r1"), at=Centre(X(b.centre), Y(b.centre, 6.0)))   # 6 mm south of the board's centre
+    b.place(Part("u1"), at=Centre(X(b.centre, -8.0), None))         # pinned in x, free to slide in y
+    plan = b.resolve()
+    assert plan.findings == []
+    assert plan.placement("j1").location == Location(18.0, 6.0)
+    assert plan.box("r1").center == Location(20.0, 26.0)
+    assert plan.box("u1").center.x == pytest.approx(12.0)
+    assert 0.5 < plan.box("u1").center.y < 39.5
+
+
+def test_polar_measures_from_a_centre_so_it_works_on_any_board():
+    b = make_board("d1", "d2")
+    b.size(40.0, 40.0)
+    b.place(Part("d1"), at=Polar(10.0, Edge.EAST))                  # about the board's centre
+    b.place(Part("d2"), at=Polar(5.0, Edge.NORTH, about=Location(10.0, 30.0)))
+    plan = b.resolve()
+    assert plan.box("d1").center == Location(30.0, 20.0)
+    assert plan.box("d2").center == Location(10.0, 25.0)
+    assert plan.findings == []
+
+
+def test_a_ring_may_sit_about_a_point_on_a_square_board():
+    b = make_board("d1", "d2", "d3", "d4")
+    b.size(40.0, 40.0)
+    ring = b.ring([Part("d1"), Part("d2"), Part("d3"), Part("d4")], radius=8.0,
+                  about=Location(12.0, 12.0), spread=True)
+    plan = b.resolve()
+    assert ring.angles == pytest.approx([0.0, 90.0, 180.0, 270.0])
+    assert plan.box("d1").center == Location(12.0, 4.0)
+    assert plan.box("d2").center == Location(20.0, 12.0)
+    assert plan.findings == []
