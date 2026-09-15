@@ -142,3 +142,40 @@ def test_a_location_may_be_said_in_references_too():
     plan = b.resolve()
     ja = plan.occupancy.pad_location("J1", "1")
     assert plan.placement("r1").location == Location(ja.x, ja.y + 6.0)    # the origin lands on the referenced point
+
+
+def four_pad_part():
+    """A part with two pads on one net, as a module with several supply pins
+    has: pads 1 and 3 are V3V3, pads 2 and 4 are GND."""
+    from placemat.board_geometry import Box, Footprint
+    from placemat.values import Face
+    from tests.fixtures import pad
+    body = Box(20.0, 20.0, 28.0, 26.0)
+    pads = (pad("U9", "u9", 1, "V3V3", 21.0, 21.0), pad("U9", "u9", 2, "GND", 27.0, 21.0),
+            pad("U9", "u9", 3, "V3V3", 21.0, 25.0), pad("U9", "u9", 4, "GND", 27.0, 25.0))
+    return Footprint("U9", "u9", None, "U9", Location(24.0, 23.0), 0.0, Face.FRONT,
+                     body, body.inflate(0.1), body, pads)
+
+
+def test_a_net_names_the_same_pad_wherever_it_is_used():
+    """A net key on a part carrying several pads of that net picks the first,
+    and every path picks the SAME one: the pad a script measures an offset
+    off is the pad a Pin puts on the point, or the offset is measured off one
+    pad and applied through another."""
+    from placemat.values import Pin
+    fps = [four_pad_part(), footprint("C9", 5, 5, w=2, h=1.2, inst="c9", nets=("V3V3", "GND"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    first = b.part("u9").pad("V3V3")
+    assert first.number == "1"                                        # the first of the two, in pad order
+    assert b._pad_ref(PadRef(Part("u9"), "V3V3"))[1] == first.number   # a reference resolves to it too
+    b.place(Part("u9"), at=Pin("V3V3", 30.0, 40.0), rotation=0)
+    plan = b.resolve()
+    assert plan.occupancy.pad_location("U9", "1") == Location(30.0, 40.0)   # that pad, exactly on the point
+    assert "V3V3 is 2 pads on U9" in plan.step("u9").note                   # and it says which it took
+
+
+def test_a_net_that_names_one_pad_says_nothing_extra():
+    from placemat.values import Pin
+    b = make_board()
+    b.place(Part("j1"), at=Pin("A", 20.0, 20.0), rotation=0)
+    assert b.resolve().step("j1").note == ""

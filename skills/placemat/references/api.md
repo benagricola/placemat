@@ -393,6 +393,10 @@ uses it, in these terms.
 
 Points: `Location`, `PadRef(Part, int|net)`, `CellPadRef(Cell, net=|number=, ref_prefix=)`,
 or `(x, y)` where either may be `X(ref, dx)` / `Y(ref, dy)`. `.offset(dx, dy)` on a ref.
+A pad is named by its number (an int) or by the net on it (a str). A net that
+several of the part's pads carry names the first of them in pad order, the
+same pad in a `PadRef`, a `Pin`, a link and `board.part(x).pad(net)`; a
+placement on it says which pad that was. Name the number to pick another.
 
 ```python
 board.track(net, [p1, p2, ...], layer=CopperLayer.F, width=None, priority=Priority.DEFAULT, bridge=False)

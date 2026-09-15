@@ -286,7 +286,10 @@ class Cell:
 
 def pad_key(key):
     """A pad is addressed by its NUMBER (an int) or by the NET on it (a str).
-    A numeric string is neither, and is rejected rather than guessed."""
+    A numeric string is neither, and is rejected rather than guessed. A net
+    that several of the part's pads carry names the FIRST of them in pad
+    order, the same one everywhere it is used, so an offset measured off a
+    pad is applied through that pad; name the number to pick another."""
     if isinstance(key, bool):
         raise TypeError("pad key must be an int pad number or a net name, not %r" % (key,))
     if isinstance(key, int):

@@ -21,7 +21,7 @@ from .placement import Placement
 from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import CellGeom, Footprint, BoardGeometry
 from .values import (Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
-                     Priority, X, Y)
+                     Priority, X, Y, pad_key)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
 
@@ -1776,11 +1776,21 @@ class Board:
         if i.kind == "block":
             return self._settle_block(occ, i, plan, placed)
         clr = self.clearance
+        chose = ""
         if i.priority in (Priority.FIXED, Priority.EDGE):
             if i.at is not None:
                 p = Placement(_locate(self, occ, i.at), i.rotation, i.face)
             elif i.center is not None and i.pin is not None:
                 p = pad_anchored_placement(occ, i.item, i.pin, _locate(self, occ, i.center), i.rotation, i.face)
+                # A net names one pad here, the first of however many carry it.
+                # Say which, because an offset the script measured has to come
+                # off the same pad, and from outside nothing shows which it was.
+                kind, value = pad_key(i.pin)
+                if kind == "net":
+                    same = i.item.pads_on(value)
+                    if len(same) > 1:
+                        chose = "%s is %d pads on %s: pad %s is the one on the point" % (
+                            value, len(same), i.item.ref, i.item.pad(i.pin).number)
             elif i.center is not None:
                 p = box_centered_placement(occ, i.item, _locate(self, occ, i.center), i.rotation, i.face)
             elif i.run is not None:
@@ -1806,7 +1816,7 @@ class Board:
                             and i.clearance < self.keep_in)
             if why:
                 plan.findings.append("%s (%s): %s" % (i.key, i.priority.value, why))
-            return Step(i.key, i.kind, i.priority, p, 0.0, why or "", i.why)
+            return Step(i.key, i.kind, i.priority, p, 0.0, "; ".join(x for x in (chose, why) if x), i.why)
         if i.run is not None:
             return self._settle_along_run(occ, i, plan, clr)
         if i.rim is not None:
