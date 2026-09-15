@@ -108,7 +108,11 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         if legal:
             legal.sort(key=lambda k: k[:3])
             for _, _, _, cand in legal[:REFINE_AROUND]:
-                legal += sweep(((x, y) for _, x, y in _grid(cand.location, coarse, step)), False)
+                # The fine grid is centred on a coarse candidate, which can sit at
+                # the edge of the radius: keep only what is still inside it, so
+                # "within radius of the hint" is what a script gets.
+                legal += sweep(((x, y) for _, x, y in _grid(cand.location, coarse, step)
+                                if math.hypot(x - hint.location.x, y - hint.location.y) <= radius + 1e-9), False)
     if not legal:
         return ScanResult(None, hint, tried, rejected, reasons)
     best = min(legal, key=lambda k: k[:3])

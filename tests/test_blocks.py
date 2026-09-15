@@ -137,13 +137,11 @@ def test_a_hint_may_be_said_in_pads_too():
     b.place(Part("j1"), at=Location(30, 40))          # declared AFTER the hint that names it
     plan = b.resolve()
     pad = plan.occupancy.pad_location("J1", "1")
-    # a hint's radius is the half-width of the square it searches, so the
-    # corner of that square is radius * sqrt(2) from the hint
-    assert plan.box("cin").center.distance(Location(pad.x, pad.y + 6.0)) <= 3.0 * 2 ** 0.5
+    assert plan.box("cin").center.distance(Location(pad.x, pad.y + 6.0)) <= 3.0 + 1e-9
     b2 = make_board()
     blk = b2.block(Part("ldo"), satellites=[(Part("cin"), "VIN")], gap=0.5)
     b2.place(Part("j1"), at=Location(30, 40))
     b2.place(blk, at=Near(Location(X(PadRef(Part("j1"), "GND")), Y(PadRef(Part("j1"), "GND"), 10.0)), radius=4.0))
     plan2 = b2.resolve()
     gnd = plan2.occupancy.pad_location("J1", "2")
-    assert plan2.box("ldo").center.distance(Location(gnd.x, gnd.y + 10.0)) <= 4.0 * 2 ** 0.5
+    assert plan2.box("ldo").center.distance(Location(gnd.x, gnd.y + 10.0)) <= 4.0 + 1e-9
