@@ -96,3 +96,54 @@ def test_a_blocks_gap_defaults_to_the_courtyards_touching():
     cin, ldo = plan.box("cin"), plan.box("ldo")
     touch = min(abs(cin.right - ldo.left), abs(cin.left - ldo.right))
     assert touch == pytest.approx(2 * 0.1, abs=0.06)              # bodies two excesses apart: the courtyards meet
+
+
+def test_a_firm_block_may_be_placed_by_references_like_a_part():
+    """A block placed at a Centre or a Location said in pads: the point is
+    resolved when the block goes down, as it is for a part."""
+    from placemat.values import Centre, X, Y
+    b = make_board()
+    b.place(Part("j1"), at=Location(30, 40))
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN"), (Part("cout"), "VOUT")], gap=0.5)
+    b.place(blk, at=Centre(X(PadRef(Part("j1"), "VIN")), Y(PadRef(Part("j1"), "VIN"), 8.0)))
+    plan = b.resolve()
+    pad = plan.occupancy.pad_location("J1", "1")
+    assert plan.box("ldo").center.x == pytest.approx(pad.x)          # the anchor's body centre, on the pad's axis
+    assert plan.box("ldo").center.y == pytest.approx(pad.y + 8.0)
+    assert plan.findings == []
+    cin_vin = plan.occupancy.pad_location("C1", "1")                 # the satellites came with it
+    assert cin_vin.x < plan.occupancy.pad_location("U1", "1").x
+    assert cin_vin.y == pytest.approx(plan.occupancy.pad_location("U1", "1").y)
+
+
+def test_a_firm_block_may_be_placed_at_a_location_of_references():
+    from placemat.values import X, Y
+    b = make_board()
+    b.place(Part("j1"), at=Location(10, 40))
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")], gap=0.5)
+    b.place(blk, at=Location(X(PadRef(Part("j1"), "GND"), 2.0), Y(PadRef(Part("j1"), "GND"), 9.0)))
+    plan = b.resolve()
+    pad = plan.occupancy.pad_location("J1", "2")
+    assert plan.placement("ldo").location == Location(pytest.approx(pad.x + 2.0), pytest.approx(pad.y + 9.0))
+
+
+def test_a_hint_may_be_said_in_pads_too():
+    """Near(Location(X(pad), Y(pad, dy))) hints at a pad, for a part and for
+    a block: the hint is resolved when the item goes down, and the item
+    waits for the pad it names."""
+    from placemat.values import Near, X, Y
+    b = make_board()
+    b.place(Part("cin"), at=Near(Location(X(PadRef(Part("j1"), "VIN")), Y(PadRef(Part("j1"), "VIN"), 6.0))), radius=3.0)
+    b.place(Part("j1"), at=Location(30, 40))          # declared AFTER the hint that names it
+    plan = b.resolve()
+    pad = plan.occupancy.pad_location("J1", "1")
+    # a hint's radius is the half-width of the square it searches, so the
+    # corner of that square is radius * sqrt(2) from the hint
+    assert plan.box("cin").center.distance(Location(pad.x, pad.y + 6.0)) <= 3.0 * 2 ** 0.5
+    b2 = make_board()
+    blk = b2.block(Part("ldo"), satellites=[(Part("cin"), "VIN")], gap=0.5)
+    b2.place(Part("j1"), at=Location(30, 40))
+    b2.place(blk, at=Near(Location(X(PadRef(Part("j1"), "GND")), Y(PadRef(Part("j1"), "GND"), 10.0)), radius=4.0))
+    plan2 = b2.resolve()
+    gnd = plan2.occupancy.pad_location("J1", "2")
+    assert plan2.box("ldo").center.distance(Location(gnd.x, gnd.y + 10.0)) <= 4.0 * 2 ** 0.5

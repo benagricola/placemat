@@ -715,7 +715,7 @@ class Board:
                 rotation, faces_note = 0.0, ""
         if kind == "cell" and at is not None and center is None:
             center, at = at, None
-        needs = {self._pad_ref(ref)[0] for ref in _refs_in([at, center, along, pin_x, pin_y])}   # a real pad, placed before this
+        needs = {self._pad_ref(ref)[0] for ref in _refs_in([at, center, along, pin_x, pin_y, near])}   # a real pad, placed before this
         if isinstance(along, _RowSlot):
             needs |= along.row.needs
         standoff = _standoff if _standoff is not None else (-float(overhang) if overhang else self.keep_in)
@@ -1705,8 +1705,10 @@ class Board:
         spec = i.item
         clr = self.clearance
         if i.at is not None or i.center is not None:
-            anchor = Placement(i.at, i.rotation, i.face) if i.at is not None else \
-                box_centered_placement(occ, spec.anchor, i.center, i.rotation, i.face)
+            # Said in pads or in numbers, the point is resolved here, the same way
+            # a part's is: a block declared against a reference waits for it.
+            anchor = Placement(_locate(self, occ, i.at), i.rotation, i.face) if i.at is not None else \
+                box_centered_placement(occ, spec.anchor, _locate(self, occ, i.center), i.rotation, i.face)
             members, why = layout_block(occ, spec, anchor, clr)
             if members is None:
                 plan.findings.append("%s (fixed): %s" % (i.key, why))
@@ -1716,7 +1718,7 @@ class Board:
             targets = self._targets(spec.anchor, occ, placed)
             current = occ._geometry(spec.anchor).reference
             if i.near is not None:
-                hint = Placement(i.near, i.rotation, i.face)
+                hint = Placement(_locate(self, occ, i.near), i.rotation, i.face)
             elif targets:
                 hint = self._seed_hint(spec.anchor, occ, targets, i.rotation, i.face)
             elif self._outline is not None:  # nothing placed pulls it: search from the board, not from where the generator dropped it
@@ -1804,7 +1806,7 @@ class Board:
         targets = self._targets(i.item, occ, placed)
         seeded = ""
         if i.near is not None:
-            hint = Placement(i.near, i.rotation, i.face)
+            hint = Placement(_locate(self, occ, i.near), i.rotation, i.face)
         elif targets:
             hint = self._seed_hint(i.item, occ, targets, i.rotation, i.face)
             # k[1] here is always a raw pad NUMBER string from _targets() (never
