@@ -78,8 +78,18 @@ def transform_polygon(poly: Polygon, t: Transform, clean: bool = True) -> Polygo
 
 
 def transform_box(box: Box, t: Transform) -> Box:
-    corners = ((box.left, box.top), (box.right, box.top), (box.right, box.bottom), (box.left, box.bottom))
-    return Box.of_points(transform_polygon(corners, t))
+    """The box round a transformed box. Rounding the four sides is the same
+    as rounding the corners and taking the extremes of those, so this asks
+    for the extremes first: a candidate placement wants this box and not the
+    corners it came from, and a search asks for it a hundred thousand times.
+    """
+    a, b, c, d, tx, ty = t.a, t.b, t.c, t.d, t.tx, t.ty
+    x0, y0, x1, y1 = box.left, box.top, box.right, box.bottom
+    ax0, ax1, by0, by1 = a * x0, a * x1, b * y0, b * y1
+    cx0, cx1, dy0, dy1 = c * x0, c * x1, d * y0, d * y1
+    xs = (ax0 + by0 + tx, ax1 + by0 + tx, ax1 + by1 + tx, ax0 + by1 + tx)
+    ys = (cx0 + dy0 + ty, cx1 + dy0 + ty, cx1 + dy1 + ty, cx0 + dy1 + ty)
+    return Box(_clean(min(xs)), _clean(min(ys)), _clean(max(xs)), _clean(max(ys)))
 
 
 def box_polygon(box: Box) -> Polygon:

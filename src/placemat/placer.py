@@ -105,6 +105,11 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         legal = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse)), False)
         if not legal:
             legal = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse / 2)), False)
+        if not legal:
+            # Nothing on either coarse lattice. The coarse pass is there to
+            # save time, not to decide: the fine grid still gets its walk, so
+            # a spot narrower than a coarse step is not reported as no room.
+            legal = sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), False)
         if legal:
             legal.sort(key=lambda k: k[:3])
             for _, _, _, cand in legal[:REFINE_AROUND]:
@@ -445,28 +450,57 @@ def _half_extent(box: Box, ux: float, uy: float) -> float:
 def scan_block(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float, step: float,
                rotations=None, clearance=None, score=None):
     """The block's anchor placement (and its members') nearest the hint, or
-    with the lowest score, where every member is legal."""
+    with the lowest score, where every member is legal. A scored scan over a
+    wide radius is coarse first, then fine around its best spots, as a single
+    part's is: laying the whole block out is the most expensive question the
+    placer asks, and a block that fits anywhere fits over a patch wider than
+    one step."""
     rots = tuple(sorted({(r % 360) for r in (rotations or (hint.rotation,))}))
     rejected: Counter = Counter()
     reasons: dict = {}
-    best = None
     tried = 0
-    for d, x, y in _grid(hint.location, radius, step):
-        for rot in rots:
-            cand = Placement(Location(x, y), rot, hint.face)
-            tried += 1
-            members, why = layout_block(occ, spec, cand, clearance)
-            if members is None:
-                key = _reason_key(why)
-                rejected[key] += 1
-                reasons.setdefault(key, why)
-                continue
-            sc = score(members) if score else 0.0
-            k = (sc, d, rot)
-            if best is None or k < best[0]:
-                best = (k, cand, members)
-            if score is None:
-                break
-        if best is not None and score is None:
-            break
+    hx, hy = hint.location.x, hint.location.y
+    seen: set = set()
+
+    def sweep(points, stop_at_first: bool) -> list:
+        """Lay the block out at every (x, y) in `points` at every rotation;
+        the ones that fit as (key, anchor placement, members)."""
+        nonlocal tried
+        fits = []
+        for x, y in points:
+            for rot in rots:
+                if (x, y, rot) in seen:
+                    continue
+                seen.add((x, y, rot))
+                cand = Placement(Location(x, y), rot, hint.face)
+                tried += 1
+                members, why = layout_block(occ, spec, cand, clearance)
+                if members is None:
+                    key = _reason_key(why)
+                    rejected[key] += 1
+                    reasons.setdefault(key, why)
+                    continue
+                d = math.hypot(x - hx, y - hy)
+                fits.append(((score(members) if score else 0.0, d, rot), cand, members))
+                if stop_at_first:
+                    return fits
+        return fits
+
+    if score is None or radius / step < COARSE_FROM:
+        fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), score is None)
+    else:
+        coarse = step * COARSE_STEPS
+        fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse)), False)
+        if not fits:
+            fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse / 2)), False)
+        if not fits:
+            fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), False)
+        if fits:
+            fits.sort(key=lambda f: f[0])
+            for _, cand, _ in fits[:REFINE_AROUND]:
+                # The fine grid is centred on a coarse candidate, which can sit
+                # at the edge of the radius: keep only what is still inside it.
+                fits += sweep(((x, y) for _, x, y in _grid(cand.location, coarse, step)
+                               if math.hypot(x - hx, y - hy) <= radius + 1e-9), False)
+    best = min(fits, key=lambda f: f[0]) if fits else None
     return best, tried, rejected, reasons

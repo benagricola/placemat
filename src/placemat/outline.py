@@ -275,22 +275,33 @@ class Outline:
             return self.centre
         return Location(round(sx / (3.0 * sa), 6), round(sy / (3.0 * sa), 6))
 
+    def _index(self) -> "_Where":
+        """The outline's segments, bucketed by where they lie. A search asks
+        the keep-in question tens of thousands of times against a shape that
+        never changes, so the buckets are built once and every question after
+        that looks at the few segments near the box."""
+        got = getattr(self, "_where", None)
+        if got is None:
+            got = _Where(self.loops)
+            object.__setattr__(self, "_where", got)
+        return got
+
     def why_not(self, box: Box, margin: float) -> str | None:
         """None when `box` sits inside the board with `margin` to spare
         everywhere, else what it crosses."""
-        if not _inside(self.loops[0], box.center):
+        ix = self._index()
+        odd = ix.loops_around((box.left + box.right) / 2.0, (box.top + box.bottom) / 2.0)
+        if 0 not in odd:
             return "outside the board"
-        for hole in self.loops[1:]:
-            if _inside(hole, box.center):
-                return "inside a cutout"
-        wide = box.inflate(margin)
-        for n, loop in enumerate(self.loops):
-            for (x1, y1), (x2, y2) in zip(loop, loop[1:] + loop[:1]):
-                if max(x1, x2) < wide.left or min(x1, x2) > wide.right or \
-                   max(y1, y2) < wide.top or min(y1, y2) > wide.bottom:
-                    continue                    # too far to matter
-                if _segment_box(x1, y1, x2, y2, box) < margin - _NM:
-                    return "past the %s keep-in (%.2f mm)" % ("board's" if n == 0 else "cutout's", margin)
+        if odd - {0}:
+            return "inside a cutout"
+        left, top = box.left - margin, box.top - margin
+        right, bottom = box.right + margin, box.bottom + margin
+        for x1, y1, x2, y2, n, lo_x, lo_y, hi_x, hi_y in ix.near(left, top, right, bottom):
+            if hi_x < left or lo_x > right or hi_y < top or lo_y > bottom:
+                continue                    # too far to matter
+            if _segment_box(x1, y1, x2, y2, box) < margin - _NM:
+                return "past the %s keep-in (%.2f mm)" % ("board's" if n == 0 else "cutout's", margin)
         return None
 
     def polygon(self, inset: float = 0.0) -> tuple:
@@ -349,6 +360,91 @@ class Outline:
         if current:
             runs.append(_run_of(current, sign))
         return runs
+
+
+CELLS = 16          # buckets across the board's longer side: a handful of segments each
+
+
+class _Where:
+    """Where an outline's segments are, so a box can find the ones near it.
+
+    The segments of every loop, each with its own bounding box, bucketed
+    into a grid of square cells; a segment sits in every cell its box
+    touches, as its position in the declared order. Two questions are
+    answered off it. `near` is the segments a box could be close to.
+    `loops_around` is which loops enclose a point, counting crossings along
+    the ray east from it, which only visits the cells in that point's row."""
+    __slots__ = ("segs", "cells", "side", "x0", "y0", "y1", "nx", "ny")
+
+    def __init__(self, loops):
+        segs = []
+        for n, loop in enumerate(loops):
+            for (x1, y1), (x2, y2) in zip(loop, loop[1:] + loop[:1]):
+                segs.append((x1, y1, x2, y2, n,
+                             min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)))
+        self.segs = tuple(segs)
+        xs = [p[0] for p in loops[0]]
+        ys = [p[1] for p in loops[0]]
+        self.x0, self.y0 = min(xs), min(ys)
+        w, h = max(xs) - self.x0, max(ys) - self.y0
+        self.side = max(max(w, h) / CELLS, 1e-6)
+        self.nx = int(w / self.side) + 1
+        self.ny = int(h / self.side) + 1
+        self.y1 = self.y0 + self.ny * self.side
+        self.cells = [[] for _ in range(self.nx * self.ny)]
+        for i, seg in enumerate(self.segs):
+            for cy in range(self._row(seg[6]), self._row(seg[8]) + 1):
+                row = cy * self.nx
+                for cx in range(self._col(seg[5]), self._col(seg[7]) + 1):
+                    self.cells[row + cx].append(i)
+
+    def _col(self, x) -> int:
+        c = int((x - self.x0) / self.side)
+        return 0 if c < 0 else (self.nx - 1 if c >= self.nx else c)
+
+    def _row(self, y) -> int:
+        r = int((y - self.y0) / self.side)
+        return 0 if r < 0 else (self.ny - 1 if r >= self.ny else r)
+
+    def near(self, left, top, right, bottom) -> list:
+        """Every segment whose cell the box touches, in the order the loops
+        and their points were declared, so what is reported about a box past
+        two loops at once does not depend on the bucketing."""
+        cells, nx, segs = self.cells, self.nx, self.segs
+        found = None
+        for cy in range(self._row(top), self._row(bottom) + 1):
+            row = cy * nx
+            for cx in range(self._col(left), self._col(right) + 1):
+                here = cells[row + cx]
+                if here:
+                    if found is None:
+                        found = set(here)
+                    else:
+                        found.update(here)
+        if not found:
+            return ()
+        return [segs[i] for i in sorted(found)]
+
+    def loops_around(self, x: float, y: float) -> set:
+        """Which loops enclose the point, by the crossing rule along the ray
+        east of it: a segment that crosses that ray has the crossing in this
+        row, at or east of the point's own cell, so no other cell can hold
+        one."""
+        if not (self.y0 <= y <= self.y1):
+            return set()                    # no loop reaches this line
+        cells, segs = self.cells, self.segs
+        hits: dict = {}
+        row = self._row(y) * self.nx
+        seen = set()
+        for cx in range(self._col(x), self.nx):
+            for i in cells[row + cx]:
+                if i in seen:
+                    continue
+                seen.add(i)
+                x1, y1, x2, y2, n = segs[i][:5]
+                if (y1 > y) != (y2 > y) and x < x1 + (y - y1) / (y2 - y1) * (x2 - x1):
+                    hits[n] = not hits.get(n, False)
+        return {n for n, odd in hits.items() if odd}
 
 
 def _normal(dx: float, dy: float, sign: float) -> tuple:

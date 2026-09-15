@@ -145,3 +145,52 @@ def test_a_hint_may_be_said_in_pads_too():
     plan2 = b2.resolve()
     gnd = plan2.occupancy.pad_location("J1", "2")
     assert plan2.box("ldo").center.distance(Location(gnd.x, gnd.y + 10.0)) <= 4.0 + 1e-9
+
+
+def test_a_scored_block_search_is_coarse_first_then_fine():
+    """Laying the whole block out is the most expensive question the placer
+    asks, so a scored search over a wide radius steps coarsely first and
+    refines around its best spots, the same as a single part's search. An
+    exhaustive fine walk of a 12 mm radius is tens of thousands of block
+    layouts, which is minutes of a run."""
+    from placemat.placer import COARSE_FROM, _grid, scan_block
+    from placemat.placement import Placement
+    b = make_board()
+    b.place(Part("j1"), at=Location(5, 5))
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN"), (Part("cout"), "VOUT")], gap=0.5)
+    b.place(blk, at=Near(Location(30, 30), radius=12.0, step=0.2))
+    plan = b.resolve()
+    assert plan.findings == []
+    spec = [i for i in b._intents if i.kind == "block"][0]
+    occ = plan.occupancy
+    radius, step = 12.0, 0.2
+    assert radius / step > COARSE_FROM                          # wide enough for the coarse pass to apply
+    whole_grid = sum(1 for _ in _grid(Location(30.0, 30.0), radius, step))
+    hint = Placement(Location(30.0, 30.0), 0.0, spec.item.anchor.face)
+    _, tried, _, _ = scan_block(occ, spec.item, hint, radius, step, (0.0,), None, score=lambda m: 0.0)
+    assert tried < whole_grid / 5, "%d block layouts of a %d point grid" % (tried, whole_grid)
+
+
+def test_a_coarse_search_that_finds_nothing_still_walks_the_fine_grid():
+    """The coarse pass is there to save time, not to change the answer. When
+    it finds nothing at all, the fine grid still gets its walk, so a script
+    is never told there is no room on the strength of a coarse look alone."""
+    from placemat.placer import _grid, scan_block
+    from placemat.placement import Placement
+    from placemat.values import Face
+    fps = [footprint("U1", 30, 30, w=6, h=3, inst="ldo", nets=("VIN", "VOUT")),
+           footprint("C1", 60, 60, inst="cin", nets=("VIN", "GND")),
+           footprint("C2", 60, 65, inst="cout", nets=("VOUT", "GND")),
+           footprint("W1", 30, 30, w=56, h=56, inst="wall", excess=0.0)]     # the whole board
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.place(Part("wall"), at=Location(30, 30))
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN"), (Part("cout"), "VOUT")], gap=0.3)
+    b.place(blk, at=Near(Location(30, 30), radius=6.0, step=0.2))
+    plan = b.resolve()
+    occ = plan.occupancy
+    spec = [i for i in b._intents if i.kind == "block"][0].item
+    hint = Placement(Location(30.0, 30.0), 0.0, Face.FRONT)
+    best, tried, _, _ = scan_block(occ, spec, hint, 6.0, 0.2, (0.0,), None, score=lambda m: 0.0)
+    fine = sum(1 for _ in _grid(Location(30.0, 30.0), 6.0, 0.2))
+    assert best is None                                     # there is genuinely nowhere
+    assert tried >= fine, "gave up after %d of %d candidates" % (tried, fine)

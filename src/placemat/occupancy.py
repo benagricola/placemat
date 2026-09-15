@@ -8,6 +8,7 @@ features block both faces, pads keep net-class clearance from foreign
 copper, reservations block parts unless they carry an allowed net."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from .geometry import (Polygon, Transform, box_polygon, circle_polygon, poly_distance,
@@ -359,6 +360,11 @@ class Occupancy:
             if clr is None:
                 clr = self.geometry.clearance(s.net, o.net) if (s.net in self.geometry.nets and o.net in self.geometry.nets) \
                     else self.geometry.default_clearance
+            # Two boxes this far apart hold two polygons at least as far
+            # apart, so the walk round both outlines is only worth its cost
+            # when the boxes themselves are close enough to fail.
+            if _box_gap(s.box, o.box) >= clr - 1e-9:
+                return None
             gap = poly_distance(s.poly, o.poly)
             if gap < clr - 1e-9:
                 return "%s pad %s is %.2f mm from %s copper on %s (needs %.2f)" % (
@@ -368,6 +374,13 @@ class Occupancy:
             if polys_overlap(s.poly, o.poly):
                 return "%s hole cuts %s copper" % (self.who(s.owner), o.net or self.who(o.owner))
         return None
+
+
+def _box_gap(a: Box, b: Box) -> float:
+    """The shortest distance between two boxes; 0 when they touch or overlap."""
+    dx = a.left - b.right if a.left > b.right else (b.left - a.right if b.left > a.right else 0.0)
+    dy = a.top - b.bottom if a.top > b.bottom else (b.top - a.bottom if b.top > a.bottom else 0.0)
+    return dx if dy == 0.0 else (dy if dx == 0.0 else math.hypot(dx, dy))
 
 
 def _fmt(b: Box) -> str:

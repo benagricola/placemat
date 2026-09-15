@@ -81,3 +81,63 @@ def test_the_centre_of_a_board_is_its_box_and_the_centroid_is_its_area():
 def test_a_plane_follows_the_outline_inset():
     o = rect_outline(Box(0.0, 0.0, 40.0, 30.0))
     assert set(o.polygon(0.4)) == {(0.4, 0.4), (39.6, 0.4), (39.6, 29.6), (0.4, 29.6)}
+
+
+def walk_every_segment(o, box, margin):
+    """What the keep-in test means, written out: the box centre inside the
+    board and outside every cutout, and no segment of any loop nearer than
+    the margin. The reference the fast path must agree with."""
+    from placemat.outline import _inside, _segment_box
+    if not _inside(o.loops[0], box.center):
+        return "outside the board"
+    for hole in o.loops[1:]:
+        if _inside(hole, box.center):
+            return "inside a cutout"
+    for n, loop in enumerate(o.loops):
+        for (x1, y1), (x2, y2) in zip(loop, loop[1:] + loop[:1]):
+            if _segment_box(x1, y1, x2, y2, box) < margin - 1e-5:
+                return "past the %s keep-in (%.2f mm)" % ("board's" if n == 0 else "cutout's", margin)
+    return None
+
+
+def shapes_to_try():
+    from placemat.outline import Arc
+    disc = [(0.0, 18.5), Arc(to=(37.0, 18.5), via=(18.5, 0.0)), Arc(to=(0.0, 18.5), via=(18.5, 37.0))]
+    notched = [(0.0, 18.5), Arc(to=(37.0, 18.5), via=(18.5, 0.0)),
+               (24.0, 30.0), (24.0, 37.0), (13.0, 37.0), (13.0, 30.0), Arc(to=(0.0, 18.5), via=(2.0, 28.0))]
+    return [("a disc", Outline.of(disc)),
+            ("a notched disc", Outline.of(notched)),
+            ("a disc with a bore", Outline.of(disc, holes=[list(rect_outline(Box(16.0, 16.0, 21.0, 21.0)).loops[0])])),
+            ("an L", Outline.of([(0.0, 0.0), (40.0, 0.0), (40.0, 10.0), (10.0, 10.0), (10.0, 30.0), (0.0, 30.0)]))]
+
+
+def test_the_keep_in_test_says_what_walking_every_segment_says():
+    """Whatever the shape, and wherever the box: inside, outside, over the
+    edge, in a cutout, or past the board's own bbox."""
+    for name, o in shapes_to_try():
+        b = o.box
+        for i in range(-1, 22):
+            for j in range(-1, 22):
+                x = b.left + (b.width + 6.0) * i / 21.0 - 3.0
+                y = b.top + (b.height + 6.0) * j / 21.0 - 3.0
+                for w, h in ((3.0, 2.0), (0.4, 0.4), (9.0, 6.0)):
+                    box = Box(x - w / 2, y - h / 2, x + w / 2, y + h / 2)
+                    for margin in (0.0, 0.5, 2.0):
+                        assert o.why_not(box, margin) == walk_every_segment(o, box, margin), \
+                            "%s: %s at margin %g" % (name, box, margin)
+
+
+def test_the_keep_in_test_costs_little_enough_to_search_with():
+    """A search tries tens of thousands of candidates, and every one of them
+    asks this question, so walking the whole outline each time is what makes
+    a run take minutes. The board's shape never changes during a run."""
+    import time
+    o = dict(shapes_to_try())["a disc"]
+    box = Box(14.0, 14.0, 17.0, 16.0)                     # well inside: nothing near it
+    o.why_not(box, 0.5)                                   # whatever it builds, build it now
+    n = 2000
+    start = time.perf_counter()
+    for _ in range(n):
+        o.why_not(box, 0.5)
+    each = (time.perf_counter() - start) / n * 1e6
+    assert each < 25.0, "%.1f us per candidate: %d segments are being walked" % (each, len(o.loops[0]))
