@@ -130,6 +130,39 @@ def test_a_raw_path_and_a_named_cutout_live_side_by_side():
     assert plan.cutouts.area == pytest.approx(SLOT_SHAPE.area + math.pi * 4.0, rel=0.01)
 
 
+# ------------------------------------------------------ the web check
+def test_a_cutout_too_near_the_edge_is_a_finding():
+    b = make_board(keep_going=True)
+    b.size(width=40.0, height=40.0, web=1.5,
+           holes=[Cutout(Circle(4.0), "vent", at=Location(2.5, 20.0), why="a")])
+    plan = b.resolve()
+    assert any("web" in f and "vent" in f for f in plan.findings), plan.findings
+
+
+def test_a_cutout_with_room_round_it_is_not():
+    b = make_board()
+    b.size(width=40.0, height=40.0, web=1.5,
+           holes=[Cutout(Circle(4.0), "vent", at=Location(20.0, 20.0), why="a")])
+    assert not b.resolve().findings
+
+
+def test_no_web_declared_is_no_web_check():
+    b = make_board()
+    b.size(width=40.0, height=40.0,
+           holes=[Cutout(Circle(4.0), "vent", at=Location(2.1, 20.0), why="a")])
+    assert not b.resolve().findings
+    assert b.web == 0.0
+
+
+def test_two_cutouts_too_near_each_other_is_a_finding():
+    b = make_board(keep_going=True)
+    b.size(width=40.0, height=40.0, web=2.0,
+           holes=[Cutout(Circle(4.0), "a", at=Location(18.0, 20.0), why="x"),
+                  Cutout(Circle(4.0), "b", at=Location(23.0, 20.0), why="y")])
+    plan = b.resolve()
+    assert any("web" in f for f in plan.findings), plan.findings
+
+
 # ------------------------------------------ placing against a cutout
 def _with_slot():
     b = make_board("u1")

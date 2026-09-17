@@ -438,6 +438,7 @@ class Board:
         self._shape = None                  # a board that is not a rectangle: a Disc or an Outline
         self._cutouts = Cutouts()           # a rectangle's holes; a Disc or an Outline keeps its own
         self._named_cutouts: dict = {}      # the cutouts a script named, in declaration order
+        self.web = 0.0                      # least material a hole may leave; 0: unchecked
         self._cached_outline = None         # this board as an outline, for reading runs off
         self._sized = False                 # the script has declared the board size
         self._draw_outline = True
@@ -537,6 +538,26 @@ class Board:
         raise TypeError("not a pad reference: %r" % (ref,))
 
     # ------------------------------------------------------------ setup
+    def _check_web(self, plan: "Plan"):
+        """How much board is left round every hole. A web under the declared
+        minimum is a sliver: it snaps in depanelling or in the hand."""
+        if self.web <= 0.0:
+            return
+        shape = self._shaped()          # always an Outline, whatever the board was declared as
+        holes = Cutouts(shape.paths[1:])
+        if not holes:
+            return
+        gap, which = holes.web_against([shape.loops[0]])
+        if gap < self.web - 1e-9:
+            plan.findings.append("web %.2f mm round %s is under the %.2f mm minimum"
+                                 % (gap, self._cutout_label(which), self.web))
+
+    def _cutout_label(self, n: int) -> str:
+        """Which hole a measurement was taken on. Named cutouts come first,
+        in declaration order, so the index names one directly."""
+        order = list(self._named_cutouts)
+        return "cutout %r" % order[n] if 0 <= n < len(order) else "an unnamed cutout"
+
     def cutout(self, name: str) -> CutoutHandle:
         """A named cutout, so something can be placed against its boundary."""
         order = list(self._named_cutouts)
@@ -567,7 +588,7 @@ class Board:
         return tuple(named_paths) + tuple(raw)
 
     def size(self, width: float, height: float, chamfer: float = 0.0, radius: float = 0.0,
-             holes=(), draw: bool = True):
+             holes=(), web: float = 0.0, draw: bool = True):
         """The board outline: a rectangle at the origin, chamfered or rounded.
         `holes` are cutouts in it - a slot for a cable, a window - each a
         closed path of straight legs and arcs, the same as any other board's."""
@@ -576,13 +597,14 @@ class Board:
         self._outline = Box(0.0, 0.0, float(width), float(height))
         self._shape = None
         self._cached_outline = None
+        self.web = float(web)
         self._cutouts = Cutouts(self._cutout_paths(holes))
         self._chamfer, self._radius = chamfer, radius
         self.width, self.height = float(width), float(height)
         self._sized = True
         self._draw_outline = draw          # a fragment's frame is for placement only, never written
 
-    def disc(self, diameter: float, hole: float = 0.0, holes=(), draw: bool = True):
+    def disc(self, diameter: float, hole: float = 0.0, holes=(), web: float = 0.0, draw: bool = True):
         """The board outline: a round board at the origin, `hole` wide through
         the middle when it goes round a shaft. A circle has no sides, so
         places on it are said as a bearing and a radius: OnRim, OnBore,
@@ -590,6 +612,7 @@ class Board:
         cable, a window - each a closed path of straight legs and arcs, the
         same as a shaped board's."""
         d = float(diameter)
+        self.web = float(web)
         self._shape = Disc(Location(d / 2.0, d / 2.0), d, float(hole), self._cutout_paths(holes))
         self._cutouts = Cutouts()           # a disc keeps its own
         self._cached_outline = None
@@ -599,13 +622,14 @@ class Board:
         self._sized = True
         self._draw_outline = draw
 
-    def outline(self, path, holes=(), draw: bool = True):
+    def outline(self, path, holes=(), web: float = 0.0, draw: bool = True):
         """The board outline as a closed path of straight legs and arcs: the
         first element is where it starts, each one after it is a point (a
         straight leg to it) or an Arc(to=, via=) that curves through a point,
         and it closes back to the start. `holes` are cutouts, each a path of
         its own. Stretches of it are selected by which way they face, with
         board.edge(facing=)."""
+        self.web = float(web)
         self._shape = Outline.of(path, self._cutout_paths(holes))
         self._cutouts = Cutouts()           # an outline keeps its own
         self._cached_outline = None
@@ -1426,6 +1450,7 @@ class Board:
                 place_one(obj, why_now)
 
         place_ranked(RANK_FIXED, RANK_EDGE)
+        self._check_web(plan)
         self._plan_copper(occ, ctx, fixed_copper, plan, progress)
         # Every searched item is one queue, whatever kind it is: a connector can
         # be the most important thing on a board, and it does not wait behind a
