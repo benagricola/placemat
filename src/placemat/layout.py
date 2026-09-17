@@ -694,14 +694,18 @@ class Board:
                            else self._implied_rotation(cutout, centre))
 
     def _slide_cutout(self, occ, cutout):
-        """The first place its freedom allows where the hole is legal."""
-        last = "nowhere on the board"
+        """The first place its freedom allows where the hole is legal. When
+        none is, the reason given is the one nearest its ideal - what stopped
+        it where it wanted to be, not what stopped it at the far end of its
+        travel, which is almost always just the board's edge."""
+        nearest = None
         for centre, turn in self._cutout_candidates(occ, cutout):
             why = self._cutout_illegal(occ, cutout.shape.path_at(centre, turn), cutout.name)
             if why is None:
                 return centre, turn
-            last = why
-        raise ValueError("has nowhere legal to go: %s" % last)
+            if nearest is None:
+                nearest = why
+        raise ValueError("has nowhere legal to go: %s" % (nearest or "nowhere on the board"))
 
     def _implied_rotation(self, cutout, centre: Location) -> float:
         """Which way a shape runs when the script did not say. A place that
@@ -846,9 +850,13 @@ class Board:
         """The board outline as a closed path of straight legs and arcs: the
         first element is where it starts, each one after it is a point (a
         straight leg to it) or an Arc(to=, via=) that curves through a point,
-        and it closes back to the start. `holes` are cutouts, each a path of
-        its own. Stretches of it are selected by which way they face, with
-        board.edge(facing=)."""
+        and it closes back to the start. It may also be a shape - `Circle(d)`,
+        `Slot(l, w)`, `Path(points)` - which is centred on the board origin.
+        `holes` are cutouts, each a `Cutout` or a path of its own. Stretches
+        of it are selected by which way they face, with board.edge(facing=)."""
+        if hasattr(path, "path_at"):        # a shape, not a path: the board sits at the origin
+            lo_x, lo_y, hi_x, hi_y = path.box_at(Location(0.0, 0.0), 0.0)
+            path = path.path_at(Location((hi_x - lo_x) / 2.0, (hi_y - lo_y) / 2.0), 0.0)
         self.web = float(web)
         self._shape = Outline.of(path, self._cutout_paths(holes))
         self._cutouts = Cutouts()           # an outline keeps its own
@@ -1659,6 +1667,7 @@ class Board:
                 step.note = why
             else:
                 self._add_cutout(occ, c.name, PlacedCutout(c.name, tuple(path), centre, turn))
+                plan.shape, plan.cutouts = self._shape, self._cutouts   # the fab gets the holes too
                 plan.cutouts_placed[c.name] = self._settled_cutouts[c.name]
                 step.note = "cut at %.2f, %.2f facing %.0f" % (centre.x, centre.y, turn)
             plan.steps.append(step)

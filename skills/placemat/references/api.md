@@ -24,13 +24,16 @@ board; declarations are collected and resolved together.
 
 ## Setup
 
-`board.size(width, height, chamfer=0.0, radius=0.0)` - the outline, origin
-top-left, y down.
-`board.disc(diameter, hole=0.0)` - a round board at the origin, bored
+`board.size(width, height, chamfer=0.0, radius=0.0, holes=(), web=0.0)` - the
+outline, origin top-left, y down.
+`board.disc(diameter, hole=0.0, holes=(), web=0.0)` - a round board at the origin, bored
 `hole` wide through the middle when it goes round a shaft. Places on it are
 bearings and radii (below); `board.centre`, `board.radius` and `board.bore`
 answer where it is.
-`board.outline(path, holes=())` - a board of any shape (below).
+`board.outline(path, holes=(), web=0.0, draw=True)` - a board of any shape
+(below); `path` may also be a shape, centred on the board origin.
+`holes=` are cutouts, and every board takes them (below). `web=` is the least
+material a hole may leave.
 `board.centre` is the middle of the box round the board, whatever its shape,
 and `board.centroid` is where its area balances.
 
@@ -187,13 +190,76 @@ and does not wait behind the cells for being a single part. Priority leads
 quarter of the free board goes now, else the strongest link pull toward what
 is placed, else the largest. The sentence that chose each is in its step.
 
+## Cutouts
+
+A hole in the board is a `Cutout` in `holes=`, and every board takes them: a
+rectangle, a disc and a shaped board all say it the same way and all behave
+the same way.
+
+```python
+from placemat import Cutout, Slot, Circle, Path
+
+FFC = Cutout(Slot(13.0, 3.0), "ffc",
+             at=Centre(X(Part("j_ffc")), Y(Part("j_ffc"), 4.0)),
+             why="the FFC cable passes through to the panel behind")
+VENT = Cutout(Slot(8.0, 2.0), "vent", at=Polar(14.0, Fraction(0.5)), why="airflow past the regulator")
+
+board.disc(diameter=40.0, hole=6.0, web=1.5, holes=[FFC, VENT])
+board.place(J, at=OnEdge(board.cutout("ffc").edge(side=Edge.NORTH), along=Along.MID))
+```
+
+**The shape says what, `at=` says where.** `Slot(length, width)` is measured
+tip to tip, the way a drawing dimensions it, and runs along +X until a
+`rotation=` bearing turns it. `Circle(diameter)` is a round hole and refuses a
+rotation. `Path(points)` is any closed path, moved so its box centre lands
+where it is placed. `at=` takes `Location`, `Centre`, `Polar`, `OnEdge` or
+`Near`, and a freedom left in it is settled against what is on the board: a
+vent with `at=Centre(None, 20.0)` slides along that line to where there is
+room. A raw path in `holes=` still works and means "already absolute, place
+nothing".
+
+**Which way it runs.** With no `rotation=`, a place that carries a direction
+runs the shape tangentially: a vent on a ring follows the rim, a slot on an
+edge runs along it. Everywhere else the shape is as declared, and a `Circle`
+is never turned.
+
+**When it is settled.** A cutout with a decided place goes down with the firm
+items, in dependency order, so a slot placed from a connector waits for that
+connector. One with a freedom waits until every decided thing is down. Both
+are settled before any part is searched, so every part is placed against a
+board that already has its holes. A cutout placed from a *searched* item is
+refused, naming it.
+
+**`side=`, not `facing=`.** `board.cutout(name).edge(side=)` is the only route
+to a hole's runs, so `board.edge(facing=)` can never return one. `side=
+Edge.NORTH` is the hole's northern boundary, which an item sits above and
+faces SOUTH into - the same turn `OnBore` makes at a bore. The board's
+`facing=` means which way an item points, and on a hole those two read
+opposite, so a cutout refuses `facing=` rather than hand back the wrong
+stretch. Several stretches on one side raises from `.edge()` and comes back as
+a list from `.edges()`. The handle also carries `.box`, `.centre`, `.area` and
+`.name`; `plan.cutouts_placed[name]` is where each one ended up.
+
+**What a cutout is not.** It is not a stretch of the board's edge:
+`board.edge(facing=)` reads the outline only. It is not a copper keepout: it
+is a real board edge, so tracks and zones must clear it themselves.
+
+**The web.** `board.web` is the least material that may remain round a hole -
+to the board outline, and to another hole. `board.keep_in` is copper to edge
+and says where a part may sit; `board.web` is material to material and says
+where a hole may sit. A cutout that would leave less is refused, and one that
+touches the outline is refused as a notch, which belongs in the board's own
+outline path instead. The default is 0.0, which means unchecked.
+
 ## Boards of any shape
 
 An outline is a closed path of straight legs and arcs. The first element is
 where it starts; each one after it is a point (a straight leg to it) or an
 `Arc(to=, via=)` that curves through a point; it closes back to the start.
 Three points fix a circle and the way round it, so an arc needs no flag for
-which way it bulges. `holes=` are cutouts, each a path of its own.
+which way it bulges. `holes=` are cutouts (above), each a path of its own.
+Use this when the board's EDGE is not a rectangle or a circle; a hole in an
+otherwise ordinary board is `holes=` on `size()` or `disc()`.
 
 ```python
 board.outline([(0, 40), (0, 20), Arc(to=(40, 20), via=(20, 0)), (40, 40)])   # a square with a rounded top
@@ -283,6 +349,18 @@ it returns carries `.radius`, `.angles`, `.depth`, `.start`, `.end` and
 arc of the rim that faces that way, so `board.row(items, board.edge(facing=
 Edge.NORTH))` puts a row along the top of a round board. `ring()` is the
 better verb when the items go all the way round.
+
+**A disc with cutouts is still a disc.** A slot in a round board does not make
+it a shaped board: `OnRim`, `OnBore`, `ring()`, `board.radius` and
+`board.bore` all still answer. Reach for `board.outline()` only when the
+board's own EDGE is not a rectangle or a circle.
+
+**A round verb needs a round board.** `OnRim`, `OnBore`, `ring(radius=None)`,
+`board.radius` and `board.bore` are a disc's, and a shaped board refuses
+them with the verb that does the same thing: `OnEdge(board.edge(facing=X))`
+is where `OnRim(X)` would have put it, held at the keep-in and turned to
+the edge the same way. `Polar` is a coordinate about `board.centre`, so it
+works on any board.
 
 **The keep-in is radial.** The rim holds an item's furthest corner back by
 `board.keep_in`; a bore holds its nearest point out by the same, and that is

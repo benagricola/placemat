@@ -47,6 +47,32 @@ def place_at(declare, y):
         return str(e).strip().splitlines()[-1].split(": ", 1)[1]
 
 
+# ------------------------------------------------------ a board as a shape
+def test_a_round_board_can_be_said_as_a_shape():
+    b = make_board()
+    b.outline(Circle(40.0))
+    assert b.width == pytest.approx(40.0) and b.height == pytest.approx(40.0)
+    assert b.centre == Location(20.0, 20.0)
+    assert b.resolve().shape.area == pytest.approx(math.pi * 400.0, rel=0.005)
+
+
+def test_the_whole_thing():
+    """A round board with a bore, a slot derived from the connector it
+    serves, and a vent on a ring."""
+    b = make_board("u1", "d1")
+    b.disc(diameter=40.0, hole=6.0, web=1.0,
+           holes=[Cutout(Slot(13.0, 3.0), "ffc", at=Centre(X(Part("u1")), Y(Part("u1"), 5.0)),
+                         why="the cable passes through behind the connector"),
+                  Cutout(Slot(8.0, 2.0), "vent", at=Polar(15.0, Fraction(0.5)), why="airflow")])
+    b.place(Part("u1"), at=OnRim(Edge.NORTH))
+    b.place(Part("d1"), at=OnEdge(b.cutout("ffc").edge(side=Edge.SOUTH), along=Along.MID))
+    plan = b.resolve()
+    assert not plan.findings, plan.findings
+    assert b.radius == 20.0 and b.bore == 3.0                 # still a disc
+    assert plan.cutouts_placed["ffc"].centre.y == pytest.approx(plan.box("u1").center.y + 5.0, abs=0.1)
+    assert plan.box("d1").top > plan.cutouts_placed["ffc"].centre.y
+
+
 # ----------------------------------------------------------------- shapes
 def test_a_slot_is_measured_tip_to_tip():
     """What callipers measure: a 13 mm slot is 13 mm end to end, not a

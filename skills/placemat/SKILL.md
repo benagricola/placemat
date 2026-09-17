@@ -165,6 +165,40 @@ coordinates nobody chose.
   degrees clockwise from the top, so `Edge.EAST` is 90. Nothing else
   changes: links, faces, labels and copper are said in parts and pads, and
   a disc refuses `Edge` and `row` rather than guessing what they mean.
+- A hole in the board is `Cutout(shape, name, at=, rotation=, why=)` in
+  `holes=`, and **every board takes it**: `size()`, `disc()` and `outline()`
+  all say it the same way. The shape says what the hole is - `Slot(length,
+  width)` measured **tip to tip**, `Circle(diameter)`, `Path(points)` - and
+  `at=` says where, in the same places a part takes: `Location`, `Centre`
+  (with a free axis), `Polar`, `OnEdge`, `Near`. A slot that exists so a
+  cable can reach a connector is placed FROM that connector
+  (`at=Centre(X(Part("j_ffc")), Y(Part("j_ffc"), 4.0))`), never at typed
+  coordinates, so it follows when the connector moves. A hole with a freedom
+  slides to the room that is left. **Never reshape a board to give it a
+  hole**: a slot in a round board is `board.disc(diameter=, hole=, holes=[...])`,
+  still a disc, still answering `OnRim`, `OnBore`, `ring()`, `board.radius`
+  and `board.bore`.
+- A cutout is settled with the firm items - after everything whose position
+  is decided, before anything searched - so every part is placed against a
+  board that already has its holes. It may be placed from any decided item;
+  from a searched one it is refused, naming it.
+- `board.cutout(name).edge(side=)` is the only way to reach a hole's
+  boundary, so `board.edge(facing=)` can never hand you one by accident.
+  **`side=` is the hole's own side and reads the opposite way to the board's
+  `facing=`**: an item against a slot's NORTHERN side sits above the hole and
+  faces SOUTH into it, the same turn `OnBore` makes at a bore. That is why a
+  cutout refuses `facing=` - it would answer with the opposite stretch. You
+  place inside a board and around a hole, which is the whole of the
+  difference. With no `rotation=`, a shape on a ring or an edge runs
+  tangentially: a vent follows the rim, a cable slot runs parallel to the
+  connector it serves.
+- `board.web` is the least material that may remain between a hole and the
+  board edge, or between two holes: material to material, where
+  `board.keep_in` is copper to edge. A hole that would leave less is refused
+  before it is cut, and one that touches the outline is refused as a notch,
+  which belongs in the outline path instead. A cutout is also a real board
+  edge, so route and pour clear of it - KiCad's DRC reports copper-to-edge
+  and silk-to-edge against it like any other edge.
 
 ## Placement tactics
 

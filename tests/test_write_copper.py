@@ -6,6 +6,7 @@ import shutil
 import pytest
 
 from placemat.cutouts import Circle, Slot
+from placemat.values import Cutout
 from placemat.layout import Board
 from placemat.kicad.drc import run_drc
 from placemat.kicad.read import read_board
@@ -232,7 +233,7 @@ def test_a_slot_is_milled_as_two_legs_and_two_half_circles(breakout_pcb, tmp_pat
     import pcbnew
     pcb = _copy(breakout_pcb, tmp_path)
     b = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
-    declare(b, [SLOT_SHAPE.path_at(SLOT_AT)])
+    declare(b, [Cutout(SLOT_SHAPE, "ffc", at=SLOT_AT, why="the cable passes through")])
     apply_plan(pcb, b.resolve())
     board, edges = _edge_cuts(pcb)
 
@@ -252,3 +253,33 @@ def test_a_slot_is_milled_as_two_legs_and_two_half_circles(breakout_pcb, tmp_pat
     if name == "a shaped board":
         whole = math.pi * 21.0 ** 2
     assert ps.Area() / 1e12 == pytest.approx(whole - cut, rel=0.01)
+
+
+def test_every_placed_cutout_reaches_edge_cuts(breakout_pcb, tmp_path):
+    """The plan's shape grows as holes are cut, so what the fab gets is the
+    board the placer actually used - not the one declared before the holes
+    had anywhere to go."""
+    import pcbnew
+    from placemat.values import Centre
+    pcb = _copy(breakout_pcb, tmp_path)
+    base = read_board(pcb)
+    box = base.outline_box
+    b = Board(base, edge_margin=0.5, keep_going=True)
+    # A freedom, so the hole goes through the placement queue and slides to
+    # board the generated parts left clear. That is the path on which the
+    # plan's shape has to grow as each hole is cut.
+    b.size(width=box.width, height=box.height,
+           holes=[Cutout(Slot(13.0, 3.0), "ffc", at=Centre(None, 20.0), why="the cable")])
+    plan = b.resolve()
+    assert set(plan.cutouts_placed) == {"ffc"}, plan.findings
+    apply_plan(pcb, plan)
+    board, edges = _edge_cuts(pcb)
+    caps = [e for e in edges if e.GetShapeStr() == "Arc"
+            and round(abs(e.GetArcAngle().AsDegrees()), 1) == 180.0]
+    assert len(caps) == 2                                  # both ends of the slot
+    assert not [e for e in edges if e.GetShapeStr() == "Line" and e.GetStart() == e.GetEnd()]
+    ps = pcbnew.SHAPE_POLY_SET()
+    assert board.GetBoardPolygonOutlines(ps, False)
+    assert ps.OutlineCount() == 1 and ps.HoleCount(0) == 1
+    assert ps.Area() / 1e12 == pytest.approx(
+        box.width * box.height - Slot(13.0, 3.0).area, rel=0.01)
