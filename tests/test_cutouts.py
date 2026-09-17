@@ -11,7 +11,7 @@ import pytest
 from placemat.cutouts import Circle, Cutouts, Path, Slot
 from placemat.layout import Board, PlacementCollision
 from placemat.outline import Outline
-from placemat.values import Box, Disc, Edge, Location, OnBore, OnRim, Part, Polar
+from placemat.values import Box, Cutout, Disc, Edge, Location, OnBore, OnRim, Part, Polar
 from tests.fixtures import board_geometry, footprint
 
 # 17 mm tip to tip, 3 mm across, centred at (20, 28): its top face sits at
@@ -94,6 +94,39 @@ def test_a_circle_takes_no_rotation():
 def test_a_shape_knows_its_box_before_it_is_flattened():
     assert Slot(13.0, 3.0).box_at(Location(20.0, 20.0), 0.0) == \
         pytest.approx((13.5, 18.5, 26.5, 21.5), abs=0.02)
+
+
+# --------------------------------------------------- a cutout declared
+def test_a_named_cutout_is_declared_with_a_shape_and_a_place():
+    b = make_board()
+    b.size(width=40.0, height=40.0,
+           holes=[Cutout(Slot(17.0, 3.0), "ffc", at=Location(20.0, 28.0),
+                         why="the cable passes through here")])
+    plan = b.resolve()
+    assert plan.cutouts.area == pytest.approx(SLOT_SHAPE.area, rel=0.005)
+
+
+def test_a_cutout_needs_a_name_and_a_place():
+    with pytest.raises(ValueError, match="name"):
+        Cutout(Slot(10.0, 3.0), "", at=Location(0.0, 0.0))
+    with pytest.raises(ValueError, match="at="):
+        Cutout(Slot(10.0, 3.0), "ffc")
+
+
+def test_two_cutouts_may_not_share_a_name():
+    b = make_board()
+    with pytest.raises(ValueError, match="already a cutout named"):
+        b.size(width=40.0, height=40.0,
+               holes=[Cutout(Circle(3.0), "vent", at=Location(10.0, 10.0), why="a"),
+                      Cutout(Circle(3.0), "vent", at=Location(30.0, 10.0), why="b")])
+
+
+def test_a_raw_path_and_a_named_cutout_live_side_by_side():
+    b = make_board()
+    b.size(width=40.0, height=40.0,
+           holes=[SLOT, Cutout(Circle(4.0), "vent", at=Location(10.0, 10.0), why="a")])
+    plan = b.resolve()
+    assert plan.cutouts.area == pytest.approx(SLOT_SHAPE.area + math.pi * 4.0, rel=0.01)
 
 
 # --------------------------------------------------- runs off a cutout

@@ -486,6 +486,27 @@ class Disc:
 
 
 @dataclass(frozen=True)
+class Cutout:
+    """A hole in the board: what it is (a shape), where it goes (`at`, the
+    same places a part takes), and which way it runs.
+
+    `name` is how a script refers to it later, to put something against its
+    edge. A shape carries no position, so the same slot can be cut twice."""
+    shape: object
+    name: str
+    at: object = None
+    rotation: float | None = None
+    why: str = ""
+
+    def __post_init__(self):
+        if not self.name or not str(self.name).strip():
+            raise ValueError("a cutout needs a name: it is how a script refers to its edge")
+        if self.at is None:
+            raise ValueError("cutout %r needs at=: where a hole goes is not a guess. "
+                             "at=Location(x, y), Centre(...), Polar(...) or OnEdge(...)" % (self.name,))
+
+
+@dataclass(frozen=True)
 class Polar:
     """A place said as a radius and a bearing: the item's body centre
     `radius` from `about` (the board's centre unless another point is given)

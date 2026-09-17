@@ -21,7 +21,7 @@ from .outline import Outline, Run, rect_outline
 from .placement import Placement
 from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import CellGeom, Footprint, BoardGeometry
-from .values import (Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Cutout, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -379,6 +379,7 @@ class Board:
         self._outline: Box | None = geometry.outline_box
         self._shape = None                  # a board that is not a rectangle: a Disc or an Outline
         self._cutouts = Cutouts()           # a rectangle's holes; a Disc or an Outline keeps its own
+        self._named_cutouts: dict = {}      # the cutouts a script named, in declaration order
         self._cached_outline = None         # this board as an outline, for reading runs off
         self._sized = False                 # the script has declared the board size
         self._draw_outline = True
@@ -478,6 +479,26 @@ class Board:
         raise TypeError("not a pad reference: %r" % (ref,))
 
     # ------------------------------------------------------------ setup
+    def _cutout_paths(self, holes) -> tuple:
+        """`holes` as absolute paths. A raw path is already where it goes; a
+        Cutout is a shape and a place, and is settled here. Named cutouts
+        come first, in declaration order, so board.cutout(name) can find its
+        loop by index."""
+        named_paths, raw, named = [], [], {}
+        for h in holes:
+            if not isinstance(h, Cutout):
+                raw.append(list(h))
+                continue
+            if h.name in named:
+                raise ValueError("there is already a cutout named %r on this board" % h.name)
+            named[h.name] = h
+            if isinstance(h.at, Location) and isinstance(h.at.x, (int, float)) and isinstance(h.at.y, (int, float)):
+                named_paths.append(h.shape.path_at(h.at, h.rotation or 0.0))
+            else:
+                raise ValueError("cutout %r: only at=Location(x, y) is settled yet" % h.name)
+        self._named_cutouts = named
+        return tuple(named_paths) + tuple(raw)
+
     def size(self, width: float, height: float, chamfer: float = 0.0, radius: float = 0.0,
              holes=(), draw: bool = True):
         """The board outline: a rectangle at the origin, chamfered or rounded.
@@ -488,7 +509,7 @@ class Board:
         self._outline = Box(0.0, 0.0, float(width), float(height))
         self._shape = None
         self._cached_outline = None
-        self._cutouts = Cutouts(holes)
+        self._cutouts = Cutouts(self._cutout_paths(holes))
         self._chamfer, self._radius = chamfer, radius
         self.width, self.height = float(width), float(height)
         self._sized = True
@@ -502,7 +523,7 @@ class Board:
         cable, a window - each a closed path of straight legs and arcs, the
         same as a shaped board's."""
         d = float(diameter)
-        self._shape = Disc(Location(d / 2.0, d / 2.0), d, float(hole), tuple(holes))
+        self._shape = Disc(Location(d / 2.0, d / 2.0), d, float(hole), self._cutout_paths(holes))
         self._cutouts = Cutouts()           # a disc keeps its own
         self._cached_outline = None
         self._outline = self._shape.box
@@ -518,7 +539,7 @@ class Board:
         and it closes back to the start. `holes` are cutouts, each a path of
         its own. Stretches of it are selected by which way they face, with
         board.edge(facing=)."""
-        self._shape = Outline.of(path, holes)
+        self._shape = Outline.of(path, self._cutout_paths(holes))
         self._cutouts = Cutouts()           # an outline keeps its own
         self._cached_outline = None
         self._outline = self._shape.box

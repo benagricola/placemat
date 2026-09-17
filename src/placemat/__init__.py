@@ -7,8 +7,8 @@ __version__ = "0.2.0-dev"
 from .context import board
 from .cutouts import Circle, Path, Slot
 from .outline import Arc
-from .values import (Along, Centre, Disc, Fraction, Near, OnBore, OnEdge, OnRim, Pin, Polar, Box, Cell, CellPadRef, CopperLayer, Edge, Face, LinkWeight, Location, Mid, Net, PadRef,
+from .values import (Along, Centre, Cutout, Disc, Fraction, Near, OnBore, OnEdge, OnRim, Pin, Polar, Box, Cell, CellPadRef, CopperLayer, Edge, Face, LinkWeight, Location, Mid, Net, PadRef,
                      Part, Priority, X, Y)
 
-__all__ = ["board", "Along", "Box", "Cell", "CellPadRef", "Centre", "Pin", "Polar", "OnRim", "OnBore", "Disc", "Arc", "Circle", "Path", "Slot", "CopperLayer", "Edge", "Face", "Fraction",
+__all__ = ["board", "Along", "Box", "Cell", "CellPadRef", "Centre", "Pin", "Polar", "OnRim", "OnBore", "Cutout", "Disc", "Arc", "Circle", "Path", "Slot", "CopperLayer", "Edge", "Face", "Fraction",
            "LinkWeight", "Location", "Mid", "Near", "Net", "OnEdge", "PadRef", "Part", "Priority", "X", "Y"]
