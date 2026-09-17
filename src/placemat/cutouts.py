@@ -148,6 +148,7 @@ class Slot:
     12.5 mm cable wants a 13 mm slot, not a 13 mm centre line."""
     length: float
     width: float
+    turns = True                             # a slot has a direction; a circle does not
 
     def __post_init__(self):
         if self.width <= 0 or self.length <= 0:
@@ -180,6 +181,7 @@ class Slot:
 class Circle:
     """A round hole."""
     diameter: float
+    turns = False                            # the same whichever way it is turned
 
     def __post_init__(self):
         if self.diameter <= 0:
@@ -203,6 +205,7 @@ class Path:
     """Any closed path, as declared. It is moved so its box centre lands
     where it is placed, so one constant can be cut in two places."""
     points: tuple
+    turns = True
 
     def __init__(self, points):
         object.__setattr__(self, "points", tuple(points))

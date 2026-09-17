@@ -130,6 +130,52 @@ def test_a_raw_path_and_a_named_cutout_live_side_by_side():
     assert plan.cutouts.area == pytest.approx(SLOT_SHAPE.area + math.pi * 4.0, rel=0.01)
 
 
+# ------------------------------------------------ a cutout with a freedom
+def test_a_cutout_with_one_freedom_slides_to_where_there_is_room():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0, web=1.0,
+           holes=[Cutout(Circle(6.0), "vent", at=Centre(None, 20.0), why="airflow")])
+    b.place(Part("u1"), at=Location(20.0, 20.0))
+    plan = b.resolve()
+    got = plan.cutouts_placed["vent"].centre
+    assert not plan.findings, plan.findings
+    assert got.y == pytest.approx(20.0)
+    assert not plan.box("u1").overlaps(                             # it moved clear of the part
+        Box(got.x - 3.0, got.y - 3.0, got.x + 3.0, got.y + 3.0))
+
+
+def test_a_cutout_with_nowhere_legal_says_so():
+    b = make_board()
+    b.size(width=10.0, height=10.0, web=2.0,
+           holes=[Cutout(Circle(9.0), "vent", at=Centre(None, 5.0), why="airflow")])
+    with pytest.raises(PlacementCollision, match="vent"):
+        b.resolve()
+
+
+def test_a_slot_on_a_ring_runs_tangentially_unless_told():
+    b = make_board()
+    b.disc(diameter=40.0, web=1.0,
+           holes=[Cutout(Slot(10.0, 2.0), "vent", at=Polar(14.0, Fraction(0.5)), why="airflow")])
+    plan = b.resolve()
+    placed = plan.cutouts_placed["vent"]
+    assert not plan.findings, plan.findings
+    assert placed.centre.y == pytest.approx(34.0, abs=0.05)         # due south of a centre at (20, 20)
+    loop = Cutouts([list(placed.path)]).loops[0]                    # and running ACROSS the radius
+    xs, ys = [p[0] for p in loop], [p[1] for p in loop]
+    assert max(xs) - min(xs) == pytest.approx(10.0, abs=0.05)
+    assert max(ys) - min(ys) == pytest.approx(2.0, abs=0.05)
+
+
+def test_a_cutout_may_slide_round_a_ring():
+    b = make_board()
+    b.disc(diameter=40.0, web=1.0,
+           holes=[Cutout(Circle(4.0), "vent", at=Polar(14.0, None), why="airflow")])
+    plan = b.resolve()
+    got = plan.cutouts_placed["vent"].centre
+    assert not plan.findings, plan.findings
+    assert got.distance(b.centre) == pytest.approx(14.0, abs=0.1)
+
+
 # ------------------------------------------- a cutout placed by reference
 def test_a_cutout_is_placed_relative_to_the_part_it_serves():
     """Move the connector and the slot moves with it: the script says what

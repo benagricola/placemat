@@ -21,7 +21,7 @@ from .outline import Outline, Run, rect_outline
 from .placement import Placement
 from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import CellGeom, Footprint, BoardGeometry
-from .values import (Cutout, CutoutEdge, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Cutout, CutoutEdge, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -626,17 +626,99 @@ class Board:
                 return "would be milled through %s" % owner
         return None
 
+    def _cutout_centre(self, occ, cutout) -> Location:
+        """Where a decided place puts the hole's centre. Polar is a bearing
+        and a radius about the board's centre, which _locate does not read
+        because no part is ever placed that way."""
+        at = cutout.at
+        if isinstance(at, Polar):
+            about = self.centre if at.about is None else _as_point(at.about)
+            r = float(at.radius) if isinstance(at.radius, (int, float)) else _coord(self, occ, at.radius, "x")
+            return polar_point(about, at.angle, r)
+        if isinstance(at, OnEdge):
+            run = at.edge if isinstance(at.edge, Run) else self.edge(facing=at.edge)
+            along = at.along.fraction * run.length if isinstance(at.along, (Along, Fraction)) else float(at.along or 0.0)
+            point, out = run.at(along)
+            depth = max(self.web, 0.0) + _cutout_half_across(cutout, out)
+            ux, uy = bearing_vector(out)
+            return Location(round(point.x - ux * depth, 6), round(point.y - uy * depth, 6))
+        return _locate(self, occ, at)
+
+    def _cutout_free(self, cutout) -> bool:
+        """Whether its place leaves a freedom for the board to settle."""
+        at = cutout.at
+        if isinstance(at, Centre):
+            return at.free_axis is not None
+        if isinstance(at, Polar):
+            return at.radius is None or at.angle is None
+        if isinstance(at, Location):
+            return at.x is None or at.y is None
+        return isinstance(at, Near)
+
+    def _cutout_candidates(self, occ, cutout):
+        """Every centre its one freedom allows, nearest its ideal first, with
+        the rotation each implies. The board's middle is the ideal for a free
+        axis, so a hole takes the room furthest from the edges first."""
+        at, box = cutout.at, self._outline
+
+        def out_from(mid, lo, hi, step=0.2):
+            n = int((hi - lo) / step) + 1
+            for k in range(2 * n):
+                v = mid + (k + 1) // 2 * step * (1 if k % 2 else -1)
+                if lo <= v <= hi:
+                    yield v
+
+        if isinstance(at, Polar) and at.angle is None:
+            r = float(_coord(self, occ, at.radius, "x")) if not isinstance(at.radius, (int, float)) \
+                else float(at.radius)
+            for k in range(720):
+                b = ((k + 1) // 2 * (1 if k % 2 else -1)) * 0.5
+                centre = polar_point(self.centre, b % 360.0, r)
+                yield centre, (float(cutout.rotation) if cutout.rotation is not None
+                               else self._implied_rotation(cutout, centre))
+            return
+        if isinstance(at, Polar) and at.radius is None:
+            hi = max(box.width, box.height) / 2.0
+            for r in out_from(hi / 2.0, 0.0, hi):
+                centre = polar_point(self.centre, bearing(at.angle), r)
+                yield centre, (float(cutout.rotation) if cutout.rotation is not None
+                               else self._implied_rotation(cutout, centre))
+            return
+        axis = at.free_axis if isinstance(at, Centre) else ("x" if at.x is None else "y")
+        held = at.y if axis == "x" else at.x
+        fixed = _coord(self, occ, held, "y" if axis == "x" else "x")
+        lo, hi = (box.left, box.right) if axis == "x" else (box.top, box.bottom)
+        for v in out_from((lo + hi) / 2.0, lo, hi):
+            centre = Location(v, fixed) if axis == "x" else Location(fixed, v)
+            yield centre, (float(cutout.rotation) if cutout.rotation is not None
+                           else self._implied_rotation(cutout, centre))
+
+    def _slide_cutout(self, occ, cutout):
+        """The first place its freedom allows where the hole is legal."""
+        last = "nowhere on the board"
+        for centre, turn in self._cutout_candidates(occ, cutout):
+            why = self._cutout_illegal(occ, cutout.shape.path_at(centre, turn), cutout.name)
+            if why is None:
+                return centre, turn
+            last = why
+        raise ValueError("has nowhere legal to go: %s" % last)
+
     def _implied_rotation(self, cutout, centre: Location) -> float:
         """Which way a shape runs when the script did not say. A place that
         carries a direction - round a circle, along an edge - runs the shape
         TANGENTIALLY: a vent follows the rim, a cable slot runs parallel to
-        the connector it serves. Everywhere else the shape is as declared."""
+        the connector it serves. Everywhere else the shape is as declared,
+        and a shape with no direction of its own is never turned."""
+        if not getattr(cutout.shape, "turns", True):
+            return 0.0
+        # A shape runs along +X at rotation 0, which is bearing 90, so running it
+        # along bearing B is a rotation of B - 90. Tangential is B + 90 - 90: the
+        # outward bearing itself.
         if isinstance(cutout.at, Polar):
-            out = bearing_of(centre.x - self.centre.x, centre.y - self.centre.y)
-            return (out + 90.0) % 360.0                 # across the radius, not along it
+            return bearing_of(centre.x - self.centre.x, centre.y - self.centre.y) % 360.0
         if isinstance(cutout.at, OnEdge):
             run = cutout.at.edge if isinstance(cutout.at.edge, Run) else self.edge(facing=cutout.at.edge)
-            return (run.at(run.project(centre))[1] + 90.0) % 360.0
+            return run.at(run.project(centre))[1] % 360.0
         return 0.0
 
     def _check_settled_cutouts(self, occ, plan: "Plan"):
@@ -717,7 +799,11 @@ class Board:
                     h.name, tuple(named_paths[-1]), h.at, float(h.rotation or 0.0))
             else:
                 needs = frozenset(self._pad_ref(r)[0] for r in _refs_in([h.at]))
-                self._intents.append(CutoutIntent("cutout %s" % h.name, h, h.why, len(self._intents), needs))
+                # a decided place goes down in declaration order with the firm items; one with a
+                # freedom waits until every decided thing is down, then takes the room that is left
+                firm = Priority.FIXED if not self._cutout_free(h) else Priority.DEFAULT
+                self._intents.append(CutoutIntent("cutout %s" % h.name, h, h.why, len(self._intents),
+                                                  needs, firm))
         self._named_cutouts = named
         return tuple(named_paths) + tuple(raw)
 
@@ -1556,10 +1642,17 @@ class Board:
             at= refers to. Everything placed after it sees the board with
             the hole in it."""
             c = intent.cutout
-            centre = _locate(self, occ, c.at)
-            turn = float(c.rotation) if c.rotation is not None else self._implied_rotation(c, centre)
+            if self._cutout_free(c):
+                try:
+                    centre, turn = self._slide_cutout(occ, c)
+                    why = None
+                except ValueError as e:
+                    centre, turn, why = self.centre, 0.0, str(e)
+            else:
+                centre = self._cutout_centre(occ, c)
+                turn = float(c.rotation) if c.rotation is not None else self._implied_rotation(c, centre)
+                why = self._cutout_illegal(occ, c.shape.path_at(centre, turn), c.name)
             path = c.shape.path_at(centre, turn)
-            why = self._cutout_illegal(occ, path, c.name)
             step = Step(intent.key, "cutout", Priority.FIXED, why=intent.why)
             if why:
                 plan.findings.append("%s (cutout): %s" % (c.name, why))
@@ -1623,6 +1716,9 @@ class Board:
                 raise PlacementCollision(collisions)
             pending = [obj for obj in placements if lo <= obj.rank[0] <= hi
                        and obj.priority not in (Priority.FIXED, Priority.EDGE)]
+            for hole in [o for o in pending if isinstance(o, CutoutIntent)]:
+                pending.remove(hole)        # holes first: every part after one sees the board it left
+                place_one(hole)
             while pending:
                 obj, why_now = self._next_to_place(pending, occ, placed)
                 pending.remove(obj)
@@ -1803,7 +1899,8 @@ class Board:
         it to other declared items, and how many parts it holds. The reason
         is kept for the step."""
         self._weights: dict = {}
-        searched = [i for i in self._intents if i.priority not in (Priority.FIXED, Priority.EDGE)]
+        searched = [i for i in self._intents if i.priority not in (Priority.FIXED, Priority.EDGE)
+                    and not isinstance(i, CutoutIntent)]     # a hole is not weighed: it goes before the parts
         if not searched:
             return
         declared = self._declared_refs()
@@ -2322,6 +2419,13 @@ class _CopperContext:
 
     def tracks_on(self, layer) -> list:
         return [t for t in self.planned_tracks if t.layer is layer]
+
+
+def _cutout_half_across(cutout, bearing_deg: float) -> float:
+    """How far the shape reaches from its centre along a bearing: what holds
+    a hole placed on an edge back off it."""
+    lo_x, lo_y, hi_x, hi_y = cutout.shape.box_at(Location(0.0, 0.0), 0.0)
+    return box_support(Box(lo_x, lo_y, hi_x, hi_y), bearing_deg) / 2.0
 
 
 def _refs_in(points) -> list:
