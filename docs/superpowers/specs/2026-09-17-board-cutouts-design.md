@@ -1,14 +1,15 @@
 # Cutouts a script places, and the material left around them
 
 Date: 2026-09-17
-Status: design, awaiting approval
+Status: approved 2026-09-17
 
 ## What is wrong today
 
 A cutout is a literal path of absolute coordinates:
 
 ```python
-board.disc(diameter=40.0, hole=6.0, holes=[slot((14.0, 28.0), (26.5, 28.0), 3.0)])
+board.disc(diameter=40.0, hole=6.0,
+           holes=[[(14.0, 26.5), (26.5, 26.5), Arc(...), (14.0, 29.5), Arc(...)]])
 ```
 
 Three things follow from that, and all three are wrong for the same reason -
@@ -56,11 +57,23 @@ twice in different spots.
 
 `Slot(length, width)` requires `length >= width`; equal is a circle and is
 accepted as one. Tip to tip is what a mechanical drawing dimensions and what
-callipers measure: a 12.5 mm cable wants `Slot(13.0, 3.0)`, not a 13 mm centre
-line. This differs from the existing `slot(start, end, width)` function, whose
-arguments are the ends of the **centre line** - that form reads naturally when
-you are saying where a cable runs, and it stays. `Slot(l, w)` is exactly
-`slot((-(l - w) / 2, 0), ((l - w) / 2, 0), w)`.
+callipers measure: a 12.5 mm cable wants `Slot(13.0, 3.0)`.
+
+### The positional helpers go
+
+`slot(start, end, width)` and `circle(centre, diameter)` are removed. Both
+embed a position in what should be a shape, which is the whole defect this
+design exists to fix: where a hole is and what a hole is are two questions,
+and a helper that answers both at once cannot be placed, referred to, or given
+a degree of freedom.
+
+Nothing outside this design uses either - both were added days ago and no
+board script depends on them.
+
+`board.outline()` gains the ability to take a shape as well as a path, so a
+round board that is not a `disc()` is `board.outline(Circle(42.0))`, centred on
+the board origin. That covers the one job `circle()` was doing that was not a
+cutout.
 
 ### A cutout
 
@@ -305,8 +318,9 @@ Developed test-first, each slice red before green. The slices are ordered so
 that every one of them is independently demonstrable.
 
 1. **Shapes.** `Slot`, `Circle`, `Path` produce the right area, the right
-   tip-to-tip length, and the right path under rotation. `Slot(l, w)` equals
-   the existing `slot()` form for the same geometry.
+   tip-to-tip length, and the right path under rotation. `Slot(l, l)` is a
+   circle. `Slot(l, w)` with `l < w` is refused. `board.outline(Circle(d))`
+   gives the same board as `disc(diameter=d)`.
 2. **Cutout runs.** A hole loop walked with a flipped sign yields normals
    pointing into the hole. `side=Edge.NORTH` returns the northern boundary.
    `facing=` is refused. `within=` narrows a stretch off the end caps.
@@ -343,7 +357,10 @@ that every one of them is independently demonstrable.
 
 ## Migration
 
-Every form that works today keeps working. `holes=[path]` stays absolute and
-unplaced; `board.edge(facing=)` is untouched; `board.web` defaults to 0.0 so no
-existing board gains a check it did not ask for. The only behaviour any current
-script could notice is the new web verdict, and only if it sets `web`.
+`holes=[path]` stays absolute and unplaced; `board.edge(facing=)` is untouched;
+`board.web` defaults to 0.0 so no existing board gains a check it did not ask
+for. No board script changes.
+
+The one break is the removal of `slot()` and `circle()`, which exist only in
+this repo's own tests and skill documentation and were added days ago. Those
+call sites move to `Slot`/`Circle` as part of the work.
