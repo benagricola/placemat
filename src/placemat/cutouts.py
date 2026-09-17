@@ -273,6 +273,20 @@ def segment_box(x1, y1, x2, y2, box) -> float:
     return d
 
 
+def loop_gap(a, b) -> float:
+    """The shortest distance between two closed loops; 0.0 when they touch
+    or cross. Between a cutout and the board that distance is the material
+    left between them."""
+    best = math.inf
+    for (ax, ay), (bx, by) in zip(a, a[1:] + a[:1]):
+        for (cx, cy), (dx, dy) in zip(b, b[1:] + b[:1]):
+            if crosses(ax, ay, bx, by, cx, cy, dx, dy):
+                return 0.0
+            best = min(best, point_segment(ax, ay, cx, cy, dx, dy),
+                       point_segment(cx, cy, ax, ay, bx, by))
+    return 0.0 if best is math.inf else best
+
+
 class Where:
     """Where a set of loops' segments are, so a box can find the ones near it.
 
@@ -389,6 +403,23 @@ class Cutouts:
     def area(self) -> float:
         """How much board the cutouts take away."""
         return sum(abs(signed_area(loop)) for loop in self.loops)
+
+    def web_against(self, loops) -> tuple:
+        """The narrowest material between any cutout and any of `loops` - the
+        board's own outline - and which cutout it was measured on. Cutouts
+        are measured against each other too. (inf, -1) with nothing to
+        measure."""
+        best, which = math.inf, -1
+        for n, hole in enumerate(self.loops):
+            for other in loops:
+                gap = loop_gap(hole, other)
+                if gap < best:
+                    best, which = gap, n
+            for m in range(n + 1, len(self.loops)):
+                gap = loop_gap(hole, self.loops[m])
+                if gap < best:
+                    best, which = gap, n
+        return best, which
 
     def _index(self) -> Where:
         """Built once: a search asks the keep-in question tens of thousands

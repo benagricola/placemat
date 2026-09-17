@@ -96,6 +96,31 @@ def test_a_shape_knows_its_box_before_it_is_flattened():
         pytest.approx((13.5, 18.5, 26.5, 21.5), abs=0.02)
 
 
+# -------------------------------------------------------------- the web
+def test_the_gap_between_two_loops_is_their_shortest_distance():
+    from placemat.cutouts import loop_gap
+    inner = Cutouts([Circle(10.0).path_at(Location(20.0, 20.0))]).loops[0]
+    outer = Cutouts([Path([(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)])
+                     .path_at(Location(20.0, 20.0))]).loops[0]
+    assert loop_gap(inner, outer) == pytest.approx(15.0, abs=0.02)   # 20 to the wall, less the 5 radius
+
+
+def test_two_loops_that_cross_have_no_gap():
+    from placemat.cutouts import loop_gap
+    a = Cutouts([Circle(10.0).path_at(Location(20.0, 20.0))]).loops[0]
+    b = Cutouts([Circle(10.0).path_at(Location(24.0, 20.0))]).loops[0]
+    assert loop_gap(a, b) == 0.0
+
+
+def test_the_web_is_the_narrowest_gap_to_anything():
+    board = Cutouts([Path([(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)])
+                     .path_at(Location(20.0, 20.0))]).loops[0]
+    holes = Cutouts([Circle(6.0).path_at(Location(20.0, 20.0)),       # 17 from the wall
+                     Circle(4.0).path_at(Location(4.0, 20.0))])       # 2 from the wall
+    web, which = holes.web_against([board])
+    assert web == pytest.approx(2.0, abs=0.02) and which == 1
+
+
 # ------------------------------------------------- the same on every board
 @pytest.mark.parametrize("name,declare,area", DECLARE, ids=[d[0] for d in DECLARE])
 def test_a_part_over_a_cutout_is_refused_whatever_the_board_is(name, declare, area):
