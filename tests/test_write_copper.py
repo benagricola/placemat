@@ -1,9 +1,11 @@
 """Copper ops written through pcbnew come back when the board file is read again, and DRC on the
 result is readable as numbers."""
+import math
 import shutil
 
 import pytest
 
+from placemat.cutouts import Circle, Slot
 from placemat.layout import Board
 from placemat.kicad.drc import run_drc
 from placemat.kicad.read import read_board
@@ -206,3 +208,47 @@ def test_a_shaped_board_writes_its_legs_as_segments_and_its_arcs_as_arcs(breakou
     assert round(pcbnew.ToMM(arc.GetRadius()), 3) == 20.0
     mid = arc.GetArcMid()
     assert (round(pcbnew.ToMM(mid.x), 2), round(pcbnew.ToMM(mid.y), 2)) == (20.0, 0.0)
+
+
+def _edge_cuts(pcb):
+    import pcbnew
+    board = pcbnew.LoadBoard(str(pcb))
+    return board, [d for d in board.GetDrawings() if d.GetLayer() == pcbnew.Edge_Cuts]
+
+
+SLOT_SHAPE = Slot(17.0, 3.0)          # 17 tip to tip: a 14 mm centre line, 3 across
+SLOT_AT = Location(21.0, 30.0)
+
+
+@pytest.mark.parametrize("name,declare", [
+    ("a rectangle", lambda b, holes: b.size(width=42.0, height=42.0, holes=holes)),
+    ("a disc", lambda b, holes: b.disc(diameter=42.0, hole=8.0, holes=holes)),
+    ("a shaped board", lambda b, holes: b.outline(Circle(42.0).path_at(Location(21.0, 21.0)), holes=holes)),
+])
+def test_a_slot_is_milled_as_two_legs_and_two_half_circles(breakout_pcb, tmp_path, name, declare):
+    """Whatever the board is declared as, the cutout reaches Edge.Cuts as the
+    arcs it was drawn with, and KiCad reads the result as one board with a
+    hole in it."""
+    import pcbnew
+    pcb = _copy(breakout_pcb, tmp_path)
+    b = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
+    declare(b, [SLOT_SHAPE.path_at(SLOT_AT)])
+    apply_plan(pcb, b.resolve())
+    board, edges = _edge_cuts(pcb)
+
+    caps = [e for e in edges if e.GetShapeStr() == "Arc"
+            and round(pcbnew.ToMM(e.GetRadius()), 3) == SLOT_SHAPE.width / 2.0]
+    assert len(caps) == 2                                     # both ends fully rounded
+    assert all(round(abs(e.GetArcAngle().AsDegrees()), 1) == 180.0 for e in caps)
+
+    # nothing of zero length: a path that closes on itself is not closed twice
+    assert not [e for e in edges if e.GetShapeStr() == "Line" and e.GetStart() == e.GetEnd()]
+
+    ps = pcbnew.SHAPE_POLY_SET()
+    assert board.GetBoardPolygonOutlines(ps, False)
+    assert ps.OutlineCount() == 1
+    cut = SLOT_SHAPE.area
+    whole = 42.0 ** 2 if name != "a disc" else math.pi * (21.0 ** 2 - 4.0 ** 2)
+    if name == "a shaped board":
+        whole = math.pi * 21.0 ** 2
+    assert ps.Area() / 1e12 == pytest.approx(whole - cut, rel=0.01)

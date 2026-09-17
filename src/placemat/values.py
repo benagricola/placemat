@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from enum import Enum, IntEnum
 import math
 
+from .cutouts import Cutouts
+
 
 class CopperLayer(str, Enum):
     F = "F.Cu"
@@ -417,18 +419,25 @@ def polar_point(centre: Location, angle, radius: float) -> Location:
 
 @dataclass(frozen=True)
 class Disc:
-    """A round board: its centre, its diameter, and the diameter of a
-    central bore (0: none). Places on it are said as a bearing and a
-    radius, never as an edge: a circle has no sides."""
+    """A round board: its centre, its diameter, the diameter of a central
+    bore (0: none), and a path per cutout. Places on it are said as a
+    bearing and a radius, never as an edge: a circle has no sides.
+
+    A bore is the cutout a round board nearly always has, so it keeps its
+    own field and its own exact arithmetic; `holes` are any others - a slot
+    for a cable, a window - declared the same way a shaped board's are."""
     centre: Location
     diameter: float
     hole: float = 0.0
+    holes: tuple = ()
 
     def __post_init__(self):
         if self.diameter <= 0:
             raise ValueError("a disc's diameter is positive, not %r" % (self.diameter,))
         if not 0.0 <= self.hole < self.diameter:
             raise ValueError("a bore is smaller than the board it is cut in")
+        object.__setattr__(self, "holes", tuple(tuple(h) for h in self.holes))
+        object.__setattr__(self, "cutouts", Cutouts(self.holes))
 
     @property
     def radius(self) -> float:
@@ -446,7 +455,7 @@ class Disc:
 
     @property
     def area(self) -> float:
-        return math.pi * (self.radius ** 2 - self.bore ** 2)
+        return math.pi * (self.radius ** 2 - self.bore ** 2) - self.cutouts.area
 
     def point(self, angle, radius: float) -> Location:
         """The point `radius` from the centre on that bearing."""
@@ -464,7 +473,7 @@ class Disc:
             dy = max(box.top - self.centre.y, 0.0, self.centre.y - box.bottom)
             if math.hypot(dx, dy) < self.bore + margin - _NM:
                 return "into the bore's keep-in (%.2f mm)" % margin
-        return None
+        return self.cutouts.why_not(box, margin)
 
     def polygon(self, inset: float = 0.0, segments: int = 72) -> tuple:
         """The rim, inset, as a polygon: what a zone or a pour is given."""

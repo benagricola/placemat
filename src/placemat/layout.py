@@ -16,6 +16,7 @@ from .copper import (CopperOp, Pour, Text, Track, Via, Zone, board_zone_outline,
                      resolve_bridges)
 from .geometry import polygon_box, transform_box
 from .occupancy import Occupancy, Shape, TOUCH
+from .cutouts import Cutouts
 from .outline import Outline, Run, rect_outline
 from .placement import Placement
 from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
@@ -261,7 +262,8 @@ class Plan:
     draw_outline: bool = True           # False: the outline is a placement frame only (a module fragment)
     chamfer: float = 0.0
     radius: float = 0.0
-    shape: object | None = None         # the board when it is not a rectangle: a Disc
+    shape: object | None = None         # the board when it is not a rectangle: a Disc or an Outline
+    cutouts: object = field(default_factory=lambda: Cutouts())   # a rectangle's holes, for Edge.Cuts
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -376,6 +378,7 @@ class Board:
         self._free_nets: set = set()
         self._outline: Box | None = geometry.outline_box
         self._shape = None                  # a board that is not a rectangle: a Disc or an Outline
+        self._cutouts = Cutouts()           # a rectangle's holes; a Disc or an Outline keeps its own
         self._cached_outline = None         # this board as an outline, for reading runs off
         self._sized = False                 # the script has declared the board size
         self._draw_outline = True
@@ -475,23 +478,32 @@ class Board:
         raise TypeError("not a pad reference: %r" % (ref,))
 
     # ------------------------------------------------------------ setup
-    def size(self, width: float, height: float, chamfer: float = 0.0, radius: float = 0.0, draw: bool = True):
-        """The board outline: a rectangle at the origin, chamfered or rounded."""
+    def size(self, width: float, height: float, chamfer: float = 0.0, radius: float = 0.0,
+             holes=(), draw: bool = True):
+        """The board outline: a rectangle at the origin, chamfered or rounded.
+        `holes` are cutouts in it - a slot for a cable, a window - each a
+        closed path of straight legs and arcs, the same as any other board's."""
         if width <= 0 or height <= 0:
             raise ValueError("board size must be positive")
         self._outline = Box(0.0, 0.0, float(width), float(height))
+        self._shape = None
+        self._cached_outline = None
+        self._cutouts = Cutouts(holes)
         self._chamfer, self._radius = chamfer, radius
         self.width, self.height = float(width), float(height)
         self._sized = True
         self._draw_outline = draw          # a fragment's frame is for placement only, never written
 
-    def disc(self, diameter: float, hole: float = 0.0, draw: bool = True):
+    def disc(self, diameter: float, hole: float = 0.0, holes=(), draw: bool = True):
         """The board outline: a round board at the origin, `hole` wide through
         the middle when it goes round a shaft. A circle has no sides, so
         places on it are said as a bearing and a radius: OnRim, OnBore,
-        Polar and ring()."""
+        Polar and ring(). `holes` are cutouts anywhere in it - a slot for a
+        cable, a window - each a closed path of straight legs and arcs, the
+        same as a shaped board's."""
         d = float(diameter)
-        self._shape = Disc(Location(d / 2.0, d / 2.0), d, float(hole))
+        self._shape = Disc(Location(d / 2.0, d / 2.0), d, float(hole), tuple(holes))
+        self._cutouts = Cutouts()           # a disc keeps its own
         self._cached_outline = None
         self._outline = self._shape.box
         self._chamfer = self._radius = 0.0
@@ -507,6 +519,8 @@ class Board:
         its own. Stretches of it are selected by which way they face, with
         board.edge(facing=)."""
         self._shape = Outline.of(path, holes)
+        self._cutouts = Cutouts()           # an outline keeps its own
+        self._cached_outline = None
         self._outline = self._shape.box
         self._chamfer = self._radius = 0.0
         self.width, self.height = self._outline.width, self._outline.height
@@ -544,9 +558,11 @@ class Board:
         if self._cached_outline is None:
             if isinstance(self._shape, Disc):
                 holes = [list(_circle(self._shape.centre, self._shape.bore))] if self._shape.bore else []
+                holes += [list(h) for h in self._shape.holes]
                 self._cached_outline = Outline.of(list(self._shape.polygon()), holes)
             elif self._outline is not None:
-                self._cached_outline = rect_outline(self._outline, self._chamfer, self._radius)
+                rect = rect_outline(self._outline, self._chamfer, self._radius)
+                self._cached_outline = Outline.of(rect.paths[0], self._cutouts.paths)
             else:
                 raise ValueError("the board has no size yet: board.size(), board.disc() or board.outline() says what it is")
         return self._cached_outline
@@ -569,17 +585,25 @@ class Board:
     @property
     def radius(self) -> float:
         """A round board's radius."""
-        return self._disc().radius
+        return self._disc("board.box, board.centre and board.edge(facing=) are what measures one").radius
 
     @property
     def bore(self) -> float:
         """A round board's bore radius; 0 when it is solid."""
-        return self._disc().bore
+        return self._disc("its cutouts are its holes=, which have no one radius").bore
 
-    def _disc(self) -> Disc:
-        if self._shape is None:
-            raise ValueError("this is not a round board: declare one with board.disc(diameter=...)")
-        return self._shape
+    def _disc(self, instead: str = "") -> Disc:
+        """This board as a disc, or a sentence saying what to use instead.
+        A shaped board reaching here is a script using a round board's verb
+        on one that is not round, so it is told the verb that does the same
+        thing, never left with an attribute error from inside the placer."""
+        if isinstance(self._shape, Disc):
+            return self._shape
+        tail = (": " + instead) if instead else ""
+        if isinstance(self._shape, Outline):
+            raise ValueError("this is a shaped board, not a round one%s" % tail)
+        raise ValueError("this is not a round board: declare one with board.disc(diameter=...)%s"
+                         % ((", or " + instead) if instead else ""))
 
     # ------------------------------------------------------------ blocks
     def block(self, anchor, satellites, gap: float | None = None) -> BlockSpec:
@@ -656,7 +680,8 @@ class Board:
                 along = _EdgeFraction(along.fraction, along.value if isinstance(along, Along) else "centre")
             at = None
         elif isinstance(at, (OnRim, OnBore)):
-            self._disc()
+            self._disc("the same place is OnEdge(board.edge(facing=...)), which holds the item "
+                       "at the keep-in and turns it to the edge there")
             rim = "bore" if isinstance(at, OnBore) else "rim"
             angle = None if at.angle is None else bearing(at.angle)
             overhang = getattr(at, "overhang", 0.0)
@@ -834,7 +859,9 @@ class Board:
         (four mounting holes at 90 degrees). `rotation=` (one value or one
         per item) overrides the outward turn. Returns the Ring."""
         centre = self.centre if about is None else _as_point(about)
-        disc = self._disc() if radius is None else None      # only a ring at the rim needs a rim
+        # only a ring at the rim needs a rim; with a radius any board can hold one
+        disc = self._disc("give ring() a radius, or board.row(items, board.edge(facing=...)) "
+                          "puts them along a stretch of the edge") if radius is None else None
         b0 = bearing(start)
         given = None
         if rotation is not None:
@@ -1246,12 +1273,14 @@ class Board:
 
     # ------------------------------------------------------------ resolution
     def resolve(self, progress=None) -> Plan:
-        occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape)
+        occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
+                        board_cutouts=self._cutouts)
         for intent in self._intents:
             declared = [intent.item.anchor] + [fp for fp, _ in intent.item.satellites] if intent.kind == "block" else [intent.item]
             for item in declared:
                 occ.pending |= occ._geometry(item).owners
-        plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius, shape=self._shape,
+        plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius,
+                    shape=self._shape, cutouts=self._cutouts,
                     rules=list(self._rules), draw_outline=self._draw_outline)
         ctx = _CopperContext(self, occ)
         self._weigh(occ)
@@ -1626,7 +1655,7 @@ class Board:
     def _settle_round_rim(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
         """One degree of freedom: the item slides round the rim (or the bore)
         from its slot, its reach at the keep-in, facing out wherever it lands."""
-        disc = self._disc()
+        disc = self._disc("the same place is OnEdge(board.edge(facing=...))")
         bore = i.rim == "bore"
         ideal = self._round_slot(i)
         r = max(disc.bore if bore else disc.radius, 1e-6)
@@ -1653,7 +1682,7 @@ class Board:
         """One degree of freedom: the item slides out along its bearing, from
         the bore's keep-in (or the centre) to as far as the board reaches."""
         centre = i.about or self.centre
-        if self._shape is not None and centre == self._shape.centre:
+        if isinstance(self._shape, Disc) and centre == self._shape.centre:
             lo, hi = self._shape.bore + self.keep_in, self._shape.radius - self.keep_in
         else:
             box = occ.board_box
@@ -1797,8 +1826,9 @@ class Board:
                 p = run_placement(occ, i.item, occ.board_shape or self._shaped(), i.run,
                                   _run_along(self, occ, i), i.clearance, i.rotation, i.face)
             elif i.rim is not None:
-                p = disc_placement(occ, i.item, self._disc(), i.angle, i.clearance, i.rotation, i.face,
-                                   bore=i.rim == "bore")
+                p = disc_placement(occ, i.item, self._disc("the same place is "
+                                                          "OnEdge(board.edge(facing=...))"),
+                                   i.angle, i.clearance, i.rotation, i.face, bore=i.rim == "bore")
             else:
                 if isinstance(i.along, _RowSlot):
                     along = i.along.resolve(self, occ)

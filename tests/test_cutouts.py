@@ -1,0 +1,201 @@
+"""A hole in a board, whatever shape the board is.
+
+A slot for a cable, a window, a bore: the path is declared the same way on
+a rectangle, a disc and a shaped board, the keep-in refuses a part over it
+in the same words, and Edge.Cuts gets the real arcs.
+"""
+import math
+
+import pytest
+
+from placemat.cutouts import Circle, Cutouts, Path, Slot
+from placemat.layout import Board, PlacementCollision
+from placemat.outline import Outline
+from placemat.values import Box, Disc, Edge, Location, OnBore, OnRim, Part, Polar
+from tests.fixtures import board_geometry, footprint
+
+# 17 mm tip to tip, 3 mm across, centred at (20, 28): its top face sits at
+# y = 26.5 and its straight sides run x = 11.5 .. 28.5.
+SLOT_SHAPE = Slot(17.0, 3.0)
+SLOT = SLOT_SHAPE.path_at(Location(20.0, 28.0))
+SLOT_AREA = 14.0 * 3.0 + math.pi * 1.5 ** 2
+
+# each way of saying "a 40 mm board", with the area it has before the slot
+DECLARE = [
+    ("a rectangle", lambda b, holes: b.size(width=40.0, height=40.0, holes=holes), 1600.0),
+    ("a disc", lambda b, holes: b.disc(diameter=40.0, holes=holes), math.pi * 400.0),
+    ("a shaped board", lambda b, holes: b.outline([(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)], holes=holes), 1600.0),
+]
+
+
+def make_board(*insts, margin=0.5, keep_going=False):
+    fps = [footprint(i.upper(), 50.0, 3.0 + n * 6.0, w=4.0, h=4.0, inst=i, nets=("M", "GND"))
+           for n, i in enumerate(insts)]
+    return Board(board_geometry(fps, width=60, height=60), edge_margin=margin, keep_going=keep_going)
+
+
+def place_at(declare, y):
+    """Put a 4 mm part with its centre at (20, y) and say what happened."""
+    b = make_board("u1")
+    declare(b, [SLOT])
+    b.place(Part("u1"), at=Location(20.0, y))
+    try:
+        b.resolve()
+        return None
+    except PlacementCollision as e:
+        return str(e).strip().splitlines()[-1].split(": ", 1)[1]
+
+
+# ----------------------------------------------------------------- shapes
+def test_a_slot_is_measured_tip_to_tip():
+    """What callipers measure: a 13 mm slot is 13 mm end to end, not a
+    13 mm centre line."""
+    s = Slot(13.0, 3.0)
+    assert s.area == pytest.approx(10.0 * 3.0 + math.pi * 1.5 ** 2, rel=0.005)
+    path = s.path_at(Location(20.0, 20.0))
+    xs = [p[0] for p in Cutouts([path]).loops[0]]
+    assert max(xs) - min(xs) == pytest.approx(13.0, abs=0.02)
+
+
+def test_a_slot_as_wide_as_it_is_long_is_a_circle():
+    assert Cutouts([Slot(6.0, 6.0).path_at(Location(0.0, 0.0))]).area == \
+        pytest.approx(math.pi * 9.0, rel=0.01)
+
+
+def test_a_slot_narrower_than_it_is_wide_is_refused():
+    with pytest.raises(ValueError, match="tip to tip"):
+        Slot(2.0, 3.0)
+    with pytest.raises(ValueError, match="positive"):
+        Slot(10.0, 0.0)
+
+
+def test_a_shape_is_placed_about_its_box_centre():
+    for shape in (Slot(13.0, 3.0), Circle(8.0),
+                  Path([(100.0, 100.0), (110.0, 100.0), (110.0, 104.0), (100.0, 104.0)])):
+        loop = Cutouts([shape.path_at(Location(20.0, 30.0))]).loops[0]
+        xs, ys = [p[0] for p in loop], [p[1] for p in loop]
+        assert (min(xs) + max(xs)) / 2.0 == pytest.approx(20.0, abs=0.02)
+        assert (min(ys) + max(ys)) / 2.0 == pytest.approx(30.0, abs=0.02)
+
+
+def test_a_rotated_slot_runs_on_its_bearing():
+    """rotation is a bearing: 90 turns the slot's length to run north-south."""
+    loop = Cutouts([Slot(13.0, 3.0).path_at(Location(20.0, 20.0), 90.0)]).loops[0]
+    xs, ys = [p[0] for p in loop], [p[1] for p in loop]
+    assert max(ys) - min(ys) == pytest.approx(13.0, abs=0.02)
+    assert max(xs) - min(xs) == pytest.approx(3.0, abs=0.02)
+
+
+def test_a_circle_takes_no_rotation():
+    with pytest.raises(ValueError, match="no direction"):
+        Circle(8.0).path_at(Location(0.0, 0.0), 45.0)
+
+
+def test_a_shape_knows_its_box_before_it_is_flattened():
+    assert Slot(13.0, 3.0).box_at(Location(20.0, 20.0), 0.0) == \
+        pytest.approx((13.5, 18.5, 26.5, 21.5), abs=0.02)
+
+
+# ------------------------------------------------- the same on every board
+@pytest.mark.parametrize("name,declare,area", DECLARE, ids=[d[0] for d in DECLARE])
+def test_a_part_over_a_cutout_is_refused_whatever_the_board_is(name, declare, area):
+    assert place_at(declare, 28.0) == "body box 18.00,26.00..22.00,30.00 is inside a cutout"
+
+
+@pytest.mark.parametrize("name,declare,area", DECLARE, ids=[d[0] for d in DECLARE])
+def test_a_cutout_holds_a_part_off_by_the_keep_in(name, declare, area):
+    """The slot's top face is at 26.5 and the keep-in is 0.5, so a part whose
+    body reaches 26.0 is the last one that fits."""
+    assert place_at(declare, 23.9) is None                      # body to 25.9: 0.6 mm clear
+    assert place_at(declare, 24.1) == "body box 18.00,22.10..22.00,26.10 is past the cutout's keep-in (0.50 mm)"
+
+
+@pytest.mark.parametrize("name,declare,area", DECLARE, ids=[d[0] for d in DECLARE])
+def test_a_cutout_is_board_a_part_cannot_use(name, declare, area):
+    b = make_board()
+    declare(b, [SLOT])
+    plan = b.resolve()
+    assert plan.occupancy.free_area(None) / 2.0 == pytest.approx(area - SLOT_AREA, rel=0.005)
+
+
+# ------------------------------------------------------------ a round board
+def test_a_disc_keeps_its_round_verbs_with_a_slot_in_it():
+    """The cutout is an extra thing the board holds, not a different kind of
+    board: the rim, the bore and the ring all still answer."""
+    b = make_board("u1", "d1")
+    b.disc(diameter=40.0, hole=6.0, holes=[SLOT])
+    b.place(Part("u1"), at=OnRim(Edge.NORTH))
+    b.place(Part("d1"), at=OnBore(Edge.WEST))
+    plan = b.resolve()
+    assert not plan.findings
+    assert b.radius == 20.0 and b.bore == 3.0
+    assert plan.box("u1").center.y < 5.0                        # up at the rim
+    assert plan.shape.area == pytest.approx(math.pi * (400.0 - 9.0) - SLOT_AREA, rel=0.005)
+
+
+def test_a_disc_with_the_same_cutouts_is_the_same_disc():
+    a = Disc(Location(20.0, 20.0), 40.0, 6.0, holes=[SLOT])
+    b = Disc(Location(20.0, 20.0), 40.0, 6.0, holes=[SLOT])
+    assert a == b and hash(a) == hash(b)
+    assert Disc(Location(20.0, 20.0), 40.0, 6.0) != a           # a solid one is not the same board
+
+
+def test_a_disc_cutout_is_an_edge_the_runs_do_not_offer():
+    """Runs come off the board's own outline, so a slot is not a stretch of
+    edge to place along. The rim still is."""
+    b = make_board()
+    b.disc(diameter=40.0, holes=[SLOT])
+    north = b.edge(facing=Edge.NORTH)
+    assert north.length == pytest.approx(math.pi * 20.0 / 2.0, rel=0.02)
+
+
+# ----------------------------------------- a round verb on a board with no rim
+ROUND_VERBS = [
+    ("OnRim", lambda b: b.place(Part("u1"), at=OnRim(Edge.EAST)), "OnEdge"),
+    ("OnBore", lambda b: b.place(Part("u1"), at=OnBore(Edge.NORTH)), "OnEdge"),
+    ("ring at the rim", lambda b: b.ring([Part("u1"), Part("d1")], radius=None), "radius"),
+    ("board.radius", lambda b: b.radius, "board.box"),
+    ("board.bore", lambda b: b.bore, "holes="),
+]
+
+
+@pytest.mark.parametrize("name,use,hint", ROUND_VERBS, ids=[v[0] for v in ROUND_VERBS])
+def test_a_round_verb_on_a_shaped_board_says_what_to_use_instead(name, use, hint):
+    """A script reaching for the rim of a board that has none is using the
+    wrong verb, not finding a broken tool: it is told the one that does the
+    same thing, never an attribute error from inside the placer."""
+    b = make_board("u1", "d1")
+    b.outline(Circle(40.0).path_at(Location(20.0, 20.0)), holes=[SLOT])
+    with pytest.raises(ValueError) as e:
+        use(b)
+    assert "shaped board" in str(e.value) and hint in str(e.value)
+
+
+def test_a_free_spoke_on_a_shaped_board_does_not_reach_for_a_bore():
+    """Polar with only a bearing slides out along it. On a disc that starts
+    at the bore; on a shaped board there is none to start from."""
+    b = make_board("u1")
+    b.outline(Circle(40.0).path_at(Location(20.0, 20.0)), holes=[SLOT])
+    b.place(Part("u1"), at=Polar(None, Edge.EAST))
+    plan = b.resolve()
+    assert not plan.findings
+    assert plan.box("u1").center.y == pytest.approx(20.0)       # out along the east spoke
+
+
+# ---------------------------------------------------------------- the fab
+def test_a_path_that_closes_on_itself_draws_no_leg_of_nothing():
+    """A circle of arcs and a rounded slot both end where they started.
+    Closing them again would put a zero-length segment on Edge.Cuts."""
+    from placemat.cutouts import closes_itself
+    assert closes_itself(Circle(10.0).path_at(Location(0.0, 0.0)))
+    assert closes_itself(SLOT)
+    assert not closes_itself([(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)])
+
+
+def test_an_outline_still_carries_its_own_holes():
+    """The shape a script declares owns its cutouts; nothing else has to
+    know about them."""
+    o = Outline.of(Circle(40.0).path_at(Location(20.0, 20.0)), holes=[SLOT])
+    assert o.area == pytest.approx(math.pi * 400.0 - SLOT_AREA, rel=0.005)
+    assert o.why_not(Box(18.0, 26.0, 22.0, 30.0), 0.5) == "inside a cutout"
+    assert o.why_not(Box(18.0, 8.0, 22.0, 12.0), 0.5) is None

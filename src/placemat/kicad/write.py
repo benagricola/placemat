@@ -20,6 +20,7 @@ from ..copper import Pour, Text, Track, Via, Zone
 from ..geometry import Transform
 from ..placement import Placement
 from ..board_geometry import CellGeom, Footprint
+from ..cutouts import closes_itself
 from ..values import Face, Location
 
 def nm(v: float) -> int:
@@ -66,6 +67,31 @@ def _xy(p) -> tuple:
     return (float(p.x), float(p.y)) if hasattr(p, "x") else (float(p[0]), float(p[1]))
 
 
+def _draw_path(board, path):
+    """One closed path onto Edge.Cuts, as the legs and arcs it was declared
+    as. A path whose last piece already lands on its start - a circle of
+    arcs, a rounded slot - is closed already, and drawing a leg back to the
+    start would put a segment of nothing on the layer."""
+    here = _xy(path[0])
+    pieces = list(path[1:]) + ([] if closes_itself(path) else [path[0]])
+    for piece in pieces:
+        if hasattr(piece, "via"):
+            a = pcbnew.PCB_SHAPE(board, pcbnew.SHAPE_T_ARC)
+            a.SetLayer(pcbnew.Edge_Cuts)
+            a.SetWidth(nm(0.1))
+            a.SetArcGeometry(vec(*here), vec(*_xy(piece.via)), vec(*_xy(piece.to)))
+            board.Add(a)
+            here = _xy(piece.to)
+        else:
+            s = pcbnew.PCB_SHAPE(board, pcbnew.SHAPE_T_SEGMENT)
+            s.SetLayer(pcbnew.Edge_Cuts)
+            s.SetWidth(nm(0.1))
+            s.SetStart(vec(*here))
+            s.SetEnd(vec(*_xy(piece)))
+            board.Add(s)
+            here = _xy(piece)
+
+
 def _draw_outline(board, plan: Plan):
     if not plan.draw_outline:
         return                       # a frame for placement only: Edge.Cuts is left exactly as it was
@@ -74,25 +100,9 @@ def _draw_outline(board, plan: Plan):
             board.Delete(d)      # Remove() orphans the item and corrupts a later in-process LoadBoard
     if plan.shape is not None and hasattr(plan.shape, "paths"):   # a shaped board: its own path, arcs and all
         for path in plan.shape.paths:
-            here = _xy(path[0])
-            for piece in list(path[1:]) + [path[0]]:
-                if hasattr(piece, "via"):
-                    a = pcbnew.PCB_SHAPE(board, pcbnew.SHAPE_T_ARC)
-                    a.SetLayer(pcbnew.Edge_Cuts)
-                    a.SetWidth(nm(0.1))
-                    a.SetArcGeometry(vec(*here), vec(*_xy(piece.via)), vec(*_xy(piece.to)))
-                    board.Add(a)
-                    here = _xy(piece.to)
-                else:
-                    s = pcbnew.PCB_SHAPE(board, pcbnew.SHAPE_T_SEGMENT)
-                    s.SetLayer(pcbnew.Edge_Cuts)
-                    s.SetWidth(nm(0.1))
-                    s.SetStart(vec(*here))
-                    s.SetEnd(vec(*_xy(piece)))
-                    board.Add(s)
-                    here = _xy(piece)
+            _draw_path(board, path)
         return
-    if plan.shape is not None:                   # a round board: the rim, and the bore when it has one
+    if plan.shape is not None:                   # a round board: the rim, the bore, and any cutout in it
         c = plan.shape.centre
         for r in (plan.shape.radius, plan.shape.bore):
             if r <= 0:
@@ -103,6 +113,8 @@ def _draw_outline(board, plan: Plan):
             circle.SetCenter(vec(c.x, c.y))
             circle.SetEnd(vec(c.x + r, c.y))
             board.Add(circle)
+        for path in plan.shape.holes:
+            _draw_path(board, path)
         return
     if plan.outline is None:
         return
@@ -133,6 +145,8 @@ def _draw_outline(board, plan: Plan):
         s.SetStart(vec(x0 + x1, y0 + y1))
         s.SetEnd(vec(x0 + x2, y0 + y2))
         board.Add(s)
+    for path in plan.cutouts.paths:          # a rectangle's holes hang off the board, not a shape
+        _draw_path(board, path)
 
 
 def _netcode(board, net: str) -> int:
