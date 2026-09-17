@@ -96,6 +96,30 @@ def test_a_shape_knows_its_box_before_it_is_flattened():
         pytest.approx((13.5, 18.5, 26.5, 21.5), abs=0.02)
 
 
+# --------------------------------------------------- runs off a cutout
+def test_a_hole_is_walked_so_its_normals_point_into_it():
+    """An item against a slot's northern boundary faces south, into the
+    slot: the same turn OnBore makes at a bore."""
+    o = Outline.of([(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)], holes=[SLOT])
+    (run,) = o.runs(Edge.SOUTH, within=20.0, loop=1)
+    point, out = run.at(run.length / 2.0)
+    assert point.y == pytest.approx(26.5, abs=0.02)      # the slot's TOP edge
+    assert out == pytest.approx(180.0, abs=1.0)          # facing down, into the slot
+
+
+def test_the_board_is_still_loop_zero():
+    o = Outline.of([(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)], holes=[SLOT])
+    (north,) = o.runs(Edge.NORTH)
+    assert north.length == pytest.approx(40.0) and north.at(0.0)[0].y == 0.0
+    assert o.runs(Edge.NORTH) == o.runs(Edge.NORTH, loop=0)
+
+
+def test_a_loop_that_is_not_there_is_refused():
+    o = Outline.of([(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)], holes=[SLOT])
+    with pytest.raises(ValueError, match="1 cutout"):
+        o.runs(Edge.NORTH, loop=2)
+
+
 # -------------------------------------------------------------- the web
 def test_the_gap_between_two_loops_is_their_shortest_distance():
     from placemat.cutouts import loop_gap

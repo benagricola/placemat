@@ -203,15 +203,24 @@ class Outline:
             out.append((round(x - mx / m * inset / cos_half, 6), round(y - my / m * inset / cos_half, 6)))
         return tuple(out)
 
-    def runs(self, facing, within: float = 45.0) -> list:
-        """The stretches of the board's edge whose outward side points within
-        `within` degrees of `facing`, in path order. A rectangle's north side
-        is one; a rounded top is one; a rim gives the arc of it that faces
-        that way."""
+    def runs(self, facing, within: float = 45.0, loop: int = 0) -> list:
+        """The stretches of one of this outline's loops whose outward side
+        points within `within` degrees of `facing`, in path order.
+
+        `loop=0` is the board: a rectangle's north side is one, a rounded top
+        is one, a rim gives the arc facing that way. `loop=n` is the n-th
+        cutout, walked so its normals point INTO the hole - the way an item
+        placed against it faces, and the direction run_placement walks back
+        from."""
+        if not 0 <= loop < len(self.loops):
+            raise ValueError("this board has %d cutout(s); there is no loop %d"
+                             % (len(self.loops) - 1, loop))
         want = bearing(facing)
-        loop = self.loops[0]
-        sign = 1.0 if _area(loop) > 0 else -1.0
-        legs = list(zip(loop, loop[1:] + loop[:1]))
+        ring = self.loops[loop]
+        sign = 1.0 if _area(ring) > 0 else -1.0
+        if loop:
+            sign = -sign            # a hole's material is outside it, so its outward side points in
+        legs = list(zip(ring, ring[1:] + ring[:1]))
         keep = []
         for (a, b) in legs:
             nx, ny = _normal(b[0] - a[0], b[1] - a[1], sign)
