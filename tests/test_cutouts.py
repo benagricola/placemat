@@ -11,7 +11,8 @@ import pytest
 from placemat.cutouts import Circle, Cutouts, Path, Slot
 from placemat.layout import Board, PlacementCollision
 from placemat.outline import Outline
-from placemat.values import Box, Cutout, Disc, Edge, Location, OnBore, OnRim, Part, Polar
+from placemat.values import (Along, Box, Cutout, Disc, Edge, Location, OnBore, OnEdge, OnRim,
+                             Part, Polar)
 from tests.fixtures import board_geometry, footprint
 
 # 17 mm tip to tip, 3 mm across, centred at (20, 28): its top face sits at
@@ -127,6 +128,73 @@ def test_a_raw_path_and_a_named_cutout_live_side_by_side():
            holes=[SLOT, Cutout(Circle(4.0), "vent", at=Location(10.0, 10.0), why="a")])
     plan = b.resolve()
     assert plan.cutouts.area == pytest.approx(SLOT_SHAPE.area + math.pi * 4.0, rel=0.01)
+
+
+# ------------------------------------------ placing against a cutout
+def _with_slot():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0,
+           holes=[Cutout(Slot(17.0, 3.0), "ffc", at=Location(20.0, 28.0), why="the cable")])
+    return b
+
+
+def test_a_part_sits_against_the_side_of_a_cutout_it_was_given():
+    """side=NORTH is the hole's northern boundary, so the part sits above
+    the slot, held off it by the keep-in, turned to face down into it."""
+    b = _with_slot()
+    run = b.cutout("ffc").edge(side=Edge.NORTH)
+    assert run.facing == pytest.approx(180.0, abs=1.0)        # the item faces south, into the hole
+    b.place(Part("u1"), at=OnEdge(run, along=Along.MID))
+    plan = b.resolve()
+    assert plan.box("u1").bottom == pytest.approx(26.5 - 0.5, abs=0.05)
+    assert plan.box("u1").center.x == pytest.approx(20.0, abs=0.2)
+    # the same turn the board's own south-facing edge gives: outward side pointing south
+    assert plan.placements["u1"].rotation == pytest.approx(0.0, abs=1.0)
+
+
+def test_the_two_sides_of_a_slot_are_opposite_stretches():
+    b = _with_slot()
+    north, south = b.cutout("ffc").edge(side=Edge.NORTH), b.cutout("ffc").edge(side=Edge.SOUTH)
+    assert north.at(north.length / 2.0)[0].y == pytest.approx(26.5, abs=0.02)
+    assert south.at(south.length / 2.0)[0].y == pytest.approx(29.5, abs=0.02)
+
+
+def test_a_cutout_takes_side_and_refuses_facing():
+    b = _with_slot()
+    with pytest.raises(TypeError, match="side="):
+        b.cutout("ffc").edge(facing=Edge.NORTH)
+
+
+def test_a_cutout_that_was_never_declared_says_which_there_are():
+    b = _with_slot()
+    with pytest.raises(ValueError, match="ffc"):
+        b.cutout("usb")
+
+
+def test_a_raw_path_board_says_only_a_named_cutout_can_be_referred_to():
+    b = make_board()
+    b.size(width=40.0, height=40.0, holes=[SLOT])
+    with pytest.raises(ValueError, match="named Cutout"):
+        b.cutout("ffc")
+
+
+def test_the_boards_own_edge_never_returns_a_cutouts():
+    b = make_board()
+    b.size(width=40.0, height=40.0,
+           holes=[Cutout(Slot(17.0, 3.0), "ffc", at=Location(20.0, 28.0), why="a"),
+                  Cutout(Circle(4.0), "vent", at=Location(10.0, 10.0), why="b")])
+    for facing in (Edge.NORTH, Edge.SOUTH, Edge.EAST, Edge.WEST):
+        (run,) = b.edges(facing)
+        assert run.length == pytest.approx(40.0)
+
+
+def test_each_cutout_offers_only_its_own_edges():
+    b = make_board()
+    b.size(width=40.0, height=40.0,
+           holes=[Cutout(Slot(17.0, 3.0), "ffc", at=Location(20.0, 28.0), why="a"),
+                  Cutout(Circle(8.0), "vent", at=Location(10.0, 10.0), why="b")])
+    assert b.cutout("vent").edge(side=Edge.NORTH).length < math.pi * 8.0
+    assert b.cutout("ffc").centre.y == pytest.approx(28.0, abs=0.02)
 
 
 # --------------------------------------------------- runs off a cutout

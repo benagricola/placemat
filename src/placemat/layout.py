@@ -16,7 +16,7 @@ from .copper import (CopperOp, Pour, Text, Track, Via, Zone, board_zone_outline,
                      resolve_bridges)
 from .geometry import polygon_box, transform_box
 from .occupancy import Occupancy, Shape, TOUCH
-from .cutouts import Cutouts
+from .cutouts import Cutouts, signed_area
 from .outline import Outline, Run, rect_outline
 from .placement import Placement
 from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
@@ -249,6 +249,64 @@ class Step:
     ops: int = 0
 
 
+class CutoutHandle:
+    """One named cutout, and the stretches of its boundary.
+
+    The only route to a cutout's runs: board.edge() reads the board's own
+    outline, so a script asking for the board's edge can never be handed a
+    hole's by accident."""
+    __slots__ = ("_board", "name", "_index")
+
+    def __init__(self, board, name: str, index: int):
+        self._board, self.name, self._index = board, name, index
+
+    def edges(self, side=None, within: float = 45.0, **kw) -> list:
+        """The stretches of this cutout's boundary on that SIDE of it. The
+        northern side is the boundary an item above the hole sits against,
+        facing south into it."""
+        if "facing" in kw:
+            raise TypeError("a cutout takes side=, not facing=: side=Edge.NORTH is the hole's northern "
+                            "boundary, which an item sits above and faces south into. facing= is the "
+                            "board's word, for which way an item points, and on a hole the two read opposite")
+        if kw:
+            raise TypeError("unexpected argument(s) to a cutout's edges(): %s" % ", ".join(sorted(kw)))
+        if side is None:
+            raise TypeError("which side of the cutout: side=Edge.NORTH, a bearing, or Fraction(f)")
+        want = (bearing(side) + 180.0) % 360.0      # the run whose normal points back into the hole
+        return self._board._shaped().runs(want, within, loop=self._index + 1)
+
+    def edge(self, side=None, within: float = 45.0, **kw) -> Run:
+        """The one stretch on that side. Several (or none) is a script
+        question, not a guess."""
+        runs = self.edges(side, within, **kw)
+        if len(runs) == 1:
+            return runs[0]
+        if not runs:
+            raise ValueError("no part of cutout %r is on the %r side within %g degrees"
+                             % (self.name, side, within))
+        raise ValueError("%d stretches of cutout %r are on the %r side within %g degrees (%s): "
+                         "narrow within=, or pick from .edges()"
+                         % (len(runs), self.name, side, within, ", ".join("%.2f mm" % r.length for r in runs)))
+
+    @property
+    def _loop(self):
+        return self._board._shaped().loops[self._index + 1]
+
+    @property
+    def box(self) -> Box:
+        xs = [p[0] for p in self._loop]
+        ys = [p[1] for p in self._loop]
+        return Box(min(xs), min(ys), max(xs), max(ys))
+
+    @property
+    def centre(self) -> Location:
+        return self.box.center
+
+    @property
+    def area(self) -> float:
+        return abs(signed_area(self._loop))
+
+
 @dataclass
 class Plan:
     geometry: BoardGeometry
@@ -479,6 +537,15 @@ class Board:
         raise TypeError("not a pad reference: %r" % (ref,))
 
     # ------------------------------------------------------------ setup
+    def cutout(self, name: str) -> CutoutHandle:
+        """A named cutout, so something can be placed against its boundary."""
+        order = list(self._named_cutouts)
+        if name not in self._named_cutouts:
+            raise ValueError("no cutout named %r on this board%s" % (
+                name, (": there is " + ", ".join(repr(n) for n in order)) if order else
+                ". Only a named Cutout(shape, name, at=) can be referred to, not a raw path"))
+        return CutoutHandle(self, name, order.index(name))
+
     def _cutout_paths(self, holes) -> tuple:
         """`holes` as absolute paths. A raw path is already where it goes; a
         Cutout is a shape and a place, and is settled here. Named cutouts
