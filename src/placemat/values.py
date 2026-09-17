@@ -116,8 +116,10 @@ class OnEdge:
     overhang: float = 0.0
 
     def __post_init__(self):
-        if not isinstance(self.edge, Edge) and not (hasattr(self.edge, "at") and hasattr(self.edge, "length")):
-            raise TypeError("OnEdge takes an Edge or a run off board.edge(facing=), not %r" % (self.edge,))
+        if not isinstance(self.edge, (Edge, CutoutEdge)) and \
+                not (hasattr(self.edge, "at") and hasattr(self.edge, "length")):
+            raise TypeError("OnEdge takes an Edge, a run off board.edge(facing=), or a cutout's "
+                            "board.cutout(name).edge(side=), not %r" % (self.edge,))
         if self.along is not None and not isinstance(self.along, (int, float, X, Y, Mid, Along, Fraction)) \
                 and type(self.along).__name__ != "_RowSlot":
             raise TypeError("along is a number, a reference, Along.START/MID/END or Fraction(f), not %r" % (self.along,))
@@ -483,6 +485,16 @@ class Disc:
             ux, uy = bearing_vector(360.0 * i / segments)
             out.append((round(self.centre.x + ux * r, 6), round(self.centre.y + uy * r, 6)))
         return tuple(out)
+
+
+@dataclass(frozen=True)
+class CutoutEdge:
+    """A promise of a stretch of a named cutout's boundary, for a script that
+    places something against a hole the board has not settled yet. It is
+    resolved when the item is placed, by which time the cutout is down."""
+    name: str
+    side: object
+    within: float = 45.0
 
 
 @dataclass(frozen=True)

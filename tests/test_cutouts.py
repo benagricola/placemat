@@ -11,8 +11,8 @@ import pytest
 from placemat.cutouts import Circle, Cutouts, Path, Slot
 from placemat.layout import Board, PlacementCollision
 from placemat.outline import Outline
-from placemat.values import (Along, Box, Cutout, Disc, Edge, Location, OnBore, OnEdge, OnRim,
-                             Part, Polar)
+from placemat.values import (Along, Box, Centre, Cutout, Disc, Edge, Fraction, Location, OnBore,
+                             OnEdge, OnRim, Part, Polar, X, Y)
 from tests.fixtures import board_geometry, footprint
 
 # 17 mm tip to tip, 3 mm across, centred at (20, 28): its top face sits at
@@ -128,6 +128,66 @@ def test_a_raw_path_and_a_named_cutout_live_side_by_side():
            holes=[SLOT, Cutout(Circle(4.0), "vent", at=Location(10.0, 10.0), why="a")])
     plan = b.resolve()
     assert plan.cutouts.area == pytest.approx(SLOT_SHAPE.area + math.pi * 4.0, rel=0.01)
+
+
+# ------------------------------------------- a cutout placed by reference
+def test_a_cutout_is_placed_relative_to_the_part_it_serves():
+    """Move the connector and the slot moves with it: the script says what
+    the hole is for, not where it is."""
+    for y in (12.0, 24.0):
+        b = make_board("u1")
+        b.size(width=40.0, height=40.0,
+               holes=[Cutout(Slot(17.0, 3.0), "ffc",
+                             at=Centre(X(Part("u1")), Y(Part("u1"), 6.0)), why="the cable")])
+        b.place(Part("u1"), at=Location(20.0, y))
+        plan = b.resolve()
+        assert plan.cutouts_placed["ffc"].centre.y == pytest.approx(y + 6.0, abs=0.05)
+        assert plan.cutouts_placed["ffc"].centre.x == pytest.approx(20.0, abs=0.05)
+
+
+def test_a_part_placed_against_a_cutout_waits_for_it():
+    b = make_board("u1", "d1")
+    b.size(width=40.0, height=40.0,
+           holes=[Cutout(Slot(17.0, 3.0), "ffc",
+                         at=Centre(X(Part("u1")), Y(Part("u1"), 6.0)), why="the cable")])
+    b.place(Part("u1"), at=Location(20.0, 12.0))
+    b.place(Part("d1"), at=OnEdge(b.cutout("ffc").edge(side=Edge.SOUTH), along=Along.MID))
+    plan = b.resolve()
+    assert plan.box("d1").top > plan.cutouts_placed["ffc"].centre.y
+
+
+def test_a_cutout_may_not_be_placed_against_a_searched_part():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0,
+           holes=[Cutout(Circle(4.0), "vent", at=Centre(X(Part("u1")), Y(Part("u1"), 8.0)), why="a")])
+    b.place(Part("u1"))                                      # searched: no position yet
+    with pytest.raises(ValueError, match="only FIXED and EDGE"):
+        b.resolve()
+
+
+def test_a_cutout_that_would_break_the_web_is_refused():
+    b = make_board()
+    b.size(width=40.0, height=40.0, web=2.0,
+           holes=[Cutout(Circle(4.0), "vent", at=Location(2.5, 20.0), why="a")])
+    with pytest.raises(PlacementCollision, match="web"):
+        b.resolve()
+
+
+def test_a_cutout_may_not_be_milled_through_a_part():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0,
+           holes=[Cutout(Circle(6.0), "vent", at=Location(20.0, 20.0), why="a")])
+    b.place(Part("u1"), at=Location(20.0, 20.0))
+    with pytest.raises(PlacementCollision, match="u1"):
+        b.resolve()
+
+
+def test_a_cutout_that_touches_the_outline_is_a_notch_not_a_hole():
+    b = make_board()
+    b.size(width=40.0, height=40.0,
+           holes=[Cutout(Circle(6.0), "notch", at=Location(1.0, 20.0), why="a")])
+    with pytest.raises(PlacementCollision, match="notch"):
+        b.resolve()
 
 
 # ------------------------------------------------------ the web check

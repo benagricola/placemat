@@ -16,12 +16,12 @@ from .copper import (CopperOp, Pour, Text, Track, Via, Zone, board_zone_outline,
                      resolve_bridges)
 from .geometry import polygon_box, transform_box
 from .occupancy import Occupancy, Shape, TOUCH
-from .cutouts import Cutouts, signed_area
+from .cutouts import Cutouts, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from .placement import Placement
 from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import CellGeom, Footprint, BoardGeometry
-from .values import (Cutout, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Cutout, CutoutEdge, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -204,6 +204,33 @@ class PlaceIntent:
         return ({"cell": RANK_CELL, "block": RANK_BLOCK}.get(self.kind, RANK_LOOSE), self.index)
 
 
+@dataclass(frozen=True)
+class PlacedCutout:
+    """A hole once it has a position: what was cut, where, and which way."""
+    name: str
+    path: tuple
+    centre: Location
+    rotation: float
+
+
+@dataclass
+class CutoutIntent:
+    """A hole waiting for its place. It sits in the firm queue with the
+    parts, so `needs` orders it against whatever its place refers to: a slot
+    inboard of a connector waits for the connector, and a part against that
+    slot waits for the slot."""
+    key: str
+    cutout: object
+    why: str = ""
+    index: int = 0
+    needs: frozenset = frozenset()
+    priority: Priority = Priority.FIXED
+
+    @property
+    def rank(self):
+        return (RANK_FIXED, self.index)
+
+
 @dataclass
 class CopperIntent:
     key: str
@@ -255,10 +282,16 @@ class CutoutHandle:
     The only route to a cutout's runs: board.edge() reads the board's own
     outline, so a script asking for the board's edge can never be handed a
     hole's by accident."""
-    __slots__ = ("_board", "name", "_index")
+    __slots__ = ("_board", "name")
 
-    def __init__(self, board, name: str, index: int):
-        self._board, self.name, self._index = board, name, index
+    def __init__(self, board, name: str):
+        self._board, self.name = board, name
+
+    @property
+    def settled(self) -> bool:
+        """Whether this hole has a position yet. One placed from a part is
+        settled when that part is."""
+        return self.name in self._board._cutout_loop_of
 
     def edges(self, side=None, within: float = 45.0, **kw) -> list:
         """The stretches of this cutout's boundary on that SIDE of it. The
@@ -272,12 +305,21 @@ class CutoutHandle:
             raise TypeError("unexpected argument(s) to a cutout's edges(): %s" % ", ".join(sorted(kw)))
         if side is None:
             raise TypeError("which side of the cutout: side=Edge.NORTH, a bearing, or Fraction(f)")
+        if not self.settled:
+            raise ValueError("cutout %r has no place yet, so its edges are not known. Place one item "
+                             "against it with .edge(side=), which waits for it" % self.name)
         want = (bearing(side) + 180.0) % 360.0      # the run whose normal points back into the hole
-        return self._board._shaped().runs(want, within, loop=self._index + 1)
+        return self._board._shaped().runs(want, within, loop=self._board._cutout_loop_of[self.name])
 
-    def edge(self, side=None, within: float = 45.0, **kw) -> Run:
-        """The one stretch on that side. Several (or none) is a script
-        question, not a guess."""
+    def edge(self, side=None, within: float = 45.0, **kw):
+        """The one stretch on that side: a Run when the hole already has a
+        place, else a CutoutEdge promise resolved when the item that asked
+        for it is placed, by which time the hole is down. Several stretches
+        (or none) is a script question, not a guess."""
+        if not self.settled:
+            if kw or side is None:
+                self.edges(side, within, **kw)          # raise the same way for a bad call
+            return CutoutEdge(self.name, side, within)
         runs = self.edges(side, within, **kw)
         if len(runs) == 1:
             return runs[0]
@@ -290,7 +332,9 @@ class CutoutHandle:
 
     @property
     def _loop(self):
-        return self._board._shaped().loops[self._index + 1]
+        if not self.settled:
+            raise ValueError("cutout %r has no place yet" % self.name)
+        return self._board._shaped().loops[self._board._cutout_loop_of[self.name]]
 
     @property
     def box(self) -> Box:
@@ -322,6 +366,7 @@ class Plan:
     radius: float = 0.0
     shape: object | None = None         # the board when it is not a rectangle: a Disc or an Outline
     cutouts: object = field(default_factory=lambda: Cutouts())   # a rectangle's holes, for Edge.Cuts
+    cutouts_placed: dict = field(default_factory=dict)           # every named cutout, once it has a place
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -438,6 +483,8 @@ class Board:
         self._shape = None                  # a board that is not a rectangle: a Disc or an Outline
         self._cutouts = Cutouts()           # a rectangle's holes; a Disc or an Outline keeps its own
         self._named_cutouts: dict = {}      # the cutouts a script named, in declaration order
+        self._settled_cutouts: dict = {}    # those of them that already have a position
+        self._cutout_loop_of: dict = {}     # name -> its loop index in _shaped()
         self.web = 0.0                      # least material a hole may leave; 0: unchecked
         self._cached_outline = None         # this board as an outline, for reading runs off
         self._sized = False                 # the script has declared the board size
@@ -538,6 +585,88 @@ class Board:
         raise TypeError("not a pad reference: %r" % (ref,))
 
     # ------------------------------------------------------------ setup
+    def _add_cutout(self, occ, name: str, placed):
+        """A hole that has just been settled. The board's own shape and the
+        occupancy grow together, so every legality test after this one - the
+        next cutout's, and every part's - sees it."""
+        import dataclasses
+        path = list(placed.path)
+        if isinstance(self._shape, Disc):
+            self._shape = dataclasses.replace(self._shape, holes=tuple(self._shape.holes) + (tuple(path),))
+        elif isinstance(self._shape, Outline):
+            self._shape = Outline.of(self._shape.paths[0], list(self._shape.paths[1:]) + [path])
+        else:
+            self._cutouts = Cutouts(list(self._cutouts.paths) + [path])
+        self._cached_outline = None
+        occ.board_shape, occ.board_cutouts = self._shape, self._cutouts
+        self._cutout_loop_of[name] = len(self._shaped().loops) - 1
+        self._settled_cutouts[name] = placed
+
+    def _cutout_illegal(self, occ, path, name: str) -> str | None:
+        """Why this hole may not be cut here, or None. In the spec's order:
+        inside the board, clear of its outline, enough web, and not through
+        anything already placed."""
+        shape = self._shaped()
+        loop = Cutouts([path]).loops[0]
+        board = shape.loops[0]
+        for x, y in loop:
+            if shape.why_not(Box(x, y, x, y), 0.0) == "outside the board":
+                return "reaches outside the board"
+        if loop_gap(loop, board) <= 0.0:
+            return ("touches the board outline: that is a notch, not a hole, and it belongs in the "
+                    "board's own outline path")
+        if self.web > 0.0:
+            gap = min([loop_gap(loop, board)] + [loop_gap(loop, h) for h in shape.loops[1:]])
+            if gap < self.web - 1e-9:
+                return "would leave a %.2f mm web, under the %.2f mm minimum" % (gap, self.web)
+        box = Box(min(p[0] for p in loop), min(p[1] for p in loop),
+                  max(p[0] for p in loop), max(p[1] for p in loop))
+        for owner, g in occ.items.items():
+            if (g.reach or g.body).overlaps(box):
+                return "would be milled through %s" % owner
+        return None
+
+    def _implied_rotation(self, cutout, centre: Location) -> float:
+        """Which way a shape runs when the script did not say. A place that
+        carries a direction - round a circle, along an edge - runs the shape
+        TANGENTIALLY: a vent follows the rim, a cable slot runs parallel to
+        the connector it serves. Everywhere else the shape is as declared."""
+        if isinstance(cutout.at, Polar):
+            out = bearing_of(centre.x - self.centre.x, centre.y - self.centre.y)
+            return (out + 90.0) % 360.0                 # across the radius, not along it
+        if isinstance(cutout.at, OnEdge):
+            run = cutout.at.edge if isinstance(cutout.at.edge, Run) else self.edge(facing=cutout.at.edge)
+            return (run.at(run.project(centre))[1] + 90.0) % 360.0
+        return 0.0
+
+    def _check_settled_cutouts(self, occ, plan: "Plan"):
+        """A cutout declared at an absolute place is already in the board's
+        shape, so it never passes through the queue. It is still checked: it
+        may reach outside the board, notch its edge, or leave too thin a web.
+        A part milled through by one is caught the other way round, when the
+        part is refused for sitting inside a cutout."""
+        for name, settled in self._settled_cutouts.items():
+            shape = self._shaped()
+            loop = Cutouts([list(settled.path)]).loops[0]
+            board = shape.loops[0]
+            others = [h for n, h in enumerate(shape.loops[1:], start=1)
+                      if n != self._cutout_loop_of.get(name)]
+            why = None
+            for x, y in loop:
+                if shape.why_not(Box(x, y, x, y), 0.0) == "outside the board":
+                    why = "reaches outside the board"
+                    break
+            if why is None and loop_gap(loop, board) <= 0.0:
+                why = ("touches the board outline: that is a notch, not a hole, and it belongs in the "
+                       "board's own outline path")
+            if why is None and self.web > 0.0:
+                gap = min([loop_gap(loop, board)] + [loop_gap(loop, h) for h in others])
+                if gap < self.web - 1e-9:
+                    why = "would leave a %.2f mm web, under the %.2f mm minimum" % (gap, self.web)
+            if why:
+                plan.findings.append("%s (cutout): %s" % (name, why))
+            plan.cutouts_placed[name] = settled
+
     def _check_web(self, plan: "Plan"):
         """How much board is left round every hole. A web under the declared
         minimum is a sliver: it snaps in depanelling or in the hand."""
@@ -565,7 +694,7 @@ class Board:
             raise ValueError("no cutout named %r on this board%s" % (
                 name, (": there is " + ", ".join(repr(n) for n in order)) if order else
                 ". Only a named Cutout(shape, name, at=) can be referred to, not a raw path"))
-        return CutoutHandle(self, name, order.index(name))
+        return CutoutHandle(self, name)
 
     def _cutout_paths(self, holes) -> tuple:
         """`holes` as absolute paths. A raw path is already where it goes; a
@@ -573,6 +702,7 @@ class Board:
         come first, in declaration order, so board.cutout(name) can find its
         loop by index."""
         named_paths, raw, named = [], [], {}
+        self._cutout_loop_of = {}
         for h in holes:
             if not isinstance(h, Cutout):
                 raw.append(list(h))
@@ -581,9 +711,13 @@ class Board:
                 raise ValueError("there is already a cutout named %r on this board" % h.name)
             named[h.name] = h
             if isinstance(h.at, Location) and isinstance(h.at.x, (int, float)) and isinstance(h.at.y, (int, float)):
-                named_paths.append(h.shape.path_at(h.at, h.rotation or 0.0))
+                named_paths.append(h.shape.path_at(h.at, h.rotation or 0.0))   # absolute: settled now
+                self._cutout_loop_of[h.name] = len(named_paths)                # loop 0 is the board
+                self._settled_cutouts[h.name] = PlacedCutout(
+                    h.name, tuple(named_paths[-1]), h.at, float(h.rotation or 0.0))
             else:
-                raise ValueError("cutout %r: only at=Location(x, y) is settled yet" % h.name)
+                needs = frozenset(self._pad_ref(r)[0] for r in _refs_in([h.at]))
+                self._intents.append(CutoutIntent("cutout %s" % h.name, h, h.why, len(self._intents), needs))
         self._named_cutouts = named
         return tuple(named_paths) + tuple(raw)
 
@@ -775,6 +909,13 @@ class Board:
                 raise TypeError("%s: a Pin places a part by its pad; a cell has no pad of its own" % key)
             geom.pad(at.key)                                # a real pad of this part, checked now
             pin, center, at = at.key, (at.x, at.y), None
+        elif isinstance(at, OnEdge) and isinstance(at.edge, CutoutEdge):
+            # a hole that is not settled yet: keep the promise and the named
+            # `along`, and wait for the cutout the same way a position said
+            # in terms of a pad waits for that pad
+            run, along, overhang = at.edge, at.along, at.overhang
+            outward = rotation is None
+            at = None
         elif isinstance(at, OnEdge) and isinstance(at.edge, Run):
             run, along, overhang = at.edge, at.along, at.overhang
             if isinstance(along, (Along, Fraction)):
@@ -856,7 +997,9 @@ class Board:
                              "position to have it searched" % (key, priority.value))
         faces_note = ""
         if rotation is None:
-            if run is not None and along is not None:
+            if isinstance(run, CutoutEdge):
+                rotation, faces_note = None, ""      # the stretch is not known yet: turned when it is
+            elif run is not None and along is not None:
                 rotation, faces_note = self.outward_rotation(item, run.at(along)[1])
             elif rim is not None and angle is not None:
                 rotation, faces_note = self.outward_rotation(item, angle + (180.0 if rim == "bore" else 0.0))
@@ -867,10 +1010,13 @@ class Board:
         if kind == "cell" and at is not None and center is None:
             center, at = at, None
         needs = {self._pad_ref(ref)[0] for ref in _refs_in([at, center, along, pin_x, pin_y, near])}   # a real pad, placed before this
+        if isinstance(at, OnEdge) and isinstance(at.edge, CutoutEdge):
+            needs.add(at.edge.name)                 # the hole is cut before anything is put against it
         if isinstance(along, _RowSlot):
             needs |= along.row.needs
         standoff = _standoff if _standoff is not None else (-float(overhang) if overhang else self.keep_in)
-        intent = PlaceIntent(key, geom, kind, priority, float(rotation), face, at, center, edge, along,
+        turn = None if rotation is None else float(rotation)   # None: settled when the stretch is known
+        intent = PlaceIntent(key, geom, kind, priority, turn, face, at, center, edge, along,
                              standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs),
                              pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward, about, run)
         self._intents.append(intent)
@@ -1388,6 +1534,8 @@ class Board:
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
                         board_cutouts=self._cutouts)
         for intent in self._intents:
+            if isinstance(intent, CutoutIntent):
+                continue                    # a hole is not an item: nothing of it is an obstacle
             declared = [intent.item.anchor] + [fp for fp, _ in intent.item.satellites] if intent.kind == "block" else [intent.item]
             for item in declared:
                 occ.pending |= occ._geometry(item).owners
@@ -1401,8 +1549,39 @@ class Board:
         other_copper = [c for c in self._copper if c.priority is not Priority.FIXED]
         placed: set = set()
         self._place_labels(occ, plan, placed, progress)        # labels on parts the script never moves
+        self._check_settled_cutouts(occ, plan)                 # holes whose place was already absolute
+
+        def settle_cutout(intent):
+            """A hole takes its place like an item does, from whatever its
+            at= refers to. Everything placed after it sees the board with
+            the hole in it."""
+            c = intent.cutout
+            centre = _locate(self, occ, c.at)
+            turn = float(c.rotation) if c.rotation is not None else self._implied_rotation(c, centre)
+            path = c.shape.path_at(centre, turn)
+            why = self._cutout_illegal(occ, path, c.name)
+            step = Step(intent.key, "cutout", Priority.FIXED, why=intent.why)
+            if why:
+                plan.findings.append("%s (cutout): %s" % (c.name, why))
+                step.note = why
+            else:
+                self._add_cutout(occ, c.name, PlacedCutout(c.name, tuple(path), centre, turn))
+                plan.cutouts_placed[c.name] = self._settled_cutouts[c.name]
+                step.note = "cut at %.2f, %.2f facing %.0f" % (centre.x, centre.y, turn)
+            plan.steps.append(step)
+            placed.add(c.name)
 
         def place_one(obj, why_now=""):
+            if isinstance(obj, CutoutIntent):
+                settle_cutout(obj)
+                return
+            if isinstance(obj.run, CutoutEdge):     # the hole is down by now: read its real stretch
+                obj.run = self.cutout(obj.run.name).edge(side=obj.run.side, within=obj.run.within)
+                if isinstance(obj.along, (Along, Fraction)):
+                    obj.along = obj.along.fraction * obj.run.length
+                if obj.rotation is None:            # turned to the way the board faces where it sits
+                    obj.rotation, obj.faces_note = self.outward_rotation(
+                        obj.item, obj.run.at(obj.along if obj.along is not None else 0.0)[1])
             plan._items[obj.key] = obj.item
             step = self._settle(occ, obj, plan, placed)
             if why_now:
@@ -1439,7 +1618,7 @@ class Board:
                                      "items may be referred to)" % (firm[0].key, ", ".join(sorted(firm[0].needs - placed))))
                 place_one(ready[0])
                 firm.remove(ready[0])
-            collisions = [f for f in plan.findings if f.split(" ")[1] in ("(fixed):", "(edge):")]
+            collisions = [f for f in plan.findings if f.split(" ")[1] in ("(fixed):", "(edge):", "(cutout):")]
             if collisions and not self.keep_going:
                 raise PlacementCollision(collisions)
             pending = [obj for obj in placements if lo <= obj.rank[0] <= hi
@@ -1496,6 +1675,8 @@ class Board:
         """Every refdes a placement declaration covers."""
         out = set()
         for i in self._intents:
+            if isinstance(i, CutoutIntent):
+                continue                    # a hole has no refdes
             parts = [i.item.anchor] + [fp for fp, _ in i.item.satellites] if i.kind == "block" else \
                 (list(i.item.members) if i.kind == "cell" else [i.item])
             out |= {fp.ref for fp in parts}
