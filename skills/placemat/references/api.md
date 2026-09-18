@@ -533,7 +533,9 @@ every connector, jumper, switch and LED, by what it does, not its refdes.
 
 ## Layers and faces
 
-`CopperLayer.F / IN1 / IN2 / B`, `Face.FRONT / BACK`, `Edge.NORTH / SOUTH / EAST / WEST`.
+`CopperLayer.F / IN1 .. IN30 / B` (the faces and every inner layer KiCad
+allows; a board uses as many as its stackup has), `Face.FRONT / BACK`,
+`Edge.NORTH / SOUTH / EAST / WEST`.
 
 ## Commands
 
