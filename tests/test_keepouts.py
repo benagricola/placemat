@@ -269,3 +269,50 @@ def test_a_plane_fills_round_a_keepout():
     pcbnew.ZONE_FILLER(b).Fill(b.Zones())
     filled = z.GetFilledPolysList(pcbnew.F_Cu).Area() / 1e12
     assert filled == pytest.approx(38.0 * 38.0 - 12.0 * 12.0, rel=0.02)
+
+
+def test_a_pour_crossing_a_keepout_is_a_finding():
+    """A rule area does not touch a pour - a pour keeps exactly the shape it
+    is given - so it is reported rather than silently reshaped."""
+    b = make_board("u1", keep_going=True)
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), why="the clearance")
+    b.pour(Net("GND"), [Location(15, 15), Location(35, 15), Location(35, 35), Location(15, 35)],
+           layer=CopperLayer.F)
+    plan = b.resolve()
+    assert any("antenna" in f and "pour" in f for f in plan.findings), plan.findings
+
+
+def test_a_track_crossing_a_keepout_is_a_finding():
+    b = make_board("u1", keep_going=True)
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), why="the clearance")
+    b.track(Net("GND"), [Location(5, 20), Location(35, 20)], layer=CopperLayer.F)
+    plan = b.resolve()
+    assert any("antenna" in f and "track" in f for f in plan.findings), plan.findings
+
+
+def test_an_allowed_net_may_cross():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0),
+              allow=(Net("GND"),), why="the feed crosses its own clearance")
+    b.track(Net("GND"), [Location(5, 20), Location(35, 20)], layer=CopperLayer.F)
+    assert not b.resolve().findings
+
+
+def test_a_keepout_that_excludes_nothing_of_the_kind_is_quiet():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(10.0), "screw", at=Location(20.0, 20.0),
+              excludes=("parts",), why="the screw head sweeps here")
+    b.track(Net("GND"), [Location(5, 20), Location(35, 20)], layer=CopperLayer.F)
+    assert not b.resolve().findings
+
+
+def test_a_track_clear_of_a_keepout_is_quiet():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(6.0), "antenna", at=Location(20.0, 20.0), why="the clearance")
+    b.track(Net("GND"), [Location(5, 35), Location(35, 35)], layer=CopperLayer.F)
+    assert not b.resolve().findings

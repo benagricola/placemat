@@ -14,7 +14,7 @@ import math
 
 from .copper import (CopperOp, Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
                      resolve_bridges)
-from .geometry import polygon_box, transform_box
+from .geometry import polygon_box, polys_overlap, transform_box
 from .occupancy import Occupancy, Shape, TOUCH
 from .cutouts import Cutouts, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
@@ -814,6 +814,30 @@ class Board:
             if why:
                 plan.findings.append("%s (cutout): %s" % (name, why))
             plan.cutouts_placed[name] = settled
+
+    def _check_keepouts(self, plan: Plan):
+        """Copper the script drew, crossing a region that forbids it.
+
+        A plane is a KiCad zone and the filler honours the rule area, so it
+        is not checked here. A pour keeps exactly the shape it is given, and
+        a track and a via go exactly where they are put, so those are
+        reported rather than silently reshaped."""
+        kinds = {Pour: ("pour", "fill"), Track: ("track", "tracks"), Via: ("via", "vias")}
+        for op in plan.copper:
+            named = kinds.get(type(op))
+            if named is None:
+                continue                            # a Zone: the rule area governs it
+            word, excluded = named
+            for k in plan.keepouts.values():
+                if excluded not in k.excludes or op.net in k.allow:
+                    continue
+                if not Box.of_points(k.poly).overlaps(op.box):
+                    continue
+                if polys_overlap(k.poly, op.polygon):
+                    plan.findings.append(
+                        "%s %s crosses keepout %r (%s): a %s goes exactly where it is put, so move it, "
+                        "reshape it, or name its net in the keepout's allow="
+                        % (word, op.net, k.name, k.why, word))
 
     def _check_web(self, plan: "Plan"):
         """How much board is left round every hole. A web under the declared
@@ -1856,6 +1880,7 @@ class Board:
         # tier of cells for being a single part. What it needs decides.
         place_ranked(RANK_CELL, RANK_LOOSE)
         self._plan_copper(occ, ctx, other_copper, plan, progress)
+        self._check_keepouts(plan)
         self._report_links(occ, plan, placed)
         self._place_labels(occ, plan, placed, progress, final=True)
         if self._faces is not None:
