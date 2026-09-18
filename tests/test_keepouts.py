@@ -1,11 +1,14 @@
 """A region that forbids: what may not sit in it, fill it, route through it
 or via it, and how a script says so."""
-import math
-
 import pytest
 
-from placemat.cutouts import Arc, Circle, Cutouts, Path, Slot
-from placemat.values import Box, CopperLayer, Location
+from placemat.cutouts import Circle, Cutouts, Path, Slot
+from placemat.layout import Board, PlacementCollision
+from placemat.occupancy import Occupancy
+from placemat.placement import Placement
+from placemat.values import (Box, Centre, CopperLayer, Face, Location, Net, OnRim, Part, X, Y)
+from tests.conftest import needs_kicad
+from tests.fixtures import board_geometry, footprint
 
 
 def loop_of(shape, at, rotation=0.0):
@@ -53,12 +56,6 @@ def test_a_slot_and_a_circle_take_an_anchor_too():
     assert min(q[1] for q in loop) == pytest.approx(20.0, abs=0.02)
 
 
-from placemat.occupancy import Occupancy
-from placemat.placement import Placement
-from placemat.values import Face, Part
-from tests.fixtures import board_geometry, footprint
-
-
 def _occ(*insts):
     fps = [footprint(i.upper(), 10.0 + n * 8.0, 10.0, w=4.0, h=4.0, inst=i, nets=("SIG", "GND"))
            for n, i in enumerate(insts)]
@@ -102,10 +99,6 @@ def test_a_box_reservation_still_works():
     g, occ = _occ("u1")
     occ.reserve(Box(40.0, 40.0, 50.0, 50.0), "a label")
     assert occ.legal(g.footprints[0], Placement(Location(10.0, 10.0), 0.0, Face.FRONT)) is None
-
-
-from placemat.layout import Board, PlacementCollision
-from placemat.values import Centre, Net, OnRim, X, Y
 
 
 def make_board(*insts, margin=0.5, keep_going=False):
@@ -178,9 +171,6 @@ def test_a_keepout_and_a_free_placement_coexist():
     b.place(Part("u1"), at=OnRim())
     plan = b.resolve()
     assert not plan.findings, plan.findings
-
-
-from tests.conftest import needs_kicad
 
 
 def _rule_areas(plan, copper_layers=4):

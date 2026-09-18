@@ -212,7 +212,8 @@ board.place(J, at=OnEdge(board.cutout("ffc").edge(side=Edge.NORTH), along=Along.
 tip to tip, the way a drawing dimensions it, and runs along +X until a
 `rotation=` bearing turns it. `Circle(diameter)` is a round hole and refuses a
 rotation. `Path(points)` is any closed path, moved so its box centre lands
-where it is placed. `at=` takes `Location`, `Centre`, `Polar`, `OnEdge` or
+where it is placed; `anchor=` on any shape names the point of it that lands on
+the place instead. `at=` takes `Location`, `Centre`, `Polar`, `OnEdge` or
 `Near`, and a freedom left in it is settled against what is on the board: a
 vent with `at=Centre(None, 20.0)` slides along that line to where there is
 room. A raw path in `holes=` still works and means "already absolute, place
@@ -242,7 +243,8 @@ a list from `.edges()`. The handle also carries `.box`, `.centre`, `.area` and
 
 **What a cutout is not.** It is not a stretch of the board's edge:
 `board.edge(facing=)` reads the outline only. It is not a copper keepout: it
-is a real board edge, so tracks and zones must clear it themselves.
+is a real board edge, so tracks and zones must clear it themselves. A region
+that must stay clear of copper WITHOUT removing board is a keepout (below).
 
 **The web.** `board.web` is the least material that may remain round a hole -
 to the board outline, and to another hole. `board.keep_in` is copper to edge
@@ -250,6 +252,52 @@ and says where a part may sit; `board.web` is material to material and says
 where a hole may sit. A cutout that would leave less is refused, and one that
 touches the outline is refused as a notch, which belongs in the board's own
 outline path instead. The default is 0.0, which means unchecked.
+
+## Keepouts
+
+A region that forbids, as against a cutout, which removes board.
+
+```python
+board.keepout(shape, name, *, at, rotation=None, excludes=None,
+              allow=(), layers=None, why="")
+```
+
+```python
+CLEARANCE = Path(ACAG0301_FIGURE, anchor=(0.0, 0.0))   # the datasheet's own coordinates
+
+board.keepout(CLEARANCE, "antenna", at=PadRef(Part("ant"), "ANT_FEED"),
+              allow=(Part("ant"), Part("r_ant_series"), Net("ANT_FEED")),
+              why="ACAG0301 datasheet p1 Layout: copper-free on every layer")
+```
+
+**The shape and the place** are a cutout's: `Slot`, `Circle`, `Path`, and `at=`
+taking `Location`, `Centre`, `Polar`, `OnEdge`, `Near` or a `PadRef`. A freedom
+left in `at=` settles against what is on the board. `anchor=` is the point of
+the shape that lands on `at=`; without one it is the middle of the shape's box,
+which is right for a slot and meaningless for a stepped clearance.
+
+**What it forbids.** `excludes=` defaults to everything and narrows to any of
+`"parts"`, `"fill"`, `"tracks"`, `"vias"`, `"pads"`. Each is one KiCad
+rule-area flag, and `"parts"` is what the placer enforces itself, before
+anything is written.
+
+**Where.** `layers=` defaults to every copper layer the board has, whatever the
+count. Narrow it with a list of `CopperLayer`.
+
+**What may enter.** `allow=` takes parts and nets, and they mean different
+things: a `Part` or `Cell` may SIT inside, a `Net` may RUN through. Naming a
+net does not admit the parts that carry it, which is the point - an antenna's
+clearance holds its own matching network and every one of those parts carries
+GND.
+
+**When it is settled.** With the firm items, in dependency order, so a
+clearance placed from a connector waits for that connector. A keepout placed
+from a searched item is refused, naming it.
+
+**What it costs.** `board.plane()` is untouched: the rule area keeps the fill
+out, and DRC and the router judge by it. A `pour`, `track` or `via` crossing a
+keepout is a finding, because each keeps exactly the shape or the position it
+was given.
 
 ## Boards of any shape
 

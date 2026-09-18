@@ -275,8 +275,26 @@ coordinates nobody chose.
   your own (a "corridor", a "column", a "bank") where it first appears, in
   terms of what is on the board. A comment and the run log must mean the
   same thing by the same word.
-- Keep a corridor open by not placing in it; reservations are for copper the
-  script has not drawn yet, not for space you like.
+- A region that forbids is `board.keepout(shape, name, at=, why=)`, taking the
+  same shape and place vocabulary as a cutout. By default nothing may sit,
+  fill, route, via or pad there on any copper layer the board has;
+  `excludes=` narrows what and `layers=` narrows where. A hole in the board is
+  a cutout in `holes=`; a region that stays copper but forbids is a keepout.
+  The line between them is whether the board is still there.
+- What a region is FOR is said in `allow=`: the parts that belong inside it,
+  the nets that may run through it. An antenna's clearance holds its own
+  matching network, and that is said by naming those PARTS - allowing their
+  nets would admit every part that carries GND. A keepout says `why` for the
+  same reason a rule does: a region nobody can justify is one nobody can move.
+- A clearance that comes from a datasheet is transcribed in the datasheet's
+  own coordinates, anchored with `anchor=` at the feature its figure is built
+  around, and placed on the real pad (`at=PadRef(Part("ant"), "ANT_FEED")`).
+  It then follows the part. A clearance typed as board coordinates is a stale
+  number the moment the part moves.
+- `board.plane()` needs nothing from a keepout: it is written as a KiCad rule
+  area and the filler keeps the plane out of it. A `pour`, a `track` and a
+  `via` go exactly where they are put, so one crossing a keepout is a
+  finding.
 
 ## When a track or a placement fails
 
