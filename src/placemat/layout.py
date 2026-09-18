@@ -471,7 +471,7 @@ class Board:
         self.clearance = clearance
         self.via_drill, self.via_size = via_drill, via_size
         self.keep_going = keep_going            # carry on past colliding FIXED/EDGE items, as findings
-        self._intents: list[PlaceIntent] = []
+        self._intents: list = []            # placements and cutouts: one queue, ordered by needs
         self._weights: dict = {}
         self._copper: list[CopperIntent] = []
         self._labels: list = []
@@ -1308,7 +1308,7 @@ class Board:
 
     def _is_searched(self, refdes: str) -> bool:
         fp = self.geometry.footprint(refdes)
-        for i in self._intents:
+        for i in self._placements():
             if i.priority not in (Priority.FIXED, Priority.EDGE) and (i.key == fp.inst or (i.kind == "cell" and fp.cell == i.key)):
                 return True
         return False
@@ -1627,9 +1627,7 @@ class Board:
     def resolve(self, progress=None) -> Plan:
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
                         board_cutouts=self._cutouts)
-        for intent in self._intents:
-            if isinstance(intent, CutoutIntent):
-                continue                    # a hole is not an item: nothing of it is an obstacle
+        for intent in self._placements():
             declared = [intent.item.anchor] + [fp for fp, _ in intent.item.satellites] if intent.kind == "block" else [intent.item]
             for item in declared:
                 occ.pending |= occ._geometry(item).owners
@@ -1638,7 +1636,7 @@ class Board:
                     rules=list(self._rules), draw_outline=self._draw_outline)
         ctx = _CopperContext(self, occ)
         self._weigh(occ)
-        placements = sorted(self._intents, key=lambda i: i.rank)
+        placements = sorted(self._intents, key=lambda i: i.rank)   # holes included: they are placed too
         fixed_copper = [c for c in self._copper if c.priority is Priority.FIXED]
         other_copper = [c for c in self._copper if c.priority is not Priority.FIXED]
         placed: set = set()
@@ -1776,12 +1774,20 @@ class Board:
             i.face.value, len(tried)))
         return Step(i.key, i.kind, i.priority, None, 0.0, "UNPLACED: no pocket fits", i.why)
 
+    def _placements(self) -> list:
+        """The item placements among the intents.
+
+        A cutout shares the queue with them, because it is ordered by the
+        same `needs`, but it is not an item: it has no footprint, no
+        rotation and no bearing of its own. Anything reading what an item
+        declared - which fellows share its edge, its ring or its axis - asks
+        for this, never for `_intents`."""
+        return [i for i in self._intents if not isinstance(i, CutoutIntent)]
+
     def _declared_refs(self) -> set:
         """Every refdes a placement declaration covers."""
         out = set()
-        for i in self._intents:
-            if isinstance(i, CutoutIntent):
-                continue                    # a hole has no refdes
+        for i in self._placements():
             parts = [i.item.anchor] + [fp for fp, _ in i.item.satellites] if i.kind == "block" else \
                 (list(i.item.members) if i.kind == "cell" else [i.item])
             out |= {fp.ref for fp in parts}
@@ -1908,8 +1914,7 @@ class Board:
         it to other declared items, and how many parts it holds. The reason
         is kept for the step."""
         self._weights: dict = {}
-        searched = [i for i in self._intents if i.priority not in (Priority.FIXED, Priority.EDGE)
-                    and not isinstance(i, CutoutIntent)]     # a hole is not weighed: it goes before the parts
+        searched = [i for i in self._placements() if i.priority not in (Priority.FIXED, Priority.EDGE)]
         if not searched:
             return
         declared = self._declared_refs()
@@ -1980,7 +1985,7 @@ class Board:
         value, and slides along it to the nearest legal spot."""
         axis = "x" if i.pin_x is not None else "y"
         pinned = _coord(self, occ, i.pin_x if axis == "x" else i.pin_y, axis)
-        fellows = [o for o in self._intents if (o.pin_x if axis == "x" else o.pin_y) is not None
+        fellows = [o for o in self._placements() if (o.pin_x if axis == "x" else o.pin_y) is not None
                    and (o.pin_x if axis == "x" else o.pin_y) == (i.pin_x if axis == "x" else i.pin_y)]
         k, n = fellows.index(i), len(fellows)
         box = occ.board_box
@@ -2007,7 +2012,7 @@ class Board:
         """Where a free edge item would like to be: the edge's free items
         share it evenly, the k-th of n at (k + 1) / (n + 1) of the usable
         length, so one alone sits at the midpoint."""
-        fellows = [x for x in self._intents if x.edge is i.edge and x.along is None
+        fellows = [x for x in self._placements() if x.edge is i.edge and x.along is None
                    and x.priority not in (Priority.FIXED, Priority.EDGE)]
         k, n = fellows.index(i), len(fellows)
         box = occ.board_box
@@ -2030,7 +2035,7 @@ class Board:
         slot, its reach at the keep-in, turned to the way the board faces
         wherever it lands."""
         run = i.run
-        fellows = [x for x in self._intents if x.run is i.run and x.along is None
+        fellows = [x for x in self._placements() if x.run is i.run and x.along is None
                    and x.priority not in (Priority.FIXED, Priority.EDGE)]
         k, n = fellows.index(i), max(len(fellows), 1)
         ideal = run.length * (k + 1) / (n + 1)
@@ -2046,7 +2051,7 @@ class Board:
         """Where a free item on a rim or a ring would like to be: everything
         sharing that circle divides the turn evenly, the k-th of n at k/n of
         it from the top, so one alone sits at the top."""
-        fellows = [x for x in self._intents if x.angle is None
+        fellows = [x for x in self._placements() if x.angle is None
                    and (x.rim, x.radius_at, x.about) == (i.rim, i.radius_at, i.about)
                    and x.priority not in (Priority.FIXED, Priority.EDGE)]
         k, n = fellows.index(i), max(len(fellows), 1)

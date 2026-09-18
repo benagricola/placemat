@@ -514,3 +514,54 @@ def test_an_outline_still_carries_its_own_holes():
     assert o.area == pytest.approx(math.pi * 400.0 - SLOT_AREA, rel=0.005)
     assert o.why_not(Box(18.0, 26.0, 22.0, 30.0), 0.5) == "inside a cutout"
     assert o.why_not(Box(18.0, 8.0, 22.0, 12.0), 0.5) is None
+
+
+# ------------------------------------ a cutout shares the queue with items
+# A cutout is ordered by the same `needs` as a placement, so it lives in the
+# same intent list. Everything that reads an ITEM's own position - which
+# fellows share its edge, its ring, its axis - must therefore not see one.
+FREE_PLACES = [
+    ("a free bearing on the rim", lambda b: b.place(Part("u1"), at=OnRim())),
+    ("a free place on the bore", lambda b: b.place(Part("u1"), at=OnBore())),
+    ("a free radius on a ring", lambda b: b.place(Part("u1"), at=Polar(12.0))),
+    ("a free spoke", lambda b: b.place(Part("u1"), at=Polar(None, Edge.EAST))),
+]
+
+
+@pytest.mark.parametrize("name,place", FREE_PLACES, ids=[p[0] for p in FREE_PLACES])
+def test_a_free_item_shares_a_disc_with_a_cutout(name, place):
+    b = make_board("u1")
+    b.disc(diameter=40.0, hole=6.0,
+           holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 31.0), why="airflow")])
+    place(b)
+    plan = b.resolve()
+    assert not plan.findings, plan.findings
+    assert plan.cutouts_placed["vent"].centre == Location(20.0, 31.0)
+
+
+def test_a_free_edge_item_shares_a_rectangle_with_a_cutout():
+    b = make_board("u1", "d1")
+    b.size(width=40.0, height=40.0,
+           holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 20.0), why="airflow")])
+    b.place(Part("u1"), at=OnEdge(Edge.NORTH))          # free along the edge
+    b.place(Part("d1"), at=OnEdge(Edge.NORTH))          # and its fellow
+    plan = b.resolve()
+    assert not plan.findings, plan.findings
+    assert plan.box("u1").center.x != plan.box("d1").center.x       # they shared the edge
+
+
+def test_a_free_run_item_shares_a_shaped_board_with_a_cutout():
+    b = make_board("u1")
+    b.outline(Circle(40.0), holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 31.0), why="airflow")])
+    b.place(Part("u1"), at=OnEdge(b.edge(facing=Edge.NORTH)))       # free along the run
+    plan = b.resolve()
+    assert not plan.findings, plan.findings
+
+
+def test_a_free_pinned_axis_shares_a_board_with_a_cutout():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0,
+           holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 31.0), why="airflow")])
+    b.place(Part("u1"), at=Centre(20.0, None))          # x pinned, y free
+    plan = b.resolve()
+    assert not plan.findings, plan.findings
