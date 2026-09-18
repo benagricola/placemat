@@ -102,3 +102,79 @@ def test_a_box_reservation_still_works():
     g, occ = _occ("u1")
     occ.reserve(Box(40.0, 40.0, 50.0, 50.0), "a label")
     assert occ.legal(g.footprints[0], Placement(Location(10.0, 10.0), 0.0, Face.FRONT)) is None
+
+
+from placemat.layout import Board, PlacementCollision
+from placemat.values import Centre, Net, OnRim, X, Y
+
+
+def make_board(*insts, margin=0.5, keep_going=False):
+    fps = [footprint(i.upper(), 50.0, 3.0 + n * 6.0, w=4.0, h=4.0, inst=i, nets=("SIG", "GND"))
+           for n, i in enumerate(insts)]
+    return Board(board_geometry(fps, width=60, height=60), edge_margin=margin, keep_going=keep_going)
+
+
+def test_a_part_may_not_sit_in_a_keepout():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), why="the clearance")
+    b.place(Part("u1"), at=Location(20.0, 20.0))
+    with pytest.raises(PlacementCollision, match="antenna"):
+        b.resolve()
+
+
+def test_a_part_named_in_allow_may():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0),
+              allow=(Part("u1"),), why="its own matching network lives here")
+    b.place(Part("u1"), at=Location(20.0, 20.0))
+    plan = b.resolve()
+    assert not plan.findings, plan.findings
+    assert plan.box("u1").center == Location(20.0, 20.0)
+
+
+def test_a_keepout_is_placed_from_the_part_it_serves():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(6.0), "antenna", at=Centre(X(Part("u1")), Y(Part("u1"), 6.0)),
+              why="the clearance sits inboard of the antenna")
+    b.place(Part("u1"), at=Location(20.0, 10.0))
+    plan = b.resolve()
+    assert plan.keepouts["antenna"].centre == Location(20.0, 16.0)
+
+
+def test_a_keepout_from_a_searched_part_is_refused():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(6.0), "antenna", at=Centre(X(Part("u1")), Y(Part("u1"), 6.0)), why="a")
+    b.place(Part("u1"))
+    with pytest.raises(ValueError, match="only FIXED and EDGE"):
+        b.resolve()
+
+
+def test_two_keepouts_may_not_share_a_name():
+    b = make_board()
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(4.0), "a", at=Location(10.0, 10.0), why="x")
+    with pytest.raises(ValueError, match="already a keepout named"):
+        b.keepout(Circle(4.0), "a", at=Location(30.0, 10.0), why="y")
+
+
+def test_a_keepout_says_why():
+    b = make_board()
+    b.size(width=40.0, height=40.0)
+    with pytest.raises(ValueError, match="why"):
+        b.keepout(Circle(4.0), "a", at=Location(10.0, 10.0))
+
+
+def test_a_keepout_and_a_free_placement_coexist():
+    """The 0.4.18 defect, one region type later: a keepout shares the intent
+    list with the placements, so everything that reads what an ITEM declared
+    must not see one."""
+    b = make_board("u1")
+    b.disc(diameter=40.0)
+    b.keepout(Circle(4.0), "antenna", at=Location(20.0, 30.0), why="a")
+    b.place(Part("u1"), at=OnRim())
+    plan = b.resolve()
+    assert not plan.findings, plan.findings

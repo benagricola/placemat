@@ -21,7 +21,7 @@ from .outline import Outline, Run, rect_outline
 from .placement import Placement
 from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import CellGeom, Footprint, BoardGeometry
-from .values import (Cutout, CutoutEdge, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Cutout, CutoutEdge, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -222,6 +222,37 @@ def cutout_token(name: str) -> str:
     return "cutout:%s" % name
 
 
+@dataclass(frozen=True)
+class PlacedKeepout:
+    """A region once it has a position: what it forbids, where, and to whom."""
+    name: str
+    poly: tuple
+    centre: Location
+    rotation: float
+    excludes: tuple
+    layers: tuple | None
+    allow: frozenset
+    owners: frozenset
+    why: str
+
+
+@dataclass
+class KeepoutIntent:
+    """A region waiting for its place. It sits in the firm queue with the
+    parts and the cutouts, so `needs` orders it against whatever its place
+    refers to."""
+    key: str
+    keepout: object
+    why: str = ""
+    index: int = 0
+    needs: frozenset = frozenset()
+    priority: Priority = Priority.FIXED
+
+    @property
+    def rank(self):
+        return (RANK_FIXED, self.index)
+
+
 @dataclass
 class CutoutIntent:
     """A hole waiting for its place. It sits in the firm queue with the
@@ -376,6 +407,7 @@ class Plan:
     shape: object | None = None         # the board when it is not a rectangle: a Disc or an Outline
     cutouts: object = field(default_factory=lambda: Cutouts())   # a rectangle's holes, for Edge.Cuts
     cutouts_placed: dict = field(default_factory=dict)           # every named cutout, once it has a place
+    keepouts: dict = field(default_factory=dict)                 # every named keepout, once it has a place
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -499,6 +531,7 @@ class Board:
         self._named_cutouts: dict = {}      # the cutouts a script named, in declaration order
         self._settled_cutouts: dict = {}    # those of them that already have a position
         self._cutout_loop_of: dict = {}     # name -> its loop index in _shaped()
+        self._keepouts: dict = {}           # the regions a script declared, by name
         self.web = 0.0                      # least material a hole may leave; 0: unchecked
         self._cached_outline = None         # this board as an outline, for reading runs off
         self._sized = False                 # the script has declared the board size
@@ -707,19 +740,34 @@ class Board:
             yield centre, (float(cutout.rotation) if cutout.rotation is not None
                            else self._implied_rotation(cutout, centre))
 
-    def _slide_cutout(self, occ, cutout):
-        """The first place its freedom allows where the hole is legal. When
+    def _slide_cutout(self, occ, region, illegal=None):
+        """The first place its freedom allows where the region is legal. When
         none is, the reason given is the one nearest its ideal - what stopped
         it where it wanted to be, not what stopped it at the far end of its
-        travel, which is almost always just the board's edge."""
+        travel, which is almost always just the board's edge.
+
+        `illegal` is the test, because a hole's legality is not a keepout's: a
+        region may touch the board edge and may lie over a part it allows."""
+        if illegal is None:
+            def illegal(path):
+                return self._cutout_illegal(occ, path, region.name)
         nearest = None
-        for centre, turn in self._cutout_candidates(occ, cutout):
-            why = self._cutout_illegal(occ, cutout.shape.path_at(centre, turn), cutout.name)
+        for centre, turn in self._cutout_candidates(occ, region):
+            why = illegal(region.shape.path_at(centre, turn))
             if why is None:
                 return centre, turn
             if nearest is None:
                 nearest = why
         raise ValueError("has nowhere legal to go: %s" % (nearest or "nowhere on the board"))
+
+    def _keepout_illegal(self, occ, path) -> str | None:
+        """A region may sit anywhere on the board. It may not reach off it: a
+        keepout over nothing forbids nothing, and is a script error."""
+        shape = self._shaped()
+        for x, y in Cutouts([path]).loops[0]:
+            if shape.why_not(Box(x, y, x, y), 0.0) == "outside the board":
+                return "reaches outside the board"
+        return None
 
     def _implied_rotation(self, cutout, centre: Location) -> float:
         """Which way a shape runs when the script did not say. A place that
@@ -786,6 +834,28 @@ class Board:
         in declaration order, so the index names one directly."""
         order = list(self._named_cutouts)
         return "cutout %r" % order[n] if 0 <= n < len(order) else "an unnamed cutout"
+
+    def keepout(self, shape, name: str, *, at, rotation: float | None = None,
+                excludes=None, allow=(), layers=None, why: str = "") -> KeepoutIntent:
+        """A region that forbids. By default nothing may sit, fill, route, via
+        or pad there on any copper layer the board has; `excludes` narrows
+        what and `layers` narrows where. `allow` names the parts that may sit
+        inside and the nets that may run through, which are different things:
+        an antenna's clearance holds its own matching network, and naming
+        those parts' nets would admit every part that shares one."""
+        if name in self._keepouts:
+            raise ValueError("there is already a keepout named %r on this board" % name)
+        k = Keepout(shape, name, at, rotation,
+                    tuple(excludes) if excludes is not None
+                    else ("parts", "fill", "tracks", "vias", "pads"),
+                    tuple(allow),
+                    None if layers is None else tuple(CopperLayer.of(l) for l in layers), why)
+        self._keepouts[name] = k
+        needs = frozenset(self._pad_ref(r)[0] for r in _refs_in([at]))
+        firm = Priority.FIXED if not self._cutout_free(k) else Priority.DEFAULT
+        intent = KeepoutIntent("keepout %s" % name, k, why, len(self._intents), needs, firm)
+        self._intents.append(intent)
+        return intent
 
     def cutout(self, name: str) -> CutoutHandle:
         """A named cutout, so something can be placed against its boundary."""
@@ -1685,7 +1755,40 @@ class Board:
             plan.steps.append(step)
             placed.add(cutout_token(c.name))
 
+        def settle_keepout(intent):
+            """A region takes its place like a hole does, then forbids."""
+            k = intent.keepout
+            if self._cutout_free(k):
+                try:
+                    centre, turn = self._slide_cutout(
+                        occ, k, illegal=lambda path: self._keepout_illegal(occ, path))
+                    why = None
+                except ValueError as e:
+                    centre, turn, why = self.centre, 0.0, str(e)
+            else:
+                centre = self._cutout_centre(occ, k)
+                turn = float(k.rotation) if k.rotation is not None else self._implied_rotation(k, centre)
+                why = self._keepout_illegal(occ, k.shape.path_at(centre, turn))
+            step = Step(intent.key, "keepout", Priority.FIXED, why=intent.why)
+            if why:
+                plan.findings.append("%s (keepout): %s" % (k.name, why))
+                step.note = why
+            else:
+                poly = Cutouts([k.shape.path_at(centre, turn)]).loops[0]
+                nets = frozenset(self.geometry.require_net(a) for a in k.allow if isinstance(a, Net))
+                owners = frozenset(self._pad_ref(a)[0] for a in k.allow if isinstance(a, (Part, Cell)))
+                if "parts" in k.excludes:
+                    occ.reserve(poly, "keepout %r (%s)" % (k.name, k.why), allow=nets, owners=owners)
+                plan.keepouts[k.name] = PlacedKeepout(k.name, poly, centre, turn, k.excludes,
+                                                      k.layers, nets, owners, k.why)
+                step.note = "kept clear at %.2f, %.2f" % (centre.x, centre.y)
+            plan.steps.append(step)
+            placed.add(cutout_token(k.name))
+
         def place_one(obj, why_now=""):
+            if isinstance(obj, KeepoutIntent):
+                settle_keepout(obj)
+                return
             if isinstance(obj, CutoutIntent):
                 settle_cutout(obj)
                 return
@@ -1732,12 +1835,12 @@ class Board:
                                      "items may be referred to)" % (firm[0].key, ", ".join(sorted(firm[0].needs - placed))))
                 place_one(ready[0])
                 firm.remove(ready[0])
-            collisions = [f for f in plan.findings if f.split(" ")[1] in ("(fixed):", "(edge):", "(cutout):")]
+            collisions = [f for f in plan.findings if f.split(" ")[1] in ("(fixed):", "(edge):", "(cutout):", "(keepout):")]
             if collisions and not self.keep_going:
                 raise PlacementCollision(collisions)
             pending = [obj for obj in placements if lo <= obj.rank[0] <= hi
                        and obj.priority not in (Priority.FIXED, Priority.EDGE)]
-            for hole in [o for o in pending if isinstance(o, CutoutIntent)]:
+            for hole in [o for o in pending if isinstance(o, (CutoutIntent, KeepoutIntent))]:
                 pending.remove(hole)        # holes first: every part after one sees the board it left
                 place_one(hole)
             while pending:
@@ -1791,12 +1894,13 @@ class Board:
     def _placements(self) -> list:
         """The item placements among the intents.
 
-        A cutout shares the queue with them, because it is ordered by the
-        same `needs`, but it is not an item: it has no footprint, no
-        rotation and no bearing of its own. Anything reading what an item
-        declared - which fellows share its edge, its ring or its axis - asks
-        for this, never for `_intents`."""
-        return [i for i in self._intents if not isinstance(i, CutoutIntent)]
+        Regions - cutouts, keepouts - share the queue with them, because
+        they are ordered by the same `needs`, but they are not items: they
+        have no footprint, no rotation and no bearing of their own. Anything
+        reading what an item declared - which fellows share its edge, its
+        ring or its axis - asks for this, never for `_intents`. The test is
+        positive so that the next region type cannot fall through it."""
+        return [i for i in self._intents if isinstance(i, PlaceIntent)]
 
     def _declared_refs(self) -> set:
         """Every refdes a placement declaration covers."""

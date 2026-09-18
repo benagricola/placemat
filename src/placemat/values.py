@@ -528,6 +528,35 @@ class Cutout:
 
 
 @dataclass(frozen=True)
+class Keepout:
+    """A region that forbids: what it is (a shape), where it goes (`at`, the
+    same places a part takes), what may not happen there and what may.
+
+    A cutout removes board; a keepout leaves it and says what may not be put
+    there. The line between them is whether the board is still there."""
+    shape: object
+    name: str
+    at: object = None
+    rotation: float | None = None
+    excludes: tuple = ("parts", "fill", "tracks", "vias", "pads")
+    allow: tuple = ()
+    layers: tuple | None = None          # None: every copper layer the board has
+    why: str = ""
+
+    def __post_init__(self):
+        if not self.name or not str(self.name).strip():
+            raise ValueError("a keepout needs a name: it is how a finding names the region")
+        if self.at is None:
+            raise ValueError("keepout %r needs at=: where a region goes is not a guess" % (self.name,))
+        if not self.why:
+            raise ValueError("keepout %r says why: a region nobody can justify is one nobody can move"
+                             % (self.name,))
+        bad = [e for e in self.excludes if e not in ("parts", "fill", "tracks", "vias", "pads")]
+        if bad:
+            raise ValueError("a keepout excludes parts, fill, tracks, vias or pads, not %r" % (bad[0],))
+
+
+@dataclass(frozen=True)
 class Polar:
     """A place said as a radius and a bearing: the item's body centre
     `radius` from `about` (the board's centre unless another point is given)
