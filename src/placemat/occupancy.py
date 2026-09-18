@@ -34,10 +34,19 @@ class Shape:
 
 @dataclass(frozen=True)
 class Reservation:
-    box: Box
+    """A region nothing may sit in. `allow` are nets whose parts may, and
+    `owners` are refdes that may by name - an antenna's clearance holds its
+    own matching network, and naming the nets would admit every part that
+    shares one."""
+    poly: tuple
     why: str
     allow: frozenset[str]
     layer: CopperLayer | None       # None: both faces, any layer
+    owners: frozenset[str] = frozenset()
+
+    @property
+    def box(self) -> Box:
+        return Box.of_points(self.poly)
 
 
 @dataclass
@@ -226,8 +235,11 @@ class Occupancy:
         return owner
 
     # ------------------------------------------------------------ mutation
-    def reserve(self, box: Box, why: str, allow=(), layer: CopperLayer | None = None):
-        self.reservations.append(Reservation(box, why, frozenset(str(n) for n in allow), layer))
+    def reserve(self, region, why: str, allow=(), layer: CopperLayer | None = None, owners=()):
+        """Keep a region clear. `region` is a Box or a polygon."""
+        poly = box_polygon(region) if isinstance(region, Box) else tuple(tuple(p) for p in region)
+        self.reservations.append(Reservation(poly, why, frozenset(str(n) for n in allow),
+                                             layer, frozenset(str(o) for o in owners)))
 
     def commit(self, item, placement: Placement):
         """Record that `item` now sits at `placement`; later checks see it there."""
@@ -312,7 +324,10 @@ class Occupancy:
         for r in self.reservations:
             if r.layer is not None and r.layer.face not in faces:
                 continue                                   # reserved on the other face only
-            if r.box.overlaps(body) and not (geom.nets & r.allow):
+            if (geom.owners & r.owners) or (geom.nets & r.allow):
+                continue                                   # named, or carrying a net let through
+            # the box first because it is cheap, and the placer asks this tens of thousands of times
+            if r.box.overlaps(body) and polys_overlap(r.poly, box_polygon(body)):
                 return "sits in the reservation for %s" % r.why
         if others is None:
             others = self.obstacles(geom)

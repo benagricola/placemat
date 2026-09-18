@@ -51,3 +51,54 @@ def test_a_slot_and_a_circle_take_an_anchor_too():
     c = Circle(8.0, anchor=(0.0, -4.0))                  # its north point
     loop = loop_of(c, Location(20.0, 20.0))
     assert min(q[1] for q in loop) == pytest.approx(20.0, abs=0.02)
+
+
+from placemat.occupancy import Occupancy
+from placemat.placement import Placement
+from placemat.values import Face, Part
+from tests.fixtures import board_geometry, footprint
+
+
+def _occ(*insts):
+    fps = [footprint(i.upper(), 10.0 + n * 8.0, 10.0, w=4.0, h=4.0, inst=i, nets=("SIG", "GND"))
+           for n, i in enumerate(insts)]
+    g = board_geometry(fps, width=60, height=60)
+    occ = Occupancy(g, edge_margin=0.0, board_box=None)
+    for fp in fps:
+        occ.commit(fp, Placement(fp.location, 0.0, Face.FRONT))
+    return g, occ
+
+
+def test_a_reservation_can_be_a_polygon_not_just_a_box():
+    """An antenna clearance is a stepped polygon, and a box round it would
+    forbid board the datasheet allows."""
+    g, occ = _occ("u1")
+    # a C whose bite faces the part: a box would hit it and the polygon must not
+    occ.reserve([(6.0, 6.0), (14.0, 6.0), (14.0, 7.0), (8.0, 7.0),
+                 (8.0, 13.0), (14.0, 13.0), (14.0, 14.0), (6.0, 14.0)],
+                "the clearance")
+    fp = g.footprints[0]
+    assert occ.legal(fp, Placement(Location(11.0, 10.0), 0.0, Face.FRONT)) is None
+
+
+def test_a_part_in_a_reservation_is_refused_by_its_why():
+    g, occ = _occ("u1")
+    occ.reserve(Box(6.0, 6.0, 14.0, 14.0), "the clearance")
+    why = occ.legal(g.footprints[0], Placement(Location(10.0, 10.0), 0.0, Face.FRONT))
+    assert why is not None and "the clearance" in why
+
+
+def test_a_named_part_may_sit_in_a_reservation():
+    """An antenna's own matching network lives inside its clearance, and
+    those parts are named individually: allowing their NETS would admit
+    every part that carries GND."""
+    g, occ = _occ("u1")
+    occ.reserve(Box(6.0, 6.0, 14.0, 14.0), "the clearance", owners=("U1",))
+    assert occ.legal(g.footprints[0], Placement(Location(10.0, 10.0), 0.0, Face.FRONT)) is None
+
+
+def test_a_box_reservation_still_works():
+    """Labels reserve their own text box and must not change."""
+    g, occ = _occ("u1")
+    occ.reserve(Box(40.0, 40.0, 50.0, 50.0), "a label")
+    assert occ.legal(g.footprints[0], Placement(Location(10.0, 10.0), 0.0, Face.FRONT)) is None
