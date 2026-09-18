@@ -121,16 +121,62 @@ board.keepout(Circle(6.0), "m3_head", at=Location(4.0, 4.0),
 
 ### Layers
 
-A keepout covers **every copper layer the board has**, whatever the count.
-`LSET.AllCuMask(n)` is verified for 2, 6, 14 and 32 layers, so the writer asks
-the board for its layer count and never enumerates.
+A keepout covers **every copper layer the board has** by default, whatever the
+count, and `layers=` narrows it:
 
-This matters because `CopperLayer` has exactly four values (`F`, `IN1`, `IN2`,
-`B`) and is therefore a hard four-layer ceiling everywhere else in placemat.
-A keepout sidesteps it by not naming layers at all. The consequence, which is a
-documented limit rather than something this work fixes: a keepout narrowed to
-one named inner layer can only name `In1.Cu` or `In2.Cu`. Lifting the ceiling
-is separate work that touches pads, tracks, planes and the reader.
+```python
+board.keepout(SHAPE, "antenna", at=..., why=...)                  # all copper
+board.keepout(SHAPE, "under_the_shield", at=..., why=...,
+              layers=[CopperLayer.F])                             # the top only
+board.keepout(SHAPE, "cavity", at=..., why=...,
+              layers=[CopperLayer.F, CopperLayer.IN1])            # a stackup slice
+```
+
+The default never enumerates: the writer asks the board for its copper count
+and uses `LSET.AllCuMask(n)`, verified on 2, 6, 14 and 32 layers. A board with
+thirty layers gets a keepout on thirty layers without placemat naming any of
+them.
+
+`layers=` is a list of `CopperLayer`. That works today for `F`, `IN1`, `IN2`
+and `B`, and those are the only inner layers placemat can name. See the next
+section - a keepout narrowed to `In3.Cu` is not expressible until that is
+fixed, while the default all-layers keepout is unaffected.
+
+### What placemat does with more than four copper layers
+
+This is not a keepout problem and it is worse than a naming gap, so it is
+recorded here rather than left to be rediscovered.
+
+`CopperLayer` names four layers. Nothing enforces a limit, but both places that
+read layers from a board discard what they cannot name:
+
+- `read.py:39` `_copper_layers` catches the `ValueError` and continues;
+- `read.py:269` filters with `if board.GetLayerName(l) in {m.value for m in CopperLayer}`.
+
+Measured on a real 6-layer board carrying a track on `In1.Cu` and another on
+`In3.Cu`:
+
+```
+KiCad has:      F.Cu, In1.Cu, In2.Cu, In3.Cu, In4.Cu, B.Cu
+placemat sees:  F.Cu, In1.Cu, In2.Cu, B.Cu
+the In1 track:  read, on In1.Cu
+the In3 track:  read, with an EMPTY layer set
+```
+
+So a six-layer board loads, places, writes and reports clean while placemat is
+blind to two layers of copper, and an item on one of them belongs to no layer
+at all. That is silent wrong behaviour, not a refusal.
+
+**Recommendation: fix this first, as its own piece of work.** It is small. Of
+fifty `CopperLayer` references, only ten name a member and every one of those
+is `F` or `B`, which are bound to faces and stay named. `IN1` and `IN2` are
+never named in code - they only ever come out of `CopperLayer.of()`. So inner
+layers can become arbitrary, and the two filters above become errors instead of
+silent drops, without touching the rest.
+
+Keepouts do not depend on it: the default covers every layer through
+`AllCuMask` regardless. Only `layers=` narrowing to an inner layer above
+`In2.Cu` has to wait.
 
 ### What may enter
 
@@ -241,13 +287,73 @@ Test-first, each slice independently demonstrable.
    searched part it is refused; a free keepout slides. A keepout and a cutout
    and free placements coexist on one board - the 0.4.18 regression suite,
    extended.
-7. **The whole thing.** The fairing front board's antenna: clearance placed
+7. **Layers.** The default writes a rule area on every copper layer of a
+   2-layer and of a 6-layer board. `layers=[CopperLayer.F]` writes one layer.
+   A layer the board does not have is refused.
+8. **The whole thing.** The fairing front board's antenna: clearance placed
    from the antenna's feed pad, the matching network allowed inside, planes
    clipped on every layer, DRC clean, and `plane_outline()` deleted.
 
+## Documentation
+
+An agent learns placemat from the skill, so a feature that is not in the skill
+does not exist. The current skill does worse than omit keepouts: it tells an
+agent not to look for one.
+
+**`SKILL.md`, the script standard.** The line
+
+> Keep a corridor open by not placing in it; reservations are for copper the
+> script has not drawn yet, not for space you like.
+
+is deleted. It is now wrong in both halves - a corridor kept open by not
+placing in it is exactly what a keepout is for, and reservations are no longer
+an internal thing about undrawn copper. Three bullets replace it:
+
+- a keepout is `board.keepout(shape, name, at=, why=)`, taking the same shape
+  and place vocabulary as a cutout, and by default nothing may sit, fill,
+  route, via or pad there on any layer;
+- what a region is FOR is said in `allow=`: parts that belong inside it, nets
+  that may run through it. An antenna's clearance holds its own matching
+  network, and that is said by naming those parts, not by allowing their nets;
+- a keepout is a rule, not board shape. A hole in the board is a cutout in
+  `holes=`; a region that stays copper but forbids is a keepout. The line
+  between them is whether the board is still there.
+
+It also gains the rule that matters most in practice: **a clearance that comes
+from a datasheet is transcribed in the datasheet's own coordinates and anchored
+at the feature its figure is organised around**, then placed on the real pad,
+so it follows the part. A clearance typed as board coordinates is a stale
+number the moment the part moves.
+
+**`references/api.md`.** A `## Keepouts` section after `## Cutouts`, since they
+share the shape vocabulary and a reader arriving at one wants the other. It
+carries: the signature; the five `excludes=` names against what each forbids;
+`layers=` and the all-layers default; `allow=` for parts and for nets, and why
+those differ; `anchor=`; and the worked ACAG0301 example, which is the case the
+whole feature exists for. The `## Setup` list gains nothing - a keepout is not
+a board declaration.
+
+Two sentences elsewhere in `api.md` need correcting because they are about to
+become wrong:
+
+- the `## Cutouts` section says a cutout "is not a copper keepout: it is a real
+  board edge, so tracks and zones must clear it themselves". That stays true,
+  but gains a pointer: a region that must stay clear of copper without removing
+  board is a keepout.
+- the shape vocabulary in `## Cutouts` gains `anchor=`, since shapes are shared.
+
+**What the skill must NOT say.** It should not present a keepout as a way to
+reserve space for work an agent has not done yet. That was the old line's
+failure mode in the other direction, and it is how a board ends up with regions
+nobody can justify. Every keepout carries a `why` for the same reason a rule
+does, and the skill says so.
+
 ## Out of scope
 
-- **Lifting the four-layer `CopperLayer` ceiling.** A keepout does not need it.
+- **Making inner copper layers arbitrary.** Recommended above as its own
+  piece of work, and independent of this one: the all-layers default already
+  covers any stackup. Only `layers=` narrowing to an inner layer above
+  `In2.Cu` waits on it.
 - **Clipping a `Pour`.** Reported, not reshaped, by decision.
 - **Keepouts with holes, or disjoint keepouts.** One closed loop each.
 - **Non-copper keepouts** (courtyard, silk). Nothing asks for them yet.
