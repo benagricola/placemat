@@ -92,6 +92,44 @@ def _draw_path(board, path):
             here = _xy(piece)
 
 
+_KEEPOUT_FLAGS = {"parts": "SetDoNotAllowFootprints", "fill": "SetDoNotAllowZoneFills",
+                  "tracks": "SetDoNotAllowTracks", "vias": "SetDoNotAllowVias",
+                  "pads": "SetDoNotAllowPads"}
+
+
+def _layer_set(board, layers):
+    out = pcbnew.LSET()
+    for layer in layers:
+        out.addLayer(board.GetLayerID(layer.value))
+    return out
+
+
+def _draw_keepouts(board, plan):
+    """A KiCad rule area per keepout. KiCad's own filler keeps a zone out of
+    one, and DRC and the router judge by it, so a region declared once is
+    honoured by everything downstream without placemat clipping anything.
+
+    The layer set comes from the board's own copper count, so a keepout
+    covers a two-layer board and a thirty-two-layer one alike without naming
+    a layer."""
+    for z in list(board.Zones()):
+        if z.GetIsRuleArea():
+            board.Delete(z)                 # a rerun replaces them, never doubles them
+    for k in plan.keepouts.values():
+        z = pcbnew.ZONE(board)
+        z.SetIsRuleArea(True)
+        z.SetLayerSet(pcbnew.LSET.AllCuMask(board.GetCopperLayerCount()) if k.layers is None
+                      else _layer_set(board, k.layers))
+        for name, setter in _KEEPOUT_FLAGS.items():
+            getattr(z, setter)(name in k.excludes)
+        o = z.Outline()
+        o.NewOutline()
+        for x, y in k.poly:
+            o.Append(nm(x), nm(y))
+        z.SetZoneName("keepout %s" % k.name)
+        board.Add(z)
+
+
 def _draw_outline(board, plan: Plan):
     if not plan.draw_outline:
         return                       # a frame for placement only: Edge.Cuts is left exactly as it was
@@ -445,6 +483,7 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
         elif isinstance(item, CellGeom):
             _move_cell(board, item, step.placement, groups)
     _draw_outline(board, plan)
+    _draw_keepouts(board, plan)
     draw_copper(board, plan.copper)
     out = str(out_path or pcb_path)
     save(board, out)

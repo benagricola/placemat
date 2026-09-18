@@ -178,3 +178,94 @@ def test_a_keepout_and_a_free_placement_coexist():
     b.place(Part("u1"), at=OnRim())
     plan = b.resolve()
     assert not plan.findings, plan.findings
+
+
+from tests.conftest import needs_kicad
+
+
+def _rule_areas(plan, copper_layers=4):
+    """Apply a plan's keepouts to an empty board and hand back its rule areas."""
+    import pcbnew
+    from placemat.kicad.write import _draw_keepouts
+    b = pcbnew.CreateEmptyBoard()
+    b.SetCopperLayerCount(copper_layers)
+    _draw_keepouts(b, plan)
+    return [z for z in b.Zones() if z.GetIsRuleArea()]
+
+
+@needs_kicad
+def test_a_keepout_writes_a_rule_area_on_every_copper_layer():
+    b = make_board()
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(8.0), "antenna", at=Location(20.0, 20.0), why="the clearance")
+    plan = b.resolve()
+    for n in (2, 6, 32):
+        (z,) = _rule_areas(plan, copper_layers=n)
+        assert len(list(z.GetLayerSet().Seq())) == n
+        assert z.GetDoNotAllowZoneFills() and z.GetDoNotAllowTracks()
+        assert z.GetDoNotAllowVias() and z.GetDoNotAllowPads()
+        assert z.GetDoNotAllowFootprints()
+
+
+@needs_kicad
+def test_excludes_narrows_what_the_rule_area_forbids():
+    b = make_board()
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(8.0), "screw", at=Location(20.0, 20.0),
+              excludes=("parts",), why="the screw head sweeps here")
+    (z,) = _rule_areas(b.resolve())
+    assert z.GetDoNotAllowFootprints()
+    assert not z.GetDoNotAllowZoneFills() and not z.GetDoNotAllowTracks()
+
+
+@needs_kicad
+def test_layers_narrows_where():
+    import pcbnew
+    b = make_board()
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(8.0), "shield", at=Location(20.0, 20.0),
+              layers=[CopperLayer.F], why="under the can")
+    (z,) = _rule_areas(b.resolve(), copper_layers=6)
+    assert list(z.GetLayerSet().Seq()) == [pcbnew.F_Cu]
+
+
+@needs_kicad
+def test_a_plane_fills_round_a_keepout():
+    """The whole reason planes need no clipping: KiCad's filler honours the
+    rule area, so board.plane() is untouched by this feature."""
+    import pcbnew
+    from placemat.kicad.write import _draw_keepouts
+    b = pcbnew.CreateEmptyBoard()
+    b.SetCopperLayerCount(2)
+    net = pcbnew.NETINFO_ITEM(b, "GND")
+    b.Add(net)
+
+    def vec(x, y):
+        return pcbnew.VECTOR2I(int(x * 1e6), int(y * 1e6))
+
+    for a, c in (((0, 0), (40, 0)), ((40, 0), (40, 40)), ((40, 40), (0, 40)), ((0, 40), (0, 0))):
+        s = pcbnew.PCB_SHAPE(b, pcbnew.SHAPE_T_SEGMENT)
+        s.SetLayer(pcbnew.Edge_Cuts)
+        s.SetWidth(100000)
+        s.SetStart(vec(*a))
+        s.SetEnd(vec(*c))
+        b.Add(s)
+    z = pcbnew.ZONE(b)
+    z.SetLayer(pcbnew.F_Cu)
+    z.SetNetCode(net.GetNetCode())
+    z.SetIsRuleArea(False)
+    z.SetMinThickness(200000)
+    o = z.Outline()
+    o.NewOutline()
+    for x, y in ((1, 1), (39, 1), (39, 39), (1, 39)):
+        o.Append(vec(x, y).x, vec(x, y).y)
+    b.Add(z)
+
+    board = make_board()
+    board.size(width=40.0, height=40.0)
+    board.keepout(Path([(-6.0, -6.0), (6.0, -6.0), (6.0, 6.0), (-6.0, 6.0)]),
+                  "antenna", at=Location(31.0, 31.0), why="the clearance")
+    _draw_keepouts(b, board.resolve())
+    pcbnew.ZONE_FILLER(b).Fill(b.Zones())
+    filled = z.GetFilledPolysList(pcbnew.F_Cu).Area() / 1e12
+    assert filled == pytest.approx(38.0 * 38.0 - 12.0 * 12.0, rel=0.02)
