@@ -1,6 +1,6 @@
 [project]
 name = "placemat"
-version = "0.2.0-dev"
+dynamic = ["version"]
 description = "Deterministic PCB layout intent and position scanning"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -18,6 +18,9 @@ placemat = "placemat.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+
+[tool.hatch.version]
+path = "src/placemat/__init__.py"
 
 [build-system]
 requires = ["hatchling"]
