@@ -213,6 +213,15 @@ class PlacedCutout:
     rotation: float
 
 
+def cutout_token(name: str) -> str:
+    """What a cutout is called in the `needs`/`placed` bookkeeping. Those
+    sets hold refdes, and a cutout may perfectly well be named after the
+    part it serves, so its token is namespaced: otherwise a hole called
+    "U1" would tell everything waiting on the part U1 that it had been
+    placed, and they would resolve against where the generator left it."""
+    return "cutout:%s" % name
+
+
 @dataclass
 class CutoutIntent:
     """A hole waiting for its place. It sits in the firm queue with the
@@ -1105,7 +1114,7 @@ class Board:
             center, at = at, None
         needs = {self._pad_ref(ref)[0] for ref in _refs_in([at, center, along, pin_x, pin_y, near])}   # a real pad, placed before this
         if isinstance(at, OnEdge) and isinstance(at.edge, CutoutEdge):
-            needs.add(at.edge.name)                 # the hole is cut before anything is put against it
+            needs.add(cutout_token(at.edge.name))   # the hole is cut before anything is put against it
         if isinstance(along, _RowSlot):
             needs |= along.row.needs
         standoff = _standoff if _standoff is not None else (-float(overhang) if overhang else self.keep_in)
@@ -1669,7 +1678,7 @@ class Board:
                 plan.cutouts_placed[c.name] = self._settled_cutouts[c.name]
                 step.note = "cut at %.2f, %.2f facing %.0f" % (centre.x, centre.y, turn)
             plan.steps.append(step)
-            placed.add(c.name)
+            placed.add(cutout_token(c.name))
 
         def place_one(obj, why_now=""):
             if isinstance(obj, CutoutIntent):

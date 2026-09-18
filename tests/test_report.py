@@ -84,3 +84,24 @@ def test_a_run_id_is_a_short_hash_of_the_inputs():
     c = run_id(script_text="board.size(2, 1)\n", board_bytes=b"pcb", tool_version="0.2.0-dev")
     assert a == b and a != c
     assert len(a) == 8 and all(ch in "0123456789abcdef" for ch in a)
+
+
+def test_impact_says_when_a_cutout_moved():
+    """A hole is placed like an item and can move like one, so a change in
+    where the board is milled belongs in the impact the same way a part's
+    does. It is kept apart from the placements because it is not a part."""
+    a = _rec(cutouts={"ffc": {"x": 10.0, "y": 20.0, "rotation": 0.0}})
+    b = _rec(run_id="b", cutouts={"ffc": {"x": 10.0, "y": 24.0, "rotation": 90.0}})
+    text = impact(a, b)
+    assert "ffc" in text and "4.00 mm" in text and "rot 0 -> 90" in text
+
+
+def test_impact_says_when_a_cutout_appeared_or_went():
+    a = _rec(cutouts={"ffc": {"x": 10.0, "y": 20.0, "rotation": 0.0}})
+    b = _rec(run_id="b", cutouts={"vent": {"x": 5.0, "y": 5.0, "rotation": 0.0}})
+    text = impact(a, b)
+    assert "vent: new" in text and "ffc: gone" in text
+
+
+def test_impact_is_quiet_about_cutouts_when_there_are_none():
+    assert "cutout" not in impact(_rec(), _rec(run_id="b"))

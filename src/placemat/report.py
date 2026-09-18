@@ -15,6 +15,7 @@ class RunRecord:
     board: str
     status: str
     placements: dict = field(default_factory=dict)
+    cutouts: dict = field(default_factory=dict)      # where the board was milled, and which way each hole ran
     metrics: dict = field(default_factory=dict)
     findings: list = field(default_factory=list)
     steps: list = field(default_factory=list)
@@ -140,6 +141,23 @@ def impact(before: RunRecord, after: RunRecord) -> str:
             lines.append("  ... and %d more" % (len(moved) - 20))
     else:
         lines.append("placements: nothing moved")
+    cut = []
+    for key, now in after.cutouts.items():
+        was = before.cutouts.get(key)
+        if was is None:
+            cut.append("  %s: new at (%.2f, %.2f)" % (key, now["x"], now["y"]))
+            continue
+        d = math.hypot(now["x"] - was["x"], now["y"] - was["y"])
+        rot = "" if now.get("rotation") == was.get("rotation") else "  rot %g -> %g" % (
+            was.get("rotation", 0.0), now.get("rotation", 0.0))
+        if d > 1e-6 or rot:
+            cut.append("  %s: moved %.2f mm%s" % (key, d, rot))
+    for key in before.cutouts:
+        if key not in after.cutouts:
+            cut.append("  %s: gone" % key)
+    if cut:                                 # silent on a board with no holes
+        lines.append("cutouts: %d changed" % len(cut))
+        lines += cut[:10]
     a, b = before.metrics, after.metrics
     deltas = []
     for label, key, fmt, tol in (("unconnected", "unconnected", "%d", 0), ("airwire", "airwire_mm", "%.1f", 0.5),

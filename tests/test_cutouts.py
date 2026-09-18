@@ -565,3 +565,20 @@ def test_a_free_pinned_axis_shares_a_board_with_a_cutout():
     b.place(Part("u1"), at=Centre(20.0, None))          # x pinned, y free
     plan = b.resolve()
     assert not plan.findings, plan.findings
+
+
+def test_a_cutout_named_after_a_part_does_not_stand_in_for_it():
+    """`needs` and `placed` hold refdes. A hole may reasonably be named
+    after the part it serves, so its token is namespaced - otherwise a
+    cutout called U1 would tell everything waiting on the PART U1 that it
+    had been placed, and they would resolve against the position the
+    generator left it in."""
+    b = make_board("u1", "d1")
+    b.size(width=40.0, height=40.0,
+           holes=[Cutout(Circle(3.0), "U1", at=Centre(8.0, 8.0), why="named like the refdes")])
+    b.place(Part("d1"), at=Centre(X(Part("u1")), Y(Part("u1"), 6.0)))   # waits for the PART
+    b.place(Part("u1"), at=Location(20.0, 25.0))                        # declared after it
+    plan = b.resolve()
+    assert not plan.findings, plan.findings
+    assert plan.box("d1").center.y == pytest.approx(plan.box("u1").center.y + 6.0, abs=0.05)
+    assert plan.box("d1").center.x == pytest.approx(20.0, abs=0.05)

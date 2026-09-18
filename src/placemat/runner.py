@@ -247,6 +247,8 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
         rec.placements = {s.item: {"x": s.placement.location.x, "y": s.placement.location.y,
                                    "rotation": s.placement.rotation, "face": s.placement.face.value}
                           for s in plan.steps if s.placement is not None and s.kind != "block"}
+        rec.cutouts = {n: {"x": c.centre.x, "y": c.centre.y, "rotation": c.rotation}
+                       for n, c in plan.cutouts_placed.items()}
         rec.steps = [{"item": s.item, "kind": s.kind, "priority": s.priority.value, "note": s.note,
                       "why": s.why, "moved_mm": round(s.moved_mm, 3), "ops": s.ops} for s in plan.steps]
         rec.findings = list(plan.findings)
