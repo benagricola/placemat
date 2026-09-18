@@ -132,6 +132,17 @@ def _circle_local(r: float) -> list:
             Arc(to=(-r, 0.0), via=(-k, k)), Arc(to=(0.0, -r), via=(-k, -k))]
 
 
+def _about(local, anchor) -> list:
+    """`local`, moved so that `anchor` sits at the origin. With no anchor the
+    middle of the shape's box goes there, which is what a shape with no
+    feature worth naming wants."""
+    if anchor is None:
+        lo_x, lo_y, hi_x, hi_y = _box_of(local)
+        anchor = ((lo_x + hi_x) / 2.0, (lo_y + hi_y) / 2.0)
+    ax, ay = point(anchor)
+    return _turned(local, (-ax, -ay), 0.0)
+
+
 def _box_of(path) -> tuple:
     """The box round a declared path, flattening its arcs so a bulge counts."""
     loop = flatten_path(list(path))
@@ -145,9 +156,13 @@ class Slot:
     It runs along +X until a bearing turns it.
 
     Tip to tip is what a drawing dimensions and what callipers measure, so a
-    12.5 mm cable wants a 13 mm slot, not a 13 mm centre line."""
+    12.5 mm cable wants a 13 mm slot, not a 13 mm centre line.
+
+    `anchor` is the point of the shape that lands where it is placed, in the
+    shape's own coordinates; None is the middle of its box."""
     length: float
     width: float
+    anchor: tuple | None = None
     turns = True                             # a slot has a direction; a circle does not
 
     def __post_init__(self):
@@ -171,7 +186,7 @@ class Slot:
                 (-h, r), Arc(to=(-h, -r), via=(-h - r, 0.0))]
 
     def path_at(self, centre, rotation: float = 0.0) -> list:
-        return _turned(self._local(), centre, float(rotation))
+        return _turned(_about(self._local(), self.anchor), centre, float(rotation))
 
     def box_at(self, centre, rotation: float = 0.0) -> tuple:
         return _box_of(self.path_at(centre, rotation))
@@ -179,8 +194,10 @@ class Slot:
 
 @dataclass(frozen=True)
 class Circle:
-    """A round hole."""
+    """A round hole. `anchor` is the point of it that lands where it is
+    placed; None is its centre."""
     diameter: float
+    anchor: tuple | None = None
     turns = False                            # the same whichever way it is turned
 
     def __post_init__(self):
@@ -194,7 +211,7 @@ class Circle:
     def path_at(self, centre, rotation: float = 0.0) -> list:
         if abs(float(rotation)) > 1e-9:
             raise ValueError("a circle has no direction: drop the rotation, or use a Slot")
-        return _turned(_circle_local(self.diameter / 2.0), centre, 0.0)
+        return _turned(_about(_circle_local(self.diameter / 2.0), self.anchor), centre, 0.0)
 
     def box_at(self, centre, rotation: float = 0.0) -> tuple:
         return _box_of(self.path_at(centre, rotation))
@@ -205,10 +222,12 @@ class Path:
     """Any closed path, as declared. It is moved so its box centre lands
     where it is placed, so one constant can be cut in two places."""
     points: tuple
+    anchor: tuple | None = None
     turns = True
 
-    def __init__(self, points):
+    def __init__(self, points, anchor=None):
         object.__setattr__(self, "points", tuple(points))
+        object.__setattr__(self, "anchor", None if anchor is None else point(anchor))
         if len(self.points) < 3:
             raise ValueError("a closed path needs at least three points")
 
@@ -217,11 +236,10 @@ class Path:
         return abs(signed_area(flatten_path(list(self.points))))
 
     def _local(self) -> list:
-        lo_x, lo_y, hi_x, hi_y = _box_of(list(self.points))
-        return _turned(list(self.points), (-(lo_x + hi_x) / 2.0, -(lo_y + hi_y) / 2.0), 0.0)
+        return list(self.points)
 
     def path_at(self, centre, rotation: float = 0.0) -> list:
-        return _turned(self._local(), centre, float(rotation))
+        return _turned(_about(self._local(), self.anchor), centre, float(rotation))
 
     def box_at(self, centre, rotation: float = 0.0) -> tuple:
         return _box_of(self.path_at(centre, rotation))
