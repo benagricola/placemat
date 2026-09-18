@@ -9,26 +9,25 @@ import math
 from .cutouts import Cutouts
 
 
-class CopperLayer(str, Enum):
-    F = "F.Cu"
-    IN1 = "In1.Cu"
-    IN2 = "In2.Cu"
-    B = "B.Cu"
+class _CopperLayerNames(str, Enum):
+    """The behaviour of a copper layer, without its members: they are
+    generated below, because there are thirty-two of them and writing them
+    out would be thirty-two lines of noise."""
 
     @property
     def face(self) -> "Face | None":
-        if self is CopperLayer.F:
+        if self is type(self).F:
             return Face.FRONT
-        if self is CopperLayer.B:
+        if self is type(self).B:
             return Face.BACK
         return None
 
     @property
     def other_face(self) -> "CopperLayer":
-        if self is CopperLayer.F:
-            return CopperLayer.B
-        if self is CopperLayer.B:
-            return CopperLayer.F
+        if self is type(self).F:
+            return type(self).B
+        if self is type(self).B:
+            return type(self).F
         raise ValueError("%s is an inner layer; it has no opposite face" % self.value)
 
     @classmethod
@@ -38,7 +37,17 @@ class CopperLayer(str, Enum):
         for member in cls:
             if member.value == name:
                 return member
-        raise ValueError("unknown copper layer %r" % (name,))
+        raise ValueError("unknown copper layer %r: the layers are F.Cu, In1.Cu to In30.Cu, and B.Cu"
+                         % (name,))
+
+
+# KiCad's maximum is 32 copper layers, and it names them F.Cu, In1.Cu upward,
+# and B.Cu. Naming all of them is what stops a board with a deep stackup being
+# read as though the layers placemat has no name for were not there.
+_COPPER_LAYER_NAMES = {"F": "F.Cu", "B": "B.Cu"}
+_COPPER_LAYER_NAMES.update({"IN%d" % n: "In%d.Cu" % n for n in range(1, 31)})
+
+CopperLayer = _CopperLayerNames("CopperLayer", _COPPER_LAYER_NAMES)
 
 
 class Face(str, Enum):
