@@ -582,3 +582,15 @@ def test_a_cutout_named_after_a_part_does_not_stand_in_for_it():
     assert not plan.findings, plan.findings
     assert plan.box("d1").center.y == pytest.approx(plan.box("u1").center.y + 6.0, abs=0.05)
     assert plan.box("d1").center.x == pytest.approx(20.0, abs=0.05)
+
+
+def test_asking_the_plan_for_a_cutouts_box_says_where_to_look():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0,
+           holes=[Cutout(Circle(4.0), "vent", at=Centre(20.0, 30.0), why="airflow")])
+    b.place(Part("u1"), at=Location(20.0, 10.0))
+    plan = b.resolve()
+    with pytest.raises(KeyError, match="cutouts_placed"):
+        plan.box("vent")
+    with pytest.raises(KeyError, match="nothing placed"):
+        plan.box("nope")

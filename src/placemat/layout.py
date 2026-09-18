@@ -390,6 +390,11 @@ class Plan:
     def box(self, key: str) -> Box:
         """The item's body box where it was placed (the occupancy's committed
         geometry, so a turned cell reads turned)."""
+        if key not in self._items:
+            if key in self.cutouts_placed:
+                raise KeyError("%r is a cutout, not an item: plan.cutouts_placed[%r] is where it was "
+                               "milled, and board.cutout(%r) reads its edges" % (key, key, key))
+            raise KeyError("nothing placed as %r" % key)
         item = self._items[key]
         if isinstance(item, (BlockSpec, CellGeom)):
             return Box.union([self.occupancy.items[m.ref].body for m in item.members])
