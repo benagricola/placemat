@@ -37,12 +37,14 @@ def _layer_names(board, layer_set) -> list[str]:
 
 
 def _copper_layers(board, layer_set) -> frozenset[CopperLayer]:
+    """The copper layers of a layer set. A set names the non-copper layers an
+    item is on too - silk, mask, paste - and those are skipped by name; a
+    copper layer that cannot be named is a defect, not something to drop."""
     out = set()
     for name in _layer_names(board, layer_set):
-        try:
-            out.add(CopperLayer.of(name))
-        except ValueError:
-            continue
+        if not name.endswith(".Cu"):
+            continue                    # silk, mask, paste: not this function's business
+        out.add(CopperLayer.of(name))
     return frozenset(out)
 
 
@@ -266,8 +268,7 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10) -> Bo
                         faces[k] = v
         cells[name] = CellGeom(name, members, box, phys, court, copper_box, faces)
     classes, default_clr = _netclasses(board)
-    layers = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack()
-                   if board.GetLayerName(l) in {m.value for m in CopperLayer})
+    layers = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
     return BoardGeometry(path=path, footprints=fps, cells=cells, copper=copper, outline=_outline(board),
                     nets=frozenset(classes), netclasses=classes, default_clearance=default_clr,
                     layers=layers, edge_clearance=mm(board.GetDesignSettings().m_CopperEdgeClearance))
