@@ -131,6 +131,7 @@ class BoardGeometry:
     layers: tuple[CopperLayer, ...]
     edge_clearance: float = 0.0           # copper to the board edge, from the board's rules: the keep-in
     rule_areas: tuple = ()                # what the board already forbids: a stamped cell's come with it
+    board_polygon: tuple = ()             # the true edge: the outline, then its holes
     _by_ref: dict = field(default_factory=dict, repr=False, compare=False)
     _by_inst: dict = field(default_factory=dict, repr=False, compare=False)
 

@@ -224,6 +224,25 @@ def _rule_areas(board, groups_of) -> tuple:
     return tuple(out)
 
 
+def _board_polygon(board) -> tuple:
+    """The board's real edge as polygons: the outline first, then its holes.
+
+    `_outline` below keeps one bounding box per Edge.Cuts drawing, which every
+    placement path consumes and which reads a disc as a square. This is the
+    shape itself, for measuring how near a thing comes to the edge."""
+    ps = pcbnew.SHAPE_POLY_SET()
+    if not board.GetBoardPolygonOutlines(ps, False) or not ps.OutlineCount():
+        return ()
+    out = []
+    o = ps.Outline(0)
+    out.append(tuple((mm(o.CPoint(i).x), mm(o.CPoint(i).y)) for i in range(o.PointCount())))
+    for h in range(ps.HoleCount(0)):
+        hole = ps.Hole(0, h)
+        out.append(tuple((mm(hole.CPoint(i).x), mm(hole.CPoint(i).y))
+                         for i in range(hole.PointCount())))
+    return tuple(out)
+
+
 def _outline(board) -> tuple:
     outs = []
     for d in board.GetDrawings():
@@ -300,4 +319,5 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
     return BoardGeometry(path=path, footprints=fps, cells=cells, copper=copper, outline=_outline(board),
                     nets=frozenset(classes), netclasses=classes, default_clearance=default_clr,
                     layers=layers, edge_clearance=mm(board.GetDesignSettings().m_CopperEdgeClearance),
-                    rule_areas=_rule_areas(board, groups_of))
+                    rule_areas=_rule_areas(board, groups_of),
+                    board_polygon=_board_polygon(board))
