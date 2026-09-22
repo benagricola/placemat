@@ -33,3 +33,24 @@ def test_a_file_that_is_not_a_pdf_says_so(tmp_path):
     with pytest.raises(read.PdfError) as e:
         read.page_count(bad)
     assert "notes.txt" in str(e.value)
+
+
+def test_text_comes_back_with_the_box_it_sits_in(tmp_path):
+    """A number is only useful when its position is known: that is what ties
+    a dimension to the feature it labels."""
+    p = make_pdf(tmp_path / "land.pdf", LAND)
+    runs = read.text_runs(p, 1)
+    hit = [r for r in runs if "RECOMMENDED" in r.text]
+    assert len(hit) == 1
+    r = hit[0]
+    assert r.page == 1
+    assert r.box.left == pytest.approx(20, abs=1.0)
+    assert r.box.width > 100 and 0 < r.box.height < 30
+
+
+def test_an_escaped_character_comes_back_decoded(tmp_path):
+    p = make_pdf(tmp_path / "dia.pdf", """%%MediaBox 0 0 200 200
+%%Font Helv Helvetica
+BT /Helv 10 Tf 20 100 Td (VIA 0.2mm) Tj ET
+""")
+    assert any("VIA" in r.text for r in read.text_runs(p, 1))

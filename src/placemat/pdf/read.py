@@ -8,6 +8,10 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 import subprocess
+import xml.etree.ElementTree as ET
+
+from ..datasheet import DrawPath, TextRun
+from ..values import Box
 
 
 class PdfError(RuntimeError):
@@ -38,3 +42,23 @@ def plain_text(path, page: int | None = None) -> str:
     if page is not None:
         argv += ["-f", str(page), "-l", str(page)]
     return _run(argv + [str(path), "-"], "reading text", path)
+
+
+def _stext(path, page: int) -> str:
+    return _run(["mutool", "draw", "-F", "stext", "-o", "-", "-i", str(path), str(page)],
+                "reading positioned text", path)
+
+
+def text_runs(path, page: int) -> tuple:
+    """Every line of text on the page with its box. mutool's stext is valid
+    XML, so it is parsed rather than matched: a character comes back as
+    `c="&#x3a6;"` and only a parser decodes that correctly."""
+    root = ET.fromstring(_stext(path, page))
+    out = []
+    for line in root.iter("line"):
+        text = "".join(c.get("c", "") for c in line.iter("char"))
+        if not text.strip():
+            continue
+        bb = [float(v) for v in line.get("bbox", "0 0 0 0").split()]
+        out.append(TextRun(page, text, Box(bb[0], bb[1], bb[2], bb[3])))
+    return tuple(out)
