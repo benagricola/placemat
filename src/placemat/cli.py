@@ -236,6 +236,8 @@ def cmd_route(args) -> int:
         console.data(json.dumps(report.as_dict(), indent=2))
     else:
         console.say("route", report.summary())
+        for breach in report.keepout_breaches:
+            console.say("route", breach)
         for net, n in sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:15]:
             console.say("route", "%-20s %d open" % (net, n))
         console.say("route", "routed board: %s" % report.routed_pcb)

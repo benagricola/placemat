@@ -290,6 +290,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             metrics["closure_clean"] = report.closure_clean
             rec.timing_s["route"] = round(time.time() - t0, 1)
             say("route", "%s  (%.0fs)" % (report.summary(), rec.timing_s["route"]))
+            for breach in report.keepout_breaches:
+                say("route", breach, level="finding")
             if report.open_nets:
                 worst = sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:8]
                 say("route", "still open: " + ", ".join("%s %d" % kv for kv in worst))

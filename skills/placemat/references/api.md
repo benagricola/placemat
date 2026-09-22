@@ -352,6 +352,16 @@ out, and DRC and the router judge by it. A `pour`, `track` or `via` crossing a
 keepout ON A LAYER IT COVERS is a finding, because each keeps exactly the shape
 or the position it was given.
 
+**Who honours it.** KiCad's filler, KiCad's DRC and the router all read the
+rule area placemat writes. The router's part is checked, not assumed: every
+route compares the copper the router laid against the keepouts on the board it
+was given, and anything inside a region that forbids it is printed and kept in
+`route.json` under `keepout_breaches`. `allow=` is placemat's own: a KiCad rule
+area has no per-net exemption, so KiCad's DRC reports an allowed net's copper
+inside the region as `items_not_allowed`, and the router keeps that net out
+too. Draw an allowed net's copper in the script, where the allowance holds, and
+expect those DRC items.
+
 ## Boards of any shape
 
 An outline is a closed path of straight legs and arcs. The first element is

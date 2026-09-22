@@ -71,6 +71,9 @@ class RouteReport:
     work: Path
     invalid_reason: str = ""
     quick: bool = False
+    # Router copper inside a region that forbids it. The router honours rule
+    # areas; this is what keeps that a checked fact rather than an assumed one.
+    keepout_breaches: list = field(default_factory=list)
 
     def summary(self) -> str:
         head = "route %s: closure %.1f%% clean (%.1f%% raw), %d -> %d open signal item(s)" % (
@@ -80,6 +83,8 @@ class RouteReport:
             head += "  INVALID: " + self.invalid_reason
         if self.shorted:
             head += "  shorted: " + ", ".join(self.shorted)
+        if self.keepout_breaches:
+            head += "  %d item(s) inside a keepout" % len(self.keepout_breaches)
         return head
 
     def as_dict(self) -> dict:
@@ -88,7 +93,7 @@ class RouteReport:
                 "shorted": self.shorted, "excluded": self.excluded, "layers": self.layers,
                 "seconds": self.seconds, "router_version": self.router_version, "drc_after": self.drc_after,
                 "routed_pcb": str(self.routed_pcb), "log": str(self.log), "quick": self.quick,
-                "invalid_reason": self.invalid_reason}
+                "invalid_reason": self.invalid_reason, "keepout_breaches": list(self.keepout_breaches)}
 
 
 def lock_copper(pcb_path: str) -> int:
@@ -214,6 +219,17 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
     report = RouteReport(valid, round(sc.closure, 4), round(sc.closure_clean, 4), sum(open0.values()), sum(open1.values()),
                          dict(sorted(open1.items())), sc.shorted, sorted(excluded), layers, seconds,
                          router_version(router_dir_path), after.by_type, pcb_out, log, work,
-                         "" if valid else "placement DRC not clean before routing: %s" % before.real, quick)
+                         "" if valid else "placement DRC not clean before routing: %s" % before.real, quick,
+                         router_breaches(pcb_in, pcb_out))
     (work / "route.json").write_text(json.dumps(report.as_dict(), indent=2) + "\n")
     return report
+
+
+def router_breaches(pcb_in, pcb_out) -> list:
+    """What the router laid inside a region that forbids it, judged against
+    the rule areas on the board it was given. Only the router's copper: the
+    script's own is judged by the layout, which knows a keepout's allow=."""
+    from ..board_geometry import added_copper, keepout_breaches
+    from .read import read_board
+    given, routed = read_board(pcb_in), read_board(pcb_out)
+    return keepout_breaches(given.rule_areas, added_copper(given.copper, routed.copper))

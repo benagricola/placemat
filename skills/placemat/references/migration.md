@@ -4,6 +4,15 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.18
+
+Nothing to change. Every route now checks the copper the router laid against
+the keepouts on the board it was given, prints anything inside a region that
+forbids it, and keeps it in `route.json` under `keepout_breaches`. The router
+honours KiCad rule areas; this makes that a checked fact on every run, so a
+region it ignored would be named instead of appearing as one more
+`items_not_allowed` among the ones that are there by permission.
+
 ## To 0.17
 
 **Keepout zone names gain a layer marker, and a module's keepout now holds on

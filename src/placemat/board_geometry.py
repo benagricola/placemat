@@ -277,3 +277,42 @@ class BoardGeometry:
     def pads_on_net(self, net) -> list[PadGeom]:
         name = net.name if isinstance(net, Net) else net
         return [p for fp in self.footprints for p in fp.pads if p.net == name]
+
+
+# The rule-area flag that forbids each kind of copper the router lays.
+_FORBIDDING = {"track": "tracks", "via": "vias"}
+
+
+def _copper_key(c: CopperItem) -> tuple:
+    return (c.kind, c.net, tuple(sorted(l.value for l in c.layers)),
+            round(c.box.left, 3), round(c.box.top, 3), round(c.box.right, 3), round(c.box.bottom, 3))
+
+
+def added_copper(before, after) -> list:
+    """The tracks and vias in `after` that were not in `before`: what the
+    router laid, as against what it was given and locked."""
+    had = {_copper_key(c) for c in before}
+    return [c for c in after if c.kind in _FORBIDDING and _copper_key(c) not in had]
+
+
+def keepout_breaches(rule_areas, copper) -> list:
+    """A sentence for every track or via inside a rule area that forbids it on
+    a layer it covers. KiCad's DRC reports the same thing as one more
+    `items_not_allowed` among the ones that are there by permission, which is
+    how a region the router ignored used to go unnoticed."""
+    from .geometry import polys_overlap
+    out = []
+    for c in copper:
+        flag = _FORBIDDING.get(c.kind)
+        if flag is None:
+            continue
+        for ra in rule_areas:
+            if flag not in ra.excludes or not (c.layers & ra.layers):
+                continue
+            if not Box.of_points(ra.polygon).overlaps(c.box):
+                continue
+            if any(polys_overlap(ra.polygon, o) for o in c.outlines):
+                out.append("the router laid a %s of %s inside %s, which forbids %s there"
+                           % (c.kind, c.net, ra.base, flag))
+                break
+    return out
