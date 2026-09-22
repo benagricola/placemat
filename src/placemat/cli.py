@@ -26,7 +26,8 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--route-full", action="store_true", help="with --route: the router's full run, not one round")
     run.add_argument("--route-exclude", nargs="*", default=[], help="with --route: extra nets to leave unrouted")
     run.add_argument("--keep-going", action="store_true",
-                     help="carry on past FIXED/EDGE items that collide (recorded as findings) instead of stopping there")
+                     help="carry on past decided items that collide (recorded as findings) instead of stopping "
+                          "there; an item declared required=True still stops the run")
 
     rt = sub.add_parser("route", help="route a copy of a placed board with KiCadRoutingTools and score closure")
     rt.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")

@@ -84,10 +84,12 @@ coordinates nobody chose.
    - mechanical facts: mounting patterns, case windows, a sensor whose
      position is its function.
 4. **Write the proposal as the script's opening comment**: which edge each
-   connector takes and why, what is FIXED (mechanical fact), what is EDGE
-   (one degree of freedom), which cells cluster with what, which copper is
-   FIXED (nothing later may cut into it), where the corridors are, and which
-   constraint outranks which when they conflict. Say which relationships are
+   connector takes and why, which positions are mechanical facts (a point,
+   so `fixed`) and which are a distance along an edge (`edge`), which cells
+   cluster with what, which items nothing may move (`required=True`, with the
+   reason), where the corridors are, and which constraint outranks which when
+   they conflict. Do not decide which copper is planned first: that follows
+   from its endpoints. Say which relationships are
    about current and heat and which about signal integrity: they want
    different things.
 5. Only then declare.
@@ -209,8 +211,8 @@ coordinates nobody chose.
 
 ## Placement tactics
 
-- Say what is FIXED (a mechanical fact) and what is EDGE; leave the rest
-  searched with a bare `place(item)`. The placer orders searched items
+- Say what is a mechanical fact (a point: `fixed`) and what is a distance
+  along an edge (`edge`); leave the rest searched with a bare `place(item)`. The placer orders searched items
   itself - a cell, a block and a loose part in one queue, by rank, so a
   connector that dominates the board goes before the cells rather than after
   them - seeds each from the placed pads it is wired to, and says why in

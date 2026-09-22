@@ -108,7 +108,7 @@ stops a run by itself.
 on the board needs no position: price the connection and leave it to seed.
 
 ```python
-board.place(Part("j_pwr"), at=OnEdge(Edge.WEST, along=Along.MID))     # the connector is EDGE
+board.place(Part("j_pwr"), at=OnEdge(Edge.WEST, along=Along.MID))     # a distance along an edge: decided
 board.link(PadRef(Part("rpf"), "V48_IN"), PadRef(Part("j_pwr"), "V48"), weight=LinkWeight.SHORT,
            why="the reverse-polarity FET sits at the inlet")
 board.place(Part("rpf"))                                                # seeds beside J_PWR's V48 pin

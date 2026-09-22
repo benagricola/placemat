@@ -2,8 +2,9 @@
 produces from it.
 
 Board answers questions about the generated board, records placement and
-copper declarations, and resolves them in priority order (setup, FIXED,
-EDGE, searched cells, FIXED copper, loose parts, remaining copper) against
+copper declarations, and resolves them in order (setup, the decided
+placements, the copper whose endpoints are all decided, then every searched
+item by rank, then the rest of the copper) against
 the occupancy model. Plan holds the resolved placements, copper ops and
 findings for the writer and the run record."""
 from __future__ import annotations
@@ -521,7 +522,8 @@ class Board:
         self.edge_margin = geometry.edge_clearance if edge_margin is None else edge_margin
         self.clearance = clearance
         self.via_drill, self.via_size = via_drill, via_size
-        self.keep_going = keep_going            # carry on past colliding FIXED/EDGE items, as findings
+        self.keep_going = keep_going            # carry on past colliding decided items, as findings;
+                                                # required=True overrides it
         self._intents: list = []            # placements and cutouts: one queue, ordered by needs
         self._rank_score: dict = {}
         self._rank_of: dict = {}
