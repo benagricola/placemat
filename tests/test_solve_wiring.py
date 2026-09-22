@@ -109,3 +109,15 @@ def test_the_docs_describe_the_solve_and_its_default():
     assert "[solve] enabled = true" in api and "off by default" in api.lower()
     assert "quarter of the free board" not in api                      # the rule the rank replaced
     assert "## To 0.20" in Path("skills/placemat/references/migration.md").read_text()
+
+
+def test_the_solve_runs_on_a_board_that_declares_a_keepout():
+    """A keepout shares the intent queue with the placements; the solve read
+    a placement's fields off it and crashed on every board that had one."""
+    from placemat.cutouts import Circle
+    b = _board(True)
+    b.keepout(Circle(2.0), "clearance", at=Location(25, 5), why="a clearance")
+    b.place(Part("u1"))
+    b.place(Part("r1"))
+    plan = b.resolve()
+    assert "global solve" in {s.item: s.note for s in plan.steps}["u1"]

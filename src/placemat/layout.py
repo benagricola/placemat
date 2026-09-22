@@ -1586,7 +1586,7 @@ class Board:
             return self._solve_hints
         from . import solve
         self._solve_hints = {}
-        movable = [i for i in self._intents if self._solvable(i) and not (
+        movable = [i for i in self._placements() if self._solvable(i) and not (
             ({fp.ref for fp in i.item.members} if i.kind == "cell" else {i.item.ref}) & set(placed))]
         box = occ.board_box
         if not movable or box is None:
