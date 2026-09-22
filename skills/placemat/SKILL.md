@@ -235,6 +235,10 @@ coordinates nobody chose.
   a board yet is `placemat measure <path>.kicad_mod`. Every number those print
   is one placemat already holds; going to the file by hand is how the wrong one
   gets used.
+- Before extracting images from a datasheet or grepping its text, run
+  `placemat datasheet <pdf>` to see which page carries the land pattern, the
+  package dimensions, the layout rules or the pin map, then `--show` that page.
+  Deciding for yourself how to get at a datasheet is the habit this replaces.
 - Say what is a mechanical fact (a point: `fixed`) and what is a distance
   along an edge (`edge`); leave the rest searched with a bare `place(item)`. The placer orders searched items
   itself - a cell, a block and a loose part in one queue, by rank, so a

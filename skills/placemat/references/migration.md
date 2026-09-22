@@ -4,6 +4,15 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.12
+
+Nothing to change. `placemat datasheet <pdf>` is new: it ranks the pages
+against land pattern, package dimensions, layout rules and pin map, prints the
+evidence behind each ranking, and `--show` renders the page you should look at.
+It shells out to mupdf and poppler, which join kicad-cli as tools placemat
+expects to find; `tesseract` is used when installed and skipped with a note
+when not.
+
 ## To 0.11
 
 **Re-run every board and expect it to move.** A footprint that draws no

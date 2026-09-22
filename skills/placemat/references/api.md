@@ -642,6 +642,7 @@ placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
 placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part ...] [--pads] [--json]
 placemat parts <layout.kicad_pcb | script> [--json]
+placemat datasheet <pdf> [--show PAGE|TOPIC] [--out DIR] [--dpi N] [--json]
 placemat show <layout.kicad_pcb | script> <cell | part> [--out DIR]
 placemat faces <module layout.kicad_pcb> outward=N [quiet=S] [handoff=E]
 placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise C] [--copper-oz OZ] [--limit CHECK=VALUE ...] [--json]
@@ -664,6 +665,17 @@ the placement rank is worked out from, so the listing also explains the order
 things went down in.
 
 Both take `--json`. Reach for these before grepping a `.kicad_mod`.
+
+`datasheet` ranks a PDF's pages against four topics - land pattern, package
+dimensions, layout rules and pin map - and prints the evidence behind each
+ranking, so the ranking can be judged rather than trusted. `--show p7` renders
+that page to a PNG and prints its text with positions; `--show land` resolves
+the topic through the index first. Measured over 67 datasheets, a keyword list
+alone names a land pattern on half of them, so the geometry counts too: a page
+holding a row of identical rectangles is a pad row whether or not it says so.
+A datasheet whose every dimension is an outlined curve carries no text at all -
+the TYPE-C receptacles are like this - and `--show` is the answer for those.
+It shells out to mupdf and poppler; `tesseract` is used when installed.
 
 `check` reads the `Pm.*` facts the capture put on its parts (the
 placemat-design skill says which) and reports hot loop area, switch node
