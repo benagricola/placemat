@@ -20,20 +20,23 @@ from .values import Box
 
 AMBIENT_C = 100.0
 """Board temperature the junction estimate starts from: a sealed driver
-case at full load; a board states its own when it knows better."""
+case at full load; a board states its own when it knows better.
+The default for `[check] ambient_c` and `--ambient`."""
 
 KEEP_OUT_MM = 2.0
 """How far sense copper stays from a switch node: a bare clearance still
 couples the edge field, two millimetres is the datasheet "keep FB away
-from SW" with room for the pour clearance."""
+from SW" with room for the pour clearance.
+The default for `[check] keep_out_mm` and `--keep-out`."""
 
 TRACK_RISE_C = 10.0
 """Temperature rise a current path is sized for, on top of the board's
-ambient: the IPC-2221 curve the fab tables quote."""
+ambient: the IPC-2221 curve the fab tables quote.
+The default for `[check] rise_c` and `--rise`."""
 
 COPPER_OZ = 1.0
 """Outer copper weight the width is sized for, until the board's stackup
-is read."""
+is read. The default for `[check] copper_oz` and `--copper-oz`."""
 
 _IPC_K_OUTER = 0.048            # IPC-2221 external layer constant
 _MIL_PER_OZ = 1.378             # copper thickness per ounce, in mil

@@ -282,16 +282,14 @@ def cmd_check(args) -> int:
     from . import checks
     from .kicad import read
     from .project import find_board
+    from .settings import bind, load
     p = Path(args.pcb)
-    pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
-    geometry = read.read_board(pcb)
-    limits = {}
-    for item in args.limit:
-        name, _, value = item.partition("=")
-        limits[name] = float(value)
-    kw = {k: v for k, v in (("ambient_c", args.ambient), ("keep_out_mm", args.keep_out),
-                            ("rise_c", args.rise), ("copper_oz", args.copper_oz)) if v is not None}
-    verdicts = checks.run_checks(geometry, limits=limits, **kw)
+    src = None if p.suffix == ".kicad_pcb" else find_board(p)
+    pcb = p if src is None else src.pcb
+    cfg = load(src.board_dir if src is not None else pcb.parent, overrides=overrides_from(args))
+    with bind(cfg):
+        geometry = read.read_board(pcb)
+        verdicts = checks.run_checks(geometry, **check_kwargs(cfg))
     if args.json:
         console.data(json.dumps([v.__dict__ for v in verdicts], indent=2))
     else:

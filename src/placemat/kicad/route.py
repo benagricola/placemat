@@ -20,7 +20,16 @@ import time
 
 from .drc import REAL_KINDS, run_drc
 
-ROUTER_DEFAULT = os.environ.get("KRT_DIR", os.path.expanduser("~/work/KiCadRoutingTools"))
+BUILTIN_ROUTER = os.path.expanduser("~/work/KiCadRoutingTools")
+ROUTER_DEFAULT = os.environ.get("KRT_DIR", BUILTIN_ROUTER)   # kept: tests and callers import this name
+
+
+def router_dir(cfg=None) -> str:
+    """Where the router lives: the built-in default, then $KRT_DIR (a machine
+    fact), then placemat.toml (a project fact), which wins."""
+    from ..settings import active
+    cfg = active() if cfg is None else cfg
+    return cfg.route_router_dir or os.environ.get("KRT_DIR") or BUILTIN_ROUTER
 ONE_ROUND = Path(__file__).with_name("route_one_round.py")
 
 
@@ -146,15 +155,21 @@ def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
     return cmd + ["--json-out", str(summary)]
 
 
-def route_board(pcb, work, exclude_nets=(), layers=None, router_dir: str = ROUTER_DEFAULT,
+def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: str | None = None,
                 quick: bool = False, iterations: int | None = None, probe: int | None = None,
-                timeout: int = 3600) -> RouteReport:
+                timeout: int | None = None) -> RouteReport:
+    from ..settings import active
+    cfg = active()
+    router_dir_path = router_dir_override or router_dir(cfg)
+    timeout = cfg.timeout_route if timeout is None else timeout
+    iterations = cfg.route_iterations if iterations is None else iterations
+    layers = layers if layers is not None else (list(cfg.route_layers) if cfg.route_layers else None)
     pcb, work = Path(pcb), Path(work)
-    rpy = Path(router_dir) / ".venv/bin/python"
-    route_py = Path(router_dir) / "py_router/route.py"
+    rpy = Path(router_dir_path) / ".venv/bin/python"
+    route_py = Path(router_dir_path) / "py_router/route.py"
     if not (rpy.exists() and route_py.exists()):
         raise FileNotFoundError("router not found at %s (expected .venv/bin/python and py_router/route.py); "
-                                "set KRT_DIR" % router_dir)
+                                "set KRT_DIR or [route] router_dir" % router_dir_path)
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
     pcb_in = work / "in.kicad_pcb"
@@ -177,13 +192,13 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir: str = ROUTE
     cmd = router_command(rpy, script, pcb_in, pcb_out, excluded, layers, summary, iterations, probe, quick)
     env = dict(os.environ)
     env.pop("KICAD_ROUTE_TRACE", None)
-    env["KRT_DIR"] = str(router_dir)
+    env["KRT_DIR"] = str(router_dir_path)
     log = work / "router.log"
     t0 = time.time()
     with open(log, "w") as f:
         f.write("$ %s\n\n" % " ".join(cmd))
         f.flush()
-        rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir), env=env,
+        rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=env,
                             timeout=timeout).returncode
     seconds = round(time.time() - t0, 1)
     if rc != 0 or not pcb_out.exists():
@@ -198,7 +213,7 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir: str = ROUTE
     sc = score(open0, open1, {n for n in violated if n not in excluded})
     report = RouteReport(valid, round(sc.closure, 4), round(sc.closure_clean, 4), sum(open0.values()), sum(open1.values()),
                          dict(sorted(open1.items())), sc.shorted, sorted(excluded), layers, seconds,
-                         router_version(router_dir), after.by_type, pcb_out, log, work,
+                         router_version(router_dir_path), after.by_type, pcb_out, log, work,
                          "" if valid else "placement DRC not clean before routing: %s" % before.real, quick)
     (work / "route.json").write_text(json.dumps(report.as_dict(), indent=2) + "\n")
     return report

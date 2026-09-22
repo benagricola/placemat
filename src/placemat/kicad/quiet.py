@@ -12,6 +12,9 @@ import re
 import sys
 import tempfile
 
+# KiCad's own chatter. A project ADDS to this with `[noise] patterns`; it
+# never replaces it, because suppressing a project's extra lines should not
+# un-suppress KiCad's.
 NOISE = (
     re.compile(r"property\.h\(\d+\): assert"),
     re.compile(r"Debug: Adding duplicate image handler"),
@@ -20,7 +23,10 @@ NOISE = (
 
 
 def _is_noise(line: str) -> bool:
-    return any(p.search(line) for p in NOISE)
+    from ..settings import active
+    if any(p.search(line) for p in NOISE):
+        return True
+    return any(re.search(p, line) for p in active().noise_patterns)
 
 
 captured: list = []        # every line KiCad wrote, noise included, in order

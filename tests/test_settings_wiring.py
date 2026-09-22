@@ -155,3 +155,47 @@ def test_an_explicit_sag_still_beats_the_binding():
     arc = Arc(to=(10.0, 0.0), via=(5.0, 5.0))
     with S.bind(Settings(geometry_arc_sag=0.5)):
         assert len(flatten_arc((0.0, 0.0), arc, sag=0.001)) > len(flatten_arc((0.0, 0.0), arc))
+
+
+def test_the_drc_report_classifies_by_the_settings():
+    from placemat.kicad.drc import DrcReport
+    r = DrcReport(path=None, by_type={"clearance": 2, "silk_overlap": 1},
+                  real_kinds=("silk_overlap",), outstanding_kinds=())
+    assert r.real == {"silk_overlap": 1}
+    assert r.other == {"clearance": 2}
+
+
+def test_the_default_drc_classification_is_todays():
+    from placemat.kicad.drc import DrcReport
+    r = DrcReport(path=None, by_type={"clearance": 2, "silk_overlap": 1})
+    assert r.real == {"clearance": 2} and r.other == {"silk_overlap": 1}
+
+
+def test_a_project_pattern_is_added_to_the_built_in_noise_not_instead_of_it():
+    from placemat import settings as S
+    from placemat.kicad import quiet
+    with S.bind(Settings(noise_patterns=("my own chatter",))):
+        assert quiet._is_noise("my own chatter here")
+        assert quiet._is_noise("property.h(607): assert ...")
+    assert not quiet._is_noise("my own chatter here")
+    assert quiet._is_noise("property.h(607): assert ...")
+
+
+def test_the_router_directory_prefers_the_settings_over_the_environment(monkeypatch):
+    from placemat.kicad import route
+    monkeypatch.setenv("KRT_DIR", "/from/env")
+    assert route.router_dir(Settings()) == "/from/env"
+    assert route.router_dir(Settings(route_router_dir="/from/toml")) == "/from/toml"
+
+
+def test_the_router_directory_falls_back_to_the_built_in(monkeypatch):
+    from placemat.kicad import route
+    monkeypatch.delenv("KRT_DIR", raising=False)
+    assert route.router_dir(Settings()).endswith("KiCadRoutingTools")
+
+
+def test_the_check_constants_come_from_the_settings():
+    from placemat import cli
+    s = Settings(check_ambient_c=42.0)
+    assert cli.check_kwargs(s) == {"ambient_c": 42.0, "keep_out_mm": 2.0,
+                                   "rise_c": 10.0, "copper_oz": 1.0, "limits": {}}

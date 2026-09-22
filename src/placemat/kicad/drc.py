@@ -10,12 +10,14 @@ from pathlib import Path
 import re
 import subprocess
 
-# Clearance-class violations: a board with any of these is not done.
-REAL_KINDS = ("clearance", "shorting_items", "track_width", "annular_width", "hole_clearance",
-              "hole_to_hole", "courtyards_overlap", "copper_edge_clearance")
+from ..settings import DEFAULT_OUTSTANDING_KINDS, DEFAULT_REAL_KINDS, active
+
+# Clearance-class violations: a board with any of these is not done. The
+# defaults; a project says otherwise with `[drc] real_kinds`.
+REAL_KINDS = DEFAULT_REAL_KINDS
 # Copper that is not yet joined: not accepted, reported separately so the
 # missing plane or trace is named rather than counted with the shorts.
-OUTSTANDING_KINDS = ("via_dangling", "track_dangling", "isolated_copper")
+OUTSTANDING_KINDS = DEFAULT_OUTSTANDING_KINDS
 
 
 @dataclass
@@ -27,6 +29,8 @@ class DrcReport:
     command: list = field(default_factory=list)
     returncode: int = 0
     stderr_tail: str = ""
+    real_kinds: tuple = DEFAULT_REAL_KINDS
+    outstanding_kinds: tuple = DEFAULT_OUTSTANDING_KINDS
 
     @property
     def violations(self) -> int:
@@ -34,15 +38,16 @@ class DrcReport:
 
     @property
     def real(self) -> dict:
-        return {k: v for k, v in self.by_type.items() if k in REAL_KINDS}
+        return {k: v for k, v in self.by_type.items() if k in self.real_kinds}
 
     @property
     def outstanding(self) -> dict:
-        return {k: v for k, v in self.by_type.items() if k in OUTSTANDING_KINDS}
+        return {k: v for k, v in self.by_type.items() if k in self.outstanding_kinds}
 
     @property
     def other(self) -> dict:
-        return {k: v for k, v in self.by_type.items() if k not in REAL_KINDS and k not in OUTSTANDING_KINDS}
+        return {k: v for k, v in self.by_type.items()
+                if k not in self.real_kinds and k not in self.outstanding_kinds}
 
     def summary(self) -> str:
         parts = []
@@ -55,9 +60,15 @@ class DrcReport:
         return " | ".join(parts)
 
 
-def run_drc(pcb, out_json, refill_zones: bool = True, timeout: int = 600) -> DrcReport:
+def run_drc(pcb, out_json, refill_zones: bool | None = None, timeout: int | None = None,
+            real_kinds=None, outstanding_kinds=None) -> DrcReport:
     """Run kicad-cli DRC (zones refilled for the check only; the board file is
     not touched) and parse the JSON into buckets."""
+    cfg = active()
+    refill_zones = cfg.drc_refill_zones if refill_zones is None else refill_zones
+    timeout = cfg.timeout_drc if timeout is None else timeout
+    real_kinds = cfg.drc_real_kinds if real_kinds is None else real_kinds
+    outstanding_kinds = cfg.drc_outstanding_kinds if outstanding_kinds is None else outstanding_kinds
     pcb, out_json = Path(pcb), Path(out_json)
     cmd = ["kicad-cli", "pcb", "drc", "--format", "json", "--output", str(out_json), str(pcb)]
     if refill_zones:
@@ -65,7 +76,8 @@ def run_drc(pcb, out_json, refill_zones: bool = True, timeout: int = 600) -> Drc
     env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
     proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(pcb.parent), timeout=timeout, env=env)
     report = DrcReport(out_json, command=cmd, returncode=proc.returncode,
-                       stderr_tail="\n".join(proc.stderr.strip().splitlines()[-5:]))
+                       stderr_tail="\n".join(proc.stderr.strip().splitlines()[-5:]),
+                       real_kinds=tuple(real_kinds), outstanding_kinds=tuple(outstanding_kinds))
     if not out_json.exists():
         raise RuntimeError("kicad-cli drc wrote no report (rc %d): %s" % (proc.returncode, report.stderr_tail))
     data = json.loads(out_json.read_text())

@@ -424,10 +424,12 @@ def finish_board(pcb_path, fab, refs_to_fab_layer: bool = True, refs_to_fab=None
     patch_project_presets(pcb_path, fab)
 
 
-def render_board(pcb_path, log, both_faces: bool = False) -> list:
+def render_board(pcb_path, log, both_faces: bool = False, timeout: int | None = None) -> list:
     """layout.png (top), layout-iso.png, and layout-bottom.png when the board
     carries parts on both faces, beside the board file."""
     import subprocess
+    from ..settings import active
+    timeout = active().timeout_render if timeout is None else timeout
     pcb_path = str(pcb_path)
     out_dir = os.path.dirname(pcb_path)
     views = [("layout.png", "top", []), ("layout-iso.png", "top", ["--rotate", "-45,0,45", "--perspective"])]
@@ -442,7 +444,7 @@ def render_board(pcb_path, log, both_faces: bool = False) -> list:
             f.write("$ %s\n" % " ".join(cmd))
             f.flush()
             try:
-                subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, timeout=300, env=env)
+                subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, timeout=timeout, env=env)
                 done.append(name)
             except Exception as e:
                 f.write("render %s failed: %s\n" % (name, e))
