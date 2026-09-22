@@ -166,6 +166,27 @@ def poly_distance(a: Polygon, b: Polygon) -> float:
     return best
 
 
+def distance_to_boundary(poly: Polygon, boundary: Polygon) -> float:
+    """The shortest distance from `poly` to the EDGE of `boundary`.
+
+    Not `poly_distance`: that returns 0 for polygons that overlap, and a pad
+    on a board overlaps the board outline, so it would call every pad 0 mm
+    from the edge. This measures to the outline itself, whether the polygon
+    is inside it, outside it or across it.
+
+    A polygon that CROSSES the boundary is 0 from it even though no vertex of
+    either lies on it - a part declared to overhang an edge does exactly that
+    - so the crossing is tested before any vertex is measured. Both directions
+    are then taken, because a sharp feature of the boundary can come nearer to
+    the polygon's edge than any of its vertices does."""
+    for p1, p2 in _edges(poly):
+        for q1, q2 in _edges(boundary):
+            if segments_intersect(p1, p2, q1, q2):
+                return 0.0
+    return min(min(point_segment_distance(p, a, b) for p in poly for a, b in _edges(boundary)),
+               min(point_segment_distance(q, a, b) for q in boundary for a, b in _edges(poly)))
+
+
 def polygon_box(poly: Polygon) -> Box:
     return Box.of_points(poly)
 

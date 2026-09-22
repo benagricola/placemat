@@ -1,3 +1,5 @@
+import pytest
+
 from placemat.geometry import (Transform, poly_distance, polys_overlap, transform_box,
                                transform_polygon)
 from placemat.values import Box, Location
@@ -40,3 +42,36 @@ def test_overlapping_and_separated_polygons_are_told_apart():
 def test_a_polygon_wholly_inside_another_overlaps_it():
     outer, inner = rect(0, 0, 10, 10), rect(0, 0, 1, 1)
     assert polys_overlap(outer, inner) and polys_overlap(inner, outer)
+
+
+def test_distance_to_a_boundary_is_not_zero_for_a_polygon_inside_it():
+    """poly_distance returns 0 when two polygons overlap, and every pad on a
+    board overlaps the board outline - so it would report every pad as 0 mm
+    from the edge. The measure wanted is to the boundary itself."""
+    from placemat.geometry import distance_to_boundary, poly_distance
+    board = ((0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0))
+    pad = ((10.0, 10.0), (12.0, 10.0), (12.0, 12.0), (10.0, 12.0))
+    assert poly_distance(pad, board) == 0.0                 # the trap
+    assert distance_to_boundary(pad, board) == pytest.approx(10.0)
+
+
+def test_it_takes_the_nearest_edge():
+    from placemat.geometry import distance_to_boundary
+    board = ((0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0))
+    pad = ((10.0, 46.0), (12.0, 46.0), (12.0, 48.0), (10.0, 48.0))
+    assert distance_to_boundary(pad, board) == pytest.approx(2.0)   # the top edge, not the left
+
+
+def test_a_polygon_straddling_the_boundary_is_zero_away_from_it():
+    from placemat.geometry import distance_to_boundary
+    board = ((0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0))
+    pad = ((-1.0, 10.0), (1.0, 10.0), (1.0, 12.0), (-1.0, 12.0))
+    assert distance_to_boundary(pad, board) == pytest.approx(0.0)
+
+
+def test_a_single_point_polygon_still_measures():
+    """`_edges` on one point yields a degenerate segment, which
+    point_segment_distance handles: no special case is needed."""
+    from placemat.geometry import distance_to_boundary
+    board = ((0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0))
+    assert distance_to_boundary(((4.0, 10.0),), board) == pytest.approx(4.0)
