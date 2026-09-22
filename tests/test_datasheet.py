@@ -98,3 +98,48 @@ def test_index_rows_carry_the_same_facts_as_the_lines():
     rows = ds.index_rows(ds.index(by_page))
     land = [r for r in rows if r["topic"] == "land"][0]
     assert land["page"] == 7 and land["band"] == "strong" and land["evidence"]
+
+
+def test_geometry_argues_for_a_drawing_topic_and_not_a_textual_one():
+    """A row of identical rectangles says "a land pattern or a package
+    drawing". It says nothing whatever about a pin table, and offering it as
+    evidence for one made a text-free connector rank `pins` as high as
+    everything else."""
+    rects = [_rect(2, 1) for _ in range(36)]
+    assert any(e.kind == "rects" for e in ds.page_evidence("land", [], rects))
+    assert any(e.kind == "rects" for e in ds.page_evidence("package", [], rects))
+    assert ds.page_evidence("pins", [], rects) == ()
+    assert ds.page_evidence("rules", [], rects) == ()
+
+
+def test_a_rule_line_is_not_a_pad():
+    """A table's rules are rectangles too: 9 of 1 x 42 on the antenna's
+    terminal-function page. A pad is not 42 times longer than it is wide."""
+    lines = [_rect(42.0, 1.0) for _ in range(9)]
+    assert ds.rectangles(lines) == ()
+    assert ds.page_evidence("land", [], lines) == ()
+
+
+def test_a_contents_line_is_not_the_page_that_covers_it():
+    """TI's contents says "Layout Guidelines ....... 30". It names the topic
+    and it is on page 2, so it beat the page that actually covers it."""
+    assert ds.is_contents("Layout Guidelines ........................ 30")
+    assert ds.is_contents("Pin Configuration and Functions......... 3")
+    assert not ds.is_contents("Layout Guidelines")
+    assert not ds.is_contents("RECOMMENDED LAND PATTERN")
+
+
+def test_a_contents_page_does_not_win_a_topic():
+    by_page = {
+        2: _page(2, ("Layout Guidelines ................ 30", "1.20", "3.40", "5.60")),
+        30: _page(30, ("Layout Guidelines", "0.50", "1.30", "2.10")),
+    }
+    rules = [c for c in ds.index(by_page) if c.topic == "rules"][0]
+    assert rules.page == 30
+
+
+def test_a_hairline_is_not_a_pad():
+    """A cluster of paths too small to size is a hatch or a border, and
+    printing it as "16 of 0 x 0" told a reader nothing."""
+    hairs = [_rect(0.02, 0.02) for _ in range(16)]
+    assert ds.rectangles(hairs) == ()

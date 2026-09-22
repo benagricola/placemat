@@ -39,9 +39,30 @@ _UNIT = ((re.compile(r"\bmm\b|\bmillimet", re.I), "mm"),
          (re.compile(r"\binch(es)?\b|\bmils?\b", re.I), "inch"))
 
 
+# A pad is not twenty times longer than it is wide. A table's rules are
+# axis-aligned boxes too - the antenna's terminal-function page draws nine of
+# 1 x 42 - and counting them as pads made a page of prose look like a pad row.
+MAX_PAD_ASPECT = 20.0
+
+# Smaller than this in PDF points and a path cannot be sized meaningfully: it
+# is a hatch stroke, a hairline or a border corner. A real pad on these
+# drawings is a few points across.
+MIN_PAD_SIDE = 0.5
+
+
 def rectangles(paths) -> tuple:
-    """The paths that are an axis-aligned box."""
-    return tuple(p for p in paths if p.rect and p.box.width > 0 and p.box.height > 0)
+    """The paths that are an axis-aligned box a pad could be."""
+    out = []
+    for p in paths:
+        if not p.rect:
+            continue
+        w, h = p.box.width, p.box.height
+        if w < MIN_PAD_SIDE or h < MIN_PAD_SIDE:
+            continue
+        if max(w, h) / min(w, h) > MAX_PAD_ASPECT:
+            continue                    # a rule, a leader or a border
+        out.append(p)
+    return tuple(out)
 
 
 def clusters(rects, tol: float = 0.5) -> list:
@@ -95,6 +116,12 @@ _COMPILED = {t: [re.compile(p, re.I) for p in pats] for t, pats in KEYWORDS.item
 # geometry says nothing, so it is not offered as evidence at all.
 CLUSTER_FLOOR = 4
 
+# The topics a drawing can argue for. A row of identical rectangles says "a
+# land pattern or a package outline"; it says nothing about a pin table or a
+# paragraph of layout rules, and offering it to those made a text-free
+# connector rank every topic alike.
+_DRAWN_TOPICS = ("land", "package")
+
 
 @dataclass(frozen=True)
 class Evidence:
@@ -111,18 +138,32 @@ class Candidate:
     evidence: tuple
 
 
+# A contents line names a topic and sits on page 2, so it beats the page that
+# covers it. Dot leaders, or a trailing page number after them, are what make
+# one recognisable without knowing the document's shape.
+_CONTENTS = re.compile(r"\.{4,}\s*\d*\s*$|\.{6,}")
+
+
+def is_contents(text: str) -> bool:
+    """True for a line of a table of contents rather than a heading."""
+    return bool(_CONTENTS.search(text.strip()))
+
+
 def page_evidence(topic: str, runs, paths) -> tuple:
     """Everything on this page that argues it is about `topic`. Each item
     says what was seen, so a ranking can be judged instead of trusted."""
     out = []
     for r in runs:
+        if is_contents(r.text):
+            continue                    # a contents line points elsewhere
         if any(p.search(r.text) for p in _COMPILED[topic]):
             out.append(Evidence("keyword", '"%s"' % r.text.strip()[:60]))
             break
-    groups = clusters(rectangles(paths))
-    if groups and groups[0][1] >= CLUSTER_FLOOR:
-        (w, h), n = groups[0]
-        out.append(Evidence("rects", "%d of %.3g x %.3g" % (n, w, h)))
+    if topic in _DRAWN_TOPICS:
+        groups = clusters(rectangles(paths))
+        if groups and groups[0][1] >= CLUSTER_FLOOR:
+            (w, h), n = groups[0]
+            out.append(Evidence("rects", "%d of %.3g x %.3g" % (n, w, h)))
     dims = dimension_numbers(runs)
     if len(dims) >= 3:
         out.append(Evidence("dims", "%d dimension(s)" % len(dims)))
