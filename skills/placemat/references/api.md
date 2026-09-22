@@ -104,6 +104,12 @@ is independent of the rank and of whether the position is decided, and a
 required item is not negotiable even under `--keep-going`. Nothing else
 stops a run by itself.
 
+**A flip to the back** mirrors the item about the VERTICAL axis and then turns
+it by `rotation=`. That is KiCad's own F key (`editing.flip_left_right`, its
+default), and a part and a cell flip the same way. KiCad's orientation field
+will read `rotation + 180` for a back-face part, which is exactly what you get
+by drawing that part upright on the front and pressing F.
+
 **The default is a bare `place()`.** A part with a wired neighbour already
 on the board needs no position: price the connection and leave it to seed.
 
@@ -615,6 +621,10 @@ reports what lands on it. Mark what a user handles:
 every connector, jumper, switch and LED, by what it does, not its refdes.
 
 ## Layers and faces
+
+A flip to `Face.BACK` mirrors about the vertical axis and then applies
+`rotation=`, the same for a part and for a cell; KiCad shows the part's
+orientation as `rotation + 180`.
 
 `CopperLayer.F / IN1 .. IN30 / B` (the faces and every inner layer KiCad
 allows; a board uses as many as its stackup has), `Face.FRONT / BACK`,

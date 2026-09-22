@@ -143,3 +143,14 @@ def test_an_unflipped_placement_is_unchanged_at_every_generated_rotation():
         occ.commit(fp, Placement(Location(20.0, 20.0), r, Face.FRONT))    # same place, same face
         after = occ.pad_location("U1", "1")
         assert abs(after.x - before.x) < 1e-6 and abs(after.y - before.y) < 1e-6, r
+
+
+def test_the_docs_say_what_a_flip_means():
+    from pathlib import Path
+    api = Path("skills/placemat/references/api.md").read_text()
+    assert "vertical axis" in api and "rotation + 180" in api
+    skill = Path("skills/placemat/SKILL.md").read_text()
+    assert "vertical axis" in skill
+    assert "_transform" in skill                      # the detection grep
+    mig = Path("skills/placemat/references/migration.md").read_text()
+    assert "0.8" in mig and "flip" in mig.lower()

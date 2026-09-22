@@ -4,6 +4,30 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.8
+
+**Back-face parts move. Cells do not.**
+
+A flip to the back now mirrors about the vertical axis - KiCad's F key - for a
+part and a cell alike, and `rotation=` is applied after it. Before, a lone part
+mirrored top-to-bottom while a cell mirrored left-to-right, and the planner and
+the writer disagreed about where a part's pads landed by `180 + 2r`, where `r`
+is the rotation the generator left the part at.
+
+**Drop any monkeypatch of `Occupancy._transform`.** It was masking the bug for
+parts at generated rotation 0 and 180 and creating it for those at 90 and 270.
+`grep -n "Occupancy._transform" <script>` finds it.
+
+**A script that compensated by hand cannot be grepped for.** If a back-face
+part carries `rotation=180` where the board wanted it upright, it will now be
+upside down. Look for back-face parts whose rotation was chosen by trial rather
+than from the mechanics, and read the render.
+
+**KiCad's orientation field now reads `rotation + 180`** for a back-face part.
+Nothing is wrong: that is what its own flip produces.
+
+A board with no back-face parts is unaffected.
+
 ## To 0.7
 
 Nothing to change in a script. Three things get stricter, and one report is new.

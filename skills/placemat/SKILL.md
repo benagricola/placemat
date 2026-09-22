@@ -15,7 +15,9 @@ Read `references/api.md` for the script surface. Everything below is how to
 work, not what to call.
 
 **Before touching an existing script**, check it against the current API:
-`grep -nE "Priority\.(FIXED|EDGE)|priority=Priority\.(HIGH|LOW)" <script>`.
+`grep -nE "Priority\.(FIXED|EDGE)|priority=Priority\.(HIGH|LOW)|Occupancy\._transform" <script>`.
+A monkeypatch of `Occupancy._transform` is a 0.7-or-earlier workaround for the
+back-face flip and must come out.
 Any hit, or `AttributeError: type object 'Priority' has no attribute
 'FIXED'` at import, means it was written for
 an earlier placemat: read `references/migration.md`, which has a section per
@@ -238,6 +240,10 @@ coordinates nobody chose.
   off the board edge; only the on-board part does anything. A stamped cell
   brings its module's regions with it, so a parent may report parts or copper
   inside a clearance it never declared: those findings are real.
+- A flip to the back mirrors about the vertical axis - KiCad's F key - and
+  `rotation=` is applied after it. A part and a cell flip the same way, and
+  KiCad's own orientation field will read `rotation + 180` for a back-face
+  part, which is what its own flip produces.
 - No floorplan by coordinate: a `Location` constant that means "the power
   area" is the placer's job typed by hand, and every part hinted at it
   competes for one rectangle. `Near` is for a requirement the netlist
