@@ -418,3 +418,51 @@ def test_an_unrelated_name_is_fine():
     b = Board(g, edge_margin=1.0)
     b.size(width=40.0, height=40.0)
     b.keepout(Circle(4.0), "my_own", at=Location(20, 20), why="fine")     # no raise
+
+
+def _with_rule_area(cell, poly):
+    from placemat.board_geometry import RuleArea
+    fps = [footprint("U1", 10, 10, w=4, h=2, cell="ant_rf", inst="ant_rf.u", nets=("A", "B")),
+           footprint("R1", 30, 30, w=2, h=1, inst="r1", nets=("B", "C"))]
+    g = board_geometry(fps, cells=["ant_rf"], width=60, height=60)
+    return dataclasses.replace(g, rule_areas=(
+        RuleArea("keepout antenna_1", cell, poly, frozenset([CopperLayer.F]),
+                 frozenset(["parts"])),))
+
+
+def test_a_board_level_rule_area_is_reserved_from_the_start():
+    poly = ((25.0, 25.0), (35.0, 25.0), (35.0, 35.0), (25.0, 35.0))
+    occ = Occupancy(_with_rule_area(None, poly), edge_margin=0.0)
+    assert any("antenna_1" in r.why for r in occ.reservations)
+
+
+def test_a_cell_owned_rule_area_waits_for_its_cell():
+    """Its position is not known until the cell lands, exactly as the cell's
+    own courtyard is not."""
+    poly = ((8.0, 8.0), (14.0, 8.0), (14.0, 14.0), (8.0, 14.0))
+    g = _with_rule_area("ant_rf", poly)
+    occ = Occupancy(g, edge_margin=0.0)
+    assert not occ.reservations
+    occ.commit(g.cell("ant_rf"), Placement(Location(40.0, 40.0), 0.0, Face.FRONT))
+    (r,) = occ.reservations
+    assert "antenna_1" in r.why
+    # the region travelled with the cell: its box centre moved with the cell's
+    assert r.box.center.x > 20.0 and r.box.center.y > 20.0
+
+
+def test_a_part_is_refused_for_sitting_in_a_cell_s_stamped_region():
+    poly = ((8.0, 8.0), (14.0, 8.0), (14.0, 14.0), (8.0, 14.0))
+    g = _with_rule_area("ant_rf", poly)
+    occ = Occupancy(g, edge_margin=0.0)
+    occ.commit(g.cell("ant_rf"), Placement(g.cell("ant_rf").box.center, 0.0, Face.FRONT))
+    why = occ.legal(g.footprint("R1"), Placement(Location(11.0, 11.0), 0.0, Face.FRONT))
+    assert why is not None and "antenna_1" in why
+
+
+def test_a_rule_area_that_does_not_forbid_parts_reserves_nothing():
+    from placemat.board_geometry import RuleArea
+    g = board_geometry([footprint("U1", 10, 10, inst="u1", nets=("A", "B"))], width=40, height=40)
+    g = dataclasses.replace(g, rule_areas=(
+        RuleArea("keepout fill_only", None, ((5.0, 5.0), (9.0, 5.0), (9.0, 9.0)),
+                 frozenset([CopperLayer.F]), frozenset(["fill"])),))
+    assert not Occupancy(g, edge_margin=0.0).reservations

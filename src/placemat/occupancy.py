@@ -121,6 +121,18 @@ class Occupancy:
             for poly in c.outlines:
                 self.copper.append(Shape(c.owner or "", "through" if c.kind == "via" else "copper",
                                          faces, c.layers, c.net, poly, Box.of_points(poly)))
+        # Rule areas the generated board already carries: a stamped cell brings
+        # its module's with it. One that belongs to the board is reserved now;
+        # one a cell owns has no position until that cell lands, so it waits
+        # for commit(), exactly as the cell's own courtyard does.
+        self._cell_rule_areas: dict = {}
+        for ra in geometry.rule_areas:
+            if "parts" not in ra.excludes:
+                continue
+            if ra.cell is None:
+                self.reserve(ra.polygon, "rule area %r on the generated board" % ra.name)
+            else:
+                self._cell_rule_areas.setdefault(ra.cell, []).append(ra)
 
     # ------------------------------------------------------------ geometry of a candidate
     def _register(self, fp: Footprint) -> ItemGeometry:
@@ -269,6 +281,9 @@ class Occupancy:
                                 if placement.face != geom.reference.face else m.reference.face)
             self.items[fp.ref] = ItemGeometry(m.owners, new_ref, tuple(by_owner.get(fp.ref, ())),
                                               transform_box(m.body, t), m.nets, transform_box(m.reach or m.body, t))
+        for ra in self._cell_rule_areas.get(item.name, ()):
+            self.reserve(tuple(t.apply((x, y)) for x, y in ra.polygon),
+                         "rule area %r from the %s cell" % (ra.name, ra.cell))
         own = by_owner.get(item.name, [])
         self.copper = [c for c in self.copper if c.owner != item.name] + own
 
