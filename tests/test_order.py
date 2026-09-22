@@ -46,17 +46,26 @@ def test_among_cells_the_largest_goes_first_and_the_choice_is_explained():
     plan = b.resolve()
     cells = [s for s in plan.steps if s.kind == "cell"]
     assert [s.item for s in cells][0] == "big"
-    assert "largest" in cells[0].why or "largest" in cells[0].note
+    # the sentence that chose it: the rank, and the two measurements behind it
+    assert "rank 1/" in cells[0].note and "mm2" in cells[0].note and "pins" in cells[0].note
 
 
-def test_a_cell_pulled_by_a_placed_partner_goes_before_one_that_is_not():
-    b = make_board()
-    b.place(Part("j1"), at=Location(10, 10))          # net A: pulls the big cell's U1
-    b.place(Cell("strip"))                            # nets C, D: nothing placed yet
-    b.place(Cell("small"))                            # net B (big) and C
-    b.place(Cell("big"))                              # net A (j1) and B
+def test_pull_decides_between_items_the_rank_cannot_separate():
+    """Pull is the tie-break, not the lead. Two identical parts score the same
+    to the last bit, so the one wired to something already placed goes first;
+    a part the rank CAN separate is not reordered by pull."""
+    fps = [footprint("J1", 5, 5, w=8, h=3, inst="j1", nets=("A", "GND")),
+           footprint("R1", 40, 40, w=2, h=1, inst="r1", nets=("A", "GND")),    # wired to J1
+           footprint("R2", 60, 60, w=2, h=1, inst="r2", nets=("X", "GND")),    # identical, wired to nothing placed
+           footprint("U1", 80, 80, w=12, h=8, inst="u1", nets=("X", "Y"))]     # far bigger, wired to nothing placed
+    b = Board(board_geometry(fps, width=100, height=100), edge_margin=1.0)
+    b.place(Part("j1"), at=Location(10, 10))
+    b.place(Part("r2"))
+    b.place(Part("r1"))
+    b.place(Part("u1"))
     order = order_of(b.resolve())
-    assert order.index("big") < order.index("small") < order.index("strip")
+    assert order.index("u1") < order.index("r1")       # the rank leads: pull does not lift a passive over it
+    assert order.index("r1") < order.index("r2")       # and decides between the two that tie
 
 
 def test_loose_parts_go_down_heaviest_link_first():
@@ -102,7 +111,6 @@ def test_a_high_priority_cell_goes_before_the_others_whatever_pulls_them():
 def test_order_follows_what_an_item_needs_not_what_kind_it_is():
     """A connector can be the most important thing on a board. Nothing waits
     for a whole tier of cells and blocks just for being one part."""
-    from placemat.values import Priority
     fps = [footprint("J9", 25, 45, w=20, h=6, inst="j_big", nets=("A", "GND")),
            footprint("U9", 10, 10, w=4, h=3, cell="small", inst="small.u", nets=("A", "B")),
            footprint("C9", 10, 14, w=3, h=1.5, cell="small", inst="small.c", nets=("B", "GND"))]
@@ -110,10 +118,9 @@ def test_order_follows_what_an_item_needs_not_what_kind_it_is():
     b.place(Cell("small"))
     b.place(Part("j_big"))
     plan = b.resolve()
-    assert plan.step("j_big").priority is Priority.HIGH      # it dominates the searched items and the board
-    assert plan.step("small").priority is Priority.DEFAULT
     order = [s.item for s in plan.steps if s.item in ("j_big", "small")]
     assert order == ["j_big", "small"]
+    assert plan.step("j_big").rank == 1 and plan.step("small").rank == 2
 
 
 def test_a_decided_position_leaves_priority_nothing_to_order():

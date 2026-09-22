@@ -32,11 +32,6 @@ RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RAN
 # faces out of each edge at this rotation.
 _OUTWARD_ROTATION = {Edge.SOUTH: 0.0, Edge.EAST: 90.0, Edge.NORTH: 180.0, Edge.WEST: 270.0}
 
-_CRITICAL_SHARE = 0.02
-"""A searched item is critical on its own only if it needs at least this
-much of the board: below it, being the largest thing left means little."""
-
-
 @dataclass(frozen=True)
 class RowCoord:
     """A coordinate of a row that needs the board outline: resolved when
@@ -527,7 +522,9 @@ class Board:
         self.via_drill, self.via_size = via_drill, via_size
         self.keep_going = keep_going            # carry on past colliding FIXED/EDGE items, as findings
         self._intents: list = []            # placements and cutouts: one queue, ordered by needs
-        self._weights: dict = {}
+        self._rank_score: dict = {}
+        self._rank_of: dict = {}
+        self._rank_note: dict = {}
         self._copper: list[CopperIntent] = []
         self._labels: list = []
         self._faces: tuple | None = None
@@ -1783,7 +1780,7 @@ class Board:
                     shape=self._shape, cutouts=self._cutouts,
                     rules=list(self._rules), draw_outline=self._draw_outline)
         ctx = _CopperContext(self, occ)
-        self._weigh(occ)
+        self._rank(occ)
         self._derive_copper_freedom()
         placements = sorted(self._intents, key=lambda i: i.rank)   # holes included: they are placed too
         fixed_copper = [c for c in self._copper if c.freedom.decided]
@@ -1869,7 +1866,11 @@ class Board:
             if why_now:
                 step.note = (why_now + "; " + step.note) if step.note else why_now
             if not obj.freedom.decided:
-                tag = "priority %s (%s)" % (obj.priority.value, self._weights.get(obj.key, obj.priority_source))
+                tag = self._rank_note.get(obj.key, "")
+                if obj.priority_source == "script":
+                    tag += " (script: %s)" % obj.priority.value
+                if getattr(obj, "required", False):
+                    tag += ", required"
                 step.note = (tag + "; " + step.note) if step.note else tag
             if obj.faces_note:
                 step.note = (step.note + "; " if step.note else "") + obj.faces_note
@@ -1947,14 +1948,16 @@ class Board:
                 if result.chosen is not None:
                     note = "pocket %.1f x %.1f at (%.1f, %.1f): nothing it connects to is placed" % (
                         pocket.box.width, pocket.box.height, pocket.box.center.x, pocket.box.center.y)
-                    return Step(i.key, i.kind, None if i.freedom.decided else i.priority, result.chosen, 0.0, note, i.why, freedom=i.freedom)
+                    return Step(i.key, i.kind, None if i.freedom.decided else i.priority, result.chosen, 0.0, note, i.why, freedom=i.freedom,
+                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
                 tried.append(pocket)
         current = occ._geometry(i.item).reference
         plan.findings.append("%s: no pocket fits its %s envelope on the %s face (%d pocket(s) tried)" % (
             i.key, "%.1f x %.1f" % (occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).width,
                                     occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).height),
             i.face.value, len(tried)))
-        return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: no pocket fits", i.why, freedom=i.freedom)
+        return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: no pocket fits", i.why, freedom=i.freedom,
+                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
 
     def _placements(self) -> list:
         """The item placements among the intents.
@@ -2092,45 +2095,43 @@ class Board:
             if progress:
                 progress("   bridge: " + note)
 
-    def _weigh(self, occ: Occupancy):
-        """Every searched item's priority, unless the script said: from how
-        much of the largest item's area it needs, how many connections tie
-        it to other declared items, and how many parts it holds. The reason
-        is kept for the step."""
-        self._weights: dict = {}
+    def _rank(self, occ: Occupancy):
+        """Every searched item's place in the queue, from what it is: the
+        courtyard area it needs and its pin count, both against the rest of
+        this board's searched items.
+
+        Static. A rank says what a part IS, so it does not move as the board
+        fills; what the board looks like when an item is reached is the
+        tie-break's business, not this one's."""
+        from .ranking import pin_count, rank_scores
+        self._rank_score, self._rank_of, self._rank_note = {}, {}, {}
         searched = [i for i in self._placements() if not i.freedom.decided]
         if not searched:
             return
-        declared = self._declared_refs()
-
-        def parts_of(i):
-            return [i.item.anchor] + [fp for fp, _ in i.item.satellites] if i.kind == "block" else \
-                (list(i.item.members) if i.kind == "cell" else [i.item])
 
         def measure(i):
-            parts = parts_of(i)
-            own = {fp.ref for fp in parts}
-            area = sum(fp.courtyard_box.area for fp in parts)
-            conns = sum(1 for fp in parts for p in fp.pads if p.net
-                        and any(o.owner not in own and o.owner in declared for o in self.geometry.pads_on_net(p.net)))
-            return area, conns, len(parts)
-        m = {i.key: measure(i) for i in searched}
-        top = [max(v[k] for v in m.values()) or 1 for k in range(3)]
-        board_area = occ.board_box.area if occ.board_box is not None else sum(v[0] for v in m.values())
-        for i in searched:
-            area, conns, n = m[i.key]
-            score = 0.5 * area / top[0] + 0.3 * conns / top[1] + 0.2 * n / top[2]
-            share = area / board_area if board_area else 0.0
-            # critical: it dominates the other searched items AND it is a real piece of the board
-            auto = Priority.HIGH if (score >= 0.5 and share >= _CRITICAL_SHARE) else \
-                Priority.LOW if score <= 0.1 else Priority.DEFAULT
-            why = "%.0f%% of the largest area, %.1f%% of the board, %d connection(s), %d part(s)" % (
-                100 * area / top[0], 100 * share, conns, n)
-            if i.priority_source == "script":
-                self._weights[i.key] = "script; would be %s: %s" % (auto.value, why)
+            if i.kind == "cell":
+                parts, area = list(i.item.members), i.item.courtyard_box.area
+            elif i.kind == "block":
+                parts = [i.item.anchor] + [fp for fp, _ in i.item.satellites]
+                area = sum(fp.courtyard_box.area for fp in parts)
             else:
-                i.priority = auto
-                self._weights[i.key] = "auto: " + why
+                parts, area = [i.item], i.item.courtyard_box.area
+            return area, sum(pin_count(fp) for fp in parts)
+
+        m = {i.key: measure(i) for i in searched}
+        scores = rank_scores(m, self.settings.rank_area, self.settings.rank_pins)
+        order = sorted(scores, key=lambda k: (-scores[k], k))
+        n = len(order)
+        by_area = sorted(m, key=lambda k: -m[k][0])
+        by_pins = sorted(m, key=lambda k: -m[k][1])
+        for position, key in enumerate(order, start=1):
+            area, pins = m[key]
+            self._rank_score[key] = scores[key]
+            self._rank_of[key] = position
+            self._rank_note[key] = "rank %d/%d (%.1f mm2, %s of %d; %d pins, %s)" % (
+                position, n, area, _ordinal(by_area.index(key) + 1), n,
+                pins, _ordinal(by_pins.index(key) + 1))
 
     def _slide(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, ideal: float, lo: float, hi: float,
                placement_at, what: str, step: float | None = None, units: str = "mm") -> Step:
@@ -2155,13 +2156,15 @@ class Board:
                 note = what
                 if moved > 1e-9:
                     note += "; slid %.2f %s from its slot: %s" % (moved, units, next(iter(reasons.values()), ""))
-                return Step(i.key, i.kind, None if i.freedom.decided else i.priority, p, moved, note, i.why, freedom=i.freedom)
+                return Step(i.key, i.kind, None if i.freedom.decided else i.priority, p, moved, note, i.why, freedom=i.freedom,
+                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
             key = _reason_key(why)
             rejected[key] += 1
             reasons.setdefault(key, why)
         plan.findings.append("%s: no room anywhere %s (%s)" % (
             i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3))))
-        return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: " + "; ".join(reasons.values()), i.why, freedom=i.freedom)
+        return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: " + "; ".join(reasons.values()), i.why, freedom=i.freedom,
+                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
 
     def _settle_along_line(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
         """x or y pinned, the other free: the item's body centre sits on the
@@ -2311,29 +2314,27 @@ class Board:
                 % (obj.key, env.width, env.height, obj.face.value, step.note.replace("UNPLACED: ", ""), rects))
 
     def _next_to_place(self, pending: list, occ: Occupancy, placed: set):
-        """Which searched item goes down next, and why: a cell, a block and a
-        loose part all queue together. Priority leads (it is worked out from
-        what each item needs), then fit - the item's courtyard over the free
-        board - so one needing more than a quarter of what is left goes now;
-        then the strongest pull toward what is already placed, then the
-        largest, then the name."""
-        free = max(occ.free_area(), 1e-9)
+        """Which searched item goes next: the script's tier first, then the
+        rank (what the item IS), then the strongest pull toward what is
+        already placed, then the largest.
 
+        Pull is a TIE-BREAK. It counts an item's pads against the placed pads
+        they share a net with, so it measures net fan-out, which tracks pin
+        count and bus membership rather than how hard an item is to place. It
+        decides between items the rank cannot separate - the shelf of
+        identical passives, which score the same to the last bit - and
+        nothing else."""
         def measure(obj):
             parts = obj.item.members if obj.kind == "block" else (obj.item,)
-            area = sum(s.box.area for it in parts for s in occ._geometry(it).shapes if s.kind == "courtyard")
+            area = sum(s.box.area for it in parts for s in occ._geometry(it).shapes
+                       if s.kind == "courtyard")
             pull = sum(w for it in parts for _, _, w in self._targets(it, occ, placed))
-            return area / free, pull, area
+            return self._rank_score.get(obj.key, 0.0), pull, area
 
         scored = sorted(((measure(o), o) for o in pending),
-                        key=lambda m: (-m[1].priority.rank, -(m[0][0] > 0.25), -m[0][1], -m[0][2], m[1].key))
-        (fit, pull, area), obj = scored[0]
-        if fit > 0.25:
-            why = "next: needs %.0f%% of the free board" % (100 * fit)
-        elif pull > 0:
-            why = "next: strongest pull (%d) toward what is placed" % pull
-        else:
-            why = "next: largest (%.0f mm2), nothing placed pulls any" % area
+                        key=lambda m: (-m[1].priority.rank, -m[0][0], -m[0][1], -m[0][2], m[1].key))
+        (score, pull, area), obj = scored[0]
+        why = "next: " + self._rank_note.get(obj.key, "largest (%.0f mm2)" % area)
         return obj, why
 
     def _settle_block(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set) -> Step:
@@ -2388,7 +2389,8 @@ class Board:
         plan._items[spec.anchor.inst] = spec.anchor
         anchor_at = members.get(spec.anchor.inst)
         plan.steps.append(Step(spec.anchor.inst, "part", i.priority, anchor_at, 0.0, "anchor of %s" % i.key))
-        return Step(i.key, "block", None if i.freedom.decided else i.priority, anchor_at, 0.0, note, i.why, freedom=i.freedom)
+        return Step(i.key, "block", None if i.freedom.decided else i.priority, anchor_at, 0.0, note, i.why, freedom=i.freedom,
+                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
 
     def _settle(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set = frozenset()) -> Step:
         if i.kind == "block":
@@ -2435,7 +2437,8 @@ class Board:
                             and i.clearance < self.keep_in)
             if why:
                 plan.findings.append("%s (%s): %s" % (i.key, i.freedom.value, why))
-            return Step(i.key, i.kind, None if i.freedom.decided else i.priority, p, 0.0, "; ".join(x for x in (chose, why) if x), i.why, freedom=i.freedom)
+            return Step(i.key, i.kind, None if i.freedom.decided else i.priority, p, 0.0, "; ".join(x for x in (chose, why) if x), i.why, freedom=i.freedom,
+                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
         if i.run is not None:
             return self._settle_along_run(occ, i, plan, clr)
         if i.rim is not None:
@@ -2473,12 +2476,14 @@ class Board:
         hopeless = self._no_pocket_note(occ, i)
         if hopeless:
             plan.findings.append("%s: %s" % (i.key, hopeless))
-            return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: " + hopeless, i.why, freedom=i.freedom)
+            return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: " + hopeless, i.why, freedom=i.freedom,
+                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
         result = scan(occ, i.item, hint, radius, i.step, i.rotations or (i.rotation,), clr, score=score)
         if result.chosen is None:
             plan.findings.append("%s: no legal location within %.1f mm of %s (%s)" % (
                 i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in result.rejected.most_common(3))))
-            return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()), i.why, freedom=i.freedom)
+            return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()), i.why, freedom=i.freedom,
+                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
         note = seeded
         if result.moved_mm > 0:
             first = next(iter(result.reasons.values()), "")
@@ -2488,7 +2493,8 @@ class Board:
             elif score:
                 moved += " for a better link score"
             note = (note + "; " if note else "") + moved
-        return Step(i.key, i.kind, None if i.freedom.decided else i.priority, result.chosen, result.moved_mm, note, i.why, freedom=i.freedom)
+        return Step(i.key, i.kind, None if i.freedom.decided else i.priority, result.chosen, result.moved_mm, note, i.why, freedom=i.freedom,
+                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
 
 _EDGE_BEARING = {Edge.NORTH: 0.0, Edge.EAST: 90.0, Edge.SOUTH: 180.0, Edge.WEST: 270.0}
 _EDGE_DIR = {Edge.NORTH: (0.0, -1.0), Edge.SOUTH: (0.0, 1.0), Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0)}
@@ -2654,6 +2660,12 @@ def _shape_of(op) -> Shape | None:
         faces = frozenset([op.layer.face]) if op.layer.face else frozenset()
         return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.polygon, op.box)
     return None            # a zone pulls back round everything; it is never an obstacle
+
+
+def _ordinal(n: int) -> str:
+    if 10 <= n % 100 <= 20:
+        return "%dth" % n
+    return "%d%s" % (n, {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
 
 
 def _loc(l: Location) -> str:

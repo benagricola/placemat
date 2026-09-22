@@ -46,17 +46,20 @@ def test_a_block_is_searched_as_one_and_reports_its_envelope():
     assert "block" in plan.step("block ldo").note or plan.step("block ldo").kind == "block"
 
 
-def test_a_block_goes_down_after_cells_and_before_loose_parts():
+def test_a_block_takes_its_turn_in_the_one_queue_by_what_it_is():
+    """A cell, a block and a loose part are one queue ordered by rank, not
+    three tiers ordered by kind. A block of two parts outranks a one-part
+    cell of similar area on pin count, and both outrank a lone passive."""
     fps = [footprint("U1", 30, 30, w=6, h=3, inst="ldo", nets=("VIN", "VOUT")),
            footprint("C1", 60, 60, inst="cin", nets=("VIN", "GND")),
-           footprint("R1", 50, 50, inst="r1", nets=("VOUT", "X")),
+           footprint("R1", 50, 50, w=1, h=0.5, inst="r1", nets=("VOUT", "X")),
            footprint("U2", 10, 10, w=8, h=4, cell="c", inst="c.u", nets=("VIN", "Y"))]
     b = Board(board_geometry(fps, cells=["c"], width=60, height=60), edge_margin=1.0)
     b.place(Part("r1"))
     b.place(b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")]))
     b.place(Cell("c"))
     order = [s.item for s in b.resolve().steps if s.placement is not None]
-    assert order.index("c") < order.index("block ldo") < order.index("r1")
+    assert order.index("block ldo") < order.index("c") < order.index("r1")
 
 
 def test_a_block_with_nothing_placed_to_pull_it_starts_from_the_board_not_where_the_generator_left_it():
