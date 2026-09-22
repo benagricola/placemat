@@ -105,3 +105,22 @@ def test_impact_says_when_a_cutout_appeared_or_went():
 
 def test_impact_is_quiet_about_cutouts_when_there_are_none():
     assert "cutout" not in impact(_rec(), _rec(run_id="b"))
+
+
+def test_the_settings_change_the_run_id():
+    """A setting that changes the board must change the id: the runner
+    rmtrees a run directory whose id matches, so a collision destroys the
+    previous run's route/."""
+    from placemat.report import run_id
+    from placemat.settings import Settings
+    same = dict(script_text="board.size(1, 1)\n", board_bytes=b"pcb", tool_version="0.2.0-dev")
+    a = run_id(**same, settings_json=Settings().json())
+    b = run_id(**same, settings_json=Settings().json())
+    c = run_id(**same, settings_json=Settings(place_step=0.05).json())
+    assert a == b and a != c
+
+
+def test_run_id_without_settings_is_still_stable():
+    from placemat.report import run_id
+    same = dict(script_text="s", board_bytes=b"p", tool_version="v")
+    assert run_id(**same) == run_id(**same)

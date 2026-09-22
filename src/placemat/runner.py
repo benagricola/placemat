@@ -15,6 +15,7 @@ import traceback
 from .console import configure, console
 from .layout import Board
 from .context import run_script
+from . import settings
 from .project import BoardSource, fab_profile, find_board
 from .report import RunRecord, airwires_from_drc, congestion, impact, run_id
 
@@ -69,7 +70,8 @@ def _tail(path: Path, n: int = 12) -> str:
         return ""
 
 
-def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool) -> bool:
+def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
+             timeout: int = 900) -> bool:
     """Put a freshly generated (unscripted) board in src.layout_dir. A copy of
     the generation is cached beside the runs so a rerun of the script does not
     pay for `pcb layout` again; `fresh` forces it. Returns True when the
@@ -87,7 +89,7 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool) -> bool:
     src.layout_dir.mkdir(parents=True, exist_ok=True)
     _say(quiet, "board   generating %s with pcb layout ..." % src.zen.name)
     cmd = ["pcb", "layout", "--no-open"] + list(src.generate_args) + [src.zen.name]
-    rc, dt = _sh(cmd, src.board_dir, log, 900, env)
+    rc, dt = _sh(cmd, src.board_dir, log, timeout, env)
     if rc != 0 or not src.pcb.exists():
         raise RunFailure("generation", "Schematic generation failed",
                          {"command": " ".join(cmd), "cwd": str(src.board_dir),
@@ -100,11 +102,25 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool) -> bool:
 
 def run(script, label: str | None = None, fresh: bool = False, render: bool = True, drc: bool = True,
         quiet: bool = False, verbose: bool = False, route: bool = False, route_quick: bool = True,
-        route_exclude=(), keep_going: bool = False) -> RunResult:
-    configure(quiet=quiet)
-    say = console.say
+        route_exclude=(), keep_going: bool = False, overrides=None) -> RunResult:
+    """One layout attempt, with this board's settings resolved and bound for
+    the whole of it: the deep geometry helpers read the binding, and the run
+    id carries the settings so a changed one cannot collide with a previous
+    run and delete it."""
     script = Path(script).resolve()
     src = find_board(script)
+    cfg = settings.load(src.board_dir, overrides=overrides or {})
+    with settings.bind(cfg):
+        return _run(script, src, cfg, label=label, fresh=fresh, render=render, drc=drc,
+                    quiet=quiet, verbose=verbose, route=route, route_quick=route_quick,
+                    route_exclude=route_exclude, keep_going=keep_going)
+
+
+def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render: bool = True,
+         drc: bool = True, quiet: bool = False, verbose: bool = False, route: bool = False,
+         route_quick: bool = True, route_exclude=(), keep_going: bool = False) -> RunResult:
+    configure(quiet=quiet)
+    say = console.say
     runs = src.board_dir / ".placemat" / "runs"
     staging = runs / ("." + time.strftime("%Y%m%d-%H%M%S-") + str(os.getpid()))
     shutil.rmtree(staging, ignore_errors=True)
@@ -117,17 +133,20 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
     plan = None
     try:
         t0 = time.time()
-        generated = generate(src, run_dir, fresh, quiet)
+        generated = generate(src, run_dir, fresh, quiet, cfg.timeout_generate)
         rec.timing_s["generate"] = round(time.time() - t0, 1)
         # The run's name: a hash of the script, the generated board and the tool.
         from . import __version__
-        rid = run_id(script.read_text(), src.pcb.read_bytes(), __version__)
+        rid = run_id(script.read_text(), src.pcb.read_bytes(), __version__, cfg.json())
         final_dir = runs / rid
         shutil.rmtree(final_dir, ignore_errors=True)
         staging.rename(final_dir)
         run_dir = final_dir
         rec.run_id = rid
         rec.paths["run_dir"] = str(run_dir)
+        files = sorted({v for v in cfg.sources.values() if v not in ("default", "flag")})
+        if files:
+            rec.paths["settings_files"] = files
         if label:
             alias = runs / label
             if alias.is_symlink() or alias.exists():

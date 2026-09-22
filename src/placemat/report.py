@@ -33,17 +33,19 @@ class RunRecord:
         return RunRecord(**json.loads(Path(path).read_text()))
 
 
-def run_id(script_text: str, board_bytes: bytes, tool_version: str) -> str:
+def run_id(script_text: str, board_bytes: bytes, tool_version: str, settings_json: str = "") -> str:
     """A run is named by a short hash of everything that decides its result:
-    the script, the generated board it starts from, and the tool version.
-    Same inputs, same id; a label is only an alias for one."""
+    the script, the generated board it starts from, the tool version, and the
+    resolved settings. Same inputs, same id; a label is only an alias for one.
+
+    The settings are in the hash because a rerun whose id matches replaces its
+    run directory, so a setting that changed the board without changing the id
+    would destroy the previous run, `route/` and all."""
     import hashlib
     h = hashlib.sha256()
-    h.update(tool_version.encode())
-    h.update(b"\0")
-    h.update(script_text.encode())
-    h.update(b"\0")
-    h.update(board_bytes)
+    for part in (tool_version.encode(), script_text.encode(), board_bytes, settings_json.encode()):
+        h.update(part)
+        h.update(b"\0")
     return h.hexdigest()[:8]
 
 
