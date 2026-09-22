@@ -572,12 +572,12 @@ class Board:
         """The spacing of a part's pads: the distance between neighbouring
         pad centres, read from the footprint (a connector's pin pitch, a
         two-pad part's pad spacing)."""
+        from .describe import pitch_of
         fp = self.geometry.footprint(part)
-        centres = [p.box.center for p in fp.pads]
-        if len(centres) < 2:
-            raise ValueError("%s has %d pad(s): no pitch" % (fp.ref, len(centres)))
-        nearest = [min(a.distance(b) for b in centres if b is not a) for a in centres]
-        return round(min(nearest), 6)
+        found = pitch_of(fp.pads)
+        if found is None:
+            raise ValueError("%s has %d pad(s): no pitch" % (fp.ref, len(fp.pads)))
+        return found
 
     def net(self, net) -> str:
         return self.geometry.require_net(net)

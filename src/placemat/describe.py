@@ -7,6 +7,8 @@ pinned by tests that run without KiCad, and `cli.py` stays a dispatcher.
 """
 from __future__ import annotations
 
+from collections import Counter
+
 from .geometry import distance_to_boundary, polys_overlap
 from .ranking import pin_count
 from .values import Box, CopperLayer
@@ -137,3 +139,27 @@ def parts_lines(geometry) -> list:
             r["instance"][:26], r["ref"], r["face"], (r["cell"] or "-")[:12],
             r["mm2"], r["pins"], r["value"][:28]))
     return out
+
+
+def pitch_of(pads):
+    """The nearest gap between two pad centres: a connector's pin pitch. None
+    when there are not two pads to measure between."""
+    centres = [p.box.center for p in pads]
+    if len(centres) < 2:
+        return None
+    return round(min(min(a.distance(b) for b in centres if b is not a) for a in centres), 6)
+
+
+def pad_size_of(pads):
+    """The commonest pad size. A connector carries a shell pad or two that are
+    not contacts, and the contacts are what a land pattern is checked on."""
+    if not pads:
+        return None
+    sizes = Counter((round(p.box.width, 3), round(p.box.height, 3)) for p in pads)
+    return sizes.most_common(1)[0][0]
+
+
+def span_of(pads):
+    """How far the copper reaches across every pad."""
+    box = Box.union([p.box for p in pads]) if pads else None
+    return round(box.width, 6) if box is not None else None

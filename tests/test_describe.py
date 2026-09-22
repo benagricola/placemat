@@ -156,3 +156,27 @@ def test_the_pad_table_lines_up_whatever_the_stackup():
     pads = [l for l in describe.part_lines(fp, g, pads=True) if l.strip().startswith("pad ")]
     assert len(pads) == 2
     assert len({l.index(" at (") for l in pads}) == 1, pads
+
+
+def test_the_pitch_is_the_nearest_gap_between_pad_centres():
+    g = _geom()
+    fp = g.footprint("U1")
+    assert describe.pitch_of(fp.pads) == pytest.approx(2.8, abs=1e-6)
+    assert describe.pitch_of(fp.pads[:1]) is None       # one pad has no pitch
+    assert describe.pitch_of(()) is None
+
+
+def test_the_pad_size_is_the_commonest_one():
+    from tests.fixtures import pad
+    pads = (pad("U9", "u9", 1, "A", 0.0, 0.0, 1.0, 2.0),
+            pad("U9", "u9", 2, "B", 3.0, 0.0, 1.0, 2.0),
+            pad("U9", "u9", 3, "C", 6.0, 0.0, 4.0, 4.0))
+    w, h = describe.pad_size_of(pads)
+    assert (round(w, 3), round(h, 3)) == (1.0, 2.0)
+
+
+def test_the_span_is_the_width_across_every_pad():
+    from tests.fixtures import pad
+    pads = (pad("U9", "u9", 1, "A", 0.0, 0.0, 1.0, 2.0),
+            pad("U9", "u9", 2, "B", 8.0, 0.0, 1.0, 2.0))
+    assert describe.span_of(pads) == pytest.approx(9.0, abs=1e-6)
