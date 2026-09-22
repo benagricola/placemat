@@ -306,3 +306,40 @@ def test_a_track_clear_of_a_keepout_is_quiet():
     b.keepout(Circle(6.0), "antenna", at=Location(20.0, 20.0), why="the clearance")
     b.track(Net("GND"), [Location(5, 35), Location(35, 35)], layer=CopperLayer.F)
     assert not b.resolve().findings
+
+
+def test_a_track_on_another_layer_than_the_region_is_quiet():
+    b = make_board("u1", keep_going=True)
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), layers=(CopperLayer.F,),
+              why="the clearance on F")
+    b.track(Net("GND"), [Location(5, 20), Location(35, 20)], layer=CopperLayer.B)
+    assert not b.resolve().findings
+
+
+def test_a_track_on_the_region_s_own_layer_is_still_a_finding():
+    b = make_board("u1", keep_going=True)
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), layers=(CopperLayer.F,),
+              why="the clearance on F")
+    b.track(Net("GND"), [Location(5, 20), Location(35, 20)], layer=CopperLayer.F)
+    assert any("antenna" in f for f in b.resolve().findings)
+
+
+def test_a_region_with_no_layers_still_catches_every_layer():
+    for layer in (CopperLayer.F, CopperLayer.B):
+        b = make_board("u1", keep_going=True)
+        b.size(width=40.0, height=40.0)
+        b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), why="every layer")
+        b.track(Net("GND"), [Location(5, 20), Location(35, 20)], layer=layer)
+        assert any("antenna" in f for f in b.resolve().findings), layer
+
+
+def test_a_via_is_caught_by_a_region_on_any_single_layer():
+    """A via joins every copper layer, so a region on one of them contains it."""
+    b = make_board("u1", keep_going=True)
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), layers=(CopperLayer.B,),
+              why="the clearance on B")
+    b.via(Net("GND"), Location(20.0, 20.0))
+    assert any("antenna" in f and "via" in f for f in b.resolve().findings)

@@ -840,6 +840,8 @@ class Board:
             for k in plan.keepouts.values():
                 if excluded not in k.excludes or op.net in k.allow:
                     continue
+                if k.layers is not None and not (_op_layers(op) & frozenset(k.layers)):
+                    continue                        # the region does not cover this op's layer
                 if not Box.of_points(k.poly).overlaps(op.box):
                     continue
                 if polys_overlap(k.poly, op.polygon):
@@ -2662,6 +2664,14 @@ def _refs_in(points) -> list:
         elif isinstance(p, (Centre, Location)):
             out += _refs_in([p.x, p.y])
     return out
+
+
+def _op_layers(op) -> frozenset:
+    """The copper layers a drawn op occupies. A via joins the whole stack, so
+    a region covering any one layer contains it."""
+    if isinstance(op, Via):
+        return frozenset(CopperLayer)
+    return frozenset([op.layer])
 
 
 def _shape_of(op) -> Shape | None:
