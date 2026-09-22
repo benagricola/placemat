@@ -133,6 +133,16 @@ def test_the_docs_tell_an_agent_to_measure_rather_than_grep():
     assert "0.10" in mig
 
 
+def test_the_docs_tell_an_agent_to_index_a_datasheet_rather_than_grep_it():
+    from pathlib import Path
+    api = Path("skills/placemat/references/api.md").read_text()
+    assert "placemat datasheet" in api and "--show" in api
+    skill = Path("skills/placemat/SKILL.md").read_text()
+    assert "placemat datasheet" in skill
+    mig = Path("skills/placemat/references/migration.md").read_text()
+    assert "0.12" in mig and "0.11" in mig
+
+
 def test_the_pad_table_lines_up_whatever_the_stackup():
     """A four-layer board names four layers on every through pad, which is
     wider than the column the layer names used to be poured into, so the
