@@ -75,3 +75,21 @@ def test_a_single_point_polygon_still_measures():
     from placemat.geometry import distance_to_boundary
     board = ((0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0))
     assert distance_to_boundary(((4.0, 10.0),), board) == pytest.approx(4.0)
+
+
+def test_a_polygon_inside_another_overlaps_even_when_its_first_vertex_is_on_the_edge():
+    """Containment was tested on each polygon's first vertex only. A via's
+    16-gon centred 0.3 mm inside a pad's edge has that vertex exactly on the
+    edge, and read as clear of a pad it sat almost wholly inside."""
+    from placemat.geometry import circle_polygon, polys_overlap
+    from placemat.values import Location
+    pad = ((18.1, 19.5), (19.1, 19.5), (19.1, 20.5), (18.1, 20.5))
+    ring = circle_polygon(Location(18.8, 20.0), 0.3)
+    assert polys_overlap(ring, pad) and polys_overlap(pad, ring)
+
+
+def test_polygons_that_only_touch_along_an_edge_still_do_not_overlap():
+    from placemat.geometry import polys_overlap
+    a = ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0))
+    b = ((1.0, 0.0), (2.0, 0.0), (2.0, 1.0), (1.0, 1.0))
+    assert not polys_overlap(a, b) and not polys_overlap(b, a)

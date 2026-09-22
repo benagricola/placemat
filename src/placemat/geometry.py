@@ -129,15 +129,27 @@ def _edges(poly: Polygon):
         yield poly[i], poly[(i + 1) % n]
 
 
+def _strictly_inside(p: Point, poly: Polygon) -> bool:
+    """Inside and not on the boundary, to a nanometre."""
+    return point_in_polygon(p, poly) and all(point_segment_distance(p, q1, q2) > 1e-9 for q1, q2 in _edges(poly))
+
+
 def polys_overlap(a: Polygon, b: Polygon) -> bool:
-    """True when the two polygons share interior (touching edges do not count)."""
+    """True when the two polygons share interior (touching edges do not count).
+
+    Containment used to be tested on each polygon's first vertex alone. One
+    polygon lying inside another with that vertex exactly on the other's edge
+    - a via's 16-gon centred 0.3 mm inside a pad's edge puts a vertex on it -
+    crossed no edge and read as clear. Any vertex strictly inside decides it,
+    which can only find an overlap the first-vertex test missed, never make
+    edges that merely touch count."""
     if point_in_polygon(a[0], b) or point_in_polygon(b[0], a):
         return True
     for p1, p2 in _edges(a):
         for q1, q2 in _edges(b):
             if segments_intersect(p1, p2, q1, q2):
                 return True
-    return False
+    return any(_strictly_inside(p, b) for p in a[1:]) or any(_strictly_inside(q, a) for q in b[1:])
 
 
 def point_segment_distance(p: Point, a: Point, b: Point) -> float:
