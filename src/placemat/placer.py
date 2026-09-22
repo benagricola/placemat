@@ -316,6 +316,27 @@ def _largest_rectangle(free, rows, cols):
     return best
 
 
+def _board_mask(occ: Occupancy, inner: Box, rows: int, cols: int, step: float) -> list:
+    """Which raster cells lie on the board. On a board that is not a
+    rectangle only the cells inside it are free, and testing each against
+    the outline is most of a raster's cost; the answer depends only on the
+    outline, the margin and the grid, so it is kept on the occupancy."""
+    shape = occ.board_shape
+    key = (id(shape), occ.edge_margin, inner, rows, cols, step)
+    cache = occ.__dict__.setdefault("_board_masks", {})
+    if key not in cache:
+        mask = [[True] * cols for _ in range(rows)]
+        if shape is not None:
+            for r in range(rows):
+                y = inner.top + r * step
+                for c in range(cols):
+                    x = inner.left + c * step
+                    if shape.why_not(Box(x, y, x + step, y + step), occ.edge_margin) is not None:
+                        mask[r][c] = False
+        cache[key] = (shape, mask)          # the shape is held so its id cannot be reused
+    return cache[key][1]
+
+
 def pockets(occ: Occupancy, width: float, height: float, face: Face = Face.FRONT, step: float = 0.5,
             limit: int = 8) -> list:
     """The free rectangles on `face` at least `width` x `height`, biggest
@@ -331,15 +352,7 @@ def pockets(occ: Occupancy, width: float, height: float, face: Face = Face.FRONT
     rows = int(inner.height / step)
     if cols <= 0 or rows <= 0:
         return []
-    free = [[True] * cols for _ in range(rows)]
-    shape = occ.board_shape
-    if shape is not None:                # a board that is not a rectangle: only cells inside it are free
-        for r in range(rows):
-            y = inner.top + r * step
-            for c in range(cols):
-                x = inner.left + c * step
-                if shape.why_not(Box(x, y, x + step, y + step), occ.edge_margin) is not None:
-                    free[r][c] = False
+    free = [row[:] for row in _board_mask(occ, inner, rows, cols, step)]
     blocks = [s.box for g in occ.items.values() for s in g.shapes
               if s.kind in ("courtyard", "npth", "through") and face in s.faces]
     blocks += [c.box for c in occ.copper if c.kind == "through"]        # vias come through: no face is free under them
@@ -437,12 +450,14 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
                 outward = (body.x - target.x) * ux + (body.y - target.y) * uy      # body beyond its pad, away from the anchor
                 if outward < -1e-6:
                     continue
-                reason = occ.legal(sat, cand, clearance, others=others.get(sat.inst))
-                if reason:
-                    continue
+                # The members first: at the tightest gaps a satellite's courtyard
+                # meets its anchor's, and that is cheaper to find than the board.
                 _, sshapes = occ.candidate_shapes(sat, cand)
                 mine = [sh.poly for sh in sshapes if sh.kind == "courtyard"]
                 if any(polys_overlap(a, b) for a in mine for b in taken):
+                    continue
+                reason = occ.legal(sat, cand, clearance, others=others.get(sat.inst))
+                if reason:
                     continue
                 key = (-outward, rot)
                 if best is None or key < best[0]:
