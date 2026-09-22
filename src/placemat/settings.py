@@ -95,6 +95,8 @@ class Settings:
     timeout_render: int = 300
     # [noise] - added to DEFAULT_NOISE, never replacing it
     noise_patterns: tuple = ()
+    # [best] - judging a run against the best of its family
+    best_airwire_noise: float = 0.01
 
     # Where each value came from: a file path, "flag", or "default". Never
     # part of equality or of the run id: it says where, not what.
@@ -184,7 +186,7 @@ _ABOVE_ZERO = frozenset((
     "geometry_arc_error_nm", "check_rise_c", "check_copper_oz",
     "timeout_generate", "timeout_drc", "timeout_route", "timeout_render"))
 _AT_LEAST_ZERO = frozenset((
-    "rank_area", "rank_pins", "place_courtyard_touch", "copper_chamfer",
+    "rank_area", "rank_pins", "place_courtyard_touch", "copper_chamfer", "best_airwire_noise",
     "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm"))
 

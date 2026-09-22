@@ -116,3 +116,69 @@ def test_the_best_file_survives_a_record_it_cannot_read(tmp_path):
 def test_a_record_written_by_a_later_version_still_loads():
     doc = {"run_id": "z9", "board": "b", "status": "ok", "a_field_from_the_future": 1}
     assert RunRecord.of(doc).run_id == "z9"
+
+
+def test_against_best_reports_nothing_for_the_first_run_and_records_it(tmp_path):
+    path = tmp_path / "best.json"
+    said, prior = report.against_best(path, _rec(run_id="a1"))
+    assert said is None and prior is None
+    assert report.best_for(path, report.family_of(_rec())).run_id == "a1"
+
+
+def test_against_best_names_a_regression_and_keeps_the_old_best(tmp_path):
+    path = tmp_path / "best.json"
+    report.against_best(path, _rec(run_id="good", airwire=4936))
+    said, prior = report.against_best(path, _rec(run_id="bad", airwire=5402))
+    assert prior.run_id == "good" and "airwire" in said
+    assert report.best_for(path, report.family_of(_rec())).run_id == "good"
+
+
+def test_an_identical_rerun_is_neither_better_nor_worse(tmp_path):
+    path = tmp_path / "best.json"
+    report.against_best(path, _rec(run_id="a1"))
+    said, prior = report.against_best(path, _rec(run_id="a1"))
+    assert said is None and prior.run_id == "a1"
+
+
+def test_a_run_that_regressed_exits_one(monkeypatch, tmp_path):
+    """The user's ruling: a regression is a finding AND a non-zero exit, so it
+    cannot pass unnoticed in a loop."""
+    from placemat import cli, runner
+    rec = _rec(run_id="bad")
+    for regressed, want in (("airwire 5402 against 4936 in the best run (good)", 1), (None, 0)):
+        result = runner.RunResult(rec, tmp_path, False, regressed=regressed)
+        monkeypatch.setattr(runner, "run", lambda *a, _r=result, **k: _r)
+        assert cli.main(["run", str(tmp_path / "x_layout.py")]) == want
+
+
+def test_airwire_noise_is_neither_a_regression_nor_an_improvement():
+    """kicad-cli reports a different set of ratsnest edges each run for a
+    byte-identical board: four runs of the Breakout's same inputs gave
+    2872.80, 2873.11, 2872.80 and 2868.87 mm. A gate that took that as a
+    regression failed an identical rerun."""
+    best = _rec(run_id="b1", airwire=2870.88)
+    now = _rec(run_id="b1", airwire=2873.11)
+    assert report.regression(now, best) is None
+    assert not report.is_better(now, best)
+    assert not report.is_better(best, now)
+
+
+def test_an_airwire_change_beyond_the_noise_still_counts():
+    best = _rec(airwire=5083.0)
+    assert report.regression(_rec(airwire=5402.0), best)          # 6% worse
+    assert report.is_better(_rec(airwire=4936.0), best)           # 3% better
+
+
+def test_the_noise_band_is_a_setting():
+    from placemat.settings import Settings
+    assert Settings().best_airwire_noise == 0.01
+    wide = report.regression(_rec(airwire=5402.0), _rec(airwire=5083.0), airwire_noise=0.10)
+    assert wide is None
+
+
+def test_the_docs_say_a_regression_exits_one():
+    from pathlib import Path
+    api = " ".join(Path("skills/placemat/references/api.md").read_text().split())
+    assert "best.json" in api
+    assert "`placemat run` exits 1" in api
+    assert "## To 0.15" in Path("skills/placemat/references/migration.md").read_text()

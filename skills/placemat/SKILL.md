@@ -31,7 +31,12 @@ a footprint that draws no courtyard now claims its body rather than its pads.
    short hash of the script, the generated board, the tool and the resolved
    settings, so the same inputs are the same run; `--label <name>` adds an alias you can pass to
    `impact` later. Read the terminal stream: placed/copper/findings, then
-   one DRC line, then the impact. `-v` prints every step as it resolves.
+   one DRC line, then the impact, then a `best` line. `-v` prints every step
+   as it resolves. **A run that exits 1 having placed everything came out
+   worse than the best earlier run of the same parts**: the `best` line and
+   the finding name the metric. Read it before editing again - the best
+   arrangement is still in `.placemat/runs/best.json`, and the edit you just
+   made is the one that lost ground.
 2. **Before reading a board's numbers, run `placemat settings`.** The values
    it was laid out with may not be the defaults: a `placemat.toml` anywhere
    from the board's directory up to the filesystem root can set any of them,

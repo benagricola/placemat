@@ -81,6 +81,16 @@ def test_a_run_generates_places_writes_and_records(scratch_ecosystem):
     assert "steps" in data and any(s["item"] == "trunk_pwr" for s in data["steps"])
 
 
+def test_a_run_records_itself_as_the_best_of_its_family(scratch_ecosystem):
+    """A real run, not a synthetic record: the first run of these parts is
+    their best, and best.json names it under its family."""
+    from placemat.report import RunRecord, best_for, family_of
+    runs = scratch_ecosystem / "breakout/.placemat/runs"
+    rec = RunRecord.load(runs / "first" / "run.json")
+    best = best_for(runs / "best.json", family_of(rec))
+    assert best is not None and best.run_id == rec.run_id
+
+
 def test_a_second_run_reuses_the_generation_and_reports_no_movement(scratch_ecosystem):
     script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
     rec = run(script, label="second", render=False)

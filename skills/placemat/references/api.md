@@ -720,7 +720,20 @@ alias): `run.json`,
 `script.log`, `drc.json`, `generate.log`, `impact.txt`, the written
 `layout.kicad_pcb`, and `route/` (the routed copy, `route.json`,
 `router.log`, DRC before and after) when routing ran. The generation is
-cached in `.placemat/generated/`; `--fresh` regenerates. Routing needs
+cached in `.placemat/generated/`; `--fresh` regenerates.
+
+Every finished run is judged against the best earlier run of the same parts -
+its **family**, the runs whose script asked to place the same items - and
+`.placemat/runs/best.json` keeps one best per family. Better means, in order:
+more items placed, fewer real DRC violations, fewer findings, shorter airwire.
+Completeness leads because DRC means nothing without it: a run that placed 29
+of 101 items has little copper and so few violations. Airwire within
+`best.airwire_noise` (1%) is a tie, because kicad-cli picks different
+ratsnest edges each run for a byte-identical board. The run prints one `best`
+line - first of its family, matches, better than, or worse than. **A run
+that comes out worse is a finding naming the metric, and `placemat run` exits
+1**, so a regression cannot pass unnoticed in a loop. Adding or removing a
+part starts a new family. Routing needs
 KiCadRoutingTools at `$KRT_DIR` (default `~/work/KiCadRoutingTools`) with
 its own venv; quick mode is one routing round with the router's post-route
 smoothing off (a measurement: the Breakout routes in about 10 s), `--full`
@@ -803,6 +816,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `timeout.route` | 3600 | seconds for the router |
 | `timeout.render` | 300 | seconds for a render |
 | `noise.patterns` | none | extra KiCad stderr patterns to suppress, ADDED to the built-ins |
+| `best.airwire_noise` | 0.01 | how far airwire may move, as a fraction, before a run counts as better or worse than its family's best: kicad-cli picks different ratsnest edges each run for a byte-identical board |
 
 A run also records `metrics.seeded_by_net`: how many searched items each net
 seeded. One net seeding most of the board is a missing `board.plane()`.

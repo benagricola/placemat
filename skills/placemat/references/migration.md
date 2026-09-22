@@ -4,6 +4,24 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.15
+
+**`placemat run` can now exit 1 on a board that placed.** Every finished run
+is judged against the best earlier run of the same parts, and a run that comes
+out worse is a finding naming the metric and a non-zero exit. A loop or a CI
+job that treated exit 0 as "placed" should read the `best` line: exit 1 with
+everything placed means worse than before, not broken.
+
+Nothing in a script changes. The first run after upgrading is the first of its
+family, so it becomes the best and passes. `best.json` sits beside
+`latest.json` in `.placemat/runs/`; delete it to start the comparison afresh.
+
+`[best] airwire_noise` (default 0.01) is how far airwire may move before it
+counts. kicad-cli reports a different set of ratsnest edges each run for a
+byte-identical board - the Breakout's same inputs gave 2868.87 to 2873.11 mm
+over four runs - so `airwire_mm` and `crossings` wobble slightly between
+identical runs. Neither is exact; compare them across runs with that in mind.
+
 ## To 0.14
 
 **A `board.link` on a plane net now pulls, so parts move.** It always measured

@@ -266,27 +266,46 @@ _PARTS = (("placed", "placed", False), ("drc_real", "DRC violations", True),
           ("findings", "findings", True), ("airwire_mm", "airwire", True))
 
 
-def is_better(now: RunRecord, best: RunRecord | None) -> bool:
+# How far airwire may move, as a fraction, before it counts. kicad-cli reports
+# a different set of ratsnest edges each run for a byte-identical board - four
+# runs of the Breakout's same inputs gave 2872.80, 2873.11, 2872.80 and
+# 2868.87 mm - so an exact comparison fails an identical rerun.
+AIRWIRE_NOISE = 0.01
+
+
+def _verdict(now: dict, best: dict, airwire_noise: float) -> tuple:
+    """(sign, index) of the first component that differs: sign -1 when `now`
+    is better, 1 when worse, 0 when every component ties. Airwire ties when
+    the two are within `airwire_noise` of each other."""
+    a, b = objective(now), objective(best)
+    for i in range(len(a)):
+        x, y = a[i], b[i]
+        if _PARTS[i][0] == "airwire_mm":
+            if abs(x - y) <= airwire_noise * max(abs(x), abs(y)):
+                continue
+        elif x == y:
+            continue
+        return (-1 if x < y else 1), i
+    return 0, None
+
+
+def is_better(now: RunRecord, best: RunRecord | None, airwire_noise: float = AIRWIRE_NOISE) -> bool:
     if best is None:
         return True
-    return objective(now.metrics) < objective(best.metrics)
+    return _verdict(now.metrics, best.metrics, airwire_noise)[0] < 0
 
 
-def regression(now: RunRecord, best: RunRecord | None) -> str | None:
+def regression(now: RunRecord, best: RunRecord | None,
+               airwire_noise: float = AIRWIRE_NOISE) -> str | None:
     """The first component of the objective this run is worse on, said in
     numbers. None when the run is at least as good."""
-    if best is None or objective(now.metrics) <= objective(best.metrics):
+    if best is None:
         return None
-    for i, (key, name, lower_is_better) in enumerate(_PARTS):
-        a, b = objective(now.metrics)[i], objective(best.metrics)[i]
-        if a == b:
-            continue
-        if a > b:
-            shown = (lambda v: "%g" % abs(v))
-            return "%s %s against %s in the best run (%s)" % (
-                name, shown(a), shown(b), best.run_id)
+    sign, i = _verdict(now.metrics, best.metrics, airwire_noise)
+    if sign <= 0:
         return None
-    return None
+    a, b = objective(now.metrics)[i], objective(best.metrics)[i]
+    return "%s %g against %g in the best run (%s)" % (_PARTS[i][1], abs(a), abs(b), best.run_id)
 
 
 def _best_table(path) -> dict:
@@ -303,15 +322,24 @@ def best_for(path, family: str) -> RunRecord | None:
     return RunRecord.of(row) if isinstance(row, dict) else None
 
 
-def update_best(path, now: RunRecord) -> bool:
+def update_best(path, now: RunRecord, airwire_noise: float = AIRWIRE_NOISE) -> bool:
     """Record this run as its family's best when it is one. A run that did not
     finish is never the best, however good its numbers look."""
     if now.status != "ok":
         return False
     family = family_of(now)
     table = _best_table(path)
-    if not is_better(now, best_for(path, family)):
+    if not is_better(now, best_for(path, family), airwire_noise):
         return False
     table[family] = asdict(now)
     Path(path).write_text(json.dumps(table, indent=2, sort_keys=True) + "\n")
     return True
+
+
+def against_best(path, now: RunRecord, airwire_noise: float = AIRWIRE_NOISE) -> tuple:
+    """(regression, prior best) for this run, recording it as its family's best
+    when it is one. The regression is a sentence naming the metric, or None."""
+    prior = best_for(path, family_of(now))
+    said = regression(now, prior, airwire_noise)
+    update_best(path, now, airwire_noise)
+    return said, prior

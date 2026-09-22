@@ -17,7 +17,8 @@ from .layout import Board
 from .context import run_script
 from . import settings
 from .project import BoardSource, fab_profile, find_board
-from .report import RunRecord, airwires_from_drc, congestion, impact, run_id
+from .report import (RunRecord, against_best, airwires_from_drc, congestion, impact,
+                     is_better, run_id)
 
 
 class RunFailure(Exception):
@@ -33,6 +34,9 @@ class RunResult:
     generated: bool
     impact_text: str = ""
     plan: object = None
+    # How this run is worse than the best of its family, or None. A run can be
+    # `ok` and still have regressed: it placed, but worse than before.
+    regressed: str | None = None
 
     @property
     def status(self):
@@ -320,6 +324,9 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
     if not rec.run_id:                       # generation failed before the id could be taken
         rec.run_id = run_dir.name.lstrip(".")
         rec.paths["run_dir"] = str(run_dir)
+    regressed = None
+    if rec.status == "ok":
+        regressed = _against_best(rec, run_dir.parent / "best.json", say, cfg.best_airwire_noise)
     rec.save(run_dir / "run.json")
     latest = run_dir.parent / "latest.json"
     text = ""
@@ -337,4 +344,24 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 pass
         shutil.copy(run_dir / "run.json", latest)
     say("record", str(run_dir / "run.json"))
-    return RunResult(rec, run_dir, generated, text, plan)
+    return RunResult(rec, run_dir, generated, text, plan, regressed)
+
+
+def _against_best(rec: RunRecord, best_path: Path, say, airwire_noise: float) -> str | None:
+    """Judge a finished run against the best of its family - the runs whose
+    script asked to place the same things - and record it if it is the new
+    best. A regression becomes a finding naming the metric that got worse.
+
+    It is appended after `metrics.findings` was counted, so the objective goes
+    on measuring the layout rather than the verdict about it."""
+    said, prior = against_best(best_path, rec, airwire_noise)
+    if said:
+        rec.findings.append("worse than the best run of these parts: %s" % said)
+        say("best", "worse than %s: %s" % (prior.run_id, said), level="fail")
+    elif prior is None:
+        say("best", "the first run of these parts, so the best so far")
+    elif prior.run_id == rec.run_id or not is_better(rec, prior, airwire_noise):
+        say("best", "matches %s, the best run of these parts" % prior.run_id)
+    else:
+        say("best", "better than %s: now the best run of these parts" % prior.run_id)
+    return said

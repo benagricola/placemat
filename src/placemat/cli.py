@@ -171,7 +171,9 @@ def cmd_run(args) -> int:
                  keep_going=args.keep_going, overrides=overrides_from(args))
     if args.json:
         console.data(json.dumps(json.loads((result.run_dir / "run.json").read_text()), indent=2))
-    return 0 if result.status == "ok" else 1
+    # a run that placed but came out worse than the best of its parts is a
+    # failure too, so a regression cannot pass unnoticed in a loop
+    return 0 if result.status == "ok" and not result.regressed else 1
 
 
 def cmd_impact(args) -> int:
