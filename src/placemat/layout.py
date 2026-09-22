@@ -414,6 +414,7 @@ class Plan:
     keepouts: dict = field(default_factory=dict)                 # every named keepout, once it has a place
     seeded_by_net: Counter = field(default_factory=Counter)      # net -> how many items it seeded
     solve: dict = field(default_factory=dict)                     # what the global solve did, when it ran
+    pocketed: list = field(default_factory=list)                  # seeded items whose scan failed and took a pocket
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -2204,6 +2205,37 @@ class Board:
         return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: no pocket fits", i.why, freedom=i.freedom,
                     rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
 
+    def _seeded_pocket(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, hint: Placement, score,
+                       rotations, why: str):
+        """A seeded item whose scan found nothing: the free pocket nearest the
+        seed that it fits, scanned with the same link score, so it lands at
+        the end nearest what it connects to. None when no pocket takes it;
+        with it, how many pockets there were."""
+        seen = []
+        for rot in rotations:
+            env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, i.face))
+            for pocket in pockets(occ, env.width, env.height, i.face, step=max(i.step, 0.5)):
+                if all(pocket.box != p.box for p, _ in seen):
+                    seen.append((pocket, rot))
+        at = hint.location
+
+        def gap(pocket):
+            b = pocket.box
+            return math.hypot(max(b.left - at.x, 0.0, at.x - b.right), max(b.top - at.y, 0.0, at.y - b.bottom))
+        for k in sorted(range(len(seen)), key=lambda k: (round(gap(seen[k][0]), 6), k)):
+            pocket, rot = seen[k]
+            start = box_centered_placement(occ, i.item, pocket.box.center, rot, i.face)
+            result = scan(occ, i.item, start, max(pocket.box.width, pocket.box.height) / 2, i.step,
+                          tuple(rotations), clr, score=score)
+            if result.chosen is not None:
+                plan.pocketed.append(i.key)
+                note = "%s; took the pocket %.1f x %.1f at (%.1f, %.1f), %.1f mm from the seed" % (
+                    why, pocket.box.width, pocket.box.height, pocket.box.center.x, pocket.box.center.y, gap(pocket))
+                return Step(i.key, i.kind, None if i.freedom.decided else i.priority, result.chosen,
+                            result.moved_mm, note, i.why, freedom=i.freedom,
+                            rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None), len(seen)
+        return None, len(seen)
+
     def _placements(self) -> list:
         """The item placements among the intents.
 
@@ -2579,7 +2611,9 @@ class Board:
         scored = sorted(((measure(o), o) for o in pending),
                         key=lambda m: (-m[1].priority.rank, -m[0][0], -m[0][1], -m[0][2], m[1].key))
         (score, pull, area), obj = scored[0]
-        why = "next: " + self._rank_note.get(obj.key, "largest (%.0f mm2)" % area)
+        # A ranked item's step is tagged with its rank already; only an unranked
+        # one needs saying why it went next.
+        why = "" if obj.key in self._rank_note else "next: largest (%.0f mm2)" % area
         return obj, why
 
     def _settle_block(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set) -> Step:
@@ -2742,8 +2776,15 @@ class Board:
                 radius, step.note)
             return step
         if result.chosen is None:
-            plan.findings.append("%s: no legal location within %.1f mm of %s (%s)" % (
-                i.key, radius, _loc(hint.location), _blame_text(result)))
+            blame = "no legal location within %.1f mm of %s (%s)" % (radius, _loc(hint.location), _blame_text(result))
+            if i.near is None:
+                step, tried = self._seeded_pocket(occ, i, plan, clr, hint, score, i.rotations or (i.rotation,),
+                                                  "%s, but no legal spot within %.1f mm (%s)" % (
+                                                      seeded or "seeded", radius, _blame_text(result)))
+                if step is not None:
+                    return step
+                blame += "; no pocket took it (%d tried)" % tried
+            plan.findings.append("%s: %s" % (i.key, blame))
             return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()), i.why, freedom=i.freedom,
                     rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
         note = seeded
