@@ -145,3 +145,45 @@ def test_along_start_and_end_are_the_ends_of_the_usable_edge():
     assert plan.box("j1").left == pytest.approx(1.0) and plan.box("j2").right == pytest.approx(59.0)
 
 
+
+
+def test_a_point_is_fixed_and_a_distance_along_an_edge_is_edge():
+    from placemat.values import Freedom
+    fps = [footprint("J1", 10, 10, inst="j1"), footprint("J2", 30, 10, inst="j2"),
+           footprint("R1", 50, 10, inst="r1")]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    a = b.place(Part("j1"), at=Location(20, 20))
+    e = b.place(Part("j2"), at=OnEdge(Edge.NORTH, along=30.0))
+    s = b.place(Part("r1"))
+    assert a.freedom is Freedom.FIXED and a.freedom.decided
+    assert e.freedom is Freedom.EDGE and e.freedom.decided
+    assert s.freedom is Freedom.SEARCHED and not s.freedom.decided
+
+
+def test_a_freedom_left_in_the_place_makes_it_searched():
+    from placemat.values import Freedom
+    fps = [footprint("J1", 10, 10, inst="j1"), footprint("J2", 30, 10, inst="j2")]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    slide = b.place(Part("j1"), at=OnEdge(Edge.NORTH))          # no along=
+    line = b.place(Part("j2"), at=Location(30, None))           # one axis pinned
+    assert slide.freedom is Freedom.SEARCHED
+    assert line.freedom is Freedom.SEARCHED
+
+
+def test_decided_items_still_go_down_before_searched_ones():
+    fps = [footprint("U1", 10, 10, w=6, h=6, inst="u1", nets=("A", "B")),
+           footprint("J1", 40, 40, inst="j1", nets=("A", "C"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.place(Part("u1"))                                          # searched
+    b.place(Part("j1"), at=Location(20, 20))                     # decided, declared second
+    order = [s.item for s in b.resolve().steps if s.kind == "part"]
+    assert order.index("j1") < order.index("u1")
+
+
+def test_a_finding_still_names_the_freedom_the_way_it_always_did():
+    fps = [footprint("J1", 10, 10, w=8, h=8, inst="j1"), footprint("J2", 30, 10, w=8, h=8, inst="j2")]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0, keep_going=True)
+    b.place(Part("j1"), at=Location(20, 20))
+    b.place(Part("j2"), at=Location(20, 20))                      # right on top
+    plan = b.resolve()
+    assert any(f.split(" ")[1] == "(fixed):" for f in plan.findings), plan.findings

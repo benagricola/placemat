@@ -22,7 +22,7 @@ from .placement import Placement
 from .settings import Settings
 from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import CellGeom, Footprint, BoardGeometry
-from .values import (Cutout, CutoutEdge, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -195,12 +195,13 @@ class PlaceIntent:
     outward: bool = False              # turn it to face out wherever it lands
     about: object = None               # the centre a radius and bearing are measured from
     run: object = None                 # a stretch of a shaped board's edge, from board.edge(facing=)
+    freedom: Freedom = Freedom.SEARCHED   # derived from at=, never chosen
 
     @property
     def rank(self):
-        if self.priority is Priority.FIXED:
+        if self.freedom is Freedom.FIXED:
             return (RANK_FIXED, self.index)
-        if self.priority is Priority.EDGE:
+        if self.freedom is Freedom.EDGE:
             return (RANK_EDGE, self.index)
         return ({"cell": RANK_CELL, "block": RANK_BLOCK}.get(self.kind, RANK_LOOSE), self.index)
 
@@ -248,6 +249,7 @@ class KeepoutIntent:
     index: int = 0
     needs: frozenset = frozenset()
     priority: Priority = Priority.FIXED
+    freedom: Freedom = Freedom.FIXED
 
     @property
     def rank(self):
@@ -266,6 +268,7 @@ class CutoutIntent:
     index: int = 0
     needs: frozenset = frozenset()
     priority: Priority = Priority.FIXED
+    freedom: Freedom = Freedom.FIXED
 
     @property
     def rank(self):
@@ -879,8 +882,10 @@ class Board:
                     None if layers is None else tuple(CopperLayer.of(l) for l in layers), why)
         self._keepouts[name] = k
         needs = frozenset(self._pad_ref(r)[0] for r in _refs_in([at]))
-        firm = Priority.FIXED if not self._cutout_free(k) else Priority.DEFAULT
-        intent = KeepoutIntent("keepout %s" % name, k, why, len(self._intents), needs, firm)
+        settled = not self._cutout_free(k)
+        firm = Priority.FIXED if settled else Priority.DEFAULT
+        intent = KeepoutIntent("keepout %s" % name, k, why, len(self._intents), needs, firm,
+                               Freedom.FIXED if settled else Freedom.SEARCHED)
         self._intents.append(intent)
         return intent
 
@@ -916,9 +921,11 @@ class Board:
                 needs = frozenset(self._pad_ref(r)[0] for r in _refs_in([h.at]))
                 # a decided place goes down in declaration order with the firm items; one with a
                 # freedom waits until every decided thing is down, then takes the room that is left
-                firm = Priority.FIXED if not self._cutout_free(h) else Priority.DEFAULT
+                settled = not self._cutout_free(h)
+                firm = Priority.FIXED if settled else Priority.DEFAULT
                 self._intents.append(CutoutIntent("cutout %s" % h.name, h, h.why, len(self._intents),
-                                                  needs, firm))
+                                                  needs, firm,
+                                                  Freedom.FIXED if settled else Freedom.SEARCHED))
         self._named_cutouts = named
         return tuple(named_paths) + tuple(raw)
 
@@ -1185,6 +1192,8 @@ class Board:
         decided = (at is not None or center is not None
                    or ((edge is not None or run is not None) and along is not None)
                    or (rim is not None and angle is not None))
+        freedom = Freedom.SEARCHED if not decided else \
+            Freedom.FIXED if (at is not None or center is not None) else Freedom.EDGE
         if priority is None:
             priority = Priority.DEFAULT if not decided else \
                 Priority.FIXED if (at is not None or center is not None) else Priority.EDGE
@@ -1225,7 +1234,8 @@ class Board:
         turn = None if rotation is None else float(rotation)   # None: settled when the stretch is known
         intent = PlaceIntent(key, geom, kind, priority, turn, face, at, center, edge, along,
                              standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs),
-                             pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward, about, run)
+                             pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward, about, run,
+                             freedom)
         self._intents.append(intent)
         return intent
 
@@ -1422,7 +1432,7 @@ class Board:
     def _is_searched(self, refdes: str) -> bool:
         fp = self.geometry.footprint(refdes)
         for i in self._placements():
-            if i.priority not in (Priority.FIXED, Priority.EDGE) and (i.key == fp.inst or (i.kind == "cell" and fp.cell == i.key)):
+            if not i.freedom.decided and (i.key == fp.inst or (i.kind == "cell" and fp.cell == i.key)):
                 return True
         return False
 
@@ -1846,7 +1856,7 @@ class Board:
             step = self._settle(occ, obj, plan, placed)
             if why_now:
                 step.note = (why_now + "; " + step.note) if step.note else why_now
-            if obj.priority not in (Priority.FIXED, Priority.EDGE):
+            if not obj.freedom.decided:
                 tag = "priority %s (%s)" % (obj.priority.value, self._weights.get(obj.key, obj.priority_source))
                 step.note = (tag + "; " + step.note) if step.note else tag
             if obj.faces_note:
@@ -1870,7 +1880,7 @@ class Board:
             """FIXED and EDGE go down in declaration order: nothing yields to
             them, so their order changes nothing. Searched items are ordered
             by the placer, one choice at a time, re-measured after each."""
-            firm = [obj for obj in placements if lo <= obj.rank[0] <= hi and obj.priority in (Priority.FIXED, Priority.EDGE)]
+            firm = [obj for obj in placements if lo <= obj.rank[0] <= hi and obj.freedom.decided]
             while firm:                     # declaration order, except that a position said in terms of a pad waits for it
                 ready = [obj for obj in firm if obj.needs <= placed]
                 if not ready:
@@ -1881,8 +1891,7 @@ class Board:
             collisions = [f for f in plan.findings if f.split(" ")[1] in ("(fixed):", "(edge):", "(cutout):", "(keepout):")]
             if collisions and not self.keep_going:
                 raise PlacementCollision(collisions)
-            pending = [obj for obj in placements if lo <= obj.rank[0] <= hi
-                       and obj.priority not in (Priority.FIXED, Priority.EDGE)]
+            pending = [obj for obj in placements if lo <= obj.rank[0] <= hi and not obj.freedom.decided]
             for hole in [o for o in pending if isinstance(o, (CutoutIntent, KeepoutIntent))]:
                 pending.remove(hole)        # holes first: every part after one sees the board it left
                 place_one(hole)
@@ -2077,7 +2086,7 @@ class Board:
         it to other declared items, and how many parts it holds. The reason
         is kept for the step."""
         self._weights: dict = {}
-        searched = [i for i in self._placements() if i.priority not in (Priority.FIXED, Priority.EDGE)]
+        searched = [i for i in self._placements() if not i.freedom.decided]
         if not searched:
             return
         declared = self._declared_refs()
@@ -2374,7 +2383,7 @@ class Board:
             return self._settle_block(occ, i, plan, placed)
         clr = self.clearance
         chose = ""
-        if i.priority in (Priority.FIXED, Priority.EDGE):
+        if i.freedom.decided:
             if i.at is not None:
                 p = Placement(_locate(self, occ, i.at), i.rotation, i.face)
             elif i.center is not None and i.pin is not None:
@@ -2413,7 +2422,7 @@ class Board:
                             past_edge=(i.edge is not None or i.run is not None or i.rim == "rim")
                             and i.clearance < self.keep_in)
             if why:
-                plan.findings.append("%s (%s): %s" % (i.key, i.priority.value, why))
+                plan.findings.append("%s (%s): %s" % (i.key, i.freedom.value, why))
             return Step(i.key, i.kind, i.priority, p, 0.0, "; ".join(x for x in (chose, why) if x), i.why)
         if i.run is not None:
             return self._settle_along_run(occ, i, plan, clr)

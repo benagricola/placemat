@@ -159,6 +159,21 @@ class Fraction:
         return self.value
 
 
+class Freedom(str, Enum):
+    """Whether a position is decided before the search runs.
+
+    Derived, never chosen: from `at=` for a placement, and from the endpoints
+    for copper. A decided item goes down first and nothing may move it; a
+    searched one takes its turn in the queue by rank."""
+    FIXED = "fixed"          # a point: Location(x, y), Centre(x, y), Pin(k, x, y), Polar(r, a)
+    EDGE = "edge"            # a distance along an edge, a run or a rim
+    SEARCHED = "searched"    # anything with a freedom left
+
+    @property
+    def decided(self) -> bool:
+        return self is not Freedom.SEARCHED
+
+
 class Priority(str, Enum):
     """How firm a declaration is. The runner orders work by this, never by
     where a call sits in the file. For a placement, FIXED and EDGE say the
