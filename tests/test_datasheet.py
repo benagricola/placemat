@@ -155,3 +155,12 @@ def test_the_shape_evidence_names_its_unit_and_does_not_claim_pads():
     assert "pt" in ev.detail
     assert "pad" not in ev.detail.lower()
     assert "183" in ev.detail
+
+
+def test_a_text_run_says_which_channel_read_it():
+    """A number read by OCR is not as good as one read from the PDF's own
+    text, and a reader has to be able to tell which they are looking at."""
+    plain = ds.TextRun(1, "0.50", Box(0, 0, 10, 5))
+    assert plain.source == "text" and plain.confidence == 100.0
+    seen = ds.TextRun(1, "0.50", Box(0, 0, 10, 5), source="ocr", confidence=78.0)
+    assert seen.source == "ocr" and seen.confidence == 78.0

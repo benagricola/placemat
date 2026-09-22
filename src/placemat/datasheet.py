@@ -13,10 +13,16 @@ from .values import Box
 
 @dataclass(frozen=True)
 class TextRun:
-    """One line of text and the box it occupies, in PDF points."""
+    """One line of text and the box it occupies, in PDF points.
+
+    `source` is the channel that read it and `confidence` is how sure that
+    channel is. The PDF's own text is certain by construction; OCR is not, and
+    a reader must be able to tell the two apart at a glance."""
     page: int
     text: str
     box: Box
+    source: str = "text"
+    confidence: float = 100.0
 
 
 @dataclass(frozen=True)
