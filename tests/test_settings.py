@@ -57,3 +57,54 @@ def test_json_differs_when_a_value_differs():
 
 def test_source_of_defaults_to_the_word_default():
     assert S.Settings().source_of("place_step") == "default"
+
+
+def _toml(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+
+
+def test_no_file_anywhere_gives_the_defaults(tmp_path):
+    board = tmp_path / "boards" / "main"
+    board.mkdir(parents=True)
+    s = S.load(board)
+    assert s == S.Settings()
+    assert all(s.source_of(k) == "default" for k in S.Settings.keys())
+
+
+def test_a_file_two_levels_up_is_found(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[place]\nstep = 0.05\n")
+    board = tmp_path / "boards" / "main"
+    board.mkdir(parents=True)
+    s = S.load(board)
+    assert s.place_step == 0.05
+    assert s.source_of("place_step") == str(tmp_path / "placemat.toml")
+    assert s.place_radius == 3.0 and s.source_of("place_radius") == "default"
+
+
+def test_the_nearest_file_wins_per_key_and_the_outer_one_still_contributes(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[place]\nstep = 0.05\nradius = 9.0\n")
+    board = tmp_path / "boards" / "main"
+    _toml(board / "placemat.toml", "[place]\nstep = 0.01\n")
+    s = S.load(board)
+    assert s.place_step == 0.01                       # the nearest file
+    assert s.place_radius == 9.0                      # only the outer file has it
+    assert s.source_of("place_step") == str(board / "placemat.toml")
+    assert s.source_of("place_radius") == str(tmp_path / "placemat.toml")
+
+
+def test_a_sub_table_loads(tmp_path):
+    _toml(tmp_path / "placemat.toml", '[check.limits]\n"hot-loop" = 20.0\n')
+    s = S.load(tmp_path)
+    assert s.check_limits == {"hot-loop": 20.0}
+
+
+def test_a_list_valued_key_loads_as_a_tuple(tmp_path):
+    _toml(tmp_path / "placemat.toml", '[drc]\nreal_kinds = ["clearance"]\n')
+    s = S.load(tmp_path)
+    assert s.drc_real_kinds == ("clearance",)
+
+
+def test_a_file_is_read_once_even_when_the_start_is_the_file_s_own_directory(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[place]\nstep = 0.05\n")
+    assert S.load(tmp_path).place_step == 0.05

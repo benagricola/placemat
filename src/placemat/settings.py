@@ -149,3 +149,58 @@ def bind(real: Settings):
         yield real
     finally:
         _active = previous
+
+
+def _files(start) -> list:
+    """Every placemat.toml from the start directory up to the filesystem
+    root, FARTHEST FIRST so the nearest one is applied last and wins."""
+    d = Path(start).resolve()
+    if d.is_file():
+        d = d.parent
+    found = [p / FILENAME for p in (d, *d.parents) if (p / FILENAME).is_file()]
+    return list(reversed(found))
+
+
+def _flatten(data: dict, path) -> dict:
+    """A parsed TOML document as {attribute name: value}. Sub-tables named in
+    _SUBTABLES are one value; any other nested table is a section."""
+    out = {}
+    for section, body in data.items():
+        if not isinstance(body, dict):
+            raise ValueError("%s: %r is a bare value; every setting lives in a "
+                             "section, e.g. [place]\n%s = ..." % (path, section, section))
+        for key, value in body.items():
+            full = "%s.%s" % (section, key)
+            if isinstance(value, dict):
+                out[join_key(full, "")] = dict(value)
+            else:
+                out[join_key(section, key)] = value
+    return out
+
+
+def _coerce(name: str, value):
+    """A TOML list becomes the tuple the field is declared as."""
+    declared = {f.name: f.type for f in fields(Settings)}.get(name)
+    if declared is not None and "tuple" in str(declared) and isinstance(value, list):
+        return tuple(value)
+    return value
+
+
+def load(start, overrides=None) -> Settings:
+    """The settings for a board: built-in defaults, then every placemat.toml
+    from the filesystem root down to the board's own directory (so the nearest
+    wins per key), then the CLI overrides."""
+    values, sources = {}, {}
+    for path in _files(start):
+        try:
+            data = tomllib.loads(path.read_text())
+        except tomllib.TOMLDecodeError as e:
+            raise ValueError("%s is not valid TOML: %s" % (path, e))
+        for name, value in _flatten(data, path).items():
+            values[name] = value
+            sources[name] = str(path)
+    for name, value in (overrides or {}).items():
+        values[name] = value
+        sources[name] = "flag"
+    coerced = {name: _coerce(name, value) for name, value in values.items()}
+    return Settings(**coerced).with_sources(sources)
