@@ -108,3 +108,53 @@ def test_a_list_valued_key_loads_as_a_tuple(tmp_path):
 def test_a_file_is_read_once_even_when_the_start_is_the_file_s_own_directory(tmp_path):
     _toml(tmp_path / "placemat.toml", "[place]\nstep = 0.05\n")
     assert S.load(tmp_path).place_step == 0.05
+
+
+def test_an_unknown_section_is_an_error_naming_the_file(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[plaec]\nstep = 0.05\n")
+    with pytest.raises(S.SettingsError) as e:
+        S.load(tmp_path)
+    assert "placemat.toml" in str(e.value) and "plaec" in str(e.value)
+
+
+def test_an_unknown_key_is_an_error_suggesting_the_nearest(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[place]\nstepp = 0.05\n")
+    with pytest.raises(S.SettingsError) as e:
+        S.load(tmp_path)
+    assert "place.stepp" in str(e.value) and "place.step" in str(e.value)
+
+
+def test_a_wrong_type_is_an_error(tmp_path):
+    _toml(tmp_path / "placemat.toml", '[place]\nstep = "small"\n')
+    with pytest.raises(S.SettingsError) as e:
+        S.load(tmp_path)
+    assert "place.step" in str(e.value) and "number" in str(e.value)
+
+
+def test_a_value_under_its_floor_is_an_error(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[place]\nstep = 0.0\n")
+    with pytest.raises(S.SettingsError) as e:
+        S.load(tmp_path)
+    assert "place.step" in str(e.value) and "greater than 0" in str(e.value)
+
+
+def test_a_negative_weight_is_an_error(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[rank]\narea = -1.0\n")
+    with pytest.raises(S.SettingsError):
+        S.load(tmp_path)
+
+
+def test_a_zero_weight_is_allowed(tmp_path):
+    """Weighting pins at nothing is a legitimate choice; weighting a step at
+    nothing is a scan that never moves."""
+    _toml(tmp_path / "placemat.toml", "[rank]\npins = 0.0\n")
+    assert S.load(tmp_path).rank_pins == 0.0
+
+
+def test_an_error_in_an_outer_file_still_names_that_file(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[place]\nstepp = 1\n")
+    board = tmp_path / "boards" / "main"
+    _toml(board / "placemat.toml", "[place]\nstep = 0.01\n")
+    with pytest.raises(S.SettingsError) as e:
+        S.load(board)
+    assert str(tmp_path / "placemat.toml") in str(e.value)

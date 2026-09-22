@@ -161,20 +161,101 @@ def _files(start) -> list:
     return list(reversed(found))
 
 
+class SettingsError(ValueError):
+    """A placemat.toml that cannot be obeyed. A setting that quietly does
+    nothing reads as though it is in force, so this is never a warning."""
+
+
+# Keys with a floor. A value at or below it is a setting that cannot work: a
+# zero scan step never moves, a zero timeout never runs. Weights are absent
+# from this table because weighting a dimension at nothing is a real choice.
+_ABOVE_ZERO = frozenset((
+    "place_radius", "place_step", "place_coarse_from", "place_coarse_steps",
+    "place_refine_around", "place_block_gap_step", "place_block_gap_reach",
+    "place_conflict_gap", "copper_bridge_half", "copper_finger_bridge_width",
+    "copper_plane_min_thickness", "copper_pour_stroke", "label_size",
+    "label_thickness", "geometry_arc_sag", "geometry_index_cells",
+    "geometry_arc_error_nm", "check_rise_c", "check_copper_oz",
+    "timeout_generate", "timeout_drc", "timeout_route", "timeout_render"))
+_AT_LEAST_ZERO = frozenset((
+    "rank_area", "rank_pins", "place_courtyard_touch", "copper_chamfer",
+    "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset",
+    "copper_plane_clearance", "label_gap", "check_keep_out_mm"))
+
+
+def _declared(name: str) -> str:
+    """A field's declared type, as text: `from __future__ import annotations`
+    means every annotation is already a string."""
+    return str({f.name: f.type for f in fields(Settings)}[name])
+
+
+def _nearest(dotted: str) -> str:
+    """The valid key closest to a mistyped one, for the error message."""
+    import difflib
+    known = ["%s.%s" % split_key(k) for k in Settings.keys()]
+    close = difflib.get_close_matches(dotted, known, n=1, cutoff=0.5)
+    return close[0] if close else ""
+
+
+def _validate(name: str, value, path: str):
+    """One setting, against the type it is declared as and the floor it has.
+    Raises rather than warns: a rejected setting can be fixed, an ignored one
+    reads as though it were in force."""
+    dotted = "%s.%s" % split_key(name)
+    text = _declared(name)
+    said = lambda want: SettingsError("%s: %s must be %s, not %r" % (path, dotted, want, value))
+    if "bool" in text:
+        if not isinstance(value, bool):
+            raise said("true or false")
+    elif isinstance(value, bool):
+        raise said("a number" if ("float" in text or "int" in text) else "not true or false")
+    elif "float" in text:
+        if not isinstance(value, (int, float)):
+            raise said("a number")
+    elif "int" in text:
+        if not isinstance(value, int):
+            raise said("a whole number")
+    elif "tuple" in text:
+        if not isinstance(value, (list, tuple)):
+            raise said("a list")
+    elif "dict" in text:
+        if not isinstance(value, dict):
+            raise said("a table")
+    elif "str" in text:
+        if not isinstance(value, str):
+            raise said("a string")
+    if name in _ABOVE_ZERO and not value > 0:
+        raise SettingsError("%s: %s must be greater than 0, not %r" % (path, dotted, value))
+    if name in _AT_LEAST_ZERO and value < 0:
+        raise SettingsError("%s: %s may not be negative, not %r" % (path, dotted, value))
+
+
 def _flatten(data: dict, path) -> dict:
     """A parsed TOML document as {attribute name: value}. Sub-tables named in
     _SUBTABLES are one value; any other nested table is a section."""
     out = {}
+    known = set(Settings.keys())
+    sections = sorted({split_key(k)[0] for k in known})
     for section, body in data.items():
         if not isinstance(body, dict):
-            raise ValueError("%s: %r is a bare value; every setting lives in a "
-                             "section, e.g. [place]\n%s = ..." % (path, section, section))
+            raise SettingsError("%s: %r is a bare value; every setting lives in a "
+                                "section, e.g. [place]\n%s = ..." % (path, section, section))
+        if section not in sections:
+            raise SettingsError("%s: [%s] is not a section placemat knows; it has %s"
+                                % (path, section, ", ".join(sections)))
         for key, value in body.items():
             full = "%s.%s" % (section, key)
             if isinstance(value, dict):
+                if full not in _SUBTABLES:
+                    raise SettingsError("%s: [%s] is not a section placemat knows" % (path, full))
                 out[join_key(full, "")] = dict(value)
-            else:
-                out[join_key(section, key)] = value
+                continue
+            name = join_key(section, key)
+            if name not in known:
+                hint = _nearest(full)
+                raise SettingsError("%s: %s is not a setting placemat has%s"
+                                    % (path, full, (", did you mean %s?" % hint) if hint else ""))
+            out[name] = value
     return out
 
 
@@ -195,11 +276,15 @@ def load(start, overrides=None) -> Settings:
         try:
             data = tomllib.loads(path.read_text())
         except tomllib.TOMLDecodeError as e:
-            raise ValueError("%s is not valid TOML: %s" % (path, e))
+            raise SettingsError("%s is not valid TOML: %s" % (path, e))
         for name, value in _flatten(data, path).items():
+            _validate(name, value, str(path))
             values[name] = value
             sources[name] = str(path)
     for name, value in (overrides or {}).items():
+        if name not in set(Settings.keys()):
+            raise SettingsError("%s is not a setting placemat has" % name)
+        _validate(name, value, "flag")
         values[name] = value
         sources[name] = "flag"
     coerced = {name: _coerce(name, value) for name, value in values.items()}
