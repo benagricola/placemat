@@ -54,3 +54,25 @@ def test_an_escaped_character_comes_back_decoded(tmp_path):
 BT /Helv 10 Tf 20 100 Td (VIA 0.2mm) Tj ET
 """)
     assert any("VIA" in r.text for r in read.text_runs(p, 1))
+
+
+def test_a_drawn_rectangle_comes_back_at_its_real_size(tmp_path):
+    p = make_pdf(tmp_path / "land.pdf", LAND)
+    rects = [d for d in read.draw_paths(p, 1) if d.rect]
+    assert len(rects) == 3
+    assert all(d.box.width == pytest.approx(40, abs=0.5) for d in rects)
+    assert all(d.box.height == pytest.approx(20, abs=0.5) for d in rects)
+
+
+def test_a_scaled_path_is_measured_after_its_transform(tmp_path):
+    """mutool emits pre-transform coordinates. A real datasheet scales by 0.12
+    and rotates, so a path measured before its matrix is applied is wrong by
+    almost an order of magnitude."""
+    p = make_pdf(tmp_path / "scaled.pdf", """%%MediaBox 0 0 300 300
+q 0.5 0 0 0.5 0 0 cm
+10 10 40 20 re f
+Q
+""")
+    (rect,) = [d for d in read.draw_paths(p, 1) if d.rect]
+    assert rect.box.width == pytest.approx(20, abs=0.5)     # 40 * 0.5
+    assert rect.box.height == pytest.approx(10, abs=0.5)
