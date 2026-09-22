@@ -2,7 +2,7 @@
 impact text that compares two of them."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 import json
 import math
 from pathlib import Path
@@ -30,7 +30,14 @@ class RunRecord:
 
     @staticmethod
     def load(path) -> "RunRecord":
-        return RunRecord(**json.loads(Path(path).read_text()))
+        return RunRecord.of(json.loads(Path(path).read_text()))
+
+    @staticmethod
+    def of(data: dict) -> "RunRecord":
+        """A record from a document, ignoring keys this version does not know:
+        a ledger outlives the field list that wrote it."""
+        known = {f.name for f in fields(RunRecord)}
+        return RunRecord(**{k: v for k, v in data.items() if k in known})
 
 
 def run_id(script_text: str, board_bytes: bytes, tool_version: str, settings_json: str = "") -> str:
@@ -218,3 +225,93 @@ def extent_of(plan) -> "Extent | None":
         return None
     box = Box.union(boxes)
     return Extent(box.width, box.height, max(0.0, 1.0 - area / box.area) if box.area else 0.0)
+
+
+def family_of(rec: RunRecord) -> str:
+    """Which runs this one is comparable with: those whose script asked to
+    place the same things.
+
+    Keyed on what was ASKED for - the steps - not on what landed. When `mcu`
+    fails to place it drops out of `placements` but keeps its step, and keying
+    on `placements` would give that run a family of its own where nothing is
+    compared against it: the one run a regression gate exists for. Adding or
+    removing a part starts a new family, since there is nothing meaningful to
+    compare across a change in what the board carries."""
+    import hashlib
+    items = sorted({s.get("item", "") for s in rec.steps if s.get("item")}) or sorted(rec.placements)
+    return hashlib.sha256("\n".join(items).encode()).hexdigest()[:8]
+
+
+def _drc_total(metrics: dict) -> int:
+    real = metrics.get("drc_real") or {}
+    return sum(real.values()) if isinstance(real, dict) else int(real or 0)
+
+
+def objective(metrics: dict) -> tuple:
+    """How good a run is, lower first, compared left to right.
+
+    Completeness leads because DRC does not mean anything without it: the
+    middleweight ledger holds a run at 6 violations that placed 29 of 101
+    items, and fewer parts is less copper is fewer ways to break a rule.
+    Among runs that laid out the same amount of board, violations lead, then
+    placemat's own findings, then how far the airwires have to go."""
+    return (-int(metrics.get("placed") or 0),
+            _drc_total(metrics),
+            int(metrics.get("findings") or 0),
+            round(float(metrics.get("airwire_mm") or 0.0), 3))
+
+
+# What each component of the objective is called when it regresses, in order.
+_PARTS = (("placed", "placed", False), ("drc_real", "DRC violations", True),
+          ("findings", "findings", True), ("airwire_mm", "airwire", True))
+
+
+def is_better(now: RunRecord, best: RunRecord | None) -> bool:
+    if best is None:
+        return True
+    return objective(now.metrics) < objective(best.metrics)
+
+
+def regression(now: RunRecord, best: RunRecord | None) -> str | None:
+    """The first component of the objective this run is worse on, said in
+    numbers. None when the run is at least as good."""
+    if best is None or objective(now.metrics) <= objective(best.metrics):
+        return None
+    for i, (key, name, lower_is_better) in enumerate(_PARTS):
+        a, b = objective(now.metrics)[i], objective(best.metrics)[i]
+        if a == b:
+            continue
+        if a > b:
+            shown = (lambda v: "%g" % abs(v))
+            return "%s %s against %s in the best run (%s)" % (
+                name, shown(a), shown(b), best.run_id)
+        return None
+    return None
+
+
+def _best_table(path) -> dict:
+    try:
+        data = json.loads(Path(path).read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def best_for(path, family: str) -> RunRecord | None:
+    """The best run recorded for this family, or None."""
+    row = _best_table(path).get(family)
+    return RunRecord.of(row) if isinstance(row, dict) else None
+
+
+def update_best(path, now: RunRecord) -> bool:
+    """Record this run as its family's best when it is one. A run that did not
+    finish is never the best, however good its numbers look."""
+    if now.status != "ok":
+        return False
+    family = family_of(now)
+    table = _best_table(path)
+    if not is_better(now, best_for(path, family)):
+        return False
+    table[family] = asdict(now)
+    Path(path).write_text(json.dumps(table, indent=2, sort_keys=True) + "\n")
+    return True
