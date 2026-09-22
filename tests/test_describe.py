@@ -131,3 +131,18 @@ def test_the_docs_tell_an_agent_to_measure_rather_than_grep():
     assert "placemat parts" in skill and "kicad_mod" in skill
     mig = Path("skills/placemat/references/migration.md").read_text()
     assert "0.10" in mig
+
+
+def test_the_pad_table_lines_up_whatever_the_stackup():
+    """A four-layer board names four layers on every through pad, which is
+    wider than the column the layer names used to be poured into, so the
+    coordinates after it walked. Each block is laid out to its own widest
+    entry instead of to a constant."""
+    g = _geom()
+    fp = g.footprint("U1")
+    wide = dataclasses.replace(fp.pads[0], through=True, drill_mm=0.8, layers=frozenset(
+        [CopperLayer.F, CopperLayer.B, CopperLayer.IN1, CopperLayer.IN2]))
+    fp = dataclasses.replace(fp, pads=(wide, fp.pads[1]))
+    pads = [l for l in describe.part_lines(fp, g, pads=True) if l.strip().startswith("pad ")]
+    assert len(pads) == 2
+    assert len({l.index(" at (") for l in pads}) == 1, pads

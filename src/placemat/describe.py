@@ -103,12 +103,18 @@ def part_lines(fp, geometry=None, pads: bool = False, digest: str = "") -> list:
         if c["track"] or c["via"]:
             lines.append("  copper on its pads: %d track(s), %d via(s)" % (c["track"], c["via"]))
     if pads:
-        for p in fp.pads:
-            d = pad_facts(fp, p, geometry)
-            where = "/".join(d["layers"]) if d["layers"] else d["attribute"]
-            lines.append("  pad %-5s %-14s %-12s %s at (%.3f, %.3f)  %.3f x %.3f" % (
-                d["number"], d["net"] or "-", where,
-                "drill %.2f " % d["drill"] if d["drill"] else "          ",
+        facts = [pad_facts(fp, p, geometry) for p in fp.pads]
+        wheres = ["/".join(d["layers"]) if d["layers"] else d["attribute"] for d in facts]
+        drills = ["drill %.2f" % d["drill"] if d["drill"] else "" for d in facts]
+        # Laid out to this part's own widest entry, not to a constant: a
+        # four-layer board names four layers on every through pad and a
+        # two-layer board names two, so a fixed column moves the coordinates.
+        wide = max([len(w) for w in wheres], default=0)
+        deep = max([len(s) for s in drills], default=0)
+        for d, where, drill in zip(facts, wheres, drills):
+            column = "%-*s" % (wide, where) + ("  %-*s" % (deep, drill) if deep else "")
+            lines.append("  pad %-5s %-14s %s  at (%.3f, %.3f)  %.3f x %.3f" % (
+                d["number"], d["net"] or "-", column,
                 d["at"][0], d["at"][1], d["size"][0], d["size"][1]))
     return lines
 
