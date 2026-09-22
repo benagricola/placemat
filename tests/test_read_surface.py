@@ -51,3 +51,63 @@ def test_a_disc_with_a_bore_reads_as_a_curve_and_a_hole():
     g = read_board(FAIRING)
     assert len(g.board_polygon) >= 2                 # the rim, and at least one hole
     assert len(g.board_polygon[0]) > 100             # a flattened curve, not a rectangle
+
+
+@needs_parts
+def test_a_kicad_mod_reads_with_no_board_at_all():
+    from placemat.kicad.read import read_footprint
+    fp, digest = read_footprint(_one("*05A20L10P*"))
+    assert fp.pads and fp.courtyard_box.width > 0
+    assert len(digest) == 64
+
+
+@needs_parts
+def test_the_hold_down_tabs_are_real_pads():
+    """The question gaps entry 2026-09-19 answered by grepping: are P_11 and
+    P_12 real mechanical pads or symbol pins with nothing behind them."""
+    from placemat.kicad.read import read_footprint
+    fp, _ = read_footprint(_one("*05A20L10P*"))
+    tabs = [p for p in fp.pads if p.number in ("11", "12")]
+    assert len(tabs) == 2
+    assert all(p.box.width == pytest.approx(2.0, abs=0.01) for p in tabs)
+
+
+@needs_parts
+def test_a_custom_pad_reports_its_copper_and_not_its_anchor():
+    """The TPS55288's four corner pads report GetSize() as 0.005 x 0.005."""
+    from placemat.kicad.read import read_footprint
+    fp, _ = read_footprint(_one("*TPS55288*"))
+    odd = [p for p in fp.pads if 0.5 < p.box.width < 1.5 and 0.5 < p.box.height < 1.0]
+    assert odd, [(p.number, p.box.width, p.box.height) for p in fp.pads][:6]
+
+
+@needs_parts
+def test_a_standalone_through_pad_reports_no_layers_and_an_smd_pad_reports_one():
+    """An empty board has all 32 copper layers enabled, so a through pad read
+    with no board would otherwise claim In1..In30 - true of no real board."""
+    from placemat.kicad.read import read_footprint
+    fp, _ = read_footprint(_one("*TYPE_C*"))
+    through = [p for p in fp.pads if p.through]
+    smd = [p for p in fp.pads if not p.through]
+    assert through and all(p.layers == frozenset() for p in through)
+    assert all(len(p.layers) == 1 for p in smd)
+
+
+@needs_parts
+def test_the_digest_tells_two_files_apart():
+    from placemat.kicad.read import read_footprint
+    a, b = _one("*05A20L10P*"), _one("*TYPE_C*")
+    _, da = read_footprint(a)
+    _, db = read_footprint(b)
+    assert da != db
+    assert da == hashlib.sha256(open(a, "rb").read()).hexdigest()
+
+
+@needs_parts
+def test_a_file_pcbnew_cannot_load_says_so(tmp_path):
+    from placemat.kicad.read import read_footprint
+    bad = tmp_path / "Nonsense.kicad_mod"
+    bad.write_text("this is not a footprint")
+    with pytest.raises(ValueError) as e:
+        read_footprint(bad)
+    assert "Nonsense" in str(e.value)

@@ -278,6 +278,49 @@ def read_board(path, courtyard_excess_mm: float = 0.10, arc_error_nm: int | None
     return board_geometry_of(board, path, courtyard_excess_mm, arc_error_nm)
 
 
+def read_footprint(path, courtyard_excess_mm: float = 0.10) -> tuple:
+    """A `.kicad_mod` read on its own, with no board: the footprint in its own
+    frame at the origin, and the file's SHA-256 so two variants of a part can
+    be told apart.
+
+    A through-hole pad gets NO layers. An empty scratch board has all 32
+    copper layers enabled and `SetCopperLayerCount` does not restrict a pad's
+    own layer set, so a through pad read this way would claim In1 through
+    In30 - true of the scratch board and of no real one. `PadGeom.through`
+    already says what it is; an SMD pad's single face is read normally."""
+    import hashlib
+    p = Path(path)
+    digest = hashlib.sha256(p.read_bytes()).hexdigest()
+    with quiet_stderr():
+        fp = pcbnew.FootprintLoad(str(p.parent), p.stem)
+    if fp is None:
+        raise ValueError("pcbnew could not load a footprint from %s" % p)
+    scratch = pcbnew.CreateEmptyBoard()
+    pads = []
+    for pad in fp.Pads():
+        attr = pad.GetAttribute()
+        if attr == pcbnew.PAD_ATTRIB_NPTH:
+            continue
+        cu = [l for l in pad.GetLayerSet().CuStack()]
+        if not cu:
+            continue
+        outs = outlines_of(pad, cu[0])
+        if not outs:
+            continue
+        through = attr == pcbnew.PAD_ATTRIB_PTH
+        pads.append(PadGeom(owner=p.stem, inst=p.stem, number=pad.GetNumber() or "?", net="",
+                            layers=frozenset() if through else _copper_layers(scratch, pad.GetLayerSet()),
+                            outlines=outs, box=Box.of_points([q for o in outs for q in o]),
+                            through=through,
+                            drill_mm=mm(pad.GetDrillSize().x) if through else 0.0))
+    geom = Footprint(ref=p.stem, inst=p.stem, cell=None, value=fp.GetValue() or p.stem,
+                     location=Location(0.0, 0.0), rotation=0.0, face=Face.FRONT,
+                     body_box=body_box(fp, courtyard_excess_mm), courtyard_box=courtyard_box(fp),
+                     phys_box=phys_box(fp), pads=tuple(pads), npth=_npth(fp),
+                     fields={f.GetName(): f.GetText() for f in fp.GetFields()})
+    return geom, digest
+
+
 FACES_PREFIX = "placemat faces "     # a User.Comments text a module fragment carries: `placemat faces outward=N quiet=S handoff=E`
 
 
