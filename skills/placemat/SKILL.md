@@ -285,8 +285,8 @@ coordinates nobody chose.
   dragged toward its connector. Every undeclared connection weighs DEFAULT.
   A plane's own connections never pull - a net with two hundred pads gives a
   centroid that means nothing - but a link you DECLARE on a plane net does,
-  because it names two specific pads. That is how a bypass capacitor reaches
-  the IC it shares nothing else with.
+  because it names two specific pads. That is how to keep together two parts
+  whose only shared net is a plane.
 - A part with satellites at its pins (a regulator and its caps) is a block:
   declare the satellites by the net each serves; the placer lays the block
   out from the real pads and searches it as one.

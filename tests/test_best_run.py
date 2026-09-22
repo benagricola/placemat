@@ -9,7 +9,7 @@ ITEMS = ("mcu", "buck5", "j_usb", "c_bulk")
 def _rec(run_id="a1", placed=4, drc=9, findings=15, airwire=5790.0, items=ITEMS,
          landed=None, status="ok"):
     landed = items if landed is None else landed
-    return RunRecord(run_id=run_id, board="middleweight", status=status,
+    return RunRecord(run_id=run_id, board="b", status=status,
                      placements={i: {"x": 0, "y": 0} for i in landed},
                      steps=[{"item": i} for i in items],
                      metrics={"placed": placed, "drc_real": {"clearance": drc} if drc else {},
@@ -17,7 +17,7 @@ def _rec(run_id="a1", placed=4, drc=9, findings=15, airwire=5790.0, items=ITEMS,
 
 
 def test_the_objective_puts_completeness_before_everything():
-    """The middleweight ledger holds a run at drc 6 that placed 29 of 101
+    """A run at drc 6 that placed 29 of 101
     items: fewer parts is less copper is fewer violations. Ranking on DRC
     alone crowns a board that was barely laid out."""
     whole = _rec(placed=101, drc=12, findings=12, airwire=5083)
@@ -186,7 +186,7 @@ def test_the_docs_say_a_regression_exits_one():
 
 def _unmeasured(run_id="nodrc"):
     """A run made with --no-drc: it placed, but measured neither DRC nor airwire."""
-    return RunRecord(run_id=run_id, board="middleweight", status="ok",
+    return RunRecord(run_id=run_id, board="b", status="ok",
                      placements={i: {"x": 0, "y": 0} for i in ITEMS},
                      steps=[{"item": i} for i in ITEMS],
                      metrics={"placed": 4, "findings": 15})

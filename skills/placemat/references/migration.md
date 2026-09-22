@@ -19,15 +19,14 @@ region it ignored would be named instead of appearing as one more
 the parent's inner layers.** A keepout on every copper layer is written
 `keepout <name> [*.Cu]`, and one on layers its board lacks lists them. KiCad
 saves a zone on the layers its board has, so a two-layer module could never
-carry a keepout onto a four-layer parent's inner pours: the W3011's
-all-layer antenna clearance arrived on F and B, and the parent's ground filled
-under the antenna on In1 and In2.
+carry a keepout onto a four-layer parent's inner pours: one declared on every
+layer arrived on F and B, and the parent's pours filled under it on the inner
+layers.
 
 To pick it up: re-run each module's placemat script so its keepouts carry the
 marker, then regenerate and re-run the boards that stamp it. A parent that
-restated a module's clearance by hand - the fairing main board's `w3011_ab` and
-`w3011_c` - still works, and now duplicates a region the module brings; the
-copy can come out.
+restated a module's clearance by hand still works, and now duplicates a region
+the module brings; the copy can come out.
 
 A keepout on a layer its board does not have is now a finding rather than a
 region that silently holds nothing.
@@ -63,8 +62,8 @@ family, so it becomes the best and passes. `best.json` sits beside
 
 `[best] airwire_noise` (default 0.01) is how far airwire may move before it
 counts. kicad-cli reports a different set of ratsnest edges each run for a
-byte-identical board - the Breakout's same inputs gave 2868.87 to 2873.11 mm
-over four runs - so `airwire_mm` and `crossings` wobble slightly between
+byte-identical board - four runs of the same inputs gave 2868.87 to 2873.11 mm
+- so `airwire_mm` and `crossings` wobble slightly between
 identical runs. Neither is exact; compare them across runs with that in mind.
 
 ## To 0.14
@@ -76,11 +75,10 @@ constraint in force and losing to something, not as one that never ran.
 
 Planes stay excluded from seeding for everything nobody declared - a net with
 two hundred pads gives a centroid that means nothing - but a declared link
-names two specific pads, so that reason does not apply to it. This is what a
-bypass capacitor on a plane-served rail needs: it shares nothing with its IC
-but the rail.
+names two specific pads, so that reason does not apply to it. A link is how
+to say two parts belong together when the only net they share is a plane.
 
-If a script worked around this with `at=Near(Part(<the IC>))`, the workaround
+If a script worked around this with `at=Near(Part(<the other part>))`, the workaround
 still wins - an explicit hint beats a seed - so nothing breaks, but the `Near`
 is now redundant and can come out. Re-run and expect the parts that were
 reported over their limits to have moved toward the pins they serve.
@@ -94,13 +92,13 @@ supply and says whether the sheet mentions them at all.
 
 A page with almost no text of its own is now read off its render with
 `tesseract` when that is installed. It is optional; `--no-ocr` turns it off.
-OCR reads wrong as well as right - on the TYPE-C 31-M-12 it returns 4.95 for a
+OCR reads wrong as well as right - on one measured sheet it returns 4.95 for a
 dimension the drawing gives as 4.55, at confidence 78 against 86 to 96 for its
 correct neighbours - so a confidence travels with every sourced number and
 `check` against a real footprint is what catches the rest.
 
 placemat does not recover pad geometry from a drawing. On that same sheet the
-contacts are drawn as hatching: 276 of the land-pattern view's 453 paths are
+pads are drawn as hatching: 276 of the land-pattern view's 453 paths are
 two-point line segments, and the largest group of equal boxes on the page is
 outlined text. Pad values are supplied, corroborated and compared, not parsed.
 
@@ -121,20 +119,19 @@ where it used to claim exactly its pads. Nothing in a script changes, but the
 layout a script produces does, and a script that placed cleanly on 0.10 can
 report a collision on 0.11.
 
-The old answer understated a through-hole part by the whole of its plastic. On
-the Breakout, 13 of 43 footprints draw no courtyard, and the worst are
-five-way terminal blocks that claimed 70 mm2 of the 334 mm2 they stand on: the
-block's body overhangs its pads by about 9 mm on one side. Two things read
-that number, so two things change:
+The old answer understated any part whose body overhangs its pads by the whole
+of the overhang. On one measured board, 13 of 43 footprints draw no courtyard,
+and the worst claimed 70 mm2 of the 334 mm2 they stand on: the body overhangs
+the pads by about 9 mm on one side. Two things read that number, so two things
+change:
 
 - **The placement rank.** Searched items are ordered by courtyard area, so a
-  courtyard-less connector used to rank as a passive and go down last, among
-  the parts it should have been placed before. Expect a different order, and
+  large part with no courtyard used to rank as a small one and go down last,
+  among the parts it should have been placed before. Expect a different order, and
   read the printed rank rather than reaching for `priority=`.
 - **The collision check.** A part under such a body is now a finding rather
-  than silence. Those findings are real: a 0603 under a terminal block's
-  plastic does not assemble. Move the part; do not widen a clearance to
-  silence it.
+  than silence. Those findings are real: a part under another part's body
+  does not assemble. Move the part; do not widen a clearance to silence it.
 
 A collision on the first 0.11 run is therefore a defect the old envelope was
 hiding, not a regression. `placemat measure <board> <part>` prints the

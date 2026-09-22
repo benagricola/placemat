@@ -113,7 +113,7 @@ def test_geometry_argues_for_a_drawing_topic_and_not_a_textual_one():
 
 
 def test_a_rule_line_is_not_a_pad():
-    """A table's rules are rectangles too: 9 of 1 x 42 on the antenna's
+    """A table's rules are rectangles too: 9 of 1 x 42 on one measured
     terminal-function page. A pad is not 42 times longer than it is wide."""
     lines = [_rect(42.0, 1.0) for _ in range(9)]
     assert ds.rectangles(lines) == ()
@@ -147,7 +147,7 @@ def test_a_hairline_is_not_a_pad():
 
 def test_the_shape_evidence_names_its_unit_and_does_not_claim_pads():
     """`183 of 3 x 5` reads as 183 pads of 3 x 5 mm. They are PDF points, and
-    on the TYPE-C sheet that cluster is glyph strokes in the notes column
+    on one measured sheet that cluster is glyph strokes in the notes column
     sitting on 42 evenly spaced text rows, not a contact array. The evidence
     says a shape repeats; it does not say what the shape is."""
     rects = [_rect(3.0, 5.0) for _ in range(183)]
@@ -193,7 +193,7 @@ def test_a_line_of_nothing_but_noise_is_dropped_and_an_empty_word_ignored():
 
 
 def test_a_weak_word_inside_a_good_line_is_kept():
-    """tesseract scores `mm` at 23 on the TYPE-C sheet - two identical letters,
+    """tesseract scores `mm` at 23 on one measured sheet - two identical letters,
     small - while the `SCALE:` beside it scores 96 and the read is right.
     Dropping words below the floor returned `UNIT: | SCALE:` and lost the unit
     of the whole drawing, so a line is judged by its best word and kept
@@ -217,7 +217,7 @@ def test_a_grouped_run_carries_the_box_round_its_words_and_the_lowest_confidence
 
 
 def test_a_dotted_pcb_still_matches_the_land_keyword():
-    """OCR reads the TYPE-C heading as "RECOMMEND P.C.B LAYOUT(COMPONEN".
+    """OCR reads an outlined heading as "RECOMMEND P.C.B LAYOUT(COMPONEN".
     The pattern `pcb layout` does not match it, and that one gap kept the
     only page of a text-free datasheet at `fair`."""
     runs = [_run("RECOMMEND P.C.B LAYOUT(COMPONEN")]
@@ -338,7 +338,7 @@ def test_a_check_with_nothing_supplied_says_so_rather_than_passing():
 
 def test_a_token_tesseract_could_not_score_does_not_define_the_line():
     """tesseract gives 0 to stray punctuation - the `_` and `|` in the
-    TYPE-C's `UNIT: mm _ | SCALE:` - and a 0 is "not a word", not "read
+    `UNIT: mm _ | SCALE:` - and a 0 is "not a word", not "read
     badly". Letting it stand as the line's confidence reported 0 for a line
     that was read correctly."""
     tsv = TSV + "\n" + "\n".join([

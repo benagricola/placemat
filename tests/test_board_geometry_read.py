@@ -68,7 +68,7 @@ def test_netclass_clearance_is_resolved_from_the_project(breakout):
 def test_a_footprint_with_no_courtyard_claims_its_body_not_its_pads(breakout_pcb):
     """`courtyard_box`'s own fallback was unreachable: it appended the pads box
     before testing the union for None, so a footprint that draws no courtyard
-    claimed exactly its pads. A five-way terminal block claimed 70 mm2 of the
+    claimed exactly its pads. One measured part claimed 70 mm2 of the
     334 mm2 it stands on, and the placement rank is worked out from that area.
     `body_box` has always used the physical extent in this case; the two now
     agree."""

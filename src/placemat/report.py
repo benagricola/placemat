@@ -270,9 +270,10 @@ def _drc_total(metrics: dict) -> int:
 def objective(metrics: dict) -> tuple:
     """How good a run is, lower first, compared left to right.
 
-    Completeness leads because DRC does not mean anything without it: the
-    middleweight ledger holds a run at 6 violations that placed 29 of 101
-    items, and fewer parts is less copper is fewer ways to break a rule.
+    Completeness leads because DRC does not mean anything without it: a run
+    that placed 29 of 101 items can show 6 violations where the whole board
+    shows more, because fewer parts is less copper is fewer ways to break a
+    rule.
     Among runs that laid out the same amount of board, violations lead, then
     placemat's own findings, then how far the airwires have to go."""
     return (-int(metrics.get("placed") or 0),
@@ -288,8 +289,8 @@ _PARTS = (("placed", "placed", False), ("drc_real", "DRC violations", True),
 
 # How far airwire may move, as a fraction, before it counts. kicad-cli reports
 # a different set of ratsnest edges each run for a byte-identical board - four
-# runs of the Breakout's same inputs gave 2872.80, 2873.11, 2872.80 and
-# 2868.87 mm - so an exact comparison fails an identical rerun.
+# runs of the same inputs gave 2872.80, 2873.11, 2872.80 and 2868.87 mm - so an
+# exact comparison fails an identical rerun.
 AIRWIRE_NOISE = 0.01
 
 

@@ -93,10 +93,10 @@ def _plane_board():
 
 
 def test_a_declared_link_pulls_even_when_its_net_is_a_plane():
-    """A bypass capacitor shares nothing with its IC but the rail, and a
-    script that says so with `board.link` was getting a measured finding and
-    no behaviour: the link reported 54 mm over its 2 mm limit while
-    contributing nothing to where the part went."""
+    """Two parts whose only shared net is a plane, and a script that says they
+    belong together with `board.link`, were getting a measured finding and no
+    behaviour: the link reported 54 mm over its 2 mm limit while contributing
+    nothing to where the part went."""
     b = _plane_board()
     b.plane(Net("V3V3"), [CopperLayer.B])
     b.place(Part("u1"), at=Location(20, 30))

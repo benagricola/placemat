@@ -90,7 +90,7 @@ class RuleArea:
 
     placemat did not write these and must not destroy them. `cell` is the
     group that owns it, or None for one that belongs to the board itself."""
-    name: str                            # the zone name, e.g. "keepout antenna_1"
+    name: str                            # the zone name, e.g. "keepout clearance [*.Cu]_1"
     cell: str | None
     polygon: Polygon                     # in the generated board's coordinates
     layers: frozenset[CopperLayer]

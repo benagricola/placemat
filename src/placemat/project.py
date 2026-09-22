@@ -41,7 +41,7 @@ def generate_args_of(script: Path) -> tuple:
 def find_board(script_or_dir) -> BoardSource:
     """The board a script is for: the .zen beside it declaring Board(),
     Project() or Layout(). When several do, the script's name says which
-    (`Middleweight_layout.py` means the one named Middleweight)."""
+    (`Main_layout.py` means the one named Main)."""
     p = Path(script_or_dir).resolve()
     board_dir = p if p.is_dir() else p.parent
     wanted = p.stem[:-len("_layout")] if p.is_file() and p.stem.endswith("_layout") else None

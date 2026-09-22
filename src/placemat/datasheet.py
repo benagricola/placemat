@@ -46,8 +46,8 @@ _UNIT = ((re.compile(r"\bmm\b|\bmillimet", re.I), "mm"),
 
 
 # Nothing a drawing repeats is twenty times longer than it is wide except a
-# rule or a border. The antenna's terminal-function page draws nine boxes of
-# 1 x 42, and counting those made a page of prose look like a page of drawing.
+# rule or a border. A table's rules are boxes too - one measured pin table
+# draws nine of 1 x 42 - and counting those made prose look like a drawing.
 MAX_PAD_ASPECT = 20.0
 
 # Smaller than this in PDF points and a path cannot be sized meaningfully: it
@@ -75,8 +75,8 @@ def clusters(rects, tol: float = 0.5) -> list:
     """Rectangles of the same size, largest group first, in PDF points.
 
     This says a shape repeats on the page. It does NOT say the shape is a pad:
-    on the TYPE-C sheet the biggest group is 183 boxes of 3 x 5 pt sitting on
-    42 evenly spaced rows in the notes column - glyph strokes in outlined
+    on one measured sheet the biggest group is 183 boxes of 3 x 5 pt sitting
+    on 42 evenly spaced rows in the notes column - glyph strokes in outlined
     text. What the signal is good for is telling a page of drawing from a page
     of prose, which is the index's question. Finding the pads themselves is a
     different job and a harder one."""
@@ -105,14 +105,14 @@ def unit_of(runs):
 
 TOPICS = ("land", "package", "rules", "pins")
 
-# One vendor's words for a thing are not another's: the W3011 says "MECHANICAL
-# DRAWING" and "PWB Layout" where TDK says "RECOMMENDED LAND PATTERN". Measured
+# One vendor's words for a thing are not another's: one says "MECHANICAL
+# DRAWING" and "PWB Layout" where another says "RECOMMENDED LAND PATTERN". Measured
 # over 67 datasheets, a keyword list alone finds a land pattern on half of
 # them, which is why it is one signal beside the geometry and never the answer.
 KEYWORDS = {
     # `p\.?\s?[cw]\.?\s?b\.?` covers PCB, PWB and the dotted P.C.B that OCR
-    # returns for the TYPE-C heading; without the dots that page stayed at
-    # `fair` with the only evidence it had sitting unread.
+    # returns for a heading drawn as outlines; without the dots that page stayed
+    # at `fair` with the only evidence it had sitting unread.
     "land": (r"recommended land", r"land pattern", r"recommended pad",
              r"p\.?\s?[cw]\.?\s?b\.?\s*layout", r"mounting pad", r"solder pad",
              r"recommended solder", r"suggested (pad|land)", r"footprint"),
@@ -133,7 +133,7 @@ CLUSTER_FLOOR = 4
 # The topics a drawing can argue for. Repeated drawn detail says "this page is
 # a drawing", which narrows it to a land pattern or a package outline; it says
 # nothing about a pin table or a paragraph of layout rules, and offering it to
-# those made a text-free connector rank every topic alike.
+# those made a sheet with no text rank every topic alike.
 _DRAWN_TOPICS = ("land", "package")
 
 
@@ -251,13 +251,13 @@ def index_lines(name: str, pages: int, candidates) -> list:
 
 
 # tesseract scores every word; below this a word is noise rather than a read.
-# Measured on the TYPE-C sheet: correct dimensions scored 86 to 96, a misread
-# scored 78, and the rubbish scored 16 to 39.
+# Measured on one sheet: correct dimensions scored 86 to 96, a misread scored
+# 78, and the rubbish scored 16 to 39.
 MIN_OCR_CONFIDENCE = 70.0
 
 # Under this many characters a page has not really got text of its own, and is
 # worth the second and a half OCR costs. 7 of the 67 datasheets measured for
-# this feature are like this, and they are the connectors and the inductors.
+# this feature are like this: every dimension on them is an outlined curve.
 OCR_TEXT_FLOOR = 200
 
 
@@ -270,7 +270,7 @@ def runs_from_tsv(tsv: str, page: int, min_conf: float = MIN_OCR_CONFIDENCE) -> 
 
     The floor is applied to the LINE, not the word, and a line passes when any
     word in it reads well. Dropping weak words first returned `UNIT: | SCALE:`
-    for the TYPE-C's `UNIT: mm SCALE: 1:1`, losing the unit of the whole
+    for a sheet's `UNIT: mm SCALE: 1:1`, losing the unit of the whole
     drawing: tesseract scores `mm` at 23 - two identical letters, small - while
     the `SCALE:` beside it scores 96 and both reads are right. Noise is a line
     with no good word in it, and that is what goes.

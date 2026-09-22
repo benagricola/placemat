@@ -24,8 +24,8 @@ def test_explicit_layers_the_board_has_need_no_marker():
 
 def test_a_stamped_name_splits_into_base_and_declaration():
     """pcb layout appends `_1` after the marker."""
-    assert split_marker("keepout antenna [*.Cu]_1") == ("keepout antenna", "*")
-    assert split_marker("keepout antenna_c [In2.Cu]_1") == ("keepout antenna_c", (IN2,))
+    assert split_marker("keepout clearance [*.Cu]_1") == ("keepout clearance", "*")
+    assert split_marker("keepout clearance_c [In2.Cu]_1") == ("keepout clearance_c", (IN2,))
     assert split_marker("keepout vent") == ("keepout vent", None)
 
 
@@ -33,7 +33,7 @@ def test_an_unmarked_name_keeps_its_digits():
     """Without a marker there is no telling pcb's `_1` from a name that ends
     in a number: `keepout rail_1_26` is a real keepout, not `rail_1` stamped."""
     assert split_marker("keepout rail_1_26") == ("keepout rail_1_26", None)
-    assert split_marker("keepout antenna_1") == ("keepout antenna_1", None)
+    assert split_marker("keepout clearance_1") == ("keepout clearance_1", None)
 
 
 def test_a_declaration_resolves_against_the_board_it_is_on():
@@ -47,9 +47,9 @@ def test_stackup_order_runs_front_inner_back():
 
 
 def test_a_rule_area_names_its_base_and_what_it_could_not_honour():
-    ra = RuleArea("keepout antenna_c [In2.Cu]_1", "ant_rf", ((0, 0), (1, 0), (1, 1)),
+    ra = RuleArea("keepout clearance_c [In2.Cu]_1", "rf", ((0, 0), (1, 0), (1, 1)),
                   frozenset(), frozenset(["fill"]), missing=(IN2,))
-    assert ra.base == "keepout antenna_c" and ra.missing == (IN2,)
+    assert ra.base == "keepout clearance_c" and ra.missing == (IN2,)
 
 
 import dataclasses
@@ -72,18 +72,18 @@ def _geom(copper, rule_areas=()):
 
 
 def test_the_clash_check_sees_a_stamped_marked_name_as_the_same_keepout():
-    stamped = RuleArea("keepout antenna [*.Cu]_1", "ant_rf", ((0, 0), (4, 0), (4, 4)),
+    stamped = RuleArea("keepout clearance [*.Cu]_1", "rf", ((0, 0), (4, 0), (4, 4)),
                        frozenset(TWO), frozenset(["fill"]))
     b = Board(_geom(FOUR, [stamped]), edge_margin=0.0)
     with pytest.raises(ValueError):
-        b.keepout(_shape(), "antenna", at=Location(20, 20), why="clearance")
+        b.keepout(_shape(), "clearance", at=Location(20, 20), why="clearance")
 
 
 def test_a_keepout_on_a_layer_the_board_lacks_is_a_finding():
     b = Board(_geom(TWO), edge_margin=0.0)
-    b.keepout(_shape(), "antenna_c", at=Location(20, 20), layers=(IN2,), why="Detail C")
+    b.keepout(_shape(), "clearance_c", at=Location(20, 20), layers=(IN2,), why="Detail C")
     plan = b.resolve()
-    said = [f for f in plan.findings if "antenna_c" in f]
+    said = [f for f in plan.findings if "clearance_c" in f]
     assert said and "In2.Cu" in said[0] and "recorded in its name" in said[0]
 
 

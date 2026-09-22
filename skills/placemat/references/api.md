@@ -290,11 +290,11 @@ board.keepout(shape, name, *, at, rotation=None, excludes=None,
 ```
 
 ```python
-CLEARANCE = Path(ACAG0301_FIGURE, anchor=(0.0, 0.0))   # the datasheet's own coordinates
+CLEARANCE = Path(DATASHEET_FIGURE, anchor=(0.0, 0.0))  # the datasheet's own coordinates
 
 board.keepout(CLEARANCE, "antenna", at=PadRef(Part("ant"), "ANT_FEED"),
               allow=(Part("ant"), Part("r_ant_series"), Net("ANT_FEED")),
-              why="ACAG0301 datasheet p1 Layout: copper-free on every layer")
+              why="datasheet p1 Layout: copper-free on every layer")
 ```
 
 **The shape and the place** are a cutout's: `Slot`, `Circle`, `Path`, and `at=`
@@ -623,7 +623,7 @@ with the run gets a lead along its line. The pair is one step,
 
 ```python
 board.label(Part("j_mot"), "MOTOR", side=Edge.SOUTH, knockout=True)              # gap= only with a reason (default 0)
-board.label(Cell("usb"), "USB-C", side=Edge.NORTH, align="start", size=1.2)
+board.label(Cell("power"), "POWER", side=Edge.NORTH, align="start", size=1.2)
 board.label(PadRef(Part("jp1"), 1), "1", side=Edge.WEST, gap=0.3, size=0.6)
 board.label(Part("j_bus"), "CAN", side=Edge.EAST, rotation=90, why="reads along the edge it plugs into")
 board.label([SW_BOOT, SW_RUN, LED], ["BOOT", "RUN", "MCU"], side=Edge.SOUTH, knockout=True)   # one line for a row
@@ -697,8 +697,8 @@ that page to a PNG and prints its text with positions; `--show land` resolves
 the topic through the index first. Measured over 67 datasheets, a keyword list
 alone names a land pattern on half of them, so the geometry counts too: a page
 holding a row of identical rectangles is a pad row whether or not it says so.
-A datasheet whose every dimension is an outlined curve carries no text at all -
-the TYPE-C receptacles are like this - and `--show` is the answer for those.
+A datasheet whose every dimension is an outlined curve carries no text at all,
+and `--show` is the answer for those.
 It shells out to mupdf and poppler; `tesseract` is used when installed.
 
 `--read` prints the facts the sheet could be made to yield - its unit, its
@@ -715,7 +715,7 @@ ones nobody supplied a value for, because a check missing from a report reads
 as one that passed. Exit 1 when any check disagrees.
 
 ```
-check   USB-C_SMD-TYPE-C-31-M-12_1.kicad_mod against TYPE_C_31_M_12.pdf
+check   part.kicad_mod against part.pdf
 check     pitch  0.5        0.5        ok        p1 (498,1828) ocr conf 88
 check     pad    0.3 x 1.3  0.3 x 1.3  ok        not on the page
 check     pads   24         18         MISMATCH  not on the page
@@ -769,7 +769,7 @@ that comes out worse is a finding naming the metric, and `placemat run` exits
 part starts a new family. Routing needs
 KiCadRoutingTools at `$KRT_DIR` (default `~/work/KiCadRoutingTools`) with
 its own venv; quick mode is one routing round with the router's post-route
-smoothing off (a measurement: the Breakout routes in about 10 s), `--full`
+smoothing off (a measurement: a small two-layer board routes in about 10 s), `--full`
 is the router's whole run. The search budget per net is the router's own
 unless `--iterations` caps it.
 
