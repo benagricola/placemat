@@ -2520,7 +2520,7 @@ class Board:
         result = scan(occ, i.item, hint, radius, i.step, i.rotations or (i.rotation,), clr, score=score)
         if result.chosen is None:
             plan.findings.append("%s: no legal location within %.1f mm of %s (%s)" % (
-                i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in result.rejected.most_common(3))))
+                i.key, radius, _loc(hint.location), _blame_text(result)))
             return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()), i.why, freedom=i.freedom,
                     rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
         note = seeded
@@ -2707,6 +2707,24 @@ def _shape_of(op) -> Shape | None:
         faces = frozenset([op.layer.face]) if op.layer.face else frozenset()
         return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.polygon, op.box)
     return None            # a zone pulls back round everything; it is never an obstacle
+
+
+def _blame_text(result) -> str:
+    """The rejection counts, and for each kind the owners that caused most of
+    them. The owner and the faces are computed for every candidate the scan
+    refuses and were being thrown away; three owners, because a crowded board
+    has forty and a reader needs one."""
+    parts = []
+    for kind, n in result.rejected.most_common(3):
+        owners = sorted(((owner, faces, count)
+                         for (k, owner, faces), count in result.blockers.items()
+                         if k == kind and owner),
+                        key=lambda t: -t[2])[:3]
+        detail = "" if not owners else ": " + ", ".join(
+            "%s%s x%d" % (owner, (" %s face" % faces) if faces else "", count)
+            for owner, faces, count in owners)
+        parts.append("%s x%d%s" % (kind, n, detail))
+    return "; ".join(parts)
 
 
 def _ordinal(n: int) -> str:

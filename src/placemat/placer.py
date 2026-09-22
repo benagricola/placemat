@@ -20,6 +20,7 @@ class ScanResult:
     tried: int
     rejected: Counter = field(default_factory=Counter)
     reasons: dict = field(default_factory=dict)
+    blockers: Counter = field(default_factory=Counter)   # (kind, owner, face label) -> how often
     score: float = 0.0
 
     @property
@@ -69,6 +70,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     rots = tuple(sorted({(r % 360) for r in (rotations or (hint.rotation,))}))
     rejected: Counter = Counter()
     reasons: dict = {}
+    blockers: Counter = Counter()
     tried = 0
     geom = occ._geometry(item)
     reach = radius + max(geom.body.width, geom.body.height)       # any rotation of the body, anywhere in the scan
@@ -88,7 +90,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 seen.add((x, y, rot))
                 cand = Placement(Location(x, y), rot, hint.face)
                 tried += 1
-                why = occ.legal(item, cand, clearance, others=others)
+                blame = []
+                why = occ.legal(item, cand, clearance, others=others, blame=blame)
                 if why is None:
                     d = math.hypot(x - hint.location.x, y - hint.location.y)
                     legal.append((score(cand) if score else 0.0, d, rot, cand))
@@ -98,6 +101,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 key = _reason_key(why)
                 rejected[key] += 1
                 reasons.setdefault(key, why)
+                for b in blame:
+                    blockers[(b.kind, b.owner, "/".join(sorted(f.value for f in b.faces)))] += 1
         return legal
 
     cfg = occ.settings
@@ -122,12 +127,12 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 legal += sweep(((x, y) for _, x, y in _grid(cand.location, coarse, step)
                                 if math.hypot(x - hint.location.x, y - hint.location.y) <= radius + 1e-9), False)
     if not legal:
-        return ScanResult(None, hint, tried, rejected, reasons)
+        return ScanResult(None, hint, tried, rejected, reasons, blockers)
     best = min(legal, key=lambda k: k[:3])
     chosen = best[3]
     if commit:
         occ.commit(item, chosen)
-    result = ScanResult(chosen, hint, tried, rejected, reasons)
+    result = ScanResult(chosen, hint, tried, rejected, reasons, blockers)
     result.score = best[0]
     return result
 

@@ -34,6 +34,16 @@ class Shape:
 
 
 @dataclass(frozen=True)
+class Blocker:
+    """Why one candidate placement was refused, in parts rather than prose:
+    what kind of conflict, whose shape it was, and which faces it holds. The
+    sentence `legal` returns is for a human; this is for counting."""
+    kind: str                       # courtyard | pad | through | copper | npth | edge | reservation
+    owner: str                      # as who() formats it: a cell member carries its cell
+    faces: frozenset
+
+
+@dataclass(frozen=True)
 class Reservation:
     """A region nothing may sit in. `allow` are nets whose parts may, and
     `owners` are refdes that may by name - an antenna's clearance holds its
@@ -320,26 +330,35 @@ class Occupancy:
         return out
 
     def legal(self, item, placement: Placement, clearance: float | None = None, others=None,
-              past_edge: bool = False) -> str | None:
+              past_edge: bool = False, blame: list | None = None) -> str | None:
         """None when `item` may sit at `placement`, else one sentence saying
         what stops it. The first failure found is reported. `others` is a
         prefiltered obstacle list from `obstacles()`; without one every
         shape on the board is a candidate obstacle. `past_edge` allows a
-        body over the edge margin: a connector face declared to overhang."""
+        body over the edge margin: a connector face declared to overhang.
+        `blame`, when a list is passed, collects a `Blocker` for the conflict
+        found: the same refusal in parts rather than prose, so a scan can
+        count who was in the way rather than only how often."""
         geom = self._geometry(item)
         body = self.body_box(item, placement)
         if self.edge_margin is not None and not past_edge:
             if self.board_shape is not None:
                 why = self.board_shape.why_not(body, self.edge_margin)
                 if why:
+                    if blame is not None:
+                        blame.append(Blocker("edge", "", frozenset()))
                     return "body box %s is %s" % (_fmt(body), why)
             elif self.board_box is not None:
                 inner = self.board_box.inflate(-self.edge_margin)
                 if not inner.contains(body):
+                    if blame is not None:
+                        blame.append(Blocker("edge", "", frozenset()))
                     return "body box %s crosses the board edge margin (%.2f mm)" % (_fmt(body), self.edge_margin)
                 if self.board_cutouts:
                     why = self.board_cutouts.why_not(body, self.edge_margin)
                     if why:
+                        if blame is not None:
+                            blame.append(Blocker("edge", "", frozenset()))
                         return "body box %s is %s" % (_fmt(body), why)
         faces = {placement.face} | ({Face.FRONT, Face.BACK} if any(s.kind in ("through", "npth") for s in geom.shapes) else set())
         for r in self.reservations:
@@ -349,6 +368,8 @@ class Occupancy:
                 continue                                   # named, or carrying a net let through
             # the box first because it is cheap, and the placer asks this tens of thousands of times
             if r.box.overlaps(body) and polys_overlap(r.poly, box_polygon(body)):
+                if blame is not None:
+                    blame.append(Blocker("reservation", r.why, frozenset()))
                 return "sits in the reservation for %s" % r.why
         if others is None:
             others = self.obstacles(geom)
@@ -370,6 +391,8 @@ class Occupancy:
             for o in close:
                 why = self._conflict(moved, o, clearance)
                 if why:
+                    if blame is not None:
+                        blame.append(Blocker(o.kind, self.who(o.owner), frozenset(o.faces)))
                     return why
         return None
 

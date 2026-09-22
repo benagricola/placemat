@@ -177,3 +177,31 @@ def test_a_collision_with_a_cell_member_names_the_cell():
     occ = Occupancy(g, edge_margin=0.0, board_box=g.outline_box)
     why = occ.legal(fps[1], Placement(Location(10, 10), 0, Face.FRONT))
     assert why == "J5 courtyard overlaps cell a1's R2 courtyard"
+
+
+def test_legal_can_name_who_blocked_and_on_which_face():
+    from placemat.occupancy import Blocker, Occupancy
+    from placemat.placement import Placement
+    from placemat.values import Face, Location
+    from tests.fixtures import board_geometry, footprint
+    g = board_geometry([footprint("U1", 10, 10, w=4, h=2, inst="u1", nets=("A", "B")),
+                        footprint("R1", 30, 30, w=2, h=1, inst="r1", nets=("B", "C"))],
+                       width=60, height=60)
+    occ = Occupancy(g, edge_margin=0.0)
+    blame = []
+    why = occ.legal(g.footprint("U1"), Placement(Location(30.0, 30.0), 0.0, Face.FRONT), blame=blame)
+    assert why is not None                                   # the return value is unchanged
+    assert blame and isinstance(blame[0], Blocker)
+    assert blame[0].owner == "R1" and Face.FRONT in blame[0].faces
+
+
+def test_legal_without_blame_behaves_exactly_as_before():
+    from placemat.occupancy import Occupancy
+    from placemat.placement import Placement
+    from placemat.values import Face, Location
+    from tests.fixtures import board_geometry, footprint
+    g = board_geometry([footprint("U1", 10, 10, w=4, h=2, inst="u1", nets=("A", "B"))],
+                       width=60, height=60)
+    occ = Occupancy(g, edge_margin=0.0)
+    assert occ.legal(g.footprint("U1"),
+                     Placement(Location(10.0, 10.0), 0.0, Face.FRONT)) is None

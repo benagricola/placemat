@@ -99,3 +99,19 @@ def test_a_scored_scan_still_finds_a_spot_that_only_the_fine_grid_reaches():
     score = lambda p: p.location.distance(Location(26.1, 20))
     result = scan(occ, r, hint=Placement(Location(26.3, 20), 0, Face.FRONT), radius=2.0, step=0.2, score=score)
     assert result.chosen is not None and abs(result.chosen.location.x - 26.1) < 0.25
+
+
+def test_a_failed_scan_tallies_who_blocked_it():
+    from placemat.occupancy import Occupancy
+    from placemat.placement import Placement
+    from placemat.placer import scan
+    from placemat.values import Face, Location
+    from tests.fixtures import board_geometry, footprint
+    fps = [footprint("BIG", 20, 20, w=18, h=18, inst="big", nets=("A", "B")),
+           footprint("SMALL", 50, 50, w=4, h=4, inst="small", nets=("B", "C"))]
+    g = board_geometry(fps, width=60, height=60)
+    occ = Occupancy(g, edge_margin=0.0)
+    result = scan(occ, g.footprint("SMALL"),
+                  Placement(Location(20.0, 20.0), 0.0, Face.FRONT), radius=1.0, step=0.5)
+    assert result.chosen is None
+    assert any(owner == "BIG" for (_, owner, _) in result.blockers)

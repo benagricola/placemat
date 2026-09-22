@@ -5,7 +5,7 @@ it. Every choice carries the sentence that made it."""
 import pytest
 
 from placemat.layout import Board
-from placemat.values import OnEdge, Cell, Edge, LinkWeight, Location, Part, PadRef
+from placemat.values import Near, OnEdge, Cell, Edge, LinkWeight, Location, Part, PadRef
 from tests.fixtures import board_geometry, footprint
 
 
@@ -159,3 +159,13 @@ def test_an_item_free_to_slide_along_an_edge_still_takes_a_priority():
     assert "along the north edge" in plan.step("j1").note
     order = order_of(plan)
     assert order.index("j1") < order.index("big") < order.index("strip")
+
+
+def test_a_no_legal_location_finding_names_the_top_blocking_owners():
+    fps = [footprint("BIG", 25, 25, w=22, h=22, inst="big", nets=("A", "B")),
+           footprint("SMALL", 50, 50, w=6, h=6, inst="small", nets=("B", "C"))]
+    b = Board(board_geometry(fps, width=50, height=50), edge_margin=1.0, keep_going=True)
+    b.place(Part("big"), at=Location(25, 25))
+    b.place(Part("small"), at=Near(Location(25, 25), radius=1.0, step=0.5))
+    (finding,) = [f for f in b.resolve().findings if f.startswith("small")]
+    assert "BIG" in finding and "front" in finding
