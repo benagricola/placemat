@@ -1558,8 +1558,9 @@ class Board:
         local = _EDGE_BEARING[Edge(declared)] if declared else _EDGE_BEARING[Edge.SOUTH]
         return (local - bearing(edge)) % 360.0, "" if declared else note
 
-    def label(self, item, text: str, *, side: Edge = Edge.NORTH, gap: float = 0.0, align: str = "centre",
-              size: float = 1.0, thickness: float = 0.15, knockout: bool = False, rotation: float = 0.0,
+    def label(self, item, text: str, *, side: Edge = Edge.NORTH, gap: float | None = None, align: str = "centre",
+              size: float | None = None, thickness: float | None = None, knockout: bool = False,
+              rotation: float = 0.0,
               reserve: bool = True, line=None, why: str = ""):
         """Silkscreen text that marks a user-facing feature: a connector,
         jumper, switch or LED. It sits `gap` off `side` of the item's reach
@@ -1575,6 +1576,9 @@ class Board:
         moment its item is placed and, unless `reserve=False`, the text's
         own box on its face is reserved, so nothing placed later lands on
         it."""
+        gap = self.settings.label_gap if gap is None else gap
+        size = self.settings.label_size if size is None else size
+        thickness = self.settings.label_thickness if thickness is None else thickness
         if align not in ("centre", "start", "end"):
             raise ValueError("a label aligns centre, start or end, not %r" % (align,))
         if rotation not in (0, 90):
@@ -1604,7 +1608,8 @@ class Board:
     def _width(self, net: str, width) -> float:
         return float(width) if width is not None else self.geometry.netclass(net).track_width
 
-    def track(self, net, points, *, layer: CopperLayer, width: float | None = None, chamfer: float = 1.0,
+    def track(self, net, points, *, layer: CopperLayer, width: float | None = None,
+              chamfer: float | None = None,
               priority: Priority = Priority.DEFAULT, bridge: bool = False, why: str = ""):
         """Track segments through `points` in order, on one layer. A point is
         a Location, a pad reference, a Mid, or an (x, y) pair whose members
@@ -1616,6 +1621,7 @@ class Board:
         lets it pass under a same-layer track of another net it crosses (a
         via, a track on the opposite face, a via back) when it is the one
         that must yield: the lower priority, or at equal priority the shorter."""
+        chamfer = self.settings.copper_chamfer if chamfer is None else chamfer
         layer = CopperLayer.of(layer)
         refs = _refs_in(points)
         name = self.geometry.require_net(net)
@@ -1640,13 +1646,15 @@ class Board:
         return self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge)
 
     def pair(self, net_p, net_n, path, *, layer: CopperLayer, width: float | None = None, gap: float | None = None,
-             chamfer: float = 0.5, via_step: float = 0.4, priority: Priority = Priority.DEFAULT,
+             chamfer: float | None = None, via_step: float | None = None, priority: Priority = Priority.DEFAULT,
              bridge: bool = False, why: str = ""):
         """Two nets drawn together at `gap` along one centreline. `path`
         starts and ends with a (P pad, N pad) tuple; the points between are
         the centreline. Width and gap default to the P net's class. Corners
         are chamfered at 45, each track leaves its pad at 45, and a lead that
         would touch the partner goes over the other face from a via."""
+        chamfer = self.settings.copper_pair_chamfer if chamfer is None else chamfer
+        via_step = self.settings.copper_pair_via_step if via_step is None else via_step
         layer = CopperLayer.of(layer)
         p_name, n_name = self.geometry.require_net(net_p), self.geometry.require_net(net_n)
         nc = self.geometry.netclass(p_name)
@@ -1684,11 +1692,12 @@ class Board:
             return [Via(name, ctx.locate(at), d, s)]
         return self._copper_intent("via %s" % name, net, priority, plan, refs, why)
 
-    def pour(self, net, points, *, layer: CopperLayer, stroke: float = 0.2, swallow_pads: bool = False,
+    def pour(self, net, points, *, layer: CopperLayer, stroke: float | None = None, swallow_pads: bool = False,
              priority: Priority = Priority.DEFAULT, why: str = ""):
         """A filled copper polygon of exactly this shape on one layer. It does
         not pull back from foreign copper; `swallow_pads` grows it over the
         same-net pads its outline touches."""
+        stroke = self.settings.copper_pour_stroke if stroke is None else stroke
         layer = CopperLayer.of(layer)
         name = self.geometry.require_net(net)
         refs = _refs_in(points)
@@ -1698,12 +1707,15 @@ class Board:
             return [Pour(name, layer, pts, stroke, swallow_pads)]
         return self._copper_intent("pour %s" % name, net, priority, plan, refs, why)
 
-    def plane(self, net, layers, *, outline=None, inset: float = 0.4, chamfer: float | None = None,
-              clearance: float = 0.2, min_thickness: float = 0.2, solid_pads: bool = True,
+    def plane(self, net, layers, *, outline=None, inset: float | None = None, chamfer: float | None = None,
+              clearance: float | None = None, min_thickness: float | None = None, solid_pads: bool = True,
               priority: Priority = Priority.DEFAULT, why: str = ""):
         """A KiCad zone per layer, filled by KiCad and pulled back round every
         foreign pad, track and via: the whole board inset from the edge, or
         the polygon `outline`."""
+        inset = self.settings.copper_plane_inset if inset is None else inset
+        clearance = self.settings.copper_plane_clearance if clearance is None else clearance
+        min_thickness = self.settings.copper_plane_min_thickness if min_thickness is None else min_thickness
         name = self.geometry.require_net(net)
         layers = tuple(dict.fromkeys(CopperLayer.of(l) for l in layers))
 
@@ -1720,12 +1732,13 @@ class Board:
         return self._copper_intent("plane %s" % name, net, priority, plan, refs, why)
 
     def finger(self, net, *, layer: CopperLayer, from_, to, width: float,
-               bridge_width: float = 1.0, priority: Priority = Priority.DEFAULT, why: str = ""):
+               bridge_width: float | None = None, priority: Priority = Priority.DEFAULT, why: str = ""):
         """A finger: a rectangular pour of `width` along the centreline from
         `from_` to `to` (points, pads, or (x, y) pairs with X()/Y()), cut
         either side of every same-layer track of another net it crosses and
         bridged under each on the opposite face so the pieces stay one net.
         Fingers always yield to tracks."""
+        bridge_width = self.settings.copper_finger_bridge_width if bridge_width is None else bridge_width
         layer = CopperLayer.of(layer)
         name = self.geometry.require_net(net)
         refs = _refs_in([from_, to])
@@ -1733,7 +1746,8 @@ class Board:
         def plan(ctx):
             a, b = ctx.locate(from_), ctx.locate(to)
             segs = [((t.start.x, t.start.y), (t.end.x, t.end.y)) for t in ctx.tracks_on(layer) if t.net != name]
-            return finger_ops(name, layer, a, b, width, segs, self.via_drill, self.via_size, bridge_width)
+            return finger_ops(name, layer, a, b, width, segs, self.via_drill, self.via_size, bridge_width,
+                              self.settings.copper_bridge_half)
         return self._copper_intent("finger %s" % name, net, priority, plan, refs, why)
 
     # ------------------------------------------------------------ resolution
@@ -2012,7 +2026,8 @@ class Board:
             for op in c.plan(ctx):
                 (tracks if isinstance(op, Track) else others).append((c, op))
         entries = [(op, c.priority.rank, c.bridge) for c, op in tracks]
-        ops, notes, findings = resolve_bridges(entries, ctx.fixed_tracks, self.via_drill, self.via_size)
+        ops, notes, findings = resolve_bridges(entries, ctx.fixed_tracks, self.via_drill, self.via_size,
+                                               self.settings.copper_bridge_half)
         plan.findings += findings + ctx.notes
         ctx.notes = []
         ctx.planned_tracks += [op for op in ops if isinstance(op, Track)]

@@ -12,6 +12,7 @@ from .values import Box, CopperLayer, Face, Location, Net
 
 # A bridge passes under a crossed track: via land (0.30) + clearance (0.20)
 # + crossed track half-width (0.15) + margin (0.45) each side of the crossing.
+# The default; a board's own is `[copper] bridge_half`.
 BRIDGE_HALF = 1.1
 
 
@@ -203,7 +204,8 @@ def bridge_track(track: Track, points, via_drill: float, via_size: float, half: 
     return ops
 
 
-def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float):
+def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
+                    bridge_half: float = BRIDGE_HALF):
     """Decide every same-layer crossing between tracks of different nets.
 
     `entries` are (Track, priority_rank, may_bridge) for the copper being
@@ -256,7 +258,7 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float):
         for pt in cuts[i]:
             if not any(math.hypot(pt[0] - q[0], pt[1] - q[1]) < 1e-6 for q in seen):
                 seen.append(pt)
-        ops += bridge_track(t, seen, via_drill, via_size) if seen else [t]
+        ops += bridge_track(t, seen, via_drill, via_size, bridge_half) if seen else [t]
     return ops, notes, findings
 
 
