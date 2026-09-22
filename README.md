@@ -16,6 +16,13 @@ uv run placemat run boards/x/X_layout.py --label first
 uv run pytest
 ```
 
+`fixtures/` holds real modules with the libraries that build them.
+`uv run python fixtures/bench.py` places each of them from scratch under each
+configuration and compares the result with the committed `fixtures/bench.json`:
+more parts placed, then fewer findings, then shorter wire. A change that can
+move a placement runs it first, puts its tally lines in the commit message, and
+commits the rewritten baseline (`--update`) with it.
+
 The skill in `skills/placemat` is how an agent works with it; the script
 surface is in `skills/placemat/references/api.md`. `PLAN.md` is the plan
 this tree was built to.
