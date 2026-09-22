@@ -109,14 +109,14 @@ def test_runs_are_named_by_hash_and_labels_are_aliases(scratch_ecosystem):
     assert resolve_run(runs, rec.record.run_id[:6]) == runs / rec.record.run_id   # a unique prefix is enough
 
 
-def test_a_critical_item_that_cannot_place_fails_the_run_but_writes_the_board_as_it_stood(scratch_ecosystem):
+def test_a_required_item_that_cannot_place_fails_the_run_but_writes_the_board_as_it_stood(scratch_ecosystem):
     script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
     original = script.read_text()
     script.write_text(original.replace(
         'board.place(Cell("power_drop%d" % d), at=Centre(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2), rotation=270)',
         'board.place(Cell("power_drop%d" % d), at=Centre(EDGE + PD_DEPTH / 2, y0 + PD_ALONG / 2), rotation=270) if d else None')
-        + '\nfrom placemat import Near, Priority\n'
-          'board.place(Cell("power_drop0"), at=Near(Location(8, 8), radius=0.4), priority=Priority.HIGH)   # on MH1: nowhere to go\n')
+        + '\nfrom placemat import Near\n'
+          'board.place(Cell("power_drop0"), at=Near(Location(8, 8), radius=0.4), required=True)   # on MH1: nowhere to go\n')
     try:
         rec = run(script, label="critical", render=False)
     finally:

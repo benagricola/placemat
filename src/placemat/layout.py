@@ -191,6 +191,7 @@ class PlaceIntent:
     about: object = None               # the centre a radius and bearing are measured from
     run: object = None                 # a stretch of a shaped board's edge, from board.edge(facing=)
     freedom: Freedom = Freedom.SEARCHED   # derived from at=, never chosen
+    required: bool = False                # failing to place this stops the run
 
     @property
     def rank(self):
@@ -1081,7 +1082,8 @@ class Board:
     # ------------------------------------------------------------ placement
     def place(self, item, at=None, *, rotation: float | None = None, face: Face = Face.FRONT,
               radius: float | None = None, step: float | None = None, rotations=(),
-              priority: Priority | None = None, why: str = "", _standoff: float | None = None) -> PlaceIntent:
+              priority: Priority | None = None, required: bool = False, why: str = "",
+              _standoff: float | None = None) -> PlaceIntent:
         """Declare where an item goes: `at=` a place, whose kind says how
         much freedom is left.
 
@@ -1101,6 +1103,12 @@ class Board:
         nothing                 seeded from its links                     -> searched, two freedoms
 
         `radius=`, `step=` and `rotations=` tune a search (seeded or Near).
+
+        `required=True` says that failing to place this item stops the run,
+        with the board as it stood and the biggest free rectangles on its
+        face. It is independent of the rank and of whether the position is
+        decided, and a required item is not negotiable even under
+        `--keep-going`. Nothing else stops a run by itself.
         """
         radius = self.settings.place_radius if radius is None else radius
         step = self.settings.place_step if step is None else step
@@ -1221,7 +1229,7 @@ class Board:
         intent = PlaceIntent(key, geom, kind, priority, turn, face, at, center, edge, along,
                              standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs),
                              pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward, about, run,
-                             freedom)
+                             freedom, required)
         self._intents.append(intent)
         return intent
 
@@ -1869,13 +1877,15 @@ class Board:
                 tag = self._rank_note.get(obj.key, "")
                 if obj.priority_source == "script":
                     tag += " (script: %s)" % obj.priority.value
-                if getattr(obj, "required", False):
+                if obj.required:
                     tag += ", required"
                 step.note = (tag + "; " + step.note) if step.note else tag
+            elif getattr(obj, "required", False):
+                step.note = ("required; " + step.note) if step.note else "required"
             if obj.faces_note:
                 step.note = (step.note + "; " if step.note else "") + obj.faces_note
             plan.steps.append(step)
-            if step.placement is None and obj.priority is Priority.HIGH and not self.keep_going:
+            if step.placement is None and getattr(obj, "required", False) and not self.keep_going:
                 raise CriticalUnplaced(obj.key, self._no_place_report(occ, obj, step), plan)
             if step.placement is None:
                 pass                    # unplaced: left off the board, pulls nothing, blocks nothing
@@ -1901,9 +1911,12 @@ class Board:
                                      "items may be referred to)" % (firm[0].key, ", ".join(sorted(firm[0].needs - placed))))
                 place_one(ready[0])
                 firm.remove(ready[0])
-            collisions = [f for f in plan.findings if f.split(" ")[1] in ("(fixed):", "(edge):", "(cutout):", "(keepout):")]
-            if collisions and not self.keep_going:
-                raise PlacementCollision(collisions)
+            collisions = [f for f in plan.findings
+                          if f.split(" ")[1] in ("(fixed):", "(edge):", "(cutout):", "(keepout):")]
+            required_keys = {o.key for o in placements if getattr(o, "required", False)}
+            demanded = [c for c in collisions if c.split(" ")[0] in required_keys]
+            if demanded or (collisions and not self.keep_going):
+                raise PlacementCollision(demanded or collisions)
             pending = [obj for obj in placements if lo <= obj.rank[0] <= hi and not obj.freedom.decided]
             for hole in [o for o in pending if isinstance(o, (CutoutIntent, KeepoutIntent))]:
                 pending.remove(hole)        # holes first: every part after one sees the board it left
@@ -2309,7 +2322,7 @@ class Board:
         free = pockets(occ, 2.0, 2.0, obj.face, step=0.5, limit=4)
         rects = "; ".join("%.1f x %.1f at (%.1f, %.1f)" % (p.box.width, p.box.height, p.box.center.x, p.box.center.y)
                           for p in free) or "none"
-        return ("%s (HIGH priority) found no place for its %.1f x %.1f envelope on the %s face: %s. "
+        return ("%s (required) found no place for its %.1f x %.1f envelope on the %s face: %s. "
                 "Biggest free rectangles there now: %s. The board as it stood is written; nothing was placed after it."
                 % (obj.key, env.width, env.height, obj.face.value, step.note.replace("UNPLACED: ", ""), rects))
 
