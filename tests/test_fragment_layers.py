@@ -93,3 +93,10 @@ def test_a_stamped_keepout_the_parent_cannot_honour_is_a_finding():
     plan = Board(_geom(FOUR, [stamped]), edge_margin=0.0).resolve()
     said = [f for f in plan.findings if "shield" in f]
     assert said and "In5.Cu" in said[0] and "rf" in said[0]
+
+
+def test_the_docs_describe_the_marker():
+    from pathlib import Path
+    api = Path("skills/placemat/references/api.md").read_text()
+    assert "[*.Cu]" in api
+    assert "## To 0.17" in Path("skills/placemat/references/migration.md").read_text()

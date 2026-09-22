@@ -324,6 +324,19 @@ cell, inside its group, and are honoured: they move with the cell and fence the
 placer. They are read from the generated board, so a keepout whose name would
 collide with one is refused.
 
+**Layers a module's board does not have.** A module fragment is a two-layer
+board, and KiCad saves a zone on the layers its board has: a keepout declared
+on every layer, or on In1 and In2, would save as F and B and arrive in a
+four-layer parent unable to keep the inner pours out. So the declaration
+travels in the zone name, the one thing that survives the save and the stamp.
+A keepout on every copper layer is written `keepout <name> [*.Cu]`; one on
+layers its board lacks lists them, `keepout shield [In1.Cu,In2.Cu]`; one on
+layers its board has needs no marker. The board that stamps the module reads
+the declaration, honours it on every layer it has, and widens the zone to match
+so KiCad's filler and DRC honour it too. A layer that cannot be honoured is a
+finding: on the module, where it is recorded but holds nothing, and on a
+parent that lacks it as well. A parent need not restate a module's clearance.
+
 **What may enter.** `allow=` takes parts and nets, and they mean different
 things: a `Part` or `Cell` may SIT inside, a `Net` may RUN through. Naming a
 net does not admit the parts that carry it, which is the point - an antenna's

@@ -4,6 +4,25 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.17
+
+**Keepout zone names gain a layer marker, and a module's keepout now holds on
+the parent's inner layers.** A keepout on every copper layer is written
+`keepout <name> [*.Cu]`, and one on layers its board lacks lists them. KiCad
+saves a zone on the layers its board has, so a two-layer module could never
+carry a keepout onto a four-layer parent's inner pours: the W3011's
+all-layer antenna clearance arrived on F and B, and the parent's ground filled
+under the antenna on In1 and In2.
+
+To pick it up: re-run each module's placemat script so its keepouts carry the
+marker, then regenerate and re-run the boards that stamp it. A parent that
+restated a module's clearance by hand - the fairing main board's `w3011_ab` and
+`w3011_c` - still works, and now duplicates a region the module brings; the
+copy can come out.
+
+A keepout on a layer its board does not have is now a finding rather than a
+region that silently holds nothing.
+
 ## To 0.16
 
 Nothing to change in a script. Two additions to every run, and a fix to 0.15:

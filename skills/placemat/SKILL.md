@@ -261,7 +261,11 @@ coordinates nobody chose.
   layer** - that admits the net on the layers that do matter. A region may hang
   off the board edge; only the on-board part does anything. A stamped cell
   brings its module's regions with it, so a parent may report parts or copper
-  inside a clearance it never declared: those findings are real.
+  inside a clearance it never declared: those findings are real. **Do not
+  restate a module's keepout in the parent**, even one on inner layers the
+  two-layer module does not have: the declaration travels in the zone name
+  (`[*.Cu]`) and the parent honours it on its own stackup. Run the module's
+  script once after upgrading so its keepouts carry the marker.
 - A flip to the back mirrors about the vertical axis - KiCad's F key - and
   `rotation=` is applied after it. A part and a cell flip the same way, and
   KiCad's own orientation field will read `rotation + 180` for a back-face
