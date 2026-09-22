@@ -150,3 +150,46 @@ def band_of(evidence) -> str:
     if "keyword" in kinds or "rects" in kinds:
         return "fair"
     return "weak"
+
+
+def index(by_page: dict) -> tuple:
+    """The best page for each topic, best topic first. A topic nothing argued
+    for gets a candidate at page 0 with band "none", because "placemat found
+    nothing" and "placemat did not look" are different facts."""
+    out = []
+    for topic in TOPICS:
+        best = None
+        for page in sorted(by_page):
+            runs, paths = by_page[page]
+            ev = page_evidence(topic, runs, paths)
+            if not ev:
+                continue
+            c = Candidate(page, topic, score_of(ev), band_of(ev), ev)
+            if best is None or c.score > best.score:
+                best = c
+        out.append(best or Candidate(0, topic, 0.0, "none", ()))
+    return tuple(sorted(out, key=lambda c: -c.score))
+
+
+def index_rows(candidates) -> list:
+    return [{"page": c.page, "topic": c.topic, "score": round(c.score, 2), "band": c.band,
+             "evidence": [{"kind": e.kind, "detail": e.detail} for e in c.evidence]}
+            for c in candidates]
+
+
+_TOPIC_NAME = {"land": "land pattern", "package": "package", "rules": "rules", "pins": "pins"}
+
+
+def index_lines(name: str, pages: int, candidates) -> list:
+    out = ["%s  %d page(s)" % (name, pages)]
+    for c in candidates:
+        if c.band == "none":
+            out.append("  %-4s %-13s %-7s nothing on any page argued for it"
+                       % ("-", _TOPIC_NAME[c.topic], c.band))
+            continue
+        out.append("  p%-3d %-13s %-7s %s" % (
+            c.page, _TOPIC_NAME[c.topic], c.band, ", ".join(e.detail for e in c.evidence)))
+    best = [c for c in candidates if c.band != "none"]
+    if best:
+        out.append("  look: placemat datasheet <pdf> --show p%d" % best[0].page)
+    return out

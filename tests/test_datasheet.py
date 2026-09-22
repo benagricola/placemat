@@ -61,3 +61,40 @@ def test_a_page_with_nothing_earns_no_evidence():
 def test_every_topic_has_a_keyword_table():
     for topic in ds.TOPICS:
         assert ds.KEYWORDS[topic], topic
+
+
+def _page(page, words=(), rects=0, size=(2.0, 1.0)):
+    runs = [_run(w, page=page) for w in words]
+    paths = [_rect(size[0], size[1], page=page) for _ in range(rects)]
+    return runs, paths
+
+
+def test_the_index_puts_the_best_candidate_for_a_topic_first():
+    by_page = {
+        1: _page(1, ("Ordering information",)),
+        6: _page(6, ("MECHANICAL DIMENSIONS (mm)", "1.20", "3.40", "5.60"), rects=20),
+        7: _page(7, ("RECOMMENDED LAND PATTERN", "[ Unit : mm ]", "0.50", "1.30", "2.10"), rects=8),
+    }
+    land = [c for c in ds.index(by_page) if c.topic == "land"]
+    assert land[0].page == 7 and land[0].band == "strong"
+
+
+def test_a_topic_with_no_candidate_still_appears():
+    by_page = {1: _page(1, ("Ordering information",))}
+    got = {c.topic: c for c in ds.index(by_page)}
+    assert set(got) == set(ds.TOPICS)
+    assert got["pins"].band == "none" and got["pins"].page == 0
+
+
+def test_the_index_lines_name_the_page_the_band_and_the_evidence():
+    by_page = {7: _page(7, ("RECOMMENDED LAND PATTERN", "0.50", "1.30", "2.10"), rects=8)}
+    text = "\n".join(ds.index_lines("TDK-ANT016008", 11, ds.index(by_page)))
+    assert "p7" in text and "land" in text and "strong" in text
+    assert "RECOMMENDED LAND PATTERN" in text
+
+
+def test_index_rows_carry_the_same_facts_as_the_lines():
+    by_page = {7: _page(7, ("RECOMMENDED LAND PATTERN", "0.50", "1.30", "2.10"), rects=8)}
+    rows = ds.index_rows(ds.index(by_page))
+    land = [r for r in rows if r["topic"] == "land"][0]
+    assert land["page"] == 7 and land["band"] == "strong" and land["evidence"]
