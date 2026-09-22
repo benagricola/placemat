@@ -224,3 +224,48 @@ def test_a_dotted_pcb_still_matches_the_land_keyword():
     ev = ds.page_evidence("land", runs, [_rect(2, 1) for _ in range(6)])
     assert any(e.kind == "keyword" for e in ev)
     assert ds.band_of(ev) == "strong"
+
+
+def test_a_fact_carries_the_page_the_box_and_the_channel():
+    by_page = {1: ([_run("[ Unit : mm ]", x=20, y=30)], [])}
+    (unit,) = [f for f in ds.facts(by_page) if f.name == "unit"]
+    assert unit.value == "mm" and unit.page == 1
+    assert unit.box.left == 20 and unit.source == "text"
+    assert "Unit" in unit.detail
+
+
+def test_every_decimal_becomes_a_dimension_fact_with_its_place():
+    by_page = {7: ([_run("0.50", x=100, y=200, page=7),
+                    _run("Page 7 of 11", page=7)], [])}
+    dims = [f for f in ds.facts(by_page) if f.name == "dimension"]
+    assert [f.value for f in dims] == [0.5]
+    assert dims[0].box.left == 100 and dims[0].page == 7
+
+
+def test_an_ocr_fact_keeps_the_confidence_that_read_it():
+    runs = [ds.TextRun(1, "4.95", Box(0, 0, 10, 5), source="ocr", confidence=78.0)]
+    (dim,) = [f for f in ds.facts({1: (runs, [])}) if f.name == "dimension"]
+    assert dim.source == "ocr" and dim.confidence == 78.0
+
+
+def test_a_topic_heading_becomes_a_fact_a_reader_can_check():
+    by_page = {7: ([_run("RECOMMENDED LAND PATTERN")], [])}
+    found = [f for f in ds.facts(by_page) if f.name == "land"]
+    assert found and "RECOMMENDED LAND PATTERN" in found[0].detail
+
+
+def test_read_lines_name_the_value_and_its_provenance():
+    runs = [ds.TextRun(1, "0.50", Box(10, 20, 40, 30), source="ocr", confidence=88.0)]
+    text = "\n".join(ds.read_lines("TYPE_C", ds.facts({1: (runs, [])})))
+    assert "0.5" in text and "p1" in text and "ocr" in text and "88" in text
+
+
+def test_read_rows_carry_the_same_facts_as_the_lines():
+    runs = [_run("[ Unit : mm ]")]
+    rows = ds.read_rows(ds.facts({1: (runs, [])}))
+    assert any(r["name"] == "unit" and r["value"] == "mm" and r["source"] == "text"
+               for r in rows)
+
+
+def test_a_sheet_that_yields_nothing_says_so():
+    assert "nothing could be sourced" in "\n".join(ds.read_lines("bare", ()))

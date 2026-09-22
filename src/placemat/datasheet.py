@@ -296,3 +296,74 @@ def runs_from_tsv(tsv: str, page: int, min_conf: float = MIN_OCR_CONFIDENCE) -> 
         out.append(TextRun(page, text, box, source="ocr",
                            confidence=min(w[4] for w in words)))
     return tuple(out)
+
+
+@dataclass(frozen=True)
+class Fact:
+    """One thing the sheet was made to say, and everything needed to check it
+    against the render: which page, where on it, which channel read it and how
+    sure that channel was."""
+    name: str           # unit | scale | dimension | land | package | rules | pins
+    value: object
+    page: int
+    box: Box
+    source: str
+    confidence: float
+    detail: str
+
+    @property
+    def where(self) -> str:
+        at = "p%d (%.0f,%.0f)" % (self.page, self.box.left, self.box.top)
+        if self.source == "text":
+            return "%s text" % at
+        return "%s %s conf %.0f" % (at, self.source, self.confidence)
+
+
+_SCALE = re.compile(r"scale\s*[:=]?\s*(\d+\s*:\s*\d+)", re.I)
+
+
+def _fact(name, value, run, detail=None) -> Fact:
+    return Fact(name, value, run.page, run.box, run.source, run.confidence,
+                detail if detail is not None else run.text.strip())
+
+
+def facts(by_page: dict) -> tuple:
+    """Everything the sheet could be made to say, with its provenance. A value
+    that could not be sourced is simply absent: an invented number costs more
+    than a missing one."""
+    out = []
+    for page in sorted(by_page):
+        runs = by_page[page][0]
+        for r in runs:
+            for pattern, unit in _UNIT:
+                if pattern.search(r.text):
+                    out.append(_fact("unit", unit, r))
+                    break
+            m = _SCALE.search(r.text)
+            if m:
+                out.append(_fact("scale", m.group(1).replace(" ", ""), r))
+            for value in _DECIMAL.findall(r.text):
+                out.append(_fact("dimension", float(value), r))
+            if is_contents(r.text):
+                continue
+            for topic in TOPICS:
+                if any(p.search(r.text) for p in _COMPILED[topic]):
+                    out.append(_fact(topic, r.text.strip()[:60], r))
+                    break
+    return tuple(out)
+
+
+def read_rows(found) -> list:
+    return [{"name": f.name, "value": f.value, "page": f.page, "source": f.source,
+             "confidence": round(f.confidence, 1), "detail": f.detail,
+             "at": [round(f.box.left, 1), round(f.box.top, 1)]} for f in found]
+
+
+def read_lines(name: str, found) -> list:
+    if not found:
+        return ["%s: nothing could be sourced; --show the page and read it" % name]
+    out = ["%s  %d fact(s)" % (name, len(found))]
+    for f in found:
+        value = ("%g" % f.value) if isinstance(f.value, float) else str(f.value)
+        out.append("  %-10s %-22s %-22s %s" % (f.name, value[:22], f.where, f.detail[:40]))
+    return out
