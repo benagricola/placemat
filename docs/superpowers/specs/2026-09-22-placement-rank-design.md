@@ -2,6 +2,7 @@
 
 Date: 2026-09-22
 Status: design, awaiting approval
+Depends on: 2026-09-22-placemat-toml-design.md
 
 ## What is wrong today
 
@@ -180,12 +181,13 @@ items, once, before anything is placed. A rank says what a part is; it does not
 move as the board fills.
 
 ```
-score = W_AREA * z(ln courtyard_area) + W_PINS * z(ln pin_count)
+score = rank.area * z(ln courtyard_area) + rank.pins * z(ln pin_count)
 ```
 
-standardised over this board's own searched items, with `W_AREA = 0.7` and
-`W_PINS = 0.3` as named module constants. The rank is the position in
-descending score order; ties keep the same rank.
+standardised over this board's own searched items. The two weights are
+`[rank] area` and `[rank] pins` in `placemat.toml`, defaulting to 0.7 and 0.3;
+see `2026-09-22-placemat-toml-design.md`, which this design depends on. The rank
+is the position in descending score order; ties keep the same rank.
 
 Log space because the dynamic range is large: on the core board area runs 0.72
 to 115.71 mm2 and pins 1 to 57. Z-scores because standardising each dimension
@@ -368,8 +370,8 @@ ten. Those are the two blocks that went DEFAULT and UNPLACED.
   let the next board's numbers argue for it.
 - Rounding the score to a resolution so that near-ties fall through to pull. A
   0603 currently outranks an 0402 even when the 0402 has more pull. Harmless,
-  and a resolution is a constant of the kind this design exists to remove. Add
-  it only if the passive tail places badly.
+  and it would be a third weight to choose. Add it, as `[rank] resolution`, only
+  if the passive tail places badly.
 - An override for "decided, but plan it late". There is no known case: a
   courtyard over a track is already legal (`Occupancy._conflict` returns None
   for courtyard against copper), so planning decided copper early only costs a
