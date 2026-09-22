@@ -81,3 +81,61 @@ def test_writing_leaves_only_the_boards_own_project_file(breakout_pcb, tmp_path)
     apply_plan(pcb, b.resolve())
     stray = sorted(p.name for p in tmp_path.iterdir() if p.suffix in (".kicad_pro", ".kicad_prl") and p.stem != "layout")
     assert stray == []
+
+
+def _add_rule_area(pcb, name, group_name=None):
+    """Put a rule area on a board file, optionally inside a group, the way
+    `pcb layout` stamps a module fragment's own."""
+    import pcbnew
+    board = pcbnew.LoadBoard(str(pcb))
+    z = pcbnew.ZONE(board)
+    z.SetIsRuleArea(True)
+    z.SetLayerSet(pcbnew.LSET.AllCuMask(board.GetCopperLayerCount()))
+    # every flag explicitly: a fresh ZONE does not default them all to false,
+    # so a helper that sets only one is not saying what it means
+    z.SetDoNotAllowFootprints(True)
+    z.SetDoNotAllowZoneFills(False)
+    z.SetDoNotAllowTracks(False)
+    z.SetDoNotAllowVias(False)
+    z.SetDoNotAllowPads(False)
+    o = z.Outline()
+    o.NewOutline()
+    for x, y in ((10.0, 10.0), (14.0, 10.0), (14.0, 14.0), (10.0, 14.0)):
+        o.Append(pcbnew.FromMM(x), pcbnew.FromMM(y))
+    z.SetZoneName(name)
+    board.Add(z)
+    if group_name:
+        g = pcbnew.PCB_GROUP(board)
+        g.SetName(group_name)
+        g.AddItem(z)
+        board.Add(g)
+    board.Save(str(pcb))
+
+
+def test_a_rule_area_in_a_group_survives_a_write(breakout_pcb, tmp_path):
+    """A stamped cell's regions are group members. placemat did not write them
+    and must not destroy them."""
+    pcb = _copy(breakout_pcb, tmp_path)
+    _add_rule_area(pcb, "keepout antenna_1", group_name="ant_rf")
+    b = Board(read_board(pcb), edge_margin=0.0, keep_going=True)
+    apply_plan(pcb, b.resolve())
+    assert "keepout antenna_1" in [r.name for r in read_board(pcb).rule_areas]
+
+
+def test_a_group_less_rule_area_is_replaced_on_a_write(breakout_pcb, tmp_path):
+    """placemat's own, from a previous run: deleted and rewritten, so a
+    declaration removed from the script does not leak."""
+    pcb = _copy(breakout_pcb, tmp_path)
+    _add_rule_area(pcb, "keepout stale")
+    b = Board(read_board(pcb), edge_margin=0.0, keep_going=True)
+    apply_plan(pcb, b.resolve())
+    assert "keepout stale" not in [r.name for r in read_board(pcb).rule_areas]
+
+
+def test_reading_a_rule_area_gives_its_name_cell_layers_and_excludes(breakout_pcb, tmp_path):
+    pcb = _copy(breakout_pcb, tmp_path)
+    _add_rule_area(pcb, "keepout antenna_1", group_name="ant_rf")
+    (ra,) = [r for r in read_board(pcb).rule_areas if r.name == "keepout antenna_1"]
+    assert ra.cell == "ant_rf"
+    assert ra.excludes == frozenset(["parts"])
+    assert len(ra.layers) >= 2 and len(ra.polygon) == 4

@@ -111,10 +111,16 @@ def _draw_keepouts(board, plan):
 
     The layer set comes from the board's own copper count, so a keepout
     covers a two-layer board and a thirty-two-layer one alike without naming
-    a layer."""
+    a layer.
+
+    Only rule areas placemat itself wrote are replaced, and those belong to no
+    group. A stamped module fragment's are members of the cell's group and are
+    left alone: `_move_cell` carries them with the cell, and deleting them
+    would silently drop a clearance the module declared."""
+    grouped = {_kiid(it) for g in board.Groups() for it in g.GetItems()}
     for z in list(board.Zones()):
-        if z.GetIsRuleArea():
-            board.Delete(z)                 # a rerun replaces them, never doubles them
+        if z.GetIsRuleArea() and _kiid(z) not in grouped:
+            board.Delete(z)                 # placemat's own: a rerun replaces them, never doubles them
     for k in plan.keepouts.values():
         z = pcbnew.ZONE(board)
         z.SetIsRuleArea(True)

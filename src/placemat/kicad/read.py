@@ -13,7 +13,7 @@ from .quiet import import_pcbnew, quiet_stderr
 
 pcbnew = import_pcbnew()
 
-from ..board_geometry import CellGeom, CopperItem, Footprint, NetClass, PadGeom, BoardGeometry
+from ..board_geometry import CellGeom, CopperItem, Footprint, NetClass, PadGeom, RuleArea, BoardGeometry
 from ..values import Box, CopperLayer, Face, Location
 
 CLEAR_ERR_NM = 5000     # arc approximation error for TransformShapeToPolySet; [geometry] arc_error_nm
@@ -200,6 +200,30 @@ def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, .
     return tuple(items)
 
 
+_KEEPOUT_GETTERS = (("parts", "GetDoNotAllowFootprints"), ("fill", "GetDoNotAllowZoneFills"),
+                    ("tracks", "GetDoNotAllowTracks"), ("vias", "GetDoNotAllowVias"),
+                    ("pads", "GetDoNotAllowPads"))
+
+
+def _rule_areas(board, groups_of) -> tuple:
+    """Every rule area on the board. A stamped module fragment's are members
+    of the cell's group, which is how placemat tells them from its own."""
+    out = []
+    for i in range(board.GetAreaCount()):
+        z = board.GetArea(i)
+        if not z.GetIsRuleArea():
+            continue
+        outline = z.Outline()
+        if not outline.OutlineCount():
+            continue
+        o = outline.Outline(0)
+        poly = tuple((mm(o.CPoint(j).x), mm(o.CPoint(j).y)) for j in range(o.PointCount()))
+        excludes = frozenset(name for name, getter in _KEEPOUT_GETTERS if getattr(z, getter)())
+        out.append(RuleArea(z.GetZoneName(), groups_of.get(_kiid(z)), poly,
+                            _copper_layers(board, z.GetLayerSet()), excludes))
+    return tuple(out)
+
+
 def _outline(board) -> tuple:
     outs = []
     for d in board.GetDrawings():
@@ -275,4 +299,5 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
     layers = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
     return BoardGeometry(path=path, footprints=fps, cells=cells, copper=copper, outline=_outline(board),
                     nets=frozenset(classes), netclasses=classes, default_clearance=default_clr,
-                    layers=layers, edge_clearance=mm(board.GetDesignSettings().m_CopperEdgeClearance))
+                    layers=layers, edge_clearance=mm(board.GetDesignSettings().m_CopperEdgeClearance),
+                    rule_areas=_rule_areas(board, groups_of))
