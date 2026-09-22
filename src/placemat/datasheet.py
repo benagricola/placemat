@@ -367,3 +367,105 @@ def read_lines(name: str, found) -> list:
         value = ("%g" % f.value) if isinstance(f.value, float) else str(f.value)
         out.append("  %-10s %-22s %-22s %s" % (f.name, value[:22], f.where, f.detail[:40]))
     return out
+
+
+@dataclass(frozen=True)
+class Comparison:
+    name: str
+    supplied: object
+    measured: object
+    verdict: str        # ok | MISMATCH | unchecked
+    corroboration: str
+
+
+# What `check` knows how to measure off a footprint. `pad` is a pair, so it is
+# compared component-wise; the rest are single numbers.
+CHECKS = ("pitch", "pad", "pads", "span")
+
+
+def _measured(pads) -> dict:
+    from .describe import pad_size_of, pitch_of, span_of
+    return {"pitch": pitch_of(pads), "pad": pad_size_of(pads),
+            "pads": len(pads), "span": span_of(pads)}
+
+
+def _agrees(supplied, measured, tol: float) -> bool:
+    if isinstance(supplied, (tuple, list)):
+        return (measured is not None and len(supplied) == len(measured)
+                and all(abs(a - b) <= tol for a, b in zip(supplied, measured)))
+    if isinstance(supplied, float) or isinstance(measured, float):
+        return measured is not None and abs(supplied - measured) <= tol
+    return supplied == measured
+
+
+def _corroboration(supplied, found, tol: float) -> str:
+    """Whether the number supplied appears on the sheet at all.
+
+    placemat cannot tell which decimal on a drawing is the pitch - that is
+    semantics no parser here recovers - but it can say whether the value came
+    from somewhere on the page or from nowhere, which is what makes an
+    override safe to trust rather than blind."""
+    if supplied is None:
+        return ""
+    wanted = list(supplied) if isinstance(supplied, (tuple, list)) else [supplied]
+    seen = []
+    for want in wanted:
+        if not isinstance(want, (int, float)):
+            continue
+        hit = [f for f in found if f.name == "dimension" and abs(f.value - want) <= tol]
+        if not hit:
+            return "not on the page"
+        seen.append(max(hit, key=lambda f: f.confidence))
+    return seen[0].where if seen else "not on the page"
+
+
+def compare(expected: dict, pads, found, tol: float = 0.02) -> tuple:
+    """A footprint against what the datasheet is said to require. Every check
+    appears, including the ones nobody supplied a value for: a check that is
+    absent from a report reads as one that passed."""
+    measured = _measured(pads)
+    out = []
+    for name in CHECKS:
+        supplied = expected.get(name)
+        got = measured.get(name)
+        if supplied is None:
+            out.append(Comparison(name, None, got, "unchecked", ""))
+            continue
+        verdict = "ok" if _agrees(supplied, got, tol) else "MISMATCH"
+        out.append(Comparison(name, supplied, got, verdict,
+                              _corroboration(supplied, found, tol)))
+    return tuple(out)
+
+
+def _shown(v) -> str:
+    if v is None:
+        return "-"
+    if isinstance(v, (tuple, list)):
+        return " x ".join("%g" % x for x in v)
+    return "%g" % v if isinstance(v, float) else str(v)
+
+
+def check_lines(comparisons) -> list:
+    out = []
+    for c in comparisons:
+        out.append("  %-6s %-14s %-14s %-9s %s" % (
+            c.name, _shown(c.supplied), _shown(c.measured), c.verdict, c.corroboration))
+    bad = [c for c in comparisons if c.verdict == "MISMATCH"]
+    checked = [c for c in comparisons if c.verdict != "unchecked"]
+    if not checked:
+        out.append("  nothing was supplied to check against; --read the sheet first")
+    elif bad:
+        out.append("  %d of %d checks disagree" % (len(bad), len(checked)))
+    else:
+        out.append("  %d check(s) agree" % len(checked))
+    return out
+
+
+def _plain_value(v):
+    return list(v) if isinstance(v, tuple) else v
+
+
+def check_rows(comparisons) -> list:
+    return [{"name": c.name, "supplied": _plain_value(c.supplied),
+             "measured": _plain_value(c.measured), "verdict": c.verdict,
+             "corroboration": c.corroboration} for c in comparisons]

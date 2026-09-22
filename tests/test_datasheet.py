@@ -269,3 +269,68 @@ def test_read_rows_carry_the_same_facts_as_the_lines():
 
 def test_a_sheet_that_yields_nothing_says_so():
     assert "nothing could be sourced" in "\n".join(ds.read_lines("bare", ()))
+
+
+def _pads(*boxes):
+    from tests.fixtures import pad
+    return tuple(pad("U9", "u9", i + 1, "N%d" % i, x, 0.0, w, h)
+                 for i, (x, w, h) in enumerate(boxes))
+
+
+def test_a_supplied_value_that_matches_the_footprint_is_ok():
+    pads = _pads((0.0, 1.0, 2.0), (2.8, 1.0, 2.0))
+    (c,) = [c for c in ds.compare({"pitch": 2.8}, pads, ()) if c.name == "pitch"]
+    assert c.verdict == "ok" and c.supplied == 2.8 and c.measured == pytest.approx(2.8)
+
+
+def test_a_supplied_value_that_disagrees_is_a_mismatch():
+    pads = _pads((0.0, 1.0, 2.0), (2.8, 1.0, 2.0))
+    (c,) = [c for c in ds.compare({"pitch": 0.5}, pads, ()) if c.name == "pitch"]
+    assert c.verdict == "MISMATCH"
+
+
+def test_a_value_nobody_supplied_is_unchecked_not_zero():
+    pads = _pads((0.0, 1.0, 2.0), (2.8, 1.0, 2.0))
+    (c,) = [c for c in ds.compare({}, pads, ()) if c.name == "pitch"]
+    assert c.verdict == "unchecked" and c.supplied is None
+    assert c.measured == pytest.approx(2.8)
+
+
+def test_a_supplied_value_is_corroborated_when_the_page_carries_it():
+    """placemat cannot tell which number on a page is the pitch, but it can
+    say whether the number you gave it appears there at all."""
+    runs = [ds.TextRun(1, "0.50", Box(0, 0, 9, 9), source="ocr", confidence=86.0)]
+    found = ds.facts({1: (runs, [])})
+    pads = _pads((0.0, 1.0, 2.0), (0.5, 1.0, 2.0))
+    (c,) = [c for c in ds.compare({"pitch": 0.5}, pads, found) if c.name == "pitch"]
+    assert c.verdict == "ok"
+    assert "p1" in c.corroboration and "ocr" in c.corroboration
+
+
+def test_a_supplied_value_the_page_never_mentions_says_so():
+    pads = _pads((0.0, 1.0, 2.0), (0.65, 1.0, 2.0))
+    (c,) = [c for c in ds.compare({"pitch": 0.65}, pads, ()) if c.name == "pitch"]
+    assert c.corroboration == "not on the page"
+
+
+def test_the_pad_count_is_compared_too():
+    pads = _pads((0.0, 1.0, 2.0), (0.5, 1.0, 2.0), (1.0, 1.0, 2.0))
+    (c,) = [c for c in ds.compare({"pads": 2}, pads, ()) if c.name == "pads"]
+    assert c.verdict == "MISMATCH" and c.measured == 3
+
+
+def test_check_lines_and_rows_agree():
+    pads = _pads((0.0, 1.0, 2.0), (0.5, 1.0, 2.0))
+    got = ds.compare({"pitch": 0.5, "pads": 9}, pads, ())
+    text = "\n".join(ds.check_lines(got))
+    assert "MISMATCH" in text and "pitch" in text
+    rows = ds.check_rows(got)
+    assert {r["name"] for r in rows} == {c.name for c in got}
+    assert any(r["verdict"] == "MISMATCH" for r in rows)
+
+
+def test_a_check_with_nothing_supplied_says_so_rather_than_passing():
+    pads = _pads((0.0, 1.0, 2.0), (0.5, 1.0, 2.0))
+    text = "\n".join(ds.check_lines(ds.compare({}, pads, ())))
+    assert "nothing was supplied" in text
+    assert "agree" not in text
