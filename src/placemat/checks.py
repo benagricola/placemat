@@ -409,3 +409,29 @@ def run_checks(geometry: BoardGeometry, ambient_c: float = AMBIENT_C, keep_out_m
     out += current_paths(geometry, rise_c, copper_oz)
     out += heat(geometry, ambient_c)
     return out
+
+
+def kwargs_from(settings) -> dict:
+    """The arguments `run_checks` takes, from the resolved settings. One home,
+    so `placemat check` and `placemat run` judge a board by the same numbers."""
+    return {"ambient_c": settings.check_ambient_c, "keep_out_mm": settings.check_keep_out_mm,
+            "rise_c": settings.check_rise_c, "copper_oz": settings.check_copper_oz,
+            "limits": dict(settings.check_limits)}
+
+
+def record(rec, verdicts) -> list:
+    """Put a board's verdicts on its run record and return the lines to print.
+
+    A verdict with `ok` None was not judged - no limit was set, or a fact the
+    check needs is missing - and it is counted as such rather than as a pass:
+    a check that passes because a footprint lacks `Pm.Pd` is worse than none."""
+    rec.verdicts = [dict(v.__dict__) for v in verdicts]
+    failed = [v for v in verdicts if v.ok is False]
+    unjudged = [v for v in verdicts if v.ok is None]
+    rec.metrics["checks_failed"] = len(failed)
+    rec.metrics["checks_unjudged"] = len(unjudged)
+    if not verdicts:
+        return ["no Pm.* facts on this board: no design checks ran"]
+    head = "%d check(s): %d failed, %d passed, %d not judged" % (
+        len(verdicts), len(failed), len(verdicts) - len(failed) - len(unjudged), len(unjudged))
+    return [head] + [v.line() for v in failed]

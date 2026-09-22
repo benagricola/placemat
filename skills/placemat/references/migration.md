@@ -4,6 +4,23 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.16
+
+Nothing to change in a script. Two additions to every run, and a fix to 0.15:
+
+**The design checks run on every board.** `placemat check` was the only way to
+get hot-loop, switch-node, keep-out, crossing, current-path and heat verdicts;
+`placemat run` now runs them on the board it wrote and prints a `checks` line.
+`run.json` gains `verdicts`, and the metrics gain `checks_failed` and
+`checks_unjudged`. A board with no `Pm.*` facts says so on that line. A failed
+check does not change the exit code, as a DRC violation does not.
+
+**A run made with `--no-drc` is not judged against the best.** 0.15.0 read its
+missing airwire and violations as zeros, so such a run became the best
+possible one and every measured run after it failed as a regression against
+airwire 0. It now reads "not judged", and a `best.json` that already holds
+such a run ignores it: the next measured run takes its place.
+
 ## To 0.15
 
 **`placemat run` can now exit 1 on a board that placed.** Every finished run

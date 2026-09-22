@@ -708,7 +708,15 @@ second and a half a page and only runs on pages under 200 characters.
 placemat-design skill says which) and reports hot loop area, switch node
 copper, keep-out distance, crossings under sense tracks, current path
 width against IPC-2221 and junction temperature; exit 1 on a failed
-verdict. A board with no facts reports nothing to check.
+verdict. A board with no facts reports nothing to check. **Every `placemat
+run` runs the same checks on the board it wrote**, prints one `checks` line -
+how many failed, passed and were not judged, then each failure - and keeps the
+verdicts in `run.json` under `verdicts`, with `checks_failed` and
+`checks_unjudged` in the metrics. A verdict is "not judged" when no limit is
+set or a fact the check needs is missing, and it is never counted as a pass.
+The impact names any check whose verdict flipped since the previous run.
+Like DRC, a failed check is read as the gate; it does not change the exit
+code on its own.
 KiCad's own stderr (assertion notes, image-handler debug lines) is kept
 out of the terminal; every line of it is in `kicad-stderr.log` in the run
 directory, and `PLACEMAT_SHOW_KICAD=1` prints it all. Anything KiCad says
@@ -729,8 +737,10 @@ more items placed, fewer real DRC violations, fewer findings, shorter airwire.
 Completeness leads because DRC means nothing without it: a run that placed 29
 of 101 items has little copper and so few violations. Airwire within
 `best.airwire_noise` (1%) is a tie, because kicad-cli picks different
-ratsnest edges each run for a byte-identical board. The run prints one `best`
-line - first of its family, matches, better than, or worse than. **A run
+ratsnest edges each run for a byte-identical board. A run made with
+`--no-drc` measured neither, so it is not judged and never becomes a best.
+The run prints one `best` line - first of its family, matches, better than,
+worse than, or not judged. **A run
 that comes out worse is a finding naming the metric, and `placemat run` exits
 1**, so a regression cannot pass unnoticed in a loop. Adding or removing a
 part starts a new family. Routing needs

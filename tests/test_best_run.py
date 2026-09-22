@@ -182,3 +182,49 @@ def test_the_docs_say_a_regression_exits_one():
     assert "best.json" in api
     assert "`placemat run` exits 1" in api
     assert "## To 0.15" in Path("skills/placemat/references/migration.md").read_text()
+
+
+def _unmeasured(run_id="nodrc"):
+    """A run made with --no-drc: it placed, but measured neither DRC nor airwire."""
+    return RunRecord(run_id=run_id, board="middleweight", status="ok",
+                     placements={i: {"x": 0, "y": 0} for i in ITEMS},
+                     steps=[{"item": i} for i in ITEMS],
+                     metrics={"placed": 4, "findings": 15})
+
+
+def test_a_run_that_measured_nothing_is_never_the_best(tmp_path):
+    """A run without DRC has no airwire and no violations, and reading a
+    missing number as zero made it the best possible run: every real run
+    after it then "regressed" against airwire 0."""
+    path = tmp_path / "best.json"
+    assert report.update_best(path, _unmeasured()) is False
+    assert report.best_for(path, report.family_of(_unmeasured())) is None
+
+
+def test_a_run_that_measured_nothing_is_not_judged(tmp_path):
+    path = tmp_path / "best.json"
+    report.update_best(path, _rec(run_id="good"))
+    said, prior = report.against_best(path, _unmeasured())
+    assert said is None
+    assert report.best_for(path, report.family_of(_rec())).run_id == "good"
+    assert not report.comparable(_unmeasured()) and report.comparable(_rec())
+
+
+def test_a_fully_connected_board_with_no_airwire_is_still_comparable():
+    """Zero airwire after DRC is a real measurement - everything is joined -
+    and must not be confused with a run that never measured."""
+    done = _rec(airwire=0.0, drc=0)
+    assert report.comparable(done)
+    assert report.is_better(done, _rec(airwire=100.0, drc=0))
+
+
+def test_an_unmeasured_best_already_on_disk_gives_way_to_a_measured_run(tmp_path):
+    """0.15.0 could store a --no-drc run as the best. A measured run must not
+    be judged against its missing numbers; it takes the place."""
+    import json
+    from dataclasses import asdict
+    path = tmp_path / "best.json"
+    path.write_text(json.dumps({report.family_of(_unmeasured()): asdict(_unmeasured())}))
+    said, prior = report.against_best(path, _rec(run_id="real"))
+    assert said is None
+    assert report.best_for(path, report.family_of(_rec())).run_id == "real"

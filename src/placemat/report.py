@@ -22,6 +22,7 @@ class RunRecord:
     timing_s: dict = field(default_factory=dict)
     paths: dict = field(default_factory=dict)
     failure: dict | None = None
+    verdicts: list = field(default_factory=list)      # the design checks, as `Verdict` fields
 
     def save(self, path) -> Path:
         path = Path(path)
@@ -190,7 +191,26 @@ def impact(before: RunRecord, after: RunRecord) -> str:
         lines += deltas
     else:
         lines.append("metrics: no change")
+    lines += _verdict_changes(before.verdicts, after.verdicts)
     return "\n".join(lines)
+
+
+def _verdict_changes(before: list, after: list) -> list:
+    """Design checks whose verdict flipped, named. A check that went from a
+    pass to a fail is the line a reader must not miss; one that came right is
+    worth a line too. Silent when nothing changed."""
+    was = {(v["check"], v["subject"]): v for v in before}
+    out = []
+    for v in after:
+        prev = was.get((v["check"], v["subject"]))
+        if prev is None or prev.get("ok") == v.get("ok"):
+            continue
+        state = {True: "ok", False: "FAIL", None: "not judged"}
+        lim = "" if v.get("limit") is None else " (limit %g)" % v["limit"]
+        out.append("  %s %s: %s -> %s, %g %s%s" % (
+            v["check"], v["subject"], state[prev.get("ok")], state[v.get("ok")],
+            v["value"], v["unit"], lim))
+    return (["checks:"] + out) if out else []
 
 
 @dataclass(frozen=True)
@@ -289,7 +309,18 @@ def _verdict(now: dict, best: dict, airwire_noise: float) -> tuple:
     return 0, None
 
 
+def comparable(rec: RunRecord) -> bool:
+    """Whether a run measured everything the objective reads. A run made with
+    --no-drc has no violations and no airwire, and reading those missing
+    numbers as zero made it the best possible run - every real run after it
+    then "regressed" against airwire 0. Presence is the test, not value: zero
+    airwire after DRC means everything is joined, and is a real measurement."""
+    return all(k in rec.metrics for k, _, _ in _PARTS)
+
+
 def is_better(now: RunRecord, best: RunRecord | None, airwire_noise: float = AIRWIRE_NOISE) -> bool:
+    if not comparable(now):
+        return False
     if best is None:
         return True
     return _verdict(now.metrics, best.metrics, airwire_noise)[0] < 0
@@ -299,7 +330,7 @@ def regression(now: RunRecord, best: RunRecord | None,
                airwire_noise: float = AIRWIRE_NOISE) -> str | None:
     """The first component of the objective this run is worse on, said in
     numbers. None when the run is at least as good."""
-    if best is None:
+    if best is None or not comparable(now):
         return None
     sign, i = _verdict(now.metrics, best.metrics, airwire_noise)
     if sign <= 0:
@@ -317,9 +348,14 @@ def _best_table(path) -> dict:
 
 
 def best_for(path, family: str) -> RunRecord | None:
-    """The best run recorded for this family, or None."""
+    """The best run recorded for this family, or None. A stored run that
+    measured nothing is no best at all - 0.15.0 could keep a --no-drc run - so
+    it reads as absent and the next measured run takes its place."""
     row = _best_table(path).get(family)
-    return RunRecord.of(row) if isinstance(row, dict) else None
+    if not isinstance(row, dict):
+        return None
+    rec = RunRecord.of(row)
+    return rec if comparable(rec) else None
 
 
 def update_best(path, now: RunRecord, airwire_noise: float = AIRWIRE_NOISE) -> bool:

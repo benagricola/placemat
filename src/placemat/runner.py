@@ -15,10 +15,10 @@ import traceback
 from .console import configure, console
 from .layout import Board
 from .context import run_script
-from . import settings
+from . import checks, settings
 from .project import BoardSource, fab_profile, find_board
-from .report import (RunRecord, against_best, airwires_from_drc, congestion, impact,
-                     is_better, run_id)
+from .report import (RunRecord, against_best, airwires_from_drc, comparable, congestion,
+                     impact, is_better, run_id)
 
 
 class RunFailure(Exception):
@@ -271,6 +271,15 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             busiest = list(aw["crossings_per_net"].items())[:5]
             if busiest:
                 say("check", "crossings by net: " + ", ".join("%s %d" % kv for kv in busiest))
+        # The design checks, on the board as written: the same judgement as
+        # `placemat check`, so a failed hot loop or an over-temperature part
+        # is in the run record rather than in a command nobody ran.
+        rec.metrics = metrics                 # the checks count into this same dict
+        t0 = time.time()
+        verdicts = checks.run_checks(read_board(src.pcb), **checks.kwargs_from(cfg))
+        for line in checks.record(rec, verdicts):
+            say("checks", line)
+        rec.timing_s["checks"] = round(time.time() - t0, 1)
         if route:
             from .kicad.route import route_board
             t0 = time.time()
@@ -354,6 +363,9 @@ def _against_best(rec: RunRecord, best_path: Path, say, airwire_noise: float) ->
 
     It is appended after `metrics.findings` was counted, so the objective goes
     on measuring the layout rather than the verdict about it."""
+    if not comparable(rec):
+        say("best", "not judged: this run measured no DRC, so it has nothing to compare")
+        return None
     said, prior = against_best(best_path, rec, airwire_noise)
     if said:
         rec.findings.append("worse than the best run of these parts: %s" % said)

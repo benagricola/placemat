@@ -129,9 +129,8 @@ def overrides_from(args) -> dict:
 
 def check_kwargs(s) -> dict:
     """The arguments `checks.run_checks` takes, from the resolved settings."""
-    return {"ambient_c": s.check_ambient_c, "keep_out_mm": s.check_keep_out_mm,
-            "rise_c": s.check_rise_c, "copper_oz": s.check_copper_oz,
-            "limits": dict(s.check_limits)}
+    from .checks import kwargs_from
+    return kwargs_from(s)
 
 
 def _plain(v):
