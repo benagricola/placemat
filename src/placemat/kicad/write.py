@@ -19,9 +19,10 @@ from ..layout import Plan
 from ..copper import Pour, Text, Track, Via, Zone
 from ..geometry import Transform
 from ..placement import Placement
-from ..board_geometry import CellGeom, Footprint
+from ..board_geometry import (CellGeom, Footprint, layer_marker, resolve_marker, split_marker,
+                              stackup_order)
 from ..cutouts import closes_itself
-from ..values import Face, Location
+from ..values import CopperLayer, Face, Location
 
 def nm(v: float) -> int:
     return pcbnew.FromMM(float(v))
@@ -125,14 +126,33 @@ def _draw_keepouts(board, plan):
     covers a two-layer board and a thirty-two-layer one alike without naming
     a layer.
 
+    A keepout on every copper layer, or on layers the board lacks, carries its
+    declaration in its name - ` [*.Cu]` or the list - because KiCad saves a
+    zone on the layers its board has, and a module fragment has two.
+
     Only rule areas placemat itself wrote are replaced, and those belong to no
     group. A stamped module fragment's are members of the cell's group and are
-    left alone: `_move_cell` carries them with the cell, and deleting them
-    would silently drop a clearance the module declared."""
+    never deleted: `_move_cell` carries them with the cell, and deleting them
+    would silently drop a clearance the module declared. One whose name
+    declares more layers than it is on is widened to match."""
     grouped = {_kiid(it) for g in board.Groups() for it in g.GetItems()}
     for z in list(board.Zones()):
         if z.GetIsRuleArea() and _kiid(z) not in grouped:
             board.Delete(z)                 # placemat's own: a rerun replaces them, never doubles them
+    stack = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
+    for z in board.Zones():
+        # A stamped module's rule area is not placemat's to delete, but it is
+        # placemat's to correct: its module could only save F and B, and its
+        # name says what it declared. Only ever widened, to what it declared.
+        if not (z.GetIsRuleArea() and _kiid(z) in grouped):
+            continue
+        declared = split_marker(z.GetZoneName())[1]
+        if declared is None:
+            continue
+        want, _ = resolve_marker(declared, stack)
+        have = {CopperLayer.of(board.GetLayerName(l)) for l in z.GetLayerSet().CuStack()}
+        if want - have:
+            z.SetLayerSet(_layer_set(board, tuple(sorted(want | have, key=stackup_order))))
     for k in plan.keepouts.values():
         z = pcbnew.ZONE(board)
         z.SetIsRuleArea(True)
@@ -144,7 +164,7 @@ def _draw_keepouts(board, plan):
         o.NewOutline()
         for x, y in k.poly:
             o.Append(nm(x), nm(y))
-        z.SetZoneName("keepout %s" % k.name)
+        z.SetZoneName("keepout %s%s" % (k.name, layer_marker(k.layers, stack)))
         board.Add(z)
 
 

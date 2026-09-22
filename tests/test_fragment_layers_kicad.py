@@ -71,3 +71,38 @@ def test_an_unmarked_rule_area_reads_as_it_always_did(tmp_path):
     path = _board(tmp_path, 4, [("keepout vent", (pcbnew.F_Cu,))])
     (ra,) = read_board(path).rule_areas
     assert ra.layers == frozenset((F,)) and ra.missing == ()
+
+
+def _plan_with(keepout_layers):
+    """A resolved plan carrying one keepout, on a synthetic geometry."""
+    from placemat.cutouts import Circle
+    from placemat.layout import Board
+    from placemat.values import Location
+    from tests.fixtures import board_geometry
+    b = Board(board_geometry([], width=40, height=40), edge_margin=0.0)
+    b.keepout(Circle(4.0), "antenna", at=Location(20, 20), layers=keepout_layers,
+              why="the antenna clearance")
+    return b.resolve()
+
+
+def test_an_every_layer_keepout_is_written_with_its_marker(tmp_path):
+    import pcbnew
+    from placemat.kicad.write import _draw_keepouts
+    path = _board(tmp_path, 2, [])
+    board = pcbnew.LoadBoard(str(path))
+    _draw_keepouts(board, _plan_with(None))
+    names = [z.GetZoneName() for z in board.Zones() if z.GetIsRuleArea()]
+    assert names == ["keepout antenna [*.Cu]"]
+
+
+def test_writing_widens_a_stamped_zone_to_what_it_declared(tmp_path):
+    import pcbnew
+    from placemat.kicad.write import _draw_keepouts
+    path = _board(tmp_path, 4, [("keepout antenna [*.Cu]_1", (pcbnew.F_Cu, pcbnew.B_Cu)),
+                                ("keepout plain_1", (pcbnew.F_Cu,))], group="ant_rf")
+    board = pcbnew.LoadBoard(str(path))
+    _draw_keepouts(board, _plan_with(None))
+    layers = {z.GetZoneName(): sorted(board.GetLayerName(l) for l in z.GetLayerSet().CuStack())
+              for z in board.Zones() if z.GetIsRuleArea()}
+    assert layers["keepout antenna [*.Cu]_1"] == ["B.Cu", "F.Cu", "In1.Cu", "In2.Cu"]
+    assert layers["keepout plain_1"] == ["F.Cu"]            # no marker: left alone

@@ -341,7 +341,8 @@ def _plan_with(keepout_layers):
     from placemat.values import Location
     from tests.fixtures import board_geometry
     b = Board(board_geometry([], width=40, height=40), edge_margin=0.0)
-    b.keepout(Circle(4.0), "antenna", at=Location(20, 20), layers=keepout_layers)
+    b.keepout(Circle(4.0), "antenna", at=Location(20, 20), layers=keepout_layers,
+              why="the antenna clearance")
     return b.resolve()
 
 
@@ -451,12 +452,12 @@ def test_the_clash_check_sees_a_stamped_marked_name_as_the_same_keepout():
                        frozenset(TWO), frozenset(["fill"]))
     b = Board(_geom(FOUR, [stamped]), edge_margin=0.0)
     with pytest.raises(ValueError):
-        b.keepout(_shape(), "antenna", at=Location(20, 20))
+        b.keepout(_shape(), "antenna", at=Location(20, 20), why="clearance")
 
 
 def test_a_keepout_on_a_layer_the_board_lacks_is_a_finding():
     b = Board(_geom(TWO), edge_margin=0.0)
-    b.keepout(_shape(), "antenna_c", at=Location(20, 20), layers=(IN2,))
+    b.keepout(_shape(), "antenna_c", at=Location(20, 20), layers=(IN2,), why="Detail C")
     plan = b.resolve()
     said = [f for f in plan.findings if "antenna_c" in f]
     assert said and "In2.Cu" in said[0] and "recorded in its name" in said[0]
