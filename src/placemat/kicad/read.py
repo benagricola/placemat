@@ -13,7 +13,8 @@ from .quiet import import_pcbnew, quiet_stderr
 
 pcbnew = import_pcbnew()
 
-from ..board_geometry import CellGeom, CopperItem, Footprint, NetClass, PadGeom, RuleArea, BoardGeometry
+from ..board_geometry import (BoardGeometry, CellGeom, CopperItem, Footprint, NetClass, PadGeom, RuleArea,
+                              resolve_marker, split_marker)
 from ..values import Box, CopperLayer, Face, Location
 
 CLEAR_ERR_NM = 5000     # arc approximation error for TransformShapeToPolySet; [geometry] arc_error_nm
@@ -233,8 +234,17 @@ def _rule_areas(board, groups_of) -> tuple:
         o = outline.Outline(0)
         poly = tuple((mm(o.CPoint(j).x), mm(o.CPoint(j).y)) for j in range(o.PointCount()))
         excludes = frozenset(name for name, getter in _KEEPOUT_GETTERS if getattr(z, getter)())
-        out.append(RuleArea(z.GetZoneName(), groups_of.get(_kiid(z)), poly,
-                            _copper_layers(board, z.GetLayerSet()), excludes))
+        layers = _copper_layers(board, z.GetLayerSet())
+        missing = ()
+        declared = split_marker(z.GetZoneName())[1]
+        if declared is not None:
+            # the declaration in the name wins over the layer set KiCad saved:
+            # a two-layer module fragment could only ever save F and B
+            stack = tuple(CopperLayer.of(board.GetLayerName(l))
+                          for l in board.GetEnabledLayers().CuStack())
+            layers, missing = resolve_marker(declared, stack)
+        out.append(RuleArea(z.GetZoneName(), groups_of.get(_kiid(z)), poly, layers,
+                            excludes, missing))
     return tuple(out)
 
 
