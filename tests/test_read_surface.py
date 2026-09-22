@@ -111,3 +111,104 @@ def test_a_file_pcbnew_cannot_load_says_so(tmp_path):
     with pytest.raises(ValueError) as e:
         read_footprint(bad)
     assert "Nonsense" in str(e.value)
+
+
+@needs_parts
+def test_measure_reads_a_kicad_mod_from_the_command_line(capsys):
+    import argparse
+    from placemat import cli
+    args = argparse.Namespace(pcb=_one("*05A20L10P*"), items=[], pads=True, json=False)
+    assert cli.cmd_measure(args) == 0
+    out = capsys.readouterr().out
+    assert "pad" in out and "sha256" in out and "courtyard" in out
+
+
+@needs_breakout
+def test_measure_on_a_board_prints_position_and_boxes(breakout_pcb, capsys):
+    import argparse
+    from placemat import cli
+    g = read_board(breakout_pcb)
+    args = argparse.Namespace(pcb=str(breakout_pcb), items=[g.footprints[0].inst],
+                              pads=False, json=False)
+    assert cli.cmd_measure(args) == 0
+    out = capsys.readouterr().out
+    for word in ("body", "courtyard", "physical", "origin"):
+        assert word in out, word
+
+
+@needs_breakout
+def test_measure_json_carries_the_same_numbers(breakout_pcb, capsys):
+    import argparse
+    import json as _json
+    from placemat import cli
+    g = read_board(breakout_pcb)
+    fp = g.footprints[0]
+    args = argparse.Namespace(pcb=str(breakout_pcb), items=[fp.inst], pads=True, json=True)
+    assert cli.cmd_measure(args) == 0
+    doc = _json.loads(capsys.readouterr().out)
+    (one,) = doc["parts"]
+    assert one["ref"] == fp.ref
+    assert one["body"] == [round(fp.body_box.width, 3), round(fp.body_box.height, 3)]
+    assert len(one["pads"]) == len(fp.pads)
+    assert "copper_on_pads" in one
+
+
+@needs_breakout
+def test_the_measured_pad_centres_are_the_placer_s_pad_locations(breakout_pcb):
+    """Two readers of the same board must agree, or a script and a review of
+    that script are measuring different things."""
+    from placemat import describe
+    from placemat.occupancy import Occupancy
+    g = read_board(breakout_pcb)
+    occ = Occupancy(g, edge_margin=0.0)
+    fp = [f for f in g.footprints if len(f.pads) >= 3][0]
+    for p in fp.pads:
+        said = describe.pad_facts(fp, p, g)["at"]
+        placed = occ.pad_location(fp.ref, p.number)
+        assert said == [pytest.approx(placed.x, abs=1e-6), pytest.approx(placed.y, abs=1e-6)]
+
+
+@needs_breakout
+def test_an_unknown_item_says_what_the_parts_are_called(breakout_pcb):
+    import argparse
+    from placemat import cli
+    args = argparse.Namespace(pcb=str(breakout_pcb), items=["no_such_part"], pads=False, json=False)
+    with pytest.raises(SystemExit) as e:
+        cli.cmd_measure(args)
+    assert "no_such_part" in str(e.value) and "placemat parts" in str(e.value)
+
+
+@needs_breakout
+def test_measure_with_no_items_still_lists_the_cells(breakout_pcb, capsys):
+    """The old behaviour, unchanged: this is purely additive."""
+    import argparse
+    from placemat import cli
+    args = argparse.Namespace(pcb=str(breakout_pcb), items=[], pads=False, json=False)
+    assert cli.cmd_measure(args) == 0
+    out = capsys.readouterr().out
+    assert "cell " in out and "members" in out
+
+
+@needs_breakout
+def test_parts_lists_every_footprint_with_its_area_and_pins(breakout_pcb, capsys):
+    import argparse
+    from placemat import cli
+    args = argparse.Namespace(pcb=str(breakout_pcb), json=False)
+    assert cli.cmd_parts(args) == 0
+    out = capsys.readouterr().out
+    g = read_board(breakout_pcb)
+    assert "instance" in out and "pins" in out and "mm2" in out
+    assert out.count("\n") >= len(g.footprints)
+
+
+@needs_breakout
+def test_parts_json_is_one_row_per_footprint(breakout_pcb, capsys):
+    import argparse
+    import json as _json
+    from placemat import cli
+    args = argparse.Namespace(pcb=str(breakout_pcb), json=True)
+    assert cli.cmd_parts(args) == 0
+    doc = _json.loads(capsys.readouterr().out)
+    g = read_board(breakout_pcb)
+    assert len(doc["parts"]) == len(g.footprints)
+    assert {r["ref"] for r in doc["parts"]} == {fp.ref for fp in g.footprints}

@@ -47,9 +47,18 @@ def parser() -> argparse.ArgumentParser:
     drc.add_argument("pcb")
     drc.add_argument("--json", action="store_true")
 
-    m = sub.add_parser("measure", help="what the generated board measures: each cell's size and members, a part's size and pads")
-    m.add_argument("pcb")
+    m = sub.add_parser("measure", help="what a part or a cell measures: position, boxes and every pad's "
+                                       "real copper, on a board or on a bare .kicad_mod")
+    m.add_argument("pcb", help="a layout.kicad_pcb, a layout script, or a footprint.kicad_mod")
     m.add_argument("items", nargs="*", help="cell names or part instances (default: every cell)")
+    m.add_argument("--pads", action="store_true",
+                   help="every pad's number, net, layers, centre and copper box")
+    m.add_argument("--json", action="store_true")
+
+    pl = sub.add_parser("parts", help="every part on the board: instance, refdes, face, cell, "
+                                      "courtyard area, pin count and value")
+    pl.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
+    pl.add_argument("--json", action="store_true")
 
     sh = sub.add_parser("show", help="one cell or part on its own: a render from above and below, its pads by net, "
                                      "and the sides its module declared (outward, quiet, handoff)")
@@ -211,20 +220,72 @@ def cmd_route(args) -> int:
     return 0 if report.valid else 1
 
 
+def _near(name: str, snap) -> str:
+    """The closest few names, because not knowing what the parts are called is
+    the usual reason for getting one wrong."""
+    import difflib
+    known = [fp.inst for fp in snap.footprints] + list(snap.cells)
+    close = difflib.get_close_matches(name, known, n=3, cutoff=0.4)
+    return ("; did you mean %s?" % ", ".join(close)) if close else ""
+
+
 def cmd_measure(args) -> int:
-    from .kicad.read import read_board
-    snap = read_board(args.pcb)
+    from . import describe
+    from .kicad.read import read_board, read_footprint
+    from .project import find_board
+    p = Path(args.pcb)
+    if p.suffix == ".kicad_mod":
+        fp, digest = read_footprint(p)
+        if args.json:
+            doc = describe.part_facts(fp)
+            doc["sha256"] = digest
+            doc["pads"] = [describe.pad_facts(fp, q) for q in fp.pads]
+            console.data(json.dumps({"parts": [doc]}, indent=2))
+        else:
+            console.lines("measure", "\n".join(
+                describe.part_lines(fp, pads=args.pads, digest=digest)))
+        return 0
+    pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
+    snap = read_board(pcb)
     items = args.items or sorted(snap.cells)
+    docs, lines = [], []
     for name in items:
         if name in snap.cells:
             c = snap.cell(name)
-            console.say("measure", "cell %-16s %.3f x %.3f  members %s" % (
+            docs.append({"cell": name, "size": [round(c.box.width, 3), round(c.box.height, 3)],
+                         "members": [fp.ref for fp in c.members]})
+            lines.append("cell %-16s %.3f x %.3f  members %s" % (
                 name, c.box.width, c.box.height, " ".join(fp.ref for fp in c.members)))
-        else:
+            continue
+        try:
             fp = snap.footprint(name)
-            console.say("measure", "part %-16s %s  %.3f x %.3f  pads %s" % (
-                fp.inst, fp.ref, fp.body_box.width, fp.body_box.height,
-                " ".join("%s:%s" % (p.number, p.net) for p in fp.pads)))
+        except KeyError:
+            raise SystemExit("no cell or part called %r on %s. `placemat parts %s` lists them%s"
+                             % (name, pcb, args.pcb, _near(name, snap)))
+        doc = describe.part_facts(fp, snap)
+        if args.pads:
+            doc["pads"] = [describe.pad_facts(fp, q, snap) for q in fp.pads]
+            doc["copper_on_pads"] = describe.copper_on(fp, snap)
+        docs.append(doc)
+        lines += describe.part_lines(fp, snap, pads=args.pads)
+    if args.json:
+        console.data(json.dumps({"parts": docs}, indent=2))
+    else:
+        console.lines("measure", "\n".join(lines))
+    return 0
+
+
+def cmd_parts(args) -> int:
+    from . import describe
+    from .kicad.read import read_board
+    from .project import find_board
+    p = Path(args.pcb)
+    pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
+    snap = read_board(pcb)
+    if args.json:
+        console.data(json.dumps({"parts": describe.parts_rows(snap)}, indent=2))
+        return 0
+    console.lines("parts", "\n".join(describe.parts_lines(snap)))
     return 0
 
 
@@ -305,7 +366,7 @@ def main(argv=None) -> int:
     args = parser().parse_args(argv)
     return {"run": cmd_run, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
             "route": cmd_route, "check": cmd_check, "show": cmd_show, "faces": cmd_faces,
-            "settings": cmd_settings}[args.command](args)
+            "settings": cmd_settings, "parts": cmd_parts}[args.command](args)
 
 
 if __name__ == "__main__":
