@@ -14,6 +14,13 @@ placement decision can be tried and measured cheaply, so try many.
 Read `references/api.md` for the script surface. Everything below is how to
 work, not what to call.
 
+**Before touching an existing script**, check it against the current API:
+`grep -nE "Priority\.(FIXED|EDGE)|priority=Priority\.(HIGH|LOW)" <script>`.
+Any hit, or `AttributeError: type object 'Priority' has no attribute
+'FIXED'` at import, means it was written for
+placemat 0.5 or earlier: read `references/migration.md` and fix those lines
+first. A script with no hits still re-places on 0.6, which that file explains.
+
 ## The loop
 
 1. **Run** `placemat run boards/<x>/<X>_layout.py`. A run is named by a
