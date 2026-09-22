@@ -69,3 +69,84 @@ def unit_of(runs):
             if pattern.search(r.text):
                 return name
     return None
+
+
+TOPICS = ("land", "package", "rules", "pins")
+
+# One vendor's words for a thing are not another's: the W3011 says "MECHANICAL
+# DRAWING" and "PWB Layout" where TDK says "RECOMMENDED LAND PATTERN". Measured
+# over 67 datasheets, a keyword list alone finds a land pattern on half of
+# them, which is why it is one signal beside the geometry and never the answer.
+KEYWORDS = {
+    "land": (r"recommended land", r"land pattern", r"recommended pad", r"pcb layout",
+             r"pwb layout", r"mounting pad", r"solder pad", r"recommended solder",
+             r"suggested (pad|land)", r"footprint"),
+    "package": (r"package (outline|dimension)", r"mechanical (data|drawing|dimension)",
+                r"outline drawing", r"product outline", r"physical dimension",
+                r"dimensions? \(mm\)", r"body size"),
+    "rules": (r"keep ?out", r"keep-out", r"layout (guideline|consideration|recommendation)",
+              r"thermal pad", r"via.in.pad", r"ground plane", r"placement guideline"),
+    "pins": (r"pin (configuration|description|assignment|function|map)",
+             r"terminal (function|description)", r"pinout", r"pin list"),
+}
+_COMPILED = {t: [re.compile(p, re.I) for p in pats] for t, pats in KEYWORDS.items()}
+
+# A group this size is a pad row rather than a coincidence. Below it the
+# geometry says nothing, so it is not offered as evidence at all.
+CLUSTER_FLOOR = 4
+
+
+@dataclass(frozen=True)
+class Evidence:
+    kind: str           # keyword | rects | dims | unit
+    detail: str
+
+
+@dataclass(frozen=True)
+class Candidate:
+    page: int
+    topic: str
+    score: float
+    band: str
+    evidence: tuple
+
+
+def page_evidence(topic: str, runs, paths) -> tuple:
+    """Everything on this page that argues it is about `topic`. Each item
+    says what was seen, so a ranking can be judged instead of trusted."""
+    out = []
+    for r in runs:
+        if any(p.search(r.text) for p in _COMPILED[topic]):
+            out.append(Evidence("keyword", '"%s"' % r.text.strip()[:60]))
+            break
+    groups = clusters(rectangles(paths))
+    if groups and groups[0][1] >= CLUSTER_FLOOR:
+        (w, h), n = groups[0]
+        out.append(Evidence("rects", "%d of %.3g x %.3g" % (n, w, h)))
+    dims = dimension_numbers(runs)
+    if len(dims) >= 3:
+        out.append(Evidence("dims", "%d dimension(s)" % len(dims)))
+    unit = unit_of(runs)
+    if unit:
+        out.append(Evidence("unit", "unit %s" % unit))
+    return tuple(out)
+
+
+# What a band means, said in evidence rather than in a cut-off: a page that
+# both names the topic and carries the geometry for it is as good as this gets.
+_WEIGHT = {"keyword": 3.0, "rects": 2.0, "dims": 1.0, "unit": 0.5}
+
+
+def score_of(evidence) -> float:
+    return sum(_WEIGHT.get(e.kind, 0.0) for e in evidence)
+
+
+def band_of(evidence) -> str:
+    kinds = {e.kind for e in evidence}
+    if not kinds:
+        return "none"
+    if "keyword" in kinds and kinds & {"rects", "dims"}:
+        return "strong"
+    if "keyword" in kinds or "rects" in kinds:
+        return "fair"
+    return "weak"

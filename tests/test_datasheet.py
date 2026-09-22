@@ -35,3 +35,29 @@ def test_the_unit_is_read_where_the_page_states_it():
     assert ds.unit_of([_run("[ Unit : mm ]")]) == "mm"
     assert ds.unit_of([_run("All dimensions are in mm / inches")]) == "mm"
     assert ds.unit_of([_run("nothing to say")]) is None
+
+
+def test_a_keyword_and_geometry_together_are_strong():
+    runs = [_run("RECOMMENDED LAND PATTERN"), _run("0.50"), _run("1.30"), _run("[ Unit : mm ]")]
+    rects = [_rect(2, 1) for _ in range(6)]
+    ev = ds.page_evidence("land", runs, rects)
+    assert any(e.kind == "keyword" for e in ev)
+    assert any(e.kind == "rects" for e in ev)
+    assert ds.band_of(ev) == "strong"
+
+
+def test_geometry_with_no_keyword_is_fair():
+    """The text-free connectors: 36 equal rectangles and nothing said."""
+    rects = [_rect(2, 1) for _ in range(36)]
+    ev = ds.page_evidence("land", [], rects)
+    assert ds.band_of(ev) == "fair"
+
+
+def test_a_page_with_nothing_earns_no_evidence():
+    assert ds.page_evidence("land", [_run("Ordering information")], []) == ()
+    assert ds.band_of(()) == "none"
+
+
+def test_every_topic_has_a_keyword_table():
+    for topic in ds.TOPICS:
+        assert ds.KEYWORDS[topic], topic
