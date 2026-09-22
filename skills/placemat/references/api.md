@@ -590,6 +590,7 @@ placement on it says which pad that was. Name the number to pick another.
 ```python
 board.track(net, [p1, p2, ...], layer=CopperLayer.F, width=None, priority=Priority.DEFAULT, bridge=False)
 board.via(net, point)
+board.via(net, FreeSpot(near=PadRef(...), radius=2.0))               # the nearest legal spot to a pad
 board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False)     # filled polygon
 board.plane(net, layers=(CopperLayer.IN1,), outline=None, inset=0.4)  # zone(s), whole board or outline
 board.finger(net, layer=, from_=point, to=point, width=)               # pour along a centreline, cut and bridged at tracks
@@ -601,6 +602,17 @@ declared: copper whose every endpoint belongs to something nothing will move
 and becomes an obstacle to it, so `board.via(net, Location(x, y))` reserves
 its spot with nothing to remember. Copper naming a searched part is planned
 after the search, once its shape is known.
+
+**A via where one fits.** `FreeSpot(near=PadRef(...), radius=2.0, step=0.05,
+layer=None, in_pad=False)` is the nearest point to the pad where a via clears
+every other net's copper, every drilled hole, every keepout that forbids vias
+and the board edge, and where a straight tail on `layer` (the pad's own by
+default) reaches it. It is found when the pad's part is placed, against the
+copper planned before it, so a second via near the same pad lands clear of the
+first. The via stays out of its own pad unless `in_pad=True`: an SMD pad's
+centre passes every other rule, and a via in a pad needs plugging. A search
+with nowhere to go is a finding carrying why every nearer spot failed, and no
+via is drawn.
 
 **Pairs.** Two nets drawn together at a gap along one centreline, the way
 KiCad's differential tool does:
@@ -667,6 +679,8 @@ placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part
 placemat parts <layout.kicad_pcb | script> [--json]
 placemat datasheet <pdf> [--show PAGE|TOPIC] [--read] [--no-ocr] [--out DIR] [--dpi N] [--json]
 placemat datasheet check <pdf> <footprint.kicad_mod> [--pitch F] [--pad WxH] [--pads N] [--span F] [--tol F] [--json]
+placemat occupancy <layout.kicad_pcb | script> (--at X,Y | --box X0,Y0,X1,Y1 | --via-near PART.PAD)
+                   [--net N] [--size D] [--drill H] [--layer L] [--radius R] [--step S] [--in-pad] [--json]
 placemat show <layout.kicad_pcb | script> <cell | part> [--out DIR]
 placemat faces <module layout.kicad_pcb> outward=N [quiet=S] [handoff=E]
 placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise C] [--copper-oz OZ] [--limit CHECK=VALUE ...] [--json]
@@ -722,6 +736,18 @@ check     pads   24         18         MISMATCH  not on the page
 check     span   -          9.86       unchecked
 check     1 of 3 checks disagree
 ```
+
+`occupancy` answers what is at a point and where a via can go, on the board as
+it stands - routed or not. `--at` names the copper under a point on each layer
+and the nearest copper of another net, then whether a via fits there and why
+not. `--box` counts the copper in a box by net and kind on each layer.
+`--via-near` searches outward from a pad, in a fixed order so the same board
+gives the same answer, for the nearest spot a via of the pad's net clears
+every other net's pads, tracks, vias and graphic copper, every hole, every
+keepout forbidding vias and the edge, and can be reached by a straight tail;
+it prints the spot and why every nearer spot failed, and exits 1 when there is
+nowhere. Another net's pour is not an obstacle: KiCad refills it round the new
+via, so the answer names the pour that would give way instead.
 
 A page carrying almost no text of its own is read off its render with
 `tesseract` when it is installed; `--no-ocr` turns that off. It costs about a

@@ -155,3 +155,11 @@ def test_a_via_stands_clear_of_its_own_pad_unless_asked_to_sit_in_it():
     assert tally["pad"] >= 1
     inside = queries.via_judge(g, gnd.box.center, "GND", 0.6, 0.3, 0.2, F)
     assert queries.free_spot(gnd.box.center, inside, radius=3.0, step=0.1)[0].distance == 0.0
+
+
+def test_the_docs_describe_occupancy_and_free_spot():
+    from pathlib import Path
+    api = Path("skills/placemat/references/api.md").read_text()
+    assert "placemat occupancy" in api and "FreeSpot(" in api
+    assert "--via-near" in Path("skills/placemat/SKILL.md").read_text()
+    assert "## To 0.19" in Path("skills/placemat/references/migration.md").read_text()

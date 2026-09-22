@@ -4,6 +4,19 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.19
+
+Nothing to change. `placemat occupancy` is new: what copper is at a point or in
+a box on each layer, and the nearest spot a via can stand and be reached near a
+pad, with why every nearer spot failed. `FreeSpot` is new too: a via written as
+`board.via(net, FreeSpot(near=PadRef(...)))` lands at the nearest legal spot
+once its part is placed.
+
+`polys_overlap` now finds one polygon inside another even when the first vertex
+it tests lies on the other's edge. It could miss that case before; edges that
+merely touch still do not count. A run that placed cleanly may, rarely, report
+an overlap it used to miss - it is real.
+
 ## To 0.18
 
 Nothing to change. Every route now checks the copper the router laid against
