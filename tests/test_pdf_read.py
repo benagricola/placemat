@@ -82,3 +82,22 @@ def test_a_page_renders_to_a_png(tmp_path):
     p = make_pdf(tmp_path / "land.pdf", LAND)
     png = read.render(p, 1, tmp_path / "out")
     assert png.exists() and png.suffix == ".png" and png.stat().st_size > 0
+
+
+def test_a_tool_that_warns_and_still_works_is_not_an_error():
+    """mutool exits 1 for `warning: ICC support is not available` while
+    producing the whole trace, so a non-zero exit is only fatal when nothing
+    came back with it."""
+    out = read._run(["sh", "-c", "echo produced; echo 'warning: noise' >&2; exit 1"],
+                    "testing", "x.pdf")
+    assert out.strip() == "produced"
+
+
+def test_a_tool_that_fails_with_nothing_to_show_is_an_error():
+    with pytest.raises(read.PdfError):
+        read._run(["sh", "-c", "echo 'error: no such page' >&2; exit 1"], "testing", "x.pdf")
+
+
+def test_the_complaint_is_the_error_not_the_last_warning():
+    said = read._complaint(b"error: cannot find page 9\nwarning: ICC support is not available\n")
+    assert "cannot find page 9" in said

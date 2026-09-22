@@ -6,6 +6,7 @@ pure and takes this module's values."""
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import xml.etree.ElementTree as ET
@@ -20,14 +21,29 @@ class PdfError(RuntimeError):
     because the usual cause is a file that is not a PDF at all."""
 
 
-def _run(argv: list, what: str, path) -> str:
+def _complaint(stderr: bytes) -> str:
+    """The line that says what went wrong. mutool prints its warnings after
+    the error and exits non-zero for a warning alone, so the last line is
+    usually not the reason and reporting it sends a reader the wrong way."""
+    lines = [l.strip() for l in stderr.decode("utf8", "replace").splitlines() if l.strip()]
+    for line in lines:
+        if line.lower().startswith("error"):
+            return line
+    return lines[-1] if lines else "nothing"
+
+
+def _run(argv: list, what: str, path, expect_stdout: bool = True) -> str:
+    """A PDF tool's output. A non-zero exit is only fatal when nothing came
+    back with it: mutool exits 1 for `warning: ICC support is not available`
+    having produced the whole trace, and 4 of the 67 datasheets measured for
+    this feature do exactly that."""
     if shutil.which(argv[0]) is None:
         raise PdfError("%s is not on PATH; %s needs it" % (argv[0], what))
     r = subprocess.run(argv, capture_output=True)
-    if r.returncode != 0:
-        tail = r.stderr.decode("utf8", "replace").strip().splitlines()
-        raise PdfError("%s: %s said %s" % (path, argv[0], tail[-1] if tail else "nothing"))
-    return r.stdout.decode("utf8", "replace")
+    out = r.stdout.decode("utf8", "replace")
+    if r.returncode != 0 and not (expect_stdout and out.strip()):
+        raise PdfError("%s: %s said %s" % (path, argv[0], _complaint(r.stderr)))
+    return out
 
 
 def page_count(path) -> int:
@@ -79,14 +95,27 @@ def _transform_of(el) -> Transform:
     return Transform(a=a, b=b, c=c, d=d, tx=e, ty=f)
 
 
+# mutool wraps a tagged PDF's trace in <structure> and <metatext> markers and
+# does not balance them, so the document as a whole is not always well-formed
+# XML. Each path block is, so the blocks are cut out and parsed one at a time:
+# a real parser for the attributes, and immunity to whatever encloses them.
+_PATH_BLOCK = re.compile(r"<(fill|stroke)_path\b.*?</\1_path>", re.S)
+
+
+def _path_elements(text: str):
+    for m in _PATH_BLOCK.finditer(text):
+        try:
+            yield ET.fromstring(m.group(0))
+        except ET.ParseError:
+            continue                    # one unreadable path is not a bad page
+
+
 def draw_paths(path, page: int) -> tuple:
     """Every filled or stroked path on the page, measured in page space."""
     text = _run(["mutool", "draw", "-F", "trace", "-o", "-", "-i", str(path), str(page)],
                 "reading the drawing", path)
     out = []
-    for el in ET.fromstring(text).iter():
-        if el.tag not in ("fill_path", "stroke_path"):
-            continue
+    for el in _path_elements(text):
         t = _transform_of(el)
         pts = [t.apply((float(p.get("x")), float(p.get("y"))))
                for p in el.iter() if p.tag in _POINT_TAGS]
@@ -106,9 +135,17 @@ def render(path, page: int, out_dir, dpi: int = 300):
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     stem = out / ("%s-p%d" % (Path(path).stem, page))
-    _run(["pdftoppm", "-png", "-r", str(dpi), "-f", str(page), "-l", str(page),
-          "-singlefile", str(path), str(stem)], "rendering a page", path)
-    return stem.with_suffix(".png")
+    png = stem.with_suffix(".png")
+    try:
+        _run(["pdftoppm", "-png", "-r", str(dpi), "-f", str(page), "-l", str(page),
+              "-singlefile", str(path), str(stem)], "rendering a page", path,
+             expect_stdout=False)
+    except PdfError:
+        if not png.exists():            # a warning that still drew the page is not a failure
+            raise
+    if not png.exists():
+        raise PdfError("%s: pdftoppm wrote no page %d" % (path, page))
+    return png
 
 
 def have_ocr() -> bool:
