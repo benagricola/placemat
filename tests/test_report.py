@@ -124,3 +124,42 @@ def test_run_id_without_settings_is_still_stable():
     from placemat.report import run_id
     same = dict(script_text="s", board_bytes=b"p", tool_version="v")
     assert run_id(**same) == run_id(**same)
+
+
+def test_a_step_records_its_freedom_and_a_decided_placement_has_no_priority():
+    from placemat.layout import Board
+    from placemat.values import Location, Part
+    from tests.fixtures import board_geometry, footprint
+    fps = [footprint("J1", 10, 10, inst="j1", nets=("A", "B")),
+           footprint("R1", 30, 10, inst="r1", nets=("B", "C"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.place(Part("j1"), at=Location(20, 20))
+    b.place(Part("r1"))
+    plan = b.resolve()
+    assert plan.step("j1").freedom.value == "fixed"
+    assert plan.step("j1").priority is None
+    assert plan.step("r1").freedom.value == "searched"
+    assert plan.step("r1").priority is not None and plan.step("r1").rank == 1
+
+
+def test_the_step_header_names_the_place_column():
+    from placemat.layout import STEP_HEADER
+    assert "place" in STEP_HEADER and "priority" not in STEP_HEADER
+
+
+def test_a_copper_step_says_which_batch_planned_it():
+    from placemat.layout import Board
+    from placemat.values import CopperLayer, Freedom, Location, Net, PadRef, Part
+    from tests.fixtures import board_geometry, footprint
+    fps = [footprint("U1", 10, 10, inst="u1", nets=("A", "GND")),
+           footprint("R1", 30, 10, inst="r1", nets=("GND", "C"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.size(width=60, height=60)
+    b.place(Part("u1"), at=Location(10, 10))
+    b.place(Part("r1"))
+    b.track(Net("GND"), [Location(5, 40), Location(50, 40)], layer=CopperLayer.F)
+    b.track(Net("C"), [PadRef(Part("r1"), "C"), Location(50, 50)], layer=CopperLayer.F)
+    plan = b.resolve()
+    by_item = {s.item: s for s in plan.steps if s.kind == "copper"}
+    assert by_item["track GND"].freedom is Freedom.FIXED
+    assert by_item["track C"].freedom is Freedom.SEARCHED

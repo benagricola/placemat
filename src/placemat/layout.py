@@ -2073,9 +2073,9 @@ class Board:
                 others.append((c, op))
         by_key = {}
         for c, _ in tracks:
-            by_key.setdefault(c.key, [c.priority, 0, c.why])
+            by_key.setdefault(c.key, [c.priority, 0, c.why, c.freedom])
         for c, _ in others:
-            by_key.setdefault(c.key, [c.priority, 0, c.why])
+            by_key.setdefault(c.key, [c.priority, 0, c.why, c.freedom])
         n_by_net = {}
         for op in ops:
             n_by_net[op.net] = n_by_net.get(op.net, 0) + 1
@@ -2083,7 +2083,7 @@ class Board:
             by_key[c.key][1] = n_by_net.get(c.net, 0)
         all_ops = list(ops)
         for c, op in others:
-            by_key.setdefault(c.key, [c.priority, 0, c.why])
+            by_key.setdefault(c.key, [c.priority, 0, c.why, c.freedom])
             all_ops.append(op)
             by_key[c.key][1] += 1
         shapes = []
@@ -2098,8 +2098,8 @@ class Board:
         occ.add_copper(shapes)
         if any(c.freedom.decided for c in intents):
             ctx.fixed_tracks += [op for op in ops]
-        for key, (prio, n, why) in by_key.items():
-            step = Step(key, "copper", prio, None, 0.0, "%d op(s)" % n, why, n)
+        for key, (prio, n, why, freedom) in by_key.items():
+            step = Step(key, "copper", prio, None, 0.0, "%d op(s)" % n, why, n, freedom=freedom)
             plan.steps.append(step)
             if progress:
                 progress(_fmt(step))
