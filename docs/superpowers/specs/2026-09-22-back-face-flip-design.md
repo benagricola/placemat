@@ -1,17 +1,20 @@
-# A back-face part is where the planner says it is
+# A flip to the back is one operation, and it is KiCad's
 
 Date: 2026-09-22
 Status: design, awaiting approval
 
 ## What is wrong today
 
-The occupancy model and the writer disagree about where a footprint's pads land
-when it is placed on the back face. The planner decides legality, clearance and
-copper endpoints from one answer; KiCad gets the other.
+Two faults, and the second turns out to cause the first.
 
-**The planner** (`occupancy.py:153-161`) mirrors left-right and then turns by
-the difference between the target rotation and the rotation the generator left
-the part at:
+### The planner and the writer disagree about a back-face part
+
+The occupancy model decides legality, clearance and copper endpoints from one
+answer; KiCad gets another.
+
+**The planner** (`occupancy.py:153-161`) mirrors left-right, then turns by the
+difference between the target rotation and the rotation the generator left the
+part at:
 
 ```python
 t = Transform.translate(-ref.location.x, -ref.location.y)
@@ -20,8 +23,8 @@ if flip:
 t = t.then(Transform.rotate(placement.rotation - ref.rotation))
 ```
 
-**The writer** (`write.py:39-43`) flips through KiCad and then sets the
-orientation absolutely:
+**The writer** (`write.py:39-43`) flips through KiCad, then sets the orientation
+absolutely:
 
 ```python
 if target.face != current.face:
@@ -29,22 +32,10 @@ if target.face != current.face:
 fp.SetOrientationDegrees(target.rotation)
 ```
 
-Probed directly against KiCad 10: `FOOTPRINT::Flip` with
-`FLIP_DIRECTION_LEFT_RIGHT` mirrors the footprint's stored pad offsets
-**top to bottom** and sets the orientation to `180 - orientation`. The
-`SetOrientationDegrees` on the next line then discards that 180.
-
 Writing `r` for the part's rotation in the generated board and `t` for the
-rotation the script asked for:
-
-```
-writer   =  R(t)          . mirror_y . relative pads
-planner  =  R(t - 2r)     . mirror_x . relative pads
-         =  R(t - 2r + 180) . mirror_y . relative pads
-```
-
-so the two differ by a rotation of `180 + 2r`. Measured end to end on the
-committed Breakout - place a part on the back, `apply_plan`, read it back, and
+rotation the script asked for, the two compose to `R(t) . mirror_y` and
+`R(t - 2r) . mirror_x` respectively, which differ by `180 + 2r`. Measured end
+to end on the committed Breakout - place on the back, `apply_plan`, read back,
 compare against `Occupancy.pad_location`:
 
 ```
@@ -56,121 +47,187 @@ U5  r=270  t=0    planned->written turn   0
 ```
 
 On `U7`, a four-pad part at generated rotation 0, the planner puts pad 1 at
-x 49.45 and the file has it at x 34.21 - the pad order is reversed along the
-part.
+x 49.45 and the file has it at x 34.21: the pad order is reversed along the
+part. Everything downstream inherits it - `Pin()` placements, `PadRef` copper
+endpoints, via-in-pad drops, and every clearance the occupancy model judged.
 
-Everything downstream inherits it: `Pin()` placements, `PadRef` endpoints in
-copper, via-in-pad drops, and every clearance the occupancy model judged.
+The workaround in `boards/main/Main_layout.py` - monkeypatching
+`Occupancy._transform` to mirror top-bottom - gives `R(t - 2r) . mirror_y`,
+which agrees only when `r` is 0 or 180. It fixes half the board and breaks the
+half that was accidentally right.
 
-**The workaround in use is not sufficient.** `boards/main/Main_layout.py`
-monkeypatches `Occupancy._transform` to mirror top-bottom
-(`Transform(d=-1.0)`). That gives `R(t - 2r) . mirror_y`, which agrees with the
-writer only when `r` is 0 or 180. It silently breaks the parts the current code
-happens to get right, at `r` 90 and 270.
+### A part and a cell flip about different axes
 
-**The planner's convention is the wrong one on its own terms.** Because its
-answer depends on `r`, two identical parts the generator happened to drop at
-different rotations, both declared `rotation=0, face=Face.BACK`, are planned as
-physically different orientations. A script cannot say what it means. The
-writer's answer does not depend on `r` and is the one to keep.
+A lone part placed on the back is mirrored top-to-bottom. The same part inside
+a cell is mirrored left-to-right. The two differ by half a turn, and nothing
+says so.
+
+**This is placemat's doing, not KiCad's.** Probed against KiCad 10,
+`FOOTPRINT::Flip(pivot, direction)` is a genuine world mirror about the pivot
+in the direction named, adjusting the orientation to suit:
+
+```
+LEFT_RIGHT rot 0   orient    0.0 ->  180.0   world mirror-x: True   mirror-y: False
+LEFT_RIGHT rot 30  orient   30.0 ->  150.0   world mirror-x: True   mirror-y: False
+TOP_BOTTOM rot 0   orient    0.0 ->   -0.0   world mirror-x: False  mirror-y: True
+TOP_BOTTOM rot 30  orient   30.0 ->  -30.0   world mirror-x: False  mirror-y: True
+```
+
+It behaves identically for a lone footprint and for every item of a group.
+`_move_cell` (`write.py:46-64`) uses it and lets it stand, so a cell flips
+about the vertical axis, correctly. `_place_footprint` calls
+`SetOrientationDegrees` on the very next line, discarding the 180 the flip
+computed and converting a world x-mirror into a y-mirror.
+
+So one line creates the asymmetry, and the same line creates the parity bug.
+
+## What a flip means, after this
+
+**Left-right, for a part and a cell alike**: the item is mirrored about the
+vertical axis and then turned by `rotation=`.
+
+That is KiCad's own default. `editing.flip_left_right` is `true` in the shipped
+configuration of KiCad 7, 9 and 10, so pressing F in pcbnew mirrors about the
+vertical axis. A part declared `rotation=0, face=Face.BACK` therefore reads
+orientation **180** in KiCad's properties - which is exactly what a user gets
+by drawing that part upright on the front and pressing F. The gesture and the
+number agree.
 
 ## What changes
 
-`Occupancy._transform` loses the `r` term and mirrors the axis the writer
-mirrors, for a **footprint**:
+Two lines, no branch by kind.
+
+**The planner** keeps `mirror_x` and adds the reference rotation instead of
+subtracting it:
+
+```python
+t = t.then(Transform.rotate(placement.rotation + ref.rotation if flip
+                            else placement.rotation - ref.rotation))
+```
+
+which composes to `R(t) . mirror_x . relative pads`, free of `r`. A cell's
+reference rotation is always 0 (`Placement(body.center, 0.0, Face.FRONT)`), so
+`t + 0 == t - 0` and **cells are untouched**. One transform serves both kinds;
+the `ItemGeometry.kind` field an earlier draft of this spec proposed is not
+needed.
+
+**The writer** stops discarding the flip's orientation:
+
+```python
+if target.face != current.face:
+    fp.Flip(fp.GetPosition(), pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
+    fp.SetOrientationDegrees(target.rotation + 180)
+else:
+    fp.SetOrientationDegrees(target.rotation)
+```
+
+`_move_cell` is unchanged.
+
+### This pair is verified, not derived
+
+Driving the proposed writer through pcbnew against the committed Breakout and
+comparing every pad with the proposed planner transform, for a multi-pad
+footprint at each generated rotation and each target rotation:
 
 ```
-translate(-loc)  ->  rotate(-r)  ->  mirror_y  ->  rotate(t)  ->  translate(target)
+U7  r0=0    t=0/90/180/270   worst pad error 0.000000 mm   OK
+U2  r0=90   t=0/90/180/270   worst pad error 0.000000 mm   OK
+U8  r0=180  t=0/90/180/270   worst pad error 0.000000 mm   OK
+U5  r0=270  t=0/90/180/270   worst pad error 0.000000 mm   OK
+
+0 mismatches of 16
 ```
-
-That is exactly `R(t) . mirror_y . relative pads`: undo the generator's
-rotation to reach the part's own frame, mirror it the way KiCad's flip does,
-then apply the rotation the script asked for. The unflipped path is unchanged.
-
-`rotation=` on a back-face part therefore means what it means in KiCad: the
-orientation the footprint is set to, read on the back, with the part mirrored
-about its own horizontal axis. This is stated in `api.md`, because nothing says
-it today.
-
-### Cells keep their own path, and it is tested rather than assumed
-
-`_transform` is shared by footprints and cells, and the writer handles them
-differently. `_move_cell` (`write.py:46-64`) flips each item about the cell's
-pivot with `FLIP_DIRECTION_LEFT_RIGHT` and then applies a **relative** rotate,
-which composes to a genuine world left-right mirror about the pivot - matching
-the planner's `mirror_x`. A cell's reference rotation is always 0
-(`Placement(body.center, 0.0, Face.FRONT)`), so the `r` term is already absent
-and there is nothing to fix.
-
-So the change must be per-kind, not global. `ItemGeometry` gains
-`kind: str` ("part" or "cell"), set in `_register` and `_geometry`, and
-`_transform` branches on it. Applying the footprint fix to cells would break
-the case that currently works.
-
-This asymmetry is real and pre-existing: a lone part placed on the back is
-mirrored top-to-bottom, and the same part inside a cell is mirrored
-left-to-right, so the two differ by half a turn. **This spec does not change
-it**, because doing so would move every back-face cell on every board and is a
-separate decision. It does add a cell-flip parity test, so the claim that cells
-already agree is verified rather than asserted - and if that test fails, it is a
-second finding to be specced on its own.
 
 ## Test plan
 
-The parity test is the deliverable, not the transform edit.
+The parity test is the deliverable; the two-line edit is not.
 
 With KiCad, against the committed Breakout:
 
-1. **Footprint parity across every generated rotation.** The Breakout carries
-   a suitable multi-pad front footprint at each of the four: `U7` at `r=0`,
-   `U2` at 90, `U8` at 180, `U5` at 270. Place each on the back at `t` in
-   {0, 90, 180, 270}, write the board, read it back, and assert every pad from
-   `Occupancy.pad_location` matches the file within 1e-6 mm. Sixteen
-   combinations; today eight of them are wrong.
-2. **The same for a part left on the front**, so the fix is shown not to
-   disturb the unflipped path.
-3. **Cell parity.** Flip a cell to the back at each rotation and compare its
-   members' pads the same way. Asserted, not assumed.
-4. **Byte stability.** Writing the same plan twice is still byte-identical
-   (`test_write_roundtrip` already covers this; it must keep passing).
+1. **Footprint parity across every generated rotation.** The Breakout carries a
+   suitable multi-pad front footprint at each: `U7` at `r=0`, `U2` at 90, `U8`
+   at 180, `U5` at 270. Place each on the back at `t` in {0, 90, 180, 270},
+   write, read back, and assert every pad from `Occupancy.pad_location` matches
+   the file within 1e-6 mm. Sixteen combinations; today eight are wrong.
+2. **The unflipped path is undisturbed**: the same sixteen with
+   `face=Face.FRONT`.
+3. **Cell parity**, the same way, at each rotation. Cells are expected to pass
+   before and after; the test exists so "cells were already right" is checked
+   rather than asserted.
+4. **A part and a cell containing only that part land in the same place** when
+   both are flipped to the back at the same rotation. This is the asymmetry,
+   and it is the test that would have caught it.
+5. **Byte stability**: `test_write_roundtrip`'s identical-plan-twice test keeps
+   passing.
 
 Without KiCad:
 
-5. `_transform` on a synthetic part at `r=90` flipped to the back puts a known
-   asymmetric pad at the hand-computed point - a unit test that fails on the
-   old transform for a reason that can be read without KiCad.
-6. An unflipped placement's transform is unchanged for every `r`.
+6. `_transform` on a synthetic part at `r=90` flipped to the back puts a known
+   asymmetric pad at a hand-computed point; the test fails on the old transform
+   for a reason readable without KiCad.
+7. An unflipped placement's transform is unchanged for every `r`.
 
 ## Documentation
 
-- `api.md`, under Placement: what `rotation=` means on `face=Face.BACK`, and
-  that a cell and a lone part flip about different axes.
-- `references/migration.md`: a new section. Back-face parts move; a script
-  that monkeypatched `Occupancy._transform` must drop the patch, and one that
-  compensated by hand in its rotations must take the compensation out.
+Three files, and none of them is optional: this changes what a script MEANS,
+so a reader who does not learn the new rule writes a board that is half a turn
+wrong and cannot see why.
+
+**`api.md`**, under Placement and under Layers and faces: a flip to the back
+mirrors about the vertical axis, the same for a part and a cell, matching
+KiCad's F key; `rotation=` is applied after the mirror; KiCad's orientation
+field reads `rotation + 180` for a back-face part, which is what its own flip
+produces.
+
+**`SKILL.md`**, two changes:
+
+- A sentence in Placement tactics saying what a flip is, because an agent
+  placing a part on the back has no way to know otherwise and the wrong guess
+  is invisible until DRC: *"A flip to the back mirrors about the vertical axis
+  - KiCad's F key - and `rotation=` is applied after it. A part and a cell flip
+  the same way. KiCad's own orientation field will read `rotation + 180`."*
+- The legacy-detection line near the top gains this release's marker, so the
+  check catches a script written against the old convention:
+
+  ```sh
+  grep -nE "Priority\.(FIXED|EDGE)|priority=Priority\.(HIGH|LOW)|Occupancy\._transform" <script>
+  ```
+
+  A monkeypatch of `Occupancy._transform` is the one mechanically detectable
+  sign. A script that compensated by hand, with `rotation=180` where it meant
+  0, cannot be grepped for, which is why the migration section leads with how
+  to recognise it on the board.
+
+**`references/migration.md`**: a new section, below.
 
 ## Out of scope
 
-- Making a lone part and a cell member flip about the same axis. Worth
-  deciding, but it moves every back-face cell and belongs in its own spec with
-  its own migration note.
 - `read_board` reporting a placed pad's position as a query. That is the
-  `placemat measure` work from `PLACEMAT_GAPS.md`, and this spec's parity test
-  builds the mechanism it would use.
+  `placemat measure` work in `PLACEMAT_GAPS.md`; this spec's parity test builds
+  the mechanism it would use.
+- A `[place] flip_axis` setting. A flip axis changes what a script MEANS, so two
+  boards in one repository could read the same and differ. It is a definition,
+  not a preference.
 
 ## Migration
 
-**Every back-face part moves**, or rather every back-face part that was being
-written somewhere other than where it was planned now agrees with the plan. On
-a board whose script was tuned against the written result, the parts will
-appear to move by half a turn; on one tuned against the plan, they will stop
-moving.
+`references/migration.md` is currently one document for one release. It gains a
+section per release, newest first, and `SKILL.md`'s check points at the file
+rather than at a version - otherwise the second migration overwrites the first
+and a project two releases behind is stranded.
 
-`boards/main/Main_layout.py` must drop its `Occupancy._transform`
-monkeypatch. The patch is currently masking the bug for the parts at generated
-rotation 0 and 180 and creating it for those at 90 and 270, so removing it and
-taking the fix is strictly better, but the board will re-place and needs a DRC
-read afterwards.
+**Back-face parts move. Cells do not.** A cell's flip is unchanged, and a board
+with no back-face parts is unaffected - the Breakout writes identical bytes.
 
-A board with no back-face parts is unaffected. The Breakout is single-sided in
-this sense and is expected to write identical bytes.
+`boards/main/Main_layout.py` must drop its `Occupancy._transform` monkeypatch.
+It is currently masking the bug for parts at generated rotation 0 and 180 and
+creating it for those at 90 and 270, so removing it and taking the fix is
+strictly better; the board re-places and wants a DRC read afterwards.
+
+A script that compensated by hand - a back-face part carrying `rotation=180`
+where `rotation=0` was meant - must take the compensation out. The symptom of a
+missed one is a part 180 degrees from where the script reads.
+
+A board that placed a part on the back and a cell containing a similar part on
+the back, and tuned both against the written result, will find the part moves
+and the cell does not.

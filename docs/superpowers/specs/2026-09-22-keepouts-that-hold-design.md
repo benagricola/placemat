@@ -266,14 +266,27 @@ With KiCad:
 
 ## Documentation
 
-- `api.md`, Keepouts: `layers=` narrows what is CHECKED as well as what is
-  written; a region may hang off the board edge and only the on-board part
-  does anything; a stamped cell's regions arrive with it and are honoured.
-- `api.md`: `metrics.seeded_by_net` in the run record.
-- `SKILL.md`: read the `seeded` line - one net seeding most of the board means
-  a missing `plane()`, not a placement problem.
-- `references/migration.md`: a board that worked round the layer bug with
-  `allow=` should take the nets back out.
+**`api.md`**, Keepouts: `layers=` narrows what is CHECKED as well as what is
+written; a region may hang off the board edge and only the on-board part does
+anything, while a region wholly off it is an error; a stamped cell's regions
+arrive with it and are honoured. Plus `metrics.seeded_by_net` in the run
+record.
+
+**`SKILL.md`**, three changes:
+
+- In the loop: read the `seeded` line. One net seeding most of the board is a
+  missing `plane()`, not a placement problem. This is the report's whole point
+  and it is worthless if nobody is told to look at it.
+- In Placement tactics: a keepout's `layers=` now narrows what is checked, so
+  **do not widen `allow=` to silence a complaint about copper on another
+  layer** - that was the old workaround and it admits the net on the layers
+  that matter. This is the instruction that stops the workaround being
+  reinvented.
+- A note that a stamped cell brings its module's regions with it, so a parent
+  may newly report parts and copper inside a clearance it never declared - and
+  that those findings are real.
+
+**`references/migration.md`**: a new section, below.
 
 ## Out of scope
 
@@ -288,6 +301,10 @@ With KiCad:
   and inventing a mapping is a bigger question than this spec.
 
 ## Migration
+
+`references/migration.md` gains a section for this release. It is currently one
+document for one release; it becomes a section per release, newest first, with
+`SKILL.md`'s check line pointing at the file rather than at a version.
 
 No script changes are required, and no existing test changes behaviour except
 by getting stricter.
