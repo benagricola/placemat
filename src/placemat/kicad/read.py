@@ -130,9 +130,9 @@ def _pads(board, fp, err_nm: int = CLEAR_ERR_NM) -> tuple[PadGeom, ...]:
         attr = pad.GetAttribute()
         if attr == pcbnew.PAD_ATTRIB_NPTH:
             continue
-        cu = [l for l in pad.GetLayerSet().CuStack()]
+        cu = [l for l in pad.GetLayerSet().CuStack() if board.IsLayerEnabled(l)]
         if not cu:
-            continue
+            continue                    # nothing on a layer this board has
         outs = outlines_of(pad, cu[0], err_nm)
         if not outs:
             continue
@@ -169,9 +169,9 @@ def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, .
     items = []
 
     def add(kind, obj, net, owner=None, width=0.0):
-        cu = [l for l in obj.GetLayerSet().CuStack()]
+        cu = [l for l in obj.GetLayerSet().CuStack() if board.IsLayerEnabled(l)]
         if not cu:
-            return
+            return                      # nothing on a layer this board has
         outs = outlines_of(obj, cu[0], err_nm)
         if not outs:
             return
