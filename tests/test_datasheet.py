@@ -143,3 +143,15 @@ def test_a_hairline_is_not_a_pad():
     printing it as "16 of 0 x 0" told a reader nothing."""
     hairs = [_rect(0.02, 0.02) for _ in range(16)]
     assert ds.rectangles(hairs) == ()
+
+
+def test_the_shape_evidence_names_its_unit_and_does_not_claim_pads():
+    """`183 of 3 x 5` reads as 183 pads of 3 x 5 mm. They are PDF points, and
+    on the TYPE-C sheet that cluster is glyph strokes in the notes column
+    sitting on 42 evenly spaced text rows, not a contact array. The evidence
+    says a shape repeats; it does not say what the shape is."""
+    rects = [_rect(3.0, 5.0) for _ in range(183)]
+    (ev,) = [e for e in ds.page_evidence("land", [], rects) if e.kind == "rects"]
+    assert "pt" in ev.detail
+    assert "pad" not in ev.detail.lower()
+    assert "183" in ev.detail

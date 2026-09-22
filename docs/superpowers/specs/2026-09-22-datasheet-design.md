@@ -25,7 +25,7 @@ PDF can hold in principle.
 | pages: median / p90 / max | 16 / 61 / 114 |
 | under 12 pages | 31 (46%) |
 | embedded raster images | essentially none |
-| `tesseract` on this machine | not installed |
+| `tesseract` on this machine | installed (apt `tesseract-ocr` 5.3.4) |
 
 **The 7 text-poor files are the connectors and the inductors.** The TYPE-C
 receptacles used on the fairing board carry 0 to 55 characters of text between
@@ -34,10 +34,14 @@ land pattern is most worth checking, so any design that depends on text
 extraction fails where it is needed most.
 
 **The geometry is there even when the text is not.** The TYPE-C 31-M-12 page
-holds 5204 stroke paths and 812 fill paths, and among them 36 identical
-41 x 27 rectangles - a contact array. What the drawing cannot supply on its own
-is scale: with no text there is no dimension to anchor against, so the geometry
-gives topology and ratios, not millimetres.
+holds 5724 paths, 870 of them axis-aligned boxes, the largest equal-sized group
+being 183 of 3 x 5 pt. That group is NOT the contact array: those boxes sit on
+42 evenly spaced rows in the notes column and are glyph strokes in outlined
+text. The signal is real but modest - it separates a page of drawing from a
+page of prose, which is what the index needs - and it is not a pad finder.
+What the drawing cannot supply on its own is scale: with no text there is no
+dimension to anchor against, so the geometry gives topology and ratios, not
+millimetres, and picking the pads out of 870 boxes is the open problem.
 
 **Vendors do not share a vocabulary.** A keyword list matching "land pattern",
 "recommended pad", "PCB layout" and five more finds a land pattern in 34 of 67.
@@ -61,11 +65,20 @@ In the order the command tries them:
 3. **Page render** - `pdftoppm -r 300`. Always works. This is what puts the
    drawing in front of a human or a vision-capable agent, and it is the reason
    the command is useful on a datasheet it cannot parse at all.
-4. **OCR** - `tesseract`, used when it is installed and skipped with a printed
-   note when it is not. Outlined dimension text renders crisply, so OCR is the
-   one thing that would give the text-poor 7 their numbers. It is optional
-   rather than required because placemat depends on no service that must be
-   installed for the ordinary path to work.
+4. **OCR** - `tesseract` over the 300 dpi render, used when it is installed
+   and skipped with a printed note when it is not. Outlined dimension text
+   renders crisply, and measured on the TYPE-C 31-M-12 it recovers the
+   dimension stack, the pin labels, `UNIT: mm`, `SCALE: 1:1` and the
+   `RECOMMEND P.C.B LAYOUT` heading that moves that page's `land` from `fair`
+   to `strong`. Two details decide whether it works: tesseract's TSV is
+   word-level, so runs are grouped by its block/paragraph/line columns or a
+   heading arrives in fragments, and each word carries a confidence that
+   travels into the provenance. It reads wrong as well as right - 4.55 came
+   back as 4.95 at confidence 78 against 86-96 for its correct neighbours - so
+   a confidence floor removes noise but not every misread, and `check` against
+   the real footprint is what catches the rest. Optional rather than required,
+   because placemat depends on no service that must be installed for the
+   ordinary path to work.
 
 ## The command
 
@@ -114,7 +127,7 @@ against the render in one step.
 ```
 datasheet read land TDK-ANT016008LCS2442MA1
 datasheet   unit        mm            p7 "[ Unit : mm ]"          bbox 344,571
-datasheet   pads        2             p7 rectangle cluster        2 of 41x27
+datasheet   pads        2             p7 rectangle cluster        2 repeated 12 x 8 pt
 datasheet   pitch       -             not sourced
 datasheet   keepout     all layers    p7 "Antenna keep out area (All Layer GND off)"
 ```
@@ -126,15 +139,18 @@ What `--read` sourced is used automatically; anything it could not source, or
 got wrong, is supplied as a flag.
 
 **An override is an anchor, not a retype.** For a drawing with no text, one
-supplied dimension scales the whole recovered geometry: given `--pitch 0.5`,
-the 36 rectangles the TYPE-C page holds become millimetres, and the pad size,
-span and count all follow without being typed. This is what makes the
-text-poor 7 tractable rather than hopeless.
+supplied dimension scales the recovered geometry: given `--pitch 0.5`, the
+boxes picked out as the pad row become millimetres, and the pad size, span and
+count follow without being typed. This is what makes the text-poor 7 tractable
+rather than hopeless. Which boxes are the pad row is the open problem named
+above: 870 of the TYPE-C page's paths are axis-aligned and the largest equal
+group is outlined text, so the pads are found by their own regularity - equal
+boxes on one line at one pitch - not by being the commonest shape.
 
 ```
 placemat datasheet check TYPE_C_31_M_12.pdf TYPE-C-31-M-12.kicad_mod --pitch 0.5
 
-check  scale     anchored on pitch 0.5 (supplied); 36 rects on p1 -> mm
+check  scale     anchored on pitch 0.5 (supplied); 24 boxes on p1 -> mm
 check  pitch     0.500 datasheet   0.500 footprint   ok
 check  pad       0.30 x 1.30       0.30 x 1.30       ok
 check  pads      24                26                MISMATCH (2 extra: A1B12, B1A12)

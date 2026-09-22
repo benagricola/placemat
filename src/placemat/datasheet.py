@@ -39,9 +39,9 @@ _UNIT = ((re.compile(r"\bmm\b|\bmillimet", re.I), "mm"),
          (re.compile(r"\binch(es)?\b|\bmils?\b", re.I), "inch"))
 
 
-# A pad is not twenty times longer than it is wide. A table's rules are
-# axis-aligned boxes too - the antenna's terminal-function page draws nine of
-# 1 x 42 - and counting them as pads made a page of prose look like a pad row.
+# Nothing a drawing repeats is twenty times longer than it is wide except a
+# rule or a border. The antenna's terminal-function page draws nine boxes of
+# 1 x 42, and counting those made a page of prose look like a page of drawing.
 MAX_PAD_ASPECT = 20.0
 
 # Smaller than this in PDF points and a path cannot be sized meaningfully: it
@@ -66,9 +66,14 @@ def rectangles(paths) -> tuple:
 
 
 def clusters(rects, tol: float = 0.5) -> list:
-    """Rectangles of the same size, largest group first. A land pattern is a
-    row of identical pads, so the biggest group of equal rectangles is the
-    strongest geometric evidence a page carries."""
+    """Rectangles of the same size, largest group first, in PDF points.
+
+    This says a shape repeats on the page. It does NOT say the shape is a pad:
+    on the TYPE-C sheet the biggest group is 183 boxes of 3 x 5 pt sitting on
+    42 evenly spaced rows in the notes column - glyph strokes in outlined
+    text. What the signal is good for is telling a page of drawing from a page
+    of prose, which is the index's question. Finding the pads themselves is a
+    different job and a harder one."""
     groups = {}
     for r in rects:
         key = (round(r.box.width / tol) * tol, round(r.box.height / tol) * tol)
@@ -116,10 +121,10 @@ _COMPILED = {t: [re.compile(p, re.I) for p in pats] for t, pats in KEYWORDS.item
 # geometry says nothing, so it is not offered as evidence at all.
 CLUSTER_FLOOR = 4
 
-# The topics a drawing can argue for. A row of identical rectangles says "a
-# land pattern or a package outline"; it says nothing about a pin table or a
-# paragraph of layout rules, and offering it to those made a text-free
-# connector rank every topic alike.
+# The topics a drawing can argue for. Repeated drawn detail says "this page is
+# a drawing", which narrows it to a land pattern or a package outline; it says
+# nothing about a pin table or a paragraph of layout rules, and offering it to
+# those made a text-free connector rank every topic alike.
 _DRAWN_TOPICS = ("land", "package")
 
 
@@ -163,7 +168,7 @@ def page_evidence(topic: str, runs, paths) -> tuple:
         groups = clusters(rectangles(paths))
         if groups and groups[0][1] >= CLUSTER_FLOOR:
             (w, h), n = groups[0]
-            out.append(Evidence("rects", "%d of %.3g x %.3g" % (n, w, h)))
+            out.append(Evidence("rects", "%d repeated %.3g x %.3g pt" % (n, w, h)))
     dims = dimension_numbers(runs)
     if len(dims) >= 3:
         out.append(Evidence("dims", "%d dimension(s)" % len(dims)))
