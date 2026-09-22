@@ -478,3 +478,28 @@ def test_the_docs_say_what_a_keepout_now_holds():
     assert "allow=" in skill                      # the do-not-widen instruction
     mig = Path("skills/placemat/references/migration.md").read_text()
     assert "0.7" in mig and "0.6" in mig          # a section per release, both present
+
+
+def test_a_free_region_is_not_judged_by_a_hole_s_rules():
+    """A region may touch the board edge, hang off it, and lie over a part it
+    allows. A hole may do none of those, so a sliding region must not be
+    tested as a hole: it would be pushed inboard, or refused outright."""
+    b = make_board("u1", keep_going=True)
+    b.size(width=40.0, height=40.0, web=2.0)
+    # free in x, so it slides; wide enough that every candidate touches the edge
+    b.keepout(Circle(38.0), "band", at=Centre(None, 20.0), why="the seal band")
+    plan = b.resolve()
+    assert "band" in plan.keepouts, plan.findings
+    assert any("band" in r.why for r in plan.occupancy.reservations)
+
+
+def test_a_free_region_may_sit_over_a_part_that_is_already_placed():
+    """A hole through a placed part is refused; a region over one is ordinary
+    - that is what allow= is for."""
+    b = make_board("u1", keep_going=True)
+    b.size(width=40.0, height=40.0)
+    b.place(Part("u1"), at=Location(20.0, 20.0))
+    b.keepout(Circle(12.0), "over_it", at=Centre(None, 20.0),
+              allow=(Part("u1"),), why="its own matching network lives here")
+    plan = b.resolve()
+    assert "over_it" in plan.keepouts, plan.findings

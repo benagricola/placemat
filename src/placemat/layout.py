@@ -757,7 +757,9 @@ class Board:
         travel, which is almost always just the board's edge.
 
         `illegal` is the test, because a hole's legality is not a keepout's: a
-        region may touch the board edge and may lie over a part it allows."""
+        region may touch the board edge, hang off it, and lie over a part it
+        allows, so the keepout path passes `_keepout_unusable` and only a hole
+        falls back to `_cutout_illegal`."""
         if illegal is None:
             def illegal(path):
                 return self._cutout_illegal(occ, path, region.name)
@@ -769,6 +771,17 @@ class Board:
             if nearest is None:
                 nearest = why
         raise ValueError("has nowhere legal to go: %s" % (nearest or "nowhere on the board"))
+
+    def _keepout_unusable(self, path) -> str | None:
+        """Why a region may not go here, or None.
+
+        A keepout may touch the board edge, hang off it, and lie over anything
+        it allows: a hole's rules are not a region's, so a sliding region must
+        not be judged by `_cutout_illegal` or it would be pushed inboard and a
+        band round the rim would be refused outright. The only place a region
+        cannot go is entirely off the board, where it would forbid nothing."""
+        outside, total = self._points_off_board(path)
+        return "is wholly off the board" if outside == total else None
 
     def _points_off_board(self, path) -> tuple:
         """(points outside the board, points in all) for a region's boundary.
@@ -1849,7 +1862,8 @@ class Board:
             k = intent.keepout
             if self._cutout_free(k):
                 try:
-                    centre, turn = self._slide_cutout(occ, k)
+                    centre, turn = self._slide_cutout(
+                        occ, k, illegal=lambda path: self._keepout_unusable(path))
                     why = None
                 except ValueError as e:
                     centre, turn, why = self.centre, 0.0, str(e)
