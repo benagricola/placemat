@@ -143,13 +143,38 @@ def polys_overlap(a: Polygon, b: Polygon) -> bool:
     crossed no edge and read as clear. Any vertex strictly inside decides it,
     which can only find an overlap the first-vertex test missed, never make
     edges that merely touch count."""
-    if point_in_polygon(a[0], b) or point_in_polygon(b[0], a):
+    ax0, ay0, ax1, ay1 = _bounds(a)
+    bx0, by0, bx1, by1 = _bounds(b)
+    if ax0 >= bx1 or bx0 >= ax1 or ay0 >= by1 or by0 >= ay1:
+        return False                    # boxes apart or touching: no shared interior
+    # What follows is the full test with what the boxes rule out skipped: a
+    # point outside the other's box (closed) is not inside it, and an edge
+    # whose box misses the other polygon's box crosses none of its edges.
+    def within(p, x0, y0, x1, y1):
+        return x0 <= p[0] <= x1 and y0 <= p[1] <= y1
+    if (within(a[0], bx0, by0, bx1, by1) and point_in_polygon(a[0], b)) or \
+            (within(b[0], ax0, ay0, ax1, ay1) and point_in_polygon(b[0], a)):
         return True
-    for p1, p2 in _edges(a):
-        for q1, q2 in _edges(b):
+    ea = [(p1, p2) for p1, p2 in _edges(a) if _edge_meets(p1, p2, bx0, by0, bx1, by1)]
+    eb = [(q1, q2) for q1, q2 in _edges(b) if _edge_meets(q1, q2, ax0, ay0, ax1, ay1)]
+    for p1, p2 in ea:
+        for q1, q2 in eb:
             if segments_intersect(p1, p2, q1, q2):
                 return True
-    return any(_strictly_inside(p, b) for p in a[1:]) or any(_strictly_inside(q, a) for q in b[1:])
+    return any(within(p, bx0, by0, bx1, by1) and _strictly_inside(p, b) for p in a[1:]) or \
+        any(within(q, ax0, ay0, ax1, ay1) and _strictly_inside(q, a) for q in b[1:])
+
+
+def _bounds(poly: Polygon):
+    xs = [p[0] for p in poly]
+    ys = [p[1] for p in poly]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _edge_meets(p1: Point, p2: Point, x0: float, y0: float, x1: float, y1: float) -> bool:
+    """The edge's box meets the closed box (x0, y0)-(x1, y1)."""
+    return (min(p1[0], p2[0]) <= x1 and max(p1[0], p2[0]) >= x0
+            and min(p1[1], p2[1]) <= y1 and max(p1[1], p2[1]) >= y0)
 
 
 def point_segment_distance(p: Point, a: Point, b: Point) -> float:

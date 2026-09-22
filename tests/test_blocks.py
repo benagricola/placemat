@@ -197,3 +197,49 @@ def test_a_coarse_search_that_finds_nothing_still_walks_the_fine_grid():
     fine = sum(1 for _ in _grid(Location(30.0, 30.0), 6.0, 0.2))
     assert best is None                                     # there is genuinely nowhere
     assert tried >= fine, "gave up after %d of %d candidates" % (tried, fine)
+
+
+def test_a_block_scan_gathers_each_members_obstacles_once(monkeypatch):
+    """layout_block asks legal() for every satellite at every gap and turn;
+    gathering the board's obstacles afresh for each was most of a large
+    board's run. A scan gathers them once per member, as a part's scan does."""
+    from placemat.occupancy import Occupancy
+    calls = []
+    real = Occupancy.obstacles
+
+    def counting(self, geom, region=None):
+        calls.append(region)
+        return real(self, geom, region)
+    b = make_board()
+    b.place(Part("wall"), at=Location(30, 20))
+    b.place(Part("j1"), at=Location(5, 5))
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN"), (Part("cout"), "VOUT")], gap=None)
+    b.place(blk, at=Near(Location(30, 40), radius=4.0, step=0.5))
+    monkeypatch.setattr(Occupancy, "obstacles", counting)
+    plan = b.resolve()
+    assert plan.findings == []
+    assert sum(r is not None for r in calls) == 3          # the block's three members, once each
+    assert sum(r is None for r in calls) == 2, len(calls)  # the two fixed parts' own legality checks
+
+
+def test_a_block_lands_where_it_did_with_the_obstacles_gathered_once():
+    """The placements are those of the per-call gather, to the nanometre."""
+    import placemat.placer as placer
+    from placemat.occupancy import Occupancy
+
+    def run():
+        b = make_board()
+        b.place(Part("wall"), at=Location(30, 20))
+        b.place(Part("j1"), at=Location(5, 5))
+        blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN"), (Part("cout"), "VOUT")], gap=None)
+        b.place(blk, at=Near(Location(30, 24), radius=6.0, step=0.25))
+        plan = b.resolve()
+        return {k: plan.placement(k) for k in ("ldo", "cin", "cout")}
+    fast = run()
+    real = placer.layout_block
+    try:
+        placer.layout_block = lambda occ, spec, anchor, clearance=None, others=None: real(occ, spec, anchor, clearance)
+        slow = run()
+    finally:
+        placer.layout_block = real
+    assert fast == slow

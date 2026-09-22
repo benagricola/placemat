@@ -394,12 +394,14 @@ GAP_REACH = 2.0
 this the part is not at its pin. `[place] block_gap_reach`."""
 
 
-def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=None):
+def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=None, others=None):
     """Satellite placements for the block with its anchor at `anchor`, or a
     reason the block cannot sit there. Each satellite's pad on its served
     net lands on the anchor pin's axis, `gap` beyond the pin, with the
-    satellite's body outward of its pad."""
-    why = occ.legal(spec.anchor, anchor, clearance)
+    satellite's body outward of its pad. `others`, from `block_obstacles`,
+    is each member's obstacles gathered once for a whole scan."""
+    others = others or {}
+    why = occ.legal(spec.anchor, anchor, clearance, others=others.get(spec.anchor.inst))
     if why:
         return None, "anchor: " + why
     pads = occ.candidate_pad_locations(spec.anchor, anchor)
@@ -435,7 +437,7 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
                 outward = (body.x - target.x) * ux + (body.y - target.y) * uy      # body beyond its pad, away from the anchor
                 if outward < -1e-6:
                     continue
-                reason = occ.legal(sat, cand, clearance)
+                reason = occ.legal(sat, cand, clearance, others=others.get(sat.inst))
                 if reason:
                     continue
                 _, sshapes = occ.candidate_shapes(sat, cand)
@@ -452,6 +454,30 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
         out[sat.inst] = best[1]
         taken += best[2]
     return out, None
+
+
+def _extent(occ: Occupancy, item) -> float:
+    """How far any of the item's shapes reaches from its origin, at any turn."""
+    g = occ._geometry(item)
+    o = g.reference.location
+    return max(math.hypot(x - o.x, y - o.y) for sh in g.shapes
+               for x in (sh.box.left, sh.box.right) for y in (sh.box.top, sh.box.bottom))
+
+
+def block_obstacles(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float) -> dict:
+    """Each member's obstacles within reach of any layout of the block whose
+    anchor is within `radius` of the hint: the anchor spans its own extent
+    about its origin; a satellite's pad lands at most the anchor's extent plus
+    the widest gap plus its own extent from the anchor's origin, and its
+    shapes reach its extent again past that pad."""
+    anchor = _extent(occ, spec.anchor)
+    sats = [_extent(occ, sat) for sat, _ in spec.satellites]
+    gap = spec.gap if spec.gap is not None else occ.settings.place_block_gap_reach
+    reach = radius + 2 * anchor + gap + 3 * max(sats, default=0.0)
+    x, y = hint.location.x, hint.location.y
+    region = Box(x - reach, y - reach, x + reach, y + reach)
+    return {m.inst: occ.obstacles(occ._geometry(m), region)
+            for m in [spec.anchor] + [sat for sat, _ in spec.satellites]}
 
 
 def _half_extent(box: Box, ux: float, uy: float) -> float:
@@ -472,6 +498,7 @@ def scan_block(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float, 
     tried = 0
     hx, hy = hint.location.x, hint.location.y
     seen: set = set()
+    others = block_obstacles(occ, spec, hint, radius)
 
     def sweep(points, stop_at_first: bool) -> list:
         """Lay the block out at every (x, y) in `points` at every rotation;
@@ -485,7 +512,7 @@ def scan_block(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float, 
                 seen.add((x, y, rot))
                 cand = Placement(Location(x, y), rot, hint.face)
                 tried += 1
-                members, why = layout_block(occ, spec, cand, clearance)
+                members, why = layout_block(occ, spec, cand, clearance, others)
                 if members is None:
                     key = _reason_key(why)
                     rejected[key] += 1

@@ -61,6 +61,43 @@ class Reservation:
         return Box.of_points(self.poly)
 
 
+class ShapeIndex(list):
+    """A scan's obstacles, and a uniform grid over their boxes so a candidate
+    only tests the shapes in the cells it covers. `near` answers what the
+    linear filter would, in the list's own order, because `legal` reports
+    the first conflict it finds. Small lists are filtered directly."""
+    CELL = 2.0          # mm; a pad or a passive's courtyard spans one to four cells
+    LINEAR = 48         # below this many shapes the grid costs more than it saves
+
+    def __init__(self, shapes=()):
+        super().__init__(shapes)
+        self._grid = None
+        self._asked = 0
+
+    def _cells(self, box: Box):
+        c = self.CELL
+        return (range(math.floor(box.left / c), math.floor(box.right / c) + 1),
+                range(math.floor(box.top / c), math.floor(box.bottom / c) + 1))
+
+    def near(self, box: Box, gap: float) -> list:
+        self._asked += 1
+        if len(self) < self.LINEAR or (self._grid is None and self._asked == 1):    # one question: no grid worth building
+            return [o for o in self if o.box.overlaps(box, gap=gap)]
+        if self._grid is None:
+            self._grid = {}
+            for k, o in enumerate(self):
+                xs, ys = self._cells(o.box)
+                for x in xs:
+                    for y in ys:
+                        self._grid.setdefault((x, y), []).append(k)
+        xs, ys = self._cells(box.inflate(gap))
+        hits = set()
+        for x in xs:
+            for y in ys:
+                hits.update(self._grid.get((x, y), ()))
+        return [self[k] for k in sorted(hits) if self[k].box.overlaps(box, gap=gap)]
+
+
 @dataclass
 class ItemGeometry:
     """A footprint's or cell's shapes in world coordinates at its CURRENT
@@ -385,7 +422,7 @@ class Occupancy:
         out += [c for c in self.copper if c.owner not in skip]
         if region is not None:
             out = [o for o in out if o.box.overlaps(region, gap=self._gap)]
-        return out
+        return ShapeIndex(out)
 
     def legal(self, item, placement: Placement, clearance: float | None = None, others=None,
               past_edge: bool = False, blame: list | None = None) -> str | None:
@@ -431,7 +468,8 @@ class Occupancy:
                 return "sits in the reservation for %s" % r.why
         if others is None:
             others = self.obstacles(geom)
-        near = [o for o in others if o.box.overlaps(body, gap=self._gap)]
+        near = others.near(body, self._gap) if isinstance(others, ShapeIndex) else \
+            [o for o in others if o.box.overlaps(body, gap=self._gap)]
         if not near:
             return None
         # Only a shape whose moved box reaches an obstacle is worth moving as a polygon.
