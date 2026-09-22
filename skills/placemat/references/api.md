@@ -876,6 +876,10 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `timeout.render` | 300 | seconds for a render |
 | `noise.patterns` | none | extra KiCad stderr patterns to suppress, ADDED to the built-ins |
 | `best.airwire_noise` | 0.01 | how far airwire may move, as a fraction, before a run counts as better or worse than its family's best: kicad-cli picks different ratsnest edges each run for a byte-identical board |
+| `solve.enabled` | false | give the searched tier its hints from a global solve of the whole netlist, before any item is scanned |
+| `solve.iterations` | 200 | the solve's conjugate-gradient cap per axis per round |
+| `solve.tolerance` | 1e-06 | the residual the solve stops at |
+| `solve.rounds` | 8 | solve-then-spread rounds, the pull toward the spread doubling each round |
 
 A run also records `metrics.seeded_by_net`: how many searched items each net
 seeded. One net seeding most of the board is a missing `board.plane()`.

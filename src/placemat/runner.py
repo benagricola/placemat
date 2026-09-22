@@ -253,6 +253,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         metrics = {"board": [round(plan.outline.width, 3), round(plan.outline.height, 3)] if plan.outline else None,
                    "findings": len(plan.findings), "placed": n_place, "copper_ops": n_copper,
                    "seeded_by_net": dict(plan.seeded_by_net), **extent_metrics}
+        if plan.solve:
+            metrics["solve"] = dict(plan.solve)
         if drc:
             t0 = time.time()
             report = run_drc(src.pcb, run_dir / "drc.json")

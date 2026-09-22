@@ -413,6 +413,7 @@ class Plan:
     cutouts_placed: dict = field(default_factory=dict)           # every named cutout, once it has a place
     keepouts: dict = field(default_factory=dict)                 # every named keepout, once it has a place
     seeded_by_net: Counter = field(default_factory=Counter)      # net -> how many items it seeded
+    solve: dict = field(default_factory=dict)                     # what the global solve did, when it ran
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -518,6 +519,7 @@ class Board:
                  via_drill: float = 0.3, via_size: float = 0.6, keep_going: bool = False,
                  courtyard_excess: float = 0.1, settings: Settings | None = None):
         self.settings = settings if settings is not None else Settings()
+        self._solve_hints = None
         self.geometry = geometry
         self.courtyard_excess = courtyard_excess    # the fab's assembly margin round a part: the only spacing that comes free
         self.edge_margin = geometry.edge_clearance if edge_margin is None else edge_margin
@@ -1564,6 +1566,74 @@ class Board:
                     out.append(((fp.ref, p.number), occ.pad_location(other.owner, other.number), w))
         return out
 
+    def _solvable(self, i) -> bool:
+        """A searched item placed by the plain search: the one path the solve
+        seeds. Anything with a line, an edge, a rim or a hint of its own keeps
+        the path it has."""
+        return (not i.freedom.decided and i.near is None and i.at is None and i.center is None
+                and i.edge is None and i.pin_x is None and i.pin_y is None and i.run is None
+                and i.rim is None and i.angle is None and i.radius_at is None)
+
+    def _global_hints(self, occ: Occupancy, placed: set, plan: Plan) -> dict:
+        """Where every searched item not yet placed would sit if the whole
+        netlist pulled at once, solved once per resolve at the first searched
+        item. Placed items are anchors at their pads. A plane's or free net's
+        connections pull only through a declared link, as for the seed, and
+        every declared link is one more spring at its weight. An item nothing
+        pulls gets no hint and falls through to the pocket scan."""
+        if self._solve_hints is not None:
+            return self._solve_hints
+        from . import solve
+        self._solve_hints = {}
+        movable = [i for i in self._intents if self._solvable(i) and not (
+            ({fp.ref for fp in i.item.members} if i.kind == "cell" else {i.item.ref}) & set(placed))]
+        box = occ.board_box
+        if not movable or box is None:
+            return self._solve_hints
+        quiet = self._plane_nets() | self._free_nets
+        by_net, owner_of = {}, {}
+        for i in movable:
+            offsets = occ.candidate_pad_locations(i.item, Placement(Location(0.0, 0.0), i.rotation, i.face))
+            fps = i.item.members if i.kind == "cell" else (i.item,)
+            for fp in fps:
+                owner_of[fp.ref] = i.key
+                for p in fp.pads:
+                    off = offsets.get((fp.ref, p.number))
+                    if p.net and off is not None:
+                        by_net.setdefault(p.net, []).append(solve.Pin(i.key, off.x, off.y, (fp.ref, p.number)))
+        for fp in self.geometry.footprints:
+            if fp.ref not in placed:
+                continue
+            for p in fp.pads:
+                if p.net in by_net:
+                    at = occ.pad_location(fp.ref, p.number)
+                    by_net[p.net].append(solve.Pin(None, at.x, at.y, (fp.ref, p.number)))
+        nets = {n: pins for n, pins in by_net.items() if n not in quiet}
+        pins_by_key = {pin.key: pin for pins in by_net.values() for pin in pins}
+        for k, link in enumerate(self._links):
+            a, b = pins_by_key.get(link.a), pins_by_key.get(link.b)
+            if a is not None and b is not None and link.weight > 0:
+                nets["link %d" % k] = [a, b]
+
+        def weight_of(a, b):
+            link = self._declared_link(a.key, b.key)
+            if link is None:
+                return float(LinkWeight.DEFAULT)
+            return float(link.weight)
+
+        pulled = {pin.item for pins in nets.values() if len(pins) >= 2
+                  for pin in pins if pin.item is not None}
+        keep = self.keep_in
+        region = (box.left + keep, box.top + keep, box.right - keep, box.bottom - keep)
+        areas = {i.key: occ._geometry(i.item).body.area for i in movable}
+        result = solve.global_solve([i.key for i in movable], nets, weight_of, areas, region, {},
+                                    self.settings.solve_rounds, self.settings.solve_iterations,
+                                    self.settings.solve_tolerance)
+        self._solve_hints = {k: Location(x, y) for k, (x, y) in result.hints.items() if k in pulled}
+        plan.solve = {"seeded": len(self._solve_hints), "rounds": result.rounds,
+                      "iterations": result.iterations, "residual": result.residual}
+        return self._solve_hints
+
     def _seed_hint(self, item, occ: Occupancy, targets: list, rotation: float, face) -> Placement:
         """Where the item's origin should go for its wired pads to sit on
         the weighted centroid of the placed pads they connect to."""
@@ -1938,6 +2008,7 @@ class Board:
                     rules=list(self._rules), draw_outline=self._draw_outline)
         ctx = _CopperContext(self, occ)
         ctx.plan = plan
+        self._solve_hints = None            # the global solve runs once per resolve, when first asked
         self._report_lost_layers(plan)
         self._rank(occ)
         self._derive_copper_freedom()
@@ -2627,8 +2698,14 @@ class Board:
         current = occ._geometry(i.item).reference
         targets = self._targets(i.item, occ, placed)
         seeded = ""
+        solved = None
+        if i.near is None and self.settings.solve_enabled:
+            solved = self._global_hints(occ, placed, plan).get(i.key)
         if i.near is not None:
             hint = Placement(_locate(self, occ, i.near), i.rotation, i.face)
+        elif solved is not None:
+            hint = Placement(solved, i.rotation, i.face)
+            seeded = "seeded by the global solve"
         elif targets:
             hint = self._seed_hint(i.item, occ, targets, i.rotation, i.face)
             # k[1] here is always a raw pad NUMBER string from _targets() (never
