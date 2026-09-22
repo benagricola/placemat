@@ -45,6 +45,12 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **Run time on large boards** (0.21.1). A 220-part board's resolve went
+  from 945-1167 s to 110 s with identical placements: prepared many-vertex
+  outlines, bounding-box pruning in `polys_overlap`, a block's obstacles
+  gathered once, a grid over a scan's obstacles, and the board raster mask
+  kept. What remains is spread over transforms and box building.
+
 - **Pocket fallback for a seeded item with no room**, and the module
   benchmark that measured it (0.21.0). Spec
   `docs/superpowers/specs/2026-09-22-bench-and-pocket-fallback-design.md`.

@@ -4,6 +4,14 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.21.1
+
+Nothing to change. Placement is faster on large boards - a 220-part board's
+resolve went from about 16 minutes to under 2 - and lands every part where
+0.21 did. Two polygons whose bounding boxes only touch are never counted as
+overlapping; before, a vertex lying exactly on the other's boundary could
+make them so.
+
 ## To 0.21
 
 A part or cell that was UNPLACED because its seeded scan found no legal spot
