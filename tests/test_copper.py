@@ -75,22 +75,26 @@ def test_fixed_copper_is_planned_before_loose_parts_and_blocks_them():
     assert order.index("pour V48") < order.index("r2")
 
 
-def test_default_copper_is_planned_after_loose_parts():
+def test_copper_naming_a_searched_part_is_planned_after_it():
+    """Its shape is not known until the part lands, so it waits."""
+    b = make_board()
+    b.place(Part("r2"), at=Near(Location(30, 20), radius=6.0, step=0.5))
+    b.track(Net("MID"), [PadRef(Part("r2"), "MID"), Location(5, 5)], layer=CopperLayer.F)
+    plan = b.resolve()
+    order = [s.item for s in plan.steps]
+    assert order.index("r2") < order.index("track MID")
+
+
+def test_copper_at_literal_coordinates_is_planned_before_the_search():
+    """Nothing about it depends on where a searched part lands, so planning it
+    early can only help: it becomes an obstacle the search must respect."""
     b = make_board()
     b.place(Part("r2"), at=Near(Location(30, 20), radius=6.0, step=0.5))
     b.pour(Net("V48"), [Location(20, 18), Location(40, 18), Location(40, 22), Location(20, 22)],
            layer=CopperLayer.F)
     plan = b.resolve()
     order = [s.item for s in plan.steps]
-    assert order.index("r2") < order.index("pour V48")
-
-
-def test_fixed_copper_may_not_reference_a_searched_part():
-    b = make_board()
-    b.place(Part("r2"), at=Near(Location(30, 20)))
-    with pytest.raises(ValueError):
-        b.track(Net("MID"), [PadRef(Part("r2"), "MID"), Location(0, 0)], layer=CopperLayer.F,
-                priority=Priority.FIXED)
+    assert order.index("pour V48") < order.index("r2")
 
 
 def test_a_cell_pad_reference_follows_the_placed_cell():
@@ -269,3 +273,66 @@ def test_the_candidate_with_the_fewest_turns_wins_then_the_shortest():
     # arriving horizontally at the far end is needed next: the straight should come last
     pts = route_leg(Location(0, 0), Location(10, 4), False, False, None, (1, 0), lambda a, b: True)
     assert pts[1] == Location(4, 4)
+
+
+def _two_parts():
+    return board_geometry([footprint("U1", 10, 10, w=4, h=2, inst="u1", nets=("A", "GND")),
+                           footprint("R1", 30, 10, w=2, h=1, inst="r1", nets=("GND", "C"))],
+                          width=60, height=60)
+
+
+def test_copper_between_decided_parts_is_fixed():
+    from placemat.values import Freedom
+    b = Board(_two_parts(), edge_margin=1.0)
+    b.size(width=60, height=60)
+    b.place(Part("u1"), at=Location(10, 10))
+    b.place(Part("r1"), at=Location(30, 10))
+    c = b.track(Net("GND"), [PadRef(Part("u1"), "GND"), PadRef(Part("r1"), "GND")], layer=CopperLayer.F)
+    b.resolve()
+    assert c.freedom is Freedom.FIXED
+
+
+def test_copper_naming_a_searched_part_is_searched():
+    from placemat.values import Freedom
+    b = Board(_two_parts(), edge_margin=1.0)
+    b.size(width=60, height=60)
+    b.place(Part("u1"), at=Location(10, 10))
+    b.place(Part("r1"))                                       # searched
+    c = b.track(Net("GND"), [PadRef(Part("u1"), "GND"), PadRef(Part("r1"), "GND")], layer=CopperLayer.F)
+    b.resolve()
+    assert c.freedom is Freedom.SEARCHED
+
+
+def test_copper_declared_before_its_part_is_still_judged_correctly():
+    """The old check ran at declaration time and could not see a placement
+    declared later, so it judged against an incomplete list."""
+    from placemat.values import Freedom
+    b = Board(_two_parts(), edge_margin=1.0)
+    b.size(width=60, height=60)
+    c = b.track(Net("GND"), [PadRef(Part("u1"), "GND"), PadRef(Part("r1"), "GND")], layer=CopperLayer.F)
+    b.place(Part("u1"), at=Location(10, 10))
+    b.place(Part("r1"))                                       # declared AFTER the copper
+    b.resolve()
+    assert c.freedom is Freedom.SEARCHED
+
+
+def test_copper_at_literal_coordinates_is_fixed_and_becomes_an_obstacle():
+    """board.via(net, Location(x, y)) reserves its spot with nothing to
+    remember: a searched part's pad must clear it."""
+    from placemat.values import Freedom
+    b = Board(_two_parts(), edge_margin=1.0)
+    b.size(width=60, height=60)
+    v = b.via(Net("GND"), Location(30.0, 30.0))
+    b.place(Part("u1"), at=Location(10, 10))
+    b.place(Part("r1"))
+    plan = b.resolve()
+    assert v.freedom is Freedom.FIXED
+    assert any(c.net == "GND" and c.kind == "through" for c in plan.occupancy.copper)
+
+
+def test_naming_a_searched_part_no_longer_raises():
+    b = Board(_two_parts(), edge_margin=1.0)
+    b.size(width=60, height=60)
+    b.place(Part("r1"))
+    b.track(Net("GND"), [PadRef(Part("r1"), "GND"), Location(40, 40)], layer=CopperLayer.F)
+    b.resolve()          # no ValueError

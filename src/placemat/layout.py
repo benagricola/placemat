@@ -285,10 +285,12 @@ class CopperIntent:
     why: str = ""
     index: int = 0
     bridge: bool = False        # tracks: may pass under copper they cross
+    owners: frozenset = frozenset()       # refdes its endpoints belong to
+    freedom: Freedom = Freedom.FIXED      # derived in resolve(), once every declaration is in
 
     @property
     def rank(self):
-        return (RANK_FIXED_COPPER if self.priority is Priority.FIXED else RANK_COPPER, self.index)
+        return (RANK_FIXED_COPPER if self.freedom.decided else RANK_COPPER, self.index)
 
 
 @dataclass
@@ -1530,14 +1532,13 @@ class Board:
 
     # ------------------------------------------------------------ copper
     def _copper_intent(self, key, net, priority, plan, refs, why, bridge=False):
+        """A copper declaration. WHEN it is planned is not asked here: it is
+        derived in resolve(), once every placement is declared, because at
+        declaration time a part placed later is invisible."""
         name = self.geometry.require_net(net)
         pads = tuple(self._pad_ref(r) for r in refs)
-        if priority is Priority.FIXED:
-            for owner, *_ in pads:
-                if self._is_searched(owner):
-                    raise ValueError("%s: FIXED copper may not reference %s, a searched part; "
-                                     "fix the part or drop the priority" % (key, owner))
-        ci = CopperIntent(key, name, priority, plan, tuple(refs), why, len(self._copper), bridge)
+        ci = CopperIntent(key, name, priority, plan, tuple(refs), why, len(self._copper), bridge,
+                          frozenset(owner for owner, *_ in pads))
         self._copper.append(ci)
         return ci
 
@@ -1761,6 +1762,29 @@ class Board:
         return self._copper_intent("finger %s" % name, net, priority, plan, refs, why)
 
     # ------------------------------------------------------------ resolution
+    def _derive_copper_freedom(self):
+        """Copper whose every endpoint belongs to something nothing will move
+        is planned before the search and becomes an obstacle to it; copper
+        naming a searched part waits for it.
+
+        Derived here, once every declaration is in. Copper with no endpoints
+        at all - plain coordinates - is decided by definition, so
+        `board.via(net, Location(x, y))` reserves its spot with nothing to
+        remember."""
+        searched = set()
+        for i in self._placements():
+            if i.freedom.decided:
+                continue
+            if i.kind == "cell":
+                fps = list(i.item.members)
+            elif i.kind == "block":
+                fps = [i.item.anchor] + [fp for fp, _ in i.item.satellites]
+            else:
+                fps = [i.item]
+            searched |= {fp.ref for fp in fps}
+        for c in self._copper:
+            c.freedom = Freedom.SEARCHED if (c.owners & searched) else Freedom.FIXED
+
     def resolve(self, progress=None) -> Plan:
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
                         board_cutouts=self._cutouts, settings=self.settings)
@@ -1773,9 +1797,10 @@ class Board:
                     rules=list(self._rules), draw_outline=self._draw_outline)
         ctx = _CopperContext(self, occ)
         self._weigh(occ)
+        self._derive_copper_freedom()
         placements = sorted(self._intents, key=lambda i: i.rank)   # holes included: they are placed too
-        fixed_copper = [c for c in self._copper if c.priority is Priority.FIXED]
-        other_copper = [c for c in self._copper if c.priority is not Priority.FIXED]
+        fixed_copper = [c for c in self._copper if c.freedom.decided]
+        other_copper = [c for c in self._copper if not c.freedom.decided]
         placed: set = set()
         self._place_labels(occ, plan, placed, progress)        # labels on parts the script never moves
         self._check_settled_cutouts(occ, plan)                 # holes whose place was already absolute
@@ -2068,7 +2093,7 @@ class Board:
                 plan.findings.append("copper %s: %s" % (op.net, hit))
             shapes.append(shape)
         occ.add_copper(shapes)
-        if any(c.priority is Priority.FIXED for c in intents):
+        if any(c.freedom.decided for c in intents):
             ctx.fixed_tracks += [op for op in ops]
         for key, (prio, n, why) in by_key.items():
             step = Step(key, "copper", prio, None, 0.0, "%d op(s)" % n, why, n)
