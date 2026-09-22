@@ -1,0 +1,135 @@
+# PermitReceiver — one channel of the dual-ANDed hardware driver-disable chain
+# (overview.md S2/Tier 2; safety-design-reference.md "Tier 2 detail"). A node
+# instantiates this TWICE (PERMIT_A off the power cordset, PERMIT_B off the
+# bus cordset) — never a single two-channel module, so each cable's channel
+# stays a physically separate part with its own bypass jumper.
+#
+# Function only (safety-language rules, safety-design-reference.md): this is a
+# 24V active-high, energize-to-run field-input receiver feeding a hardware
+# driver-disable path. It is not a safety-rated or certified device.
+#
+# perm_p/perm_n <- the field pair from the E-stop chain via the breakout,
+#   24V ACTIVE-HIGH (energized = run-permitted), ground-referenced: perm_n
+#   returns via power V- (overview.md S2 "ground-referenced"), so it is NOT a
+#   floating loop like OptoSense's generic in_p/in_n — the board ties perm_n
+#   to the local V- / gnd domain.
+# out -> GPIO status tap, ACTIVE-HIGH (out = HIGH while the channel is
+#   energized). This is the status/monitor tap only ("report only" per the
+#   middleweight brief); the board's own AND-series ENN gate hardware (per
+#   channel's opto acting as a switch in the ENN pull-low path) is a
+#   board-level concern outside this module — see the open question in the
+#   module's report about how that combination is realized.
+#
+# Series R: opto LED sized for ~5mA at 24V. Originally split 2x2.4k 0603
+# (mirrored OptoSense's pre-rework 24V-loop math: (24 - ~1.5V)/4800 ~= 4.7mA);
+# see the ACTIVITY INDICATOR LED note below for the 2026-07-26 recompute to
+# 2x2.2k that supersedes this value.
+#
+# Reverse diode: 1N4148WS across the LED (K->AN, A->CAT), same part/role as
+# OptoSense's D1 - protects the LED if the field pair is wired reversed.
+#
+# ACTIVITY INDICATOR LED (Ben, 2026-07-26 - ecosystem-wide indicator-LED
+# standard, per repo CLAUDE.md; same series-LED pattern as OptoSense's
+# rework): a channel-energized LED in series with the opto LED string
+# (shares the same ~4.6mA loop current, zero GPIO cost). Pure observation -
+# visible confirmation that this PERMIT channel is currently energized. It
+# has no path into the permit/driver-disable logic this module feeds and
+# does not alter the safety chain in any way (safety-language rule: function
+# only, not a safety signal - see safety-design-reference.md). Colour: RED
+# (safety-chain observation - CLAUDE.md's 2026-07-26 LED-family pinning) -
+# KT-0603R (LCSC C2286, parts/Hubei_KENTO_Elec_KT_0603R.zen), superseding
+# the retiring KT-0603YG. Same 0.8x0.8mm-pad 0603 footprint envelope as the
+# part it replaces, so no layout-script change.
+#
+# Series R recomputed for KT-0603R's real VF (datasheet: 1.8-2.4V min-max @
+# IF=20mA, no typ column - VF_max=2.4V is the conservative/high sizing
+# estimate, same convention OptoSense's indicator LED uses): 24V - 2.4V
+# (indicator LED) - 1.4V (LTV-357T-C Vf max @ 20mA, datasheet) = 20.2V
+# across R. R UNCHANGED at 2x2.2kohm 0603 (4.4k total - same loop as
+# before the colour swap) -> 20.2V/4.4k = 4.59mA (was ~4.64mA with the
+# yellow-green part). Iv = 4.59mA x 11.125mcd/mA (KT-0603R's k, from its
+# IV=145-300mcd @ 20mA datasheet spec) = ~51mcd - matches CLAUDE.md's "(3)
+# in-opto-path LEDs ... red ~51mcd, acceptable". ~47mW per resistor
+# (comfortable for 0603), well under the LED's own rating.
+#
+# Placement in the string: the LED sits between rser_b's output (net "an")
+# and the opto's own AN pin (net "opto_an", new) - i.e. DOWNSTREAM of D1's
+# existing K attachment point (net "an", unchanged). D1 (K=an, A=perm_n) is
+# therefore already anti-parallel with [the indicator LED + the opto's own
+# internal LED] in series, and protects both from a reverse-wired field pair
+# with NO rewiring of D1 needed. (OptoSense went one step further and
+# widened its own D1 to also enclose its series resistors, purely because
+# "R is series-transparent to fault current either way, so this only helps"
+# - a valid but non-required extra step; PermitReceiver's narrower,
+# unchanged D1 span already covers every polarity-sensitive element in the
+# string, so that extra widening is skipped here as unnecessary, not
+# overlooked.)
+#
+# Bleed: ~10k across the raw field pins perm_p/perm_n (not the LED-side node)
+# so an open/high-Z chain pulls the RECEIVER'S OWN terminals to ~0V rather
+# than floating next to 48V conductors in the same cordset (overview.md S2).
+# Sized 0603 (24V continuous -> 57.6mW; the OptoSense 0402 precedent is a
+# different voltage context - that bleed only ever sees the 3.3V logic rail).
+#
+# Output polarity: EMITTER-OUTPUT config (COL tied directly to v3v3, EM has
+# its own 10k pull-down to gnd, "out" = EM) rather than OptoSense's
+# COLLECTOR-OUTPUT config (COL pulled up, EM->gnd) - the emitter-follower
+# wiring is what makes "out" ACTIVE-HIGH (energized = HIGH) as this module's
+# io() contract requires, without an extra inverter/gate per channel.
+#
+# Bypass: 2-pin THT header + removable shunt (XFCN PZ200V-11-02P 2mm, LCSC
+# C541856 - the SAME part used for the CAN-TERM jumpers in CanFrontendNative/
+# CanFrontendDiscrete; 2mm family per Ben's 2026-08-02 pitch ruling,
+# superseding the first-pass 2.54mm Ckmtw) directly across v3v3<->out, and the original
+# open solder jumper (Ben, 2026-07-26: bench-pluggable bypass, per channel -
+# a shunt the user can insert/remove by hand beats a solder blob for bench
+# use). Fitting the shunt forces "out" HIGH regardless of the opto's state -
+# "locally asserts the permit for bench/standalone use" (overview.md S2).
+# The overview describes this as a single "per-node" jumper; here it is
+# per-CHANNEL (one per PermitReceiver instance) - two headers-worth of
+# shunts achieve the same "both permits locally asserted" result. Default
+# state = OPEN (no shunt fitted). Flagged for Ben to confirm the per-channel
+# (vs per-node) interpretation still stands.
+OPTO = Module("../../parts/Lite_On_LTV_357T_C.zen")
+DIODE = Module("../../parts/Changjiang_Electronics_Tech_1N4148WS.zen")
+LED_ACT = Module("../../parts/Hubei_KENTO_Elec_KT_0603R.zen")
+BYPASS_HDR = Module("../../parts/XFCN_PZ200V_11_02P.zen")
+BYPASS_SOLDER = Module("../../parts/SolderJumper_2P.zen")
+# jumper_style (2026-09-03, Ben): "header" default; "solder" = open solder bridge on the
+# area-bound Middleweight only.
+jumper_style = config("jumper_style", str, default = "header")
+Resistor = Module("@stdlib/generics/Resistor.zen")
+
+perm_p = io("perm_p", Net)
+perm_n = io("perm_n", Net)
+v3v3 = io("v3v3", Net)
+gnd = io("gnd", Ground)
+out = io("out", Net)
+
+mid = Net("PERMIT_RMID")
+an = Net("PERMIT_AN")            # rser_b output -> indicator LED anode -> D1.K
+opto_an = Net("PERMIT_OPTO_AN")  # indicator LED cathode -> opto AN pin
+
+# series R split 2x2.2k 0603 (~4.59mA at 24V incl. the indicator LED's Vf - see header math)
+Resistor(name = "rser_a", value = "2.2kohm", package = "0603", P1 = perm_p, P2 = mid)
+Resistor(name = "rser_b", value = "2.2kohm", package = "0603", P1 = mid, P2 = an)
+
+# activity indicator, in series with the opto LED (anode upstream/toward R, cathode -> opto AN)
+LED_ACT(name = "led_act", A = an, K = opto_an)
+
+# emitter-output: COL->v3v3 (bias), EM->out (active-high), EM/out pulled down
+OPTO(name = "opto", AN = opto_an, CAT = perm_n, COL = v3v3, EM = out)
+# reverse diode across the LED string (K->an, A->CAT) - already spans the
+# indicator LED + the opto's own LED in series, see header note
+DIODE(name = "dprot", K = an, A = perm_n)
+# field-side bleed: raw input pins fall to ~0V when the chain is open/high-Z
+Resistor(name = "rbleed_field", value = "10kohm", package = "0603", P1 = perm_p, P2 = perm_n)
+# output pulldown: defines "out" LOW when the phototransistor is dark
+Resistor(name = "rpd_out", value = "10kohm", package = "0402", P1 = out, P2 = gnd)
+# bypass: pluggable header+shunt bridging v3v3->out to locally assert this channel's permit
+if jumper_style == "solder":
+    BYPASS_SOLDER(name = "bypass_jumper", p1 = v3v3, p2 = out)
+else:
+    BYPASS_HDR(name = "bypass_jumper", a = v3v3, b = out)
+
+Layout(name = "PermitReceiver", path = "layout")

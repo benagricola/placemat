@@ -1,0 +1,65 @@
+# HCTL_HC_PBB40C_20DP_0_4V_02 - component wrapper: local KiCad symbol + footprint, LCSC
+# pinned in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, Middleweight encoder-daughterboard re-architecture). HCTL
+# HC-PBB40C series 0.4mm-pitch board-to-board PLUG (DP = male half), 20 contacts dual-row
+# + 4 corner fitting nails (pads 21-24, grounded per the N17 precedent). This is the MAIN
+# BOARD half of the encoder-daughterboard interconnect - the exact part the proven MnB
+# Ultralight N17 used for the same job (N17 main board U9, LCSC id read from the N17
+# .kicad_pcb footprint field; the connectors were physically ordered for the N17 - LCSC
+# order artifact SO12510046049 sits in the N17 encoder project dir).
+#
+# Mates with HC-PBB40C-20DS-0.4V-2.5-02 (parts/HCTL_HC_PBB40C_20DS_0_4V_2_5_02.zen) for a
+# 2.5mm MATED STACK HEIGHT (the socket P/N's -2.5 suffix; easyeda2kicad model heights:
+# plug 1.14mm + socket 1.94mm, interpenetrating to 2.5). Pad field 5.27 x 2.02mm
+# (incl. nails), body ~5.2 x 3.2mm.
+#
+# MATED PIN PAIRING (derived from the N17's own net assignments across both boards,
+# both halves placed rot180 on their boards' BACK sides, daughterboard flipped onto the
+# main board): plug even pin n <-> socket even pin (22-n); plug odd pin n <-> socket odd
+# pin (20-n). Replicate the N17's relative placement (same rotation for both halves) and
+# geometry-verify at layout time - do not re-derive by hand.
+#
+# Stock: NOT re-verified this session (web budget); N17-proven + previously ordered.
+# VERIFY LIVE STOCK AT ORDER TIME (process rule 0 - recorded obligation).
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+p5 = io("p5", Net, optional = True)
+p6 = io("p6", Net, optional = True)
+p7 = io("p7", Net, optional = True)
+p8 = io("p8", Net, optional = True)
+p9 = io("p9", Net, optional = True)
+p10 = io("p10", Net, optional = True)
+p11 = io("p11", Net, optional = True)
+p12 = io("p12", Net, optional = True)
+p13 = io("p13", Net, optional = True)
+p14 = io("p14", Net, optional = True)
+p15 = io("p15", Net, optional = True)
+p16 = io("p16", Net, optional = True)
+p17 = io("p17", Net, optional = True)
+p18 = io("p18", Net, optional = True)
+p19 = io("p19", Net, optional = True)
+p20 = io("p20", Net, optional = True)
+# Corner fitting nails (mechanical retention pads; grounded on the N17 = shield/anchor).
+nail1 = io("nail1", Net, optional = True)
+nail2 = io("nail2", Net, optional = True)
+nail3 = io("nail3", Net, optional = True)
+nail4 = io("nail4", Net, optional = True)
+
+Component(
+    name = "HCTL_HC_PBB40C_20DP_0_4V_02",
+    footprint = File("HCTL_HC_PBB40C_20DP_0_4V_02/CONN-SMD_20P-P0.40_HCTL_HC-PBB40C-20DP-0.4V-02.kicad_mod"),
+    symbol = Symbol("HCTL_HC_PBB40C_20DP_0_4V_02/HC-PBB40C-20DP-0.4V-02.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "HC-PBB40C-20DP-0.4V-02", manufacturer = "HCTL"),
+    properties = {"LCSC": "C19089228", "MPN": "HC-PBB40C-20DP-0.4V-02"},
+    pins = {
+        "1": p1, "2": p2, "3": p3, "4": p4, "5": p5,
+        "6": p6, "7": p7, "8": p8, "9": p9, "10": p10,
+        "11": p11, "12": p12, "13": p13, "14": p14, "15": p15,
+        "16": p16, "17": p17, "18": p18, "19": p19, "20": p20,
+        "21": nail1, "22": nail2, "23": nail3, "24": nail4,
+    },
+)

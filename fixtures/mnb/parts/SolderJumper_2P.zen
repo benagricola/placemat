@@ -1,0 +1,19 @@
+# 2-pin open-style solder jumper (KiCad standard Jumper.pretty footprint + a
+# NetTie_2 symbol, both copied verbatim from the stdlib KiCad libraries).
+# Not a BOM part (no LCSC id) - excluded from assembly outputs, like MountingHole_M3.
+# Default state = OPEN (pads not bridged); bridging with solder closes it.
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+
+Component(
+    name = "SolderJumper_2P",
+    footprint = File("SolderJumper_2P/SolderJumper-2_P1.3mm_Open_Pad1.0x1.5mm.kicad_mod"),
+    symbol = Symbol("SolderJumper_2P/NetTie_2.kicad_sym"),
+    prefix = "JP",
+    part = Part(mpn = "SolderJumper-2_P1.3mm_Open", manufacturer = "generic"),
+    pins = {
+        "1": p1,
+        "2": p2,
+    },
+)

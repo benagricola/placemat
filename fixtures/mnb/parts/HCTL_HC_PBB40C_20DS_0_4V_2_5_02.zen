@@ -1,0 +1,51 @@
+# HCTL_HC_PBB40C_20DS_0_4V_2_5_02 - component wrapper: local KiCad symbol + footprint,
+# LCSC pinned in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, Middleweight encoder-daughterboard re-architecture). HCTL
+# HC-PBB40C series 0.4mm-pitch board-to-board SOCKET (DS = female half), 20 contacts
+# dual-row, 2.5mm mated stack height (the -2.5 P/N suffix). This is the DAUGHTERBOARD
+# half of the encoder interconnect - the exact part the proven MnB Ultralight N17 encoder
+# daughterboard used (N17 encoder board CN1, LCSC id read from that board's footprint
+# field). No fitting nails on this half (20 signal pads only, rows at y=+-1.54mm).
+#
+# Mates with HC-PBB40C-20DP-0.4V-02 (parts/HCTL_HC_PBB40C_20DP_0_4V_02.zen) - see THAT
+# wrapper's header for the mated pin-pairing law and stack geometry; keep both wrappers'
+# notes in sync.
+#
+# Stock: NOT re-verified this session (web budget); N17-proven + previously ordered.
+# VERIFY LIVE STOCK AT ORDER TIME (process rule 0 - recorded obligation).
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+p5 = io("p5", Net, optional = True)
+p6 = io("p6", Net, optional = True)
+p7 = io("p7", Net, optional = True)
+p8 = io("p8", Net, optional = True)
+p9 = io("p9", Net, optional = True)
+p10 = io("p10", Net, optional = True)
+p11 = io("p11", Net, optional = True)
+p12 = io("p12", Net, optional = True)
+p13 = io("p13", Net, optional = True)
+p14 = io("p14", Net, optional = True)
+p15 = io("p15", Net, optional = True)
+p16 = io("p16", Net, optional = True)
+p17 = io("p17", Net, optional = True)
+p18 = io("p18", Net, optional = True)
+p19 = io("p19", Net, optional = True)
+p20 = io("p20", Net, optional = True)
+
+Component(
+    name = "HCTL_HC_PBB40C_20DS_0_4V_2_5_02",
+    footprint = File("HCTL_HC_PBB40C_20DS_0_4V_2_5_02/CONN-SMD_HC-PBB40C-20DS-0.4V-2.5-02.kicad_mod"),
+    symbol = Symbol("HCTL_HC_PBB40C_20DS_0_4V_2_5_02/HC-PBB40C-20DS-0.4V-2.5-02.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "HC-PBB40C-20DS-0.4V-2.5-02", manufacturer = "HCTL"),
+    properties = {"LCSC": "C19089269", "MPN": "HC-PBB40C-20DS-0.4V-2.5-02"},
+    pins = {
+        "1": p1, "2": p2, "3": p3, "4": p4, "5": p5,
+        "6": p6, "7": p7, "8": p8, "9": p9, "10": p10,
+        "11": p11, "12": p12, "13": p13, "14": p14, "15": p15,
+        "16": p16, "17": p17, "18": p18, "19": p19, "20": p20,
+    },
+)

@@ -1,0 +1,25 @@
+# TPS2553DBVR; native source and hash in C55266/asset-provenance.json.
+
+IN = io("IN", Net, optional = True)
+GND = io("GND", Net, optional = True)
+EN = io("EN", Net, optional = True)
+FAULT = io("FAULT", Net, optional = True)
+ILIM = io("ILIM", Net, optional = True)
+OUT = io("OUT", Net, optional = True)
+
+Component(
+    name = "TPS2553DBVR",
+    footprint = File("../../parts/C55266/SOT-23-6_L2_9-W1_6-P0_95-LS2_8-BR.kicad_mod"),
+    symbol = Symbol("C55266/C55266.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "TPS2553DBVR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C55266", "MPN": "TPS2553DBVR"},
+    pins = {
+        "IN": IN,
+        "GND": GND,
+        "EN": EN,
+        "/FAULT": FAULT,
+        "ILIM": ILIM,
+        "OUT": OUT,
+    },
+)

@@ -1,0 +1,40 @@
+# JST_BM04B_PASS_TFT — component wrapper: local KiCad symbol + footprint, LCSC
+# pinned in properties (feeds the JLC BOM/CPL fields).
+#
+# AUX HEADER: JST PA top-entry vertical SMT, 4-pin, 2.00 mm pitch, 3 A, 250 V.
+# Same family, crimp and tooling as the board's other PA headers, so it costs no
+# extra feeder and no second crimp size in the loom.
+#
+# Carries the motor-adjacent low-power set the motor connector used to overload:
+# 24 V, brake drive, motor NTC and its ground. 3 A is ample - the largest load is
+# a spring-brake coil at 0.31 A (Teknic MPC023-24-001-T, per the brief). Keeping
+# the NTC off the phase connector also keeps a high-impedance thermistor pair out
+# of the same cable as the phase PWM.
+# NOTE (2026-09-04): rated -25 °C to +85 °C, below this case's 100 °C worst-case
+# design ambient - logged as an open item across all four PA headers, not yet
+# resolved.
+# Pinned 2026-09-04: LCSC C265118, Extended, 6814 in stock.
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+tab1 = io("tab1", Net, optional = True)
+tab2 = io("tab2", Net, optional = True)
+
+Component(
+    name = "JST_BM04B_PASS_TFT",
+    footprint = File("JST_BM04B_PASS_TFT/CONN-SMD_BM04B-PASS-TFT-LF-SN.kicad_mod"),
+    symbol = Symbol("JST_BM04B_PASS_TFT/BM04B-PASS-TFT.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "BM04B-PASS-TFT(LF)(SN)", manufacturer = "JST"),
+    properties = {"LCSC": "C265118", "MPN": "BM04B-PASS-TFT(LF)(SN)"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+        "5": tab1,
+        "6": tab2,
+    },
+)

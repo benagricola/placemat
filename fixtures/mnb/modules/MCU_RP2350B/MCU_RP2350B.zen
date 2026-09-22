@@ -1,0 +1,299 @@
+# =============================================================================
+# the MCU cell — RP2350B node-MCU cell
+# =============================================================================
+# RP2350B (QFN-80, 48 GPIO) + W25Q16 QSPI boot flash + 12MHz crystal + USB
+# device pair (27R chip-side terminators — the USB-C port itself is the
+# separate board-placed modules/UsbC cell) + internal 1.1V DVDD LDO +
+# 3V3-power-present LED. The BOOT/RUN buttons and the MCU status LED are the
+# separate board-placed modules/McuButtons cell; the SWD debug header is the
+# separate board-placed modules/SwdHeader cell.
+# Shared across Middleweight, Flyweight, and any future RP2350B board
+# (CLAUDE.md's canonical roster). Exposes 3V3/GND + all 48 GPIOs + the USB
+# pair as io() for the host board — this module carries no board-specific pin
+# assignment.
+#
+# ELECTRICAL SOURCE: Raspberry Pi "Hardware design with RP2350" (RP-008280,
+# 2024-10-15) chapters 2-5 + Appendix B (RP2350B minimal design), and the
+# RP2350 datasheet section 6.3 (core voltage regulator) + 6.1 (power
+# supplies) + 14.8 (pinout). Full derivation + datasheet quotes in
+# modules/MCU_RP2350B/LAYOUT-INTENT.md.
+#
+# BUTTON SPLIT (Ben, 2026-07-27): the BOOTSEL/RESET buttons, their passives
+# and the MCU status LED moved to modules/McuButtons — "switches generally
+# want to be near an edge but that then decides where we put the MCU on a
+# board. switches and LEDs should also be aligned, clustered together where
+# they control or indicate a similar behaviour or IC." Same principle as the
+# USB split below: a part whose position is dictated by the ENCLOSURE must not
+# be trapped inside a functional cell. What crosses the boundary is QSPI_SS
+# (the BOOTSEL tap, series resistor on the button side) and RUN — both
+# OPTIONAL io so a board that has not adopted McuButtons still builds (with
+# them unconnected, RUN rests on the RP2350's internal weak pull-up and the
+# board simply has no USB-boot button).
+#
+# SWD SPLIT (Ben, 2026-07-27): the 1x4 debug header moved to
+# modules/SwdHeader — "the debug header shouldn't be part of the mcu
+# module, it should be a board specific concern so we can decide to expose it
+# or not and choose the positioning ourselves." The driver here is OPTIONALITY
+# (not enclosure demand like the two splits below): a sealed board may fit no
+# header at all and probe SWD on pads, a bench board wants one on a chosen
+# edge — baking it in removes that choice and charges every consumer the pads
+# plus the plug volume. SWCLK/SWDIO are DEDICATED RP2350 pins, not GPIOs, so
+# they cannot ride the GPIO fan: they get their own OPTIONAL io below.
+#
+# USB SPLIT (Ben, 2026-07-26): the USB-C connector, ESD array, CC pulldowns
+# and VBUS handling moved to modules/UsbC — "the USB-C port should not be
+# part of the mcu but should be a board concern as it could be quite far
+# from the MCU." What stays here is exactly what the hw-design guide pins to
+# the chip: Ch 5.1 — "these I/Os do require 27R series termination resistors
+# (R7 and R8 in Figure 11), placed close to the chip, in order to meet the
+# USB impedance specification." The board routes USB_P/USB_N (~90R
+# differential over solid ground, same chapter) from this cell to UsbC.
+#
+# LOCKED DEVIATION FROM THE RPi MINIMAL-BOARD REFERENCE (per the Middleweight
+# build prompt: "External 1.1V core LDO (do NOT use the internal core
+# switcher)"): DVDD is supplied externally, not by RP2350's on-chip switching
+# regulator. Per RP2350 datasheet Section 6.3.7 / Figure 21 ("External core
+# supply with on-chip regulator disabled"): VREG_VIN and VREG_AVDD are still
+# powered (they also run the chip's power-on-reset/brownout blocks) with a
+# single 4.7uF cap, VREG_FB ties DIRECTLY to GND (disables the regulator's
+# feedback so it free-runs into Hi-Z-able state), VREG_LX is left NC (no
+# inductor), VREG_PGND still ties to GND as always. The on-chip regulator
+# still soft-starts and draws ~400uA until firmware writes VREG_CTRL.HIZ=1
+# after boot — safe, documented behaviour, not a fault.
+#
+# 1.1V DVDD LDO (TLV74311PDBVR, canonical per CLAUDE.md; fold-in, Ben
+# 2026-07-26): generated on-cell so 3V3 in is the only external supply —
+# v1v1 never crosses the io() boundary. TI TLV743 datasheet: 1uF ceramic in,
+# 1uF ceramic out, EN tied to IN (always-on).
+# =============================================================================
+
+RP2350B = Module("../../parts/Raspberry_Pi_RP2350B.zen")
+FLASH = Module("../../parts/Winbond_W25Q16JVUXIQ.zen")
+XTAL = Module("../../parts/Abracon_ABM8_272_T3.zen")
+LDO1V1 = Module("../../parts/Texas_Instruments_TLV74311PDBVR.zen")
+LED = Module("../../parts/Hubei_KENTO_Elec_KT_0603G.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+
+# Memoized net factory (Zener: each Net("X") literal is a DISTINCT net; net()
+# returns the same object for a given name so repeated references wire together).
+_nets = {}
+def net(name):
+    if name not in _nets:
+        _nets[name] = Net(name)
+    return _nets[name]
+
+# =============================================================================
+# io() — power in, ground, the USB device pair, and every GPIO. No
+# board-specific assignment here.
+# =============================================================================
+v3v3 = io("v3v3", Net)   # 3.3V in — IOVDD/QSPI_IOVDD/USB_OTP_VDD/ADC_AVDD/VREG_AVDD/VREG_VIN
+                         # also feeds the internal 1.1V DVDD LDO — everything else is internal.
+gnd = io("gnd", Ground)
+
+# USB full-speed device pair, the CHIP side of the split: these are the far
+# (connector-facing) ends of the on-cell 27R series terminators. Wire them to
+# a modules/UsbC instance (which carries connector + ESD + CC pulldowns).
+# Uppercase _P/_N io names so the module fragment's own nets engage KiCad's
+# diff-pair matcher (MatchDpSuffix wants a trailing P/N token). OPTIONAL so
+# an existing board that has not yet adopted UsbC (Middleweight — its
+# adoption is a later round) still builds; unconnected, the pair simply ends
+# at this module's edge stubs.
+usb_p = io("USB_P", Net, optional = True)
+usb_n = io("USB_N", Net, optional = True)
+
+# Human-interface boundary toward modules/McuButtons (BUTTON SPLIT above).
+# Named for the nets they ARE, so the fragment's own net names are unchanged.
+# QSPI_SS is the flash chip-select: McuButtons' BOOT button pulls it low
+# through its own 1k at reset. RUN is the RP2350 reset pin; its 1k pull-up
+# also lives on the button side.
+qspi_ss = io("QSPI_SS", Net, optional = True)
+run = io("RUN", Net, optional = True)
+
+# Debug boundary toward modules/SwdHeader (SWD SPLIT above). SWCLK/SWDIO are
+# DEDICATED RP2350 pins (33/34), not GPIOs — the GPIO fan above cannot carry
+# them, so they need their own io entries. OPTIONAL so a board that exposes no
+# SWD at all still builds: unconnected, both rest on the RP2350's internal
+# pulls (SWDIO up, SWCLK down — datasheet 3.5.5) and the debug port is simply
+# unreachable, which is a legitimate choice for a sealed node with UF2/USB.
+swclk = io("SWCLK", Net, optional = True)
+swdio = io("SWDIO", Net, optional = True)
+
+gpio0 = io("gpio0", Net); gpio1 = io("gpio1", Net); gpio2 = io("gpio2", Net)
+gpio3 = io("gpio3", Net); gpio4 = io("gpio4", Net); gpio5 = io("gpio5", Net)
+gpio6 = io("gpio6", Net); gpio7 = io("gpio7", Net); gpio8 = io("gpio8", Net)
+gpio9 = io("gpio9", Net); gpio10 = io("gpio10", Net); gpio11 = io("gpio11", Net)
+gpio12 = io("gpio12", Net); gpio13 = io("gpio13", Net); gpio14 = io("gpio14", Net)
+gpio15 = io("gpio15", Net); gpio16 = io("gpio16", Net); gpio17 = io("gpio17", Net)
+gpio18 = io("gpio18", Net); gpio19 = io("gpio19", Net); gpio20 = io("gpio20", Net)
+gpio21 = io("gpio21", Net); gpio22 = io("gpio22", Net); gpio23 = io("gpio23", Net)
+gpio24 = io("gpio24", Net); gpio25 = io("gpio25", Net); gpio26 = io("gpio26", Net)
+gpio27 = io("gpio27", Net); gpio28 = io("gpio28", Net); gpio29 = io("gpio29", Net)
+gpio30 = io("gpio30", Net); gpio31 = io("gpio31", Net); gpio32 = io("gpio32", Net)
+gpio33 = io("gpio33", Net); gpio34 = io("gpio34", Net); gpio35 = io("gpio35", Net)
+gpio36 = io("gpio36", Net); gpio37 = io("gpio37", Net); gpio38 = io("gpio38", Net)
+gpio39 = io("gpio39", Net)
+gpio40_adc0 = io("gpio40_adc0", Net); gpio41_adc1 = io("gpio41_adc1", Net)
+gpio42_adc2 = io("gpio42_adc2", Net); gpio43_adc3 = io("gpio43_adc3", Net)
+gpio44_adc4 = io("gpio44_adc4", Net); gpio45_adc5 = io("gpio45_adc5", Net)
+gpio46_adc6 = io("gpio46_adc6", Net); gpio47_adc7 = io("gpio47_adc7", Net)
+
+# =============================================================================
+# Internal nets
+# =============================================================================
+v1v1 = net("V1V1")          # 1.1V DVDD — generated internally by the TLV74311 LDO below,
+                             # never leaves this cell (module-local net, CLAUDE.md fold-in)
+osc_xin = net("OSC_XIN")
+osc_xout = net("OSC_XOUT")          # RP2350 XOUT pin side (after the damping R)
+osc_y_xout = net("OSC_Y_XOUT")      # crystal terminal 3 side (before the damping R)
+qspi_sclk = net("QSPI_SCLK")
+qspi_sd0 = net("QSPI_SD0")
+qspi_sd1 = net("QSPI_SD1")
+qspi_sd2 = net("QSPI_SD2")
+qspi_sd3 = net("QSPI_SD3")
+# RP2350 pin side of the 27R series terminators. Named *_MCU_P/*_MCU_N (not
+# the old *_P_MCU) so the trailing token is still P/N and the chip-side stubs
+# stay inside the USB diff-pair net class too.
+usb_mcu_p = net("USB_MCU_P")
+usb_mcu_n = net("USB_MCU_N")
+
+# =============================================================================
+# RP2350B — power pins per datasheet Fig 21 (external DVDD, on-chip VREG
+# disabled): VREG_VIN + VREG_AVDD still powered from v3v3 (single 4.7uF cap,
+# no RC filter — Fig 21 omits the Fig 19/20 33R/4.7uF filter for this mode),
+# VREG_FB tied directly to GND, VREG_LX left NC (no inductor), VREG_PGND to
+# GND. DVDD from v1v1, the internal LDO's output (below). All other supplies
+# (IOVDD/QSPI_IOVDD/USB_OTP_VDD/ADC_AVDD) share v3v3 per the datasheet's own
+# "reduce external supplies" guidance (6.1.4/6.1.5/6.1.6/6.1.7).
+# =============================================================================
+RP2350B(
+    name = "mcu",
+    GPIO0 = gpio0, GPIO1 = gpio1, GPIO2 = gpio2, GPIO3 = gpio3,
+    GPIO4 = gpio4, GPIO5 = gpio5, GPIO6 = gpio6, GPIO7 = gpio7,
+    GPIO8 = gpio8, GPIO9 = gpio9, GPIO10 = gpio10, GPIO11 = gpio11,
+    GPIO12 = gpio12, GPIO13 = gpio13, GPIO14 = gpio14, GPIO15 = gpio15,
+    GPIO16 = gpio16, GPIO17 = gpio17, GPIO18 = gpio18, GPIO19 = gpio19,
+    GPIO20 = gpio20, GPIO21 = gpio21, GPIO22 = gpio22, GPIO23 = gpio23,
+    GPIO24 = gpio24, GPIO25 = gpio25, GPIO26 = gpio26, GPIO27 = gpio27,
+    GPIO28 = gpio28, GPIO29 = gpio29, GPIO30 = gpio30, GPIO31 = gpio31,
+    GPIO32 = gpio32, GPIO33 = gpio33, GPIO34 = gpio34, GPIO35 = gpio35,
+    GPIO36 = gpio36, GPIO37 = gpio37, GPIO38 = gpio38, GPIO39 = gpio39,
+    GPIO40_ADC0 = gpio40_adc0, GPIO41_ADC1 = gpio41_adc1,
+    GPIO42_ADC2 = gpio42_adc2, GPIO43_ADC3 = gpio43_adc3,
+    GPIO44_ADC4 = gpio44_adc4, GPIO45_ADC5 = gpio45_adc5,
+    GPIO46_ADC6 = gpio46_adc6, GPIO47_ADC7 = gpio47_adc7,
+    IOVDD = v3v3, QSPI_IOVDD = v3v3, USB_OTP_VDD = v3v3, ADC_AVDD = v3v3,
+    VREG_AVDD = v3v3, VREG_VIN = v3v3, VREG_FB = gnd, VREG_PGND = gnd,
+    VREG_LX = NotConnected(),
+    DVDD = v1v1,
+    USB_DP = usb_mcu_p, USB_DM = usb_mcu_n,
+    XIN = osc_xin, XOUT = osc_xout,
+    SWCLK = swclk, SWDIO = swdio, RUN = run,
+    QSPI_SS = qspi_ss, QSPI_SCLK = qspi_sclk,
+    QSPI_SD0 = qspi_sd0, QSPI_SD1 = qspi_sd1, QSPI_SD2 = qspi_sd2, QSPI_SD3 = qspi_sd3,
+    GND = gnd,
+)
+
+# IOVDD-domain decoupling: 8x 100nF (one per physical IOVDD pin: 5,15,24,29,
+# 41,50,60,76) + 1x 100nF QSPI_IOVDD(69) + 1x 100nF USB_OTP_VDD(68) + 1x
+# 100nF ADC_AVDD(59). Fig 6/7 "100nF per power pin" rule - pins 68/69
+# previously shared one cap; Ben caught the shortfall 2026-08-02 and each
+# pin now gets its own.
+for i in range(8):
+    C(name = "c_iovdd" + str(i), value = "100nF", package = "0402", P1 = v3v3, P2 = gnd)
+C(name = "c_qspi_iovdd", value = "100nF", package = "0402", P1 = v3v3, P2 = gnd)
+C(name = "c_usb_otp_vdd", value = "100nF", package = "0402", P1 = v3v3, P2 = gnd)
+C(name = "c_adc_avdd", value = "100nF", package = "0402", P1 = v3v3, P2 = gnd)
+
+# VREG_VIN + VREG_AVDD combined supply: single 4.7uF cap (datasheet Fig 21,
+# which specs 0402 — but that's sized for the SWITCHING-regulator hot loop
+# (Fig 22/23) that doesn't apply here (regulator disabled, no L1/switching
+# current on this node); 0603 bumped for JLC-Basic stock (no 0402 4.7uF house
+# part — `pcb build` warns "No house cap found for 4.7uF 0402").
+C(name = "c_vreg_vin_avdd", value = "4.7uF", package = "0603", P1 = v3v3, P2 = gnd)
+
+# =============================================================================
+# Internal 1.1V DVDD LDO (TLV74311PDBVR) — fold-in, Ben's decision 2026-07-26:
+# was an io() input from the board's power-block, now generated on-cell so
+# 3V3 in is the only external supply this module needs. EN tied to IN
+# (always-on — TI TLV743 datasheet typical-application circuit). 1uF in/1uF
+# out ceramic per the same datasheet's recommended external components (NOT
+# the enabled-RP2350-VREG's own 4.7uF C6/C7/C9 numbers above — those are a
+# different regulator, Fig 3/19/20, not this one).
+# =============================================================================
+LDO1V1(name = "u_ldo1v1", IN = v3v3, GND = gnd, EN = v3v3, NC = NotConnected(), OUT = v1v1)
+C(name = "c_ldo_in", value = "1uF", package = "0402", P1 = v3v3, P2 = gnd)
+C(name = "c_ldo_out", value = "1uF", package = "0402", P1 = v1v1, P2 = gnd)
+
+# DVDD: 3x 100nF, one per physical pin (10,32,51) — datasheet Fig 21.
+for i in range(3):
+    C(name = "c_dvdd" + str(i), value = "100nF", package = "0402", P1 = v1v1, P2 = gnd)
+
+# 1V1 rail bulk: 4.7uF, matching the N17's C46 on its +1V1 (Ben's call
+# 2026-08-02). 0603 for the same house-part reason as c_vreg_vin_avdd above
+# (no 4.7uF 0402 house cap).
+C(name = "c_v1v1_bulk", value = "4.7uF", package = "0603", P1 = v1v1, P2 = gnd)
+
+# =============================================================================
+# 12MHz crystal (ABM8-272-T3) — datasheet Fig 10. Load caps on XIN direct and
+# on the CRYSTAL side of the damping resistor (not the MCU side) — R2 damps
+# between the crystal's own pin 3 and RP2350's XOUT pin.
+# =============================================================================
+XTAL(name = "y1", XIN = osc_xin, XOUT = osc_y_xout, GND = gnd)
+C(name = "c_xtal_xin", value = "15pF", package = "0402", P1 = osc_xin, P2 = gnd)
+C(name = "c_xtal_xout", value = "15pF", package = "0402", P1 = osc_y_xout, P2 = gnd)
+R(name = "r_xtal_damp", value = "1kohm", package = "0402", P1 = osc_y_xout, P2 = osc_xout)
+
+# =============================================================================
+# QSPI boot flash (W25Q16JVUXIQ, USON-8 2x3mm — Ben's decision 2026-07-26:
+# his N17-proven part, see parts/Winbond_W25Q16JVUXIQ.zen header comment for
+# the pin-map verification). Direct-wired to RP2350's QSPI bus, VCC on v3v3
+# (QSPI_IOVDD domain) with its own 100nF (hw-design-guide Fig 8, "C2"). No R1
+# pull-up on QSPI_SS (the reference marks it Do-Not-Fit for this flash family
+# — the internal RP2350 pull-up during boot is sufficient). No secondary-
+# flash/PSRAM chip-select mux — single primary flash only.
+# =============================================================================
+FLASH(name = "flash", CS = qspi_ss, IO0 = qspi_sd0, IO1 = qspi_sd1,
+      IO2 = qspi_sd2, IO3 = qspi_sd3, CLK = qspi_sclk, VCC = v3v3, GND = gnd, EP = gnd)
+C(name = "c_flash_vcc", value = "100nF", package = "0402", P1 = v3v3, P2 = gnd)
+
+# BOOTSEL + RESET buttons and their passives (hw-design-guide Ch 5.4 / Fig 8)
+# are modules/McuButtons — see BUTTON SPLIT in the header. Only the two nets
+# they act on cross the boundary (qspi_ss, run, both optional io above).
+
+# The 1x4 SWD debug header (GND/SWCLK/SWDIO/3V3) is modules/SwdHeader — see
+# SWD SPLIT in the header. Only SWCLK and SWDIO cross the boundary (optional
+# io above); the header's own 3V3/GND come from the board's planes, not from
+# this cell.
+
+# =============================================================================
+# USB chip-side terminators — the ONLY USB components on this cell (see the
+# header USB SPLIT note; connector/ESD/CC/VBUS = modules/UsbC). RP2350
+# requires 27R series termination on USB_DP/USB_DM placed close to the chip
+# (hw-design guide Ch 5.1 / datasheet Table 1431); usb_p/usb_n (the far side)
+# leave the module as edge stubs for the board to route to UsbC as a ~90R
+# differential pair over solid ground.
+# =============================================================================
+R(name = "r_usb_dp", value = "27ohm", package = "0402", P1 = usb_mcu_p, P2 = usb_p)
+R(name = "r_usb_dm", value = "27ohm", package = "0402", P1 = usb_mcu_n, P2 = usb_n)
+
+# =============================================================================
+# 3V3 power-present indicator — ecosystem-wide indicator-LED standard
+# (CLAUDE.md, 2026-07-26): green = power-present/drop-live, KT-0603G
+# canonical. Observes only (never gates — safety chains unaffected).
+# Wired straight across v3v3/gnd, no MCU involvement. THIN-HEADROOM case
+# (CLAUDE.md LED-colours rule 1): green VF spans 2.6-3.1V on a 3.3V rail,
+# only ~0.2-0.7V across R — size against VF_MIN (worst case for current,
+# the bin that would otherwise over-drive the LED) at the ~1.6mA nominal
+# green current: R = (3.3-2.6)/1.6mA = 437R -> 470R (E24), same value/
+# package as featherweight.zen's v3v3_led. At VF_MAX the LED runs dim
+# (inherent to the thin headroom, not a sizing error) — bench-trim R down
+# if the installed part reads visibly too dim at bring-up. The MCU's own
+# status LED is board-level (GPIO allocation is per-board), not part of
+# this shared cell.
+# =============================================================================
+led_pwr_node = net("LED_PWR_NODE")
+R(name = "r_led_pwr", value = "470ohm", package = "0402", P1 = v3v3, P2 = led_pwr_node)
+LED(name = "d_pwr", A = led_pwr_node, K = gnd)
+
+Layout(name = "MCU_RP2350B", path = "layout")

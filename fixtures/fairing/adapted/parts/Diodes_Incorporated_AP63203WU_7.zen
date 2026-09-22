@@ -1,0 +1,26 @@
+# Diodes_Incorporated_AP63203WU_7 - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Diodes_Incorporated-AP63203WU-7_C780769.pdf
+
+FB = io("FB", Net, optional = True)
+EN = io("EN", Net, optional = True)
+VIN = io("VIN", Net, optional = True)
+GND = io("GND", Net, optional = True)
+SW = io("SW", Net, optional = True)
+BST = io("BST", Net, optional = True)
+
+Component(
+    name = "Diodes_Incorporated_AP63203WU_7",
+    footprint = File("../../parts/Diodes_Incorporated_AP63203WU_7/TSOT-26_L2.9-W1.6-P0.95-LS2.8-BL.kicad_mod"),
+    symbol = Symbol("Diodes_Incorporated_AP63203WU_7/AP63203WU_7.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "AP63203WU-7", manufacturer = "Diodes Incorporated"),
+    properties = {"LCSC": "C780769", "MPN": "AP63203WU-7"},
+    pins = {
+        "FB": FB,
+        "EN": EN,
+        "VIN": VIN,
+        "GND": GND,
+        "SW": SW,
+        "BST": BST,
+    },
+)

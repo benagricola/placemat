@@ -1,0 +1,40 @@
+# CJT_C3030WV_5P - component wrapper: local KiCad symbol + footprint, LCSC pinned in
+# properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, Middleweight off-board-connector re-architecture). Single-row
+# 5-position 3.0mm-pitch VERTICAL (top-entry) wire-to-board header, Micro-Fit-3.0-class
+# shell with positive latch - the board half of the POWER pigtail from the case-wall
+# panel M12 (V+, V+, V-, V-, PERMIT_A).
+#
+# Ratings (LCSC attribute page, 2026-07-26): 8.5A per contact, 600V, -40..+105C, brass/
+# tin contacts, PA66 UL94V-0 housing. CJT's own C3030-series datasheet (fetched, LCSC
+# C239455 PDF) is DIMENSIONAL ONLY - no electrical table in its text layer; it does give
+# the crimp range: AWG20-24 terminals (C3030-TP family). Duty here: V+ and V- each ride
+# TWO paralleled pins at <=~2.5A/pin worst case (~5A node draw) - >2x margin even against
+# a conservative Micro-Fit-class multi-circuit derate (~5-6.5A), >3x against the listed
+# 8.5A. JLC assembly stock 802 pcs @ 2026-07-26 (Extended) - adequate for low-hundreds
+# but the THINNEST of the five new headers; re-verify at order time.
+#
+# Cross-plug protection (harness law): 3.0mm 1x5 shell cannot mate with the 2.0mm JST PA
+# family (J-BUS 5P / J-IO 8P) nor with its own family's 1x2 (J-CHOP) / 2x3 (J-MOT) shells.
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+p5 = io("p5", Net, optional = True)
+
+Component(
+    name = "CJT_C3030WV_5P",
+    footprint = File("CJT_C3030WV_5P/CONN-TH_C3030WV-P3.00-5P.kicad_mod"),
+    symbol = Symbol("CJT_C3030WV_5P/C3030WV-5P.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "C3030WV-5P", manufacturer = "CJT (Changjiang Connectors)"),
+    properties = {"LCSC": "C239442", "MPN": "C3030WV-5P"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+        "5": p5,
+    },
+)

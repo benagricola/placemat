@@ -1,0 +1,24 @@
+# Omron_Electronics_B3U_1000P - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet:
+# Omron_Electronics-B3U_1000P_C231329.pdf - fetched from omronfs.omron.com by hand
+# because LCSC serves no datasheet URL for this part, and gen_wrappers.py could
+# not read its metadata either, so the MPN, manufacturer and LCSC below were
+# filled in by hand rather than generated. Re-running gen_wrappers.py will not
+# clobber this (it skips folders that already have a wrapper) but a re-fetch
+# might, so check this header before trusting a regenerated file.
+
+P_1 = io("P_1", Net, optional = True)
+P_2 = io("P_2", Net, optional = True)
+
+Component(
+    name = "Omron_Electronics_B3U_1000P",
+    footprint = File("Omron_Electronics_B3U_1000P/KEY-SMD_B3U-1000PM.kicad_mod"),
+    symbol = Symbol("Omron_Electronics_B3U_1000P/B3U_1000P.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "B3U-1000P", manufacturer = "Omron Electronics"),
+    properties = {"LCSC": "C231329", "MPN": "B3U-1000P"},
+    pins = {
+        "1": P_1,
+        "2": P_2,
+    },
+)

@@ -1,0 +1,17 @@
+{
+  "mpn": "SN74LVC08APWR",
+  "manufacturer": "Texas Instruments",
+  "lcsc": "C465737",
+  "assets": [
+    {
+      "file": "C465737.kicad_sym",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/SN74LVC08APWR/lcsc/v2/C465737.kicad_sym",
+      "sha256": "deff37901ae5d95a93e7b7e4c38333049df35b768f0cc0b60c99fa2c9c374454"
+    },
+    {
+      "file": "TSSOP-14_L5_0-W4_4-P0_65-LS6_4-BL.kicad_mod",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/SN74LVC08APWR/lcsc/v2/TSSOP-14_L5_0-W4_4-P0_65-LS6_4-BL.kicad_mod",
+      "sha256": "063447778c9b726031f6f7393a8fffdea0d5afffdba7ae0fe6baca8024dd244b"
+    }
+  ]
+}

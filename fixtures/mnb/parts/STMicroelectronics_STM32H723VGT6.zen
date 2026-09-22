@@ -1,0 +1,196 @@
+# STMicroelectronics_STM32H723VGT6 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+BOOT0 = io("BOOT0", Net, optional = True)
+NRST = io("NRST", Net, optional = True)
+PA0 = io("PA0", Net, optional = True)
+PA1 = io("PA1", Net, optional = True)
+PA2 = io("PA2", Net, optional = True)
+PA3 = io("PA3", Net, optional = True)
+PA4 = io("PA4", Net, optional = True)
+PA5 = io("PA5", Net, optional = True)
+PA6 = io("PA6", Net, optional = True)
+PA7 = io("PA7", Net, optional = True)
+PA8 = io("PA8", Net, optional = True)
+PA9 = io("PA9", Net, optional = True)
+PA10 = io("PA10", Net, optional = True)
+PA11 = io("PA11", Net, optional = True)
+PA12 = io("PA12", Net, optional = True)
+PA13 = io("PA13", Net, optional = True)
+PA14 = io("PA14", Net, optional = True)
+PA15 = io("PA15", Net, optional = True)
+PB0 = io("PB0", Net, optional = True)
+PB1 = io("PB1", Net, optional = True)
+PB2 = io("PB2", Net, optional = True)
+PB3 = io("PB3", Net, optional = True)
+PB4 = io("PB4", Net, optional = True)
+PB5 = io("PB5", Net, optional = True)
+PB6 = io("PB6", Net, optional = True)
+PB7 = io("PB7", Net, optional = True)
+PB8 = io("PB8", Net, optional = True)
+PB9 = io("PB9", Net, optional = True)
+PB10 = io("PB10", Net, optional = True)
+PB11 = io("PB11", Net, optional = True)
+PB12 = io("PB12", Net, optional = True)
+PB13 = io("PB13", Net, optional = True)
+PB14 = io("PB14", Net, optional = True)
+PB15 = io("PB15", Net, optional = True)
+PC0 = io("PC0", Net, optional = True)
+PC1 = io("PC1", Net, optional = True)
+PC2_C = io("PC2_C", Net, optional = True)
+PC3_C = io("PC3_C", Net, optional = True)
+PC4 = io("PC4", Net, optional = True)
+PC5 = io("PC5", Net, optional = True)
+PC6 = io("PC6", Net, optional = True)
+PC7 = io("PC7", Net, optional = True)
+PC8 = io("PC8", Net, optional = True)
+PC9 = io("PC9", Net, optional = True)
+PC10 = io("PC10", Net, optional = True)
+PC11 = io("PC11", Net, optional = True)
+PC12 = io("PC12", Net, optional = True)
+PC13 = io("PC13", Net, optional = True)
+PC14_OSC32_IN = io("PC14_OSC32_IN", Net, optional = True)
+PC15_OSC32_OUT = io("PC15_OSC32_OUT", Net, optional = True)
+PD0 = io("PD0", Net, optional = True)
+PD1 = io("PD1", Net, optional = True)
+PD2 = io("PD2", Net, optional = True)
+PD3 = io("PD3", Net, optional = True)
+PD4 = io("PD4", Net, optional = True)
+PD5 = io("PD5", Net, optional = True)
+PD6 = io("PD6", Net, optional = True)
+PD7 = io("PD7", Net, optional = True)
+PD8 = io("PD8", Net, optional = True)
+PD9 = io("PD9", Net, optional = True)
+PD10 = io("PD10", Net, optional = True)
+PD11 = io("PD11", Net, optional = True)
+PD12 = io("PD12", Net, optional = True)
+PD13 = io("PD13", Net, optional = True)
+PD14 = io("PD14", Net, optional = True)
+PD15 = io("PD15", Net, optional = True)
+PE0 = io("PE0", Net, optional = True)
+PE1 = io("PE1", Net, optional = True)
+PE2 = io("PE2", Net, optional = True)
+PE3 = io("PE3", Net, optional = True)
+PE4 = io("PE4", Net, optional = True)
+PE5 = io("PE5", Net, optional = True)
+PE6 = io("PE6", Net, optional = True)
+PE7 = io("PE7", Net, optional = True)
+PE8 = io("PE8", Net, optional = True)
+PE9 = io("PE9", Net, optional = True)
+PE10 = io("PE10", Net, optional = True)
+PE11 = io("PE11", Net, optional = True)
+PE12 = io("PE12", Net, optional = True)
+PE13 = io("PE13", Net, optional = True)
+PE14 = io("PE14", Net, optional = True)
+PE15 = io("PE15", Net, optional = True)
+PH0_OSC_IN = io("PH0_OSC_IN", Net, optional = True)
+PH1_OSC_OUT = io("PH1_OSC_OUT", Net, optional = True)
+VBAT = io("VBAT", Net, optional = True)
+VCAP = io("VCAP", Net, optional = True)
+VDD = io("VDD", Net, optional = True)
+VDDA = io("VDDA", Net, optional = True)
+VREFpos = io("VREFpos", Net, optional = True)
+VSS = io("VSS", Net, optional = True)
+VSSA = io("VSSA", Net, optional = True)
+
+Component(
+    name = "STMicroelectronics_STM32H723VGT6",
+    footprint = File("STMicroelectronics_STM32H723VGT6/LQFP-100_L14.0-W14.0-P0.50-LS16.0-BL.kicad_mod"),
+    symbol = Symbol("STMicroelectronics_STM32H723VGT6/STM32H723VGT6.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "STM32H723VGT6", manufacturer = "STMicroelectronics"),
+    properties = {"LCSC": "C730142", "MPN": "STM32H723VGT6"},
+    pins = {
+        "BOOT0": BOOT0,
+        "NRST": NRST,
+        "PA0": PA0,
+        "PA1": PA1,
+        "PA2": PA2,
+        "PA3": PA3,
+        "PA4": PA4,
+        "PA5": PA5,
+        "PA6": PA6,
+        "PA7": PA7,
+        "PA8": PA8,
+        "PA9": PA9,
+        "PA10": PA10,
+        "PA11": PA11,
+        "PA12": PA12,
+        "PA13": PA13,
+        "PA14": PA14,
+        "PA15": PA15,
+        "PB0": PB0,
+        "PB1": PB1,
+        "PB2": PB2,
+        "PB3": PB3,
+        "PB4": PB4,
+        "PB5": PB5,
+        "PB6": PB6,
+        "PB7": PB7,
+        "PB8": PB8,
+        "PB9": PB9,
+        "PB10": PB10,
+        "PB11": PB11,
+        "PB12": PB12,
+        "PB13": PB13,
+        "PB14": PB14,
+        "PB15": PB15,
+        "PC0": PC0,
+        "PC1": PC1,
+        "PC2_C": PC2_C,
+        "PC3_C": PC3_C,
+        "PC4": PC4,
+        "PC5": PC5,
+        "PC6": PC6,
+        "PC7": PC7,
+        "PC8": PC8,
+        "PC9": PC9,
+        "PC10": PC10,
+        "PC11": PC11,
+        "PC12": PC12,
+        "PC13": PC13,
+        "PC14-OSC32_IN": PC14_OSC32_IN,
+        "PC15-OSC32_OUT": PC15_OSC32_OUT,
+        "PD0": PD0,
+        "PD1": PD1,
+        "PD2": PD2,
+        "PD3": PD3,
+        "PD4": PD4,
+        "PD5": PD5,
+        "PD6": PD6,
+        "PD7": PD7,
+        "PD8": PD8,
+        "PD9": PD9,
+        "PD10": PD10,
+        "PD11": PD11,
+        "PD12": PD12,
+        "PD13": PD13,
+        "PD14": PD14,
+        "PD15": PD15,
+        "PE0": PE0,
+        "PE1": PE1,
+        "PE2": PE2,
+        "PE3": PE3,
+        "PE4": PE4,
+        "PE5": PE5,
+        "PE6": PE6,
+        "PE7": PE7,
+        "PE8": PE8,
+        "PE9": PE9,
+        "PE10": PE10,
+        "PE11": PE11,
+        "PE12": PE12,
+        "PE13": PE13,
+        "PE14": PE14,
+        "PE15": PE15,
+        "PH0-OSC_IN": PH0_OSC_IN,
+        "PH1-OSC_OUT": PH1_OSC_OUT,
+        "VBAT": VBAT,
+        "VCAP": VCAP,
+        "VDD": VDD,
+        "VDDA": VDDA,
+        "VREF+": VREFpos,
+        "VSS": VSS,
+        "VSSA": VSSA,
+    },
+)

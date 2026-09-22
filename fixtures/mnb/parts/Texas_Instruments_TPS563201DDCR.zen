@@ -1,0 +1,30 @@
+# Texas_Instruments_TPS563201DDCR — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+EN = io("EN", Net, optional = True)
+GND = io("GND", Net, optional = True)
+SW = io("SW", Net, optional = True)
+VBST = io("VBST", Net, optional = True)
+VFB = io("VFB", Net, optional = True)
+VIN = io("VIN", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True, help = "placemat check facts, written as footprint fields")
+_properties = dict({"LCSC": "C116592", "MPN": "TPS563201DDCR"})
+_properties.update(annotations)
+
+Component(
+    name = "Texas_Instruments_TPS563201DDCR",
+    footprint = File("Texas_Instruments_TPS563201DDCR/SOT-23-6_L2.9-W1.6-P0.95-LS2.8-BR.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_TPS563201DDCR/TPS563201DDCR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "TPS563201DDCR", manufacturer = "Texas Instruments"),
+    properties = _properties,
+    pins = {
+        "EN": EN,
+        "GND": GND,
+        "SW": SW,
+        "VBST": VBST,
+        "VFB": VFB,
+        "VIN": VIN,
+    },
+)

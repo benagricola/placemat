@@ -1,0 +1,61 @@
+# UsbConverter: retained Main connectivity, source lines recorded in retained-circuits.json.
+# Component values remain subject to the core electrical review.
+
+BUCKBOOST = Module("../../adapted/parts/Texas_Instruments_TPS55288RPMR.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+HB = Module("../../adapted/parts/Alpha_Omega_Semicon_AON7934.zen")
+L_BOOST = Module("../../adapted/parts/Sunlord_MWSA0518S_2R2MT.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+
+bb_fault = io("BB_FAULT", Net)
+gnd = io("GND", Net)
+scl_pwr = io("SCL_PWR", Net)
+sda_pwr = io("SDA_PWR", Net)
+shunt = io("VSHUNT", Net)
+v3v3 = io("V3V3", Net)
+vbus = io("VBUS", Net)
+vbus_en = io("VBUS_EN", Net)
+
+agnd = Net("AGND")
+boot1 = Net("BOOT1")
+boot2 = Net("BOOT2")
+cdc_set = Net("CDC_SET")
+comp_bb = Net("COMP_BB")
+comp_mid = Net("COMP_MID")
+dr1h = Net("DR1H")
+dr1l = Net("DR1L")
+fsw_set = Net("FSW_SET")
+ilim_bb = Net("ILIM_BB")
+isp = Net("ISP")
+mode_bb = Net("MODE_BB")
+sw1 = Net("SW1")
+sw2 = Net("SW2")
+vcc_bb = Net("VCC_BB")
+
+HB(name = "q_buck", D1 = shunt, G1 = dr1h, S1_D2 = sw1, G2 = dr1l, S2 = gnd)
+BUCKBOOST(name = "vbus_conv", VIN = shunt, PGND = gnd, AGND = agnd, VOUT = isp,
+          SDA = sda_pwr, SCL = scl_pwr, EN_UVLO = vbus_en,
+          DR1H = dr1h, DR1L = dr1l,
+          SW1 = sw1, SW2 = sw2, BOOT1 = boot1, BOOT2 = boot2,
+          VCC = vcc_bb, FSW = fsw_set, ILIM = ilim_bb, MODE = mode_bb,
+          CDC = cdc_set, COMP = comp_bb, ISP = isp, ISN = vbus,
+          FB_INT = bb_fault, DITH_SYNC = gnd)
+L_BOOST(name = "l_vbus", P_1 = sw1, P_2 = sw2)
+C(name = "c_boot1", value = "100nF", package = "0402", P1 = boot1, P2 = sw1)
+C(name = "c_boot2", value = "100nF", package = "0402", P1 = boot2, P2 = sw2)
+C(name = "c_vcc_bb", value = "10uF", package = "0603", voltage = "16V", P1 = vcc_bb, P2 = agnd)
+R(name = "r_agnd", value = "0ohm", package = "0402", P1 = agnd, P2 = gnd)
+R(name = "r_vbus_sense", value = "0.01ohm", package = "1206", P1 = isp, P2 = vbus)
+R(name = "r_fsw", value = "10kohm", package = "0402", P1 = fsw_set, P2 = gnd)
+R(name = "r_bb_fault", value = "100kohm", package = "0402", P1 = v3v3, P2 = bb_fault)
+R(name = "r_vbus_en", value = "100kohm", package = "0402", P1 = vbus_en, P2 = gnd)
+R(name = "r_ilim_bb", value = "51kohm", package = "0402", P1 = ilim_bb, P2 = agnd)
+R(name = "r_mode_bb", value = "0ohm", package = "0402", P1 = mode_bb, P2 = agnd)
+R(name = "r_cdc", value = "100kohm", package = "0402", P1 = cdc_set, P2 = agnd)
+R(name = "r_comp", value = "10kohm", package = "0603", P1 = comp_bb, P2 = comp_mid)
+C(name = "c_comp", value = "2.2nF", package = "0603", P1 = comp_mid, P2 = agnd)
+C(name = "c_vbus_in_a", value = "10uF", package = "0805", voltage = "50V", P1 = shunt, P2 = gnd)
+C(name = "c_vbus_in_b", value = "10uF", package = "0805", voltage = "50V", P1 = shunt, P2 = gnd)
+C(name = "c_vbus_out", value = "22uF", package = "1210", voltage = "35V", P1 = isp, P2 = gnd)
+C(name = "c_vbus_pd", value = "4.7uF", package = "0603", voltage = "25V", P1 = vbus, P2 = gnd)
+Project(name = "UsbConverter", path = "kicad", schematic = True, layout = False)

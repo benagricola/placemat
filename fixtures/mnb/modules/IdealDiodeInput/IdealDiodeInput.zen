@@ -1,0 +1,36 @@
+# LM5050-1 high-side ideal diode + 100V N-FET + bus TVS, WITH reverse-input
+# protection for the controller (TI SNVS629E Fig 31).
+LM5050 = Module("../../parts/Texas_Instruments_LM5050MK_1_NOPB.zen")
+FET = Module("../../parts/HUAYI_HYG053N10NS1C2.zen")
+TVS = Module("../../parts/STMicroelectronics_SMBJ58A_TR.zen")
+SS510 = Module("../../parts/hongjiacheng_SS510B.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+Resistor = Module("@stdlib/generics/Resistor.zen")
+
+vin_raw = io("vin_raw", Net)
+vout = io("vout", Net)
+gnd = io("gnd", Ground)
+
+gate = Net("GATE")
+gnd_f = Net("GND_FLOAT")   # IC ground floats for reverse-input protection
+vs = Net("VS")
+
+# power path (N-FET source = input side, drain = output side)
+FET(name = "fet", S = vin_raw, D = vout, G = gate)
+LM5050(name = "ctrl", IN = vin_raw, OUT = vout, GATE = gate, GND = gnd_f, OFF = gnd_f, VS = vs)
+
+# reverse-input clamps (Fig 31): GND+OFF -> d_gnd -> board GND; d_in clamps to VIN
+SS510(name = "d_gnd", A = gnd_f, K = gnd)
+SS510(name = "d_in", A = gnd_f, K = vin_raw)
+
+# input cap on the raw side (Fig 31 CIN)
+Capacitor(name = "cin_raw", value = "1uF", package = "0805", voltage = "100V", P1 = vin_raw, P2 = gnd)
+
+# VS charge-pump bias from vout via 100R + 0.1uF (returns via gnd_f/d_gnd)
+Resistor(name = "vs_r", value = "100ohm", package = "0603", P1 = vout, P2 = vs)
+Capacitor(name = "vs_c", value = "100nF", package = "0603", voltage = "100V", P1 = vs, P2 = gnd)
+
+# bus TVS (unidirectional): K to bus, A to GND
+TVS(name = "tvs", K = vout, A = gnd)
+
+Layout(name = "IdealDiodeInput", path = "layout")

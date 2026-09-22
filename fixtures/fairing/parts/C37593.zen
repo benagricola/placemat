@@ -1,0 +1,33 @@
+# ADS1115IDGSR; native source and hash in C37593/asset-provenance.json.
+
+ADDR = io("ADDR", Net, optional = True)
+ALERT_RDY = io("ALERT_RDY", Net, optional = True)
+GND = io("GND", Net, optional = True)
+AIN0 = io("AIN0", Net, optional = True)
+AIN1 = io("AIN1", Net, optional = True)
+AIN2 = io("AIN2", Net, optional = True)
+AIN3 = io("AIN3", Net, optional = True)
+VDD = io("VDD", Net, optional = True)
+SDA = io("SDA", Net, optional = True)
+SCL = io("SCL", Net, optional = True)
+
+Component(
+    name = "ADS1115IDGSR",
+    footprint = File("C37593/MSOP-10_L3_0-W3_0-P0_50-LS5_0-BL.kicad_mod"),
+    symbol = Symbol("C37593/C37593.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "ADS1115IDGSR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C37593", "MPN": "ADS1115IDGSR"},
+    pins = {
+        "ADDR": ADDR,
+        "ALERT/RDY": ALERT_RDY,
+        "GND": GND,
+        "AIN0": AIN0,
+        "AIN1": AIN1,
+        "AIN2": AIN2,
+        "AIN3": AIN3,
+        "VDD": VDD,
+        "SDA": SDA,
+        "SCL": SCL,
+    },
+)

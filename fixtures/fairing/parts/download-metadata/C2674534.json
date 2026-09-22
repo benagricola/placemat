@@ -1,0 +1,10 @@
+{
+  "mpn": "SN74CB3Q3245DGVR",
+  "manufacturer": "Texas Instruments",
+  "lcsc": {
+    "symbol_url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/SN74CB3Q3245DGVR/lcsc/v2/C2674534.kicad_sym",
+    "footprint_url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/SN74CB3Q3245DGVR/lcsc/v2/TVSOP-20_L5_0-W4_4-P0_40-LS6_6-BL.kicad_mod",
+    "step_url": null,
+    "part_number": "C2674534"
+  }
+}

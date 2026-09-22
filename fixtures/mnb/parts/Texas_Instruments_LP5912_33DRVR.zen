@@ -1,0 +1,55 @@
+# Texas_Instruments_LP5912_33DRVR — component wrapper: local KiCad symbol +
+# footprint, LCSC pinned in properties (feeds the JLC BOM/CPL fields).
+#
+# LP5912-3.3DRVR: fixed 3.3 V, 500 mA LDO in WSON-6-EP (2.0 x 2.0 mm).
+#
+# WHY THIS PACKAGE. A 5 V to 3.3 V linear drop of 1.7 V burns 0.18 W at a
+# 105 mA load and 0.255 W at a 150 mA budget, so the package is chosen by its
+# thermal resistance, not its footprint. The datasheet's High-K figure (section
+# 7.4) is RthJA = 71.2 K/W for DRV with two vias under the exposed pad, which is
+# the four-layer, planed stackup these boards use; against a 125 C junction
+# limit in a 100 C case ambient the budget is 139 K/W, so this clears it with
+# the junction at 113 C nominal and 118 C at the full budget. A plain SOT-23-5
+# is about 169 K/W and does NOT clear it - which is why the SOT-223 part this
+# replaces existed. THE 71.2 K/W ASSUMES THE PAD IS THERE: the exposed pad must
+# be soldered to a ground pour with thermal vias through to the planes, or the
+# thermal argument for this part does not hold.
+#
+# EP is a GROUND pad. The datasheet is explicit: connect it to ground or leave
+# it floating, never to any other potential.
+#
+# EN has an internal 3 Mohm PULLDOWN, so an unconnected EN is a device that
+# never starts. Tie it to IN for always-on. PG is an open-drain power-good and
+# needs an external pull-up if it is used at all.
+#
+# Input ceiling: 6.5 V recommended, 7 V absolute maximum. On a regulated 5 V
+# rail that is real headroom, including a buck's load-release overshoot.
+#
+# Stock check 2026-09-10 (LCSC C524780): 11,648 units - well above the
+# low-hundreds-of-boards bar (CLAUDE.md process rule 0). Datasheet read:
+# SNVSA77D, sections 6 (pin functions), 7.1/7.3 (limits) and 7.4 (thermal).
+
+IN = io("IN", Net, optional = True)
+OUT = io("OUT", Net, optional = True)
+GND = io("GND", Net, optional = True)
+EN = io("EN", Net, optional = True)
+PG = io("PG", Net, optional = True)
+NC = io("NC", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_LP5912_33DRVR",
+    footprint = File("Texas_Instruments_LP5912_33DRVR/WSON-6_L2.0-W2.0-P0.65-TL-EP.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_LP5912_33DRVR/LP5912-3.3DRVR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "LP5912-3.3DRVR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C524780", "MPN": "LP5912-3.3DRVR"},
+    pins = {
+        "IN": IN,
+        "OUT": OUT,
+        "GND": GND,
+        "EN": EN,
+        "PG": PG,
+        "NC": NC,
+        "EP": GND,
+    },
+)

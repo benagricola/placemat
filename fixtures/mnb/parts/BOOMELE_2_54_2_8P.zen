@@ -1,0 +1,46 @@
+# BOOMELE_2_54_2_8P — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+p5 = io("p5", Net, optional = True)
+p6 = io("p6", Net, optional = True)
+p7 = io("p7", Net, optional = True)
+p8 = io("p8", Net, optional = True)
+p9 = io("p9", Net, optional = True)
+p10 = io("p10", Net, optional = True)
+p11 = io("p11", Net, optional = True)
+p12 = io("p12", Net, optional = True)
+p13 = io("p13", Net, optional = True)
+p14 = io("p14", Net, optional = True)
+p15 = io("p15", Net, optional = True)
+p16 = io("p16", Net, optional = True)
+
+Component(
+    name = "BOOMELE_2_54_2_8P",
+    footprint = File("BOOMELE_2_54_2_8P/HDR-TH_16P-P2.54-V-M-R2-C8-S2.54.kicad_mod"),
+    symbol = Symbol("BOOMELE_2_54_2_8P/Header-Male-2.54_2x8.kicad_sym"),
+    prefix = "P",
+    part = Part(mpn = "2.54-2*8P针", manufacturer = "BOOMELE"),
+    properties = {"LCSC": "C68234", "MPN": "2.54-2*8P针"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+        "5": p5,
+        "6": p6,
+        "7": p7,
+        "8": p8,
+        "9": p9,
+        "10": p10,
+        "11": p11,
+        "12": p12,
+        "13": p13,
+        "14": p14,
+        "15": p15,
+        "16": p16,
+    },
+)

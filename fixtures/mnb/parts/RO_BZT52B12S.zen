@@ -1,0 +1,33 @@
+# RO_BZT52B12S — component wrapper: local KiCad symbol + footprint, LCSC pinned in
+# properties (feeds the JLC BOM/CPL fields). Manufacturer is "R+O"; "+" isn't valid in a
+# module/file name, sanitized to "RO".
+#
+# NEW PART (2026-07-26, middleweight regen-chopper hardware backstop). 12V zener diode,
+# SOD-323, +/-2%-class grade ("B" suffix). LCSC C22395572, stock 21,550-7,264 units
+# (checked 2026-07-26; the LCSC product page itself showed 21,550, the jlcsearch index
+# 7,264 — both comfortably above the low-hundreds bar) — **JLC BASIC** (confirmed via
+# jlcsearch.tscircuit.com index: is_basic=true; one of only two Basic 12V-zener hits out
+# of 25 candidates surveyed, the other being a SOD-523 BZX584C12 too small-bodied for this
+# part's power dissipation — see middleweight.zen's gate-driver-supply section for the
+# power budget this needs to carry).
+#
+# Datasheet read (R+O BZT52B12S, LCSC C22395572, 2026-07-26): Vz 12V nominal (11.76-
+# 12.24V spec'd range), Ptot 200mW max. Used as a shunt regulator (series R + this zener)
+# to make a ~12V rail for the chopper gate-driver IC from a much higher board rail —
+# sized so worst-case dissipation stays well under the 200mW ceiling (see middleweight.zen
+# section comment for the full R+zener power budget across the supply's voltage range).
+K = io("K", Net, optional = True)
+A = io("A", Net, optional = True)
+
+Component(
+    name = "RO_BZT52B12S",
+    footprint = File("RO_BZT52B12S/SOD-323_L1.8-W1.3-LS2.5-RD.kicad_mod"),
+    symbol = Symbol("RO_BZT52B12S/BZT52B12S_C22395572.kicad_sym"),
+    prefix = "D",
+    part = Part(mpn = "BZT52B12S", manufacturer = "R+O"),
+    properties = {"LCSC": "C22395572", "MPN": "BZT52B12S"},
+    pins = {
+        "K": K,
+        "A": A,
+    },
+)

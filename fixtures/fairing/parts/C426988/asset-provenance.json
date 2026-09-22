@@ -1,0 +1,17 @@
+{
+  "mpn": "S3240000101040",
+  "manufacturer": "JGHC",
+  "lcsc": "C426988",
+  "assets": [
+    {
+      "file": "C426988.kicad_sym",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/JGHC/S3240000101040/lcsc/v2/C426988.kicad_sym",
+      "sha256": "2fea13f8d2a18fda6afd93ab1592da27c12890569783197b33235533656b1fde"
+    },
+    {
+      "file": "CRYSTAL-SMD_4P-L3_2-W2_5-BL.kicad_mod",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/JGHC/S3240000101040/lcsc/v2/CRYSTAL-SMD_4P-L3_2-W2_5-BL.kicad_mod",
+      "sha256": "2f2b5ac52ded7fdb5c0b3fcb8602b68b9509632fb364c7268141f129a75b66c8"
+    }
+  ]
+}

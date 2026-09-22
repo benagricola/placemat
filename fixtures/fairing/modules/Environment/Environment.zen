@@ -1,0 +1,18 @@
+# Permanent-arm ambient sensing, Bosch BST-BME280-DS001-24 sections 6.2/7.2.
+# Place beyond a thermal neck; shield the uncoated vent from light and droplets.
+BME = Module("../../adapted/parts/C92489.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+
+gnd = io("GND", Net)
+v3v3 = io("V3V3", Net)
+sda = io("SDA", Net)
+scl = io("SCL", Net)
+
+# CSB is tied directly to VDDIO for I2C; SDO low selects address 0x76.
+# Shared sensor-bus pullups are fitted once on StatusPulls.
+BME(name = "bme280", GND = gnd, VDD = v3v3, VDDIO = v3v3,
+    CSB = v3v3, SDI = sda, SCK = scl, SDO = gnd)
+C(name = "c_bme_vdd", value = "100nF", package = "0402", voltage = "16V", P1 = v3v3, P2 = gnd)
+C(name = "c_bme_vddio", value = "100nF", package = "0402", voltage = "16V", P1 = v3v3, P2 = gnd)
+
+Project(name = "Ambient pressure, humidity and temperature", path = "kicad", schematic = True, layout = False)

@@ -1,0 +1,22 @@
+# LogicSupply: retained Main connectivity, source lines recorded in retained-circuits.json.
+# Component values remain subject to the core electrical review.
+
+BUCK3V3 = Module("../../adapted/parts/Diodes_Incorporated_AP63203WU_7.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+L_BUCK = Module("../../adapted/parts/SXN_Shun_Xiang_Nuo_Elec_SMNR4020_2_2UH.zen")
+
+gnd = io("GND", Net)
+shunt = io("VSHUNT", Net)
+v3v3 = io("V3V3", Net)
+
+bst_3v3 = Net("BST_3V3")
+sw_3v3 = Net("SW_3V3")
+
+BUCK3V3(name = "buck3v3", VIN = shunt, GND = gnd, EN = shunt,
+        SW = sw_3v3, BST = bst_3v3, FB = v3v3)
+L_BUCK(name = "l_3v3", P_1 = sw_3v3, P_2 = v3v3)
+C(name = "c_bst", value = "100nF", package = "0402", P1 = bst_3v3, P2 = sw_3v3)
+C(name = "c_3v3_in", value = "10uF", package = "0805", voltage = "50V", P1 = shunt, P2 = gnd)
+C(name = "c_3v3_hf", value = "100nF", package = "0402", voltage = "50V", P1 = shunt, P2 = gnd)
+C(name = "c_3v3_out", value = "22uF", package = "0805", voltage = "10V", P1 = v3v3, P2 = gnd)
+Project(name = "LogicSupply", path = "kicad", schematic = True, layout = False)

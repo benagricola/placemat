@@ -1,0 +1,22 @@
+# IXYS_CPC1017NTR — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+ANOD = io("ANOD", Net, optional = True)
+CATH = io("CATH", Net, optional = True)
+INOUT1 = io("INOUT1", Net, optional = True)
+INOUT2 = io("INOUT2", Net, optional = True)
+
+Component(
+    name = "IXYS_CPC1017NTR",
+    footprint = File("IXYS_CPC1017NTR/SOP-4_L4.1-W3.8-P2.54-LS6.1-BL.kicad_mod"),
+    symbol = Symbol("IXYS_CPC1017NTR/CPC1017NTR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "CPC1017NTR", manufacturer = "IXYS"),
+    properties = {"LCSC": "C81521", "MPN": "CPC1017NTR"},
+    pins = {
+        "ANOD": ANOD,
+        "CATH": CATH,
+        "INOUT1": INOUT1,
+        "INOUT2": INOUT2,
+    },
+)

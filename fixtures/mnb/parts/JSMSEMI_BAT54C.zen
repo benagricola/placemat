@@ -1,0 +1,48 @@
+# JSMSEMI_BAT54C — component wrapper: local KiCad symbol + footprint, LCSC pinned in
+# properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, middleweight regen-chopper hardware backstop). Dual Schottky
+# diode array, COMMON CATHODE configuration, SOT-23. LCSC C916424, stock 1,390,650 units
+# (checked 2026-07-26) — very high volume, effectively no stock risk; JLC classification
+# NOT confirmed Basic (jlcsearch.tscircuit.com index marks is_basic=false for this id) —
+# treat as Extended, VERIFY at order (the huge stock makes this a low-risk Extended part
+# regardless). 30V reverse rating, Vf ~1V@100mA — plenty for a 3.3V-class logic diode-OR.
+#
+# DEVIATION FLAG (Ben, please confirm): the task brief that requested this part named
+# "BAT54S" / C916425 — but that is Nexperia-style-family's SERIES-connected dual diode
+# (3-pin: anode1 - junction - cathode2, used for voltage doublers/clamps), confirmed via
+# datasheet search 2026-07-26 ("Dual Series Schottky Barrier Diodes"). A series pair
+# cannot realize a 2-input diode-OR (no shared node where both anodes or both cathodes
+# meet). C916425 and C916424 are adjacent LCSC ids from the same manufacturer's SOT-23
+# diode-array line (BAT54S / BAT54C respectively) — an easy mix-up. This wrapper uses the
+# COMMON-CATHODE part (BAT54C, C916424) instead, which is the correct topology for
+# "two independent sources, diode-ORed into one node": both anodes are inputs, the
+# common cathode is the OR-ed output. Used this way in middleweight.zen's regen-chopper
+# gate-driver input merge (MCU chop_gate_drv OR comparator backstop output).
+#
+# Pin mapping: EasyEDA/LCSC's exported symbol carries only generic numeric pin names (no
+# semantic Anode/Cathode labels available via the API for this part) — mapped here from
+# (a) the industry-standard BAT54C SOT-23 pinout (Nexperia and pin-compatible clones:
+# pins 1/2 = the two independent anodes, pin 3 = common cathode — the isolated single pin
+# is conventionally the shared/common terminal) and (b) the fetched pad geometry itself,
+# which confirms pins 1 and 2 share one package side (same X coordinate) while pin 3 sits
+# alone on the other side — consistent with (a). BENCH-VERIFY continuity (diode direction,
+# common node) at bring-up per usual practice for a part whose datasheet PDF text
+# extraction was inconclusive.
+A1 = io("A1", Net, optional = True)
+A2 = io("A2", Net, optional = True)
+K = io("K", Net, optional = True)
+
+Component(
+    name = "JSMSEMI_BAT54C",
+    footprint = File("JSMSEMI_BAT54C/SOT-23-3_L2.9-W1.3-P1.90-LS2.4-BR.kicad_mod"),
+    symbol = Symbol("JSMSEMI_BAT54C/BAT54C_C916424.kicad_sym"),
+    prefix = "D",
+    part = Part(mpn = "BAT54C", manufacturer = "JSMSEMI"),
+    properties = {"LCSC": "C916424", "MPN": "BAT54C"},
+    pins = {
+        "1": A1,
+        "2": A2,
+        "3": K,
+    },
+)

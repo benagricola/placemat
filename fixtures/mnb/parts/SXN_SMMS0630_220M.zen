@@ -1,0 +1,18 @@
+# SXN_SMMS0630_220M — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+
+Component(
+    name = "SXN_SMMS0630_220M",
+    footprint = File("SXN_SMMS0630_220M/IND-SMD_L7.3-W6.6_MHCI06030.kicad_mod"),
+    symbol = Symbol("SXN_SMMS0630_220M/SMMS0630-220M.kicad_sym"),
+    prefix = "L",
+    part = Part(mpn = "SMMS0630-220M", manufacturer = "SXN"),
+    properties = {"LCSC": "C128694", "MPN": "SMMS0630-220M"},
+    pins = {
+        "1": p1,
+        "2": p2,
+    },
+)

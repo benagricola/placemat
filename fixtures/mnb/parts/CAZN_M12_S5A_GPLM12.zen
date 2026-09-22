@@ -1,0 +1,29 @@
+# CAZN_M12_S5A_GPLM12 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# M12 5-pin A-coded right-angle FEMALE bulkhead — the canonical field/bus connector for
+# sealed nodes (Middleweight, Flyweight). THT, Extended, thin-stocked: verify live stock
+# at order time. No 3D model exists upstream (easyeda2kicad --3d returns none, checked
+# 2026-07-26) — renders show the bare footprint.
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+p5 = io("p5", Net, optional = True)
+
+Component(
+    name = "CAZN_M12_S5A_GPLM12",
+    footprint = File("CAZN_M12_S5A_GPLM12/CONN-TH_M12-S5A-GPLM12.kicad_mod"),
+    symbol = Symbol("CAZN_M12_S5A_GPLM12/M12-S5A-GPLM12.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "M12-S5A-GPLM12", manufacturer = "CAZN"),
+    properties = {"LCSC": "C22399752", "MPN": "M12-S5A-GPLM12"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+        "5": p5,
+    },
+)

@@ -1,0 +1,9 @@
+[workspace]
+name = "mnb-mettle-and-byte"
+pcb-version = "0.4"
+
+# Toolchain (2026-09-03): pcbc v0.4.47 + the NetClass `nets` field (upstream issue #913,
+# still open) built from ~/work/pcb branch feat/netclass-nets-field-0.4.47 and symlinked as
+# ~/.local/bin/pcb. The stdlib ships INSIDE that checkout (lib/std) and is discovered next
+# to the binary, so no stdlib dependency is declared here. The old
+# @github/benagricola/stdlib fork branch is retired.

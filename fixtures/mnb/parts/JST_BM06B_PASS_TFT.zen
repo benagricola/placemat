@@ -1,0 +1,50 @@
+# JST_BM06B_PASS_TFT — component wrapper: local KiCad symbol + footprint, LCSC pinned in
+# properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-09-03, Middleweight SMT-connector re-architecture). GENUINE JST PA
+# 6-position 2.0mm-pitch TOP-ENTRY (vertical) SMT shrouded header with secure latch,
+# BM06B-PASS-TFT(LF)(SN) - the board half of the POWER pigtail {V+, V+, V-, V-, PERMIT_A, spare}: paralleled pairs carry 6A each against the node's ~3.7A worst case. The 6th position exists to make the power header's pin count UNIQUE on the board.
+#
+# Why PA, vertical, SMT (Ben, 2026-09-03): no through-hole part on the two-sided
+# 56.4mm board (every THT pin is a hole through BOTH faces); vertical so nothing
+# protrudes past the board edge inside a motor-footprint case (a right-angle plug
+# plus its wire bend wants ~15-20mm beyond the edge); PA because it is the 3A
+# JST family at 2.0mm (XA's vertical SMT footprint is ~2x the area) and the same
+# family the earlier THT capture used, so the crimp tooling (SPHD-001T-P0.5, AWG
+# 22-28) and PAP-xxV-S housings carry over. Keying is by PIN COUNT: J-PWR 6P is
+# unique (the dangerous cross-plug), J-MOT 8P is unique, J-BUS/J-IO share 5P
+# (benign either way, documented in middleweight.zen).
+#
+# Ratings (JST PA family, ePA-F.pdf): 3A AC/DC, 250V, -25..+85C. Header 8.9mm tall,
+# body 16mm wide x 5.7 deep. LCSC C265376, Extended, stock 2,104 @ 2026-09-03 (JLC parts API); BM06B-PASS-1-TFT (with boss) C485352 1,770 is the drop-in alternate.
+#
+# FOOTPRINT (easyeda2kicad export, house courtyard regenerated): 6 x 1.0 x 2.9mm
+# pads at 2.0mm pitch on the SOUTH edge (pin 1 at +x, i.e. the EAST end at rot 0),
+# two 1.8 x 3.6mm anchor tabs on the north edge.
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+p5 = io("p5", Net, optional = True)
+p6 = io("p6", Net, optional = True)
+tab1 = io("tab1", Net, optional = True)
+tab2 = io("tab2", Net, optional = True)
+
+Component(
+    name = "JST_BM06B_PASS_TFT",
+    footprint = File("JST_BM06B_PASS_TFT/CONN-SMD_6P-P2.00_BM06B-PASS-TFT-LF-SN.kicad_mod"),
+    symbol = Symbol("JST_BM06B_PASS_TFT/JST_BM06B_PASS_TFT.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "BM06B-PASS-TFT(LF)(SN)", manufacturer = "JST"),
+    properties = {"LCSC": "C265376", "MPN": "BM06B-PASS-TFT(LF)(SN)"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+        "5": p5,
+        "6": p6,
+        "7": tab1,
+        "8": tab2,
+    },
+)

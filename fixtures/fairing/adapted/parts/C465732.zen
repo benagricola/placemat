@@ -1,0 +1,61 @@
+# TCA9555PWR; native source and hash in C465732/asset-provenance.json.
+
+INT = io("INT", Net, optional = True)
+A1 = io("A1", Net, optional = True)
+A2 = io("A2", Net, optional = True)
+P00 = io("P00", Net, optional = True)
+P01 = io("P01", Net, optional = True)
+P02 = io("P02", Net, optional = True)
+P03 = io("P03", Net, optional = True)
+P04 = io("P04", Net, optional = True)
+P05 = io("P05", Net, optional = True)
+P06 = io("P06", Net, optional = True)
+P07 = io("P07", Net, optional = True)
+GND = io("GND", Net, optional = True)
+P10 = io("P10", Net, optional = True)
+P11 = io("P11", Net, optional = True)
+P12 = io("P12", Net, optional = True)
+P13 = io("P13", Net, optional = True)
+P14 = io("P14", Net, optional = True)
+P15 = io("P15", Net, optional = True)
+P16 = io("P16", Net, optional = True)
+P17 = io("P17", Net, optional = True)
+A0 = io("A0", Net, optional = True)
+SCL = io("SCL", Net, optional = True)
+SDA = io("SDA", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+
+Component(
+    name = "TCA9555PWR",
+    footprint = File("../../parts/C465732/TSSOP-24_L7_8-W4_4-P0_65-LS6_4-BL.kicad_mod"),
+    symbol = Symbol("C465732/C465732.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "TCA9555PWR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C465732", "MPN": "TCA9555PWR"},
+    pins = {
+        "~{INT}": INT,
+        "A1": A1,
+        "A2": A2,
+        "P00": P00,
+        "P01": P01,
+        "P02": P02,
+        "P03": P03,
+        "P04": P04,
+        "P05": P05,
+        "P06": P06,
+        "P07": P07,
+        "GND": GND,
+        "P10": P10,
+        "P11": P11,
+        "P12": P12,
+        "P13": P13,
+        "P14": P14,
+        "P15": P15,
+        "P16": P16,
+        "P17": P17,
+        "A0": A0,
+        "SCL": SCL,
+        "SDA": SDA,
+        "VCC": VCC,
+    },
+)

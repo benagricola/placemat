@@ -1,0 +1,18 @@
+# UNI_ROYAL_MOR02SJ0101A10 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+
+Component(
+    name = "UNI_ROYAL_MOR02SJ0101A10",
+    footprint = File("UNI_ROYAL_MOR02SJ0101A10/RES-TH_BD4.5-L11.5-P15.50-D0.7.kicad_mod"),
+    symbol = Symbol("UNI_ROYAL_MOR02SJ0101A10/MOR02SJ0101A10.kicad_sym"),
+    prefix = "R",
+    part = Part(mpn = "MOR02SJ0101A10", manufacturer = "UNI-ROYAL"),
+    properties = {"LCSC": "C61338", "MPN": "MOR02SJ0101A10"},
+    pins = {
+        "1": p1,
+        "2": p2,
+    },
+)

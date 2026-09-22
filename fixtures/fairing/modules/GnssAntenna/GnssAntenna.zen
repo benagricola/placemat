@@ -1,0 +1,64 @@
+# =============================================================================
+# GnssAntenna - the 1575MHz receive chain from the radiator to a 50 ohm feed
+# =============================================================================
+# A module because this circuit's LAYOUT is the circuit. The antenna's clearance,
+# the matching network's distance from the feed node and the pad-to-pad geometry
+# are all part of how it performs, and none of that survives being re-derived
+# every time the board it sits on changes shape. Laid out once here, it is
+# stamped onto a board as one rigid cell: change the board's diameter, move the
+# connector, re-solve a radius, and this corner is carried across unaltered.
+#
+# WHAT CROSSES THE BOUNDARY is the 50 ohm feed and ground, and nothing else.
+# `ANT_FEED` leaves the series element on the receiver side of the match, so the
+# board sees a matched 50 ohm port and owes the module only a reference plane
+# under that line.
+#
+# The parent board still owes it two things a module cannot carry: a ground
+# plane it can reach, and the keep-out staying clear of the board's own edge.
+# `GnssAntenna_layout.py` declares the clearance; the board has to place the
+# cell far enough in that the clearance is not clipped by the rim.
+
+Resistor = Module("@stdlib/generics/Resistor.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+ANT = Module("../../adapted/parts/Pulse_Elec_W3011.zen")
+
+ANT_FEED = io("ANT_FEED", Net)
+GND = io("GND", Net)
+
+ant_trace = Net("ANT_TRACE")   # antenna side of the matching network
+
+# --- the radiator ------------------------------------------------------------
+# Pulse W3011, 1206. Symmetrical: either terminal can be feed or ground, so
+# which end feeds is the layout's choice, not the part's (datasheet p3).
+ANT(name = "ant", ANT = ant_trace, GND = GND)
+
+# --- the matching network, built as a short --------------------------------
+# A pi: shunt, series, shunt. The reference design asks for a single shunt near
+# the feed node and nothing else, so the outer positions exist to be populated
+# only if a VNA on a built board says so.
+#
+# BUILT AS DNP / 0 OHM / DNP, so the shunts come up from nothing rather than
+# down from a short. 10pF is about 10 ohm at 1575.42MHz, and two of those either
+# side of a zero-ohm link is a short to ground across a 50 ohm line - a board
+# built that way receives nothing, which at the bench is indistinguishable from
+# a bad antenna, a blocking panel or a bad layout. The values are the
+# footprint's identity, not a build instruction.
+Capacitor(name = "c_ant_shunt2", value = "10pF", package = "0402",
+          P1 = ant_trace, P2 = GND, dnp = True)
+Resistor(name = "r_ant_series", value = "0ohm", package = "0402",
+         P1 = ANT_FEED, P2 = ant_trace)
+Capacitor(name = "c_ant_shunt1", value = "10pF", package = "0402",
+          P1 = ANT_FEED, P2 = GND, dnp = True)
+
+# --- the escape hatch, on the RECEIVER side of the match ---------------------
+# `r_ant_series` is the A/B switch. Fitted, the chip antenna feeds the receiver
+# through the network; removed, the chip antenna is isolated and this connector
+# feeds the receiver directly. One resistor and no unsoldering.
+#
+# It has to be this side. On ant_trace it would share a node with `ant`, so an
+# external antenna and the chip antenna would sit in PARALLEL on one feed and
+# the chip antenna would load the measurement - which is the one measurement
+# this connector exists for, telling "the antenna is bad" apart from "the panel
+# is blocking it".
+
+Project(name = "GNSS antenna matching", path = "kicad", schematic = True, layout = False)

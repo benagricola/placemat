@@ -1,0 +1,423 @@
+{
+  "board": {
+    "3dviewports": [],
+    "design_settings": {
+      "defaults": {
+        "apply_defaults_to_fp_barcodes": false,
+        "apply_defaults_to_fp_dimensions": false,
+        "apply_defaults_to_fp_fields": false,
+        "apply_defaults_to_fp_shapes": false,
+        "apply_defaults_to_fp_text": false,
+        "board_outline_line_width": 0.05,
+        "copper_line_width": 0.2,
+        "copper_text_italic": false,
+        "copper_text_size_h": 1.5,
+        "copper_text_size_v": 1.5,
+        "copper_text_thickness": 0.3,
+        "copper_text_upright": false,
+        "courtyard_line_width": 0.05,
+        "dimension_precision": 4,
+        "dimension_units": 3,
+        "dimensions": {
+          "arrow_length": 1270000,
+          "extension_offset": 500000,
+          "keep_text_aligned": true,
+          "suppress_zeroes": true,
+          "text_position": 0,
+          "units_format": 0
+        },
+        "fab_line_width": 0.1,
+        "fab_text_italic": false,
+        "fab_text_size_h": 1.0,
+        "fab_text_size_v": 1.0,
+        "fab_text_thickness": 0.15,
+        "fab_text_upright": false,
+        "other_line_width": 0.1,
+        "other_text_italic": false,
+        "other_text_size_h": 1.0,
+        "other_text_size_v": 1.0,
+        "other_text_thickness": 0.15,
+        "other_text_upright": false,
+        "pads": {
+          "drill": 0.8,
+          "height": 1.27,
+          "width": 1.27
+        },
+        "silk_line_width": 0.1,
+        "silk_text_italic": false,
+        "silk_text_size_h": 1.0,
+        "silk_text_size_v": 1.0,
+        "silk_text_thickness": 0.1,
+        "silk_text_upright": false,
+        "zones": {
+          "border_display_style": 2,
+          "border_hatch_pitch": 0.5,
+          "corner_radius": 0.0,
+          "corner_smoothing": 0,
+          "fill_mode": 0,
+          "hatch_gap": 1.5,
+          "hatch_orientation": 0.0,
+          "hatch_smoothing_level": 0,
+          "hatch_smoothing_value": 0.1,
+          "hatch_thickness": 1.0,
+          "min_clearance": 0.5,
+          "min_island_area": 10.0,
+          "min_thickness": 0.25,
+          "pad_connection": 1,
+          "remove_islands": 0,
+          "thermal_relief_gap": 0.5,
+          "thermal_relief_spoke_width": 0.5
+        }
+      },
+      "diff_pair_dimensions": [],
+      "drc_exclusions": [],
+      "meta": {
+        "version": 2
+      },
+      "rule_severities": {
+        "annular_width": "error",
+        "clearance": "error",
+        "connection_width": "warning",
+        "copper_edge_clearance": "error",
+        "copper_sliver": "warning",
+        "courtyards_overlap": "error",
+        "creepage": "error",
+        "diff_pair_gap_out_of_range": "error",
+        "diff_pair_uncoupled_length_too_long": "error",
+        "drill_out_of_range": "error",
+        "duplicate_footprints": "warning",
+        "extra_footprint": "warning",
+        "footprint": "error",
+        "footprint_filters_mismatch": "ignore",
+        "footprint_symbol_field_mismatch": "warning",
+        "footprint_symbol_mismatch": "warning",
+        "footprint_type_mismatch": "ignore",
+        "hole_clearance": "error",
+        "hole_to_hole": "warning",
+        "holes_co_located": "warning",
+        "invalid_outline": "error",
+        "isolated_copper": "warning",
+        "item_on_disabled_layer": "error",
+        "items_not_allowed": "error",
+        "length_out_of_range": "error",
+        "lib_footprint_issues": "warning",
+        "lib_footprint_mismatch": "warning",
+        "malformed_courtyard": "error",
+        "microvia_drill_out_of_range": "error",
+        "mirrored_text_on_front_layer": "warning",
+        "missing_courtyard": "ignore",
+        "missing_footprint": "warning",
+        "missing_tuning_profile": "warning",
+        "net_conflict": "warning",
+        "nonmirrored_text_on_back_layer": "warning",
+        "npth_inside_courtyard": "error",
+        "padstack": "warning",
+        "pth_inside_courtyard": "error",
+        "shorting_items": "error",
+        "silk_edge_clearance": "warning",
+        "silk_over_copper": "warning",
+        "silk_overlap": "warning",
+        "skew_out_of_range": "error",
+        "solder_mask_bridge": "error",
+        "starved_thermal": "error",
+        "text_height": "warning",
+        "text_on_edge_cuts": "error",
+        "text_thickness": "warning",
+        "through_hole_pad_without_hole": "error",
+        "too_many_vias": "error",
+        "track_angle": "error",
+        "track_dangling": "warning",
+        "track_not_centered_on_via": "ignore",
+        "track_on_post_machined_layer": "error",
+        "track_segment_length": "error",
+        "track_width": "error",
+        "tracks_crossing": "error",
+        "tuning_profile_track_geometries": "ignore",
+        "unconnected_items": "error",
+        "unresolved_variable": "error",
+        "via_dangling": "warning",
+        "zones_intersect": "error"
+      },
+      "rules": {
+        "max_error": 0.005,
+        "min_clearance": 0.0,
+        "min_connection": 0.0,
+        "min_copper_edge_clearance": 0.5,
+        "min_groove_width": 0.0,
+        "min_hole_clearance": 0.25,
+        "min_hole_to_hole": 0.25,
+        "min_microvia_diameter": 0.2,
+        "min_microvia_drill": 0.1,
+        "min_resolved_spokes": 2,
+        "min_silk_clearance": 0.0,
+        "min_text_height": 0.8,
+        "min_text_thickness": 0.08,
+        "min_through_hole_diameter": 0.3,
+        "min_track_width": 0.2,
+        "min_via_annular_width": 0.1,
+        "min_via_diameter": 0.5,
+        "solder_mask_to_copper_clearance": 0.0,
+        "use_height_for_length_calcs": true
+      },
+      "teardrop_options": [
+        {
+          "td_onpthpad": true,
+          "td_onroundshapesonly": false,
+          "td_onsmdpad": true,
+          "td_ontrackend": false,
+          "td_onvia": true
+        }
+      ],
+      "teardrop_parameters": [
+        {
+          "td_allow_use_two_tracks": true,
+          "td_curve_segcount": 0,
+          "td_height_ratio": 1.0,
+          "td_length_ratio": 0.5,
+          "td_maxheight": 2.0,
+          "td_maxlen": 1.0,
+          "td_on_pad_in_zone": false,
+          "td_target_name": "td_round_shape",
+          "td_width_to_size_filter_ratio": 0.9
+        },
+        {
+          "td_allow_use_two_tracks": true,
+          "td_curve_segcount": 0,
+          "td_height_ratio": 1.0,
+          "td_length_ratio": 0.5,
+          "td_maxheight": 2.0,
+          "td_maxlen": 1.0,
+          "td_on_pad_in_zone": false,
+          "td_target_name": "td_rect_shape",
+          "td_width_to_size_filter_ratio": 0.9
+        },
+        {
+          "td_allow_use_two_tracks": true,
+          "td_curve_segcount": 0,
+          "td_height_ratio": 1.0,
+          "td_length_ratio": 0.5,
+          "td_maxheight": 2.0,
+          "td_maxlen": 1.0,
+          "td_on_pad_in_zone": false,
+          "td_target_name": "td_track_end",
+          "td_width_to_size_filter_ratio": 0.9
+        }
+      ],
+      "track_widths": [],
+      "tuning_pattern_settings": {
+        "diff_pair_defaults": {
+          "corner_radius_percentage": 80,
+          "corner_style": 1,
+          "max_amplitude": 1.0,
+          "min_amplitude": 0.2,
+          "single_sided": false,
+          "spacing": 1.0
+        },
+        "diff_pair_skew_defaults": {
+          "corner_radius_percentage": 80,
+          "corner_style": 1,
+          "max_amplitude": 1.0,
+          "min_amplitude": 0.2,
+          "single_sided": false,
+          "spacing": 0.6
+        },
+        "single_track_defaults": {
+          "corner_radius_percentage": 80,
+          "corner_style": 1,
+          "max_amplitude": 1.0,
+          "min_amplitude": 0.2,
+          "single_sided": false,
+          "spacing": 0.6
+        }
+      },
+      "via_dimensions": [],
+      "zones_allow_external_fillets": false
+    },
+    "ipc2581": {
+      "bom_rev": "",
+      "dist": "",
+      "distpn": "",
+      "internal_id": "",
+      "mfg": "",
+      "mpn": "",
+      "sch_revision": ""
+    },
+    "layer_pairs": [],
+    "layer_presets": [],
+    "viewports": []
+  },
+  "boards": [],
+  "component_class_settings": {
+    "assignments": [],
+    "meta": {
+      "version": 0
+    },
+    "sheet_component_classes": {
+      "enabled": false
+    }
+  },
+  "cvpcb": {
+    "equivalence_files": []
+  },
+  "diode": {
+    "schematic_sheets": [
+      {
+        "parent_file": "Core.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 152.4 137.16)\n\t(size 50.8 60.96)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"display\"\n\t\t(at 152.4 136.449 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"display.kicad_sch\"\n\t\t(at 152.4 198.831 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"BL_LEDK\" bidirectional\n\t\t(at 152.4 147.32 180)\n\t\t(uuid \"8cc884a7-6db2-5b98-b114-9cff34f14dea\")\n\t)\n\t(pin \"DISP_CS\" bidirectional\n\t\t(at 152.4 152.4 180)\n\t\t(uuid \"5becf92e-da00-5127-87bf-01bdbb6f6775\")\n\t)\n\t(pin \"DISP_DC\" bidirectional\n\t\t(at 152.4 157.48 180)\n\t\t(uuid \"d0580d7c-9605-5c15-a8ec-5a13cdfe796d\")\n\t)\n\t(pin \"DISP_MOSI\" bidirectional\n\t\t(at 152.4 162.56 180)\n\t\t(uuid \"0e4d146d-223c-5b76-acc5-112705e1c7e6\")\n\t)\n\t(pin \"DISP_RST\" bidirectional\n\t\t(at 152.4 167.64 180)\n\t\t(uuid \"3b82754c-a516-578b-ac4e-6a70651dcbd2\")\n\t)\n\t(pin \"DISP_SCK\" bidirectional\n\t\t(at 152.4 172.72 180)\n\t\t(uuid \"e87edf11-bb25-5aa6-8d8e-e7a4da84a3b7\")\n\t)\n\t(pin \"DISP_TE\" bidirectional\n\t\t(at 152.4 177.8 180)\n\t\t(uuid \"985f7790-bad6-5ec5-8712-3a9701e2f67a\")\n\t)\n\t(pin \"GND\" bidirectional\n\t\t(at 152.4 182.88 180)\n\t\t(uuid \"dce6d8dd-ca1e-5a99-a23c-13750b3d3b81\")\n\t)\n\t(pin \"V3V3\" bidirectional\n\t\t(at 152.4 187.96 180)\n\t\t(uuid \"c6f7ea28-eedd-5d9f-95fc-b9c2d9871a03\")\n\t)\n\t(pin \"VLED\" bidirectional\n\t\t(at 152.4 193.04 180)\n\t\t(uuid \"fe8d5b27-dde7-5e00-98c4-e186aad97d12\")\n\t)\n\t(uuid \"fe3a0fba-322b-599e-a633-f6e82e36c0bf\")\n)\n"
+      },
+      {
+        "parent_file": "Core.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 152.4 60.96)\n\t(size 50.8 30.48)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"environment\"\n\t\t(at 152.4 60.2488 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"environment.kicad_sch\"\n\t\t(at 152.4 92.1512 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"GND\" bidirectional\n\t\t(at 152.4 71.12 180)\n\t\t(uuid \"03dd0a4c-e17a-5a33-983e-70b586679972\")\n\t)\n\t(pin \"SCL\" bidirectional\n\t\t(at 152.4 76.2 180)\n\t\t(uuid \"7a4ad293-c866-5810-ab91-7762bd772310\")\n\t)\n\t(pin \"SDA\" bidirectional\n\t\t(at 152.4 81.28 180)\n\t\t(uuid \"5003e0a9-5fb1-5b68-b2ee-e206600a8e6d\")\n\t)\n\t(pin \"V3V3\" bidirectional\n\t\t(at 152.4 86.36 180)\n\t\t(uuid \"eba5003a-5583-50e3-88d1-cdb8e6f85b46\")\n\t)\n\t(uuid \"922a8ffc-1336-5815-82ad-3a490fcd092b\")\n)\n"
+      },
+      {
+        "parent_file": "Core.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 152.4 96.52)\n\t(size 50.8 35.56)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"backlight\"\n\t\t(at 152.4 95.8088 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"backlight.kicad_sch\"\n\t\t(at 152.4 132.791 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"BL_LEDK\" bidirectional\n\t\t(at 152.4 106.68 180)\n\t\t(uuid \"1c56abac-6ec4-5a81-a875-396c46833ea3\")\n\t)\n\t(pin \"BL_PWM\" bidirectional\n\t\t(at 152.4 111.76 180)\n\t\t(uuid \"90377923-9290-5afd-a8c2-530355c1a514\")\n\t)\n\t(pin \"GND\" bidirectional\n\t\t(at 152.4 116.84 180)\n\t\t(uuid \"8467adb8-dd30-5255-bc83-5e0deb3369aa\")\n\t)\n\t(pin \"VLED\" bidirectional\n\t\t(at 152.4 121.92 180)\n\t\t(uuid \"8e5031bf-be16-5d6f-af34-0875de66a5e8\")\n\t)\n\t(pin \"VSHUNT\" bidirectional\n\t\t(at 152.4 127 180)\n\t\t(uuid \"44ead351-0fdb-5bd5-8d33-a7eb417c243d\")\n\t)\n\t(uuid \"6c5e3400-ea06-5968-9906-db862d028693\")\n)\n"
+      },
+      {
+        "parent_file": "Core.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 208.28 137.16)\n\t(size 50.8 25.4)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"logicsupply\"\n\t\t(at 208.28 136.449 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"logicsupply.kicad_sch\"\n\t\t(at 208.28 163.271 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"GND\" bidirectional\n\t\t(at 208.28 147.32 180)\n\t\t(uuid \"afe854e4-0f17-51ab-ad66-0b4a3408fc3e\")\n\t)\n\t(pin \"V3V3\" bidirectional\n\t\t(at 208.28 152.4 180)\n\t\t(uuid \"31b74380-0c8c-5db4-9f5a-2c41296adb36\")\n\t)\n\t(pin \"VSHUNT\" bidirectional\n\t\t(at 208.28 157.48 180)\n\t\t(uuid \"70cd06a7-29d4-5764-9774-587daa85fff0\")\n\t)\n\t(uuid \"9f855373-efaf-5c61-8bb6-52004dcf65b3\")\n)\n"
+      },
+      {
+        "parent_file": "Core.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 208.28 50.8)\n\t(size 50.8 40.64)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"monitoring\"\n\t\t(at 208.28 50.0888 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"monitoring.kicad_sch\"\n\t\t(at 208.28 92.1512 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"GND\" bidirectional\n\t\t(at 208.28 60.96 180)\n\t\t(uuid \"1065fb75-7005-5389-813d-bc2a03d4b6bd\")\n\t)\n\t(pin \"ID_LEFT\" bidirectional\n\t\t(at 208.28 66.04 180)\n\t\t(uuid \"36c4a9fc-a3b4-5376-a859-71395ea71877\")\n\t)\n\t(pin \"ID_RIGHT\" bidirectional\n\t\t(at 208.28 71.12 180)\n\t\t(uuid \"6e9928df-54d1-56cf-899d-1f7045645d43\")\n\t)\n\t(pin \"SCL_PWR\" bidirectional\n\t\t(at 208.28 76.2 180)\n\t\t(uuid \"91d099cb-2395-5673-9a1c-a95253dffb5e\")\n\t)\n\t(pin \"SDA_PWR\" bidirectional\n\t\t(at 208.28 81.28 180)\n\t\t(uuid \"cf942521-3bd9-5acd-9a48-5d72d6101f08\")\n\t)\n\t(pin \"V3V3\" bidirectional\n\t\t(at 208.28 86.36 180)\n\t\t(uuid \"8d8afa12-90e1-5a1d-ab7b-bf50e0cbf1bf\")\n\t)\n\t(uuid \"47674e61-d7d8-523a-a2be-4c681a5aebf6\")\n)\n"
+      },
+      {
+        "parent_file": "Core.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 208.28 96.52)\n\t(size 50.8 35.56)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"gnss\"\n\t\t(at 208.28 95.8088 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"gnss.kicad_sch\"\n\t\t(at 208.28 132.791 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"GND\" bidirectional\n\t\t(at 208.28 106.68 180)\n\t\t(uuid \"16f7cbd5-11af-5ddc-b260-ae4bd05fc995\")\n\t)\n\t(pin \"GNSS_PPS\" bidirectional\n\t\t(at 208.28 111.76 180)\n\t\t(uuid \"6f7a30ba-33ad-5ca0-814a-034f43d9cbcb\")\n\t)\n\t(pin \"GNSS_RX\" bidirectional\n\t\t(at 208.28 116.84 180)\n\t\t(uuid \"42f37b62-3d7f-5593-8720-79c1c32be4c9\")\n\t)\n\t(pin \"GNSS_TX\" bidirectional\n\t\t(at 208.28 121.92 180)\n\t\t(uuid \"056f0248-6bbb-5bbd-9eae-4a41896e1a78\")\n\t)\n\t(pin \"V3V3\" bidirectional\n\t\t(at 208.28 127 180)\n\t\t(uuid \"f9839ee0-e7f4-5b8c-8e3d-fdd9c35f45dc\")\n\t)\n\t(uuid \"688f5bb9-5e87-5d1a-a2c0-066d99c0ec0c\")\n)\n"
+      },
+      {
+        "parent_file": "Core.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 264.16 22.86)\n\t(size 50.8 157.48)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"logic\"\n\t\t(at 264.16 22.1488 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"logic.kicad_sch\"\n\t\t(at 264.16 181.051 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"BL_PWM\" bidirectional\n\t\t(at 264.16 33.02 180)\n\t\t(uuid \"bb395852-10dd-5c87-8faa-19c9936ea592\")\n\t)\n\t(pin \"DISP_CS\" bidirectional\n\t\t(at 264.16 38.1 180)\n\t\t(uuid \"da6b0bab-5a38-5ec6-ad5b-787885a6ff7e\")\n\t)\n\t(pin \"DISP_DC\" bidirectional\n\t\t(at 264.16 43.18 180)\n\t\t(uuid \"1a175b6a-6453-5e9e-9af8-cc5c0654ad9c\")\n\t)\n\t(pin \"DISP_MOSI\" bidirectional\n\t\t(at 264.16 48.26 180)\n\t\t(uuid \"30f58e89-37f2-53ed-bb16-c361d12abc5c\")\n\t)\n\t(pin \"DISP_RST\" bidirectional\n\t\t(at 264.16 53.34 180)\n\t\t(uuid \"6dc14857-f1bd-5a75-b77b-02a2aa2daf9a\")\n\t)\n\t(pin \"DISP_SCK\" bidirectional\n\t\t(at 264.16 58.42 180)\n\t\t(uuid \"5fa485c3-5166-5c94-a23d-276e36b86db1\")\n\t)\n\t(pin \"DISP_TE\" bidirectional\n\t\t(at 264.16 63.5 180)\n\t\t(uuid \"44748e7c-7b9b-5dfc-a65b-07d753197222\")\n\t)\n\t(pin \"GND\" bidirectional\n\t\t(at 264.16 68.58 180)\n\t\t(uuid \"8483356c-9b9e-5862-b2ea-279d0c4a4e24\")\n\t)\n\t(pin \"GNSS_PPS\" bidirectional\n\t\t(at 264.16 73.66 180)\n\t\t(uuid \"1107a496-618f-5d8d-a4f9-9948854582d2\")\n\t)\n\t(pin \"GNSS_RX\" bidirectional\n\t\t(at 264.16 78.74 180)\n\t\t(uuid \"49585002-a78f-5f9c-82d0-fd0b80bb25c9\")\n\t)\n\t(pin \"GNSS_TX\" bidirectional\n\t\t(at 264.16 83.82 180)\n\t\t(uuid \"4793ea29-175e-5f8e-9019-9c2f5956113c\")\n\t)\n\t(pin \"IMU_INT1\" bidirectional\n\t\t(at 264.16 88.9 180)\n\t\t(uuid \"c70a36f9-3e86-5d76-b471-6d693f53668d\")\n\t)\n\t(pin \"INA_ALERT\" bidirectional\n\t\t(at 264.16 93.98 180)\n\t\t(uuid \"a027afd7-479a-5c73-bff7-b5fbd7589f73\")\n\t)\n\t(pin \"PD_IRQ\" bidirectional\n\t\t(at 264.16 99.06 180)\n\t\t(uuid \"e07438e9-4272-55eb-9cec-da41ee2a2a40\")\n\t)\n\t(pin \"RING_INT\" bidirectional\n\t\t(at 264.16 104.14 180)\n\t\t(uuid \"76e6183d-8c2a-53c2-9248-e98ae3dccca9\")\n\t)\n\t(pin \"SCL\" bidirectional\n\t\t(at 264.16 109.22 180)\n\t\t(uuid \"20246dd9-7898-5051-9eef-7f9c0db9dc10\")\n\t)\n\t(pin \"SCL_PWR\" bidirectional\n\t\t(at 264.16 114.3 180)\n\t\t(uuid \"b12a5987-cf47-5c7c-8c97-12959dda14ed\")\n\t)\n\t(pin \"SDA\" bidirectional\n\t\t(at 264.16 119.38 180)\n\t\t(uuid \"55d78c8d-63fe-5c11-bd2c-69882ba77225\")\n\t)\n\t(pin \"SDA_PWR\" bidirectional\n\t\t(at 264.16 124.46 180)\n\t\t(uuid \"caca7e77-85fe-5e10-8c54-eaabcad528dd\")\n\t)\n\t(pin \"SLOT_L_CS\" bidirectional\n\t\t(at 264.16 129.54 180)\n\t\t(uuid \"65713989-2d27-50bd-a90a-819585021641\")\n\t)\n\t(pin \"SLOT_MISO\" bidirectional\n\t\t(at 264.16 134.62 180)\n\t\t(uuid \"958e36b0-a0f8-5f66-a206-d8a5849128c9\")\n\t)\n\t(pin \"SLOT_MOSI\" bidirectional\n\t\t(at 264.16 139.7 180)\n\t\t(uuid \"0553550e-9105-5ad2-bbf2-880242ee5a85\")\n\t)\n\t(pin \"SLOT_RUN\" bidirectional\n\t\t(at 264.16 144.78 180)\n\t\t(uuid \"cfd3c1fe-97a3-5f47-8a18-2ddc174b0a3f\")\n\t)\n\t(pin \"SLOT_R_CS\" bidirectional\n\t\t(at 264.16 149.86 180)\n\t\t(uuid \"14ee1501-eea0-5b44-8ee2-5ec0c89e7f68\")\n\t)\n\t(pin \"SLOT_SCK\" bidirectional\n\t\t(at 264.16 154.94 180)\n\t\t(uuid \"808a13bf-ca4d-5608-bdf5-6219ff57ab24\")\n\t)\n\t(pin \"USB_DN\" bidirectional\n\t\t(at 264.16 160.02 180)\n\t\t(uuid \"bd9928a4-d16b-5ee3-8b03-14961766745b\")\n\t)\n\t(pin \"USB_DP\" bidirectional\n\t\t(at 264.16 165.1 180)\n\t\t(uuid \"d4a620e3-50b8-5938-bbdf-8c9ac219e066\")\n\t)\n\t(pin \"V3V3\" bidirectional\n\t\t(at 264.16 170.18 180)\n\t\t(uuid \"1edd5554-5cff-5816-8c3f-0bc052fa316a\")\n\t)\n\t(pin \"VBUS_EN\" bidirectional\n\t\t(at 264.16 175.26 180)\n\t\t(uuid \"c3cf3086-5550-5b57-a66b-c49a60691bb0\")\n\t)\n\t(uuid \"81f3ae1e-0cab-51c2-8820-4b2d45635972\")\n)\n"
+      },
+      {
+        "parent_file": "Core.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 339.09 16.51)\n\t(size 50.8 50.8)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"usbconverter\"\n\t\t(at 339.09 15.7988 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"usbconverter.kicad_sch\"\n\t\t(at 339.09 68.0212 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"BB_FAULT\" bidirectional\n\t\t(at 339.09 26.67 180)\n\t\t(uuid \"9f4caffe-4179-5e15-8ef0-798c29715ce6\")\n\t)\n\t(pin \"GND\" bidirectional\n\t\t(at 339.09 31.75 180)\n\t\t(uuid \"8660bd1d-5818-5ec5-b012-181fd667cfb3\")\n\t)\n\t(pin \"SCL_PWR\" bidirectional\n\t\t(at 339.09 36.83 180)\n\t\t(uuid \"c5d622c3-d25d-54f1-86ae-1a5faa9394e3\")\n\t)\n\t(pin \"SDA_PWR\" bidirectional\n\t\t(at 339.09 41.91 180)\n\t\t(uuid \"86e11adc-bcd1-58a9-856d-a3e856bb631a\")\n\t)\n\t(pin \"V3V3\" bidirectional\n\t\t(at 339.09 46.99 180)\n\t\t(uuid \"5ae3a85c-2d0d-5a54-8a7d-2ebe9e536682\")\n\t)\n\t(pin \"VBUS\" bidirectional\n\t\t(at 339.09 52.07 180)\n\t\t(uuid \"820b9890-36c4-589b-b68a-bdf31f447894\")\n\t)\n\t(pin \"VBUS_EN\" bidirectional\n\t\t(at 339.09 57.15 180)\n\t\t(uuid \"b471a307-0405-5bed-9035-809b1cc4cf4d\")\n\t)\n\t(pin \"VSHUNT\" bidirectional\n\t\t(at 339.09 62.23 180)\n\t\t(uuid \"dc0fb2cb-fa9d-56ee-ae19-94d5f825dce6\")\n\t)\n\t(uuid \"2241da50-ebf8-5eab-afdf-eaad39a2df86\")\n)\n"
+      },
+      {
+        "parent_file": "Core.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 40.64 172.72)\n\t(size 50.8 40.64)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"usbconnector\"\n\t\t(at 40.64 172.009 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"usbconnector.kicad_sch\"\n\t\t(at 40.64 214.071 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"GND\" bidirectional\n\t\t(at 40.64 182.88 180)\n\t\t(uuid \"0aa44c95-c267-5b58-8372-df18be213539\")\n\t)\n\t(pin \"USB_CC1\" bidirectional\n\t\t(at 40.64 187.96 180)\n\t\t(uuid \"35075295-8a7f-5f29-b928-e9e689dd02e3\")\n\t)\n\t(pin \"USB_CC2\" bidirectional\n\t\t(at 40.64 193.04 180)\n\t\t(uuid \"9449eece-5af9-5ba5-a7af-c7ecb767dc4a\")\n\t)\n\t(pin \"USB_DN\" bidirectional\n\t\t(at 40.64 198.12 180)\n\t\t(uuid \"895e3d6e-7665-5998-94bc-d72039837d6a\")\n\t)\n\t(pin \"USB_DP\" bidirectional\n\t\t(at 40.64 203.2 180)\n\t\t(uuid \"8f538721-b089-501f-bd92-0a914893cd32\")\n\t)\n\t(pin \"VBUS\" bidirectional\n\t\t(at 40.64 208.28 180)\n\t\t(uuid \"98b061e7-b12d-5a88-b250-13a105837ca5\")\n\t)\n\t(uuid \"47f5bb6d-30e6-52d5-b3c4-19cbd5c24fda\")\n)\n"
+      },
+      {
+        "parent_file": "Core.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 40.64 60.96)\n\t(size 50.8 106.68)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"slots\"\n\t\t(at 40.64 60.2488 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"slots.kicad_sch\"\n\t\t(at 40.64 168.351 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"ALS_INT\" bidirectional\n\t\t(at 40.64 71.12 180)\n\t\t(uuid \"71a314df-70c4-51c4-b331-181c07080088\")\n\t)\n\t(pin \"BB_FAULT\" bidirectional\n\t\t(at 40.64 76.2 180)\n\t\t(uuid \"d925fbf9-afa0-57fd-9d15-60d72c091452\")\n\t)\n\t(pin \"GND\" bidirectional\n\t\t(at 40.64 81.28 180)\n\t\t(uuid \"16a0be6a-6a39-5fb6-8baa-33e18027b385\")\n\t)\n\t(pin \"HP_ENABLE\" bidirectional\n\t\t(at 40.64 86.36 180)\n\t\t(uuid \"3a7f8902-b89d-5cf8-9b96-bfff47d2ebc9\")\n\t)\n\t(pin \"HP_FAULT\" bidirectional\n\t\t(at 40.64 91.44 180)\n\t\t(uuid \"2f331efb-536d-51d0-a987-1877613788f7\")\n\t)\n\t(pin \"ID_LEFT\" bidirectional\n\t\t(at 40.64 96.52 180)\n\t\t(uuid \"34738e46-7f03-579d-96a1-84f8e52b2ad7\")\n\t)\n\t(pin \"ID_RIGHT\" bidirectional\n\t\t(at 40.64 101.6 180)\n\t\t(uuid \"358a9f2b-6f43-5ae6-9041-5af9a00168d9\")\n\t)\n\t(pin \"INA_ALERT\" bidirectional\n\t\t(at 40.64 106.68 180)\n\t\t(uuid \"c995aa8a-6aec-592f-a909-4aa2dbd0f274\")\n\t)\n\t(pin \"PGOOD\" bidirectional\n\t\t(at 40.64 111.76 180)\n\t\t(uuid \"965c28eb-f605-51fc-aa2c-62118dc7e1a0\")\n\t)\n\t(pin \"RAIL_FAULT\" bidirectional\n\t\t(at 40.64 116.84 180)\n\t\t(uuid \"78afaf80-6836-5ede-b9d4-f62f3e9fdaeb\")\n\t)\n\t(pin \"SCL_PWR\" bidirectional\n\t\t(at 40.64 121.92 180)\n\t\t(uuid \"f1900846-1ce6-5ce1-b700-06a2079946e8\")\n\t)\n\t(pin \"SDA_PWR\" bidirectional\n\t\t(at 40.64 127 180)\n\t\t(uuid \"8f1e1ee1-e596-559b-b163-7b9786a6a304\")\n\t)\n\t(pin \"SLOT_L_CS\" bidirectional\n\t\t(at 40.64 132.08 180)\n\t\t(uuid \"a2ea368b-b943-5feb-8c2e-33ea0e340171\")\n\t)\n\t(pin \"SLOT_MISO\" bidirectional\n\t\t(at 40.64 137.16 180)\n\t\t(uuid \"749ff7d5-697f-5f81-bd68-3099c0cd4257\")\n\t)\n\t(pin \"SLOT_MOSI\" bidirectional\n\t\t(at 40.64 142.24 180)\n\t\t(uuid \"a42beb15-3d6b-5a54-b27a-b1403d71e552\")\n\t)\n\t(pin \"SLOT_RUN\" bidirectional\n\t\t(at 40.64 147.32 180)\n\t\t(uuid \"bcdec78f-45d5-5277-9120-155ecc6c5fa7\")\n\t)\n\t(pin \"SLOT_R_CS\" bidirectional\n\t\t(at 40.64 152.4 180)\n\t\t(uuid \"1848c0c7-da9b-5504-a6ab-82e4322ed481\")\n\t)\n\t(pin \"SLOT_SCK\" bidirectional\n\t\t(at 40.64 157.48 180)\n\t\t(uuid \"8eac0e33-2cc2-5891-beb0-b49c8f10c040\")\n\t)\n\t(pin \"V3V3\" bidirectional\n\t\t(at 40.64 162.56 180)\n\t\t(uuid \"ba529a43-7ab5-587e-9861-8b7f1586c1d9\")\n\t)\n\t(uuid \"271be88e-063a-574a-a5a5-3b66ecf69e86\")\n)\n"
+      },
+      {
+        "parent_file": "Core.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 401.32 16.51)\n\t(size 50.8 66.04)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"usbpd\"\n\t\t(at 401.32 15.7988 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"usbpd.kicad_sch\"\n\t\t(at 401.32 83.2612 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"GND\" bidirectional\n\t\t(at 401.32 26.67 180)\n\t\t(uuid \"21067773-a0f8-5c00-928e-31e4ed77357d\")\n\t)\n\t(pin \"PD_IRQ\" bidirectional\n\t\t(at 401.32 31.75 180)\n\t\t(uuid \"1e5ce27e-1dc5-5473-a0a1-891f0988d6c5\")\n\t)\n\t(pin \"SCL_PWR\" bidirectional\n\t\t(at 401.32 36.83 180)\n\t\t(uuid \"0293215b-ec6c-57db-9c7d-692eed284bb9\")\n\t)\n\t(pin \"SDA_PWR\" bidirectional\n\t\t(at 401.32 41.91 180)\n\t\t(uuid \"01f574cb-8863-577a-8629-b96ccdba34e7\")\n\t)\n\t(pin \"USB_CC1\" bidirectional\n\t\t(at 401.32 46.99 180)\n\t\t(uuid \"40a712ff-b63f-5e48-bcd5-d2d020ff27bd\")\n\t)\n\t(pin \"USB_CC2\" bidirectional\n\t\t(at 401.32 52.07 180)\n\t\t(uuid \"914fed70-7c4e-511a-90f7-4551de08ba85\")\n\t)\n\t(pin \"USB_DN\" bidirectional\n\t\t(at 401.32 57.15 180)\n\t\t(uuid \"114fa224-2fe1-51a8-85e2-6f252b57b450\")\n\t)\n\t(pin \"USB_DP\" bidirectional\n\t\t(at 401.32 62.23 180)\n\t\t(uuid \"3be4bca8-ff8b-5236-87e0-0f3866aff545\")\n\t)\n\t(pin \"V3V3\" bidirectional\n\t\t(at 401.32 67.31 180)\n\t\t(uuid \"70b069b2-af67-5304-ab9b-a90587a07a47\")\n\t)\n\t(pin \"VBUS\" bidirectional\n\t\t(at 401.32 72.39 180)\n\t\t(uuid \"9787f3b5-21c9-519e-9c7a-689f041e899b\")\n\t)\n\t(pin \"VSHUNT\" bidirectional\n\t\t(at 401.32 77.47 180)\n\t\t(uuid \"1f2cf79a-6e22-5de0-b4bf-ed3c2ab82c8d\")\n\t)\n\t(uuid \"677b7640-dee9-5c6e-aa06-1fe34df3f0c1\")\n)\n"
+      },
+      {
+        "parent_file": "Core.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 96.52 144.78)\n\t(size 50.8 50.8)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"sensors\"\n\t\t(at 96.52 144.069 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"sensors.kicad_sch\"\n\t\t(at 96.52 196.291 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"ALS_INT\" bidirectional\n\t\t(at 96.52 154.94 180)\n\t\t(uuid \"4dfe4f42-1812-5ece-bee5-4627e5af9ef2\")\n\t)\n\t(pin \"GND\" bidirectional\n\t\t(at 96.52 160.02 180)\n\t\t(uuid \"35535fc9-56fb-5f40-98a7-7d1f0cb0e4cb\")\n\t)\n\t(pin \"IMU_INT1\" bidirectional\n\t\t(at 96.52 165.1 180)\n\t\t(uuid \"00242ec7-8e29-5c7e-b066-34f953fb11ab\")\n\t)\n\t(pin \"SCL\" bidirectional\n\t\t(at 96.52 170.18 180)\n\t\t(uuid \"8baa228a-ef6d-511b-b7ad-3f9b2dafae7e\")\n\t)\n\t(pin \"SCL_PWR\" bidirectional\n\t\t(at 96.52 175.26 180)\n\t\t(uuid \"c7cc1dff-ad38-5c8c-9eee-6fb3a637e74b\")\n\t)\n\t(pin \"SDA\" bidirectional\n\t\t(at 96.52 180.34 180)\n\t\t(uuid \"745fb138-3192-53ed-afa4-c93e2077f10c\")\n\t)\n\t(pin \"SDA_PWR\" bidirectional\n\t\t(at 96.52 185.42 180)\n\t\t(uuid \"31bd308e-8bd7-5a1e-88d7-d1c6331ce60d\")\n\t)\n\t(pin \"V3V3\" bidirectional\n\t\t(at 96.52 190.5 180)\n\t\t(uuid \"6009af33-6f94-5557-9a9a-6f915fab2ce8\")\n\t)\n\t(uuid \"7a8838b9-eb8b-5d3a-837e-741d72bdab92\")\n)\n"
+      },
+      {
+        "parent_file": "Core.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 96.52 38.1)\n\t(size 50.8 45.72)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"statuspulls\"\n\t\t(at 96.52 37.3888 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"statuspulls.kicad_sch\"\n\t\t(at 96.52 84.5312 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"ALS_INT\" bidirectional\n\t\t(at 96.52 48.26 180)\n\t\t(uuid \"bbe07c8f-e4d4-5573-9eac-7ae1b09e8639\")\n\t)\n\t(pin \"INA_ALERT\" bidirectional\n\t\t(at 96.52 53.34 180)\n\t\t(uuid \"02a382ac-6032-5bca-b314-60889c3a5896\")\n\t)\n\t(pin \"PD_IRQ\" bidirectional\n\t\t(at 96.52 58.42 180)\n\t\t(uuid \"5e773d32-434f-55e2-8382-79ef6deebdce\")\n\t)\n\t(pin \"RAIL_FAULT\" bidirectional\n\t\t(at 96.52 63.5 180)\n\t\t(uuid \"4ff01ffc-e35e-59d1-be2c-308028ad40a3\")\n\t)\n\t(pin \"SCL\" bidirectional\n\t\t(at 96.52 68.58 180)\n\t\t(uuid \"5f615f56-2075-5555-b2e9-3b31eefb1bb9\")\n\t)\n\t(pin \"SDA\" bidirectional\n\t\t(at 96.52 73.66 180)\n\t\t(uuid \"2bfc44db-6011-56f9-8808-3c1503a8c350\")\n\t)\n\t(pin \"V3V3\" bidirectional\n\t\t(at 96.52 78.74 180)\n\t\t(uuid \"c84ec6f5-d40f-5bf1-bcd8-609463d133b3\")\n\t)\n\t(uuid \"235952ad-2207-51ac-aadb-dd37340135a7\")\n)\n"
+      },
+      {
+        "parent_file": "Core.kicad_sch",
+        "parent_id": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa",
+        "sheet": "(sheet\n\t(at 96.52 88.9)\n\t(size 50.8 50.8)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"inputpower\"\n\t\t(at 96.52 88.1888 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"inputpower.kicad_sch\"\n\t\t(at 96.52 140.411 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"GND\" bidirectional\n\t\t(at 96.52 99.06 180)\n\t\t(uuid \"5d1d56a5-782f-59f6-bdfa-b5b007eb8293\")\n\t)\n\t(pin \"INA_ALERT\" bidirectional\n\t\t(at 96.52 104.14 180)\n\t\t(uuid \"31dd95bc-7498-5f4d-8a1c-c9cf6153c107\")\n\t)\n\t(pin \"PGOOD\" bidirectional\n\t\t(at 96.52 109.22 180)\n\t\t(uuid \"e62d82a9-f86a-5d27-a72c-e5ecd87d92b1\")\n\t)\n\t(pin \"RAIL_FAULT\" bidirectional\n\t\t(at 96.52 114.3 180)\n\t\t(uuid \"59eac337-73ac-5738-8cdc-53c7cdd870ae\")\n\t)\n\t(pin \"SCL_PWR\" bidirectional\n\t\t(at 96.52 119.38 180)\n\t\t(uuid \"4c125fc4-e0d7-5418-82bb-adecb641f249\")\n\t)\n\t(pin \"SDA_PWR\" bidirectional\n\t\t(at 96.52 124.46 180)\n\t\t(uuid \"8a0bbe6d-bd00-556a-b0d4-ea1151346e0a\")\n\t)\n\t(pin \"V3V3\" bidirectional\n\t\t(at 96.52 129.54 180)\n\t\t(uuid \"bfa235ea-2350-53da-819b-851b84e2307f\")\n\t)\n\t(pin \"VSHUNT\" bidirectional\n\t\t(at 96.52 134.62 180)\n\t\t(uuid \"c220a9a4-9b56-5a8f-a392-6b81ffa754f0\")\n\t)\n\t(uuid \"c47e5969-141b-5c97-aea8-e3cce917ab54\")\n)\n"
+      },
+      {
+        "parent_file": "gnss.kicad_sch",
+        "parent_id": "0ee564f7-4642-59ff-ae67-7d9d50e54e5a",
+        "sheet": "(sheet\n\t(at 121.92 93.98)\n\t(size 50.8 20.32)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"ant_rf\"\n\t\t(at 121.92 93.2688 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"gnss.ant_rf.kicad_sch\"\n\t\t(at 121.92 115.0112 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"GND\" bidirectional\n\t\t(at 121.92 104.14 180)\n\t\t(uuid \"ae3925d9-2f08-5a47-8cd6-338e05ce72ad\")\n\t)\n\t(pin \"ANT_FEED\" bidirectional\n\t\t(at 121.92 109.22 180)\n\t\t(uuid \"dea1afed-aa6d-57f5-b317-eeb397459f5d\")\n\t)\n\t(uuid \"1e716bf2-b9e5-55b0-872f-43308a074714\")\n)\n"
+      },
+      {
+        "parent_file": "slots.kicad_sch",
+        "parent_id": "9fed7cbf-5b55-5bd4-be84-4a7447c127c4",
+        "sheet": "(sheet\n\t(at 121.92 68.58)\n\t(size 50.8 71.12)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"left\"\n\t\t(at 121.92 67.8688 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"slots.left.kicad_sch\"\n\t\t(at 121.92 140.4112 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"GND\" bidirectional\n\t\t(at 121.92 78.74 180)\n\t\t(uuid \"639ca25c-1baa-5729-ae47-872ab1b968f7\")\n\t)\n\t(pin \"ID_SENSE\" bidirectional\n\t\t(at 121.92 83.82 180)\n\t\t(uuid \"2891549a-5ea0-5618-8b57-4fb01a361cda\")\n\t)\n\t(pin \"CS_N\" bidirectional\n\t\t(at 121.92 88.9 180)\n\t\t(uuid \"ad6871f0-ac39-5953-a7b2-58f20b0e3907\")\n\t)\n\t(pin \"MISO\" bidirectional\n\t\t(at 121.92 93.97999999999999 180)\n\t\t(uuid \"f4f190a1-e029-5dd0-8f64-79fac853315e\")\n\t)\n\t(pin \"MOSI\" bidirectional\n\t\t(at 121.92 99.06 180)\n\t\t(uuid \"df9aa5df-2568-5652-baf9-c6bb518293bc\")\n\t)\n\t(pin \"SCK\" bidirectional\n\t\t(at 121.92 104.14 180)\n\t\t(uuid \"4462edac-8fbb-51ac-b87a-3ed0c463d7c0\")\n\t)\n\t(pin \"V3V3\" bidirectional\n\t\t(at 121.92 109.22 180)\n\t\t(uuid \"9eb7bd15-460c-5074-864a-cb60440ff483\")\n\t)\n\t(pin \"ID_DRIVE\" bidirectional\n\t\t(at 121.92 114.3 180)\n\t\t(uuid \"79b08891-6168-5157-b346-c86a9371f796\")\n\t)\n\t(pin \"ENABLE\" bidirectional\n\t\t(at 121.92 119.38 180)\n\t\t(uuid \"c3572c3d-6dba-5bae-b59e-18d73c799280\")\n\t)\n\t(pin \"FAULT_N\" bidirectional\n\t\t(at 121.92 124.46000000000001 180)\n\t\t(uuid \"aa7dcabf-27bb-5401-89eb-472c1fec787d\")\n\t)\n\t(pin \"IRQ_N\" bidirectional\n\t\t(at 121.92 129.54 180)\n\t\t(uuid \"d711e8ba-c3b8-527c-8940-0876ad7bde92\")\n\t)\n\t(pin \"OE_N\" bidirectional\n\t\t(at 121.92 134.62 180)\n\t\t(uuid \"0f1054c4-fdef-59bc-93db-24e999d2bec5\")\n\t)\n\t(uuid \"f22f7631-c590-50e8-9707-1fcc2aa6ec25\")\n)\n"
+      },
+      {
+        "parent_file": "slots.kicad_sch",
+        "parent_id": "9fed7cbf-5b55-5bd4-be84-4a7447c127c4",
+        "sheet": "(sheet\n\t(at 177.8 68.58)\n\t(size 50.8 71.12)\n\t(exclude_from_sim no)\n\t(in_bom yes)\n\t(on_board yes)\n\t(dnp no)\n\t(stroke\n\t\t(width 0.1524)\n\t\t(type solid)\n\t)\n\t(fill\n\t\t(color 0 0 0 0)\n\t)\n\t(property \"Sheetname\" \"right\"\n\t\t(at 177.8 67.8688 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(property \"Sheetfile\" \"slots.right.kicad_sch\"\n\t\t(at 177.8 140.4112 0)\n\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.27 1.27)\n\t\t\t)\n\t\t)\n\t)\n\t(pin \"GND\" bidirectional\n\t\t(at 177.8 78.74 180)\n\t\t(uuid \"c9de5c40-7920-5d15-860d-a51343c4636f\")\n\t)\n\t(pin \"ID_SENSE\" bidirectional\n\t\t(at 177.8 83.82 180)\n\t\t(uuid \"aa6c4400-31a9-5a73-9c70-87f7946cea50\")\n\t)\n\t(pin \"MISO\" bidirectional\n\t\t(at 177.8 88.9 180)\n\t\t(uuid \"de97cbdb-3b44-5049-a324-c1ea2cf527f0\")\n\t)\n\t(pin \"MOSI\" bidirectional\n\t\t(at 177.8 93.97999999999999 180)\n\t\t(uuid \"59c5a0ff-2f1d-5580-8492-4d3d7f0d7ab0\")\n\t)\n\t(pin \"CS_N\" bidirectional\n\t\t(at 177.8 99.06 180)\n\t\t(uuid \"7e6125e7-be36-5fb4-a730-2e15d6af6b8a\")\n\t)\n\t(pin \"SCK\" bidirectional\n\t\t(at 177.8 104.14 180)\n\t\t(uuid \"e17ddc56-9bf7-56e7-858c-37b39709d159\")\n\t)\n\t(pin \"V3V3\" bidirectional\n\t\t(at 177.8 109.22 180)\n\t\t(uuid \"924af5c6-0e21-56ff-b5d8-f8416b4feed4\")\n\t)\n\t(pin \"ID_DRIVE\" bidirectional\n\t\t(at 177.8 114.3 180)\n\t\t(uuid \"47d3319d-3319-5a8f-b6c8-cc6c153d3866\")\n\t)\n\t(pin \"ENABLE\" bidirectional\n\t\t(at 177.8 119.38 180)\n\t\t(uuid \"dbf91fdf-dc74-5e78-8d5d-877e6ff3f28c\")\n\t)\n\t(pin \"FAULT_N\" bidirectional\n\t\t(at 177.8 124.46000000000001 180)\n\t\t(uuid \"2e827817-19ce-57b0-bf1a-f83d9bdef6a7\")\n\t)\n\t(pin \"IRQ_N\" bidirectional\n\t\t(at 177.8 129.54 180)\n\t\t(uuid \"948d3f85-9603-5a53-9417-8ee3776c9b71\")\n\t)\n\t(pin \"OE_N\" bidirectional\n\t\t(at 177.8 134.62 180)\n\t\t(uuid \"ca3987a9-3fbb-5f9e-ab2c-37633e37ea95\")\n\t)\n\t(uuid \"217b496f-a1c7-58f2-881f-094f28c7bdb0\")\n)\n"
+      }
+    ]
+  },
+  "libraries": {
+    "pinned_footprint_libs": [],
+    "pinned_symbol_libs": []
+  },
+  "meta": {
+    "filename": "Core.kicad_pro",
+    "version": 3
+  },
+  "net_settings": {
+    "classes": [
+      {
+        "bus_width": 12,
+        "clearance": 0.2,
+        "diff_pair_gap": 0.25,
+        "diff_pair_via_gap": 0.25,
+        "diff_pair_width": 0.2,
+        "line_style": 0,
+        "microvia_diameter": 0.3,
+        "microvia_drill": 0.1,
+        "name": "Default",
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "priority": 2147483647,
+        "schematic_color": "rgba(0, 0, 0, 0.000)",
+        "track_width": 0.2,
+        "tuning_profile": "",
+        "via_diameter": 0.6,
+        "via_drill": 0.3,
+        "wire_width": 6
+      }
+    ],
+    "meta": {
+      "version": 5
+    },
+    "net_colors": null,
+    "netclass_assignments": null,
+    "netclass_patterns": []
+  },
+  "pcbnew": {
+    "last_paths": {
+      "idf": "",
+      "netlist": "",
+      "plot": "",
+      "specctra_dsn": "",
+      "step": "",
+      "vrml": ""
+    },
+    "page_layout_descr_file": ""
+  },
+  "schematic": {
+    "bus_aliases": {},
+    "legacy_lib_dir": "",
+    "legacy_lib_list": [],
+    "top_level_sheets": [
+      {
+        "filename": "Core.kicad_sch",
+        "name": "Core",
+        "uuid": "513d9cc1-d27a-514d-a37c-2f1ca04dddfa"
+      }
+    ]
+  },
+  "sheets": [],
+  "text_variables": {
+    "PCB_GIT_HASH": "d10d3c0",
+    "PCB_NAME": "UsbConverter",
+    "PCB_VERSION": "v0.0.0"
+  },
+  "tuning_profiles": {
+    "meta": {
+      "version": 0
+    },
+    "tuning_profiles_impedance_geometric": []
+  }
+}

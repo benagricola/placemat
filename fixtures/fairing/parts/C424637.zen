@@ -1,0 +1,61 @@
+# DF40C-20DP-0.4V(51); native source and hash in C424637/asset-provenance.json.
+
+P_1 = io("P_1", Net, optional = True)
+P_2 = io("P_2", Net, optional = True)
+P_3 = io("P_3", Net, optional = True)
+P_4 = io("P_4", Net, optional = True)
+P_5 = io("P_5", Net, optional = True)
+P_6 = io("P_6", Net, optional = True)
+P_7 = io("P_7", Net, optional = True)
+P_8 = io("P_8", Net, optional = True)
+P_9 = io("P_9", Net, optional = True)
+P_10 = io("P_10", Net, optional = True)
+P_11 = io("P_11", Net, optional = True)
+P_12 = io("P_12", Net, optional = True)
+P_13 = io("P_13", Net, optional = True)
+P_14 = io("P_14", Net, optional = True)
+P_15 = io("P_15", Net, optional = True)
+P_16 = io("P_16", Net, optional = True)
+P_17 = io("P_17", Net, optional = True)
+P_18 = io("P_18", Net, optional = True)
+P_19 = io("P_19", Net, optional = True)
+P_20 = io("P_20", Net, optional = True)
+P_23 = io("P_23", Net, optional = True)
+P_24 = io("P_24", Net, optional = True)
+P_22 = io("P_22", Net, optional = True)
+P_21 = io("P_21", Net, optional = True)
+
+Component(
+    name = "DF40C-20DP",
+    footprint = File("C424637/CONN-SMD_20P-P0_40_HRS_DF40TC-20DP-0_4V.kicad_mod"),
+    symbol = Symbol("C424637/C424637.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "DF40C-20DP-0.4V(51)", manufacturer = "Hirose"),
+    properties = {"LCSC": "C424637", "MPN": "DF40C-20DP-0.4V(51)"},
+    pins = {
+        "1": P_1,
+        "2": P_2,
+        "3": P_3,
+        "4": P_4,
+        "5": P_5,
+        "6": P_6,
+        "7": P_7,
+        "8": P_8,
+        "9": P_9,
+        "10": P_10,
+        "11": P_11,
+        "12": P_12,
+        "13": P_13,
+        "14": P_14,
+        "15": P_15,
+        "16": P_16,
+        "17": P_17,
+        "18": P_18,
+        "19": P_19,
+        "20": P_20,
+        "23": P_23,
+        "24": P_24,
+        "22": P_22,
+        "21": P_21,
+    },
+)

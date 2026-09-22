@@ -1,0 +1,137 @@
+(footprint "STMicroelectronics_SMBJ70A_TR:SMB_L4.6-W3.6-LS5.3-RD"
+	(version 20241229)
+	(generator "faebryk_convert")
+	(generator_version "v5")
+	(layer "F.Cu")
+	(tedit "5DC5F6A4")
+	(uuid "e99960b4-0e07-49de-96ec-00e255438f43")
+	(property "Reference" "REF**"
+		(at 0 -4)
+		(layer "F.SilkS")
+		(uuid "28779661-df1d-4eb8-9a0d-1bf1bbc0e4b5")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "SMB_L4.6-W3.6-LS5.3-RD"
+		(at 0 4)
+		(layer "F.Fab")
+		(uuid "4b7eea94-fadc-4140-aebd-f84eedf3ecdc")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr smd)
+	(fp_rect
+		(start -3.485 -1.9)
+		(end 3.485 1.9)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "1e18fa25-3027-af5d-c248-8a1dfff6108c")
+	)
+	(fp_circle
+		(center -2.65 1.8)
+		(end -2.62 1.8)
+		(stroke
+			(width 0.06)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(locked no)
+		(uuid "484cfc9d-be50-4c47-8fb2-1ba89076b488")
+	)
+	(fp_line
+		(start -1.02 -1.89)
+		(end -1.02 1.89)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "a7d6c34e-ceb4-47ea-96d3-3e7ca7eda872")
+	)
+	(fp_line
+		(start -2.74 -1.89)
+		(end 2.74 -1.89)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "988c3501-0363-47b6-aa16-ef2874e75497")
+	)
+	(fp_line
+		(start -2.74 1.89)
+		(end 2.74 1.89)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "efe7a0d9-64bc-4780-8829-64573705b121")
+	)
+	(fp_line
+		(start 2.74 -1.89)
+		(end 2.74 -1.3)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "89b6506f-335d-4160-95a1-08a39646946d")
+	)
+	(fp_line
+		(start 2.74 1.89)
+		(end 2.74 1.3)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "24a521f1-83ae-42fa-a855-0878f3bbd97a")
+	)
+	(pad "2" smd rect
+		(at 2.36 0 0)
+		(size 2.05 2.19)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+		(uuid "93e4d60a-5b90-4491-bd2e-e43607f82541")
+	)
+	(pad "1" smd rect
+		(at -2.36 0 0)
+		(size 2.05 2.19)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+		(uuid "0e666932-e28e-4615-a72c-670fa4ca8f8d")
+	)
+	(model "/home/ben/Documents/Hardware/KiCAD-Components/lcsc.3dshapes/SMB_L4.6-W3.6-LS5.3-RD.step"
+		(offset
+			(xyz 0 0 -0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
+	(embedded_fonts no)
+)

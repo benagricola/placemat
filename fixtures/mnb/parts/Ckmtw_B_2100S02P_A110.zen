@@ -1,0 +1,18 @@
+# Ckmtw_B_2100S02P_A110 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+a = io("a", Net, optional = True)
+b = io("b", Net, optional = True)
+
+Component(
+    name = "Ckmtw_B_2100S02P_A110",
+    footprint = File("Ckmtw_B_2100S02P_A110/HDR-TH_2P-P2.54-V-M-1.kicad_mod"),
+    symbol = Symbol("Ckmtw_B_2100S02P_A110/210S-1*2PL=11.6MMGold-platedblack.kicad_sym"),
+    prefix = "H",
+    part = Part(mpn = "B-2100S02P-A110", manufacturer = "Ckmtw"),
+    properties = {"LCSC": "C124375", "MPN": "B-2100S02P-A110"},
+    pins = {
+        "1": a,
+        "2": b,
+    },
+)

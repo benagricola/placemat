@@ -1,0 +1,7 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "stdlib_kicad-footprints_Capacitor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../.pcb/stdlib/kicad-footprints/Capacitor_SMD.pretty") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Resistor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../.pcb/stdlib/kicad-footprints/Resistor_SMD.pretty") (options "") (descr ""))
+  (lib (name "workspace_parts_SXN_SMNR4020_220M") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/SXN_SMNR4020_220M") (options "") (descr ""))
+  (lib (name "workspace_parts_TI_LM5164DDAR") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/TI_LM5164DDAR") (options "") (descr ""))
+)

@@ -1,0 +1,155 @@
+# ESP32-S3R8: 3.3 V in-package octal PSRAM, external quad flash and RF.
+# Espressif ESP32-S3 hardware design guidelines, schematic checklist, core figure.
+# RF and crystal values are reference starting values, requiring assembled tuning.
+MCU = Module("../../adapted/parts/C2913194.zen")
+FLASH = Module("../../adapted/parts/C179171.zen")
+XTAL = Module("../../adapted/parts/C426988.zen")
+ANT24 = Module("../../adapted/parts/TDK_ANT016008LCS2442MA1.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+L = Module("@stdlib/generics/Inductor.zen")
+SW = Module("../../adapted/parts/Omron_Electronics_B3U_1000P.zen")
+TP = Module("@stdlib/generics/TestPoint.zen")
+
+gnd = io("GND", Net)
+v3v3 = io("V3V3", Net)
+sda = io("SDA", Net)
+scl = io("SCL", Net)
+sda_pwr = io("SDA_PWR", Net)
+scl_pwr = io("SCL_PWR", Net)
+disp_cs = io("DISP_CS", Net)
+disp_rst = io("DISP_RST", Net)
+spi_sck = io("DISP_SCK", Net)
+spi_mosi = io("DISP_MOSI", Net)
+disp_dc = io("DISP_DC", Net)
+disp_te = io("DISP_TE", Net)
+imu_int1 = io("IMU_INT1", Net)
+bl_pwm = io("BL_PWM", Net)
+gnss_tx = io("GNSS_TX", Net)
+gnss_rx = io("GNSS_RX", Net)
+gnss_pps = io("GNSS_PPS", Net)
+ring_int = io("RING_INT", Net)
+usb_dp = io("USB_DP", Net)
+usb_dn = io("USB_DN", Net)
+pd_irq = io("PD_IRQ", Net)
+ina_alert = io("INA_ALERT", Net)
+vbus_en = io("VBUS_EN", Net)
+slot_run = io("SLOT_RUN", Net)
+slot_sck = io("SLOT_SCK", Net)
+slot_mosi = io("SLOT_MOSI", Net)
+slot_miso = io("SLOT_MISO", Net)
+slot_l_cs = io("SLOT_L_CS", Net)
+slot_r_cs = io("SLOT_R_CS", Net)
+
+vdd_rf = Net("VDD_RF")
+vdd_spi = Net("VDD_SPI")
+mcu_en = Net("MCU_EN")
+boot = Net("BOOT_STRAP")
+strap_jtag = Net("STRAP_JTAG")
+strap_vspi = Net("STRAP_VSPI")
+strap_download = Net("STRAP_DOWNLOAD")
+uart_tx_chip = Net("UART_TX_CHIP")
+uart_tx = Net("UART_TX")
+uart_rx = Net("UART_RX")
+xtal_p = Net("XTAL_P")
+xtal_n = Net("XTAL_N")
+xtal_1 = Net("XTAL_1")
+flash_clk = Net("FLASH_CLK")
+flash_cs = Net("FLASH_CS")
+flash_d = Net("FLASH_D")
+flash_q = Net("FLASH_Q")
+flash_wp = Net("FLASH_WP")
+flash_hd = Net("FLASH_HD")
+flash_clk_chip = Net("FLASH_CLK_CHIP")
+flash_d_chip = Net("FLASH_D_CHIP")
+flash_q_chip = Net("FLASH_Q_CHIP")
+flash_wp_chip = Net("FLASH_WP_CHIP")
+flash_hd_chip = Net("FLASH_HD_CHIP")
+rf_chip = Net("RF_CHIP")
+rf_50 = Net("RF_50")
+ant_feed = Net("ANT24_FEED")
+ant_rad = Net("ANT24_RAD")
+
+# GPIO33-37 and SPICS1 remain unconnected externally: the package owns PSRAM.
+# GPIO47 is SPICLK_P (pin 37); GPIO48 is SPICLK_N (pin 36), at 3.3 V on R8.
+# GPIO15/16 are named XTAL_32K_P/N on the native symbol, not the 40 MHz pins.
+MCU(name = "mcu", GND = gnd, VDDA = v3v3, VDD3P3 = vdd_rf,
+    VDD3P3_CPU = v3v3, VDD3P3_RTC = v3v3, VDD_SPI = vdd_spi,
+    CHIP_PU = mcu_en, XTAL_P = xtal_p, XTAL_N = xtal_n, LNA_IN = rf_chip,
+    GPIO0 = boot, GPIO3 = strap_jtag, GPIO45 = strap_vspi, GPIO46 = strap_download,
+    GPIO1 = gnss_tx, GPIO2 = gnss_rx, GPIO4 = gnss_pps, GPIO5 = bl_pwm,
+    GPIO6 = slot_run, GPIO7 = ina_alert, GPIO8 = sda, GPIO9 = scl,
+    GPIO10 = ring_int, GPIO11 = slot_miso, GPIO12 = disp_cs, GPIO13 = disp_rst,
+    GPIO14 = spi_sck, XTAL_32K_P = spi_mosi, XTAL_32K_N = disp_dc,
+    GPIO17 = disp_te, GPIO18 = slot_sck, GPIO19 = usb_dn, GPIO20 = usb_dp,
+    GPIO21 = imu_int1, GPIO38 = pd_irq, MTCK = slot_mosi,
+    MTDO = slot_l_cs, MTDI = slot_r_cs, MTMS = sda_pwr,
+    SPICLK_P = scl_pwr, SPICLK_N = vbus_en,
+    U0TXD = uart_tx_chip, U0RXD = uart_rx,
+    SPICLK = flash_clk_chip, SPICS0 = flash_cs, SPID = flash_d_chip,
+    SPIQ = flash_q_chip, SPIWP = flash_wp_chip, SPIHD = flash_hd_chip)
+
+# Supply filter: L1=2 nH, >=500 mA from Espressif's core schematic.
+L(name = "l_rf_supply", value = "2nH", package = "0402", current = "500mA", P1 = v3v3, P2 = vdd_rf)
+C(name = "c_mcu_bulk", value = "10uF", package = "0805", voltage = "16V", P1 = v3v3, P2 = gnd)
+C(name = "c_rf_pre_1u", value = "1uF", package = "0402", voltage = "16V", P1 = v3v3, P2 = gnd)
+C(name = "c_rf_pre_100n", value = "100nF", package = "0402", voltage = "16V", P1 = v3v3, P2 = gnd)
+C(name = "c_rf_post", value = "100nF", package = "0402", voltage = "16V", P1 = vdd_rf, P2 = gnd)
+C(name = "c_vdda_1u", value = "1uF", package = "0402", voltage = "16V", P1 = v3v3, P2 = gnd)
+C(name = "c_vdda_10n", value = "10nF", package = "0402", voltage = "16V", P1 = v3v3, P2 = gnd)
+C(name = "c_cpu", value = "100nF", package = "0402", voltage = "16V", P1 = v3v3, P2 = gnd)
+C(name = "c_rtc", value = "100nF", package = "0402", voltage = "16V", P1 = v3v3, P2 = gnd)
+C(name = "c_vspi_100n", value = "100nF", package = "0402", voltage = "16V", P1 = vdd_spi, P2 = gnd)
+C(name = "c_vspi_1u", value = "1uF", package = "0402", voltage = "16V", P1 = vdd_spi, P2 = gnd)
+
+# R8 memory voltage is 3.3 V. GPIO45 low also selects 3.3 V on unforced silicon.
+R(name = "r_strap45", value = "10kohm", package = "0402", P1 = strap_vspi, P2 = gnd)
+R(name = "r_strap46", value = "10kohm", package = "0402", P1 = strap_download, P2 = gnd)
+R(name = "r_strap3", value = "10kohm", package = "0402", P1 = v3v3, P2 = strap_jtag)
+R(name = "r_boot", value = "10kohm", package = "0402", P1 = v3v3, P2 = boot)
+R(name = "r_en", value = "10kohm", package = "0402", P1 = v3v3, P2 = mcu_en)
+C(name = "c_en", value = "1uF", package = "0402", voltage = "16V", P1 = mcu_en, P2 = gnd)
+R(name = "r_slot_run", value = "10kohm", package = "0402", P1 = slot_run, P2 = gnd)
+R(name = "r_uart_tx", value = "499ohm", package = "0402", P1 = uart_tx_chip, P2 = uart_tx)
+SW(name = "sw_boot", P_1 = boot, P_2 = gnd)
+SW(name = "sw_reset", P_1 = mcu_en, P_2 = gnd)
+
+# S3240000101040: 40 MHz, CL=10 pF, initial tolerance +/-10 ppm.
+# Two 16 pF loads give 8 pF in series, with 2 pF assumed stray. Measure and tune.
+XTAL(name = "xtal", OSC1 = xtal_1, OSC2 = xtal_n, GND = gnd)
+L(name = "l_xtal", value = "24nH", package = "0402", P1 = xtal_p, P2 = xtal_1)
+C(name = "c_xtal1", value = "16pF", package = "0402", voltage = "50V", dielectric = "C0G", P1 = xtal_1, P2 = gnd)
+C(name = "c_xtal2", value = "16pF", package = "0402", voltage = "50V", dielectric = "C0G", P1 = xtal_n, P2 = gnd)
+
+# Quad-flash signal mapping is the native SPI0/1 bus, shared with packaged PSRAM.
+FLASH(name = "flash", VCC = vdd_spi, GND = gnd, CS = flash_cs,
+      CLK = flash_clk, DI_IO0 = flash_d, DO_IO1 = flash_q,
+      WP__IO2 = flash_wp, HOLD_orRESET__IO3 = flash_hd)
+R(name = "r_flash_clk", value = "0ohm", package = "0402", P1 = flash_clk_chip, P2 = flash_clk)
+R(name = "r_flash_d", value = "0ohm", package = "0402", P1 = flash_d_chip, P2 = flash_d)
+R(name = "r_flash_q", value = "0ohm", package = "0402", P1 = flash_q_chip, P2 = flash_q)
+R(name = "r_flash_wp", value = "0ohm", package = "0402", P1 = flash_wp_chip, P2 = flash_wp)
+R(name = "r_flash_hd", value = "0ohm", package = "0402", P1 = flash_hd_chip, P2 = flash_hd)
+R(name = "r_flash_cs", value = "10kohm", package = "0402", P1 = vdd_spi, P2 = flash_cs)
+R(name = "r_flash_wp_up", value = "10kohm", package = "0402", P1 = vdd_spi, P2 = flash_wp)
+R(name = "r_flash_hd_up", value = "10kohm", package = "0402", P1 = vdd_spi, P2 = flash_hd)
+C(name = "c_flash", value = "100nF", package = "0402", voltage = "16V", P1 = vdd_spi, P2 = gnd)
+
+# Espressif CLC ranges: 1.2-1.8 pF, 2-3 nH, 1.2-1.8 pF, in 0201.
+C(name = "c_rf_chip", value = "1.5pF", package = "0201", voltage = "50V", dielectric = "C0G", P1 = rf_chip, P2 = gnd)
+L(name = "l_rf_match", value = "2.4nH", package = "0201", P1 = rf_chip, P2 = rf_50)
+C(name = "c_rf_50", value = "1.5pF", package = "0201", voltage = "50V", dielectric = "C0G", P1 = rf_50, P2 = gnd)
+# TDK antenna matching and Ft tuning position; unpopulated shunts for VNA tuning.
+C(name = "c_ant_in", value = "1pF", package = "0402", voltage = "50V", dielectric = "C0G", P1 = rf_50, P2 = gnd, dnp = True)
+R(name = "r_ant_series", value = "0ohm", package = "0402", P1 = rf_50, P2 = ant_feed)
+C(name = "c_ant_out", value = "1pF", package = "0402", voltage = "50V", dielectric = "C0G", P1 = ant_feed, P2 = gnd, dnp = True)
+ANT24(name = "ant24", Feed_point = ant_feed, Radiator_electrode = ant_rad)
+C(name = "c_ant_ft", value = "1pF", package = "0402", voltage = "50V", dielectric = "C0G", P1 = ant_rad, P2 = gnd, dnp = True)
+
+TP(name = "tp_3v3", variant = "Pad_1.0x1.0mm", P1 = v3v3)
+TP(name = "tp_gnd", variant = "Pad_1.0x1.0mm", P1 = gnd)
+TP(name = "tp_txd0", variant = "Pad_1.0x1.0mm", P1 = uart_tx)
+TP(name = "tp_rxd0", variant = "Pad_1.0x1.0mm", P1 = uart_rx)
+TP(name = "tp_boot", variant = "Pad_1.0x1.0mm", P1 = boot)
+TP(name = "tp_reset", variant = "Pad_1.0x1.0mm", P1 = mcu_en)
+Project(name = "MCU, memory and radio", path = "kicad", schematic = True, layout = False)

@@ -1,0 +1,34 @@
+# EVISUN_B2415S_2WR3 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, cnc-expansion capture), SUBSTITUTED for the brief's named MORNSUN
+# B2415S-1WR3. That exact MORNSUN 1W part has no confirmed direct JLC/LCSC listing; the
+# B_S-1WR3 family shares an "industry standard pinout" across manufacturers (datasheet
+# language, 2026-07-26 check), so this is a same-family, same-pinout, higher-power
+# second-source: EVISUN B2415S-2WR3 (24V in, 15V out, 2W vs the brief's 1W — strictly more
+# headroom for the LM358 gain stage's own draw), LCSC C7500925, 213 in stock (checked
+# 2026-07-26) — THIN, low end of the low-hundreds bar, re-verify at order per
+# CLAUDE.md rule 0. Datasheet (LCSC C7500925, 2026-07-26): input 21.6-26.4V, UNREGULATED
+# output (tracks input), 15V nominal/133mA, 86% efficiency, 1500VDC isolation, "sustained
+# short-circuit protection", international standard SIP-4 pinout (pins 1/2/4/6 populated,
+# 3/5 omitted for creepage). Being unregulated, worst-case low input (21.6V) sags the 15V
+# nominal output proportionally — see onsemi_LM358DR2G.zen's headroom note.
+VIN_P = io("VIN_P", Net, optional = True)
+VIN_N = io("VIN_N", Net, optional = True)
+VOUT_N = io("VOUT_N", Net, optional = True)
+VOUT_P = io("VOUT_P", Net, optional = True)
+
+Component(
+    name = "EVISUN_B2415S_2WR3",
+    footprint = File("EVISUN_B2415S_2WR3/PWRM-TH_BXXXXS-2WR3.kicad_mod"),
+    symbol = Symbol("EVISUN_B2415S_2WR3/B2415S-2WR3_C7500925.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "B2415S-2WR3", manufacturer = "EVISUN"),
+    properties = {"LCSC": "C7500925", "MPN": "B2415S-2WR3"},
+    pins = {
+        "+VIN": VIN_P,
+        "-VIN": VIN_N,
+        "-VOUT": VOUT_N,
+        "+VOUT": VOUT_P,
+    },
+)

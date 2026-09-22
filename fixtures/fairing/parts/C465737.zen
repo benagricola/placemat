@@ -1,0 +1,41 @@
+# SN74LVC08APWR; native source and hash in C465737/asset-provenance.json.
+
+P_1A = io("P_1A", Net, optional = True)
+P_1B = io("P_1B", Net, optional = True)
+P_1Y = io("P_1Y", Net, optional = True)
+P_2A = io("P_2A", Net, optional = True)
+P_2B = io("P_2B", Net, optional = True)
+P_2Y = io("P_2Y", Net, optional = True)
+GND = io("GND", Net, optional = True)
+P_3Y = io("P_3Y", Net, optional = True)
+P_3A = io("P_3A", Net, optional = True)
+P_3B = io("P_3B", Net, optional = True)
+P_4Y = io("P_4Y", Net, optional = True)
+P_4A = io("P_4A", Net, optional = True)
+P_4B = io("P_4B", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+
+Component(
+    name = "SN74LVC08APWR",
+    footprint = File("C465737/TSSOP-14_L5_0-W4_4-P0_65-LS6_4-BL.kicad_mod"),
+    symbol = Symbol("C465737/C465737.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "SN74LVC08APWR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C465737", "MPN": "SN74LVC08APWR"},
+    pins = {
+        "1A": P_1A,
+        "1B": P_1B,
+        "1Y": P_1Y,
+        "2A": P_2A,
+        "2B": P_2B,
+        "2Y": P_2Y,
+        "GND": GND,
+        "3Y": P_3Y,
+        "3A": P_3A,
+        "3B": P_3B,
+        "4Y": P_4Y,
+        "4A": P_4A,
+        "4B": P_4B,
+        "VCC": VCC,
+    },
+)

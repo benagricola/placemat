@@ -1,0 +1,22 @@
+# TDK_ACT45B_110_2P_TL003 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+canh_a = io("canh_a", Net, optional = True)
+canl_a = io("canl_a", Net, optional = True)
+canl_b = io("canl_b", Net, optional = True)
+canh_b = io("canh_b", Net, optional = True)
+
+Component(
+    name = "TDK_ACT45B_110_2P_TL003",
+    footprint = File("TDK_ACT45B_110_2P_TL003/FILTER-SMD_4P-L4.5-W3.2-TL-2.kicad_mod"),
+    symbol = Symbol("TDK_ACT45B_110_2P_TL003/ACT45B-110-2P-TL003.kicad_sym"),
+    prefix = "L",
+    part = Part(mpn = "ACT45B-110-2P-TL003", manufacturer = "TDK"),
+    properties = {"LCSC": "C76583", "MPN": "ACT45B-110-2P-TL003"},
+    pins = {
+        "1": canh_a,
+        "2": canl_a,
+        "3": canl_b,
+        "4": canh_b,
+    },
+)

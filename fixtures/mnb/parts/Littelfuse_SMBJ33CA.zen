@@ -1,0 +1,21 @@
+# Littelfuse_SMBJ33CA — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+# BIDIRECTIONAL 33V-class TVS (SMB/600W). Seeded for future bidirectional-clamp
+# needs (e.g. a field-entry node driven both ways) — ProtectionCell uses the
+# UNIDIRECTIONAL SMAJ33A instead (see ProtectionCell.zen header for reasoning).
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+
+Component(
+    name = "Littelfuse_SMBJ33CA",
+    footprint = File("Littelfuse_SMBJ33CA/SMB_L4.6-W3.6-LS5.3-BI.kicad_mod"),
+    symbol = Symbol("Littelfuse_SMBJ33CA/SMBJ33CA_C83325.kicad_sym"),
+    prefix = "D",
+    part = Part(mpn = "SMBJ33CA", manufacturer = "Littelfuse"),
+    properties = {"LCSC": "C83325", "MPN": "SMBJ33CA"},
+    pins = {
+        "1": p1,
+        "2": p2,
+    },
+)

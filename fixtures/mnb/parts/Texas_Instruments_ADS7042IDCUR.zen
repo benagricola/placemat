@@ -1,0 +1,64 @@
+# Texas_Instruments_ADS7042IDCUR — component wrapper: local KiCad symbol + footprint, LCSC
+# pinned in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, middleweight capture) — SUBSTITUTED for the brief's named ADS8353.
+# Full LCSC/JLC sourcing search (many queries, 2026-07-26): ADS8353, ADS7853, ADS7253 (the
+# whole pin-compatible dual-simultaneous-SAR family, datasheet SBAS584B read in full) have
+# NO LCSC catalog listing in ANY package (WQFN-16 or TSSOP-16) and 0 JLC parts-search
+# results — confirmed by the total absence of any lcsc.com product page across a dozen
+# search variants (contrast with TMC2160A-TA and AS5047P-ATSM, which surfaced LCSC pages
+# immediately). ADI AD7367/AD7366 (also true dual-simultaneous SAR): found on LCSC
+# (C398821) but OUT OF STOCK. TI ADS8688/ADS8684 (LCSC C527390, 911 in stock, $4.28): real
+# stock, but datasheet section 8.4.1.2 confirms it samples ONE channel per CS edge through
+# a SHARED SAR core (fast-multiplexed, not simultaneous) — does not meet the "simultaneous
+# sampling" requirement, ruled out.
+#
+# RESOLUTION: two independent ADS7042 (LCSC C701641, ADS7042IDCUR, VSSOP-8, 2,922 in stock
+# @ ~$2.10, checked 2026-07-26) with their CS pins tied to the SAME net (middleweight.zen).
+# ADS7042 is a 12-bit, 1 MSPS, CS-edge-triggered, single-channel SAR ADC (datasheet
+# SBAS608C read in full) — tying two chips' CS together starts both chips' track-and-hold +
+# conversion on the identical clock edge, which is a true hardware-simultaneous-sample
+# realization of the same principle ADS8353 uses internally (two independent SAR cores),
+# just as two packages instead of one. Each chip gets its own SDO (separate PIO-SPI reads;
+# the simultaneity is in the shared CS edge, not the readout). This is a DOWNGRADE from
+# ADS8353's 16-bit to ADS7042's 12-bit — explicitly sanctioned by CLAUDE.md's own canonical
+# table ("ADS8353/ADS7253-class dual simultaneous SAR") and by the brief's own "cheaper
+# alt: ADS8354 (14-bit)" allowance. Resolution check: 200mV/A x ~5.6A peak = 1.12V FS into
+# a 0-3.3V AVDD reference -> 12-bit LSB = 3.3V/4096 = 0.8mV = 4mA of current resolution —
+# comfortably adequate for a NEMA23 FOC loop. FLAGGED for Ben (open item, see session
+# report) — an alternate genuinely-stocked true-dual-SAR IC, if one turns up, would let this
+# revert to a single-package solution.
+#
+# Datasheet SBAS608C findings: AVDD=DVDD=1.65-3.6V (single 3V3 rail covers both — no
+# separate 5V needed); AINP/AINM single-ended (AINM tied to GND); "AVDD used as Reference
+# for device" (ratiometric, 0-AVDD unipolar range, no external VREF); CS falling edge
+# starts acquisition, SCLK reads out 12 bits, CS rising ends the frame (same 3-wire idiom
+# as ADS8681/ADS8688's interface — familiar pattern). DCU package = 8-pin leaded VSSOP
+# (matches the fetched footprint), not the X2QFN — the more hand/reflow-friendly choice.
+DVDD = io("DVDD", Net, optional = True)
+SCLK = io("SCLK", Net, optional = True)
+SDO = io("SDO", Net, optional = True)
+CS = io("CS", Net, optional = True)
+AINM = io("AINM", Net, optional = True)
+AINP = io("AINP", Net, optional = True)
+AVDD = io("AVDD", Net, optional = True)
+GND = io("GND", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_ADS7042IDCUR",
+    footprint = File("Texas_Instruments_ADS7042IDCUR/VSSOP-8_L2.3-W2.0-P0.50-LS3.1-BR.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_ADS7042IDCUR/Texas_Instruments_ADS7042IDCUR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "ADS7042IDCUR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C701641", "MPN": "ADS7042IDCUR"},
+    pins = {
+        "DVDD": DVDD,
+        "SCLK": SCLK,
+        "SDO": SDO,
+        "~{CS}": CS,
+        "AINM": AINM,
+        "AINP": AINP,
+        "AVDD": AVDD,
+        "GND": GND,
+    },
+)

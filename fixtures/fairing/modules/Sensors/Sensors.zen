@@ -1,0 +1,33 @@
+# Sensors: retained Main connectivity, source lines recorded in retained-circuits.json.
+# Component values remain subject to the core electrical review.
+
+ALS = Module("../../adapted/parts/Lite_On_LTR_303ALS_01.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+IMU = Module("../../adapted/parts/STMicroelectronics_LSM6DS3TR_C.zen")
+MAG = Module("../../adapted/parts/MEMSIC_MMC5603NJ.zen")
+TEMP = Module("../../adapted/parts/UMW_Youtai_Semiconductor_Co_Ltd_TMP102AIDRLR_UMW.zen")
+
+als_int = io("ALS_INT", Net)
+gnd = io("GND", Net)
+imu_int1 = io("IMU_INT1", Net)
+scl = io("SCL", Net)
+scl_pwr = io("SCL_PWR", Net)
+sda = io("SDA", Net)
+sda_pwr = io("SDA_PWR", Net)
+v3v3 = io("V3V3", Net)
+
+
+IMU(name = "imu", VDD = v3v3, VDDIO = v3v3, GND = gnd, SCL = scl, SDA = sda,
+    CS = v3v3, SDO_SA0 = gnd, SDx = gnd, SCx = gnd,
+    INT1 = imu_int1, INT2 = NotConnected(), NC = NotConnected())
+# ST DocID030071 Rev 3, Table 2: unused auxiliary-master pins tied low in
+# mode 1, NC pins left electrically separate, one 100 nF at each supply pin.
+C(name = "c_imu", value = "100nF", package = "0402", P1 = v3v3, P2 = gnd)
+C(name = "c_imu_vddio", value = "100nF", package = "0402", P1 = v3v3, P2 = gnd)
+MAG(name = "mag", VDD = v3v3, VSA = gnd, SCL = scl, SDA = sda)
+C(name = "c_mag", value = "4.7uF", package = "0603", voltage = "16V", P1 = v3v3, P2 = gnd)
+TEMP(name = "conv_temp", V_P = v3v3, GND = gnd, SDA = sda_pwr, SCL = scl_pwr, ADD0 = gnd, ALERT = NotConnected())
+C(name = "c_temp", value = "100nF", package = "0402", P1 = v3v3, P2 = gnd)
+ALS(name = "als", VDD = v3v3, GND = gnd, SDA = sda, SCL = scl, INT = als_int, NC = NotConnected())
+C(name = "c_als", value = "100nF", package = "0402", P1 = v3v3, P2 = gnd)
+Project(name = "Sensors", path = "kicad", schematic = True, layout = False)

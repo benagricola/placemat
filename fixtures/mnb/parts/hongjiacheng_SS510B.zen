@@ -1,0 +1,18 @@
+# hongjiacheng_SS510B — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+A = io("A", Net, optional = True)
+K = io("K", Net, optional = True)
+
+Component(
+    name = "hongjiacheng_SS510B",
+    footprint = File("hongjiacheng_SS510B/SMB_L4.6-W3.5-LS5.3-RD.kicad_mod"),
+    symbol = Symbol("hongjiacheng_SS510B/SS510B_C7420368.kicad_sym"),
+    prefix = "D",
+    part = Part(mpn = "SS510B", manufacturer = "hongjiacheng"),
+    properties = {"LCSC": "C7420368", "MPN": "SS510B"},
+    pins = {
+        "A": A,
+        "K": K,
+    },
+)

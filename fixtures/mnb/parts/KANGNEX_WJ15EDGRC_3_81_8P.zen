@@ -1,0 +1,35 @@
+# KANGNEX_WJ15EDGRC_3_81_8P — component wrapper: local KiCad symbol + footprint, LCSC
+# pinned in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, middleweight capture). 8-position pluggable screw terminal, THT,
+# same WJ15EDG family as the existing KANGNEX_WJ15EDGRC_3_81_4P/6P wrappers (cnc-expansion).
+# LCSC C14235, stock 13,755 units @ ~$0.06 (checked 2026-07-26).
+# Used for J-IO (brief: 3.5mm ~8-pos — same 0.31mm pitch gap as the other WJ15EDG wrappers
+# in this family, flagged for Ben; 24V, IN1, IN2, OUT1, GND x2, motor-NTC, spare).
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+p5 = io("p5", Net, optional = True)
+p6 = io("p6", Net, optional = True)
+p7 = io("p7", Net, optional = True)
+p8 = io("p8", Net, optional = True)
+
+Component(
+    name = "KANGNEX_WJ15EDGRC_3_81_8P",
+    footprint = File("KANGNEX_WJ15EDGRC_3_81_8P/CONN-TH_8P-P3.81_WJ15EDGRC-3.81-8P.kicad_mod"),
+    symbol = Symbol("KANGNEX_WJ15EDGRC_3_81_8P/KANGNEX_WJ15EDGRC_3_81_8P.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "WJ15EDGRC-3.81-08P-14-00A", manufacturer = "KANGNEX"),
+    properties = {"LCSC": "C14235", "MPN": "WJ15EDGRC-3.81-08P-14-00A"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+        "5": p5,
+        "6": p6,
+        "7": p7,
+        "8": p8,
+    },
+)

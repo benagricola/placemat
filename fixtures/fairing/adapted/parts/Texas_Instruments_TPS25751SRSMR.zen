@@ -1,0 +1,70 @@
+# Texas_Instruments_TPS25751SRSMR - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Texas_Instruments-TPS25751SRSMR_C22460852.pdf
+
+I2Cc_IRQ = io("I2Cc_IRQ", Net, optional = True)
+I2Cc_SCL = io("I2Cc_SCL", Net, optional = True)
+I2Cc_SDA = io("I2Cc_SDA", Net, optional = True)
+I2Ct_IRQ = io("I2Ct_IRQ", Net, optional = True)
+I2Ct_SCL = io("I2Ct_SCL", Net, optional = True)
+I2Ct_SDA = io("I2Ct_SDA", Net, optional = True)
+GPIO0 = io("GPIO0", Net, optional = True)
+GPIO1 = io("GPIO1", Net, optional = True)
+GPIO2 = io("GPIO2", Net, optional = True)
+GPIO3 = io("GPIO3", Net, optional = True)
+GPIO4_USB_P_LD1 = io("GPIO4_USB_P_LD1", Net, optional = True)
+GPIO5_USB_N_LD2 = io("GPIO5_USB_N_LD2", Net, optional = True)
+GPIO6 = io("GPIO6", Net, optional = True)
+GPIO7 = io("GPIO7", Net, optional = True)
+GPIO11 = io("GPIO11", Net, optional = True)
+GND = io("GND", Net, optional = True)
+VBUS = io("VBUS", Net, optional = True)
+VSYS = io("VSYS", Net, optional = True)
+VIN_3V3 = io("VIN_3V3", Net, optional = True)
+PP5V = io("PP5V", Net, optional = True)
+LDO_3V3 = io("LDO_3V3", Net, optional = True)
+LDO_1V5 = io("LDO_1V5", Net, optional = True)
+GATE_VSYS = io("GATE_VSYS", Net, optional = True)
+GATE_VBUS = io("GATE_VBUS", Net, optional = True)
+CC2 = io("CC2", Net, optional = True)
+CC1 = io("CC1", Net, optional = True)
+ADCIN2 = io("ADCIN2", Net, optional = True)
+ADCIN1 = io("ADCIN1", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_TPS25751SRSMR",
+    footprint = File("../../parts/Texas_Instruments_TPS25751SRSMR/QFN-32_L4.0-W4.0-P0.40-TL-EP2.8.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_TPS25751SRSMR/TPS25751SRSMR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "TPS25751SRSMR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C22460852", "MPN": "TPS25751SRSMR"},
+    pins = {
+        "~{I2Cc_IRQ}": I2Cc_IRQ,
+        "I2Cc_SCL": I2Cc_SCL,
+        "I2Cc_SDA": I2Cc_SDA,
+        "~{I2Ct_IRQ}": I2Ct_IRQ,
+        "I2Ct_SCL": I2Ct_SCL,
+        "I2Ct_SDA": I2Ct_SDA,
+        "GPIO0": GPIO0,
+        "GPIO1": GPIO1,
+        "GPIO2": GPIO2,
+        "GPIO3": GPIO3,
+        "GPIO4/USB_P/LD1": GPIO4_USB_P_LD1,
+        "GPIO5/USB_N/LD2": GPIO5_USB_N_LD2,
+        "GPIO6": GPIO6,
+        "GPIO7": GPIO7,
+        "GPIO11": GPIO11,
+        "GND": GND,
+        "VBUS": VBUS,
+        "VSYS": VSYS,
+        "VIN_3V3": VIN_3V3,
+        "PP5V": PP5V,
+        "LDO_3V3": LDO_3V3,
+        "LDO_1V5": LDO_1V5,
+        "GATE_VSYS": GATE_VSYS,
+        "GATE_VBUS": GATE_VBUS,
+        "CC2": CC2,
+        "CC1": CC1,
+        "ADCIN2": ADCIN2,
+        "ADCIN1": ADCIN1,
+    },
+)

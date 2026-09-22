@@ -1,0 +1,20 @@
+# HUAYI_HYG053N10NS1C2 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+D = io("D", Net, optional = True)
+G = io("G", Net, optional = True)
+S = io("S", Net, optional = True)
+
+Component(
+    name = "HUAYI_HYG053N10NS1C2",
+    footprint = File("HUAYI_HYG053N10NS1C2/PDFN-8_L5.8-W5.0-P1.27-LS6.2-BL.kicad_mod"),
+    symbol = Symbol("HUAYI_HYG053N10NS1C2/HYG053N10NS1C2.kicad_sym"),
+    prefix = "Q",
+    part = Part(mpn = "HYG053N10NS1C2", manufacturer = "HUAYI"),
+    properties = {"LCSC": "C2986239", "MPN": "HYG053N10NS1C2"},
+    pins = {
+        "D": D,
+        "G": G,
+        "S": S,
+    },
+)

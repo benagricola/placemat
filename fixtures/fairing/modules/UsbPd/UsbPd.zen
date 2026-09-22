@@ -1,0 +1,60 @@
+# UsbPd: retained Main connectivity, source lines recorded in retained-circuits.json.
+# Component values remain subject to the core electrical review.
+
+C = Module("@stdlib/generics/Capacitor.zen")
+CCESD = Module("../../adapted/parts/onsemi_ESD9B5_0ST5G.zen")
+PD = Module("../../adapted/parts/Texas_Instruments_TPS25751SRSMR.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+SINKQ = Module("../../adapted/parts/Alpha_Omega_Semicon_AON7804.zen")
+TVS_VBUS = Module("../../adapted/parts/Texas_Instruments_TVS2200DRVR.zen")
+USBESD = Module("../../adapted/parts/STMicroelectronics_USBLC6_2SC6.zen")
+
+gnd = io("GND", Net)
+pd_irq = io("PD_IRQ", Net)
+scl_pwr = io("SCL_PWR", Net)
+sda_pwr = io("SDA_PWR", Net)
+shunt = io("VSHUNT", Net)
+usb_cc1 = io("USB_CC1", Net)
+usb_cc2 = io("USB_CC2", Net)
+usb_dn = io("USB_DN", Net)
+usb_dp = io("USB_DP", Net)
+v3v3 = io("V3V3", Net)
+vbus = io("VBUS", Net)
+
+pd_i2cc_irq = Net("PD_I2CC_IRQ")
+pd_i2cc_scl = Net("PD_I2CC_SCL")
+pd_i2cc_sda = Net("PD_I2CC_SDA")
+pd_ldo_1v5 = Net("PD_LDO_1V5")
+pd_ldo_3v3 = Net("PD_LDO_3V3")
+sink_gate_vbus = Net("SINK_GATE_VBUS")
+sink_gate_vsys = Net("SINK_GATE_VSYS")
+sink_mid = Net("SINK_MID")
+
+PD(name = "pd", VIN_3V3 = v3v3, GND = gnd, VBUS = vbus, VSYS = shunt,
+   I2Ct_SDA = sda_pwr, I2Ct_SCL = scl_pwr, I2Ct_IRQ = pd_irq,
+   CC1 = usb_cc1, CC2 = usb_cc2,
+   LDO_3V3 = pd_ldo_3v3, LDO_1V5 = pd_ldo_1v5,
+   ADCIN1 = pd_ldo_3v3, ADCIN2 = pd_ldo_1v5,
+   I2Cc_SDA = pd_i2cc_sda, I2Cc_SCL = pd_i2cc_scl, I2Cc_IRQ = pd_i2cc_irq,
+   GPIO0 = gnd, GPIO1 = gnd, GPIO2 = gnd, GPIO3 = gnd,
+   GPIO4_USB_P_LD1 = gnd, GPIO5_USB_N_LD2 = gnd, GPIO6 = gnd, GPIO7 = gnd,
+   GPIO11 = gnd,
+   GATE_VBUS = sink_gate_vbus, GATE_VSYS = sink_gate_vsys)
+R(name = "r_i2cc_sda", value = "10kohm", package = "0402", P1 = v3v3, P2 = pd_i2cc_sda)
+R(name = "r_i2cc_scl", value = "10kohm", package = "0402", P1 = v3v3, P2 = pd_i2cc_scl)
+R(name = "r_i2cc_irq", value = "10kohm", package = "0402", P1 = v3v3, P2 = pd_i2cc_irq)
+SINKQ(name = "q_sink", S1 = vbus, G1 = sink_gate_vbus, D1 = sink_mid,
+      S2 = shunt, G2 = sink_gate_vsys, D2 = sink_mid)
+C(name = "c_pd", value = "10uF", package = "0805", voltage = "16V", P1 = v3v3, P2 = gnd)
+C(name = "c_pd_ldo3", value = "10uF", package = "0603", voltage = "16V",
+  P1 = pd_ldo_3v3, P2 = gnd)
+C(name = "c_pd_ldo15", value = "10uF", package = "0603", voltage = "10V",
+  P1 = pd_ldo_1v5, P2 = gnd)
+USBESD(name = "esd_usb", P_1 = usb_dp, P_6 = usb_dp,
+       P_3 = usb_dn, P_4 = usb_dn, P_5 = v3v3, P_2 = gnd)
+TVS_VBUS(name = "esd_vbus", IN = vbus, GND = gnd)
+CCESD(name = "esd_cc1", P_1 = usb_cc1, P_2 = gnd)
+CCESD(name = "esd_cc2", P_1 = usb_cc2, P_2 = gnd)
+C(name = "c_cc1", value = "390pF", package = "0402", voltage = "16V", P1 = usb_cc1, P2 = gnd)
+C(name = "c_cc2", value = "390pF", package = "0402", voltage = "16V", P1 = usb_cc2, P2 = gnd)
+Project(name = "UsbPd", path = "kicad", schematic = True, layout = False)

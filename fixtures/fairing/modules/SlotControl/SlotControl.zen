@@ -1,0 +1,90 @@
+# TCA9555 0x27 on internal power-management I2C. Firmware must initialise
+# output latches low BEFORE configuring outputs and BEFORE asserting SLOT_RUN.
+# SLOT_RUN has a MCU-side pulldown and must never be GPIO-held across reset.
+EXPANDER = Module("../../adapted/parts/C465732.zen")
+AND = Module("../../adapted/parts/C465737.zen")
+NAND = Module("../../adapted/parts/C2682112.zen")
+SLOT = Module("../Slot/Slot.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+
+gnd = io("GND", Net)
+v3v3 = io("V3V3", Net)
+sda = io("SDA_PWR", Net)
+scl = io("SCL_PWR", Net)
+run = io("SLOT_RUN", Net)
+sck = io("SLOT_SCK", Net)
+mosi = io("SLOT_MOSI", Net)
+miso = io("SLOT_MISO", Net)
+left_cs = io("SLOT_L_CS", Net)
+right_cs = io("SLOT_R_CS", Net)
+alert = io("INA_ALERT", Net)
+pgood = io("PGOOD", Net)
+bb_fault = io("BB_FAULT", Net)
+als_int = io("ALS_INT", Net)
+rail_fault = io("RAIL_FAULT", Net)
+id_left = io("ID_LEFT", Net)
+id_right = io("ID_RIGHT", Net)
+hp_enable = io("HP_ENABLE", Net)
+hp_fault = io("HP_FAULT", Net)
+
+lp_req = Net("LEFT_POWER_REQ")
+rp_req = Net("RIGHT_POWER_REQ")
+ld_req = Net("LEFT_DATA_REQ")
+rd_req = Net("RIGHT_DATA_REQ")
+hp_req = Net("HP_REQ")
+probe_req = Net("ID_PROBE_REQ")
+lp_en = Net("LEFT_ENABLE")
+rp_en = Net("RIGHT_ENABLE")
+left_oe = Net("LEFT_OE_N")
+right_oe = Net("RIGHT_OE_N")
+id_drive = Net("ID_DRIVE")
+left_fault = Net("LEFT_FAULT_N")
+right_fault = Net("RIGHT_FAULT_N")
+left_irq = Net("LEFT_IRQ_N")
+right_irq = Net("RIGHT_IRQ_N")
+
+# Both INA226 ALERT and TCA9555 INT are open-drain: shared MCU interrupt,
+# firmware polls both sources. A 10k pullup replaces reliance on the old 100k.
+EXPANDER(name = "expander", VCC = v3v3, GND = gnd, A0 = v3v3, A1 = v3v3, A2 = v3v3,
+         SDA = sda, SCL = scl, INT = alert,
+         P00 = lp_req, P01 = rp_req, P02 = ld_req, P03 = rd_req,
+         P04 = hp_req, P05 = probe_req, P06 = left_fault, P07 = right_fault,
+         P10 = left_irq, P11 = right_irq, P12 = pgood, P13 = bb_fault,
+         P14 = als_int, P15 = rail_fault, P16 = hp_fault, P17 = NotConnected())
+C(name = "c_expander", value = "100nF", package = "0402", voltage = "16V", P1 = v3v3, P2 = gnd)
+R(name = "r_alert", value = "10kohm", package = "0402", P1 = v3v3, P2 = alert)
+R(name = "r_bb_fault", value = "10kohm", package = "0402", P1 = v3v3, P2 = bb_fault)
+R(name = "r_hp_fault", value = "10kohm", package = "0402", P1 = v3v3, P2 = hp_fault)
+
+# 100 uA worst-case TCA input pullup plus 5 uA gate leakage through 2.2k+1%
+# gives 0.233 V, below LVC VIL=0.8 V. A 10k pulldown would not meet VIL.
+R(name = "r_lp_off", value = "2.2kohm", annotations = {"Tolerance": "1%"}, package = "0402", P1 = lp_req, P2 = gnd)
+R(name = "r_rp_off", value = "2.2kohm", annotations = {"Tolerance": "1%"}, package = "0402", P1 = rp_req, P2 = gnd)
+R(name = "r_ld_off", value = "2.2kohm", annotations = {"Tolerance": "1%"}, package = "0402", P1 = ld_req, P2 = gnd)
+R(name = "r_rd_off", value = "2.2kohm", annotations = {"Tolerance": "1%"}, package = "0402", P1 = rd_req, P2 = gnd)
+R(name = "r_hp_off", value = "2.2kohm", annotations = {"Tolerance": "1%"}, package = "0402", P1 = hp_req, P2 = gnd)
+R(name = "r_probe_off", value = "2.2kohm", annotations = {"Tolerance": "1%"}, package = "0402", P1 = probe_req, P2 = gnd)
+AND(name = "enable_gates", VCC = v3v3, GND = gnd,
+    P_1A = run, P_1B = lp_req, P_1Y = lp_en,
+    P_2A = run, P_2B = rp_req, P_2Y = rp_en,
+    P_3A = run, P_3B = hp_req, P_3Y = hp_enable,
+    P_4A = run, P_4B = probe_req, P_4Y = id_drive)
+# Data requires both a power enable command and a separate data grant.
+# This is sequencing, not a voltage-good comparator: firmware checks startup.
+NAND(name = "data_gates", VCC = v3v3, GND = gnd,
+     P_1A = lp_en, P_1B = ld_req, P_1Y = left_oe,
+     P_2A = rp_en, P_2B = rd_req, P_2Y = right_oe)
+C(name = "c_and", value = "100nF", package = "0402", voltage = "16V", P1 = v3v3, P2 = gnd)
+C(name = "c_nand", value = "100nF", package = "0402", voltage = "16V", P1 = v3v3, P2 = gnd)
+R(name = "r_left_cs", value = "10kohm", package = "0402", P1 = v3v3, P2 = left_cs)
+R(name = "r_right_cs", value = "10kohm", package = "0402", P1 = v3v3, P2 = right_cs)
+
+SLOT(name = "left", GND = gnd, V3V3 = v3v3, ENABLE = lp_en, OE_N = left_oe,
+     FAULT_N = left_fault, SCK = sck, MOSI = mosi, MISO = miso, CS_N = left_cs,
+     IRQ_N = left_irq, ID_DRIVE = id_drive, ID_SENSE = id_left)
+SLOT(name = "right", GND = gnd, V3V3 = v3v3, ENABLE = rp_en, OE_N = right_oe,
+     FAULT_N = right_fault, SCK = sck, MOSI = mosi, MISO = miso, CS_N = right_cs,
+     IRQ_N = right_irq, ID_DRIVE = id_drive, ID_SENSE = id_right)
+
+Project(name = "Slot control and reset gating", path = "kicad", schematic = True, layout = False)

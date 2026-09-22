@@ -1,0 +1,34 @@
+# AOS_AOD4184A — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, cnc-expansion capture), the brief's OWN named part: "AOD4184A (40V)
+# or 60V equiv... logic-level DPAK, 3.3V gate". Checked first whether the as-built
+# parts/HUAYI_HYG053N10NS1C2.zen (already used for IdealDiodeInput's pass-FET) would fit —
+# its own datasheet gives Vgs(th) ~4V typ (RDS(on) specified only at VGS=10V), i.e. NOT
+# reliably enhanced at a 3.3V logic gate — so it does not fit the brief's 3.3V-gate
+# requirement and AOD4184A is sourced fresh instead. 40V, 7mOhm@10V, TO-252(DPAK), AOS
+# brand. Stock 15,205 units @ LCSC C99124 (checked 2026-07-26). Vgs(th) ~2.6V typ — reaches
+# a 3.3V logic gate with ~0.7V overdrive; RDS(on) at 3.3V will run higher than the 7mOhm@10V
+# datasheet spec but stays low enough for the mist/aux load currents here (~1-2A). 40V not
+# 60V (brief's stated preference) — this is the exact P/N the brief names and it is the
+# confirmed-stocked one; flagged as VERIFY if Ben wants the extra margin of a 60V part.
+# Used board-local (not part of the shared ProtectionCell — that module is the freewheel+TVS
+# clamp only) for mist + aux1-3, gate driven via 100 ohm series R + 100kohm gate pulldown
+# per the build-prompt's exact spec.
+G = io("G", Net, optional = True)
+D = io("D", Net, optional = True)
+S = io("S", Net, optional = True)
+
+Component(
+    name = "AOS_AOD4184A",
+    footprint = File("AOS_AOD4184A/TO-252-2_L6.6-W6.1-P4.57-LS9.9-TL-CW.kicad_mod"),
+    symbol = Symbol("AOS_AOD4184A/AOD4184A.kicad_sym"),
+    prefix = "Q",
+    part = Part(mpn = "AOD4184A", manufacturer = "AOS"),
+    properties = {"LCSC": "C99124", "MPN": "AOD4184A"},
+    pins = {
+        "G": G,
+        "D": D,
+        "S": S,
+    },
+)

@@ -1,0 +1,33 @@
+# Texas_Instruments_TLV74311PDBVR — component wrapper: local KiCad symbol + footprint, LCSC
+# pinned in properties (feeds the JLC BOM/CPL fields).
+#
+# TLV74311PDBVR: fixed 1.1V, 300mA LDO — CLAUDE.md canonical DVDD-supply part. SOT-23-5.
+# Fetched fresh (easyeda2kicad, 2026-07-26); pin map cross-checked against TI's TLV743
+# datasheet (SOT-23-5 pinout, typical-application section): pin1=IN, pin2=GND, pin3=EN,
+# pin4=NC, pin5=OUT. EN recommended tied to IN for always-on operation. Recommended
+# external caps: 1uF ceramic in, 1uF ceramic out.
+#
+# Stock check 2026-07-26 (LCSC C485147): 1,700 units in stock — above the
+# low-hundreds-of-boards bar (CLAUDE.md process rule 0).
+
+IN = io("IN", Net, optional = True)
+GND = io("GND", Net, optional = True)
+EN = io("EN", Net, optional = True)
+NC = io("NC", Net, optional = True)
+OUT = io("OUT", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_TLV74311PDBVR",
+    footprint = File("Texas_Instruments_TLV74311PDBVR/SOT-23-5_L3.0-W1.7-P0.95-LS2.8-BL.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_TLV74311PDBVR/TLV74311PDBVR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "TLV74311PDBVR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C485147", "MPN": "TLV74311PDBVR"},
+    pins = {
+        "IN": IN,
+        "GND": GND,
+        "EN": EN,
+        "NC": NC,
+        "OUT": OUT,
+    },
+)

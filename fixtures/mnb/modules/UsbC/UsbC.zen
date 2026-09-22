@@ -1,0 +1,85 @@
+# =============================================================================
+# UsbC — USB-C device port cell (connector + protection), board-placed
+# =============================================================================
+# Split out of the MCU cell (Ben, 2026-07-26): "the USB-C port should not be part
+# of the mcu but should be a board concern as it could be quite far from
+# the MCU. The USB protection, resistors etc should be their own module that
+# connects to mcu." This cell carries everything CONNECTOR-side: the
+# TYPE-C-31-M-12 receptacle, the USBLC6-2SC6 ESD array, the CC 5.1k
+# pulldowns (UFP default-current advertisement) and the VBUS bypass cap.
+#
+# The RP2350's 27R series terminators are deliberately NOT here — "Hardware
+# design with RP2350" (RP-008280) Ch 5.1: "these I/Os do require 27R series
+# termination resistors (R7 and R8 in Figure 11), placed close to the chip,
+# in order to meet the USB impedance specification." They live chip-side in
+# modules/MCU_RP2350B. The board routes USB_P/USB_N between this cell and the MCU cell's
+# USB_P/USB_N io() as a differential pair (~90R target over solid ground,
+# same chapter; width/gap are a board-stackup NetClass concern).
+#
+# VBUS is ESD-clamped + bypassed. Primary use is VBUS-present sensing, but a
+# board MAY jumper it to its 5V rail to run off USB power (bench bring-up
+# without field power - Ben, 2026-08-02), so the module's VBUS copper is
+# sized for ~1A; the jumper itself is a board concern, not this cell's.
+# Leave the optional VBUS io unconnected where neither use applies.
+#
+# The ESD array is captured with DIFFERENT nets on its two faces (Ben,
+# 2026-08-02): the USBLC6's flow-through pin pairs (1/6, 3/4) are shorted
+# INSIDE the part, which KiCad cannot see - one shared net left the fragment
+# with two permanent phantom "unconnected" islands and let a router bypass
+# the array entirely. Splitting connector side (USB_CONN_*) from the MCU cell side
+# (USB_P/USB_N) makes the netlist itself enforce through-the-part routing.
+# Cross-checked against the N17: it splits nets at its 27R series
+# terminators instead (its D4 clamp is a 4-pin single-ended part with no
+# flow-through faces) - same intent, split moved to the part we route
+# through. Our series terminators live in modules/MCU_RP2350B, so the ESD is the
+# through-part here.
+#
+# DP1/DP2 and DN1/DN2 shorted pairs (cable-flip-agnostic USB2 wiring); CC1
+# and CC2 each get an INDEPENDENT 5.1k Rd to GND (never shared — a shared Rd
+# breaks orientation detection). Same electrical capture as the pre-split
+# the MCU cell rev (which followed featherweight.zen's USB-C front end).
+# =============================================================================
+
+USBC = Module("../../parts/Korean_Hroparts_Elec_TYPE_C_31_M_12.zen")
+USBLC6 = Module("../../parts/STMicroelectronics_USBLC6_2SC6.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+
+_nets = {}
+def net(name):
+    if name not in _nets:
+        _nets[name] = Net(name)
+    return _nets[name]
+
+# =============================================================================
+# io() — the pair toward the MCU cell (uppercase _P/_N so the module fragment's own
+# nets engage KiCad's diff-pair matcher), ground, and optional VBUS sense.
+# =============================================================================
+usb_p = io("USB_P", Net)              # D+ (post-ESD, pre-terminator — the MCU cell side)
+usb_n = io("USB_N", Net)              # D-
+gnd = io("gnd", Ground)
+usb_vbus = io("VBUS", Net, optional = True)   # ESD-clamped + bypassed; sense or ~1A jumpered power
+
+# Internal nets. USB_CONN_* is the connector-to-ESD side of the flow-through
+# array (see header); uppercase _P/_N so the pair matcher engages on both
+# sides of the part.
+usb_conn_p = net("USB_CONN_P")
+usb_conn_n = net("USB_CONN_N")
+usb_cc1 = net("USB_CC1")
+usb_cc2 = net("USB_CC2")
+
+# =============================================================================
+# Connector + ESD + CC pulldowns + VBUS bypass
+# =============================================================================
+USBC(name = "usbc", VBUS = usb_vbus, GND = gnd, EH = gnd,
+     DN1 = usb_conn_n, DN2 = usb_conn_n, DP1 = usb_conn_p, DP2 = usb_conn_p,
+     CC1 = usb_cc1, CC2 = usb_cc2)
+# Pin faces follow the placed orientation: 6/4 (IO1b/IO2b) face the
+# receptacle, 1/3 (IO1/IO2) face the board handoff edge.
+USBLC6(name = "usbesd", VBUS = usb_vbus, GND = gnd,
+       IO1b = usb_conn_n, IO2b = usb_conn_p, IO1 = usb_n, IO2 = usb_p)
+C(name = "c_vbus", value = "1uF", package = "0402", P1 = usb_vbus, P2 = gnd)
+R(name = "r_cc1", value = "5.1kohm", package = "0402", P1 = usb_cc1, P2 = gnd)
+R(name = "r_cc2", value = "5.1kohm", package = "0402", P1 = usb_cc2, P2 = gnd)
+
+Layout(name = "UsbC", path = "layout")

@@ -1,0 +1,41 @@
+# BOOMELE_2_54_1x3P — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# BOOMELE 2.54-1*3P: single-row 2.54mm THT male pin header, 3 positions, gold-plated brass
+# contacts (3A cont.), -40..105C. LCSC C49257, stock 468,060 pcs 2026-07-26 (comfortably
+# above the low-hundreds-of-boards bar). Flyweight-unique part: the ecosystem's one
+# sanctioned non-screw connector, used as the standard 3-pin hobby-servo header (per
+# flyweight-brief.md SS3/5 and the build prompt's requirement 5 — "the one sanctioned
+# non-screw connector (servos use that standard)"). Same BOOMELE 2.54mm-header family
+# already qualified elsewhere in the tree (BOOMELE_2_54_1x8_Female, BOOMELE_2_54_2_13P,
+# BOOMELE_2_54_2_8P) — reusing the vendor, not inventing a new one.
+#
+# Pin 1 is the rectangular (keyed) pad — physically the leftmost pin, x=-2.54mm, with pin2
+# at x=0 (centre) and pin3 at x=+2.54mm (confirmed against the fetched footprint's pad
+# coordinates). Servo pinout convention (near-universal across Futaba/JR/Hitec, verified
+# against multiple hobby-servo pinout references): V+ (red) is ALWAYS the centre pin — this
+# is deliberate on every hobby-servo brand so a reversed plug can't short V+ to signal or
+# GND. Signal/GND occupy the two outer pins; brand convention varies on which outer pin gets
+# which (some put signal on the keyed/pin-1 side, some don't) — this wrapper assigns
+# pin1=SIG, pin2=V+, pin3=GND (Futaba/JR-compatible; document this per-instance in the board
+# file). Flag: verify against the exact servos to be used before final assembly if universal
+# cross-brand compatibility matters — the V+-centre convention is solid, the outer-pin
+# S/G assignment is the one variable across brands.
+
+sig = io("sig", Net, optional = True)
+vcc = io("vcc", Net, optional = True)
+gnd = io("gnd", Net, optional = True)
+
+Component(
+    name = "BOOMELE_2_54_1x3P",
+    footprint = File("BOOMELE_2_54_1x3P/HDR-TH_3P-P2.54-V-M-1.kicad_mod"),
+    symbol = Symbol("BOOMELE_2_54_1x3P/BOOMELE_2_54_1x3P_C49257.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "2.54-1*3P", manufacturer = "BOOMELE"),
+    properties = {"LCSC": "C49257", "MPN": "2.54-1*3P"},
+    pins = {
+        "1": sig,
+        "2": vcc,
+        "3": gnd,
+    },
+)

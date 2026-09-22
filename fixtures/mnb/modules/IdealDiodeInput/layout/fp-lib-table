@@ -1,0 +1,9 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "stdlib_kicad-footprints_Capacitor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../.pcb/stdlib/kicad-footprints/Capacitor_SMD.pretty") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Resistor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../.pcb/stdlib/kicad-footprints/Resistor_SMD.pretty") (options "") (descr ""))
+  (lib (name "workspace_parts_HUAYI_HYG053N10NS1C2") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/HUAYI_HYG053N10NS1C2") (options "") (descr ""))
+  (lib (name "workspace_parts_STMicroelectronics_SMBJ58A_TR") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/STMicroelectronics_SMBJ58A_TR") (options "") (descr ""))
+  (lib (name "workspace_parts_Texas_Instruments_LM5050MK_1_NOPB") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/Texas_Instruments_LM5050MK_1_NOPB") (options "") (descr ""))
+  (lib (name "workspace_parts_hongjiacheng_SS510B") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/hongjiacheng_SS510B") (options "") (descr ""))
+)

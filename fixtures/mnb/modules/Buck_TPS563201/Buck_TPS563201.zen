@@ -1,0 +1,32 @@
+# 5V -> 3.3V synchronous buck (TPS563201, JLC Basic). FB 33k/10k -> 3.30V,
+# 2.2uH pinned.
+TPS = Module("../../parts/Texas_Instruments_TPS563201DDCR.zen")
+L = Module("../../parts/cjiang_FTC252012S2R2MBCA.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+Resistor = Module("@stdlib/generics/Resistor.zen")
+
+vin = io("vin", Net)
+vout = io("vout", Net)
+gnd = io("gnd", Ground)
+
+sw = Net("SW")
+vbst = Net("VBST")
+vfb = Net("VFB")
+
+# input caps: TI ref design 2x10uF + 0.1uF
+Capacitor(name = "cin_a", value = "10uF", package = "0805", voltage = "16V", P1 = vin, P2 = gnd)
+Capacitor(name = "cin_b", value = "10uF", package = "0805", voltage = "16V", P1 = vin, P2 = gnd)
+Capacitor(name = "cin_hf", value = "100nF", package = "0402", voltage = "16V", P1 = vin, P2 = gnd)
+
+Capacitor(name = "cbst", value = "100nF", package = "0402", P1 = vbst, P2 = sw)
+L(name = "l", p1 = sw, p2 = vout)
+
+Capacitor(name = "cout_a", value = "22uF", package = "0805", voltage = "10V", P1 = vout, P2 = gnd)
+Capacitor(name = "cout_b", value = "22uF", package = "0805", voltage = "10V", P1 = vout, P2 = gnd)
+
+Resistor(name = "rfb_top", value = "33kohm", package = "0402", P1 = vout, P2 = vfb)
+Resistor(name = "rfb_bot", value = "10kohm", package = "0402", P1 = vfb, P2 = gnd)
+
+TPS(name = "ic", VIN = vin, GND = gnd, EN = vin, SW = sw, VBST = vbst, VFB = vfb)
+
+Layout(name = "Buck_TPS563201", path = "layout")

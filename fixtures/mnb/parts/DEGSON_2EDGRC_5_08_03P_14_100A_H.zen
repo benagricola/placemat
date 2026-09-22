@@ -1,0 +1,20 @@
+# DEGSON_2EDGRC_5_08_03P_14_100A_H — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+
+Component(
+    name = "DEGSON_2EDGRC_5_08_03P_14_100A_H",
+    footprint = File("DEGSON_2EDGRC_5_08_03P_14_100A_H/CONN-TH_2EDGRC-5.08-03P-14-100A-H.kicad_mod"),
+    symbol = Symbol("DEGSON_2EDGRC_5_08_03P_14_100A_H/2EDGRC-5.08-03P-14-100A(H).kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "2EDGRC-5.08-03P-14-100A(H)", manufacturer = "DEGSON"),
+    properties = {"LCSC": "C669315", "MPN": "2EDGRC-5.08-03P-14-100A(H)"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+    },
+)

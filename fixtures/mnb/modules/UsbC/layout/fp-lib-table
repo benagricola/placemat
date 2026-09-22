@@ -1,0 +1,7 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "stdlib_kicad-footprints_Capacitor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../.pcb/stdlib/kicad-footprints/Capacitor_SMD.pretty") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Resistor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../.pcb/stdlib/kicad-footprints/Resistor_SMD.pretty") (options "") (descr ""))
+  (lib (name "workspace_parts_Korean_Hroparts_Elec_TYPE_C_31_M_12") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/Korean_Hroparts_Elec_TYPE_C_31_M_12") (options "") (descr ""))
+  (lib (name "workspace_parts_STMicroelectronics_USBLC6_2SC6") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/STMicroelectronics_USBLC6_2SC6") (options "") (descr ""))
+)

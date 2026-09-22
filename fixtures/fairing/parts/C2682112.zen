@@ -1,0 +1,29 @@
+# SN74LVC2G00DCTR; native source and hash in C2682112/asset-provenance.json.
+
+P_1A = io("P_1A", Net, optional = True)
+P_1B = io("P_1B", Net, optional = True)
+P_2Y = io("P_2Y", Net, optional = True)
+GND = io("GND", Net, optional = True)
+P_2A = io("P_2A", Net, optional = True)
+P_2B = io("P_2B", Net, optional = True)
+P_1Y = io("P_1Y", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+
+Component(
+    name = "SN74LVC2G00DCTR",
+    footprint = File("C2682112/SSOP-8_L3_0-W2_8-P0_65-LS4_0-BL-1.kicad_mod"),
+    symbol = Symbol("C2682112/C2682112.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "SN74LVC2G00DCTR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C2682112", "MPN": "SN74LVC2G00DCTR"},
+    pins = {
+        "1A": P_1A,
+        "1B": P_1B,
+        "2Y": P_2Y,
+        "GND": GND,
+        "2A": P_2A,
+        "2B": P_2B,
+        "1Y": P_1Y,
+        "VCC": VCC,
+    },
+)

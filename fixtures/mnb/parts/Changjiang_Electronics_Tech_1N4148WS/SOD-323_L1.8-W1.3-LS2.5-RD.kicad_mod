@@ -1,0 +1,137 @@
+(footprint "Changjiang_Electronics_Tech_1N4148WS:SOD-323_L1.8-W1.3-LS2.5-RD"
+	(version 20241229)
+	(generator "faebryk_convert")
+	(generator_version "v5")
+	(layer "F.Cu")
+	(tedit "5DC5F6A4")
+	(uuid "f334e222-2324-4ddb-91d5-23e25bb2d4e1")
+	(property "Reference" "REF**"
+		(at 0 -4)
+		(layer "F.SilkS")
+		(uuid "7e72c760-0714-4e1d-b52f-c1a2cac630fd")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "SOD-323_L1.8-W1.3-LS2.5-RD"
+		(at 0 4)
+		(layer "F.Fab")
+		(uuid "c13491dc-4fb3-4307-b21c-64a3850d33a6")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr smd)
+	(fp_rect
+		(start -1.77 -0.81)
+		(end 1.77 0.751)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "70b226fb-6f56-dfbd-880c-e524034e54f7")
+	)
+	(fp_circle
+		(center -1.23 0.65)
+		(end -1.2 0.65)
+		(stroke
+			(width 0.06)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(locked no)
+		(uuid "5d90fd26-3b90-4dd9-a161-f3a3feef410f")
+	)
+	(fp_line
+		(start 0.9 0.73)
+		(end 0.9 0.52)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "20a57626-d5e4-4ed5-ab18-92c23c0e95b5")
+	)
+	(fp_line
+		(start 0.9 -0.73)
+		(end 0.9 -0.53)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "3e5fcabd-ce1e-4579-bfe6-ac0f60760e64")
+	)
+	(fp_line
+		(start -0.85 -0.73)
+		(end 0.9 -0.73)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "fd013591-5567-40c2-b22c-84ce825ea36c")
+	)
+	(fp_line
+		(start -0.85 0.73)
+		(end 0.9 0.73)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "4b7c910e-b4b4-45e5-940c-661c1e13a35b")
+	)
+	(fp_line
+		(start -0.44 -0.73)
+		(end -0.44 0.73)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "c69af801-e9bd-4e5a-86b6-b307f35ab66a")
+	)
+	(pad "1" smd rect
+		(at -1.17 0 0)
+		(size 1 0.7)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+		(uuid "65d90a65-e368-4ef8-bdb3-c0c7d1c3f740")
+	)
+	(pad "2" smd rect
+		(at 1.17 0 0)
+		(size 1 0.7)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+		(uuid "422f1e6d-d5a7-48d0-8d68-12f97bf66698")
+	)
+	(model "/home/ben/Documents/Hardware/KiCAD-Components/lcsc.3dshapes/Changjiang_Electronics_Tech_1N4148WS.step"
+		(offset
+			(xyz 0 0 -0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
+	(embedded_fonts no)
+)

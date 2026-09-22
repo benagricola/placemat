@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "workspace_parts_Ckmtw_B_2100S04P_A110") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/Ckmtw_B_2100S04P_A110") (options "") (descr ""))
+)

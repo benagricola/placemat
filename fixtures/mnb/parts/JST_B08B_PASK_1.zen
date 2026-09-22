@@ -1,0 +1,48 @@
+# JST_B08B_PASK_1 - component wrapper: local KiCad symbol + footprint, LCSC pinned in
+# properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, Middleweight off-board-connector re-architecture). GENUINE JST
+# PA-series 8-position 2.0mm-pitch top-entry THT shrouded header, secure positive latch,
+# "-1" = WITH polarizing boss (JST PA datasheet model-number legend) - the board half of
+# the IO pigtail from the case's glanded IO entry (24V, IN1, IN2, OUT1, GND, GND,
+# motor-NTC, spare).
+#
+# Ratings (JST PA family datasheet ePA-F.pdf, read 2026-07-26): 3A AC/DC (AWG#22),
+# 250V, conductor AWG#28-22, -25..+85C per LCSC attributes. Duty here: AUX_OUT up to
+# ~1A clamped (3x margin), 24V sensor feed a few hundred mA, everything else mA-level.
+# JLC assembly stock 7139 pcs @ 2026-07-26 (Extended, genuine JST).
+#
+# FOOTPRINT FIX (2026-07-26): the EasyEDA export drew the polarizing-boss hole at
+# (8.5, -1.7) as 0.9mm - undersized for the PA boss (the sibling B05B export and JST's
+# recommended layout use 1.1mm); enlarged to 1.1mm here. Pin drills 0.9mm = JST nominal,
+# untouched; 3D model + transforms untouched (same export pair).
+#
+# Cross-plug protection: 2.0mm PA 8P shell cannot mate with the 3.0mm Micro-Fit-class
+# family (J-PWR/J-MOT/J-CHOP) and is width-keyed against the PA 5P (J-BUS).
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+p5 = io("p5", Net, optional = True)
+p6 = io("p6", Net, optional = True)
+p7 = io("p7", Net, optional = True)
+p8 = io("p8", Net, optional = True)
+
+Component(
+    name = "JST_B08B_PASK_1",
+    footprint = File("JST_B08B_PASK_1/CONN-TH_B08B-PASK-1-LF-SN.kicad_mod"),
+    symbol = Symbol("JST_B08B_PASK_1/B08B-PASK-1.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "B08B-PASK-1(LF)(SN)", manufacturer = "JST"),
+    properties = {"LCSC": "C161722", "MPN": "B08B-PASK-1(LF)(SN)"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+        "5": p5,
+        "6": p6,
+        "7": p7,
+        "8": p8,
+    },
+)

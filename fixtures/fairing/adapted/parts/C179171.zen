@@ -1,0 +1,29 @@
+# W25Q64JVSSIQ; native source and hash in C179171/asset-provenance.json.
+
+CS = io("CS", Net, optional = True)
+DO_IO1 = io("DO_IO1", Net, optional = True)
+WP__IO2 = io("WP__IO2", Net, optional = True)
+GND = io("GND", Net, optional = True)
+DI_IO0 = io("DI_IO0", Net, optional = True)
+CLK = io("CLK", Net, optional = True)
+HOLD_orRESET__IO3 = io("HOLD_orRESET__IO3", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+
+Component(
+    name = "W25Q64JVSSIQ",
+    footprint = File("../../parts/C179171/SOIC-8_L5_3-W5_3-P1_27-LS8_0-BL.kicad_mod"),
+    symbol = Symbol("C179171/C179171.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "W25Q64JVSSIQ", manufacturer = "Winbond Electronics"),
+    properties = {"LCSC": "C179171", "MPN": "W25Q64JVSSIQ"},
+    pins = {
+        "~{CS}": CS,
+        "DO(IO1)": DO_IO1,
+        "WP#(IO2)": WP__IO2,
+        "GND": GND,
+        "DI(IO0)": DI_IO0,
+        "CLK": CLK,
+        "HOLD#orRESET#(IO3)": HOLD_orRESET__IO3,
+        "VCC": VCC,
+    },
+)

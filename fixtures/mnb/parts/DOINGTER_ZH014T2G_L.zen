@@ -1,0 +1,44 @@
+# DOINGTER_ZH014T2G_L — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-09-03, Middleweight diet). 100V N-channel SGT MOSFET in DFN3x3-8
+# (3.1 x 3.1mm body, pins 1-3 = S, 4 = G, 5-8 + tab = D) - the 3x3 replacement for the
+# 5x6 HUAYI HYG053N10NS1C2 on the NEMA23 backpack, where 8 bridge FETs at 5x6 cost
+# ~290mm2 of a 3181mm2 face. LCSC C54110310, Extended, stock 4,810 @ $0.20 (JLC parts
+# API, 2026-09-03) - re-verify at order.
+#
+# DATASHEET FINDINGS (DOINGTER ZH014T2G-L V1.0, read 2026-09-03, all three pages):
+# - Vds 100V, Vgs +-20V, Id 35A (24.5A @ Tc 100C), Idm 140A, Pd 45W, RthJC 2.3 K/W,
+#   EAS 60mJ, Tj -55..150C.
+# - Rds(on) 11 typ / 14 max mOhm @ Vgs 10V (Id 10A); 14.5 / 18 mOhm @ 4.5V. Vgs(th)
+#   1.0-2.5V (typ 1.7). The TMC2160A drives gates from its ~11.5V internal regulator, so
+#   the 10V column applies: ~0.32W per phase at 4A RMS hot (2 FETs in series, ~20mOhm
+#   at 125C) against ~0.6W for the 5.3mOhm HUAYI - the +0.5W is inside the sealed-lid
+#   thermal budget and is offset by lower switching loss (below).
+# - Qg 19nC, Qgs 6.5nC, Qgd 3nC (Vgs 10V, Vds 50V, Id 25A); Ciss 1400pF, Coss 312pF,
+#   Crss 6pF. TMC2160 datasheet 3.2: MOSFETs above 50nC want VSA <= 40V or an external
+#   12V gate supply - the 73nC HUAYI tripped that flag on the 48V bus; at 19nC this part
+#   clears it. Qgd 3nC sits BELOW the "20-40nC -> DRVSTRENGTH 1-2" table row, so
+#   firmware should start at DRVSTRENGTH 0 (200/150mA) and the bring-up scope check is
+#   switch-node ringing, not gate-drive strength.
+# - Body diode Vsd 1.2V max, trr 55ns, Qrr 64nC (If 25A) - fine for a chopper bridge.
+# - Second source, SAME footprint and pinout, not yet wrapped: AOS AONR66922 (LCSC
+#   C3288320, 2,731 stock @ $0.81, 9mOhm max @10V, Qg 32.5nC, RthJA 50-60 K/W on 1in2
+#   2oz) - the reputable-brand fallback if DOINGTER stock or quality disappoints.
+G = io("G", Net, optional = True)
+S = io("S", Net, optional = True)
+D = io("D", Net, optional = True)
+
+Component(
+    name = "DOINGTER_ZH014T2G_L",
+    footprint = File("DOINGTER_ZH014T2G_L/DFN-8_L3.1-W3.1-P0.65-LS3.4-BL-1.kicad_mod"),
+    symbol = Symbol("DOINGTER_ZH014T2G_L/DOINGTER_ZH014T2G_L.kicad_sym"),
+    prefix = "Q",
+    part = Part(mpn = "ZH014T2G-L", manufacturer = "DOINGTER"),
+    properties = {"LCSC": "C54110310", "MPN": "ZH014T2G-L"},
+    pins = {
+        "G": G,
+        "S": S,
+        "D": D,
+    },
+)

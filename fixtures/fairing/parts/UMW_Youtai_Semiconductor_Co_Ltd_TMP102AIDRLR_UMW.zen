@@ -1,0 +1,26 @@
+# UMW_Youtai_Semiconductor_Co_Ltd_TMP102AIDRLR_UMW - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: UMW_Youtai_Semiconductor_Co_Ltd-TMP102AIDRLR_UMW_C5692997.pdf
+
+SCL = io("SCL", Net, optional = True)
+GND = io("GND", Net, optional = True)
+ALERT = io("ALERT", Net, optional = True)
+ADD0 = io("ADD0", Net, optional = True)
+V_P = io("V_P", Net, optional = True)
+SDA = io("SDA", Net, optional = True)
+
+Component(
+    name = "UMW_Youtai_Semiconductor_Co_Ltd_TMP102AIDRLR_UMW",
+    footprint = File("UMW_Youtai_Semiconductor_Co_Ltd_TMP102AIDRLR_UMW/SOT-563_L1.6-W1.2-P0.50-LS1.6-BL.kicad_mod"),
+    symbol = Symbol("UMW_Youtai_Semiconductor_Co_Ltd_TMP102AIDRLR_UMW/TMP102AIDRLR_UMW.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "TMP102AIDRLR(UMW)", manufacturer = "UMW(Youtai Semiconductor Co., Ltd.)"),
+    properties = {"LCSC": "C5692997", "MPN": "TMP102AIDRLR(UMW)"},
+    pins = {
+        "SCL": SCL,
+        "GND": GND,
+        "ALERT": ALERT,
+        "ADD0": ADD0,
+        "V+": V_P,
+        "SDA": SDA,
+    },
+)

@@ -1,0 +1,21 @@
+# StatusPulls: retained Main connectivity, source lines recorded in retained-circuits.json.
+# Component values remain subject to the core electrical review.
+
+R = Module("@stdlib/generics/Resistor.zen")
+
+als_int = io("ALS_INT", Net)
+ina_alert = io("INA_ALERT", Net)
+pd_irq = io("PD_IRQ", Net)
+rail_fault = io("RAIL_FAULT", Net)
+scl = io("SCL", Net)
+sda = io("SDA", Net)
+v3v3 = io("V3V3", Net)
+
+
+R(name = "r_sda", value = "4.7kohm", package = "0402", P1 = v3v3, P2 = sda)
+R(name = "r_scl", value = "4.7kohm", package = "0402", P1 = v3v3, P2 = scl)
+R(name = "r_rail_fault", value = "100kohm", package = "0402", P1 = v3v3, P2 = rail_fault)
+R(name = "r_ina_alert", value = "100kohm", package = "0402", P1 = v3v3, P2 = ina_alert)
+R(name = "r_pd_irq", value = "100kohm", package = "0402", P1 = v3v3, P2 = pd_irq)
+R(name = "r_als_int", value = "100kohm", package = "0402", P1 = v3v3, P2 = als_int)
+Project(name = "StatusPulls", path = "kicad", schematic = True, layout = False)

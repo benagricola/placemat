@@ -1,0 +1,26 @@
+# Texas_Instruments_LM5050MK_1_NOPB — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+GATE = io("GATE", Net, optional = True)
+GND = io("GND", Net, optional = True)
+IN = io("IN", Net, optional = True)
+OFF = io("OFF", Net, optional = True)
+OUT = io("OUT", Net, optional = True)
+VS = io("VS", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_LM5050MK_1_NOPB",
+    footprint = File("Texas_Instruments_LM5050MK_1_NOPB/TSOT-23-6_L2.9-W1.6-P0.95-LS2.8-BR.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_LM5050MK_1_NOPB/LM5050MK-1_NOPB.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "LM5050MK-1/NOPB", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C129323", "MPN": "LM5050MK-1/NOPB"},
+    pins = {
+        "GATE": GATE,
+        "GND": GND,
+        "IN": IN,
+        "OFF": OFF,
+        "OUT": OUT,
+        "VS": VS,
+    },
+)

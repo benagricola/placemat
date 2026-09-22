@@ -1,0 +1,20 @@
+# Nexperia_PESD2CAN_215 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+L1 = io("L1", Net, optional = True)
+L2 = io("L2", Net, optional = True)
+GND = io("GND", Net, optional = True)
+
+Component(
+    name = "Nexperia_PESD2CAN_215",
+    footprint = File("Nexperia_PESD2CAN_215/SOT-23-3_L2.9-W1.3-P1.90-LS2.4-BR.kicad_mod"),
+    symbol = Symbol("Nexperia_PESD2CAN_215/PESD2CAN,215.kicad_sym"),
+    prefix = "D",
+    part = Part(mpn = "PESD2CAN,215", manufacturer = "Nexperia"),
+    properties = {"LCSC": "C75176", "MPN": "PESD2CAN,215"},
+    pins = {
+        "1": L1,
+        "2": L2,
+        "3": GND,
+    },
+)

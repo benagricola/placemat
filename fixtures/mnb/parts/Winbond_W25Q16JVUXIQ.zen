@@ -1,0 +1,51 @@
+# Winbond_W25Q16JVUXIQ — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# REPLACES the W25Q128JVPIQ wrapper (Ben's decision, 2026-07-26): W25Q16JVUXIQ is Ben's
+# N17-proven flash — his N17 board runs it, and it is upstreamed in gloomyandy's
+# Duet3Expansion RP2350 branch, so 2MB (16Mbit) is firmware-proven for this exact RRF port,
+# unlike the never-shipped 16MB W25Q128 guess. USON-8 2x3mm (Winbond package code UX).
+#
+# Pin map fetched fresh (easyeda2kicad, 2026-07-26) AND cross-checked against Winbond's own
+# W25Q16JV datasheet (RevH, 2019-04-08) Section 3.2 "Pad Configuration ... USON 2x3-mm ...
+# (Package Code ZP, UX, UU, XG)" (Figure 1b) + 3.3 pin table: pin1=/CS, pin2=DO(IO1),
+# pin3=/WP(IO2), pin4=GND, pin5=DI(IO0), pin6=CLK, pin7=/HOLD-or-/RESET(IO3), pin8=VCC,
+# EP(pin9)=GND. IDENTICAL pin-number ordering to the W25Q128JVPIQ (WSON-8) wrapper this
+# replaces — same Winbond 8-pin SPI-flash convention regardless of density/package size, so
+# MCU_RP2350B.zen's FLASH(...) wiring did not need to change, only the Module() path. Datasheet
+# also confirms: 2.7-3.6V supply (matches this cell's v3v3 domain), 133MHz standard SPI
+# (dual/quad up to 532MHz-equivalent), >=100K erase cycles, 20yr retention — all adequate
+# for boot-flash duty.
+#
+# Stock check 2026-07-26 (LCSC C2843335): 18,480 units in stock — well above the
+# low-hundreds-of-boards bar (CLAUDE.md process rule 0).
+
+CS = io("CS", Net, optional = True)
+IO1 = io("IO1", Net, optional = True)
+IO2 = io("IO2", Net, optional = True)
+GND = io("GND", Net, optional = True)
+IO0 = io("IO0", Net, optional = True)
+CLK = io("CLK", Net, optional = True)
+IO3 = io("IO3", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+EP = io("EP", Net, optional = True)
+
+Component(
+    name = "Winbond_W25Q16JVUXIQ",
+    footprint = File("Winbond_W25Q16JVUXIQ/USON-8_L3.0-W2.0-P0.50-BL-EP.kicad_mod"),
+    symbol = Symbol("Winbond_W25Q16JVUXIQ/W25Q16JVUXIQ.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "W25Q16JVUXIQ", manufacturer = "Winbond"),
+    properties = {"LCSC": "C2843335", "MPN": "W25Q16JVUXIQ"},
+    pins = {
+        "~{CS}": CS,
+        "DO(IO1)": IO1,
+        "WP#(IO2)": IO2,
+        "GND": GND,
+        "DI(IO0)": IO0,
+        "CLK": CLK,
+        "HOLD#orRESET#(IO3)": IO3,
+        "VCC": VCC,
+        "EP": EP,
+    },
+)

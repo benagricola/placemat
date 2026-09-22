@@ -1,0 +1,147 @@
+(footprint "Texas_Instruments_LM5050MK_1_NOPB:TSOT-23-6_L2.9-W1.6-P0.95-LS2.8-BR"
+	(version 20241229)
+	(generator "faebryk_convert")
+	(generator_version "v5")
+	(layer "F.Cu")
+	(tedit "5DC5F6A4")
+	(uuid "3fb6c3db-aa11-4e71-930d-5a8637a94f7a")
+	(property "Reference" "REF**"
+		(at 0 -4.95)
+		(layer "F.SilkS")
+		(uuid "ec23d0a1-0c5f-46f5-a4cf-904d8ff59ef9")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "TSOT-23-6_L2.9-W1.6-P0.95-LS2.8-BR"
+		(at 0 4.95)
+		(layer "F.Fab")
+		(uuid "b02c4bba-4601-4b10-b2e4-ce2c447a5043")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr smd)
+	(fp_rect
+		(start -1.7 -1.552)
+		(end 1.7 1.552)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "a7db8a31-cafe-9b61-8c28-03f080867d07")
+	)
+	(fp_circle
+		(center 1.29 1.67)
+		(end 1.44 1.67)
+		(stroke
+			(width 0.3)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(locked no)
+		(uuid "609e3038-1d5e-4864-8347-0eb288eadf06")
+	)
+	(fp_circle
+		(center 1.7 0.95)
+		(end 1.8 0.95)
+		(stroke
+			(width 0.2)
+			(type solid)
+		)
+		(layer "Cmts.User")
+		(locked no)
+		(uuid "c53d6d28-1d1a-4543-b4f7-b88119fb39f1")
+	)
+	(fp_circle
+		(center 1.4 1.45)
+		(end 1.43 1.45)
+		(stroke
+			(width 0.06)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(locked no)
+		(uuid "d09c2399-9958-4fe2-9cef-93706cc089c7")
+	)
+	(fp_line
+		(start 0.88 -1.53)
+		(end -0.88 -1.53)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "da469de5-7f09-45d8-9e95-94b2f207a62c")
+	)
+	(fp_line
+		(start 0.88 1.53)
+		(end -0.88 1.53)
+		(stroke
+			(width 0.15)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "8cd2484d-b006-4ccb-89bb-d8524d8ae821")
+	)
+	(pad "1" smd rect
+		(at 1.2 0.95 0)
+		(size 0.8 0.53)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+		(uuid "0fd95473-1ffe-48ee-aa07-ae3a042327a4")
+	)
+	(pad "2" smd rect
+		(at 1.2 0 0)
+		(size 0.8 0.53)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+		(uuid "7ae135f2-9611-413d-bdaf-c365e21a906b")
+	)
+	(pad "3" smd rect
+		(at 1.2 -0.95 0)
+		(size 0.8 0.53)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+		(uuid "c79ba7ce-178a-45e9-bd7d-546c50012842")
+	)
+	(pad "4" smd rect
+		(at -1.2 -0.95 0)
+		(size 0.8 0.53)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+		(uuid "88e6eda1-faca-4cf2-84a3-20e588c89245")
+	)
+	(pad "5" smd rect
+		(at -1.2 0 0)
+		(size 0.8 0.53)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+		(uuid "938cde60-2a4a-413e-b951-d4d4eaa4f6c0")
+	)
+	(pad "6" smd rect
+		(at -1.2 0.95 0)
+		(size 0.8 0.53)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+		(uuid "f72aecf1-2162-440b-ae33-8bb473b9b23f")
+	)
+	(model "/home/ben/Documents/Hardware/KiCAD-Components/lcsc.3dshapes/TSOT-23-6_L2.9-W1.6-H1.1-LS2.8-P0.95.step"
+		(offset
+			(xyz 0 0 -0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 180)
+		)
+	)
+	(embedded_fonts no)
+)

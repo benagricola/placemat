@@ -1,0 +1,47 @@
+# onsemi_LM393DR2G — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, middleweight regen-chopper hardware backstop). Dual open-drain
+# precision voltage comparator, SOIC-8. LCSC C7955, stock 215,320 units (checked
+# 2026-07-26) — comfortably above the low-hundreds bar; JLC classification badge not
+# confirmed via automated fetch, VERIFY Basic/Extended at order (Ben named this exact
+# part+LCSC id as already verified Basic — carried forward here, re-check at order per
+# house rule 0).
+#
+# Datasheet read (onsemi LM393, C7955, 2026-07-26): single-supply 2-36V or split
+# +/-1-18V; input offset voltage 5mV max; input bias current 25nA; open-drain outputs
+# (need an external pull-up — provided board-side); propagation delay ~300ns (plenty
+# fast for a ~58V trip point on a slow 48V bus, not a switching-speed-critical path).
+# Standard pinout: 1=OUT1, 2=IN1-, 3=IN1+, 4=GND, 5=IN2+, 6=IN2-, 7=OUT2, 8=VCC.
+#
+# Used in middleweight.zen's regen-chopper OV backstop: channel A is the comparator
+# (divided V48 on IN1+, TL431 2.495V reference on IN1-, hysteresis resistor IN1+<-OUT1);
+# channel B is unused (both inputs tied to GND per the datasheet's "unused channel"
+# guidance, output left NC).
+IN1_POS = io("IN1_POS", Net, optional = True)
+IN1_NEG = io("IN1_NEG", Net, optional = True)
+OUT1 = io("OUT1", Net, optional = True)
+IN2_POS = io("IN2_POS", Net, optional = True)
+IN2_NEG = io("IN2_NEG", Net, optional = True)
+OUT2 = io("OUT2", Net, optional = True)
+GND = io("GND", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+
+Component(
+    name = "onsemi_LM393DR2G",
+    footprint = File("onsemi_LM393DR2G/SOIC-8_L5.0-W4.0-P1.27-LS6.0-BL.kicad_mod"),
+    symbol = Symbol("onsemi_LM393DR2G/LM393DR2G.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "LM393DR2G", manufacturer = "onsemi"),
+    properties = {"LCSC": "C7955", "MPN": "LM393DR2G"},
+    pins = {
+        "OUT/A": OUT1,
+        "IN/A/2": IN1_NEG,
+        "IN/A": IN1_POS,
+        "GND": GND,
+        "IN/B": IN2_POS,
+        "IN/B/2": IN2_NEG,
+        "OUT/B": OUT2,
+        "VCC": VCC,
+    },
+)

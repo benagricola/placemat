@@ -1,0 +1,36 @@
+# Display: retained Main connectivity, source lines recorded in retained-circuits.json.
+# Component values remain subject to the core electrical review.
+
+C = Module("@stdlib/generics/Capacitor.zen")
+PANEL = Module("../../adapted/parts/HanElectricity_05A20L10P.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+
+bl_ledk = io("BL_LEDK", Net)
+disp_cs = io("DISP_CS", Net)
+disp_dc = io("DISP_DC", Net)
+disp_rst = io("DISP_RST", Net)
+disp_te = io("DISP_TE", Net)
+gnd = io("GND", Net)
+spi_mosi = io("DISP_MOSI", Net)
+spi_sck = io("DISP_SCK", Net)
+v3v3 = io("V3V3", Net)
+vled = io("VLED", Net)
+
+disp_cs_p = Net("DISP_CS_P")
+disp_dc_p = Net("DISP_DC_P")
+spi_mosi_p = Net("DISP_MOSI_P")
+spi_sck_p = Net("DISP_SCK_P")
+
+PANEL(
+    name = "j_panel",
+    P_1 = vled, P_2 = v3v3, P_3 = disp_cs_p, P_4 = disp_rst, P_5 = spi_sck_p,
+    P_6 = spi_mosi_p, P_7 = disp_dc_p, P_8 = disp_te, P_9 = bl_ledk, P_10 = gnd,
+    P_11 = gnd, P_12 = gnd,
+)
+R(name = "r_term_sck", value = "33ohm", package = "0201", P1 = spi_sck, P2 = spi_sck_p)
+R(name = "r_term_mosi", value = "33ohm", package = "0201", P1 = spi_mosi, P2 = spi_mosi_p)
+R(name = "r_term_cs", value = "33ohm", package = "0201", P1 = disp_cs, P2 = disp_cs_p)
+R(name = "r_term_dc", value = "33ohm", package = "0201", P1 = disp_dc, P2 = disp_dc_p)
+C(name = "c_panel_vcc", value = "1uF", package = "0402", P1 = v3v3, P2 = gnd)
+C(name = "c_panel_io", value = "100nF", package = "0402", P1 = v3v3, P2 = gnd)
+Project(name = "Display", path = "kicad", schematic = True, layout = False)

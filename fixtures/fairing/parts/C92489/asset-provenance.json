@@ -1,0 +1,17 @@
+{
+  "mpn": "BME280",
+  "manufacturer": "Bosch",
+  "lcsc": "C92489",
+  "assets": [
+    {
+      "file": "C92489.kicad_sym",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Bosch/BME280/lcsc/v2/C92489.kicad_sym",
+      "sha256": "c4989358b7af49a1e2dce60bc7e7bac10704ae6eecbd6fbfd5826a08b36c2482"
+    },
+    {
+      "file": "LGA-8_BME280_BL.kicad_mod",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Bosch/BME280/lcsc/v2/LGA-8_BME280_BL.kicad_mod",
+      "sha256": "f528e98fc4f09d047b3280e31ea2a6069c4bc0a139ca38b85a5033dacf9e819f"
+    }
+  ]
+}

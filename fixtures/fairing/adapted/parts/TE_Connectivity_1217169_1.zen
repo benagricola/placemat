@@ -1,0 +1,18 @@
+# TE_Connectivity_1217169_1 - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: TE_Connectivity-1217169_1_C531539.pdf
+
+P_1 = io("P_1", Net, optional = True)
+P_2 = io("P_2", Net, optional = True)
+
+Component(
+    name = "TE_Connectivity_1217169_1",
+    footprint = File("../../parts/TE_Connectivity_1217169_1/TH-2P_L7.9-W0.80-P5.08.kicad_mod"),
+    symbol = Symbol("TE_Connectivity_1217169_1/1217169_1.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "1217169-1", manufacturer = "TE Connectivity"),
+    properties = {"LCSC": "C531539", "MPN": "1217169-1"},
+    pins = {
+        "1": P_1,
+        "2": P_2,
+    },
+)

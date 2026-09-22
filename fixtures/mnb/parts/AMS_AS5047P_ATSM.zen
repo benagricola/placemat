@@ -1,0 +1,64 @@
+# AMS_AS5047P_ATSM — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, middleweight capture). CLAUDE.md canonical encoder P/N (already
+# pinned LCSC C962063 in the ecosystem's canonical-parts table). TSSOP-14. Stock large per
+# LCSC listing search (checked 2026-07-26; exact live count re-verify at order — LCSC page
+# itself, not a distributor mirror, was used for the C962063 confirmation). Basic-class not
+# confirmed (magnetic encoders are a thin JLC Basic category generally) — flag as Extended
+# pending Ben's own JLC BOM check.
+#
+# On the motor-facing side of the board (PIO-SPI to the RP2350B), over the shaft magnet.
+# Has an RRF/Duet3Expansion magnetic-encoder driver (RRF-driver-exists rule, CLAUDE.md).
+#
+# PINOUT/APPLICATION-CIRCUIT CAVEAT: the primary ams AS5047P datasheet PDF could not be
+# fetched in this session (ams.com, Mouser, and LCSC's own datasheet host all returned
+# bot-check/JS pages instead of the PDF; DigiKey's HTML mirror returned 410 Gone; a
+# myactuator.com search hit that looked like an AS5047P datasheet mirror turned out to be
+# an unrelated MyActuator servo-driver manual). Pin NAMES below are the real, authoritative
+# ones read back from the easyeda2kicad-generated symbol (sourced from LCSC's own component
+# data for C962063, not guessed). The WIRING choices in middleweight.zen — TEST tied to
+# GND, VDD (5V) + VDD3V3 (3.3V) both populated with local decoupling, A/B/I/U/V/W left
+# NotConnected() (SPI-only readout, no ABI/UVW breakout used) — follow the AS5047P's
+# well-established, extensively community-documented standard application circuit (ams
+# position-sensor family convention), not a freshly-read datasheet page. FLAGGED for Ben to
+# spot-check against the datasheet before fab.
+CSn = io("CSn", Net, optional = True)
+CLK = io("CLK", Net, optional = True)
+MISO = io("MISO", Net, optional = True)
+MOSI = io("MOSI", Net, optional = True)
+Test = io("Test", Net, optional = True)
+B = io("B", Net, optional = True)
+A = io("A", Net, optional = True)
+W_PWM = io("W_PWM", Net, optional = True)
+V = io("V", Net, optional = True)
+U = io("U", Net, optional = True)
+VDD = io("VDD", Net, optional = True)
+VDD3V3 = io("VDD3V3", Net, optional = True)
+GND = io("GND", Net, optional = True)
+I = io("I", Net, optional = True)
+
+Component(
+    name = "AMS_AS5047P_ATSM",
+    footprint = File("AMS_AS5047P_ATSM/TSSOP-14_L5.0-W4.4-P0.65-LS6.4-BL.kicad_mod"),
+    symbol = Symbol("AMS_AS5047P_ATSM/AMS_AS5047P_ATSM.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "AS5047P-ATSM", manufacturer = "AMS"),
+    properties = {"LCSC": "C962063", "MPN": "AS5047P-ATSM"},
+    pins = {
+        "CSn": CSn,
+        "CLK": CLK,
+        "MISO": MISO,
+        "MOSI": MOSI,
+        "Test": Test,
+        "B": B,
+        "A": A,
+        "W/PWM": W_PWM,
+        "V": V,
+        "U": U,
+        "VDD": VDD,
+        "VDD3V3": VDD3V3,
+        "GND": GND,
+        "I": I,
+    },
+)

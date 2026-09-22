@@ -1,0 +1,18 @@
+# SXN_Shun_Xiang_Nuo_Elec_SMNR4020_2_2UH - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: SXN_Shun_Xiang_Nuo_Elec-SMNR4020_2_2UH_C135262.pdf
+
+P_2 = io("P_2", Net, optional = True)
+P_1 = io("P_1", Net, optional = True)
+
+Component(
+    name = "SXN_Shun_Xiang_Nuo_Elec_SMNR4020_2_2UH",
+    footprint = File("SXN_Shun_Xiang_Nuo_Elec_SMNR4020_2_2UH/IND-SMD_L4.0-W4.0_LQH44PN2R2MP0L.kicad_mod"),
+    symbol = Symbol("SXN_Shun_Xiang_Nuo_Elec_SMNR4020_2_2UH/SMNR4020_2_2UH.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "SMNR4020-2.2UH", manufacturer = "SXN(Shun Xiang Nuo Elec)"),
+    properties = {"LCSC": "C135262", "MPN": "SMNR4020-2.2UH"},
+    pins = {
+        "2": P_2,
+        "1": P_1,
+    },
+)

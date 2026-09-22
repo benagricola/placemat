@@ -1,0 +1,28 @@
+# DEGSON_15EDGRC_3_5_03P — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, cnc-expansion capture). 3-position 3.5mm pluggable screw terminal
+# (RC/right-angle-pin style), THT. Stock not confirmed exactly (LCSC C5160226, checked
+# 2026-07-26 via JLCPCB listing) — DEGSON's own "15EDGRC-3.5" series sibling of the 5.08mm
+# 2EDGRC family already used on Featherweight/Breakout. No 3D model available upstream
+# (checked 2026-07-26, easyeda2kicad returned footprint+symbol only) — renders show the
+# bare footprint, matching the CAZN M12 precedent.
+# Used for the probe and tool-setter screw terminals (brief: 3-pos 3.5mm, 24V/SIG/GND; both
+# DNP by default — central-probing option, distributed Middleweight is the default owner).
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+
+Component(
+    name = "DEGSON_15EDGRC_3_5_03P",
+    footprint = File("DEGSON_15EDGRC_3_5_03P/CONN-TH_3P-P3.50_15EDGRC-3.5-03P.kicad_mod"),
+    symbol = Symbol("DEGSON_15EDGRC_3_5_03P/15EDGRC-3.5-03P-14-00A.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "15EDGRC-3.5-03P-14-00A(H)", manufacturer = "DEGSON"),
+    properties = {"LCSC": "C5160226", "MPN": "15EDGRC-3.5-03P-14-00A(H)"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+    },
+)

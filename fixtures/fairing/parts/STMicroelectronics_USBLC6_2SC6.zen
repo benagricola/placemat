@@ -1,0 +1,26 @@
+# STMicroelectronics_USBLC6_2SC6 - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: STMicroelectronics-USBLC6_2SC6_C7519.pdf
+
+P_1 = io("P_1", Net, optional = True)
+P_2 = io("P_2", Net, optional = True)
+P_3 = io("P_3", Net, optional = True)
+P_4 = io("P_4", Net, optional = True)
+P_5 = io("P_5", Net, optional = True)
+P_6 = io("P_6", Net, optional = True)
+
+Component(
+    name = "STMicroelectronics_USBLC6_2SC6",
+    footprint = File("STMicroelectronics_USBLC6_2SC6/SOT-23-6_L2.9-W1.6-P0.95-LS2.8-BL.kicad_mod"),
+    symbol = Symbol("STMicroelectronics_USBLC6_2SC6/USBLC6_2SC6.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "USBLC6-2SC6", manufacturer = "STMicroelectronics"),
+    properties = {"LCSC": "C7519", "MPN": "USBLC6-2SC6"},
+    pins = {
+        "1": P_1,
+        "2": P_2,
+        "3": P_3,
+        "4": P_4,
+        "5": P_5,
+        "6": P_6,
+    },
+)

@@ -1,0 +1,34 @@
+# Korean_Hroparts_Elec_TF_01A — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+CD = io("CD", Net, optional = True)
+CDDAT3CS = io("CDDAT3CS", Net, optional = True)
+CLKSCLK = io("CLKSCLK", Net, optional = True)
+CMDDI = io("CMDDI", Net, optional = True)
+DAT0D0 = io("DAT0D0", Net, optional = True)
+DAT1RSV = io("DAT1RSV", Net, optional = True)
+DAT2RSV = io("DAT2RSV", Net, optional = True)
+GND = io("GND", Net, optional = True)
+VDD = io("VDD", Net, optional = True)
+VSS = io("VSS", Net, optional = True)
+
+Component(
+    name = "Korean_Hroparts_Elec_TF_01A",
+    footprint = File("Korean_Hroparts_Elec_TF_01A/TF-SMD_TF-01A.kicad_mod"),
+    symbol = Symbol("Korean_Hroparts_Elec_TF_01A/TF-01A.kicad_sym"),
+    prefix = "Card",
+    part = Part(mpn = "TF-01A", manufacturer = "Korean Hroparts Elec"),
+    properties = {"LCSC": "C91145", "MPN": "TF-01A"},
+    pins = {
+        "CD": CD,
+        "CDDAT3(CS)": CDDAT3CS,
+        "CLK(SCLK)": CLKSCLK,
+        "CMD(DI)": CMDDI,
+        "DAT0(D0)": DAT0D0,
+        "DAT1(RSV)": DAT1RSV,
+        "DAT2(RSV)": DAT2RSV,
+        "GND": GND,
+        "VDD": VDD,
+        "VSS": VSS,
+    },
+)

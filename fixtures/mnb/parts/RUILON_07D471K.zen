@@ -1,0 +1,18 @@
+# RUILON_07D471K — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+
+Component(
+    name = "RUILON_07D471K",
+    footprint = File("RUILON_07D471K/RES-TH_L9.0-W6.2-P5.00-D0.7-S6.20.kicad_mod"),
+    symbol = Symbol("RUILON_07D471K/07D471K.kicad_sym"),
+    prefix = "RV",
+    part = Part(mpn = "07D471K", manufacturer = "RUILON"),
+    properties = {"LCSC": "C28756", "MPN": "07D471K"},
+    pins = {
+        "1": p1,
+        "2": p2,
+    },
+)

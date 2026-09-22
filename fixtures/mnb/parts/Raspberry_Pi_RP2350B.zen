@@ -1,0 +1,112 @@
+# Raspberry_Pi_RP2350B — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). QFN-80, 48 GPIO. Pin map verified against
+# the RP2350 datasheet (Table 1427-1432, section 14.8 Pinout) — see modules/MCU_RP2350B/LAYOUT-INTENT.md
+# the MCU cell section for the full derivation.
+
+GPIO0 = io("GPIO0", Net, optional = True)
+GPIO1 = io("GPIO1", Net, optional = True)
+GPIO2 = io("GPIO2", Net, optional = True)
+GPIO3 = io("GPIO3", Net, optional = True)
+GPIO4 = io("GPIO4", Net, optional = True)
+GPIO5 = io("GPIO5", Net, optional = True)
+GPIO6 = io("GPIO6", Net, optional = True)
+GPIO7 = io("GPIO7", Net, optional = True)
+GPIO8 = io("GPIO8", Net, optional = True)
+GPIO9 = io("GPIO9", Net, optional = True)
+GPIO10 = io("GPIO10", Net, optional = True)
+GPIO11 = io("GPIO11", Net, optional = True)
+GPIO12 = io("GPIO12", Net, optional = True)
+GPIO13 = io("GPIO13", Net, optional = True)
+GPIO14 = io("GPIO14", Net, optional = True)
+GPIO15 = io("GPIO15", Net, optional = True)
+GPIO16 = io("GPIO16", Net, optional = True)
+GPIO17 = io("GPIO17", Net, optional = True)
+GPIO18 = io("GPIO18", Net, optional = True)
+GPIO19 = io("GPIO19", Net, optional = True)
+GPIO20 = io("GPIO20", Net, optional = True)
+GPIO21 = io("GPIO21", Net, optional = True)
+GPIO22 = io("GPIO22", Net, optional = True)
+GPIO23 = io("GPIO23", Net, optional = True)
+GPIO24 = io("GPIO24", Net, optional = True)
+GPIO25 = io("GPIO25", Net, optional = True)
+GPIO26 = io("GPIO26", Net, optional = True)
+GPIO27 = io("GPIO27", Net, optional = True)
+GPIO28 = io("GPIO28", Net, optional = True)
+GPIO29 = io("GPIO29", Net, optional = True)
+GPIO30 = io("GPIO30", Net, optional = True)
+GPIO31 = io("GPIO31", Net, optional = True)
+GPIO32 = io("GPIO32", Net, optional = True)
+GPIO33 = io("GPIO33", Net, optional = True)
+GPIO34 = io("GPIO34", Net, optional = True)
+GPIO35 = io("GPIO35", Net, optional = True)
+GPIO36 = io("GPIO36", Net, optional = True)
+GPIO37 = io("GPIO37", Net, optional = True)
+GPIO38 = io("GPIO38", Net, optional = True)
+GPIO39 = io("GPIO39", Net, optional = True)
+GPIO40_ADC0 = io("GPIO40_ADC0", Net, optional = True)
+GPIO41_ADC1 = io("GPIO41_ADC1", Net, optional = True)
+GPIO42_ADC2 = io("GPIO42_ADC2", Net, optional = True)
+GPIO43_ADC3 = io("GPIO43_ADC3", Net, optional = True)
+GPIO44_ADC4 = io("GPIO44_ADC4", Net, optional = True)
+GPIO45_ADC5 = io("GPIO45_ADC5", Net, optional = True)
+GPIO46_ADC6 = io("GPIO46_ADC6", Net, optional = True)
+GPIO47_ADC7 = io("GPIO47_ADC7", Net, optional = True)
+
+IOVDD = io("IOVDD", Net, optional = True)          # 3.3V digital IO supply (pins 5,15,24,29,41,50,60,76 - merged by name)
+DVDD = io("DVDD", Net, optional = True)             # 1.1V core supply (pins 10,32,51 - merged by name) - EXTERNAL LDO, on-chip VREG disabled
+QSPI_IOVDD = io("QSPI_IOVDD", Net, optional = True) # 3.3V QSPI IO supply
+USB_OTP_VDD = io("USB_OTP_VDD", Net, optional = True)
+ADC_AVDD = io("ADC_AVDD", Net, optional = True)
+VREG_AVDD = io("VREG_AVDD", Net, optional = True)   # must still be powered even with on-chip VREG disabled (POR/BOD)
+VREG_PGND = io("VREG_PGND", Net, optional = True)   # tie to GND always
+VREG_LX = io("VREG_LX", Net, optional = True)       # NC — no inductor, external DVDD supply (datasheet Fig 21)
+VREG_VIN = io("VREG_VIN", Net, optional = True)     # must still be powered even with on-chip VREG disabled (POR/BOD)
+VREG_FB = io("VREG_FB", Net, optional = True)       # tie DIRECTLY to GND — disables on-chip VREG feedback (datasheet Fig 21)
+USB_DM = io("USB_DM", Net, optional = True)
+USB_DP = io("USB_DP", Net, optional = True)
+XIN = io("XIN", Net, optional = True)
+XOUT = io("XOUT", Net, optional = True)
+SWCLK = io("SWCLK", Net, optional = True)
+SWDIO = io("SWDIO", Net, optional = True)
+RUN = io("RUN", Net, optional = True)               # active-low reset, internal weak pull-up
+QSPI_SD3 = io("QSPI_SD3", Net, optional = True)
+QSPI_SCLK = io("QSPI_SCLK", Net, optional = True)
+QSPI_SD0 = io("QSPI_SD0", Net, optional = True)
+QSPI_SD2 = io("QSPI_SD2", Net, optional = True)
+QSPI_SD1 = io("QSPI_SD1", Net, optional = True)
+QSPI_SS = io("QSPI_SS", Net, optional = True)
+GND = io("GND", Net, optional = True)               # central exposed pad (pin 81)
+
+Component(
+    name = "Raspberry_Pi_RP2350B",
+    footprint = File("Raspberry_Pi_RP2350B/QFN-80_L10.0-W10.0-P0.40-TL-EP3.4.kicad_mod"),
+    symbol = Symbol("Raspberry_Pi_RP2350B/RP2350B.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "RP2350B", manufacturer = "Raspberry Pi"),
+    properties = {"LCSC": "C42415655", "MPN": "RP2350B"},
+    pins = {
+        "GPIO0": GPIO0, "GPIO1": GPIO1, "GPIO2": GPIO2, "GPIO3": GPIO3,
+        "GPIO4": GPIO4, "GPIO5": GPIO5, "GPIO6": GPIO6, "GPIO7": GPIO7,
+        "GPIO8": GPIO8, "GPIO9": GPIO9, "GPIO10": GPIO10, "GPIO11": GPIO11,
+        "GPIO12": GPIO12, "GPIO13": GPIO13, "GPIO14": GPIO14, "GPIO15": GPIO15,
+        "GPIO16": GPIO16, "GPIO17": GPIO17, "GPIO18": GPIO18, "GPIO19": GPIO19,
+        "GPIO20": GPIO20, "GPIO21": GPIO21, "GPIO22": GPIO22, "GPIO23": GPIO23,
+        "GPIO24": GPIO24, "GPIO25": GPIO25, "GPIO26": GPIO26, "GPIO27": GPIO27,
+        "GPIO28": GPIO28, "GPIO29": GPIO29, "GPIO30": GPIO30, "GPIO31": GPIO31,
+        "GPIO32": GPIO32, "GPIO33": GPIO33, "GPIO34": GPIO34, "GPIO35": GPIO35,
+        "GPIO36": GPIO36, "GPIO37": GPIO37, "GPIO38": GPIO38, "GPIO39": GPIO39,
+        "GPIO40_ADC0": GPIO40_ADC0, "GPIO41_ADC1": GPIO41_ADC1,
+        "GPIO42_ADC2": GPIO42_ADC2, "GPIO43_ADC3": GPIO43_ADC3,
+        "GPIO44_ADC4": GPIO44_ADC4, "GPIO45_ADC5": GPIO45_ADC5,
+        "GPIO46_ADC6": GPIO46_ADC6, "GPIO47_ADC7": GPIO47_ADC7,
+        "IOVDD": IOVDD, "DVDD": DVDD, "QSPI_IOVDD": QSPI_IOVDD,
+        "USB_OTP_VDD": USB_OTP_VDD, "ADC_AVDD": ADC_AVDD,
+        "VREG_AVDD": VREG_AVDD, "VREG_PGND": VREG_PGND, "VREG_LX": VREG_LX,
+        "VREG_VIN": VREG_VIN, "VREG_FB": VREG_FB,
+        "USB_DM": USB_DM, "USB_DP": USB_DP,
+        "XIN": XIN, "XOUT": XOUT, "SWCLK": SWCLK, "SWDIO": SWDIO, "RUN": RUN,
+        "QSPI_SD3": QSPI_SD3, "QSPI_SCLK": QSPI_SCLK, "QSPI_SD0": QSPI_SD0,
+        "QSPI_SD2": QSPI_SD2, "QSPI_SD1": QSPI_SD1, "QSPI_SS": QSPI_SS,
+        "GND": GND,
+    },
+)

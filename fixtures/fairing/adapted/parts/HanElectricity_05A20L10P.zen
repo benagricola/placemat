@@ -1,0 +1,38 @@
+# HanElectricity_05A20L10P - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: HanElectricity-05A20L10P_C5362154.pdf
+
+P_1 = io("P_1", Net, optional = True)
+P_2 = io("P_2", Net, optional = True)
+P_3 = io("P_3", Net, optional = True)
+P_4 = io("P_4", Net, optional = True)
+P_5 = io("P_5", Net, optional = True)
+P_6 = io("P_6", Net, optional = True)
+P_7 = io("P_7", Net, optional = True)
+P_8 = io("P_8", Net, optional = True)
+P_9 = io("P_9", Net, optional = True)
+P_10 = io("P_10", Net, optional = True)
+P_11 = io("P_11", Net, optional = True)
+P_12 = io("P_12", Net, optional = True)
+
+Component(
+    name = "HanElectricity_05A20L10P",
+    footprint = File("../../parts/HanElectricity_05A20L10P/FPC-SMD_10P-P0.50_05A20L10P.kicad_mod"),
+    symbol = Symbol("HanElectricity_05A20L10P/05A20L10P.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "05A20L10P", manufacturer = "HanElectricity"),
+    properties = {"LCSC": "C5362154", "MPN": "05A20L10P"},
+    pins = {
+        "1": P_1,
+        "2": P_2,
+        "3": P_3,
+        "4": P_4,
+        "5": P_5,
+        "6": P_6,
+        "7": P_7,
+        "8": P_8,
+        "9": P_9,
+        "10": P_10,
+        "11": P_11,
+        "12": P_12,
+    },
+)

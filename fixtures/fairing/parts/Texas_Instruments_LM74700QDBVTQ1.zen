@@ -1,0 +1,26 @@
+# Texas_Instruments_LM74700QDBVTQ1 - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Texas_Instruments-LM74700QDBVTQ1_C2653623.pdf
+
+VCAP = io("VCAP", Net, optional = True)
+GND = io("GND", Net, optional = True)
+EN = io("EN", Net, optional = True)
+CATHODE = io("CATHODE", Net, optional = True)
+GATE = io("GATE", Net, optional = True)
+ANODE = io("ANODE", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_LM74700QDBVTQ1",
+    footprint = File("Texas_Instruments_LM74700QDBVTQ1/SOT-23-6_L2.9-W1.6-P0.95-LS2.8-TL.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_LM74700QDBVTQ1/LM74700QDBVTQ1.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "LM74700QDBVTQ1", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C2653623", "MPN": "LM74700QDBVTQ1"},
+    pins = {
+        "VCAP": VCAP,
+        "GND": GND,
+        "EN": EN,
+        "CATHODE": CATHODE,
+        "GATE": GATE,
+        "ANODE": ANODE,
+    },
+)

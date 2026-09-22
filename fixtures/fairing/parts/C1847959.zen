@@ -1,0 +1,39 @@
+# LDC1612DNTR; native source and hash in C1847959/asset-provenance.json.
+
+SCL = io("SCL", Net, optional = True)
+SDA = io("SDA", Net, optional = True)
+CLKIN = io("CLKIN", Net, optional = True)
+ADDR = io("ADDR", Net, optional = True)
+INTB = io("INTB", Net, optional = True)
+SD = io("SD", Net, optional = True)
+VDD = io("VDD", Net, optional = True)
+GND = io("GND", Net, optional = True)
+IN0A = io("IN0A", Net, optional = True)
+IN0B = io("IN0B", Net, optional = True)
+IN1A = io("IN1A", Net, optional = True)
+IN1B = io("IN1B", Net, optional = True)
+EP = io("EP", Net, optional = True)
+
+Component(
+    name = "LDC1612DNTR",
+    footprint = File("C1847959/WSON-12_L4_0-W4_0-P0_50-BL-EP.kicad_mod"),
+    symbol = Symbol("C1847959/C1847959.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "LDC1612DNTR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C1847959", "MPN": "LDC1612DNTR"},
+    pins = {
+        "SCL": SCL,
+        "SDA": SDA,
+        "CLKIN": CLKIN,
+        "ADDR": ADDR,
+        "INTB": INTB,
+        "SD": SD,
+        "VDD": VDD,
+        "GND": GND,
+        "IN0A": IN0A,
+        "IN0B": IN0B,
+        "IN1A": IN1A,
+        "IN1B": IN1B,
+        "EP": EP,
+    },
+)

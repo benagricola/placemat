@@ -1,0 +1,33 @@
+# ST_MMBT3904 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, cnc-expansion capture). Small-signal NPN, SOT-23. Stock listing
+# confirmed at LCSC C84104 (ST/Semtech-branded MMBT3904; checked 2026-07-26) — MMBT3904 is
+# one of the highest-volume generic NPN SKUs on LCSC across many rebrands, effectively
+# always Basic; VERIFY exact manufacturer/stock at order (any MMBT3904-class rebrand is
+# electrically interchangeable here).
+#
+# Used for the VFD_RUN / VFD_DIR isolated-side open-collector outputs (build-prompt: "small
+# NPN open-collector outputs on the isolated side... dry-contact style to the VFD's
+# operational RUN/DIR inputs"). Base driven from a CA-IS3720HG isolator output via a series
+# base resistor; collector = the dry-contact terminal to the VFD; emitter = AGND_ISO. No
+# on-board collector pull-up — genuine dry-contact behaviour, matching the brief's wording
+# (the VFD provides its own input pull-up, as every VFD RUN/DIR input already expects for a
+# relay-contact or open-collector command source).
+C = io("C", Net, optional = True)
+B = io("B", Net, optional = True)
+E = io("E", Net, optional = True)
+
+Component(
+    name = "ST_MMBT3904",
+    footprint = File("ST_MMBT3904/SOT-23-3_L2.9-W1.3-P1.90-LS2.4-BR.kicad_mod"),
+    symbol = Symbol("ST_MMBT3904/MMBT3904_C84104.kicad_sym"),
+    prefix = "Q",
+    part = Part(mpn = "MMBT3904", manufacturer = "ST"),
+    properties = {"LCSC": "C84104", "MPN": "MMBT3904"},
+    pins = {
+        "C": C,
+        "B": B,
+        "E": E,
+    },
+)

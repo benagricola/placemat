@@ -1,0 +1,26 @@
+# Wuxi_NCE_Power_Semiconductor_NCE6005AS - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Wuxi_NCE_Power_Semiconductor-NCE6005AS_C126151.pdf
+
+S2 = io("S2", Net, optional = True)
+G2 = io("G2", Net, optional = True)
+S1 = io("S1", Net, optional = True)
+G1 = io("G1", Net, optional = True)
+D1 = io("D1", Net, optional = True)
+D2 = io("D2", Net, optional = True)
+
+Component(
+    name = "Wuxi_NCE_Power_Semiconductor_NCE6005AS",
+    footprint = File("../../parts/Wuxi_NCE_Power_Semiconductor_NCE6005AS/SOP-8_L4.9-W3.9-P1.27-LS6.0-BL.kicad_mod"),
+    symbol = Symbol("Wuxi_NCE_Power_Semiconductor_NCE6005AS/NCE6005AS.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "NCE6005AS", manufacturer = "Wuxi NCE Power Semiconductor"),
+    properties = {"LCSC": "C126151", "MPN": "NCE6005AS"},
+    pins = {
+        "S2": S2,
+        "G2": G2,
+        "S1": S1,
+        "G1": G1,
+        "D1": D1,
+        "D2": D2,
+    },
+)

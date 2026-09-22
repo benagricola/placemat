@@ -1,0 +1,23 @@
+# BAT_WIRELESS_BWU_FL_IPEX1 - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: BAT_WIRELESS-BWU_FL_IPEX1_C5137195.pdf
+
+P_2 = io("P_2", Net, optional = True)
+P_3 = io("P_3", Net, optional = True)
+P_1 = io("P_1", Net, optional = True)
+
+dnp = config(bool, default = True)   # the diagnostic taps and the pigtail port are fitted only when used; the board's RF-in is fitted
+
+Component(
+    name = "BAT_WIRELESS_BWU_FL_IPEX1",
+    footprint = File("../../parts/BAT_WIRELESS_BWU_FL_IPEX1/IPEX-SMD_BWIPX-1-001E.kicad_mod"),
+    symbol = Symbol("BAT_WIRELESS_BWU_FL_IPEX1/BWU_FL_IPEX1.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "BWU.FL-IPEX1", manufacturer = "BAT WIRELESS"),
+    dnp = dnp,
+    properties = {"LCSC": "C5137195", "MPN": "BWU.FL-IPEX1"},
+    pins = {
+        "2": P_2,
+        "3": P_3,
+        "1": P_1,
+    },
+)

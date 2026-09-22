@@ -1,0 +1,35 @@
+# Shikues_78L33 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, cnc-expansion capture). Fixed 3.3V linear regulator, SOT-89
+# (tabbed, decent thermal handling for its size), 100mA. Stock listing confirmed at LCSC
+# C2999140 (checked 2026-07-26); the 78L33/L78L33 family (this is a same-pinout, same-spec
+# rebrand of ST's L78L33) is a ubiquitous, long-established part, effectively always
+# available across many manufacturers. Input up to 30V abs max (datasheet, 2026-07-26) —
+# safely covers AMP_RAIL_ISO's full 15-24V range (B2415S-2WR3 default / VFD_24V bypass).
+#
+# WHY THIS EXISTS: the isolator (Chipanalog_CA_IS3720HG) needs a 2.5-5.5V logic supply on
+# its isolated side (VDDB/GNDB) — a different, much lower rail than AMP_RAIL_ISO's 15-24V
+# analog supply for the LM358. A simple R+zener shunt was sized first but the dissipation
+# across AMP_RAIL_ISO's full 15-24V swing (at the few-mA load the isolators draw) needed an
+# uncomfortably large resistor power rating for an 0603/0805 part; this 3-pin LDO handles
+# the same job with a normal SOT-89 dissipation budget and tighter regulation. Derives
+# V_ISO_LOGIC (~3.3V) from AMP_RAIL_ISO, referenced to AGND_ISO — entirely within the
+# isolated domain, does not cross the isolation barrier.
+OUT = io("OUT", Net, optional = True)
+GND = io("GND", Net, optional = True)
+IN = io("IN", Net, optional = True)
+
+Component(
+    name = "Shikues_78L33",
+    footprint = File("Shikues_78L33/SOT-89-3_L4.5-W2.5-P1.50-LS4.2-BR.kicad_mod"),
+    symbol = Symbol("Shikues_78L33/78L33.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "78L33", manufacturer = "Shikues"),
+    properties = {"LCSC": "C2999140", "MPN": "78L33"},
+    pins = {
+        "OUT": OUT,
+        "GND": GND,
+        "IN": IN,
+    },
+)

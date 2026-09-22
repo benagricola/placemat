@@ -1,0 +1,17 @@
+# NCU18XH103F60RB; native source and hash in C440252/asset-provenance.json.
+
+P_1 = io("P_1", Net, optional = True)
+P_2 = io("P_2", Net, optional = True)
+
+Component(
+    name = "NCU18XH103F60RB",
+    footprint = File("C440252/R0603.kicad_mod"),
+    symbol = Symbol("C440252/C440252.kicad_sym"),
+    prefix = "TH",
+    part = Part(mpn = "NCU18XH103F60RB", manufacturer = "Murata Electronics"),
+    properties = {"LCSC": "C440252", "MPN": "NCU18XH103F60RB"},
+    pins = {
+        "1": P_1,
+        "2": P_2,
+    },
+)

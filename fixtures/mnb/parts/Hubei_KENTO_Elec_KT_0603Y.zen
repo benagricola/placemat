@@ -1,0 +1,29 @@
+# Hubei_KENTO_Elec_KT_0603Y — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# KT-0603Y: 0603 yellow indicator LED (peak 586-596nm / dominant 584-594nm). Canonical YELLOW
+# indicator per CLAUDE.md's 2026-07-26 LED-family pinning — IO channel activity. Supersedes the
+# retiring KT-0603YG (C2289, yellow-green — no longer JLC Basic either) as the field-input/output
+# activity colour. JLCPCB Extended; LCSC stock 71,300 pcs 2026-07-26 (above the low-hundreds bar).
+# Datasheet (KENTO, C2287): IV 70-175mcd min-max @ IF=20mA; VF 1.8-2.4V min-max @ IF=10mA (VF is
+# tested at a different current than IV on this part — note the 10mA condition when reasoning
+# about actual VF at a given operating current). No typ column — VF_max=2.4V is this wrapper's
+# conservative/high sizing estimate, ecosystem convention. Same footprint envelope (0.8x0.8mm
+# pads at +-0.75mm, 0603 body) as the rest of the KT-0603 family and the retiring KT-0603YG, so
+# swapping colours needs no layout-script position changes.
+
+A = io("A", Net, optional = True)
+K = io("K", Net, optional = True)
+
+Component(
+    name = "Hubei_KENTO_Elec_KT_0603Y",
+    footprint = File("Hubei_KENTO_Elec_KT_0603Y/LED0603-R-RD_C2287.kicad_mod"),
+    symbol = Symbol("Hubei_KENTO_Elec_KT_0603Y/KT-0603Y_C2287.kicad_sym"),
+    prefix = "D",
+    part = Part(mpn = "KT-0603Y", manufacturer = "Hubei KENTO Elec"),
+    properties = {"LCSC": "C2287", "MPN": "KT-0603Y"},
+    pins = {
+        "A": A,
+        "K": K,
+    },
+)

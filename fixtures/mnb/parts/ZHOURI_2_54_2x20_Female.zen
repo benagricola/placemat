@@ -1,0 +1,119 @@
+# ZHOURI_2_54_2x20_Female — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). J-EXP board-to-board FEMALE socket on the
+# CNC Expansion (2026-07-26 mezzanine stack — mates the Featherweight's
+# BOOMELE_2_54_2x20_Male header below; supersedes the C9043 IDC ribbon pair).
+#
+# Part: ZHOURI (Shanghai Zhouri) "2.54-2*20", LCSC C2977589. BOOMELE's own 2x20 female
+# (C50982) had a stock of 2 on 2026-07-26 — dead; this is the best-stocked 8.5mm 2x20
+# socket instead (deviation from the BOOMELE-family preference, stock-forced). Stock check
+# 2026-07-26: 48,410 pcs LCSC / 4,989 pcs JLC; Basic/Extended flag not shown by either
+# search UI, re-verify at order time. $0.18-0.25 @ 160+.
+# Drawing (LCSC datasheet 3b14debf07a36a1891d4e7bca44d0f5d.pdf "2.54-2*N", 2026-07-26) +
+# 3D-model cross-check (WRL z −3.2..+8.50mm):
+#   insulator height 8.5 +/- 0.2mm, solder tail 3.2 +/- 0.2mm (0.65 x 0.4mm section)
+#   pitch 2.54, rows 2.54 apart, body 51.05 x 5.08mm; footprint bbox ~51.2 x 5.08mm
+# MATED stack (see both BOARD-INTENT.md files): board-to-board separation 11.04mm fully
+# seated (male base 2.54 + insulator 8.5), male pin engagement 6.0mm. MOUNTING ON THE
+# EXPANSION: body inserted from BELOW the board (openings down toward the Featherweight),
+# tails soldered on the Expansion's TOP face (3.2mm tail − 1.6mm board = 1.6mm protrusion).
+# The FOOTPRINT is placed UNFLIPPED on F.Cu — do NOT flip it to the back side: the part is
+# unkeyed/symmetric, so pad numbering is footprint-defined, and the unflipped footprint's
+# pad n sits exactly over the male's pin n (identical pad-numbering geometry, verified).
+# A flipped placement mirrors the columns (pad 1 lands over male pin 39) — the classic
+# stacking bug. 3D-model caveat: rendered unflipped the body shows ABOVE the board; a
+# render-side transform may flip it for presentation, but never edit the footprint pairing.
+#
+# Pad numbering (verified from the footprint, rot 0): pad 1 = WEST end SOUTH row; odd pins
+# south row, even pins north row, columns 1/2 .. 39/40 west->east.
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+p5 = io("p5", Net, optional = True)
+p6 = io("p6", Net, optional = True)
+p7 = io("p7", Net, optional = True)
+p8 = io("p8", Net, optional = True)
+p9 = io("p9", Net, optional = True)
+p10 = io("p10", Net, optional = True)
+p11 = io("p11", Net, optional = True)
+p12 = io("p12", Net, optional = True)
+p13 = io("p13", Net, optional = True)
+p14 = io("p14", Net, optional = True)
+p15 = io("p15", Net, optional = True)
+p16 = io("p16", Net, optional = True)
+p17 = io("p17", Net, optional = True)
+p18 = io("p18", Net, optional = True)
+p19 = io("p19", Net, optional = True)
+p20 = io("p20", Net, optional = True)
+p21 = io("p21", Net, optional = True)
+p22 = io("p22", Net, optional = True)
+p23 = io("p23", Net, optional = True)
+p24 = io("p24", Net, optional = True)
+p25 = io("p25", Net, optional = True)
+p26 = io("p26", Net, optional = True)
+p27 = io("p27", Net, optional = True)
+p28 = io("p28", Net, optional = True)
+p29 = io("p29", Net, optional = True)
+p30 = io("p30", Net, optional = True)
+p31 = io("p31", Net, optional = True)
+p32 = io("p32", Net, optional = True)
+p33 = io("p33", Net, optional = True)
+p34 = io("p34", Net, optional = True)
+p35 = io("p35", Net, optional = True)
+p36 = io("p36", Net, optional = True)
+p37 = io("p37", Net, optional = True)
+p38 = io("p38", Net, optional = True)
+p39 = io("p39", Net, optional = True)
+p40 = io("p40", Net, optional = True)
+
+Component(
+    name = "ZHOURI_2_54_2x20_Female",
+    footprint = File("ZHOURI_2_54_2x20_Female/HDR-TH_40P-P2.54-V-F-R2-C20-S2.54.kicad_mod"),
+    symbol = Symbol("ZHOURI_2_54_2x20_Female/ZHOURI_2_54_2x20_Female_C2977589.kicad_sym"),
+    prefix = "P",
+    part = Part(mpn = "2.54-2*20", manufacturer = "ZHOURI"),
+    properties = {"LCSC": "C2977589", "MPN": "2.54-2*20"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+        "5": p5,
+        "6": p6,
+        "7": p7,
+        "8": p8,
+        "9": p9,
+        "10": p10,
+        "11": p11,
+        "12": p12,
+        "13": p13,
+        "14": p14,
+        "15": p15,
+        "16": p16,
+        "17": p17,
+        "18": p18,
+        "19": p19,
+        "20": p20,
+        "21": p21,
+        "22": p22,
+        "23": p23,
+        "24": p24,
+        "25": p25,
+        "26": p26,
+        "27": p27,
+        "28": p28,
+        "29": p29,
+        "30": p30,
+        "31": p31,
+        "32": p32,
+        "33": p33,
+        "34": p34,
+        "35": p35,
+        "36": p36,
+        "37": p37,
+        "38": p38,
+        "39": p39,
+        "40": p40,
+    },
+)

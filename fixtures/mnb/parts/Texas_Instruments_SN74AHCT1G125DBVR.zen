@@ -1,0 +1,24 @@
+# Texas_Instruments_SN74AHCT1G125DBVR — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+A = io("A", Net, optional = True)
+GND = io("GND", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+Y = io("Y", Net, optional = True)
+nOE = io("nOE", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_SN74AHCT1G125DBVR",
+    footprint = File("Texas_Instruments_SN74AHCT1G125DBVR/SOT-23-5_L3.0-W1.7-P0.95-LS2.8-BR.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_SN74AHCT1G125DBVR/SN74AHCT1G125DBVR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "SN74AHCT1G125DBVR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C7484", "MPN": "SN74AHCT1G125DBVR"},
+    pins = {
+        "A": A,
+        "GND": GND,
+        "VCC": VCC,
+        "Y": Y,
+        "~{OE}": nOE,
+    },
+)

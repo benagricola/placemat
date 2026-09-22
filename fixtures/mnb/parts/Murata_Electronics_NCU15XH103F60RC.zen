@@ -1,0 +1,31 @@
+# Murata_Electronics_NCU15XH103F60RC — component wrapper: local KiCad symbol + footprint,
+# LCSC pinned in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, middleweight capture). NTC thermistor, 10 kohm @ 25C, B(25/50)=
+# 3380K, +/-1% resistance and B tolerance, 0402, -40 to 125C, 1mW power rating. LCSC
+# C237326, stock 14,660 units @ ~$0.017-0.032 (checked 2026-07-26).
+#
+# One on-board instance on the Middleweight (middleweight.zen "VS / temp sense" section):
+# FET-NTC, near the bridge, for thermal foldback. Forms a divider with a fixed 10k resistor
+# into an RP2350 internal ADC channel (VS/temp path is deliberately on the internal ADC,
+# not the ADS7042 current-sense SAR — see the brief S6 / build-prompt "VS/temp sense"
+# section: both firmwares need these slow, oversampled monitoring signals and RRF reads a
+# VIN-divider pin the standard way). Motor-NTC is a SEPARATE, off-board thermistor the
+# installer fits to the motor and wires in via the J-IO terminal's "motor-NTC" pin (brief:
+# "motor temperature (optional): NTC on the 24V IO screw terminal") — this board only
+# supplies that pin's on-board pull-up half of the divider, not a second on-board NTC.
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+
+Component(
+    name = "Murata_Electronics_NCU15XH103F60RC",
+    footprint = File("Murata_Electronics_NCU15XH103F60RC/R0402.kicad_mod"),
+    symbol = Symbol("Murata_Electronics_NCU15XH103F60RC/Murata_Electronics_NCU15XH103F60RC.kicad_sym"),
+    prefix = "TH",
+    part = Part(mpn = "NCU15XH103F60RC", manufacturer = "Murata Electronics"),
+    properties = {"LCSC": "C237326", "MPN": "NCU15XH103F60RC"},
+    pins = {
+        "1": p1,
+        "2": p2,
+    },
+)

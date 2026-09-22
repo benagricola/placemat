@@ -1,0 +1,53 @@
+# SN74CB3Q3245DGVR; native source and hash in C2674534/asset-provenance.json.
+
+NC = io("NC", Net, optional = True)
+A1 = io("A1", Net, optional = True)
+A2 = io("A2", Net, optional = True)
+A3 = io("A3", Net, optional = True)
+A4 = io("A4", Net, optional = True)
+A5 = io("A5", Net, optional = True)
+A6 = io("A6", Net, optional = True)
+A7 = io("A7", Net, optional = True)
+A8 = io("A8", Net, optional = True)
+GND = io("GND", Net, optional = True)
+B8 = io("B8", Net, optional = True)
+B7 = io("B7", Net, optional = True)
+B6 = io("B6", Net, optional = True)
+B5 = io("B5", Net, optional = True)
+B4 = io("B4", Net, optional = True)
+B3 = io("B3", Net, optional = True)
+B2 = io("B2", Net, optional = True)
+B1 = io("B1", Net, optional = True)
+OE = io("OE", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+
+Component(
+    name = "SN74CB3Q3245DGVR",
+    footprint = File("C2674534/TVSOP-20_L5_0-W4_4-P0_40-LS6_6-BL.kicad_mod"),
+    symbol = Symbol("C2674534/C2674534.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "SN74CB3Q3245DGVR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C2674534", "MPN": "SN74CB3Q3245DGVR"},
+    pins = {
+        "NC": NC,
+        "A1": A1,
+        "A2": A2,
+        "A3": A3,
+        "A4": A4,
+        "A5": A5,
+        "A6": A6,
+        "A7": A7,
+        "A8": A8,
+        "GND": GND,
+        "B8": B8,
+        "B7": B7,
+        "B6": B6,
+        "B5": B5,
+        "B4": B4,
+        "B3": B3,
+        "B2": B2,
+        "B1": B1,
+        "~{OE}": OE,
+        "VCC": VCC,
+    },
+)

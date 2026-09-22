@@ -1,0 +1,66 @@
+# 5V -> 3.3V synchronous buck (TPS563201, JLC Basic). FB 33k/10k -> 3.30V,
+# 2.2uH pinned. A copy of Buck_TPS563201 that carries the facts placemat's
+# checks read, as `annotations` on every part (each generic and wrapper
+# forwards them into its footprint's fields, so they are on the board):
+#   Pm.Role       what the part is in the converter: switcher | inductor | output | bypass | sense
+#   Pm.Loop       the fast-current loop the part's pads close: hot (input caps, switch)
+#   Pm.Aggressor  a part whose copper swings hard (the switch node's owners)
+#   Pm.Sensitive  the net on the part's pads that must stay clear of aggressors, by name: VFB
+#   Pm.Pd         dissipation in watts at full load (datasheet, worst case)
+#   Pm.I          current at full load, per net the part's pads carry: "vin:3A sw:3A"
+#                 (a bare "3A" means every pad, which would size a control pin for the power path)
+#   Pm.TjMax      the die's maximum junction temperature
+#   Pm.ThetaJb    junction-to-board thermal resistance (the board temperature is the ambient the check starts from)
+#   Pm.ThetaJa    junction-to-ambient, the datasheet's JEDEC-board figure (used only without Pm.ThetaJb)
+# Nets take their roles from the pins of the parts that carry them.
+# Numbers, with their sources:
+#   TPS563201 (SLVSC61, section 6.4 Thermal Information): RthJA 92.6 C/W, RthJB 15.5 C/W;
+#   section 6.3: TJ max 125 C; section 6.5: RDS(on) 95 mohm high side, 57 mohm low side at 25 C.
+#   Pd at 3 A, 5 V -> 3.3 V (D = 0.66): conduction 9 A^2 x (0.66 x 0.095 + 0.34 x 0.057) = 0.74 W,
+#   plus switching at 580 kHz: taken as 0.8 W. RDS(on) rises with temperature (figures 5 and 6), so
+#   this is the 25 C figure and the hot figure is higher.
+#   FTC252012S2R2MBCA (Cjiang FTC series spec, FTC252012S table): Rdc 55 mohm typ / 65 max,
+#   heat-rating current Irms 3.0 A typ / 2.7 A max, Isat 3.8 / 3.3 A. Pd = 9 A^2 x 65 mohm = 0.59 W.
+#   At 3 A the inductor is above its 2.7 A worst-case heat rating: an open item for the module.
+TPS = Module("../../parts/Texas_Instruments_TPS563201DDCR.zen")
+L = Module("../../parts/cjiang_FTC252012S2R2MBCA.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+Resistor = Module("@stdlib/generics/Resistor.zen")
+
+vin = io("vin", Net)
+vout = io("vout", Net)
+gnd = io("gnd", Ground)
+
+sw = Net("SW")
+vbst = Net("VBST")
+vfb = Net("VFB")
+
+# input caps: TI ref design 2x10uF + 0.1uF. All three close the hot loop.
+Capacitor(name = "cin_a", value = "10uF", package = "0805", voltage = "16V", P1 = vin, P2 = gnd,
+          annotations = {"Pm.Role": "bypass", "Pm.Loop": "hot"})
+Capacitor(name = "cin_b", value = "10uF", package = "0805", voltage = "16V", P1 = vin, P2 = gnd,
+          annotations = {"Pm.Role": "bypass", "Pm.Loop": "hot"})
+Capacitor(name = "cin_hf", value = "100nF", package = "0402", voltage = "16V", P1 = vin, P2 = gnd,
+          annotations = {"Pm.Role": "bypass", "Pm.Loop": "hot"})
+
+Capacitor(name = "cbst", value = "100nF", package = "0402", P1 = vbst, P2 = sw,
+          annotations = {"Pm.Role": "bypass", "Pm.Aggressor": "true"})
+L(name = "l", p1 = sw, p2 = vout,
+  annotations = {"Pm.Role": "inductor", "Pm.Aggressor": "true", "Pm.I": "sw:3A vout:3A", "Pm.Pd": "0.59W"})
+
+Capacitor(name = "cout_a", value = "22uF", package = "0805", voltage = "10V", P1 = vout, P2 = gnd,
+          annotations = {"Pm.Role": "output"})
+Capacitor(name = "cout_b", value = "22uF", package = "0805", voltage = "10V", P1 = vout, P2 = gnd,
+          annotations = {"Pm.Role": "output"})
+
+Resistor(name = "rfb_top", value = "33kohm", package = "0402", P1 = vout, P2 = vfb,
+         annotations = {"Pm.Role": "sense", "Pm.Sensitive": "VFB"})
+Resistor(name = "rfb_bot", value = "10kohm", package = "0402", P1 = vfb, P2 = gnd,
+         annotations = {"Pm.Role": "sense", "Pm.Sensitive": "VFB"})
+
+TPS(name = "ic", VIN = vin, GND = gnd, EN = vin, SW = sw, VBST = vbst, VFB = vfb,
+    annotations = {"Pm.Role": "switcher", "Pm.Loop": "hot", "Pm.Aggressor": "true",
+                  "Pm.Pd": "0.8W", "Pm.I": "vin:3A sw:3A gnd:3A", "Pm.TjMax": "125C",
+                  "Pm.ThetaJb": "15.5C/W", "Pm.ThetaJa": "92.6C/W"})
+
+Layout(name = "Buck_TPS563201_checked", path = "layout")

@@ -1,0 +1,18 @@
+# PTTC_SMD1206P050TF_15 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+
+Component(
+    name = "PTTC_SMD1206P050TF_15",
+    footprint = File("PTTC_SMD1206P050TF_15/F1206.kicad_mod"),
+    symbol = Symbol("PTTC_SMD1206P050TF_15/SMD1206P050TF_15.kicad_sym"),
+    prefix = "F",
+    part = Part(mpn = "SMD1206P050TF/15", manufacturer = "PTTC"),
+    properties = {"LCSC": "C106264", "MPN": "SMD1206P050TF/15"},
+    pins = {
+        "1": p1,
+        "2": p2,
+    },
+)

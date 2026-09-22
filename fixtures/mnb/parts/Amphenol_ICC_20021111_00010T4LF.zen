@@ -1,0 +1,34 @@
+# Amphenol_ICC_20021111_00010T4LF — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+p5 = io("p5", Net, optional = True)
+p6 = io("p6", Net, optional = True)
+p7 = io("p7", Net, optional = True)
+p8 = io("p8", Net, optional = True)
+p9 = io("p9", Net, optional = True)
+p10 = io("p10", Net, optional = True)
+
+Component(
+    name = "Amphenol_ICC_20021111_00010T4LF",
+    footprint = File("Amphenol_ICC_20021111_00010T4LF/HDR-TH_10P-P1.27-V-M-R2-C5-S1.27.kicad_mod"),
+    symbol = Symbol("Amphenol_ICC_20021111_00010T4LF/20021111-00010T4LF.kicad_sym"),
+    prefix = "H",
+    part = Part(mpn = "20021111-00010T4LF", manufacturer = "Amphenol ICC"),
+    properties = {"LCSC": "C239059", "MPN": "20021111-00010T4LF"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+        "5": p5,
+        "6": p6,
+        "7": p7,
+        "8": p8,
+        "9": p9,
+        "10": p10,
+    },
+)

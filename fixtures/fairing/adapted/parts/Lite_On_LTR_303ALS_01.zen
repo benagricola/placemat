@@ -1,0 +1,26 @@
+# Lite_On_LTR_303ALS_01 - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Lite_On-LTR_303ALS_01_C364577.pdf
+
+VDD = io("VDD", Net, optional = True)
+NC = io("NC", Net, optional = True)
+GND = io("GND", Net, optional = True)
+SCL = io("SCL", Net, optional = True)
+INT = io("INT", Net, optional = True)
+SDA = io("SDA", Net, optional = True)
+
+Component(
+    name = "Lite_On_LTR_303ALS_01",
+    footprint = File("../../parts/Lite_On_LTR_303ALS_01/TDFN-6_L2.0-W2.0-P0.65-BL.kicad_mod"),
+    symbol = Symbol("Lite_On_LTR_303ALS_01/LTR_303ALS_01.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "LTR-303ALS-01", manufacturer = "Lite-On"),
+    properties = {"LCSC": "C364577", "MPN": "LTR-303ALS-01"},
+    pins = {
+        "VDD": VDD,
+        "NC": NC,
+        "GND": GND,
+        "SCL": SCL,
+        "INT": INT,
+        "SDA": SDA,
+    },
+)

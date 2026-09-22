@@ -1,0 +1,91 @@
+# 100V/3A canonical HV buck (SY8513FCC, asynchronous: external SS510
+# freewheel). Vout = 0.8V*(1+rfb_top/rfb_bot). Standard dividers:
+# 52.3k/10k -> 4.98V ("5V"), 287k/10k -> 23.76V ("24V"). MLCC-friendly COT.
+#
+# =============================================================================
+# SIZE EVERY INSTANCE TO ITS OWN RAIL (Ben, 2026-09-04)
+# =============================================================================
+# The passives were fixed inside this cell, so a 0.15 A logic rail carried the
+# same 2.6 A inductor and the same 22 uF/1210 output bank as a 3 A one. They are
+# per-instance now. What to compute, in order:
+#
+#  1. RIPPLE, not load, sizes the inductor:  dI = Vout*(1-D)/(L*fsw), D=Vout/Vin.
+#     A big step-down has SMALL ripple (48->5 at 300 kHz, 22 uH: 0.68 A p-p); a
+#     modest one has LARGE ripple (48->24, same parts: 1.81 A p-p). Peak
+#     inductor current is Iout + dI/2 and it is what the SATURATION rating must
+#     clear, with headroom for temperature: this ecosystem's sealed node is
+#     designed to a 100 C ambient, where saturation is down 10-15% and an
+#     Irms rating quoted for a 40 K rise is worth far less than its number.
+#  2. fsw is programmed by rfs (fsw kHz = 1e5 / Rfs kohm), range 100-500 kHz.
+#     Raising it shrinks ripple, but MIN ON TIME 180 ns is the ceiling: check
+#     ton = D/fsw at the HIGHEST input the rail sees (on a 48 V motor bus that
+#     is the top of the chopper window, 58 V, not 48).
+#  3. Output caps: dV = dI/(8*fsw*C), then derate the MLCC for DC bias - a
+#     high-CV 1210 at half its rated voltage typically keeps 30-40% of its
+#     marked value.
+#  4. Input bulk keeps its 100 V rating and its package: it carries the input
+#     ripple current, Iout*sqrt(D(1-D)), which peaks at D = 0.5.
+#
+# HEIGHT (measured 2026-09-04): no 22 uH part carrying more than ~1.5 A peak
+# exists under about 2.8 mm, so the inductor cannot be shortened by selection.
+# A cell that has to fit under a low lid or a daughterboard has to move faces.
+# =============================================================================
+SY = Module("../../parts/Silergy_Corp_SY8513FCC.zen")
+inductor = config("inductor", str, default = "SMMS0630")   # "SMMS0630" 7.1x6.6x3.0, 2.6A/3.5A | "SMNR4020" 4x4x2.0, 1.05A
+L = (Module("../../parts/SXN_SMMS0630_220M.zen") if inductor == "SMMS0630"
+     else Module("../../parts/SXN_SMNR4020_220M.zen"))
+D = Module("../../parts/hongjiacheng_SS510B.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+Resistor = Module("@stdlib/generics/Resistor.zen")
+
+vin = io("vin", Net)
+vout = io("vout", Net)
+gnd = io("gnd", Ground)
+
+rfb_top_value = config("rfb_top_value", str, default = "52.3kohm")
+cout_value = config("cout_value", str, default = "22uF")
+cout_voltage = config("cout_voltage", str, default = "35V")
+cout_package = config("cout_package", str, default = "1210")
+cout_count = config("cout_count", int, default = 2)         # a light rail does not need the pair
+cin_bulk_package = config("cin_bulk_package", str, default = "1210")
+rfs_value = config("rfs_value", str, default = "332kohm")   # 1e5/Rfs(k) kHz -> 332k = 301 kHz
+
+en = Net("EN")
+fb = Net("FB")
+lx = Net("LX")
+bs = Net("BS")
+fs = Net("FS")
+
+# input decoupling (>=100V on the 48V bus; >=1uF close to IN per datasheet)
+Capacitor(name = "cin_bulk", value = "10uF", package = cin_bulk_package, voltage = "100V", P1 = vin, P2 = gnd)
+Capacitor(name = "cin_1u", value = "1uF", package = "0805", voltage = "100V", P1 = vin, P2 = gnd)
+Capacitor(name = "cin_hf", value = "100nF", package = "0603", voltage = "100V", P1 = vin, P2 = gnd)
+
+# EN from a VIN divider (1M/100k -> EN ~ VIN/11; turn-on ~12V). Must not float.
+Resistor(name = "ren_top", value = "1Mohm", package = "0402", P1 = vin, P2 = en)
+Resistor(name = "ren_bot", value = "100kohm", package = "0402", P1 = en, P2 = gnd)
+
+# FS resistor: fsw(kHz) = 1e5 / Rfs(kohm); 332k -> ~301kHz
+Resistor(name = "rfs", value = rfs_value, package = "0402", P1 = fs, P2 = gnd)
+
+# bootstrap BS -> LX
+Capacitor(name = "cbs", value = "100nF", package = "0402", P1 = bs, P2 = lx)
+
+# switch node -> inductor -> vout; freewheel SS510 (K->LX, A->GND)
+L(name = "l", p1 = lx, p2 = vout)
+D(name = "d", K = lx, A = gnd)
+
+# output caps (MLCC; value/voltage per instance)
+Capacitor(name = "cout_a", value = cout_value, package = cout_package, voltage = cout_voltage, P1 = vout, P2 = gnd)
+if cout_count > 1:
+    Capacitor(name = "cout_b", value = cout_value, package = cout_package, voltage = cout_voltage, P1 = vout, P2 = gnd)
+Capacitor(name = "cout_hf", value = "100nF", package = "0402", voltage = cout_voltage, P1 = vout, P2 = gnd)
+
+# FB divider + feedforward cap across rfb_top
+Resistor(name = "rfb_top", value = rfb_top_value, package = "0402", P1 = vout, P2 = fb)
+Resistor(name = "rfb_bot", value = "10kohm", package = "0402", P1 = fb, P2 = gnd)
+Capacitor(name = "cff", value = "22pF", package = "0402", voltage = cout_voltage, P1 = vout, P2 = fb)
+
+SY(name = "ic", IN = vin, GND = gnd, EP = gnd, EN = en, FS = fs, BS = bs, LX = lx, FB = fb, PG = NotConnected())
+
+Layout(name = "Buck_SY8513FCC", path = "layout")

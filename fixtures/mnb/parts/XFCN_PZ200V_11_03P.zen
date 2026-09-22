@@ -1,0 +1,38 @@
+# XFCN_PZ200V_11_03P — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# 1x3 2.00mm THT pin header — the canonical 3-pin jumperable select (Ben,
+# 2026-08-02: the ecosystem uses the N17-proven 2mm XFCN PZ200V family, not
+# 2.54mm, to save space; the N17 shipped its 2-pin sibling PZ200V-11-02P
+# C541856 as H1/H3/H5/H6). Shunt: BOOMELE 2.0mm C5664. Pin 2 is the
+# centre/common; fit the shunt on 1-2 or 2-3 to select a throw. Mark the
+# header DNF on boards that want to save the fee - the pads take a solder
+# bridge just as well.
+#
+# Stock check 2026-08-02: C541857 15,250 units (2-pin sibling C541856
+# 77,350; shunt C5664 87,680) - all above the low-hundreds-of-boards bar
+# (CLAUDE.md process rule 0). Datasheet (family page, read 2026-08-02):
+# 1.5A / 250V, brass, -40..+105C, insulation height 2mm, body 5.8 x 1.8mm,
+# 0.9mm drills - ample for every select site (all carry mA-level signals).
+#
+# Interface matches parts/SolderJumper_3P.zen and the retired-for-this-role
+# 2.54mm Ckmtw_B_2100S03P_A110 (p1 = throw A, p2 = common, p3 = throw B) so
+# call sites swap with only the Module path.
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+
+Component(
+    name = "XFCN_PZ200V_11_03P",
+    footprint = File("XFCN_PZ200V_11_03P/HDR-TH_3P-P2.00-V-M.kicad_mod"),
+    symbol = Symbol("XFCN_PZ200V_11_03P/PZ200V-11-03P.kicad_sym"),
+    prefix = "H",
+    part = Part(mpn = "PZ200V-11-03P", manufacturer = "XFCN"),
+    properties = {"LCSC": "C541857", "MPN": "PZ200V-11-03P"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+    },
+)

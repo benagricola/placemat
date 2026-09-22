@@ -1,0 +1,22 @@
+{
+  "mpn": "ESP32-S3R8",
+  "manufacturer": "Espressif Systems",
+  "lcsc": "C2913194",
+  "assets": [
+    {
+      "file": "C2913194.kicad_sym",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Espressif_Systems/ESP32-S3R8/lcsc/v2/C2913194.kicad_sym",
+      "sha256": "c80aeb29ce92c94ba2ccd073ecffd10865efe42fbda311855a66913aee5129ad"
+    },
+    {
+      "file": "QFN-56_L7_0-W7_0-P0_40-TL-EP4_0.kicad_mod",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Espressif_Systems/ESP32-S3R8/lcsc/v2/QFN-56_L7_0-W7_0-P0_40-TL-EP4_0.kicad_mod",
+      "sha256": "0baa85599a23745e235f0203bd321c31ee3ab1b0067a3e4b84c7fb4a99d642db"
+    },
+    {
+      "file": "QFN-56_L7_0-W7_0-P0_40-TL-EP4_0.step",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Espressif_Systems/ESP32-S3R8/lcsc/v2/QFN-56_L7_0-W7_0-P0_40-TL-EP4_0.step",
+      "sha256": "68e24c8da81dafa322b2582d545d6c599b7cf38013b448ad9fbb398d7478773c"
+    }
+  ]
+}

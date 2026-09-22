@@ -1,0 +1,46 @@
+# CJT_C3030WV_2x3P - component wrapper: local KiCad symbol + footprint, LCSC pinned in
+# properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, Middleweight off-board-connector re-architecture). Dual-row 2x3
+# (6-position) 3.0mm-pitch VERTICAL (top-entry) wire-to-board header, Micro-Fit-3.0-class
+# shell with positive latch - the board half of the MOTOR pigtail from the case-base
+# glanded motor entry (A+, A-, B+, B-, HBRK+, HBRK-).
+#
+# Ratings (LCSC attribute page, 2026-07-26): listed 12.5A / 600V, -40..+105C. The 12.5A
+# figure is treated as attribute-page noise - the same family's single-row entries list
+# 8.5A (the Micro-Fit-class figure), and CJT's own series datasheet (fetched) is
+# dimensional only (no electrical table in its text layer; crimp range AWG20-24). Duty
+# here: motor phases up to ~4.2A RMS / ~6A peak per pin - inside even a conservative
+# multi-circuit derate (~5-6.5A) of the 8.5A-class contact, with the peaks transient
+# (thermal rating is continuous). Brake pair <1A. This satisfies the brief's "internal
+# >=6A termination" requirement on the LCSC-listed rating; the missing manufacturer
+# electrical table is flagged here, not hidden. JLC assembly stock 4599 pcs @ 2026-07-26
+# (Extended).
+#
+# Physical pad layout (verified from the fetched footprint): 2 rows x 3 cols, 3.0mm both
+# pitches, pins 1-3 row y=+1.5, pins 4-6 row y=-1.5, pin 1 at +x (col order 1/2/3 = x
+# +3/0/-3). Cross-plug protection: 2x3 shell cannot mate with its family's 1x5/1x2
+# shells nor the 2.0mm JST PA family.
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+p5 = io("p5", Net, optional = True)
+p6 = io("p6", Net, optional = True)
+
+Component(
+    name = "CJT_C3030WV_2x3P",
+    footprint = File("CJT_C3030WV_2x3P/CONN-TH_C3030WV-P3.00-2X3P.kicad_mod"),
+    symbol = Symbol("CJT_C3030WV_2x3P/C3030WV-2X3P.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "C3030WV-2x3P", manufacturer = "CJT (Changjiang Connectors)"),
+    properties = {"LCSC": "C239455", "MPN": "C3030WV-2x3P"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+        "5": p5,
+        "6": p6,
+    },
+)

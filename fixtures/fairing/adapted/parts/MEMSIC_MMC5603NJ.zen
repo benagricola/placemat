@@ -1,0 +1,22 @@
+# MEMSIC_MMC5603NJ - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: MEMSIC-MMC5603NJ_C404328.pdf
+
+VSA = io("VSA", Net, optional = True)
+SCL = io("SCL", Net, optional = True)
+VDD = io("VDD", Net, optional = True)
+SDA = io("SDA", Net, optional = True)
+
+Component(
+    name = "MEMSIC_MMC5603NJ",
+    footprint = File("../../parts/MEMSIC_MMC5603NJ/FLIPCHIP-4_L0.8-W0.8-R2-C2-P0.40-TL.kicad_mod"),
+    symbol = Symbol("MEMSIC_MMC5603NJ/MMC5603NJ.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "MMC5603NJ", manufacturer = "MEMSIC"),
+    properties = {"LCSC": "C404328", "MPN": "MMC5603NJ"},
+    pins = {
+        "VSA": VSA,
+        "SCL": SCL,
+        "VDD": VDD,
+        "SDA": SDA,
+    },
+)

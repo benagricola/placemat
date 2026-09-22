@@ -1,0 +1,30 @@
+# Hubei_KENTO_Elec_KT_0603B — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# KT-0603B: 0603 blue indicator LED (peak 463-469nm / dominant 460-475nm). Canonical BLUE
+# indicator per CLAUDE.md's 2026-07-26 LED-family pinning — MCU/comms status. JLCPCB Extended;
+# LCSC stock 309,050 pcs 2026-07-26 (well above the low-hundreds-of-boards bar). Datasheet
+# (KENTO, C2288): IV 70-175mcd min-max @ IF=5mA; VF 2.6-3.1V min-max @ IF=5mA (no typ column —
+# VF_max=3.1V is this wrapper's conservative/high sizing estimate). Same footprint envelope
+# (0.8x0.8mm pads at +-0.75mm, 0603 body) as the rest of the KT-0603 family and the retiring
+# KT-0603YG, so swapping colours needs no layout-script position changes.
+#
+# 3V3-headroom note (CLAUDE.md standing rule, same as KT-0603G): at VF_max=3.1V, a 3.3V rail
+# leaves only ~0.2V across the series R. Where this LED taps 3V3 directly, size R against VF_MIN
+# (worst case for current), accept it running dim at the VF_max bin, and bench-trim R if needed.
+
+A = io("A", Net, optional = True)
+K = io("K", Net, optional = True)
+
+Component(
+    name = "Hubei_KENTO_Elec_KT_0603B",
+    footprint = File("Hubei_KENTO_Elec_KT_0603B/LED0603-RD_C2288.kicad_mod"),
+    symbol = Symbol("Hubei_KENTO_Elec_KT_0603B/KT-0603B_C2288.kicad_sym"),
+    prefix = "D",
+    part = Part(mpn = "KT-0603B", manufacturer = "Hubei KENTO Elec"),
+    properties = {"LCSC": "C2288", "MPN": "KT-0603B"},
+    pins = {
+        "A": A,
+        "K": K,
+    },
+)

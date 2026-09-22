@@ -1,0 +1,120 @@
+# 24V-loop opto sense (LTV-357T-C) with per-input NPN/PNP polarity select (Ben, 2026-07-26 - the
+# locked electrical standard, overview.md: "NPN/PNP selectable per input... the shared opto cell
+# swaps its bias - pull-up-to-24V for NPN/sinking sensors, pull-down-to-GND for PNP/sourcing"). The
+# select lives IN THE MODULE (Ben's call - the board can't commit to a sensor type the end user
+# picks after purchase), realized as two jumperable 3-pin headers (2.54mm + shunt; Ben's
+# 2026-08-02 ruling retires solder jumpers ecosystem-wide - a shunt is hand-installable and
+# hand-movable, and a DNF header's pads still take a solder bridge) so the field wiring never
+# has to move.
+#
+# TOPOLOGY DERIVATION (overview.md gives the intent, not the pin-level circuit - recorded here
+# per CLAUDE.md's "if the overview under-specifies, derive... and record the reasoning"):
+#
+# A 3-wire NPN/PNP sensor only ever presents ONE field wire to an opto input (V+ and GND go to
+# the sensor directly, off-loop); the module's other loop terminal must be a LOCAL fixed rail -
+# +24V for NPN (sensor sinks the field wire to GND when active; the loop needs a fixed +24V
+# upstream of the LED to source current into that sink) or GND for PNP (sensor sources +24V onto
+# the field wire when active; the loop needs a fixed GND downstream to sink into). Proof this
+# needs the LED's own orientation to flip, not just which rail is picked: with a single diode and
+# a FIXED an_src->R->AN / CAT->cat_fixed arrangement, tying cat_fixed to +24V while the field wire
+# stays on the R/AN side is DEAD (cat permanently at 24V reverse-biases the LED against the
+# field-side's own ceiling of 24V - it never lights, in either sensor state) - so NPN and PNP are
+# not just "which rail" but "which SIDE of the LED string the field wire and the fixed rail land
+# on". Two independent 3-pin select headers realize the swap while keeping ONE reverse-protection diode
+# (matches "the series R + reverse diode arrangement preserved") and without ever relocating the
+# field wire's physical landing pin:
+#
+#   JP1 (an-side selector): common -> the R-chain's input (an_src). Throw "1" (NPN) -> v24
+#     (fixed). Throw "3" (PNP) -> in_p (field wire, unchanged pin, unchanged role from the
+#     original design).
+#   JP2 (cat-side selector): common -> the opto's CAT pin. Throw "1" (NPN) -> in_n (field wire,
+#     unchanged pin/role). Throw "3" (PNP) -> gnd (fixed).
+#
+# NPN: JP1->1 (an_src=v24), JP2->1 (cat=in_n=field). PNP: JP1->3 (an_src=in_p=field), JP2->3
+# (cat=gnd). The CROSSED combination - JP1->3, JP2->1 (an_src=in_p, cat=in_n) - reproduces the
+# ORIGINAL floating 2-wire loop exactly (both terminals externally driven, v24/gnd unused): this
+# is the state for every existing dry-contact instance (estop1/estop2/mirror - "switches are dry
+# contacts", no NPN/PNP concept applies) and is documented per-instance in featherweight.zen. The
+# fourth combination (JP1->1, JP2->3: an_src=v24, cat=gnd) is a harmless always-lit/bench-test
+# state, not a fault. Default-as-shipped for a FRESH field input = NPN (JP1->1, JP2->1) per the
+# task brief ("the common case") - Ben to confirm against real-world sensor-type mix if this
+# matters before volume assembly; JLC can be instructed to pre-bridge, or it's a bring-up step.
+#
+# D1 now spans the WHOLE string (an_src to CAT), not just the opto's own AN-CAT pins as before -
+# widened deliberately so the new series indicator LED (below) is also inside its reverse-fault
+# clamp: R is series-transparent to fault current either way, so this only helps (it also leaves
+# less of D1's ~0.6V fault clamp across the opto's own pins than the original placement did,
+# since the opto LED is now one of three series elements inside the clamp instead of the sole
+# element - still comfortably inside the LTV-357T-C's 6V input VR rating either way).
+#
+# ACTIVITY INDICATOR LED (Ben, 2026-07-26): every field input gets a visible-when-energized LED.
+# Placed in series with the opto LED string (shares the same ~4.6mA, zero GPIO cost) rather than
+# a GPIO-driven indicator. Colour: YELLOW (IO channel activity, CLAUDE.md's 2026-07-26 LED-family
+# pinning) - KT-0603Y (LCSC C2287) supersedes the retiring KT-0603YG (yellow-green, no longer
+# JLC Basic either). Same 0.8x0.8mm-pad 0603 footprint envelope, so no layout-script change.
+#
+# RECOMPUTE for KT-0603Y's real VF (datasheet: 1.8-2.4V min-max @ IF=10mA, no typ column - VF_max
+# =2.4V is this ecosystem's conservative/high sizing estimate): 24V - 2.4V (indicator LED) - 1.4V
+# (opto LED Vf max @ 20mA, datasheet) = 20.2V across R. R UNCHANGED at 2x2.2kohm 0603 (4.4k
+# total, same as before the colour swap - it's still in the same 24V loop) -> 20.2V/4.4k =
+# 4.59mA (was ~4.64mA with the old part - the ~4.6mA loop current is essentially unchanged, per
+# CLAUDE.md's own in-opto-path note). Iv = 4.59mA x 6.125mcd/mA (KT-0603Y's k, from its
+# IV=70-175mcd @ 20mA datasheet spec) = ~28mcd - matches CLAUDE.md's "(3) in-opto-path LEDs ...
+# yellow lands ~28mcd, acceptable". ~47mW per resistor (comfortable for 0603).
+#
+# LED PLACEMENT (Ben's instruction: logic-visible if possible while staying electrically
+# field-side; field-side placement acceptable if the isolation barrier blocks the logic side,
+# state the trade): the indicator LED is electrically IN the field-side LED string, upstream of
+# the opto's own galvanic barrier - placing it on the logic side of the layout would route
+# field-side copper across the barrier, which is a hard constraint (see the layout script). So
+# it sits field-side, physically close to the barrier edge for visibility from outside the
+# isolation gap. Trade: the indicator is only visible/inspectable from the field-wiring side of
+# the board, not the logic side - accepted per Ben's fallback.
+OPTO = Module("../../parts/Lite_On_LTV_357T_C.zen")
+DIODE = Module("../../parts/Changjiang_Electronics_Tech_1N4148WS.zen")
+LED_ACT = Module("../../parts/Hubei_KENTO_Elec_KT_0603Y.zen")
+JUMPER3_HDR = Module("../../parts/XFCN_PZ200V_11_03P.zen")
+JUMPER3_SOLDER = Module("../../parts/SolderJumper_3P.zen")
+# jumper_style (2026-09-03, Ben): "header" = 2mm pin header + shunt (the ecosystem default,
+# roomy boards); "solder" = open solder bridge, for the area-bound Middleweight ONLY. Same
+# three-terminal topology and pin roles either way (1 = NPN throw, 2 = common, 3 = PNP throw).
+jumper_style = config("jumper_style", str, default = "header")
+JUMPER3 = JUMPER3_SOLDER if jumper_style == "solder" else JUMPER3_HDR
+Resistor = Module("@stdlib/generics/Resistor.zen")
+
+in_p = io("in_p", Net)
+in_n = io("in_n", Net)
+v24 = io("v24", Net)
+v3v3 = io("v3v3", Net)
+gnd = io("gnd", Ground)
+out = io("out", Net)
+
+an_src = Net("OPTO_ANSRC")  # JP1 common: feeds the series-R chain (NPN=v24 fixed, PNP=in_p field)
+mid = Net("OPTO_RMID")  # rser_a/rser_b midpoint (unchanged from the original design)
+led_a = Net("OPTO_LEDA")  # rser_b output -> indicator LED anode
+an = Net("OPTO_AN")  # indicator LED cathode -> opto AN pin
+cat = Net("OPTO_CAT")  # JP2 common: opto CAT pin (NPN=in_n field, PNP=gnd fixed)
+
+# NPN/PNP polarity select - two independent 3-pin jumperable headers (PZ200V-11-03P 2mm + C5664
+# shunt; see header derivation). Pin "1" = NPN throw, pin "2" = common, pin "3" = PNP throw on
+# both, so both shunts sit on the same physical side for either mode ("both left" = NPN, "both
+# right" = PNP); the crossed combination (an->3, cat->1) reproduces the pre-2026-07-26
+# floating-loop circuit unchanged. Ships unconfigured unless assembly fits the shunts.
+JUMPER3(name = "jp_an", p1 = v24, p2 = an_src, p3 = in_p)
+JUMPER3(name = "jp_cat", p1 = in_n, p2 = cat, p3 = gnd)
+
+# series R split 2x2.2k 0603 (~4.59mA at 24V incl. the indicator LED's Vf - see header math)
+Resistor(name = "rser_a", value = "2.2kohm", package = "0603", P1 = an_src, P2 = mid)
+Resistor(name = "rser_b", value = "2.2kohm", package = "0603", P1 = mid, P2 = led_a)
+
+# activity indicator, in series with the opto LED (anode upstream/toward R, cathode -> opto AN)
+LED_ACT(name = "led_act", A = led_a, K = an)
+
+OPTO(name = "opto", AN = an, CAT = cat, COL = out, EM = gnd)
+# reverse diode spans the WHOLE string now (an_src to cat), not just the opto's own AN-CAT pins -
+# protects R + indicator LED + opto LED as one unit (see header)
+DIODE(name = "dprot", K = an_src, A = cat)
+# bleed pull-up on the phototransistor collector (output side, unaffected by the polarity select)
+Resistor(name = "rbleed", value = "10kohm", package = "0402", P1 = out, P2 = v3v3)
+
+Layout(name = "OptoSense", path = "layout")

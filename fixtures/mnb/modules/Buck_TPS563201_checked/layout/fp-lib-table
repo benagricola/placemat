@@ -1,0 +1,7 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "stdlib_kicad-footprints_Capacitor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../.pcb/stdlib/kicad-footprints/Capacitor_SMD.pretty") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Resistor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../.pcb/stdlib/kicad-footprints/Resistor_SMD.pretty") (options "") (descr ""))
+  (lib (name "workspace_parts_Texas_Instruments_TPS563201DDCR") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/Texas_Instruments_TPS563201DDCR") (options "") (descr ""))
+  (lib (name "workspace_parts_cjiang_FTC252012S2R2MBCA") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/cjiang_FTC252012S2R2MBCA") (options "") (descr ""))
+)

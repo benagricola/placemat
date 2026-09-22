@@ -1,0 +1,7 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "stdlib_kicad-footprints_Capacitor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../.pcb/stdlib/kicad-footprints/Capacitor_SMD.pretty") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Resistor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../.pcb/stdlib/kicad-footprints/Resistor_SMD.pretty") (options "") (descr ""))
+  (lib (name "workspace_parts_Hubei_KENTO_Elec_KT_0603B") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/Hubei_KENTO_Elec_KT_0603B") (options "") (descr ""))
+  (lib (name "workspace_parts_XKB_Connectivity_TS_1187A_B_A_B") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/XKB_Connectivity_TS_1187A_B_A_B") (options "") (descr ""))
+)

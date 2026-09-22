@@ -1,0 +1,141 @@
+# TRINAMIC_TMC2160A_TA — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, middleweight capture). Stepper driver IC for the Middleweight's
+# motor stage: direct-mode (register 0x2D) drive of 8x external 100V N-FETs (2 full
+# H-bridges), SPI configuration, dual current-sense amplifiers, integrated gate drivers +
+# charge pump. LCSC C465948 (TMC2160A-TA-T — "-T" is the tape&reel packaging suffix on the
+# same base part the brief names "TMC2160A-TA"), TQFP-48-EP (7x7mm body / 9x9mm with
+# leads). Stock 4,431 units @ $6.71-$4.07 (checked 2026-07-26) — Extended (no BASIC-class
+# high-current stepper driver exists at this tier; matches the brief's own "Extended
+# (VERIFY)" flag). JLC also lists the same base part under C1161715 (TQFP-48-EP,
+# Economic/Standard SMT) — same physical device, C465948 used here since its stock+price
+# were independently confirmed.
+#
+# DATASHEET FINDINGS (TRINAMIC TMC2160 datasheet Rev 1.01, 2018-OKT-29 — the TMC2160A
+# shares this pinout/electrical spec per the combined ADI/TRINAMIC "TMC2160/TMC2160A"
+# datasheet; full pin table + electrical characteristics read, not assumed):
+# - DRV_ENN (pin 28) has NO internal pull resistor (confirmed from the pin table — many
+#   TMC2160 pins are marked "(pd)"/"(pu)", DRV_ENN is not) — an EXTERNAL pull-up is
+#   mandatory to get "default = disabled" per the safety brief; this board provides one.
+# - Gate driver current vs DRVSTRENGTH: 200/400/600mA (low-side) and 150/300/450mA
+#   (high-side) @ DRVSTRENGTH=0/2/3. MOSFET Miller-charge table: Qgd 20-40nC -> DRVSTRENGTH
+#   1 or 2, RG <=7.5R. The board's FET (HUAYI_HYG053N10NS1C2, Qgd=23nC, Qg_total=73nC) sits
+#   in this bucket — comfortably within the driver's capability, no second FET P/N needed.
+# - VSA/VS operating range 10-50/10-55V, abs max 60V (peak 64V incl. charge-pump coupling).
+#   Datasheet Section 3.2 flags: "with MOSFETs above 50nC of total gate charge... it is
+#   recommended to use a VSA supply not higher than 40V" (or feed an external 12V gate
+#   supply, Fig 3.2) to limit internal-regulator self-heating. This board's FET is 73nC
+#   (>50nC) and VSA is tied to the 46V bus (>40V) — the STANDARD circuit (VSA=VS, internal
+#   11.5V/5V regulators, Fig 3.1) is used here since no 12V rail exists in the locked power
+#   tree; flagged for Ben as a bring-up thermal item (see middleweight.zen comment at the
+#   TMC2160A instantiation and the session report) — not a functional blocker, the internal
+#   regulator still operates correctly at 48V, just with reduced thermal margin.
+# - Charge pump: VCP-VS = V12VOUT-[1,2] when operating; CPI/CPO need a 22nF/100V cap (Fig
+#   2.1 standard app circuit); VCP needs a 100nF cap to VS.
+# - Absolute max BM pins (bridge-center) -6V to VVS+6V (stray-inductance ringing budget).
+HB1 = io("HB1", Net, optional = True)
+CB1 = io("CB1", Net, optional = True)
+v12out = io("v12out", Net, optional = True)
+VSA = io("VSA", Net, optional = True)
+v5out = io("v5out", Net, optional = True)
+GNDA = io("GNDA", Net, optional = True)
+SRAL = io("SRAL", Net, optional = True)
+SRAH = io("SRAH", Net, optional = True)
+SRBH = io("SRBH", Net, optional = True)
+SRBL = io("SRBL", Net, optional = True)
+TST_MODE = io("TST_MODE", Net, optional = True)
+CLK = io("CLK", Net, optional = True)
+CSN_CFG3 = io("CSN_CFG3", Net, optional = True)
+SCK_CFG2 = io("SCK_CFG2", Net, optional = True)
+SDI_CFG1 = io("SDI_CFG1", Net, optional = True)
+SDO_CFG0 = io("SDO_CFG0", Net, optional = True)
+STEP = io("STEP", Net, optional = True)
+DIR = io("DIR", Net, optional = True)
+GNDD = io("GNDD", Net, optional = True)
+VCC_IO = io("VCC_IO", Net, optional = True)
+SPI_MODE = io("SPI_MODE", Net, optional = True)
+DCEN_CFG4 = io("DCEN_CFG4", Net, optional = True)
+DCIN_CFG5 = io("DCIN_CFG5", Net, optional = True)
+DCO_CFG6 = io("DCO_CFG6", Net, optional = True)
+DIAG0 = io("DIAG0", Net, optional = True)
+DIAG1 = io("DIAG1", Net, optional = True)
+DRV_ENN = io("DRV_ENN", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+CPO = io("CPO", Net, optional = True)
+CPI = io("CPI", Net, optional = True)
+VS = io("VS", Net, optional = True)
+VCP = io("VCP", Net, optional = True)
+CA2 = io("CA2", Net, optional = True)
+HA2 = io("HA2", Net, optional = True)
+BMA2 = io("BMA2", Net, optional = True)
+LA2 = io("LA2", Net, optional = True)
+LA1 = io("LA1", Net, optional = True)
+BMA1 = io("BMA1", Net, optional = True)
+HA1 = io("HA1", Net, optional = True)
+CA1 = io("CA1", Net, optional = True)
+CB2 = io("CB2", Net, optional = True)
+HB2 = io("HB2", Net, optional = True)
+BMB2 = io("BMB2", Net, optional = True)
+LB2 = io("LB2", Net, optional = True)
+LB1 = io("LB1", Net, optional = True)
+BMB1 = io("BMB1", Net, optional = True)
+EP = io("EP", Net, optional = True)
+
+Component(
+    name = "TRINAMIC_TMC2160A_TA",
+    footprint = File("TRINAMIC_TMC2160A_TA/TQFP-48_L7.0-W7.0-P0.50-LS9.0-BL-EP.kicad_mod"),
+    symbol = Symbol("TRINAMIC_TMC2160A_TA/TRINAMIC_TMC2160A_TA.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "TMC2160A-TA", manufacturer = "TRINAMIC"),
+    properties = {"LCSC": "C465948", "MPN": "TMC2160A-TA-T"},
+    pins = {
+        "HB1": HB1,
+        "CB1": CB1,
+        "12VOUT": v12out,
+        "VSA": VSA,
+        "5VOUT": v5out,
+        "GNDA": GNDA,
+        "SRAL": SRAL,
+        "SRAH": SRAH,
+        "SRBH": SRBH,
+        "SRBL": SRBL,
+        "TST_MODE": TST_MODE,
+        "CLK": CLK,
+        "CSN_CFG3": CSN_CFG3,
+        "SCK_CFG2": SCK_CFG2,
+        "SDI_CFG1": SDI_CFG1,
+        "SDO_CFG0": SDO_CFG0,
+        "STEP": STEP,
+        "DIR": DIR,
+        "GNDD": GNDD,
+        "VCC_IO": VCC_IO,
+        "SPI_MODE": SPI_MODE,
+        "DCEN_CFG4": DCEN_CFG4,
+        "DCIN_CFG5": DCIN_CFG5,
+        "DCO_CFG6": DCO_CFG6,
+        "DIAG0": DIAG0,
+        "DIAG1": DIAG1,
+        "DRV_ENN": DRV_ENN,
+        "VCC": VCC,
+        "CPO": CPO,
+        "CPI": CPI,
+        "VS": VS,
+        "VCP": VCP,
+        "CA2": CA2,
+        "HA2": HA2,
+        "BMA2": BMA2,
+        "LA2": LA2,
+        "LA1": LA1,
+        "BMA1": BMA1,
+        "HA1": HA1,
+        "CA1": CA1,
+        "CB2": CB2,
+        "HB2": HB2,
+        "BMB2": BMB2,
+        "LB2": LB2,
+        "LB1": LB1,
+        "BMB1": BMB1,
+        "EP": EP,
+    },
+)

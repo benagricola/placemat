@@ -1,0 +1,19 @@
+# S3240000101040; native source and hash in C426988/asset-provenance.json.
+
+OSC2 = io("OSC2", Net, optional = True)
+OSC1 = io("OSC1", Net, optional = True)
+GND = io("GND", Net, optional = True)
+
+Component(
+    name = "S3240000101040",
+    footprint = File("C426988/CRYSTAL-SMD_4P-L3_2-W2_5-BL.kicad_mod"),
+    symbol = Symbol("C426988/C426988.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "S3240000101040", manufacturer = "JGHC"),
+    properties = {"LCSC": "C426988", "MPN": "S3240000101040"},
+    pins = {
+        "OSC2": OSC2,
+        "OSC1": OSC1,
+        "GND": GND,
+    },
+)

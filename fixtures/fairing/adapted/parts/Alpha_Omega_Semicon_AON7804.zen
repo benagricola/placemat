@@ -1,0 +1,26 @@
+# Alpha_Omega_Semicon_AON7804 - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Alpha_Omega_Semicon-AON7804_C431197.pdf
+
+D1 = io("D1", Net, optional = True)
+S2 = io("S2", Net, optional = True)
+G2 = io("G2", Net, optional = True)
+D2 = io("D2", Net, optional = True)
+S1 = io("S1", Net, optional = True)
+G1 = io("G1", Net, optional = True)
+
+Component(
+    name = "Alpha_Omega_Semicon_AON7804",
+    footprint = File("../../parts/Alpha_Omega_Semicon_AON7804/DFN-8_L3.0-W3.0-P0.65-BL_AON7804-1.kicad_mod"),
+    symbol = Symbol("Alpha_Omega_Semicon_AON7804/AON7804.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "AON7804", manufacturer = "Alpha & Omega Semicon"),
+    properties = {"LCSC": "C431197", "MPN": "AON7804"},
+    pins = {
+        "D1": D1,
+        "S2": S2,
+        "G2": G2,
+        "D2": D2,
+        "S1": S1,
+        "G1": G1,
+    },
+)

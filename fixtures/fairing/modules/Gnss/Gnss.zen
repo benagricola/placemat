@@ -1,0 +1,36 @@
+# Gnss: retained Main connectivity, source lines recorded in retained-circuits.json.
+# Component values remain subject to the core electrical review.
+
+C = Module("@stdlib/generics/Capacitor.zen")
+FB = Module("@stdlib/generics/FerriteBead.zen")
+GNSS = Module("../../adapted/parts/U_BLOX_MAX_M10S_00B.zen")
+RF = Module("../GnssAntenna/GnssAntenna.zen")
+UFL = Module("../../adapted/parts/BAT_WIRELESS_BWU_FL_IPEX1.zen")
+
+gnd = io("GND", Net)
+gnss_pps = io("GNSS_PPS", Net)
+gnss_rx = io("GNSS_RX", Net)
+gnss_tx = io("GNSS_TX", Net)
+v3v3 = io("V3V3", Net)
+
+ant_feed = Net("ANT_FEED")
+gnss_vcc = Net("GNSS_VCC")
+gnss_vcc_rf = Net("GNSS_VCC_RF")
+
+FB(name = "fb_gnss", value = "600ohm", package = "0603", frequency = "100MHz",
+   current = "500mA", P1 = v3v3, P2 = gnss_vcc)
+# No separate backup source: V_BCKP follows VCC, so power removal loses
+# backup state. VIO_SEL must float for 3.3 V IO. SAFEBOOT_N must float;
+# it is internally linked to TIMEPULSE, not an ordinary spare GPIO.
+GNSS(name = "gnss", VCC = gnss_vcc, V_IO = gnss_vcc, V_BCKP = gnss_vcc, GND = gnd,
+     RF_IN = ant_feed, VCC_RF = gnss_vcc_rf,
+     TXD = gnss_tx, RXD = gnss_rx, TIMEPULSE = gnss_pps,
+     EXTINT = NotConnected(), RESET_N = NotConnected(), LNA_EN = NotConnected(),
+     VIO_SEL = NotConnected(), SDA = NotConnected(), SCL = NotConnected(),
+     SAFEBOOT_N = NotConnected())
+C(name = "c_gnss_rf", value = "100nF", package = "0402", P1 = gnss_vcc_rf, P2 = gnd)
+C(name = "c_gnss_bulk", value = "10uF", package = "0603", voltage = "10V", P1 = gnss_vcc, P2 = gnd)
+C(name = "c_gnss_hf", value = "100nF", package = "0402", P1 = gnss_vcc, P2 = gnd)
+RF(name = "ant_rf", ANT_FEED = ant_feed, GND = gnd)
+UFL(name = "j_ufl", P_1 = ant_feed, P_2 = gnd, P_3 = gnd, dnp = True)
+Project(name = "Gnss", path = "kicad", schematic = True, layout = False)

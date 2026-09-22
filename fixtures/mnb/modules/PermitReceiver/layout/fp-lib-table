@@ -1,0 +1,8 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "stdlib_kicad-footprints_Resistor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../.pcb/stdlib/kicad-footprints/Resistor_SMD.pretty") (options "") (descr ""))
+  (lib (name "workspace_parts_Changjiang_Electronics_Tech_1N4148WS") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/Changjiang_Electronics_Tech_1N4148WS") (options "") (descr ""))
+  (lib (name "workspace_parts_Hubei_KENTO_Elec_KT_0603R") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/Hubei_KENTO_Elec_KT_0603R") (options "") (descr ""))
+  (lib (name "workspace_parts_Lite_On_LTV_357T_C") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/Lite_On_LTV_357T_C") (options "") (descr ""))
+  (lib (name "workspace_parts_XFCN_PZ200V_11_02P") (type "KiCad") (uri "${KIPRJMOD}/../../../parts/XFCN_PZ200V_11_02P") (options "") (descr ""))
+)

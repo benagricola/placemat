@@ -1,0 +1,33 @@
+# PTTC_SMD1812P260TF_16 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# PTTC (Polytronics Tech) SMD1812P260TF/16: SMD1812 PPTC resettable fuse, Ihold=2.6A,
+# Itrip=5A, Vmax=16V, R_initial<=15mOhm, R1(post-trip)<=50mOhm, time-to-trip <=5s @ 2x
+# Ihold. LCSC C438899, stock 1,490 pcs 2026-07-26 (>700 boards at 2/board — above the
+# low-hundreds-of-boards bar, flag as a thinner line than the 0402/0603 catalogue and
+# re-verify at order time). Same PTTC vendor family already qualified in this repo
+# (PTTC_SMD1206P050TF_15, the Featherweight's RGB-rail fuse) — reusing the vendor, not
+# inventing a new one.
+#
+# Flyweight-unique part: flyweight-brief.md SS3 / build-prompt requirement 4 calls for "a
+# per-port PPTC or e-fuse so a jammed/faulted servo can't take the rail (or the board)
+# down", sized against the brief's own "~2.5A/servo peak (stall)" figure. Ihold=2.6A sits
+# just above the stated stall figure (won't nuisance-trip on a normal stall peak); Itrip=5A
+# gives a clean ~2x margin so an actual short/jam trips promptly (spec't <=5s at 2x Ihold).
+# Vmax=16V comfortably exceeds the ~5V servo rail it protects.
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+
+Component(
+    name = "PTTC_SMD1812P260TF_16",
+    footprint = File("PTTC_SMD1812P260TF_16/F1812.kicad_mod"),
+    symbol = Symbol("PTTC_SMD1812P260TF_16/PTTC_SMD1812P260TF_16_C438899.kicad_sym"),
+    prefix = "F",
+    part = Part(mpn = "SMD1812P260TF/16", manufacturer = "PTTC"),
+    properties = {"LCSC": "C438899", "MPN": "SMD1812P260TF/16"},
+    pins = {
+        "1": p1,
+        "2": p2,
+    },
+)

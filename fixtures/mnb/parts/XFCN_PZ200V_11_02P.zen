@@ -1,0 +1,31 @@
+# XFCN_PZ200V_11_02P — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# 1x2 2.00mm THT pin header — the canonical 2-pin jumperable link (Ben,
+# 2026-08-02: the whole select/link family is the N17-proven 2mm XFCN
+# PZ200V series; this exact part shipped on the N17 as H1/H3/H5/H6).
+# Shunt: BOOMELE 2.0mm C5664. Used for CAN-TERM (bench-only), the
+# PermitReceiver bypass, RS485 termination and the Breakout links. Mark
+# DNF where a board wants to save the fee - the pads take a solder bridge.
+#
+# Stock check 2026-08-02 (LCSC C541856): 77,350 units. Datasheet (family
+# page, read 2026-08-02): 1.5A / 250V, brass, -40..+105C, body 3.8 x 1.8mm,
+# 0.9mm drills - ample for every link site (termination/bypass currents are
+# mA-level). Replaces the 2.54mm Ckmtw B-2100S02P-A110 C124375 (wrapper
+# stays in parts/ unused); interface (a/b) is a drop-in for it.
+
+a = io("a", Net, optional = True)
+b = io("b", Net, optional = True)
+
+Component(
+    name = "XFCN_PZ200V_11_02P",
+    footprint = File("XFCN_PZ200V_11_02P/HDR-TH_2P-P2.00-V-M.kicad_mod"),
+    symbol = Symbol("XFCN_PZ200V_11_02P/PZ200V-11-02P.kicad_sym"),
+    prefix = "H",
+    part = Part(mpn = "PZ200V-11-02P", manufacturer = "XFCN"),
+    properties = {"LCSC": "C541856", "MPN": "PZ200V-11-02P"},
+    pins = {
+        "1": a,
+        "2": b,
+    },
+)

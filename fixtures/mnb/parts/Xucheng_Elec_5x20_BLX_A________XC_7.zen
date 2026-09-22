@@ -1,0 +1,18 @@
+# Xucheng_Elec_5x20_BLX_A________XC_7 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+a = io("a", Net, optional = True)
+b = io("b", Net, optional = True)
+
+Component(
+    name = "Xucheng_Elec_5x20_BLX_A________XC_7",
+    footprint = File("Xucheng_Elec_5x20_BLX_A________XC_7/FUSE-TH_L22.6-W9.0.kicad_mod"),
+    symbol = Symbol("Xucheng_Elec_5x20_BLX_A________XC_7/5x20BLX-AtypeFuseholderXC-7.kicad_sym"),
+    prefix = "F",
+    part = Part(mpn = "5x20 BLX-A型 保险丝支架 XC-7", manufacturer = "Xucheng Elec"),
+    properties = {"LCSC": "C3131", "MPN": "5x20 BLX-A型 保险丝支架 XC-7"},
+    pins = {
+        "1": a,
+        "2": b,
+    },
+)

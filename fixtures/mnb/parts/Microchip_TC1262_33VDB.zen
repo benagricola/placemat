@@ -1,0 +1,40 @@
+# Microchip_TC1262_33VDB — component wrapper: local KiCad symbol + footprint,
+# LCSC pinned in properties (feeds the JLC BOM/CPL fields).
+#
+# 3.3 V LDO, 500 mA, SOT-223. Replaces the second buck on the logic chain
+# (Ben, 2026-09-04): the 3.3 V rail draws about 105 mA, so a 5 V to 3.3 V buck
+# was a whole converter cell - inductor, catch diode, feedback divider - for
+# 0.35 W of delivered power.
+#
+# WHY THIS PART: the drop is 1.7 V, so at 150 mA of budget it burns 0.255 W in a
+# 100 °C worst-case case ambient. That rules out SOT-23-5 (about 200 K/W, which
+# would put the junction near 150 °C) and makes the SOT-223 tab the requirement,
+# not a preference. LAYOUT MUST give the tab a generous pour: at ~70 K/W the
+# junction sits near 118 °C against the 125 °C limit, and a bigger pour buys
+# margin directly. Also chosen for 130 uA quiescent (an AMS1117-class part draws
+# 2-12 mA continuously, which is 2-10% of this board's whole logic budget) and
+# for ceramic-output stability, so it needs no tantalum.
+#
+# CAVEAT: 6 V absolute maximum input. It is fed from the regulated 5 V rail,
+# whose worst case is about 5.1 V with 1% divider tolerance, so the margin is
+# ~0.9 V. A 5 V rail fault takes this part with it - as it would the rest of the
+# 3.3 V load either way.
+# Pinned 2026-09-04: LCSC C52507, Extended, 1386 in stock.
+
+VIN = io("VIN", Net, optional = True)
+VOUT = io("VOUT", Net, optional = True)
+GND = io("GND", Ground, optional = True)
+
+Component(
+    name = "Microchip_TC1262_33VDB",
+    footprint = File("Microchip_TC1262_33VDB/SOT-223_L6.5-W3.5-P2.30-LS7.0-BR.kicad_mod"),
+    symbol = Symbol("Microchip_TC1262_33VDB/TC1262-3.3VDB.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "TC1262-3.3VDBTR", manufacturer = "Microchip"),
+    properties = {"LCSC": "C52507", "MPN": "TC1262-3.3VDBTR"},
+    pins = {
+        "VIN": VIN,
+        "VOUT": VOUT,
+        "GND": GND,
+    },
+)

@@ -1,0 +1,42 @@
+# Molex_430450418 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# MOTOR PHASE HEADER: Molex Micro-Fit 3.0, 2x2 (dual row), 3.00 mm pitch,
+# surface mount, VERTICAL. 8.5 A per contact, 600 V, -40 °C to +105 °C.
+#
+# WHY THIS PART AND NOT THE 2 mm PA FAMILY (Ben, 2026-09-04): the brief requires
+# >=6 A phase pins and notes that a NEMA23 at ~4 A RMS exceeds a 3 A connector;
+# every JST PA part is 3 A. The PA family is also rated only to +85 °C, and the
+# sealed Middleweight case is designed to a 100 °C worst-case ambient, so the PA
+# parts sit outside their rating there. This is the only vertical SMT candidate
+# found that clears both. Cost: it stands ~9.9 mm proud of the board (the PA is
+# ~6 mm), so it sets lid clearance - accepted by Ben, same day.
+#
+# Pins: 1 and 2 are one row, 3 and 4 the other; 5 and 6 are the board tabs
+# (mechanical, tie to gnd). Phase A takes one row, phase B the other, so each
+# phase's pair stays together in the connector and in the loom.
+# Pinned 2026-09-04: LCSC C293535, Extended, 11394 in stock, $0.98.
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+tab1 = io("tab1", Net, optional = True)
+tab2 = io("tab2", Net, optional = True)
+
+Component(
+    name = "Molex_430450418",
+    footprint = File("Molex_430450418/CONN-SMD_430450418.kicad_mod"),
+    symbol = Symbol("Molex_430450418/430450418.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "43045-0418", manufacturer = "Molex"),
+    properties = {"LCSC": "C293535", "MPN": "430450418"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+        "5": tab1,
+        "6": tab2,
+    },
+)

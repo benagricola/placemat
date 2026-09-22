@@ -1,0 +1,10 @@
+{
+  "mpn": "NCU18XH103F60RB",
+  "manufacturer": "Murata Electronics",
+  "lcsc": {
+    "symbol_url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Murata_Electronics/NCU18XH103F60RB/lcsc/v2/C440252.kicad_sym",
+    "footprint_url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Murata_Electronics/NCU18XH103F60RB/lcsc/v2/R0603.kicad_mod",
+    "step_url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Murata_Electronics/NCU18XH103F60RB/lcsc/v2/R0603.step",
+    "part_number": "C440252"
+  }
+}

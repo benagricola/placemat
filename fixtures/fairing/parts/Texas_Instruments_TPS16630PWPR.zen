@@ -1,0 +1,44 @@
+# Texas_Instruments_TPS16630PWPR - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Texas_Instruments-TPS16630PWPR_C1849461.pdf
+
+IN = io("IN", Net, optional = True)
+N_C = io("N_C", Net, optional = True)
+P_IN = io("P_IN", Net, optional = True)
+UVLO = io("UVLO", Net, optional = True)
+OVP = io("OVP", Net, optional = True)
+GND = io("GND", Net, optional = True)
+dVdT = io("dVdT", Net, optional = True)
+ILIM = io("ILIM", Net, optional = True)
+MODE = io("MODE", Net, optional = True)
+SHDN = io("SHDN", Net, optional = True)
+IMON = io("IMON", Net, optional = True)
+FLT = io("FLT", Net, optional = True)
+PGOOD = io("PGOOD", Net, optional = True)
+OUT = io("OUT", Net, optional = True)
+EP = io("EP", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_TPS16630PWPR",
+    footprint = File("Texas_Instruments_TPS16630PWPR/HTSSOP-20_L6.5-W4.4-P0.65-LS6.4-TL-EP2.58.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_TPS16630PWPR/TPS16630PWPR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "TPS16630PWPR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C1849461", "MPN": "TPS16630PWPR"},
+    pins = {
+        "IN": IN,
+        "N.C": N_C,
+        "P_IN": P_IN,
+        "UVLO": UVLO,
+        "OVP": OVP,
+        "GND": GND,
+        "dVdT": dVdT,
+        "ILIM": ILIM,
+        "MODE": MODE,
+        "~{SHDN}": SHDN,
+        "IMON": IMON,
+        "~{FLT}": FLT,
+        "PGOOD": PGOOD,
+        "OUT": OUT,
+        "EP": EP,
+    },
+)

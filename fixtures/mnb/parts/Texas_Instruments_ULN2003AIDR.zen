@@ -1,0 +1,46 @@
+# Texas_Instruments_ULN2003AIDR — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+COM = io("COM", Net, optional = True)
+E = io("E", Net, optional = True)
+P1B = io("P1B", Net, optional = True)
+P1C = io("P1C", Net, optional = True)
+P2B = io("P2B", Net, optional = True)
+P2C = io("P2C", Net, optional = True)
+P3B = io("P3B", Net, optional = True)
+P3C = io("P3C", Net, optional = True)
+P4B = io("P4B", Net, optional = True)
+P4C = io("P4C", Net, optional = True)
+P5B = io("P5B", Net, optional = True)
+P5C = io("P5C", Net, optional = True)
+P6B = io("P6B", Net, optional = True)
+P6C = io("P6C", Net, optional = True)
+P7B = io("P7B", Net, optional = True)
+P7C = io("P7C", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_ULN2003AIDR",
+    footprint = File("Texas_Instruments_ULN2003AIDR/SOIC-16_L9.9-W3.9-P1.27-LS6.0-BL.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_ULN2003AIDR/ULN2003AIDR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "ULN2003AIDR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C94832", "MPN": "ULN2003AIDR"},
+    pins = {
+        "COM": COM,
+        "E": E,
+        "1B": P1B,
+        "1C": P1C,
+        "2B": P2B,
+        "2C": P2C,
+        "3B": P3B,
+        "3C": P3C,
+        "4B": P4B,
+        "4C": P4C,
+        "5B": P5B,
+        "5C": P5C,
+        "6B": P6B,
+        "6C": P6C,
+        "7B": P7B,
+        "7C": P7C,
+    },
+)

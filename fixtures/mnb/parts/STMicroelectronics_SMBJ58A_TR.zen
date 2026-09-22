@@ -1,0 +1,18 @@
+# STMicroelectronics_SMBJ58A_TR — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+A = io("A", Net, optional = True)
+K = io("K", Net, optional = True)
+
+Component(
+    name = "STMicroelectronics_SMBJ58A_TR",
+    footprint = File("STMicroelectronics_SMBJ58A_TR/SMB_L4.6-W3.6-LS5.3-RD.kicad_mod"),
+    symbol = Symbol("STMicroelectronics_SMBJ58A_TR/SMBJ58A-TR.kicad_sym"),
+    prefix = "D",
+    part = Part(mpn = "SMBJ58A-TR", manufacturer = "STMicroelectronics"),
+    properties = {"LCSC": "C133657", "MPN": "SMBJ58A-TR"},
+    pins = {
+        "A": A,
+        "K": K,
+    },
+)

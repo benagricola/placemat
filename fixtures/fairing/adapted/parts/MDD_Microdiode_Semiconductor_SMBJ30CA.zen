@@ -1,0 +1,18 @@
+# MDD_Microdiode_Semiconductor_SMBJ30CA - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: MDD_Microdiode_Semiconductor-SMBJ30CA_C113999.pdf
+
+A = io("A", Net, optional = True)
+K = io("K", Net, optional = True)
+
+Component(
+    name = "MDD_Microdiode_Semiconductor_SMBJ30CA",
+    footprint = File("../../parts/MDD_Microdiode_Semiconductor_SMBJ30CA/SMB_L4.6-W3.6-LS5.3-BI.kicad_mod"),
+    symbol = Symbol("MDD_Microdiode_Semiconductor_SMBJ30CA/SMBJ30CA.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "SMBJ30CA", manufacturer = "MDD(Microdiode Semiconductor)"),
+    properties = {"LCSC": "C113999", "MPN": "SMBJ30CA"},
+    pins = {
+        "A": A,
+        "K": K,
+    },
+)

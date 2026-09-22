@@ -1,0 +1,18 @@
+# Murata_Electronics_BLM31PG601SN1L — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+
+Component(
+    name = "Murata_Electronics_BLM31PG601SN1L",
+    footprint = File("Murata_Electronics_BLM31PG601SN1L/L1206.kicad_mod"),
+    symbol = Symbol("Murata_Electronics_BLM31PG601SN1L/BLM31PG601SN1L.kicad_sym"),
+    prefix = "FB",
+    part = Part(mpn = "BLM31PG601SN1L", manufacturer = "Murata Electronics"),
+    properties = {"LCSC": "C16902", "MPN": "BLM31PG601SN1L"},
+    pins = {
+        "1": p1,
+        "2": p2,
+    },
+)

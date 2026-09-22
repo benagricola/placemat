@@ -1,0 +1,18 @@
+# UsbConnector: retained Main connectivity, source lines recorded in retained-circuits.json.
+# Component values remain subject to the core electrical review.
+
+USBC = Module("../../adapted/parts/Korean_Hroparts_Elec_TYPE_C_31_M_12.zen")
+
+gnd = io("GND", Net)
+usb_cc1 = io("USB_CC1", Net)
+usb_cc2 = io("USB_CC2", Net)
+usb_dn = io("USB_DN", Net)
+usb_dp = io("USB_DP", Net)
+vbus = io("VBUS", Net)
+
+
+USBC(name = "j_usb", VBUS = vbus, GND = gnd, EH = gnd,
+     CC1 = usb_cc1, CC2 = usb_cc2,
+     DP1 = usb_dp, DP2 = usb_dp, DN1 = usb_dn, DN2 = usb_dn,
+     dnp = False)
+Project(name = "UsbConnector", path = "kicad", schematic = True, layout = False)

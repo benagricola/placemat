@@ -1,0 +1,46 @@
+# U_BLOX_MAX_M10S_00B - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: U-BLOX-MAX-M10S-00B_C4153167.pdf
+
+GND = io("GND", Net, optional = True)
+TXD = io("TXD", Net, optional = True)
+RXD = io("RXD", Net, optional = True)
+TIMEPULSE = io("TIMEPULSE", Net, optional = True)
+EXTINT = io("EXTINT", Net, optional = True)
+V_BCKP = io("V_BCKP", Net, optional = True)
+V_IO = io("V_IO", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+RESET_N = io("RESET_N", Net, optional = True)
+RF_IN = io("RF_IN", Net, optional = True)
+LNA_EN = io("LNA_EN", Net, optional = True)
+VCC_RF = io("VCC_RF", Net, optional = True)
+VIO_SEL = io("VIO_SEL", Net, optional = True)
+SDA = io("SDA", Net, optional = True)
+SCL = io("SCL", Net, optional = True)
+SAFEBOOT_N = io("SAFEBOOT_N", Net, optional = True)
+
+Component(
+    name = "U_BLOX_MAX_M10S_00B",
+    footprint = File("U_BLOX_MAX_M10S_00B/SMD-18_L10.1-W9.7-P1.10-TL_SKG09F.kicad_mod"),
+    symbol = Symbol("U_BLOX_MAX_M10S_00B/MAX_M10S_00B.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "MAX-M10S-00B", manufacturer = "U-BLOX"),
+    properties = {"LCSC": "C4153167", "MPN": "MAX-M10S-00B"},
+    pins = {
+        "GND": GND,
+        "TXD": TXD,
+        "RXD": RXD,
+        "TIMEPULSE": TIMEPULSE,
+        "EXTINT": EXTINT,
+        "V_BCKP": V_BCKP,
+        "V_IO": V_IO,
+        "VCC": VCC,
+        "RESET_N": RESET_N,
+        "RF_IN": RF_IN,
+        "LNA_EN": LNA_EN,
+        "VCC_RF": VCC_RF,
+        "VIO_SEL": VIO_SEL,
+        "SDA": SDA,
+        "SCL": SCL,
+        "SAFEBOOT_N": SAFEBOOT_N,
+    },
+)

@@ -1,0 +1,29 @@
+# Texas_Instruments_INA240A3DR — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+GND = io("GND", Net, optional = True)
+INneg = io("INneg", Net, optional = True)
+INpos = io("INpos", Net, optional = True)
+OUT = io("OUT", Net, optional = True)
+REF1 = io("REF1", Net, optional = True)
+REF2 = io("REF2", Net, optional = True)
+VS = io("VS", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_INA240A3DR",
+    footprint = File("Texas_Instruments_INA240A3DR/SOIC-8_L4.9-W3.9-P1.27-LS6.0-TL.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_INA240A3DR/INA240A3DR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "INA240A3DR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C2060584", "MPN": "INA240A3DR"},
+    pins = {
+        "GND": GND,
+        "IN-": INneg,
+        "IN+": INpos,
+        "OUT": OUT,
+        "REF1": REF1,
+        "REF2": REF2,
+        "VS": VS,
+        "NC": NotConnected(),
+    },
+)

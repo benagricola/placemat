@@ -1,0 +1,36 @@
+# Ckmtw_B_2100S03P_A110 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# 1x3 2.54mm THT pin header, 3A, the 3-pin sibling of the canonical 2-pin
+# B-2100S02P-A110 (C124375) already used for CAN-TERM and the PermitReceiver
+# bypass. Canonical jumperable-select header per Ben's 2026-08-02 ruling:
+# solder jumpers are retired ecosystem-wide in favour of pin headers + shunts
+# (shunt: BOOMELE C5305, loose accessory). Fit a shunt on 1-2 or 2-3 to
+# select a throw; pin 2 is the centre/common. Mark the header DNF on boards
+# that want to save the fee - the pads take a solder bridge just as well.
+#
+# Stock check 2026-08-02 (LCSC C124376): ~8.6k units - above the
+# low-hundreds-of-boards bar (CLAUDE.md process rule 0). Datasheet: brass,
+# gold-plated, 3A, -40..+105C, wave-solderable; JLC "Economic and Standard"
+# PCBA compatible (THT surcharge applies, Ben has accepted THT placement).
+#
+# Interface matches parts/SolderJumper_3P.zen (p1 = throw A, p2 = common
+# centre, p3 = throw B) so call sites swap with only the Module path.
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+
+Component(
+    name = "Ckmtw_B_2100S03P_A110",
+    footprint = File("Ckmtw_B_2100S03P_A110/HDR-TH_3P-P2.54-V-M-1.kicad_mod"),
+    symbol = Symbol("Ckmtw_B_2100S03P_A110/B-2100S03P-A110.kicad_sym"),
+    prefix = "H",
+    part = Part(mpn = "B-2100S03P-A110", manufacturer = "Ckmtw"),
+    properties = {"LCSC": "C124376", "MPN": "B-2100S03P-A110"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+    },
+)

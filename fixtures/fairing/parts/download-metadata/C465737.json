@@ -1,0 +1,10 @@
+{
+  "mpn": "SN74LVC08APWR",
+  "manufacturer": "Texas Instruments",
+  "lcsc": {
+    "symbol_url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/SN74LVC08APWR/lcsc/v2/C465737.kicad_sym",
+    "footprint_url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/SN74LVC08APWR/lcsc/v2/TSSOP-14_L5_0-W4_4-P0_65-LS6_4-BL.kicad_mod",
+    "step_url": null,
+    "part_number": "C465737"
+  }
+}

@@ -1,0 +1,35 @@
+# ADS1115 at 0x49: the retained TMP102 occupies 0x48 on this bus.
+# Two passive module IDs and two permanent heat-source NTCs, all single-ended.
+ADC = Module("../../adapted/parts/C37593.zen")
+NTC = Module("../../adapted/parts/C440252.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+
+gnd = io("GND", Net)
+v3v3 = io("V3V3", Net)
+sda = io("SDA_PWR", Net)
+scl = io("SCL_PWR", Net)
+id_left = io("ID_LEFT", Net)
+id_right = io("ID_RIGHT", Net)
+ntc_buck = Net("NTC_BUCK")
+ntc_pd = Net("NTC_PD")
+adc_buck = Net("ADC_BUCK")
+adc_pd = Net("ADC_PD")
+
+ADC(name = "adc", VDD = v3v3, GND = gnd, SDA = sda, SCL = scl,
+    ADDR = v3v3, ALERT_RDY = NotConnected(), AIN0 = id_left, AIN1 = id_right,
+    AIN2 = adc_buck, AIN3 = adc_pd)
+C(name = "c_adc", value = "100nF", package = "0402", voltage = "16V", P1 = v3v3, P2 = gnd)
+# Murata NCU18XH103F60RB: 10k 1%, B25/50=3380K 1%. 47k bias limits current
+# below 78 uA even with a short and 3.6V rail, below the 100 uA rating at 25 C.
+# Maximum divider self-heating is 0.070 mW; use manufacturer R/T table in FW.
+R(name = "r_buck_bias", value = "47kohm", annotations = {"Tolerance": "1%"}, package = "0402", P1 = v3v3, P2 = ntc_buck)
+R(name = "r_pd_bias", value = "47kohm", annotations = {"Tolerance": "1%"}, package = "0402", P1 = v3v3, P2 = ntc_pd)
+NTC(name = "ntc_buck", P_1 = ntc_buck, P_2 = gnd)
+NTC(name = "ntc_pd", P_1 = ntc_pd, P_2 = gnd)
+R(name = "r_buck_filter", value = "1kohm", package = "0402", P1 = ntc_buck, P2 = adc_buck)
+R(name = "r_pd_filter", value = "1kohm", package = "0402", P1 = ntc_pd, P2 = adc_pd)
+C(name = "c_buck_filter", value = "100nF", package = "0402", voltage = "16V", P1 = adc_buck, P2 = gnd)
+C(name = "c_pd_filter", value = "100nF", package = "0402", voltage = "16V", P1 = adc_pd, P2 = gnd)
+
+Project(name = "Module ID and thermal monitoring", path = "kicad", schematic = True, layout = False)

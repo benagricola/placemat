@@ -1,0 +1,34 @@
+# Texas_Instruments_INA226AIDGSR - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Texas_Instruments-INA226AIDGSR_C49851.pdf
+
+A1 = io("A1", Net, optional = True)
+A0 = io("A0", Net, optional = True)
+Alert = io("Alert", Net, optional = True)
+SDA = io("SDA", Net, optional = True)
+SCL = io("SCL", Net, optional = True)
+VS_P = io("VS_P", Net, optional = True)
+GND = io("GND", Net, optional = True)
+VBUS = io("VBUS", Net, optional = True)
+VIN_N = io("VIN_N", Net, optional = True)
+VIN_P = io("VIN_P", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_INA226AIDGSR",
+    footprint = File("../../parts/Texas_Instruments_INA226AIDGSR/MSOP-10_L3.0-W3.0-P0.50-LS5.0-BL.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_INA226AIDGSR/INA226AIDGSR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "INA226AIDGSR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C49851", "MPN": "INA226AIDGSR"},
+    pins = {
+        "A1": A1,
+        "A0": A0,
+        "Alert": Alert,
+        "SDA": SDA,
+        "SCL": SCL,
+        "VS+": VS_P,
+        "GND": GND,
+        "VBUS": VBUS,
+        "VIN-": VIN_N,
+        "VIN+": VIN_P,
+    },
+)

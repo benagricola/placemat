@@ -1,0 +1,51 @@
+# onsemi_LM358DR2G — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, cnc-expansion capture). Stock: 113,590 units @ LCSC C7950
+# (checked 2026-07-26) — comfortably above the low-hundreds bar. JLC classification
+# not confirmed programmatically; C7950 is one of the highest-volume dual-opamp SKUs
+# on LCSC (also cited as Basic in ecosystem-design/cnc-expansion-brief.md's own Key-ICs
+# table) — treated as Basic, VERIFY at order.
+#
+# Datasheet read (onsemi LM358D, C7950 datasheet, 2026-07-26): NOT a rail-to-rail-output
+# part. Output Voltage High (VOH), RL to GND: @VCC=30V RL=2kohm min 26V (VCC-4V worst
+# case); @VCC=30V RL=10kohm min 27V / typ 28V (VCC-3V worst case / VCC-2V typ). Used here
+# on AMP_RAIL_ISO (15V nominal from B2415S-2WR3, or 24V via the VFD_24V bypass link) driving
+# a high-impedance load (RC filter + a VFD's 0-10V reference input, both >>2kohm) — the
+# RL=10kohm column is the representative one. At 15V nominal: ~28-15/30*... i.e. typ VOH ~=
+# 15-2=13V, worst-case-min ~=15-3=12V, both clear of the 10.0V spindle full-scale target
+# with real margin. B2415S-2WR3 is an UNREGULATED module (see its own wrapper) — worst-case
+# input sag (21.6V low end of its 21.6-26.4V input spec) could pull its 15V nominal output
+# down proportionally (~13.5V); even then VOH_min(RL=10k, scaled) leaves roughly the same
+# 2-3V of headroom, so full-scale 10.0V is still reachable, just with reduced margin —
+# BENCH-VERIFY at the low end of the B2415S-2WR3's input range. The VFD_24V bypass-link path
+# gives much more headroom (24V rail, VOH ~20-21V) and is the higher-margin option when a
+# VFD brings its own 24V. Common-mode input range 0 to VCC-1.5V — fine, the RC filter's DC
+# level (0-3.3V PWM average) sits well inside this on either supply.
+A1 = io("A1", Net, optional = True)
+V1 = io("V1", Net, optional = True)
+V1N = io("V1N", Net, optional = True)
+GND = io("GND", Net, optional = True)
+V2 = io("V2", Net, optional = True)
+V2N = io("V2N", Net, optional = True)
+A2 = io("A2", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+
+Component(
+    name = "onsemi_LM358DR2G",
+    footprint = File("onsemi_LM358DR2G/SOIC-8_L5.0-W4.0-P1.27-LS6.0-BL.kicad_mod"),
+    symbol = Symbol("onsemi_LM358DR2G/LM358DR2G.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "LM358DR2G", manufacturer = "onsemi"),
+    properties = {"LCSC": "C7950", "MPN": "LM358DR2G"},
+    pins = {
+        "1OUT": A1,
+        "1IN-": V1N,
+        "1IN+": V1,
+        "GND": GND,
+        "2IN+": V2,
+        "2IN-": V2N,
+        "2OUT": A2,
+        "VCC": VCC,
+    },
+)

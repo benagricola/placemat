@@ -1,0 +1,62 @@
+# TI_LM5164DDAR — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# 100 V, 1 A SYNCHRONOUS buck converter, SO-8 with exposed pad. The compact-rail
+# alternative to the SY8513FCC for boards where area and height are the binding
+# constraints (Ben, 2026-09-05, after reviewing how the N17's TI rails stayed
+# small). Datasheet SNVSAU4A read 2026-09-05; the numbers that matter:
+#
+#   * INTEGRATED synchronous rectifier, 0.34 ohm. No external Schottky at all,
+#     which removes an SMB from the cell and the heat that went with it.
+#   * Switching to 1 MHz with a 50 ns minimum on-time (the SY8513 is capped at
+#     500 kHz with a 180 ns floor). That is what lets the inductor drop from
+#     3.0 mm tall to 2.0 or less - at 1 MHz a 48 V to 5 V rail runs 0.20 A of
+#     ripple against 0.68 A at 300 kHz.
+#   * Junction range -40 to +150 C. The SY8513's RECOMMENDED range is an
+#     AMBIENT of -40 to +85 C, and this ecosystem's sealed node is designed to
+#     100 C, so the incumbent is outside its range in that application.
+#   * COT control with an internal bias regulator and boot diode: the external
+#     set is inductor, input caps, output caps, a 2.2 nF BST cap, the on-time
+#     resistor and the feedback divider. Ten parts against the SY8513 cell's
+#     sixteen.
+#   * On-time is programmed by RON and compensated for input voltage, so
+#     fsw = Vout / (400e-9 * RON[kohm]) and holds across the 48 V bus's
+#     56-58 V chopper window.
+#
+# LIMIT: 1 A output. It does not serve the Flyweight's servo rails or the CNC
+# Expansion's 2 A IO rail - those keep the SY8513, or take an LM5146 controller
+# driving the 100 V FET already in the bridge BOM.
+# THERMAL TO VERIFY AT BRING-UP: at 24 V and 0.7 A the part passes ~17 W and
+# dissipates ~1 W; RthJA is 41.1 C/W on a JEDEC board, so the junction sits near
+# 141 C at a 100 C ambient against the 150 C limit. It wants the lid face and a
+# generous pad pour.
+# Pinned 2026-09-05: LCSC C477928, Extended, 3087 in stock, $1.98.
+
+GND = io("GND", Ground, optional = True)
+VIN = io("VIN", Net, optional = True)
+EN = io("EN", Net, optional = True)
+RON = io("RON", Net, optional = True)
+FB = io("FB", Net, optional = True)
+PGOOD = io("PGOOD", Net, optional = True)
+BST = io("BST", Net, optional = True)
+SW = io("SW", Net, optional = True)
+
+Component(
+    name = "TI_LM5164DDAR",
+    footprint = File("TI_LM5164DDAR/SO-8_L4.9-W3.9-P1.27-LS6.0-BL-EP.kicad_mod"),
+    symbol = Symbol("TI_LM5164DDAR/LM5164DDAR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "LM5164DDAR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C477928", "MPN": "LM5164DDAR"},
+    pins = {
+        "GND": GND,
+        "VIN": VIN,
+        "EN/UVLO": EN,
+        "RON": RON,
+        "FB": FB,
+        "PGOOD": PGOOD,
+        "BST": BST,
+        "SW": SW,
+        "EP": GND,
+    },
+)

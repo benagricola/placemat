@@ -1,0 +1,36 @@
+# Pulse_Elec_W3011 - 1575MHz GNSS ceramic chip antenna, 1206 (3.2 x 1.6 x 1.1mm).
+# Replaces the Abracon ACAG0301: 697 in stock against 43, a 4.00 x 4.25 ground
+# clearance against 5.0 x 6.0, and three bands - 1559-1563, 1574.4-1576.4 and
+# 1598.6-1606.6MHz (p2) - so it reaches GLONASS L1, which the Abracon's 40MHz
+# does not. Datasheet: Pulse_Elec-W3011_C6604735.pdf.
+#
+# THE PART IS SYMMETRICAL AND EITHER END CAN BE THE FEED. Datasheet p3, under
+# "Antenna features": both terminals are named "Feed / GND", both are 0.62 x
+# 1.36mm, and the note reads "Antenna is symmetrical. Either of terminals 1 or 2
+# can be feed / GND". So there is no wrong way round, and which end feeds is a
+# layout convenience - here pin 2, because west is the side the receiver is on.
+#
+# The symbol shipped both pins named "Feed/GND", which is CORRECT for this part
+# but leaves them unaddressable: Zener matches pins by name and refuses a
+# duplicate. They are renamed GND and ANT in the local symbol so the board can
+# say which end it is using. The names are ours, not the part's.
+#
+# The footprint is ANT-W3011_DATASHEET, built from p3 and p7 rather than the
+# easyeda2kicad original, which is beside it and sits 0.1mm out with a courtyard
+# that does not enclose its pads.
+
+GND = io("GND", Net, optional = True)
+ANT = io("ANT", Net, optional = True)
+
+Component(
+    name = "Pulse_Elec_W3011",
+    footprint = File("Pulse_Elec_W3011/ANT-W3011_DATASHEET.kicad_mod"),
+    symbol = Symbol("Pulse_Elec_W3011/W3011.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "W3011", manufacturer = "Pulse Electronics"),
+    properties = {"LCSC": "C6604735", "MPN": "W3011"},
+    pins = {
+        "GND": GND,
+        "ANT": ANT,
+    },
+)

@@ -1,0 +1,33 @@
+# Texas_Instruments_SN74LVC1G08DCKR — component wrapper: local KiCad symbol + footprint,
+# LCSC pinned in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, middleweight capture). Single 2-input AND gate, SC-70-5 (matches
+# the brief's "74LVC1G08, SC-70/SOT-23-5"). LCSC C7832, stock 90,000 units @ ~$0.03-0.07
+# (checked 2026-07-26) — high-volume TI logic part, Basic-class-typical (VERIFY at order).
+#
+# Two instances on the Middleweight (middleweight.zen "holding brake" section): one ANDs
+# PERMIT_A.out * PERMIT_B.out into the combined PERMIT term (A*B); the second ANDs that
+# term with BRK_PWM to gate the holding-brake FET — "the brake releases only while the
+# driver is powered AND both permits are asserted" (brief S7 / build-prompt "holding
+# brake"). VCC = 3V3 logic supply.
+A = io("A", Net, optional = True)
+B = io("B", Net, optional = True)
+GND = io("GND", Net, optional = True)
+Y = io("Y", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_SN74LVC1G08DCKR",
+    footprint = File("Texas_Instruments_SN74LVC1G08DCKR/SC-70-5_L2.1-W1.3-P0.65-LS2.1-BR.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_SN74LVC1G08DCKR/Texas_Instruments_SN74LVC1G08DCKR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "SN74LVC1G08DCKR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C7832", "MPN": "SN74LVC1G08DCKR"},
+    pins = {
+        "A": A,
+        "B": B,
+        "GND": GND,
+        "Y": Y,
+        "VCC": VCC,
+    },
+)

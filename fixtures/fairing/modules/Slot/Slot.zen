@@ -1,0 +1,69 @@
+# One power-off-swappable DF40 logic slot. No charging current uses this joint.
+# TPS2553: 150 mA operating budget; 130k 1% sets 178/206/239 mA min/nom/max.
+# SN74CB3Q3245: powered from core 3V3, OE high disables; Ioff when core is off.
+LIMIT = Module("../../adapted/parts/C55266.zen")
+ISOLATE = Module("../../adapted/parts/C2674534.zen")
+CONNECTOR = Module("../../adapted/parts/C424638.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+
+gnd = io("GND", Net)
+v3v3 = io("V3V3", Net)
+enable = io("ENABLE", Net)
+oe_n = io("OE_N", Net)
+fault_n = io("FAULT_N", Net)
+sck = io("SCK", Net)
+mosi = io("MOSI", Net)
+miso = io("MISO", Net)
+cs_n = io("CS_N", Net)
+irq_n = io("IRQ_N", Net)
+id_drive = io("ID_DRIVE", Net)
+id_sense = io("ID_SENSE", Net)
+
+slot_v = Net("SLOT_3V3")
+ilim = Net("ILIM")
+slot_sck = Net("SLOT_SCK")
+slot_mosi = Net("SLOT_MOSI")
+slot_miso = Net("SLOT_MISO")
+slot_cs = Net("SLOT_CS_N")
+slot_irq = Net("SLOT_IRQ_N")
+slot_id = Net("SLOT_ID")
+
+LIMIT(name = "limit", IN = v3v3, GND = gnd, EN = enable,
+      FAULT = fault_n, ILIM = ilim, OUT = slot_v)
+R(name = "r_ilim", value = "130kohm", annotations = {"Tolerance": "1%"}, package = "0402", P1 = ilim, P2 = gnd)
+R(name = "r_en_off", value = "10kohm", package = "0402", P1 = enable, P2 = gnd)
+R(name = "r_fault", value = "10kohm", package = "0402", P1 = v3v3, P2 = fault_n)
+C(name = "c_in", value = "1uF", package = "0402", voltage = "16V", P1 = v3v3, P2 = gnd)
+C(name = "c_out", value = "1uF", package = "0402", voltage = "16V", P1 = slot_v, P2 = gnd)
+C(name = "c_out_hf", value = "100nF", package = "0402", voltage = "16V", P1 = slot_v, P2 = gnd)
+# Bleed stored rail charge after disable; 1 uF core-side time constant is 10 ms.
+# Module capacitance and reverse-source conditions require bench verification.
+R(name = "r_discharge", value = "10kohm", package = "0402", P1 = slot_v, P2 = gnd)
+
+ISOLATE(name = "isolation", VCC = v3v3, GND = gnd, OE = oe_n,
+        A1 = sck, B1 = slot_sck, A2 = mosi, B2 = slot_mosi,
+        A3 = miso, B3 = slot_miso, A4 = cs_n, B4 = slot_cs,
+        A5 = irq_n, B5 = slot_irq, NC = NotConnected(),
+        A6 = NotConnected(), B6 = NotConnected(),
+        A7 = NotConnected(), B7 = NotConnected(),
+        A8 = NotConnected(), B8 = NotConnected())
+C(name = "c_isolation", value = "100nF", package = "0402", voltage = "16V", P1 = v3v3, P2 = gnd)
+R(name = "r_oe_off", value = "10kohm", package = "0402", P1 = v3v3, P2 = oe_n)
+R(name = "r_cs_idle", value = "10kohm", package = "0402", P1 = slot_v, P2 = slot_cs)
+R(name = "r_irq", value = "10kohm", package = "0402", P1 = v3v3, P2 = irq_n)
+# ID is a passive resistor to GND, never a module-driven signal. Excitation is
+# <=36.4 uA at 3.6 V and 100k -1%. Series sensing limits fault injection;
+# it is bounded sensing, not galvanic isolation or zero-leakage protection.
+R(name = "r_id_bias", value = "100kohm", annotations = {"Tolerance": "1%"}, package = "0402", P1 = id_drive, P2 = slot_id)
+R(name = "r_id_filter", value = "100kohm", annotations = {"Tolerance": "1%"}, package = "0402", P1 = slot_id, P2 = id_sense)
+C(name = "c_id", value = "1nF", package = "0402", voltage = "50V", P1 = id_sense, P2 = gnd)
+
+CONNECTOR(name = "connector", P_1 = slot_v, P_2 = slot_v,
+          P_3 = gnd, P_4 = gnd, P_5 = slot_sck, P_6 = gnd,
+          P_7 = slot_mosi, P_8 = gnd, P_9 = slot_miso, P_10 = gnd,
+          P_11 = slot_cs, P_12 = gnd, P_13 = slot_irq, P_14 = gnd,
+          P_15 = slot_id, P_16 = gnd, P_17 = NotConnected(),
+          P_18 = NotConnected(), P_19 = NotConnected(), P_20 = NotConnected())
+
+Project(name = "Limited logic slot", path = "kicad", schematic = True, layout = False)

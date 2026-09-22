@@ -1,0 +1,123 @@
+# ESP32-S3R8; native source and hash in C2913194/asset-provenance.json.
+
+GND = io("GND", Net, optional = True)
+VDDA = io("VDDA", Net, optional = True)
+XTAL_P = io("XTAL_P", Net, optional = True)
+XTAL_N = io("XTAL_N", Net, optional = True)
+GPIO46 = io("GPIO46", Net, optional = True)
+GPIO45 = io("GPIO45", Net, optional = True)
+U0RXD = io("U0RXD", Net, optional = True)
+U0TXD = io("U0TXD", Net, optional = True)
+MTMS = io("MTMS", Net, optional = True)
+MTDI = io("MTDI", Net, optional = True)
+VDD3P3_CPU = io("VDD3P3_CPU", Net, optional = True)
+MTDO = io("MTDO", Net, optional = True)
+MTCK = io("MTCK", Net, optional = True)
+GPIO38 = io("GPIO38", Net, optional = True)
+GPIO37 = io("GPIO37", Net, optional = True)
+GPIO36 = io("GPIO36", Net, optional = True)
+GPIO35 = io("GPIO35", Net, optional = True)
+GPIO34 = io("GPIO34", Net, optional = True)
+GPIO33 = io("GPIO33", Net, optional = True)
+SPICLK_P = io("SPICLK_P", Net, optional = True)
+SPICLK_N = io("SPICLK_N", Net, optional = True)
+SPID = io("SPID", Net, optional = True)
+SPIQ = io("SPIQ", Net, optional = True)
+SPICLK = io("SPICLK", Net, optional = True)
+SPICS0 = io("SPICS0", Net, optional = True)
+SPIWP = io("SPIWP", Net, optional = True)
+SPIHD = io("SPIHD", Net, optional = True)
+VDD_SPI = io("VDD_SPI", Net, optional = True)
+SPICS1 = io("SPICS1", Net, optional = True)
+GPIO21 = io("GPIO21", Net, optional = True)
+GPIO20 = io("GPIO20", Net, optional = True)
+GPIO19 = io("GPIO19", Net, optional = True)
+GPIO18 = io("GPIO18", Net, optional = True)
+GPIO17 = io("GPIO17", Net, optional = True)
+XTAL_32K_N = io("XTAL_32K_N", Net, optional = True)
+XTAL_32K_P = io("XTAL_32K_P", Net, optional = True)
+VDD3P3_RTC = io("VDD3P3_RTC", Net, optional = True)
+GPIO14 = io("GPIO14", Net, optional = True)
+GPIO13 = io("GPIO13", Net, optional = True)
+GPIO12 = io("GPIO12", Net, optional = True)
+GPIO11 = io("GPIO11", Net, optional = True)
+GPIO10 = io("GPIO10", Net, optional = True)
+GPIO9 = io("GPIO9", Net, optional = True)
+GPIO8 = io("GPIO8", Net, optional = True)
+GPIO7 = io("GPIO7", Net, optional = True)
+GPIO6 = io("GPIO6", Net, optional = True)
+GPIO5 = io("GPIO5", Net, optional = True)
+GPIO4 = io("GPIO4", Net, optional = True)
+GPIO3 = io("GPIO3", Net, optional = True)
+GPIO2 = io("GPIO2", Net, optional = True)
+GPIO1 = io("GPIO1", Net, optional = True)
+GPIO0 = io("GPIO0", Net, optional = True)
+CHIP_PU = io("CHIP_PU", Net, optional = True)
+VDD3P3 = io("VDD3P3", Net, optional = True)
+LNA_IN = io("LNA_IN", Net, optional = True)
+
+Component(
+    name = "ESP32-S3R8",
+    footprint = File("C2913194/QFN-56_L7_0-W7_0-P0_40-TL-EP4_0.kicad_mod"),
+    symbol = Symbol("C2913194/C2913194.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "ESP32-S3R8", manufacturer = "Espressif Systems"),
+    properties = {"LCSC": "C2913194", "MPN": "ESP32-S3R8"},
+    pins = {
+        "GND": GND,
+        "VDDA": VDDA,
+        "XTAL_P": XTAL_P,
+        "XTAL_N": XTAL_N,
+        "GPIO46": GPIO46,
+        "GPIO45": GPIO45,
+        "U0RXD": U0RXD,
+        "U0TXD": U0TXD,
+        "MTMS": MTMS,
+        "MTDI": MTDI,
+        "VDD3P3_CPU": VDD3P3_CPU,
+        "MTDO": MTDO,
+        "MTCK": MTCK,
+        "GPIO38": GPIO38,
+        "GPIO37": GPIO37,
+        "GPIO36": GPIO36,
+        "GPIO35": GPIO35,
+        "GPIO34": GPIO34,
+        "GPIO33": GPIO33,
+        "SPICLK_P": SPICLK_P,
+        "SPICLK_N": SPICLK_N,
+        "SPID": SPID,
+        "SPIQ": SPIQ,
+        "SPICLK": SPICLK,
+        "SPICS0": SPICS0,
+        "SPIWP": SPIWP,
+        "SPIHD": SPIHD,
+        "VDD_SPI": VDD_SPI,
+        "SPICS1": SPICS1,
+        "GPIO21": GPIO21,
+        "GPIO20": GPIO20,
+        "GPIO19": GPIO19,
+        "GPIO18": GPIO18,
+        "GPIO17": GPIO17,
+        "XTAL_32K_N": XTAL_32K_N,
+        "XTAL_32K_P": XTAL_32K_P,
+        "VDD3P3_RTC": VDD3P3_RTC,
+        "GPIO14": GPIO14,
+        "GPIO13": GPIO13,
+        "GPIO12": GPIO12,
+        "GPIO11": GPIO11,
+        "GPIO10": GPIO10,
+        "GPIO9": GPIO9,
+        "GPIO8": GPIO8,
+        "GPIO7": GPIO7,
+        "GPIO6": GPIO6,
+        "GPIO5": GPIO5,
+        "GPIO4": GPIO4,
+        "GPIO3": GPIO3,
+        "GPIO2": GPIO2,
+        "GPIO1": GPIO1,
+        "GPIO0": GPIO0,
+        "CHIP_PU": CHIP_PU,
+        "VDD3P3": VDD3P3,
+        "LNA_IN": LNA_IN,
+    },
+)

@@ -1,0 +1,18 @@
+# Sunlord_SWPA4030S331MT - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Sunlord-SWPA4030S331MT_C96898.pdf
+
+P_2 = io("P_2", Net, optional = True)
+P_1 = io("P_1", Net, optional = True)
+
+Component(
+    name = "Sunlord_SWPA4030S331MT",
+    footprint = File("Sunlord_SWPA4030S331MT/IND-SMD_L4.0-W4.0.kicad_mod"),
+    symbol = Symbol("Sunlord_SWPA4030S331MT/SWPA4030S331MT.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "SWPA4030S331MT", manufacturer = "Sunlord"),
+    properties = {"LCSC": "C96898", "MPN": "SWPA4030S331MT"},
+    pins = {
+        "2": P_2,
+        "1": P_1,
+    },
+)

@@ -1,0 +1,910 @@
+{
+ "part": "RP2350B",
+ "package": "QFN-80",
+ "gpio_count": 48,
+ "source": "rp2350-datasheet.pdf section 1.2.3 Table 3 (GPIO functions, Bank 0); ADC channels from the pinout (GPIO40_ADC0 .. GPIO47_ADC7) and section 12.4",
+ "rules": {
+  "adc": "analog inputs only on GPIO40-47 (ADC0-7); nothing else can be an ADC input",
+  "pio": "PIO0/1/2 can drive any GPIO, but each PIO block sees a 32-pin window set by GPIOBASE (0 -> GPIO0-31, 16 -> GPIO16-47); a bus driven by one state machine must fit one window",
+  "sio": "plain GPIO on every pin",
+  "pwm": "a PWM slice output on every GPIO (slice and channel fixed per pin)",
+  "hardware_spi": "SPI0/SPI1 signals only on the listed pins per instance (RX, CSn, SCK, TX repeat every 4 GPIOs; SPI0 on 0-7, 16-23, 32-39; SPI1 on 8-15, 24-31, 40-47)",
+  "hardware_uart": "UART0/UART1 TX/RX/CTS/RTS only on the listed pins; some pins carry a second TX/RX in F11",
+  "hardware_i2c": "I2C0/I2C1 SDA/SCL only on the listed pins",
+  "dedicated": "USB DP/DM, SWCLK/SWDIO, XIN/XOUT, RUN and the QSPI flash pins are NOT GPIOs and cannot be reassigned",
+  "avoid": "GPIO0-3 carry JTAG when JTAG_FUNCSEL is enabled; GPIO12-19 carry HSTX; QMI CS1n on 0, 8, 19, 47; keep boot-strap and debug considerations in mind"
+ },
+ "pins": {
+  "0": {
+   "gpio": 0,
+   "spi": "SPI0 RX",
+   "uart": "UART0 TX",
+   "i2c": "I2C0 SDA",
+   "pwm": "PWM0 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "QMI CS1n",
+    "USB OVCUR DET"
+   ],
+   "adc": null
+  },
+  "1": {
+   "gpio": 1,
+   "spi": "SPI0 CSn",
+   "uart": "UART0 RX",
+   "i2c": "I2C0 SCL",
+   "pwm": "PWM0 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "TRACECLK",
+    "USB VBUS DET"
+   ],
+   "adc": null
+  },
+  "2": {
+   "gpio": 2,
+   "spi": "SPI0 SCK",
+   "uart": "UART0 CTS",
+   "i2c": "I2C1 SDA",
+   "pwm": "PWM1 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART0 TX",
+   "special": [
+    "TRACEDATA0",
+    "USB VBUS EN"
+   ],
+   "adc": null
+  },
+  "3": {
+   "gpio": 3,
+   "spi": "SPI0 TX",
+   "uart": "UART0 RTS",
+   "i2c": "I2C1 SCL",
+   "pwm": "PWM1 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART0 RX",
+   "special": [
+    "TRACEDATA1",
+    "USB OVCUR DET"
+   ],
+   "adc": null
+  },
+  "4": {
+   "gpio": 4,
+   "spi": "SPI0 RX",
+   "uart": "UART1 TX",
+   "i2c": "I2C0 SDA",
+   "pwm": "PWM2 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "TRACEDATA2",
+    "USB VBUS DET"
+   ],
+   "adc": null
+  },
+  "5": {
+   "gpio": 5,
+   "spi": "SPI0 CSn",
+   "uart": "UART1 RX",
+   "i2c": "I2C0 SCL",
+   "pwm": "PWM2 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "TRACEDATA3",
+    "USB VBUS EN"
+   ],
+   "adc": null
+  },
+  "6": {
+   "gpio": 6,
+   "spi": "SPI0 SCK",
+   "uart": "UART1 CTS",
+   "i2c": "I2C1 SDA",
+   "pwm": "PWM3 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART1 TX",
+   "special": [
+    "USB OVCUR DET"
+   ],
+   "adc": null
+  },
+  "7": {
+   "gpio": 7,
+   "spi": "SPI0 TX",
+   "uart": "UART1 RTS",
+   "i2c": "I2C1 SCL",
+   "pwm": "PWM3 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART1 RX",
+   "special": [
+    "USB VBUS DET"
+   ],
+   "adc": null
+  },
+  "8": {
+   "gpio": 8,
+   "spi": "SPI1 RX",
+   "uart": "UART1 TX",
+   "i2c": "I2C0 SDA",
+   "pwm": "PWM4 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "QMI CS1n",
+    "USB VBUS EN"
+   ],
+   "adc": null
+  },
+  "9": {
+   "gpio": 9,
+   "spi": "SPI1 CSn",
+   "uart": "UART1 RX",
+   "i2c": "I2C0 SCL",
+   "pwm": "PWM4 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "USB OVCUR DET"
+   ],
+   "adc": null
+  },
+  "10": {
+   "gpio": 10,
+   "spi": "SPI1 SCK",
+   "uart": "UART1 CTS",
+   "i2c": "I2C1 SDA",
+   "pwm": "PWM5 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART1 TX",
+   "special": [
+    "USB VBUS DET"
+   ],
+   "adc": null
+  },
+  "11": {
+   "gpio": 11,
+   "spi": "SPI1 TX",
+   "uart": "UART1 RTS",
+   "i2c": "I2C1 SCL",
+   "pwm": "PWM5 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART1 RX",
+   "special": [
+    "USB VBUS EN"
+   ],
+   "adc": null
+  },
+  "12": {
+   "gpio": 12,
+   "spi": "SPI1 RX",
+   "uart": "UART0 TX",
+   "i2c": "I2C0 SDA",
+   "pwm": "PWM6 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "HSTX",
+    "CLOCK GPIN0",
+    "USB OVCUR DET"
+   ],
+   "adc": null
+  },
+  "13": {
+   "gpio": 13,
+   "spi": "SPI1 CSn",
+   "uart": "UART0 RX",
+   "i2c": "I2C0 SCL",
+   "pwm": "PWM6 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "HSTX",
+    "CLOCK GPOUT0",
+    "USB VBUS DET"
+   ],
+   "adc": null
+  },
+  "14": {
+   "gpio": 14,
+   "spi": "SPI1 SCK",
+   "uart": "UART0 CTS",
+   "i2c": "I2C1 SDA",
+   "pwm": "PWM7 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART0 TX",
+   "special": [
+    "HSTX",
+    "CLOCK GPIN1",
+    "USB VBUS EN"
+   ],
+   "adc": null
+  },
+  "15": {
+   "gpio": 15,
+   "spi": "SPI1 TX",
+   "uart": "UART0 RTS",
+   "i2c": "I2C1 SCL",
+   "pwm": "PWM7 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART0 RX",
+   "special": [
+    "HSTX",
+    "CLOCK GPOUT1",
+    "USB OVCUR DET"
+   ],
+   "adc": null
+  },
+  "16": {
+   "gpio": 16,
+   "spi": "SPI0 RX",
+   "uart": "UART0 TX",
+   "i2c": "I2C0 SDA",
+   "pwm": "PWM0 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "HSTX",
+    "USB VBUS DET"
+   ],
+   "adc": null
+  },
+  "17": {
+   "gpio": 17,
+   "spi": "SPI0 CSn",
+   "uart": "UART0 RX",
+   "i2c": "I2C0 SCL",
+   "pwm": "PWM0 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "HSTX",
+    "USB VBUS EN"
+   ],
+   "adc": null
+  },
+  "18": {
+   "gpio": 18,
+   "spi": "SPI0 SCK",
+   "uart": "UART0 CTS",
+   "i2c": "I2C1 SDA",
+   "pwm": "PWM1 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART0 TX",
+   "special": [
+    "HSTX",
+    "USB OVCUR DET"
+   ],
+   "adc": null
+  },
+  "19": {
+   "gpio": 19,
+   "spi": "SPI0 TX",
+   "uart": "UART0 RTS",
+   "i2c": "I2C1 SCL",
+   "pwm": "PWM1 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART0 RX",
+   "special": [
+    "HSTX",
+    "QMI CS1n",
+    "USB VBUS DET"
+   ],
+   "adc": null
+  },
+  "20": {
+   "gpio": 20,
+   "spi": "SPI0 RX",
+   "uart": "UART1 TX",
+   "i2c": "I2C0 SDA",
+   "pwm": "PWM2 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "CLOCK GPIN0",
+    "USB VBUS EN"
+   ],
+   "adc": null
+  },
+  "21": {
+   "gpio": 21,
+   "spi": "SPI0 CSn",
+   "uart": "UART1 RX",
+   "i2c": "I2C0 SCL",
+   "pwm": "PWM2 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "CLOCK GPOUT0",
+    "USB OVCUR DET"
+   ],
+   "adc": null
+  },
+  "22": {
+   "gpio": 22,
+   "spi": "SPI0 SCK",
+   "uart": "UART1 CTS",
+   "i2c": "I2C1 SDA",
+   "pwm": "PWM3 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART1 TX",
+   "special": [
+    "CLOCK GPIN1",
+    "USB VBUS DET"
+   ],
+   "adc": null
+  },
+  "23": {
+   "gpio": 23,
+   "spi": "SPI0 TX",
+   "uart": "UART1 RTS",
+   "i2c": "I2C1 SCL",
+   "pwm": "PWM3 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART1 RX",
+   "special": [
+    "CLOCK GPOUT1",
+    "USB VBUS EN"
+   ],
+   "adc": null
+  },
+  "24": {
+   "gpio": 24,
+   "spi": "SPI1 RX",
+   "uart": "UART1 TX",
+   "i2c": "I2C0 SDA",
+   "pwm": "PWM4 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "CLOCK GPOUT2",
+    "USB OVCUR DET"
+   ],
+   "adc": null
+  },
+  "25": {
+   "gpio": 25,
+   "spi": "SPI1 CSn",
+   "uart": "UART1 RX",
+   "i2c": "I2C0 SCL",
+   "pwm": "PWM4 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "CLOCK GPOUT3",
+    "USB VBUS DET"
+   ],
+   "adc": null
+  },
+  "26": {
+   "gpio": 26,
+   "spi": "SPI1 SCK",
+   "uart": "UART1 CTS",
+   "i2c": "I2C1 SDA",
+   "pwm": "PWM5 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART1 TX",
+   "special": [
+    "USB VBUS EN"
+   ],
+   "adc": null
+  },
+  "27": {
+   "gpio": 27,
+   "spi": "SPI1 TX",
+   "uart": "UART1 RTS",
+   "i2c": "I2C1 SCL",
+   "pwm": "PWM5 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART1 RX",
+   "special": [
+    "USB OVCUR DET"
+   ],
+   "adc": null
+  },
+  "28": {
+   "gpio": 28,
+   "spi": "SPI1 RX",
+   "uart": "UART0 TX",
+   "i2c": "I2C0 SDA",
+   "pwm": "PWM6 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "USB VBUS DET"
+   ],
+   "adc": null
+  },
+  "29": {
+   "gpio": 29,
+   "spi": "SPI1 CSn",
+   "uart": "UART0 RX",
+   "i2c": "I2C0 SCL",
+   "pwm": "PWM6 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "USB VBUS EN"
+   ],
+   "adc": null
+  },
+  "30": {
+   "gpio": 30,
+   "spi": "SPI1 SCK",
+   "uart": "UART0 CTS",
+   "i2c": "I2C1 SDA",
+   "pwm": "PWM7 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART0 TX",
+   "special": [
+    "USB OVCUR DET"
+   ],
+   "adc": null
+  },
+  "31": {
+   "gpio": 31,
+   "spi": "SPI1 TX",
+   "uart": "UART0 RTS",
+   "i2c": "I2C1 SCL",
+   "pwm": "PWM7 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART0 RX",
+   "special": [
+    "USB VBUS DET"
+   ],
+   "adc": null
+  },
+  "32": {
+   "gpio": 32,
+   "spi": "SPI0 RX",
+   "uart": "UART0 TX",
+   "i2c": "I2C0 SDA",
+   "pwm": "PWM8 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "USB VBUS EN"
+   ],
+   "adc": null
+  },
+  "33": {
+   "gpio": 33,
+   "spi": "SPI0 CSn",
+   "uart": "UART0 RX",
+   "i2c": "I2C0 SCL",
+   "pwm": "PWM8 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "USB OVCUR DET"
+   ],
+   "adc": null
+  },
+  "34": {
+   "gpio": 34,
+   "spi": "SPI0 SCK",
+   "uart": "UART0 CTS",
+   "i2c": "I2C1 SDA",
+   "pwm": "PWM9 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART0 TX",
+   "special": [
+    "USB VBUS DET"
+   ],
+   "adc": null
+  },
+  "35": {
+   "gpio": 35,
+   "spi": "SPI0 TX",
+   "uart": "UART0 RTS",
+   "i2c": "I2C1 SCL",
+   "pwm": "PWM9 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART0 RX",
+   "special": [
+    "USB VBUS EN"
+   ],
+   "adc": null
+  },
+  "36": {
+   "gpio": 36,
+   "spi": "SPI0 RX",
+   "uart": "UART1 TX",
+   "i2c": "I2C0 SDA",
+   "pwm": "PWM10 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "USB OVCUR DET"
+   ],
+   "adc": null
+  },
+  "37": {
+   "gpio": 37,
+   "spi": "SPI0 CSn",
+   "uart": "UART1 RX",
+   "i2c": "I2C0 SCL",
+   "pwm": "PWM10 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "USB VBUS DET"
+   ],
+   "adc": null
+  },
+  "38": {
+   "gpio": 38,
+   "spi": "SPI0 SCK",
+   "uart": "UART1 CTS",
+   "i2c": "I2C1 SDA",
+   "pwm": "PWM11 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART1 TX",
+   "special": [
+    "USB VBUS EN"
+   ],
+   "adc": null
+  },
+  "39": {
+   "gpio": 39,
+   "spi": "SPI0 TX",
+   "uart": "UART1 RTS",
+   "i2c": "I2C1 SCL",
+   "pwm": "PWM11 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART1 RX",
+   "special": [
+    "USB OVCUR DET"
+   ],
+   "adc": null
+  },
+  "40": {
+   "gpio": 40,
+   "spi": "SPI1 RX",
+   "uart": "UART1 TX",
+   "i2c": "I2C0 SDA",
+   "pwm": "PWM8 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "USB VBUS DET"
+   ],
+   "adc": "ADC0"
+  },
+  "41": {
+   "gpio": 41,
+   "spi": "SPI1 CSn",
+   "uart": "UART1 RX",
+   "i2c": "I2C0 SCL",
+   "pwm": "PWM8 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "USB VBUS EN"
+   ],
+   "adc": "ADC1"
+  },
+  "42": {
+   "gpio": 42,
+   "spi": "SPI1 SCK",
+   "uart": "UART1 CTS",
+   "i2c": "I2C1 SDA",
+   "pwm": "PWM9 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART1 TX",
+   "special": [
+    "USB OVCUR DET"
+   ],
+   "adc": "ADC2"
+  },
+  "43": {
+   "gpio": 43,
+   "spi": "SPI1 TX",
+   "uart": "UART1 RTS",
+   "i2c": "I2C1 SCL",
+   "pwm": "PWM9 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART1 RX",
+   "special": [
+    "USB VBUS DET"
+   ],
+   "adc": "ADC3"
+  },
+  "44": {
+   "gpio": 44,
+   "spi": "SPI1 RX",
+   "uart": "UART0 TX",
+   "i2c": "I2C0 SDA",
+   "pwm": "PWM10 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "USB VBUS EN"
+   ],
+   "adc": "ADC4"
+  },
+  "45": {
+   "gpio": 45,
+   "spi": "SPI1 CSn",
+   "uart": "UART0 RX",
+   "i2c": "I2C0 SCL",
+   "pwm": "PWM10 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": null,
+   "special": [
+    "USB OVCUR DET"
+   ],
+   "adc": "ADC5"
+  },
+  "46": {
+   "gpio": 46,
+   "spi": "SPI1 SCK",
+   "uart": "UART0 CTS",
+   "i2c": "I2C1 SDA",
+   "pwm": "PWM11 A",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART0 TX",
+   "special": [
+    "USB VBUS DET"
+   ],
+   "adc": "ADC6"
+  },
+  "47": {
+   "gpio": 47,
+   "spi": "SPI1 TX",
+   "uart": "UART0 RTS",
+   "i2c": "I2C1 SCL",
+   "pwm": "PWM11 B",
+   "sio": true,
+   "pio": [
+    "PIO0",
+    "PIO1",
+    "PIO2"
+   ],
+   "uart_aux": "UART0 RX",
+   "special": [
+    "QMI CS1n",
+    "USB VBUS EN"
+   ],
+   "adc": "ADC7"
+  }
+ }
+}

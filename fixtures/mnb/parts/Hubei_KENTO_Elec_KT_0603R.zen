@@ -1,0 +1,27 @@
+# Hubei_KENTO_Elec_KT_0603R — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# KT-0603R: 0603 red indicator LED (peak 645nm / dominant 615-630nm). Canonical RED indicator
+# per CLAUDE.md's 2026-07-26 LED-family pinning — safety-chain observation (PERMIT/E-stop taps).
+# JLCPCB Basic (the only KT-0603 colour that is); LCSC stock 5,156,600 pcs 2026-07-26 (well above
+# the low-hundreds-of-boards bar). Datasheet (KENTO, C2286): IV 145-300mcd min-max @ IF=20mA; VF
+# 1.8-2.4V min-max @ IF=20mA (no typ column — this wrapper's users take VF_max=2.4V as the
+# conservative/high sizing estimate, ecosystem convention). Same footprint envelope (0.8x0.8mm
+# pads at +-0.75mm, 0603 body) as the rest of the KT-0603 family and the retiring KT-0603YG, so
+# swapping colours needs no layout-script position changes.
+
+A = io("A", Net, optional = True)
+K = io("K", Net, optional = True)
+
+Component(
+    name = "Hubei_KENTO_Elec_KT_0603R",
+    footprint = File("Hubei_KENTO_Elec_KT_0603R/LED-SMD_L1.6-W0.8-R-RD.kicad_mod"),
+    symbol = Symbol("Hubei_KENTO_Elec_KT_0603R/KT-0603R_C2286.kicad_sym"),
+    prefix = "D",
+    part = Part(mpn = "KT-0603R", manufacturer = "Hubei KENTO Elec"),
+    properties = {"LCSC": "C2286", "MPN": "KT-0603R"},
+    pins = {
+        "A": A,
+        "K": K,
+    },
+)

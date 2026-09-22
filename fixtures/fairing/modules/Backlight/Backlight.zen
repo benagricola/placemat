@@ -1,0 +1,24 @@
+# Backlight: retained Main connectivity, source lines recorded in retained-circuits.json.
+# Component values remain subject to the core electrical review.
+
+BLDRV = Module("../../adapted/parts/PowTech_CR_PowTech_Shanghai_PT4115B89E.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+D = Module("../../adapted/parts/MDD_Microdiode_Semiconductor_B5819W.zen")
+L_BL = Module("../../adapted/parts/Sunlord_SWPA4030S331MT.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+
+bl_ledk = io("BL_LEDK", Net)
+bl_pwm = io("BL_PWM", Net)
+gnd = io("GND", Net)
+shunt = io("VSHUNT", Net)
+vled = io("VLED", Net)
+
+sw_bl = Net("SW_BL")
+
+BLDRV(name = "bl", VIN = shunt, GND = gnd, SW = sw_bl, CSN = vled, DIM = bl_pwm)
+R(name = "r_bl_dim", value = "4.7kohm", package = "0402", P1 = bl_pwm, P2 = gnd)
+R(name = "r_bl_sense", value = "2.55ohm", package = "0603", P1 = shunt, P2 = vled)
+L_BL(name = "l_bl", P_1 = bl_ledk, P_2 = sw_bl)
+D(name = "d_bl", A = sw_bl, K = vled)
+C(name = "c_bl_in", value = "10uF", package = "0805", voltage = "50V", P1 = shunt, P2 = gnd)
+Project(name = "Backlight", path = "kicad", schematic = True, layout = False)

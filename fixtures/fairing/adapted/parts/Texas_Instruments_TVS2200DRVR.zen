@@ -1,0 +1,18 @@
+# Texas_Instruments_TVS2200DRVR - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Texas_Instruments-TVS2200DRVR_C523793.pdf
+
+GND = io("GND", Net, optional = True)
+IN = io("IN", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_TVS2200DRVR",
+    footprint = File("../../parts/Texas_Instruments_TVS2200DRVR/WSON-6_L2.0-W2.0-P0.65-BL-EP.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_TVS2200DRVR/TVS2200DRVR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "TVS2200DRVR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C523793", "MPN": "TVS2200DRVR"},
+    pins = {
+        "GND": GND,
+        "IN": IN,
+    },
+)

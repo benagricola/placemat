@@ -1,0 +1,17 @@
+{
+  "mpn": "TPS2553DBVR",
+  "manufacturer": "Texas Instruments",
+  "lcsc": "C55266",
+  "assets": [
+    {
+      "file": "C55266.kicad_sym",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/TPS2553DBVR/lcsc/v2/C55266.kicad_sym",
+      "sha256": "1965332123ab73fb0db02c4fc55dec0480fa4793f20684bf0f6f9048fecb525f"
+    },
+    {
+      "file": "SOT-23-6_L2_9-W1_6-P0_95-LS2_8-BR.kicad_mod",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/TPS2553DBVR/lcsc/v2/SOT-23-6_L2_9-W1_6-P0_95-LS2_8-BR.kicad_mod",
+      "sha256": "b132b08accafdfcfe446b5b39b9d964e59a46b7792496e38d40053a6b996afb4"
+    }
+  ]
+}

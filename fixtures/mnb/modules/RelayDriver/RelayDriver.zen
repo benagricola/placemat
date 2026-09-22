@@ -1,0 +1,24 @@
+# ULN2003AI low-side driver array (industrial -40..105C).
+# inp[n] <- MCU GPIO; out[n] -> coil(-)/photoMOS LED
+# cathode; com -> coil supply V+ (internal freewheel return); gnd -> board GND.
+ULN2003 = Module("../../parts/Texas_Instruments_ULN2003AIDR.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+
+gnd = io("gnd", Ground)
+com = io("com", Net)
+inp0 = io("inp0", Net); inp1 = io("inp1", Net); inp2 = io("inp2", Net)
+inp3 = io("inp3", Net); inp4 = io("inp4", Net); inp5 = io("inp5", Net); inp6 = io("inp6", Net)
+out0 = io("out0", Net); out1 = io("out1", Net); out2 = io("out2", Net)
+out3 = io("out3", Net); out4 = io("out4", Net); out5 = io("out5", Net); out6 = io("out6", Net)
+
+ULN2003(
+    name = "ic",
+    P1B = inp0, P1C = out0, P2B = inp1, P2C = out1, P3B = inp2, P3C = out2,
+    P4B = inp3, P4C = out3, P5B = inp4, P5C = out4, P6B = inp5, P6C = out5,
+    P7B = inp6, P7C = out6, COM = com, E = gnd,
+)
+
+# COM decoupling to gnd (clamp-diode return)
+Capacitor(name = "com_dec", value = "100nF", package = "0603", P1 = com, P2 = gnd)
+
+Layout(name = "RelayDriver", path = "layout")

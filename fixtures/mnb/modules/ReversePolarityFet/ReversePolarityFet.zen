@@ -1,0 +1,55 @@
+# ReversePolarityFet - return-path N-FET reverse-polarity guard for a NODE's 48V input.
+#
+# WHY NOT IdealDiodeInput HERE (2026-09-03, Ben's ruling): the LM5050-1 is an ORing
+# controller - it turns its FET OFF on reverse current. On a motor node that makes the
+# local bus an island: regen from a decelerating axis cannot flow back to the trunk, so
+# it had to be dumped on the node itself, which is what put a comparator, a gate driver,
+# a chopper FET, a 2512 zener supply, a header and an external 25W resistor (~215mm2 plus
+# a case gland) on every 56mm backpack. A FET in the RETURN path conducts BOTH ways once
+# the polarity is right (channel, not body diode), so regen goes back up the cable to the
+# machine's single chopper (modules/BrakeChopper on the Featherweight trunk) and this
+# cell is four parts. Reverse polarity still blocks: with V+ and V- swapped the gate is
+# pulled below the source and the body diode is reverse-biased, so nothing conducts.
+#
+# THE SPLIT GROUND, stated plainly: cable V- (gnd_in) and board GND (gnd) differ by
+# I x Rds(on) = ~40mV at 3.7A (11mOhm). PERMIT_A returns through the opto to board GND
+# (mA, irrelevant); the CAN pair has no ground wire of its own and rides that 40mV as
+# common mode against the transceiver's +-2V budget. If the case bonds board GND to the
+# motor frame and the frame is earthed to the PSU's V-, normal return current also flows
+# through the chassis - harmless - and a reversed cable still cannot drive anything
+# because its V+ then sits at earth potential.
+#
+# Kept from IdealDiodeInput: the SMBJ58A bus TVS (standoff 58V, sized to protect the
+# 100V FETs, NOT to clamp inside the 56-58V chopper window - the chopper regulates the
+# bus) and a 1uF/100V input cap. The Featherweight keeps its LM5050 ideal diode on the
+# control rail (blocking is the right behaviour there: it keeps regen out of the PSU).
+FET = Module("../../parts/DOINGTER_ZH014T2G_L.zen")
+ZENER = Module("../../parts/RO_BZT52B12S.zen")
+TVS = Module("../../parts/STMicroelectronics_SMBJ58A_TR.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+Resistor = Module("@stdlib/generics/Resistor.zen")
+
+v48 = io("v48", Net)        # cable V+ = board V48 (one net; the pass element is in the return)
+gnd_in = io("gnd_in", Net)  # cable V- : FET drain
+gnd = io("gnd", Ground)     # board GND : FET source
+
+gate = Net("GATE")
+
+# Pass element in the RETURN path. D = cable V-, S = board GND, G biased from V+.
+FET(name = "fet", D = gnd_in, S = gnd, G = gate)
+
+# Gate bias: V+ -> 47k -> gate, 12V zener gate-to-source (Vgs abs max +-20V).
+# (48-12)/47k = 0.77mA in the zener, 49mW in the resistor at 48V (0805: 150V-class,
+# 0.125W). RC with Ciss 1.4nF is ~66us; the 100nF makes it ~5ms so a bus dip or the
+# input cap's inrush cannot chatter the gate. Reversed: gate below source, zener forward
+# clamps Vgs at -0.7V, FET off, body diode reverse-biased.
+Resistor(name = "rg", value = "47kohm", package = "0805", P1 = v48, P2 = gate)
+ZENER(name = "dz", K = gate, A = gnd)
+Capacitor(name = "cg", value = "100nF", package = "0402", voltage = "25V", P1 = gate, P2 = gnd)
+
+# Bus TVS (unidirectional): K to bus, A to board GND.
+TVS(name = "tvs", K = v48, A = gnd)
+# Input cap on the bus at the entry.
+Capacitor(name = "cin", value = "1uF", package = "0805", voltage = "100V", P1 = v48, P2 = gnd)
+
+Layout(name = "ReversePolarityFet", path = "layout")

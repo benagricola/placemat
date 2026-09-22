@@ -1,0 +1,15 @@
+# Printed copper, not a fitted component. Internal plated junctions have no
+# external connections. Net-tie footprint preserves the distinct LC end nets.
+A = io("A", Net)
+B = io("B", Net)
+Component(
+    name = "PlanarCoil",
+    footprint = File("../../parts/PlanarCoil/PlanarCoil.kicad_mod"),
+    symbol = Symbol("PlanarCoil/PlanarCoil.kicad_sym"),
+    prefix = "L",
+    pins = {"A": A, "B": B, "INTERNAL_A": NotConnected(),
+            "INTERNAL_B": NotConnected(), "INTERNAL_C": NotConnected()},
+    properties = {"value": "PCB winding 6T x 4L", "Prototype": "Measure L, Rp and target coupling"},
+    skip_bom = True,
+    skip_pos = True,
+)

@@ -1,0 +1,17 @@
+{
+  "mpn": "ADS1115IDGSR",
+  "manufacturer": "Texas Instruments",
+  "lcsc": "C37593",
+  "assets": [
+    {
+      "file": "C37593.kicad_sym",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/ADS1115IDGSR/lcsc/v2/C37593.kicad_sym",
+      "sha256": "8be4d55feca88f46b761acc3b5bedb5a124ab916905e3d4a46a03c1f5dc60018"
+    },
+    {
+      "file": "MSOP-10_L3_0-W3_0-P0_50-LS5_0-BL.kicad_mod",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/ADS1115IDGSR/lcsc/v2/MSOP-10_L3_0-W3_0-P0_50-LS5_0-BL.kicad_mod",
+      "sha256": "138dd176ff24665049e8791092361324b6486d39fbdf90fa546af8abaadc4ba3"
+    }
+  ]
+}

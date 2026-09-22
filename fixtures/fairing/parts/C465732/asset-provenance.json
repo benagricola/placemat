@@ -1,0 +1,17 @@
+{
+  "mpn": "TCA9555PWR",
+  "manufacturer": "Texas Instruments",
+  "lcsc": "C465732",
+  "assets": [
+    {
+      "file": "C465732.kicad_sym",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/TCA9555PWR/lcsc/v2/C465732.kicad_sym",
+      "sha256": "d81735b1ae21d075a7f8e8683a02d3a9f7233ab31beecdc27af3573a0d7087bd"
+    },
+    {
+      "file": "TSSOP-24_L7_8-W4_4-P0_65-LS6_4-BL.kicad_mod",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/TCA9555PWR/lcsc/v2/TSSOP-24_L7_8-W4_4-P0_65-LS6_4-BL.kicad_mod",
+      "sha256": "b8f14d4bc8594dddc30bc0c74c08f1752a37b9c3881aff5d52a80a6a409b54c6"
+    }
+  ]
+}

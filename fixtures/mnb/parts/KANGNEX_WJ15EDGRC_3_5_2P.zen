@@ -1,0 +1,23 @@
+# KANGNEX_WJ15EDGRC_3_5_2P — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, cnc-expansion capture). 2-position 3.5mm pluggable screw terminal
+# (RC/right-angle-pin style), THT. Stock 10,325 units @ LCSC C61791 (checked 2026-07-26).
+# Second-source (KANGNEX, "WJ15EDG" family) of DEGSON's 15EDGRC-3.5 series — same pinout/
+# pitch/current rating, chosen because it has full EasyEDA symbol+footprint+3D coverage.
+# Used for the mist and aux1-3 field-IO screw terminals (brief: 2-pos 3.5mm, 24V + OUT).
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+
+Component(
+    name = "KANGNEX_WJ15EDGRC_3_5_2P",
+    footprint = File("KANGNEX_WJ15EDGRC_3_5_2P/CONN-TH_WJ15EDGRC-3.5-2P-14-00A.kicad_mod"),
+    symbol = Symbol("KANGNEX_WJ15EDGRC_3_5_2P/WJ15EDGRC-3.5-2P-14-00A.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "WJ15EDGRC-3.5-02P-14-00A", manufacturer = "KANGNEX"),
+    properties = {"LCSC": "C61791", "MPN": "WJ15EDGRC-3.5-02P-14-00A"},
+    pins = {
+        "1": p1,
+        "2": p2,
+    },
+)

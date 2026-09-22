@@ -1,0 +1,4 @@
+{
+  "_why": "Raises the derived floor. The pass path IS the 48 V bus: vin_raw and vout land on a board HV class and derive 0.25 on their own, but the cell's INTERNAL copper (vin, VS, GATE) sits at the same potential under module-local net names, which every board puts on its Default class. Only the schematic knows that, so the whole cell is held at the HV floor.",
+  "floor": 0.25
+}

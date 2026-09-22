@@ -1,0 +1,20 @@
+# Yangxing_Tech_X322525MOB4SI — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+GND = io("GND", Net, optional = True)
+OSC1 = io("OSC1", Net, optional = True)
+OSC2 = io("OSC2", Net, optional = True)
+
+Component(
+    name = "Yangxing_Tech_X322525MOB4SI",
+    footprint = File("Yangxing_Tech_X322525MOB4SI/CRYSTAL-SMD_4P-L3.2-W2.5-BL.kicad_mod"),
+    symbol = Symbol("Yangxing_Tech_X322525MOB4SI/X322525MOB4SI.kicad_sym"),
+    prefix = "X",
+    part = Part(mpn = "X322525MOB4SI", manufacturer = "Yangxing Tech"),
+    properties = {"LCSC": "C9006", "MPN": "X322525MOB4SI"},
+    pins = {
+        "GND": GND,
+        "OSC1": OSC1,
+        "OSC2": OSC2,
+    },
+)

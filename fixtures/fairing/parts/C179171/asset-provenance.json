@@ -1,0 +1,17 @@
+{
+  "mpn": "W25Q64JVSSIQ",
+  "manufacturer": "Winbond Electronics",
+  "lcsc": "C179171",
+  "assets": [
+    {
+      "file": "C179171.kicad_sym",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Winbond_Electronics/W25Q64JVSSIQ/lcsc/v2/C179171.kicad_sym",
+      "sha256": "7fa0319bce7926a1b521d8d3a0d5a0c9e660b503154c1885a3af4fb93de35546"
+    },
+    {
+      "file": "SOIC-8_L5_3-W5_3-P1_27-LS8_0-BL.kicad_mod",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Winbond_Electronics/W25Q64JVSSIQ/lcsc/v2/SOIC-8_L5_3-W5_3-P1_27-LS8_0-BL.kicad_mod",
+      "sha256": "94fd4be522d3cc33c41b2955f3b804a2eefc66cd10e2a038a6878f863bb0f35f"
+    }
+  ]
+}

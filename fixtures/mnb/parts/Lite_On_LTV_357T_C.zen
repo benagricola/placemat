@@ -1,0 +1,22 @@
+# Lite_On_LTV_357T_C — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+AN = io("AN", Net, optional = True)
+CAT = io("CAT", Net, optional = True)
+EM = io("EM", Net, optional = True)
+COL = io("COL", Net, optional = True)
+
+Component(
+    name = "Lite_On_LTV_357T_C",
+    footprint = File("Lite_On_LTV_357T_C/SOP-4_L4.4-W3.9-P2.54-LS7.0-TL.kicad_mod"),
+    symbol = Symbol("Lite_On_LTV_357T_C/LTV-357T-C_C119091.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "LTV-357T-C", manufacturer = "Lite-On"),
+    properties = {"LCSC": "C119091", "MPN": "LTV-357T-C"},
+    pins = {
+        "1": AN,
+        "2": CAT,
+        "3": EM,
+        "4": COL,
+    },
+)

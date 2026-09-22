@@ -1,0 +1,60 @@
+# Texas_Instruments_TPS55288RPMR - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Texas_Instruments-TPS55288RPMR_C2864583.pdf
+
+DR1L = io("DR1L", Net, optional = True)
+DR1H = io("DR1H", Net, optional = True)
+VIN = io("VIN", Net, optional = True)
+EN_UVLO = io("EN_UVLO", Net, optional = True)
+SCL = io("SCL", Net, optional = True)
+SDA = io("SDA", Net, optional = True)
+DITH_SYNC = io("DITH_SYNC", Net, optional = True)
+FSW = io("FSW", Net, optional = True)
+PGND = io("PGND", Net, optional = True)
+AGND = io("AGND", Net, optional = True)
+VOUT = io("VOUT", Net, optional = True)
+ISP = io("ISP", Net, optional = True)
+ISN = io("ISN", Net, optional = True)
+FB_INT = io("FB_INT", Net, optional = True)
+MODE = io("MODE", Net, optional = True)
+CDC = io("CDC", Net, optional = True)
+ILIM = io("ILIM", Net, optional = True)
+COMP = io("COMP", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+BOOT2 = io("BOOT2", Net, optional = True)
+SW2 = io("SW2", Net, optional = True)
+BOOT1 = io("BOOT1", Net, optional = True)
+SW1 = io("SW1", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_TPS55288RPMR",
+    footprint = File("Texas_Instruments_TPS55288RPMR/VQFN-HR-26_L4.0-W3.5_TPS55288RPMR.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_TPS55288RPMR/TPS55288RPMR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "TPS55288RPMR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C2864583", "MPN": "TPS55288RPMR"},
+    pins = {
+        "DR1L": DR1L,
+        "DR1H": DR1H,
+        "VIN": VIN,
+        "EN/UVLO": EN_UVLO,
+        "SCL": SCL,
+        "SDA": SDA,
+        "DITH/SYNC": DITH_SYNC,
+        "FSW": FSW,
+        "PGND": PGND,
+        "AGND": AGND,
+        "VOUT": VOUT,
+        "ISP": ISP,
+        "ISN": ISN,
+        "FB/INT": FB_INT,
+        "MODE": MODE,
+        "CDC": CDC,
+        "ILIM": ILIM,
+        "COMP": COMP,
+        "VCC": VCC,
+        "BOOT2": BOOT2,
+        "SW2": SW2,
+        "BOOT1": BOOT1,
+        "SW1": SW1,
+    },
+)

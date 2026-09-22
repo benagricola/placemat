@@ -1,0 +1,32 @@
+# Silergy_Corp_SY8513FCC — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+BS = io("BS", Net, optional = True)
+EN = io("EN", Net, optional = True)
+EP = io("EP", Net, optional = True)
+FB = io("FB", Net, optional = True)
+FS = io("FS", Net, optional = True)
+GND = io("GND", Net, optional = True)
+IN = io("IN", Net, optional = True)
+LX = io("LX", Net, optional = True)
+PG = io("PG", Net, optional = True)
+
+Component(
+    name = "Silergy_Corp_SY8513FCC",
+    footprint = File("Silergy_Corp_SY8513FCC/SOP-8_L4.9-W3.9-P1.27-LS6.0-BL-EP3.1.kicad_mod"),
+    symbol = Symbol("Silergy_Corp_SY8513FCC/SY8513FCC.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "SY8513FCC", manufacturer = "Silergy Corp"),
+    properties = {"LCSC": "C3034281", "MPN": "SY8513FCC"},
+    pins = {
+        "BS": BS,
+        "EN": EN,
+        "EP": EP,
+        "FB": FB,
+        "FS": FS,
+        "GND": GND,
+        "IN": IN,
+        "LX": LX,
+        "PG": PG,
+    },
+)

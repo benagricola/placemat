@@ -1,0 +1,163 @@
+(footprint "DEGSON_2EDGRC_5_08_02P_14_100A_H:CONN-TH_2EDGRC-5.08-02P-14-100A-H"
+	(version 20241229)
+	(generator "faebryk_convert")
+	(generator_version "v5")
+	(layer "F.Cu")
+	(tedit "5DC5F6A4")
+	(uuid "d033a85f-e3af-4106-9696-f04e47f69c8f")
+	(property "Reference" "REF**"
+		(at 0 -4)
+		(layer "F.SilkS")
+		(uuid "05fdf886-d6b6-47a4-a616-3ad722b4626f")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "CONN-TH_2EDGRC-5.08-02P-14-100A-H"
+		(at 0 4)
+		(layer "F.Fab")
+		(uuid "ad166f15-f526-4633-a606-072ceef2c6c3")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr through_hole)
+	(fp_rect
+		(start -5.84 -1.6)
+		(end 5.84 10.7)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "aac5d299-949e-8c0a-3ad3-0f763ee0be89")
+	)
+	(fp_circle
+		(center -5.78 10.5)
+		(end -5.75 10.5)
+		(stroke
+			(width 0.06)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(locked no)
+		(uuid "e4cd6e02-c564-463a-80d9-357d566c51c1")
+	)
+	(fp_line
+		(start 1.88 -1.6)
+		(end 1.66 -1.6)
+		(stroke
+			(width 0.25)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "f79ea932-dd69-4ac3-ab3a-c45e2b3136e9")
+	)
+	(fp_line
+		(start 5.78 -1.6)
+		(end 3.2 -1.6)
+		(stroke
+			(width 0.25)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "eb28c514-7fc1-4182-95ef-d4798b7717b1")
+	)
+	(fp_line
+		(start 5.78 10.5)
+		(end 5.78 -1.6)
+		(stroke
+			(width 0.25)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "f68b51ae-bf40-4bc0-b5ae-824097db9bfb")
+	)
+	(fp_line
+		(start -5.78 10.5)
+		(end 5.78 10.5)
+		(stroke
+			(width 0.25)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "5dd3dd3d-9e1a-4c75-90a1-f6d20ca68766")
+	)
+	(fp_line
+		(start -0.83 -1.6)
+		(end 1.88 -1.6)
+		(stroke
+			(width 0.25)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "0e75f90e-f929-43fe-9d00-ae441d4bc203")
+	)
+	(fp_line
+		(start -5.78 -1.6)
+		(end -4.25 -1.6)
+		(stroke
+			(width 0.25)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "9cf88ecd-935d-4b5f-81c5-320592b2cb6c")
+	)
+	(fp_line
+		(start -5.78 -1.6)
+		(end -5.78 10.5)
+		(stroke
+			(width 0.25)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(layers "F.SilkS")
+		(locked no)
+		(uuid "3904b9e1-b8d0-43cc-9fad-a82561c21d66")
+	)
+	(pad "1" thru_hole rect
+		(at -2.54 0 0)
+		(size 3 3)
+		(drill 1.700022)
+		(layers "*.Cu" "*.Mask")
+		(uuid "f4925bcd-432d-4025-9d3c-358bdee330b1")
+	)
+	(pad "2" thru_hole circle
+		(at 2.54 0 0)
+		(size 3 3)
+		(drill 1.700022)
+		(layers "*.Cu" "*.Mask")
+		(uuid "fdf6a0c7-53e6-4b94-899e-4b196bb6aea2")
+	)
+	(model "/home/ben/Documents/Hardware/KiCAD-Components/lcsc.3dshapes/CONN-TH_2EDGRC-5.08-02P-14-100A(H).wrl"
+		(offset
+			(xyz 0 0 0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
+	(embedded_fonts no)
+)

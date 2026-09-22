@@ -1,0 +1,37 @@
+# Panasonic_EVQP7J01P — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# SIDE-ACTUATED (right-angle) SMD tactile switch, 3.5 x 2.9 mm body, 1.35 mm tall,
+# 1.6 N, 100k cycles, 12 V 50 mA (Panasonic ANCTB21E, No.1 "EVQP7A/EVQP7J":
+# straight terminals, no boss). The push plate (knob, 1.7 wide) sits on the
+# footprint's +Y long side and protrudes ~0.7 mm past the body: place the +Y
+# face at (or just proud of) a board edge so a pin through the case wall reaches
+# it. Land pattern per datasheet: 2 x 2 pads 1.1 x 1.8, 3.4 x 1.5 pitch.
+# Contacts: 1 and 1' are one contact, 2 and 2' the other; pressing closes 1-2.
+# Pinned 2026-09-04: LCSC C2828254, Extended, 10.1k in stock. Alternates in the
+# same land pattern: EVQP7A01P (2.2 N, C79167 5.9k), EVQP7C01P (with boss,
+# C388883 6.8k). The XKB TS-1088 and Alps SKRK families were checked and are
+# TOP-actuated despite listings that suggest otherwise.
+
+# ios named A/B/C/D so this part is a DROP-IN for the top-actuated
+# TS-1187A: A+B are one contact (datasheet pins 1 and 1'), C+D the other
+# (2 and 2'), exactly as on that part.
+A = io("A", Net, optional = True)
+B = io("B", Net, optional = True)
+C = io("C", Net, optional = True)
+D = io("D", Net, optional = True)
+
+Component(
+    name = "Panasonic_EVQP7J01P",
+    footprint = File("Panasonic_EVQP7J01P/SW-SMD_EVQP7J01P.kicad_mod"),
+    symbol = Symbol("Panasonic_EVQP7J01P/EVQP7J01P.kicad_sym"),
+    prefix = "SW",
+    part = Part(mpn = "EVQP7J01P", manufacturer = "Panasonic"),
+    properties = {"LCSC": "C2828254", "MPN": "EVQP7J01P"},
+    pins = {
+        "1": A,
+        "1'": B,
+        "2": C,
+        "2'": D,
+    },
+)

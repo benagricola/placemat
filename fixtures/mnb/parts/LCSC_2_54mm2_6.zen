@@ -1,0 +1,38 @@
+# LCSC_2_54mm2_6 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+p5 = io("p5", Net, optional = True)
+p6 = io("p6", Net, optional = True)
+p7 = io("p7", Net, optional = True)
+p8 = io("p8", Net, optional = True)
+p9 = io("p9", Net, optional = True)
+p10 = io("p10", Net, optional = True)
+p11 = io("p11", Net, optional = True)
+p12 = io("p12", Net, optional = True)
+
+Component(
+    name = "LCSC_2_54mm2_6",
+    footprint = File("LCSC_2_54mm2_6/HDR-TH_12P-P2.54-V-M-R2-C6-S2.54.kicad_mod"),
+    symbol = Symbol("LCSC_2_54mm2_6/Header-Male-2.54_2x6.kicad_sym"),
+    prefix = "P",
+    part = Part(mpn = "双排针2.54mm2*6排针", manufacturer = "LCSC"),
+    properties = {"LCSC": "C66689", "MPN": "双排针2.54mm2*6排针"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+        "5": p5,
+        "6": p6,
+        "7": p7,
+        "8": p8,
+        "9": p9,
+        "10": p10,
+        "11": p11,
+        "12": p12,
+    },
+)

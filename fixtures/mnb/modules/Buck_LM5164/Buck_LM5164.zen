@@ -1,0 +1,136 @@
+# =============================================================================
+# Buck_LM5164 — compact 100 V synchronous buck for footprint-limited boards
+# =============================================================================
+# The second HV buck cell in the ecosystem, added 2026-09-05 (Ben). It exists
+# because `Buck_SY8513FCC` is the wrong tool on a sealed 56.4 mm node, for three
+# reasons that are all part-level rather than layout-level:
+#
+#   1. That part's RECOMMENDED operating range is an AMBIENT of -40 to +85 C
+#      (datasheet, Recommended Operating Conditions). The Middleweight's case is
+#      designed to a 100 C worst case, so it runs outside its range there.
+#   2. It is ASYNCHRONOUS, so every instance carries an external SS510 in SMB -
+#      area, and dissipation, in the hottest place on the board.
+#   3. It is capped at 500 kHz with a 180 ns minimum on-time, which puts a floor
+#      under the inductance and therefore under the INDUCTOR HEIGHT. Measured on
+#      the market 2026-09-04: no 22 uH part carrying over ~1.5 A peak exists
+#      below about 2.8 mm. On a board whose encoder daughterboard mates at a
+#      2.5 mm stack, that single number decides the case base geometry.
+#
+# The LM5164 answers all three: 150 C junction rating, integrated 0.34 ohm
+# synchronous rectifier, and 1 MHz switching with a 50 ns on-time floor. At
+# 1 MHz a 48 V to 5 V rail runs 0.20 A of ripple instead of 0.68 A, so a
+# 4 x 4 x 1.65 inductor carries it where the incumbent needed 7.1 x 6.6 x 3.0.
+#
+# It does NOT replace Buck_SY8513FCC. Its 1 A ceiling rules it out for the
+# Flyweight's servo rails and the CNC Expansion's 2 A IO rail; for those, either
+# keep the SY8513 or use an LM5146 controller driving the 100 V FET already in
+# the bridge BOM. Two HV buck part numbers is a deliberate deviation from the
+# one-P/N consolidation rule, taken on Ben's call 2026-09-05.
+#
+# -----------------------------------------------------------------------------
+# SIZING (do this per instance, in this order)
+# -----------------------------------------------------------------------------
+#  1. fsw = Vout / (400e-9 * RON[kohm]). The on-time is input-voltage
+#     compensated, so the frequency holds across the 48 V bus's 56-58 V chopper
+#     window. Check the on-time at the TOP of that window against the 50 ns
+#     floor: tON[ns] = 400 * RON[kohm] / Vin[V].
+#  2. Ripple dI = Vout*(1-D)/(L*fsw), D = Vout/Vin. Peak inductor current is
+#     Iout + dI/2, and that is what the inductor's SATURATION rating must clear
+#     with headroom for a 100 C ambient, where saturation is down 10-15%.
+#  3. Output ripple dV = dI/(8*fsw*C), then derate the MLCC for DC bias.
+#  4. Input bulk keeps 100 V and its package: it carries Iout*sqrt(D(1-D)).
+# =============================================================================
+IC = Module("../../parts/TI_LM5164DDAR.zen")
+L_SMALL = Module("../../parts/SXN_SMNR4020_220M.zen")     # 22 uH, 4.0x4.0x1.65, 1.05 A
+L_LARGE = Module("../../parts/SXN_SMMS0630_220M.zen")     # 22 uH, 7.1x6.6x3.0, 3.5 A
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+Resistor = Module("@stdlib/generics/Resistor.zen")
+
+vin = io("vin", Net)
+vout = io("vout", Net)
+gnd = io("gnd", Ground)
+
+# Vout = 1.2 V * (1 + rfb_top/rfb_bot) against the internal 1.2 V reference.
+# The datasheet asks for rfb_top between 100 kohm and 1 Mohm (section 8.2.2.3),
+# so the pairs are 158k/49.9k -> 5.00 V and 475k/24.9k -> 24.09 V.
+# RON: fsw = Vout / (4e-10 * RON[ohm]), so 1 MHz wants 12.4k on the 5 V rail
+# and 60.4k on the 24 V rail. Check tON = D/fsw against the 50 ns floor at the
+# TOP of the bus's chopper window, not at 48 V.
+rfb_top_value = config("rfb_top_value", str, default = "158kohm")
+rfb_bot_value = config("rfb_bot_value", str, default = "49.9kohm")
+ron_value = config("ron_value", str, default = "12.4kohm")   # fsw = Vout/(400e-9*RON)
+inductor = config("inductor", str, default = "SMNR4020")
+cout_value = config("cout_value", str, default = "10uF")
+cout_voltage = config("cout_voltage", str, default = "25V")
+cout_package = config("cout_package", str, default = "0805")
+cout_count = config("cout_count", int, default = 2)
+ra_value = config("ra_value", str, default = "240kohm")     # Type 3 ripple network
+cb_value = config("cb_value", str, default = "220pF")       # C0G/NP0
+L = L_SMALL if inductor == "SMNR4020" else L_LARGE
+
+sw = Net("SW")
+bst = Net("BST")
+fb = Net("FB")
+ron = Net("RON")
+en = Net("EN")
+pgood = Net("PGOOD")
+
+# The controller. EP is tied to gnd inside the wrapper - the datasheet is
+# explicit that it carries no current and exists only to reach copper.
+IC(name = "ic", VIN = vin, GND = gnd, SW = sw, BST = bst, FB = fb, RON = ron,
+   EN = en, PGOOD = pgood)
+
+# Input decoupling. >=100 V on the 48 V bus; the HF pair sits at the VIN pin and
+# the bulk carries the input ripple current.
+Capacitor(name = "cin_bulk", value = "10uF", package = "1210", voltage = "100V", P1 = vin, P2 = gnd)
+Capacitor(name = "cin_hf", value = "100nF", package = "0603", voltage = "100V", P1 = vin, P2 = gnd)
+
+# Bootstrap: the datasheet asks for exactly 2.2 nF 50 V X7R between BST and SW,
+# not a general-purpose value - the internal boot diode is sized around it.
+Capacitor(name = "cbst", value = "2.2nF", package = "0402", voltage = "50V", P1 = bst, P2 = sw)
+
+# On-time programming. RON to ground sets fsw with the input compensation.
+Resistor(name = "ron", value = ron_value, package = "0402", P1 = ron, P2 = gnd)
+
+# EN/UVLO: tied to vin through a divider so the converter starts above ~12 V and
+# does not chatter as the 48 V bus collapses. Below 1.1 V it shuts down.
+Resistor(name = "ren_top", value = "1Mohm", package = "0402", P1 = vin, P2 = en)
+Resistor(name = "ren_bot", value = "100kohm", package = "0402", P1 = en, P2 = gnd)
+
+# Switch node -> inductor -> vout. No catch diode: the rectifier is inside.
+L(name = "l", p1 = sw, p2 = vout)
+
+# Output bank + feedback divider.
+Capacitor(name = "cout_a", value = cout_value, package = cout_package, voltage = cout_voltage, P1 = vout, P2 = gnd)
+if cout_count > 1:
+    Capacitor(name = "cout_b", value = cout_value, package = cout_package, voltage = cout_voltage, P1 = vout, P2 = gnd)
+Resistor(name = "rfb_top", value = rfb_top_value, package = "0402", P1 = vout, P2 = fb)
+Resistor(name = "rfb_bot", value = rfb_bot_value, package = "0402", P1 = fb, P2 = gnd)
+
+# =============================================================================
+# TYPE 3 RIPPLE INJECTION - NOT OPTIONAL ON AN ALL-CERAMIC OUTPUT
+# =============================================================================
+# This is a constant-on-time converter: its feedback comparator needs a minimum
+# of 20 mV of ripple at FB to stay stable (datasheet 8.2.2.4). An all-MLCC
+# output gives nothing like that. Measured for the 5 V rail: 0.20 A of inductor
+# ripple into 10 uF at 1 MHz is 3.6 mV out, and the divider attenuates it to
+# under 1 mV at FB - two orders below what the part needs.
+#
+# Type 1 (series ESR with the output cap) and Type 2 (that plus a feedforward
+# cap) both buy stability by putting real ripple on the rail. Type 3 generates
+# the ramp separately: RA and CA across SW and VOUT make a triangle in phase
+# with the inductor current, and CB couples it into FB. The output stays clean.
+#
+#   CA >= 10 / (fsw * (rfb_top || rfb_bot))
+#   RA >= (Vin - Vout) * tON / (20 mV * CA), keeping RA in 100 kohm .. 1 Mohm
+#   CB >= t_settling / (3 * rfb_top), C0G/NP0 so DC bias does not eat it
+#
+# 5 V rail at 1 MHz: CA 264 pF minimum -> 1 nF, RA 224 kohm minimum -> 240 kohm.
+# 24 V rail at 1 MHz: CA 423 pF minimum -> 1 nF, RA 600 kohm minimum -> 604 kohm.
+# =============================================================================
+ripple_mid = Net("RIPPLE")
+Resistor(name = "ra", value = ra_value, package = "0402", P1 = sw, P2 = ripple_mid)
+Capacitor(name = "ca", value = "1nF", package = "0402", voltage = "50V", P1 = ripple_mid, P2 = vout)
+Capacitor(name = "cb", value = cb_value, package = "0402", voltage = "50V", P1 = ripple_mid, P2 = fb)
+
+Layout(name = "Buck_LM5164", path = "layout")

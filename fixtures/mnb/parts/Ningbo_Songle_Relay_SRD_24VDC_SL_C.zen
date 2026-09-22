@@ -1,0 +1,24 @@
+# Ningbo_Songle_Relay_SRD_24VDC_SL_C — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+coil_a = io("coil_a", Net, optional = True)
+no = io("no", Net, optional = True)
+nc = io("nc", Net, optional = True)
+coil_b = io("coil_b", Net, optional = True)
+com = io("com", Net, optional = True)
+
+Component(
+    name = "Ningbo_Songle_Relay_SRD_24VDC_SL_C",
+    footprint = File("Ningbo_Songle_Relay_SRD_24VDC_SL_C/RELAY-TH_SRD-XXVDC-XL-C.kicad_mod"),
+    symbol = Symbol("Ningbo_Songle_Relay_SRD_24VDC_SL_C/SRD-24VDC-SL-C.kicad_sym"),
+    prefix = "RLY",
+    part = Part(mpn = "SRD-24VDC-SL-C", manufacturer = "Ningbo Songle Relay"),
+    properties = {"LCSC": "C15840", "MPN": "SRD-24VDC-SL-C"},
+    pins = {
+        "1": coil_a,
+        "2": no,
+        "3": nc,
+        "4": coil_b,
+        "5": com,
+    },
+)

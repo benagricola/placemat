@@ -1,0 +1,26 @@
+# Tognjing_XTM20040000FT00351001 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# 40 MHz SMD crystal, 9 pF load capacitance, 4-pad can (CRYSTAL-SMD_4P-L2.0-W1.6-BL-A) —
+# the MCP2518FD's clock source, ported verbatim from the N17 CAN-FD front end (same
+# LCSC id, same footprint). Symbol exposes 2 resonator terminals (pin "1", pin "3")
+# and 2 case/ground pins both literally named "GND" — one `pins` entry covers both
+# (Zener merges same-named symbol pins onto one net).
+
+t1 = io("t1", Net, optional = True)   # pin 1, resonator terminal -> controller OSC2
+t3 = io("t3", Net, optional = True)   # pin 3, resonator terminal -> controller OSC1
+GND = io("GND", Net, optional = True) # pins 2 + 4, case/ground
+
+Component(
+    name = "Tognjing_XTM20040000FT00351001",
+    footprint = File("Tognjing_XTM20040000FT00351001/CRYSTAL-SMD_4P-L2.0-W1.6-BL-A.kicad_mod"),
+    symbol = Symbol("Tognjing_XTM20040000FT00351001/XTM20040000FT00351001.kicad_sym"),
+    prefix = "X",
+    part = Part(mpn = "XTM20040000FT00351001", manufacturer = "Tognjing"),
+    properties = {"LCSC": "C37635335", "MPN": "XTM20040000FT00351001"},
+    pins = {
+        "1": t1,
+        "3": t3,
+        "GND": GND,
+    },
+)

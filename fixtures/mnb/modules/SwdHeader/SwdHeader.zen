@@ -1,0 +1,45 @@
+# =============================================================================
+# SwdHeader — 1x4 2.54mm SWD debug header, board-placed
+# =============================================================================
+# Split out of the MCU cell (Ben, 2026-07-27): "the debug header shouldn't be part of
+# the mcu module, it should be a board specific concern so we can decide to
+# expose it or not and choose the positioning ourselves."
+#
+# The rule this cell encodes is OPTIONALITY, not enclosure demand (the reason
+# the two earlier splits happened - modules/UsbC §9, modules/McuButtons §10):
+# a part a board may legitimately choose NOT TO FIT, or must be free to site
+# where its own case/service story wants it, cannot be baked into a functional
+# cell. Baking the header into the MCU cell forces every consumer to pay 26mm2
+# of pads plus a plug volume whether or not it will ever be probed - and a
+# sealed board (Middleweight) will not be.
+#
+# Contents: the header, nothing else. NO series resistors on SWCLK/SWDIO: the
+# RP2350 hardware-design guide (RP-008280 Ch 5.4 / Fig 8) takes both debug
+# lines straight from pin to header, and the RP2350 provides the idle pulls
+# internally (SWDIO pull-up, SWCLK pull-down, datasheet 3.5.5). Adding series
+# damping here would be inventing a part - flag it, don't apply it.
+#
+# PINOUT (Ben's, 2026-07-26, unchanged by this move): p1 = the rectangular
+# KEYED pad = GND, p2 = SWCLK, p3 = SWDIO, p4 = 3V3. 3V3 is the probe's VTref
+# (most probes sense target voltage before driving). nRESET intentionally
+# absent - RP2350 SWD needs no reset line and the RESET button (modules/
+# McuButtons) covers manual reset. The header is a MALE vertical pin header:
+# it mates TOP-DOWN, so it needs plug volume above it, NOT a board edge - see
+# modules/SwdHeader/LAYOUT-INTENT.md for the access-face rule that binds
+# consuming boards.
+# =============================================================================
+
+SWD = Module("../../parts/Ckmtw_B_2100S04P_A110.zen")
+
+# =============================================================================
+# io() — the four header pins. All four are the board's nets: two debug
+# signals from the MCU cell, and the two rails the probe references.
+# =============================================================================
+swdio = io("swdio", Net)      # SWD data  - MCU dedicated pin, not a GPIO
+swclk = io("swclk", Net)      # SWD clock - MCU dedicated pin, not a GPIO
+v3v3 = io("v3v3", Net)        # probe VTref only; no load in this cell
+gnd = io("gnd", Ground)
+
+SWD(name = "j_swd", p1 = gnd, p2 = swclk, p3 = swdio, p4 = v3v3)
+
+Layout(name = "SwdHeader", path = "layout")

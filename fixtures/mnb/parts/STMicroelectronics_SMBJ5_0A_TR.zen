@@ -1,0 +1,37 @@
+# STMicroelectronics_SMBJ5_0A_TR — component wrapper: local KiCad symbol + footprint, LCSC
+# pinned in properties (feeds the JLC BOM/CPL fields).
+#
+# ST SMBJ5.0A-TR: unidirectional 600W TVS diode, SMB (DO-214AA). Vrwm=5.0V, Vbr=6.40-7.00V,
+# Vc(max)=9.2V @ Ipp=65.2A (10/1000us), -55..150C. LCSC C130397, stock 6,670 pcs 2026-07-26
+# (well above the low-hundreds-of-boards bar). Same ST SMBJxxA family datasheet (DoID 5616)
+# already used twice in this repo for the 48V-bus clamps (STMicroelectronics_SMBJ58A_TR,
+# STMicroelectronics_SMBJ70A_TR) — same manufacturer/package/document, different row (5.0A
+# instead of 58A/70A), reusing the qualified family rather than sourcing a new one.
+#
+# Flyweight-unique part: flyweight-brief.md SS3 / build-prompt requirement 4 calls for "a
+# TVS clamp on the [servo 5V] rail". Vrwm=5.0V sits at the servo buck's nominal regulation
+# point (0.8V ref x (1+52.3k/10k) ~= 4.98V, the same Buck_SY8513FCC "5V" config used for the
+# logic rail) — this is standard practice for a 5V-rail TVS (leakage at Vrwm is only 50uA;
+# real avalanche doesn't start until Vbr >= 6.40V, comfortably above the buck's regulation +
+# ripple + tolerance). Considered SMBJ6.0CA-TR (bidirectional, more standoff margin,
+# consolidation-friendly per the ProtectionCell precedent) but LCSC stock was only 45 pcs
+# 2026-07-26 — too thin for the low-hundreds bar — so the well-stocked unidirectional
+# SMBJ5.0A-TR was used instead. K (cathode) faces the protected positive rail, A (anode)
+# faces GND — same polarity convention as the existing SMBJ58A_TR/SMBJ70A_TR instantiations
+# (IdealDiodeInput.zen: "TVS(name = "tvs", K = vout, A = gnd)").
+
+A = io("A", Net, optional = True)
+K = io("K", Net, optional = True)
+
+Component(
+    name = "STMicroelectronics_SMBJ5_0A_TR",
+    footprint = File("STMicroelectronics_SMBJ5_0A_TR/SMB_L4.6-W3.6-LS5.3-RD.kicad_mod"),
+    symbol = Symbol("STMicroelectronics_SMBJ5_0A_TR/STMicroelectronics_SMBJ5_0A_TR_C130397.kicad_sym"),
+    prefix = "D",
+    part = Part(mpn = "SMBJ5.0A-TR", manufacturer = "STMicroelectronics"),
+    properties = {"LCSC": "C130397", "MPN": "SMBJ5.0A-TR"},
+    pins = {
+        "A": A,
+        "K": K,
+    },
+)

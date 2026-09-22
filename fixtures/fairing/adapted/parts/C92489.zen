@@ -1,0 +1,27 @@
+# BME280; native source and hash in C92489/asset-provenance.json.
+
+GND = io("GND", Net, optional = True)
+CSB = io("CSB", Net, optional = True)
+SDI = io("SDI", Net, optional = True)
+SCK = io("SCK", Net, optional = True)
+SDO = io("SDO", Net, optional = True)
+VDDIO = io("VDDIO", Net, optional = True)
+VDD = io("VDD", Net, optional = True)
+
+Component(
+    name = "BME280",
+    footprint = File("../../parts/C92489/LGA-8_BME280_BL.kicad_mod"),
+    symbol = Symbol("C92489/C92489.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "BME280", manufacturer = "Bosch"),
+    properties = {"LCSC": "C92489", "MPN": "BME280"},
+    pins = {
+        "GND": GND,
+        "CSB": CSB,
+        "SDI": SDI,
+        "SCK": SCK,
+        "SDO": SDO,
+        "VDDIO": VDDIO,
+        "VDD": VDD,
+    },
+)

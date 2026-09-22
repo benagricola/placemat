@@ -1,0 +1,32 @@
+# Microchip_Tech_MCP2542WFDT_H_MNY — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+CANH = io("CANH", Net, optional = True)
+CANL = io("CANL", Net, optional = True)
+EP = io("EP", Net, optional = True)
+RXD = io("RXD", Net, optional = True)
+STBY = io("STBY", Net, optional = True)
+TXD = io("TXD", Net, optional = True)
+VDD = io("VDD", Net, optional = True)
+VIO = io("VIO", Net, optional = True)
+VSS = io("VSS", Net, optional = True)
+
+Component(
+    name = "Microchip_Tech_MCP2542WFDT_H_MNY",
+    footprint = File("Microchip_Tech_MCP2542WFDT_H_MNY/TDFN-8_L3.0-W2.0-P0.50-BL-EP1.4.kicad_mod"),
+    symbol = Symbol("Microchip_Tech_MCP2542WFDT_H_MNY/MCP2542WFDT-H_MNY.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "MCP2542WFDT-H/MNY", manufacturer = "Microchip Tech"),
+    properties = {"LCSC": "C623197", "MPN": "MCP2542WFDT-H/MNY"},
+    pins = {
+        "CANH": CANH,
+        "CANL": CANL,
+        "EP": EP,
+        "RXD": RXD,
+        "STBY": STBY,
+        "TXD": TXD,
+        "VDD": VDD,
+        "VIO": VIO,
+        "VSS": VSS,
+    },
+)

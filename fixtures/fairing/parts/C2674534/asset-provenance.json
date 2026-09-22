@@ -1,0 +1,17 @@
+{
+  "mpn": "SN74CB3Q3245DGVR",
+  "manufacturer": "Texas Instruments",
+  "lcsc": "C2674534",
+  "assets": [
+    {
+      "file": "C2674534.kicad_sym",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/SN74CB3Q3245DGVR/lcsc/v2/C2674534.kicad_sym",
+      "sha256": "7ceb8c2f347df8b9a077925dae3d8f5921fc64c6a41a7b571e06396e3dd1cb09"
+    },
+    {
+      "file": "TVSOP-20_L5_0-W4_4-P0_40-LS6_6-BL.kicad_mod",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/SN74CB3Q3245DGVR/lcsc/v2/TVSOP-20_L5_0-W4_4-P0_40-LS6_6-BL.kicad_mod",
+      "sha256": "22c731868bc04a0a0bf2d9522515b7f443783898c9efd281929f1dd632387a86"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+# Sunlord_GZ1608D601TF — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+
+Component(
+    name = "Sunlord_GZ1608D601TF",
+    footprint = File("Sunlord_GZ1608D601TF/L0603.kicad_mod"),
+    symbol = Symbol("Sunlord_GZ1608D601TF/GZ1608D601TF.kicad_sym"),
+    prefix = "L",
+    part = Part(mpn = "GZ1608D601TF", manufacturer = "Sunlord"),
+    properties = {"LCSC": "C1002", "MPN": "GZ1608D601TF"},
+    pins = {
+        "1": p1,
+        "2": p2,
+    },
+)

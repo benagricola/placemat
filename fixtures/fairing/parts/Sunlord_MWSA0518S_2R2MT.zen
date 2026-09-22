@@ -1,0 +1,18 @@
+# Sunlord_MWSA0518S_2R2MT - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Sunlord-MWSA0518S_2R2MT_C408345.pdf
+
+P_1 = io("P_1", Net, optional = True)
+P_2 = io("P_2", Net, optional = True)
+
+Component(
+    name = "Sunlord_MWSA0518S_2R2MT",
+    footprint = File("Sunlord_MWSA0518S_2R2MT/IND-SMD_L5.4-W5.2.kicad_mod"),
+    symbol = Symbol("Sunlord_MWSA0518S_2R2MT/MWSA0518S_2R2MT.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "MWSA0518S-2R2MT", manufacturer = "Sunlord"),
+    properties = {"LCSC": "C408345", "MPN": "MWSA0518S-2R2MT"},
+    pins = {
+        "1": P_1,
+        "2": P_2,
+    },
+)

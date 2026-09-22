@@ -1,0 +1,17 @@
+{
+  "mpn": "LDC1612DNTR",
+  "manufacturer": "Texas Instruments",
+  "lcsc": "C1847959",
+  "assets": [
+    {
+      "file": "C1847959.kicad_sym",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/LDC1612DNTR/lcsc/v2/C1847959.kicad_sym",
+      "sha256": "a5853f5706948f12de6cbea30fd1bdb2c186783cb4a0a8016ce5cccdfae4fedb"
+    },
+    {
+      "file": "WSON-12_L4_0-W4_0-P0_50-BL-EP.kicad_mod",
+      "url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/LDC1612DNTR/lcsc/v2/WSON-12_L4_0-W4_0-P0_50-BL-EP.kicad_mod",
+      "sha256": "e427372ee2c3ab0b5883cf6b07fe76902637b9ba09bd4deecc3080f2225dca3c"
+    }
+  ]
+}

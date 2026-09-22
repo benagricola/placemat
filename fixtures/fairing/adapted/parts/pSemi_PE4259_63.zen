@@ -1,0 +1,29 @@
+# pSemi_PE4259_63 - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: pSemi-PE4259_63_C470892.pdf
+
+RF1 = io("RF1", Net, optional = True)
+GND = io("GND", Net, optional = True)
+RF2 = io("RF2", Net, optional = True)
+CTRL = io("CTRL", Net, optional = True)
+RFC = io("RFC", Net, optional = True)
+CTRL_orVDD = io("CTRL_orVDD", Net, optional = True)
+
+dnp = config(bool, default = True)   # fitted only in the switched build (rf = "switch" in Main.zen)
+
+Component(
+    name = "pSemi_PE4259_63",
+    footprint = File("../../parts/pSemi_PE4259_63/SC-70-6_L2.2-W1.3-P0.65-LS2.1-BL.kicad_mod"),
+    symbol = Symbol("pSemi_PE4259_63/PE4259_63.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "PE4259-63", manufacturer = "pSemi"),
+    dnp = dnp,
+    properties = {"LCSC": "C470892", "MPN": "PE4259-63"},
+    pins = {
+        "RF1": RF1,
+        "GND": GND,
+        "RF2": RF2,
+        "CTRL": CTRL,
+        "RFC": RFC,
+        "CTRL#orVDD": CTRL_orVDD,
+    },
+)

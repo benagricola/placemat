@@ -1,0 +1,30 @@
+# KANGNEX_WJ15EDGRC_3_81_4P — component wrapper: local KiCad symbol + footprint, LCSC
+# pinned in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, cnc-expansion capture). 4-position pluggable screw terminal, THT.
+# Stock 1,751+ class (KANGNEX WJ15EDG family; checked 2026-07-26). PITCH FLAG: this is
+# 3.81mm, not the brief's stated 3.5mm — an exhaustive LCSC/EasyEDA search (2026-07-26)
+# found no 4-position 3.5mm pluggable terminal block with usable EasyEDA symbol/footprint
+# data in the DEGSON/KANGNEX "15EDG" families (2/3/5-position exist at 3.5mm; 4/6-position
+# only turned up with full data at 3.81mm). 0.31mm pitch difference on this one connector —
+# flagged for Ben to override with a specific part if he has one on hand.
+# Used for the door-interlock screw terminal (brief: 4-pos, CHAIN_A/CHAIN_B/MON/GND).
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+
+Component(
+    name = "KANGNEX_WJ15EDGRC_3_81_4P",
+    footprint = File("KANGNEX_WJ15EDGRC_3_81_4P/CONN-TH_WJ15EDGRC-3.81-4P.kicad_mod"),
+    symbol = Symbol("KANGNEX_WJ15EDGRC_3_81_4P/WJ15EDGRC-3.81-4P.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "WJ15EDGRC-3.81-04P-14-00A", manufacturer = "KANGNEX"),
+    properties = {"LCSC": "C7245", "MPN": "WJ15EDGRC-3.81-04P-14-00A"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+    },
+)

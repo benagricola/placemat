@@ -1,0 +1,20 @@
+# TDK_ANT016008LCS2442MA1 - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: TDK-ANT016008LCS2442MA1_C76585.pdf
+
+Radiator_electrode = io("Radiator_electrode", Net, optional = True)
+Dummy_pad = io("Dummy_pad", Net, optional = True)
+Feed_point = io("Feed_point", Net, optional = True)
+
+Component(
+    name = "TDK_ANT016008LCS2442MA1",
+    footprint = File("TDK_ANT016008LCS2442MA1/ANT-SMD_6P-L1.6-W0.8-P1.20-1.kicad_mod"),
+    symbol = Symbol("TDK_ANT016008LCS2442MA1/ANT016008LCS2442MA1.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "ANT016008LCS2442MA1", manufacturer = "TDK"),
+    properties = {"LCSC": "C76585", "MPN": "ANT016008LCS2442MA1"},
+    pins = {
+        "Radiator_electrode": Radiator_electrode,
+        "Dummy_pad": Dummy_pad,
+        "Feed_point": Feed_point,
+    },
+)

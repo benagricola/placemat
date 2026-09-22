@@ -1,0 +1,22 @@
+# Abracon_ABM8_272_T3 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). 12MHz crystal, 10pF load cap, 50R max ESR,
+# +/-30ppm — the RP2350 hardware-design-guide-recommended part (same crystal as Pico/Pico 2).
+# Pins 1/3 = resonator terminals, pins 2/4 = case ground (tie to GND).
+
+XIN = io("XIN", Net, optional = True)
+XOUT = io("XOUT", Net, optional = True)
+GND = io("GND", Net, optional = True)
+
+Component(
+    name = "Abracon_ABM8_272_T3",
+    footprint = File("Abracon_ABM8_272_T3/CRYSTAL-SMD_4P-L3.2-W2.5-BL.kicad_mod"),
+    symbol = Symbol("Abracon_ABM8_272_T3/ABM8-272-T3.kicad_sym"),
+    prefix = "Y",
+    part = Part(mpn = "ABM8-272-T3", manufacturer = "Abracon"),
+    properties = {"LCSC": "C20625731", "MPN": "ABM8-272-T3"},
+    pins = {
+        "1": XIN,
+        "3": XOUT,
+        "GND": GND,
+    },
+)

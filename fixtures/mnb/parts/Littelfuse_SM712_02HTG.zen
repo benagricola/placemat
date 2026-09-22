@@ -1,0 +1,20 @@
+# Littelfuse_SM712_02HTG — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+L1 = io("L1", Net, optional = True)
+L2 = io("L2", Net, optional = True)
+GND = io("GND", Net, optional = True)
+
+Component(
+    name = "Littelfuse_SM712_02HTG",
+    footprint = File("Littelfuse_SM712_02HTG/SOT-23_L2.9-W1.3-P1.90-LS2.4-BR.kicad_mod"),
+    symbol = Symbol("Littelfuse_SM712_02HTG/SM712-02HTG.kicad_sym"),
+    prefix = "D",
+    part = Part(mpn = "SM712-02HTG", manufacturer = "Littelfuse"),
+    properties = {"LCSC": "C172881", "MPN": "SM712-02HTG"},
+    pins = {
+        "1": L1,
+        "2": L2,
+        "3": GND,
+    },
+)

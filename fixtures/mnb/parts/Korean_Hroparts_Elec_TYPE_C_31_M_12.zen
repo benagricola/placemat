@@ -1,0 +1,36 @@
+# Korean_Hroparts_Elec_TYPE_C_31_M_12 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+CC1 = io("CC1", Net, optional = True)
+CC2 = io("CC2", Net, optional = True)
+DN1 = io("DN1", Net, optional = True)
+DN2 = io("DN2", Net, optional = True)
+DP1 = io("DP1", Net, optional = True)
+DP2 = io("DP2", Net, optional = True)
+EH = io("EH", Net, optional = True)
+GND = io("GND", Net, optional = True)
+SBU1 = io("SBU1", Net, optional = True)
+SBU2 = io("SBU2", Net, optional = True)
+VBUS = io("VBUS", Net, optional = True)
+
+Component(
+    name = "Korean_Hroparts_Elec_TYPE_C_31_M_12",
+    footprint = File("Korean_Hroparts_Elec_TYPE_C_31_M_12/USB-C_SMD-TYPE-C-31-M-12_1.kicad_mod"),
+    symbol = Symbol("Korean_Hroparts_Elec_TYPE_C_31_M_12/TYPE-C-31-M-12.kicad_sym"),
+    prefix = "USBC",
+    part = Part(mpn = "TYPE-C-31-M-12", manufacturer = "Korean Hroparts Elec"),
+    properties = {"LCSC": "C165948", "MPN": "TYPE-C-31-M-12"},
+    pins = {
+        "CC1": CC1,
+        "CC2": CC2,
+        "DN1": DN1,
+        "DN2": DN2,
+        "DP1": DP1,
+        "DP2": DP2,
+        "EH": EH,
+        "GND": GND,
+        "SBU1": SBU1,
+        "SBU2": SBU2,
+        "VBUS": VBUS,
+    },
+)

@@ -1,0 +1,38 @@
+# STMicroelectronics_LSM6DS3TR_C - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: STMicroelectronics-LSM6DS3TR-C_C967633.pdf
+
+SDO_SA0 = io("SDO_SA0", Net, optional = True)
+SDx = io("SDx", Net, optional = True)
+SCx = io("SCx", Net, optional = True)
+INT1 = io("INT1", Net, optional = True)
+VDDIO = io("VDDIO", Net, optional = True)
+GND = io("GND", Net, optional = True)
+VDD = io("VDD", Net, optional = True)
+INT2 = io("INT2", Net, optional = True)
+NC = io("NC", Net, optional = True)
+CS = io("CS", Net, optional = True)
+SCL = io("SCL", Net, optional = True)
+SDA = io("SDA", Net, optional = True)
+
+Component(
+    name = "STMicroelectronics_LSM6DS3TR_C",
+    footprint = File("STMicroelectronics_LSM6DS3TR_C/LGA-14_L3.0-W2.5-P0.50-TL.kicad_mod"),
+    symbol = Symbol("STMicroelectronics_LSM6DS3TR_C/LSM6DS3TR_C.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "LSM6DS3TR-C", manufacturer = "STMicroelectronics"),
+    properties = {"LCSC": "C967633", "MPN": "LSM6DS3TR-C"},
+    pins = {
+        "SDO/SA0": SDO_SA0,
+        "SDx": SDx,
+        "SCx": SCx,
+        "INT1": INT1,
+        "VDDIO": VDDIO,
+        "GND": GND,
+        "VDD": VDD,
+        "INT2": INT2,
+        "NC": NC,
+        "CS": CS,
+        "SCL": SCL,
+        "SDA": SDA,
+    },
+)

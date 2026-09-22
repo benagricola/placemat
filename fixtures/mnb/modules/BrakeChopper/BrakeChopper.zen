@@ -1,0 +1,120 @@
+# BrakeChopper - the machine's ONE regen brake chopper on the 48V motor trunk.
+#
+# Moved here from the Middleweight (2026-09-03, Ben's ruling): with the nodes' input
+# guard changed to a bidirectional return-path FET (modules/ReversePolarityFet), regen
+# from every axis flows back up its power cable, through the passive Breakout, to the
+# trunk head on the Featherweight - so one chopper and one 22R / 50W resistor per
+# machine protect all N nodes, instead of one each. The trunk cable inside the dry box
+# is short: at the chopper's ~2.6A the drop between Breakout and Featherweight is a
+# fraction of a volt, so it protects every node equally from here.
+#
+# WHAT A CHOPPER IS, for the record: a comparator with hysteresis watching the bus through
+# a divider against a fixed reference, driving a low-side FET that puts a dump resistor
+# across the bus. Above the upper threshold the FET turns on and the resistor pulls the
+# bus down; below the lower threshold it turns off; the bang-bang cycling IS the "PWM".
+# It needs no knowledge of the PSU's nominal voltage and no firmware: the thresholds are
+# set by what must survive - the TMC2160A's 60V absolute maximum on every node.
+#
+# THRESHOLDS (re-derived for a CENTRAL chopper): a node regenerating at ~3A sees its own
+# bus up to ~0.6V ABOVE the trunk (two 0.5m AWG22 legs plus the Breakout), so the trip
+# at the Featherweight is set ~1V lower than the per-node design was.
+#   trip_rising  = Vref * (1 + Rtop/Rbot + Rtop/Rhyst)   [Millman at the V+ node, output low]
+#   nominal:  2.495 * (1 + 100/4.64 + 100/249) = 2.495 * 22.955 = 57.27V rising
+#   falling = 57.27 - 5.0 * (100/249) = 55.26V  (~2.0V hysteresis band)
+#   worst-case HIGH (Rtop +0.1%, Rbot -0.1%, Rhyst -1%, Vref +0.5%):
+#             2.5075 * (1 + 100.1/4.6354 + 100.1/246.51) = 57.68V at the trunk
+#             -> ~58.3V at a regenerating node: 1.7V under the TMC2160A's 60V abs max.
+#   worst-case LOW: 2.4825 * (1 + 99.9/4.6446 + 99.9/251.49) = 56.87V - well clear of
+#             the 48V nominal bus and inside the locked 56-58V window.
+# The divider is 0.1% and the hysteresis resistor 1% - the tolerance stack above is
+# load-bearing, so those are BOM-time sourcing items (100k 0.1% 0603 e.g. C2912578;
+# 4.64k 0.1% 0402 - verify), not generic E96 pulls.
+#
+# DUMP PATH: 22R / 50W external resistor (case-mounted, screw terminal at board level).
+# At 57V that is 2.6A and 148W PEAK while on; average power is the machine's regen
+# energy, which is small - the 50W rating is for the fail-open case below, not for
+# normal duty. Q_chop: 2.6A pulses, I2R ~40mW - the canonical 100V FET.
+#
+# FAIL MODES (documented, unchanged from the per-node design):
+# - Comparator FAILS OPEN (output stuck high, TL431 shorted, ...): the FET is commanded
+#   on continuously -> V48^2/22R = 105W at 48V into a 50W resistor. This backstop does
+#   not, and is not asked to, protect against its own stuck-on failure: fit a resistor
+#   with a thermal fuse or a firmware max-on-time guard on `status` - FLAGGED, not
+#   invented here.
+# - Comparator FAILS SHORT (output stuck low): backstop silently inert; `status` reads
+#   stuck low, so firmware can flag "chopper suspected dead" if it never transitions.
+# - v5 dead: the comparator and TL431 are dark; the 10k pull-down holds the gate driver's
+#   input low and the FET off. Fails toward OFF.
+#
+# SAFETY LANGUAGE: this is an energy dump that regulates the motor bus; describe it only
+# in those terms (never "safety-rated", "STO", "SIL", "PL", "certified").
+CMP = Module("../../parts/onsemi_LM393DR2G.zen")
+TL431 = Module("../../parts/Texas_Instruments_TL431BIDBZR.zen")
+DOR = Module("../../parts/JSMSEMI_BAT54C.zen")
+GATEDRV = Module("../../parts/Slkor_SL27517A.zen")
+ZENER = Module("../../parts/RO_BZT52B12S.zen")
+FET = Module("../../parts/HUAYI_HYG053N10NS1C2.zen")
+Resistor = Module("@stdlib/generics/Resistor.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+
+v48 = io("v48", Net)                  # the motor trunk being regulated (also the driver's supply source)
+gnd = io("gnd", Ground)
+v5 = io("v5", Net)                    # comparator supply + reference bias + pull-up (always-on rail)
+chop_node = io("chop_node", Net)      # FET drain -> external resistor's low end (its high end is v48, at the board's terminal)
+drive_in = io("drive_in", Net)        # optional firmware flux-braking drive (push-pull 3.3V); tie to gnd when unused
+status = io("status", Net)           # comparator state, halved to a 3.3V-safe level for a GPIO (or a test point)
+
+ov_div = Net("OV_DIV")      # comparator V+ : divided bus
+ov_ref = Net("OV_REF")      # comparator V- : TL431 2.495V
+ov_out = Net("OV_OUT")      # comparator output, open-drain pulled to v5
+drv_12v = Net("DRV_12V")    # gate driver supply
+drv_or = Net("DRV_OR")      # diode-OR merged node -> driver IN+
+drv_out = Net("DRV_OUT")
+chop_gate = Net("CHOP_GATE")
+
+# ---- 1. comparator with hysteresis --------------------------------------------------
+Resistor(name = "r_div_top", value = "100kohm", package = "0603", voltage = "100V", P1 = v48, P2 = ov_div)
+Resistor(name = "r_div_bot", value = "4.64kohm", package = "0402", P1 = ov_div, P2 = gnd)
+Capacitor(name = "c_div_filt", value = "100nF", package = "0402", P1 = ov_div, P2 = gnd)
+Resistor(name = "r_hyst", value = "249kohm", package = "0402", P1 = ov_out, P2 = ov_div)
+
+Resistor(name = "r_tl_bias", value = "1kohm", package = "0402", P1 = v5, P2 = ov_ref)
+Capacitor(name = "c_tl_filt", value = "100nF", package = "0402", P1 = ov_ref, P2 = gnd)
+TL431(name = "tl", CATHODE = ov_ref, REF = ov_ref, ANODE = gnd)
+
+Resistor(name = "r_cmp_pu", value = "1kohm", package = "0402", P1 = v5, P2 = ov_out)
+Capacitor(name = "c_cmp_dec", value = "100nF", package = "0402", P1 = v5, P2 = gnd)
+CMP(name = "cmp", VCC = v5, GND = gnd,
+    IN1_POS = ov_div, IN1_NEG = ov_ref, OUT1 = ov_out,
+    # unused channel per the datasheet: inputs to gnd, open-drain output left NC
+    IN2_POS = gnd, IN2_NEG = gnd, OUT2 = NotConnected())
+
+# ---- 2. status tap (0/~5V open-drain -> 0/~2.5V for a 3.3V GPIO) ---------------------
+Resistor(name = "r_status_top", value = "10kohm", package = "0402", P1 = ov_out, P2 = status)
+Resistor(name = "r_status_bot", value = "10kohm", package = "0402", P1 = status, P2 = gnd)
+Capacitor(name = "c_status_filt", value = "100nF", package = "0402", P1 = status, P2 = gnd)
+
+# ---- 3. diode-OR of the two drive sources into the gate driver ----------------------
+# BAT54C common-cathode pair: A1 = firmware drive (3.3V push-pull), A2 = comparator
+# (pulled to v5). 10k holds the merged node OFF with both sources dark. Driver VIH max is
+# 2.4V; the MCU path settles ~3.0V, the comparator path ~4.3V - both clean highs.
+DOR(name = "d_or", A1 = drive_in, A2 = ov_out, K = drv_or)
+Resistor(name = "r_or_pd", value = "10kohm", package = "0402", P1 = drv_or, P2 = gnd)
+
+# ---- 4. gate driver + its 12V zener-shunt supply off the bus -------------------------
+# Fed from v48, NOT a logic rail: the dump must have power for as long as there is a bus
+# to be over-voltage. 8.2k/2512: >=1mA in the zener down to 44V at full driver load
+# (Iq 183uA + Qg*f ~= 1.9mA at 20kHz), <=0.28W at 60V idle; zener <=70mW of 200mW.
+Resistor(name = "r_zener_series", value = "8.2kohm", package = "2512", power = "1W", voltage = "100V",
+         P1 = v48, P2 = drv_12v)
+ZENER(name = "d_zener", K = drv_12v, A = gnd)
+Capacitor(name = "c_drv_bulk", value = "1uF", package = "0603", voltage = "25V", P1 = drv_12v, P2 = gnd)
+Capacitor(name = "c_drv_dec", value = "100nF", package = "0402", voltage = "25V", P1 = drv_12v, P2 = gnd)
+GATEDRV(name = "u_drv", VDD = drv_12v, GND = gnd, IN_POS = drv_or, IN_NEG = gnd, OUT = drv_out)
+
+# ---- 5. chopper FET ------------------------------------------------------------------
+Resistor(name = "rg", value = "4.7ohm", package = "0402", P1 = drv_out, P2 = chop_gate)
+Resistor(name = "rpd", value = "10kohm", package = "0402", P1 = chop_gate, P2 = gnd)   # driver-absent safety net
+FET(name = "q_chop", D = chop_node, G = chop_gate, S = gnd)
+
+Layout(name = "BrakeChopper", path = "layout")

@@ -1,0 +1,116 @@
+# ProtectionCell — output protection for a 24V low-side-switched inductive
+# load (relay/solenoid/valve coil): freewheel diode + drain TVS clamp
+# (overview.md "shared protection cell" / "every output: freewheel diode +
+# drain TVS"). Pure protection network — the FET, GPIO drive, and coil live
+# on the board; this cell drops onto the FET's drain node.
+#
+# io(): v_out = the switched node (FET drain / coil low side); v_supply = the
+# rail feeding the coil's high side (the 24V IO rail); gnd = board ground.
+#
+# Freewheel (SS510, same part/role as IdealDiodeInput's reverse-input
+# clamps): A->v_out, K->v_supply. Reverse-biased while the FET holds v_out
+# low (normal ON state); when the FET opens, the coil forces v_out above
+# v_supply until the diode conducts, recirculating the coil current back into
+# the supply rail instead of avalanching the FET.
+#
+# TVS choice — SUPERSEDED BY CONSOLIDATION (Ben, 2026-07-26): the ecosystem
+# standardised on ONE bidirectional SMB TVS part number (Littelfuse SMBJ33CA)
+# across every clamp position, one JLC feeder fee instead of two. Wherever a
+# clamp sits behind a diode with its own reverse path (as here: the FET's
+# body diode already owns negative-going excursions on v_out), the
+# bidirectional half of the SMB part is simply inert — harmless, not wrong —
+# so paying for it once, ecosystem-wide, beats carrying a second unidirectional
+# SMA part number for the one topology that doesn't need it. TVS is now
+# Littelfuse_SMBJ33CA (bidirectional, SMB/600W); SMAJ33A-13-F is retired from
+# this module (the wrapper at parts/Diodes_Incorporated_SMAJ33A_13_F.zen is no
+# longer instantiated anywhere — flagged for removal, not removed here).
+#
+# --- Original reasoning (2026-07-1x), kept as history, no longer the standing
+# decision --- SMAJ33A (Diodes Inc, UNIDIRECTIONAL, SMA/400W) was chosen over
+# the available SMBJ33CA (Littelfuse, BIDIRECTIONAL, SMB/600W) — reasoned, not
+# defaulted:
+#   - v_out is unipolar BY TOPOLOGY: a low-side switch's drain only ever
+#     swings 0V (FET on) to ~v_supply+Vf (FET off, freewheel clamped) in
+#     normal operation. Any negative excursion (ringback below 0V) is already
+#     caught by the FET's own body diode at ~-0.7V, well below either TVS's
+#     33V threshold — the bidirectional half of an SMBJ33CA would never
+#     engage here.
+#   - The ecosystem's one existing bidirectional-TVS precedent (featherweight
+#     .zen's SMBJ33 on CHAIN_OK) is a genuinely different role: CHAIN_OK is a
+#     field-ENTRY wire (arrives off-board through a connector) acting as the
+#     relay coil's *supply* rail, exposed to cable-coupled transients from
+#     both polarities — not a switched, on-board, unipolar drain node. That
+#     precedent doesn't transfer here.
+#   - Datasheet check (both read, not assumed): SMAJ33A and SMBJ33CA share
+#     the same 33V-class numbers (Littelfuse SMBJ series datasheet, C83325:
+#     Vwm 33.0V, Vbr 36.70-40.60V, Vc(max) 53.3V @ Ipp 11.3A for the 600W
+#     SMB; Diodes Inc SMAJ33A-13-F, C134981: Vwm 33V, Vbr min 36.7V, Vc(max)
+#     53.3V @ ~7.6A for the 400W SMA) - the only real difference is
+#     directionality + package power rating, and a coil-clamp residual
+#     transient (the freewheel diode carries the bulk of the recirculation
+#     energy) is well inside the smaller SMA/400W part's budget.
+#   - SMBJ33CA stays seeded at parts/ for a future genuinely-bidirectional
+#     need; not used here. [now used here — see the consolidation note above]
+# OUTPUT-ACTIVE INDICATOR LED (Ben, 2026-07-26 — ecosystem-wide indicator-LED
+# standard, per repo CLAUDE.md): a series LED + R directly across v_supply ->
+# v_out. Pure observation — lights whenever the low-side switch pulls v_out
+# down (v_supply - v_out ~= the full 24V rail across the LED+R), i.e. shows
+# channel activity at the cell's own output, not just at a GPIO. When the FET
+# is off, v_out sits at/near v_supply (the coil pulls it up through its own
+# low DC resistance, and the freewheel diode clamps it no more than ~Vf above
+# v_supply during the recirculation transient) so the LED+R sees ~0V and
+# stays dark - correct "active = lit" behaviour. It has no path back into the
+# switched node's own protection function (freewheel + TVS, unchanged) and
+# does not alter it in any way.
+#
+# Colour: YELLOW (IO/output activity - CLAUDE.md's 2026-07-26 LED-family pinning) - KT-0603Y
+# (LCSC C2287, parts/Hubei_KENTO_Elec_KT_0603Y.zen), superseding the retiring KT-0603YG. Same
+# 0.8x0.8mm-pad 0603 footprint envelope, so the LED's own placement is unchanged; only its
+# series R changes (see below - now TWO resistors, a layout-script change).
+#
+# RETARGET, not a straight part-for-part swap (Ben, 2026-07-26): this tap is INDEPENDENT (not
+# in-path with anything else), unlike OptoSense/PermitReceiver's fixed-current loops, so it's
+# free to re-target current — and at 24V, yellow's CLAUDE.md "nominal" current (~16mA, sized for
+# ~100mcd) runs into the rail's own dissipation rule (CLAUDE.md: "red/yellow on 24V/48V rails:
+# target the 50mcd LOW end and use 0805/1206 series resistors"). So: target 50mcd instead of
+# 100mcd.
+#
+# MATH. KT-0603Y datasheet: IV 70-175mcd min-max @ IF=20mA (k = avg(70,175)/20 = 6.125mcd/mA);
+# VF 1.8-2.4V min-max @ IF=10mA (no typ column - VF_max=2.4V is the conservative/high estimate,
+# and 10mA happens to be close to this tap's actual operating current, unlike the 20mA IV test
+# point). Target current for 50mcd: 50/6.125 = 8.16mA.
+#   R_total = (24V - 2.4V) / 8.16mA = 21.6V / 8.16mA = 2647R -> nearest clean E24 split: 2x1.3k =
+#   2.6k total. I = 21.6V / 2.6k = 8.31mA -> Iv = 8.31 x 6.125 = ~51mcd (right at the 50mcd
+#   target).
+#   Dissipation if left as ONE 2.6k resistor: I^2 x R = (0.00831)^2 x 2600 = 180mW - exceeds a
+#   0603's ~100mW rating AND an 0805's ~125mW rating (CLAUDE.md's "0805/1206 if needed" flag is
+#   correctly triggered here). SPLIT across two 1.3kohm resistors instead (E24 value, matches the
+#   ecosystem's existing split-pair pattern for 24V/48V indicator strings): each carries
+#   (0.00831)^2 x 1300 = ~90mW - still tight for 0603 (90% of its ~100mW rating, no real margin)
+#   but comfortable for 0805 (~125mW rating, 72% of it) - so PACKAGE MOVES TO 0805, per CLAUDE.md
+#   rule 2, not just split.
+FREEWHEEL = Module("../../parts/hongjiacheng_SS510B.zen")
+TVS = Module("../../parts/Littelfuse_SMBJ33CA.zen")
+LED_ACT = Module("../../parts/Hubei_KENTO_Elec_KT_0603Y.zen")
+Resistor = Module("@stdlib/generics/Resistor.zen")
+
+v_out = io("v_out", Net)
+v_supply = io("v_supply", Net)
+gnd = io("gnd", Ground)
+
+led_r_mid = Net("PROT_LED_RMID")  # rled_act_a/rled_act_b midpoint
+led_mid = Net("PROT_LED_MID")     # rled_act_b -> LED_ACT anode
+
+FREEWHEEL(name = "dfw", A = v_out, K = v_supply)
+# SMBJ33CA is symmetric (no polarity) — p1 faces v_out (east, toward the
+# freewheel diode, pad-pooled), p2 faces gnd (west, outward plane drop). See
+# the layout script for the pin/rotation derivation.
+TVS(name = "dtvs", p1 = v_out, p2 = gnd)
+
+# output-active indicator: v_supply -> R(split 2x1.3k 0805) -> LED(A->K) -> v_out (see header
+# math - split from a single 7.5kohm 0603 to 2x1.3kohm 0805 for the yellow retarget's dissipation)
+Resistor(name = "rled_act_a", value = "1.3kohm", package = "0805", P1 = v_supply, P2 = led_r_mid)
+Resistor(name = "rled_act_b", value = "1.3kohm", package = "0805", P1 = led_r_mid, P2 = led_mid)
+LED_ACT(name = "led_act", A = led_mid, K = v_out)
+
+Layout(name = "ProtectionCell", path = "layout")

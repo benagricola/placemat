@@ -1,0 +1,47 @@
+# Slkor_SL27517A — component wrapper: local KiCad symbol + footprint, LCSC pinned in
+# properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, middleweight regen-chopper hardware backstop). Single-channel
+# low-side MOSFET gate driver, SOT-23-5, UCC27517A-class/pin-compatible (Slkor/SLKORMICRO
+# clone of TI's UCC27517A family). LCSC C46061827, stock ~4,900-8,700 units (checked
+# 2026-07-26, live jlcsearch.tscircuit.com query returned 4,865; the LCSC product page
+# itself showed 8,660 — both comfortably above the low-hundreds bar) — JLC classification
+# NOT Basic (jlcsearch: is_basic=false), treat as Extended, VERIFY at order. Considered
+# against the genuine TI UCC27517DBVT (LCSC C2877770) which is thinner stock (248 units,
+# right at the risk edge) and against EG Micro's EG27517 (LCSC C2987449, 2,995 units) —
+# this part has the best stock/price combination of the UCC27517A-class candidates found.
+#
+# Datasheet read (Slkor SL27517A, LCSC C46061827, 2026-07-26): supply 4.5-20V (comfortably
+# covers the ~12V zener-regulated supply this drives from); input thresholds VIL
+# 0.8-1.2V / VIH 1.9-2.4V (the 3.3V-logic-minus-one-Schottky-drop signal driving this,
+# ~2.9-3.0V, clears VIH with margin); peak output 4A source/sink (drives the chopper
+# FET's ~3.7nF Ciss cleanly at the chopper's PWM rate); propagation delay ~20ns, rise/fall
+# 6ns/11ns; quiescent current 183uA. DUAL INPUT ARCHITECTURE (per the datasheet's own
+# description: "dual inputs, supports non-inverting or inverting input; unused input can
+# serve as enable/disable control") — this part has BOTH an IN+ and an IN- pin (unlike the
+# genuine TI UCC27517A's single IN pin), with OUT tracking IN+ AND NOT(IN-). Used here in
+# non-inverting single-input mode: IN- tied hard to GND (permanently "enabled"), IN+ takes
+# the merged (diode-OR'd MCU-command / comparator-backstop) drive signal.
+#
+# Pin mapping per this exact fetch: 1=VDD, 2=GND, 3=IN+, 4=IN-, 5=OUT.
+VDD = io("VDD", Net, optional = True)
+GND = io("GND", Net, optional = True)
+IN_POS = io("IN_POS", Net, optional = True)
+IN_NEG = io("IN_NEG", Net, optional = True)
+OUT = io("OUT", Net, optional = True)
+
+Component(
+    name = "Slkor_SL27517A",
+    footprint = File("Slkor_SL27517A/SOT-23-5_L2.9-W1.6-P0.95-LS2.8-TL.kicad_mod"),
+    symbol = Symbol("Slkor_SL27517A/SL27517A.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "SL27517A", manufacturer = "Slkor"),
+    properties = {"LCSC": "C46061827", "MPN": "SL27517A"},
+    pins = {
+        "VDD": VDD,
+        "GND": GND,
+        "IN+": IN_POS,
+        "IN-": IN_NEG,
+        "OUT": OUT,
+    },
+)

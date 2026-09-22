@@ -1,0 +1,18 @@
+# SRD_MP2104K27C3X6LC — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+
+Component(
+    name = "SRD_MP2104K27C3X6LC",
+    footprint = File("SRD_MP2104K27C3X6LC/CAP-TH_L13.0-W6.0-P10.00-D1.0.kicad_mod"),
+    symbol = Symbol("SRD_MP2104K27C3X6LC/MP2104KGC3XLC.kicad_sym"),
+    prefix = "C",
+    part = Part(mpn = "MP2104K27C3X6LC", manufacturer = "SRD"),
+    properties = {"LCSC": "C105759", "MPN": "MP2104K27C3X6LC"},
+    pins = {
+        "1": p1,
+        "2": p2,
+    },
+)

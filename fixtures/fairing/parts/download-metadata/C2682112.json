@@ -1,0 +1,10 @@
+{
+  "mpn": "SN74LVC2G00DCTR",
+  "manufacturer": "Texas Instruments",
+  "lcsc": {
+    "symbol_url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/SN74LVC2G00DCTR/lcsc/v2/C2682112.kicad_sym",
+    "footprint_url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/SN74LVC2G00DCTR/lcsc/v2/SSOP-8_L3_0-W2_8-P0_65-LS4_0-BL-1.kicad_mod",
+    "step_url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Texas_Instruments/SN74LVC2G00DCTR/lcsc/v2/SSOP-8_L3_0-W2_8-P0_65-LS4_0-BL-1.step",
+    "part_number": "C2682112"
+  }
+}

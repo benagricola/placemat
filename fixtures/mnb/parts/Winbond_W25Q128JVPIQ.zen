@@ -1,0 +1,41 @@
+# Winbond_W25Q128JVPIQ — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# SUBSTITUTE for the canonical "W25Q128JVUXIQ" named in CLAUDE.md / the Middleweight build
+# prompt: Winbond's W25Q128JV (128Mbit/16MB) datasheet (RevH, ordering info section 11) only
+# offers package codes S (SOIC-8 208mil), F (SOIC-16 300mil), P (WSON-8 6x5mm), E (WSON-8
+# 8x6mm), B/C (TFBGA-24), Y (WLCSP-24) — there is no USON-8 option at this density (USON-8
+# tops out around the W25Q16 8MB part). "W25Q128JVUXIQ" does not exist (confirmed: 0 results
+# on the JLCPCB parts search). This wrapper uses W25Q128JVPIQ (WSON-8 6x5mm, package code P),
+# the closest real, well-stocked, compact equivalent — flagged for Ben, see modules/
+# modules/MCU_RP2350B/LAYOUT-INTENT.md for the stock check and the SOIC-8 fallback (LCSC C97521).
+
+CS = io("CS", Net, optional = True)
+IO1 = io("IO1", Net, optional = True)
+IO2 = io("IO2", Net, optional = True)
+GND = io("GND", Net, optional = True)
+IO0 = io("IO0", Net, optional = True)
+CLK = io("CLK", Net, optional = True)
+IO3 = io("IO3", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+EP = io("EP", Net, optional = True)
+
+Component(
+    name = "Winbond_W25Q128JVPIQ",
+    footprint = File("Winbond_W25Q128JVPIQ/WSON-8_L6.0-W5.0-P1.27-BL-EP.kicad_mod"),
+    symbol = Symbol("Winbond_W25Q128JVPIQ/W25Q128JVPIQ.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "W25Q128JVPIQ", manufacturer = "Winbond"),
+    properties = {"LCSC": "C190862", "MPN": "W25Q128JVPIQ"},
+    pins = {
+        "#CS": CS,
+        "DO/IO1": IO1,
+        "#WP/IO2": IO2,
+        "GND": GND,
+        "DI/IO0": IO0,
+        "CLK": CLK,
+        "#HOLD-OR-#REST/IO3": IO3,
+        "VCC": VCC,
+        "EP": EP,
+    },
+)

@@ -1,0 +1,22 @@
+# XKB_Connectivity_TS_1187A_B_A_B — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+A = io("A", Net, optional = True)
+B = io("B", Net, optional = True)
+C = io("C", Net, optional = True)
+D = io("D", Net, optional = True)
+
+Component(
+    name = "XKB_Connectivity_TS_1187A_B_A_B",
+    footprint = File("XKB_Connectivity_TS_1187A_B_A_B/SW-SMD_4P-L5.1-W5.1-P3.70-LS6.5-TL_H1.5.kicad_mod"),
+    symbol = Symbol("XKB_Connectivity_TS_1187A_B_A_B/TS-1187A-B-A-B.kicad_sym"),
+    prefix = "SW",
+    part = Part(mpn = "TS-1187A-B-A-B", manufacturer = "XKB Connectivity"),
+    properties = {"LCSC": "C318884", "MPN": "TS-1187A-B-A-B"},
+    pins = {
+        "A": A,
+        "B": B,
+        "C": C,
+        "D": D,
+    },
+)

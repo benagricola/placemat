@@ -1,0 +1,113 @@
+# BOOMELE_2_54_2x20_Male — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). J-EXP board-to-board MALE header on the
+# Featherweight (2026-07-26: the Featherweight<->CNC-Expansion interconnect became a mezzanine
+# STACK — this male header, pins up, mates the Expansion's ZHOURI_2_54_2x20_Female socket
+# mounted under that board; supersedes the C9043 IDC ribbon pair).
+#
+# Part: BOOMELE (Boom Precision Elec) "2.54mm 2*20P", LCSC C50980. Stock check 2026-07-26:
+# 3,170 pcs LCSC / 2,373 pcs JLC — fine for low-hundreds; Basic/Extended flag not shown by
+# either search UI, re-verify at order time. $0.13-0.17 @ 150+.
+# Drawing (LCSC datasheet e9464fd78889415f8a9a878a22eba583.pdf, 2026-07-26) + 3D-model
+# cross-check (WRL z −3.0..+8.54mm):
+#   plastic base height 2.54mm (model-confirmed: pin tip at base 2.54 + mating pin 6.0 = 8.54)
+#   mating pin above base 6.0mm, solder tail 3.0mm, pin 0.64mm sq, pitch 2.54, rows 2.54 apart
+#   body 50.8 x 5.0mm; footprint bbox ~51.2 x 5.08mm (pads span 48.26 x 2.54)
+# MATED with the ZHOURI 8.5mm socket: board-to-board separation 11.04mm fully seated
+# (2.54 base + 8.5 insulator), pin engagement 6.0mm. See the female wrapper + both boards'
+# BOARD-INTENT.md for the stack/mirroring rules (footprints UNFLIPPED on both boards).
+#
+# Pad numbering (verified from the footprint, rot 0): pad 1 = WEST end SOUTH row; odd pins
+# south row, even pins north row, columns 1/2 .. 39/40 west->east. IDENTICAL numbering
+# geometry to the female footprint — identity pin-1-to-pin-1 mating by construction.
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+p5 = io("p5", Net, optional = True)
+p6 = io("p6", Net, optional = True)
+p7 = io("p7", Net, optional = True)
+p8 = io("p8", Net, optional = True)
+p9 = io("p9", Net, optional = True)
+p10 = io("p10", Net, optional = True)
+p11 = io("p11", Net, optional = True)
+p12 = io("p12", Net, optional = True)
+p13 = io("p13", Net, optional = True)
+p14 = io("p14", Net, optional = True)
+p15 = io("p15", Net, optional = True)
+p16 = io("p16", Net, optional = True)
+p17 = io("p17", Net, optional = True)
+p18 = io("p18", Net, optional = True)
+p19 = io("p19", Net, optional = True)
+p20 = io("p20", Net, optional = True)
+p21 = io("p21", Net, optional = True)
+p22 = io("p22", Net, optional = True)
+p23 = io("p23", Net, optional = True)
+p24 = io("p24", Net, optional = True)
+p25 = io("p25", Net, optional = True)
+p26 = io("p26", Net, optional = True)
+p27 = io("p27", Net, optional = True)
+p28 = io("p28", Net, optional = True)
+p29 = io("p29", Net, optional = True)
+p30 = io("p30", Net, optional = True)
+p31 = io("p31", Net, optional = True)
+p32 = io("p32", Net, optional = True)
+p33 = io("p33", Net, optional = True)
+p34 = io("p34", Net, optional = True)
+p35 = io("p35", Net, optional = True)
+p36 = io("p36", Net, optional = True)
+p37 = io("p37", Net, optional = True)
+p38 = io("p38", Net, optional = True)
+p39 = io("p39", Net, optional = True)
+p40 = io("p40", Net, optional = True)
+
+Component(
+    name = "BOOMELE_2_54_2x20_Male",
+    footprint = File("BOOMELE_2_54_2x20_Male/HDR-TH_40P-P2.54-V-M-R2-C20-S2.54.kicad_mod"),
+    symbol = Symbol("BOOMELE_2_54_2x20_Male/BOOMELE_2_54_2x20_Male_C50980.kicad_sym"),
+    prefix = "P",
+    part = Part(mpn = "2.54mm 2*20P", manufacturer = "BOOMELE"),
+    properties = {"LCSC": "C50980", "MPN": "2.54mm 2*20P"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+        "5": p5,
+        "6": p6,
+        "7": p7,
+        "8": p8,
+        "9": p9,
+        "10": p10,
+        "11": p11,
+        "12": p12,
+        "13": p13,
+        "14": p14,
+        "15": p15,
+        "16": p16,
+        "17": p17,
+        "18": p18,
+        "19": p19,
+        "20": p20,
+        "21": p21,
+        "22": p22,
+        "23": p23,
+        "24": p24,
+        "25": p25,
+        "26": p26,
+        "27": p27,
+        "28": p28,
+        "29": p29,
+        "30": p30,
+        "31": p31,
+        "32": p32,
+        "33": p33,
+        "34": p34,
+        "35": p35,
+        "36": p36,
+        "37": p37,
+        "38": p38,
+        "39": p39,
+        "40": p40,
+    },
+)

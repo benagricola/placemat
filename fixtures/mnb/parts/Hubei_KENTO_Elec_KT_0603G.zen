@@ -1,0 +1,32 @@
+# Hubei_KENTO_Elec_KT_0603G — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# KT-0603G: 0603 emerald-green indicator LED (peak 516-525nm / dominant 513-528nm). Canonical
+# GREEN indicator per CLAUDE.md's 2026-07-26 LED-family pinning — power-present/drop-live.
+# JLCPCB Extended; LCSC stock 421,050 pcs 2026-07-26 (well above the low-hundreds-of-boards bar).
+# Datasheet (KENTO, C12624): IV 210-430mcd min-max @ IF=5mA; VF 2.6-3.1V min-max @ IF=5mA (no typ
+# column — VF_max=3.1V is this wrapper's conservative/high sizing estimate). Same footprint
+# envelope (0.8x0.8mm pads at +-0.75mm, 0603 body) as the rest of the KT-0603 family and the
+# retiring KT-0603YG, so swapping colours needs no layout-script position changes.
+#
+# 3V3-headroom note (CLAUDE.md standing rule): at VF_max=3.1V, a 3.3V rail leaves only ~0.2V
+# across the series R — small changes in the installed part's actual VF bin swing the current a
+# lot. Where this LED taps 3V3 directly, size R against VF_MIN (worst case for current, i.e. the
+# bin that would otherwise over-drive the LED), accept it running dim at the VF_max bin, and
+# bench-trim R if the installed part is visibly too dim/bright.
+
+A = io("A", Net, optional = True)
+K = io("K", Net, optional = True)
+
+Component(
+    name = "Hubei_KENTO_Elec_KT_0603G",
+    footprint = File("Hubei_KENTO_Elec_KT_0603G/LED0603-RD_C12624.kicad_mod"),
+    symbol = Symbol("Hubei_KENTO_Elec_KT_0603G/KT-0603G_C12624.kicad_sym"),
+    prefix = "D",
+    part = Part(mpn = "KT-0603G", manufacturer = "Hubei KENTO Elec"),
+    properties = {"LCSC": "C12624", "MPN": "KT-0603G"},
+    pins = {
+        "A": A,
+        "K": K,
+    },
+)

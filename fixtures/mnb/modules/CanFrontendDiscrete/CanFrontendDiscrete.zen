@@ -1,0 +1,185 @@
+# CanFrontendDiscrete — MCP2518FD CAN-FD controller + MCP2542 transceiver front end,
+# for RP2350-based nodes (Middleweight, Flyweight) that have no native CAN-FD
+# peripheral. Ported verbatim from the N17 CAN-FD front end (mnb-ultralight-n17/
+# can-fd.kicad_sch, netlist-verified 2026-07 against the built KiCad project — same
+# LCSC ids, same footprints, same net topology) per 00-ecosystem-overview.md §4.1 and
+# middleweight-build-prompt.md's CAN-FD section. The bus-side cell (choke + PESD2CAN +
+# jumper-gated split termination) is IDENTICAL to CanFrontendNative
+# (featherweight/modules/CanFrontendNative) — same parts, same wiring — per the
+# ecosystem's "shared cell, instantiated not forked" rule; only the transceiver's
+# TXD/RXD source differs (native: straight to the H7; discrete: gated by CAN-MODE).
+#
+# CAN-MODE jumper (2 links, per the locked spec): the transceiver is kept BARE and its
+# TXD/RXD are routed through a 2x3 header so the SAME two signals can be bridged to
+# EITHER (a) the MCP2518FD — RRF's hardware CAN-FD path via SPI, confirmed against the
+# gloomyandy Duet3Expansion RP2350 (RRF 3.7) branch, which drives MCP2518FD-class
+# controllers over SPI — OR (b) two bare RP2350 GPIO pins for Klipper's `can2040` PIO
+# software CAN, which per its own docs bit-bangs CAN 2.0 on any two RP2040/RP2350 GPIOs
+# straight to a transceiver with no controller chip in between. Physically this is ONE
+# 2x3, 2mm-pitch THT header (XKB_Connectivity_X4621WV_2x03I_C40D28, the same part number
+# N17 used): 3 columns (controller / transceiver / MCU-GPIO) x 2 rows (RX-family top,
+# TX-family bottom) — the transceiver column is the always-populated common; a 2mm
+# shunt on each row bridges it to whichever column is fitted. Fit controller-side
+# shunts for RRF, MCU-side shunts for Klipper; never both (that would tie the
+# controller's and the MCU's CAN pins together).
+#
+# io(): v5/v3v3/gnd (v5 = CAN's OWN clean 5V per the locked spec — isolate it from any
+#   noisy IO rail at the board level, this module just consumes it); sck/mosi/miso/cs =
+#   host SPI to the MCP2518FD; int_pin = MCP2518FD's ~INT (the only interrupt line N17
+#   wires — INT0/GPIO0/XSTBY and INT1/GPIO1 are left NC, verbatim); mcu_can_tx/
+#   mcu_can_rx = the CAN-MODE jumper's MCU-GPIO column, for the board to route to two
+#   RP2350 GPIOs (can2040 mode); CAN_P/CAN_N = the bus, post-choke.
+#
+# CAN_P/CAN_N SI caps — RESOLVED 2026-07-26 (was the open item above, kept for
+# history): N17 carried two 10pF/50V 0402 caps (C23/C25, LCSC C106199) directly
+# on CAN_L/CAN_H to GND, believed to be lifted from the MCP2542FD datasheet.
+# CHECKED, not assumed: fetched Microchip DS20005514C and read Section 1.8
+# "Typical Applications" (p.9), Figures 1-3 (MCP2544WFDT with NC and split
+# termination) and 1-4 (MCP2542FD with VIO pin) — the datasheet's own
+# reference circuits for this transceiver family. NEITHER shows a capacitor
+# on CANH or CANL individually — only 0.1uF VDD/VIO bypass and the
+# split-termination centre-tap cap (this module's own term_cap). No separate
+# layout-guidelines chapter exists either. So Ben's recollection doesn't hold
+# for the MCP2542FD's own datasheet specifically (the caps may have come from
+# elsewhere — the MCP2518FD controller's datasheet, a general CAN-FD EMC app
+# note, or independent practice) — but per Ben's approval, added anyway as
+# DNF (Do Not Fit) positions: real pads/footprint present (the option exists
+# to populate later if EMC testing calls for it) but not populated by
+# default, via @stdlib/generics/Capacitor.zen's `skip_bom` (confirmed by
+# instantiating a test capacitor and reading the generated footprint back —
+# it sets the KiCad `exclude_from_bom` attribute, the same real DNF mechanism
+# SolderJumper_2P's own footprint already uses). Applied identically to both
+# CanFrontendNative and this module, matching the bus-side cell's "same cell,
+# not a divergent copy" rule.
+
+CTRL = Module("../../parts/Microchip_Tech_MCP2518FDT_E_QBB.zen")
+MCP2542 = Module("../../parts/Microchip_Tech_MCP2542WFDT_H_MNY.zen")
+XTAL = Module("../../parts/Tognjing_XTM20040000FT00351001.zen")
+CHOKE = Module("../../parts/TDK_ACT45B_110_2P_TL003.zen")
+ESD = Module("../../parts/Nexperia_PESD2CAN_215.zen")
+TERM_JUMPER = Module("../../parts/XFCN_PZ200V_11_02P.zen")
+MODE_JUMPER = Module("../../parts/XKB_Connectivity_X4621WV_2x03I_C40D28.zen")
+TERM_SOLDER = Module("../../parts/SolderJumper_2P.zen")
+MODE_SOLDER3 = Module("../../parts/SolderJumper_3P.zen")
+# jumper_style (2026-09-03, Ben): "header" = pin headers + shunts (default, roomy boards);
+# "solder" = open solder bridges for the area-bound Middleweight only: CAN-TERM becomes a
+# 2-pad bridge and the 2x3 CAN-MODE header becomes two 3-pad bridges (one per row: RX, TX),
+# centre pad = transceiver, one throw = controller (RRF), the other = MCU GPIO (Klipper).
+jumper_style = config("jumper_style", str, default = "header")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+Resistor = Module("@stdlib/generics/Resistor.zen")
+
+v5 = io("v5", Net)      # CAN's own clean 5V (board isolates this from the noisy IO rail)
+v3v3 = io("v3v3", Net)  # logic supply: MCP2518FD VDD + MCP2542 VIO
+gnd = io("gnd", Ground)
+
+# host SPI (RP2350 -> MCP2518FD)
+sck = io("sck", Net)
+mosi = io("mosi", Net)   # host out -> controller SDI
+miso = io("miso", Net)   # controller SDO -> host in
+cs = io("cs", Net)       # host -> controller nCS
+
+int_pin = io("int_pin", Net)  # controller ~INT -> host, active low
+
+# CAN-MODE jumper's MCU-GPIO column: board wires these to 2 RP2350 GPIOs for can2040
+mcu_can_tx = io("mcu_can_tx", Net)
+mcu_can_rx = io("mcu_can_rx", Net)
+
+CAN_P = io("CAN_P", Net)  # bus side (post-choke) — CANH
+CAN_N = io("CAN_N", Net)  # bus side (post-choke) — CANL
+
+# ── CAN-MODE jumper internals (module-local; the jumper picks which pair feeds
+# the bare transceiver's TXD/RXD) ─────────────────────────────────────────────
+ctrl_txcan = Net("CTRL_TXCAN")  # MCP2518FD TXCAN out -> CAN-MODE col "controller"
+ctrl_rxcan = Net("CTRL_RXCAN")  # MCP2518FD RXCAN in  -> CAN-MODE col "controller"
+xcvr_txd = Net("XCVR_TXD")      # MCP2542 TXD in  -> CAN-MODE col "transceiver" (common)
+xcvr_rxd = Net("XCVR_RXD")      # MCP2542 RXD out -> CAN-MODE col "transceiver" (common)
+
+# ── bus-side cell (identical to CanFrontendNative) ────────────────────────────
+can_tx_p = Net("CAN_TX_P")  # transceiver stub (pre-choke) — CANH
+can_tx_n = Net("CAN_TX_N")  # transceiver stub (pre-choke) — CANL
+term_mid = Net("TERM_MID")
+term_jleg = Net("TERM_JLEG")
+
+# ── crystal (MCP2518FD's own 40MHz clock; OSC1/OSC2 local to the module) ─────
+osc1 = Net("OSC1")
+osc2 = Net("OSC2")
+
+# MCP2518FD controller: VDD on 3V3 (matches N17 verbatim — only the transceiver
+# gets the dedicated clean 5V). CLKO/SOF and the two extra interrupt/GPIO pins
+# are left NC, verbatim (not used by RRF or Klipper here).
+CTRL(
+    name = "ctrl",
+    TXCAN = ctrl_txcan, RXCAN = ctrl_rxcan,
+    CLKO_SOF = NotConnected(),
+    INT = int_pin,
+    OSC2 = osc2, OSC1 = osc1,
+    VSS = gnd,
+    INT1_GPIO1 = NotConnected(),
+    INT0_GPIO0_XSTBY = NotConnected(),
+    SCK = sck, SDI = mosi, SDO = miso, nCS = cs,
+    VDD = v3v3,
+    EPAD = gnd,
+)
+
+# controller decoupling (0.1uF + 1uF at VDD, matching the project's IC decoupling
+# standard and the MCP2542 pattern below)
+Capacitor(name = "ctrl_vdd_100n", value = "100nF", package = "0402", P1 = v3v3, P2 = gnd)
+Capacitor(name = "ctrl_vdd_1u", value = "1uF", package = "0402", P1 = v3v3, P2 = gnd)
+
+# 40MHz crystal + load caps (33pF, verbatim from N17's C384982 — see the module's
+# this module's LAYOUT-INTENT.md for the load-cap-vs-9pF-spec note flagged for Ben)
+XTAL(name = "xtal", t1 = osc2, t3 = osc1, GND = gnd)
+Capacitor(name = "osc2_cap", value = "33pF", package = "0402", P1 = osc2, P2 = gnd)
+Capacitor(name = "osc1_cap", value = "33pF", package = "0402", P1 = osc1, P2 = gnd)
+
+# CAN-MODE jumper: col1=controller {p1=RX row, p2=TX row}, col2=transceiver
+# {p3=RX row, p4=TX row} (always-populated common), col3=MCU GPIO {p5=RX row,
+# p6=TX row}. Fit p1-p3/p2-p4 for RRF, p3-p5/p4-p6 for Klipper.
+if jumper_style == "solder":
+    MODE_SOLDER3(name = "mode_rx", p1 = ctrl_rxcan, p2 = xcvr_rxd, p3 = mcu_can_rx)
+    MODE_SOLDER3(name = "mode_tx", p1 = ctrl_txcan, p2 = xcvr_txd, p3 = mcu_can_tx)
+else:
+    MODE_JUMPER(
+        name = "mode_jumper",
+        p1 = ctrl_rxcan, p2 = ctrl_txcan,
+        p3 = xcvr_rxd, p4 = xcvr_txd,
+        p5 = mcu_can_rx, p6 = mcu_can_tx,
+    )
+
+# MCP2542 transceiver: kept bare, TXD/RXD go to the CAN-MODE jumper (not straight
+# to a host) — the only wiring difference from CanFrontendNative.
+MCP2542(
+    name = "xcvr",
+    VDD = v5, VIO = v3v3, VSS = gnd, EP = gnd, STBY = gnd,
+    TXD = xcvr_txd, RXD = xcvr_rxd, CANH = can_tx_p, CANL = can_tx_n,
+)
+
+# transceiver supply decoupling: VDD(5V) 1uF + 0.1uF, VIO(3V3) 0.1uF
+Capacitor(name = "xcvr_vdd_1u", value = "1uF", package = "0402", P1 = v5, P2 = gnd)
+Capacitor(name = "xcvr_vdd_100n", value = "100nF", package = "0402", P1 = v5, P2 = gnd)
+Capacitor(name = "xcvr_vio_100n", value = "100nF", package = "0402", P1 = v3v3, P2 = gnd)
+
+# transceiver -> common-mode choke -> bus
+CHOKE(name = "choke", canh_a = can_tx_p, canh_b = CAN_P, canl_a = can_tx_n, canl_b = CAN_N)
+
+# ESD clamp on the bus side (post-choke)
+ESD(name = "esd", L1 = CAN_P, L2 = CAN_N, GND = gnd)
+
+# SI caps on the bus lines (post-choke), DNF (skip_bom) — see header for the
+# datasheet finding and why these are provisioned-but-not-fitted
+Capacitor(name = "si_can_p", value = "10pF", package = "0402", P1 = CAN_P, P2 = gnd, skip_bom = True)
+Capacitor(name = "si_can_n", value = "10pF", package = "0402", P1 = CAN_N, P2 = gnd, skip_bom = True)
+
+# jumper-gated split termination: 2x60.4R across H-L + 4.7nF centre to GND
+# (CAN-TERM — bench/standalone use only; system termination lives at the
+# Featherweight + the Breakout's last patch position)
+Resistor(name = "term_ra", value = "60.4ohm", package = "0603", P1 = CAN_P, P2 = term_mid)
+Resistor(name = "term_rb", value = "60.4ohm", package = "0603", P1 = term_mid, P2 = term_jleg)
+if jumper_style == "solder":
+    TERM_SOLDER(name = "term_jumper", p1 = term_jleg, p2 = CAN_N)
+else:
+    TERM_JUMPER(name = "term_jumper", a = term_jleg, b = CAN_N)
+Capacitor(name = "term_cap", value = "4.7nF", package = "0603", P1 = term_mid, P2 = gnd)
+
+Layout(name = "CanFrontendDiscrete", path = "layout")

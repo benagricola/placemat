@@ -1,0 +1,31 @@
+# CJT_C3030WV_2P - component wrapper: local KiCad symbol + footprint, LCSC pinned in
+# properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, Middleweight off-board-connector re-architecture). Single-row
+# 2-position 3.0mm-pitch VERTICAL (top-entry) wire-to-board header, Micro-Fit-3.0-class
+# shell with positive latch - the board half of the CHOP pigtail to the external regen
+# brake resistor (CHOP+, CHOP-) via the case's glanded chop entry.
+#
+# Ratings (LCSC attribute page, 2026-07-26): 8.5A per contact, 600V, -40..+105C. CJT's
+# series datasheet (fetched) is dimensional only (crimp range AWG20-24, no electrical
+# table in its text layer). Duty here: ~2.2A pulsed chop current (48V/22R), worst-case
+# continuous (stuck-on backstop fault) still ~2.2A - >3x margin. JLC assembly stock
+# 2119 pcs @ 2026-07-26 (Extended).
+#
+# Cross-plug protection: 1x2 shell cannot mate with its family's 1x5/2x3 shells nor the
+# 2.0mm JST PA family.
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+
+Component(
+    name = "CJT_C3030WV_2P",
+    footprint = File("CJT_C3030WV_2P/CONN-TH_C3030WV-P3.00-2P.kicad_mod"),
+    symbol = Symbol("CJT_C3030WV_2P/C3030WV-2P.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "C3030WV-2P", manufacturer = "CJT (Changjiang Connectors)"),
+    properties = {"LCSC": "C239439", "MPN": "C3030WV-2P"},
+    pins = {
+        "1": p1,
+        "2": p2,
+    },
+)

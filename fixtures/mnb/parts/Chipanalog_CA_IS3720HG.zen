@@ -1,0 +1,43 @@
+# Chipanalog_CA_IS3720HG — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, cnc-expansion capture), SUBSTITUTED for the brief's named
+# "CA-IS3730 (or 3720-class)" part. Extensive LCSC/JLC search (2026-07-26) found NO
+# standalone listing for the bare CA-IS3730 (3-forward-channel triple isolator) despite
+# its datasheet being co-published with CA-IS3731/3735; only CA-IS3731 (2-forward+1-reverse
+# triple, LCSC C428880/C428886) and this CA-IS372x (2-channel, BOTH forward, confirmed
+# stocked) are actually orderable. The brief explicitly names "3720-class" as an accepted
+# alternative. Chosen: CA-IS3720HG, LCSC C428881, 2,704 in stock (checked 2026-07-26) —
+# SOIC-8, 2.5-5.5V both sides, both channels A->B forward only (VI1/VI2 in on side A,
+# VO1/VO2 out on side B), DC-150Mbps, no output-enable pin. TWO instances are used on this
+# board (2 ch each) to cover the 3 needed forward signals (SPINDLE_PWM + VFD_RUN, then
+# VFD_DIR alone on a second instance with one spare channel) — see cnc-expansion.zen's
+# isolation-barrier section for the exact channel assignment and the flag for Ben to
+# confirm/replace with a genuine CA-IS3730 if he has a supplier.
+VDDA = io("VDDA", Net, optional = True)
+VI1 = io("VI1", Net, optional = True)
+VI2 = io("VI2", Net, optional = True)
+GNDA = io("GNDA", Net, optional = True)
+GNDB = io("GNDB", Net, optional = True)
+VO2 = io("VO2", Net, optional = True)
+VO1 = io("VO1", Net, optional = True)
+VDDB = io("VDDB", Net, optional = True)
+
+Component(
+    name = "Chipanalog_CA_IS3720HG",
+    footprint = File("Chipanalog_CA_IS3720HG/SOIC-8_L5.9-W7.5-P1.27-LS11.5-BL.kicad_mod"),
+    symbol = Symbol("Chipanalog_CA_IS3720HG/CA-IS3720HG.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "CA-IS3720HG", manufacturer = "Chipanalog"),
+    properties = {"LCSC": "C428881", "MPN": "CA-IS3720HG"},
+    pins = {
+        "VDDA": VDDA,
+        "VI1": VI1,
+        "VI2": VI2,
+        "GNDA": GNDA,
+        "GNDB": GNDB,
+        "VO2": VO2,
+        "VO1": VO1,
+        "VDDB": VDDB,
+    },
+)

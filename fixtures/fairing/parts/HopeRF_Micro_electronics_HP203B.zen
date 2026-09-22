@@ -1,0 +1,30 @@
+# HopeRF_Micro_electronics_HP203B - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: HopeRF_Micro_electronics-HP203B_C138665.pdf
+
+INT1 = io("INT1", Net, optional = True)
+GND = io("GND", Net, optional = True)
+VDD = io("VDD", Net, optional = True)
+NC = io("NC", Net, optional = True)
+SCL = io("SCL", Net, optional = True)
+SDA = io("SDA", Net, optional = True)
+INT0 = io("INT0", Net, optional = True)
+CSB = io("CSB", Net, optional = True)
+
+Component(
+    name = "HopeRF_Micro_electronics_HP203B",
+    footprint = File("HopeRF_Micro_electronics_HP203B/QFN-8_HP203B.kicad_mod"),
+    symbol = Symbol("HopeRF_Micro_electronics_HP203B/HP203B.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "HP203B", manufacturer = "HopeRF Micro-electronics"),
+    properties = {"LCSC": "C138665", "MPN": "HP203B"},
+    pins = {
+        "INT1": INT1,
+        "GND": GND,
+        "VDD": VDD,
+        "NC": NC,
+        "SCL": SCL,
+        "SDA": SDA,
+        "INT0": INT0,
+        "CSB": CSB,
+    },
+)

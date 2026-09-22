@@ -1,0 +1,36 @@
+# Ckmtw_B_2100S04P_A110 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# Ckmtw B-2100S04P-A110: single-row 2.54mm THT male pin header, 4 positions, vertical,
+# gold-plated. 4P sibling of the already-qualified Ckmtw B-2100S02P-A110 (C124375) jumper
+# header used across breakout/CanFrontendNative/CanFrontendDiscrete/PermitReceiver/
+# Rs485Channel — same vendor family, not a new one. Chosen over a BOOMELE part because
+# BOOMELE has NO plain male vertical 1x4 at LCSC (only female C2718488 and right-angle
+# C91552 variants exist — verified via the EasyEDA/LCSC component search, 2026-07-26).
+# JLC stock check 2026-07-26 (C124378): 154,680 pcs, Extended, $0.0555 — comfortably above
+# the low-hundreds-of-boards bar (CLAUDE.md process rule 0).
+#
+# Role: compact 4-pin SWD debug header (modules/SwdHeader — split out of the MCU cell 2026-07-27
+# so a board can choose whether to expose SWD at all) — replaces the 2x5 1.27mm Cortex-Debug
+# header (Ben, 2026-07-26: "10 pin header for SWD which only needs like 4"). Pin 1 is the
+# rectangular (keyed) pad at x=-3.81mm; pins run left-to-right at 2.54mm pitch.
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+
+Component(
+    name = "Ckmtw_B_2100S04P_A110",
+    footprint = File("Ckmtw_B_2100S04P_A110/HDR-TH_4P-P2.54-V-M.kicad_mod"),
+    symbol = Symbol("Ckmtw_B_2100S04P_A110/Ckmtw_B_2100S04P_A110_C124378.kicad_sym"),
+    prefix = "H",
+    part = Part(mpn = "B-2100S04P-A110", manufacturer = "Ckmtw"),
+    properties = {"LCSC": "C124378", "MPN": "B-2100S04P-A110"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+    },
+)

@@ -1,0 +1,71 @@
+# InputPower: retained Main connectivity, source lines recorded in retained-circuits.json.
+# Component values remain subject to the core electrical review.
+
+C = Module("@stdlib/generics/Capacitor.zen")
+EFUSE = Module("../../adapted/parts/Texas_Instruments_TPS16630PWPR.zen")
+IDEAL = Module("../../adapted/parts/Texas_Instruments_LM74700QDBVTQ1.zen")
+ISENSE = Module("../../adapted/parts/Texas_Instruments_INA226AIDGSR.zen")
+NFET = Module("../../adapted/parts/Wuxi_NCE_Power_Semiconductor_NCE6005AS.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+TAB = Module("../../adapted/parts/TE_Connectivity_1217169_1.zen")
+TVS = Module("../../adapted/parts/MDD_Microdiode_Semiconductor_SMBJ30CA.zen")
+
+gnd = io("GND", Net)
+ina_alert = io("INA_ALERT", Net)
+pgood = io("PGOOD", Net)
+rail_fault = io("RAIL_FAULT", Net)
+scl_pwr = io("SCL_PWR", Net)
+sda_pwr = io("SDA_PWR", Net)
+shunt = io("VSHUNT", Net)
+v3v3 = io("V3V3", Net)
+
+dvdt_set = Net("DVDT_SET")
+ilim_set = Net("ILIM_SET")
+ina_n = Net("INA_N")
+ina_p = Net("INA_P")
+ovp_set = Net("OVP_SET")
+rev_cap = Net("REV_CAP")
+rev_gate = Net("REV_GATE")
+uvlo_set = Net("UVLO_SET")
+vbike = Net("VBIKE")
+vprot = Net("VPROT")
+vprot_in = Net("VPROT_IN")
+
+R(name = "r_sda_pwr", value = "4.7kohm", package = "0402", P1 = v3v3, P2 = sda_pwr)
+R(name = "r_scl_pwr", value = "4.7kohm", package = "0402", P1 = v3v3, P2 = scl_pwr)
+TAB(name = "j_vin", P_1 = vbike, P_2 = vbike)
+TAB(name = "j_gnd", P_1 = gnd, P_2 = gnd)
+TVS(name = "tvs_in", A = gnd, K = vbike)
+C(name = "c_in_bulk_a", value = "10uF", package = "0805", voltage = "50V", P1 = vbike, P2 = gnd)
+C(name = "c_in_bulk_b", value = "10uF", package = "0805", voltage = "50V", P1 = vbike, P2 = gnd)
+C(name = "c_in_hf", value = "100nF", package = "0603", voltage = "50V", P1 = vbike, P2 = gnd)
+IDEAL(name = "revpol", ANODE = vbike, CATHODE = vprot_in, GATE = rev_gate,
+      VCAP = rev_cap, GND = gnd, EN = vbike)
+NFET(name = "q_revpol", S1 = vbike, S2 = vbike, D1 = vprot_in, D2 = vprot_in,
+     G1 = rev_gate, G2 = rev_gate)
+C(name = "c_rev_cap", value = "100nF", package = "0402", voltage = "16V",
+  P1 = rev_cap, P2 = vbike)
+# TPS16630 SHDN has an internal pull-up (2.48 V minimum, enable 2 V).
+# Deliberately open for always-on core power, including MCU reset.
+EFUSE(name = "efuse", IN = vprot_in, P_IN = vprot_in, OUT = vprot, GND = gnd,
+      EP = gnd, UVLO = uvlo_set, OVP = ovp_set, ILIM = ilim_set, MODE = gnd,
+      dVdT = dvdt_set, FLT = rail_fault, PGOOD = pgood,
+      N_C = NotConnected(), IMON = NotConnected(), SHDN = NotConnected())
+C(name = "c_vprot_in", value = "100nF", package = "0603", voltage = "50V", P1 = vprot_in, P2 = gnd)
+C(name = "c_vprot", value = "100nF", package = "0603", voltage = "50V", P1 = vprot, P2 = gnd)
+R(name = "r_div_top", value = "1.2Mohm", package = "0402", P1 = vprot_in, P2 = uvlo_set)
+R(name = "r_div_mid", value = "200kohm", package = "0402", P1 = uvlo_set, P2 = ovp_set)
+R(name = "r_div_bot", value = "100kohm", package = "0402", P1 = ovp_set, P2 = gnd)
+R(name = "r_ilim", value = "4.7kohm", package = "0402", P1 = ilim_set, P2 = gnd)
+R(name = "r_pgood", value = "100kohm", package = "0402", P1 = v3v3, P2 = pgood)
+C(name = "c_dvdt", value = "10nF", package = "0402", P1 = dvdt_set, P2 = gnd)
+R(name = "r_shunt", value = "0.01ohm", package = "1206", P1 = vprot, P2 = shunt)
+R(name = "r_ina_p", value = "10ohm", package = "0402", P1 = vprot, P2 = ina_p)
+R(name = "r_ina_n", value = "10ohm", package = "0402", P1 = shunt, P2 = ina_n)
+C(name = "c_ina_p", value = "100nF", package = "0402", P1 = ina_p, P2 = gnd)
+C(name = "c_ina_n", value = "100nF", package = "0402", P1 = ina_n, P2 = gnd)
+ISENSE(name = "isense", VS_P = v3v3, GND = gnd, VIN_P = ina_p, VIN_N = ina_n,
+       SDA = sda_pwr, SCL = scl_pwr, Alert = ina_alert, A0 = gnd, A1 = gnd,
+       VBUS = vprot)
+C(name = "c_isense", value = "100nF", package = "0402", P1 = v3v3, P2 = gnd)
+Project(name = "InputPower", path = "kicad", schematic = True, layout = False)

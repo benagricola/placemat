@@ -1,0 +1,30 @@
+# Texas_Instruments_THVD1410DR — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+A = io("A", Net, optional = True)
+B = io("B", Net, optional = True)
+D = io("D", Net, optional = True)
+DE = io("DE", Net, optional = True)
+GND = io("GND", Net, optional = True)
+R = io("R", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+nRE = io("nRE", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_THVD1410DR",
+    footprint = File("Texas_Instruments_THVD1410DR/SOIC-8_L4.9-W3.9-P1.27-LS6.0-BL.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_THVD1410DR/THVD1410DR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "THVD1410DR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C2671345", "MPN": "THVD1410DR"},
+    pins = {
+        "A": A,
+        "B": B,
+        "D": D,
+        "DE": DE,
+        "GND": GND,
+        "R": R,
+        "VCC": VCC,
+        "~{RE}": nRE,
+    },
+)

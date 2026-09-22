@@ -1,0 +1,45 @@
+# JST_B05B_PASK_1 - component wrapper: local KiCad symbol + footprint, LCSC pinned in
+# properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, Middleweight off-board-connector re-architecture). GENUINE JST
+# PA-series 5-position 2.0mm-pitch top-entry THT shrouded header, secure positive latch,
+# "-1" = WITH polarizing boss (verified against JST's own PA-family datasheet model-number
+# legend: "Polarizing boss: No indication...Without boss, 1...With boss") - the board half
+# of the BUS pigtail from the case-wall panel M12 (CAN_IN_P, CAN_IN_N, CAN_OUT_P,
+# CAN_OUT_N, PERMIT_B; signal-level currents only).
+#
+# Ratings (JST PA family datasheet ePA-F.pdf, read 2026-07-26): 3A AC/DC (AWG#22),
+# 250V, conductor AWG#28-22, -25..+85C per LCSC attributes. Duty here: CAN differential
+# signals + PERMIT_B (~5mA opto chain) - trivial. JLC assembly stock 27252 pcs @
+# 2026-07-26 (Extended, genuine JST at clone-class pricing).
+#
+# ASSET NOTE: EasyEDA's export for C160282 carried a misleading donor footprint/model
+# name ("SM10B-SRSS", an unrelated 1.0mm SMD part) - renamed here to
+# CONN-TH_B05B-PASK-1-LF-SN (footprint internals + 3D model file, same export pair,
+# transforms untouched). Geometry verified against the PA drawing: 5 pads at 2.0mm
+# pitch, 1.0mm drills, plus the 1.1mm polarizing-boss hole at (-5.5, 1.7); body
+# 12.2 x 5.4mm.
+#
+# Cross-plug protection: 2.0mm PA 5P shell cannot mate with the 3.0mm Micro-Fit-class
+# family (J-PWR/J-MOT/J-CHOP) and is width-keyed against the PA 8P (J-IO).
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+p5 = io("p5", Net, optional = True)
+
+Component(
+    name = "JST_B05B_PASK_1",
+    footprint = File("JST_B05B_PASK_1/CONN-TH_B05B-PASK-1-LF-SN.kicad_mod"),
+    symbol = Symbol("JST_B05B_PASK_1/B05B-PASK-1.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "B05B-PASK-1(LF)(SN)", manufacturer = "JST"),
+    properties = {"LCSC": "C160282", "MPN": "B05B-PASK-1(LF)(SN)"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+        "5": p5,
+    },
+)

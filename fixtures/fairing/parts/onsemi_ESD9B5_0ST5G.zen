@@ -1,0 +1,18 @@
+# onsemi_ESD9B5_0ST5G - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: onsemi-ESD9B5_0ST5G_C111566.pdf
+
+P_2 = io("P_2", Net, optional = True)
+P_1 = io("P_1", Net, optional = True)
+
+Component(
+    name = "onsemi_ESD9B5_0ST5G",
+    footprint = File("onsemi_ESD9B5_0ST5G/SOD-923_L0.8-W0.6-LS1.0-BI.kicad_mod"),
+    symbol = Symbol("onsemi_ESD9B5_0ST5G/ESD9B5_0ST5G.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "ESD9B5.0ST5G", manufacturer = "onsemi"),
+    properties = {"LCSC": "C111566", "MPN": "ESD9B5.0ST5G"},
+    pins = {
+        "2": P_2,
+        "1": P_1,
+    },
+)

@@ -1,0 +1,15 @@
+# M3 mounting hole with plated grounded pad (KiCad standard footprint).
+# Not a BOM part (no LCSC id) - excluded from assembly outputs.
+
+pad = io("pad", Net, optional = True)
+
+Component(
+    name = "MountingHole_M3",
+    footprint = File("MountingHole_M3/MountingHole_3.2mm_M3_Pad.kicad_mod"),
+    symbol = Symbol("MountingHole_M3/MountingHole_M3.kicad_sym"),
+    prefix = "MH",
+    part = Part(mpn = "MountingHole_M3_Pad", manufacturer = "generic"),
+    pins = {
+        "1": pad,
+    },
+)

@@ -1,0 +1,39 @@
+# BOOMELE_2_54_1x8_Female — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# BOOMELE 2.54-1*8P: single-row 2.54mm THT female socket, 8 positions, gold-plated brass
+# contacts (3A), 8.5mm insulator height, 3.2mm pin length. LCSC C27438, stock 145,670 pcs
+# 2026-07-26. Used in MATCHED PAIRS (two of these, one per J-NET column — see featherweight.zen's
+# J-NET block) rather than a single 2x8 header, per Ben's 2026-07-26 correction against the BTT
+# fab export: the network module plugs onto two physically separate 1x8 female sockets at 20.0mm
+# column spacing, not one 2x8 male header. This is the BLACK column's part (or either column
+# until a red-housing alternative is pinned — see the ALT-COLOUR search note in featherweight.zen
+# next to j_net_red).
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+p5 = io("p5", Net, optional = True)
+p6 = io("p6", Net, optional = True)
+p7 = io("p7", Net, optional = True)
+p8 = io("p8", Net, optional = True)
+
+Component(
+    name = "BOOMELE_2_54_1x8_Female",
+    footprint = File("BOOMELE_2_54_1x8_Female/HDR-TH_8P-P2.54-V-F.kicad_mod"),
+    symbol = Symbol("BOOMELE_2_54_1x8_Female/BOOMELE_2_54_1x8_Female_C27438.kicad_sym"),
+    prefix = "P",
+    part = Part(mpn = "2.54-1*8P", manufacturer = "BOOMELE"),
+    properties = {"LCSC": "C27438", "MPN": "2.54-1*8P"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+        "5": p5,
+        "6": p6,
+        "7": p7,
+        "8": p8,
+    },
+)

@@ -1,0 +1,83 @@
+# MCP2542FD front end for native FDCAN. CM choke + PESD2CAN + jumper-gated split
+# termination (2x60.4R + 4.7nF, fitted by default = bus END) + clean 5V.
+#
+# The bus + transceiver-stub pairs are named *_P/*_N (not CANH/CANL) so KiCad
+# recognises them as differential pairs: its diff-pair router + length tuner key
+# off a trailing P/N (or +/-) token (BOARD::MatchDpSuffix). P = CANH
+# (dominant-high), N = CANL — the connector keeps its H/L field labels.
+#
+# CAN_P/CAN_N SI caps — DNF positions (Ben, 2026-07-26 task): the N17 design
+# carried two 10pF/50V 0402 caps (C23/C25, LCSC C106199) directly on its CAN_L/
+# CAN_H nets to GND, believed to be lifted from the MCP2542FD datasheet.
+# CHECKED, not assumed: fetched Microchip DS20005514C (2016-2020 rev) and read
+# Section 1.8 "Typical Applications" (p.9), Figures 1-3 (MCP2544WFDT with NC
+# and split termination) and 1-4 (MCP2542FD with VIO pin) — both are the
+# datasheet's own reference application circuits for this exact transceiver
+# family. NEITHER shows a capacitor on CANH or CANL individually; the only
+# capacitors present are 0.1uF VDD/VIO bypass and the split-termination
+# centre-tap cap (4700pF in Fig 1-3 — already present in this module as
+# term_cap). No separate PCB-layout-guidelines chapter exists in this
+# datasheet either (checked the full text). Conclusion: Ben's recollection
+# doesn't hold for THIS transceiver's datasheet specifically — the caps may
+# have come from elsewhere (the N17's CAN controller's own datasheet, a
+# general CAN-FD EMC app note, or independent practice), but they are not in
+# the MCP2542FD reference circuit.
+#
+# Per Ben's approval, added as DNF (Do Not Fit) positions rather than omitted
+# or silently fitted: real pads/footprint on the board (so the option exists
+# to populate later if EMC testing calls for it) but not populated by
+# default. Zener DOES support this at the stdlib level — @stdlib/generics/
+# Capacitor.zen exposes `skip_bom` (checked by instantiating a test capacitor
+# with skip_bom=True and reading the generated footprint back: it sets the
+# KiCad footprint attribute `exclude_from_bom`, the same real DNF mechanism
+# SolderJumper_2P's own footprint already uses) — used here rather than a
+# comment-only fallback.
+MCP2542 = Module("../../parts/Microchip_Tech_MCP2542WFDT_H_MNY.zen")
+CHOKE = Module("../../parts/TDK_ACT45B_110_2P_TL003.zen")
+ESD = Module("../../parts/Nexperia_PESD2CAN_215.zen")
+JUMPER = Module("../../parts/XFCN_PZ200V_11_02P.zen")
+Capacitor = Module("@stdlib/generics/Capacitor.zen")
+Resistor = Module("@stdlib/generics/Resistor.zen")
+
+v5 = io("v5", Net)
+v3v3 = io("v3v3", Net)
+gnd = io("gnd", Ground)
+txd = io("txd", Net)
+rxd = io("rxd", Net)
+CAN_P = io("CAN_P", Net)    # bus side (post-choke) — CANH
+CAN_N = io("CAN_N", Net)    # bus side (post-choke) — CANL
+
+can_tx_p = Net("CAN_TX_P")  # transceiver stub (pre-choke) — CANH
+can_tx_n = Net("CAN_TX_N")  # transceiver stub (pre-choke) — CANL
+term_mid = Net("TERM_MID")
+term_jleg = Net("TERM_JLEG")
+
+MCP2542(
+    name = "xcvr",
+    VDD = v5, VIO = v3v3, VSS = gnd, EP = gnd, STBY = gnd,
+    TXD = txd, RXD = rxd, CANH = can_tx_p, CANL = can_tx_n,
+)
+
+# supply decoupling: VDD(5V) 1uF + 0.1uF, VIO(3V3) 0.1uF
+Capacitor(name = "vdd_1u", value = "1uF", package = "0402", P1 = v5, P2 = gnd)
+Capacitor(name = "vdd_100n", value = "100nF", package = "0402", P1 = v5, P2 = gnd)
+Capacitor(name = "vio_100n", value = "100nF", package = "0402", P1 = v3v3, P2 = gnd)
+
+# transceiver -> common-mode choke -> bus
+CHOKE(name = "choke", canh_a = can_tx_p, canh_b = CAN_P, canl_a = can_tx_n, canl_b = CAN_N)
+
+# ESD clamp on the bus side (post-choke)
+ESD(name = "esd", L1 = CAN_P, L2 = CAN_N, GND = gnd)
+
+# SI caps on the bus lines (post-choke), DNF (skip_bom) — see header for the
+# datasheet finding and why these are provisioned-but-not-fitted
+Capacitor(name = "si_can_p", value = "10pF", package = "0402", P1 = CAN_P, P2 = gnd, skip_bom = True)
+Capacitor(name = "si_can_n", value = "10pF", package = "0402", P1 = CAN_N, P2 = gnd, skip_bom = True)
+
+# jumper-gated split termination: 2x60.4R across H-L + 4.7nF centre to GND
+Resistor(name = "term_ra", value = "60.4ohm", package = "0603", P1 = CAN_P, P2 = term_mid)
+Resistor(name = "term_rb", value = "60.4ohm", package = "0603", P1 = term_mid, P2 = term_jleg)
+JUMPER(name = "term_jumper", a = term_jleg, b = CAN_N)
+Capacitor(name = "term_cap", value = "4.7nF", package = "0603", P1 = term_mid, P2 = gnd)
+
+Layout(name = "CanFrontendNative", path = "layout")

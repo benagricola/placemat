@@ -1,0 +1,24 @@
+# PowTech_CR_PowTech_Shanghai_PT4115B89E - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: PowTech_CR_PowTech_Shanghai-PT4115B89E_C84512.pdf
+
+SW = io("SW", Net, optional = True)
+GND = io("GND", Net, optional = True)
+DIM = io("DIM", Net, optional = True)
+CSN = io("CSN", Net, optional = True)
+VIN = io("VIN", Net, optional = True)
+
+Component(
+    name = "PowTech_CR_PowTech_Shanghai_PT4115B89E",
+    footprint = File("../../parts/PowTech_CR_PowTech_Shanghai_PT4115B89E/SOT-89-5_L4.5-W2.5-P1.50-LS4.5-BR.kicad_mod"),
+    symbol = Symbol("PowTech_CR_PowTech_Shanghai_PT4115B89E/PT4115B89E.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "PT4115B89E", manufacturer = "PowTech(CR-PowTech(Shanghai))"),
+    properties = {"LCSC": "C84512", "MPN": "PT4115B89E"},
+    pins = {
+        "SW": SW,
+        "GND": GND,
+        "DIM": DIM,
+        "CSN": CSN,
+        "VIN": VIN,
+    },
+)

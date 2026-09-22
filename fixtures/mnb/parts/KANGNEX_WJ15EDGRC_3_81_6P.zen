@@ -1,0 +1,33 @@
+# KANGNEX_WJ15EDGRC_3_81_6P — component wrapper: local KiCad symbol + footprint, LCSC
+# pinned in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, cnc-expansion capture). 6-position pluggable screw terminal, THT.
+# LCSC C7246 (checked 2026-07-26), KANGNEX WJ15EDG family. PITCH FLAG: 3.81mm, not the
+# brief's stated 3.5mm — same availability gap as KANGNEX_WJ15EDGRC_3_81_4P.zen (see its
+# header comment for the full search trail). Flagged for Ben to override if he has a
+# specific 3.5mm 6-position part in mind.
+# Used for the spindle/VFD screw terminal (brief: 6-pos, AVO/AGND(ISO)/VFD_RUN/VFD_DIR/
+# COM(ISO)/VFD_24V).
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+p3 = io("p3", Net, optional = True)
+p4 = io("p4", Net, optional = True)
+p5 = io("p5", Net, optional = True)
+p6 = io("p6", Net, optional = True)
+
+Component(
+    name = "KANGNEX_WJ15EDGRC_3_81_6P",
+    footprint = File("KANGNEX_WJ15EDGRC_3_81_6P/CONN-TH_WJ15EDGRC-3.81-6P.kicad_mod"),
+    symbol = Symbol("KANGNEX_WJ15EDGRC_3_81_6P/WJ15EDGRC-3.81-6P.kicad_sym"),
+    prefix = "J",
+    part = Part(mpn = "WJ15EDGRC-3.81-06P-14-00A", manufacturer = "KANGNEX"),
+    properties = {"LCSC": "C7246", "MPN": "WJ15EDGRC-3.81-06P-14-00A"},
+    pins = {
+        "1": p1,
+        "2": p2,
+        "3": p3,
+        "4": p4,
+        "5": p5,
+        "6": p6,
+    },
+)

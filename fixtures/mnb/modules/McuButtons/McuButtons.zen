@@ -1,0 +1,160 @@
+# =============================================================================
+# McuButtons — MCU human-interface cluster: BOOT + RUN buttons + status LED
+# =============================================================================
+# Split out of the MCU cell (Ben, 2026-07-27): "I don't think the switches should be
+# part of the [the MCU cell] design, I think those should be a board concern.
+# switches generally want to be near an edge but that then decides where we
+# put the MCU on a board. switches and LEDs should also be aligned, clustered
+# together where they control or indicate a similar behaviour or IC and
+# clearly marked on the silkscreen using knockout. as an example, boot and
+# run / rst should be colocated as they both control MCU functions."
+#
+# The principle (same one that moved the USB-C port to modules/UsbC): a part
+# whose position is dictated by the ENCLOSURE - finger access, edge proximity,
+# a lid hole - must not be trapped inside a functional cell, because it would
+# then dictate that cell's (and hence the MCU's) board position. The converse
+# also holds: OptoSense keeps its own NPN/PNP jumpers and series status LED
+# in-cell precisely because those have no enclosure demand.
+#
+# Contents: the two MCU control buttons + their passives + the MCU status
+# indicator. Controls and indicator for the SAME IC live together (Ben's
+# clustering rule), aligned on one axis with knockout silk labels - see
+# modules/McuButtons/LAYOUT-INTENT.md.
+#
+# ELECTRICAL SOURCE: Raspberry Pi "Hardware design with RP2350" (RP-008280)
+# Ch 5.4 / Fig 8 - BOOTSEL pulls the QSPI chip-select low through a 1k series
+# resistor at reset to force USB-mass-storage boot; RESET pulls RUN low, RUN
+# carrying a 1k pull-up on top of the RP2350's internal weak pull-up.
+#
+# =============================================================================
+# TWO MCU FAMILIES, ONE CELL (Ben, 2026-07-27)
+# =============================================================================
+# The only family difference in a boot/reset control cluster is WHICH RAIL the
+# BOOT switch closes onto, so that is the one thing exposed: `boot_com`.
+#   * RP2350  - BOOTSEL asserts by pulling the flash chip-select DOWN  -> gnd
+#   * STM32   - BOOT0   asserts by pulling the pin           UP    -> v3v3
+# The RESET switch does NOT differ: RP2350 RUN and STM32 NRST are both
+# active-LOW, both asserted by closing to ground, both idle-high off an
+# internal pull-up. So the reset common stays hard-wired to gnd - checked, not
+# assumed - and no `run_com` io exists.
+#
+# TRUTH TABLE - RP2350 (boot_com = gnd; fit_reset_cap = False)
+#   BOOT open      QSPI_SS free, driven by the MCU/flash        normal QSPI
+#   BOOT pressed   QSPI_SS -> gnd via boot_r (1k)               ROM sees BOOTSEL
+#                  at reset release: USB mass-storage boot
+#   RUN open       run_pu (1k) + internal pull-up hold RUN high running
+#   RUN pressed    RUN -> gnd                                   held in reset
+#
+# TRUTH TABLE - STM32 (boot_com = v3v3, fit_reset_cap = True)
+#   BOOT open      BOOT0 held low by the MCU-side pull-down     boot user flash
+#   BOOT pressed   BOOT0 -> v3v3 via boot_r; with a 10k MCU-side
+#                  pull-down that is 3.3 * 10/11 = 3.0 V, well
+#                  over VIH = 0.7*VDD = 2.31 V                  system bootloader
+#   NRST open      internal pull-up (+ run_pu) holds NRST high  running
+#   NRST pressed   NRST -> gnd, reset_cap discharges            held in reset
+#
+# BOOT0's idle-LOW pull stays at the MCU (board-side, e.g. 10k to gnd): it must
+# hold with this cell unfitted or unplugged. The reset idle-HIGH pull may travel
+# with the button because both families guarantee it internally.
+# =============================================================================
+
+# SWITCH STYLE (Ben, 2026-09-04): "top" is the 5.1 x 5.1 top-actuated tact
+# switch, pressed by a finger through a lid hole. "side" is the 3.5 x 2.9
+# Panasonic EVQP7J01P, whose knob points out of one long side: stand it against
+# a board edge and a pin through the case WALL reaches it. Sealed nodes take
+# "side" (no lid holes, and it is a third of the area); open boards keep "top".
+# The two parts are pin-compatible by design of the wrappers - A+B one contact,
+# C+D the other - so only the footprint and the cell's spacing differ.
+switch_style = config("switch_style", str, default = "top")
+SW = Module("../../parts/XKB_Connectivity_TS_1187A_B_A_B.zen") if switch_style == "top" else Module("../../parts/Panasonic_EVQP7J01P.zen")
+LED_B = Module("../../parts/Hubei_KENTO_Elec_KT_0603B.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+
+led_r_value = config("led_r_value", str, default = "180ohm")
+# BOOT switch series/limit R. 1k = hw-design-guide Fig 8 (RP2350). On STM32 the
+# same 1k forms a divider with the MCU-side BOOT0 pull-down - see the header.
+boot_r_value = config("boot_r_value", str, default = "1kohm")
+# Reset pull-up. 1k = Fig 8 (RP2350). STM32 boards should pass "10kohm": NRST's
+# internal pull-up already holds the pin, and a 1k just makes the MCU's own
+# reset driver sink 3.3mA every time it pulls NRST low.
+run_pu_value = config("run_pu_value", str, default = "1kohm")
+# Reset RC cap - fitted for STM32 NRST, DNF for RP2350 (see below).
+fit_reset_cap = config("fit_reset_cap", bool, default = False)
+reset_cap_value = config("reset_cap_value", str, default = "100nF")
+
+# =============================================================================
+# io() — everything crosses to the MCU cell; nothing is generated here.
+# =============================================================================
+# boot_cs: the flash chip-select / BOOTSEL net (the MCU cell's QSPI_SS io). The 1k
+# series resistor is on THIS side of the boundary, so the net that crosses the
+# board is the live CS node - keep the run short and away from the QSPI bank.
+boot_cs = io("boot_cs", Net)
+run = io("run", Net)          # reset: RP2350 RUN / STM32 NRST - active-low both
+status = io("status", Net)    # MCU status GPIO (drives the LED high-side)
+v3v3 = io("v3v3", Net)        # reset pull-up supply only (no local load)
+gnd = io("gnd", Ground)
+# boot_com: the BOOT switch's COMMON rail - the one net that differs between MCU
+# families. Every board passes it: gnd for RP2350 BOOTSEL, v3v3 for STM32 BOOT0.
+boot_com = io("boot_com", Net)
+
+_nets = {}
+def net(name):
+    if name not in _nets:
+        _nets[name] = Net(name)
+    return _nets[name]
+
+boot_sw_node = net("BOOT_SW")     # far side of the BOOTSEL series resistor
+led_a = net("STATUS_LED_A")       # LED anode, post-resistor
+
+# =============================================================================
+# BOOT — the select node pulled to boot_com through boot_r (hw-design-guide
+# Fig 8, R6/SW1 for the RP2350 case). Both switch terminals are 2-pad rows
+# (A+B one contact, C+D the other); C/D carry the family-selected common rail.
+# The resistor is SERIES in both configurations (it limits what the switch can
+# do to a live QSPI CS / drives the STM32 divider) - it is not a pull, so its
+# orientation is family-independent: MCU side on boot_cs, switch side on C/D.
+# =============================================================================
+R(name = "r_boot", value = boot_r_value, package = "0402", P1 = boot_cs, P2 = boot_sw_node)
+SW(name = "sw_boot", A = boot_sw_node, B = boot_sw_node, C = boot_com, D = boot_com)
+
+# =============================================================================
+# RESET — button to GND + pull-up (hw-design-guide Fig 8, R4/SW2). Common is
+# gnd for BOTH families (RP2350 RUN and STM32 NRST are both active-low). The
+# pull-up travels with the button: with the cell absent, the MCU's internal
+# pull-up holds the pin by itself (the io is optional on the MCU cell side).
+# =============================================================================
+R(name = "r_run_pu", value = run_pu_value, package = "0402", P1 = v3v3, P2 = run)
+SW(name = "sw_run", A = run, B = run, C = gnd, D = gnd)
+
+# Reset RC cap (STM32 NRST wants ~100nF to gnd; the RP2350 does not).
+# OPTIONAL the house way (CanFrontendDiscrete's DNF idiom): the footprint is
+# ALWAYS present - so the layout fragment is identical for both families and
+# stamps unchanged - but `skip_bom` keeps it off the BOM unless a board asks
+# for it. An RP2350 board therefore carries pads, never a part.
+# NOTE for a board with a long NRST run: ST places this cap at the MCU pin. Here
+# it sits at the button, i.e. at the FAR end of that net. If the cluster is far
+# from the MCU, leave this DNF and fit the cap at the pin instead.
+C(name = "c_reset", value = reset_cap_value, package = "0402",
+  P1 = gnd, P2 = run, skip_bom = not fit_reset_cap)
+
+# =============================================================================
+# MCU status LED — BLUE per CLAUDE.md's ecosystem LED-colour semantics
+# (blue = MCU/comms status), KT-0603B. GPIO-sourced high-side: GPIO -> R ->
+# anode, cathode to gnd, so a driven-high pin lights it. THIN-HEADROOM case
+# (CLAUDE.md LED rule 1): blue VF 2.6-3.1V on 3V3 leaves ~0.2-0.7V across R -
+# size against VF_MIN at the ~4mA nominal blue current: R = (3.3-2.6)/4mA =
+# 175R -> 180R (E24). Same value/package featherweight.zen and the pre-split
+# middleweight.zen board-level LED used. Runs dim at the VF_MAX bin by design;
+# bench-trim if needed. Observes only - never gates (CLAUDE.md).
+# =============================================================================
+R(name = "r_led", value = led_r_value, package = "0402", P1 = status, P2 = led_a)
+LED_B(name = "d_status", A = led_a, K = gnd)
+
+# One fragment per switch style: the two switches are different footprints
+# with different pitches and access sides, so each style has its own
+# layout, named so a board's cell carries the style in its name.
+if switch_style == "top":
+    Layout(name = "McuButtons", path = "layout")
+else:
+    Layout(name = "McuButtonsSide", path = "layout_side")

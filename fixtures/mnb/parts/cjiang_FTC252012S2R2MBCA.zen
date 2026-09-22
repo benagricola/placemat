@@ -1,0 +1,22 @@
+# cjiang_FTC252012S2R2MBCA — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+
+p1 = io("p1", Net, optional = True)
+p2 = io("p2", Net, optional = True)
+
+annotations = config(dict, default = {}, optional = True, help = "placemat check facts, written as footprint fields")
+_properties = dict({"LCSC": "C5832372", "MPN": "FTC252012S2R2MBCA"})
+_properties.update(annotations)
+
+Component(
+    name = "cjiang_FTC252012S2R2MBCA",
+    footprint = File("cjiang_FTC252012S2R2MBCA/IND-SMD_L2.5-W2.0_MHCHL2520.kicad_mod"),
+    symbol = Symbol("cjiang_FTC252012S2R2MBCA/FTC252012S2R2MBCA.kicad_sym"),
+    prefix = "L",
+    part = Part(mpn = "FTC252012S2R2MBCA", manufacturer = "cjiang "),
+    properties = _properties,
+    pins = {
+        "1": p1,
+        "2": p2,
+    },
+)

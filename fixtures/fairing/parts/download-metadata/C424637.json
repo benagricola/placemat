@@ -1,0 +1,10 @@
+{
+  "mpn": "DF40C-20DP-0.4V(51)",
+  "manufacturer": "Hirose",
+  "lcsc": {
+    "symbol_url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Hirose/DF40C-20DP-0_4V_51_2a3fb57/lcsc/v2/C424637.kicad_sym",
+    "footprint_url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Hirose/DF40C-20DP-0_4V_51_2a3fb57/lcsc/v2/CONN-SMD_20P-P0_40_HRS_DF40TC-20DP-0_4V.kicad_mod",
+    "step_url": "https://components-689688455535.s3.us-west-2.amazonaws.com/Hirose/DF40C-20DP-0_4V_51_2a3fb57/lcsc/v2/CONN-SMD_20P-P0_40_HRS_DF40TC-20DP-0_4V.step",
+    "part_number": "C424637"
+  }
+}

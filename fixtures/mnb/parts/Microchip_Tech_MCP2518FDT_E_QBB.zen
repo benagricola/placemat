@@ -1,0 +1,51 @@
+# Microchip_Tech_MCP2518FDT_E_QBB — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# External CAN-FD controller (VDFN-14 w/ exposed pad), SPI host interface. Datasheet
+# DS20006027B: VDD 2.7-5.5V logic supply (we run it at 3V3, matching the N17 verbatim
+# circuit); OSC1/OSC2 take a parallel-resonant crystal (40/20/4 MHz) or an external
+# clock on OSC1 with OSC2 floating; up to 3 interrupt pins (~INT always asserted-low
+# on any pending event, ~INT0/GPIO0/XSTBY and ~INT1/GPIO1 are individually maskable /
+# GPIO-capable — the N17 front end wires only ~INT and leaves the other two NC).
+
+TXCAN = io("TXCAN", Net, optional = True)                        # 1  O  -> transceiver TXD (via CAN-MODE jumper)
+RXCAN = io("RXCAN", Net, optional = True)                        # 2  I  <- transceiver RXD (via CAN-MODE jumper)
+CLKO_SOF = io("CLKO_SOF", Net, optional = True)                  # 3  O  clock-out/start-of-frame (NC unless a future board needs it)
+INT = io("INT", Net, optional = True)                            # 4  O  interrupt, active low (host)
+OSC2 = io("OSC2", Net, optional = True)                           # 5  O  crystal
+OSC1 = io("OSC1", Net, optional = True)                           # 6  I  crystal / external clock in
+VSS = io("VSS", Net, optional = True)                             # 7  P  ground
+INT1_GPIO1 = io("INT1_GPIO1", Net, optional = True)               # 8  IO RX interrupt / GPIO1 (NC unless needed)
+INT0_GPIO0_XSTBY = io("INT0_GPIO0_XSTBY", Net, optional = True)   # 9  IO TX interrupt / GPIO0 / transceiver standby (NC unless needed)
+SCK = io("SCK", Net, optional = True)                             # 10 I  SPI clock
+SDI = io("SDI", Net, optional = True)                             # 11 I  SPI data in (host MOSI)
+SDO = io("SDO", Net, optional = True)                             # 12 O  SPI data out (host MISO)
+nCS = io("nCS", Net, optional = True)                             # 13 I  SPI chip select, active low
+VDD = io("VDD", Net, optional = True)                             # 14 P  logic supply
+EPAD = io("EPAD", Net, optional = True)                           # 15 P  exposed pad, tie to VSS
+
+Component(
+    name = "Microchip_Tech_MCP2518FDT_E_QBB",
+    footprint = File("Microchip_Tech_MCP2518FDT_E_QBB/VDFN-14_L4.5-W3.0-P0.65-BL-EP.kicad_mod"),
+    symbol = Symbol("Microchip_Tech_MCP2518FDT_E_QBB/MCP2518FDT-E_QBB.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "MCP2518FDT-E/QBB", manufacturer = "Microchip Tech"),
+    properties = {"LCSC": "C621395", "MPN": "MCP2518FDT-E/QBB"},
+    pins = {
+        "TXCAN": TXCAN,
+        "RXCAN": RXCAN,
+        "CLKO/SOF": CLKO_SOF,
+        "~{INT}": INT,
+        "OSC2": OSC2,
+        "OSC1": OSC1,
+        "VSS": VSS,
+        "~{INT1}/GPIO1": INT1_GPIO1,
+        "~{INT0}/GPIO0/XSTBY": INT0_GPIO0_XSTBY,
+        "SCK": SCK,
+        "SDI": SDI,
+        "SDO": SDO,
+        "nCS": nCS,
+        "VDD": VDD,
+        "EPAD": EPAD,
+    },
+)

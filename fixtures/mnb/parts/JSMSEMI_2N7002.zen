@@ -1,0 +1,32 @@
+# JSMSEMI_2N7002 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, middleweight capture). Small-signal 60V N-channel logic-level
+# MOSFET, SOT-23. LCSC C916396, stock 1,566,400 units @ ~$0.011 (checked 2026-07-26) — very
+# high volume, JLC Basic-class-typical part (VERIFY exact class at order). RDS(on) 1.7 ohm
+# @ VGS=5V — fine for a small-signal logic switch (not a power path).
+#
+# Used as the three series switches in the Middleweight's ENN pull-low path (PERMIT_A,
+# PERMIT_B, firmware-enable — see middleweight.zen "ENN interlock" section): each FET's
+# gate is driven by one hardware-derived enable signal (PermitReceiver.out x2 + a firmware
+# GPIO), drain/source chained in series between TMC2160A's DRV_ENN (pulled up = default
+# disabled) and GND, realizing "ENN enable = PERMIT_A AND PERMIT_B AND firmware-enable" as
+# a literal hardware series-AND that the MCU cannot defeat for the two permit stages (their
+# gates are hardwired to opto-derived signals, not to any MCU pin).
+G = io("G", Net, optional = True)
+S = io("S", Net, optional = True)
+D = io("D", Net, optional = True)
+
+Component(
+    name = "JSMSEMI_2N7002",
+    footprint = File("JSMSEMI_2N7002/SOT-23-3_L2.9-W1.3-P1.90-LS2.4-BR.kicad_mod"),
+    symbol = Symbol("JSMSEMI_2N7002/JSMSEMI_2N7002.kicad_sym"),
+    prefix = "Q",
+    part = Part(mpn = "2N7002", manufacturer = "JSMSEMI"),
+    properties = {"LCSC": "C916396", "MPN": "2N7002"},
+    pins = {
+        "G": G,
+        "S": S,
+        "D": D,
+    },
+)

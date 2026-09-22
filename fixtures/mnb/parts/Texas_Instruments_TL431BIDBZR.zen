@@ -1,0 +1,36 @@
+# Texas_Instruments_TL431BIDBZR — component wrapper: local KiCad symbol + footprint,
+# LCSC pinned in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, middleweight regen-chopper hardware backstop). TL431B — the TI
+# "B" accuracy grade, +/-0.5% Vref tolerance (vs. the bare/A-grade TL431's 2%/1%) — SOT-23-3
+# (DBZ). LCSC C41283, stock 7,865 units (checked 2026-07-26) — above the low-hundreds bar
+# but the thinnest of the wrapper parts added this session; JLC classification: NOT
+# confirmed as Basic via automated LCSC lookup (queried the jlcsearch.tscircuit.com parts
+# index directly — every TL431 variant found there, 105 entries across all tolerance
+# grades/manufacturers including this one, is marked is_basic=false) — treat as EXTENDED,
+# VERIFY at order. Chosen over the board's other TL431 instance (JSMSEMI C963380, 1%
+# grade, already used elsewhere in this design) specifically for the 0.5% grade the OV
+# backstop's tolerance stack needs.
+#
+# Datasheet read (TI TL431/A/B family, 2026-07-26): Vref 2.495V typical (same center
+# across all grades — only the tolerance band changes), min cathode current ~1mA (this
+# wrapper is biased at ~2.5mA via a 1k resistor from 5V, comfortably above minimum),
+# dynamic impedance low. Pin mapping is per this exact fetch (TI's DBZ/SOT-23-3 pinout,
+# NOT the TO-92 pinout): 1=CATHODE, 2=REF, 3=ANODE.
+CATHODE = io("CATHODE", Net, optional = True)
+REF = io("REF", Net, optional = True)
+ANODE = io("ANODE", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_TL431BIDBZR",
+    footprint = File("Texas_Instruments_TL431BIDBZR/SOT-23-3_L2.9-W1.3-P1.90-LS2.4-BR.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_TL431BIDBZR/TL431BIDBZR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "TL431BIDBZR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C41283", "MPN": "TL431BIDBZR"},
+    pins = {
+        "CATHODE": CATHODE,
+        "REF": REF,
+        "ANODE": ANODE,
+    },
+)

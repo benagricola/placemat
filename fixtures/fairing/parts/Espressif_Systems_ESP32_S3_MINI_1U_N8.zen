@@ -1,0 +1,98 @@
+# Espressif_Systems_ESP32_S3_MINI_1U_N8 - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Espressif_Systems-ESP32_S3_MINI_1U_N8_C2980299.pdf
+
+GND = io("GND", Net, optional = True)
+P_3V3 = io("P_3V3", Net, optional = True)
+IO0 = io("IO0", Net, optional = True)
+IO1 = io("IO1", Net, optional = True)
+IO2 = io("IO2", Net, optional = True)
+IO3 = io("IO3", Net, optional = True)
+IO4 = io("IO4", Net, optional = True)
+IO5 = io("IO5", Net, optional = True)
+IO6 = io("IO6", Net, optional = True)
+IO7 = io("IO7", Net, optional = True)
+IO8 = io("IO8", Net, optional = True)
+IO9 = io("IO9", Net, optional = True)
+IO10 = io("IO10", Net, optional = True)
+IO11 = io("IO11", Net, optional = True)
+IO12 = io("IO12", Net, optional = True)
+IO13 = io("IO13", Net, optional = True)
+IO14 = io("IO14", Net, optional = True)
+IO15 = io("IO15", Net, optional = True)
+IO16 = io("IO16", Net, optional = True)
+IO17 = io("IO17", Net, optional = True)
+IO18 = io("IO18", Net, optional = True)
+IO19 = io("IO19", Net, optional = True)
+IO20 = io("IO20", Net, optional = True)
+IO21 = io("IO21", Net, optional = True)
+IO26 = io("IO26", Net, optional = True)
+IO47 = io("IO47", Net, optional = True)
+IO33 = io("IO33", Net, optional = True)
+IO34 = io("IO34", Net, optional = True)
+IO48 = io("IO48", Net, optional = True)
+IO35 = io("IO35", Net, optional = True)
+IO36 = io("IO36", Net, optional = True)
+IO37 = io("IO37", Net, optional = True)
+IO38 = io("IO38", Net, optional = True)
+IO39 = io("IO39", Net, optional = True)
+IO40 = io("IO40", Net, optional = True)
+IO41 = io("IO41", Net, optional = True)
+IO42 = io("IO42", Net, optional = True)
+TXD0 = io("TXD0", Net, optional = True)
+RXD0 = io("RXD0", Net, optional = True)
+IO45 = io("IO45", Net, optional = True)
+IO46 = io("IO46", Net, optional = True)
+EN = io("EN", Net, optional = True)
+
+Component(
+    name = "Espressif_Systems_ESP32_S3_MINI_1U_N8",
+    footprint = File("Espressif_Systems_ESP32_S3_MINI_1U_N8/BULETM-SMD_ESPRESSIF_ESP32-S3-MINI-1U-N8.kicad_mod"),
+    symbol = Symbol("Espressif_Systems_ESP32_S3_MINI_1U_N8/ESP32_S3_MINI_1U_N8.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "ESP32-S3-MINI-1U-N8", manufacturer = "Espressif Systems"),
+    properties = {"LCSC": "C2980299", "MPN": "ESP32-S3-MINI-1U-N8"},
+    pins = {
+        "GND": GND,
+        "3V3": P_3V3,
+        "IO0": IO0,
+        "IO1": IO1,
+        "IO2": IO2,
+        "IO3": IO3,
+        "IO4": IO4,
+        "IO5": IO5,
+        "IO6": IO6,
+        "IO7": IO7,
+        "IO8": IO8,
+        "IO9": IO9,
+        "IO10": IO10,
+        "IO11": IO11,
+        "IO12": IO12,
+        "IO13": IO13,
+        "IO14": IO14,
+        "IO15": IO15,
+        "IO16": IO16,
+        "IO17": IO17,
+        "IO18": IO18,
+        "IO19": IO19,
+        "IO20": IO20,
+        "IO21": IO21,
+        "IO26": IO26,
+        "IO47": IO47,
+        "IO33": IO33,
+        "IO34": IO34,
+        "IO48": IO48,
+        "IO35": IO35,
+        "IO36": IO36,
+        "IO37": IO37,
+        "IO38": IO38,
+        "IO39": IO39,
+        "IO40": IO40,
+        "IO41": IO41,
+        "IO42": IO42,
+        "TXD0": TXD0,
+        "RXD0": RXD0,
+        "IO45": IO45,
+        "IO46": IO46,
+        "EN": EN,
+    },
+)

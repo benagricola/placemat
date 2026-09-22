@@ -1,0 +1,35 @@
+# HXY_MOSFET_24C02 — component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields).
+#
+# NEW PART (2026-07-26, cnc-expansion capture). 2Kb I2C EEPROM, SOP-8. Stock 13,820 units
+# @ LCSC C7427344 (checked 2026-07-26) — comfortably above the low-hundreds bar.
+# Board-ID EEPROM per the brief — DNP by default (HiveCNC/tooling board-detect convenience
+# only; RRF does not read it — see cnc-expansion.zen). A0/A1/A2 tied to GND (address 0x50).
+# WP tied to GND (writable — an ID EEPROM needs to be programmed at bring-up).
+A0 = io("A0", Net, optional = True)
+A1 = io("A1", Net, optional = True)
+A2 = io("A2", Net, optional = True)
+GND = io("GND", Net, optional = True)
+SDA = io("SDA", Net, optional = True)
+SCL = io("SCL", Net, optional = True)
+WP = io("WP", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+
+Component(
+    name = "HXY_MOSFET_24C02",
+    footprint = File("HXY_MOSFET_24C02/SOP-8_L4.9-W3.9-P1.27-LS6.0-BL.kicad_mod"),
+    symbol = Symbol("HXY_MOSFET_24C02/24C02-HXY.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "24C02-HXY", manufacturer = "HXY MOSFET"),
+    properties = {"LCSC": "C7427344", "MPN": "24C02-HXY"},
+    pins = {
+        "A0": A0,
+        "A1": A1,
+        "A2": A2,
+        "GND": GND,
+        "SDA": SDA,
+        "SCL": SCL,
+        "WP": WP,
+        "VCC": VCC,
+    },
+)

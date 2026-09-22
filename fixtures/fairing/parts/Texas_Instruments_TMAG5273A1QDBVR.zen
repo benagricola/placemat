@@ -1,0 +1,26 @@
+# Texas_Instruments_TMAG5273A1QDBVR - component wrapper: local KiCad symbol + footprint, LCSC pinned
+# in properties (feeds the JLC BOM/CPL fields). Datasheet: Texas_Instruments-TMAG5273A1QDBVR_C3716049.pdf
+
+SCL = io("SCL", Net, optional = True)
+GND = io("GND", Net, optional = True)
+GND_TEST = io("GND_TEST", Net, optional = True)
+VCC = io("VCC", Net, optional = True)
+INT = io("INT", Net, optional = True)
+SDA = io("SDA", Net, optional = True)
+
+Component(
+    name = "Texas_Instruments_TMAG5273A1QDBVR",
+    footprint = File("Texas_Instruments_TMAG5273A1QDBVR/SOT-23-6_L2.9-W1.6-P0.95-LS2.8-BR.kicad_mod"),
+    symbol = Symbol("Texas_Instruments_TMAG5273A1QDBVR/TMAG5273A1QDBVR.kicad_sym"),
+    prefix = "U",
+    part = Part(mpn = "TMAG5273A1QDBVR", manufacturer = "Texas Instruments"),
+    properties = {"LCSC": "C3716049", "MPN": "TMAG5273A1QDBVR"},
+    pins = {
+        "SCL": SCL,
+        "GND": GND,
+        "GND(TEST)": GND_TEST,
+        "VCC": VCC,
+        "~{INT}": INT,
+        "SDA": SDA,
+    },
+)
