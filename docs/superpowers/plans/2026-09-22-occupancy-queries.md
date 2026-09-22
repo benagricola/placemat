@@ -137,7 +137,7 @@ def test_another_nets_pour_gives_way_rather_than_blocking():
 
 
 def test_a_hole_closer_than_hole_to_hole_blocks():
-    g = _geom([_via("V3", 20.6, 20)], hole_to_hole=0.25)
+    g = _geom([_via("V3", 20.5, 20)], hole_to_hole=0.25)      # a 0.2 mm web between the holes
     v = queries.judge_via(g, Location(20, 20), "V3", 0.6, 0.3)   # same net: only the hole rule applies
     assert not v.clear and any("hole" in h for h in v.hard)
 
@@ -235,7 +235,7 @@ def judge_via(geometry, at: Location, net: str, size: float, drill: float) -> Vi
             hard.append("%.2f mm from %s %s on %s (needs %.2f)" % (gap, c.net or "-", c.kind, where, reach))
     for centre, dia, what in _holes(geometry):
         gap = at.distance(centre) - (drill + dia) / 2.0
-        if gap < geometry.hole_to_hole - 1e-9 and gap > -(drill + dia):
+        if gap < geometry.hole_to_hole - 1e-9:
             hard.append("hole %.2f mm from the %s hole (needs %.2f)" % (max(gap, 0.0), what, geometry.hole_to_hole))
     for ra in geometry.rule_areas:
         if "vias" in ra.excludes and ra.layers and polys_overlap(poly, ra.polygon):
