@@ -97,3 +97,58 @@ def test_a_cell_flipped_to_the_back_lands_where_the_planner_said(breakout_pcb, t
                 + abs(p.box.center.y - planned[(fp.ref, p.number)].y)
                 for fp in after.members for p in fp.pads)
     assert worst < 1e-5, "target %g: worst pad error %.6f mm" % (target, worst)
+
+
+def test_a_part_and_a_cell_holding_it_flip_the_same_way(breakout_pcb, tmp_path):
+    """The asymmetry this work removed: a lone part mirrored top-to-bottom and
+    the same part inside a cell mirrored left-to-right, so the two differed by
+    half a turn and nothing said so.
+
+    Measured through the WRITER, because that is where the two paths differ:
+    `_place_footprint` and `_move_cell` are separate code, and comparing the
+    planner against itself would prove nothing.
+
+    Flipping a cell turns nothing: each member keeps the rotation it had, so
+    the member's own geometry comes out as `mirror . R(its own rotation)`. To
+    put the lone part in the same orientation it must be asked for
+    `-its own rotation`. With that accounted for, the two answers are equal if
+    and only if both paths mirror about the same axis - which is the whole
+    question."""
+    member = "power_drop0.conn"
+    r_m = read_board(breakout_pcb).footprint(member).rotation
+
+    def offsets_of(pcb):
+        """Each pad's offset from its part's origin, KEYED BY PAD NUMBER.
+
+        Not a set of positions: a connector's pads sit in a symmetric row, so
+        a half turn maps the set onto itself and a comparison that ignored
+        which pad was which would pass against exactly the error this test
+        exists to catch."""
+        fp = read_board(pcb).footprint(member)
+        return {p.number: (round(p.box.center.x - fp.location.x, 4),
+                           round(p.box.center.y - fp.location.y, 4)) for p in fp.pads}
+
+    alone_dir = tmp_path / "alone"
+    alone_dir.mkdir()
+    pcb_a = _copy(breakout_pcb, alone_dir)
+    fp0 = read_board(pcb_a).footprint(member)
+    b = Board(read_board(pcb_a), edge_margin=0.0, keep_going=True)
+    b.place(Part(member), at=Location(fp0.location.x, fp0.location.y),
+            rotation=(-r_m) % 360, face=Face.BACK)
+    apply_plan(pcb_a, b.resolve())
+
+    in_cell_dir = tmp_path / "in_cell"
+    in_cell_dir.mkdir()
+    pcb_c = _copy(breakout_pcb, in_cell_dir)
+    before = read_board(pcb_c)
+    cell = before.cell("power_drop0")
+    b = Board(before, edge_margin=0.0, keep_going=True)
+    b.place(Cell("power_drop0"), at=Centre(cell.box.center.x, cell.box.center.y),
+            rotation=0.0, face=Face.BACK)
+    apply_plan(pcb_c, b.resolve())
+
+    alone_offsets, cell_offsets = offsets_of(pcb_a), offsets_of(pcb_c)
+    assert alone_offsets == cell_offsets, (
+        "a part flipped alone and the same part flipped inside a cell mirror "
+        "about different axes: pad 1 at %s against %s"
+        % (alone_offsets.get("1"), cell_offsets.get("1")))
