@@ -61,6 +61,10 @@ def parser() -> argparse.ArgumentParser:
     fc.add_argument("fragment", help="the module's layout/layout.kicad_pcb")
     fc.add_argument("sides", nargs="+", metavar="SIDE=N|S|E|W", help="outward=, quiet=, handoff=")
 
+    st = sub.add_parser("settings", help="every resolved setting, its value and the file it came from")
+    st.add_argument("where", nargs="?", default=".", help="a layout script or a board directory (default: here)")
+    st.add_argument("--json", action="store_true")
+
     ck = sub.add_parser("check", help="design checks from the parts' Pm.* facts: hot loops, switch nodes, keep-out, "
                                       "crossings under sense tracks, current path widths, junction temperature")
     ck.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
@@ -74,12 +78,66 @@ def parser() -> argparse.ArgumentParser:
     return root
 
 
+def overrides_from(args) -> dict:
+    """The settings a command's flags set, and only those: a flag left off
+    falls to placemat.toml, and a key absent from that falls to the default."""
+    out = {}
+    for flag, name in (("ambient", "check_ambient_c"), ("keep_out", "check_keep_out_mm"),
+                       ("rise", "check_rise_c"), ("copper_oz", "check_copper_oz")):
+        value = getattr(args, flag, None)
+        if value is not None:
+            out[name] = value
+    limits = {}
+    for item in getattr(args, "limit", None) or []:
+        name, _, value = item.partition("=")
+        limits[name] = float(value)
+    if limits:
+        out["check_limits"] = limits
+    return out
+
+
+def check_kwargs(s) -> dict:
+    """The arguments `checks.run_checks` takes, from the resolved settings."""
+    return {"ambient_c": s.check_ambient_c, "keep_out_mm": s.check_keep_out_mm,
+            "rise_c": s.check_rise_c, "copper_oz": s.check_copper_oz,
+            "limits": dict(s.check_limits)}
+
+
+def _plain(v):
+    return list(v) if isinstance(v, tuple) else v
+
+
+def _show(v) -> str:
+    if isinstance(v, (tuple, list)):
+        return "[%d]" % len(v)
+    if isinstance(v, dict):
+        return "{%d}" % len(v)
+    return "%s" % (v,)
+
+
+def cmd_settings(args) -> int:
+    from .settings import load, Settings, split_key
+    from .project import find_board
+    p = Path(args.where)
+    start = p if p.is_dir() else find_board(p).board_dir
+    s = load(start)
+    if args.json:
+        console.data(json.dumps({k: {"value": _plain(getattr(s, k)), "source": s.source_of(k)}
+                                 for k in Settings.keys()}, indent=2, sort_keys=True))
+        return 0
+    for name in Settings.keys():
+        section, key = split_key(name)
+        console.say("settings", "%-28s %-24s %s" % (
+            "%s.%s" % (section, key), _show(getattr(s, name)), s.source_of(name)))
+    return 0
+
+
 def cmd_run(args) -> int:
     from .runner import run
     result = run(args.script, label=args.label, fresh=args.fresh, render=not args.no_render,
                  drc=not args.no_drc, quiet=args.quiet or args.json, verbose=args.verbose,
                  route=args.route, route_quick=not args.route_full, route_exclude=args.route_exclude,
-                 keep_going=args.keep_going)
+                 keep_going=args.keep_going, overrides=overrides_from(args))
     if args.json:
         console.data(json.dumps(json.loads((result.run_dir / "run.json").read_text()), indent=2))
     return 0 if result.status == "ok" else 1
@@ -247,7 +305,8 @@ def cmd_check(args) -> int:
 def main(argv=None) -> int:
     args = parser().parse_args(argv)
     return {"run": cmd_run, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
-            "route": cmd_route, "check": cmd_check, "show": cmd_show, "faces": cmd_faces}[args.command](args)
+            "route": cmd_route, "check": cmd_check, "show": cmd_show, "faces": cmd_faces,
+            "settings": cmd_settings}[args.command](args)
 
 
 if __name__ == "__main__":

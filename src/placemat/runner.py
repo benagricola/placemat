@@ -163,7 +163,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         t0 = time.time()
         geometry = read_board(src.pcb, courtyard_excess_mm=fab.courtyard_excess)
         board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size, keep_going=keep_going,
-                      courtyard_excess=fab.courtyard_excess)
+                      courtyard_excess=fab.courtyard_excess, settings=cfg)
         try:
             run_script(script, board)
         except Exception as e:

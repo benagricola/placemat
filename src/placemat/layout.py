@@ -19,6 +19,7 @@ from .occupancy import Occupancy, Shape, TOUCH
 from .cutouts import Cutouts, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from .placement import Placement
+from .settings import Settings
 from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import CellGeom, Footprint, BoardGeometry
 from .values import (Cutout, CutoutEdge, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
@@ -510,7 +511,9 @@ class Board:
     together."""
 
     def __init__(self, geometry: BoardGeometry, edge_margin: float | None = None, clearance: float | None = None,
-                 via_drill: float = 0.3, via_size: float = 0.6, keep_going: bool = False, courtyard_excess: float = 0.1):
+                 via_drill: float = 0.3, via_size: float = 0.6, keep_going: bool = False,
+                 courtyard_excess: float = 0.1, settings: Settings | None = None):
+        self.settings = settings if settings is not None else Settings()
         self.geometry = geometry
         self.courtyard_excess = courtyard_excess    # the fab's assembly margin round a part: the only spacing that comes free
         self.edge_margin = geometry.edge_clearance if edge_margin is None else edge_margin
@@ -1072,7 +1075,7 @@ class Board:
 
     # ------------------------------------------------------------ placement
     def place(self, item, at=None, *, rotation: float | None = None, face: Face = Face.FRONT,
-              radius: float = 3.0, step: float = 0.2, rotations=(),
+              radius: float | None = None, step: float | None = None, rotations=(),
               priority: Priority | None = None, why: str = "", _standoff: float | None = None) -> PlaceIntent:
         """Declare where an item goes: `at=` a place, whose kind says how
         much freedom is left.
@@ -1094,6 +1097,8 @@ class Board:
 
         `radius=`, `step=` and `rotations=` tune a search (seeded or Near).
         """
+        radius = self.settings.place_radius if radius is None else radius
+        step = self.settings.place_step if step is None else step
         geom, key, kind = self._item(item)
         if any(i.key == key for i in self._intents):
             raise ValueError("%s is already placed; one declaration per item" % key)
@@ -1734,7 +1739,7 @@ class Board:
     # ------------------------------------------------------------ resolution
     def resolve(self, progress=None) -> Plan:
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
-                        board_cutouts=self._cutouts)
+                        board_cutouts=self._cutouts, settings=self.settings)
         for intent in self._placements():
             declared = [intent.item.anchor] + [fp for fp, _ in intent.item.satellites] if intent.kind == "block" else [intent.item]
             for item in declared:

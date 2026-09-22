@@ -47,12 +47,14 @@ def _grid(center: Location, radius: float, step: float):
 
 COARSE_STEPS = 4
 """A scored scan over a wide radius first walks a grid this many steps
-apart and refines to the step only around its best spots."""
+apart and refines to the step only around its best spots. The default for
+`[place] coarse_steps`; a board's own is carried on its Occupancy."""
 COARSE_FROM = 12
 """Radius-to-step ratio from which a scored scan goes coarse first: below
-it the fine grid is a few hundred points and not worth two passes."""
+it the fine grid is a few hundred points and not worth two passes.
+`[place] coarse_from`."""
 REFINE_AROUND = 3
-"""How many of the best coarse spots get a fine pass."""
+"""How many of the best coarse spots get a fine pass. `[place] refine_around`."""
 
 
 def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
@@ -98,10 +100,11 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 reasons.setdefault(key, why)
         return legal
 
-    if score is None or radius / step < COARSE_FROM:
+    cfg = occ.settings
+    if score is None or radius / step < cfg.place_coarse_from:
         legal = sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), stop_at_first=score is None)
     else:
-        coarse = step * COARSE_STEPS
+        coarse = step * cfg.place_coarse_steps
         legal = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse)), False)
         if not legal:
             legal = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse / 2)), False)
@@ -112,7 +115,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             legal = sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), False)
         if legal:
             legal.sort(key=lambda k: k[:3])
-            for _, _, _, cand in legal[:REFINE_AROUND]:
+            for _, _, _, cand in legal[:cfg.place_refine_around]:
                 # The fine grid is centred on a coarse candidate, which can sit at
                 # the edge of the radius: keep only what is still inside it, so
                 # "within radius of the hint" is what a script gets.
@@ -379,10 +382,11 @@ class BlockSpec:
 
 
 GAP_STEP = 0.05
-"""How finely a block's tightest gap is searched: the fab's placement grid."""
+"""How finely a block's tightest gap is searched: the fab's placement grid.
+`[place] block_gap_step`."""
 GAP_REACH = 2.0
 """How far a satellite may stand off its pin before the block gives up: past
-this the part is not at its pin."""
+this the part is not at its pin. `[place] block_gap_reach`."""
 
 
 def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=None):
@@ -412,7 +416,9 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
         half_anchor = _half_extent(pin.box, ux, uy)
         half_sat = _half_extent(sat_pin.box, ux, uy)
         # the gap the script named, else the smallest at which the two courtyards no longer touch
-        gaps = [spec.gap] if spec.gap is not None else [round(g * GAP_STEP, 6) for g in range(int(GAP_REACH / GAP_STEP) + 1)]
+        step_mm, reach = occ.settings.place_block_gap_step, occ.settings.place_block_gap_reach
+        gaps = [spec.gap] if spec.gap is not None else [round(g * step_mm, 6)
+                                                        for g in range(int(reach / step_mm) + 1)]
         best = None
         for gap in gaps:
             target = Location(p.x + ux * (half_anchor + gap + half_sat), p.y + uy * (half_anchor + gap + half_sat))
@@ -486,10 +492,11 @@ def scan_block(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float, 
                     return fits
         return fits
 
-    if score is None or radius / step < COARSE_FROM:
+    cfg = occ.settings
+    if score is None or radius / step < cfg.place_coarse_from:
         fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), score is None)
     else:
-        coarse = step * COARSE_STEPS
+        coarse = step * cfg.place_coarse_steps
         fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse)), False)
         if not fits:
             fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse / 2)), False)
@@ -497,7 +504,7 @@ def scan_block(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float, 
             fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), False)
         if fits:
             fits.sort(key=lambda f: f[0])
-            for _, cand, _ in fits[:REFINE_AROUND]:
+            for _, cand, _ in fits[:cfg.place_refine_around]:
                 # The fine grid is centred on a coarse candidate, which can sit
                 # at the edge of the radius: keep only what is still inside it.
                 fits += sweep(((x, y) for _, x, y in _grid(cand.location, coarse, step)

@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from .geometry import (Polygon, Transform, box_polygon, circle_polygon, poly_distance,
                        polys_overlap, transform_box, transform_polygon)
 from .placement import Placement
+from .settings import Settings
 from .board_geometry import CellGeom, Footprint, BoardGeometry
 from .values import Box, CopperLayer, Face, Location, Net
 
@@ -62,9 +63,10 @@ class ItemGeometry:
 
 
 _BOTH = frozenset([Face.FRONT, Face.BACK])
+# The defaults; a board's own come from `[place] conflict_gap` and
+# `[place] courtyard_touch` and are carried on the Occupancy.
 _GAP = 1.0      # how far outside a box a conflict can still reach: the largest clearance a rule asks for
 TOUCH = 0.02    # two courtyards this close are touching, not overlapping: a footprint's courtyard stroke rounds by this much
-_TOUCH = TOUCH
 
 
 def _fp_shapes(fp: Footprint) -> list[Shape]:
@@ -86,7 +88,11 @@ def _fp_shapes(fp: Footprint) -> list[Shape]:
 
 class Occupancy:
     def __init__(self, geometry: BoardGeometry, edge_margin: float = 0.0, board_box: Box | None = None,
-                 vias_block_courtyards: bool = False, board_shape=None, board_cutouts=None):
+                 vias_block_courtyards: bool = False, board_shape=None, board_cutouts=None,
+                 settings: Settings | None = None):
+        self.settings = settings if settings is not None else Settings()
+        self._gap = self.settings.place_conflict_gap
+        self._touch = self.settings.place_courtyard_touch
         self.geometry = geometry
         self.edge_margin = edge_margin
         self.vias_block_courtyards = vias_block_courtyards
@@ -295,7 +301,7 @@ class Occupancy:
         out = [s for owner, g in self.items.items() if owner not in skip for s in g.shapes]
         out += [c for c in self.copper if c.owner not in skip]
         if region is not None:
-            out = [o for o in out if o.box.overlaps(region, gap=_GAP)]
+            out = [o for o in out if o.box.overlaps(region, gap=self._gap)]
         return out
 
     def legal(self, item, placement: Placement, clearance: float | None = None, others=None,
@@ -331,7 +337,7 @@ class Occupancy:
                 return "sits in the reservation for %s" % r.why
         if others is None:
             others = self.obstacles(geom)
-        near = [o for o in others if o.box.overlaps(body, gap=_GAP)]
+        near = [o for o in others if o.box.overlaps(body, gap=self._gap)]
         if not near:
             return None
         # Only a shape whose moved box reaches an obstacle is worth moving as a polygon.
@@ -339,7 +345,7 @@ class Occupancy:
         flip = placement.face != geom.reference.face
         for s in geom.shapes:
             sb = transform_box(s.box, t)
-            close = [o for o in near if sb.overlaps(o.box, gap=_GAP)]
+            close = [o for o in near if sb.overlaps(o.box, gap=self._gap)]
             if not close:
                 continue
             poly = transform_polygon(s.poly, t, clean=False)
@@ -361,7 +367,7 @@ class Occupancy:
             # courtyards may touch: a shared edge, to a rounding, is packing, not a collision
             depth = min(min(s.box.right, o.box.right) - max(s.box.left, o.box.left),
                         min(s.box.bottom, o.box.bottom) - max(s.box.top, o.box.top))
-            if depth <= _TOUCH and (s.box.width > 0 and o.box.width > 0):
+            if depth <= self._touch and (s.box.width > 0 and o.box.width > 0):
                 return None
             if s.faces & o.faces and polys_overlap(s.poly, o.poly):
                 return "%s courtyard overlaps %s courtyard" % (self.who(s.owner), self.who(o.owner))

@@ -158,3 +158,41 @@ def test_an_error_in_an_outer_file_still_names_that_file(tmp_path):
     with pytest.raises(S.SettingsError) as e:
         S.load(board)
     assert str(tmp_path / "placemat.toml") in str(e.value)
+
+
+def test_a_flag_beats_the_file_and_the_source_says_so(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[check]\nambient_c = 85.0\n")
+    s = S.load(tmp_path, overrides={"check_ambient_c": 60.0})
+    assert s.check_ambient_c == 60.0 and s.source_of("check_ambient_c") == "flag"
+
+
+def test_a_flag_left_off_falls_to_the_file(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[check]\nambient_c = 85.0\n")
+    s = S.load(tmp_path, overrides={})
+    assert s.check_ambient_c == 85.0
+
+
+def test_overrides_from_args_only_carries_what_was_given():
+    import argparse
+    from placemat import cli
+    args = argparse.Namespace(ambient=None, keep_out=2.5, rise=None, copper_oz=None, limit=[])
+    assert cli.overrides_from(args) == {"check_keep_out_mm": 2.5}
+
+
+def test_overrides_from_args_reads_limit_pairs():
+    import argparse
+    from placemat import cli
+    args = argparse.Namespace(ambient=None, keep_out=None, rise=None, copper_oz=None,
+                              limit=["hot-loop=20"])
+    assert cli.overrides_from(args) == {"check_limits": {"hot-loop": 20.0}}
+
+
+def test_the_settings_command_prints_every_key_and_its_source(tmp_path, capsys):
+    import argparse
+    from placemat import cli
+    _toml(tmp_path / "placemat.toml", "[place]\nstep = 0.05\n")
+    args = argparse.Namespace(where=str(tmp_path), json=False)
+    assert cli.cmd_settings(args) == 0
+    out = capsys.readouterr().out
+    assert "place.step" in out and "0.05" in out and "placemat.toml" in out
+    assert "rank.area" in out and "default" in out
