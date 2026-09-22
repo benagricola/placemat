@@ -174,12 +174,24 @@ class Occupancy:
 
     @staticmethod
     def _transform(geom: ItemGeometry, placement: Placement) -> Transform:
+        """Where an item's shapes go when it moves to `placement`.
+
+        A flip to the back mirrors about the VERTICAL axis and then turns by
+        the rotation asked for - KiCad's own F key, and what the writer does
+        once it stops discarding the orientation the flip computed. Adding the
+        reference rotation rather than subtracting it is what cancels the
+        generator's own rotation out of the answer, so the same declaration
+        means the same orientation whatever the generator happened to do.
+
+        A cell's reference rotation is always 0, so this is identical to the
+        unflipped arithmetic for a cell and nothing about cells changes."""
         ref = geom.reference
         t = Transform.translate(-ref.location.x, -ref.location.y)
         flip = placement.face != ref.face
         if flip:
             t = t.then(Transform.mirror_x(Location(0, 0)))
-        t = t.then(Transform.rotate(placement.rotation - ref.rotation))
+        turn = placement.rotation + ref.rotation if flip else placement.rotation - ref.rotation
+        t = t.then(Transform.rotate(turn))
         return t.then(Transform.translate(placement.location.x, placement.location.y))
 
     def _flip_layers(self, layers: frozenset[CopperLayer]) -> frozenset[CopperLayer]:
