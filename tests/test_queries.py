@@ -126,3 +126,15 @@ def test_the_nearest_copper_of_another_net_is_measured_to_its_edge():
     d = queries.nearest_foreign(g, Location(21, 20), F, "GND")
     assert abs(d - 0.85) < 1e-6                 # to SIG's edge at 20.15; GND is its own net
     assert queries.nearest_foreign(g, Location(21, 20), B, "GND") is None
+
+
+def test_a_tail_may_not_cross_a_neighbouring_pin_of_the_same_part():
+    """The source pad is the via's own net and so already exempt. Exempting
+    its whole part let a tail run over the pin beside it on another net."""
+    u = footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("GND", "SIG"))    # pads at 18.6 and 21.4
+    g = _geom(fps=[u])
+    gnd = next(p for p in u.pads if p.net == "GND")
+    past_sig = Location(23.0, 20.0)                     # straight across the SIG pad
+    judge = queries.via_judge(g, gnd.box.center, "GND", 0.6, 0.3, 0.2, F)
+    why, _ = judge(past_sig)
+    assert why is not None and "SIG" in why

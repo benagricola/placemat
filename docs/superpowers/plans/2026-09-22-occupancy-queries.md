@@ -526,7 +526,7 @@ def test_at_names_what_is_under_a_point(breakout_pcb, capsys):
 
 - `--at`: for each layer in stackup order print the copper there (`kind net owner`) or `nothing`, the nearest foreign copper, then the verdict of `judge_via` for the net found there (or the default class) with each hard and soft line.
 - `--box`: per layer, `net kind count` lines, largest first.
-- `--via-near PART.PAD`: find the footprint by instance or refdes and the pad by number; net = `--net` or the pad's; size/drill = the flags or the net's class; layer = `--layer` or the pad's first layer; run `free_spot(pad centre, via_judge(..., skip={footprint ref}), radius, step)`; print the spot, its distance, the tail length, the soft lines and the tally; `--json` prints `{"spot": {"at": [x, y], "distance": d, "soft": [...]}, "tally": {...}, "tried": n}` with `spot` null when none. Exit 1 when none.
+- `--via-near PART.PAD`: find the footprint by instance or refdes and the pad by number; net = `--net` or the pad's; size/drill = the flags or the net's class; layer = `--layer` or the pad's first layer; run `free_spot(pad centre, via_judge(...), radius, step)` - no exemption for the source part: its pad is the via's own net, and exempting the part would let a tail cross the pin beside it; print the spot, its distance, the tail length, the soft lines and the tally; `--json` prints `{"spot": {"at": [x, y], "distance": d, "soft": [...]}, "tally": {...}, "tried": n}` with `spot` null when none. Exit 1 when none.
 
 - [ ] **Step 4: Run to verify it passes**, then the suite.
 

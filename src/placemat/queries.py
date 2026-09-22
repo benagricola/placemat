@@ -89,15 +89,15 @@ def _segment(a: Location, b: Location, width: float):
     return ((a.x + ox, a.y + oy), (b.x + ox, b.y + oy), (b.x - ox, b.y - oy), (a.x - ox, a.y - oy))
 
 
-def judge_tail(geometry, start: Location, end: Location, net: str, width: float, layer,
-               skip=()) -> tuple:
+def judge_tail(geometry, start: Location, end: Location, net: str, width: float, layer) -> tuple:
     """What a straight track from the pad to the via would touch on its layer.
-    `skip` names owners whose copper the tail may run over: the source pad."""
+    The source pad needs no exemption: it is the via's own net. Exempting its
+    whole part let a tail run over the pin beside it on another net."""
     poly = _segment(start, end, width)
     box = Box.of_points(poly)
     out = []
     for c in geometry.copper:
-        if c.net == net or layer not in c.layers or c.kind not in _HARD or c.owner in skip:
+        if c.net == net or layer not in c.layers or c.kind not in _HARD:
             continue
         reach = geometry.clearance(net, c.net) if (net in geometry.nets and c.net in geometry.nets) \
             else geometry.default_clearance
@@ -156,14 +156,14 @@ def free_spot(start: Location, judge, radius: float = 2.0, step: float = 0.05) -
 
 
 def via_judge(geometry, start: Location, net: str, size: float, drill: float, width: float,
-              layer, skip=()):
+              layer):
     """The judge `free_spot` calls for a via of `net` fed from `start` by a
     straight tail on `layer`."""
     def judge(c):
         v = judge_via(geometry, c, net, size, drill)
         if not v.clear:
             return v.hard[0], v.soft
-        tail = judge_tail(geometry, start, c, net, width, layer, skip) if c.distance(start) > 1e-9 else ()
+        tail = judge_tail(geometry, start, c, net, width, layer) if c.distance(start) > 1e-9 else ()
         if tail:
             return tail[0], v.soft
         return None, v.soft
