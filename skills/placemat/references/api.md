@@ -596,6 +596,7 @@ placemat measure <layout.kicad_pcb> [cell-or-part ...]
 placemat show <layout.kicad_pcb | script> <cell | part> [--out DIR]
 placemat faces <module layout.kicad_pcb> outward=N [quiet=S] [handoff=E]
 placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise C] [--copper-oz OZ] [--limit CHECK=VALUE ...] [--json]
+placemat settings [<script-or-board-dir>] [--json]
 ```
 `check` reads the `Pm.*` facts the capture put on its parts (the
 placemat-design skill says which) and reports hot loop area, switch node
@@ -619,3 +620,87 @@ its own venv; quick mode is one routing round with the router's post-route
 smoothing off (a measurement: the Breakout routes in about 10 s), `--full`
 is the router's whole run. The search budget per net is the router's own
 unless `--iterations` caps it.
+
+## Settings
+
+`placemat.toml` holds every behavioural constant. It is found by walking up
+from the board's directory, and every file on that path contributes: the
+NEAREST file wins per key, so a project root sets the house style and one
+board overrides one number without restating the rest.
+
+```
+built-in default  <  placemat.toml (nearest wins per key)  <  CLI flag
+```
+
+An unknown section or key, a wrong type or a value outside its range is an
+error naming the file and the key. A setting that quietly did nothing would
+read as though it were in force.
+
+The resolved settings are part of a run's id, so changing one gives a new run
+rather than replacing the last one.
+
+`placemat settings [<script-or-dir>] [--json]` prints every resolved value and
+the file it came from.
+
+```toml
+# electronics/placemat.toml
+[place]
+step = 0.1              # this board is laid out on a 0.1 grid
+
+[drc]
+real_kinds = ["clearance", "shorting_items", "hole_clearance"]
+```
+
+| key | default | what it governs |
+|---|---|---|
+| `rank.area` | 0.7 | weight on courtyard area when ordering searched items |
+| `rank.pins` | 0.3 | weight on pin count when ordering searched items |
+| `place.radius` | 3.0 | a search's default radius |
+| `place.step` | 0.2 | a search's default step |
+| `place.coarse_steps` | 4 | how many steps apart a scored scan's first pass walks |
+| `place.coarse_from` | 12 | radius-to-step ratio from which a scan goes coarse first |
+| `place.refine_around` | 3 | how many of the best coarse spots get a fine pass |
+| `place.block_gap_step` | 0.05 | how finely a block's tightest gap is searched |
+| `place.block_gap_reach` | 2.0 | how far a satellite may stand off its pin |
+| `place.courtyard_touch` | 0.02 | two courtyards this close are touching, not overlapping |
+| `place.conflict_gap` | 1.0 | how far outside a box a conflict can still reach |
+| `copper.chamfer` | 1.0 | how far a right angle is cut back into two 45s |
+| `copper.pair_chamfer` | 0.5 | the same, for a differential pair |
+| `copper.pair_via_step` | 0.4 | how far clear of its partner a pair's lead vias |
+| `copper.bridge_half` | 1.1 | half the gap a bridge leaves round a crossed track |
+| `copper.finger_bridge_width` | 1.0 | the width of a finger's bridge under a track |
+| `copper.plane_inset` | 0.4 | how far a plane is inset from the board edge |
+| `copper.plane_clearance` | 0.2 | a zone's pullback from foreign copper |
+| `copper.plane_min_thickness` | 0.2 | a zone's minimum filled width |
+| `copper.pour_stroke` | 0.2 | a pour's outline stroke |
+| `label.size` | 1.0 | silkscreen text height |
+| `label.thickness` | 0.15 | silkscreen stroke width |
+| `label.gap` | 0.0 | a label's gap from what it names |
+| `geometry.arc_sag` | 0.02 | how far a flattened arc may cut the corner off the real one |
+| `geometry.index_cells` | 16 | buckets across the longer side of the spatial index |
+| `geometry.arc_error_nm` | 5000 | arc approximation error when reading pad outlines |
+| `check.ambient_c` | 100.0 | board temperature the junction estimate starts from (`--ambient`) |
+| `check.keep_out_mm` | 2.0 | how far sense copper stays from a switch node (`--keep-out`) |
+| `check.rise_c` | 10.0 | the rise a current path is sized for (`--rise`) |
+| `check.copper_oz` | 1.0 | outer copper weight the widths are sized for (`--copper-oz`) |
+| `check.limits` | none | a bound per check, e.g. `"hot-loop" = 20.0` (`--limit`) |
+| `drc.real_kinds` | eight classes | which violations mean the board is not done |
+| `drc.outstanding_kinds` | three classes | which violations are copper not yet joined |
+| `drc.refill_zones` | true | refill zones for the check |
+| `route.router_dir` | `$KRT_DIR`, else `~/work/KiCadRoutingTools` | the KiCadRoutingTools checkout |
+| `route.quick` | true | one routing round rather than the router's full run |
+| `route.iterations` | the router's own | cap on the router's search per net |
+| `route.layers` | every copper layer | which layers the router may use |
+| `timeout.generate` | 900 | seconds for `pcb layout` |
+| `timeout.drc` | 600 | seconds for kicad-cli DRC |
+| `timeout.route` | 3600 | seconds for the router |
+| `timeout.render` | 300 | seconds for a render |
+| `noise.patterns` | none | extra KiCad stderr patterns to suppress, ADDED to the built-ins |
+
+Every verb whose default appears here takes an explicit argument that still
+wins: `board.plane(..., inset=1.0)` beats `copper.plane_inset`.
+
+Three kinds of constant are NOT settable, because they are not behaviour: the
+grid epsilons (ten KiCad units, the file format's resolution), the physical
+constants (IPC-2221 and unit conversions), and the tables that map placemat's
+words onto KiCad's layers and flags.

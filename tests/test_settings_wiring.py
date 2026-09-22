@@ -5,6 +5,7 @@ from placemat.occupancy import Occupancy
 from placemat.placement import Placement
 from placemat.settings import Settings
 from placemat.values import Face, Location, Part
+from tests.conftest import needs_breakout, needs_kicad
 from tests.fixtures import board_geometry, footprint
 
 
@@ -199,3 +200,28 @@ def test_the_check_constants_come_from_the_settings():
     s = Settings(check_ambient_c=42.0)
     assert cli.check_kwargs(s) == {"ambient_c": 42.0, "keep_out_mm": 2.0,
                                    "rise_c": 10.0, "copper_oz": 1.0, "limits": {}}
+
+
+@needs_kicad
+@needs_breakout
+def test_a_board_with_no_placemat_toml_reads_exactly_as_it_did(breakout_pcb):
+    """Every default is today's value, so a project with no file behaves as it
+    does now. Read the committed Breakout with the defaults bound and with
+    nothing bound, and get the same geometry."""
+    from placemat.kicad.read import read_board
+    from placemat.settings import bind
+    plain = read_board(breakout_pcb)
+    with bind(Settings()):
+        bound = read_board(breakout_pcb)
+    assert [fp.ref for fp in plain.footprints] == [fp.ref for fp in bound.footprints]
+    assert [fp.courtyard_box for fp in plain.footprints] == [fp.courtyard_box for fp in bound.footprints]
+
+
+def test_every_setting_is_documented_in_the_api_reference():
+    """A setting nobody can find is a setting nobody uses."""
+    from pathlib import Path
+    from placemat.settings import Settings as St, split_key
+    doc = Path("skills/placemat/references/api.md").read_text()
+    missing = ["%s.%s" % split_key(k) for k in St.keys()
+               if "%s.%s" % split_key(k) not in doc]
+    assert not missing, missing

@@ -17,11 +17,15 @@ work, not what to call.
 ## The loop
 
 1. **Run** `placemat run boards/<x>/<X>_layout.py`. A run is named by a
-   short hash of the script, the generated board and the tool, so the same
-   inputs are the same run; `--label <name>` adds an alias you can pass to
+   short hash of the script, the generated board, the tool and the resolved
+   settings, so the same inputs are the same run; `--label <name>` adds an alias you can pass to
    `impact` later. Read the terminal stream: placed/copper/findings, then
    one DRC line, then the impact. `-v` prints every step as it resolves.
-2. **Read the numbers before the picture.** `real` DRC buckets and
+2. **Before reading a board's numbers, run `placemat settings`.** The values
+   it was laid out with may not be the defaults: a `placemat.toml` anywhere
+   from the board's directory up to the filesystem root can set any of them,
+   and the command says which file each one came from.
+3. **Read the numbers before the picture.** `real` DRC buckets and
    `unconnected` are the gate; `outstanding` (dangling copper) says what has
    not been drawn yet. `airwires` (count, length), `crossings` (ratsnest
    lines of different nets that cross), `crossings by net` and `congestion`
@@ -31,13 +35,13 @@ work, not what to call.
    crossings name the parts to move. Two firm placements that collide stop
    the run at once with the reason: fix the declaration, do not search
    around it. Findings name a searched part that had nowhere to go.
-3. **Look** at `layout/<X>/layout.png` (and `layout-bottom.png` on a
+4. **Look** at `layout/<X>/layout.png` (and `layout-bottom.png` on a
    two-face board) only after the numbers say the change did what you meant.
-4. **Change one thing, run again.** The impact text says what moved and
+5. **Change one thing, run again.** The impact text says what moved and
    which numbers changed (`placemat impact <run> <run>` compares any two, by
    id, id prefix, label or path). If it says "nothing moved" and you
    expected movement, your change was not where you thought.
-5. **Route only when the placement has settled.** Routing is a separate,
+6. **Route only when the placement has settled.** Routing is a separate,
    slow step you ask for: `placemat run ... --route` (after the checks) or
    `placemat route <board>`. It routes a COPY with every existing track and
    pour locked and the plane nets excluded, then reports closure: the share
