@@ -180,3 +180,11 @@ def test_the_span_is_the_width_across_every_pad():
     pads = (pad("U9", "u9", 1, "A", 0.0, 0.0, 1.0, 2.0),
             pad("U9", "u9", 2, "B", 8.0, 0.0, 1.0, 2.0))
     assert describe.span_of(pads) == pytest.approx(9.0, abs=1e-6)
+
+
+def test_the_docs_cover_read_and_check():
+    from pathlib import Path
+    api = Path("skills/placemat/references/api.md").read_text()
+    assert "--read" in api and "datasheet check" in api
+    mig = Path("skills/placemat/references/migration.md").read_text()
+    assert "0.13" in mig

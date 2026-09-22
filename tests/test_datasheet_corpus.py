@@ -46,3 +46,21 @@ def test_ocr_turns_the_text_free_connector_into_a_strong_land_pattern(tmp_path):
     assert ds.unit_of(runs) == "mm"
     ev = ds.page_evidence("land", runs, read.draw_paths(TYPEC, 1))
     assert ds.band_of(ev) == "strong"
+
+
+@pytest.mark.skipif(not TYPEC.exists(), reason="no TYPE-C datasheet")
+@pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract is not here")
+def test_the_connectors_dimension_stack_is_sourced_with_confidence(tmp_path):
+    """0.50 1.50 2.50 3.50 5.05 6.15 6.65 are on the sheet and readable only
+    off the render. 4.55 is there too and tesseract reads it as 4.95, which is
+    why a sourced number carries its confidence."""
+    runs = read.ocr_runs(TYPEC, 1, tmp_path)
+    found = ds.facts({1: (runs, ())})
+    dims = {f.value: f for f in found if f.name == "dimension"}
+    stack = {0.5, 1.5, 2.5, 3.5, 5.05, 6.15, 6.65}
+    assert stack <= set(dims)
+    # a dimension standing on its own line is read well; a line's reported
+    # confidence is its WEAKEST word, so a mixed line like `UNIT: mm SCALE:`
+    # sits low on the strength of the `mm` tesseract scores at 23
+    assert all(dims[v].confidence >= 80 for v in stack)
+    assert all(f.source == "ocr" and 0 < f.confidence <= 100 for f in found)

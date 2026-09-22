@@ -4,6 +4,25 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.13
+
+Nothing to change. `placemat datasheet` gains `--read`, which lists the facts a
+sheet could be made to yield with the page, position, channel and confidence
+behind each, and `check`, which compares a `.kicad_mod` against values you
+supply and says whether the sheet mentions them at all.
+
+A page with almost no text of its own is now read off its render with
+`tesseract` when that is installed. It is optional; `--no-ocr` turns it off.
+OCR reads wrong as well as right - on the TYPE-C 31-M-12 it returns 4.95 for a
+dimension the drawing gives as 4.55, at confidence 78 against 86 to 96 for its
+correct neighbours - so a confidence travels with every sourced number and
+`check` against a real footprint is what catches the rest.
+
+placemat does not recover pad geometry from a drawing. On that same sheet the
+contacts are drawn as hatching: 276 of the land-pattern view's 453 paths are
+two-point line segments, and the largest group of equal boxes on the page is
+outlined text. Pad values are supplied, corroborated and compared, not parsed.
+
 ## To 0.12
 
 Nothing to change. `placemat datasheet <pdf>` is new: it ranks the pages

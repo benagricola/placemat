@@ -334,3 +334,18 @@ def test_a_check_with_nothing_supplied_says_so_rather_than_passing():
     text = "\n".join(ds.check_lines(ds.compare({}, pads, ())))
     assert "nothing was supplied" in text
     assert "agree" not in text
+
+
+def test_a_token_tesseract_could_not_score_does_not_define_the_line():
+    """tesseract gives 0 to stray punctuation - the `_` and `|` in the
+    TYPE-C's `UNIT: mm _ | SCALE:` - and a 0 is "not a word", not "read
+    badly". Letting it stand as the line's confidence reported 0 for a line
+    that was read correctly."""
+    tsv = TSV + "\n" + "\n".join([
+        "5\t1\t8\t1\t1\t1\t10\t10\t30\t10\t91\tUNIT:",
+        "5\t1\t8\t1\t1\t2\t45\t10\t20\t10\t0\t_",
+        "5\t1\t8\t1\t1\t3\t70\t10\t40\t10\t84\tSCALE:",
+    ])
+    (line,) = [r for r in ds.runs_from_tsv(tsv, page=1) if "UNIT" in r.text]
+    assert line.text == "UNIT: _ SCALE:"
+    assert line.confidence == 84.0        # the weakest word that was scored at all

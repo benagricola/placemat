@@ -273,8 +273,13 @@ def runs_from_tsv(tsv: str, page: int, min_conf: float = MIN_OCR_CONFIDENCE) -> 
     for the TYPE-C's `UNIT: mm SCALE: 1:1`, losing the unit of the whole
     drawing: tesseract scores `mm` at 23 - two identical letters, small - while
     the `SCALE:` beside it scores 96 and both reads are right. Noise is a line
-    with no good word in it, and that is what goes. The confidence reported is
-    the weakest word's, because that is what a reader should judge by."""
+    with no good word in it, and that is what goes.
+
+    The confidence reported is the weakest word's, because that is what a
+    reader should judge by - but only among the words tesseract actually
+    scored. It gives 0 to stray punctuation, the `_` and `|` in
+    `UNIT: mm _ | SCALE:`, and a 0 there means "not a word" rather than "read
+    badly"; letting one stand reported 0 for a line that was read correctly."""
     lines = {}
     for row in tsv.splitlines()[1:]:
         f = row.split("\t")
@@ -293,8 +298,9 @@ def runs_from_tsv(tsv: str, page: int, min_conf: float = MIN_OCR_CONFIDENCE) -> 
         text = " ".join(w[5] for w in words)
         box = Box(min(w[0] for w in words), min(w[1] for w in words),
                   max(w[0] + w[2] for w in words), max(w[1] + w[3] for w in words))
+        scored = [w[4] for w in words if w[4] > 0]
         out.append(TextRun(page, text, box, source="ocr",
-                           confidence=min(w[4] for w in words)))
+                           confidence=min(scored) if scored else max(w[4] for w in words)))
     return tuple(out)
 
 

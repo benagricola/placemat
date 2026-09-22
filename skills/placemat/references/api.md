@@ -642,7 +642,8 @@ placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
 placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part ...] [--pads] [--json]
 placemat parts <layout.kicad_pcb | script> [--json]
-placemat datasheet <pdf> [--show PAGE|TOPIC] [--out DIR] [--dpi N] [--json]
+placemat datasheet <pdf> [--show PAGE|TOPIC] [--read] [--no-ocr] [--out DIR] [--dpi N] [--json]
+placemat datasheet check <pdf> <footprint.kicad_mod> [--pitch F] [--pad WxH] [--pads N] [--span F] [--tol F] [--json]
 placemat show <layout.kicad_pcb | script> <cell | part> [--out DIR]
 placemat faces <module layout.kicad_pcb> outward=N [quiet=S] [handoff=E]
 placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise C] [--copper-oz OZ] [--limit CHECK=VALUE ...] [--json]
@@ -676,6 +677,32 @@ holding a row of identical rectangles is a pad row whether or not it says so.
 A datasheet whose every dimension is an outlined curve carries no text at all -
 the TYPE-C receptacles are like this - and `--show` is the answer for those.
 It shells out to mupdf and poppler; `tesseract` is used when installed.
+
+`--read` prints the facts the sheet could be made to yield - its unit, its
+scale, every dimension on it and the headings that name a topic - each with the
+page, the position, the channel that read it and that channel's confidence. A
+value that could not be sourced is absent rather than guessed.
+
+`check` compares a `.kicad_mod` against what the sheet is said to require.
+placemat cannot tell which decimal on a drawing is the pitch, so the values are
+supplied as flags; what it does automatically is measure the footprint and say
+whether the number you supplied appears on the sheet at all, which is what
+makes an override safe rather than blind. Every check is reported including the
+ones nobody supplied a value for, because a check missing from a report reads
+as one that passed. Exit 1 when any check disagrees.
+
+```
+check   USB-C_SMD-TYPE-C-31-M-12_1.kicad_mod against TYPE_C_31_M_12.pdf
+check     pitch  0.5        0.5        ok        p1 (498,1828) ocr conf 88
+check     pad    0.3 x 1.3  0.3 x 1.3  ok        not on the page
+check     pads   24         18         MISMATCH  not on the page
+check     span   -          9.86       unchecked
+check     1 of 3 checks disagree
+```
+
+A page carrying almost no text of its own is read off its render with
+`tesseract` when it is installed; `--no-ocr` turns that off. It costs about a
+second and a half a page and only runs on pages under 200 characters.
 
 `check` reads the `Pm.*` facts the capture put on its parts (the
 placemat-design skill says which) and reports hot loop area, switch node

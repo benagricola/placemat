@@ -239,6 +239,10 @@ coordinates nobody chose.
   `placemat datasheet <pdf>` to see which page carries the land pattern, the
   package dimensions, the layout rules or the pin map, then `--show` that page.
   Deciding for yourself how to get at a datasheet is the habit this replaces.
+  `--read` lists what could be sourced and where from, and `placemat datasheet
+  check <pdf> <part>.kicad_mod --pitch ... --pad WxH --pads N` checks a
+  footprint against it. A number placemat prints carries its provenance; a
+  number it could not source is absent rather than guessed.
 - Say what is a mechanical fact (a point: `fixed`) and what is a distance
   along an edge (`edge`); leave the rest searched with a bare `place(item)`. The placer orders searched items
   itself - a cell, a block and a loose part in one queue, by rank, so a
