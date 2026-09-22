@@ -503,3 +503,17 @@ def test_a_free_region_may_sit_over_a_part_that_is_already_placed():
               allow=(Part("u1"),), why="its own matching network lives here")
     plan = b.resolve()
     assert "over_it" in plan.keepouts, plan.findings
+
+
+def test_committing_a_cell_again_replaces_its_regions_rather_than_piling_them_up():
+    """`commit` replaces an item's shapes and filters its copper by owner, so
+    it must replace its regions too. Appending would leave the region at the
+    cell's OLD position fencing parts that are nowhere near it."""
+    poly = ((8.0, 8.0), (14.0, 8.0), (14.0, 14.0), (8.0, 14.0))
+    g = _with_rule_area("ant_rf", poly)
+    occ = Occupancy(g, edge_margin=0.0)
+    for x in (20.0, 30.0, 40.0):
+        occ.commit(g.cell("ant_rf"), Placement(Location(x, 20.0), 0.0, Face.FRONT))
+    assert len(occ.reservations) == 1
+    # and it is at the LAST place the cell went, not the first
+    assert occ.reservations[0].box.center.x > 30.0

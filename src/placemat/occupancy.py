@@ -54,6 +54,7 @@ class Reservation:
     allow: frozenset[str]
     layer: CopperLayer | None       # None: both faces, any layer
     owners: frozenset[str] = frozenset()
+    source: str = ""                # what put it here, so a re-commit can replace its own
 
     @property
     def box(self) -> Box:
@@ -135,6 +136,10 @@ class Occupancy:
         # its module's with it. One that belongs to the board is reserved now;
         # one a cell owns has no position until that cell lands, so it waits
         # for commit(), exactly as the cell's own courtyard does.
+        # A cell's are held at their CURRENT position and moved by each commit's
+        # own transform, the way a footprint's shapes are: the transform maps
+        # from where the item is now, not from where the generator left it, so
+        # re-transforming the original polygon would compound.
         self._cell_rule_areas: dict = {}
         for ra in geometry.rule_areas:
             if "parts" not in ra.excludes:
@@ -142,7 +147,7 @@ class Occupancy:
             if ra.cell is None:
                 self.reserve(ra.polygon, "rule area %r on the generated board" % ra.name)
             else:
-                self._cell_rule_areas.setdefault(ra.cell, []).append(ra)
+                self._cell_rule_areas.setdefault(ra.cell, []).append([ra, tuple(ra.polygon)])
 
     # ------------------------------------------------------------ geometry of a candidate
     def _register(self, fp: Footprint) -> ItemGeometry:
@@ -275,11 +280,14 @@ class Occupancy:
         return owner
 
     # ------------------------------------------------------------ mutation
-    def reserve(self, region, why: str, allow=(), layer: CopperLayer | None = None, owners=()):
-        """Keep a region clear. `region` is a Box or a polygon."""
+    def reserve(self, region, why: str, allow=(), layer: CopperLayer | None = None, owners=(),
+                source: str = ""):
+        """Keep a region clear. `region` is a Box or a polygon. `source` names
+        what put it there, so committing that thing again replaces its own
+        regions instead of leaving the old ones behind."""
         poly = box_polygon(region) if isinstance(region, Box) else tuple(tuple(p) for p in region)
         self.reservations.append(Reservation(poly, why, frozenset(str(n) for n in allow),
-                                             layer, frozenset(str(o) for o in owners)))
+                                             layer, frozenset(str(o) for o in owners), source))
 
     def commit(self, item, placement: Placement):
         """Record that `item` now sits at `placement`; later checks see it there."""
@@ -303,9 +311,13 @@ class Occupancy:
                                 if placement.face != geom.reference.face else m.reference.face)
             self.items[fp.ref] = ItemGeometry(m.owners, new_ref, tuple(by_owner.get(fp.ref, ())),
                                               transform_box(m.body, t), m.nets, transform_box(m.reach or m.body, t))
-        for ra in self._cell_rule_areas.get(item.name, ()):
-            self.reserve(tuple(t.apply((x, y)) for x, y in ra.polygon),
-                         "rule area %r from the %s cell" % (ra.name, ra.cell))
+        tag = "cell:%s" % item.name
+        self.reservations = [r for r in self.reservations if r.source != tag]
+        for pair in self._cell_rule_areas.get(item.name, ()):
+            ra, poly = pair
+            poly = tuple(t.apply(p) for p in poly)
+            pair[1] = poly
+            self.reserve(poly, "rule area %r from the %s cell" % (ra.name, ra.cell), source=tag)
         own = by_owner.get(item.name, [])
         self.copper = [c for c in self.copper if c.owner != item.name] + own
 
