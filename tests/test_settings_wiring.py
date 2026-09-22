@@ -130,3 +130,28 @@ def test_the_label_size_and_thickness_come_from_the_settings():
     b.label(Part("u1"), "MCU")
     (t,) = [op for op in b.resolve().copper if isinstance(op, Text)]
     assert t.size == 2.5 and t.thickness == 0.4
+
+
+def test_the_arc_sag_bound_for_a_run_decides_how_finely_an_arc_flattens():
+    from placemat import settings as S
+    from placemat.cutouts import Arc, flatten_arc
+    arc = Arc(to=(10.0, 0.0), via=(5.0, 5.0))
+    with S.bind(Settings(geometry_arc_sag=0.5)):
+        coarse = flatten_arc((0.0, 0.0), arc)
+    with S.bind(Settings(geometry_arc_sag=0.001)):
+        fine = flatten_arc((0.0, 0.0), arc)
+    assert len(fine) > len(coarse)
+
+
+def test_nothing_bound_flattens_at_the_default():
+    from placemat.cutouts import Arc, flatten_arc
+    arc = Arc(to=(10.0, 0.0), via=(5.0, 5.0))
+    assert flatten_arc((0.0, 0.0), arc) == flatten_arc((0.0, 0.0), arc, sag=0.02)
+
+
+def test_an_explicit_sag_still_beats_the_binding():
+    from placemat import settings as S
+    from placemat.cutouts import Arc, flatten_arc
+    arc = Arc(to=(10.0, 0.0), via=(5.0, 5.0))
+    with S.bind(Settings(geometry_arc_sag=0.5)):
+        assert len(flatten_arc((0.0, 0.0), arc, sag=0.001)) > len(flatten_arc((0.0, 0.0), arc))

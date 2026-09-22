@@ -18,8 +18,8 @@ from dataclasses import dataclass
 import math
 
 NM = 1e-5           # ten KiCad units: the placement grid's own rounding, not an allowance
-SAG = 0.02          # how far a flattened arc may cut the corner off the real one
-CELLS = 16          # buckets across the longer side: a handful of segments each
+SAG = 0.02          # how far a flattened arc may cut the corner off the real one; [geometry] arc_sag
+CELLS = 16          # buckets across the longer side: a handful of segments each; [geometry] index_cells
 
 
 @dataclass(frozen=True)
@@ -53,9 +53,12 @@ def circle_through(a: tuple, b: tuple, c: tuple):
     return (ux, uy), math.hypot(ax - ux, ay - uy)
 
 
-def flatten_arc(start: tuple, arc: Arc, sag: float = SAG) -> list:
+def flatten_arc(start: tuple, arc: Arc, sag: float | None = None) -> list:
     """The arc as a polyline, ending at its own end point: enough segments
     that none cuts more than `sag` off the true curve."""
+    if sag is None:
+        from .settings import active
+        sag = active().geometry_arc_sag
     end, via = point(arc.to), point(arc.via)
     found = circle_through(start, via, end)
     if found is None:
@@ -330,7 +333,8 @@ class Where:
         ys = [p[1] for loop in loops for p in loop]
         self.x0, self.y0 = min(xs), min(ys)
         w, h = max(xs) - self.x0, max(ys) - self.y0
-        self.side = max(max(w, h) / CELLS, 1e-6)
+        from .settings import active
+        self.side = max(max(w, h) / active().geometry_index_cells, 1e-6)
         self.nx = int(w / self.side) + 1
         self.ny = int(h / self.side) + 1
         self.y1 = self.y0 + self.ny * self.side

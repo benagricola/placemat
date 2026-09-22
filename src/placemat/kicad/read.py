@@ -16,7 +16,7 @@ pcbnew = import_pcbnew()
 from ..board_geometry import CellGeom, CopperItem, Footprint, NetClass, PadGeom, BoardGeometry
 from ..values import Box, CopperLayer, Face, Location
 
-CLEAR_ERR_NM = 5000     # arc approximation error for TransformShapeToPolySet
+CLEAR_ERR_NM = 5000     # arc approximation error for TransformShapeToPolySet; [geometry] arc_error_nm
 # Layer IDs, not names: KiCad 10 reports "F.Silkscreen"/"F.Courtyard" where
 # older versions said "F.SilkS"/"F.CrtYd".
 _PHYS_LAYERS = {pcbnew.F_Cu, pcbnew.B_Cu, pcbnew.F_SilkS, pcbnew.B_SilkS, pcbnew.F_Fab, pcbnew.B_Fab,
@@ -117,7 +117,7 @@ def body_box(fp, excess_mm: float) -> Box:
     return Box.union([ct, _pads_box(fp)])
 
 
-def _pads(board, fp) -> tuple[PadGeom, ...]:
+def _pads(board, fp, err_nm: int = CLEAR_ERR_NM) -> tuple[PadGeom, ...]:
     ref, inst = fp.GetReference(), inst_of(fp)
     pads = []
     for pad in fp.Pads():
@@ -127,7 +127,7 @@ def _pads(board, fp) -> tuple[PadGeom, ...]:
         cu = [l for l in pad.GetLayerSet().CuStack()]
         if not cu:
             continue
-        outs = outlines_of(pad, cu[0])
+        outs = outlines_of(pad, cu[0], err_nm)
         if not outs:
             continue
         drill = pad.GetDrillSize()
@@ -148,25 +148,25 @@ def _npth(fp):
     return tuple(out)
 
 
-def _footprint(board, fp, excess_mm, cell) -> Footprint:
+def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footprint:
     pos = fp.GetPosition()
     return Footprint(ref=fp.GetReference(), inst=inst_of(fp), cell=cell, value=fp.GetValue(),
                      location=Location(mm(pos.x), mm(pos.y)),
                      rotation=fp.GetOrientationDegrees(),
                      face=Face.BACK if fp.IsFlipped() else Face.FRONT,
                      body_box=body_box(fp, excess_mm), courtyard_box=courtyard_box(fp),
-                     phys_box=phys_box(fp), pads=_pads(board, fp), npth=_npth(fp),
+                     phys_box=phys_box(fp), pads=_pads(board, fp, err_nm), npth=_npth(fp),
                      fields={f.GetName(): f.GetText() for f in fp.GetFields()})
 
 
-def _copper(board, groups_of) -> tuple[CopperItem, ...]:
+def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, ...]:
     items = []
 
     def add(kind, obj, net, owner=None, width=0.0):
         cu = [l for l in obj.GetLayerSet().CuStack()]
         if not cu:
             return
-        outs = outlines_of(obj, cu[0])
+        outs = outlines_of(obj, cu[0], err_nm)
         if not outs:
             return
         items.append(CopperItem(kind, net, _copper_layers(board, obj.GetLayerSet()), outs,
@@ -225,17 +225,21 @@ def _netclasses(board) -> tuple[dict[str, NetClass], float]:
     return classes, default
 
 
-def read_board(path, courtyard_excess_mm: float = 0.10) -> BoardGeometry:
+def read_board(path, courtyard_excess_mm: float = 0.10, arc_error_nm: int | None = None) -> BoardGeometry:
+    if arc_error_nm is None:
+        from ..settings import active
+        arc_error_nm = active().geometry_arc_error_nm
     path = str(Path(path))
     with quiet_stderr():
         board = pcbnew.LoadBoard(path)
-    return board_geometry_of(board, path, courtyard_excess_mm)
+    return board_geometry_of(board, path, courtyard_excess_mm, arc_error_nm)
 
 
 FACES_PREFIX = "placemat faces "     # a User.Comments text a module fragment carries: `placemat faces outward=N quiet=S handoff=E`
 
 
-def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10) -> BoardGeometry:
+def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
+                      arc_error_nm: int = CLEAR_ERR_NM) -> BoardGeometry:
     """Build a BoardGeometry from an already-loaded pcbnew BOARD."""
     member_cell = {}
     groups_of = {}
@@ -247,10 +251,10 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10) -> Bo
             groups_of[_kiid(it)] = name
             if isinstance(it, pcbnew.FOOTPRINT):
                 member_cell[it.GetReference()] = name
-    fps = tuple(_footprint(board, fp, courtyard_excess_mm, member_cell.get(fp.GetReference()))
+    fps = tuple(_footprint(board, fp, courtyard_excess_mm, member_cell.get(fp.GetReference()), arc_error_nm)
                 for fp in board.GetFootprints())
     by_ref = {fp.ref: fp for fp in fps}
-    copper = _copper(board, groups_of)
+    copper = _copper(board, groups_of, arc_error_nm)
     cells = {}
     for name, items in group_items.items():
         members = tuple(by_ref[it.GetReference()] for it in items if isinstance(it, pcbnew.FOOTPRINT))
