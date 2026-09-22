@@ -224,11 +224,36 @@ class Settings:
 merges nearest-wins, applies CLI overrides last, and records per key where the
 winning value came from.
 
-`Settings` is threaded, not global: `runner` builds it, `Board.__init__` takes
-it, and `Occupancy`, `placer` and `copper` receive the values they need as
-arguments. placemat's rule that everything outside `kicad/` is pure Python and
-unit-testable without KiCad holds, and a test can construct a `Settings` without
-a file.
+`Settings` reaches the code two ways, and which one a site uses is decided by
+whether it can hold the object.
+
+**Carried, wherever an object exists to carry it.** `runner` builds the
+`Settings`; `Board.__init__` takes it and keeps it; `Occupancy` takes it from
+the Board and keeps it, so `placer.scan(occ, ...)` reads `occ.settings` with no
+new parameter. Everything on the placement hot path works this way, so no
+setting is looked up per candidate.
+
+**Bound for the duration of a run, for the deep geometry helpers.**
+`cutouts.flatten_arc`, `cutouts.SpatialIndex`, `kicad/read.outlines_of` and
+`kicad/quiet._is_noise` are reached through frozen value objects - `Disc` builds
+a `Cutouts` in its `__post_init__` - so threading a parameter to them means
+changing about ten construction sites and putting a settings argument on the
+script-facing shapes. Instead they read `settings.active()`, bound by a
+contextmanager exactly as `context.bind` binds the Board:
+
+```python
+with settings.bind(resolved):
+    ...                       # the whole run
+```
+
+`settings.active()` returns `Settings()` when nothing is bound, so importing
+placemat and calling a geometry helper works with no ceremony, and a test binds
+what it wants. This is the same scoped-binding idiom the package already uses
+for `board`, not a mutable module global.
+
+Either way a test can construct a `Settings` directly, and placemat's rule that
+everything outside `kicad/` is pure Python and unit-testable without KiCad
+holds.
 
 **Signature defaults become `None`.** A verb whose default now comes from
 settings takes `None` and resolves at plan time:
