@@ -343,3 +343,49 @@ def test_a_via_is_caught_by_a_region_on_any_single_layer():
               why="the clearance on B")
     b.via(Net("GND"), Location(20.0, 20.0))
     assert any("antenna" in f and "via" in f for f in b.resolve().findings)
+
+
+def test_a_region_partly_off_the_board_is_still_enforced():
+    """The fairing case: a fence whose outer boundary IS the board outline,
+    sampled into chords, and a chord across an arc bulges past the true curve.
+    The region must still fence the parts it was written to fence."""
+    b = make_board("u1", keep_going=True)
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(10.0), "seal", at=Location(38.0, 20.0), why="the gland")
+    plan = b.resolve()
+    assert "seal" in plan.keepouts
+    assert any("seal" in r.why for r in plan.occupancy.reservations)
+
+
+def test_that_region_s_step_counts_the_points_that_fell_outside():
+    b = make_board("u1", keep_going=True)
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(10.0), "seal", at=Location(38.0, 20.0), why="the gland")
+    note = b.resolve().step("keepout seal").note
+    assert "off the board" in note and "of its" in note
+
+
+def test_a_region_wholly_inside_says_nothing_about_the_board_edge():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(4.0), "mid", at=Location(20.0, 20.0), why="the middle")
+    assert "off the board" not in b.resolve().step("keepout mid").note
+
+
+def test_a_region_wholly_off_the_board_raises():
+    b = make_board("u1", keep_going=True)
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(4.0), "nowhere", at=Location(200.0, 200.0), why="forbids nothing")
+    with pytest.raises(ValueError) as e:
+        b.resolve()
+    assert "nowhere" in str(e.value) and "off the board" in str(e.value)
+
+
+def test_a_wholly_off_board_region_raises_even_with_keep_going():
+    """A script error, of the same class as two keepouts sharing one name.
+    --keep-going carries on past board conditions, not past those."""
+    b = make_board("u1", keep_going=True)
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(4.0), "nowhere", at=Location(200.0, 200.0), why="forbids nothing")
+    with pytest.raises(ValueError):
+        b.resolve()

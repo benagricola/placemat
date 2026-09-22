@@ -769,14 +769,21 @@ class Board:
                 nearest = why
         raise ValueError("has nowhere legal to go: %s" % (nearest or "nowhere on the board"))
 
-    def _keepout_illegal(self, occ, path) -> str | None:
-        """A region may sit anywhere on the board. It may not reach off it: a
-        keepout over nothing forbids nothing, and is a script error."""
+    def _points_off_board(self, path) -> tuple:
+        """(points outside the board, points in all) for a region's boundary.
+
+        A region is used exactly as declared: the part hanging off the board
+        can refuse nothing, because `Occupancy.legal` rejects a part for
+        crossing the keep-in before it ever tests a reservation, and KiCad
+        clips a zone to Edge.Cuts itself. The count is reported so a region
+        that is mostly off the board is visible; a point count, not an area,
+        because a region whose boundary IS the outline has the board's own
+        area and any area measure reads zero."""
         shape = self._shaped()
-        for x, y in Cutouts([path]).loops[0]:
-            if shape.why_not(Box(x, y, x, y), 0.0) == "outside the board":
-                return "reaches outside the board"
-        return None
+        loop = Cutouts([path]).loops[0]
+        outside = sum(1 for x, y in loop
+                      if shape.why_not(Box(x, y, x, y), 0.0) == "outside the board")
+        return outside, len(loop)
 
     def _implied_rotation(self, cutout, centre: Location) -> float:
         """Which way a shape runs when the script did not say. A place that
@@ -1834,21 +1841,27 @@ class Board:
             k = intent.keepout
             if self._cutout_free(k):
                 try:
-                    centre, turn = self._slide_cutout(
-                        occ, k, illegal=lambda path: self._keepout_illegal(occ, path))
+                    centre, turn = self._slide_cutout(occ, k)
                     why = None
                 except ValueError as e:
                     centre, turn, why = self.centre, 0.0, str(e)
             else:
                 centre = self._cutout_centre(occ, k)
                 turn = float(k.rotation) if k.rotation is not None else self._implied_rotation(k, centre)
-                why = self._keepout_illegal(occ, k.shape.path_at(centre, turn))
+                why = None
             step = Step(intent.key, "keepout", None, why=intent.why)
             if why:
                 plan.findings.append("%s (keepout): %s" % (k.name, why))
                 step.note = why
             else:
-                poly = Cutouts([k.shape.path_at(centre, turn)]).loops[0]
+                path = k.shape.path_at(centre, turn)
+                outside, total = self._points_off_board(path)
+                if outside == total:
+                    raise ValueError(
+                        "keepout %r is wholly off the board, so it forbids nothing: all %d of its "
+                        "points are outside the outline. Move it, or remove the declaration."
+                        % (k.name, total))
+                poly = Cutouts([path]).loops[0]
                 nets = frozenset(self.geometry.require_net(a) for a in k.allow if isinstance(a, Net))
                 owners = frozenset(self._pad_ref(a)[0] for a in k.allow if isinstance(a, (Part, Cell)))
                 if "parts" in k.excludes:
@@ -1856,6 +1869,8 @@ class Board:
                 plan.keepouts[k.name] = PlacedKeepout(k.name, poly, centre, turn, k.excludes,
                                                       k.layers, nets, owners, k.why)
                 step.note = "kept clear at %.2f, %.2f" % (centre.x, centre.y)
+                if outside:
+                    step.note += "; %d of its %d points are off the board" % (outside, total)
             plan.steps.append(step)
             placed.add(cutout_token(k.name))
 
