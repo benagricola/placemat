@@ -82,3 +82,39 @@ def test_the_search_keeps_the_best_scoring_legal_candidate_not_the_first():
     c1_vin = plan.occupancy.pad_location("C1", "1")
     u1_vin = plan.occupancy.pad_location("U1", "1")
     assert c1_vin.distance(u1_vin) < 5.0                # it climbed toward the pin, not stayed at the hint
+
+
+def _plane_board():
+    """U1 and C1 share only V3V3, which the script also declares as a plane."""
+    fps = [footprint("U1", 10, 10, w=6, h=2, inst="u1", nets=("V3V3", "SDA")),
+           footprint("C1", 50, 50, inst="c1", nets=("V3V3", "GND")),
+           footprint("R1", 50, 40, inst="r1", nets=("SDA", "GND"))]
+    return Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+
+
+def test_a_declared_link_pulls_even_when_its_net_is_a_plane():
+    """A bypass capacitor shares nothing with its IC but the rail, and a
+    script that says so with `board.link` was getting a measured finding and
+    no behaviour: the link reported 54 mm over its 2 mm limit while
+    contributing nothing to where the part went."""
+    b = _plane_board()
+    b.plane(Net("V3V3"), [CopperLayer.B])
+    b.place(Part("u1"), at=Location(20, 30))
+    b.link(PadRef(Part("c1"), "V3V3"), PadRef(Part("u1"), "V3V3"),
+           weight=LinkWeight.SHORT, limit_mm=2.0)
+    b.place(Part("c1"))
+    plan = b.resolve()
+    u1_v3v3 = plan.occupancy.pad_location("U1", "1")
+    assert plan.box("c1").center.distance(u1_v3v3) < 5.0
+    assert "seeded" in plan.step("c1").note
+
+
+def test_a_planes_automatic_connections_still_do_not_pull():
+    """The reason planes are excluded holds for everything nobody declared: a
+    net with two hundred pads gives a centroid that means nothing."""
+    b = _plane_board()
+    b.plane(Net("V3V3"), [CopperLayer.B])
+    b.place(Part("u1"), at=Location(20, 30))
+    b.place(Part("c1"))                      # no link declared
+    plan = b.resolve()
+    assert "nothing it connects to is placed" in plan.step("c1").note

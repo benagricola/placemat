@@ -4,6 +4,24 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.14
+
+**A `board.link` on a plane net now pulls, so parts move.** It always measured
+the distance and reported it against `limit_mm`; it just never contributed to
+where the part went. A limit that is measured and reported reads as a
+constraint in force and losing to something, not as one that never ran.
+
+Planes stay excluded from seeding for everything nobody declared - a net with
+two hundred pads gives a centroid that means nothing - but a declared link
+names two specific pads, so that reason does not apply to it. This is what a
+bypass capacitor on a plane-served rail needs: it shares nothing with its IC
+but the rail.
+
+If a script worked around this with `at=Near(Part(<the IC>))`, the workaround
+still wins - an explicit hint beats a seed - so nothing breaks, but the `Near`
+is now redundant and can come out. Re-run and expect the parts that were
+reported over their limits to have moved toward the pins they serve.
+
 ## To 0.13
 
 Nothing to change. `placemat datasheet` gains `--read`, which lists the facts a

@@ -1500,27 +1500,46 @@ class Board:
     def _plane_nets(self) -> set:
         return {c.net for c in self._copper if c.key.split(" ")[0] in ("pour", "plane", "finger")}
 
-    def _link_weight(self, pad_a: tuple, pad_b: tuple) -> int:
+    def _declared_link(self, pad_a: tuple, pad_b: tuple):
+        """The link the script declared between these two pads, or None. A
+        weight of DEFAULT is what an undeclared connection is worth, so the
+        weight alone cannot say whether anybody asked for one."""
         for l in self._links:
             if {l.a, l.b} == {pad_a, pad_b}:
-                return l.weight
-        return int(LinkWeight.DEFAULT)
+                return l
+        return None
+
+    def _link_weight(self, pad_a: tuple, pad_b: tuple) -> int:
+        link = self._declared_link(pad_a, pad_b)
+        return link.weight if link is not None else int(LinkWeight.DEFAULT)
 
     def _targets(self, item, occ: Occupancy, placed: set) -> list:
         """(own pad key, target location, weight) for every connection from
-        this item's pads to a pad already placed, on a net that pulls."""
+        this item's pads to a pad already placed, on a net that pulls.
+
+        A plane's or a free net's connections do not pull: a net with two
+        hundred pads gives a centroid that means nothing. A link the script
+        DECLARED on such a net does pull, because it names two specific pads
+        and the reason for the exclusion does not apply to it. A bypass
+        capacitor shares nothing with its IC but the rail, so `board.link` is
+        the only way to say they belong together - and it used to measure the
+        distance, report it over its limit, and change nothing."""
         quiet = self._plane_nets() | self._free_nets
         fps = item.members if isinstance(item, CellGeom) else (item,)
         own_refs = {fp.ref for fp in fps}
         out = []
         for fp in fps:
             for p in fp.pads:
-                if not p.net or p.net in quiet:
+                if not p.net:
                     continue
+                silent = p.net in quiet
                 for other in self.geometry.pads_on_net(p.net):
                     if other.owner in own_refs or other.owner not in placed:
                         continue
-                    w = self._link_weight((fp.ref, p.number), (other.owner, other.number))
+                    link = self._declared_link((fp.ref, p.number), (other.owner, other.number))
+                    if silent and link is None:
+                        continue
+                    w = link.weight if link is not None else int(LinkWeight.DEFAULT)
                     if w <= 0:
                         continue
                     out.append(((fp.ref, p.number), occ.pad_location(other.owner, other.number), w))
