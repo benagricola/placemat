@@ -83,6 +83,20 @@ class CellGeom:
 
 
 @dataclass(frozen=True)
+class RuleArea:
+    """A KiCad rule area already on the generated board: the module fragments
+    that were stamped bring theirs with them, inside the cell's group.
+
+    placemat did not write these and must not destroy them. `cell` is the
+    group that owns it, or None for one that belongs to the board itself."""
+    name: str                            # the zone name, e.g. "keepout antenna_1"
+    cell: str | None
+    polygon: Polygon                     # in the generated board's coordinates
+    layers: frozenset[CopperLayer]
+    excludes: frozenset[str]             # parts | fill | tracks | vias | pads
+
+
+@dataclass(frozen=True)
 class CopperItem:
     kind: str                   # pad | track | via | poly | zone
     net: str
@@ -116,8 +130,12 @@ class BoardGeometry:
     default_clearance: float
     layers: tuple[CopperLayer, ...]
     edge_clearance: float = 0.0           # copper to the board edge, from the board's rules: the keep-in
+    rule_areas: tuple = ()                # what the board already forbids: a stamped cell's come with it
     _by_ref: dict = field(default_factory=dict, repr=False, compare=False)
     _by_inst: dict = field(default_factory=dict, repr=False, compare=False)
+
+    def rule_area_names(self) -> frozenset:
+        return frozenset(r.name for r in self.rule_areas)
 
     def __post_init__(self):
         for fp in self.footprints:

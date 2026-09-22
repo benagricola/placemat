@@ -887,6 +887,13 @@ class Board:
         those parts' nets would admit every part that shares one."""
         if name in self._keepouts:
             raise ValueError("there is already a keepout named %r on this board" % name)
+        clash = [r for r in self.geometry.rule_areas if r.name == "keepout %s" % name]
+        if clash:
+            raise ValueError(
+                "the generated board already carries a rule area called %r%s, so a keepout named "
+                "%r would leave two regions and no way to say which one won; pick another name"
+                % (clash[0].name, (" from the %s cell" % clash[0].cell) if clash[0].cell else "",
+                   name))
         k = Keepout(shape, name, at, rotation,
                     tuple(excludes) if excludes is not None
                     else ("parts", "fill", "tracks", "vias", "pads"),

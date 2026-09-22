@@ -1,5 +1,7 @@
 """A region that forbids: what may not sit in it, fill it, route through it
 or via it, and how a script says so."""
+import dataclasses
+
 import pytest
 
 from placemat.cutouts import Circle, Cutouts, Path, Slot
@@ -389,3 +391,30 @@ def test_a_wholly_off_board_region_raises_even_with_keep_going():
     b.keepout(Circle(4.0), "nowhere", at=Location(200.0, 200.0), why="forbids nothing")
     with pytest.raises(ValueError):
         b.resolve()
+
+
+def test_a_keepout_may_not_take_a_name_a_rule_area_on_the_board_already_has():
+    """A stamped cell brings its module's regions with it. A script that
+    reuses one of their names would leave two regions and no way to say
+    which won."""
+    from placemat.board_geometry import RuleArea
+    g = board_geometry([footprint("U1", 10, 10, inst="u1", nets=("A", "B"))], width=40, height=40)
+    g = dataclasses.replace(g, rule_areas=(
+        RuleArea("keepout antenna_1", "ant_rf", ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0)),
+                 frozenset([CopperLayer.F]), frozenset(["parts"])),))
+    b = Board(g, edge_margin=1.0)
+    b.size(width=40.0, height=40.0)
+    with pytest.raises(ValueError) as e:
+        b.keepout(Circle(4.0), "antenna_1", at=Location(20, 20), why="clashes")
+    assert "antenna_1" in str(e.value) and "ant_rf" in str(e.value)
+
+
+def test_an_unrelated_name_is_fine():
+    from placemat.board_geometry import RuleArea
+    g = board_geometry([footprint("U1", 10, 10, inst="u1", nets=("A", "B"))], width=40, height=40)
+    g = dataclasses.replace(g, rule_areas=(
+        RuleArea("keepout antenna_1", "ant_rf", ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0)),
+                 frozenset([CopperLayer.F]), frozenset(["parts"])),))
+    b = Board(g, edge_margin=1.0)
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(4.0), "my_own", at=Location(20, 20), why="fine")     # no raise
