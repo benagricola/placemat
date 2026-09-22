@@ -44,7 +44,8 @@ place says how much freedom is left.
 
 ```python
 board.place(item)                                                       # searched: SEEDED from its links (two freedoms)
-board.place(item, priority=Priority.HIGH)                               # critical: first in its tier; no place stops the run
+board.place(item, priority=Priority.HIGH)                               # searched, but before the rest: a tier above the rank
+board.place(item, required=True)                                        # no place for it stops the run
 board.place(item, at=OnEdge(Edge.NORTH))                                # on that edge, wherever there is room (one freedom)
 board.place(item, at=Centre(X(Mid(pad_a, pad_b)), None))                # x pinned to a reference, y free (one freedom)
 board.place(item, at=OnEdge(Edge.WEST, along=Along.MID), rotation=180)  # EDGE: on that edge at that distance (no freedom)
@@ -74,17 +75,34 @@ keep-in, and `along` the edge a number in mm, a reference, `Along.START`,
 every edge. `OnEdge(edge)` fixes one: it slides along the edge, midpoint
 alone, the k-th of n at (k+1)/(n+1) with its fellows. `Near(location)` and
 nothing fix none. Everything with a freedom left is searched, so it goes
-down with the searched items in priority order after the critical ones,
-and an edge item's rotation defaults to the cell's declared outward side
-(see Faces). Test points, LEDs, buttons and a connector whose exact spot
-does not matter are `OnEdge(edge)`, never `along=`. Unless the script says,
-a searched item's priority is worked out: how much of the largest item's
-area it needs, its connections to other declared items, its part count;
-HIGH also needs a real share of the board. Every step prints `priority
-high (auto: ...)` or `(script; would be ...)`. A place that leaves no
-freedom needs no priority and refuses one: `at=Location(...)` or `along=`
-goes down before anything searched already, so `priority=` on it has
-nothing to order.
+down with the searched items in rank order, and an edge item's rotation
+defaults to the cell's declared outward side (see Faces). Test points,
+LEDs, buttons and a connector whose exact spot does not matter are
+`OnEdge(edge)`, never `along=`. Whether a position is decided is
+`Freedom` - `fixed` for a point, `edge` for a distance along an edge,
+`searched` for anything with a freedom left - and it is DERIVED from
+`at=`, never given.
+
+**The rank.** Unless the script says, a searched item's place in the queue
+is worked out from what it IS: how much board its courtyard needs and how
+many pins it has, both against the rest of this board's searched items,
+weighted by `[rank] area` and `[rank] pins`. Big and complex things go
+down first and the small ones are fitted round them. Every step prints
+`rank 4/64 (31.5 mm2, 12th of 64; 2 pins, 41st)`, so the numbers behind
+the choice are in the log; no threshold is quoted because there is none.
+`priority=Priority.HIGH` or `LOW` is a tier ABOVE the rank, for when the
+rank is wrong, and the step then reads `(script: high)`. Items the rank
+cannot separate - a shelf of identical passives - fall through to the
+strongest link pull toward what is already placed. A place that leaves no
+freedom refuses a priority: `at=Location(...)` or `along=` goes down
+before anything searched already, so `priority=` on it has nothing to
+order.
+
+**`required=True`** says that failing to place this item stops the run,
+with the board as it stood and the biggest free rectangles on its face. It
+is independent of the rank and of whether the position is decided, and a
+required item is not negotiable even under `--keep-going`. Nothing else
+stops a run by itself.
 
 **The default is a bare `place()`.** A part with a wired neighbour already
 on the board needs no position: price the connection and leave it to seed.
@@ -531,9 +549,13 @@ board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False)     # filled p
 board.plane(net, layers=(CopperLayer.IN1,), outline=None, inset=0.4)  # zone(s), whole board or outline
 board.finger(net, layer=, from_=point, to=point, width=)               # pour along a centreline, cut and bridged at tracks
 ```
-All take `priority=`. `Priority.FIXED` copper is planned before everything searched
-parts and becomes an obstacle to them, and may not reference a searched
-part. `HIGH`, `DEFAULT` and `LOW` only decide who bridges at a crossing.
+All take `priority=`, which decides only who passes under where two tracks
+of different nets cross. WHEN a piece of copper is planned is derived, not
+declared: copper whose every endpoint belongs to something nothing will move
+- a fixed or edge part, or plain coordinates - is planned before the search
+and becomes an obstacle to it, so `board.via(net, Location(x, y))` reserves
+its spot with nothing to remember. Copper naming a searched part is planned
+after the search, once its shape is known.
 
 **Pairs.** Two nets drawn together at a gap along one centreline, the way
 KiCad's differential tool does:

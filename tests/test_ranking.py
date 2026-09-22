@@ -86,3 +86,12 @@ def test_a_footprint_with_no_numbered_pads_still_counts_as_one():
     """log(0) is not a number; a pinless part is the least complex thing there
     is, not an error."""
     assert pin_count(_with_pads("MH1", "mh1", [])) == 1
+
+
+def test_the_api_reference_documents_the_rank_and_required():
+    from pathlib import Path
+    doc = Path("skills/placemat/references/api.md").read_text()
+    for phrase in ("required=", "rank", "Freedom"):
+        assert phrase in doc, phrase
+    assert "HIGH also needs a real share of the board" not in doc
+    assert "`Priority.FIXED` copper is planned" not in doc

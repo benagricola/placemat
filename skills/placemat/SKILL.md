@@ -128,22 +128,25 @@ coordinates nobody chose.
   three drops are three lines, not a loop; two ends are two blocks, not a
   table of dicts. A short function called once per thing is fine when its
   name says what it lays out. No globals, no helpers defined inside a phase.
-- Priority, not order: file order never decides execution. Say how firm a
-  thing is (`at=Location`/`Centre` are FIXED, `OnEdge` with `along` is EDGE, the rest is searched;
-  `priority=Priority.FIXED` on copper that nothing may cut into; `HIGH`,
-  `DEFAULT`, `LOW` on tracks to say who passes under whom). The runner
-  schedules: setup, FIXED, EDGE, FIXED copper, everything searched, copper.
-  `priority=` is for a searched item only: a decided position already goes
-  down before anything searched, so the two together are refused.
-- Priority is worked out for you: the tool weighs each searched item by
-  the board it needs, its connections and its part count, prints the
-  priority and the reason on every step, and stops the run when a HIGH
-  item finds no place. Read the printed priority before overriding it;
-  `priority=Priority.HIGH` is for a critical item the weighing missed,
-  never a list of part names. A HIGH item goes down first in its tier, and one
-  that finds no place stops the run with the free rectangles on its face
-  and the board written as it stood, so what was free at that moment is
-  what you look at; nothing else is placed into that space first. Firm
+- Freedom, not order: file order never decides execution. How much a
+  declaration left to find is DERIVED from the place you gave it
+  (`at=Location`/`Centre` is `fixed`, `OnEdge` with `along` is `edge`, the
+  rest is `searched`), and copper is the same question one step on: a track
+  whose every endpoint is decided is planned before the search and becomes
+  an obstacle to it, without a keyword. The runner schedules: setup, fixed,
+  edge, decided copper, everything searched, the rest of the copper.
+- The rank is worked out for you: each searched item is scored on the
+  courtyard area it needs and its pin count, both against the rest of this
+  board, so the big and complex things go down first and the small ones are
+  fitted round them. Every step prints `rank 4/64 (31.5 mm2, 12th of 64;
+  2 pins, 41st)`. Read that before overriding it. `priority=Priority.HIGH`
+  or `LOW` is a tier above the rank, for when the rank is demonstrably
+  wrong, with the reason beside it - never a list of part names.
+- `required=True` is the only thing that stops a run for a placement. Use
+  it on an item that genuinely has nowhere else to go: it fails with the
+  free rectangles on its face and the board written as it stood, so what
+  was free at that moment is what you look at, and nothing else is placed
+  into that space first. It holds even under `--keep-going`. Firm
   only what is mechanical. Furniture (test points, LEDs, buttons) is
   `OnEdge(edge)` alone: one degree of freedom, it slides along its edge to the
   room that is left, so it cannot take an edge before the critical cells
@@ -208,13 +211,12 @@ coordinates nobody chose.
 
 - Say what is FIXED (a mechanical fact) and what is EDGE; leave the rest
   searched with a bare `place(item)`. The placer orders searched items
-  itself - a cell, a block and a loose part in one queue, by what each
-  needs and what pulls it, so a connector that dominates the board goes
-  before the cells rather than after them - seeds each from the placed pads
-  it is wired to, and says why in each step. Do not hand-order them with
-  hints, and do not reach for `priority=` to fix an order: read the printed
-  reason first, because it is worked out from the item's own area, its
-  connections and the parts it holds.
+  itself - a cell, a block and a loose part in one queue, by rank, so a
+  connector that dominates the board goes before the cells rather than after
+  them - seeds each from the placed pads it is wired to, and says why in
+  each step. Link pull breaks a tie the rank cannot, which is what orders a
+  shelf of identical passives. Do not hand-order them with hints, and do not
+  reach for `priority=` to fix an order: read the printed rank first.
 - No floorplan by coordinate: a `Location` constant that means "the power
   area" is the placer's job typed by hand, and every part hinted at it
   competes for one rectangle. `Near` is for a requirement the netlist
