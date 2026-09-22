@@ -33,7 +33,13 @@ def _box_of(bb) -> Box:
 
 
 def _layer_names(board, layer_set) -> list[str]:
-    return [board.GetLayerName(l) for l in layer_set.CuStack()]
+    """Named copper layers of a set, restricted to the ones this board has.
+
+    A through-hole pad carries every copper layer KiCad can name, whatever
+    board it is on, so a pad on a 2-layer board reported In1.Cu through
+    In30.Cu. A layer the board has not enabled does not exist for anything
+    read off it - not for a clearance, and not for a printed line."""
+    return [board.GetLayerName(l) for l in layer_set.CuStack() if board.IsLayerEnabled(l)]
 
 
 def _copper_layers(board, layer_set) -> frozenset[CopperLayer]:

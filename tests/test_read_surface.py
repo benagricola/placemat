@@ -212,3 +212,25 @@ def test_parts_json_is_one_row_per_footprint(breakout_pcb, capsys):
     g = read_board(breakout_pcb)
     assert len(doc["parts"]) == len(g.footprints)
     assert {r["ref"] for r in doc["parts"]} == {fp.ref for fp in g.footprints}
+
+
+@needs_breakout
+def test_a_placed_pad_reports_only_layers_the_board_has(breakout_pcb):
+    """A through pad's own layer set is every copper layer KiCad can name,
+    whatever board it sits on, so a 2-layer board was reporting pads on
+    In1.Cu through In30.Cu. What a pad reports is the board's own stackup."""
+    g = read_board(breakout_pcb)
+    stack = set(g.layers)
+    pads = [p for fp in g.footprints for p in fp.pads]
+    through = [p for p in pads if p.through]
+    assert through, "the breakout has no through-hole pads to check"
+    assert all(set(p.layers) <= stack for p in pads)
+    assert all(set(p.layers) == stack for p in through)
+
+
+@needs_fairing
+def test_a_four_layer_boards_pads_name_four_layers():
+    g = read_board(FAIRING)
+    assert len(g.layers) == 4
+    through = [p for fp in g.footprints for p in fp.pads if p.through]
+    assert through and all(len(p.layers) == 4 for p in through)
