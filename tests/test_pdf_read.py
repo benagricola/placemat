@@ -101,3 +101,24 @@ def test_a_tool_that_fails_with_nothing_to_show_is_an_error():
 def test_the_complaint_is_the_error_not_the_last_warning():
     said = read._complaint(b"error: cannot find page 9\nwarning: ICC support is not available\n")
     assert "cannot find page 9" in said
+
+
+needs_ocr = pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract is not here")
+
+
+@needs_ocr
+def test_ocr_reads_a_rendered_page(tmp_path):
+    p = make_pdf(tmp_path / "land.pdf", LAND)
+    runs = read.ocr_runs(p, 1, tmp_path / "o")
+    assert any("LAND PATTERN" in r.text.upper() for r in runs)
+    assert all(r.source == "ocr" for r in runs)
+    assert all(70.0 <= r.confidence <= 100.0 for r in runs)
+
+
+def test_a_page_with_almost_no_text_is_thin():
+    from placemat import datasheet as ds
+    from placemat.values import Box
+    thin = (ds.TextRun(1, "ROHS", Box(0, 0, 10, 5)), ds.TextRun(1, "A", Box(0, 0, 3, 5)))
+    assert read.text_is_thin(thin)
+    fat = tuple(ds.TextRun(1, "x" * 40, Box(0, 0, 10, 5)) for _ in range(10))
+    assert not read.text_is_thin(fat)

@@ -33,3 +33,16 @@ def test_a_datasheet_with_no_text_still_yields_its_rectangles():
     assert sum(len(r.text) for r in runs) < 200
     groups = ds.clusters(ds.rectangles(read.draw_paths(TYPEC, 1)))
     assert groups and groups[0][1] >= 10
+
+
+@pytest.mark.skipif(not TYPEC.exists(), reason="no TYPE-C datasheet")
+@pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract is not here")
+def test_ocr_turns_the_text_free_connector_into_a_strong_land_pattern(tmp_path):
+    """Its own text is six runs. Read off the render it yields the heading,
+    the dimension stack and the unit."""
+    runs = read.ocr_runs(TYPEC, 1, tmp_path)
+    assert len(runs) > 50
+    assert any("LAYOUT" in r.text.upper() for r in runs)
+    assert ds.unit_of(runs) == "mm"
+    ev = ds.page_evidence("land", runs, read.draw_paths(TYPEC, 1))
+    assert ds.band_of(ev) == "strong"

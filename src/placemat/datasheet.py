@@ -110,9 +110,12 @@ TOPICS = ("land", "package", "rules", "pins")
 # over 67 datasheets, a keyword list alone finds a land pattern on half of
 # them, which is why it is one signal beside the geometry and never the answer.
 KEYWORDS = {
-    "land": (r"recommended land", r"land pattern", r"recommended pad", r"pcb layout",
-             r"pwb layout", r"mounting pad", r"solder pad", r"recommended solder",
-             r"suggested (pad|land)", r"footprint"),
+    # `p\.?\s?[cw]\.?\s?b\.?` covers PCB, PWB and the dotted P.C.B that OCR
+    # returns for the TYPE-C heading; without the dots that page stayed at
+    # `fair` with the only evidence it had sitting unread.
+    "land": (r"recommended land", r"land pattern", r"recommended pad",
+             r"p\.?\s?[cw]\.?\s?b\.?\s*layout", r"mounting pad", r"solder pad",
+             r"recommended solder", r"suggested (pad|land)", r"footprint"),
     "package": (r"package (outline|dimension)", r"mechanical (data|drawing|dimension)",
                 r"outline drawing", r"product outline", r"physical dimension",
                 r"dimensions? \(mm\)", r"body size"),
@@ -264,8 +267,14 @@ def runs_from_tsv(tsv: str, page: int, min_conf: float = MIN_OCR_CONFIDENCE) -> 
     The TSV is one row per word. A run per word splits "RECOMMEND P.C.B
     LAYOUT" into three and no heading ever matches, so words are gathered by
     the block, paragraph and line columns tesseract already numbers them with.
-    A line is only as good as its worst word, so the weakest confidence in it
-    is the line's."""
+
+    The floor is applied to the LINE, not the word, and a line passes when any
+    word in it reads well. Dropping weak words first returned `UNIT: | SCALE:`
+    for the TYPE-C's `UNIT: mm SCALE: 1:1`, losing the unit of the whole
+    drawing: tesseract scores `mm` at 23 - two identical letters, small - while
+    the `SCALE:` beside it scores 96 and both reads are right. Noise is a line
+    with no good word in it, and that is what goes. The confidence reported is
+    the weakest word's, because that is what a reader should judge by."""
     lines = {}
     for row in tsv.splitlines()[1:]:
         f = row.split("\t")
@@ -276,11 +285,11 @@ def runs_from_tsv(tsv: str, page: int, min_conf: float = MIN_OCR_CONFIDENCE) -> 
             left, top, width, height = (float(v) for v in f[6:10])
         except ValueError:
             continue
-        if conf < min_conf:
-            continue
         lines.setdefault((f[2], f[3], f[4]), []).append((left, top, width, height, conf, f[11]))
     out = []
     for words in lines.values():
+        if max(w[4] for w in words) < min_conf:
+            continue                    # nothing in this line read well
         text = " ".join(w[5] for w in words)
         box = Box(min(w[0] for w in words), min(w[1] for w in words),
                   max(w[0] + w[2] for w in words), max(w[1] + w[3] for w in words))

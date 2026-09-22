@@ -186,10 +186,27 @@ def test_ocr_words_are_grouped_into_the_line_they_came_from():
     assert "6.65" in texts
 
 
-def test_a_low_confidence_word_is_dropped_and_an_empty_one_ignored():
+def test_a_line_of_nothing_but_noise_is_dropped_and_an_empty_word_ignored():
     runs = ds.runs_from_tsv(TSV, page=1)
-    assert not any("YUUUUUUUU" in r.text for r in runs)
+    assert not any("YUUUUUUUU" in r.text for r in runs)      # alone at conf 16
     assert all(r.text.strip() for r in runs)
+
+
+def test_a_weak_word_inside_a_good_line_is_kept():
+    """tesseract scores `mm` at 23 on the TYPE-C sheet - two identical letters,
+    small - while the `SCALE:` beside it scores 96 and the read is right.
+    Dropping words below the floor returned `UNIT: | SCALE:` and lost the unit
+    of the whole drawing, so a line is judged by its best word and kept
+    whole."""
+    tsv = TSV + "\n" + "\n".join([
+        "5\t1\t9\t1\t1\t1\t700\t10\t30\t10\t79\tUNIT:",
+        "5\t1\t9\t1\t1\t2\t735\t10\t20\t10\t23\tmm",
+        "5\t1\t9\t1\t1\t3\t760\t10\t40\t10\t96\tSCALE:",
+    ])
+    (line,) = [r for r in ds.runs_from_tsv(tsv, page=1) if "UNIT" in r.text]
+    assert line.text == "UNIT: mm SCALE:"
+    assert line.confidence == 23.0        # reported conservatively: its weakest word
+    assert ds.unit_of([line]) == "mm"
 
 
 def test_a_grouped_run_carries_the_box_round_its_words_and_the_lowest_confidence():
@@ -197,3 +214,13 @@ def test_a_grouped_run_carries_the_box_round_its_words_and_the_lowest_confidence
     assert heading.box.left == 100 and heading.box.right == 330      # 250 + 80
     assert heading.source == "ocr"
     assert heading.confidence == 73.0        # the weakest word decides the line
+
+
+def test_a_dotted_pcb_still_matches_the_land_keyword():
+    """OCR reads the TYPE-C heading as "RECOMMEND P.C.B LAYOUT(COMPONEN".
+    The pattern `pcb layout` does not match it, and that one gap kept the
+    only page of a text-free datasheet at `fair`."""
+    runs = [_run("RECOMMEND P.C.B LAYOUT(COMPONEN")]
+    ev = ds.page_evidence("land", runs, [_rect(2, 1) for _ in range(6)])
+    assert any(e.kind == "keyword" for e in ev)
+    assert ds.band_of(ev) == "strong"

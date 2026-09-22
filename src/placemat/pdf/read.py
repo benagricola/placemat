@@ -11,7 +11,8 @@ import shutil
 import subprocess
 import xml.etree.ElementTree as ET
 
-from ..datasheet import DrawPath, TextRun
+from ..datasheet import (MIN_OCR_CONFIDENCE, OCR_TEXT_FLOOR, DrawPath,
+                         TextRun, runs_from_tsv)
 from ..geometry import Transform
 from ..values import Box
 
@@ -152,3 +153,20 @@ def have_ocr() -> bool:
     """tesseract reads the outlined dimension text that carries no characters.
     It is optional: placemat needs nothing installed for the ordinary path."""
     return shutil.which("tesseract") is not None
+
+
+def text_is_thin(runs) -> bool:
+    """True when a page carries too little of its own text to be worth
+    scoring. A drawing whose dimensions are outlined curves comes back with a
+    handful of characters and nothing else."""
+    return sum(len(r.text.strip()) for r in runs) < OCR_TEXT_FLOOR
+
+
+def ocr_runs(path, page: int, out_dir, dpi: int = 300,
+             min_conf: float = MIN_OCR_CONFIDENCE) -> tuple:
+    """The page read off its own render. Returns the same TextRun values the
+    PDF's text channel produces, so nothing downstream learns a new type."""
+    png = render(path, page, out_dir, dpi)
+    tsv = _run(["tesseract", str(png), "-", "--psm", "11", "tsv"],
+               "reading a page with OCR", path)
+    return runs_from_tsv(tsv, page, min_conf)

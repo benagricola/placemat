@@ -68,6 +68,8 @@ def parser() -> argparse.ArgumentParser:
                      help="render a page (p7) or a topic's best page (land) and print its text")
     dsp.add_argument("--out", default=None, help="where renders go (default: beside the PDF)")
     dsp.add_argument("--dpi", type=int, default=300)
+    dsp.add_argument("--no-ocr", action="store_true",
+                     help="do not read a text-poor page off its render")
     dsp.add_argument("--json", action="store_true")
 
     sh = sub.add_parser("show", help="one cell or part on its own: a render from above and below, its pads by net, "
@@ -315,8 +317,13 @@ def cmd_datasheet(args) -> int:
     path = Path(args.pdf)
     try:
         pages = pdf.page_count(path)
-        by_page = {n: (pdf.text_runs(path, n), pdf.draw_paths(path, n))
-                   for n in range(1, pages + 1)}
+        by_page = {}
+        for n in range(1, pages + 1):
+            runs = pdf.text_runs(path, n)
+            # a page with no text of its own is read off its render instead
+            if not args.no_ocr and pdf.have_ocr() and pdf.text_is_thin(runs):
+                runs = runs + pdf.ocr_runs(path, n, Path(args.out or path.parent), args.dpi)
+            by_page[n] = (runs, pdf.draw_paths(path, n))
     except pdf.PdfError as e:
         console.say("datasheet", str(e))
         return 1
