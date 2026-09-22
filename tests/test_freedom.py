@@ -6,7 +6,7 @@ and moves aside for anything already there. A searched item has two."""
 import pytest
 
 from placemat.layout import Board, PlacementCollision
-from placemat.values import Near, OnEdge, Centre, Cell, Edge, Location, Part, Priority
+from placemat.values import Freedom, Near, OnEdge, Centre, Cell, Edge, Location, Part, Priority
 from tests.fixtures import board_geometry, footprint
 
 
@@ -82,7 +82,7 @@ def test_a_location_with_one_axis_pins_that_coordinate_and_the_item_slides_on_th
     plan = b.resolve()
     box = plan.box("j1")
     assert box.center.x == pytest.approx(30.0) and box.center.y == pytest.approx(30.0)
-    assert plan.step("j1").priority is not Priority.FIXED                 # one freedom left: it is searched
+    assert plan.step("j1").freedom is not Freedom.FIXED                 # one freedom left: it is searched
     b = make_board()
     b.place(Cell("mcu"), at=Centre(30, 30))                    # holds the middle of the x = 30 line
     b.place(Part("j1"), at=Centre(30.0, None))
@@ -129,7 +129,7 @@ def test_along_is_a_distance_on_whichever_edge_a_named_place_or_a_fraction_and_n
     assert plan.box("j1").center.y == pytest.approx(20.0) and plan.box("j1").right == pytest.approx(59.0)
     assert plan.box("j2").center.x == pytest.approx(30.0) and plan.box("j2").top == pytest.approx(1.0)
     assert plan.box("j3").center.x == pytest.approx(1.0 + 58.0 * 0.25)
-    assert all(plan.step(k).priority is Priority.EDGE for k in ("j1", "j2", "j3"))
+    assert all(plan.step(k).freedom is Freedom.EDGE for k in ("j1", "j2", "j3"))
     with pytest.raises(TypeError):
         b.place(Cell("mcu"), at=OnEdge(Edge.WEST, along="mid"))         # a string is a typo waiting to happen
     with pytest.raises(ValueError):

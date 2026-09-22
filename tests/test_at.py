@@ -6,7 +6,7 @@ nothing (two, seeded from its links)."""
 import pytest
 
 from placemat.layout import Board
-from placemat.values import Along, Cell, Centre, Edge, Fraction, Location, Mid, Near, OnEdge, PadRef, Part, Priority, X, Y
+from placemat.values import Freedom, Along, Cell, Centre, Edge, Fraction, Location, Mid, Near, OnEdge, PadRef, Part, Priority, X, Y
 from tests.fixtures import board_geometry, footprint
 
 
@@ -22,8 +22,8 @@ def test_a_location_fixes_the_origin_and_a_centre_fixes_the_body_centre():
     b.place(Part("j1"), at=Location(20, 20))
     b.place(Part("j2"), at=Centre(40, 20))
     plan = b.resolve()
-    assert plan.placement("j1").location == Location(20, 20) and plan.step("j1").priority is Priority.FIXED
-    assert plan.box("j2").center == Location(40, 20) and plan.step("j2").priority is Priority.FIXED
+    assert plan.placement("j1").location == Location(20, 20) and plan.step("j1").freedom is Freedom.FIXED
+    assert plan.box("j2").center == Location(40, 20) and plan.step("j2").freedom is Freedom.FIXED
 
 
 def test_a_centre_may_be_said_in_pads_and_with_one_axis_free():
@@ -34,7 +34,7 @@ def test_a_centre_may_be_said_in_pads_and_with_one_axis_free():
     plan = b.resolve()
     pa, pb = plan.occupancy.pad_location("J1", "1"), plan.occupancy.pad_location("J1", "2")
     assert plan.box("j2").center.x == pytest.approx((pa.x + pb.x) / 2) and plan.box("j2").center.y == pytest.approx(pa.y + 6.0)
-    assert plan.box("mcu").center.x == pytest.approx(30.0) and plan.step("mcu").priority is not Priority.FIXED
+    assert plan.box("mcu").center.x == pytest.approx(30.0) and plan.step("mcu").freedom is not Freedom.FIXED
 
 
 def test_on_an_edge_at_a_distance_is_fixed_and_on_an_edge_alone_slides():
@@ -43,7 +43,7 @@ def test_on_an_edge_at_a_distance_is_fixed_and_on_an_edge_alone_slides():
     b.place(Part("j2"), at=OnEdge(Edge.NORTH))
     b.place(Cell("mcu"), at=OnEdge(Edge.EAST, along=Fraction(0.25), overhang=0.5))
     plan = b.resolve()
-    assert plan.step("j1").priority is Priority.EDGE and plan.box("j1").center.x == pytest.approx(30.0)
+    assert plan.step("j1").freedom is Freedom.EDGE and plan.box("j1").center.x == pytest.approx(30.0)
     assert plan.step("j2").priority is Priority.DEFAULT and plan.box("j2").top == pytest.approx(1.0)
     assert not plan.box("j2").overlaps(plan.box("j1"))
     assert plan.box("mcu").right == pytest.approx(60.5) and plan.box("mcu").center.y == pytest.approx(1.0 + 58.0 * 0.25)

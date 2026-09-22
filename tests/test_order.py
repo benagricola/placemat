@@ -129,14 +129,13 @@ def test_a_decided_position_leaves_priority_nothing_to_order():
             b.place(Part("j1"), at=at, priority=Priority.HIGH)
 
 
-def test_fixed_and_edge_need_a_position_to_hold():
-    """The other way round: nothing to hold is nothing to fix."""
-    from placemat.values import Priority
-    b = make_board()
-    with pytest.raises(ValueError, match="searched"):
-        b.place(Part("j1"), priority=Priority.FIXED)
-    with pytest.raises(ValueError, match="searched"):
-        b.place(Cell("small"), priority=Priority.EDGE)
+def test_a_decided_position_is_not_a_priority_a_script_can_name():
+    """Whether a position is decided is derived from `at=`, so there is no
+    priority to ask for: the enum holds only what a script may say."""
+    from placemat.values import Freedom, Priority
+    assert [p.value for p in Priority] == ["high", "default", "low"]
+    assert not hasattr(Priority, "FIXED") and not hasattr(Priority, "EDGE")
+    assert Freedom.FIXED.value == "fixed" and Freedom.EDGE.value == "edge"
 
 
 def test_an_item_free_to_slide_along_an_edge_still_takes_a_priority():

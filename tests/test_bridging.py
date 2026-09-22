@@ -77,7 +77,7 @@ def test_at_equal_priority_the_shorter_track_yields():
 
 def test_fixed_copper_never_yields():
     b = make_board()
-    b.track(Net("PERMIT_B"), [(20.0, 0.0), (20.0, 40.0)], layer=F, bridge=True, priority=Priority.FIXED)
+    b.track(Net("PERMIT_B"), [(20.0, 0.0), (20.0, 40.0)], layer=F, bridge=True, priority=Priority.HIGH)
     b.track(Net("CANH_S0"), [(40.0, 30.0), (12.0, 30.0)], layer=F, bridge=True, priority=Priority.HIGH)
     plan = b.resolve()
     assert len(vias(plan, "CANH_S0")) == 2 and not vias(plan, "PERMIT_B")

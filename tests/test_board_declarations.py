@@ -3,7 +3,7 @@ they are declared, and resolves them in priority order, never file order."""
 import pytest
 
 from placemat.layout import Board
-from placemat.values import Near, OnEdge, Centre, Box, Cell, Edge, Face, Location, Part, Priority
+from placemat.values import Freedom, Near, OnEdge, Centre, Box, Cell, Edge, Face, Location, Part, Priority
 from tests.fixtures import board_geometry, footprint
 
 
@@ -31,7 +31,7 @@ def test_declaration_order_does_not_decide_execution_order():
     plan = b.resolve()
     order = [step.item for step in plan.steps]
     assert set(order[:2]) == {"r2", "pd"} and order[2:] == ["j_in", "r1"]
-    assert [step.priority for step in plan.steps] == [Priority.FIXED, Priority.FIXED, Priority.EDGE, Priority.DEFAULT]
+    assert [step.freedom for step in plan.steps] == [Freedom.FIXED, Freedom.FIXED, Freedom.EDGE, Freedom.SEARCHED]
 
 
 def test_a_fixed_part_lands_exactly_where_asked():

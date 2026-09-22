@@ -268,7 +268,10 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                           for s in plan.steps if s.placement is not None and s.kind != "block"}
         rec.cutouts = {n: {"x": c.centre.x, "y": c.centre.y, "rotation": c.rotation}
                        for n, c in plan.cutouts_placed.items()}
-        rec.steps = [{"item": s.item, "kind": s.kind, "priority": s.priority.value, "note": s.note,
+        rec.steps = [{"item": s.item, "kind": s.kind,
+                      "freedom": s.freedom.value if s.freedom else None,
+                      "priority": s.priority.value if s.priority else None,
+                      "rank": s.rank, "rank_of": s.rank_of, "note": s.note,
                       "why": s.why, "moved_mm": round(s.moved_mm, 3), "ops": s.ops} for s in plan.steps]
         rec.findings = list(plan.findings)
         rec.status = "ok"

@@ -8,7 +8,7 @@ import pytest
 from placemat.copper import Zone
 from placemat.layout import Board
 from placemat.outline import Arc, Outline
-from placemat.values import (Along, CopperLayer, Edge, Fraction, Location, Net, OnEdge, Part, Polar, Priority)
+from placemat.values import (Freedom, Along, CopperLayer, Edge, Fraction, Location, Net, OnEdge, Part, Polar, Priority)
 from tests.fixtures import board_geometry, footprint
 
 SHAPES = {"j1": ("J1", 6.0, 4.0), "r1": ("R1", 2.0, 1.2), "u1": ("U1", 4.0, 4.0),
@@ -77,7 +77,7 @@ def test_a_part_on_a_curved_run_sits_at_the_keep_in_and_faces_out():
     b.place(Part("j1"), at=OnEdge(top, along=Along.MID))
     plan = b.resolve()
     assert plan.findings == []
-    assert plan.step("j1").priority is Priority.EDGE
+    assert plan.step("j1").freedom is Freedom.EDGE
     far = max(c.distance(Location(20.0, 20.0)) for c in corners(reach_of(plan, "J1")))
     assert far == pytest.approx(19.5, abs=AT_KEEP_IN) and far <= 19.5   # the arc holds its furthest corner at the keep-in
     assert plan.box("j1").center.x == pytest.approx(20.0, abs=0.05)

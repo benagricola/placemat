@@ -248,7 +248,6 @@ class KeepoutIntent:
     why: str = ""
     index: int = 0
     needs: frozenset = frozenset()
-    priority: Priority = Priority.FIXED
     freedom: Freedom = Freedom.FIXED
 
     @property
@@ -267,7 +266,6 @@ class CutoutIntent:
     why: str = ""
     index: int = 0
     needs: frozenset = frozenset()
-    priority: Priority = Priority.FIXED
     freedom: Freedom = Freedom.FIXED
 
     @property
@@ -314,12 +312,15 @@ class Link:
 class Step:
     item: str
     kind: str
-    priority: Priority
+    priority: Priority | None            # None for a decided placement: it has none
     placement: Placement | None = None
     moved_mm: float = 0.0
     note: str = ""
     why: str = ""
     ops: int = 0
+    freedom: Freedom | None = None       # None for a copper step and for a bridge note
+    rank: int | None = None              # a searched item's place in the queue
+    rank_of: int | None = None
 
 
 class CutoutHandle:
@@ -885,8 +886,7 @@ class Board:
         self._keepouts[name] = k
         needs = frozenset(self._pad_ref(r)[0] for r in _refs_in([at]))
         settled = not self._cutout_free(k)
-        firm = Priority.FIXED if settled else Priority.DEFAULT
-        intent = KeepoutIntent("keepout %s" % name, k, why, len(self._intents), needs, firm,
+        intent = KeepoutIntent("keepout %s" % name, k, why, len(self._intents), needs,
                                Freedom.FIXED if settled else Freedom.SEARCHED)
         self._intents.append(intent)
         return intent
@@ -924,9 +924,8 @@ class Board:
                 # a decided place goes down in declaration order with the firm items; one with a
                 # freedom waits until every decided thing is down, then takes the room that is left
                 settled = not self._cutout_free(h)
-                firm = Priority.FIXED if settled else Priority.DEFAULT
                 self._intents.append(CutoutIntent("cutout %s" % h.name, h, h.why, len(self._intents),
-                                                  needs, firm,
+                                                  needs,
                                                   Freedom.FIXED if settled else Freedom.SEARCHED))
         self._named_cutouts = named
         return tuple(named_paths) + tuple(raw)
@@ -1196,23 +1195,11 @@ class Board:
                    or (rim is not None and angle is not None))
         freedom = Freedom.SEARCHED if not decided else \
             Freedom.FIXED if (at is not None or center is not None) else Freedom.EDGE
-        if priority is None:
-            priority = Priority.DEFAULT if not decided else \
-                Priority.FIXED if (at is not None or center is not None) else Priority.EDGE
-        if edge is not None and along is None and priority in (Priority.FIXED, Priority.EDGE):
-            raise ValueError("%s: an edge item with no distance along it is free to slide; it cannot be %s" % (key, priority.value))
-        if run is not None and along is None and priority in (Priority.FIXED, Priority.EDGE):
-            raise ValueError("%s: an item on a run with no distance along it is free to slide; it cannot be %s"
-                             % (key, priority.value))
-        if rim is not None and angle is None and priority in (Priority.FIXED, Priority.EDGE):
-            raise ValueError("%s: a %s item with no bearing is free to slide round; it cannot be %s" % (key, rim, priority.value))
-        if priority in (Priority.FIXED, Priority.EDGE) and not decided:
-            raise ValueError("%s: %s is what an item with a decided position is; this one is searched, so give it "
-                             "a place to hold or leave the priority off" % (key, priority.value))
-        if decided and priority not in (Priority.FIXED, Priority.EDGE):
+        if decided and priority is not None:
             raise ValueError("%s: the declaration decided this position, so the item goes down before anything "
                              "searched and priority=%s has nothing to order; drop the priority, or drop the "
                              "position to have it searched" % (key, priority.value))
+        priority = priority or Priority.DEFAULT
         faces_note = ""
         if rotation is None:
             if isinstance(run, CutoutEdge):
@@ -1821,7 +1808,7 @@ class Board:
                 turn = float(c.rotation) if c.rotation is not None else self._implied_rotation(c, centre)
                 why = self._cutout_illegal(occ, c.shape.path_at(centre, turn), c.name)
             path = c.shape.path_at(centre, turn)
-            step = Step(intent.key, "cutout", Priority.FIXED, why=intent.why)
+            step = Step(intent.key, "cutout", None, why=intent.why)
             if why:
                 plan.findings.append("%s (cutout): %s" % (c.name, why))
                 step.note = why
@@ -1847,7 +1834,7 @@ class Board:
                 centre = self._cutout_centre(occ, k)
                 turn = float(k.rotation) if k.rotation is not None else self._implied_rotation(k, centre)
                 why = self._keepout_illegal(occ, k.shape.path_at(centre, turn))
-            step = Step(intent.key, "keepout", Priority.FIXED, why=intent.why)
+            step = Step(intent.key, "keepout", None, why=intent.why)
             if why:
                 plan.findings.append("%s (keepout): %s" % (k.name, why))
                 step.note = why
@@ -1960,14 +1947,14 @@ class Board:
                 if result.chosen is not None:
                     note = "pocket %.1f x %.1f at (%.1f, %.1f): nothing it connects to is placed" % (
                         pocket.box.width, pocket.box.height, pocket.box.center.x, pocket.box.center.y)
-                    return Step(i.key, i.kind, i.priority, result.chosen, 0.0, note, i.why)
+                    return Step(i.key, i.kind, None if i.freedom.decided else i.priority, result.chosen, 0.0, note, i.why, freedom=i.freedom)
                 tried.append(pocket)
         current = occ._geometry(i.item).reference
         plan.findings.append("%s: no pocket fits its %s envelope on the %s face (%d pocket(s) tried)" % (
             i.key, "%.1f x %.1f" % (occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).width,
                                     occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).height),
             i.face.value, len(tried)))
-        return Step(i.key, i.kind, i.priority, None, 0.0, "UNPLACED: no pocket fits", i.why)
+        return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: no pocket fits", i.why, freedom=i.freedom)
 
     def _placements(self) -> list:
         """The item placements among the intents.
@@ -2168,13 +2155,13 @@ class Board:
                 note = what
                 if moved > 1e-9:
                     note += "; slid %.2f %s from its slot: %s" % (moved, units, next(iter(reasons.values()), ""))
-                return Step(i.key, i.kind, i.priority, p, moved, note, i.why)
+                return Step(i.key, i.kind, None if i.freedom.decided else i.priority, p, moved, note, i.why, freedom=i.freedom)
             key = _reason_key(why)
             rejected[key] += 1
             reasons.setdefault(key, why)
         plan.findings.append("%s: no room anywhere %s (%s)" % (
             i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3))))
-        return Step(i.key, i.kind, i.priority, None, 0.0, "UNPLACED: " + "; ".join(reasons.values()), i.why)
+        return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: " + "; ".join(reasons.values()), i.why, freedom=i.freedom)
 
     def _settle_along_line(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
         """x or y pinned, the other free: the item's body centre sits on the
@@ -2210,7 +2197,7 @@ class Board:
         share it evenly, the k-th of n at (k + 1) / (n + 1) of the usable
         length, so one alone sits at the midpoint."""
         fellows = [x for x in self._placements() if x.edge is i.edge and x.along is None
-                   and x.priority not in (Priority.FIXED, Priority.EDGE)]
+                   and not x.freedom.decided]
         k, n = fellows.index(i), len(fellows)
         box = occ.board_box
         lo, hi = (box.left, box.right) if i.edge in (Edge.NORTH, Edge.SOUTH) else (box.top, box.bottom)
@@ -2233,7 +2220,7 @@ class Board:
         wherever it lands."""
         run = i.run
         fellows = [x for x in self._placements() if x.run is i.run and x.along is None
-                   and x.priority not in (Priority.FIXED, Priority.EDGE)]
+                   and not x.freedom.decided]
         k, n = fellows.index(i), max(len(fellows), 1)
         ideal = run.length * (k + 1) / (n + 1)
         shape = occ.board_shape or self._shaped()
@@ -2250,7 +2237,7 @@ class Board:
         it from the top, so one alone sits at the top."""
         fellows = [x for x in self._placements() if x.angle is None
                    and (x.rim, x.radius_at, x.about) == (i.rim, i.radius_at, i.about)
-                   and x.priority not in (Priority.FIXED, Priority.EDGE)]
+                   and not x.freedom.decided]
         k, n = fellows.index(i), max(len(fellows), 1)
         return 360.0 * k / n
 
@@ -2401,7 +2388,7 @@ class Board:
         plan._items[spec.anchor.inst] = spec.anchor
         anchor_at = members.get(spec.anchor.inst)
         plan.steps.append(Step(spec.anchor.inst, "part", i.priority, anchor_at, 0.0, "anchor of %s" % i.key))
-        return Step(i.key, "block", i.priority, anchor_at, 0.0, note, i.why)
+        return Step(i.key, "block", None if i.freedom.decided else i.priority, anchor_at, 0.0, note, i.why, freedom=i.freedom)
 
     def _settle(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set = frozenset()) -> Step:
         if i.kind == "block":
@@ -2448,7 +2435,7 @@ class Board:
                             and i.clearance < self.keep_in)
             if why:
                 plan.findings.append("%s (%s): %s" % (i.key, i.freedom.value, why))
-            return Step(i.key, i.kind, i.priority, p, 0.0, "; ".join(x for x in (chose, why) if x), i.why)
+            return Step(i.key, i.kind, None if i.freedom.decided else i.priority, p, 0.0, "; ".join(x for x in (chose, why) if x), i.why, freedom=i.freedom)
         if i.run is not None:
             return self._settle_along_run(occ, i, plan, clr)
         if i.rim is not None:
@@ -2486,12 +2473,12 @@ class Board:
         hopeless = self._no_pocket_note(occ, i)
         if hopeless:
             plan.findings.append("%s: %s" % (i.key, hopeless))
-            return Step(i.key, i.kind, i.priority, None, 0.0, "UNPLACED: " + hopeless, i.why)
+            return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: " + hopeless, i.why, freedom=i.freedom)
         result = scan(occ, i.item, hint, radius, i.step, i.rotations or (i.rotation,), clr, score=score)
         if result.chosen is None:
             plan.findings.append("%s: no legal location within %.1f mm of %s (%s)" % (
                 i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in result.rejected.most_common(3))))
-            return Step(i.key, i.kind, i.priority, None, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()), i.why)
+            return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()), i.why, freedom=i.freedom)
         note = seeded
         if result.moved_mm > 0:
             first = next(iter(result.reasons.values()), "")
@@ -2501,7 +2488,7 @@ class Board:
             elif score:
                 moved += " for a better link score"
             note = (note + "; " if note else "") + moved
-        return Step(i.key, i.kind, i.priority, result.chosen, result.moved_mm, note, i.why)
+        return Step(i.key, i.kind, None if i.freedom.decided else i.priority, result.chosen, result.moved_mm, note, i.why, freedom=i.freedom)
 
 _EDGE_BEARING = {Edge.NORTH: 0.0, Edge.EAST: 90.0, Edge.SOUTH: 180.0, Edge.WEST: 270.0}
 _EDGE_DIR = {Edge.NORTH: (0.0, -1.0), Edge.SOUTH: (0.0, 1.0), Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0)}
@@ -2673,15 +2660,26 @@ def _loc(l: Location) -> str:
     return "(%.2f, %.2f)" % (l.x, l.y)
 
 
-STEP_HEADER = "%-28s %-6s %-8s %s" % ("item", "kind", "priority", "result")
+STEP_HEADER = "%-28s %-6s %-11s %s" % ("item", "kind", "place", "result")
+
+
+def _place_column(s: "Step") -> str:
+    """What decided when this step ran: a decided placement says its freedom,
+    a searched one its rank, and copper its priority."""
+    if s.freedom is not None and s.freedom.decided:
+        return s.freedom.value
+    if s.rank:
+        return "rank %d/%d" % (s.rank, s.rank_of or s.rank)
+    return s.priority.value if s.priority else ""
 
 
 def _fmt(s: Step) -> str:
     """One step, in the columns STEP_HEADER names. A placement's result is
     `at (x, y) rot R face F`; copper's is its op count."""
+    place = _place_column(s)
     if s.placement is None:
-        return "%-28s %-6s %-8s %s" % (s.item, s.kind, s.priority.value, s.note)
-    out = "%-28s %-6s %-8s at %s rot %g face %s" % (s.item, s.kind, s.priority.value, _loc(s.placement.location),
+        return "%-28s %-6s %-11s %s" % (s.item, s.kind, place, s.note)
+    out = "%-28s %-6s %-11s at %s rot %g face %s" % (s.item, s.kind, place, _loc(s.placement.location),
                                                      s.placement.rotation, s.placement.face.value)
     if s.note:
         out += "  " + s.note

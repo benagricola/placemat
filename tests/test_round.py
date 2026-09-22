@@ -7,7 +7,7 @@ import pytest
 
 from placemat.copper import Zone
 from placemat.layout import Board
-from placemat.values import (CopperLayer, Disc, Edge, Fraction, Location, Net, OnBore, OnEdge, OnRim,
+from placemat.values import (Freedom, CopperLayer, Disc, Edge, Fraction, Location, Net, OnBore, OnEdge, OnRim,
                              Part, Polar, Priority)
 from tests.fixtures import board_geometry, footprint
 
@@ -65,7 +65,7 @@ def test_an_item_on_the_rim_sits_at_the_keep_in_on_its_bearing():
     assert far_from(plan, "J1", b.centre) == pytest.approx(19.5, abs=AT_KEEP_IN)   # its reach at the board's keep-in
     assert plan.box("j1").center.y == pytest.approx(20.0)
     assert plan.box("j1").center.x > 20.0              # due east of the centre
-    assert plan.step("j1").priority is Priority.EDGE
+    assert plan.step("j1").freedom is Freedom.EDGE
 
 
 def test_a_rim_item_turns_to_face_outward():
@@ -102,7 +102,7 @@ def test_polar_puts_a_body_centre_at_a_radius_and_bearing():
     plan = b.resolve()
     assert plan.box("r1").center == Location(30.0, 20.0)
     assert plan.placement("r1").rotation == 0.0        # a coordinate, not an edge: it is not turned
-    assert plan.step("r1").priority is Priority.FIXED
+    assert plan.step("r1").freedom is Freedom.FIXED
 
 
 def test_polar_may_leave_the_ring_or_the_spoke_free():

@@ -4,7 +4,7 @@ a row that ends at a pad. No number a pad already knows is typed."""
 import pytest
 
 from placemat.layout import Board
-from placemat.values import OnEdge, Cell, Centre, Edge, Location, Mid, Part, PadRef, Priority, X, Y
+from placemat.values import Freedom, OnEdge, Cell, Centre, Edge, Location, Mid, Part, PadRef, Priority, X, Y
 from tests.fixtures import board_geometry, footprint
 
 
@@ -132,7 +132,7 @@ def test_a_part_may_be_placed_by_where_one_of_its_pads_lands():
     ja = plan.occupancy.pad_location("J1", "1")
     ra = plan.occupancy.pad_location("R1", "1")
     assert (ra.x, ra.y) == pytest.approx((ja.x, ja.y + 6.0))          # R1's A pad sits on the point, at that rotation
-    assert plan.step("r1").priority is Priority.FIXED
+    assert plan.step("r1").freedom is Freedom.FIXED
 
 
 def test_a_location_may_be_said_in_references_too():

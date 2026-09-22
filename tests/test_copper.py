@@ -6,7 +6,7 @@ import pytest
 
 from placemat.layout import Board
 from placemat.copper import Track, Via, Pour
-from placemat.values import (Near, Centre, Box, CopperLayer, Location, Net, Part, PadRef, Priority)
+from placemat.values import (Freedom, Near, Centre, Box, CopperLayer, Location, Net, Part, PadRef, Priority)
 from tests.fixtures import board_geometry, footprint
 
 
@@ -65,7 +65,7 @@ def test_fixed_copper_is_planned_before_loose_parts_and_blocks_them():
     b.place(Part("j_in"), at=Location(10, 10))
     # a bar the loose part would otherwise settle on
     b.pour(Net("V48"), [Location(20, 18), Location(40, 18), Location(40, 22), Location(20, 22)],
-           layer=CopperLayer.F, priority=Priority.FIXED)
+           layer=CopperLayer.F)
     b.place(Part("r2"), at=Near(Location(30, 20), radius=6.0, step=0.5))      # MID/GND: foreign to V48
     plan = b.resolve()
     r2 = plan.box("r2")
