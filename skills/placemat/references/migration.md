@@ -4,6 +4,34 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.9
+
+Nothing to change in a script. Two behaviours are stricter and two reports say
+more.
+
+**`placemat drc` now refuses a board with no `.kicad_pro` beside it.** kicad-cli
+substitutes its own design rules for a board without one, so the report
+measured KiCad rather than the board: on a real four-layer board that is 1263
+violations against a true 313, including 199 `track_width` items that do not
+exist. If you review a board by copying it somewhere, copy the `.kicad_pro` and
+any `.kicad_dru` with it.
+
+**A rerun no longer destroys the previous run's route.** A run directory is
+named by a hash of its inputs, so a rerun landing on the same id writes a
+byte-identical board and the route taken on the old one is still a route of it.
+It used to be deleted silently. A run that routes replaces it, as before.
+
+**Footprint defects have their own bucket.** `lib_footprint_issues`,
+`lib_footprint_mismatch`, `malformed_courtyard` and `padstack` now read as
+`footprint issues N (extents for those parts are unreliable)` instead of going
+into `other`. They do not block a board, but placemat's extent for an affected
+part cannot be trusted. A reader of `run.json` will find them gone from
+`other`; `[drc] footprint_kinds` sets the list.
+
+**A cross-face courtyard finding says why.** `U9 courtyard overlaps R31
+courtyard (U9 holds both faces: 4 through-hole pads, none with a net)`. A pad
+with no net is usually a footprint defect rather than a real via field.
+
 ## To 0.8
 
 **Back-face parts move. Cells do not.**

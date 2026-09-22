@@ -25,6 +25,11 @@ DEFAULT_REAL_KINDS = ("clearance", "shorting_items", "track_width", "annular_wid
                       "hole_clearance", "hole_to_hole", "courtyards_overlap",
                       "copper_edge_clearance")
 DEFAULT_OUTSTANDING_KINDS = ("via_dangling", "track_dangling", "isolated_copper")
+# Problems in the footprints themselves. They do not block a board, but they
+# make every extent placemat computes for those parts unreliable, so they get
+# a bucket of their own rather than going into `other` where nobody looks.
+DEFAULT_FOOTPRINT_KINDS = ("lib_footprint_issues", "lib_footprint_mismatch",
+                           "malformed_courtyard", "padstack")
 # KiCad's own stderr noise. A project ADDS to this; it never replaces it.
 DEFAULT_NOISE = (r"property\.h\(\d+\): assert",
                  r"Debug: Adding duplicate image handler",
@@ -76,6 +81,7 @@ class Settings:
     # [drc]
     drc_real_kinds: tuple = DEFAULT_REAL_KINDS
     drc_outstanding_kinds: tuple = DEFAULT_OUTSTANDING_KINDS
+    drc_footprint_kinds: tuple = DEFAULT_FOOTPRINT_KINDS
     drc_refill_zones: bool = True
     # [route]
     route_router_dir: str = ""          # "": fall back to $KRT_DIR, then the built-in

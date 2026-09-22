@@ -731,6 +731,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `check.limits` | none | a bound per check, e.g. `"hot-loop" = 20.0` (`--limit`) |
 | `drc.real_kinds` | eight classes | which violations mean the board is not done |
 | `drc.outstanding_kinds` | three classes | which violations are copper not yet joined |
+| `drc.footprint_kinds` | four classes | which violations are defects in the footprints themselves |
 | `drc.refill_zones` | true | refill zones for the check |
 | `route.router_dir` | `$KRT_DIR`, else `~/work/KiCadRoutingTools` | the KiCadRoutingTools checkout |
 | `route.quick` | true | one routing round rather than the router's full run |

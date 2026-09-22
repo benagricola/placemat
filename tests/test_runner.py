@@ -75,3 +75,36 @@ def test_drc_is_content_when_the_project_file_is_there(tmp_path, monkeypatch):
     monkeypatch.setattr(drc_mod.subprocess, "run", fake_run)
     report = drc_mod.run_drc(pcb, out)
     assert report.violations == 0
+
+
+def _report(by_type, **kw):
+    from placemat.kicad.drc import DrcReport
+    return DrcReport(path=None, by_type=by_type, **kw)
+
+
+def test_footprint_issues_are_their_own_bucket_not_lumped_into_other():
+    """162 lib_footprint_issues on a real board went into `other`, where
+    nobody looks. They do not block a board, but they make every extent
+    placemat computes for those parts unreliable."""
+    r = _report({"lib_footprint_issues": 162, "padstack": 4, "silk_overlap": 23,
+                 "clearance": 2})
+    assert r.footprint_issues == {"lib_footprint_issues": 162, "padstack": 4}
+    assert r.other == {"silk_overlap": 23}
+    assert r.real == {"clearance": 2}
+
+
+def test_the_summary_names_them():
+    r = _report({"lib_footprint_issues": 162})
+    assert "footprint" in r.summary() and "162" in r.summary()
+
+
+def test_a_board_with_none_says_nothing_about_them():
+    r = _report({"silk_overlap": 1})
+    assert "footprint" not in r.summary()
+
+
+def test_the_classes_come_from_the_settings():
+    from placemat.settings import Settings
+    r = _report({"my_own_class": 3}, footprint_kinds=("my_own_class",))
+    assert r.footprint_issues == {"my_own_class": 3} and r.other == {}
+    assert "lib_footprint_issues" in Settings().drc_footprint_kinds

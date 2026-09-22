@@ -37,7 +37,9 @@ newer placemat, which that file also explains.
    and the command says which file each one came from.
 3. **Read the numbers before the picture.** `real` DRC buckets and
    `unconnected` are the gate; `outstanding` (dangling copper) says what has
-   not been drawn yet. `airwires` (count, length), `crossings` (ratsnest
+   not been drawn yet; `footprint issues` are defects in the fetched
+   footprints themselves, which do not block a board but do mean placemat's
+   extent for those parts cannot be trusted. `airwires` (count, length), `crossings` (ratsnest
    lines of different nets that cross), `crossings by net` and `congestion`
    (crossings per square centimetre of free board) say how hard the board
    will be to route BEFORE any routing is run: a placement change that cuts
