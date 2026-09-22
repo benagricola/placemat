@@ -164,3 +164,36 @@ def test_a_text_run_says_which_channel_read_it():
     assert plain.source == "text" and plain.confidence == 100.0
     seen = ds.TextRun(1, "0.50", Box(0, 0, 10, 5), source="ocr", confidence=78.0)
     assert seen.source == "ocr" and seen.confidence == 78.0
+
+
+TSV = "\t".join(["level", "page_num", "block_num", "par_num", "line_num", "word_num",
+                 "left", "top", "width", "height", "conf", "text"]) + "\n" + "\n".join([
+    "5\t1\t1\t1\t1\t1\t100\t50\t90\t12\t92\tRECOMMEND",
+    "5\t1\t1\t1\t1\t2\t200\t50\t40\t12\t88\tP.C.B",
+    "5\t1\t1\t1\t1\t3\t250\t50\t80\t12\t73\tLAYOUT(COMPONEN",
+    "5\t1\t2\t1\t1\t1\t400\t80\t30\t10\t96\t6.65",
+    "5\t1\t3\t1\t1\t1\t500\t90\t30\t10\t16\tYUUUUUUUU",
+    "5\t1\t4\t1\t1\t1\t600\t99\t10\t10\t95\t",
+])
+
+
+def test_ocr_words_are_grouped_into_the_line_they_came_from():
+    """tesseract's TSV is one row per WORD. Building a run per word split
+    "RECOMMEND P.C.B LAYOUT" into three, and no keyword matched any of them."""
+    runs = ds.runs_from_tsv(TSV, page=1)
+    texts = [r.text for r in runs]
+    assert "RECOMMEND P.C.B LAYOUT(COMPONEN" in texts
+    assert "6.65" in texts
+
+
+def test_a_low_confidence_word_is_dropped_and_an_empty_one_ignored():
+    runs = ds.runs_from_tsv(TSV, page=1)
+    assert not any("YUUUUUUUU" in r.text for r in runs)
+    assert all(r.text.strip() for r in runs)
+
+
+def test_a_grouped_run_carries_the_box_round_its_words_and_the_lowest_confidence():
+    (heading,) = [r for r in ds.runs_from_tsv(TSV, page=1) if "RECOMMEND" in r.text]
+    assert heading.box.left == 100 and heading.box.right == 330      # 250 + 80
+    assert heading.source == "ocr"
+    assert heading.confidence == 73.0        # the weakest word decides the line

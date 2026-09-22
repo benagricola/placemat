@@ -245,3 +245,45 @@ def index_lines(name: str, pages: int, candidates) -> list:
     if best:
         out.append("  look: placemat datasheet <pdf> --show p%d" % best[0].page)
     return out
+
+
+# tesseract scores every word; below this a word is noise rather than a read.
+# Measured on the TYPE-C sheet: correct dimensions scored 86 to 96, a misread
+# scored 78, and the rubbish scored 16 to 39.
+MIN_OCR_CONFIDENCE = 70.0
+
+# Under this many characters a page has not really got text of its own, and is
+# worth the second and a half OCR costs. 7 of the 67 datasheets measured for
+# this feature are like this, and they are the connectors and the inductors.
+OCR_TEXT_FLOOR = 200
+
+
+def runs_from_tsv(tsv: str, page: int, min_conf: float = MIN_OCR_CONFIDENCE) -> tuple:
+    """tesseract's TSV, as one run per LINE.
+
+    The TSV is one row per word. A run per word splits "RECOMMEND P.C.B
+    LAYOUT" into three and no heading ever matches, so words are gathered by
+    the block, paragraph and line columns tesseract already numbers them with.
+    A line is only as good as its worst word, so the weakest confidence in it
+    is the line's."""
+    lines = {}
+    for row in tsv.splitlines()[1:]:
+        f = row.split("\t")
+        if len(f) < 12 or not f[11].strip():
+            continue
+        try:
+            conf = float(f[10])
+            left, top, width, height = (float(v) for v in f[6:10])
+        except ValueError:
+            continue
+        if conf < min_conf:
+            continue
+        lines.setdefault((f[2], f[3], f[4]), []).append((left, top, width, height, conf, f[11]))
+    out = []
+    for words in lines.values():
+        text = " ".join(w[5] for w in words)
+        box = Box(min(w[0] for w in words), min(w[1] for w in words),
+                  max(w[0] + w[2] for w in words), max(w[1] + w[3] for w in words))
+        out.append(TextRun(page, text, box, source="ocr",
+                           confidence=min(w[4] for w in words)))
+    return tuple(out)
