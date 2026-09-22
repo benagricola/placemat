@@ -1,5 +1,8 @@
 """Synthetic BoardGeometry builders so the geometry, occupancy and placer tests run
 without KiCad. A footprint here is a rectangle of pads on a body box."""
+from pathlib import Path
+import subprocess
+
 from placemat.board_geometry import CellGeom, CopperItem, Footprint, NetClass, PadGeom, BoardGeometry
 from placemat.values import Box, CopperLayer, Face, Location
 
@@ -56,3 +59,13 @@ def track(net, x1, y1, x2, y2, w=0.3, layer=CopperLayer.F, owner=None):
     else:
         outline = rect((x1 + x2) / 2, (y1 + y2) / 2, abs(x2 - x1) + w, w)
     return CopperItem("track", net, frozenset([layer]), (outline,), Box.of_points(outline), owner, w)
+
+
+def make_pdf(path, body: str):
+    """A one-page PDF built with mutool from a content stream, so a test can
+    state exactly what is on the page it then reads back."""
+    src = Path(path).with_suffix(".txt")
+    src.write_text(body)
+    subprocess.run(["mutool", "create", "-o", str(path), str(src)],
+                   capture_output=True, check=True)
+    return Path(path)
