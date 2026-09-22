@@ -22,7 +22,8 @@ Any hit, or `AttributeError: type object 'Priority' has no attribute
 'FIXED'` at import, means it was written for
 an earlier placemat: read `references/migration.md`, which has a section per
 release, and fix those lines first. A script with no hits still re-places on a
-newer placemat, which that file also explains.
+newer placemat, which that file also explains - and on 0.11 it will move, because
+a footprint that draws no courtyard now claims its body rather than its pads.
 
 ## The loop
 

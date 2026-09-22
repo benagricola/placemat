@@ -4,6 +4,34 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.11
+
+**Re-run every board and expect it to move.** A footprint that draws no
+courtyard now claims its physical extent - pads, silk and fab together -
+where it used to claim exactly its pads. Nothing in a script changes, but the
+layout a script produces does, and a script that placed cleanly on 0.10 can
+report a collision on 0.11.
+
+The old answer understated a through-hole part by the whole of its plastic. On
+the Breakout, 13 of 43 footprints draw no courtyard, and the worst are
+five-way terminal blocks that claimed 70 mm2 of the 334 mm2 they stand on: the
+block's body overhangs its pads by about 9 mm on one side. Two things read
+that number, so two things change:
+
+- **The placement rank.** Searched items are ordered by courtyard area, so a
+  courtyard-less connector used to rank as a passive and go down last, among
+  the parts it should have been placed before. Expect a different order, and
+  read the printed rank rather than reaching for `priority=`.
+- **The collision check.** A part under such a body is now a finding rather
+  than silence. Those findings are real: a 0603 under a terminal block's
+  plastic does not assemble. Move the part; do not widen a clearance to
+  silence it.
+
+A collision on the first 0.11 run is therefore a defect the old envelope was
+hiding, not a regression. `placemat measure <board> <part>` prints the
+`courtyard` box a part now claims beside its `body` and `physical` boxes, which
+is the quickest way to see what changed for one part.
+
 ## To 0.10
 
 Nothing to change. Two commands are new and one has grown, and an agent that

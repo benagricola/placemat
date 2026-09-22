@@ -20,7 +20,11 @@ from placemat import board, Part, Cell, Centre, Location, Edge, Net, CopperLayer
 # module extents, measured off the generated cells (unrotated: along = width)
 PD_ALONG, PD_DEPTH = board.extent(Cell("power_drop0")).width, board.extent(Cell("power_drop0")).height
 BD_ALONG, BD_DEPTH = board.extent(Cell("bus_drop0")).width, board.extent(Cell("bus_drop0")).height
-EDGE, INNER, GAP, TOP = 3.0, 2.0, 3.0, 35.0
+# TOP clears the two parts this script does not place - trunk_led_ra and
+# term_far_jumper, which the generator leaves at y 34.8..40.6 in the east
+# column's lane. A part nobody places stays where it was put, and a cell
+# dropped on top of one is a real collision.
+EDGE, INNER, GAP, TOP = 3.0, 2.0, 3.0, 44.0
 STATION = PD_ALONG + INNER + BD_ALONG
 W = 140.0
 H = TOP + 3 * STATION + 2 * GAP + 30.0

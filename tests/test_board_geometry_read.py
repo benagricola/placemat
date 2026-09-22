@@ -63,3 +63,22 @@ def test_copper_and_outline_are_collected(breakout):
 
 def test_netclass_clearance_is_resolved_from_the_project(breakout):
     assert breakout.clearance("CAN_P", "CAN_N") == pytest.approx(0.2, abs=1e-6)
+
+
+def test_a_footprint_with_no_courtyard_claims_its_body_not_its_pads(breakout_pcb):
+    """`courtyard_box`'s own fallback was unreachable: it appended the pads box
+    before testing the union for None, so a footprint that draws no courtyard
+    claimed exactly its pads. A five-way terminal block claimed 70 mm2 of the
+    334 mm2 it stands on, and the placement rank is worked out from that area.
+    `body_box` has always used the physical extent in this case; the two now
+    agree."""
+    import pcbnew
+
+    from placemat.kicad import read
+
+    board = pcbnew.LoadBoard(str(breakout_pcb))
+    bare = [fp for fp in board.GetFootprints()
+            if not any(d.GetLayer() in read._COURTYARD_LAYERS for d in fp.GraphicalItems())]
+    assert bare, "the breakout has no courtyard-less footprints to check"
+    for fp in bare:
+        assert read.courtyard_box(fp) == read.phys_box(fp), fp.GetReference()

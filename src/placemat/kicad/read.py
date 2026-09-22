@@ -107,10 +107,18 @@ def phys_box(fp, text=False) -> Box:
 
 
 def courtyard_box(fp) -> Box:
-    boxes = [_box_of(d.GetBoundingBox()) for d in fp.GraphicalItems()
+    """What the part claims for assembly. A footprint that draws no courtyard
+    claims its physical extent instead: its pads alone understate a through-
+    hole part by the whole of its plastic - a five-way terminal block on the
+    Breakout stands on 334 mm2 and its pads cover 70 - and that area is what
+    the placement rank orders parts by. `body_box` has always fallen back this
+    way; here the fallback was unreachable, because a footprint with pads never
+    unions to None."""
+    drawn = [_box_of(d.GetBoundingBox()) for d in fp.GraphicalItems()
              if d.GetLayer() in _COURTYARD_LAYERS]
-    boxes.append(_pads_box(fp))
-    box = Box.union(boxes)
+    if not drawn:
+        return phys_box(fp)
+    box = Box.union(drawn + [_pads_box(fp)])
     return box if box is not None else phys_box(fp)
 
 
