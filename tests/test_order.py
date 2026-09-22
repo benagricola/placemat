@@ -169,3 +169,32 @@ def test_a_no_legal_location_finding_names_the_top_blocking_owners():
     b.place(Part("small"), at=Near(Location(25, 25), radius=1.0, step=0.5))
     (finding,) = [f for f in b.resolve().findings if f.startswith("small")]
     assert "BIG" in finding and "front" in finding
+
+
+def test_the_plan_counts_which_nets_seeded_which_items():
+    """A board with no plane declared pulls every part sharing a net to one
+    centroid. The counts say so without placemat deciding a threshold."""
+    fps = [footprint("J1", 5, 5, w=6, h=3, inst="j1", nets=("BUS", "GND"))]
+    fps += [footprint("C%d" % i, 20 + i * 3, 20, w=1, h=0.5, inst="c%d" % i, nets=("BUS", "GND"))
+            for i in range(4)]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.place(Part("j1"), at=Location(10, 10))
+    for i in range(4):
+        b.place(Part("c%d" % i))
+    plan = b.resolve()
+    assert plan.seeded_by_net["BUS"] == 4
+
+
+def test_a_declared_plane_net_never_seeds_anything():
+    from placemat.values import CopperLayer, Net
+    fps = [footprint("J1", 5, 5, w=6, h=3, inst="j1", nets=("BUS", "GND"))]
+    fps += [footprint("C%d" % i, 20 + i * 3, 20, w=1, h=0.5, inst="c%d" % i, nets=("BUS", "GND"))
+            for i in range(4)]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.size(width=60, height=60)
+    b.plane(Net("GND"), layers=(CopperLayer.B,))
+    b.place(Part("j1"), at=Location(10, 10))
+    for i in range(4):
+        b.place(Part("c%d" % i))
+    plan = b.resolve()
+    assert "GND" not in plan.seeded_by_net and plan.seeded_by_net["BUS"] == 4

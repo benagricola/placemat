@@ -224,8 +224,13 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         shutil.copy(src.pcb, run_dir / "layout.kicad_pcb")
         say("board", "written %s (%.1fs)" % (src.pcb.relative_to(src.board_dir), rec.timing_s["write"]))
 
+        if plan.seeded_by_net:
+            top = plan.seeded_by_net.most_common(4)
+            more = len(plan.seeded_by_net) - len(top)
+            say("seeded", ", ".join("%s %d" % kv for kv in top) + (", +%d more" % more if more else ""))
         metrics = {"board": [round(plan.outline.width, 3), round(plan.outline.height, 3)] if plan.outline else None,
-                   "findings": len(plan.findings), "placed": n_place, "copper_ops": n_copper, **extent_metrics}
+                   "findings": len(plan.findings), "placed": n_place, "copper_ops": n_copper,
+                   "seeded_by_net": dict(plan.seeded_by_net), **extent_metrics}
         if drc:
             t0 = time.time()
             report = run_drc(src.pcb, run_dir / "drc.json")

@@ -412,6 +412,7 @@ class Plan:
     cutouts: object = field(default_factory=lambda: Cutouts())   # a rectangle's holes, for Edge.Cuts
     cutouts_placed: dict = field(default_factory=dict)           # every named cutout, once it has a place
     keepouts: dict = field(default_factory=dict)                 # every named keepout, once it has a place
+    seeded_by_net: Counter = field(default_factory=Counter)      # net -> how many items it seeded
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -2506,6 +2507,8 @@ class Board:
                            if k[0] in {fp.ref for fp in (i.item.members if i.kind == "cell" else (i.item,))}
                            for p in self.geometry.footprint(k[0]).pads if p.number == k[1]})
             seeded = "seeded on %s" % ", ".join(nets)
+            for n in nets:
+                plan.seeded_by_net[n] += 1
         else:
             return self._settle_in_pocket(occ, i, plan, clr)
         score = self._scorer(i.item, occ, targets) if targets else None
