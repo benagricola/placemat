@@ -60,3 +60,50 @@ def test_a_rule_area_forbidding_vias_blocks_one_forbidding_tracks_does_not():
     no_tracks = RuleArea("keepout b", None, box, frozenset([F, B]), frozenset(["tracks"]))
     assert not queries.judge_via(_geom(rule_areas=(no_vias,)), Location(20, 20), "GND", 0.6, 0.3).clear
     assert queries.judge_via(_geom(rule_areas=(no_tracks,)), Location(20, 20), "GND", 0.6, 0.3).clear
+
+
+def test_a_tail_crossing_another_nets_track_on_its_layer_is_blocked():
+    g = _geom([track("SIG", 20, 5, 20, 35)])
+    said = queries.judge_tail(g, Location(15, 20), Location(25, 20), "GND", 0.2, F)
+    assert said and "SIG" in said[0]
+    assert queries.judge_tail(g, Location(15, 20), Location(25, 20), "GND", 0.2, B) == ()
+
+
+def test_the_search_returns_the_nearest_clear_spot_and_a_tally_of_the_rest():
+    blocked = lambda c: ("copper", ()) if c.x < 20.9 else (None, ())
+    spot, tally, tried = queries.free_spot(Location(20, 20), blocked, radius=2.0, step=0.1)
+    assert spot is not None and spot.at.x >= 20.9
+    assert tally["copper"] >= 1 and tried > tally["copper"]
+
+
+def test_the_search_is_identical_run_twice():
+    judge = lambda c: ("edge", ()) if (c.x + c.y) % 0.7 < 0.3 else (None, ())
+    a = queries.free_spot(Location(20, 20), judge, radius=1.0, step=0.1)
+    b = queries.free_spot(Location(20, 20), judge, radius=1.0, step=0.1)
+    assert a[0] == b[0] and a[1] == b[1]
+
+
+def test_nowhere_within_the_radius_returns_no_spot_and_the_whole_tally():
+    spot, tally, tried = queries.free_spot(Location(20, 20), lambda c: ("edge", ()), radius=0.5, step=0.1)
+    assert spot is None and tally["edge"] == tried
+
+
+def test_a_real_search_clears_a_blocking_track():
+    g = _geom([track("SIG", 20.5, 5, 20.5, 35, w=0.3)])
+    judge = queries.via_judge(g, Location(20, 20), "GND", 0.6, 0.3, 0.2, F)
+    spot, tally, _ = queries.free_spot(Location(20, 20), judge, radius=3.0, step=0.1)
+    assert spot is not None
+    assert queries.judge_via(g, spot.at, "GND", 0.6, 0.3).clear
+    assert tally                                # the nearer spots failed, and it says why
+
+
+def test_a_net_named_like_an_obstacle_is_tallied_by_what_it_is():
+    """A reason is bucketed by its shape, not by the first word that looks
+    like a kind: a track of a net called /mcu/edge_led is copper, not the edge."""
+    assert queries._kind("0.12 mm from /mcu/edge_led track on F.Cu (needs 0.20)") == "track"
+    assert queries._kind("0.30 mm from hole_sense via on B.Cu/F.Cu (needs 0.20)") == "via"
+    assert queries._kind("0.20 mm from the board edge (needs 0.50)") == "edge"
+    assert queries._kind("off the board") == "edge"
+    assert queries._kind("hole 0.10 mm from the via GND hole (needs 0.25)") == "hole"
+    assert queries._kind("tail 0.05 mm from tail_en track on F.Cu (needs 0.20)") == "tail"
+    assert queries._kind("inside keepout a, which forbids vias") == "keepout"

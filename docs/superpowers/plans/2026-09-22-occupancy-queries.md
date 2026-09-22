@@ -255,7 +255,7 @@ def judge_via(geometry, at: Location, net: str, size: float, drill: float) -> Vi
 
 **Files:** Modify `src/placemat/queries.py`. Test `tests/test_queries.py`.
 
-**Interfaces:** Produces `judge_tail(geometry, start, end, net, width, layer, skip=()) -> tuple[str, ...]`, `Spot(at, distance, tail_layer, tail_mm, soft)`, `free_spot(start: Location, judge, radius=2.0, step=0.05) -> tuple[Spot | None, Counter, int]` where `judge(candidate) -> (reason | None, soft)`, and `via_judge(geometry, start, net, size, drill, width, layer, skip)` building that callable.
+**Interfaces:** Produces `judge_tail(geometry, start, end, net, width, layer, skip=()) -> tuple[str, ...]`, `Spot(at, distance, soft)`, `free_spot(start: Location, judge, radius=2.0, step=0.05) -> tuple[Spot | None, Counter, int]` where `judge(candidate) -> (reason | None, soft)`, and `via_judge(geometry, start, net, size, drill, width, layer, skip)` building that callable.
 
 - [ ] **Step 1: Write the failing test**
 
