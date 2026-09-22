@@ -121,3 +121,13 @@ def test_a_hole_counts_as_a_board_edge():
                                            ((13.0, 8.0), (16.0, 8.0), (16.0, 12.0), (13.0, 12.0))))
     f = describe.part_facts(g.footprint("U1"), g)
     assert f["nearest_edge_courtyard"] == pytest.approx(0.9, abs=0.05)    # the hole, not the rim
+
+
+def test_the_docs_tell_an_agent_to_measure_rather_than_grep():
+    from pathlib import Path
+    api = Path("skills/placemat/references/api.md").read_text()
+    assert "placemat parts" in api and "--pads" in api
+    skill = Path("skills/placemat/SKILL.md").read_text()
+    assert "placemat parts" in skill and "kicad_mod" in skill
+    mig = Path("skills/placemat/references/migration.md").read_text()
+    assert "0.10" in mig

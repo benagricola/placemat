@@ -22,6 +22,9 @@ board; declarations are collected and resolved together.
 | `board.keep_in` | the board's copper-to-edge rule: where an EDGE item's reach lands |
 | `board.reach(item, rotation=)` | the item's body, pads and silk together, as a box at the origin |
 
+The same answers from the command line, for when no script is running, are
+`placemat parts <board>` and `placemat measure <board> <part> --pads`.
+
 ## Setup
 
 `board.size(width, height, chamfer=0.0, radius=0.0, holes=(), web=0.0)` - the
@@ -637,12 +640,31 @@ placemat run <script> [--label L] [--fresh] [--no-render] [--no-drc] [-v] [--jso
 placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--json]
 placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
-placemat measure <layout.kicad_pcb> [cell-or-part ...]
+placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part ...] [--pads] [--json]
+placemat parts <layout.kicad_pcb | script> [--json]
 placemat show <layout.kicad_pcb | script> <cell | part> [--out DIR]
 placemat faces <module layout.kicad_pcb> outward=N [quiet=S] [handoff=E]
 placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise C] [--copper-oz OZ] [--limit CHECK=VALUE ...] [--json]
 placemat settings [<script-or-board-dir>] [--json]
 ```
+
+`measure` is the geometry query. Given a board it prints, per part, the
+instance, refdes, value, face, rotation and origin, the `body`, `courtyard` and
+`physical` boxes, and how near its courtyard and copper come to the board's
+edge. `--pads` adds every pad's number, net, layers, drill, centre in the board
+frame and **the box round its copper** - not the anchor size, which for a
+custom pad is not the copper. Given a path ending `.kicad_mod` it reads that
+footprint with no board at all, in the footprint's own frame, and prints the
+file's SHA-256 so two variants of a part can be told apart; a pad read that way
+reports an attribute rather than layers, because a footprint has no stackup.
+
+`parts` answers "what are the parts called": one line per footprint with its
+cell, courtyard area, pin count and value. The area and the pin count are what
+the placement rank is worked out from, so the listing also explains the order
+things went down in.
+
+Both take `--json`. Reach for these before grepping a `.kicad_mod`.
+
 `check` reads the `Pm.*` facts the capture put on its parts (the
 placemat-design skill says which) and reports hot loop area, switch node
 copper, keep-out distance, crossings under sense tracks, current path

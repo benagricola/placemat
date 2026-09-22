@@ -228,6 +228,12 @@ coordinates nobody chose.
 
 ## Placement tactics
 
+- Before grepping a `.kicad_mod` or reaching for pcbnew, run `placemat parts`
+  to see what the parts are called and `placemat measure <part> --pads` to get
+  a pad's real copper box, its net and its position. A footprint that is not on
+  a board yet is `placemat measure <path>.kicad_mod`. Every number those print
+  is one placemat already holds; going to the file by hand is how the wrong one
+  gets used.
 - Say what is a mechanical fact (a point: `fixed`) and what is a distance
   along an edge (`edge`); leave the rest searched with a bare `place(item)`. The placer orders searched items
   itself - a cell, a block and a loose part in one queue, by rank, so a

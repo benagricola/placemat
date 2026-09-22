@@ -4,6 +4,25 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.10
+
+Nothing to change. Two commands are new and one has grown, and an agent that
+does not know about them will keep grepping footprints by hand.
+
+`placemat parts <board>` lists every part: instance, refdes, face, cell,
+courtyard area, pin count, value.
+
+`placemat measure <board> <part> --pads` prints its position, its `body`,
+`courtyard` and `physical` boxes, how near it comes to the board edge, and
+every pad's number, net, layers, drill, centre and **copper box**. The copper
+box is the box round the pad's outlines: for a custom pad the anchor size is
+not the copper, and reading the anchor is how a via ends up inside a pad.
+
+`placemat measure <path>.kicad_mod` does the same for a footprint that is not
+on a board, with its SHA-256.
+
+Both take `--json`.
+
 ## To 0.9
 
 Nothing to change in a script. Two behaviours are stricter and two reports say
