@@ -1567,10 +1567,11 @@ class Board:
         return out
 
     def _solvable(self, i) -> bool:
-        """A searched item placed by the plain search: the one path the solve
-        seeds. Anything with a line, an edge, a rim or a hint of its own keeps
-        the path it has."""
-        return (not i.freedom.decided and i.near is None and i.at is None and i.center is None
+        """A searched part or cell placed by the plain search: the one path the
+        solve seeds. A block, and anything with a line, an edge, a rim or a
+        hint of its own, keeps the path it has."""
+        return (i.kind in ("part", "cell") and not i.freedom.decided and i.near is None
+                and i.at is None and i.center is None
                 and i.edge is None and i.pin_x is None and i.pin_y is None and i.run is None
                 and i.rim is None and i.angle is None and i.radius_at is None)
 
@@ -2636,7 +2637,8 @@ class Board:
         return Step(i.key, "block", None if i.freedom.decided else i.priority, anchor_at, 0.0, note, i.why, freedom=i.freedom,
                     rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
 
-    def _settle(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set = frozenset()) -> Step:
+    def _settle(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set = frozenset(),
+                solve: bool = True) -> Step:
         if i.kind == "block":
             return self._settle_block(occ, i, plan, placed)
         clr = self.clearance
@@ -2699,7 +2701,7 @@ class Board:
         targets = self._targets(i.item, occ, placed)
         seeded = ""
         solved = None
-        if i.near is None and self.settings.solve_enabled:
+        if solve and i.near is None and self.settings.solve_enabled:
             solved = self._global_hints(occ, placed, plan).get(i.key)
         if i.near is not None:
             hint = Placement(_locate(self, occ, i.near), i.rotation, i.face)
@@ -2731,6 +2733,14 @@ class Board:
             return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: " + hopeless, i.why, freedom=i.freedom,
                     rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
         result = scan(occ, i.item, hint, radius, i.step, i.rotations or (i.rotation,), clr, score=score)
+        if result.chosen is None and solved is not None:
+            # The solve spreads items without seeing what is already placed, so
+            # its hint can land where nothing is legal. That must not cost a
+            # placement the sequential seed would have made: drop the hint.
+            step = self._settle(occ, i, plan, placed, solve=False)
+            step.note = "the global solve's hint had no legal spot within %.1f mm, so it was dropped; %s" % (
+                radius, step.note)
+            return step
         if result.chosen is None:
             plan.findings.append("%s: no legal location within %.1f mm of %s (%s)" % (
                 i.key, radius, _loc(hint.location), _blame_text(result)))

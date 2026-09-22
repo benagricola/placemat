@@ -67,3 +67,37 @@ def test_the_plan_records_what_the_solve_did():
     b.place(Part("r1"))
     plan = b.resolve()
     assert plan.solve["seeded"] == 2 and plan.solve["rounds"] >= 1
+
+
+def test_a_block_keeps_its_own_seeding_when_the_solve_is_on():
+    """A block's item is its spec, not a part: on a real board the solve
+    crashed reading a refdes off it. Blocks keep the path they have."""
+    fps = [footprint("U9", 150, 60, w=4, h=2, inst="ldo", nets=("VIN", "VOUT")),
+           footprint("C8", 160, 60, w=2, h=1, inst="cin", nets=("VIN", "GND")),
+           footprint("R5", 140, 60, w=2, h=1, inst="r5", nets=("VOUT", "FB")),
+           footprint("J1", 5, 5, w=4, h=2, inst="j1", nets=("VIN", "GND"))]
+    b = Board(board_geometry(fps, width=50, height=50), edge_margin=1.0,
+              settings=dataclasses.replace(Settings(), solve_enabled=True))
+    b.place(Part("j1"), at=Location(40, 40))
+    b.place(b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")]), radius=4.0)
+    b.place(Part("r5"))
+    plan = b.resolve()
+    notes = {s.item: s.note for s in plan.steps}
+    assert "global solve" in notes["r5"]
+    assert not any("global solve" in n for k, n in notes.items() if "ldo" in k)
+
+
+def test_a_solved_hint_that_cannot_be_legalised_falls_back_to_the_seed(monkeypatch):
+    """On a real board the solve put two small parts against the edge beside a
+    connector, the scan found nothing there, and they went unplaced where the
+    sequential seed would have placed them. A hint that fails is dropped for
+    the path the item had without the solve."""
+    b = _board(True)
+    b.place(Part("u1"))
+    b.place(Part("r1"))
+    monkeypatch.setattr(Board, "_global_hints",
+                        lambda self, occ, placed, plan: {"u1": Location(-100.0, -100.0), "r1": Location(-100.0, -100.0)})   # nothing legal within reach
+    plan = b.resolve()
+    steps = {s.item: s for s in plan.steps}
+    assert steps["u1"].placement is not None and steps["r1"].placement is not None
+    assert "solve's hint" in steps["u1"].note
