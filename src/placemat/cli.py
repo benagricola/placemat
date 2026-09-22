@@ -61,6 +61,23 @@ def parser() -> argparse.ArgumentParser:
     pl.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
     pl.add_argument("--json", action="store_true")
 
+    oc = sub.add_parser("occupancy", help="what copper is at a point or in a box, and where a via "
+                                          "can stand near a pad")
+    oc.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
+    what = oc.add_mutually_exclusive_group(required=True)
+    what.add_argument("--at", metavar="X,Y", help="the copper under a point, per layer, and whether a via fits")
+    what.add_argument("--box", metavar="X0,Y0,X1,Y1", help="the copper inside a box, by net and kind")
+    what.add_argument("--via-near", metavar="PART.PAD", help="the nearest spot a via can stand and be reached")
+    oc.add_argument("--net", default=None, help="the via's net (default: the pad's, or what is at the point)")
+    oc.add_argument("--size", type=float, default=None, help="via diameter, mm (default: the net's class)")
+    oc.add_argument("--drill", type=float, default=None, help="via drill, mm (default: the net's class)")
+    oc.add_argument("--layer", default=None, help="the tail's layer (default: the pad's)")
+    oc.add_argument("--radius", type=float, default=2.0, help="how far from the pad to look, mm")
+    oc.add_argument("--step", type=float, default=0.05, help="the search's grid, mm")
+    oc.add_argument("--in-pad", action="store_true",
+                    help="allow the via to sit in its own pad (it then needs plugging)")
+    oc.add_argument("--json", action="store_true")
+
     dsp = sub.add_parser("datasheet", help="what is in a datasheet and where: the page for each "
                                            "of land pattern, package, rules and pins")
     dsp.add_argument("pdf", help="a datasheet PDF, or the word `check`")
@@ -422,6 +439,82 @@ def cmd_datasheet(args) -> int:
     return 0
 
 
+def _numbers(text: str, n: int) -> list:
+    values = [float(v) for v in text.replace(" ", "").split(",")]
+    if len(values) != n:
+        raise SystemExit("expected %d numbers separated by commas, got %r" % (n, text))
+    return values
+
+
+def cmd_occupancy(args) -> int:
+    from . import queries
+    from .kicad.read import read_board
+    from .project import find_board
+    from .settings import bind, load
+    from .values import Box, CopperLayer, Location
+    p = Path(args.pcb)
+    src = None if p.suffix == ".kicad_pcb" else find_board(p)
+    pcb = p if src is None else src.pcb
+    with bind(load(src.board_dir if src is not None else pcb.parent)):
+        g = read_board(pcb)
+
+    def via_rules(net):
+        nc = g.netclasses.get(net)
+        size = args.size or (nc.via_diameter if nc else 0.6)
+        drill = args.drill or (nc.via_drill if nc else 0.3)
+        width = nc.track_width if nc else 0.2
+        return size, drill, width
+
+    if args.at:
+        x, y = _numbers(args.at, 2)
+        at = Location(x, y)
+        under = [c for cs in queries.copper_at(g, at).values() for c in cs]
+        net = args.net if args.net is not None else (under[0].net if under else "")
+        size, drill, _ = via_rules(net)
+        if args.json:
+            v = queries.judge_via(g, at, net, size, drill)
+            console.data(json.dumps({"at": [x, y], "copper": {
+                l.value: [{"kind": c.kind, "net": c.net, "owner": c.owner} for c in cs]
+                for l, cs in queries.copper_at(g, at).items()},
+                "via": {"net": net, "clear": v.clear, "hard": list(v.hard), "soft": list(v.soft)}}, indent=2))
+        else:
+            console.lines("occupancy", "\n".join(queries.at_lines(g, at, net, size, drill)))
+        return 0
+    if args.box:
+        x0, y0, x1, y1 = _numbers(args.box, 4)
+        box = Box(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+        if args.json:
+            console.data(json.dumps({l.value: [{"net": n, "kind": k, "count": c} for (n, k), c in cnt.most_common()]
+                                     for l, cnt in queries.copper_in(g, box).items()}, indent=2))
+        else:
+            console.lines("occupancy", "\n".join(queries.box_lines(g, box)))
+        return 0
+    part, _, number = args.via_near.rpartition(".")
+    fp = g.footprint(part)
+    pads = [q for q in fp.pads if q.number == number]
+    if not pads:
+        console.say("occupancy", "%s has no pad %r; its pads are %s" % (
+            fp.inst, number, ", ".join(sorted({q.number for q in fp.pads}))))
+        return 1
+    pad = pads[0]
+    net = args.net if args.net is not None else pad.net
+    size, drill, width = via_rules(net)
+    layer = CopperLayer.of(args.layer) if args.layer else queries._ordered(pad.layers or g.layers)[0]
+    source = () if args.in_pad else pad.outlines
+    spot, tally, tried = queries.free_spot(pad.box.center, queries.via_judge(g, pad.box.center, net, size, drill,
+                                                                              width, layer, source),
+                                           args.radius, args.step)
+    if args.json:
+        console.data(json.dumps({"spot": None if spot is None else {
+            "at": [spot.at.x, spot.at.y], "distance": spot.distance, "soft": list(spot.soft)},
+            "tally": dict(tally), "tried": tried, "net": net, "size": size, "drill": drill,
+            "layer": layer.value}, indent=2))
+    else:
+        console.lines("occupancy", "\n".join(queries.spot_lines(spot, tally, tried, net,
+                                                                  "%s.%s" % (fp.inst, pad.number))))
+    return 0 if spot is not None else 1
+
+
 def cmd_show(args) -> int:
     from .kicad.read import read_board
     from .kicad.write import show_item
@@ -500,7 +593,7 @@ def main(argv=None) -> int:
     return {"run": cmd_run, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
             "route": cmd_route, "check": cmd_check, "show": cmd_show, "faces": cmd_faces,
             "settings": cmd_settings, "parts": cmd_parts,
-            "datasheet": cmd_datasheet}[args.command](args)
+            "datasheet": cmd_datasheet, "occupancy": cmd_occupancy}[args.command](args)
 
 
 if __name__ == "__main__":

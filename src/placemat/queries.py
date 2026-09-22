@@ -131,6 +131,8 @@ def _kind(reason: str) -> str:
         return "edge"
     if reason.startswith("inside ") and "forbids" in reason:
         return "keepout"
+    if reason == "in the source pad":
+        return "pad"
     m = _COPPER_REASON.search(reason)
     return m.group(1) if m else reason.split()[0]
 
@@ -156,10 +158,18 @@ def free_spot(start: Location, judge, radius: float = 2.0, step: float = 0.05) -
 
 
 def via_judge(geometry, start: Location, net: str, size: float, drill: float, width: float,
-              layer):
+              layer, source=()):
     """The judge `free_spot` calls for a via of `net` fed from `start` by a
-    straight tail on `layer`."""
+    straight tail on `layer`. `source` is the pad's own copper: a via may not
+    overlap it. An SMD pad's centre passes every other rule, so without this
+    the answer was a via in the pad nearly every time - which needs plugging
+    to stop solder wicking, and is not a tap reached by a tail. Pass no
+    source to allow a via in the pad."""
     def judge(c):
+        if source:
+            ring = circle_polygon(c, size / 2.0)
+            if any(polys_overlap(ring, o) for o in source):
+                return "in the source pad", ()
         v = judge_via(geometry, c, net, size, drill)
         if not v.clear:
             return v.hard[0], v.soft
@@ -212,4 +222,52 @@ def copper_in(geometry, box: Box) -> dict:
         if any(polys_overlap(region, o) for o in c.outlines):
             for l in c.layers:
                 out.setdefault(l, Counter())[(c.net, c.kind)] += 1
+    return out
+
+
+def _ordered(layers):
+    from .board_geometry import stackup_order
+    return sorted(layers, key=stackup_order)
+
+
+def at_lines(geometry, at: Location, net: str | None = None, size: float = 0.0, drill: float = 0.0) -> list:
+    """Per layer, the copper under a point and the nearest copper of another
+    net; then whether a via of `net` could stand there."""
+    under = copper_at(geometry, at)
+    out = ["at (%.3f, %.3f)" % (at.x, at.y)]
+    for layer in _ordered(geometry.layers):
+        here = under.get(layer, [])
+        what = ", ".join("%s %s%s" % (c.kind, c.net or "-", (" (%s)" % c.owner) if c.owner else "")
+                         for c in here) or "nothing"
+        near = nearest_foreign(geometry, at, layer, net if net is not None else (here[0].net if here else ""))
+        out.append("  %-7s %s%s" % (layer.value, what,
+                                     "" if near is None else "; nearest other net %.2f mm" % near))
+    if net is not None:
+        v = judge_via(geometry, at, net, size, drill)
+        out.append("  via of %s: %s" % (net or "no net", "can stand here" if v.clear else "blocked"))
+        out += ["    %s" % h for h in v.hard] + ["    %s" % s for s in v.soft]
+    return out
+
+
+def box_lines(geometry, box: Box) -> list:
+    got = copper_in(geometry, box)
+    out = ["box (%.3f, %.3f)..(%.3f, %.3f)" % (box.left, box.top, box.right, box.bottom)]
+    for layer in _ordered(geometry.layers):
+        counts = got.get(layer)
+        if not counts:
+            out.append("  %-7s nothing" % layer.value)
+            continue
+        out.append("  %-7s %s" % (layer.value, ", ".join(
+            "%s %s x%d" % (net or "-", kind, n) for (net, kind), n in counts.most_common())))
+    return out
+
+
+def spot_lines(spot, tally, tried, net: str, pad_label: str) -> list:
+    rest = ", ".join("%s x%d" % kv for kv in tally.most_common()) or "none"
+    if spot is None:
+        return ["via of %s near %s: nowhere, %d spot(s) tried: %s" % (net, pad_label, tried, rest)]
+    out = ["via of %s near %s: (%.3f, %.3f), %.2f mm from the pad" % (
+        net, pad_label, spot.at.x, spot.at.y, spot.distance)]
+    out += ["  %s" % s for s in spot.soft]
+    out.append("  nearer spots that failed: %s" % rest)
     return out

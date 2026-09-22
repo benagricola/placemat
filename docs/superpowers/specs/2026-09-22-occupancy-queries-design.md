@@ -37,6 +37,10 @@ diameter d and drill h is judged:
   which layer would give way, because a via can split a plane.
 - **Not an obstacle**: copper of net N, and a courtyard - DRC allows a via
   under a body.
+- **Not in its own pad**, unless asked. An SMD pad's centre passes every rule
+  above, so without this the answer would be a via in the pad nearly every
+  time - which needs plugging to stop solder wicking, and is not a tap reached
+  by a tail. `--in-pad`, or `FreeSpot(..., in_pad=True)`, allows it.
 
 **The tail.** A tap is only useful if it can be reached. A straight track from
 the source pad's centre to the candidate, at N's class width on one layer (the

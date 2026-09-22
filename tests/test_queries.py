@@ -138,3 +138,20 @@ def test_a_tail_may_not_cross_a_neighbouring_pin_of_the_same_part():
     judge = queries.via_judge(g, gnd.box.center, "GND", 0.6, 0.3, 0.2, F)
     why, _ = judge(past_sig)
     assert why is not None and "SIG" in why
+
+
+def test_a_via_stands_clear_of_its_own_pad_unless_asked_to_sit_in_it():
+    """An SMD pad's own centre passes every rule, so without this the search
+    recommended a via in the pad nearly every time - which needs plugging to
+    stop solder wicking, and is not a tap reached by a tail."""
+    u = footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("GND", "SIG"))
+    g = _geom(fps=[u])
+    gnd = next(p for p in u.pads if p.net == "GND")
+    beside = queries.via_judge(g, gnd.box.center, "GND", 0.6, 0.3, 0.2, F, source=gnd.outlines)
+    spot, tally, _ = queries.free_spot(gnd.box.center, beside, radius=3.0, step=0.1)
+    from placemat.geometry import circle_polygon, polys_overlap
+    ring = circle_polygon(spot.at, 0.3)
+    assert not any(polys_overlap(ring, o) for o in gnd.outlines)
+    assert tally["pad"] >= 1
+    inside = queries.via_judge(g, gnd.box.center, "GND", 0.6, 0.3, 0.2, F)
+    assert queries.free_spot(gnd.box.center, inside, radius=3.0, step=0.1)[0].distance == 0.0
