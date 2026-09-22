@@ -165,6 +165,7 @@ class CopperItem:
     box: Box
     owner: str | None = None    # refdes for a pad, cell name for cell copper
     width_mm: float = 0.0       # tracks
+    drill_mm: float = 0.0       # vias: the hole, for the hole-to-hole rule
 
 
 @dataclass(frozen=True)
@@ -192,6 +193,8 @@ class BoardGeometry:
     edge_clearance: float = 0.0           # copper to the board edge, from the board's rules: the keep-in
     rule_areas: tuple = ()                # what the board already forbids: a stamped cell's come with it
     board_polygon: tuple = ()             # the true edge: the outline, then its holes
+    hole_to_hole: float = 0.25            # the nearest two drilled holes may come, from the board's rules
+    hole_clearance: float = 0.0           # a hole's clearance to copper of another net
     _by_ref: dict = field(default_factory=dict, repr=False, compare=False)
     _by_inst: dict = field(default_factory=dict, repr=False, compare=False)
 

@@ -177,7 +177,7 @@ def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footpr
 def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, ...]:
     items = []
 
-    def add(kind, obj, net, owner=None, width=0.0):
+    def add(kind, obj, net, owner=None, width=0.0, drill=0.0):
         cu = [l for l in obj.GetLayerSet().CuStack() if board.IsLayerEnabled(l)]
         if not cu:
             return                      # nothing on a layer this board has
@@ -185,7 +185,7 @@ def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, .
         if not outs:
             return
         items.append(CopperItem(kind, net, _copper_layers(board, obj.GetLayerSet()), outs,
-                                Box.of_points([p for o in outs for p in o]), owner, width))
+                                Box.of_points([p for o in outs for p in o]), owner, width, drill))
 
     for fp in board.GetFootprints():
         for pad in fp.Pads():
@@ -195,7 +195,7 @@ def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, .
     for t in board.GetTracks():
         owner = groups_of.get(_kiid(t))
         if isinstance(t, pcbnew.PCB_VIA):
-            add("via", t, t.GetNetname(), owner)
+            add("via", t, t.GetNetname(), owner, drill=mm(t.GetDrillValue()))
         else:
             add("track", t, t.GetNetname(), owner, mm(t.GetWidth()))
     for d in board.GetDrawings():
@@ -386,5 +386,7 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
     return BoardGeometry(path=path, footprints=fps, cells=cells, copper=copper, outline=_outline(board),
                     nets=frozenset(classes), netclasses=classes, default_clearance=default_clr,
                     layers=layers, edge_clearance=mm(board.GetDesignSettings().m_CopperEdgeClearance),
+                    hole_to_hole=mm(board.GetDesignSettings().m_HoleToHoleMin),
+                    hole_clearance=mm(board.GetDesignSettings().m_HoleClearance),
                     rule_areas=_rule_areas(board, groups_of),
                     board_polygon=_board_polygon(board))
