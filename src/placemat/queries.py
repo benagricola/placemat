@@ -168,3 +168,48 @@ def via_judge(geometry, start: Location, net: str, size: float, drill: float, wi
             return tail[0], v.soft
         return None, v.soft
     return judge
+
+
+def copper_at(geometry, at: Location) -> dict:
+    """The copper covering a point, per layer."""
+    out = {l: [] for l in geometry.layers}
+    for c in geometry.copper:
+        b = c.box
+        if not (b.left <= at.x <= b.right and b.top <= at.y <= b.bottom):
+            continue
+        if any(point_in_polygon((at.x, at.y), o) for o in c.outlines):
+            for l in c.layers:
+                out.setdefault(l, []).append(c)
+    return out
+
+
+def _point_to_polygon(at: Location, poly) -> float:
+    """0 inside the polygon, else the distance to its nearest edge."""
+    if point_in_polygon((at.x, at.y), poly):
+        return 0.0
+    n = len(poly)
+    return min(point_segment_distance((at.x, at.y), poly[i], poly[(i + 1) % n]) for i in range(n))
+
+
+def nearest_foreign(geometry, at: Location, layer, net: str):
+    """How far the nearest copper of another net is from the point on a layer."""
+    best = None
+    for c in geometry.copper:
+        if c.net == net or layer not in c.layers or not c.outlines:
+            continue
+        d = min(_point_to_polygon(at, o) for o in c.outlines)
+        best = d if best is None or d < best else best
+    return best
+
+
+def copper_in(geometry, box: Box) -> dict:
+    """The copper inside a box, counted by (net, kind) per layer."""
+    out = {l: Counter() for l in geometry.layers}
+    region = ((box.left, box.top), (box.right, box.top), (box.right, box.bottom), (box.left, box.bottom))
+    for c in geometry.copper:
+        if not c.box.overlaps(box):
+            continue
+        if any(polys_overlap(region, o) for o in c.outlines):
+            for l in c.layers:
+                out.setdefault(l, Counter())[(c.net, c.kind)] += 1
+    return out

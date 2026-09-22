@@ -107,3 +107,22 @@ def test_a_net_named_like_an_obstacle_is_tallied_by_what_it_is():
     assert queries._kind("hole 0.10 mm from the via GND hole (needs 0.25)") == "hole"
     assert queries._kind("tail 0.05 mm from tail_en track on F.Cu (needs 0.20)") == "tail"
     assert queries._kind("inside keepout a, which forbids vias") == "keepout"
+
+
+def test_the_copper_under_a_point_is_named_per_layer():
+    g = _geom([_zone("GND", 0, 0, 40, 40, layer=B), track("SIG", 20, 5, 20, 35)])
+    at = queries.copper_at(g, Location(20, 20))
+    assert [c.net for c in at[F]] == ["SIG"] and [c.net for c in at[B]] == ["GND"]
+
+
+def test_the_copper_in_a_box_is_counted_by_net_and_kind():
+    g = _geom([track("SIG", 20, 5, 20, 35), track("SIG", 22, 5, 22, 35), _via("GND", 21, 20)])
+    got = queries.copper_in(g, Box(18, 18, 24, 22))
+    assert got[F][("SIG", "track")] == 2 and got[F][("GND", "via")] == 1
+
+
+def test_the_nearest_copper_of_another_net_is_measured_to_its_edge():
+    g = _geom([track("SIG", 20, 5, 20, 35, w=0.3), track("GND", 21.5, 5, 21.5, 35)])
+    d = queries.nearest_foreign(g, Location(21, 20), F, "GND")
+    assert abs(d - 0.85) < 1e-6                 # to SIG's edge at 20.15; GND is its own net
+    assert queries.nearest_foreign(g, Location(21, 20), B, "GND") is None
