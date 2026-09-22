@@ -138,14 +138,20 @@ Compares a `.kicad_mod` against the datasheet and names every disagreement.
 What `--read` sourced is used automatically; anything it could not source, or
 got wrong, is supplied as a flag.
 
-**An override is an anchor, not a retype.** For a drawing with no text, one
-supplied dimension scales the recovered geometry: given `--pitch 0.5`, the
-boxes picked out as the pad row become millimetres, and the pad size, span and
-count follow without being typed. This is what makes the text-poor 7 tractable
-rather than hopeless. Which boxes are the pad row is the open problem named
-above: 870 of the TYPE-C page's paths are axis-aligned and the largest equal
-group is outlined text, so the pads are found by their own regularity - equal
-boxes on one line at one pitch - not by being the commonest shape.
+**An override is corroborated, not blind.** placemat cannot tell which decimal
+on a drawing is the pitch - that is semantics no parser here recovers - so the
+values `check` compares against are supplied as flags. What it does for free is
+say whether the number supplied appears on the sheet at all, and with what
+confidence: `0.500 supplied, p1 ocr conf 86` is a different thing from `0.650
+supplied, not on the page`. That is what makes an override safe to trust.
+
+Scaling recovered pad geometry from one anchor dimension was the original
+intent here and it is **not** buildable on these drawings. On the TYPE-C
+31-M-12's land-pattern view, 276 of 453 paths are two-point line segments: the
+contacts are hatching, not rectangles. There is no regular run of five or more
+equal boxes on a shared line anywhere on the page. So the pads are supplied and
+checked against the footprint, and the drawing corroborates rather than
+measures.
 
 ```
 placemat datasheet check TYPE_C_31_M_12.pdf TYPE-C-31-M-12.kicad_mod --pitch 0.5
