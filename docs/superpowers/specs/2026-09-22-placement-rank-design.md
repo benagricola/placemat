@@ -1,7 +1,7 @@
 # A placement rank from size and pin count, and freedom out of Priority
 
 Date: 2026-09-22
-Status: design, awaiting approval
+Status: implemented, 0.6.0
 Depends on: 2026-09-22-placemat-toml-design.md
 
 ## What is wrong today

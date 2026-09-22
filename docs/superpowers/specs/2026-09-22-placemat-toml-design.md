@@ -1,7 +1,7 @@
 # placemat.toml: the behavioural constants a project may set
 
 Date: 2026-09-22
-Status: design, awaiting approval
+Status: implemented, 0.6.0
 
 Prerequisite for `2026-09-22-placement-rank-design.md`, which needs somewhere to
 put the rank weights.
