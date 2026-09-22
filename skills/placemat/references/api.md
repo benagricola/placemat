@@ -212,10 +212,28 @@ says which happened.
 **Order.** FIXED and EDGE items go down as declared. Searched items are
 ordered by the placer, re-measured after each. A cell, a block and a loose
 part are ONE queue: a connector can be the most important thing on a board
-and does not wait behind the cells for being a single part. Priority leads
-(worked out from what each item needs), then an item needing more than a
-quarter of the free board goes now, else the strongest link pull toward what
-is placed, else the largest. The sentence that chose each is in its step.
+and does not wait behind the cells for being a single part. The script's
+`priority=` tier leads, then the rank - courtyard area and pin count, each
+measured against this board's other searched items - then the strongest link
+pull toward what is placed, which only separates items the rank cannot, then
+the largest. The sentence that chose each is in its step.
+
+**Where each is searched from.** An explicit `at=Near(...)` first. Otherwise
+the item is centred on the placed pads it is wired to, and an item wired to
+nothing placed yet takes the largest free rectangle that fits it. With
+`[solve] enabled = true` a global solve comes between the two: at the first
+searched item it works out where every unplaced searched part and cell would
+sit if the whole netlist pulled at once - placed items as anchors, each pad at
+its offset, plane and free nets pulling only through declared links, then an
+even spread over the board that keeps their relative order - and each item is
+searched from that point instead. A block keeps its own seeding. A solved hint
+with nothing legal within reach is dropped for the path the item had without
+it. It is off by default: on one measured 96-item board it matched the
+sequential seed on items placed and findings and joined seven more
+connections, but cost one more DRC violation and 1.6% more airwire, so the
+best-run gate judged it worse. Try it on a board whose searched items scatter
+or land in pockets with "nothing it connects to is placed", and let the `best`
+line judge.
 
 ## Cutouts
 

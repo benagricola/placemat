@@ -259,7 +259,11 @@ coordinates nobody chose.
   them - seeds each from the placed pads it is wired to, and says why in
   each step. Link pull breaks a tie the rank cannot, which is what orders a
   shelf of identical passives. Do not hand-order them with hints, and do not
-  reach for `priority=` to fix an order: read the printed rank first.
+  reach for `priority=` to fix an order: read the printed rank first. When
+  searched items land in pockets "nothing it connects to is placed", try
+  `[solve] enabled = true` in `placemat.toml`: every searched item is then
+  searched from where the whole netlist would put it. It is off by default
+  because it is not always better - compare the two runs on the `best` line.
 - A keepout's `layers=` narrows what is checked as well as what is written, so
   **do not widen `allow=` to silence a complaint about copper on another
   layer** - that admits the net on the layers that do matter. A region may hang

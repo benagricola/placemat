@@ -4,6 +4,17 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.20
+
+Nothing changes unless you turn it on. `[solve] enabled = true` gives the
+searched tier its starting points from a global solve of the whole netlist
+instead of from the pads already placed. Off by default: on the board it was
+measured on it did not beat the sequential seed on the best-run objective.
+
+The API reference's account of the placement order was out of date: it still
+described an item needing more than a quarter of the free board going first,
+a rule the rank replaced in 0.6. It now says what the order is.
+
 ## To 0.19
 
 Nothing to change. `placemat occupancy` is new: what copper is at a point or in

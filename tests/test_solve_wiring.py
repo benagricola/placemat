@@ -101,3 +101,11 @@ def test_a_solved_hint_that_cannot_be_legalised_falls_back_to_the_seed(monkeypat
     steps = {s.item: s for s in plan.steps}
     assert steps["u1"].placement is not None and steps["r1"].placement is not None
     assert "solve's hint" in steps["u1"].note
+
+
+def test_the_docs_describe_the_solve_and_its_default():
+    from pathlib import Path
+    api = " ".join(Path("skills/placemat/references/api.md").read_text().split())
+    assert "[solve] enabled = true" in api and "off by default" in api.lower()
+    assert "quarter of the free board" not in api                      # the rule the rank replaced
+    assert "## To 0.20" in Path("skills/placemat/references/migration.md").read_text()
