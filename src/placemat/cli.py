@@ -63,9 +63,18 @@ def parser() -> argparse.ArgumentParser:
 
     dsp = sub.add_parser("datasheet", help="what is in a datasheet and where: the page for each "
                                            "of land pattern, package, rules and pins")
-    dsp.add_argument("pdf", help="a datasheet PDF")
+    dsp.add_argument("pdf", help="a datasheet PDF, or the word `check`")
+    dsp.add_argument("rest", nargs="*", help="for `check`: <pdf> <footprint.kicad_mod>")
     dsp.add_argument("--show", metavar="PAGE|TOPIC", default=None,
                      help="render a page (p7) or a topic's best page (land) and print its text")
+    dsp.add_argument("--read", action="store_true",
+                     help="the facts the sheet could be made to yield, with their provenance")
+    dsp.add_argument("--pitch", type=float, default=None, help="check: the pitch the sheet requires, mm")
+    dsp.add_argument("--pad", default=None, metavar="WxH", help="check: the pad size the sheet requires, mm")
+    dsp.add_argument("--pads", type=int, default=None, help="check: how many pads the sheet shows")
+    dsp.add_argument("--span", type=float, default=None, help="check: the span across the pads, mm")
+    dsp.add_argument("--tol", type=float, default=0.02,
+                     help="how far a value may differ and still agree, mm")
     dsp.add_argument("--out", default=None, help="where renders go (default: beside the PDF)")
     dsp.add_argument("--dpi", type=int, default=300)
     dsp.add_argument("--no-ocr", action="store_true",
@@ -311,23 +320,77 @@ def _page_for(what: str, candidates):
     return None
 
 
+def _pages_of(pdf, path, args, with_paths=True) -> dict:
+    """Every page's text and drawing. A page with no text of its own is read
+    off its render instead, when tesseract is here and --no-ocr is not set."""
+    by_page = {}
+    for n in range(1, pdf.page_count(path) + 1):
+        runs = pdf.text_runs(path, n)
+        if not args.no_ocr and pdf.have_ocr() and pdf.text_is_thin(runs):
+            runs = runs + pdf.ocr_runs(path, n, Path(args.out or path.parent), args.dpi)
+        by_page[n] = (runs, pdf.draw_paths(path, n) if with_paths else ())
+    return by_page
+
+
+def _expected_from(args) -> dict:
+    """Only the values a flag actually set. A check nobody asked for is
+    reported as unchecked, never as passed."""
+    out = {}
+    for flag in ("pitch", "pads", "span"):
+        value = getattr(args, flag, None)
+        if value is not None:
+            out[flag] = value
+    if args.pad:
+        w, _, h = args.pad.lower().partition("x")
+        out["pad"] = (float(w), float(h))
+    return out
+
+
+def _datasheet_check(args) -> int:
+    from . import datasheet as ds
+    from .kicad.read import read_footprint
+    from .pdf import read as pdf
+    if len(args.rest) != 2:
+        console.say("datasheet", "check takes a datasheet and a footprint: "
+                                 "placemat datasheet check <pdf> <footprint.kicad_mod>")
+        return 1
+    pdf_path, mod = Path(args.rest[0]), Path(args.rest[1])
+    try:
+        by_page = _pages_of(pdf, pdf_path, args, with_paths=False)
+    except pdf.PdfError as e:
+        console.say("datasheet", str(e))
+        return 1
+    fp, digest = read_footprint(mod)
+    got = ds.compare(_expected_from(args), fp.pads, ds.facts(by_page), args.tol)
+    if args.json:
+        console.data(json.dumps({"pdf": str(pdf_path), "footprint": str(mod),
+                                 "sha256": digest, "checks": ds.check_rows(got)}, indent=2))
+    else:
+        console.say("check", "%s against %s" % (mod.name, pdf_path.name))
+        console.lines("check", "\n".join(ds.check_lines(got)))
+    return 1 if any(c.verdict == "MISMATCH" for c in got) else 0
+
+
 def cmd_datasheet(args) -> int:
     from . import datasheet as ds
     from .pdf import read as pdf
+    if args.pdf == "check":
+        return _datasheet_check(args)
     path = Path(args.pdf)
     try:
         pages = pdf.page_count(path)
-        by_page = {}
-        for n in range(1, pages + 1):
-            runs = pdf.text_runs(path, n)
-            # a page with no text of its own is read off its render instead
-            if not args.no_ocr and pdf.have_ocr() and pdf.text_is_thin(runs):
-                runs = runs + pdf.ocr_runs(path, n, Path(args.out or path.parent), args.dpi)
-            by_page[n] = (runs, pdf.draw_paths(path, n))
+        by_page = _pages_of(pdf, path, args)
     except pdf.PdfError as e:
         console.say("datasheet", str(e))
         return 1
     found = ds.index(by_page)
+    if args.read:
+        sourced = ds.facts(by_page)
+        if args.json:
+            console.data(json.dumps({"pdf": str(path), "facts": ds.read_rows(sourced)}, indent=2))
+            return 0
+        console.lines("datasheet", "\n".join(ds.read_lines(path.stem, sourced)))
+        return 0
     if args.show:
         page = _page_for(args.show, found)
         if page is None:
