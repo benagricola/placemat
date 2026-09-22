@@ -466,3 +466,15 @@ def test_a_rule_area_that_does_not_forbid_parts_reserves_nothing():
         RuleArea("keepout fill_only", None, ((5.0, 5.0), (9.0, 5.0), (9.0, 9.0)),
                  frozenset([CopperLayer.F]), frozenset(["fill"])),))
     assert not Occupancy(g, edge_margin=0.0).reservations
+
+
+def test_the_docs_say_what_a_keepout_now_holds():
+    from pathlib import Path
+    api = Path("skills/placemat/references/api.md").read_text()
+    assert "narrows what is CHECKED" in api
+    assert "seeded_by_net" in api
+    skill = Path("skills/placemat/SKILL.md").read_text()
+    assert "seeded" in skill
+    assert "allow=" in skill                      # the do-not-widen instruction
+    mig = Path("skills/placemat/references/migration.md").read_text()
+    assert "0.7" in mig and "0.6" in mig          # a section per release, both present

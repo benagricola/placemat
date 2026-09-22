@@ -300,7 +300,20 @@ rule-area flag, and `"parts"` is what the placer enforces itself, before
 anything is written.
 
 **Where.** `layers=` defaults to every copper layer the board has, whatever the
-count. Narrow it with a list of `CopperLayer`.
+count. Narrow it with a list of `CopperLayer`. It narrows what is CHECKED as
+well as what is written: a track on a layer the region does not cover is not a
+finding. A via joins the whole stack, so a region on any one layer contains it.
+
+**The board edge.** A region may hang off it. Only the on-board part does
+anything - a part is refused for crossing the keep-in before any reservation is
+tested, and KiCad clips a zone to Edge.Cuts itself - and the step counts the
+points that fell outside. A region WHOLLY off the board is an error: it forbids
+nothing, and the script says otherwise.
+
+**A stamped cell brings its own.** A module fragment's regions arrive with the
+cell, inside its group, and are honoured: they move with the cell and fence the
+placer. They are read from the generated board, so a keepout whose name would
+collide with one is refused.
 
 **What may enter.** `allow=` takes parts and nets, and they mean different
 things: a `Part` or `Cell` may SIT inside, a `Net` may RUN through. Naming a
@@ -314,8 +327,8 @@ from a searched item is refused, naming it.
 
 **What it costs.** `board.plane()` is untouched: the rule area keeps the fill
 out, and DRC and the router judge by it. A `pour`, `track` or `via` crossing a
-keepout is a finding, because each keeps exactly the shape or the position it
-was given.
+keepout ON A LAYER IT COVERS is a finding, because each keeps exactly the shape
+or the position it was given.
 
 ## Boards of any shape
 
@@ -718,6 +731,9 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `timeout.route` | 3600 | seconds for the router |
 | `timeout.render` | 300 | seconds for a render |
 | `noise.patterns` | none | extra KiCad stderr patterns to suppress, ADDED to the built-ins |
+
+A run also records `metrics.seeded_by_net`: how many searched items each net
+seeded. One net seeding most of the board is a missing `board.plane()`.
 
 Every verb whose default appears here takes an explicit argument that still
 wins: `board.plane(..., inset=1.0)` beats `copper.plane_inset`.

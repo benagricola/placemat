@@ -1,10 +1,40 @@
-# Migrating a layout script to placemat 0.6
+# Migrating a layout script
+
+Sections are per release, newest first. Read the ones between the version a
+script was written against and the version in use; `SKILL.md`'s check line says
+whether any of it applies.
+
+## To 0.7
+
+Nothing to change in a script. Three things get stricter, and one report is new.
+
+**A keepout's `layers=` is now honoured when copper is checked.** A board that
+widened `allow=` to silence a complaint about copper on a layer the region does
+not cover should take those nets back out: the `allow=` admits them on the
+layers that DO matter. `boards/main/Main_layout.py` is the known case.
+
+**A region that hangs off the board edge now forbids.** It used to be discarded
+whole, silently, so a script could read as though a rule were in force when it
+was not. Expect new findings from a region that was never being applied - they
+are the point. A region WHOLLY off the board is now an error, because it
+forbids nothing while the script says otherwise.
+
+**A stamped cell's rule areas are no longer deleted.** `pcb layout` copies a
+module fragment's regions into the parent, inside the cell's group; placemat
+used to delete every rule area on the board before writing its own. A parent
+that stamps a module declaring a clearance will newly report parts and copper
+inside it. On a board that filled a ground pour under an antenna, that is the
+finding that was missing.
+
+**New: the `seeded` line.** It says which nets pulled how many items into
+place. One net seeding most of the board means a missing `board.plane()`.
+
+## To 0.6
 
 Read this only if the check in `SKILL.md` matched, or a script fails at import
-with `AttributeError: type object 'Priority' has no attribute 'FIXED'`. Nothing here is needed for a script written
-against 0.6.
+with `AttributeError: type object 'Priority' has no attribute 'FIXED'`.
 
-## What changed, in one paragraph
+### What changed, in one paragraph
 
 `Priority` used to carry four unrelated facts. It now carries one. Whether a
 position is decided is `Freedom`, derived from the place you gave it and never
@@ -13,7 +43,7 @@ the item's courtyard area and pin count. Whether failing to place something
 stops the run is `required=`. `Priority` is left with `HIGH`, `DEFAULT` and
 `LOW`, which a script sets and nothing else does.
 
-## Find the script's legacy use
+### Find the script's legacy use
 
 ```sh
 grep -nE "Priority\.(FIXED|EDGE)|priority=Priority\.HIGH|priority=Priority\.LOW" <script>
@@ -22,7 +52,7 @@ grep -nE "Priority\.(FIXED|EDGE)|priority=Priority\.HIGH|priority=Priority\.LOW"
 Each hit is one of the four cases below. A script with no hits needs no source
 change, but read "What moves without you touching anything" at the end.
 
-## 1. `Priority.FIXED` or `Priority.EDGE` on copper
+### 1. `Priority.FIXED` or `Priority.EDGE` on copper
 
 ```python
 board.via(GND, Location(12.0, 30.0), priority=Priority.FIXED)
@@ -48,7 +78,7 @@ If the intent was "this track wins at a crossing", that is still a priority and
 still spelt the same way, but with a level that exists:
 `priority=Priority.HIGH`.
 
-## 2. `Priority.FIXED` or `Priority.EDGE` on a placement
+### 2. `Priority.FIXED` or `Priority.EDGE` on a placement
 
 ```python
 board.place(Part("j1"), at=Location(20, 20), priority=Priority.FIXED)
@@ -59,7 +89,7 @@ declaration decided this position, so ... priority=fixed has nothing to
 order"), so a working script cannot contain one. If you find one, the script
 was never run.
 
-## 3. `priority=Priority.HIGH` to get a big part down early
+### 3. `priority=Priority.HIGH` to get a big part down early
 
 ```python
 board.place(Part("l_vbus"), priority=Priority.HIGH)   # a big inductor that kept getting stranded
@@ -80,7 +110,7 @@ Keep `priority=Priority.HIGH` only if the rank is demonstrably wrong for that
 board, and write the reason beside it. It is now a tier **above** the rank,
 not a replacement for it.
 
-## 4. `priority=Priority.HIGH` to make a failure fatal
+### 4. `priority=Priority.HIGH` to make a failure fatal
 
 ```python
 board.place(Cell("mcu"), priority=Priority.HIGH)   # this MUST be placed
@@ -102,7 +132,7 @@ relied on the old auto-HIGH stopping a run, nothing stops it now: the item is
 left off the board, reported as a finding, and the run carries on. Mark the
 items that genuinely cannot be left off.
 
-## What moves without you touching anything
+### What moves without you touching anything
 
 **Every board re-places.** The rank replaces the tier, and link pull drops from
 the primary sort key to a tie-break, so the order searched items go down in
@@ -134,7 +164,7 @@ now `null` for a decided placement, because it has none:
 gone, replaced by `Board._rank` and `placemat.ranking`. A patch against either
 name fails loudly rather than silently doing nothing.
 
-## While you are here: placemat.toml
+### While you are here: placemat.toml
 
 Nothing to migrate - a project with no `placemat.toml` behaves exactly as it
 did. But the constants a script used to work around by editing placemat, or by

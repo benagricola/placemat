@@ -18,8 +18,9 @@ work, not what to call.
 `grep -nE "Priority\.(FIXED|EDGE)|priority=Priority\.(HIGH|LOW)" <script>`.
 Any hit, or `AttributeError: type object 'Priority' has no attribute
 'FIXED'` at import, means it was written for
-placemat 0.5 or earlier: read `references/migration.md` and fix those lines
-first. A script with no hits still re-places on 0.6, which that file explains.
+an earlier placemat: read `references/migration.md`, which has a section per
+release, and fix those lines first. A script with no hits still re-places on a
+newer placemat, which that file also explains.
 
 ## The loop
 
@@ -42,13 +43,18 @@ first. A script with no hits still re-places on 0.6, which that file explains.
    crossings name the parts to move. Two firm placements that collide stop
    the run at once with the reason: fix the declaration, do not search
    around it. Findings name a searched part that had nowhere to go.
-4. **Look** at `layout/<X>/layout.png` (and `layout-bottom.png` on a
+4. **Read the `seeded` line.** It says which nets pulled how many items into
+   place. One net seeding most of the board is a missing `board.plane()`, not a
+   placement problem: an undeclared plane net pulls every part that shares it
+   to one centroid, and 155 of 220 parts landing on the board's middle is what
+   that looks like.
+5. **Look** at `layout/<X>/layout.png` (and `layout-bottom.png` on a
    two-face board) only after the numbers say the change did what you meant.
-5. **Change one thing, run again.** The impact text says what moved and
+6. **Change one thing, run again.** The impact text says what moved and
    which numbers changed (`placemat impact <run> <run>` compares any two, by
    id, id prefix, label or path). If it says "nothing moved" and you
    expected movement, your change was not where you thought.
-6. **Route only when the placement has settled.** Routing is a separate,
+7. **Route only when the placement has settled.** Routing is a separate,
    slow step you ask for: `placemat run ... --route` (after the checks) or
    `placemat route <board>`. It routes a COPY with every existing track and
    pour locked and the plane nets excluded, then reports closure: the share
@@ -226,6 +232,12 @@ coordinates nobody chose.
   each step. Link pull breaks a tie the rank cannot, which is what orders a
   shelf of identical passives. Do not hand-order them with hints, and do not
   reach for `priority=` to fix an order: read the printed rank first.
+- A keepout's `layers=` narrows what is checked as well as what is written, so
+  **do not widen `allow=` to silence a complaint about copper on another
+  layer** - that admits the net on the layers that do matter. A region may hang
+  off the board edge; only the on-board part does anything. A stamped cell
+  brings its module's regions with it, so a parent may report parts or copper
+  inside a clearance it never declared: those findings are real.
 - No floorplan by coordinate: a `Location` constant that means "the power
   area" is the placer's job typed by hand, and every part hinted at it
   competes for one rectangle. `Near` is for a requirement the netlist
