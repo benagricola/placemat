@@ -4,6 +4,7 @@ counter-clockwise on screen, as in KiCad. Imports nothing from pcbnew."""
 from __future__ import annotations
 
 from dataclasses import dataclass
+import functools
 import math
 
 from .values import Box, Location
@@ -143,10 +144,13 @@ def polys_overlap(a: Polygon, b: Polygon) -> bool:
     crossed no edge and read as clear. Any vertex strictly inside decides it,
     which can only find an overlap the first-vertex test missed, never make
     edges that merely touch count."""
-    ax0, ay0, ax1, ay1 = _bounds(a)
-    bx0, by0, bx1, by1 = _bounds(b)
+    pa, pb = _prepared(a), _prepared(b)
+    ax0, ay0, ax1, ay1 = pa.bounds
+    bx0, by0, bx1, by1 = pb.bounds
     if ax0 >= bx1 or bx0 >= ax1 or ay0 >= by1 or by0 >= ay1:
         return False                    # boxes apart or touching: no shared interior
+    if pa.grid is not None or pb.grid is not None:
+        return _prepared_overlap(pa, pb)
     # What follows is the full test with what the boxes rule out skipped: a
     # point outside the other's box (closed) is not inside it, and an edge
     # whose box misses the other polygon's box crosses none of its edges.
@@ -163,6 +167,129 @@ def polys_overlap(a: Polygon, b: Polygon) -> bool:
                 return True
     return any(within(p, bx0, by0, bx1, by1) and _strictly_inside(p, b) for p in a[1:]) or \
         any(within(q, ax0, ay0, ax1, ay1) and _strictly_inside(q, a) for q in b[1:])
+
+
+class _Prepared:
+    """A polygon with its box, and for one of many vertices a grid of which
+    edges and vertices fall in each cell: built once, so a test against it
+    looks only at the cells the other polygon covers. Every query returns
+    exactly what the walk over the whole polygon would find."""
+    MANY = 24           # vertices from which a grid is worth building and keeping
+
+    def __init__(self, poly: Polygon):
+        self.poly = poly
+        self.bounds = _bounds(poly)
+        self.grid = None
+        if len(poly) < self.MANY:
+            return
+        x0, y0, x1, y1 = self.bounds
+        self.cell = max(x1 - x0, y1 - y0, 1e-6) / max(1, int(math.sqrt(len(poly))))
+        self.edges = list(_edges(poly))
+        self.grid, self.rows, self.verts = {}, {}, {}
+        for k, (p, q) in enumerate(self.edges):
+            xs, ys = self._span(min(p[0], q[0]), max(p[0], q[0])), self._span(min(p[1], q[1]), max(p[1], q[1]))
+            for j in ys:
+                self.rows.setdefault(j, []).append(k)
+                for i in xs:
+                    self.grid.setdefault((i, j), []).append(k)
+        for k, p in enumerate(poly):
+            if k:
+                self.verts.setdefault((self._at(p[0]), self._at(p[1])), []).append(k)
+
+    def _at(self, v: float) -> int:
+        return math.floor(v / self.cell)
+
+    def _span(self, lo: float, hi: float):
+        return range(self._at(lo), self._at(hi) + 1)
+
+    def _cells(self, x0, y0, x1, y1, table) -> list:
+        out = set()
+        for i in self._span(x0, x1):
+            for j in self._span(y0, y1):
+                out.update(table.get((i, j), ()))
+        return sorted(out)
+
+    def contains(self, p: Point) -> bool:
+        """point_in_polygon, over the edges whose row holds the point: an edge
+        the ray can cross spans the point's y, so it is in that row."""
+        x, y = p
+        inside = False
+        for k in self.rows.get(self._at(y), ()):
+            (x1, y1), (x2, y2) = self.edges[k]
+            if (y1 > y) != (y2 > y):
+                xin = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
+                if x < xin:
+                    inside = not inside
+        return inside
+
+    def strictly_contains(self, p: Point) -> bool:
+        if not self.contains(p):
+            return False
+        e = 1e-9
+        return all(point_segment_distance(p, *self.edges[k]) > e
+                   for k in self._cells(p[0] - e, p[1] - e, p[0] + e, p[1] + e, self.grid))
+
+    def edges_meeting(self, x0, y0, x1, y1) -> list:
+        return [self.edges[k] for k in self._cells(x0, y0, x1, y1, self.grid)
+                if _edge_meets(*self.edges[k], x0, y0, x1, y1)]
+
+    def vertices_within(self, x0, y0, x1, y1) -> list:
+        """poly[1:] inside the closed box."""
+        return [self.poly[k] for k in self._cells(x0, y0, x1, y1, self.verts)
+                if x0 <= self.poly[k][0] <= x1 and y0 <= self.poly[k][1] <= y1]
+
+
+_prepared_many = functools.lru_cache(maxsize=512)(_Prepared)
+
+
+def _prepared(poly: Polygon) -> _Prepared:
+    """A polygon of many vertices is prepared once and kept: a reservation or
+    a keepout drawn with arcs is asked about by every candidate of a scan. A
+    small one is cheaper to walk than to look up."""
+    if len(poly) < _Prepared.MANY:
+        return _Prepared(poly)
+    try:
+        return _prepared_many(poly)
+    except TypeError:                   # built of lists, so not hashable: prepared, not kept
+        return _Prepared(poly)
+
+
+def _prepared_overlap(pa: _Prepared, pb: _Prepared) -> bool:
+    """polys_overlap's answer when either polygon has a grid: the same three
+    tests, each over only what the other's box can reach."""
+    a, b = pa.poly, pb.poly
+    ax0, ay0, ax1, ay1 = pa.bounds
+    bx0, by0, bx1, by1 = pb.bounds
+
+    def within(p, x0, y0, x1, y1):
+        return x0 <= p[0] <= x1 and y0 <= p[1] <= y1
+
+    def contains(pp, p):
+        return pp.contains(p) if pp.grid is not None else point_in_polygon(p, pp.poly)
+
+    def strictly(pp, p):
+        return pp.strictly_contains(p) if pp.grid is not None else _strictly_inside(p, pp.poly)
+
+    def edges(pp, x0, y0, x1, y1):
+        if pp.grid is not None:
+            return pp.edges_meeting(x0, y0, x1, y1)
+        return [(p1, p2) for p1, p2 in _edges(pp.poly) if _edge_meets(p1, p2, x0, y0, x1, y1)]
+
+    def vertices(pp, x0, y0, x1, y1):
+        if pp.grid is not None:
+            return pp.vertices_within(x0, y0, x1, y1)
+        return [p for p in pp.poly[1:] if within(p, x0, y0, x1, y1)]
+
+    if (within(a[0], bx0, by0, bx1, by1) and contains(pb, a[0])) or \
+            (within(b[0], ax0, ay0, ax1, ay1) and contains(pa, b[0])):
+        return True
+    eb = edges(pb, ax0, ay0, ax1, ay1)
+    for p1, p2 in edges(pa, bx0, by0, bx1, by1):
+        for q1, q2 in eb:
+            if segments_intersect(p1, p2, q1, q2):
+                return True
+    return any(strictly(pb, p) for p in vertices(pa, bx0, by0, bx1, by1)) or \
+        any(strictly(pa, q) for q in vertices(pb, ax0, ay0, ax1, ay1))
 
 
 def _bounds(poly: Polygon):

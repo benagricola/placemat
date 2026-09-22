@@ -1,5 +1,5 @@
 {
-  "configs": {"default": {"seconds": 29.7}, "solve": {"seconds": 14.8}},
+  "configs": {"default": {"seconds": 27.1}, "solve": {"seconds": 13.1}},
   "modules": {
     "fairing/Backlight": {"default": {"findings": 0, "hpwl": 1.2, "placed": 6}, "hand": null, "parts": 6, "solve": {"findings": 0, "hpwl": 3.4, "placed": 6}},
     "fairing/Display": {"default": {"findings": 0, "hpwl": 25.6, "placed": 7}, "hand": null, "parts": 7, "solve": {"findings": 0, "hpwl": 31.3, "placed": 7}},
