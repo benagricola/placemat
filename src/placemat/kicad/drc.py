@@ -70,6 +70,14 @@ def run_drc(pcb, out_json, refill_zones: bool | None = None, timeout: int | None
     real_kinds = cfg.drc_real_kinds if real_kinds is None else real_kinds
     outstanding_kinds = cfg.drc_outstanding_kinds if outstanding_kinds is None else outstanding_kinds
     pcb, out_json = Path(pcb), Path(out_json)
+    project = pcb.with_suffix(".kicad_pro")
+    if not project.exists():
+        raise FileNotFoundError(
+            "%s has no %s beside it. kicad-cli substitutes its own defaults for a board with no "
+            "project file, so the report would measure KiCad rather than this board - on a real "
+            "four-layer board that is four times the violations, including hundreds of track_width "
+            "and clearance items that do not exist. Copy the .kicad_pro (and any .kicad_dru) next "
+            "to the board and run it again." % (pcb, project.name))
     cmd = ["kicad-cli", "pcb", "drc", "--format", "json", "--output", str(out_json), str(pcb)]
     if refill_zones:
         cmd.insert(3, "--refill-zones")

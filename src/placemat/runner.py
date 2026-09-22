@@ -100,6 +100,23 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
     return True
 
 
+def keep_route(final_dir: Path, staging: Path) -> None:
+    """Carry a previous run's routed copy into the run that replaces it.
+
+    A run directory is named by a hash of the script, the generated board, the
+    tool version and the settings, so a rerun that lands on the same id writes
+    a byte-identical board: the route taken on the old one is still a route of
+    this one. Replacing the directory without this loses minutes of routing
+    and nothing says it has gone.
+
+    A route this run has already produced wins: the routing path writes into
+    the run directory itself, and a preserved older one must never displace a
+    fresher one."""
+    previous = final_dir / "route"
+    if previous.is_dir() and not (staging / "route").exists():
+        shutil.move(str(previous), str(staging / "route"))
+
+
 def run(script, label: str | None = None, fresh: bool = False, render: bool = True, drc: bool = True,
         quiet: bool = False, verbose: bool = False, route: bool = False, route_quick: bool = True,
         route_exclude=(), keep_going: bool = False, overrides=None) -> RunResult:
@@ -139,6 +156,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         from . import __version__
         rid = run_id(script.read_text(), src.pcb.read_bytes(), __version__, cfg.json())
         final_dir = runs / rid
+        keep_route(final_dir, staging)
         shutil.rmtree(final_dir, ignore_errors=True)
         staging.rename(final_dir)
         run_dir = final_dir
