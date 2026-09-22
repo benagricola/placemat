@@ -205,3 +205,54 @@ def test_legal_without_blame_behaves_exactly_as_before():
     occ = Occupancy(g, edge_margin=0.0)
     assert occ.legal(g.footprint("U1"),
                      Placement(Location(10.0, 10.0), 0.0, Face.FRONT)) is None
+
+
+def test_a_cross_face_courtyard_finding_says_why_the_part_holds_both_faces():
+    """A through-hole part occupies BOTH faces, so its courtyard collides with
+    a part on the other side. The message used to name two parts and leave the
+    reader to work out why they could possibly meet."""
+    from placemat.occupancy import Occupancy
+    from placemat.placement import Placement
+    from placemat.values import Face, Location
+    from tests.fixtures import board_geometry, footprint
+    g = board_geometry([footprint("U1", 10, 10, w=4, h=2, inst="u1", nets=("A", "B"), through=True),
+                        footprint("R1", 30, 30, w=2, h=1, inst="r1", nets=("B", "C"),
+                                  face=Face.BACK)],
+                       width=60, height=60)
+    occ = Occupancy(g, edge_margin=0.0)
+    why = occ.legal(g.footprint("U1"), Placement(Location(30.0, 30.0), 0.0, Face.FRONT))
+    assert why is not None and "courtyard overlaps" in why
+    assert "both faces" in why and "through-hole" in why
+
+
+def test_a_same_face_courtyard_finding_is_left_alone():
+    """Two parts on one face need no explanation of how they met."""
+    from placemat.occupancy import Occupancy
+    from placemat.placement import Placement
+    from placemat.values import Face, Location
+    from tests.fixtures import board_geometry, footprint
+    g = board_geometry([footprint("U1", 10, 10, w=4, h=2, inst="u1", nets=("A", "B")),
+                        footprint("R1", 30, 30, w=2, h=1, inst="r1", nets=("B", "C"))],
+                       width=60, height=60)
+    occ = Occupancy(g, edge_margin=0.0)
+    why = occ.legal(g.footprint("U1"), Placement(Location(30.0, 30.0), 0.0, Face.FRONT))
+    assert "courtyard overlaps" in why and "both faces" not in why
+
+
+def test_the_note_counts_the_through_pads_that_carry_no_net():
+    """A netless through pad is usually a footprint defect rather than a real
+    via field, and that is what made an HTSSOP-20 hold both faces."""
+    from placemat.occupancy import Occupancy
+    from placemat.placement import Placement
+    from placemat.values import Face, Location
+    from tests.fixtures import board_geometry, footprint, pad
+    import dataclasses
+    fp = footprint("U1", 10, 10, w=4, h=2, inst="u1", nets=("A", "B"))
+    fp = dataclasses.replace(fp, pads=(pad("U1", "u1", 1, "A", 8.0, 10.0),
+                                       pad("U1", "u1", "", "", 10.0, 10.0, through=True),
+                                       pad("U1", "u1", "", "", 12.0, 10.0, through=True)))
+    g = board_geometry([fp, footprint("R1", 30, 30, w=2, h=1, inst="r1", nets=("B", "C"),
+                                      face=Face.BACK)], width=60, height=60)
+    occ = Occupancy(g, edge_margin=0.0)
+    why = occ.legal(g.footprint("U1"), Placement(Location(30.0, 30.0), 0.0, Face.FRONT))
+    assert "2 through-hole pads, none with a net" in why, why

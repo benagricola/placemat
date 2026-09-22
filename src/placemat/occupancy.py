@@ -271,6 +271,40 @@ class Occupancy:
         geom = self._geometry(item)
         return transform_box(geom.reach or geom.body, self._transform(geom, placement))
 
+    def _spans_both_faces(self, owner: str) -> str:
+        """Why this part occupies the face it is not on, or "". A plated
+        through hole or an unplated one reaches the other side, so nothing may
+        sit opposite it - and a courtyard collision with a part on the far
+        face reads as nonsense until that is said."""
+        if not self.geometry.has_footprint(owner):
+            return ""
+        fp = self.geometry.footprint(owner)
+        through = [p for p in fp.pads if p.through]
+        if not through and not fp.npth:
+            return ""
+        parts = []
+        if through:
+            netless = sum(1 for p in through if not p.net)
+            parts.append("%d through-hole pad%s%s" % (
+                len(through), "" if len(through) == 1 else "s",
+                "" if not netless else (", none with a net" if netless == len(through)
+                                        else ", %d with no net" % netless)))
+        if fp.npth:
+            parts.append("%d unplated hole%s" % (len(fp.npth), "" if len(fp.npth) == 1 else "s"))
+        return "%s holds both faces: %s" % (self.who(owner), " and ".join(parts))
+
+    def _cross_face_note(self, a: str, b: str) -> str:
+        """The clause a cross-face courtyard collision needs. Only when the
+        two parts sit on different faces, because that is the case where the
+        overlap is possible at all only through one of them spanning."""
+        g = self.geometry
+        if not (g.has_footprint(a) and g.has_footprint(b)):
+            return ""
+        if g.footprint(a).face is g.footprint(b).face:
+            return ""
+        notes = [n for n in (self._spans_both_faces(a), self._spans_both_faces(b)) if n]
+        return (" (%s)" % "; ".join(notes)) if notes else ""
+
     def who(self, owner: str) -> str:
         """A refdes as a finding names it: with its cell when it has one."""
         if self.geometry.has_footprint(owner):
@@ -432,7 +466,8 @@ class Occupancy:
             if depth <= self._touch and (s.box.width > 0 and o.box.width > 0):
                 return None
             if s.faces & o.faces and polys_overlap(s.poly, o.poly):
-                return "%s courtyard overlaps %s courtyard" % (self.who(s.owner), self.who(o.owner))
+                return "%s courtyard overlaps %s courtyard%s" % (
+                    self.who(s.owner), self.who(o.owner), self._cross_face_note(s.owner, o.owner))
             return None
         if "courtyard" in (ks, ko):
             other = o if ks == "courtyard" else s
