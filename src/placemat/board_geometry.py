@@ -5,6 +5,7 @@ Immutable; placement and copper planning query this instead of pcbnew."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Iterable
 
 from .values import Box, CopperLayer, Face, Location, Net, Part, Cell as CellRef, pad_key
@@ -94,6 +95,65 @@ class RuleArea:
     polygon: Polygon                     # in the generated board's coordinates
     layers: frozenset[CopperLayer]
     excludes: frozenset[str]             # parts | fill | tracks | vias | pads
+    # Declared layers this board does not have, from the name's marker. The
+    # region holds on the rest; these are reported, never silently dropped.
+    missing: tuple = ()
+
+    @property
+    def base(self) -> str:
+        """The name without its layer marker or the stamp that followed it."""
+        return split_marker(self.name)[0]
+
+
+# KiCad saves a zone on the layers its board has, so a two-layer module
+# fragment cannot hold a keepout on In2, or on every layer of the board that
+# will stamp it. The zone name survives both the save and pcb's stamp, so a
+# declaration the layer set cannot hold travels there: ` [*.Cu]` for every
+# copper layer, or the declared list. pcb appends `_1` directly after it, and
+# a trailing number is only taken for a stamp when it follows the marker:
+# without one, `rail_1_26` is a real name and not `rail_1` stamped.
+_MARKER = re.compile(r"\s*\[([^\]]*)\](_\d+)?")
+
+
+def stackup_order(layer) -> int:
+    """F.Cu first, the inner layers in order, B.Cu last."""
+    if layer is CopperLayer.F:
+        return 0
+    if layer is CopperLayer.B:
+        return 31
+    return int(layer.value[2:-3])
+
+
+def layer_marker(declared, board_layers) -> str:
+    """What a keepout's zone name must carry so its layers survive: nothing
+    when the board holds them all, ` [*.Cu]` for every copper layer, or the
+    declared list when the board lacks any of them."""
+    if declared is None:
+        return " [*.Cu]"
+    if set(declared) <= set(board_layers):
+        return ""
+    return " [%s]" % ",".join(l.value for l in sorted(set(declared), key=stackup_order))
+
+
+def split_marker(name: str) -> tuple:
+    """(base name, declaration). The declaration is "*" for every copper
+    layer, a tuple of layers, or None when the name carries no marker."""
+    m = _MARKER.search(name)
+    if not m:
+        return name.strip(), None
+    base = (name[:m.start()] + name[m.end():]).strip()
+    body = m.group(1).strip()
+    if body == "*.Cu":
+        return base, "*"
+    return base, tuple(CopperLayer.of(x.strip()) for x in body.split(",") if x.strip())
+
+
+def resolve_marker(declared, board_layers) -> tuple:
+    """(layers this board can honour, declared layers it lacks)."""
+    if declared == "*":
+        return frozenset(board_layers), ()
+    have = frozenset(l for l in declared if l in set(board_layers))
+    return have, tuple(sorted((l for l in declared if l not in have), key=stackup_order))
 
 
 @dataclass(frozen=True)

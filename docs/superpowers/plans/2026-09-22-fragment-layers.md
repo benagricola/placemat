@@ -72,7 +72,13 @@ def test_a_stamped_name_splits_into_base_and_declaration():
     assert split_marker("keepout antenna [*.Cu]_1") == ("keepout antenna", "*")
     assert split_marker("keepout antenna_c [In2.Cu]_1") == ("keepout antenna_c", (IN2,))
     assert split_marker("keepout vent") == ("keepout vent", None)
-    assert split_marker("keepout antenna_1") == ("keepout antenna", None)
+
+
+def test_an_unmarked_name_keeps_its_digits():
+    """Without a marker there is no telling pcb's `_1` from a name that ends
+    in a number: `keepout rail_1_26` is a real keepout, not `rail_1` stamped."""
+    assert split_marker("keepout rail_1_26") == ("keepout rail_1_26", None)
+    assert split_marker("keepout antenna_1") == ("keepout antenna_1", None)
 
 
 def test_a_declaration_resolves_against_the_board_it_is_on():
@@ -122,8 +128,10 @@ import re as _re
 # will stamp it. The zone name survives both the save and pcb's stamp - which
 # appends `_1` after it - so a declaration the layer set cannot hold travels
 # there: ` [*.Cu]` for every copper layer, or the declared list.
-_MARKER = _re.compile(r"\s*\[([^\]]*)\]")
-_STAMP_SUFFIX = _re.compile(r"_\d+$")
+# The marker, and the `_1` pcb appends directly after it. A trailing number is
+# only taken for a stamp when it follows the marker: without one, `rail_1_26`
+# is a real name and not `rail_1` stamped.
+_MARKER = _re.compile(r"\s*\[([^\]]*)\](_\d+)?")
 
 
 def stackup_order(layer) -> int:
@@ -150,10 +158,9 @@ def split_marker(name: str) -> tuple:
     """(base name, declaration). The declaration is "*" for every copper
     layer, a tuple of layers, or None when the name carries no marker."""
     m = _MARKER.search(name)
-    base = (name[:m.start()] + name[m.end():]) if m else name
-    base = _STAMP_SUFFIX.sub("", base.strip())
     if not m:
-        return base, None
+        return name.strip(), None
+    base = (name[:m.start()] + name[m.end():]).strip()
     body = m.group(1).strip()
     if body == "*.Cu":
         return base, "*"
