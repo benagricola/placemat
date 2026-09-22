@@ -15,7 +15,7 @@ import math
 
 from .copper import (CopperOp, Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
                      resolve_bridges)
-from .geometry import polygon_box, polys_overlap, transform_box
+from .geometry import circle_polygon, polygon_box, polys_overlap, transform_box
 from .occupancy import Occupancy, Shape, TOUCH
 from .cutouts import Cutouts, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
@@ -23,7 +23,7 @@ from .placement import Placement
 from .settings import Settings
 from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, stackup_order
-from .values import (Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -1757,13 +1757,92 @@ class Board:
 
     def via(self, net, at, *, drill: float | None = None, size: float | None = None,
             priority: Priority = Priority.DEFAULT, why: str = ""):
+        """A via of `net`. `at` is a position, or a `FreeSpot` near a pad:
+        the nearest point a via can stand and be reached, found when the pad
+        is placed. A FreeSpot with nowhere to go is a finding and draws none."""
         name = self.geometry.require_net(net)
         refs = _refs_in([at])
         d, s = drill or self.via_drill, size or self.via_size
 
         def plan(ctx):
-            return [Via(name, ctx.locate(at), d, s)]
+            if isinstance(at, FreeSpot):
+                where = self._free_spot(ctx, at, name, d, s)
+                if where is None:
+                    return []
+            else:
+                where = ctx.locate(at)
+            via = Via(name, where, d, s)
+            ctx.planned_vias.append(via)        # a later FreeSpot in this batch sees it
+            return [via]
         return self._copper_intent("via %s" % name, net, priority, plan, refs, why)
+
+    def _free_spot(self, ctx, spot, net: str, drill: float, size: float):
+        """Run the search from the pad against the board as it stands: placed
+        pads and planned copper through the occupancy, the vias planned so far,
+        drilled holes, keepouts and the edge."""
+        from . import queries
+        occ = ctx.occ
+        owner, number, _, _ = self._pad_ref(spot.near)
+        start = ctx.locate(spot.near)
+        placed = occ.items[owner].shapes if owner in occ.items else ()
+        own = [sh for sh in placed if sh.label == number and sh.kind in ("pad", "through")]
+        layer = CopperLayer.of(spot.layer) if spot.layer is not None else (
+            sorted((l for sh in own for l in sh.layers), key=stackup_order) or [CopperLayer.F])[0]
+        nc = self.geometry.netclasses.get(net)
+        width = nc.track_width if nc else 0.2
+        every = frozenset(self.geometry.layers)
+        holes = [(occ.pad_location(fp.ref, p.number), p.drill_mm)
+                 for fp in self.geometry.footprints for p in fp.pads if p.through and p.drill_mm]
+        forbidding = [(k.poly, k.layers) for k in (ctx.plan.keepouts.values() if ctx.plan else ())
+                      if "vias" in k.excludes]
+        forbidding += [(poly, ra.layers) for pairs in occ._cell_rule_areas.values() for ra, poly in pairs
+                       if "vias" in ra.excludes]
+        forbidding += [(ra.polygon, ra.layers) for ra in self.geometry.rule_areas
+                       if ra.cell is None and "vias" in ra.excludes]
+
+        def judge(c):
+            ring = circle_polygon(c, size / 2.0)
+            box = Box.of_points(ring)
+            if not spot.in_pad and any(polys_overlap(ring, sh.poly) for sh in own):
+                return "in the source pad", ()
+            if occ.board_shape is not None:
+                if occ.board_shape.why_not(box, self.keep_in):
+                    return "off the board, or within %.2f mm of the board edge" % self.keep_in, ()
+            elif occ.board_box is not None and not occ.board_box.inflate(-self.keep_in).contains(box):
+                return "within %.2f mm of the board edge" % self.keep_in, ()
+            hits = occ.copper_conflicts(Shape("via", "copper", frozenset(), every, net, ring, box))
+            if hits:
+                return "copper " + hits[0], ()
+            for v in ctx.planned_vias:
+                gap = c.distance(v.at) - (drill + v.drill) / 2.0
+                if gap < self.geometry.hole_to_hole - 1e-9:
+                    return "hole %.2f mm from the %s via's hole" % (max(gap, 0.0), v.net), ()
+                if v.net != net:
+                    clr = self.geometry.clearance(net, v.net)
+                    if c.distance(v.at) - (size + v.size) / 2.0 < clr - 1e-9:
+                        return "copper %.2f mm from the %s via" % (c.distance(v.at) - (size + v.size) / 2.0, v.net), ()
+            for at, dia in holes:
+                gap = c.distance(at) - (drill + dia) / 2.0
+                if gap < self.geometry.hole_to_hole - 1e-9:
+                    return "hole %.2f mm from a pad's hole" % max(gap, 0.0), ()
+            for poly, layers in forbidding:
+                if polys_overlap(ring, poly):
+                    return "inside a keepout, which forbids vias", ()
+            if c.distance(start) > 1e-9:
+                tail = queries._segment(start, c, width)
+                tail_hits = occ.copper_conflicts(Shape("via", "copper", frozenset(), frozenset([layer]),
+                                                       net, tail, Box.of_points(tail)))
+                if tail_hits:
+                    return "tail " + tail_hits[0], ()
+            return None, ()
+
+        found, tally, tried = queries.free_spot(start, judge, spot.radius, spot.step)
+        if found is None:
+            ctx.notes.append("via %s: nowhere within %.2f mm of %s.%s, %d spot(s) tried: %s" % (
+                net, spot.radius, owner, number, tried,
+                ", ".join("%s x%d" % kv for kv in tally.most_common())))
+            return None
+        return found.at
 
     def pour(self, net, points, *, layer: CopperLayer, stroke: float | None = None, swallow_pads: bool = False,
              priority: Priority = Priority.DEFAULT, why: str = ""):
@@ -1858,6 +1937,7 @@ class Board:
                     shape=self._shape, cutouts=self._cutouts,
                     rules=list(self._rules), draw_outline=self._draw_outline)
         ctx = _CopperContext(self, occ)
+        ctx.plan = plan
         self._report_lost_layers(plan)
         self._rank(occ)
         self._derive_copper_freedom()
@@ -2709,6 +2789,8 @@ class _CopperContext:
         self.planned_tracks: list = []     # every track planned so far (any batch)
         self.fixed_tracks: list = []       # tracks from the FIXED batch: never yield
         self.notes: list = []              # findings a copper plan raises about itself
+        self.planned_vias: list = []       # every via planned so far, for a FreeSpot's hole rule
+        self.plan = None                   # the plan being built: its keepouts, for a FreeSpot
 
     def locate(self, ref) -> Location:
         return _locate(self.board, self.occ, ref)
@@ -2735,6 +2817,8 @@ def _refs_in(points) -> list:
             out.append(p)
         elif isinstance(p, (X, Y)):
             out += _refs_in([p.ref])        # the ref may itself be a point or a pad
+        elif isinstance(p, FreeSpot):
+            out += _refs_in([p.near])       # the pad it searches from must be placed first
         elif isinstance(p, Mid):
             out += _refs_in([p.a, p.b])
         elif isinstance(p, tuple):

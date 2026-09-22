@@ -146,6 +146,20 @@ class Near:
 
 
 @dataclass(frozen=True)
+class FreeSpot:
+    """Where a via stands: the nearest point to `near` (a pad) that clears
+    every other net's copper, hole, keepout and the board edge, and that a
+    straight tail on `layer` (the pad's own by default) can reach. Resolved when
+    the pad's part is placed, against the copper planned before it. The via
+    stays out of its own pad unless `in_pad` says otherwise."""
+    near: object
+    radius: float = 2.0
+    step: float = 0.05
+    layer: object = None
+    in_pad: bool = False
+
+
+@dataclass(frozen=True)
 class Fraction:
     """A distance along an edge as a fraction of its usable length: Fraction(0.3)."""
     value: float
