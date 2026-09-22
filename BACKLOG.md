@@ -5,12 +5,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## In progress
 
-- **Pocket fallback for a seeded item with no room** - spec
-  `docs/superpowers/specs/2026-09-22-bench-and-pocket-fallback-design.md`,
-  plan `docs/superpowers/plans/2026-09-22-bench-and-pocket-fallback.md`.
-  Tasks 1-2 (the benchmark and its baseline) are done.
-- **The solve's default** - compare `solve` with `default` on the benchmark
-  once the fallback is in; turning it on is a decision for the user.
+- **The solve's default.** With the pocket fallback in, the module benchmark
+  has the solve better than the sequential seed on 13 modules and worse on
+  15: better on 7 of the 11 with fourteen or more parts, worse on 11 of the 21
+  smaller. Whether to turn it on, or on above some size, is the user's call.
 
 ## Open
 
@@ -46,6 +44,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Pocket fallback for a seeded item with no room**, and the module
+  benchmark that measured it (0.21.0). Spec
+  `docs/superpowers/specs/2026-09-22-bench-and-pocket-fallback-design.md`.
 
 - **The solve crashed on a board with a keepout** (`51fd482`). Source:
   fairing-instrument `electronics/PLACEMAT_GAPS.md`, "2026-09-22: `[solve]

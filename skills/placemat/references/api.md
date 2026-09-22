@@ -220,7 +220,10 @@ the largest. The sentence that chose each is in its step.
 
 **Where each is searched from.** An explicit `at=Near(...)` first. Otherwise
 the item is centred on the placed pads it is wired to, and an item wired to
-nothing placed yet takes the largest free rectangle that fits it. With
+nothing placed yet takes the largest free rectangle that fits it. A centred
+item with no legal spot within reach takes the free rectangle nearest where
+it was centred, and its step says "took the pocket" and how far off that is;
+one with an explicit `Near` does not, and is left unplaced. With
 `[solve] enabled = true` a global solve comes between the two: at the first
 searched item it works out where every unplaced searched part and cell would
 sit if the whole netlist pulled at once - placed items as anchors, each pad at
@@ -233,7 +236,10 @@ sequential seed on items placed and findings and joined seven more
 connections, but cost one more DRC violation and 1.6% more airwire, so the
 best-run gate judged it worse. Try it on a board whose searched items scatter
 or land in pockets with "nothing it connects to is placed", and let the `best`
-line judge.
+line judge. On the module benchmark (`fixtures/bench.py`, 2026-09-22, 32
+modules) the solve was better than the sequential seed on 13 and worse on 15:
+better on 7 of the 11 with fourteen or more parts, worse on 11 of the 21
+smaller ones.
 
 ## Cutouts
 
@@ -900,7 +906,9 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `solve.rounds` | 8 | solve-then-spread rounds, the pull toward the spread doubling each round |
 
 A run also records `metrics.seeded_by_net`: how many searched items each net
-seeded. One net seeding most of the board is a missing `board.plane()`.
+seeded. One net seeding most of the board is a missing `board.plane()`. And
+`metrics.pocketed`, when any were: how many searched items found no room by
+what they connect to and took a pocket instead; the run prints their names.
 
 Every verb whose default appears here takes an explicit argument that still
 wins: `board.plane(..., inset=1.0)` beats `copper.plane_inset`.

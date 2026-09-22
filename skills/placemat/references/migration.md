@@ -4,6 +4,16 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.21
+
+A part or cell that was UNPLACED because its seeded scan found no legal spot
+now takes the free pocket nearest what it connects to, and parts placed after
+it can move. A board that placed every part is unchanged. `metrics.pocketed`
+counts these, and the run prints them. A searched step's note gives its rank
+once instead of twice.
+
+The solve no longer crashes on a board that declares a keepout.
+
 ## To 0.20
 
 Nothing changes unless you turn it on. `[solve] enabled = true` gives the

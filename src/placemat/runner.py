@@ -27,6 +27,18 @@ class RunFailure(Exception):
         self.kind, self.details = kind, details or {}
 
 
+def run_metrics(plan, n_place: int, n_copper: int, extent_metrics: dict) -> dict:
+    """What a run records of its plan, before DRC adds its own."""
+    metrics = {"board": [round(plan.outline.width, 3), round(plan.outline.height, 3)] if plan.outline else None,
+               "findings": len(plan.findings), "placed": n_place, "copper_ops": n_copper,
+               "seeded_by_net": dict(plan.seeded_by_net), **extent_metrics}
+    if plan.solve:
+        metrics["solve"] = dict(plan.solve)
+    if plan.pocketed:
+        metrics["pocketed"] = len(plan.pocketed)
+    return metrics
+
+
 @dataclass
 class RunResult:
     record: RunRecord
@@ -250,11 +262,10 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             top = plan.seeded_by_net.most_common(4)
             more = len(plan.seeded_by_net) - len(top)
             say("seeded", ", ".join("%s %d" % kv for kv in top) + (", +%d more" % more if more else ""))
-        metrics = {"board": [round(plan.outline.width, 3), round(plan.outline.height, 3)] if plan.outline else None,
-                   "findings": len(plan.findings), "placed": n_place, "copper_ops": n_copper,
-                   "seeded_by_net": dict(plan.seeded_by_net), **extent_metrics}
-        if plan.solve:
-            metrics["solve"] = dict(plan.solve)
+        if plan.pocketed:
+            say("pocketed", "%d item(s) had no room by what they connect to and took a pocket: %s" % (
+                len(plan.pocketed), ", ".join(plan.pocketed[:8]) + (", ..." if len(plan.pocketed) > 8 else "")))
+        metrics = run_metrics(plan, n_place, n_copper, extent_metrics)
         if drc:
             t0 = time.time()
             report = run_drc(src.pcb, run_dir / "drc.json")

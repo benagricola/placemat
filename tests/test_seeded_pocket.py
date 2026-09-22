@@ -94,3 +94,13 @@ def test_a_searched_steps_note_gives_its_rank_once():
     b.place(Part("u1"))
     note = _step(b.resolve(), "u1").note
     assert note.count("rank 1/1") == 1, note
+
+
+def test_the_run_metrics_count_pocketed_items():
+    from placemat.runner import run_metrics
+    b = _board()
+    b.place(Part("u1"))
+    plan = b.resolve()
+    m = run_metrics(plan, 4, 0, {})
+    assert m["pocketed"] == 1
+    assert m["placed"] == 4 and m["findings"] == len(plan.findings)
