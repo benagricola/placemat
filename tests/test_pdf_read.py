@@ -76,3 +76,9 @@ Q
     (rect,) = [d for d in read.draw_paths(p, 1) if d.rect]
     assert rect.box.width == pytest.approx(20, abs=0.5)     # 40 * 0.5
     assert rect.box.height == pytest.approx(10, abs=0.5)
+
+
+def test_a_page_renders_to_a_png(tmp_path):
+    p = make_pdf(tmp_path / "land.pdf", LAND)
+    png = read.render(p, 1, tmp_path / "out")
+    assert png.exists() and png.suffix == ".png" and png.stat().st_size > 0

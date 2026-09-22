@@ -98,3 +98,20 @@ def draw_paths(path, page: int) -> tuple:
                             rect=len(xs) == 2 and len(ys) == 2 and len(pts) <= 6,
                             filled=el.tag == "fill_path"))
     return tuple(out)
+
+
+def render(path, page: int, out_dir, dpi: int = 300):
+    """One page as a PNG. This is the channel that always works: a datasheet
+    whose every dimension is an outlined curve still renders."""
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    stem = out / ("%s-p%d" % (Path(path).stem, page))
+    _run(["pdftoppm", "-png", "-r", str(dpi), "-f", str(page), "-l", str(page),
+          "-singlefile", str(path), str(stem)], "rendering a page", path)
+    return stem.with_suffix(".png")
+
+
+def have_ocr() -> bool:
+    """tesseract reads the outlined dimension text that carries no characters.
+    It is optional: placemat needs nothing installed for the ordinary path."""
+    return shutil.which("tesseract") is not None

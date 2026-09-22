@@ -1,8 +1,9 @@
-"""The placemat command line: run, route, impact, drc, measure, check."""
+"""The placemat command line: run, route, impact, drc, measure, parts, datasheet, check."""
 from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 import sys
 
@@ -59,6 +60,15 @@ def parser() -> argparse.ArgumentParser:
                                       "courtyard area, pin count and value")
     pl.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
     pl.add_argument("--json", action="store_true")
+
+    dsp = sub.add_parser("datasheet", help="what is in a datasheet and where: the page for each "
+                                           "of land pattern, package, rules and pins")
+    dsp.add_argument("pdf", help="a datasheet PDF")
+    dsp.add_argument("--show", metavar="PAGE|TOPIC", default=None,
+                     help="render a page (p7) or a topic's best page (land) and print its text")
+    dsp.add_argument("--out", default=None, help="where renders go (default: beside the PDF)")
+    dsp.add_argument("--dpi", type=int, default=300)
+    dsp.add_argument("--json", action="store_true")
 
     sh = sub.add_parser("show", help="one cell or part on its own: a render from above and below, its pads by net, "
                                      "and the sides its module declared (outward, quiet, handoff)")
@@ -289,6 +299,56 @@ def cmd_parts(args) -> int:
     return 0
 
 
+def _page_for(what: str, candidates):
+    """`p7` is a page; `land` is a topic, resolved through the index."""
+    if re.fullmatch(r"p?\d+", what):
+        return int(what.lstrip("p"))
+    for c in candidates:
+        if c.topic == what and c.band != "none":
+            return c.page
+    return None
+
+
+def cmd_datasheet(args) -> int:
+    from . import datasheet as ds
+    from .pdf import read as pdf
+    path = Path(args.pdf)
+    try:
+        pages = pdf.page_count(path)
+        by_page = {n: (pdf.text_runs(path, n), pdf.draw_paths(path, n))
+                   for n in range(1, pages + 1)}
+    except pdf.PdfError as e:
+        console.say("datasheet", str(e))
+        return 1
+    found = ds.index(by_page)
+    if args.show:
+        page = _page_for(args.show, found)
+        if page is None:
+            console.say("datasheet", "no candidate for %r; the index says what was found, "
+                                     "or name a page as p<N>" % args.show)
+            return 1
+        out_dir = Path(args.out) if args.out else path.parent
+        png = pdf.render(path, page, out_dir, args.dpi)
+        runs, _ = by_page[page]
+        if args.json:
+            console.data(json.dumps({"page": page, "png": str(png),
+                                     "text": [r.text for r in runs]}, indent=2))
+            return 0
+        console.say("datasheet", "page %d rendered to %s" % (page, png))
+        for r in runs:
+            console.say("datasheet", "  %-6.0f %-6.0f %s" % (r.box.left, r.box.top, r.text.strip()))
+        return 0
+    if args.json:
+        console.data(json.dumps({"pdf": str(path), "pages": pages, "ocr": pdf.have_ocr(),
+                                 "index": ds.index_rows(found)}, indent=2))
+        return 0
+    console.lines("datasheet", "\n".join(ds.index_lines(path.stem, pages, found)))
+    if not pdf.have_ocr():
+        console.say("datasheet", "tesseract is not installed: a page whose dimensions are "
+                                 "outlined curves has no text to read")
+    return 0
+
+
 def cmd_show(args) -> int:
     from .kicad.read import read_board
     from .kicad.write import show_item
@@ -366,7 +426,8 @@ def main(argv=None) -> int:
     args = parser().parse_args(argv)
     return {"run": cmd_run, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
             "route": cmd_route, "check": cmd_check, "show": cmd_show, "faces": cmd_faces,
-            "settings": cmd_settings, "parts": cmd_parts}[args.command](args)
+            "settings": cmd_settings, "parts": cmd_parts,
+            "datasheet": cmd_datasheet}[args.command](args)
 
 
 if __name__ == "__main__":
