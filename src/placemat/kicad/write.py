@@ -38,9 +38,21 @@ def seed_uuids(seed: int = 0x5EED):
 
 
 def _place_footprint(fp, current: Placement, target: Placement):
+    """Move one footprint. A flip to the back mirrors about the VERTICAL axis,
+    which is what KiCad's own F key does (`editing.flip_left_right`, true by
+    default in KiCad 7, 9 and 10) and what `_move_cell` already does to a
+    cell's items.
+
+    `Flip` computes the orientation that mirror implies - 180 for a part that
+    was upright - and the rotation asked for is applied on top of it. Setting
+    the orientation to `target.rotation` alone would discard the flip's half
+    turn and quietly mirror the part top-to-bottom instead, which is what the
+    planner and the writer used to disagree about."""
     if target.face != current.face:
         fp.Flip(fp.GetPosition(), pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
-    fp.SetOrientationDegrees(target.rotation)
+        fp.SetOrientationDegrees(target.rotation + 180)
+    else:
+        fp.SetOrientationDegrees(target.rotation)
     fp.SetPosition(vec(target.location.x, target.location.y))
 
 
