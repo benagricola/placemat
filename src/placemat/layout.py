@@ -22,7 +22,7 @@ from .outline import Outline, Run, rect_outline
 from .placement import Placement
 from .settings import Settings
 from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
-from .board_geometry import CellGeom, Footprint, BoardGeometry
+from .board_geometry import BoardGeometry, CellGeom, Footprint, stackup_order
 from .values import (Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
@@ -901,7 +901,7 @@ class Board:
         those parts' nets would admit every part that shares one."""
         if name in self._keepouts:
             raise ValueError("there is already a keepout named %r on this board" % name)
-        clash = [r for r in self.geometry.rule_areas if r.name == "keepout %s" % name]
+        clash = [r for r in self.geometry.rule_areas if r.base == "keepout %s" % name]
         if clash:
             raise ValueError(
                 "the generated board already carries a rule area called %r%s, so a keepout named "
@@ -920,6 +920,25 @@ class Board:
                                Freedom.FIXED if settled else Freedom.SEARCHED)
         self._intents.append(intent)
         return intent
+
+    def _report_lost_layers(self, plan: Plan):
+        """A keepout on a layer its board does not have is recorded in its zone
+        name and honoured by a board that has the layer, but on this one it
+        holds nothing there - so it is said, not dropped. The same for a
+        stamped module's rule area declaring a layer this board lacks too."""
+        have = set(self.geometry.layers)
+        for k in self._keepouts.values():
+            lost = sorted((l for l in (k.layers or ()) if l not in have), key=stackup_order)
+            if lost:
+                plan.findings.append(
+                    "keepout %s declares %s, which this %d-layer board does not have: recorded "
+                    "in its name, and honoured by a board that has it"
+                    % (k.name, ", ".join(l.value for l in lost), len(self.geometry.layers)))
+        for r in self.geometry.rule_areas:
+            if r.missing:
+                plan.findings.append(
+                    "%s from the %s cell declares %s, which this board does not have either"
+                    % (r.base, r.cell or "board", ", ".join(l.value for l in r.missing)))
 
     def cutout(self, name: str) -> CutoutHandle:
         """A named cutout, so something can be placed against its boundary."""
@@ -1839,6 +1858,7 @@ class Board:
                     shape=self._shape, cutouts=self._cutouts,
                     rules=list(self._rules), draw_outline=self._draw_outline)
         ctx = _CopperContext(self, occ)
+        self._report_lost_layers(plan)
         self._rank(occ)
         self._derive_copper_freedom()
         placements = sorted(self._intents, key=lambda i: i.rank)   # holes included: they are placed too

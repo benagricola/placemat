@@ -50,3 +50,46 @@ def test_a_rule_area_names_its_base_and_what_it_could_not_honour():
     ra = RuleArea("keepout antenna_c [In2.Cu]_1", "ant_rf", ((0, 0), (1, 0), (1, 1)),
                   frozenset(), frozenset(["fill"]), missing=(IN2,))
     assert ra.base == "keepout antenna_c" and ra.missing == (IN2,)
+
+
+import dataclasses
+
+import pytest
+
+from placemat.layout import Board
+from placemat.values import Location
+from tests.fixtures import board_geometry
+
+
+def _shape():
+    from placemat.cutouts import Circle
+    return Circle(4.0)
+
+
+def _geom(copper, rule_areas=()):
+    g = board_geometry([], width=40, height=40)
+    return dataclasses.replace(g, layers=tuple(copper), rule_areas=tuple(rule_areas))
+
+
+def test_the_clash_check_sees_a_stamped_marked_name_as_the_same_keepout():
+    stamped = RuleArea("keepout antenna [*.Cu]_1", "ant_rf", ((0, 0), (4, 0), (4, 4)),
+                       frozenset(TWO), frozenset(["fill"]))
+    b = Board(_geom(FOUR, [stamped]), edge_margin=0.0)
+    with pytest.raises(ValueError):
+        b.keepout(_shape(), "antenna", at=Location(20, 20), why="clearance")
+
+
+def test_a_keepout_on_a_layer_the_board_lacks_is_a_finding():
+    b = Board(_geom(TWO), edge_margin=0.0)
+    b.keepout(_shape(), "antenna_c", at=Location(20, 20), layers=(IN2,), why="Detail C")
+    plan = b.resolve()
+    said = [f for f in plan.findings if "antenna_c" in f]
+    assert said and "In2.Cu" in said[0] and "recorded in its name" in said[0]
+
+
+def test_a_stamped_keepout_the_parent_cannot_honour_is_a_finding():
+    stamped = RuleArea("keepout shield [In5.Cu]_1", "rf", ((0, 0), (4, 0), (4, 4)),
+                       frozenset(), frozenset(["fill"]), missing=(CopperLayer.IN5,))
+    plan = Board(_geom(FOUR, [stamped]), edge_margin=0.0).resolve()
+    said = [f for f in plan.findings if "shield" in f]
+    assert said and "In5.Cu" in said[0] and "rf" in said[0]
