@@ -133,20 +133,43 @@ fn along_shared_boundary(edges: &[(Point, Point)], others: &[Point], in_a: impl 
     false
 }
 
+/// `geometry._rect_of`: whether the polygon is an axis-aligned rectangle
+/// with area - a courtyard, a pad and a body box usually are.
+fn rect_of(poly: &Polygon) -> bool {
+    if poly.len() != 4 {
+        return false;
+    }
+    let ((x0, y0), (x1, y1), (x2, y2), (x3, y3)) = (poly[0], poly[1], poly[2], poly[3]);
+    if x0 == x1 && y1 == y2 && x2 == x3 && y3 == y0 {
+        return x0 != x2 && y0 != y1;
+    }
+    if y0 == y1 && x1 == x2 && y2 == y3 && x3 == x0 {
+        return y0 != y2 && x0 != x1;
+    }
+    false
+}
+
 /// `geometry.polys_overlap`'s "plain" (non-grid) branch: true when the two
 /// polygons share interior. Behaviourally identical to the grid branch for
 /// any polygon size (the grid is a cache, not a different answer), so this
 /// is correct for every call; Python still prefers its cached grid path for
 /// a polygon tested repeatedly (a reservation, a keepout).
 ///
-/// This does NOT re-implement the `_rect_of` axis-aligned-rectangle
-/// shortcut: `geometry.polys_overlap` checks that itself, in Python, before
-/// ever reaching native - see the dispatch note in that function.
+/// Ported `_rect_of` too (placemat commit "two rectangles overlap by their
+/// boxes"), not just at the Python dispatch layer: `shapes::conflict` calls
+/// this function directly, Rust to Rust, never through
+/// `geometry.polys_overlap`'s own Python-side shortcut - a courtyard pair
+/// (overwhelmingly rectangles) is the near-obstacle search's dominant case,
+/// so skipping this here would mean the hot path never got the shortcut at
+/// all.
 pub fn polys_overlap(a: &Polygon, b: &Polygon) -> bool {
     let (ax0, ay0, ax1, ay1) = bounds(a);
     let (bx0, by0, bx1, by1) = bounds(b);
     if ax0 >= bx1 || bx0 >= ax1 || ay0 >= by1 || by0 >= ay1 {
         return false;
+    }
+    if rect_of(a) && rect_of(b) {
+        return true; // two rectangles are their boxes, and the boxes share interior
     }
     if (within(a[0], bx0, by0, bx1, by1) && point_in_polygon(a[0], b))
         || (within(b[0], ax0, ay0, ax1, ay1) && point_in_polygon(b[0], a))
@@ -246,6 +269,24 @@ mod tests {
         let b = a;
         assert!(polys_overlap(&a, &b));
         assert_eq!(poly_distance(&a, &b), 0.0);
+    }
+
+    #[test]
+    fn rect_of_needs_the_actual_vertex_order_not_just_a_rectangular_box() {
+        // A 4-vertex L-shape's bounding box is a rectangle, but the polygon
+        // itself is not one - rect_of must say so, or the shortcut would
+        // treat "boxes share interior" as "polygons share interior" for a
+        // shape that isn't actually its own box.
+        let ell = [(0.0, 0.0), (2.0, 0.0), (2.0, 1.0), (1.0, 1.0)]; // not a rectangle: only 4 points, wrong order for one
+        assert!(!rect_of(&ell));
+        let rect = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)];
+        assert!(rect_of(&rect));
+        // reversed winding is still a rectangle
+        let reversed = [(0.0, 0.0), (0.0, 2.0), (2.0, 2.0), (2.0, 0.0)];
+        assert!(rect_of(&reversed));
+        // a degenerate (zero-area) box is not a rectangle for this purpose
+        let flat = [(0.0, 0.0), (2.0, 0.0), (2.0, 0.0), (0.0, 0.0)];
+        assert!(!rect_of(&flat));
     }
 
     #[test]
