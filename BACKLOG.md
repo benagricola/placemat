@@ -27,74 +27,74 @@ Features:
   passes its courtyard (`metrics.footprints`), the physical envelope spaces
   by silk, and a label keeps the silk clearance. Source: fairing-instrument
   `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 6.
-- **A fanout band** (unreleased): `board.fanout(part, depth=, sides=)` reserves
+- **A fanout band** (0.29.0): `board.fanout(part, depth=, sides=)` reserves
   the strip outside each pad row on the part's face for its satellites and
   SHORT-linked parts. Spec: `docs/superpowers/specs/2026-09-24-fanout-band-design.md`.
   Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive
   orientation", items 2 and 5.
-- **Pin names for pads** (unreleased): read from the symbols the .zen files
+- **Pin names for pads** (0.29.0): read from the symbols the .zen files
   use (through the component's footprint, else the netlist's name);
   `PadRef(part, pin=)` and pin names in `measure --pads`. 53 parts named on
   the fairing core, the MCU's 57 pins among them. Spec:
   `docs/superpowers/specs/2026-09-24-pin-names-design.md`. Source:
   fairing-instrument `electronics/PLACEMAT_GAPS.md`, "2026-09-22: which pad
   is the supply pin", "the power cells" item 4.
-- **Neighbours trade places in the cleanup pass** (unreleased): two
+- **Neighbours trade places in the cleanup pass** (0.29.0): two
   neighbouring two-pad parts of any size are tried in each other's places,
   in any rotation each may take. Bench: 6 better, 0 worse. Source:
   fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive orientation",
   item 5.
-- **A line item starts across from its links** (unreleased): `Location(x, None)`
+- **A line item starts across from its links** (0.29.0): `Location(x, None)`
   and `Centre(None, y)` slide from the point across from what they connect
   to when that is placed. Source: fairing-instrument
   `electronics/PLACEMAT_GAPS.md`, "passive orientation", item 4.
-- **Label boxes in `measure`; a fragment framed** (unreleased): `measure
+- **Label boxes in `measure`; a fragment framed** (0.29.0): `measure
   --labels` gives every board silk text's drawn box; `placemat preview`
   frames on the board outline and the placed parts, so parts left at the
   generator's positions do not shrink the view. Source: fairing-instrument
   `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 5.
-- **Per-net airwire and part coordinates** (unreleased): `metrics.airwire_per_net`,
+- **Per-net airwire and part coordinates** (0.29.0): `metrics.airwire_per_net`,
   the impact's `airwire by net:`, and origin, rotation and centre in `parts`.
   Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel
   cell", item 5.
-- **`[drc.severities]`** (unreleased): KiCad rule severities written into the
+- **`[drc.severities]`** (0.29.0): KiCad rule severities written into the
   board's project each run. Source: fairing-instrument
   `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 1.
-- **A fragment laid out by default rules is named** (unreleased): the rules
+- **A fragment laid out by default rules is named** (0.29.0): the rules
   come from the generator (`pcb`); a run notes a board whose silk clearance
   is 0 and the skill says to give a fragment the parent's config. Source:
   fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 3.
-- **Courtyards judged as KiCad judges them** (unreleased): measured, KiCad's
+- **Courtyards judged as KiCad judges them** (0.29.0): measured, KiCad's
   DRC counts touching courtyards as overlapping and its polygon lies inside
   the drawn box (by 0.03 for a 0.05 stroke). Each footprint's margin is
   read from KiCad's polygon; two courtyards may overlap by the two margins
   less 0.001. Bench: default 14 better, 4 worse, median 0.99. Source:
   fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things", item 6.
-- **A stamped cell's labels are reserved in the parent** (unreleased): each
+- **A stamped cell's labels are reserved in the parent** (0.29.0): each
   silk text in a cell's group is read as a parts-excluding region of the
   cell on its face. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`,
   "the bench panel cell", item 2.
-- **A label keeps the silk clearance from its part** (unreleased): the label
+- **A label keeps the silk clearance from its part** (0.29.0): the label
   gap is at least the board's silk clearance. Reproduced with the flag tab
   footprint and KiCad's DRC: at gap 0 every side touched the tab's silk on
   the front; on the back and with the fix, DRC is clean at every rotation.
   Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven
   things", item 7.
-- **Rows in a drawn envelope keep the envelope's gaps** (unreleased): a row's
+- **Rows in a drawn envelope keep the envelope's gaps** (0.29.0): a row's
   or ring's gap is at least the widest gap the envelope enforces. Source:
   fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 4.
-- **Parts a keepout allows are not DRC violations** (unreleased): KiCad's
+- **Parts a keepout allows are not DRC violations** (0.29.0): KiCad's
   `items_not_allowed` for an allowed part or net is counted as permitted.
   Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the power
   cells", item 3.
-- **"Wholly off the board" by area** (unreleased): a region is off the board
+- **"Wholly off the board" by area** (0.29.0): a region is off the board
   only when it shares no area with it or lies inside a hole. Source:
   fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things", item 4.
-- **The far face under a through-hole part** (unreleased): only its holes
+- **The far face under a through-hole part** (0.29.0): only its holes
   claim it; a lead keeps courtyards off, a via in the part's own pad does
   not. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven
   things" item 5, "the power cells" item 1.
-- **What a run is made from** (unreleased): the cached generation records
+- **What a run is made from** (0.29.0): the cached generation records
   its inputs and regenerates when one changes; the script's directory is
   importable and its sibling modules count in the run id. Source:
   fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things" items
