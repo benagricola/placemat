@@ -420,6 +420,12 @@ part sits on a face, so `"parts"` keeps parts off the faces among its
 layers: `layers=["F.Cu"]` leaves the back free, and inner layers alone keep
 no part out. A region a cell brings follows the cell to the other face.
 
+**What KiCad reports.** A rule area as KiCad saves it has no allow list, so
+KiCad's DRC lists a part (or a track of a net) the keepout allows as
+`items_not_allowed`. The run sets those aside: they are counted as
+`permitted` (`metrics.permitted`, and the DRC line's "permitted by their
+keepout"), not as violations.
+
 **The board edge.** A region may hang off it. Only the on-board part does
 anything - a part is refused for crossing the keep-in before any reservation is
 tested, and KiCad clips a zone to Edge.Cuts itself - and the step counts the

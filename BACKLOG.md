@@ -14,10 +14,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 Bugs, each checked against the code on 2026-09-23 (reproduced where it says so):
 
-- **KiCad reports parts a keepout allows as `items_not_allowed`.** The
-  written rule area has no allow list and placemat does not filter those
-  from the DRC report. 9 of 17 on the fairing core. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the power cells",
-  item 3.
 - **A row in the physical envelope lets different-net pads meet.** Two
   buttons came out with pads 0.05 mm apart (0.16 needed). Not reproduced
   yet. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 4.
@@ -74,6 +70,10 @@ Features:
 
 ## Done
 
+- **Parts a keepout allows are not DRC violations** (unreleased): KiCad's
+  `items_not_allowed` for an allowed part or net is counted as permitted.
+  Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the power
+  cells", item 3.
 - **"Wholly off the board" by area** (unreleased): a region is off the board
   only when it shares no area with it or lies inside a hole. Source:
   fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things", item 4.

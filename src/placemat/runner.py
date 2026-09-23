@@ -358,11 +358,14 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                                  "from": previous_id, "first_change": plan.reuse["first_change"]}
         if drc:
             t0 = time.time()
-            report = run_drc(src.pcb, run_dir / "drc.json")
+            # KiCad's rule area has no allow list: what a keepout lets in is set aside.
+            allow = {"keepout %s" % k.name: (set(k.owners), set(k.allow)) for k in plan.keepouts.values()}
+            report = run_drc(src.pcb, run_dir / "drc.json", allow=allow)
             aw = airwires_from_drc(json.loads((run_dir / "drc.json").read_text()))
             free = plan.occupancy.free_area()
             cong = congestion(aw["crossings"], free)
             metrics.update({"drc_real": report.real, "outstanding": report.outstanding, "other": report.other,
+                            "permitted": report.permitted,
                             "unconnected": report.unconnected, "airwire_mm": aw["total_mm"],
                             "crossings": aw["crossings"], "crossings_per_net": aw["crossings_per_net"],
                             "free_area_mm2": round(free, 1), "congestion": cong,

@@ -36,6 +36,7 @@ class DrcReport:
     real_kinds: tuple = DEFAULT_REAL_KINDS
     outstanding_kinds: tuple = DEFAULT_OUTSTANDING_KINDS
     footprint_kinds: tuple = DEFAULT_FOOTPRINT_KINDS
+    permitted: dict = field(default_factory=dict)      # what a keepout's allow list lets stand, by kind
 
     @property
     def violations(self) -> int:
@@ -70,11 +71,47 @@ class DrcReport:
             parts.append("footprint issues %d (extents for those parts are unreliable)" % n)
         if self.other:
             parts.append("other " + ", ".join("%d %s" % (v, k) for k, v in sorted(self.other.items())))
+        if self.permitted:
+            parts.append("permitted by their keepout %d" % sum(self.permitted.values()))
         return " | ".join(parts)
 
 
+_AREA_RE = re.compile(r"keepout area '([^']+)'")
+_FOOTPRINT_RE = re.compile(r"^Footprint (\S+)")
+_NET_RE = re.compile(r"\[([^\]]+)\]")
+
+
+def count_violations(data: dict, allow: dict) -> tuple:
+    """(counted, permitted), each {kind: n}, from a kicad-cli DRC report.
+    KiCad writes a rule area with no allow list, so a part or a net the
+    script let into a keepout comes back as `items_not_allowed`; `allow`
+    maps a keepout's name (without its layer marker) to (refdes, nets) it
+    permits, and a violation every item of which it permits is set aside."""
+    from ..board_geometry import split_marker
+    counted, permitted = Counter(), Counter()
+    for v in data.get("violations", []):
+        kind = v.get("type", "")
+        m = _AREA_RE.search(v.get("description", ""))
+        if kind == "items_not_allowed" and m:
+            refs, nets = allow.get(split_marker(m.group(1))[0], (set(), set()))
+
+            def ok(item):
+                d = item.get("description", "")
+                f = _FOOTPRINT_RE.match(d)
+                if f:
+                    return f.group(1) in refs
+                n = _NET_RE.search(d)
+                return bool(n) and n.group(1) in nets
+            items = v.get("items", [])
+            if items and all(ok(i) for i in items):
+                permitted[kind] += 1
+                continue
+        counted[kind] += 1
+    return dict(counted), dict(permitted)
+
+
 def run_drc(pcb, out_json, refill_zones: bool | None = None, timeout: int | None = None,
-            real_kinds=None, outstanding_kinds=None) -> DrcReport:
+            real_kinds=None, outstanding_kinds=None, allow=None) -> DrcReport:
     """Run kicad-cli DRC (zones refilled for the check only; the board file is
     not touched) and parse the JSON into buckets."""
     cfg = active()
@@ -104,7 +141,7 @@ def run_drc(pcb, out_json, refill_zones: bool | None = None, timeout: int | None
     if not out_json.exists():
         raise RuntimeError("kicad-cli drc wrote no report (rc %d): %s" % (proc.returncode, report.stderr_tail))
     data = json.loads(out_json.read_text())
-    report.by_type = dict(Counter(v["type"] for v in data.get("violations", [])))
+    report.by_type, report.permitted = count_violations(data, allow or {})
     unconnected = data.get("unconnected_items", [])
     report.unconnected = len(unconnected)
     for x in unconnected:

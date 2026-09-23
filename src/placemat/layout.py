@@ -2161,7 +2161,8 @@ class Board:
                         % (k.name, total))
                 poly = Cutouts([path]).loops[0]
                 nets = frozenset(self.geometry.require_net(a) for a in k.allow if isinstance(a, Net))
-                owners = frozenset(self._pad_ref(a)[0] for a in k.allow if isinstance(a, (Part, Cell)))
+                owners = frozenset(fp.ref for a in k.allow if isinstance(a, (Part, Cell))
+                                   for fp in members_of(self._item(a)[0]))      # every member: KiCad names each
                 claims, layer = parts_claim(k.layers)
                 if "parts" in k.excludes and claims:
                     occ.reserve(poly, "keepout %r (%s)" % (k.name, k.why), allow=nets, owners=owners, layer=layer)
