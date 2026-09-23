@@ -14,8 +14,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 Features:
 
-- **Per-net airwire in the run record, and coordinates in `parts`.** Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`,
-  "the bench panel cell", item 5.
 - **Label boxes in `measure`, and a fragment preview framed on its
   `board.size()` frame.** `preview --zoom` covers the framing if the frame
   is offered as a region. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 5.
@@ -50,6 +48,10 @@ Features:
 
 ## Done
 
+- **Per-net airwire and part coordinates** (unreleased): `metrics.airwire_per_net`,
+  the impact's `airwire by net:`, and origin, rotation and centre in `parts`.
+  Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel
+  cell", item 5.
 - **`[drc.severities]`** (unreleased): KiCad rule severities written into the
   board's project each run. Source: fairing-instrument
   `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 1.

@@ -851,8 +851,9 @@ board. It also prints the resolution a model reading the PNG sees: an
 image's long edge is scaled to about 1568 px before a model reads it, so a
 whole board comes through at a few pixels a millimetre.
 
-`parts` answers "what are the parts called": one line per footprint with its
-cell, courtyard area, pin count and value. The area and the pin count are what
+`parts` answers "what are the parts called, and where are they": one line per
+footprint with its cell, origin (x, y), rotation, courtyard area, pin count and
+value (`--json` adds the body centre and the nets). The area and the pin count are what
 the placement rank is worked out from, so the listing also explains the order
 things went down in.
 
@@ -917,7 +918,9 @@ how many failed, passed and were not judged, then each failure - and keeps the
 verdicts in `run.json` under `verdicts`, with `checks_failed` and
 `checks_unjudged` in the metrics. A verdict is "not judged" when no limit is
 set or a fact the check needs is missing, and it is never counted as a pass.
-The impact names any check whose verdict flipped since the previous run.
+The impact names any check whose verdict flipped since the previous run, and
+the nets whose airwire changed most (`airwire by net:`); a run records
+`metrics.airwire_per_net`, longest first.
 Like DRC, a failed check is read as the gate; it does not change the exit
 code on its own.
 KiCad's own stderr (assertion notes, image-handler debug lines) is kept

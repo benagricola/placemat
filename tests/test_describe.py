@@ -188,3 +188,16 @@ def test_the_docs_cover_read_and_check():
     assert "--read" in api and "datasheet check" in api
     mig = Path("skills/placemat/references/migration.md").read_text()
     assert "0.13" in mig
+
+
+def test_the_listing_says_where_each_part_is():
+    """The origin, the rotation and the body centre, as the board holds them:
+    a session listing positions reached for pcbnew before this."""
+    g = _geom()
+    rows = {r["instance"]: r for r in describe.parts_rows(g)}
+    fp = g.footprint("R1")
+    r = rows["r1"]
+    assert (r["x"], r["y"], r["rotation"]) == (fp.location.x, fp.location.y, fp.rotation)
+    assert r["centre"] == [round(fp.body_box.center.x, 3), round(fp.body_box.center.y, 3)]
+    line = [l for l in describe.parts_lines(g) if "r1" in l][0]
+    assert ("%.2f" % fp.location.x) in line and ("%.2f" % fp.location.y) in line

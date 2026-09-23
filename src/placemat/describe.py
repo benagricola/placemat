@@ -145,6 +145,8 @@ def part_lines(fp, geometry=None, pads: bool = False, digest: str = "") -> list:
 
 def parts_rows(geometry) -> list:
     return [{"instance": fp.inst, "ref": fp.ref, "face": fp.face.value, "cell": fp.cell,
+             "x": fp.location.x, "y": fp.location.y, "rotation": fp.rotation,
+             "centre": [round(fp.body_box.center.x, 3), round(fp.body_box.center.y, 3)],
              "mm2": round(fp.courtyard_box.area, 3), "pins": pin_count(fp),
              "value": fp.value, "nets": sorted({p.net for p in fp.pads if p.net})}
             for fp in sorted(geometry.footprints, key=lambda f: f.inst)]
@@ -154,12 +156,12 @@ def parts_lines(geometry) -> list:
     rows = parts_rows(geometry)
     if not rows:
         return ["no footprints on this board"]
-    out = ["%-26s %-6s %-6s %-12s %8s %5s  %s" % (
-        "instance", "ref", "face", "cell", "mm2", "pins", "value")]
+    out = ["%-26s %-6s %-6s %-12s %8s %8s %5s %8s %5s  %s" % (
+        "instance", "ref", "face", "cell", "x", "y", "rot", "mm2", "pins", "value")]
     for r in rows:
-        out.append("%-26s %-6s %-6s %-12s %8.2f %5d  %s" % (
+        out.append("%-26s %-6s %-6s %-12s %8.2f %8.2f %5g %8.2f %5d  %s" % (
             r["instance"][:26], r["ref"], r["face"], (r["cell"] or "-")[:12],
-            r["mm2"], r["pins"], r["value"][:28]))
+            r["x"], r["y"], r["rotation"], r["mm2"], r["pins"], r["value"][:28]))
     return out
 
 

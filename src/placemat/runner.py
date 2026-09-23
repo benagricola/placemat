@@ -191,6 +191,19 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
                     route_exclude=route_exclude, keep_going=keep_going, reuse=reuse)
 
 
+def drc_metrics(report, aw: dict, free: float) -> dict:
+    """What a run records from its DRC: the buckets, the airwire in all and
+    per net (longest first, so the nets to look at lead), the crossings and
+    the congestion of the free board."""
+    per_net = dict(sorted(aw.get("per_net", {}).items(), key=lambda kv: (-kv[1], kv[0])))
+    return {"drc_real": report.real, "outstanding": report.outstanding, "other": report.other,
+            "permitted": report.permitted,
+            "unconnected": report.unconnected, "airwire_mm": aw["total_mm"], "airwire_per_net": per_net,
+            "crossings": aw["crossings"], "crossings_per_net": aw["crossings_per_net"],
+            "free_area_mm2": round(free, 1), "congestion": congestion(aw["crossings"], free),
+            "open_nets": dict(report.open_nets)}
+
+
 def rule_notes(geometry) -> list:
     """What the generated board's own rules leave unchecked. A module
     fragment declared with Layout() and no board config is generated with
@@ -378,13 +391,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             report = run_drc(src.pcb, run_dir / "drc.json", allow=allow)
             aw = airwires_from_drc(json.loads((run_dir / "drc.json").read_text()))
             free = plan.occupancy.free_area()
-            cong = congestion(aw["crossings"], free)
-            metrics.update({"drc_real": report.real, "outstanding": report.outstanding, "other": report.other,
-                            "permitted": report.permitted,
-                            "unconnected": report.unconnected, "airwire_mm": aw["total_mm"],
-                            "crossings": aw["crossings"], "crossings_per_net": aw["crossings_per_net"],
-                            "free_area_mm2": round(free, 1), "congestion": cong,
-                            "open_nets": dict(report.open_nets)})
+            metrics.update(drc_metrics(report, aw, free))
+            cong = metrics["congestion"]
             rec.timing_s["drc"] = round(time.time() - t0, 1)
             say("check", "%s | airwires %d, %.1f mm, %d crossings, congestion %s  (%.1fs)" % (
                 report.summary(), aw["count"], aw["total_mm"], aw["crossings"],

@@ -179,3 +179,24 @@ def test_the_fab_profile_changes_the_run_id(tmp_path):
     (tmp_path / "fab-profile.json").write_text(json.dumps({"courtyard": {"excess_mm": 0.25}}, indent=4) + "\n")
     c = run_id(**same, fab_json=fab_profile(tmp_path).json())
     assert a != b and b == c                    # the values count, not how the file is written
+
+
+def test_impact_names_the_nets_whose_airwire_changed_most():
+    a = _rec(metrics={**_rec().metrics, "airwire_per_net": {"GND": 10.0, "VBUS": 5.0, "SDA": 3.0}})
+    b = _rec(run_id="b", metrics={**_rec().metrics, "airwire_mm": 740.0,
+                                  "airwire_per_net": {"GND": 710.0, "VBUS": 5.2, "SCL": 4.0}})
+    text = impact(a, b)
+    assert "airwire by net:" in text
+    assert "GND 10.0 -> 710.0" in text and "SCL 0.0 -> 4.0" in text and "SDA 3.0 -> 0.0" in text
+    assert "VBUS" not in text                        # under half a millimetre either way
+    assert text.index("GND") < text.index("SCL")     # the biggest change first
+
+
+def test_the_drc_metrics_record_airwire_per_net_longest_first():
+    from placemat.runner import drc_metrics
+
+    class Report:
+        real, outstanding, other, permitted, unconnected, open_nets = {}, {}, {}, {}, 2, {}
+    aw = {"total_mm": 13.0, "crossings": 1, "crossings_per_net": {"A": 1}, "per_net": {"A": 3.0, "B": 10.0}}
+    m = drc_metrics(Report(), aw, free=100.0)
+    assert list(m["airwire_per_net"]) == ["B", "A"] and m["airwire_mm"] == 13.0

@@ -188,6 +188,14 @@ def impact(before: RunRecord, after: RunRecord) -> str:
             d = _delta(kind, was.get(kind, 0), now.get(kind, 0), "%d")
             if d:
                 deltas.append("  " + d)
+    was, now = a.get("airwire_per_net") or {}, b.get("airwire_per_net") or {}
+    if was and now:
+        grew = sorted(((now.get(n, 0.0) - was.get(n, 0.0), n) for n in set(was) | set(now)),
+                      key=lambda dn: (-abs(dn[0]), dn[1]))
+        grew = [(d, n) for d, n in grew if abs(d) >= 0.5][:8]
+        if grew:
+            deltas.append("  airwire by net:")
+            deltas += ["    %s %.1f -> %.1f" % (n, was.get(n, 0.0), now.get(n, 0.0)) for _, n in grew]
     ab, bb = a.get("board"), b.get("board")
     if (ab is None) != (bb is None) or (ab and bb and any(abs(x - y) > 0.005 for x, y in zip(ab, bb))):
         deltas.append("  board %s -> %s" % (ab, bb))
