@@ -14,9 +14,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 Bugs, each checked against the code on 2026-09-23 (reproduced where it says so):
 
-- **"Wholly off the board" counts a region's vertices.** A strip whose
-  corners sit on or past the outline is refused though it covers board
-  (`_keepout_unusable`). Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things", item 4.
 - **KiCad reports parts a keepout allows as `items_not_allowed`.** The
   written rule area has no allow list and placemat does not filter those
   from the DRC report. 9 of 17 on the fairing core. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the power cells",
@@ -77,6 +74,9 @@ Features:
 
 ## Done
 
+- **"Wholly off the board" by area** (unreleased): a region is off the board
+  only when it shares no area with it or lies inside a hole. Source:
+  fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things", item 4.
 - **The far face under a through-hole part** (unreleased): only its holes
   claim it; a lead keeps courtyards off, a via in the part's own pad does
   not. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven

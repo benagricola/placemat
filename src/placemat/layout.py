@@ -802,8 +802,26 @@ class Board:
         not be judged by `_cutout_illegal` or it would be pushed inboard and a
         band round the rim would be refused outright. The only place a region
         cannot go is entirely off the board, where it would forbid nothing."""
-        outside, total = self._points_off_board(path)
-        return "is wholly off the board" if outside == total else None
+        return "is wholly off the board" if self._off_board(path) else None
+
+    def _off_board(self, path) -> bool:
+        """Whether a region shares no area with the board: clear of its
+        outline, or wholly inside one of its holes. Judged by area, not by the
+        region's corners - a strip across the board has every corner past an
+        edge and covers the board between them."""
+        from .geometry import point_in_polygon, point_segment_distance, polys_overlap
+        shape = self._shaped()
+        loop = Cutouts([path]).loops[0]
+        if not polys_overlap(loop, shape.loops[0]):
+            return True
+
+        def within(hole):
+            def on(q):
+                return any(point_segment_distance(q, hole[k], hole[(k + 1) % len(hole)]) <= 1e-9
+                           for k in range(len(hole)))
+            mids = [((a[0] + b[0]) / 2, (a[1] + b[1]) / 2) for a, b in zip(loop, tuple(loop[1:]) + tuple(loop[:1]))]
+            return all(point_in_polygon(q, hole) or on(q) for q in tuple(loop) + tuple(mids))
+        return any(within(h) for h in shape.loops[1:])
 
     def _points_off_board(self, path) -> tuple:
         """(points outside the board, points in all) for a region's boundary.
@@ -2136,7 +2154,7 @@ class Board:
             else:
                 path = k.shape.path_at(centre, turn)
                 outside, total = self._points_off_board(path)
-                if outside == total:
+                if self._off_board(path):
                     raise ValueError(
                         "keepout %r is wholly off the board, so it forbids nothing: all %d of its "
                         "points are outside the outline. Move it, or remove the declaration."

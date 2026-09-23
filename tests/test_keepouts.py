@@ -556,3 +556,33 @@ def test_a_cell_s_front_only_rule_area_goes_to_the_back_with_the_cell():
     assert "antenna_1" not in (occ.legal(g.footprint("R1"), probe) or "")
     probe = Placement(probe.location, 0.0, Face.BACK)
     assert "antenna_1" in (occ.legal(g.footprint("R1"), probe) or "")
+
+
+def test_a_strip_across_the_board_with_its_corners_off_it_still_covers_it():
+    """All four corners past the edges, the middle over the board: it is on it."""
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0)
+    b.keepout(Path([(0.0, 0.0), (42.0, 0.0), (42.0, 2.0), (0.0, 2.0)]), "band", at=Location(20.0, 11.0),
+              excludes=("parts",), why="a band across")
+    b.place(Part("u1"), at=Location(20.0, 30.0))
+    plan = b.resolve()
+    assert any("band" in r.why for r in plan.occupancy.reservations)
+
+
+def test_a_region_wholly_past_the_edge_is_still_an_error():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0)
+    b.keepout(Path([(0.0, 0.0), (4.0, 0.0), (4.0, 2.0), (0.0, 2.0)]), "gone", at=Location(50.0, 11.0),
+              excludes=("parts",), why="off to the side")
+    b.place(Part("u1"), at=Location(20.0, 30.0))
+    with pytest.raises(ValueError, match="wholly off the board"):
+        b.resolve()
+
+
+def test_a_region_wholly_inside_a_hole_in_the_board_is_off_it():
+    b = make_board("u1")
+    b.disc(diameter=40.0, hole=12.0)
+    b.keepout(Circle(4.0), "lost", at=b.centre, excludes=("parts",), why="inside the bore")
+    b.place(Part("u1"), at=Location(b.centre.x, b.centre.y + 12.0))
+    with pytest.raises(ValueError, match="wholly off the board"):
+        b.resolve()
