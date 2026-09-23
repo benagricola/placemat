@@ -24,11 +24,14 @@ def test_the_worst_cell_is_where_nets_crowd():
     assert r.worst > r.p99 >= 0
 
 
-def test_pads_take_capacity_from_the_cells_they_cover():
-    open_board = rudy([_pad("A", 1.0, 1.0, s=0.1), _pad("A", 4.0, 1.0, s=0.1)], Box(0, 0, 10, 10), layers=1, pitch=0.4, cell=1.0)
-    blocked = rudy([_pad("A", 1.0, 1.0, s=0.1), _pad("A", 4.0, 1.0, s=0.1), _pad("B", 2.5, 1.0, s=0.9), _pad("C", 2.5, 3.0, s=0.9)],
-                   Box(0, 0, 10, 10), layers=1, pitch=0.4, cell=1.0)
-    assert blocked.worst > open_board.worst
+def test_a_large_pad_is_not_a_congested_cell():
+    """Pads do not take capacity: a cell under a large pad would otherwise
+    have none, and read as the worst on the board whatever the wiring."""
+    wire = [_pad("A", 1.0, 1.0, s=0.1), _pad("A", 9.0, 1.0, s=0.1)]
+    alone = rudy(wire, Box(0, 0, 10, 10), layers=2, pitch=0.4, cell=1.0)
+    padded = rudy(wire + [_pad("GND", 5.0, 5.0, s=3.0), _pad("GND", 5.5, 5.5, s=0.1)], Box(0, 0, 10, 10), layers=2,
+                  pitch=0.4, cell=1.0, skip={"GND"})
+    assert padded.worst == alone.worst and padded.worst < 1.0
 
 
 def test_single_pin_nets_and_nets_left_out_ask_for_nothing():

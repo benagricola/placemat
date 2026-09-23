@@ -993,7 +993,7 @@ what they connect to and took a pocket instead; the run prints their names.
 And `metrics.footprints`, in courtyard mode, when any courtyard understates
 its part, and `metrics.cleanup` when the cleanup pass ran. And `metrics.rudy`:
 the placed board's congestion by RUDY - each routed net's wire spread over its
-box on a 0.5 mm grid, against what a cell's layers carry less its pads - as
+box on a 0.5 mm grid, against what a cell's layers carry - as
 the worst cell's share of capacity and where it is, the 99th percentile cell
 and the overflow; the run prints the worst cell as `congestion`. On a study
 of the fixture modules the worst cell was the one congestion measure that

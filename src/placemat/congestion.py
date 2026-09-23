@@ -1,13 +1,18 @@
 """RUDY (Rectangular Uniform wire DensitY; Spindler and Johannes, DATE 2007):
 each net's wire - the half-perimeter of its box - spread evenly over that box,
 summed on a grid and set against what a cell can carry: its routing layers
-times tracks per mm, less the share its pads cover.
+times tracks per mm.
 
 On the module study (2026-09-23) the most congested cell was the one measure
 that picked the better-routing of two complete placements of the same circuit
 more often than chance (75-77% of 28-31 pairs); the mean, the percentiles,
 wire length and ratsnest crossings did not. So it is reported, and nothing
-yet steers by it."""
+yet steers by it.
+
+Pads do not take capacity. Subtracting the area they cover left a cell under
+a large pad with none, and 40 of the study's 140 placements then read that
+cell as the worst whatever their wiring; without it the worst cell agreed
+with the router on 73-76% of pairs, as often as before, with almost no ties."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -30,9 +35,9 @@ class Rudy:
 
 
 def rudy(pads, board: Box, layers: int, pitch: float, cell: float = 0.5, skip=frozenset()) -> Rudy:
-    """`pads` are (net, box, copper layer count) of the placed pads; `pitch` is
-    a track and its clearance; nets in `skip` (planes, free nets) and nets
-    with one pad ask for nothing."""
+    """`pads` are (net, box, copper layer count) of the placed pads - each net's
+    box is read from its pads' centres; `pitch` is a track and its clearance;
+    nets in `skip` (planes, free nets) and nets with one pad ask for nothing."""
     nx = max(1, int(math.ceil(board.width / cell)))
     ny = max(1, int(math.ceil(board.height / cell)))
     x_org, y_org = board.left, board.top
@@ -59,22 +64,15 @@ def rudy(pads, board: Box, layers: int, pitch: float, cell: float = 0.5, skip=fr
             row = demand[j]
             for i, ox in _spans(x0, x1, x_org, cell, nx):
                 row[i] += density * ox * oy
-    covered = [[0.0] * nx for _ in range(ny)]
-    for _, box, n_layers in pads:
-        share = min(1.0, (n_layers or layers) / layers)
-        for j, oy in _spans(box.top, box.bottom, y_org, cell, ny):
-            for i, ox in _spans(box.left, box.right, x_org, cell, nx):
-                covered[j][i] += share * ox * oy / (cell * cell)
-    full = layers * cell * cell / pitch                     # mm of track a clear cell holds
+    cap = layers * cell * cell / pitch                      # mm of track a cell holds
     util, over, worst, worst_at = [], 0.0, 0.0, Location(board.center.x, board.center.y)
     grid = []
     for j in range(ny):
         grid.append([])
         for i in range(nx):
-            cap = full * max(0.0, 1.0 - min(covered[j][i], 1.0))
             d = demand[j][i]
             over += max(0.0, d - cap)
-            u = d / cap if cap > 1e-9 else (0.0 if d <= 1e-12 else 10.0)
+            u = d / cap
             util.append(u)
             grid[j].append(round(u, 4))
             if u > worst + 1e-12:
