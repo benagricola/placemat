@@ -630,6 +630,21 @@ class Board:
         occ = self._bare_occupancy()
         return occ.body_box(geom, Placement(Location(0.0, 0.0), rotation, face))
 
+    def _row_gap(self, items, gap: float) -> float:
+        """A row's or ring's gap, at least what the envelope keeps between two
+        parts. In a drawn envelope items are spaced by their reach, and a pad
+        or silk can sit at the edge of it, so neighbours need the widest gap
+        the envelope enforces: the netclass clearance of their nets, the
+        component spacing and the silk clearance. A courtyard envelope spaces
+        by courtyards, which carry that margin already."""
+        if self.settings.place_envelope == "courtyard":
+            return gap
+        nets = {p.net for item in items for fp in members_of(self._item(item)[0]) for p in fp.pads if p.net}
+        widest = max([self.clearance or self.geometry.default_clearance or 0.0, self.component_spacing,
+                      self.geometry.silk_clearance] +
+                     [self.geometry.clearance(n) for n in nets if n in self.geometry.nets])
+        return max(float(gap), widest)
+
     def claim(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
         """Everything the item claims at `rotation`, at the origin: its reach
         (body, pads, silk) and its courtyard together. What a row spaces by,
@@ -1367,6 +1382,7 @@ class Board:
         pad's X()/Y(), a Mid); `before=` or `after=` another row, one gap
         away. A row placed by a reference is measured when its items are
         placed. Returns the Row."""
+        gap = self._row_gap(items, gap)
         if isinstance(edge, Run):
             return self._row_on_run(items, edge, gap=gap, start=start, align=align, rotation=rotation,
                                     overhang=overhang, why=why, unsupported=[
@@ -1441,6 +1457,7 @@ class Board:
         two courtyards may touch by; `spread=True` shares the whole turn evenly instead
         (four mounting holes at 90 degrees). `rotation=` (one value or one
         per item) overrides the outward turn. Returns the Ring."""
+        gap = self._row_gap(items, gap)
         centre = self.centre if about is None else _as_point(about)
         # only a ring at the rim needs a rim; with a radius any board can hold one
         disc = self._disc("give ring() a radius, or board.row(items, board.edge(facing=...)) "

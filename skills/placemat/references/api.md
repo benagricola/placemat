@@ -257,7 +257,10 @@ spacing is `courtyard.component_spacing_mm` in fab-profile.json, twice the
 courtyard excess when absent. Tracks and vias may run under a body. The
 members of a block keep these gaps from each other too. The rank measures an
 item by the box round what the envelope claims, and a row spaces by the reach
-alone in `physical`. KiCad's DRC still checks courtyards, so a `physical`
+alone in `physical`, with a gap of at least the widest the envelope keeps
+between two parts (the netclass clearance of the row's nets, the component
+spacing, the silk clearance): a pad at the edge of its reach cannot meet the
+next part's. KiCad's DRC still checks courtyards, so a `physical`
 board reports `courtyards_overlap` wherever two courtyards now meet; set that
 check's severity in the project if the courtyards are not what the fab uses.
 In `courtyard` mode a run lists each footprint whose silk or pads pass its

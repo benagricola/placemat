@@ -178,3 +178,18 @@ def test_in_physical_a_blocks_members_keep_the_same_gaps_from_each_other():
     assert members is not None, why
     occ.commit(g.footprint("u1"), members["u1"])
     assert occ.legal(g.footprint("c1"), members["c1"]) is None
+
+
+def test_in_physical_a_row_at_no_gap_keeps_the_gaps_the_envelope_needs():
+    """Spaced by reach alone, two parts whose pads sit at the edge of their
+    reach met pad to pad. A row never sets neighbours closer than the
+    envelope allows: its gap is at least the widest gap it enforces."""
+    from placemat.values import Edge
+    fps = [footprint("S%d" % i, 10 + 10 * i, 30, w=4, h=2, inst="s%d" % i, nets=("N%d" % i, "M%d" % i),
+                     fab=(8 + 10 * i, 29, 12 + 10 * i, 31)) for i in range(3)]
+    b = _board(fps, "physical")
+    b.row([Part("s0"), Part("s1"), Part("s2")], Edge.NORTH, gap=0.0, start=5.0)
+    plan = b.resolve()
+    assert not plan.findings, plan.findings
+    xs = sorted(plan.box("s%d" % i).left for i in range(3))
+    assert xs[1] - xs[0] >= 4.0 + 0.2 - 1e-9          # body 4 wide, then at least the 0.2 clearance

@@ -14,9 +14,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 Bugs, each checked against the code on 2026-09-23 (reproduced where it says so):
 
-- **A row in the physical envelope lets different-net pads meet.** Two
-  buttons came out with pads 0.05 mm apart (0.16 needed). Not reproduced
-  yet. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 4.
 - **A label on a back-face part at rotation 90 lands on the part's own
   silk**, whichever side is asked for. Not reproduced yet. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven
   things", item 7.
@@ -70,6 +67,9 @@ Features:
 
 ## Done
 
+- **Rows in a drawn envelope keep the envelope's gaps** (unreleased): a row's
+  or ring's gap is at least the widest gap the envelope enforces. Source:
+  fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 4.
 - **Parts a keepout allows are not DRC violations** (unreleased): KiCad's
   `items_not_allowed` for an allowed part or net is counted as permitted.
   Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the power

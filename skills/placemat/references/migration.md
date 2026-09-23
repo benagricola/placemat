@@ -6,6 +6,9 @@ whether any of it applies.
 
 ## To 0.29
 
+- In the `physical` and `union` envelopes a row or ring gap below the widest
+  gap the envelope enforces is raised to it; a script that set the netclass
+  clearance as its row gap can drop it.
 - A through-hole part no longer claims its whole courtyard on the far face:
   only its holes, and another part's courtyard may not sit over a lead. A
   chip with vias in its exposed pad claims only their copper on the far
