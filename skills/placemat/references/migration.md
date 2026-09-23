@@ -6,6 +6,10 @@ whether any of it applies.
 
 ## To 0.29
 
+- A through-hole part no longer claims its whole courtyard on the far face:
+  only its holes, and another part's courtyard may not sit over a lead. A
+  chip with vias in its exposed pad claims only their copper on the far
+  face. Parts can now sit on the back under through-hole parts.
 - The first run after upgrading generates the board again: the cached
   generation has no record of its inputs yet. From then on a changed .zen,
   footprint, symbol or stamped fragment regenerates by itself; `--fresh`

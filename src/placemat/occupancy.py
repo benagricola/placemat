@@ -162,8 +162,9 @@ def _fp_shapes(fp: Footprint, envelope: str = "courtyard") -> list[Shape]:
     neither silk nor fab, its courtyard (which falls back to its pads).
     `union`: both."""
     shapes = []
-    through = any(p.through for p in fp.pads) or bool(fp.npth)
-    faces = _BOTH if through else frozenset([fp.face])
+    # The courtyard and the body stay on the part's own face: only its holes
+    # reach the other (the through pads and unplated holes below).
+    faces = frozenset([fp.face])
     drawn = bool(fp.silk or fp.fab)
     if envelope != "physical" or not drawn:
         ct = box_polygon(fp.courtyard_box)
@@ -174,8 +175,7 @@ def _fp_shapes(fp: Footprint, envelope: str = "courtyard") -> list[Shape]:
         for face, poly in fp.silk:
             shapes.append(Shape(fp.ref, "silk", frozenset([face]), frozenset(), "", poly, Box.of_points(poly)))
         for face, poly in fp.fab:
-            shapes.append(Shape(fp.ref, "body", _BOTH if through else frozenset([face]), frozenset(), "",
-                                poly, Box.of_points(poly)))
+            shapes.append(Shape(fp.ref, "body", frozenset([face]), frozenset(), "", poly, Box.of_points(poly)))
     for p in fp.pads:
         for poly in p.outlines:
             shapes.append(Shape(fp.ref, "through" if p.through else "pad",
@@ -185,6 +185,17 @@ def _fp_shapes(fp: Footprint, envelope: str = "courtyard") -> list[Shape]:
         poly = circle_polygon(center, drill / 2.0)
         shapes.append(Shape(fp.ref, "npth", _BOTH, frozenset(CopperLayer), "", poly, Box.of_points(poly)))
     return shapes
+
+
+def _is_lead(fp, pad) -> bool:
+    """A plated through pad that stands proud of the far face: not a via in
+    one of the part's own surface pads (an exposed pad's thermal vias are
+    flat on the far face and claim only their copper there)."""
+    if not pad.through:
+        return False
+    c = pad.box.center
+    return not any(not q.through and q.box.left <= c.x <= q.box.right and q.box.top <= c.y <= q.box.bottom
+                   for q in fp.pads)
 
 
 class Occupancy:
@@ -199,6 +210,7 @@ class Occupancy:
         self.component_spacing = component_spacing          # body to body, body to another part's pad
         self.silk_clearance = geometry.silk_clearance       # silk to silk, silk to a mask opening
         self._footprint_refs = frozenset(fp.ref for fp in geometry.footprints)
+        self._leads = frozenset((fp.ref, p.number) for fp in geometry.footprints for p in fp.pads if _is_lead(fp, p))
         self._drawn_gap = max(component_spacing, self.silk_clearance)   # the furthest a silk, mask or body check reaches
         if self.envelope != "courtyard" and self._gap < max(component_spacing, self.silk_clearance):
             raise ValueError("[place] conflict_gap %.2f is less than the %.2f mm the %s envelope needs a check to reach"
@@ -372,40 +384,6 @@ class Occupancy:
         (an assembly margin) does not."""
         geom = self._geometry(item)
         return transform_box(geom.reach or geom.body, self._transform(geom, placement))
-
-    def _spans_both_faces(self, owner: str) -> str:
-        """Why this part occupies the face it is not on, or "". A plated
-        through hole or an unplated one reaches the other side, so nothing may
-        sit opposite it - and a courtyard collision with a part on the far
-        face reads as nonsense until that is said."""
-        if not self.geometry.has_footprint(owner):
-            return ""
-        fp = self.geometry.footprint(owner)
-        through = [p for p in fp.pads if p.through]
-        if not through and not fp.npth:
-            return ""
-        parts = []
-        if through:
-            netless = sum(1 for p in through if not p.net)
-            parts.append("%d through-hole pad%s%s" % (
-                len(through), "" if len(through) == 1 else "s",
-                "" if not netless else (", none with a net" if netless == len(through)
-                                        else ", %d with no net" % netless)))
-        if fp.npth:
-            parts.append("%d unplated hole%s" % (len(fp.npth), "" if len(fp.npth) == 1 else "s"))
-        return "%s holds both faces: %s" % (self.who(owner), " and ".join(parts))
-
-    def _cross_face_note(self, a: str, b: str) -> str:
-        """The clause a cross-face courtyard collision needs. Only when the
-        two parts sit on different faces, because that is the case where the
-        overlap is possible at all only through one of them spanning."""
-        g = self.geometry
-        if not (g.has_footprint(a) and g.has_footprint(b)):
-            return ""
-        if g.footprint(a).face is g.footprint(b).face:
-            return ""
-        notes = [n for n in (self._spans_both_faces(a), self._spans_both_faces(b)) if n]
-        return (" (%s)" % "; ".join(notes)) if notes else ""
 
     def who(self, owner: str) -> str:
         """A refdes as a finding names it: with its cell when it has one."""
@@ -668,12 +646,17 @@ class Occupancy:
             if depth <= self._touch + 1e-9 and (s.box.width > 0 and o.box.width > 0):
                 return None
             if s.faces & o.faces and polys_overlap(s.poly, o.poly):
-                return "%s courtyard overlaps %s courtyard%s" % (
-                    self.who(s.owner), self.who(o.owner), self._cross_face_note(s.owner, o.owner))
+                return "%s courtyard overlaps %s courtyard" % (self.who(s.owner), self.who(o.owner))
             return None
         if "courtyard" in (ks, ko):
             other = o if ks == "courtyard" else s
             court = s if ks == "courtyard" else o
+            if other.kind == "through" and other.owner != court.owner and (other.owner, other.label) in self._leads:
+                if polys_overlap(court.poly, other.poly):
+                    return "%s courtyard sits over a through-hole lead of %s%s" % (
+                        self.who(court.owner), self.who(other.owner),
+                        "" if other.net else " (a plated pad with no net: often a footprint defect)")
+                return None
             if other.kind == "npth" or (other.kind == "through" and self.vias_block_courtyards
                                         and other.owner not in self.items):
                 if polys_overlap(court.poly, other.poly):

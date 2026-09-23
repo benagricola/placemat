@@ -14,12 +14,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 Bugs, each checked against the code on 2026-09-23 (reproduced where it says so):
 
-- **A through-hole pad claims the whole part on both faces.** `through =
-  any(p.through for p in fp.pads) or bool(fp.npth)` (`occupancy.py`) sends
-  the courtyard and body to the far face; only the holes reach it. Vias in
-  an exposed pad are plated pads, so an SMD chip with a via-in-pad claims
-  its body on the back as well. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things" item 5 and "the power
-  cells" item 1.
 - **"Wholly off the board" counts a region's vertices.** A strip whose
   corners sit on or past the outline is refused though it covers board
   (`_keepout_unusable`). Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things", item 4.
@@ -83,6 +77,10 @@ Features:
 
 ## Done
 
+- **The far face under a through-hole part** (unreleased): only its holes
+  claim it; a lead keeps courtyards off, a via in the part's own pad does
+  not. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven
+  things" item 5, "the power cells" item 1.
 - **What a run is made from** (unreleased): the cached generation records
   its inputs and regenerates when one changes; the script's directory is
   importable and its sibling modules count in the run id. Source:

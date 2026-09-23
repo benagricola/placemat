@@ -28,11 +28,41 @@ def test_smd_parts_on_opposite_faces_may_share_an_xy():
     assert occ.legal(r2, Placement(Location(10, 10), 0, Face.BACK)) is None
 
 
-def test_a_through_hole_part_blocks_both_faces():
+def test_a_through_hole_part_blocks_both_faces_at_its_holes():
     occ = occ_with(footprint("J1", 10, 10, through=True))
     r2 = footprint("R2", 30, 30, face=Face.BACK)
     why = occ.legal(r2, Placement(Location(10, 10), 0, Face.BACK))
     assert why is not None and "J1" in why
+
+
+def test_the_far_face_under_a_through_hole_part_is_free_between_its_leads():
+    """Only the holes reach the far face: its courtyard and body stay on its own."""
+    occ = occ_with(footprint("J1", 10, 10, w=8, through=True))          # leads at x 6.1..7.1 and 12.9..13.9
+    r2 = footprint("R2", 30, 30, w=2, h=1, face=Face.BACK)
+    assert occ.legal(r2, Placement(Location(10, 10), 0, Face.BACK)) is None
+    assert occ.legal(r2, Placement(Location(10, 10), 0, Face.FRONT)) is not None
+
+
+def test_a_courtyard_may_not_sit_over_another_part_s_lead_on_the_far_face():
+    """A lead stands proud of the far face: a part's pads may clear it and
+    its courtyard still not sit over it."""
+    occ = occ_with(footprint("J1", 10, 10, w=8, through=True))
+    r2 = footprint("R2", 30, 30, w=2, h=1, face=Face.BACK, excess=1.0)  # courtyard 2 mm past its pads
+    why = occ.legal(r2, Placement(Location(8.5, 10), 0, Face.BACK)) or ""
+    assert "J1" in why and "lead" in why
+
+
+def test_a_via_in_an_exposed_pad_claims_only_its_copper_on_the_far_face():
+    import dataclasses
+    from tests.fixtures import pad
+    u1 = footprint("U1", 10, 10, w=4, h=4)
+    ep = pad("U1", "u1", 3, "GND", 10, 10, 3.0, 3.0)
+    via = pad("U1", "u1", 3, "GND", 10, 10, 0.5, 0.5, through=True)
+    u1 = dataclasses.replace(u1, pads=u1.pads[:1] + (ep, via))
+    occ = occ_with(u1)
+    r2 = footprint("R2", 30, 30, w=2, h=1, face=Face.BACK, excess=1.0)
+    assert occ.legal(r2, Placement(Location(11.5, 10), 0, Face.BACK)) is None     # courtyard over the via, pads clear
+    assert occ.legal(r2, Placement(Location(10.5, 10), 0, Face.BACK)) is not None  # a pad on the via's copper
 
 
 def test_a_pad_may_not_come_within_clearance_of_foreign_copper():
@@ -207,10 +237,9 @@ def test_legal_without_blame_behaves_exactly_as_before():
                      Placement(Location(10.0, 10.0), 0.0, Face.FRONT)) is None
 
 
-def test_a_cross_face_courtyard_finding_says_why_the_part_holds_both_faces():
-    """A through-hole part occupies BOTH faces, so its courtyard collides with
-    a part on the other side. The message used to name two parts and leave the
-    reader to work out why they could possibly meet."""
+def test_a_lead_in_a_far_face_courtyard_says_it_is_a_lead():
+    """A through-hole part meets a part on the other face only at its
+    leads, and the message says so."""
     from placemat.occupancy import Occupancy
     from placemat.placement import Placement
     from placemat.values import Face, Location
@@ -221,8 +250,7 @@ def test_a_cross_face_courtyard_finding_says_why_the_part_holds_both_faces():
                        width=60, height=60)
     occ = Occupancy(g, edge_margin=0.0)
     why = occ.legal(g.footprint("U1"), Placement(Location(30.0, 30.0), 0.0, Face.FRONT))
-    assert why is not None and "courtyard overlaps" in why
-    assert "both faces" in why and "through-hole" in why
+    assert why is not None and "through-hole lead of U1" in why
 
 
 def test_a_same_face_courtyard_finding_is_left_alone():
@@ -239,9 +267,9 @@ def test_a_same_face_courtyard_finding_is_left_alone():
     assert "courtyard overlaps" in why and "both faces" not in why
 
 
-def test_the_note_counts_the_through_pads_that_carry_no_net():
+def test_a_lead_with_no_net_is_named_as_such():
     """A netless through pad is usually a footprint defect rather than a real
-    via field, and that is what made an HTSSOP-20 hold both faces."""
+    lead, and that is what made an HTSSOP-20 hold the far face."""
     from placemat.occupancy import Occupancy
     from placemat.placement import Placement
     from placemat.values import Face, Location
@@ -255,7 +283,7 @@ def test_the_note_counts_the_through_pads_that_carry_no_net():
                                       face=Face.BACK)], width=60, height=60)
     occ = Occupancy(g, edge_margin=0.0)
     why = occ.legal(g.footprint("U1"), Placement(Location(30.0, 30.0), 0.0, Face.FRONT))
-    assert "2 through-hole pads, none with a net" in why, why
+    assert "through-hole lead of U1" in why and "no net" in why, why
 
 
 def test_courtyards_overlapping_by_exactly_the_touch_allowance_may_sit_there():

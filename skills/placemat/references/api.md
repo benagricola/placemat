@@ -245,6 +245,13 @@ different parts, every gap is the board's own:
 | silk | - | silk clearance | silk clearance | 0 |
 | body | component spacing | - | 0 | component spacing |
 
+**The far face.** A part's courtyard and body are on its own face. Its
+plated pads and unplated holes reach both, so on the far face a part keeps
+only those: another part's pads keep their clearance from them, and another
+part's courtyard may not sit over a lead (it stands proud of the far face).
+A via in one of the part's own surface pads (an exposed pad's thermal vias)
+is not a lead: on the far face it claims its copper only.
+
 The silk clearance is the board's minimum silk item clearance; the component
 spacing is `courtyard.component_spacing_mm` in fab-profile.json, twice the
 courtyard excess when absent. Tracks and vias may run under a body. The
