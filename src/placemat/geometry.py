@@ -180,6 +180,8 @@ def polys_overlap(a: Polygon, b: Polygon) -> bool:
         return True                     # two rectangles are their boxes, and the boxes share interior
     if pa.grid is not None or pb.grid is not None:
         return _prepared_overlap(pa, pb)
+    if _native is not None:
+        return _native.polys_overlap(a, b)
     # What follows is the full test with what the boxes rule out skipped: a
     # point outside the other's box (closed) is not inside it, and an edge
     # whose box misses the other polygon's box crosses none of its edges.
@@ -437,6 +439,12 @@ def _edge_meets(p1: Point, p2: Point, x0: float, y0: float, x1: float, y1: float
 
 
 def point_segment_distance(p: Point, a: Point, b: Point) -> float:
+    if _native is not None:
+        return _native.point_segment_distance(p, a, b)
+    return _point_segment_distance_py(p, a, b)
+
+
+def _point_segment_distance_py(p: Point, a: Point, b: Point) -> float:
     ax, ay = a
     bx, by = b
     px, py = p
@@ -449,16 +457,23 @@ def point_segment_distance(p: Point, a: Point, b: Point) -> float:
 
 
 def poly_distance(a: Polygon, b: Polygon) -> float:
-    """Shortest gap between two polygons; 0 when they overlap or touch."""
+    """Shortest gap between two polygons; 0 when they overlap or touch.
+
+    Delegates whole to native when it is built: native's own polys_overlap
+    is always the plain (non-grid) test, which is the same boolean answer
+    as the grid path for any polygon size (see polys_overlap below), so
+    this is exact for a 24+-vertex operand too."""
+    if _native is not None:
+        return _native.poly_distance(a, b)
     if polys_overlap(a, b):
         return 0.0
     best = math.inf
     for p in a:
         for q1, q2 in _edges(b):
-            best = min(best, point_segment_distance(p, q1, q2))
+            best = min(best, _point_segment_distance_py(p, q1, q2))
     for p in b:
         for q1, q2 in _edges(a):
-            best = min(best, point_segment_distance(p, q1, q2))
+            best = min(best, _point_segment_distance_py(p, q1, q2))
     return best
 
 

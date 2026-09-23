@@ -38,7 +38,8 @@ def test_placemat_native_0_forces_the_python_path(monkeypatch):
 
 def test_native_is_the_built_module_when_present_and_not_disabled():
     pytest.importorskip("placemat_native")
-    assert os.environ.get("PLACEMAT_NATIVE") != "0"
+    if os.environ.get("PLACEMAT_NATIVE") == "0":
+        pytest.skip("PLACEMAT_NATIVE=0 is set for this run: it forces the Python path by design")
     import placemat.geometry as geometry
     importlib.reload(geometry)
     assert geometry._native is not None

@@ -88,11 +88,60 @@ fn strictly_inside(p: Point, poly: &Polygon) -> bool {
     point_in_polygon(p, poly) && edges(poly).all(|(q1, q2)| point_segment_distance(p, q1, q2) > 1e-9)
 }
 
+const NUDGE: f64 = 1e-7; // off a boundary, well past strictness (1e-9) and well inside the 1e-6 coordinate grid
+
+/// Whether the interiors meet beside one polygon's edges, ported from
+/// `geometry._along_shared_boundary`. With no edge crossing another and no
+/// vertex strictly inside the other polygon, the interiors can still share
+/// area when the boundaries coincide - the same rectangle, or one slid
+/// along a side. Each edge is split where the other polygon's vertices lie
+/// on it, so each piece is wholly inside, outside or on the other's
+/// boundary; a point just off a piece's midpoint, on either side, inside
+/// both polygons is shared interior.
+fn along_shared_boundary(edges: &[(Point, Point)], others: &[Point], in_a: impl Fn(Point) -> bool, in_b: impl Fn(Point) -> bool) -> bool {
+    for &(p1, p2) in edges {
+        let (dx, dy) = (p2.0 - p1.0, p2.1 - p1.1);
+        let n2 = dx * dx + dy * dy;
+        if n2 == 0.0 {
+            continue;
+        }
+        let on: Vec<f64> = others
+            .iter()
+            .filter(|&&q| point_segment_distance(q, p1, p2) <= 1e-9)
+            .map(|&q| (((q.0 - p1.0) * dx + (q.1 - p1.1) * dy) / n2).clamp(0.0, 1.0))
+            .collect();
+        if on.is_empty() {
+            continue; // no vertex of the other on this edge: the other pass or the vertex tests decide
+        }
+        let mut ts = vec![0.0, 1.0];
+        ts.extend(on);
+        ts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        ts.dedup();
+        let n = n2.sqrt();
+        let (nx, ny) = (-dy / n * NUDGE, dx / n * NUDGE);
+        for w in ts.windows(2) {
+            let (t0, t1) = (w[0], w[1]);
+            let (mx, my) = (p1.0 + dx * (t0 + t1) / 2.0, p1.1 + dy * (t0 + t1) / 2.0);
+            for &s in &[1.0, -1.0] {
+                let probe = (mx + s * nx, my + s * ny);
+                if in_a(probe) && in_b(probe) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// `geometry.polys_overlap`'s "plain" (non-grid) branch: true when the two
 /// polygons share interior. Behaviourally identical to the grid branch for
 /// any polygon size (the grid is a cache, not a different answer), so this
 /// is correct for every call; Python still prefers its cached grid path for
 /// a polygon tested repeatedly (a reservation, a keepout).
+///
+/// This does NOT re-implement the `_rect_of` axis-aligned-rectangle
+/// shortcut: `geometry.polys_overlap` checks that itself, in Python, before
+/// ever reaching native - see the dispatch note in that function.
 pub fn polys_overlap(a: &Polygon, b: &Polygon) -> bool {
     let (ax0, ay0, ax1, ay1) = bounds(a);
     let (bx0, by0, bx1, by1) = bounds(b);
@@ -113,8 +162,16 @@ pub fn polys_overlap(a: &Polygon, b: &Polygon) -> bool {
             }
         }
     }
-    a[1..].iter().any(|&p| within(p, bx0, by0, bx1, by1) && strictly_inside(p, b))
+    if a[1..].iter().any(|&p| within(p, bx0, by0, bx1, by1) && strictly_inside(p, b))
         || b[1..].iter().any(|&q| within(q, ax0, ay0, ax1, ay1) && strictly_inside(q, a))
+    {
+        return true;
+    }
+    let in_a = |p: Point| strictly_inside(p, a);
+    let in_b = |p: Point| strictly_inside(p, b);
+    let va: Vec<Point> = a.iter().copied().filter(|&p| within(p, bx0, by0, bx1, by1)).collect();
+    let vb: Vec<Point> = b.iter().copied().filter(|&q| within(q, ax0, ay0, ax1, ay1)).collect();
+    along_shared_boundary(&ea, &vb, in_a, in_b) || along_shared_boundary(&eb, &va, in_a, in_b)
 }
 
 /// `geometry.poly_distance`: shortest gap between two polygons, 0 when they
@@ -178,5 +235,29 @@ mod tests {
         }
         assert!(polys_overlap(&box_, &via));
         assert_eq!(poly_distance(&box_, &via), 0.0);
+    }
+
+    #[test]
+    fn the_same_rectangle_twice_overlaps() {
+        // Every vertex of each lies on the other's boundary and no edge
+        // crosses another: the case _along_shared_boundary exists for
+        // (placemat commit e2614d8 - two coinciding courtyards).
+        let a = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)];
+        let b = a;
+        assert!(polys_overlap(&a, &b));
+        assert_eq!(poly_distance(&a, &b), 0.0);
+    }
+
+    #[test]
+    fn a_diamond_slid_along_its_own_edge_overlaps_its_copy() {
+        // Two congruent diamonds (non-axis-aligned, so _rect_of never
+        // applies to them even in Python), one slid along a shared edge
+        // line: their interiors overlap in a parallelogram, with no edge
+        // crossing and no vertex of either strictly inside the other -
+        // only the coinciding-boundary probe finds it.
+        let a = [(0.0, -2.0), (2.0, 0.0), (0.0, 2.0), (-2.0, 0.0)];
+        let b = [(1.0, -1.0), (3.0, 1.0), (1.0, 3.0), (-1.0, 1.0)]; // a shifted by (1, 1)
+        assert!(polys_overlap(&a, &b));
+        assert_eq!(poly_distance(&a, &b), 0.0);
     }
 }
