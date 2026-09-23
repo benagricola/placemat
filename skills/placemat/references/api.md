@@ -274,8 +274,9 @@ that sets each side.
 **The cleanup pass.** Once every searched item is down, and before the copper
 that joins them is planned, a cleanup pass revisits the plain searched parts:
 each is tried near the middle of what it connects to and round where it
-stands, and identical parts (one courtyard, pad count and face) are tried in
-each other's places, keeping a change only when the part's wire (the
+stands, identical parts (one courtyard, pad count and face) are tried in
+each other's places, and so are two neighbouring two-pad parts of any size (in
+any rotation each may take), keeping a change only when the part's wire (the
 half-perimeter of its nets that pull) plus each declared link's weight times
 its length gets shorter. No change leaves a limited link over its limit and
 longer, a part turns only to rotations its declaration allows (all four when

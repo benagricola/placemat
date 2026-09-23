@@ -17,9 +17,6 @@ Features:
 - **A fanout band for a fine-pitch part**: a band round its pads, per side,
   that only satellites and parts linked SHORT to a pin may enter. Depends on
   the per-face keepout fix above. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive orientation", item 5.
-- **A crossing swap in the cleanup pass**: two neighbouring two-pad parts
-  whose ratsnest lines cross are swapped or turned. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive
-  orientation", item 5.
 - **Stdlib passive courtyards smaller than a 0.2 mm silk clearance.** A
   library matter (`fetch_parts.py` does not normalise courtyards); noted,
   not placemat's. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 6.
@@ -43,6 +40,11 @@ Features:
 
 ## Done
 
+- **Neighbours trade places in the cleanup pass** (unreleased): two
+  neighbouring two-pad parts of any size are tried in each other's places,
+  in any rotation each may take. Bench: 6 better, 0 worse. Source:
+  fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive orientation",
+  item 5.
 - **A line item starts across from its links** (unreleased): `Location(x, None)`
   and `Centre(None, y)` slide from the point across from what they connect
   to when that is placed. Source: fairing-instrument

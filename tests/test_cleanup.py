@@ -94,3 +94,21 @@ def test_a_part_with_one_rotation_is_only_shifted():
     fps, pins, occ = _wrong_way()
     cleanup(occ, {"r": fps[2]}, pins, [], None, 2, 0.5, 0.25)
     assert occ.items["R1"].reference.rotation == 0
+
+
+def test_two_different_neighbours_whose_connections_cross_trade_places():
+    """The identical-part swap needs one courtyard size; two different
+    two-pad parts side by side, each pulled across the other, trade places."""
+    fps = [footprint("J1", 5, 15, inst="j1", nets=("P", "GND")), footprint("J2", 55, 15, inst="j2", nets=("Q", "GND")),
+           footprint("R1", 30, 15, w=3, h=1.2, inst="r1", nets=("Q", "X")),       # pulled east, sits west
+           footprint("R2", 34, 15, w=2, h=1.0, inst="r2", nets=("P", "Y"))]       # pulled west, sits east
+    g, occ = _occ(fps, {"j1": (5, 15), "j2": (55, 15), "r1": (30, 15), "r2": (34, 15)})
+    before = {k: occ.items[r].reference.location.x for k, r in (("r1", "R1"), ("r2", "R2"))}
+    r = cleanup(occ, {"r1": fps[2], "r2": fps[3]}, _pins(g, {"J1", "J2", "R1", "R2"}, quiet={"GND"}), [], None,
+                2, 0.25, 0.25, turns={"r1": (0,), "r2": (0,)})
+    after = {k: occ.items[r].reference.location.x for k, r in (("r1", "R1"), ("r2", "R2"))}
+    assert ("r1", "r2") in r.swaps
+    assert after["r1"] > after["r2"]                    # R1 now east of R2
+    assert r.cost_after < r.cost_before
+    for fp in fps[2:]:
+        assert occ.legal(fp, occ.items[fp.ref].reference) is None

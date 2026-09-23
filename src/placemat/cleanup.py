@@ -160,7 +160,55 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
                     placement[a], placement[b] = pb, pa
                     result.swaps.append((a, b))
                     changed = True
+        # Neighbours: two two-pad parts side by side, each pulled across the
+        # other, trade places - in any rotation each may take - when that
+        # lowers their cost. The identical-part swap above needs one size.
+        two = [k for k in keys if len(movable[k].pads) == 2]
+        for i, a in enumerate(two):
+            for b in two[i + 1:]:
+                pa, pb = placement[a], placement[b]
+                if pa.face != pb.face:
+                    continue
+                ca, cb = occ.body_box(movable[a], pa).center, occ.body_box(movable[b], pb).center
+                if ca.distance(cb) > radius + max(occ.body_box(movable[a], pa).width, occ.body_box(movable[a], pa).height,
+                                                  occ.body_box(movable[b], pb).width, occ.body_box(movable[b], pb).height):
+                    continue
+                nets = sorted(set(nets_of[a]) | set(nets_of[b]))
+                if not nets and not links_of[a] and not links_of[b]:
+                    continue
+                now = cost([a, b], nets, {})
+                best = None
+                for ra in turns.get(a, (pa.rotation,)):
+                    for rb in turns.get(b, (pb.rotation,)):
+                        na = _centred(occ, movable[a], cb, ra, pa.face)
+                        nb = _centred(occ, movable[b], ca, rb, pb.face)
+                        swap = {a: na, b: nb}
+                        c = cost([a, b], nets, swap)
+                        if c < now - _EPS and links_ok([a, b], swap) and (best is None or c < best[0] - 1e-9):
+                            best = (c, na, nb)
+                if best is None:
+                    continue
+                _, na, nb = best
+                occ.pending |= {ref_of[b]}
+                ok = occ.legal(movable[a], na, clearance) is None
+                occ.pending -= {ref_of[b]}
+                if not ok:
+                    continue
+                occ.commit(movable[a], na)
+                if occ.legal(movable[b], nb, clearance) is not None:
+                    occ.commit(movable[a], pa)
+                    continue
+                occ.commit(movable[b], nb)
+                placement[a], placement[b] = na, nb
+                result.swaps.append((a, b))
+                changed = True
         if not changed:
             break
     result.cost_after = total_cost()
     return result
+
+
+def _centred(occ, fp, centre, rotation, face) -> Placement:
+    """The placement that puts the part's body centre on `centre`."""
+    c = occ.shifted_body_box(fp, Placement(Location(0.0, 0.0), rotation, face)).center
+    return Placement(Location(round(centre.x - c.x, 4), round(centre.y - c.y, 4)), rotation, face)
