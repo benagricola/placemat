@@ -148,3 +148,32 @@ def test_a_footprint_s_courtyard_margin_is_how_far_kicad_s_courtyard_lies_inside
     margins = {round(fp.courtyard_margin, 3) for fp in g.footprints}
     assert all(0.0 <= m < 0.2 for m in margins)
     assert max(margins) >= 0.02                         # a 0.05 stroke puts KiCad's at least 0.025 inside
+
+
+def test_measure_reads_a_board_s_label_texts_with_the_box_kicad_draws(tmp_path):
+    """board.label() texts are the board's own silk texts: measure gives
+    each one's box, which a script sizing a panel needed pcbnew for."""
+    import pcbnew
+    from placemat.kicad.read import read_labels
+    b = pcbnew.CreateEmptyBoard()
+    g = pcbnew.PCB_GROUP(b)
+    g.SetName("panel")
+    b.Add(g)
+    for s, layer, grouped in (("BOOT", pcbnew.F_SilkS, True), ("RESET", pcbnew.B_SilkS, False),
+                              ("note", pcbnew.Cmts_User, False)):
+        t = pcbnew.PCB_TEXT(b)
+        t.SetText(s)
+        t.SetLayer(layer)
+        t.SetTextSize(pcbnew.VECTOR2I(pcbnew.FromMM(1), pcbnew.FromMM(1)))
+        t.SetPosition(pcbnew.VECTOR2I(pcbnew.FromMM(20), pcbnew.FromMM(20)))
+        b.Add(t)
+        if grouped:
+            g.AddItem(t)
+    path = tmp_path / "layout.kicad_pcb"
+    b.Save(str(path))
+    labels = {l["text"]: l for l in read_labels(path)}
+    assert set(labels) == {"BOOT", "RESET"}
+    assert labels["BOOT"]["face"] == "front" and labels["BOOT"]["cell"] == "panel"
+    assert labels["RESET"]["face"] == "back" and labels["RESET"]["cell"] is None
+    left, top, right, bottom = labels["BOOT"]["box"]
+    assert right - left > 2.0 and 0.5 < bottom - top < 1.5

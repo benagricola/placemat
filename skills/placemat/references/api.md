@@ -801,7 +801,7 @@ placemat run <script> [--label L] [--fresh] [--no-render] [--no-drc] [-v] [--jso
 placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--json]
 placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
-placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part ...] [--pads] [--json]
+placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part ...] [--pads] [--labels] [--json]
 placemat parts <layout.kicad_pcb | script> [--json]
 placemat datasheet <pdf> [--show PAGE|TOPIC] [--read] [--no-ocr] [--out DIR] [--dpi N] [--json]
 placemat datasheet check <pdf> <footprint.kicad_mod> [--pitch F] [--pad WxH] [--pads N] [--span F] [--tol F] [--json]
@@ -826,6 +826,9 @@ copper outline as polygons. Given a path ending `.kicad_mod` it reads that
 footprint with no board at all, in the footprint's own frame, and prints the
 file's SHA-256 so two variants of a part can be told apart; a pad read that way
 reports an attribute rather than layers, because a footprint has no stackup.
+`--labels` lists the board's own silk texts instead - every `board.label()`
+text and a stamped cell's - with face, cell and the box KiCad draws, so a
+panel can be sized round them.
 
 `preview` places the board as a run does - the cached generation, the
 previous run's steps replayed - and draws it, without writing the board,

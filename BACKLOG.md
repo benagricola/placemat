@@ -14,9 +14,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 Features:
 
-- **Label boxes in `measure`, and a fragment preview framed on its
-  `board.size()` frame.** `preview --zoom` covers the framing if the frame
-  is offered as a region. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 5.
 - **A fanout band for a fine-pitch part**: a band round its pads, per side,
   that only satellites and parts linked SHORT to a pin may enter. Depends on
   the per-face keepout fix above. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive orientation", item 5.
@@ -48,6 +45,11 @@ Features:
 
 ## Done
 
+- **Label boxes in `measure`; a fragment framed** (unreleased): `measure
+  --labels` gives every board silk text's drawn box; `placemat preview`
+  frames on the board outline and the placed parts, so parts left at the
+  generator's positions do not shrink the view. Source: fairing-instrument
+  `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 5.
 - **Per-net airwire and part coordinates** (unreleased): `metrics.airwire_per_net`,
   the impact's `airwire by net:`, and origin, rotation and centre in `parts`.
   Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel

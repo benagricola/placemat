@@ -56,6 +56,8 @@ def parser() -> argparse.ArgumentParser:
     m.add_argument("items", nargs="*", help="cell names or part instances (default: every cell)")
     m.add_argument("--pads", action="store_true",
                    help="every pad's number, net, layers, centre and copper box")
+    m.add_argument("--labels", action="store_true",
+                   help="the board's silk texts (board.label() and a stamped cell's) with the box KiCad draws")
     m.add_argument("--json", action="store_true")
 
     pl = sub.add_parser("parts", help="every part on the board: instance, refdes, face, cell, "
@@ -315,6 +317,17 @@ def cmd_measure(args) -> int:
                 describe.part_lines(fp, pads=args.pads, digest=digest)))
         return 0
     pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
+    if args.labels:
+        from .kicad.read import read_labels
+        labels = read_labels(pcb)
+        if args.json:
+            console.data(json.dumps({"labels": labels}, indent=2))
+        else:
+            console.lines("measure", "\n".join(
+                ["%-20s %-5s %-12s %8.3f x %.3f  box %.3f %.3f %.3f %.3f" % (
+                    l["text"][:20], l["face"], (l["cell"] or "-")[:12], l["box"][2] - l["box"][0],
+                    l["box"][3] - l["box"][1], *l["box"]) for l in labels] or ["no labels on this board"]))
+        return 0
     snap = read_board(pcb)
     items = args.items or sorted(snap.cells)
     docs, lines = [], []

@@ -389,6 +389,27 @@ def _netclasses(board) -> tuple[dict[str, NetClass], float]:
     return classes, default
 
 
+def read_labels(path) -> list:
+    """The board's own silk texts - what board.label() wrote, and a stamped
+    cell's - each as {text, face, cell, box} with the box KiCad draws
+    (left, top, right, bottom). Footprint fields are the footprint's."""
+    board = pcbnew.LoadBoard(str(path))
+    groups_of = {}
+    for g in board.Groups():
+        for it in g.GetItems():
+            groups_of[_kiid(it)] = g.GetName()
+    out = []
+    for d in board.GetDrawings():
+        if not isinstance(d, pcbnew.PCB_TEXT) or d.GetLayer() not in (pcbnew.F_SilkS, pcbnew.B_SilkS):
+            continue
+        bb = d.GetEffectiveShape().BBox()
+        out.append({"text": d.GetText(), "face": "back" if d.GetLayer() == pcbnew.B_SilkS else "front",
+                    "cell": groups_of.get(_kiid(d)),
+                    "box": [round(mm(bb.GetLeft()), 3), round(mm(bb.GetTop()), 3),
+                            round(mm(bb.GetRight()), 3), round(mm(bb.GetBottom()), 3)]})
+    return sorted(out, key=lambda l: (l["cell"] or "", l["text"], l["box"]))
+
+
 def read_board(path, courtyard_excess_mm: float = 0.10, arc_error_nm: int | None = None) -> BoardGeometry:
     if arc_error_nm is None:
         from ..settings import active
