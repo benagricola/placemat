@@ -145,6 +145,18 @@ its number. A chain of small parts is the same thing repeated: each stage
 linked to the stage before it and the two ends linked to the real pads
 they terminate on, every stage a bare `place()`.
 
+**A fanout band** keeps a fine-pitch part's escape clear:
+
+```python
+board.fanout(Part("mcu"), depth=2.0, why="the GPIO escape")   # sides=[Edge.NORTH, ...] for fewer
+```
+Per side of the part as placed, the strip from its pad row's outer edge out
+`depth` mm, spanning the row (an exposed pad belongs to no side), is
+reserved on its face as soon as the part is down. Only the part, the
+satellites of a block it anchors and parts linked to its pads at
+`LinkWeight.SHORT` or more may enter; a resistor seeded on a GPIO lands at
+the nearest legal spot outside, across the band from its pin.
+
 **`Near` is for what the netlist cannot say**: a thermal sensor that must
 sit by the FETs it shares no net with, a test point wanted at the edge.
 A `Location` constant that stands for "the power area" or "the CAN

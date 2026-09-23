@@ -97,7 +97,8 @@ def context_key(board, extra: str = "") -> str:
                         board.via_drill, board.via_size, board.keep_going]),
              canonical([board._copper, board._labels, board._rules, sorted(board._free_nets), board._outline,
                         board._shape, board._cutouts, board._named_cutouts, board._keepouts, board.web,
-                        board._draw_outline, board._chamfer, board._radius, board._faces])]
+                        board._draw_outline, board._chamfer, board._radius, board._faces,
+                        board._fanouts])]
     if board.settings.solve_enabled:
         parts.append(canonical([board._intents, board._links]))
     return _sha("context", str(VERSION), *parts)

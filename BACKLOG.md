@@ -14,9 +14,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 Features:
 
-- **A fanout band for a fine-pitch part**: a band round its pads, per side,
-  that only satellites and parts linked SHORT to a pin may enter. Depends on
-  the per-face keepout fix above. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive orientation", item 5.
 - **Stdlib passive courtyards smaller than a 0.2 mm silk clearance.** A
   library matter (`fetch_parts.py` does not normalise courtyards); noted,
   not placemat's. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 6.
@@ -29,6 +26,11 @@ Features:
 
 ## Done
 
+- **A fanout band** (unreleased): `board.fanout(part, depth=, sides=)` reserves
+  the strip outside each pad row on the part's face for its satellites and
+  SHORT-linked parts. Spec: `docs/superpowers/specs/2026-09-24-fanout-band-design.md`.
+  Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive
+  orientation", items 2 and 5.
 - **Pin names for pads** (unreleased): read from the symbols the .zen files
   use (through the component's footprint, else the netlist's name);
   `PadRef(part, pin=)` and pin names in `measure --pads`. 53 parts named on

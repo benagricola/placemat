@@ -547,6 +547,7 @@ class Board:
         self._waited: dict = {}                # item key -> the linked partner it waited for
         self._copper: list[CopperIntent] = []
         self._labels: list = []
+        self._fanouts: list = []           # (key, footprint, depth, sides or None, why)
         self._faces: tuple | None = None
         self._links: list[Link] = []
         self._rules: list = []
@@ -1557,6 +1558,19 @@ class Board:
 
 
     # ------------------------------------------------------------ links
+    def fanout(self, item, *, depth: float = 2.0, sides=None, why: str = ""):
+        """A band outside the part's pad rows, `depth` mm deep, on each of
+        `sides` (default every side with pads, judged as placed), that keeps
+        out every part but the part's own block satellites and the parts
+        linked to its pads at LinkWeight.SHORT or more: the room its pins
+        escape through. Reserved on the part's face as soon as it is placed."""
+        geom, key, kind = self._item(item)
+        if kind != "part":
+            raise TypeError("%s: a fanout is a part's pads; a cell or block has its own" % key)
+        if depth <= 0:
+            raise ValueError("%s: a fanout's depth is more than 0, not %r" % (key, depth))
+        self._fanouts.append((key, geom, float(depth), None if sides is None else tuple(Edge(s) for s in sides), why))
+
     def link(self, a, b, weight=LinkWeight.DEFAULT, limit_mm: float | None = None, why: str = "") -> Link:
         """Price one connection between two pads. `weight` is a LinkWeight or
         any integer (0: the length of this connection does not matter);
@@ -2120,6 +2134,7 @@ class Board:
         fixed_copper = [c for c in self._copper if c.freedom.decided]
         other_copper = [c for c in self._copper if not c.freedom.decided]
         placed: set = set()
+        self._place_fanouts(occ, plan, placed, progress)
         self._place_labels(occ, plan, placed, progress)        # labels on parts the script never moves
         self._check_settled_cutouts(occ, plan)                 # holes whose place was already absolute
 
@@ -2254,6 +2269,7 @@ class Board:
                 placed.update(fp.ref for fp in members_of(obj.item))
             if progress:
                 progress(_fmt(step))
+            self._place_fanouts(occ, plan, placed, progress)
             self._place_labels(occ, plan, placed, progress)
 
         def place_ranked(lo, hi):
@@ -2555,6 +2571,50 @@ class Board:
             return [self._pad_ref(item)[0]]
         geom, ikey, kind = self._item(item)
         return [fp.ref for fp in (geom.members if kind == "cell" else (geom,))]
+
+    def _place_fanouts(self, occ, plan: Plan, placed: set, progress):
+        """Every fanout whose part is down and not yet banded: one reservation
+        per side, on the part's face, open to the part, its block's
+        satellites and what is linked SHORT to its pads."""
+        done = plan.__dict__.setdefault("_fanned", set())
+        for key, fp, depth, sides, why in self._fanouts:
+            if key in done or fp.ref not in placed or fp.ref not in occ.items:
+                continue
+            done.add(key)
+            g = occ.items[fp.ref]
+            body, face = g.body, g.reference.face
+            pads = [s.box for s in g.shapes if s.kind in ("pad", "through")]
+            allowed = {fp.ref}
+            for i in self._intents:
+                spec = getattr(i, "item", None)
+                if isinstance(spec, BlockSpec) and spec.anchor.ref == fp.ref:
+                    allowed |= {sat.ref for sat, _ in spec.satellites}
+            for l in self._links:
+                if int(l.weight) >= int(LinkWeight.SHORT) and fp.ref in (l.a[0], l.b[0]):
+                    allowed |= {l.a[0], l.b[0]}
+            rows = {Edge.NORTH: [b for b in pads if b.top <= body.top + 1.0],
+                    Edge.SOUTH: [b for b in pads if b.bottom >= body.bottom - 1.0],
+                    Edge.WEST: [b for b in pads if b.left <= body.left + 1.0],
+                    Edge.EAST: [b for b in pads if b.right >= body.right - 1.0]}
+            notes = []
+            for side in (Edge.NORTH, Edge.SOUTH, Edge.WEST, Edge.EAST):
+                row = rows[side]
+                if not row or (sides is not None and side not in sides):
+                    continue
+                if side is Edge.NORTH:
+                    top = min(b.top for b in row); band = Box(min(b.left for b in row), top - depth, max(b.right for b in row), top)
+                elif side is Edge.SOUTH:
+                    bot = max(b.bottom for b in row); band = Box(min(b.left for b in row), bot, max(b.right for b in row), bot + depth)
+                elif side is Edge.WEST:
+                    left = min(b.left for b in row); band = Box(left - depth, min(b.top for b in row), left, max(b.bottom for b in row))
+                else:
+                    right = max(b.right for b in row); band = Box(right, min(b.top for b in row), right + depth, max(b.bottom for b in row))
+                occ.reserve(band, "fanout of %s (%s side)" % (key, side.name.lower()), owners=allowed, layer=face.copper)
+                notes.append(side.name.lower())
+            note = "%s side%s kept for its pins, %.2f mm deep" % (", ".join(notes) or "no", "" if len(notes) == 1 else "s", depth)
+            plan.steps.append(Step("fanout " + key, "copper", Priority.DEFAULT, None, 0.0, note, why, 1))
+            if progress:
+                progress("%-28s copper  fanout   %s" % ("fanout " + key, note))
 
     def _place_labels(self, occ, plan: Plan, placed: set, progress, final: bool = False):
         """Every label whose item is down and not yet labelled: its text op,
