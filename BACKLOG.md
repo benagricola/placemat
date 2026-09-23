@@ -17,6 +17,13 @@ Features:
 
 ## Done
 
+- **PLACEMAT_GAPS "placemat 0.28"** (after 0.29.0): item 1, a stamped keepout
+  costing the parent: the cell's step now says how much board its regions
+  take beyond its members, and `board.fanout()` is the band that follows
+  the pad rows. Item 2, the via-in-pad chip on the back: fixed in 0.29.0
+  (checked on the fairing core: the MCU's 9 exposed-pad vias read as vias,
+  0 leads). Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`,
+  "2026-09-23: placemat 0.28".
 - **The solve's default: stays off** (decided 2026-09-24): re-measured on the
   current code (rotations, pockets, neighbour swaps), the solve against the
   sequential seed is 11 better, 17 worse, median HPWL x1.058. `[solve]
