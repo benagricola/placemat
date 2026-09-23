@@ -12,14 +12,8 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-Bugs, each checked against the code on 2026-09-23 (reproduced where it says so):
-
 Features:
 
-- **`[drc] severities`**: a table placemat writes into the generated
-  project's `rule_severities`, so KiCad and placemat judge the board alike
-  (the project file is regenerated on every fresh generation). Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU
-  cell", item 1.
 - **Per-net airwire in the run record, and coordinates in `parts`.** Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`,
   "the bench panel cell", item 5.
 - **Label boxes in `measure`, and a fragment preview framed on its
@@ -56,6 +50,9 @@ Features:
 
 ## Done
 
+- **`[drc.severities]`** (unreleased): KiCad rule severities written into the
+  board's project each run. Source: fairing-instrument
+  `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 1.
 - **A fragment laid out by default rules is named** (unreleased): the rules
   come from the generator (`pcb`); a run notes a board whose silk clearance
   is 0 and the skill says to give a fragment the parent's config. Source:

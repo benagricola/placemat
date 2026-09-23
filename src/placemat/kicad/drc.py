@@ -76,6 +76,25 @@ class DrcReport:
         return " | ".join(parts)
 
 
+def patch_rule_severities(pcb_path, severities: dict) -> None:
+    """KiCad rule severities from `[drc.severities]` into the .kicad_pro
+    beside the board: the generator writes a new project on every fresh
+    generation, so a hand edit of it does not last. KiCad's DRC reads them
+    there; nothing else in the project changes."""
+    if not severities:
+        return
+    pro = Path(pcb_path).with_suffix(".kicad_pro")
+    if not pro.exists():
+        return
+    try:
+        d = json.loads(pro.read_text())
+    except ValueError:
+        return
+    rs = d.setdefault("board", {}).setdefault("design_settings", {}).setdefault("rule_severities", {})
+    rs.update(severities)
+    pro.write_text(json.dumps(d, indent=2))
+
+
 _AREA_RE = re.compile(r"keepout area '([^']+)'")
 _FOOTPRINT_RE = re.compile(r"^Footprint (\S+)")
 _NET_RE = re.compile(r"\[([^\]]+)\]")

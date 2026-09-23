@@ -85,6 +85,7 @@ class Settings:
     drc_outstanding_kinds: tuple = DEFAULT_OUTSTANDING_KINDS
     drc_footprint_kinds: tuple = DEFAULT_FOOTPRINT_KINDS
     drc_refill_zones: bool = True
+    drc_severities: dict = field(default_factory=dict)   # KiCad rule -> error|warning|ignore, written into the board's project
     # [route]
     route_router_dir: str = ""          # "": fall back to $KRT_DIR, then the built-in
     route_quick: bool = True
@@ -139,7 +140,7 @@ class Settings:
 
 
 # `[check.limits]` is the one sub-table: its section is two words.
-_SUBTABLES = ("check.limits",)
+_SUBTABLES = ("check.limits", "drc.severities")
 
 
 def split_key(name: str) -> tuple:
@@ -251,6 +252,11 @@ def _validate(name: str, value, path: str):
     elif "str" in text:
         if not isinstance(value, str):
             raise said("a string")
+    if name == "drc_severities":
+        bad = {k: v for k, v in value.items() if v not in ("error", "warning", "ignore")}
+        if bad:
+            k, v = sorted(bad.items())[0]
+            raise SettingsError("%s: drc.severities.%s must be error, warning or ignore, not %r" % (path, k, v))
     if name in _CHOICES and value not in _CHOICES[name]:
         raise SettingsError("%s: %s must be %s, not %r" % (
             path, dotted, ", ".join(_CHOICES[name][:-1]) + " or " + _CHOICES[name][-1], value))

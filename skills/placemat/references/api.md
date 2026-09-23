@@ -261,8 +261,9 @@ alone in `physical`, with a gap of at least the widest the envelope keeps
 between two parts (the netclass clearance of the row's nets, the component
 spacing, the silk clearance): a pad at the edge of its reach cannot meet the
 next part's. KiCad's DRC still checks courtyards, so a `physical`
-board reports `courtyards_overlap` wherever two courtyards now meet; set that
-check's severity in the project if the courtyards are not what the fab uses.
+board reports `courtyards_overlap` wherever two courtyards now meet; if the courtyards are not what the fab uses,
+`[drc.severities] courtyards_overlap = "ignore"` in `placemat.toml` sets it aside
+(written into the board's project each run: the generator rewrites that file).
 In `courtyard` mode a run lists each footprint whose silk or pads pass its
 courtyard by more than the silk clearance (`footprints`, and
 `metrics.footprints`) - outside the findings, so the best-run gate is
@@ -1053,6 +1054,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `check.rise_c` | 10.0 | the rise a current path is sized for (`--rise`) |
 | `check.copper_oz` | 1.0 | outer copper weight the widths are sized for (`--copper-oz`) |
 | `check.limits` | none | a bound per check, e.g. `"hot-loop" = 20.0` (`--limit`) |
+| `drc.severities` | none | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
 | `drc.real_kinds` | eight classes | which violations mean the board is not done |
 | `drc.outstanding_kinds` | three classes | which violations are copper not yet joined |
 | `drc.footprint_kinds` | four classes | which violations are defects in the footprints themselves |

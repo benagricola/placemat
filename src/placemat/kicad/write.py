@@ -460,6 +460,9 @@ def finish_board(pcb_path, fab, refs_to_fab_layer: bool = True, refs_to_fab=None
         save(board, pcb_path)
     patch_stackup_colors(pcb_path)
     patch_project_presets(pcb_path, fab)
+    from ..settings import active
+    from .drc import patch_rule_severities
+    patch_rule_severities(pcb_path, active().drc_severities)
 
 
 def render_board(pcb_path, log, both_faces: bool = False, timeout: int | None = None) -> list:
