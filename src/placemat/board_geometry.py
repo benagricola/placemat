@@ -44,6 +44,9 @@ class Footprint:
     phys_box: Box               # pads + drawn graphics, courtyard excluded
     pads: tuple[PadGeom, ...]
     npth: tuple[tuple[Location, float], ...] = ()   # (centre, drill) of unplated holes
+    silk: tuple = ()            # ((Face, polygon), ...): every silk graphic's stroked outline, no field text
+    mask: tuple = ()            # ((Face, polygon), ...): each pad's mask aperture, the pad grown by its expansion
+    fab: tuple = ()             # ((Face, polygon), ...): per face, the box of the fab graphics - the body
     fields: dict = field(default_factory=dict, compare=False)   # the footprint's text fields (the capture's Pm.* facts)
 
     @property
@@ -195,6 +198,7 @@ class BoardGeometry:
     board_polygon: tuple = ()             # the true edge: the outline, then its holes
     hole_to_hole: float = 0.25            # the nearest two drilled holes may come, from the board's rules
     hole_clearance: float = 0.0           # a hole's clearance to copper of another net
+    silk_clearance: float = 0.0           # silk to silk and to a mask opening, from the board's rules
     _by_ref: dict = field(default_factory=dict, repr=False, compare=False)
     _by_inst: dict = field(default_factory=dict, repr=False, compare=False)
 

@@ -132,6 +132,57 @@ def body_box(fp, excess_mm: float) -> Box:
     return Box.union([ct, _pads_box(fp)])
 
 
+_SILK = {pcbnew.F_SilkS: Face.FRONT, pcbnew.B_SilkS: Face.BACK}
+_MASK = {pcbnew.F_Mask: Face.FRONT, pcbnew.B_Mask: Face.BACK}
+_FAB = {pcbnew.F_Fab: Face.FRONT, pcbnew.B_Fab: Face.BACK}
+
+
+def _silk(fp, err_nm: int = CLEAR_ERR_NM) -> tuple:
+    """Every silk graphic as its stroked outline, line width included. The
+    footprint's fields are not among its graphics: their text can be moved or
+    hidden, so it claims nothing."""
+    out = []
+    for d in fp.GraphicalItems():
+        face = _SILK.get(d.GetLayer())
+        if face is not None:
+            out += [(face, poly) for poly in outlines_of(d, d.GetLayer(), err_nm)]
+    return tuple(out)
+
+
+def _mask(fp, err_nm: int = CLEAR_ERR_NM) -> tuple:
+    """Each pad's mask aperture on each mask layer it opens: the pad grown by
+    its expansion, the pad's own or else the board's. The outline KiCad gives
+    for a mask layer is the bare pad, so the expansion is passed."""
+    out = []
+    for pad in fp.Pads():
+        ls = pad.GetLayerSet()
+        for layer, face in _MASK.items():
+            if not ls.Contains(layer):
+                continue
+            ps = pcbnew.SHAPE_POLY_SET()
+            pad.TransformShapeToPolySet(ps, layer, pad.GetSolderMaskExpansion(layer), err_nm, pcbnew.ERROR_OUTSIDE)
+            for i in range(ps.OutlineCount()):
+                o = ps.Outline(i)
+                pts = tuple((mm(o.CPoint(j).x), mm(o.CPoint(j).y)) for j in range(o.PointCount()))
+                if len(pts) >= 3:
+                    out.append((face, pts))
+    return tuple(out)
+
+
+def _fab(fp) -> tuple:
+    """Per face, the box of the fab graphics, text left out: the body. A fab
+    outline is often four separate lines, whose stroked strips enclose
+    nothing, so what they enclose is taken instead."""
+    out = []
+    for layer, face in _FAB.items():
+        boxes = [_box_of(d.GetBoundingBox()) for d in fp.GraphicalItems()
+                 if d.GetLayer() == layer and not isinstance(d, pcbnew.PCB_TEXT)]
+        box = Box.union(boxes) if boxes else None
+        if box is not None and box.width > 0 and box.height > 0:
+            out.append((face, ((box.left, box.top), (box.right, box.top), (box.right, box.bottom), (box.left, box.bottom))))
+    return tuple(out)
+
+
 def _pads(board, fp, err_nm: int = CLEAR_ERR_NM) -> tuple[PadGeom, ...]:
     ref, inst = fp.GetReference(), inst_of(fp)
     pads = []
@@ -171,7 +222,8 @@ def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footpr
                      face=Face.BACK if fp.IsFlipped() else Face.FRONT,
                      body_box=body_box(fp, excess_mm), courtyard_box=courtyard_box(fp),
                      phys_box=phys_box(fp), pads=_pads(board, fp, err_nm), npth=_npth(fp),
-                     fields={f.GetName(): f.GetText() for f in fp.GetFields()})
+                     fields={f.GetName(): f.GetText() for f in fp.GetFields()},
+                     silk=_silk(fp, err_nm), mask=_mask(fp, err_nm), fab=_fab(fp))
 
 
 def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, ...]:
@@ -341,7 +393,8 @@ def read_footprint(path, courtyard_excess_mm: float = 0.10) -> tuple:
                      location=Location(0.0, 0.0), rotation=0.0, face=Face.FRONT,
                      body_box=body_box(fp, courtyard_excess_mm), courtyard_box=courtyard_box(fp),
                      phys_box=phys_box(fp), pads=tuple(pads), npth=_npth(fp),
-                     fields={f.GetName(): f.GetText() for f in fp.GetFields()})
+                     fields={f.GetName(): f.GetText() for f in fp.GetFields()},
+                     silk=_silk(fp), mask=_mask(fp), fab=_fab(fp))
     return geom, digest
 
 
@@ -387,6 +440,7 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
                     nets=frozenset(classes), netclasses=classes, default_clearance=default_clr,
                     layers=layers, edge_clearance=mm(board.GetDesignSettings().m_CopperEdgeClearance),
                     hole_to_hole=mm(board.GetDesignSettings().m_HoleToHoleMin),
+                    silk_clearance=mm(board.GetDesignSettings().m_SilkClearance),
                     hole_clearance=mm(board.GetDesignSettings().m_HoleClearance),
                     rule_areas=_rule_areas(board, groups_of),
                     board_polygon=_board_polygon(board))

@@ -92,6 +92,7 @@ class FabProfile:
     courtyard_excess: float = 0.10
     track_widths: tuple = tuple(round(0.15 + 0.05 * i, 2) for i in range(18))
     path: Path | None = None
+    component_spacing: float = 0.2     # body to body, and body to another part's pad: twice the excess unless the fab says
 
 
 def fab_profile(start) -> FabProfile:
@@ -109,6 +110,8 @@ def fab_profile(start) -> FabProfile:
             if tw:
                 n = int(round((tw["max"] - tw["min"]) / tw["step"])) + 1
                 widths = tuple(round(tw["min"] + i * tw["step"], 2) for i in range(n))
+            court = data.get("courtyard", {})
+            excess = court.get("excess_mm", 0.10)
             return FabProfile(via.get("default_drill_mm", 0.3), via.get("default_size_mm", 0.6),
-                              data.get("courtyard", {}).get("excess_mm", 0.10), widths, f)
+                              excess, widths, f, court.get("component_spacing_mm", 2 * excess))
     return FabProfile()
