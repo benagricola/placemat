@@ -69,10 +69,12 @@ fn box_gap(a: Bounds, b: Bounds) -> f64 {
 }
 
 /// One obstacle or candidate shape, in world coordinates at the placement
-/// being asked about - mirrors `occupancy.Shape`, minus `owner` and `label`
-/// (neither is needed to decide a conflict, only to name one in a message,
-/// which Python's own re-run of `_conflict` on the identified pair already
-/// has, from its own Shape objects).
+/// being asked about - mirrors `occupancy.Shape`, minus `label` (not needed
+/// to decide a conflict, only to name one in a message, which Python's own
+/// re-run of `_conflict` on the identified pair already has, from its own
+/// Shape objects). `owner` IS needed here (unlike an earlier version of
+/// this port): the courtyard-vs-lead rule below compares two shapes'
+/// owners directly, not just whether either one is a footprint.
 #[derive(Clone)]
 pub struct Shape {
     pub kind: Kind,
@@ -81,7 +83,9 @@ pub struct Shape {
     pub net: String,
     pub poly: Vec<Point>,
     pub bbox: Bounds,
+    pub owner: String,
     pub owner_is_footprint: bool, // owner in Occupancy._footprint_refs (== "in self.items", see module doc)
+    pub is_lead: bool,  // (owner, label) in Occupancy._leads: a through pad standing proud of the far face
 }
 
 pub struct ConflictConfig {
@@ -168,6 +172,16 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
     }
     if s.kind == Kind::Courtyard || o.kind == Kind::Courtyard {
         let (court, other) = if s.kind == Kind::Courtyard { (s, o) } else { (o, s) };
+        // A courtyard over another footprint's own through-hole lead (a pin
+        // standing proud of the far face) is always a mechanical collision,
+        // whatever vias_block_courtyards says - that setting is about
+        // routed vias, not component leads. This is checked, and returned
+        // on, before the via rule below: a lead match never falls through
+        // to it (placemat commit "A through-hole part claims only its
+        // holes on the far face").
+        if other.kind == Kind::Through && other.owner != court.owner && other.is_lead {
+            return polys_overlap(&court.poly, &other.poly);
+        }
         let blocks = other.kind == Kind::Npth
             || (other.kind == Kind::Through && cfg.vias_block_courtyards && !other.owner_is_footprint);
         return blocks && polys_overlap(&court.poly, &other.poly);
@@ -272,11 +286,14 @@ impl ShapeGrid {
 mod tests {
     use super::*;
 
-    fn shape(kind: Kind, _owner: &str, poly: Vec<Point>, faces: u8, layers: u32, net: &str, owner_is_footprint: bool) -> Shape {
-        // _owner documents which part a test case's shape stands for; the
-        // Shape itself carries no owner (see the struct's doc comment).
+    fn shape(kind: Kind, owner: &str, poly: Vec<Point>, faces: u8, layers: u32, net: &str, owner_is_footprint: bool) -> Shape {
+        shape_ex(kind, owner, poly, faces, layers, net, owner_is_footprint, false)
+    }
+
+    fn shape_ex(kind: Kind, owner: &str, poly: Vec<Point>, faces: u8, layers: u32, net: &str,
+                owner_is_footprint: bool, is_lead: bool) -> Shape {
         let bbox = bounds(&poly);
-        Shape { kind, faces, layers, net: net.into(), poly, bbox, owner_is_footprint }
+        Shape { kind, faces, layers, net: net.into(), poly, bbox, owner: owner.into(), owner_is_footprint, is_lead }
     }
 
     fn bounds(poly: &[Point]) -> Bounds {
@@ -372,6 +389,39 @@ mod tests {
         let body = shape(Kind::Body, "U1", rect(0.0, 0.0, 2.0, 2.0), 1, 0, "", true);
         let via = shape(Kind::Through, "", rect(0.0, 0.0, 0.3, 0.3), 3, 0xFFFF_FFFF, "GND", false); // owner "" not a footprint
         assert!(!conflict(&body, &via, None, &cfg()));
+    }
+
+    #[test]
+    fn courtyard_over_another_footprints_lead_conflicts_regardless_of_vias_block_courtyards() {
+        let court = shape(Kind::Courtyard, "U1", rect(0.0, 0.0, 2.0, 2.0), 1, 0, "", true);
+        let lead = shape_ex(Kind::Through, "U2", rect(0.5, 0.5, 0.3, 0.3), 3, 0xFFFF_FFFF, "GND", true, true);
+        let mut c = cfg();
+        c.vias_block_courtyards = false; // the lead rule fires even so
+        assert!(conflict(&court, &lead, None, &c));
+    }
+
+    #[test]
+    fn courtyard_over_its_own_lead_is_not_a_conflict() {
+        // other.owner != court.owner is part of the Python rule: a part's
+        // own lead under its own courtyard is expected, not a collision.
+        let court = shape(Kind::Courtyard, "U1", rect(0.0, 0.0, 2.0, 2.0), 1, 0, "", true);
+        let own_lead = shape_ex(Kind::Through, "U1", rect(0.5, 0.5, 0.3, 0.3), 3, 0xFFFF_FFFF, "GND", true, true);
+        assert!(!conflict(&court, &own_lead, None, &cfg()));
+    }
+
+    #[test]
+    fn courtyard_over_a_through_pad_that_is_not_a_lead_falls_through_to_the_via_rule() {
+        // Not a lead (a thermal via under its own exposed pad, say): the
+        // via rule still applies, and is off by default.
+        let court = shape(Kind::Courtyard, "U1", rect(0.0, 0.0, 2.0, 2.0), 1, 0, "", true);
+        let not_lead = shape_ex(Kind::Through, "U2", rect(0.5, 0.5, 0.3, 0.3), 3, 0xFFFF_FFFF, "GND", true, false);
+        assert!(!conflict(&court, &not_lead, None, &cfg()));
+        let mut c = cfg();
+        c.vias_block_courtyards = true;
+        // still not blocked: not_lead's owner IS a footprint, and the via
+        // rule only blocks a through shape whose owner is NOT one (a routed
+        // via, not another part's pad).
+        assert!(!conflict(&court, &not_lead, None, &c));
     }
 
     #[test]

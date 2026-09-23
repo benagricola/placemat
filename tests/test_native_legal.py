@@ -26,8 +26,8 @@ from tests.test_native_conflict import _cfg_kwargs, _encode_faces, _encode_layer
 
 
 def _py_shape_tuple(occ, s):
-    return (s.kind, _encode_faces(s.faces), _encode_layers(s.layers), s.net or "", tuple(s.poly),
-            s.owner in occ._footprint_refs)
+    return (s.kind, _encode_faces(s.faces), _encode_layers(s.layers), s.net or "", tuple(s.poly), s.owner,
+            s.owner in occ._footprint_refs, (s.owner, s.label) in occ._leads)
 
 
 def _native_legal(occ: Occupancy, item, placement: Placement, clearance=None):

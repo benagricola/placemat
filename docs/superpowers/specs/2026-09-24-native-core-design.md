@@ -158,6 +158,31 @@ says none) raises `AssertionError` rather than silently resolving one way -
 fuzz testing (below) found none, but a silent divergence would be worse
 than a loud one.
 
+**Kept in sync with upstream (commit "A through-hole part claims only its
+holes on the far face"):** a courtyard's own faces no longer span both
+faces for a through-hole part (only its holes do - a Python-side shape
+construction change in `_fp_shapes`, no Rust change needed for that part
+alone), and `_conflict`'s courtyard branch gained a rule ahead of the
+via/npth one: a courtyard over ANOTHER footprint's own through-hole lead
+(`Occupancy._is_lead`/`._leads` - a plated through pad standing proud of
+the far face, not a thermal via flat under its own exposed pad) conflicts
+on `polys_overlap` alone, whatever `vias_block_courtyards` says, and never
+falls through to the via rule below it. This needed two fields Phase 2
+had deliberately left off `shapes::Shape` as "not needed to decide a
+conflict" - `owner` (the rule compares two shapes' owners directly, not
+just whether either is a footprint) and a precomputed `is_lead` bool
+(`(owner, label) in Occupancy._leads`, computed once at marshal time the
+same way `owner_is_footprint` already was, since `_leads` is fixed for an
+Occupancy's whole life). `PyShape` grew from a 6-tuple to an 8-tuple
+accordingly; every caller (`_to_native_shape(_shifted)`, both test files'
+tuple builders) updated together. New coverage: `native/src/shapes.rs`
+unit tests for the lead rule (blocks regardless of `vias_block_courtyards`,
+not blocked for a part's own lead, falls through correctly for a
+through pad that is not a lead) and a positive-control Python test
+(`test_conflict_agrees_on_a_courtyard_over_another_parts_lead`) that
+shifts a real courtyard onto a real lead pad and asserts both engines
+call it a conflict, not just that they agree with each other.
+
 `ShapeIndex.near()`'s own two-stage filter (a coarse box test at the
 candidate's whole reach, then a precise per-shape test) is not mirrored as
 two stages: the coarse box is provably a superset of the precise one
@@ -274,8 +299,26 @@ cover this, since the cache is an internal detail behind the same
 `others._native` seam. `fixtures/bench.py --jobs 4`: `same 32` in every
 config against main's current `fixtures/bench.json`.
 
-**Measured effect:** [see the plan/report for the A/B process-time ratios
-over the whole corpus].
+**Measured effect:** A/B within one process, alternating native and Python
+(one pass each order per config, to cancel first-run warmup bias),
+`time.process_time`, over the WHOLE bench corpus (all 34 fixture modules,
+not a subset), power-save off: `default` 1.11x (native 52.7s, Python
+58.7s), `solve` 1.37x (46.8s vs 64.1s), `physical` 2.44x (77.1s vs 187.9s).
+Larger than Phase 2's own subset numbers (median 1.24x, taken under
+power-save and contention) and consistent with the mechanism: `physical`
+gives an item the most shapes per candidate (pads, mask, silk, body), so
+the most `_conflict`/`_drawn_conflict` calls and obstacles per query, and
+the most to gain from not re-marshalling the obstacle pool on every
+`obstacles()` call. `default` gains the least, matching the profiling
+note above: for a single scan-then-commit item (the common case in the
+searched tier), Phase 3 does not change how many times the obstacle pool
+gets marshalled at all (still once, on that one scan) - its win is for
+repeated `obstacles()` calls between commits (cleanup's per-key hints,
+`_slide`'s several freedoms), and does nothing for the still-unaddressed
+per-candidate cost of marshalling each candidate's OWN shapes on every
+`legal()` call (the earlier profiling's larger remaining cost). A full,
+authoritative sequential Python-then-native comparison is planned from
+the main session after merge, on a quiet machine.
 
 ### Phase 2's original follow-up note, superseded by Phase 3 above
 

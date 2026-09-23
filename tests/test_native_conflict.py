@@ -39,27 +39,29 @@ def _encode_layers(layers) -> int:
     return bits
 
 
-def _py_shape(s: Shape, owner_is_footprint: bool):
-    return (s.kind, _encode_faces(s.faces), _encode_layers(s.layers), s.net or "", tuple(s.poly), owner_is_footprint)
+def _py_shape(s: Shape, owner_is_footprint: bool, is_lead: bool = False):
+    return (s.kind, _encode_faces(s.faces), _encode_layers(s.layers), s.net or "", tuple(s.poly), s.owner,
+            owner_is_footprint, is_lead)
 
 
 def _all_shapes(occ: Occupancy):
     """Every Shape the occupancy currently holds, paired with whether its
     owner is a footprint (== occ._footprint_refs, confirmed equal to "in
     occ.items" since every footprint is pre-registered in __init__ and no
-    other owner is ever added to occ.items). Adds a synthetic npth shape
-    (none of the fixture footprints draw one) so the courtyard-over-npth,
-    npth-cuts-copper and body/npth rules get covered too."""
+    other owner is ever added to occ.items) and whether it is one of
+    occ._leads. Adds a synthetic npth shape (none of the fixture footprints
+    draw one) so the courtyard-over-npth, npth-cuts-copper and body/npth
+    rules get covered too."""
     out = []
     for owner, g in occ.items.items():
         for s in g.shapes:
-            out.append((s, owner in occ._footprint_refs))
+            out.append((s, owner in occ._footprint_refs, (s.owner, s.label) in occ._leads))
     for c in occ.copper:
-        out.append((c, c.owner in occ._footprint_refs))
+        out.append((c, c.owner in occ._footprint_refs, (c.owner, c.label) in occ._leads))
     hole_poly = tuple((10.0 + 0.4 * math.cos(2 * math.pi * i / 12), 10.0 + 0.4 * math.sin(2 * math.pi * i / 12))
                       for i in range(12))
     hole = Shape("U1", "npth", frozenset([Face.FRONT, Face.BACK]), frozenset(CopperLayer), "", hole_poly, Box.of_points(hole_poly))
-    out.append((hole, True))
+    out.append((hole, True, False))
     return out
 
 
@@ -107,13 +109,14 @@ def test_conflict_agrees_with_python_on_randomised_shape_pairs(envelope):
     mismatches = []
     n = 0
     for _ in range(20000):
-        (s, s_is_fp), (o, o_is_fp) = rnd.choice(shapes), rnd.choice(shapes)
+        (s, s_is_fp, s_is_lead), (o, o_is_fp, o_is_lead) = rnd.choice(shapes), rnd.choice(shapes)
         dx, dy = rnd.uniform(-3, 3), rnd.uniform(-3, 3)
         s_moved = _shifted(s, dx, dy) if rnd.random() < 0.5 else s
         o_moved = _shifted(o, dx * rnd.uniform(-1, 1), dy * rnd.uniform(-1, 1)) if rnd.random() < 0.5 else o
         clearance = rnd.choice([None, None, None, 0.1, 0.3])
         py = occ._conflict(s_moved, o_moved, clearance) is not None
-        native = placemat_native.conflict(_py_shape(s_moved, s_is_fp), _py_shape(o_moved, o_is_fp), clearance, **cfg)
+        native = placemat_native.conflict(_py_shape(s_moved, s_is_fp, s_is_lead), _py_shape(o_moved, o_is_fp, o_is_lead),
+                                          clearance, **cfg)
         n += 1
         if py != native:
             mismatches.append((s_moved.kind, o_moved.kind, dx, dy, clearance, py, native))
@@ -127,14 +130,36 @@ def test_conflict_agrees_with_vias_blocking_courtyards():
     rnd = random.Random(7)
     mismatches = []
     for _ in range(6000):
-        (s, s_is_fp), (o, o_is_fp) = rnd.choice(shapes), rnd.choice(shapes)
+        (s, s_is_fp, s_is_lead), (o, o_is_fp, o_is_lead) = rnd.choice(shapes), rnd.choice(shapes)
         dx, dy = rnd.uniform(-1, 1), rnd.uniform(-1, 1)
         o_moved = _shifted(o, dx, dy)
         py = occ._conflict(s, o_moved, None) is not None
-        native = placemat_native.conflict(_py_shape(s, s_is_fp), _py_shape(o_moved, o_is_fp), None, **cfg)
+        native = placemat_native.conflict(_py_shape(s, s_is_fp, s_is_lead), _py_shape(o_moved, o_is_fp, o_is_lead),
+                                          None, **cfg)
         if py != native:
             mismatches.append((s.kind, o_moved.kind, dx, dy))
     assert not mismatches
+
+
+def test_conflict_agrees_on_a_courtyard_over_another_parts_lead():
+    """A positive control, not just absence-of-mismatch fuzzing: U2 is an
+    all-through-pad footprint (both pads are leads, per _is_lead - neither
+    is covered by a non-through pad of the same part), so U1's courtyard
+    shifted onto U2's pad 1 must conflict in both engines, with
+    vias_block_courtyards OFF (the lead rule is not gated by it)."""
+    occ = _rich_occupancy(envelope="courtyard", vias_block_courtyards=False)
+    cfg = _cfg_kwargs(occ)
+    u1_courtyard = occ.items["U1"].shapes[0]
+    assert u1_courtyard.kind == "courtyard"
+    u2_pad1 = next(s for s in occ.items["U2"].shapes if s.kind == "through" and s.label == "1")
+    assert (u2_pad1.owner, u2_pad1.label) in occ._leads
+    dx, dy = u2_pad1.box.center.x - u1_courtyard.box.center.x, u2_pad1.box.center.y - u1_courtyard.box.center.y
+    moved = _shifted(u1_courtyard, dx, dy)
+    py = occ._conflict(moved, u2_pad1, None)
+    native = placemat_native.conflict(_py_shape(moved, True, False), _py_shape(u2_pad1, True, True), None, **cfg)
+    assert py is not None, "sanity: the shifted courtyard should actually sit over the pad"
+    assert native is True
+    assert (py is not None) == native
 
 
 def test_conflict_agrees_at_the_courtyard_touch_boundary():
