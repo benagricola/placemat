@@ -2590,6 +2590,9 @@ class Board:
                 continue
             box, face = box_of(item)
             line = Box.union([box_of(one)[0] for one in group]) if group else None
+            # The reach holds the part's own silk: a label nearer than the board's
+            # silk clearance is a silk overlap to KiCad, whatever gap was asked for.
+            gap = max(gap, self.geometry.silk_clearance)
             op = _label_op(text, box, face, side, gap, align, size, thick, knockout, rotation, line)
             plan.copper.append(op)
             own = {occ.who(r) for r in refs}

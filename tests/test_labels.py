@@ -155,3 +155,20 @@ def test_pad_labels_may_stand_off_their_part_instead_of_their_pads():
     ts = labels(b.resolve())
     pa, pb = b.resolve().occupancy.pad_location("J1", "1"), b.resolve().occupancy.pad_location("J1", "2")
     assert ts[0].at == Location(pa.x, 18.0) and ts[1].at == Location(pb.x, 18.0)   # over their pads, off the part's reach
+
+
+@pytest.mark.parametrize("face", [Face.FRONT, Face.BACK])
+@pytest.mark.parametrize("side", [Edge.NORTH, Edge.SOUTH, Edge.EAST, Edge.WEST])
+def test_a_label_keeps_the_silk_clearance_from_its_own_part(side, face):
+    """The reach holds the part's silk; a label at no gap touched it, which
+    KiCad reports as silk overlapping silk."""
+    fps = [footprint("J1", 10, 10, w=8, h=4, inst="j1", nets=("A", "B"), face=face)]
+    b = Board(board_geometry(fps, width=60, height=60, silk_clearance=0.2), edge_margin=1.0)
+    b.place(Part("j1"), at=Location(20, 20), rotation=90, face=face)
+    b.label(Part("j1"), "MOTOR", side=side)
+    plan = b.resolve()
+    (t,) = labels(plan)
+    reach = plan.occupancy.items["J1"].reach
+    gap = {Edge.NORTH: reach.top - t.box.bottom, Edge.SOUTH: t.box.top - reach.bottom,
+           Edge.EAST: t.box.left - reach.right, Edge.WEST: reach.left - t.box.right}[side]
+    assert gap >= 0.2 - 1e-9

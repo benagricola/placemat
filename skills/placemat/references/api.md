@@ -1042,7 +1042,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `copper.pour_stroke` | 0.2 | a pour's outline stroke |
 | `label.size` | 1.0 | silkscreen text height |
 | `label.thickness` | 0.15 | silkscreen stroke width |
-| `label.gap` | 0.0 | a label's gap from what it names |
+| `label.gap` | 0.0 | a label's gap from what it names; never less than the board's silk clearance |
 | `geometry.arc_sag` | 0.02 | how far a flattened arc may cut the corner off the real one |
 | `geometry.index_cells` | 16 | buckets across the longer side of the spatial index |
 | `geometry.arc_error_nm` | 5000 | arc approximation error when reading pad outlines |

@@ -14,9 +14,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 Bugs, each checked against the code on 2026-09-23 (reproduced where it says so):
 
-- **A label on a back-face part at rotation 90 lands on the part's own
-  silk**, whichever side is asked for. Not reproduced yet. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven
-  things", item 7.
 - **A stamped cell's labels are not reserved in the parent.** Not
   reproduced yet. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 2.
 - **`place.courtyard_touch` and KiCad disagree** on courtyards within
@@ -67,6 +64,12 @@ Features:
 
 ## Done
 
+- **A label keeps the silk clearance from its part** (unreleased): the label
+  gap is at least the board's silk clearance. Reproduced with the flag tab
+  footprint and KiCad's DRC: at gap 0 every side touched the tab's silk on
+  the front; on the back and with the fix, DRC is clean at every rotation.
+  Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven
+  things", item 7.
 - **Rows in a drawn envelope keep the envelope's gaps** (unreleased): a row's
   or ring's gap is at least the widest gap the envelope enforces. Source:
   fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 4.

@@ -6,6 +6,8 @@ whether any of it applies.
 
 ## To 0.29
 
+- A label stands at least the board's silk clearance off what it names,
+  whatever `gap=` or `[label] gap` says; labels move out by that much.
 - In the `physical` and `union` envelopes a row or ring gap below the widest
   gap the envelope enforces is raised to it; a script that set the netclass
   clearance as its row gap can drop it.
