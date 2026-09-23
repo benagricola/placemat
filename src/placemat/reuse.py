@@ -55,7 +55,9 @@ def canonical(obj, _seen=None) -> str:
         names = sorted(set(getattr(obj, "__dict__", {})) | set(getattr(obj, "__slots__", ())))
         return "%s(%s)" % (kind, ",".join("%s=%s" % (n, canonical(getattr(obj, n, None), _seen))
                                           for n in names if not n.startswith("_cached")))
-    return "%s:%r" % (kind, obj)
+    text = repr(obj)
+    # A default repr names a memory address, which differs every run: say the type alone.
+    return kind if " at 0x" in text else "%s:%s" % (kind, text)
 
 
 def _sha(*parts) -> str:

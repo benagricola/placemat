@@ -82,3 +82,8 @@ def test_a_step_and_its_placement_round_trip_through_json():
     assert reuse.step_from_json(json.loads(json.dumps(reuse.step_to_json(s)))) == s
     empty = Step("x", "part", None)
     assert reuse.step_from_json(json.loads(json.dumps(reuse.step_to_json(empty)))) == empty
+
+
+def test_an_object_without_a_readable_form_does_not_make_every_run_different():
+    a, b = reuse.canonical(object()), reuse.canonical(object())
+    assert a == b and "0x" not in a

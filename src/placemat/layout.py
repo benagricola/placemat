@@ -2,11 +2,13 @@
 produces from it.
 
 Board answers questions about the generated board, records placement and
-copper declarations, and resolves them in order (setup, the decided
-placements, the copper whose endpoints are all decided, then every searched
-item by rank, then the rest of the copper) against
-the occupancy model. Plan holds the resolved placements, copper ops and
-findings for the writer and the run record."""
+copper declarations, and resolves them in order against the occupancy model:
+setup, the decided placements, the copper whose endpoints are all decided,
+every searched item by rank, the cleanup pass (cleanup.py), the rest of the
+copper, then the checks, the congestion measure (congestion.py) and the
+labels. Steps whose inputs did not change since the previous run are replayed
+from its record (reuse.py) instead of resolved. Plan holds the resolved
+placements, copper ops and findings for the writer and the run record."""
 from __future__ import annotations
 
 import contextlib

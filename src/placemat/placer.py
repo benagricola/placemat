@@ -1,6 +1,9 @@
 """Searches for legal placements against an Occupancy: a grid scan around a
-hint, edge-flush placement, box-centred placement. Deterministic: candidates
-enumerate in a fixed order and ties break on distance, rotation, x, y."""
+hint (scored or nearest), a block laid out at its anchor's pins and scanned
+as one, the free rectangles (pockets) of a face, and the placements that put
+an item flush on an edge, centred on a point or round a ring. Deterministic:
+candidates enumerate in a fixed order and ties break on distance, rotation,
+x, y."""
 from __future__ import annotations
 
 from collections import Counter
@@ -337,8 +340,9 @@ def _board_mask(occ: Occupancy, inner: Box, rows: int, cols: int, step: float) -
 def pockets(occ: Occupancy, width: float, height: float, face: Face = Face.FRONT, step: float = 0.5,
             limit: int = 8) -> list:
     """The free rectangles on `face` at least `width` x `height`, biggest
-    first: the board rastered at `step`, courtyards and holes on that face
-    and every through-via blocked, the edge margin excluded, the largest
+    first: the board rastered at `step`, what parts claim on that face
+    blocked (courtyards and holes; bodies, pads and silk too in a drawn
+    envelope) and every through-via, the edge margin excluded, the largest
     free rectangle taken and masked out until nothing fits or `limit`
     pockets are found. An upper bound on where a search can succeed."""
     board = occ.board_box

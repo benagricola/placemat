@@ -2,10 +2,12 @@
 candidate placement is legal, without pcbnew.
 
 Built from the geometry read off the generated .kicad_pcb and updated as
-placements are committed. Checks: body
-box inside the edge margin, courtyards on a face do not overlap, through
-features block both faces, pads keep net-class clearance from foreign
-copper, reservations block parts unless they carry an allowed net."""
+placements are committed. Checks: body box inside the edge margin;
+reservations block parts unless they carry an allowed net; what each part
+claims keeps clear of what the others claim on the faces they share -
+courtyards in the courtyard envelope, pads, mask openings, silk and bodies
+at the board's own gaps in the physical one, both in union; through features
+block both faces; pads keep net-class clearance from foreign copper."""
 from __future__ import annotations
 
 import functools
