@@ -103,6 +103,10 @@ class Settings:
     solve_iterations: int = 200
     solve_tolerance: float = 1e-6
     solve_rounds: int = 8
+    cleanup_enabled: bool = True        # after the searched tier, move and swap parts to shorten wire and links
+    cleanup_passes: int = 3
+    cleanup_radius: float = 3.0
+    cleanup_step: float = 0.25
 
     # Where each value came from: a file path, "flag", or "default". Never
     # part of equality or of the run id: it says where, not what.
@@ -194,9 +198,9 @@ _ABOVE_ZERO = frozenset((
     "label_thickness", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_copper_oz",
     "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
-    "solve_iterations", "solve_tolerance", "solve_rounds"))
+    "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step"))
 _AT_LEAST_ZERO = frozenset((
-    "rank_area", "rank_pins", "place_courtyard_touch", "copper_chamfer", "best_airwire_noise",
+    "rank_area", "rank_pins", "place_courtyard_touch", "cleanup_passes", "copper_chamfer", "best_airwire_noise",
     "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm"))
 

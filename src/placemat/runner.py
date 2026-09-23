@@ -38,6 +38,8 @@ def run_metrics(plan, n_place: int, n_copper: int, extent_metrics: dict) -> dict
         metrics["pocketed"] = len(plan.pocketed)
     if plan.footprints:
         metrics["footprints"] = len(plan.footprints)
+    if plan.cleanup:
+        metrics["cleanup"] = dict(plan.cleanup)
     return metrics
 
 

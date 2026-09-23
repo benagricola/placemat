@@ -949,6 +949,10 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `solve.iterations` | 200 | the solve's conjugate-gradient cap per axis per round |
 | `solve.tolerance` | 1e-06 | the residual the solve stops at |
 | `solve.rounds` | 8 | solve-then-spread rounds, the pull toward the spread doubling each round |
+| `cleanup.enabled` | true | after the searched tier, move and swap plain searched parts where that shortens their wire and declared links |
+| `cleanup.passes` | 3 | passes over the movable parts; one that changes nothing ends it |
+| `cleanup.radius` | 3.0 | how far round its optimal region, and round where it stands, a part is searched |
+| `cleanup.step` | 0.25 | that search's step |
 
 A run also records `metrics.seeded_by_net`: how many searched items each net
 seeded. One net seeding most of the board is a missing `board.plane()`. And

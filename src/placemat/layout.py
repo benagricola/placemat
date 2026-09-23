@@ -416,6 +416,7 @@ class Plan:
     solve: dict = field(default_factory=dict)                     # what the global solve did, when it ran
     pocketed: list = field(default_factory=list)                  # seeded items whose scan failed and took a pocket
     footprints: list = field(default_factory=list)                # courtyard mode: footprints whose courtyard understates the part
+    cleanup: dict = field(default_factory=dict)                   # what the cleanup pass did, when it ran
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -2206,6 +2207,8 @@ class Board:
         # be the most important thing on a board, and it does not wait behind a
         # tier of cells for being a single part. What it needs decides.
         place_ranked(RANK_CELL, RANK_LOOSE)
+        if self.settings.cleanup_enabled:
+            self._cleanup(occ, plan)
         self._plan_copper(occ, ctx, other_copper, plan, progress)
         self._check_keepouts(plan)
         self._report_links(occ, plan, placed)
@@ -2219,6 +2222,79 @@ class Board:
                                     layer="User.Comments"))
             plan.steps.append(Step("faces", "copper", Priority.DEFAULT, None, 0.0, text[len("placemat faces "):], why, 1))
         return plan
+
+    def _cleanup_movable(self, plan: Plan) -> dict:
+        """{step key: footprint} for the parts the cleanup pass may move: a
+        searched part placed by the plain search, which nothing else was
+        positioned against - no label, and no other declaration whose place
+        refers to it."""
+        intents = {i.key: i for i in self._placements()}
+        held = set()
+        for i in self._intents:
+            held |= set(getattr(i, "needs", ()) or ())
+        for entry in self._labels:
+            for obj in (entry[1],) + tuple(entry[12] or ()):
+                if isinstance(obj, (PadRef, CellPadRef)):
+                    held.add(self._pad_ref(obj)[0])
+                else:
+                    geom = self._item(obj)[0]
+                    held |= {fp.ref for fp in getattr(geom, "members", (geom,))}
+        out = {}
+        for s in plan.steps:
+            i = intents.get(s.item)
+            if (s.kind != "part" or s.placement is None or i is None or i.kind != "part"
+                    or not self._solvable(i) or i.item.ref in held):
+                continue
+            out[s.item] = i.item
+        return out
+
+    def _cleanup(self, occ: Occupancy, plan: Plan):
+        """The cleanup pass (cleanup.py) over the movable parts, its moves
+        written back into their steps."""
+        from .cleanup import cleanup
+        movable = self._cleanup_movable(plan)
+        if not movable:
+            return
+        placed = set()
+        for s in plan.steps:
+            if s.placement is not None and s.item in plan._items:
+                it = plan._items[s.item]
+                placed |= {fp.ref for fp in getattr(it, "members", None) or
+                           ([it.anchor] + [f for f, _ in it.satellites] if hasattr(it, "satellites") else [it])}
+        quiet = self._plane_nets() | self._free_nets
+        pins = {}
+        for fp in self.geometry.footprints:
+            if fp.ref in placed:
+                for p in fp.pads:
+                    if p.net and p.net not in quiet:
+                        pins.setdefault(p.net, []).append((fp.ref, p.number))
+        pins = {n: v for n, v in pins.items() if len(v) > 1}
+        s = self.settings
+        r = cleanup(occ, movable, pins, list(self._links), self.clearance, s.cleanup_passes,
+                    s.cleanup_radius, s.cleanup_step)
+        swapped = {}
+        for a, b in r.swaps:
+            swapped.setdefault(a, []).append(b)
+            swapped.setdefault(b, []).append(a)
+        for step in plan.steps:
+            if step.item not in movable:
+                continue
+            now = occ.items[movable[step.item].ref].reference
+            if now == step.placement:
+                continue
+            was = step.placement
+            step.placement = now
+            said = []
+            if step.item in swapped:
+                said.append("swapped with %s" % ", ".join(sorted(set(swapped[step.item]))))
+            # A part's own cost is not comparable from one pass to the next -
+            # its neighbours move too - so the step says how far it went, and
+            # plan.cleanup the board's cost before and after.
+            if step.item in r.moves or not said:
+                said.append("moved %.2f mm" % was.location.distance(now.location))
+            step.note = (step.note + "; " if step.note else "") + "cleanup: " + "; ".join(said)
+        plan.cleanup = {"moves": len(r.moves), "swaps": len(r.swaps), "passes": r.passes,
+                        "cost_before": round(r.cost_before, 3), "cost_after": round(r.cost_after, 3)}
 
     def _settle_in_pocket(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
         """Nothing this item connects to is placed and no hint was given: put
