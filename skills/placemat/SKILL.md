@@ -267,6 +267,11 @@ coordinates nobody chose.
   because it is not always better - compare the two runs on the `best` line.
   A step that "took the pocket" had no room by what it connects to: make room
   there, or give it a `Near`.
+- When DRC reports `silk_overlap` or `silk_over_copper` between different
+  parts, or the run's `footprints` line names courtyards that understate
+  their parts, try `[place] envelope = "physical"`: parts then claim what they
+  draw, at the board's own gaps. It re-places the whole board, and KiCad will
+  report `courtyards_overlap` where courtyards now meet.
 - A keepout's `layers=` narrows what is checked as well as what is written, so
   **do not widen `allow=` to silence a complaint about copper on another
   layer** - that admits the net on the layers that do matter. A region may hang

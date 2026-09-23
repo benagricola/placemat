@@ -4,6 +4,14 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.23
+
+Nothing changes in the default `[place] envelope = "courtyard"`, apart from a
+new `footprints` line naming each footprint whose silk or pads pass its
+courtyard (not a finding). `physical` and `union` are new; switching the mode
+re-places every board. fab-profile.json may set
+`courtyard.component_spacing_mm`.
+
 ## To 0.22
 
 - A declaration with `layout = False` beside the board is no longer taken for

@@ -222,6 +222,35 @@ with less pull toward what is placed waits for the other, so it is seeded on
 the part the link joins it to; its step says "waited for" which. Two pulled
 equally keep the rank's order.
 
+**What a part claims.** `[place] envelope` says what one part may not share
+with another. `courtyard` (the default) is its courtyard and its pads.
+`physical` is what the part draws, each on the faces it occupies: its pads,
+each pad's mask opening (the pad grown by its expansion), every silk graphic
+as stroked (the footprint's text fields excluded - `board.label()` text stays
+a reservation) and its body, the box of its fab graphics. A footprint that
+draws neither silk nor fab keeps its courtyard. `union` is both. Between two
+different parts, every gap is the board's own:
+
+| | another part's copper | mask opening | silk | body |
+|---|---|---|---|---|
+| copper | netclass clearance | - | - | component spacing |
+| silk | - | silk clearance | silk clearance | 0 |
+| body | component spacing | - | 0 | component spacing |
+
+The silk clearance is the board's minimum silk item clearance; the component
+spacing is `courtyard.component_spacing_mm` in fab-profile.json, twice the
+courtyard excess when absent. Tracks and vias may run under a body. The
+members of a block keep these gaps from each other too. The rank measures an
+item by the box round what the envelope claims, and a row spaces by the reach
+alone in `physical`. KiCad's DRC still checks courtyards, so a `physical`
+board reports `courtyards_overlap` wherever two courtyards now meet; set that
+check's severity in the project if the courtyards are not what the fab uses.
+In `courtyard` mode a run lists each footprint whose silk or pads pass its
+courtyard by more than the silk clearance (`footprints`, and
+`metrics.footprints`) - outside the findings, so the best-run gate is
+unaffected. `placemat measure` prints each part's drawn envelope and the layer
+that sets each side.
+
 **Where each is searched from.** An explicit `at=Near(...)` first. Otherwise
 the item is centred on the placed pads it is wired to, and an item wired to
 nothing placed yet takes the largest free rectangle that fits it. A centred
@@ -917,6 +946,8 @@ A run also records `metrics.seeded_by_net`: how many searched items each net
 seeded. One net seeding most of the board is a missing `board.plane()`. And
 `metrics.pocketed`, when any were: how many searched items found no room by
 what they connect to and took a pocket instead; the run prints their names.
+And `metrics.footprints`, in courtyard mode, when any courtyard understates
+its part.
 
 Every verb whose default appears here takes an explicit argument that still
 wins: `board.plane(..., inset=1.0)` beats `copper.plane_inset`.
