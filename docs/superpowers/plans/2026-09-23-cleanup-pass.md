@@ -146,7 +146,7 @@ def test_the_pass_is_the_same_twice():
 
 - [ ] **Step 1:** `api.md`: `[cleanup]` rows in the settings table; a paragraph after "Where each is searched from" on what the pass moves and what it leaves; `metrics.cleanup`.
 - [ ] **Step 2:** `SKILL.md`: a step noting `cleanup:` moved after its turn; a part that must stay where the search put it takes a `Near`.
-- [ ] **Step 3:** `migration.md` `## To 0.23`: searched parts may move after placement to shorten wire and links; `[cleanup] enabled = false` gives the old placement.
-- [ ] **Step 4:** Version 0.23.0 in the three files; reinstall (`uv pip install -e . --no-deps`) so the version test passes.
+- [ ] **Step 3:** `migration.md` `## To 0.24`: searched parts may move after placement to shorten wire and links; `[cleanup] enabled = false` gives the old placement.
+- [ ] **Step 4:** Version 0.24.0 in the three files; reinstall (`uv pip install -e . --no-deps`) so the version test passes.
 - [ ] **Step 5:** `BACKLOG.md`: the pass under Done with its numbers; the solve item updated (no better than the seed once the pass runs).
 - [ ] **Step 6:** Suite, benchmark (same on 32), commit.
