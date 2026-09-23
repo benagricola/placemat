@@ -408,7 +408,10 @@ anything is written.
 **Where.** `layers=` defaults to every copper layer the board has, whatever the
 count. Narrow it with a list of `CopperLayer`. It narrows what is CHECKED as
 well as what is written: a track on a layer the region does not cover is not a
-finding. A via joins the whole stack, so a region on any one layer contains it.
+finding. A via joins the whole stack, so a region on any one layer contains it. A
+part sits on a face, so `"parts"` keeps parts off the faces among its
+layers: `layers=["F.Cu"]` leaves the back free, and inner layers alone keep
+no part out. A region a cell brings follows the cell to the other face.
 
 **The board edge.** A region may hang off it. Only the on-board part does
 anything - a part is refused for crossing the keep-in before any reservation is

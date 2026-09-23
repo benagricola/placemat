@@ -6,7 +6,7 @@ import pytest
 
 from placemat.layout import Board
 from placemat.values import Near, OnEdge, Cell, Edge, LinkWeight, Location, Part, PadRef
-from tests.fixtures import board_geometry, footprint
+from tests.fixtures import board_geometry, footprint, declared_findings
 
 
 def make_board():
@@ -154,7 +154,7 @@ def test_an_item_free_to_slide_along_an_edge_still_takes_a_priority():
     b.place(Cell("strip"))
     b.place(Part("j1"), at=OnEdge(Edge.NORTH), priority=Priority.HIGH)
     plan = b.resolve()
-    assert plan.findings == []
+    assert declared_findings(plan) == []
     assert plan.step("j1").priority is Priority.HIGH
     assert "along the north edge" in plan.step("j1").note
     order = order_of(plan)

@@ -3,7 +3,7 @@ which passes under, never the order they were declared in."""
 from placemat.layout import Board
 from placemat.copper import Pour, Track, Via
 from placemat.values import CopperLayer, Location, Net, Part, PadRef, Priority, X, Y
-from tests.fixtures import board_geometry, footprint
+from tests.fixtures import board_geometry, footprint, declared_findings
 
 F, B = CopperLayer.F, CopperLayer.B
 
@@ -32,7 +32,7 @@ def test_a_track_allowed_to_bridge_passes_under_the_one_it_crosses():
     xs = sorted(v.at.x for v in vias(plan, "CANH_S0"))
     assert xs[0] < 20.0 < xs[1] and all(v.at.y == 30.0 for v in vias(plan, "CANH_S0"))
     assert not vias(plan, "PERMIT_B")
-    assert not plan.findings
+    assert not declared_findings(plan)
 
 
 def test_declaration_order_does_not_change_the_result():
@@ -98,7 +98,7 @@ def test_tracks_on_different_layers_or_the_same_net_do_not_bridge():
     b.track(Net("CANH_S0"), [(25.0, 0.0), (25.0, 120.0)], layer=F)
     b.track(Net("CANH_S0"), [(40.0, 30.0), (12.0, 30.0)], layer=F, bridge=True)
     plan = b.resolve()
-    assert not vias(plan, "CANH_S0") and not plan.findings
+    assert not vias(plan, "CANH_S0") and not declared_findings(plan)
 
 
 def test_pad_referenced_points_make_a_bus_without_a_lane_object():

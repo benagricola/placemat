@@ -117,6 +117,26 @@ class ShapeIndex(list):
         return [self[k] for k in sorted(hits) if self[k].box.overlaps(box, gap=gap)]
 
 
+def parts_claim(layers, flip: bool = False):
+    """(whether, layer) for a region that keeps parts out, from the copper
+    layers it covers: a part sits on a face, so the region claims the faces
+    among its layers - both is no layer, one is that face's copper, and
+    inner layers alone claim nothing, a footprint never being on them.
+    `layers` None is every layer. `flip` swaps the faces, for a region that
+    came with a cell placed on the other face."""
+    if layers is None:
+        return True, None
+    faces = {l.face for l in layers if l.face is not None}
+    if not faces:
+        return False, None
+    if len(faces) == 2:
+        return True, None
+    face = next(iter(faces))
+    if flip:
+        face = Face.BACK if face is Face.FRONT else Face.FRONT
+    return True, face.copper
+
+
 @dataclass
 class ItemGeometry:
     """A footprint's or cell's shapes in world coordinates at its CURRENT
@@ -223,7 +243,9 @@ class Occupancy:
             if "parts" not in ra.excludes:
                 continue
             if ra.cell is None:
-                self.reserve(ra.polygon, "rule area %r on the generated board" % ra.name)
+                claims, layer = parts_claim(ra.layers)
+                if claims:
+                    self.reserve(ra.polygon, "rule area %r on the generated board" % ra.name, layer=layer)
             else:
                 self._cell_rule_areas.setdefault(ra.cell, []).append([ra, tuple(ra.polygon)])
 
@@ -431,7 +453,9 @@ class Occupancy:
             ra, poly = pair
             poly = tuple(t.apply(p) for p in poly)
             pair[1] = poly
-            self.reserve(poly, "rule area %r from the %s cell" % (ra.name, ra.cell), source=tag)
+            claims, layer = parts_claim(ra.layers, flip=placement.face != geom.reference.face)
+            if claims:
+                self.reserve(poly, "rule area %r from the %s cell" % (ra.name, ra.cell), source=tag, layer=layer)
         own = by_owner.get(item.name, [])
         self.copper = [c for c in self.copper if c.owner != item.name] + own
 

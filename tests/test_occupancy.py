@@ -2,7 +2,7 @@ from placemat.occupancy import Occupancy
 import pytest
 from placemat.placement import Placement
 from placemat.values import Face, Location
-from tests.fixtures import board_geometry, footprint, track
+from tests.fixtures import board_geometry, footprint, track, declared_findings
 
 
 def occ_with(*fps, **kw):
@@ -161,7 +161,7 @@ def test_a_declared_part_not_yet_placed_is_not_an_obstacle_where_the_generator_l
     b.place(Part("u1"), at=Location(20, 20))                  # where R1 sits now
     b.place(Part("r1"))                                       # R1 will be searched later
     plan = b.resolve()
-    assert plan.findings == [] and plan.box("r1").overlaps(plan.box("u1")) is False
+    assert declared_findings(plan) == [] and plan.box("r1").overlaps(plan.box("u1")) is False
     b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
     b.place(Part("u1"), at=Location(30, 30))                  # where the undeclared R2 sits
     import pytest

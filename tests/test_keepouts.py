@@ -10,7 +10,7 @@ from placemat.occupancy import Occupancy
 from placemat.placement import Placement
 from placemat.values import (Box, Centre, CopperLayer, Face, Location, Net, OnRim, Part, X, Y)
 from tests.conftest import needs_kicad
-from tests.fixtures import board_geometry, footprint
+from tests.fixtures import board_geometry, footprint, declared_findings
 
 
 def loop_of(shape, at, rotation=0.0):
@@ -290,7 +290,7 @@ def test_an_allowed_net_may_cross():
     b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0),
               allow=(Net("GND"),), why="the feed crosses its own clearance")
     b.track(Net("GND"), [Location(5, 20), Location(35, 20)], layer=CopperLayer.F)
-    assert not b.resolve().findings
+    assert not declared_findings(b.resolve())
 
 
 def test_a_keepout_that_excludes_nothing_of_the_kind_is_quiet():
@@ -299,7 +299,7 @@ def test_a_keepout_that_excludes_nothing_of_the_kind_is_quiet():
     b.keepout(Circle(10.0), "screw", at=Location(20.0, 20.0),
               excludes=("parts",), why="the screw head sweeps here")
     b.track(Net("GND"), [Location(5, 20), Location(35, 20)], layer=CopperLayer.F)
-    assert not b.resolve().findings
+    assert not declared_findings(b.resolve())
 
 
 def test_a_track_clear_of_a_keepout_is_quiet():
@@ -307,7 +307,7 @@ def test_a_track_clear_of_a_keepout_is_quiet():
     b.size(width=40.0, height=40.0)
     b.keepout(Circle(6.0), "antenna", at=Location(20.0, 20.0), why="the clearance")
     b.track(Net("GND"), [Location(5, 35), Location(35, 35)], layer=CopperLayer.F)
-    assert not b.resolve().findings
+    assert not declared_findings(b.resolve())
 
 
 def test_a_track_on_another_layer_than_the_region_is_quiet():
@@ -316,7 +316,7 @@ def test_a_track_on_another_layer_than_the_region_is_quiet():
     b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), layers=(CopperLayer.F,),
               why="the clearance on F")
     b.track(Net("GND"), [Location(5, 20), Location(35, 20)], layer=CopperLayer.B)
-    assert not b.resolve().findings
+    assert not declared_findings(b.resolve())
 
 
 def test_a_track_on_the_region_s_own_layer_is_still_a_finding():
@@ -517,3 +517,42 @@ def test_committing_a_cell_again_replaces_its_regions_rather_than_piling_them_up
     assert len(occ.reservations) == 1
     # and it is at the LAST place the cell went, not the first
     assert occ.reservations[0].box.center.x > 30.0
+
+
+@pytest.mark.parametrize("layers, blocked", [(("F.Cu",), {Face.FRONT}), (("B.Cu",), {Face.BACK}),
+                                             (("F.Cu", "B.Cu"), {Face.FRONT, Face.BACK}),
+                                             (None, {Face.FRONT, Face.BACK})])
+def test_a_parts_keepout_blocks_only_the_faces_its_layers_name(layers, blocked):
+    for face in (Face.FRONT, Face.BACK):
+        b = make_board("u1")
+        b.size(width=40.0, height=40.0)
+        b.keepout(Circle(10.0), "band", at=Location(20.0, 20.0), excludes=("parts",), layers=layers,
+                  why="a fanout band on one face")
+        b.place(Part("u1"), at=Location(20.0, 20.0), face=face)
+        if face in blocked:
+            with pytest.raises(PlacementCollision, match="band"):
+                b.resolve()
+        else:
+            assert not b.resolve().findings
+
+
+def test_a_front_only_rule_area_leaves_the_back_free():
+    poly = ((25.0, 25.0), (35.0, 25.0), (35.0, 35.0), (25.0, 35.0))
+    g = _with_rule_area(None, poly)                                  # F.Cu only
+    occ = Occupancy(g, edge_margin=0.0)
+    r1 = g.footprint("R1")
+    assert "antenna_1" in (occ.legal(r1, Placement(Location(30.0, 30.0), 0.0, Face.FRONT)) or "")
+    assert occ.legal(r1, Placement(Location(30.0, 30.0), 0.0, Face.BACK)) is None
+
+
+def test_a_cell_s_front_only_rule_area_goes_to_the_back_with_the_cell():
+    poly = ((8.0, 8.0), (14.0, 8.0), (14.0, 14.0), (8.0, 14.0))
+    g = _with_rule_area("ant_rf", poly)
+    occ = Occupancy(g, edge_margin=0.0)
+    cell = g.cell("ant_rf")
+    occ.commit(cell, Placement(cell.box.center, 0.0, Face.BACK))
+    (r,) = occ.reservations
+    probe = Placement(Location(r.box.center.x, r.box.center.y), 0.0, Face.FRONT)
+    assert "antenna_1" not in (occ.legal(g.footprint("R1"), probe) or "")
+    probe = Placement(probe.location, 0.0, Face.BACK)
+    assert "antenna_1" in (occ.legal(g.footprint("R1"), probe) or "")

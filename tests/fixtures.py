@@ -87,3 +87,9 @@ def make_pdf(path, body: str):
     subprocess.run(["mutool", "create", "-o", str(path), str(src)],
                    capture_output=True, check=True)
     return Path(path)
+
+
+def declared_findings(plan) -> list:
+    """The plan's findings less the ones for fixture parts no test declares:
+    a fixture board often carries parts a test never places."""
+    return [f for f in plan.findings if "no declaration places it" not in f]

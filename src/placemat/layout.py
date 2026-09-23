@@ -20,7 +20,7 @@ import math
 from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
                      resolve_bridges)
 from .geometry import circle_polygon, polys_overlap, transform_box
-from .occupancy import Occupancy, Shape, TOUCH
+from .occupancy import Occupancy, Shape, TOUCH, parts_claim
 from .cutouts import Cutouts, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from .placement import Placement
@@ -1692,6 +1692,19 @@ class Board:
             return sum(w * pads[key].distance(target) for key, target, w in targets if key in pads)
         return score
 
+    def _report_undeclared(self, plan: Plan):
+        """A footprint no declaration places - itself, or as a cell's or a
+        block's member - stays where the generator put it: say which."""
+        declared = set()
+        for i in self._intents:
+            item = getattr(i, "item", None)
+            if item is not None:
+                declared |= {fp.ref for fp in members_of(item)}
+        for fp in sorted(self.geometry.footprints, key=lambda f: f.inst):
+            if fp.ref not in declared:
+                plan.findings.append("%s (%s): no declaration places it, so it stays where the generator put it"
+                                     % (fp.inst, fp.ref))
+
     def _report_links(self, occ: Occupancy, plan: Plan, placed: set):
         for l in self._links:
             if l.a[0] in placed and l.b[0] in placed:
@@ -2131,8 +2144,9 @@ class Board:
                 poly = Cutouts([path]).loops[0]
                 nets = frozenset(self.geometry.require_net(a) for a in k.allow if isinstance(a, Net))
                 owners = frozenset(self._pad_ref(a)[0] for a in k.allow if isinstance(a, (Part, Cell)))
-                if "parts" in k.excludes:
-                    occ.reserve(poly, "keepout %r (%s)" % (k.name, k.why), allow=nets, owners=owners)
+                claims, layer = parts_claim(k.layers)
+                if "parts" in k.excludes and claims:
+                    occ.reserve(poly, "keepout %r (%s)" % (k.name, k.why), allow=nets, owners=owners, layer=layer)
                 plan.keepouts[k.name] = PlacedKeepout(k.name, poly, centre, turn, k.excludes,
                                                       k.layers, nets, owners, k.why)
                 step.note = "kept clear at %.2f, %.2f" % (centre.x, centre.y)
@@ -2251,6 +2265,7 @@ class Board:
         self._check_keepouts(plan)
         plan.rudy = self._rudy(occ, plan)
         self._report_links(occ, plan, placed)
+        self._report_undeclared(plan)
         self._place_labels(occ, plan, placed, progress, final=True)
         if self._faces is not None:
             text, why = self._faces

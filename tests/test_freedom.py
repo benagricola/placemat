@@ -7,7 +7,7 @@ import pytest
 
 from placemat.layout import Board, PlacementCollision
 from placemat.values import Freedom, Near, OnEdge, Centre, Cell, Edge, Location, Part, Priority
-from tests.fixtures import board_geometry, footprint
+from tests.fixtures import board_geometry, footprint, declared_findings
 
 
 def make_board():
@@ -45,7 +45,7 @@ def test_a_free_edge_item_slides_aside_for_a_fixed_one_at_the_midpoint():
     b.place(Part("j3"), at=OnEdge(Edge.NORTH))
     plan = b.resolve()
     j1, j2, j3 = plan.box("j1"), plan.box("j2"), plan.box("j3")
-    assert plan.findings == []
+    assert declared_findings(plan) == []
     assert j1.center.x == pytest.approx(30.0)
     left, right = sorted((j2, j3), key=lambda x: x.center.x)
     assert right.left >= j1.right and left.right <= j1.left          # one each side, off the fixed one
@@ -69,7 +69,7 @@ def test_a_critical_searched_cell_goes_before_free_edge_furniture_and_the_furnit
     order = [s.item for s in plan.steps]
     assert order.index("mcu") < order.index("j1") and order.index("mcu") < order.index("j2")
     mcu = plan.box("mcu")
-    assert plan.findings == []
+    assert declared_findings(plan) == []
     for k in ("j1", "j2"):
         assert not plan.box(k).overlaps(mcu)
 
@@ -89,7 +89,7 @@ def test_a_location_with_one_axis_pins_that_coordinate_and_the_item_slides_on_th
     b.place(Part("j2"), at=Centre(30.0, None))
     plan = b.resolve()
     mcu, j1, j2 = plan.box("mcu"), plan.box("j1"), plan.box("j2")
-    assert plan.findings == []
+    assert declared_findings(plan) == []
     assert j1.center.x == pytest.approx(30.0) and j2.center.x == pytest.approx(30.0)
     assert not j1.overlaps(mcu) and not j2.overlaps(mcu) and not j1.overlaps(j2)
     b = make_board()

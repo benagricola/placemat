@@ -7,7 +7,7 @@ import pytest
 from placemat.copper import Text
 from placemat.layout import Board
 from placemat.values import Near, Cell, Edge, Face, Location, Net, PadRef, Part
-from tests.fixtures import board_geometry, footprint
+from tests.fixtures import board_geometry, footprint, declared_findings
 
 
 def labels(plan):
@@ -100,7 +100,7 @@ def test_a_label_reserves_its_space_so_nothing_is_placed_over_it():
     b.place(Part("r1"), at=Near(Location(20, 16.4), radius=6.0))      # the hint is right on the label
     plan = b.resolve()
     (t,) = labels(plan)
-    assert plan.findings == []
+    assert declared_findings(plan) == []
     assert not plan.box("r1").overlaps(t.box)
     assert any("label j1 MOTOR" in r.why for r in plan.occupancy.reservations)
 

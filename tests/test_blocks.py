@@ -4,7 +4,7 @@ block is laid out from the anchor's real pads at every candidate, so its
 envelope is exact, and searched as one thing."""
 from placemat.layout import Board
 from placemat.values import Near, Cell, Location, Part, PadRef
-from tests.fixtures import board_geometry, footprint
+from tests.fixtures import board_geometry, footprint, declared_findings
 
 
 def make_board():
@@ -113,7 +113,7 @@ def test_a_firm_block_may_be_placed_by_references_like_a_part():
     pad = plan.occupancy.pad_location("J1", "1")
     assert plan.box("ldo").center.x == pytest.approx(pad.x)          # the anchor's body centre, on the pad's axis
     assert plan.box("ldo").center.y == pytest.approx(pad.y + 8.0)
-    assert plan.findings == []
+    assert declared_findings(plan) == []
     cin_vin = plan.occupancy.pad_location("C1", "1")                 # the satellites came with it
     assert cin_vin.x < plan.occupancy.pad_location("U1", "1").x
     assert cin_vin.y == pytest.approx(plan.occupancy.pad_location("U1", "1").y)
@@ -163,7 +163,7 @@ def test_a_scored_block_search_is_coarse_first_then_fine():
     blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN"), (Part("cout"), "VOUT")], gap=0.5)
     b.place(blk, at=Near(Location(30, 30), radius=12.0, step=0.2))
     plan = b.resolve()
-    assert plan.findings == []
+    assert declared_findings(plan) == []
     spec = [i for i in b._intents if i.kind == "block"][0]
     occ = plan.occupancy
     radius, step = 12.0, 0.2

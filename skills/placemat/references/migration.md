@@ -6,6 +6,10 @@ whether any of it applies.
 
 ## To 0.28
 
+- A keepout (or a stamped cell's rule area) with `"parts"` and `layers=`
+  naming one face keeps parts off that face only; before, it kept them off
+  both. A script that relied on that should list both faces.
+- A part in the netlist that no declaration places is now a finding.
 - A part searched from its links or round a `Near()` hint, with neither
   `rotation=` nor `rotations=`, is now tried at all four rotations, so parts
   turn and a board re-runs to a different placement. A part whose turn
