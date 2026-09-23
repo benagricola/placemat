@@ -2396,8 +2396,9 @@ class Board:
                         pins.setdefault(p.net, []).append((fp.ref, p.number))
         pins = {n: v for n, v in pins.items() if len(v) > 1}
         s = self.settings
+        intents = {i.key: i for i in self._placements()}
         r = cleanup(occ, movable, pins, list(self._links), self.clearance, s.cleanup_passes,
-                    s.cleanup_radius, s.cleanup_step)
+                    s.cleanup_radius, s.cleanup_step, turns={k: self._turns(intents[k]) for k in movable})
         swapped = {}
         for a, b in r.swaps:
             swapped.setdefault(a, []).append(b)

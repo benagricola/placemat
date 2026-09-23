@@ -70,3 +70,27 @@ def test_the_pass_is_the_same_twice():
         r = cleanup(occ, {fp.inst: fp for fp in fps}, _pins(g, {fp.ref for fp in fps}), [], None, 3, 3.0, 0.25)
         return sorted((k, v[1]) for k, v in r.moves.items()), r.swaps
     assert run() == run()
+
+
+def _wrong_way():
+    """R1's pad 1 (A) is west and pad 2 (B) east, but A's other pad is east
+    of it and B's west: turned 180 both nets are 2.8 mm shorter."""
+    fps = [footprint("J1", 10, 15, inst="west", nets=("X", "B")),
+           footprint("J2", 30, 15, inst="east", nets=("A", "Y")),
+           footprint("R1", 20, 15, inst="r", nets=("A", "B"))]
+    g, occ = _occ(fps, {"west": (10, 15), "east": (30, 15), "r": (20, 15)})
+    return fps, _pins(g, {"J1", "J2", "R1"}), occ
+
+
+def test_a_part_the_wrong_way_round_is_turned_when_it_may_turn():
+    fps, pins, occ = _wrong_way()
+    r = cleanup(occ, {"r": fps[2]}, pins, [], None, 2, 0.5, 0.25, turns={"r": (0, 90, 180, 270)})
+    frm, to, c0, c1 = r.moves["r"]
+    assert to.rotation == 180 and c1 < c0
+    assert occ.legal(fps[2], to) is None
+
+
+def test_a_part_with_one_rotation_is_only_shifted():
+    fps, pins, occ = _wrong_way()
+    cleanup(occ, {"r": fps[2]}, pins, [], None, 2, 0.5, 0.25)
+    assert occ.items["R1"].reference.rotation == 0

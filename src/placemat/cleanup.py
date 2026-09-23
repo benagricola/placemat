@@ -5,8 +5,9 @@ and Chu, ICCAD 2005), at the size of a board.
 Each move is legal by `occ.legal` - a scored `scan()` finds it - and is taken
 only when it lowers the part's cost: the HPWL of its nets that pull plus, for
 each declared link on one of its pads, the link's weight times its length. No
-move leaves a limited link over its limit and longer than it was. Rotation
-and face do not change. Deterministic: sorted order, no randomness."""
+move leaves a limited link over its limit and longer than it was. A move
+may turn a part to any rotation it is given in `turns`; the face does not
+change. Deterministic: sorted order, no randomness."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -29,9 +30,12 @@ class CleanupResult:
     cost_after: float = 0.0
 
 
-def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radius: float, step: float) -> CleanupResult:
+def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radius: float, step: float,
+            turns: dict | None = None) -> CleanupResult:
     """`movable` maps a step key to its footprint, committed where it stands;
-    `pins` maps each net that pulls to its placed (refdes, pad number) pins."""
+    `pins` maps each net that pulls to its placed (refdes, pad number) pins;
+    `turns` maps a key to the rotations its move may take, else it keeps its own."""
+    turns = turns or {}
     keys = sorted(movable)
     ref_of = {k: movable[k].ref for k in keys}
     key_of_ref = {r: k for k, r in ref_of.items()}
@@ -117,7 +121,7 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
 
             best = None
             for h in hints:
-                r = scan(occ, movable[k], h, radius, step, (cur.rotation,), clearance, score=score)
+                r = scan(occ, movable[k], h, radius, step, turns.get(k, (cur.rotation,)), clearance, score=score)
                 if r.chosen is not None and (best is None or r.score < best[0] - 1e-9):
                     best = (r.score, r.chosen)
             if best is not None and best[0] < now - _EPS and links_ok([k], {k: best[1]}):

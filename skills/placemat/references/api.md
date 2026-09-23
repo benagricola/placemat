@@ -266,8 +266,8 @@ stands, and identical parts (one courtyard, pad count and face) are tried in
 each other's places, keeping a change only when the part's wire (the
 half-perimeter of its nets that pull) plus each declared link's weight times
 its length gets shorter. No change leaves a limited link over its limit and
-longer, rotations and faces stay, and every placement is legal as a search's
-is. It leaves alone any part with a place of its own (`Near`, an edge, a row,
+longer, a part turns only to rotations its declaration allows (all four when
+it gave none), faces stay, and every placement is legal as a search's is. It leaves alone any part with a place of its own (`Near`, an edge, a row,
 a ring, a line), a block or cell member, a labelled part, and a part another
 declaration's place refers to. A moved step says `cleanup: moved D mm` or
 `swapped with K`; `metrics.cleanup` holds the moves, swaps and the cost
