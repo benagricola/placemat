@@ -148,3 +148,56 @@ filtering in Rust).
 - [x] **Step 3: Run tests and suite both ways.** No test changes needed: `test_native_legal.py`'s strongest test already calls the real `Occupancy.legal()` toggled native on/off, which exercises the new cache transparently. `pytest -q` and `PLACEMAT_NATIVE=0 pytest -q` both green.
 - [x] **Step 4: Bench both ways** on the full corpus against main's current `fixtures/bench.json` (main gained a rotations-for-searched-parts feature since Phase 1/2 were written, moving the baseline numbers but not this task's job, which is speed only) - `same 32` in every config. **Commit** with the tally and A/B process-time ratios (whole corpus, alternating, power-save off).
 - [x] **Step 5: Rebase and re-port again** for a further upstream commit ("A through-hole part claims only its holes on the far face") that changed `_conflict`'s courtyard branch - see the spec's "Kept in sync with upstream" note under Phase 2. `shapes::Shape` gained `owner` and a precomputed `is_lead`; every PyShape-tuple builder (`occupancy.py` and both native test files) updated together; new Rust and Python tests for the lead rule specifically, including a positive control. Verified both ways again (pytest, bench).
+- [x] **Step 6: Rebase and re-port again** for upstream's courtyard-margin change ("Courtyards may overlap by the margin KiCad's own lie inside them"): `place_courtyard_touch`'s default dropped to 0.0, the real allowance became `max(touch, margins[a] + margins[b] - 0.001)` from each footprint's `courtyard_margin`. `shapes::Shape` gained `margin: f64` (PyShape: 8-tuple to 9-tuple, every builder updated); `conflict()`'s courtyard branch computes the same expression. One pre-existing test (`test_conflict_agrees_at_the_courtyard_touch_boundary`) depended on the old default and needed a settings override to keep testing what it was written to test, independent of the current default - fixed, not a native bug. New Rust tests for the margin allowance either side of the boundary; a Python positive control with two real footprints carrying `courtyard_margin`. Verified both ways (pytest, bench).
+
+---
+
+### Task 6: Per-candidate shapes stay native
+
+**Goal:** stop rebuilding a shifted, plain-tuple polygon for every candidate
+shape on every `legal()` call - the cost Phase 2's own profiling flagged as
+larger than native's search itself. See the spec's matching section for
+the measured effect (physical envelope: 3.03x, up from Phase 3's 2.44x).
+
+**Files:**
+- Modify: `native/src/shapes.rs` (`ShapeGrid::first_conflict_shifted`), `native/src/lib.rs` (`NativeOriginShapes` class, `NativeObstacles::first_conflict_shifted`), `src/placemat/occupancy.py` (`_native_origin_shapes`, `legal()`'s native branch, `_to_native_shape_shifted` removed as dead code)
+
+- [x] **Step 1: Rust unit test first.** `first_conflict_shifted` on unshifted origin shapes agrees with `first_conflict` on the same shapes pre-shifted, at several offsets.
+- [x] **Step 2: Implement.** `ShapeGrid::first_conflict_shifted(origin_shapes, dx, dy, clearance, cfg)`: shifts each shape's bbox unconditionally (cheap), its polygon only for one actually near enough to test. `NativeOriginShapes` (lib.rs): a handle over unshifted shapes, built once. `Occupancy._native_origin_shapes`: caches a handle per `(id(geom), rotation, face)`, the same key `_origin_shapes` itself uses.
+- [x] **Step 3: Wire `legal()`** to call `native_index.first_conflict_shifted(origin_handle, dx, dy, clearance)` in place of `first_conflict([_to_native_shape_shifted(...) for s in origin_shapes], clearance)`. Remove the now-dead `_to_native_shape_shifted`.
+- [x] **Step 4: Run tests and suite both ways.** `test_the_actual_wired_legal_agrees_with_itself_native_on_and_off` (calls the real, shipped `legal()`) needed no changes and covers this end to end. Both green.
+- [x] **Step 5: Bench and A/B time both ways; commit** with the tally and the ratios.
+- [x] **Step 6 (found during this task's own profiling, not planned):** `geometry::polys_overlap` never got upstream's `_rect_of` rectangle shortcut, because `shapes::conflict` calls it directly (Rust to Rust), bypassing the Python dispatch layer where the shortcut lived. Ported `rect_of` into `native/src/geometry.rs`. New Rust unit tests (an L-shape sharing a rectangle's bounding box is not a rectangle; a degenerate box is not one; reversed winding still is). Verified both ways, bench `same 32`, own commit.
+
+---
+
+### Task 7: pockets() / _largest_rectangle
+
+**Goal:** the largest-free-rectangle search `pockets()` uses, ported whole
+- see the spec's matching section for why this was reordered ahead of the
+full `scan()` sweep the original later request proposed next: a profile of
+the current (post-Task-6) code showed it costing more than `scan`'s own
+loop overhead, with none of `scan`'s reason-string/`who()` entanglement
+(pure integer/boolean array logic, no floating point, no message to match).
+
+**Files:**
+- Add: `native/src/pockets.rs`
+- Modify: `native/src/lib.rs` (`largest_rectangle` pyfunction), `src/placemat/placer.py` (`_largest_rectangle` dispatch)
+- Test: `tests/test_native_pockets.py`
+
+**Interfaces:**
+- Produces: `placemat_native.largest_rectangle(free, rows, cols, need_r, need_c) -> (area, r0, c0, r1, c1) | None` - identical signature and return shape to the Python function it replaces.
+
+- [x] **Step 1: Rust unit tests first.** Empty and fully-blocked grids, a single free cell, a whole free grid, a minimum-size prune, and a tie-break case (two equal-area rectangles that cannot combine into one bigger one) confirming Python's strict `area > best[0]` - first-found-in-row-then-column-order wins - carries over exactly.
+- [x] **Step 2: Implement `native/src/pockets.rs`**, the histogram method ported expression-for-expression (integer heights and areas throughout - no floating point, so no epsilon question at all).
+- [x] **Step 3: Wire `native/src/lib.rs`** and `placer.py`'s `_largest_rectangle`: dispatch to native when built, else the unchanged Python body.
+- [x] **Step 4: Python comparison test** (`tests/test_native_pockets.py`): 500 randomised grids up to 20x20, varied fill and minimum sizes, EXACT equality against the reference Python body called directly (not through the dispatch); edge cases; a dispatch-wiring test with a fake native module.
+- [x] **Step 5: Run tests and suite both ways; bench both ways; commit** with the tally.
+
+---
+
+### Proposed further stages (not started; see spec's own section)
+
+`scan()`'s full candidate sweep, `scan_block` / `layout_block`, and the
+cleanup pass's cost/move functions - see the spec for what each would need
+and the evidence-based reordering among them.

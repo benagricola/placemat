@@ -4,6 +4,7 @@
 //! truth for behaviour (see docs/superpowers/specs/2026-09-24-native-core-design.md).
 
 mod geometry;
+mod pockets;
 mod shapes;
 
 use pyo3::exceptions::PyValueError;
@@ -25,6 +26,19 @@ fn poly_distance(a: Vec<Point>, b: Vec<Point>) -> f64 {
 #[pyfunction]
 fn point_segment_distance(p: Point, a: Point, b: Point) -> f64 {
     geometry::point_segment_distance(p, a, b)
+}
+
+/// `placer._largest_rectangle`, whole - see native/src/pockets.rs.
+#[pyfunction]
+#[pyo3(signature = (free, rows, cols, need_r=1, need_c=1))]
+fn largest_rectangle(
+    free: Vec<Vec<bool>>,
+    rows: usize,
+    cols: usize,
+    need_r: usize,
+    need_c: usize,
+) -> Option<(usize, usize, usize, usize, usize)> {
+    pockets::largest_rectangle(&free, rows, cols, need_r, need_c)
 }
 
 /// A `shapes::Shape` as a plain tuple, for tests to build from Python
@@ -174,6 +188,7 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(poly_distance, m)?)?;
     m.add_function(wrap_pyfunction!(point_segment_distance, m)?)?;
     m.add_function(wrap_pyfunction!(conflict, m)?)?;
+    m.add_function(wrap_pyfunction!(largest_rectangle, m)?)?;
     m.add_class::<NativeObstacles>()?;
     m.add_class::<NativeOriginShapes>()?;
     Ok(())

@@ -10,6 +10,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 import math
 
+from . import geometry as _geometry_module
 from .geometry import _rect_of, point_in_polygon, polys_overlap, transform_box
 from .occupancy import Occupancy, ShapeIndex
 from .placement import Placement
@@ -298,7 +299,14 @@ def _largest_rectangle(free, rows, cols, need_r: int = 1, need_c: int = 1):
     """Largest all-free axis-aligned rectangle in a boolean grid at least
     `need_r` rows by `need_c` columns, by the histogram method. Every maximal
     free rectangle is met on its bottom row, so the largest that meets the
-    size is among them. Returns (area, r0, c0, r1, c1) exclusive, or None."""
+    size is among them. Returns (area, r0, c0, r1, c1) exclusive, or None.
+
+    Pure integer/boolean logic, no floating point - ported to native whole
+    (not just a predicate inside it), since there is no epsilon-boundary
+    question a native answer could get wrong: see native/src/pockets.rs and
+    docs/superpowers/specs/2026-09-24-native-core-design.md."""
+    if _geometry_module._native is not None:
+        return _geometry_module._native.largest_rectangle(free, rows, cols, need_r, need_c)
     heights = [0] * cols
     best = None
     for r in range(rows):
