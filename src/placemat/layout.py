@@ -418,6 +418,7 @@ class Plan:
     footprints: list = field(default_factory=list)                # courtyard mode: footprints whose courtyard understates the part
     cleanup: dict = field(default_factory=dict)                   # what the cleanup pass did, when it ran
     rudy: object = None                                           # congestion.Rudy of the placed board
+    reuse: dict = field(default_factory=dict)                     # this run's record, for the next run to replay
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -2038,7 +2039,9 @@ class Board:
         for c in self._copper:
             c.freedom = Freedom.SEARCHED if (c.owners & searched) else Freedom.FIXED
 
-    def resolve(self, progress=None) -> Plan:
+    reuse_extra = ""        # what the runner adds to the reuse context: tool version, board file, settings, fab profile
+
+    def resolve(self, progress=None, reuse=None) -> Plan:
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
                         board_cutouts=self._cutouts, settings=self.settings,
                         component_spacing=self.component_spacing)
@@ -2051,6 +2054,13 @@ class Board:
                     rules=list(self._rules), draw_outline=self._draw_outline)
         ctx = _CopperContext(self, occ)
         ctx.plan = plan
+        from . import reuse as _reuse
+        context = _reuse.context_key(self, self.reuse_extra)
+        record = {"version": _reuse.VERSION, "context": context, "steps": [], "reused": 0, "first_change": None}
+        plan.reuse = record
+        previous = reuse.get("steps", []) if reuse and reuse.get("version") == _reuse.VERSION \
+            and reuse.get("context") == context else None
+        chain = {"key": context, "replaying": previous is not None}
         self._solve_hints = None            # the global solve runs once per resolve, when first asked
         self._report_lost_layers(plan)
         self._rank(occ)
@@ -2136,11 +2146,22 @@ class Board:
             placed.add(cutout_token(k.name))
 
         def place_one(obj, why_now=""):
-            if isinstance(obj, KeepoutIntent):
-                settle_keepout(obj)
-                return
-            if isinstance(obj, CutoutIntent):
-                settle_cutout(obj)
+            # The key is taken before anything below changes the declaration.
+            key = _reuse.step_key(chain["key"], obj, _reuse.links_on(self, obj))
+            chain["key"] = key
+            position = len(record["steps"])
+            if chain["replaying"] and not (position < len(previous) and previous[position]["key"] == key):
+                chain["replaying"] = False
+            if isinstance(obj, (KeepoutIntent, CutoutIntent)):
+                record["steps"].append({"key": key})
+                if chain["replaying"]:
+                    record["reused"] += 1
+                elif record["first_change"] is None and previous is not None:
+                    record["first_change"] = getattr(obj, "key", None) or getattr(obj, "name", None)
+                if isinstance(obj, KeepoutIntent):
+                    settle_keepout(obj)
+                else:
+                    settle_cutout(obj)
                 return
             if isinstance(obj.run, CutoutEdge):     # the hole is down by now: read its real stretch
                 obj.run = self.cutout(obj.run.name).edge(side=obj.run.side, within=obj.run.within)
@@ -2150,7 +2171,16 @@ class Board:
                     obj.rotation, obj.faces_note = self.outward_rotation(
                         obj.item, obj.run.at(obj.along if obj.along is not None else 0.0)[1])
             plan._items[obj.key] = obj.item
-            step = self._settle(occ, obj, plan, placed)
+            if chain["replaying"]:
+                step = self._replay_settle(occ, plan, previous[position])
+                record["steps"].append(previous[position])
+                record["reused"] += 1
+            else:
+                if record["first_change"] is None and previous is not None:
+                    record["first_change"] = obj.key
+                step, entry = self._recorded_settle(occ, obj, plan, placed)
+                entry["key"] = key
+                record["steps"].append(entry)
             if why_now:
                 step.note = (why_now + "; " + step.note) if step.note else why_now
             if not obj.freedom.decided:
@@ -2214,7 +2244,13 @@ class Board:
         # tier of cells for being a single part. What it needs decides.
         place_ranked(RANK_CELL, RANK_LOOSE)
         if self.settings.cleanup_enabled:
-            self._cleanup(occ, plan)
+            before = reuse.get("cleanup") if (reuse and chain["replaying"]) else None
+            if before is not None and before.get("key") == chain["key"]:
+                self._replay_cleanup(occ, plan, before)
+                record["cleanup"] = before
+            else:
+                record["cleanup"] = self._recorded_cleanup(occ, plan)
+                record["cleanup"]["key"] = chain["key"]
         self._plan_copper(occ, ctx, other_copper, plan, progress)
         self._check_keepouts(plan)
         plan.rudy = self._rudy(occ, plan)
@@ -2258,6 +2294,79 @@ class Board:
         pitch = width + (self.geometry.default_clearance or 0.2)
         return rudy(pads, box, max(1, len(self.geometry.layers)), pitch,
                     skip=self._plane_nets() | self._free_nets)
+
+    def _recorded_settle(self, occ: Occupancy, obj, plan: Plan, placed: set):
+        """_settle, and what it did beyond the step it returns, for the next
+        run to replay: the occupancy commits made inside it (a block's
+        satellites), the steps and findings it added, the nets it was seeded
+        on, whether it took a pocket, and the solve it ran."""
+        from . import reuse as _reuse
+        commits = []
+        real = occ.commit
+
+        def commit(item, placement):
+            commits.append([("cell", item.name) if isinstance(item, CellGeom) else ("fp", item.ref),
+                            _reuse.placement_to_json(placement)])
+            return real(item, placement)
+        n_steps, n_findings, n_pocketed = len(plan.steps), len(plan.findings), len(plan.pocketed)
+        seeded, solve = dict(plan.seeded_by_net), dict(plan.solve)
+        occ.commit = commit
+        try:
+            step = self._settle(occ, obj, plan, placed)
+        finally:
+            del occ.commit
+        entry = {"step": _reuse.step_to_json(step), "commits": commits,
+                 "steps": [_reuse.step_to_json(s) for s in plan.steps[n_steps:]],
+                 "findings": plan.findings[n_findings:], "pocketed": plan.pocketed[n_pocketed:],
+                 "seeded": {n: c - seeded.get(n, 0) for n, c in plan.seeded_by_net.items() if c != seeded.get(n, 0)},
+                 "solve": dict(plan.solve) if plan.solve != solve else None}
+        return step, entry
+
+    def _recorded_cleanup(self, occ: Occupancy, plan: Plan) -> dict:
+        """The cleanup pass, and what it did: its commits in order, the steps
+        whose placement or note it changed, and plan.cleanup."""
+        from . import reuse as _reuse
+        commits = []
+        real = occ.commit
+
+        def commit(item, placement):
+            commits.append([("cell", item.name) if isinstance(item, CellGeom) else ("fp", item.ref),
+                            _reuse.placement_to_json(placement)])
+            return real(item, placement)
+        was = [(s.placement, s.note) for s in plan.steps]
+        occ.commit = commit
+        try:
+            self._cleanup(occ, plan)
+        finally:
+            del occ.commit
+        changed = [[k, _reuse.placement_to_json(s.placement), s.note] for k, s in enumerate(plan.steps)
+                   if k < len(was) and (s.placement, s.note) != was[k]]
+        return {"commits": commits, "changed": changed, "cleanup": dict(plan.cleanup)}
+
+    def _replay_cleanup(self, occ: Occupancy, plan: Plan, entry: dict):
+        from . import reuse as _reuse
+        for (kind, name), placement in entry["commits"]:
+            item = self.geometry.cells[name] if kind == "cell" else self.geometry.footprint(name)
+            occ.commit(item, _reuse.placement_from_json(placement))
+        for k, placement, note in entry["changed"]:
+            plan.steps[k].placement = _reuse.placement_from_json(placement)
+            plan.steps[k].note = note
+        plan.cleanup = dict(entry["cleanup"])
+
+    def _replay_settle(self, occ: Occupancy, plan: Plan, entry: dict):
+        """What _recorded_settle recorded, done again without the search."""
+        from . import reuse as _reuse
+        for (kind, name), placement in entry["commits"]:
+            item = self.geometry.cells[name] if kind == "cell" else self.geometry.footprint(name)
+            occ.commit(item, _reuse.placement_from_json(placement))
+        plan.steps.extend(_reuse.step_from_json(s) for s in entry["steps"])
+        plan.findings.extend(entry["findings"])
+        plan.pocketed.extend(entry["pocketed"])
+        for net, c in entry["seeded"].items():
+            plan.seeded_by_net[net] += c
+        if entry["solve"] is not None:
+            plan.solve = dict(entry["solve"])
+        return _reuse.step_from_json(entry["step"])
 
     def _cleanup_movable(self, plan: Plan) -> dict:
         """{step key: footprint} for the parts the cleanup pass may move: a
