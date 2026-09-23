@@ -25,6 +25,8 @@ class Rudy:
     demand: float           # mm of wire asked for (the sum of the nets' half-perimeters)
     cells: int
     cell: float
+    util: list = None       # rows (y) of cells (x): each cell's demand over its capacity
+    origin: Location = None  # the grid's top-left corner
 
 
 def rudy(pads, board: Box, layers: int, pitch: float, cell: float = 0.5, skip=frozenset()) -> Rudy:
@@ -65,19 +67,23 @@ def rudy(pads, board: Box, layers: int, pitch: float, cell: float = 0.5, skip=fr
                 covered[j][i] += share * ox * oy / (cell * cell)
     full = layers * cell * cell / pitch                     # mm of track a clear cell holds
     util, over, worst, worst_at = [], 0.0, 0.0, Location(board.center.x, board.center.y)
+    grid = []
     for j in range(ny):
+        grid.append([])
         for i in range(nx):
             cap = full * max(0.0, 1.0 - min(covered[j][i], 1.0))
             d = demand[j][i]
             over += max(0.0, d - cap)
             u = d / cap if cap > 1e-9 else (0.0 if d <= 1e-12 else 10.0)
             util.append(u)
+            grid[j].append(round(u, 4))
             if u > worst + 1e-12:
                 worst = u
                 worst_at = Location(round(x_org + (i + 0.5) * cell, 3), round(y_org + (j + 0.5) * cell, 3))
     util.sort()
     p99 = util[min(len(util) - 1, int(0.99 * len(util)))] if util else 0.0
-    return Rudy(round(worst, 4), worst_at, round(p99, 4), round(over, 3), round(total, 3), nx * ny, cell)
+    return Rudy(round(worst, 4), worst_at, round(p99, 4), round(over, 3), round(total, 3), nx * ny, cell, grid,
+                Location(x_org, y_org))
 
 
 def _spans(lo: float, hi: float, origin: float, cell: float, n: int):

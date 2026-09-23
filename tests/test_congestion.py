@@ -55,3 +55,12 @@ def test_a_resolve_reports_its_worst_cell_and_the_run_records_it():
     assert r.worst > 0 and 0 <= r.worst_at.x <= 40 and 0 <= r.worst_at.y <= 20
     m = run_metrics(plan, 3, 0, {})
     assert m["rudy"]["worst"] == r.worst and m["rudy"]["worst_at"] == [r.worst_at.x, r.worst_at.y]
+
+
+def test_the_grid_is_kept_and_its_worst_cell_is_the_worst():
+    pads = [_pad("N%d" % k, 1.0, 1.0 + k * 0.1) for k in range(6)] + [_pad("N%d" % k, 3.0, 1.0 + k * 0.1) for k in range(6)]
+    r = rudy(pads, Box(0, 0, 20, 10), layers=2, pitch=0.4, cell=1.0)
+    assert len(r.util) == 10 and len(r.util[0]) == 20
+    assert (r.origin.x, r.origin.y) == (0, 0)
+    i, j = int((r.worst_at.x - r.origin.x) // r.cell), int((r.worst_at.y - r.origin.y) // r.cell)
+    assert r.util[j][i] == pytest.approx(r.worst, abs=1e-4)
