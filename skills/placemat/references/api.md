@@ -263,8 +263,11 @@ is. It leaves alone any part with a place of its own (`Near`, an edge, a row,
 a ring, a line), a block or cell member, a labelled part, and a part another
 declaration's place refers to. A moved step says `cleanup: moved D mm` or
 `swapped with K`; `metrics.cleanup` holds the moves, swaps and the cost
-before and after. On the module benchmark it made 23 of 32 modules better and
-none worse. `[cleanup] enabled = false` turns it off.
+before and after. On the module benchmark it made 21 of 32 modules better and
+none worse, for about 1.7 times the placement's own time; `passes = 3, step =
+0.25` made 23 better for about 3 times, and `radius = 5.0` shortens the wire
+further (median 0.92 of the uncleaned against 0.95) at about 3 times.
+`[cleanup] enabled = false` turns it off.
 
 **Where each is searched from.** An explicit `at=Near(...)` first. Otherwise
 the item is centred on the placed pads it is wired to, and an item wired to
@@ -965,9 +968,9 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `solve.tolerance` | 1e-06 | the residual the solve stops at |
 | `solve.rounds` | 8 | solve-then-spread rounds, the pull toward the spread doubling each round |
 | `cleanup.enabled` | true | after the searched tier, move and swap plain searched parts where that shortens their wire and declared links |
-| `cleanup.passes` | 3 | passes over the movable parts; one that changes nothing ends it |
+| `cleanup.passes` | 2 | passes over the movable parts; one that changes nothing ends it |
 | `cleanup.radius` | 3.0 | how far round its optimal region, and round where it stands, a part is searched |
-| `cleanup.step` | 0.25 | that search's step |
+| `cleanup.step` | 0.5 | that search's step |
 
 A run also records `metrics.seeded_by_net`: how many searched items each net
 seeded. One net seeding most of the board is a missing `board.plane()`. And

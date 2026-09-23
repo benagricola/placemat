@@ -104,9 +104,9 @@ class Settings:
     solve_tolerance: float = 1e-6
     solve_rounds: int = 8
     cleanup_enabled: bool = True        # after the searched tier, move and swap parts to shorten wire and links
-    cleanup_passes: int = 3
+    cleanup_passes: int = 2             # the module sweep: a third pass or a 0.25 mm step bought little for 2-3x the time
     cleanup_radius: float = 3.0
-    cleanup_step: float = 0.25
+    cleanup_step: float = 0.5
 
     # Where each value came from: a file path, "flag", or "default". Never
     # part of equality or of the run id: it says where, not what.
