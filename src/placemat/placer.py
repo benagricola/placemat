@@ -450,13 +450,15 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
         gaps = [spec.gap] if spec.gap is not None else [round(g * step_mm, 6)
                                                         for g in range(int(reach / step_mm) + 1)]
         best = None
+        # The satellite's pad at each turn is the same whatever the gap: asked once.
+        probes = {rot: occ.candidate_pad_locations(sat, Placement(Location(0.0, 0.0), rot, anchor.face))[
+            (sat.ref, sat_pin.number)] for rot in (0, 90, 180, 270)}
         for gap in gaps:
             target = Location(p.x + ux * (half_anchor + gap + half_sat), p.y + uy * (half_anchor + gap + half_sat))
             for rot in (0, 90, 180, 270):
-                probe = Placement(Location(0.0, 0.0), rot, anchor.face)
-                sp = occ.candidate_pad_locations(sat, probe)[(sat.ref, sat_pin.number)]
+                sp = probes[rot]
                 cand = Placement(Location(round(target.x - sp.x, 6), round(target.y - sp.y, 6)), rot, anchor.face)
-                body = occ.body_box(sat, cand).center
+                body = occ.shifted_body_box(sat, cand).center
                 outward = (body.x - target.x) * ux + (body.y - target.y) * uy      # body beyond its pad, away from the anchor
                 if outward < -1e-6:
                     continue
@@ -471,8 +473,8 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
                            for a in sshapes for b in laid.near(a.box, occ.gap_for(a))):
                         continue
                 else:
-                    _, sshapes = occ.candidate_shapes(sat, cand)
-                    mine = [sh.poly for sh in sshapes if sh.kind == "courtyard"]
+                    sshapes = ()
+                    mine = occ.shifted_courtyards(sat, cand)
                     if any(polys_overlap(a, b) for a in mine for b in taken):
                         continue
                 reason = occ.legal(sat, cand, clearance, others=others.get(sat.inst))

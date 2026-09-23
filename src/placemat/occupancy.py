@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from .geometry import (Polygon, Transform, box_polygon, circle_polygon, poly_distance,
+from .geometry import (_clean, Polygon, Transform, box_polygon, circle_polygon, poly_distance,
                        polys_overlap, transform_box, transform_polygon)
 from .placement import Placement
 from .settings import Settings
@@ -581,6 +581,25 @@ class Occupancy:
             hit = (geom, shapes)
             cache[key] = hit
         return hit[1]
+
+    def shifted_courtyards(self, item, placement: Placement) -> list:
+        """The item's courtyard polygons at `placement`, from the turned shapes
+        at the origin, shifted and rounded as a transform rounds."""
+        dx, dy = placement.location.x, placement.location.y
+        return [tuple((_clean(x + dx), _clean(y + dy)) for x, y in s.poly)
+                for s in self._origin_shapes(item, self._geometry(item), placement) if s.kind == "courtyard"]
+
+    def shifted_body_box(self, item, placement: Placement) -> Box:
+        """body_box() at `placement`, from the body turned at the origin."""
+        cache = self.__dict__.setdefault("_body_cache", {})
+        geom = self._geometry(item)
+        key = (id(geom), placement.rotation, placement.face)
+        hit = cache.get(key)
+        if hit is None or hit[0] is not geom:
+            hit = (geom, self.body_box(item, Placement(Location(0.0, 0.0), placement.rotation, placement.face)))
+            cache[key] = hit
+        b, dx, dy = hit[1], placement.location.x, placement.location.y
+        return Box(_clean(b.left + dx), _clean(b.top + dy), _clean(b.right + dx), _clean(b.bottom + dy))
 
     def shifted_shapes(self, item, placement: Placement) -> list:
         """The item's shapes at `placement`, from the turned shapes at the origin."""
