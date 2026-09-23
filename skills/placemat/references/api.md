@@ -460,7 +460,11 @@ nothing, and the script says otherwise.
 cell, inside its group, and are honoured: they move with the cell and fence the
 placer. Its labels come the same way: each silk text in the cell's group keeps
 parts off its box on its face once the cell lands (`sits in the reservation
-for label 'BOOT' from the debug cell`), so a parent need not declare them again. They are read from the generated board, so a keepout whose name would
+for label 'BOOT' from the debug cell`), so a parent need not declare them again.
+A stamped region larger than its cell costs the parent the difference: the
+cell's step says `its stamped regions keep parts off N mm2 of board beyond
+its own parts`. For a part's escape band, `board.fanout()` follows the pad
+rows and admits the part's own satellites; a rectangle keepout does neither. They are read from the generated board, so a keepout whose name would
 collide with one is refused.
 
 **Layers a module's board does not have.** A module fragment is a two-layer

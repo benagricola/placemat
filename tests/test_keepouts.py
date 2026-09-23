@@ -602,3 +602,19 @@ def test_a_stamped_cell_s_label_keeps_parts_off_it_once_the_cell_lands():
     why = occ.legal(g.footprint("R1"), Placement(Location(10.0, 12.5), 0.0, Face.FRONT)) or ""
     assert "label 'BOOT' from the panel cell" in why
     assert occ.legal(g.footprint("R1"), Placement(Location(10.0, 12.5), 0.0, Face.BACK)) is None
+
+
+def test_a_stamped_region_says_how_much_board_it_takes_beyond_its_cell():
+    """A stamped parts keepout larger than its cell costs the parent that
+    area; the cell's step says how much."""
+    from placemat.board_geometry import RuleArea
+    from placemat.values import Cell
+    fps = [footprint("U1", 10, 10, w=4, h=2, cell="rf", inst="rf.u", nets=("A", "B"), excess=0.0)]  # members 8..12 x 9..11
+    g = board_geometry(fps, cells=["rf"], width=60, height=60)
+    g = dataclasses.replace(g, rule_areas=(
+        RuleArea("keepout band", "rf", ((6.0, 9.0), (14.0, 9.0), (14.0, 11.0), (6.0, 11.0)),     # 8 x 2 = 16 mm2, 8 of it on the members
+                 frozenset([CopperLayer.F]), frozenset(["parts"])),))
+    b = Board(g, edge_margin=1.0)
+    b.place(Cell("rf"), at=Location(30.0, 30.0))
+    plan = b.resolve()
+    assert "8.0 mm2 of board beyond its own parts" in plan.step("rf").note

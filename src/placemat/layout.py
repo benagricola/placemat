@@ -2267,6 +2267,11 @@ class Board:
             else:
                 occ.commit(obj.item, step.placement)
                 placed.update(fp.ref for fp in members_of(obj.item))
+                if obj.kind == "cell":
+                    taken = self._stamped_region_cost(occ, obj.item)
+                    if taken >= 0.05:
+                        step.note = (step.note + "; " if step.note else "") + \
+                            "its stamped regions keep parts off %.1f mm2 of board beyond its own parts" % taken
             if progress:
                 progress(_fmt(step))
             self._place_fanouts(occ, plan, placed, progress)
@@ -2571,6 +2576,32 @@ class Board:
             return [self._pad_ref(item)[0]]
         geom, ikey, kind = self._item(item)
         return [fp.ref for fp in (geom.members if kind == "cell" else (geom,))]
+
+    def _stamped_region_cost(self, occ, cell, cell_mm: float = 0.05) -> float:
+        """How much board a cell's parts-excluding regions keep other parts
+        off beyond what its own members claim, sampled on a `cell_mm` grid:
+        what a stamped keepout costs the board that stamps it."""
+        from .geometry import point_in_polygon
+        regions = [r.poly for r in occ.reservations if r.source == "cell:%s" % cell.name]
+        if not regions:
+            return 0.0
+        own = []
+        for fp in cell.members:
+            g = occ.items.get(fp.ref)
+            if g is not None:
+                own += [s.box for s in g.shapes if s.kind == "courtyard"] or [g.reach or g.body]
+        n = 0
+        for poly in regions:
+            box = Box.of_points(poly)
+            y = box.top + cell_mm / 2
+            while y < box.bottom:
+                x = box.left + cell_mm / 2
+                while x < box.right:
+                    if point_in_polygon((x, y), poly) and not any(o.left <= x <= o.right and o.top <= y <= o.bottom for o in own):
+                        n += 1
+                    x += cell_mm
+                y += cell_mm
+        return n * cell_mm * cell_mm
 
     def _place_fanouts(self, occ, plan: Plan, placed: set, progress):
         """Every fanout whose part is down and not yet banded: one reservation
