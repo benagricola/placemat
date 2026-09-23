@@ -1031,7 +1031,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.refine_around` | 3 | how many of the best coarse spots get a fine pass |
 | `place.block_gap_step` | 0.05 | how finely a block's tightest gap is searched |
 | `place.block_gap_reach` | 2.0 | how far a satellite may stand off its pin |
-| `place.courtyard_touch` | 0.02 | two courtyards this close are touching, not overlapping |
+| `place.courtyard_touch` | 0.0 | how far two courtyards may overlap at least; each pair may also overlap by the two parts' margins (how far KiCad's courtyard polygon lies inside the drawn box) less 0.001 mm, which keeps KiCad's courtyards apart - it counts touching as overlapping |
 | `place.conflict_gap` | 1.0 | how far outside a box a conflict can still reach |
 | `copper.chamfer` | 1.0 | how far a right angle is cut back into two 45s |
 | `copper.pair_chamfer` | 0.5 | the same, for a differential pair |

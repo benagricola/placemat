@@ -6,6 +6,10 @@ whether any of it applies.
 
 ## To 0.29
 
+- `[place] courtyard_touch` defaults to 0 (was 0.02): each pair of parts may
+  overlap by the margins read from KiCad's own courtyards instead, so
+  placements pack as tightly as KiCad's DRC allows and no tighter. A part
+  whose courtyard stroke is thin no longer produces a `courtyards_overlap`.
 - A label stands at least the board's silk clearance off what it names,
   whatever `gap=` or `[label] gap` says; labels move out by that much.
 - In the `physical` and `union` envelopes a row or ring gap below the widest

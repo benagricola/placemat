@@ -14,7 +14,7 @@ def test_defaults_are_todays_values():
     assert s.place_coarse_steps == 4 and s.place_coarse_from == 12.0
     assert s.place_refine_around == 3
     assert s.place_block_gap_step == 0.05 and s.place_block_gap_reach == 2.0
-    assert s.place_courtyard_touch == 0.02 and s.place_conflict_gap == 1.0
+    assert s.place_courtyard_touch == 0.0 and s.place_conflict_gap == 1.0
     assert s.copper_chamfer == 1.0 and s.copper_bridge_half == 1.1
     assert s.copper_plane_inset == 0.4 and s.copper_pour_stroke == 0.2
     assert s.label_size == 1.0 and s.label_thickness == 0.15

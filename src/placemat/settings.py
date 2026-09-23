@@ -54,7 +54,7 @@ class Settings:
     place_refine_around: int = 3
     place_block_gap_step: float = 0.05
     place_block_gap_reach: float = 2.0
-    place_courtyard_touch: float = 0.02
+    place_courtyard_touch: float = 0.0   # courtyards may touch, never overlap: KiCad counts touching polygons, and its are inside ours by half a stroke
     place_conflict_gap: float = 1.0
     # [copper]
     copper_chamfer: float = 1.0

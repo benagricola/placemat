@@ -14,8 +14,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 Bugs, each checked against the code on 2026-09-23 (reproduced where it says so):
 
-- **`place.courtyard_touch` and KiCad disagree** on courtyards within
-  0.02 mm once KiCad does not round them out. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things", item 6.
 - **A `Layout()` fragment gets default rules** (silk clearance 0, stdlib
   netclass) unless it declares a board config. Probably a generator
   (`pcb`) matter; to confirm. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 3.
@@ -62,6 +60,12 @@ Features:
 
 ## Done
 
+- **Courtyards judged as KiCad judges them** (unreleased): measured, KiCad's
+  DRC counts touching courtyards as overlapping and its polygon lies inside
+  the drawn box (by 0.03 for a 0.05 stroke). Each footprint's margin is
+  read from KiCad's polygon; two courtyards may overlap by the two margins
+  less 0.001. Bench: default 14 better, 4 worse, median 0.99. Source:
+  fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things", item 6.
 - **A stamped cell's labels are reserved in the parent** (unreleased): each
   silk text in a cell's group is read as a parts-excluding region of the
   cell on its face. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`,

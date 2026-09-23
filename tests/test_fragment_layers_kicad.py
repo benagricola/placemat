@@ -137,3 +137,14 @@ def test_a_stamped_cell_s_silk_text_reads_as_a_region_parts_keep_out_of(tmp_path
     assert ra.layers == frozenset((B,)) and ra.excludes == frozenset(("parts",))
     xs = [p[0] for p in ra.polygon]
     assert min(xs) < 20.0 < max(xs)
+
+
+def test_a_footprint_s_courtyard_margin_is_how_far_kicad_s_courtyard_lies_inside_its_box():
+    from tests.conftest import BREAKOUT_PCB
+    if not BREAKOUT_PCB.exists():
+        pytest.skip("committed Breakout board not found")
+    from placemat.kicad.read import read_board
+    g = read_board(BREAKOUT_PCB)
+    margins = {round(fp.courtyard_margin, 3) for fp in g.footprints}
+    assert all(0.0 <= m < 0.2 for m in margins)
+    assert max(margins) >= 0.02                         # a 0.05 stroke puts KiCad's at least 0.025 inside

@@ -123,6 +123,28 @@ def courtyard_box(fp) -> Box:
     return box if box is not None else phys_box(fp)
 
 
+def courtyard_margin(fp) -> float:
+    """How far KiCad's own courtyard polygon - what its DRC tests - lies
+    inside `courtyard_box` on its nearest side. The box is the drawn lines'
+    extent, stroke included; KiCad's polygon runs inside it, so two boxes may
+    overlap by the two margins and KiCad still sees its courtyards apart."""
+    drawn = [d for d in fp.GraphicalItems() if d.GetLayer() in _COURTYARD_LAYERS]
+    if not drawn:
+        return 0.0
+    box = courtyard_box(fp)
+    fp.BuildCourtyardCaches()
+    xs, ys = [], []
+    for layer in (pcbnew.F_CrtYd, pcbnew.B_CrtYd):
+        ps = fp.GetCourtyard(layer)
+        for k in range(ps.OutlineCount()):
+            o = ps.Outline(k)
+            xs += [mm(o.CPoint(j).x) for j in range(o.PointCount())]
+            ys += [mm(o.CPoint(j).y) for j in range(o.PointCount())]
+    if not xs:
+        return 0.0
+    return max(0.0, round(min(min(xs) - box.left, box.right - max(xs), min(ys) - box.top, box.bottom - max(ys)), 6))
+
+
 def body_box(fp, excess_mm: float) -> Box:
     has_ct = any(d.GetLayer() in _COURTYARD_LAYERS for d in fp.GraphicalItems())
     if not has_ct:
@@ -231,7 +253,8 @@ def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footpr
                      body_box=body_box(fp, excess_mm), courtyard_box=courtyard_box(fp),
                      phys_box=phys_box(fp), pads=_pads(board, fp, err_nm), npth=_npth(fp),
                      fields={f.GetName(): f.GetText() for f in fp.GetFields()},
-                     silk=_silk(fp, err_nm), mask=_mask(fp, err_nm), fab=_fab(fp))
+                     silk=_silk(fp, err_nm), mask=_mask(fp, err_nm), fab=_fab(fp),
+                     courtyard_margin=courtyard_margin(fp))
 
 
 def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, ...]:
@@ -417,7 +440,7 @@ def read_footprint(path, courtyard_excess_mm: float = 0.10) -> tuple:
                      body_box=body_box(fp, courtyard_excess_mm), courtyard_box=courtyard_box(fp),
                      phys_box=phys_box(fp), pads=tuple(pads), npth=_npth(fp),
                      fields={f.GetName(): f.GetText() for f in fp.GetFields()},
-                     silk=_silk(fp), mask=_mask(fp), fab=_fab(fp))
+                     silk=_silk(fp), mask=_mask(fp), fab=_fab(fp), courtyard_margin=courtyard_margin(fp))
     return geom, digest
 
 

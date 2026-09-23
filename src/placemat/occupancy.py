@@ -210,6 +210,7 @@ class Occupancy:
         self.component_spacing = component_spacing          # body to body, body to another part's pad
         self.silk_clearance = geometry.silk_clearance       # silk to silk, silk to a mask opening
         self._footprint_refs = frozenset(fp.ref for fp in geometry.footprints)
+        self._margins = {fp.ref: fp.courtyard_margin for fp in geometry.footprints if fp.courtyard_margin}
         self._leads = frozenset((fp.ref, p.number) for fp in geometry.footprints for p in fp.pads if _is_lead(fp, p))
         self._drawn_gap = max(component_spacing, self.silk_clearance)   # the furthest a silk, mask or body check reaches
         if self.envelope != "courtyard" and self._gap < max(component_spacing, self.silk_clearance):
@@ -643,8 +644,11 @@ class Occupancy:
             # courtyards may touch: a shared edge, to a rounding, is packing, not a collision
             depth = min(min(s.box.right, o.box.right) - max(s.box.left, o.box.left),
                         min(s.box.bottom, o.box.bottom) - max(s.box.top, o.box.top))
+            # KiCad's courtyards lie inside ours by each part's margin: overlap by
+            # less than the two, and KiCad sees them apart (it counts touching).
+            allowed = max(self._touch, self._margins.get(s.owner, 0.0) + self._margins.get(o.owner, 0.0) - 0.001)
             # to a nanometre: the depth is a difference of coordinates, and exactly the allowance must not read as more
-            if depth <= self._touch + 1e-9 and (s.box.width > 0 and o.box.width > 0):
+            if depth <= allowed + 1e-9 and (s.box.width > 0 and o.box.width > 0):
                 return None
             if s.faces & o.faces and polys_overlap(s.poly, o.poly):
                 return "%s courtyard overlaps %s courtyard" % (self.who(s.owner), self.who(o.owner))
