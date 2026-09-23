@@ -406,6 +406,7 @@ board.place(J, at=OnEdge(top, along=8.0))                  # 8 mm along the run 
 board.place(TP, at=OnEdge(top))                            # slides along that run to the room left
 board.row([L1, L2, L3], top, align="center")               # a row that turns with the edge
 for run in board.edges(facing=Edge.EAST, within=10.0): ...  # every stretch facing that way
+tip = board.edge(facing=Edge.SOUTH, outermost=True)        # of several facing south, the one furthest south
 ```
 
 **A side is chosen, not named.** `board.edges(facing=, within=45.0)` returns
@@ -413,8 +414,10 @@ the stretches of the outline whose outward side points within `within`
 degrees of a bearing (or an `Edge`), in the order the path runs.
 `board.edge(...)` returns the one, and raises when none or several match:
 several is a real question - a notch in the top edge has a floor that faces
-north as much as the top does - so the script narrows `within` or picks from
-`edges()`. Stretches that face the same way and run into each other come
+north as much as the top does - so the script narrows `within`, picks from
+`edges()`, or passes `outermost=True` for the run whose middle lies furthest
+out that way (a tab or an arm's tip beyond the shoulders beside it; two level
+at the furthest still raise). Stretches that face the same way and run into each other come
 back as ONE run, so a rounded corner belongs to the side it flows into;
 narrow `within` to get the flat part alone. A shaped board refuses a named
 `Edge`, because "the north edge" is no longer one thing.

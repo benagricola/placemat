@@ -1047,17 +1047,30 @@ class Board:
         list and a script says which it meant."""
         return self._shaped().runs(facing, within)
 
-    def edge(self, facing, within: float = 45.0) -> Run:
+    def edge(self, facing, within: float = 45.0, outermost: bool = False) -> Run:
         """The one stretch of the board's edge facing that way. Several (or
-        none) is a script question, not a guess: narrow `within`, or take
-        the one wanted from edges()."""
+        none) is a script question, not a guess: narrow `within`, take the
+        one wanted from edges(), or say `outermost=True` for the one whose
+        middle lies furthest out that way - a tab or an arm's tip beyond the
+        shoulders beside it. Two level at the furthest is still a question."""
         runs = self.edges(facing, within)
-        if len(runs) == 1:
-            return runs[0]
         if not runs:
             raise ValueError("no part of this board's edge faces %r within %g degrees" % (facing, within))
+        if len(runs) > 1 and outermost:
+            ux, uy = bearing_vector(bearing(facing))
+            out = [(r.at(r.length / 2.0)[0], r) for r in runs]
+            reach = [(round(p.x * ux + p.y * uy, 6), r) for p, r in out]
+            far = max(d for d, _ in reach)
+            level = [r for d, r in reach if d >= far - 1e-6]
+            if len(level) == 1:
+                return level[0]
+            raise ValueError("%d stretches of this board's edge facing %r lie level at the furthest out "
+                             "(%s): pick from board.edges()" % (len(level), facing,
+                                                               ", ".join("%.2f mm" % r.length for r in level)))
+        if len(runs) == 1:
+            return runs[0]
         raise ValueError("%d stretches of this board's edge face %r within %g degrees (%s): "
-                         "narrow within=, or pick from board.edges()"
+                         "narrow within=, say outermost=True, or pick from board.edges()"
                          % (len(runs), facing, within, ", ".join("%.2f mm" % r.length for r in runs)))
 
     def _shaped(self) -> Outline:
