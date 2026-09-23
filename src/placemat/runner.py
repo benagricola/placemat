@@ -172,7 +172,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         rec.timing_s["generate"] = round(time.time() - t0, 1)
         # The run's name: a hash of the script, the generated board and the tool.
         from . import __version__
-        rid = run_id(script.read_text(), src.pcb.read_bytes(), __version__, cfg.json())
+        fab = fab_profile(src.board_dir)
+        rid = run_id(script.read_text(), src.pcb.read_bytes(), __version__, cfg.json(), fab.json())
         final_dir = runs / rid
         keep_route(final_dir, staging)
         shutil.rmtree(final_dir, ignore_errors=True)
@@ -195,7 +196,6 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         from .kicad.write import apply_plan, finish_board, render_board
         from .kicad.drc import run_drc
 
-        fab = fab_profile(src.board_dir)
         t0 = time.time()
         geometry = read_board(src.pcb, courtyard_excess_mm=fab.courtyard_excess)
         board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size, keep_going=keep_going,

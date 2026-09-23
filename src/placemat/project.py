@@ -94,6 +94,13 @@ class FabProfile:
     path: Path | None = None
     component_spacing: float = 0.2     # body to body, and body to another part's pad: twice the excess unless the fab says
 
+    def json(self) -> str:
+        """The values that decide a run, not the file they came from."""
+        import json as _json
+        return _json.dumps({"via_drill": self.via_drill, "via_size": self.via_size,
+                            "courtyard_excess": self.courtyard_excess, "track_widths": list(self.track_widths),
+                            "component_spacing": self.component_spacing}, sort_keys=True)
+
 
 def fab_profile(start) -> FabProfile:
     d = Path(start).resolve()

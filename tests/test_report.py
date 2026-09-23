@@ -163,3 +163,19 @@ def test_a_copper_step_says_which_batch_planned_it():
     by_item = {s.item: s for s in plan.steps if s.kind == "copper"}
     assert by_item["track GND"].freedom is Freedom.FIXED
     assert by_item["track C"].freedom is Freedom.SEARCHED
+
+
+def test_the_fab_profile_changes_the_run_id(tmp_path):
+    """A fab profile changes the body placemat derives for every part, so a
+    changed one is a different run."""
+    import json
+    from placemat.project import fab_profile
+    from placemat.report import run_id
+    same = dict(script_text="board.size(1, 1)\n", board_bytes=b"pcb", tool_version="0.2.0-dev")
+    (tmp_path / "fab-profile.json").write_text(json.dumps({"courtyard": {"excess_mm": 0.10}}))
+    a = run_id(**same, fab_json=fab_profile(tmp_path).json())
+    (tmp_path / "fab-profile.json").write_text(json.dumps({"courtyard": {"excess_mm": 0.25}}))
+    b = run_id(**same, fab_json=fab_profile(tmp_path).json())
+    (tmp_path / "fab-profile.json").write_text(json.dumps({"courtyard": {"excess_mm": 0.25}}, indent=4) + "\n")
+    c = run_id(**same, fab_json=fab_profile(tmp_path).json())
+    assert a != b and b == c                    # the values count, not how the file is written
