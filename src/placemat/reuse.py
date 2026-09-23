@@ -76,12 +76,23 @@ def _geometry_digest(g) -> str:
                       for fp in g.footprints]) + canonical(sorted(g.rule_area_names())) + repr(len(g.copper))
 
 
+# Settings that cannot change a placement: a change to one replays everything still.
+_NOT_PLACEMENT = ("preview_", "timeout_", "route_", "best_", "noise_", "check_", "drc_")
+
+
+def placement_settings(settings) -> str:
+    """The settings as JSON, less those that cannot change a placement."""
+    import json
+    data = json.loads(settings.json())
+    return json.dumps({k: v for k, v in data.items() if not k.startswith(_NOT_PLACEMENT)}, sort_keys=True)
+
+
 def context_key(board, extra: str = "") -> str:
     """Everything that feeds every step: `extra` (the runner's tool version,
     board file digest, settings and fab profile), the generated board, and
     every declaration that is not a placement - or, with the solve on, every
     placement and link too, because the solve reads them all."""
-    parts = [extra, _geometry_digest(board.geometry), board.settings.json(),
+    parts = [extra, _geometry_digest(board.geometry), placement_settings(board.settings),
              canonical([board.courtyard_excess, board.component_spacing, board.edge_margin, board.clearance,
                         board.via_drill, board.via_size, board.keep_going]),
              canonical([board._copper, board._labels, board._rules, sorted(board._free_nets), board._outline,
@@ -141,8 +152,9 @@ _PART_NAMES = {"tool": "the tool version", "board": "the generated board", "sett
                "fab": "the fab profile"}
 
 
-def summary(record: dict, previous: dict | None, previous_id: str | None) -> str:
-    """The line a run prints about what it reused, or "" with nothing to reuse."""
+def summary(record: dict, previous: dict | None, source: str | None) -> str:
+    """The line a run prints about what it reused, or "" with nothing to
+    reuse. `source` names where the record came from: "run 1a2b3c4d"."""
     if not previous:
         return ""
     n = len(record["steps"])
@@ -151,11 +163,10 @@ def summary(record: dict, previous: dict | None, previous_id: str | None) -> str
         changed = [_PART_NAMES[k] for k in ("tool", "board", "settings", "fab") if mine.get(k) != theirs.get(k)]
         what = " and ".join([", ".join(changed[:-1]), changed[-1]] if len(changed) > 1 else changed) if changed \
             else "the script's board-wide declarations"
-        return "reused 0 steps: %s changed since run %s" % (what, previous_id)
+        return "reused 0 steps: %s changed since %s" % (what, source)
     if record["reused"] >= n:
-        return "reused all %d steps from run %s" % (n, previous_id)
-    return "reused %d of %d steps from run %s (first change: %s)" % (record["reused"], n, previous_id,
-                                                                    record["first_change"])
+        return "reused all %d steps from %s" % (n, source)
+    return "reused %d of %d steps from %s (first change: %s)" % (record["reused"], n, source, record["first_change"])
 
 
 def write(path, record: dict) -> None:

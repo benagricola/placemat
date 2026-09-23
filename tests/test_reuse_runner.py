@@ -11,17 +11,17 @@ def _rec(context="c1", n=10, reused=0, first=None, parts=None):
 
 
 def test_the_line_names_how_many_steps_came_from_which_run_and_the_first_change():
-    assert reuse.summary(_rec(reused=7, first="r2"), _rec(), "abc123") == \
+    assert reuse.summary(_rec(reused=7, first="r2"), _rec(), "run abc123") == \
         "reused 7 of 10 steps from run abc123 (first change: r2)"
-    assert reuse.summary(_rec(reused=10), _rec(), "abc123") == "reused all 10 steps from run abc123"
+    assert reuse.summary(_rec(reused=10), _rec(), "run abc123") == "reused all 10 steps from run abc123"
 
 
 def test_a_changed_context_names_what_changed():
     prev = _rec(context="c0", parts={"tool": "t", "board": "b0", "settings": "s", "fab": "f0"})
-    assert reuse.summary(_rec(context="c1"), prev, "abc123") == \
+    assert reuse.summary(_rec(context="c1"), prev, "run abc123") == \
         "reused 0 steps: the generated board and the fab profile changed since run abc123"
     same_parts = _rec(context="c0")
-    assert reuse.summary(_rec(context="c1"), same_parts, "abc123") == \
+    assert reuse.summary(_rec(context="c1"), same_parts, "run abc123") == \
         "reused 0 steps: the script's board-wide declarations changed since run abc123"
 
 

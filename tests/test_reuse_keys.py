@@ -87,3 +87,9 @@ def test_a_step_and_its_placement_round_trip_through_json():
 def test_an_object_without_a_readable_form_does_not_make_every_run_different():
     a, b = reuse.canonical(object()), reuse.canonical(object())
     assert a == b and "0x" not in a
+
+
+def test_a_setting_that_cannot_change_a_placement_leaves_the_context_alone():
+    base = _keys(_declare(_board()))[0]
+    assert _keys(_declare(_board(preview_px_per_mm=80.0, timeout_render=10)))[0] == base
+    assert _keys(_declare(_board(place_radius=4.0)))[0] != base

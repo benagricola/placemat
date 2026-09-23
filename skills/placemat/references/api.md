@@ -981,6 +981,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `solve.iterations` | 200 | the solve's conjugate-gradient cap per axis per round |
 | `solve.tolerance` | 1e-06 | the residual the solve stops at |
 | `solve.rounds` | 8 | solve-then-spread rounds, the pull toward the spread doubling each round |
+| `preview.converter` | "rsvg-convert --width {width} -o {png} {svg}" | the command `placemat preview` runs to turn its SVG into a PNG; `{svg}`, `{png}` and `{width}` are filled in |
+| `preview.px_per_mm` | 40.0 | the preview PNG's resolution, pixels per millimetre of the drawing |
 | `cleanup.enabled` | true | after the searched tier, move and swap plain searched parts where that shortens their wire and declared links |
 | `cleanup.passes` | 2 | passes over the movable parts; one that changes nothing ends it |
 | `cleanup.radius` | 3.0 | how far round its optimal region, and round where it stands, a part is searched |

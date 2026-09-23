@@ -103,6 +103,8 @@ class Settings:
     solve_iterations: int = 200
     solve_tolerance: float = 1e-6
     solve_rounds: int = 8
+    preview_converter: str = "rsvg-convert --width {width} -o {png} {svg}"   # SVG to PNG; {svg}, {png}, {width}
+    preview_px_per_mm: float = 40.0     # the PNG's resolution: 40 px a millimetre shows a 0.1 mm gap as 4 px
     cleanup_enabled: bool = True        # after the searched tier, move and swap parts to shorten wire and links
     cleanup_passes: int = 2             # the module sweep: a third pass or a 0.25 mm step bought little for 2-3x the time
     cleanup_radius: float = 3.0
@@ -198,7 +200,7 @@ _ABOVE_ZERO = frozenset((
     "label_thickness", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_copper_oz",
     "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
-    "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step"))
+    "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "preview_px_per_mm"))
 _AT_LEAST_ZERO = frozenset((
     "rank_area", "rank_pins", "place_courtyard_touch", "cleanup_passes", "copper_chamfer", "best_airwire_noise",
     "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset",

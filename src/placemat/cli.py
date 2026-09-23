@@ -111,6 +111,18 @@ def parser() -> argparse.ArgumentParser:
     fc.add_argument("fragment", help="the module's layout/layout.kicad_pcb")
     fc.add_argument("sides", nargs="+", metavar="SIDE=N|S|E|W", help="outward=, quiet=, handoff=")
 
+    pv = sub.add_parser("preview", help="place the board (reusing the previous run) and draw it - "
+                                        "no board written, no DRC, no render: a picture in seconds")
+    pv.add_argument("script", help="a layout script")
+    pv.add_argument("--svg", action="store_true", help="write the SVG only, without converting it to PNG")
+    pv.add_argument("--face", choices=("front", "back", "both"), default="both")
+    pv.add_argument("--out", help="where to write (default <board>/.placemat/preview)")
+    pv.add_argument("--no-heat", action="store_true", help="leave out the congestion heat map")
+    pv.add_argument("--no-links", action="store_true", help="leave out the declared links")
+    pv.add_argument("--no-copper", action="store_true", help="leave out the planned copper")
+    pv.add_argument("--zoom", help="draw only X0,Y0,X1,Y1 (board mm) of each face")
+    pv.add_argument("--around", help="draw only round this placed part or cell (its instance name)")
+    pv.add_argument("--margin", type=float, default=5.0, help="mm round --around (default 5)")
     st = sub.add_parser("settings", help="every resolved setting, its value and the file it came from")
     st.add_argument("where", nargs="?", default=".", help="a layout script or a board directory (default: here)")
     st.add_argument("--json", action="store_true")
@@ -448,6 +460,47 @@ def _numbers(text: str, n: int) -> list:
     return values
 
 
+def cmd_preview(args) -> int:
+    from .previewer import preview
+    from .runner import RunFailure
+    from .values import Box
+    region = None
+    if args.zoom:
+        try:
+            x0, y0, x1, y1 = (float(v) for v in args.zoom.split(","))
+        except ValueError:
+            console.say("preview", "--zoom is X0,Y0,X1,Y1 in board millimetres, not %r" % args.zoom, level="fail")
+            return 2
+        region = Box(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+    faces = ("front", "back") if args.face == "both" else (args.face,)
+    try:
+        result = preview(args.script, faces=faces, svg_only=args.svg, out=args.out, heat=not args.no_heat,
+                         links=not args.no_links, copper=not args.no_copper, region=region, around=args.around,
+                         margin=args.margin)
+    except RunFailure as e:
+        console.say("fail", "%s: %s" % (e, e.details.get("error", "")), level="fail")
+        return 1
+    except ValueError as e:
+        console.say("preview", str(e), level="fail")
+        return 2
+    plan = result.plan
+    placed = sum(1 for s in plan.steps if s.placement is not None)
+    console.say("script", "%d placed, %d finding(s)" % (placed, len(plan.findings)))
+    if result.reused:
+        console.say("reused", result.reused[len("reused "):])
+    if plan.rudy is not None:
+        console.say("congestion", "worst cell %.2f of capacity at (%.1f, %.1f)" % (
+            plan.rudy.worst, plan.rudy.worst_at.x, plan.rudy.worst_at.y))
+    for f in plan.findings:
+        console.say("finding", f, level="finding")
+    console.say("preview", "svg %s" % result.svg)
+    if result.png is not None:
+        console.say("preview", "png %s" % result.png)
+    elif not args.svg:
+        console.say("preview", "no png: %s" % result.png_problem)
+    return 0
+
+
 def cmd_occupancy(args) -> int:
     from . import queries
     from .kicad.read import read_board
@@ -595,7 +648,7 @@ def main(argv=None) -> int:
     return {"run": cmd_run, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
             "route": cmd_route, "check": cmd_check, "show": cmd_show, "faces": cmd_faces,
             "settings": cmd_settings, "parts": cmd_parts,
-            "datasheet": cmd_datasheet, "occupancy": cmd_occupancy}[args.command](args)
+            "datasheet": cmd_datasheet, "occupancy": cmd_occupancy, "preview": cmd_preview}[args.command](args)
 
 
 if __name__ == "__main__":

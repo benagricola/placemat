@@ -156,6 +156,39 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
                     route_exclude=route_exclude, keep_going=keep_going, reuse=reuse)
 
 
+def scripted_board(script, src, cfg, fab, keep_going: bool) -> Board:
+    """The generated board read, a Board over it with this board's fab
+    profile and settings, and the script run against it. A script that
+    raises is a RunFailure naming its line."""
+    from .kicad.read import read_board
+    geometry = read_board(src.pcb, courtyard_excess_mm=fab.courtyard_excess)
+    board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size, keep_going=keep_going,
+                  courtyard_excess=fab.courtyard_excess, settings=cfg, component_spacing=fab.component_spacing)
+    try:
+        run_script(script, board)
+    except Exception as e:
+        tb = traceback.extract_tb(e.__traceback__)
+        frames = [f for f in tb if Path(f.filename).resolve() == script]
+        where = frames[-1] if frames else None
+        raise RunFailure("script", "Layout script failed", {
+            "script": str(script), "line": where.lineno if where else None,
+            "source": where.line if where else None, "error": "%s: %s" % (type(e).__name__, e),
+            "traceback": "".join(traceback.format_exception(e))})
+    return board
+
+
+def reuse_parts(src, cfg, fab) -> dict:
+    """What a reuse record's context is made of beyond the script: digests
+    of the tool version, the generated board, the settings and the fab
+    profile, kept apart so a run can say which of them changed."""
+    import hashlib
+    from . import __version__
+    from . import reuse as reuse_mod
+    return {"tool": __version__, "board": hashlib.sha256(src.pcb.read_bytes()).hexdigest(),
+            "settings": hashlib.sha256(reuse_mod.placement_settings(cfg).encode()).hexdigest(),
+            "fab": hashlib.sha256(fab.json().encode()).hexdigest()}
+
+
 def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render: bool = True,
          drc: bool = True, quiet: bool = False, verbose: bool = False, route: bool = False,
          route_quick: bool = True, route_exclude=(), keep_going: bool = False, reuse: bool = True) -> RunResult:
@@ -212,20 +245,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         from .kicad.drc import run_drc
 
         t0 = time.time()
-        geometry = read_board(src.pcb, courtyard_excess_mm=fab.courtyard_excess)
-        board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size, keep_going=keep_going,
-                      courtyard_excess=fab.courtyard_excess, settings=cfg,
-                      component_spacing=fab.component_spacing)
-        try:
-            run_script(script, board)
-        except Exception as e:
-            tb = traceback.extract_tb(e.__traceback__)
-            frames = [f for f in tb if Path(f.filename).resolve() == script]
-            where = frames[-1] if frames else None
-            raise RunFailure("script", "Layout script failed", {
-                "script": str(script), "line": where.lineno if where else None,
-                "source": where.line if where else None, "error": "%s: %s" % (type(e).__name__, e),
-                "traceback": "".join(traceback.format_exception(e))})
+        board = scripted_board(script, src, cfg, fab, keep_going)
         log_lines = []
 
         from .layout import STEP_HEADER
@@ -238,10 +258,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             if verbose:
                 say("bridge" if line.strip().startswith("bridge:") else "step", line.strip())
         from .layout import CriticalUnplaced, PlacementCollision
-        import hashlib
-        parts = {"tool": __version__, "board": hashlib.sha256(src.pcb.read_bytes()).hexdigest(),
-                 "settings": hashlib.sha256(cfg.json().encode()).hexdigest(),
-                 "fab": hashlib.sha256(fab.json().encode()).hexdigest()}
+        parts = reuse_parts(src, cfg, fab)
         board.reuse_extra = "|".join(parts[k] for k in ("tool", "board", "settings", "fab"))
         try:
             plan = board.resolve(progress=progress, reuse=previous_reuse)
@@ -297,7 +314,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 len(plan.pocketed), ", ".join(plan.pocketed[:8]) + (", ..." if len(plan.pocketed) > 8 else "")))
         plan.reuse["parts"] = parts
         reuse_mod.write(run_dir / "reuse.json", plan.reuse)
-        line = reuse_mod.summary(plan.reuse, previous_reuse, previous_id)
+        line = reuse_mod.summary(plan.reuse, previous_reuse, "run %s" % previous_id)
         if line:
             say("reused", line[len("reused "):])
         metrics = run_metrics(plan, n_place, n_copper, extent_metrics)
