@@ -122,5 +122,5 @@ rather than rushed.
 
 ### Task 4: Report and packaging note
 
-- [ ] Update `native/README.md` with whatever Task 3 lands (build steps, `cargo test`, what `PLACEMAT_NATIVE=0` does).
-- [ ] Leave a note in the spec's "Packaging" section (already written) as the open decision for the user: how a released `placemat` ships the compiled extension. Not decided or guessed at here.
+- [x] Update `native/README.md` with what Task 3 landed (`shapes.rs`, the `NativeObstacles` class).
+- [x] Spec's "Packaging" section left as-is: the open decision for the user, not decided or guessed at here. Added a "Left for a follow-up" section instead, on the native-index-caching opportunity Task 3's profiling found (see the spec).
