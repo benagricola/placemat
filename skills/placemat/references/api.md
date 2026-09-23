@@ -977,7 +977,14 @@ seeded. One net seeding most of the board is a missing `board.plane()`. And
 `metrics.pocketed`, when any were: how many searched items found no room by
 what they connect to and took a pocket instead; the run prints their names.
 And `metrics.footprints`, in courtyard mode, when any courtyard understates
-its part, and `metrics.cleanup` when the cleanup pass ran.
+its part, and `metrics.cleanup` when the cleanup pass ran. And `metrics.rudy`:
+the placed board's congestion by RUDY - each routed net's wire spread over its
+box on a 0.5 mm grid, against what a cell's layers carry less its pads - as
+the worst cell's share of capacity and where it is, the 99th percentile cell
+and the overflow; the run prints the worst cell as `congestion`. On a study
+of the fixture modules the worst cell was the one congestion measure that
+picked the better-routing of two placements more often than chance (about
+three times in four); it is reported, not yet steered by.
 
 Every verb whose default appears here takes an explicit argument that still
 wins: `board.plane(..., inset=1.0)` beats `copper.plane_inset`.

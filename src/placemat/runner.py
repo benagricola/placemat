@@ -40,6 +40,10 @@ def run_metrics(plan, n_place: int, n_copper: int, extent_metrics: dict) -> dict
         metrics["footprints"] = len(plan.footprints)
     if plan.cleanup:
         metrics["cleanup"] = dict(plan.cleanup)
+    if getattr(plan, "rudy", None) is not None:
+        r = plan.rudy
+        metrics["rudy"] = {"worst": r.worst, "worst_at": [r.worst_at.x, r.worst_at.y], "p99": r.p99,
+                           "overflow": r.overflow, "cell": r.cell}
     return metrics
 
 
@@ -267,6 +271,10 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             top = plan.seeded_by_net.most_common(4)
             more = len(plan.seeded_by_net) - len(top)
             say("seeded", ", ".join("%s %d" % kv for kv in top) + (", +%d more" % more if more else ""))
+        if getattr(plan, "rudy", None) is not None:
+            r = plan.rudy
+            say("congestion", "worst cell %.2f of capacity at (%.1f, %.1f), 99th percentile %.2f (RUDY, %.1f mm cells)" % (
+                r.worst, r.worst_at.x, r.worst_at.y, r.p99, r.cell))
         if plan.footprints:
             say("footprints", "%d courtyard(s) understate their part: %s%s" % (
                 len(plan.footprints), "; ".join(plan.footprints[:8]), "; ..." if len(plan.footprints) > 8 else ""))

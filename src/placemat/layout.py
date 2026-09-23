@@ -417,6 +417,7 @@ class Plan:
     pocketed: list = field(default_factory=list)                  # seeded items whose scan failed and took a pocket
     footprints: list = field(default_factory=list)                # courtyard mode: footprints whose courtyard understates the part
     cleanup: dict = field(default_factory=dict)                   # what the cleanup pass did, when it ran
+    rudy: object = None                                           # congestion.Rudy of the placed board
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -2216,6 +2217,7 @@ class Board:
             self._cleanup(occ, plan)
         self._plan_copper(occ, ctx, other_copper, plan, progress)
         self._check_keepouts(plan)
+        plan.rudy = self._rudy(occ, plan)
         self._report_links(occ, plan, placed)
         self._place_labels(occ, plan, placed, progress, final=True)
         if self._faces is not None:
@@ -2227,6 +2229,35 @@ class Board:
                                     layer="User.Comments"))
             plan.steps.append(Step("faces", "copper", Priority.DEFAULT, None, 0.0, text[len("placemat faces "):], why, 1))
         return plan
+
+    def _rudy(self, occ: Occupancy, plan: Plan):
+        """The placed board's RUDY (congestion.py): its placed pads, the nets
+        that are routed (no planes, no free nets), a track and its clearance."""
+        from .congestion import rudy
+        box = plan.outline or occ.board_box
+        if box is None:
+            return None
+        refs = set()
+        for s in plan.steps:
+            if s.placement is not None and s.item in plan._items:
+                it = plan._items[s.item]
+                if hasattr(it, "satellites"):
+                    refs |= {fp.ref for fp in it.members}
+                else:
+                    refs |= {fp.ref for fp in getattr(it, "members", None) or (it,)}
+        pads = []
+        for ref in sorted(refs):
+            g = occ.items.get(ref)
+            if g is None:
+                continue
+            for s in g.shapes:
+                if s.kind in ("pad", "through"):
+                    pads.append((s.net, s.box, len(s.layers)))
+        classes = list(self.geometry.netclasses.values())
+        width = min((c.track_width for c in classes), default=0.2)
+        pitch = width + (self.geometry.default_clearance or 0.2)
+        return rudy(pads, box, max(1, len(self.geometry.layers)), pitch,
+                    skip=self._plane_nets() | self._free_nets)
 
     def _cleanup_movable(self, plan: Plan) -> dict:
         """{step key: footprint} for the parts the cleanup pass may move: a
