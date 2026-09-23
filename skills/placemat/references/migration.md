@@ -4,6 +4,17 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.26
+
+- The cleanup pass defaults to 2 passes at a 0.5 mm step (was 3 at 0.25): a
+  board re-runs to a slightly different placement, about 1% more wire at the
+  median, in about a third of the pass's time.
+- A run replays the previous run up to the first changed step
+  (`--no-reuse` to resolve everything); the board written is the same.
+- Every run prints its most congested cell by RUDY (`congestion`,
+  `metrics.rudy`). Nothing steers by it yet.
+- Large boards resolve faster, placing the same.
+
 ## To 0.25
 
 Searched parts may move after placement: a cleanup pass moves and swaps the

@@ -267,6 +267,9 @@ coordinates nobody chose.
   because it is not always better - compare the two runs on the `best` line.
   A step that "took the pocket" had no room by what it connects to: make room
   there, or give it a `Near`.
+- A run replays the previous run up to the first changed step, so a change
+  to a part placed late costs seconds; a change to a fixed part, an early
+  (large) part or anything board-wide re-runs the board. Batch such changes.
 - A step noting `cleanup:` was moved after its turn, to shorten its wire and
   links; a part that must stay where the search put it takes a `Near`.
 - When DRC reports `silk_overlap` or `silk_over_copper` between different

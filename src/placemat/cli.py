@@ -18,6 +18,8 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("script", help="the board's layout script (or its directory)")
     run.add_argument("--label", help="run name (default: a timestamp)")
     run.add_argument("--fresh", action="store_true", help="regenerate the board even if a generation is cached")
+    run.add_argument("--no-reuse", action="store_true",
+                     help="resolve every step, not replaying the previous run's steps up to the first change")
     run.add_argument("--no-render", action="store_true", help="skip the PNG renders")
     run.add_argument("--no-drc", action="store_true", help="skip kicad-cli DRC")
     run.add_argument("--json", action="store_true", help="print the run record as JSON on stdout")
@@ -184,7 +186,7 @@ def cmd_run(args) -> int:
     result = run(args.script, label=args.label, fresh=args.fresh, render=not args.no_render,
                  drc=not args.no_drc, quiet=args.quiet or args.json, verbose=args.verbose,
                  route=args.route, route_quick=not args.route_full, route_exclude=args.route_exclude,
-                 keep_going=args.keep_going, overrides=overrides_from(args))
+                 keep_going=args.keep_going, overrides=overrides_from(args), reuse=not args.no_reuse)
     if args.json:
         console.data(json.dumps(json.loads((result.run_dir / "run.json").read_text()), indent=2))
     # a run that placed but came out worse than the best of its parts is a

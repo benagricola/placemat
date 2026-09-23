@@ -269,6 +269,20 @@ none worse, for about 1.7 times the placement's own time; `passes = 3, step =
 further (median 0.92 of the uncleaned against 0.95) at about 3 times.
 `[cleanup] enabled = false` turns it off.
 
+**Reusing the previous run.** A run replays the previous run's steps up to
+the first one whose inputs changed and resolves from there; the board it
+writes is the one a run from scratch would write. A step's inputs are its own
+declaration, the links on its pads and every step before it; the generated
+board, the tool, the settings, the fab profile and every board-wide
+declaration (copper, planes, keepouts, cutouts, labels, rules, the outline)
+feed every step, so changing one of those replays nothing - nor, with the
+solve on, does changing any placement. The run prints `reused N of M steps
+from run <id> (first change: <item>)` and records `metrics.reused`;
+`placemat run --no-reuse` resolves every step. On the 220-part board an
+unchanged rerun went from 125 s to 7 s, and a change to a part late in the
+order from 118 s to 24 s. A change early in the order - most of the
+fixed tier, the large parts - still re-resolves nearly everything.
+
 **Where each is searched from.** An explicit `at=Near(...)` first. Otherwise
 the item is centred on the placed pads it is wired to, and an item wired to
 nothing placed yet takes the largest free rectangle that fits it. A centred

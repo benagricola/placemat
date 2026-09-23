@@ -2309,7 +2309,7 @@ class Board:
                             _reuse.placement_to_json(placement)])
             return real(item, placement)
         n_steps, n_findings, n_pocketed = len(plan.steps), len(plan.findings), len(plan.pocketed)
-        seeded, solve = dict(plan.seeded_by_net), dict(plan.solve)
+        seeded, solve, items = dict(plan.seeded_by_net), dict(plan.solve), set(plan._items)
         occ.commit = commit
         try:
             step = self._settle(occ, obj, plan, placed)
@@ -2319,7 +2319,9 @@ class Board:
                  "steps": [_reuse.step_to_json(s) for s in plan.steps[n_steps:]],
                  "findings": plan.findings[n_findings:], "pocketed": plan.pocketed[n_pocketed:],
                  "seeded": {n: c - seeded.get(n, 0) for n, c in plan.seeded_by_net.items() if c != seeded.get(n, 0)},
-                 "solve": dict(plan.solve) if plan.solve != solve else None}
+                 "solve": dict(plan.solve) if plan.solve != solve else None,
+                 "items": [[k, "cell", v.name] if isinstance(v, CellGeom) else [k, "fp", v.ref]
+                           for k, v in plan._items.items() if k not in items]}
         return step, entry
 
     def _recorded_cleanup(self, occ: Occupancy, plan: Plan) -> dict:
@@ -2366,6 +2368,8 @@ class Board:
             plan.seeded_by_net[net] += c
         if entry["solve"] is not None:
             plan.solve = dict(entry["solve"])
+        for key, kind, name in entry.get("items", ()):
+            plan._items[key] = self.geometry.cells[name] if kind == "cell" else self.geometry.footprint(name)
         return _reuse.step_from_json(entry["step"])
 
     def _cleanup_movable(self, plan: Plan) -> dict:

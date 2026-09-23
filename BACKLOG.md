@@ -31,6 +31,17 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **Run reuse** (0.26.0): replay up to the first changed step, exact. Core
+  board: unchanged rerun 125 s -> 7 s; a late part changed 118 s -> 24 s.
+- **Speed** (0.26.0): block satellites from cached shapes, a raster for
+  reservations, links by pad pair: core resolve 298 s -> 106 s, placing the
+  same.
+- **RUDY reported** (0.26.0): worst cell per run. Validation strategy - many
+  complete placement pairs routed by KRT (full run), >= 70% pairwise
+  agreement on >= 100 pairs, the unrouted connections near the hot cell, a
+  second router on a subset, then 5-10 core placements - is the next step
+  before it steers placement.
+
 - **Cleanup pass** (0.25.0): moves and swaps after the searched tier.
   Benchmark: 23 better, 0 worse in default and physical, 26 better with the
   solve; core board (mid-normalisation snapshot): findings 26 -> 22, link

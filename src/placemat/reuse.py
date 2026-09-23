@@ -17,7 +17,7 @@ from .board_geometry import CellGeom, Footprint
 from .placement import Placement
 from .values import Face, Freedom, Location, Priority
 
-VERSION = 1                 # of the record's format
+VERSION = 2                 # of the record's format: 2 records the items a step names (a block's members)
 
 
 def canonical(obj, _seen=None) -> str:
@@ -136,3 +136,39 @@ def step_from_json(d):
     return Step(d["item"], d["kind"], Priority(d["priority"]) if d["priority"] is not None else None,
                 placement_from_json(d["placement"]), d["moved_mm"], d["note"], d["why"], d["ops"],
                 Freedom(d["freedom"]) if d["freedom"] is not None else None, d["rank"], d["rank_of"])
+
+
+# ------------------------------------------------------------ the run
+_PART_NAMES = {"tool": "the tool version", "board": "the generated board", "settings": "the settings",
+               "fab": "the fab profile"}
+
+
+def summary(record: dict, previous: dict | None, previous_id: str | None) -> str:
+    """The line a run prints about what it reused, or "" with nothing to reuse."""
+    if not previous:
+        return ""
+    n = len(record["steps"])
+    if record["context"] != previous.get("context"):
+        mine, theirs = record.get("parts", {}), previous.get("parts", {})
+        changed = [_PART_NAMES[k] for k in ("tool", "board", "settings", "fab") if mine.get(k) != theirs.get(k)]
+        what = " and ".join([", ".join(changed[:-1]), changed[-1]] if len(changed) > 1 else changed) if changed \
+            else "the script's board-wide declarations"
+        return "reused 0 steps: %s changed since run %s" % (what, previous_id)
+    if record["reused"] >= n:
+        return "reused all %d steps from run %s" % (n, previous_id)
+    return "reused %d of %d steps from run %s (first change: %s)" % (record["reused"], n, previous_id,
+                                                                    record["first_change"])
+
+
+def write(path, record: dict) -> None:
+    import json
+    path.write_text(json.dumps(record, separators=(",", ":")))
+
+
+def read(path):
+    """A run's record, or None when there is none or it cannot be read."""
+    import json
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None

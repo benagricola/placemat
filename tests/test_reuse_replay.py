@@ -37,6 +37,9 @@ def _same(a, b):
            [(s.item, s.kind, s.placement, s.note, s.moved_mm, s.rank) for s in b.steps]
     assert a.findings == b.findings and a.pocketed == b.pocketed and dict(a.seeded_by_net) == dict(b.seeded_by_net)
     assert a.cleanup == b.cleanup
+    assert sorted(a._items) == sorted(b._items)
+    from placemat.report import extent_of
+    assert extent_of(a) == extent_of(b)
     assert {r: g.reference for r, g in a.occupancy.items.items()} == {r: g.reference for r, g in b.occupancy.items.items()}
 
 

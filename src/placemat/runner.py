@@ -143,7 +143,7 @@ def keep_route(final_dir: Path, staging: Path) -> None:
 
 def run(script, label: str | None = None, fresh: bool = False, render: bool = True, drc: bool = True,
         quiet: bool = False, verbose: bool = False, route: bool = False, route_quick: bool = True,
-        route_exclude=(), keep_going: bool = False, overrides=None) -> RunResult:
+        route_exclude=(), keep_going: bool = False, overrides=None, reuse: bool = True) -> RunResult:
     """One layout attempt, with this board's settings resolved and bound for
     the whole of it: the deep geometry helpers read the binding, and the run
     id carries the settings so a changed one cannot collide with a previous
@@ -154,15 +154,25 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
     with settings.bind(cfg):
         return _run(script, src, cfg, label=label, fresh=fresh, render=render, drc=drc,
                     quiet=quiet, verbose=verbose, route=route, route_quick=route_quick,
-                    route_exclude=route_exclude, keep_going=keep_going)
+                    route_exclude=route_exclude, keep_going=keep_going, reuse=reuse)
 
 
 def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render: bool = True,
          drc: bool = True, quiet: bool = False, verbose: bool = False, route: bool = False,
-         route_quick: bool = True, route_exclude=(), keep_going: bool = False) -> RunResult:
+         route_quick: bool = True, route_exclude=(), keep_going: bool = False, reuse: bool = True) -> RunResult:
     configure(quiet=quiet)
     say = console.say
     runs = src.board_dir / ".placemat" / "runs"
+    from . import reuse as reuse_mod
+    # The previous run's record is read now: a rerun with the same id replaces its directory.
+    previous_reuse, previous_id = None, None
+    if reuse and (runs / "latest.json").exists():
+        try:
+            last = RunRecord.load(runs / "latest.json")
+            previous_reuse = reuse_mod.read(Path(last.paths.get("run_dir", "")) / "reuse.json")
+            previous_id = last.run_id
+        except (json.JSONDecodeError, TypeError, KeyError, OSError):
+            previous_reuse = None
     staging = runs / ("." + time.strftime("%Y%m%d-%H%M%S-") + str(os.getpid()))
     shutil.rmtree(staging, ignore_errors=True)
     staging.mkdir(parents=True)
@@ -229,8 +239,13 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             if verbose:
                 say("bridge" if line.strip().startswith("bridge:") else "step", line.strip())
         from .layout import CriticalUnplaced, PlacementCollision
+        import hashlib
+        parts = {"tool": __version__, "board": hashlib.sha256(src.pcb.read_bytes()).hexdigest(),
+                 "settings": hashlib.sha256(cfg.json().encode()).hexdigest(),
+                 "fab": hashlib.sha256(fab.json().encode()).hexdigest()}
+        board.reuse_extra = "|".join(parts[k] for k in ("tool", "board", "settings", "fab"))
         try:
-            plan = board.resolve(progress=progress)
+            plan = board.resolve(progress=progress, reuse=previous_reuse)
         except PlacementCollision as e:
             (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
             raise RunFailure("placement", "Firm placements collide; fix the script (or --keep-going to see the rest)",
@@ -281,7 +296,15 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         if plan.pocketed:
             say("pocketed", "%d item(s) had no room by what they connect to and took a pocket: %s" % (
                 len(plan.pocketed), ", ".join(plan.pocketed[:8]) + (", ..." if len(plan.pocketed) > 8 else "")))
+        plan.reuse["parts"] = parts
+        reuse_mod.write(run_dir / "reuse.json", plan.reuse)
+        line = reuse_mod.summary(plan.reuse, previous_reuse, previous_id)
+        if line:
+            say("reused", line[len("reused "):])
         metrics = run_metrics(plan, n_place, n_copper, extent_metrics)
+        if previous_reuse:
+            metrics["reused"] = {"steps": plan.reuse["reused"], "of": len(plan.reuse["steps"]),
+                                 "from": previous_id, "first_change": plan.reuse["first_change"]}
         if drc:
             t0 = time.time()
             report = run_drc(src.pcb, run_dir / "drc.json")
