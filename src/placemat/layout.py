@@ -2411,14 +2411,23 @@ class Board:
         if not searched:
             return
 
+        drawn = occ.envelope != "courtyard"
+
+        def claimed(item) -> float:
+            """The area the envelope claims: the courtyard, or in a drawn
+            envelope the box round every shape the item claims."""
+            if not drawn:
+                return item.courtyard_box.area
+            return Box.union([s.box for s in occ._geometry(item).shapes]).area
+
         def measure(i):
             if i.kind == "cell":
-                parts, area = list(i.item.members), i.item.courtyard_box.area
+                parts, area = list(i.item.members), claimed(i.item)
             elif i.kind == "block":
                 parts = [i.item.anchor] + [fp for fp, _ in i.item.satellites]
-                area = sum(fp.courtyard_box.area for fp in parts)
+                area = sum(claimed(fp) for fp in parts)
             else:
-                parts, area = [i.item], i.item.courtyard_box.area
+                parts, area = [i.item], claimed(i.item)
             return area, sum(pin_count(fp) for fp in parts)
 
         m = {i.key: measure(i) for i in searched}
@@ -2628,8 +2637,11 @@ class Board:
         nothing else."""
         def measure(obj):
             parts = obj.item.members if obj.kind == "block" else (obj.item,)
-            area = sum(s.box.area for it in parts for s in occ._geometry(it).shapes
-                       if s.kind == "courtyard")
+            if occ.envelope == "courtyard":
+                area = sum(s.box.area for it in parts for s in occ._geometry(it).shapes
+                           if s.kind == "courtyard")
+            else:
+                area = sum(Box.union([s.box for s in occ._geometry(it).shapes]).area for it in parts)
             pull = sum(w for it in parts for _, _, w in self._targets(it, occ, placed))
             return self._rank_score.get(obj.key, 0.0), pull, area
 

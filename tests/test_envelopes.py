@@ -7,7 +7,7 @@ from placemat.layout import Board
 from placemat.occupancy import Occupancy
 from placemat.placement import Placement
 from placemat.settings import Settings, SettingsError
-from placemat.values import Face, Location, Part
+from placemat.values import Box, Face, Location, Part
 from tests.fixtures import board_geometry, footprint
 
 SILK = 0.1
@@ -111,3 +111,52 @@ def test_an_unknown_envelope_is_a_settings_error(tmp_path):
     (tmp_path / "placemat.toml").write_text('[place]\nenvelope = "silk"\n')
     with pytest.raises(SettingsError, match="courtyard, physical or union"):
         settings.load(tmp_path)
+
+
+def _board(fps, envelope, **kw):
+    return Board(board_geometry(fps, width=60, height=40, silk_clearance=SILK, **kw), edge_margin=0.5,
+                 settings=dataclasses.replace(Settings(), place_envelope=envelope))
+
+
+def test_in_physical_the_rank_measures_what_the_part_draws():
+    """A small courtyard round a large drawn body: the courtyard understates
+    the part, and in physical the rank goes by the body."""
+    fps = [footprint("P1", 10, 10, w=2, h=1, inst="p1", nets=("A", "B"), fab=(5, 6, 15, 14)),
+           footprint("P2", 40, 20, w=4, h=3, inst="p2", nets=("C", "D"))]
+    def first(envelope):
+        b = _board(fps, envelope)
+        b.place(Part("p1"))
+        b.place(Part("p2"))
+        steps = [s for s in b.resolve().steps if s.item in ("p1", "p2")]
+        return min(steps, key=lambda s: s.rank).item
+    assert first("courtyard") == "p2"
+    assert first("physical") == "p1"
+
+
+def test_in_physical_a_rows_claim_is_the_reach_alone():
+    fp = footprint("P1", 10, 10, w=4, h=2, inst="p1", excess=0.5, silk_boxes=[(8.2, 9.2, 11.8, 9.3)])
+    court = _board([fp], "courtyard").claim(Part("p1"))
+    phys = _board([fp], "physical").claim(Part("p1"))
+    assert court.width == pytest.approx(5.0)            # the courtyard, 0.5 each side of the 4 mm body
+    assert phys.width == pytest.approx(4.0)             # the body and silk it draws
+    assert _board([fp], "union").claim(Part("p1")).width == pytest.approx(5.0)
+
+
+def test_a_cells_envelope_holds_its_members_silk_and_bodies():
+    fps = [footprint("R1", 10, 10, inst="r1", cell="c", silk_boxes=[(7, 8, 13, 8.1)]),
+           footprint("R2", 10, 14, inst="r2", cell="c", fab=(8, 13, 12, 15))]
+    g, occ = _occ(fps, "physical")
+    g = board_geometry(fps, cells=("c",), width=60, height=40, silk_clearance=SILK)
+    occ = Occupancy(g, 0.5, settings=dataclasses.replace(Settings(), place_envelope="physical"))
+    kinds = {s.kind for s in occ._geometry(g.cells["c"]).shapes}
+    assert {"silk", "body"} <= kinds
+
+
+def test_in_physical_a_pocket_is_not_where_a_placed_body_stands():
+    from placemat.placer import pockets
+    fps = [footprint("A1", 30, 20, w=2, h=1, inst="a1", fab=(10, 5, 50, 35))]     # a small courtyard, a large body
+    g, occ = _occ(fps, "physical")
+    a = g.footprint("a1")
+    occ.commit(a, Placement(a.location, a.rotation, a.face))
+    for p in pockets(occ, 5.0, 5.0, Face.FRONT):
+        assert not p.box.overlaps(Box(10, 5, 50, 35)), p.box

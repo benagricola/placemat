@@ -354,8 +354,10 @@ def pockets(occ: Occupancy, width: float, height: float, face: Face = Face.FRONT
     if cols <= 0 or rows <= 0:
         return []
     free = [row[:] for row in _board_mask(occ, inner, rows, cols, step)]
+    kinds = ("courtyard", "npth", "through") if occ.envelope == "courtyard" else \
+        ("courtyard", "npth", "through", "body", "pad", "silk")          # what a drawn envelope claims instead
     blocks = [s.box for g in occ.items.values() for s in g.shapes
-              if s.kind in ("courtyard", "npth", "through") and face in s.faces]
+              if s.kind in kinds and face in s.faces]
     blocks += [c.box for c in occ.copper if c.kind == "through"]        # vias come through: no face is free under them
     for b in blocks:
         c0 = max(0, int((b.left - inner.left) / step))
