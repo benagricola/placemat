@@ -57,6 +57,11 @@ def part_facts(fp, geometry=None) -> dict:
            "body": _wh(fp.body_box), "courtyard": _wh(fp.courtyard_box),
            "physical": _wh(fp.phys_box), "pins": pin_count(fp),
            "mm2": round(fp.courtyard_box.area, 3)}
+    from .envelope import drawn_envelope
+    env, sides = drawn_envelope(fp)
+    if env is not None:
+        out["envelope"] = _wh(env)
+        out["envelope_set_by"] = sides
     court = nearest_edge(_box_poly(fp.courtyard_box), geometry) if geometry is not None else None
     if court is not None:
         out["nearest_edge_courtyard"] = court
@@ -93,6 +98,11 @@ def part_lines(fp, geometry=None, pads: bool = False, digest: str = "") -> list:
         "  cell %s" % f["cell"] if f["cell"] else ""))
     lines.append("  body %.2f x %.2f   courtyard %.2f x %.2f   physical %.2f x %.2f" % (
         *f["body"], *f["courtyard"], *f["physical"]))
+    from .envelope import drawn_envelope
+    env, sides = drawn_envelope(fp)
+    if env is not None:
+        lines.append("  envelope %.2f x %.2f   set by %s" % (
+            env.width, env.height, ", ".join("%s %s" % (k, sides[k]) for k in ("left", "top", "right", "bottom"))))
     if "nearest_edge_courtyard" in f:
         lines.append("  nearest board edge: courtyard %.2f mm%s" % (
             f["nearest_edge_courtyard"],

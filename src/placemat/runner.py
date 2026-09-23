@@ -36,6 +36,8 @@ def run_metrics(plan, n_place: int, n_copper: int, extent_metrics: dict) -> dict
         metrics["solve"] = dict(plan.solve)
     if plan.pocketed:
         metrics["pocketed"] = len(plan.pocketed)
+    if plan.footprints:
+        metrics["footprints"] = len(plan.footprints)
     return metrics
 
 
@@ -263,6 +265,9 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             top = plan.seeded_by_net.most_common(4)
             more = len(plan.seeded_by_net) - len(top)
             say("seeded", ", ".join("%s %d" % kv for kv in top) + (", +%d more" % more if more else ""))
+        if plan.footprints:
+            say("footprints", "%d courtyard(s) understate their part: %s%s" % (
+                len(plan.footprints), "; ".join(plan.footprints[:8]), "; ..." if len(plan.footprints) > 8 else ""))
         if plan.pocketed:
             say("pocketed", "%d item(s) had no room by what they connect to and took a pocket: %s" % (
                 len(plan.pocketed), ", ".join(plan.pocketed[:8]) + (", ..." if len(plan.pocketed) > 8 else "")))

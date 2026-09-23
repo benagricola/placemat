@@ -415,6 +415,7 @@ class Plan:
     seeded_by_net: Counter = field(default_factory=Counter)      # net -> how many items it seeded
     solve: dict = field(default_factory=dict)                     # what the global solve did, when it ran
     pocketed: list = field(default_factory=list)                  # seeded items whose scan failed and took a pocket
+    footprints: list = field(default_factory=list)                # courtyard mode: footprints whose courtyard understates the part
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -2037,6 +2038,12 @@ class Board:
         self._solve_hints = None            # the global solve runs once per resolve, when first asked
         self._report_lost_layers(plan)
         self._rank(occ)
+        if occ.envelope == "courtyard":
+            from .envelope import understatement
+            for fp in sorted(self.geometry.footprints, key=lambda f: f.ref):
+                u = understatement(fp, self.geometry.silk_clearance)
+                if u is not None:
+                    plan.footprints.append("%s: courtyard understates the part by %.2f mm (%s)" % (fp.ref, u[0], u[1]))
         self._derive_copper_freedom()
         placements = sorted(self._intents, key=lambda i: i.rank)   # holes included: they are placed too
         fixed_copper = [c for c in self._copper if c.freedom.decided]
