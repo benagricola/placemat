@@ -9,6 +9,8 @@ the occupancy model. Plan holds the resolved placements, copper ops and
 findings for the writer and the run record."""
 from __future__ import annotations
 
+import contextlib
+
 from collections import Counter
 from dataclasses import dataclass, field
 import math
@@ -22,7 +24,7 @@ from .outline import Outline, Run, rect_outline
 from .placement import Placement
 from .settings import Settings
 from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
-from .board_geometry import BoardGeometry, CellGeom, Footprint, stackup_order
+from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, stackup_order
 from .values import (Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
@@ -1628,8 +1630,7 @@ class Board:
         by_net, owner_of = {}, {}
         for i in movable:
             offsets = occ.candidate_pad_locations(i.item, Placement(Location(0.0, 0.0), i.rotation, i.face))
-            fps = i.item.members if i.kind == "cell" else (i.item,)
-            for fp in fps:
+            for fp in members_of(i.item):
                 owner_of[fp.ref] = i.key
                 for p in fp.pads:
                     off = offsets.get((fp.ref, p.number))
@@ -2195,7 +2196,7 @@ class Board:
                 placed.update(fp.ref for fp in obj.item.members)
             else:
                 occ.commit(obj.item, step.placement)
-                placed.update(fp.ref for fp in (obj.item.members if obj.kind == "cell" else (obj.item,)))
+                placed.update(fp.ref for fp in members_of(obj.item))
             if progress:
                 progress(_fmt(step))
             self._place_labels(occ, plan, placed, progress)
@@ -2267,11 +2268,7 @@ class Board:
         refs = set()
         for s in plan.steps:
             if s.placement is not None and s.item in plan._items:
-                it = plan._items[s.item]
-                if hasattr(it, "satellites"):
-                    refs |= {fp.ref for fp in it.members}
-                else:
-                    refs |= {fp.ref for fp in getattr(it, "members", None) or (it,)}
+                refs |= {fp.ref for fp in members_of(plan._items[s.item])}
         pads = []
         for ref in sorted(refs):
             g = occ.items.get(ref)
@@ -2286,26 +2283,21 @@ class Board:
         return rudy(pads, box, max(1, len(self.geometry.layers)), pitch,
                     skip=self._plane_nets() | self._free_nets)
 
+    def _step(self, i: PlaceIntent, placement, moved_mm: float, note: str) -> Step:
+        """A searched or decided item's step, with its priority, freedom and rank."""
+        return Step(i.key, i.kind, None if i.freedom.decided else i.priority, placement, moved_mm, note, i.why,
+                    freedom=i.freedom, rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
+
     def _recorded_settle(self, occ: Occupancy, obj, plan: Plan, placed: set):
         """_settle, and what it did beyond the step it returns, for the next
         run to replay: the occupancy commits made inside it (a block's
         satellites), the steps and findings it added, the nets it was seeded
         on, whether it took a pocket, and the solve it ran."""
         from . import reuse as _reuse
-        commits = []
-        real = occ.commit
-
-        def commit(item, placement):
-            commits.append([("cell", item.name) if isinstance(item, CellGeom) else ("fp", item.ref),
-                            _reuse.placement_to_json(placement)])
-            return real(item, placement)
         n_steps, n_findings, n_pocketed = len(plan.steps), len(plan.findings), len(plan.pocketed)
         seeded, solve, items = dict(plan.seeded_by_net), dict(plan.solve), set(plan._items)
-        occ.commit = commit
-        try:
+        with _recording_commits(occ) as commits:
             step = self._settle(occ, obj, plan, placed)
-        finally:
-            del occ.commit
         entry = {"step": _reuse.step_to_json(step), "commits": commits,
                  "steps": [_reuse.step_to_json(s) for s in plan.steps[n_steps:]],
                  "findings": plan.findings[n_findings:], "pocketed": plan.pocketed[n_pocketed:],
@@ -2319,28 +2311,23 @@ class Board:
         """The cleanup pass, and what it did: its commits in order, the steps
         whose placement or note it changed, and plan.cleanup."""
         from . import reuse as _reuse
-        commits = []
-        real = occ.commit
-
-        def commit(item, placement):
-            commits.append([("cell", item.name) if isinstance(item, CellGeom) else ("fp", item.ref),
-                            _reuse.placement_to_json(placement)])
-            return real(item, placement)
         was = [(s.placement, s.note) for s in plan.steps]
-        occ.commit = commit
-        try:
+        with _recording_commits(occ) as commits:
             self._cleanup(occ, plan)
-        finally:
-            del occ.commit
         changed = [[k, _reuse.placement_to_json(s.placement), s.note] for k, s in enumerate(plan.steps)
                    if k < len(was) and (s.placement, s.note) != was[k]]
         return {"commits": commits, "changed": changed, "cleanup": dict(plan.cleanup)}
 
-    def _replay_cleanup(self, occ: Occupancy, plan: Plan, entry: dict):
+    def _apply_commits(self, occ: Occupancy, commits):
+        """Commit, in order, what _recording_commits recorded."""
         from . import reuse as _reuse
-        for (kind, name), placement in entry["commits"]:
+        for (kind, name), placement in commits:
             item = self.geometry.cells[name] if kind == "cell" else self.geometry.footprint(name)
             occ.commit(item, _reuse.placement_from_json(placement))
+
+    def _replay_cleanup(self, occ: Occupancy, plan: Plan, entry: dict):
+        from . import reuse as _reuse
+        self._apply_commits(occ, entry["commits"])
         for k, placement, note in entry["changed"]:
             plan.steps[k].placement = _reuse.placement_from_json(placement)
             plan.steps[k].note = note
@@ -2349,9 +2336,7 @@ class Board:
     def _replay_settle(self, occ: Occupancy, plan: Plan, entry: dict):
         """What _recorded_settle recorded, done again without the search."""
         from . import reuse as _reuse
-        for (kind, name), placement in entry["commits"]:
-            item = self.geometry.cells[name] if kind == "cell" else self.geometry.footprint(name)
-            occ.commit(item, _reuse.placement_from_json(placement))
+        self._apply_commits(occ, entry["commits"])
         plan.steps.extend(_reuse.step_from_json(s) for s in entry["steps"])
         plan.findings.extend(entry["findings"])
         plan.pocketed.extend(entry["pocketed"])
@@ -2377,8 +2362,7 @@ class Board:
                 if isinstance(obj, (PadRef, CellPadRef)):
                     held.add(self._pad_ref(obj)[0])
                 else:
-                    geom = self._item(obj)[0]
-                    held |= {fp.ref for fp in getattr(geom, "members", (geom,))}
+                    held |= {fp.ref for fp in members_of(self._item(obj)[0])}
         out = {}
         for s in plan.steps:
             i = intents.get(s.item)
@@ -2398,9 +2382,7 @@ class Board:
         placed = set()
         for s in plan.steps:
             if s.placement is not None and s.item in plan._items:
-                it = plan._items[s.item]
-                placed |= {fp.ref for fp in getattr(it, "members", None) or
-                           ([it.anchor] + [f for f, _ in it.satellites] if hasattr(it, "satellites") else [it])}
+                placed |= {fp.ref for fp in members_of(plan._items[s.item])}
         quiet = self._plane_nets() | self._free_nets
         pins = {}
         for fp in self.geometry.footprints:
@@ -2450,15 +2432,13 @@ class Board:
                 if result.chosen is not None:
                     note = "pocket %.1f x %.1f at (%.1f, %.1f): nothing it connects to is placed" % (
                         pocket.box.width, pocket.box.height, pocket.box.center.x, pocket.box.center.y)
-                    return Step(i.key, i.kind, None if i.freedom.decided else i.priority, result.chosen, 0.0, note, i.why, freedom=i.freedom,
-                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
+                    return self._step(i, result.chosen, 0.0, note)
                 tried.append(pocket)
         plan.findings.append("%s: no pocket fits its %s envelope on the %s face (%d pocket(s) tried)" % (
             i.key, "%.1f x %.1f" % (occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).width,
                                     occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).height),
             i.face.value, len(tried)))
-        return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: no pocket fits", i.why, freedom=i.freedom,
-                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
+        return self._step(i, None, 0.0, "UNPLACED: no pocket fits")
 
     def _seeded_pocket(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, hint: Placement, score,
                        rotations, why: str):
@@ -2486,9 +2466,8 @@ class Board:
                 plan.pocketed.append(i.key)
                 note = "%s; took the pocket %.1f x %.1f at (%.1f, %.1f), %.1f mm from the seed" % (
                     why, pocket.box.width, pocket.box.height, pocket.box.center.x, pocket.box.center.y, gap(pocket))
-                return Step(i.key, i.kind, None if i.freedom.decided else i.priority, result.chosen,
-                            result.moved_mm, note, i.why, freedom=i.freedom,
-                            rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None), len(seen)
+                return self._step(i, result.chosen,
+                            result.moved_mm, note), len(seen)
         return None, len(seen)
 
     def _placements(self) -> list:
@@ -2698,15 +2677,13 @@ class Board:
                 note = what
                 if moved > 1e-9:
                     note += "; slid %.2f %s from its slot: %s" % (moved, units, next(iter(reasons.values()), ""))
-                return Step(i.key, i.kind, None if i.freedom.decided else i.priority, p, moved, note, i.why, freedom=i.freedom,
-                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
+                return self._step(i, p, moved, note)
             key = _reason_key(why)
             rejected[key] += 1
             reasons.setdefault(key, why)
         plan.findings.append("%s: no room anywhere %s (%s)" % (
             i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3))))
-        return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: " + "; ".join(reasons.values()), i.why, freedom=i.freedom,
-                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
+        return self._step(i, None, 0.0, "UNPLACED: " + "; ".join(reasons.values()))
 
     def _settle_along_line(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
         """x or y pinned, the other free: the item's body centre sits on the
@@ -2968,8 +2945,7 @@ class Board:
         plan._items[spec.anchor.inst] = spec.anchor
         anchor_at = members.get(spec.anchor.inst)
         plan.steps.append(Step(spec.anchor.inst, "part", i.priority, anchor_at, 0.0, "anchor of %s" % i.key))
-        return Step(i.key, "block", None if i.freedom.decided else i.priority, anchor_at, 0.0, note, i.why, freedom=i.freedom,
-                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
+        return self._step(i, anchor_at, 0.0, note)
 
     def _settle(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set = frozenset(),
                 solve: bool = True) -> Step:
@@ -3017,8 +2993,7 @@ class Board:
                             and i.clearance < self.keep_in)
             if why:
                 plan.findings.append("%s (%s): %s" % (i.key, i.freedom.value, why))
-            return Step(i.key, i.kind, None if i.freedom.decided else i.priority, p, 0.0, "; ".join(x for x in (chose, why) if x), i.why, freedom=i.freedom,
-                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
+            return self._step(i, p, 0.0, "; ".join(x for x in (chose, why) if x))
         if i.run is not None:
             return self._settle_along_run(occ, i, plan, clr)
         if i.rim is not None:
@@ -3049,7 +3024,7 @@ class Board:
             # p.number directly instead of going through pad_key()'s int/net
             # guess (which mis-reads a non-digit pad number as a net name).
             nets = sorted({p.net for k, _, _ in targets
-                           if k[0] in {fp.ref for fp in (i.item.members if i.kind == "cell" else (i.item,))}
+                           if k[0] in {fp.ref for fp in members_of(i.item)}
                            for p in self.geometry.footprint(k[0]).pads if p.number == k[1]})
             seeded = "seeded on %s" % ", ".join(nets)
             for n in nets:
@@ -3063,8 +3038,7 @@ class Board:
         hopeless = self._no_pocket_note(occ, i)
         if hopeless:
             plan.findings.append("%s: %s" % (i.key, hopeless))
-            return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: " + hopeless, i.why, freedom=i.freedom,
-                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
+            return self._step(i, None, 0.0, "UNPLACED: " + hopeless)
         result = scan(occ, i.item, hint, radius, i.step, i.rotations or (i.rotation,), clr, score=score)
         if result.chosen is None and solved is not None:
             # The solve spreads items without seeing what is already placed, so
@@ -3084,8 +3058,7 @@ class Board:
                     return step
                 blame += "; no pocket took it (%d tried)" % tried
             plan.findings.append("%s: %s" % (i.key, blame))
-            return Step(i.key, i.kind, None if i.freedom.decided else i.priority, None, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()), i.why, freedom=i.freedom,
-                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
+            return self._step(i, None, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()))
         note = seeded
         if result.moved_mm > 0:
             first = next(iter(result.reasons.values()), "")
@@ -3095,8 +3068,26 @@ class Board:
             elif score:
                 moved += " for a better link score"
             note = (note + "; " if note else "") + moved
-        return Step(i.key, i.kind, None if i.freedom.decided else i.priority, result.chosen, result.moved_mm, note, i.why, freedom=i.freedom,
-                    rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
+        return self._step(i, result.chosen, result.moved_mm, note)
+
+@contextlib.contextmanager
+def _recording_commits(occ: Occupancy):
+    """Every commit made on `occ` inside the block, as [(kind, name), placement]
+    for a later run to apply again: the item named by refdes or cell name."""
+    from . import reuse as _reuse
+    commits = []
+    real = occ.commit
+
+    def commit(item, placement):
+        commits.append([("cell", item.name) if isinstance(item, CellGeom) else ("fp", item.ref),
+                        _reuse.placement_to_json(placement)])
+        return real(item, placement)
+    occ.commit = commit
+    try:
+        yield commits
+    finally:
+        del occ.commit
+
 
 _EDGE_BEARING = {Edge.NORTH: 0.0, Edge.EAST: 90.0, Edge.SOUTH: 180.0, Edge.WEST: 270.0}
 _EDGE_DIR = {Edge.NORTH: (0.0, -1.0), Edge.SOUTH: (0.0, 1.0), Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0)}

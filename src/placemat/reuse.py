@@ -13,7 +13,7 @@ import dataclasses
 from enum import Enum
 import hashlib
 
-from .board_geometry import CellGeom, Footprint
+from .board_geometry import CellGeom, Footprint, members_of
 from .placement import Placement
 from .values import Face, Freedom, Location, Priority
 
@@ -94,11 +94,7 @@ def _refs(intent) -> set:
     item = getattr(intent, "item", None)
     if item is None:
         return set()
-    if hasattr(item, "satellites"):
-        return {fp.ref for fp in item.members}
-    if hasattr(item, "members"):
-        return {fp.ref for fp in item.members}
-    return {getattr(item, "ref", "")}
+    return {getattr(fp, "ref", "") for fp in members_of(item)}
 
 
 def links_on(board, intent) -> list:

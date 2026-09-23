@@ -323,3 +323,9 @@ def keepout_breaches(rule_areas, copper) -> list:
                            % (c.kind, c.net, ra.base, flag))
                 break
     return out
+
+
+def members_of(item) -> tuple:
+    """The footprints an item stands for: a cell's or a block's members, or
+    the footprint itself."""
+    return tuple(getattr(item, "members", None) or (item,))

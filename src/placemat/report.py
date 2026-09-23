@@ -229,6 +229,7 @@ class Extent:
 def extent_of(plan) -> "Extent | None":
     """The box round every placed item's courtyard and the fraction of it
     no courtyard covers: a fat cell shows as a high number."""
+    from .board_geometry import members_of
     from .values import Box
     boxes, area = [], 0.0
     for step in plan.steps:
@@ -237,8 +238,7 @@ def extent_of(plan) -> "Extent | None":
         item = plan._items.get(step.item)
         if item is None:
             continue
-        members = item.members if hasattr(item, "members") else (item,)
-        for fp in members:
+        for fp in members_of(item):
             g = plan.occupancy.items.get(fp.ref)
             if g is None:
                 continue
