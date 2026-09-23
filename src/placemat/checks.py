@@ -210,9 +210,6 @@ def _copper_on(geometry: BoardGeometry, net: str, kinds=("pad", "track", "via", 
     return [c for c in geometry.copper if c.net == net and c.kind in kinds]
 
 
-def _fp_by_ref(geometry: BoardGeometry) -> dict[str, Footprint]:
-    return {fp.ref: fp for fp in geometry.footprints}
-
 
 # ------------------------------------------------------------- hot loops
 

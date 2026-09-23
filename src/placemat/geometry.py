@@ -410,9 +410,6 @@ def distance_to_boundary(poly: Polygon, boundary: Polygon) -> float:
                min(point_segment_distance(q, a, b) for q in boundary for a, b in _edges(poly)))
 
 
-def polygon_box(poly: Polygon) -> Box:
-    return Box.of_points(poly)
-
 
 def circle_polygon(center: Location, radius: float, n: int = 16) -> Polygon:
     return tuple((center.x + radius * math.cos(2 * math.pi * i / n),

@@ -4,11 +4,11 @@ the pair drawn at a gap along one centreline, the finger pour that steps
 round tracks, and the board-sized zone outline."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import math
 
 from .geometry import Polygon
-from .values import Box, CopperLayer, Face, Location, Net
+from .values import Box, CopperLayer, Face, Location
 
 # A bridge passes under a crossed track: via land (0.30) + clearance (0.20)
 # + crossed track half-width (0.15) + margin (0.45) each side of the crossing.
@@ -158,12 +158,6 @@ def polyline_tracks(net: str, layer: CopperLayer, width: float, points) -> list[
 
 
 # ------------------------------------------------------------------ bridges
-@dataclass(frozen=True)
-class Crossing:
-    net_a: str
-    net_b: str
-    at: Location
-
 
 def _seg_intersection(p1, p2, q1, q2):
     """The point where segment p1-p2 crosses segment q1-q2, or None."""
@@ -220,7 +214,7 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
     notes, findings = [], []
 
     def yielder(i, j):
-        (ta, pa, ba), (tb, pb, bb) = entries[i], entries[j]
+        (ta, pa, _), (tb, pb, _) = entries[i], entries[j]
         if pa != pb:
             return (i, "") if pa < pb else (j, "")
         la, lb = ta.start.distance(ta.end), tb.start.distance(tb.end)

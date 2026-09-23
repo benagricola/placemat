@@ -260,10 +260,6 @@ def run_placement(occ: Occupancy, item, shape, run, along: float, standoff: floa
     return Placement(Location(round(cx - box.center.x, 6), round(cy - box.center.y, 6)), rotation, face)
 
 
-def fixed_placement(occ: Occupancy, item, location: Location, rotation: float = 0.0,
-                    face: Face = Face.FRONT) -> Placement:
-    return Placement(location, rotation, face)
-
 
 def box_centered_placement(occ: Occupancy, item, center: Location, rotation: float = 0.0,
                            face: Face = Face.FRONT) -> Placement:

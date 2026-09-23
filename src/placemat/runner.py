@@ -2,13 +2,12 @@
 resolve, write through pcbnew, run DRC, render, and save the run record."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
-import sys
 import time
 import traceback
 

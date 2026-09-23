@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import re
-from typing import Iterable
 
 from .values import Box, CopperLayer, Face, Location, Net, Part, Cell as CellRef, pad_key
 

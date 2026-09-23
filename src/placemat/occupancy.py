@@ -10,14 +10,14 @@ from __future__ import annotations
 
 import functools
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from .geometry import (_clean, PolyRaster, Polygon, Transform, box_polygon, circle_polygon, poly_distance,
                        polys_overlap, transform_box, transform_polygon)
 from .placement import Placement
 from .settings import Settings
 from .board_geometry import CellGeom, Footprint, BoardGeometry
-from .values import Box, CopperLayer, Face, Location, Net
+from .values import Box, CopperLayer, Face, Location
 
 
 @dataclass(frozen=True)

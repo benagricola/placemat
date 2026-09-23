@@ -13,9 +13,9 @@ from collections import Counter
 from dataclasses import dataclass, field
 import math
 
-from .copper import (CopperOp, Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
+from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
                      resolve_bridges)
-from .geometry import circle_polygon, polygon_box, polys_overlap, transform_box
+from .geometry import circle_polygon, polys_overlap, transform_box
 from .occupancy import Occupancy, Shape, TOUCH
 from .cutouts import Cutouts, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
@@ -1513,12 +1513,6 @@ class Board:
             keys.append(self._item(item)[1])
         return RunRow(run, alongs, max((c.height for c in claims), default=0.0), total, list(items), keys)
 
-    def _is_searched(self, refdes: str) -> bool:
-        fp = self.geometry.footprint(refdes)
-        for i in self._placements():
-            if not i.freedom.decided and (i.key == fp.inst or (i.kind == "cell" and fp.cell == i.key)):
-                return True
-        return False
 
     # ------------------------------------------------------------ links
     def link(self, a, b, weight=LinkWeight.DEFAULT, limit_mm: float | None = None, why: str = "") -> Link:
@@ -1572,9 +1566,6 @@ class Board:
             self._link_index = index
         return index[1].get(frozenset((pad_a, pad_b)))
 
-    def _link_weight(self, pad_a: tuple, pad_b: tuple) -> int:
-        link = self._declared_link(pad_a, pad_b)
-        return link.weight if link is not None else int(LinkWeight.DEFAULT)
 
     def _targets(self, item, occ: Occupancy, placed: set) -> list:
         """(own pad key, target location, weight) for every connection from
@@ -2462,7 +2453,6 @@ class Board:
                     return Step(i.key, i.kind, None if i.freedom.decided else i.priority, result.chosen, 0.0, note, i.why, freedom=i.freedom,
                     rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
                 tried.append(pocket)
-        current = occ._geometry(i.item).reference
         plan.findings.append("%s: no pocket fits its %s envelope on the %s face (%d pocket(s) tried)" % (
             i.key, "%.1f x %.1f" % (occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).width,
                                     occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).height),
@@ -3041,7 +3031,6 @@ class Board:
             return self._settle_along_edge(occ, i, plan, clr)
         if i.pin_x is not None or i.pin_y is not None:
             return self._settle_along_line(occ, i, plan, clr)
-        current = occ._geometry(i.item).reference
         targets = self._targets(i.item, occ, placed)
         seeded = ""
         solved = None
@@ -3233,8 +3222,6 @@ class _CopperContext:
     def locate(self, ref) -> Location:
         return _locate(self.board, self.occ, ref)
 
-    def coord(self, v, axis: str) -> float:
-        return _coord(self.board, self.occ, v, axis)
 
     def tracks_on(self, layer) -> list:
         return [t for t in self.planned_tracks if t.layer is layer]

@@ -22,7 +22,7 @@ from ..placement import Placement
 from ..board_geometry import (CellGeom, Footprint, layer_marker, resolve_marker, split_marker,
                               stackup_order)
 from ..cutouts import closes_itself
-from ..values import CopperLayer, Face, Location
+from ..values import CopperLayer, Face
 
 def nm(v: float) -> int:
     return pcbnew.FromMM(float(v))
