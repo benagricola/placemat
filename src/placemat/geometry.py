@@ -6,11 +6,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 import functools
 import math
+import os
 
 from .values import Box, Location
 
 Point = tuple[float, float]
 Polygon = tuple[Point, ...]
+
+# An optional Rust accelerator for the predicates below (native/): imported
+# if it was built, PLACEMAT_NATIVE=0 forces the pure-Python path below even
+# when it was. Every function it supplies has its Python body kept in place
+# as the fallback and the reference - see
+# docs/superpowers/specs/2026-09-24-native-core-design.md.
+try:
+    import placemat_native as _native
+except ImportError:
+    _native = None
+if os.environ.get("PLACEMAT_NATIVE") == "0":
+    _native = None
 
 
 @dataclass(frozen=True)
