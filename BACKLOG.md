@@ -26,17 +26,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **From PLACEMAT_GAPS 2026-09-23** (not started):
-  - `measure --json` box extents (left, top, right, bottom), pad outlines and
-    paste/mask layers in `--pads`, and a finding when a courtyard lies inside
-    its own silk or equals its body ("footprint normalisation needs footprint
-    geometry in its own frame").
-  - A block satellite lands on the anchor's first pad of its net; let it name
-    a pad number, and say in a block's finding which pad each satellite was
-    aimed at ("a block satellite lands on the first pad of its net").
-  - The run id does not include fab-profile.json ("the run id does not include
-    fab-profile.json").
-
 - **Pin names for pads.** `measure --pads` prints pad number and net only, so
   a script linking bypass capacitors to supply pins had to read pin names from
   an exported KiCad netlist, and an IC with several pads on one rail (a strap
@@ -55,6 +44,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **PLACEMAT_GAPS 2026-09-23** (0.24.0): `measure` box edges, pad outlines,
+  mask/paste layers and courtyard findings; a block satellite aimed at an
+  anchor pad by number; the fab profile in the run id.
 
 - **Placement envelopes** (0.23.0): `[place] envelope = "physical"` claims
   pads, mask openings, silk and body at the board's own gaps. On the core

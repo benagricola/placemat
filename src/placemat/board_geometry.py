@@ -24,6 +24,7 @@ class PadGeom:
     box: Box
     through: bool               # plated through hole: occupies both faces
     drill_mm: float = 0.0
+    mask_paste: tuple = ()      # the mask and paste layers the pad opens, e.g. ("F.Mask", "F.Paste")
 
     @property
     def location(self) -> Location:

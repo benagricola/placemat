@@ -59,3 +59,38 @@ def test_measure_json_carries_the_envelope():
     from placemat.describe import part_facts
     f = part_facts(_wide())
     assert f["envelope"] == [4.5, 2.6] and f["envelope_set_by"]["left"] == "silk"
+
+
+def test_measure_json_gives_each_box_by_its_edges():
+    from placemat.describe import part_facts
+    f = part_facts(_wide())
+    assert f["boxes"]["courtyard"] == pytest.approx([7.9, 8.9, 12.1, 11.1])
+    assert f["boxes"]["envelope"] == pytest.approx([7.5, 8.8, 12.0, 11.4])
+    assert set(f["boxes"]) == {"body", "courtyard", "physical", "envelope"}
+
+
+def test_measure_pads_give_each_outline():
+    from placemat.describe import pad_facts
+    fp = _wide()
+    d = pad_facts(fp, fp.pads[0])
+    assert d["outline"] == [[[round(x, 4), round(y, 4)] for x, y in poly] for poly in fp.pads[0].outlines]
+    assert len(d["outline"][0]) == 4
+    assert d["mask_paste"] == []
+
+
+def test_a_courtyard_inside_its_own_silk_or_equal_to_its_body_is_a_footprint_finding():
+    from placemat.describe import part_facts, part_lines
+    inside = footprint("U2", 10, 10, inst="u2", silk_boxes=[(7.0, 8.0, 13.0, 12.0)])       # silk round the courtyard
+    body = footprint("U3", 10, 10, inst="u3", fab=(7.9, 8.9, 12.1, 11.1))                   # fab = courtyard
+    good = footprint("U4", 10, 10, inst="u4", fab=(8.2, 9.2, 11.8, 10.8))
+    assert any("inside its own silk" in s for s in part_facts(inside)["footprint_findings"])
+    assert any("equals its fab body" in s for s in part_facts(body)["footprint_findings"])
+    assert part_facts(good)["footprint_findings"] == []
+    assert any("inside its own silk" in l for l in part_lines(inside))
+
+
+def test_measure_pads_print_the_mask_and_paste_a_pad_opens():
+    import dataclasses as dc
+    fp = _wide()
+    fp = dc.replace(fp, pads=tuple(dc.replace(p, mask_paste=("F.Mask", "F.Paste")) for p in fp.pads))
+    assert any(l.rstrip().endswith("F.Mask/F.Paste") for l in part_lines(fp, pads=True))

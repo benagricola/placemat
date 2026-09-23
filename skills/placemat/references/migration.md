@@ -4,6 +4,15 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.24
+
+- A block satellite may name the anchor's pad by number - `(Part(...), 20)` -
+  where a net would pick the first of several pads carrying it.
+- The run id includes the fab profile's values, so every board's next run
+  has a new id; the best-run gate goes by the parts, so it is unaffected.
+- `measure` adds box edges, pad outlines and mask/paste layers, and flags a
+  courtyard inside its own silk or equal to its body.
+
 ## To 0.23
 
 Nothing changes in the default `[place] envelope = "courtyard"`, apart from a

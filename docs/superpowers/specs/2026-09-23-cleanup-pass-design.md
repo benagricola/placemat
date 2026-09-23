@@ -104,5 +104,5 @@ Against the fixtures: the benchmark tally goes in the commit.
 - `api.md`: the `[cleanup]` settings and a paragraph on what it moves.
 - `SKILL.md`: a step noting `cleanup:` was moved after its turn; a part that
   must stay where the search put it takes a `Near`.
-- `migration.md`, `## To 0.24`: searched parts may move after placement;
+- `migration.md`, `## To 0.25`: searched parts may move after placement;
   `[cleanup] enabled = false` restores the old placement.

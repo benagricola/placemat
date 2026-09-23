@@ -91,3 +91,13 @@ def test_the_component_spacing_defaults_to_twice_the_courtyard_excess(tmp_path):
     assert fab_profile(tmp_path).component_spacing == pytest.approx(0.5)
     from placemat.project import FabProfile
     assert FabProfile().component_spacing == pytest.approx(0.2)
+
+
+@needs_kicad
+def test_a_bare_footprint_reads_each_pads_mask_and_paste_layers():
+    import glob
+    from placemat.kicad.read import read_footprint
+    path = sorted(glob.glob("fixtures/mnb/parts/*/*.kicad_mod"))[0]
+    fp, _ = read_footprint(path)
+    smd = [p for p in fp.pads if not p.through]
+    assert smd and all("F.Mask" in p.mask_paste for p in smd)

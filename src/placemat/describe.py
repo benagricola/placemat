@@ -22,6 +22,10 @@ def _wh(b: Box) -> list:
     return [round(b.width, 3), round(b.height, 3)]
 
 
+def _ltrb(b: Box) -> list:
+    return [round(b.left, 3), round(b.top, 3), round(b.right, 3), round(b.bottom, 3)]
+
+
 def _box_poly(b: Box):
     return ((b.left, b.top), (b.right, b.top), (b.right, b.bottom), (b.left, b.bottom))
 
@@ -48,7 +52,9 @@ def pad_facts(fp, pad, geometry=None) -> dict:
     return {"number": pad.number, "net": pad.net, "at": _xy(pad.box.center),
             "size": _wh(pad.box), "through": pad.through, "attribute": attribute,
             "drill": round(pad.drill_mm, 3) if pad.through else None,
-            "layers": sorted(l.value for l in pad.layers)}
+            "layers": sorted(l.value for l in pad.layers),
+            "outline": [[[round(x, 4), round(y, 4)] for x, y in poly] for poly in pad.outlines],
+            "mask_paste": list(pad.mask_paste)}
 
 
 def part_facts(fp, geometry=None) -> dict:
@@ -57,11 +63,14 @@ def part_facts(fp, geometry=None) -> dict:
            "body": _wh(fp.body_box), "courtyard": _wh(fp.courtyard_box),
            "physical": _wh(fp.phys_box), "pins": pin_count(fp),
            "mm2": round(fp.courtyard_box.area, 3)}
-    from .envelope import drawn_envelope
+    from .envelope import courtyard_findings, drawn_envelope
     env, sides = drawn_envelope(fp)
+    out["boxes"] = {"body": _ltrb(fp.body_box), "courtyard": _ltrb(fp.courtyard_box),
+                    "physical": _ltrb(fp.phys_box), "envelope": _ltrb(env if env is not None else fp.phys_box)}
     if env is not None:
         out["envelope"] = _wh(env)
         out["envelope_set_by"] = sides
+    out["footprint_findings"] = courtyard_findings(fp)
     court = nearest_edge(_box_poly(fp.courtyard_box), geometry) if geometry is not None else None
     if court is not None:
         out["nearest_edge_courtyard"] = court
@@ -103,6 +112,8 @@ def part_lines(fp, geometry=None, pads: bool = False, digest: str = "") -> list:
     if env is not None:
         lines.append("  envelope %.2f x %.2f   set by %s" % (
             env.width, env.height, ", ".join("%s %s" % (k, sides[k]) for k in ("left", "top", "right", "bottom"))))
+    for finding in f["footprint_findings"]:
+        lines.append("  footprint: %s" % finding)
     if "nearest_edge_courtyard" in f:
         lines.append("  nearest board edge: courtyard %.2f mm%s" % (
             f["nearest_edge_courtyard"],
@@ -125,9 +136,10 @@ def part_lines(fp, geometry=None, pads: bool = False, digest: str = "") -> list:
         deep = max([len(s) for s in drills], default=0)
         for d, where, drill in zip(facts, wheres, drills):
             column = "%-*s" % (wide, where) + ("  %-*s" % (deep, drill) if deep else "")
-            lines.append("  pad %-5s %-14s %s  at (%.3f, %.3f)  %.3f x %.3f" % (
+            lines.append("  pad %-5s %-14s %s  at (%.3f, %.3f)  %.3f x %.3f%s" % (
                 d["number"], d["net"] or "-", column,
-                d["at"][0], d["at"][1], d["size"][0], d["size"][1]))
+                d["at"][0], d["at"][1], d["size"][0], d["size"][1],
+                ("  " + "/".join(d["mask_paste"])) if d["mask_paste"] else ""))
     return lines
 
 

@@ -753,10 +753,14 @@ placemat settings [<script-or-board-dir>] [--json]
 
 `measure` is the geometry query. Given a board it prints, per part, the
 instance, refdes, value, face, rotation and origin, the `body`, `courtyard` and
-`physical` boxes, and how near its courtyard and copper come to the board's
-edge. `--pads` adds every pad's number, net, layers, drill, centre in the board
-frame and **the box round its copper** - not the anchor size, which for a
-custom pad is not the copper. Given a path ending `.kicad_mod` it reads that
+`physical` boxes, its drawn envelope and the layer setting each side, how near
+its courtyard and copper come to the board's edge, and a `footprint:` line
+when its courtyard lies inside its own silk or equals its fab body. `--json`
+gives each box by its edges too, as `boxes` (left, top, right, bottom). `--pads`
+adds every pad's number, net, layers, drill, centre in the board frame, **the
+box round its copper** - not the anchor size, which for a custom pad is not the
+copper - and the mask and paste layers it opens; `--json` gives each pad's
+copper outline as polygons. Given a path ending `.kicad_mod` it reads that
 footprint with no board at all, in the footprint's own frame, and prints the
 file's SHA-256 so two variants of a part can be told apart; a pad read that way
 reports an attribute rather than layers, because a footprint has no stackup.

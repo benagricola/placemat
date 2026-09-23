@@ -40,3 +40,23 @@ def understatement(fp, clearance: float):
             if over > clearance + 1e-9 and (worst is None or over > worst[0] + 1e-9):
                 worst = (round(over, 3), kind)
     return worst
+
+
+def courtyard_findings(fp) -> list:
+    """What is wrong with a footprint's courtyard as drawn: one that lies
+    inside its own silk claims less than the part prints, and one that equals
+    its fab body leaves no assembly margin round it."""
+    out = []
+    ct = fp.courtyard_box
+    if fp.silk:
+        silk = Box.union([Box.of_points(p) for _, p in fp.silk])
+        if (silk.left <= ct.left + 1e-6 and silk.top <= ct.top + 1e-6
+                and silk.right >= ct.right - 1e-6 and silk.bottom >= ct.bottom - 1e-6):
+            out.append("courtyard lies inside its own silk")
+    for _, poly in fp.fab:
+        body = Box.of_points(poly)
+        if all(abs(a - b) < 0.01 for a, b in zip((ct.left, ct.top, ct.right, ct.bottom),
+                                                 (body.left, body.top, body.right, body.bottom))):
+            out.append("courtyard equals its fab body: no assembly margin")
+            break
+    return out

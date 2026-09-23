@@ -133,6 +133,13 @@ def body_box(fp, excess_mm: float) -> Box:
 
 
 _SILK = {pcbnew.F_SilkS: Face.FRONT, pcbnew.B_SilkS: Face.BACK}
+_MASK_PASTE = ((pcbnew.F_Mask, "F.Mask"), (pcbnew.B_Mask, "B.Mask"), (pcbnew.F_Paste, "F.Paste"),
+               (pcbnew.B_Paste, "B.Paste"))      # fixed names: KiCad's own vary by version
+
+
+def _mask_paste(pad) -> tuple:
+    ls = pad.GetLayerSet()
+    return tuple(name for layer, name in _MASK_PASTE if ls.Contains(layer))
 _MASK = {pcbnew.F_Mask: Face.FRONT, pcbnew.B_Mask: Face.BACK}
 _FAB = {pcbnew.F_Fab: Face.FRONT, pcbnew.B_Fab: Face.BACK}
 
@@ -201,7 +208,8 @@ def _pads(board, fp, err_nm: int = CLEAR_ERR_NM) -> tuple[PadGeom, ...]:
                             net=pad.GetNetname(), layers=_copper_layers(board, pad.GetLayerSet()),
                             outlines=outs, box=Box.of_points([p for o in outs for p in o]),
                             through=attr == pcbnew.PAD_ATTRIB_PTH,
-                            drill_mm=mm(drill.x) if attr == pcbnew.PAD_ATTRIB_PTH else 0.0))
+                            drill_mm=mm(drill.x) if attr == pcbnew.PAD_ATTRIB_PTH else 0.0,
+                            mask_paste=_mask_paste(pad)))
     return tuple(pads)
 
 
@@ -388,7 +396,8 @@ def read_footprint(path, courtyard_excess_mm: float = 0.10) -> tuple:
                             layers=frozenset() if through else _copper_layers(scratch, pad.GetLayerSet()),
                             outlines=outs, box=Box.of_points([q for o in outs for q in o]),
                             through=through,
-                            drill_mm=mm(pad.GetDrillSize().x) if through else 0.0))
+                            drill_mm=mm(pad.GetDrillSize().x) if through else 0.0,
+                            mask_paste=_mask_paste(pad)))
     geom = Footprint(ref=p.stem, inst=p.stem, cell=None, value=fp.GetValue() or p.stem,
                      location=Location(0.0, 0.0), rotation=0.0, face=Face.FRONT,
                      body_box=body_box(fp, courtyard_excess_mm), courtyard_box=courtyard_box(fp),
