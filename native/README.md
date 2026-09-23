@@ -58,8 +58,12 @@ native and Python answers directly; they skip themselves (not fail) when
   `ShapeIndex.near()` without a two-stage filter.
 - `src/lib.rs`: the PyO3 module - `#[pyfunction]` wrappers around
   `geometry.rs`, and the `NativeObstacles` class (`shapes.rs`'s grid,
-  registered once per scan from `Occupancy.obstacles()`, queried once per
-  candidate from `Occupancy.legal()`) - with no decision logic of its own.
+  queried once per candidate from `Occupancy.legal()`) - with no decision
+  logic of its own. Registration (building a `NativeObstacles` from a list
+  of shape tuples) is a Python-side concern: `Occupancy` caches one
+  instance per skip-set (`_native_obstacle_cache`), rebuilding it only when
+  `self.items` or `self.copper` changes, rather than once per
+  `Occupancy.obstacles()` call - see the spec's "Phase 3".
 
 ## Packaging
 

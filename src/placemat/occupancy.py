@@ -265,6 +265,21 @@ class Occupancy:
         self.copper: list[Shape] = []
         self._cells: dict[str, ItemGeometry] = {}        # a cell's geometry, until something moves
         self.pending: set[str] = set()                    # owners the script will place: not obstacles where the generator left them
+        # A native obstacle index (Rust), one per distinct skip-set (an
+        # item's own owners, plus self.pending, at the time it was asked
+        # for): scan(), cleanup's per-key hints, and a freedom's several
+        # _slide() calls all re-ask obstacles() for the SAME item between
+        # commits, so this is a real cache, not a one-shot memo. Cleared
+        # whenever self.items or self.copper changes (commit, add_copper,
+        # a lazy _register) - see _invalidate_native(). Keyed on the skip
+        # frozenset only, not on obstacles()'s `region`: the native index
+        # holds every non-skipped shape on the board regardless of region
+        # (its own grid narrows a query to what is spatially near without
+        # needing a pre-filtered list), so the same entry serves any region
+        # asked against the same skip-set. See
+        # docs/superpowers/specs/2026-09-24-native-core-design.md
+        # ("Phase 3: a persistent native obstacle index").
+        self._native_obstacle_cache: dict[frozenset, tuple] = {}
         for fp in geometry.footprints:
             self._register(fp)
         for c in geometry.copper:
@@ -303,7 +318,15 @@ class Occupancy:
                          tuple(_fp_shapes(fp, self.envelope)), fp.body_box, frozenset(p.net for p in fp.pads),
                          Box.union([fp.body_box, fp.phys_box]))
         self.items[fp.ref] = g
+        self._invalidate_native()
         return g
+
+    def _invalidate_native(self) -> None:
+        """Drop every cached native obstacle index: self.items or
+        self.copper is about to change (or just did), so any index built
+        from them is stale. Called from commit(), add_copper() and the
+        (rare, post-init) lazy path in _register()."""
+        self._native_obstacle_cache.clear()
 
     def _geometry(self, item) -> ItemGeometry:
         if isinstance(item, Footprint):
@@ -389,6 +412,7 @@ class Occupancy:
     def add_copper(self, shapes) -> None:
         """Planned copper becomes an obstacle for everything placed after it."""
         self.copper.extend(shapes)
+        self._invalidate_native()
 
     def copper_conflicts(self, shape: Shape) -> list[str]:
         """Every pad or copper of another net within clearance of `shape`."""
@@ -443,6 +467,7 @@ class Occupancy:
         """Record that `item` now sits at `placement`; later checks see it there."""
         geom, shapes = self.candidate_shapes(item, placement)
         self._cells.clear()
+        self._invalidate_native()
         self.pending -= geom.owners
         if isinstance(item, Footprint):
             self.items[item.ref] = ItemGeometry(geom.owners, placement, tuple(shapes),
@@ -500,15 +525,44 @@ class Occupancy:
     # ------------------------------------------------------------ legality
     def obstacles(self, geom: ItemGeometry, region: Box | None = None) -> list:
         """Every shape not owned by `geom`, within `region` (plus the
-        conflict gap) when one is given: gathered once for a whole scan."""
+        conflict gap) when one is given: gathered once for a whole scan.
+
+        The native index attached as `idx._native` is NOT rebuilt from this
+        region-filtered list: it is a per-skip-set entry cached on the
+        Occupancy (`_native_obstacle_cache`, cleared on commit), covering
+        every non-skipped shape on the board regardless of region - a scan,
+        a cleanup hint and a freedom's several _slide() calls for the same
+        item, between commits, share one native registration instead of
+        rebuilding and re-marshalling it every call. See
+        _native_obstacle_index and the Phase 3 spec note."""
         skip = geom.owners | self.pending
         out = [s for owner, g in self.items.items() if owner not in skip for s in g.shapes]
         out += [c for c in self.copper if c.owner not in skip]
         if region is not None:
             out = [o for o in out if o.box.overlaps(region, gap=self._gap)]
         idx = ShapeIndex(out)
-        idx._native = self._build_native_obstacles(out)
+        idx._native = self._native_obstacle_index(skip)
         return idx
+
+    def _native_obstacle_index(self, skip: frozenset):
+        """The cached (NativeObstacles, backing shape list) for this
+        skip-set, building it - over every shape in self.items/self.copper
+        not owned by `skip`, NOT region-filtered - on a cache miss. `None`
+        when there is no native module (the pure-Python `near()` + per-shape
+        loop in `legal()` is then what runs)."""
+        native = _geometry_module._native
+        if native is None:
+            return None
+        hit = self._native_obstacle_cache.get(skip)
+        if hit is not None:
+            return hit
+        shapes = [s for owner, g in self.items.items() if owner not in skip for s in g.shapes]
+        shapes += [c for c in self.copper if c.owner not in skip]
+        index = native.NativeObstacles([_to_native_shape(s, self._footprint_refs) for s in shapes],
+                                       **self._native_conflict_kwargs())
+        entry = (index, shapes)
+        self._native_obstacle_cache[skip] = entry
+        return entry
 
     def _native_conflict_kwargs(self) -> dict:
         """The scalars and the net-clearance lookup `_conflict` reads off
@@ -525,17 +579,6 @@ class Occupancy:
                         gap=self._gap, drawn_gap=self._drawn_gap)
             self.__dict__["_native_kwargs"] = cache
         return cache
-
-    def _build_native_obstacles(self, shapes: list):
-        """A native index over `shapes`, or None when there is no native
-        module (the pure-Python `near()` + per-shape loop in `legal()` is
-        then what runs - see the Phase 2 note in
-        docs/superpowers/specs/2026-09-24-native-core-design.md)."""
-        native = _geometry_module._native
-        if native is None:
-            return None
-        return native.NativeObstacles([_to_native_shape(s, self._footprint_refs) for s in shapes],
-                                      **self._native_conflict_kwargs())
 
     def legal(self, item, placement: Placement, clearance: float | None = None, others=None,
               past_edge: bool = False, blame: list | None = None) -> str | None:
@@ -582,22 +625,28 @@ class Occupancy:
         if others is None:
             others = self.obstacles(geom)
         dx, dy = placement.location.x, placement.location.y
-        native_index = getattr(others, "_native", None)
-        if native_index is not None:
+        native_entry = getattr(others, "_native", None)
+        if native_entry is not None:
             # The near-obstacle search itself - ShapeIndex.near() plus the
             # per-shape "close" filter plus _conflict/_drawn_conflict's own
             # decision - runs once, natively, over every registered obstacle;
             # see docs/superpowers/specs/2026-09-24-native-core-design.md
-            # ("Phase 2"). It decides ONLY which pair conflicts; the untouched
-            # Python _conflict below still produces the reason string, so the
-            # text a script sees is always the reference implementation's.
+            # ("Phase 2", "Phase 3"). It decides ONLY which pair conflicts;
+            # the untouched Python _conflict below still produces the reason
+            # string, so the text a script sees is always the reference
+            # implementation's. native_index is a per-skip-set cache entry
+            # (Phase 3), not rebuilt from `others`, so a conflicting
+            # obstacle's index is looked up in ITS OWN backing shape list
+            # (native_shapes), not in `others` (which may be region-filtered
+            # and use a different indexing).
+            native_index, native_shapes = native_entry
             origin_shapes = list(self._origin_shapes(item, geom, placement))
             hit = native_index.first_conflict(
                 [_to_native_shape_shifted(s, dx, dy, self._footprint_refs) for s in origin_shapes], clearance)
             if hit is None:
                 return None
             si, oi = hit
-            o = others[oi]
+            o = native_shapes[oi]
             s = origin_shapes[si]
             moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
                          tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label)

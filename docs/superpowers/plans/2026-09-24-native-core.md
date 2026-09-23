@@ -124,3 +124,26 @@ rather than rushed.
 
 - [x] Update `native/README.md` with what Task 3 landed (`shapes.rs`, the `NativeObstacles` class).
 - [x] Spec's "Packaging" section left as-is: the open decision for the user, not decided or guessed at here. Added a "Left for a follow-up" section instead, on the native-index-caching opportunity Task 3's profiling found (see the spec).
+
+---
+
+### Task 5: A persistent native obstacle index (Phase 3)
+
+**Goal:** stop rebuilding and re-marshalling the native obstacle index on
+every `Occupancy.obstacles()` call; cache it on the `Occupancy` itself, per
+skip-set, invalidated on any change to `self.items` / `self.copper`. See
+the spec's "Phase 3" section for the numbers and reasoning behind the
+per-skip-set-cache design (over the alternative, query-time owner
+filtering in Rust).
+
+**Files:**
+- Modify: `src/placemat/occupancy.py` (`__init__`: `_native_obstacle_cache`; new `_invalidate_native()`, called from `commit()`, `add_copper()`, `_register()`; `obstacles()` and the old `_build_native_obstacles` replaced by `_native_obstacle_index(skip)`; `legal()`'s native branch unpacks `(native_index, native_shapes)` and indexes into `native_shapes`, not `others`)
+- No Rust changes: `native/src/lib.rs` / `shapes.rs` are unchanged - this is entirely a change to WHEN and HOW OFTEN the existing `NativeObstacles` API is called, not to what it does.
+
+**Interfaces:**
+- Produces: `Occupancy._native_obstacle_cache: dict[frozenset, tuple[NativeObstacles, list[Shape]]]`, `Occupancy._native_obstacle_index(skip) -> tuple | None`.
+
+- [x] **Step 1: Design.** A cache keyed by skip-set only (not skip-set + region): the native index holds every non-skipped shape on the board regardless of `region`, since native's own grid narrows a query to what's spatially near without needing a Python-side pre-filtered list first - `region` was always a performance pre-filter (`scan()` sizes it to contain every candidate's own reach), never a correctness one, so dropping it for the native path cannot change which obstacle a search finds first (same near-box-and-gap test either way, same relative order among survivors). The `ShapeIndex` `obstacles()` returns is unchanged (still region-filtered) for the non-native path and for `layout_block`'s member-vs-member `.near()` calls, which never touch this cache.
+- [x] **Step 2: Implement.** `_invalidate_native()` clears the cache; called wherever `self.items` or `self.copper` can change. `_native_obstacle_index(skip)` builds-or-returns a cached `(NativeObstacles, shapes_list)` pair; `obstacles()` attaches it as `idx._native` unchanged in shape (still a truthy "is there a native index" signal `legal()` checks via `getattr`), but callers must now unpack the tuple. `legal()`'s native branch updated to look up the conflicting obstacle in `native_shapes` (the cache entry's own backing list), not in `others` (which may be a smaller, region-filtered list with different indices).
+- [x] **Step 3: Run tests and suite both ways.** No test changes needed: `test_native_legal.py`'s strongest test already calls the real `Occupancy.legal()` toggled native on/off, which exercises the new cache transparently. `pytest -q` and `PLACEMAT_NATIVE=0 pytest -q` both green.
+- [x] **Step 4: Bench both ways** on the full corpus against main's current `fixtures/bench.json` (main gained a rotations-for-searched-parts feature since Phase 1/2 were written, moving the baseline numbers but not this task's job, which is speed only) - `same 32` in every config. **Commit** with the tally and A/B process-time ratios (whole corpus, alternating, power-save off).
