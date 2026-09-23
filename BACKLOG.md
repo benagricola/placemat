@@ -5,20 +5,11 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## In progress
 
-- **The solve's default.** With the pocket fallback and the cleanup pass in,
-  the module benchmark has the solve better than the sequential seed on 16
-  modules and worse on 11. It stays off; the measured variants are under
-  Done.
-
 ## Open
 
 Features:
 
-- **Stdlib passive courtyards smaller than a 0.2 mm silk clearance.** A
-  library matter (`fetch_parts.py` does not normalise courtyards); noted,
-  not placemat's. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 6.
-
-## Housekeeping
+## Housekeeping (left for Ben: outside this repository)
 
 - `mnb-ecosystem/pyproject.toml` points placemat at the stale
   `~/work/placemat-greenfield`; the `placemat-check` and
@@ -26,6 +17,16 @@ Features:
 
 ## Done
 
+- **The solve's default: stays off** (decided 2026-09-24): re-measured on the
+  current code (rotations, pockets, neighbour swaps), the solve against the
+  sequential seed is 11 better, 17 worse, median HPWL x1.058. `[solve]
+  enabled` remains opt-in.
+- **Stdlib passive courtyards under a 0.2 mm silk clearance: not placemat's**
+  (closed 2026-09-24): the library's courtyards are its own to fix. On the
+  placemat side a courtyard-envelope run lists each footprint whose silk
+  passes its courtyard (`metrics.footprints`), the physical envelope spaces
+  by silk, and a label keeps the silk clearance. Source: fairing-instrument
+  `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 6.
 - **A fanout band** (unreleased): `board.fanout(part, depth=, sides=)` reserves
   the strip outside each pad row on the part's face for its satellites and
   SHORT-linked parts. Spec: `docs/superpowers/specs/2026-09-24-fanout-band-design.md`.
