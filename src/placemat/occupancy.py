@@ -63,17 +63,6 @@ def _to_native_shape(s: Shape, footprint_refs: frozenset, leads: frozenset, marg
             s.owner in footprint_refs, (s.owner, s.label) in leads, margins.get(s.owner, 0.0))
 
 
-def _to_native_shape_shifted(s: Shape, dx: float, dy: float, footprint_refs: frozenset, leads: frozenset,
-                             margins: dict) -> tuple:
-    """As `_to_native_shape`, but for an origin-turned shape moved by
-    `(dx, dy)` - without building the intermediate `Shape` (with its box and
-    a real polygon copy) a caller that only wants the native tuple, not the
-    Shape object, does not need."""
-    poly = tuple([(x + dx, y + dy) for x, y in s.poly])  # tuple(a list comp) beats tuple(a genexpr): no frame suspension per point
-    return (s.kind, _native_faces(s.faces), _native_layers(s.layers), s.net or "", poly, s.owner,
-            s.owner in footprint_refs, (s.owner, s.label) in leads, margins.get(s.owner, 0.0))
-
-
 @dataclass(frozen=True)
 class Blocker:
     """Why one candidate placement was refused, in parts rather than prose:
@@ -645,9 +634,8 @@ class Occupancy:
             # and use a different indexing).
             native_index, native_shapes = native_entry
             origin_shapes = list(self._origin_shapes(item, geom, placement))
-            hit = native_index.first_conflict(
-                [_to_native_shape_shifted(s, dx, dy, self._footprint_refs, self._leads, self._margins)
-                 for s in origin_shapes], clearance)
+            origin_handle = self._native_origin_shapes(item, geom, placement)
+            hit = native_index.first_conflict_shifted(origin_handle, dx, dy, clearance)
             if hit is None:
                 return None
             si, oi = hit
@@ -734,6 +722,29 @@ class Occupancy:
             hit = (geom, shapes)
             cache[key] = hit
         return hit[1]
+
+    def _native_origin_shapes(self, item, geom: ItemGeometry, placement: Placement):
+        """The native mirror of `_origin_shapes`: a `NativeOriginShapes`
+        handle for this (item, rotation, face) turn, registered once and
+        reused by every candidate at that turn - the shift by (dx, dy) then
+        costs two floats crossing the FFI boundary, not a rebuilt polygon
+        per shape on every `legal()` call. See
+        docs/superpowers/specs/2026-09-24-native-core-design.md
+        ("per-candidate shapes stay native"). Cached the same way, and for
+        the same reason, as `_origin_shapes` itself."""
+        native = _geometry_module._native
+        if native is None:
+            return None
+        cache = self.__dict__.setdefault("_native_shape_cache", {})
+        key = (id(geom), placement.rotation, placement.face)
+        hit = cache.get(key)
+        if hit is not None and hit[0] is geom:
+            return hit[1]
+        origin_shapes = self._origin_shapes(item, geom, placement)
+        handle = native.NativeOriginShapes(
+            [_to_native_shape(s, self._footprint_refs, self._leads, self._margins) for s in origin_shapes])
+        cache[key] = (geom, handle)
+        return handle
 
     def shifted_courtyards(self, item, placement: Placement) -> list:
         """The item's courtyard polygons at `placement`, from the turned shapes

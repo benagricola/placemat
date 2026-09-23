@@ -134,6 +134,38 @@ impl NativeObstacles {
         let built: Vec<shapes::Shape> = candidate_shapes.iter().map(build_shape).collect::<PyResult<_>>()?;
         Ok(self.grid.first_conflict(&built, clearance, &self.cfg))
     }
+
+    /// As `first_conflict`, but against a `NativeOriginShapes` registered
+    /// once for this item's (rotation, face) turn - see that class's doc.
+    fn first_conflict_shifted(
+        &self,
+        origin: &NativeOriginShapes,
+        dx: f64,
+        dy: f64,
+        clearance: Option<f64>,
+    ) -> Option<(usize, usize)> {
+        self.grid.first_conflict_shifted(&origin.shapes, dx, dy, clearance, &self.cfg)
+    }
+}
+
+/// A candidate item's own shapes, turned for one (rotation, face) and left
+/// at the origin - the native mirror of what
+/// `Occupancy._origin_shapes` caches in Python, registered once per turn
+/// (not once per `legal()` call) so a candidate at a new (x, y) on the same
+/// turn costs two floats crossing the FFI boundary, not a rebuilt polygon
+/// per shape. See docs/superpowers/specs/2026-09-24-native-core-design.md
+/// ("per-candidate shapes stay native").
+#[pyclass]
+struct NativeOriginShapes {
+    shapes: Vec<shapes::Shape>,
+}
+
+#[pymethods]
+impl NativeOriginShapes {
+    #[new]
+    fn new(shapes: Vec<PyShape>) -> PyResult<Self> {
+        Ok(NativeOriginShapes { shapes: shapes.iter().map(build_shape).collect::<PyResult<_>>()? })
+    }
 }
 
 #[pymodule]
@@ -143,5 +175,6 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(point_segment_distance, m)?)?;
     m.add_function(wrap_pyfunction!(conflict, m)?)?;
     m.add_class::<NativeObstacles>()?;
+    m.add_class::<NativeOriginShapes>()?;
     Ok(())
 }

@@ -289,6 +289,39 @@ impl ShapeGrid {
         }
         None
     }
+
+    /// As `first_conflict`, but `origin_shapes` are UNSHIFTED (at the
+    /// item's own origin, as `Occupancy._origin_shapes` caches them - one
+    /// turn per rotation and face, reused across every candidate at that
+    /// turn) and the shift by `(dx, dy)` happens here, not in Python. This
+    /// is the whole point: the caller marshals a candidate's shapes into
+    /// Rust ONCE per (item, rotation, face) - not once per `legal()` call -
+    /// and every candidate at that turn is then just two floats crossing
+    /// the FFI boundary, not a rebuilt polygon per shape. A shape's poly is
+    /// only actually shifted when it is near enough to test (`conflict`
+    /// needs real coordinates); the bbox, needed for every near-query
+    /// regardless of a hit, is cheap to shift unconditionally.
+    pub fn first_conflict_shifted(
+        &self,
+        origin_shapes: &[Shape],
+        dx: f64,
+        dy: f64,
+        explicit_clearance: Option<f64>,
+        cfg: &ConflictConfig,
+    ) -> Option<(usize, usize)> {
+        for (si, s0) in origin_shapes.iter().enumerate() {
+            let bbox = (s0.bbox.0 + dx, s0.bbox.1 + dy, s0.bbox.2 + dx, s0.bbox.3 + dy);
+            let gap = cfg.gap_for(s0);
+            for oi in self.near(bbox, gap) {
+                let poly: Vec<Point> = s0.poly.iter().map(|p| (p.0 + dx, p.1 + dy)).collect();
+                let s = Shape { poly, bbox, ..s0.clone() };
+                if conflict(&s, &self.shapes[oi], explicit_clearance, cfg) {
+                    return Some((si, oi));
+                }
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]
@@ -492,5 +525,32 @@ mod tests {
             }
         }
         assert_eq!(got, want);
+    }
+
+    #[test]
+    fn first_conflict_shifted_matches_first_conflict_on_pre_shifted_shapes() {
+        let obstacles = vec![
+            shape(Kind::Pad, "U1", rect(0.0, 0.0, 1.0, 1.0), 1, 1, "NET", true),
+            shape(Kind::Courtyard, "U2", rect(5.0, 5.0, 4.0, 4.0), 1, 0, "", true),
+        ];
+        let grid = ShapeGrid::new(obstacles);
+        let origin = vec![
+            shape(Kind::Pad, "CAND", rect(0.0, 0.0, 1.0, 1.0), 1, 1, "OTHER", true),
+            shape(Kind::Courtyard, "CAND", rect(0.0, 0.0, 2.0, 2.0), 1, 0, "", true),
+        ];
+        let c = cfg();
+        for (dx, dy) in [(0.0, 0.0), (0.3, 0.0), (5.0, 5.0), (4.9, 4.9), (20.0, 20.0)] {
+            let shifted: Vec<Shape> = origin
+                .iter()
+                .map(|s| {
+                    let bbox = (s.bbox.0 + dx, s.bbox.1 + dy, s.bbox.2 + dx, s.bbox.3 + dy);
+                    let poly = s.poly.iter().map(|p| (p.0 + dx, p.1 + dy)).collect();
+                    Shape { poly, bbox, ..s.clone() }
+                })
+                .collect();
+            let want = grid.first_conflict(&shifted, None, &c);
+            let got = grid.first_conflict_shifted(&origin, dx, dy, None, &c);
+            assert_eq!(got, want, "at ({dx}, {dy})");
+        }
     }
 }
