@@ -26,6 +26,7 @@ class BoardSource:
 _BOARD_RE = re.compile(r"\b(Board|Layout|Project)\s*\(", re.S)
 _NAME_RE = re.compile(r'\bname\s*=\s*"([^"]+)"')
 _LAYOUT_RE = re.compile(r'\b(?:layout_path|path)\s*=\s*"([^"]+)"')
+_NO_LAYOUT_RE = re.compile(r"\blayout\s*=\s*False\b")
 _GENERATE_RE = re.compile(r"^#\s*placemat generate:\s*(.+)$", re.M)
 
 
@@ -40,13 +41,14 @@ def generate_args_of(script: Path) -> tuple:
 
 def find_board(script_or_dir) -> BoardSource:
     """The board a script is for: the .zen beside it declaring Board(),
-    Project() or Layout(). When several do, the script's name says which
+    Project() or Layout(). A declaration with `layout = False` has no layout
+    and is not a candidate. When several remain, the script's name says which
     (`Main_layout.py` means the one named Main)."""
     p = Path(script_or_dir).resolve()
     board_dir = p if p.is_dir() else p.parent
     wanted = p.stem[:-len("_layout")] if p.is_file() and p.stem.endswith("_layout") else None
     candidates = sorted(board_dir.glob("*.zen"))
-    found = []
+    found, off = [], []
     for zen in candidates:
         text = zen.read_text(errors="replace")
         for m in _BOARD_RE.finditer(text):           # every Board()/Project()/Layout(): a module may declare one per variant
@@ -65,11 +67,15 @@ def find_board(script_or_dir) -> BoardSource:
             if not name_m:
                 continue
             name = name_m.group(1)
+            if _NO_LAYOUT_RE.search(block):         # a sub-circuit with no layout of its own
+                off.append(name)
+                continue
             layout_dir = board_dir / (layout_m.group(1) if layout_m else "layout/%s" % name)
             found.append(BoardSource(name, zen, layout_dir, board_dir, generate_args_of(p) if p.is_file() else ()))
     if not found:
-        raise FileNotFoundError("no .zen declaring Board(name=...), Project(name=...) or Layout(name=...) in %s (looked at %s)" % (
-            board_dir, ", ".join(c.name for c in candidates) or "nothing"))
+        raise FileNotFoundError("no .zen declaring Board(name=...), Project(name=...) or Layout(name=...) in %s (looked at %s)%s" % (
+            board_dir, ", ".join(c.name for c in candidates) or "nothing",
+            "; %s declare layout = False" % ", ".join(off) if off else ""))
     if len(found) == 1:
         return found[0]
     for src in found:

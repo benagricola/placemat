@@ -147,7 +147,8 @@ coordinates nobody chose.
   legal spot once its part is placed.
 - Every script is for one board: name it `<Board>_layout.py` after the
   `Board(name=)`, `Project(name=)` or `Layout(name=)` in the `.zen` beside it; a directory
-  with several boards is told apart by that name.
+  with several boards is told apart by that name. A declaration with
+  `layout = False` (a sub-circuit beside the board) is not a board.
 - Measure, do not type: `board.extent(cell, rotation=)`, `board.pitch(part)`,
   `board.pad(part, n).box` and the pad references give the generated board's
   real geometry, so a part swapped in the `.zen` cannot leave a stale number

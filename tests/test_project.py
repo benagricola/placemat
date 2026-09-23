@@ -78,3 +78,19 @@ def test_a_board_declared_as_a_project_is_found(tmp_path):
     (tmp_path / "Gauge_layout.py").write_text("")
     src = find_board(tmp_path / "Gauge_layout.py")
     assert src.name == "Gauge" and src.layout_dir == tmp_path / "layout/Gauge"
+
+
+def test_a_declaration_with_layout_turned_off_is_not_a_board(tmp_path):
+    """A sub-circuit beside the board declares Project(..., layout = False):
+    it has no layout of its own, so it is not a candidate."""
+    (tmp_path / "Sub.zen").write_text('Project(name = "Sub circuit", path = "kicad", schematic = True, layout = False)\n')
+    (tmp_path / "Other.zen").write_text('Project(name="Other", layout=False)\n')
+    (tmp_path / "Main.zen").write_text('Board(name = "Main", layout_path = "layout")\n')
+    assert find_board(tmp_path / "anything_layout.py").name == "Main"
+    assert find_board(tmp_path).name == "Main"
+
+
+def test_layout_turned_off_everywhere_says_so(tmp_path):
+    (tmp_path / "Sub.zen").write_text('Project(name = "Sub", layout = False)\n')
+    with pytest.raises(FileNotFoundError, match="layout = False"):
+        find_board(tmp_path / "s.py")
