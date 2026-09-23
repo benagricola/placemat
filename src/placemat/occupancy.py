@@ -8,10 +8,11 @@ features block both faces, pads keep net-class clearance from foreign
 copper, reservations block parts unless they carry an allowed net."""
 from __future__ import annotations
 
+import functools
 import math
 from dataclasses import dataclass, field
 
-from .geometry import (_clean, Polygon, Transform, box_polygon, circle_polygon, poly_distance,
+from .geometry import (_clean, PolyRaster, Polygon, Transform, box_polygon, circle_polygon, poly_distance,
                        polys_overlap, transform_box, transform_polygon)
 from .placement import Placement
 from .settings import Settings
@@ -56,9 +57,25 @@ class Reservation:
     owners: frozenset[str] = frozenset()
     source: str = ""                # what put it here, so a re-commit can replace its own
 
-    @property
+    @functools.cached_property
     def box(self) -> Box:
         return Box.of_points(self.poly)
+
+    @functools.cached_property
+    def _raster(self):
+        return PolyRaster(self.poly)
+
+    def overlaps(self, body: Box) -> bool:
+        """Whether the box shares interior with the region: polys_overlap's
+        answer, from the raster where the cells decide it. A small region is
+        cheaper to test than to raster."""
+        if not self.box.overlaps(body):
+            return False
+        if len(self.poly) >= 24:
+            hit = self._raster.classify(body)
+            if hit is not None:
+                return hit
+        return polys_overlap(self.poly, box_polygon(body))
 
 
 class ShapeIndex(list):
@@ -484,7 +501,7 @@ class Occupancy:
             if (geom.owners & r.owners) or (geom.nets & r.allow):
                 continue                                   # named, or carrying a net let through
             # the box first because it is cheap, and the placer asks this tens of thousands of times
-            if r.box.overlaps(body) and polys_overlap(r.poly, box_polygon(body)):
+            if r.overlaps(body):
                 if blame is not None:
                     blame.append(Blocker("reservation", r.why, frozenset()))
                 return "sits in the reservation for %s" % r.why

@@ -292,6 +292,65 @@ def _prepared_overlap(pa: _Prepared, pb: _Prepared) -> bool:
         any(strictly(pa, q) for q in vertices(pb, ax0, ay0, ax1, ay1))
 
 
+class PolyRaster:
+    """A polygon rastered once into cells wholly inside it, wholly outside it,
+    or crossed by its outline: a cell no edge meets lies all on one side, and
+    its corners say which. `classify(box)` says whether a box shares interior
+    with the polygon when the cells under it decide it, else None - the box
+    touches a crossed cell and only the polygon test can say."""
+    MAX_CELLS = 40000
+
+    def __init__(self, poly: Polygon):
+        x0, y0, x1, y1 = _bounds(poly)
+        self.x0, self.y0 = x0, y0
+        w, h = max(x1 - x0, 1e-6), max(y1 - y0, 1e-6)
+        self.cell = c = max(0.25, math.sqrt(w * h / self.MAX_CELLS))
+        self.nx, self.ny = max(1, int(math.ceil(w / c))), max(1, int(math.ceil(h / c)))
+        pp = _prepared(poly)
+
+        def inside(p):
+            return pp.contains(p) if pp.grid is not None else point_in_polygon(p, poly)
+
+        def crossed(a0, b0, a1, b1):
+            if pp.grid is not None:
+                return bool(pp.edges_meeting(a0, b0, a1, b1))
+            return any(_edge_meets(p, q, a0, b0, a1, b1) for p, q in _edges(poly))
+        corner = [[inside((x0 + i * c, y0 + j * c)) for i in range(self.nx + 1)] for j in range(self.ny + 1)]
+        self.state = []                                 # per row: 1 inside, 0 outside, 2 crossed
+        for j in range(self.ny):
+            row = []
+            for i in range(self.nx):
+                a0, b0 = x0 + i * c, y0 + j * c
+                if crossed(a0, b0, a0 + c, b0 + c):
+                    row.append(2)
+                else:
+                    row.append(1 if corner[j][i] else 0)
+            self.state.append(row)
+
+    def classify(self, box):
+        c = self.cell
+        i0 = max(0, int(math.floor((box.left - self.x0) / c)))
+        i1 = min(self.nx, int(math.ceil((box.right - self.x0) / c)))
+        j0 = max(0, int(math.floor((box.top - self.y0) / c)))
+        j1 = min(self.ny, int(math.ceil((box.bottom - self.y0) / c)))
+        crossed = False
+        for j in range(j0, j1):
+            b0 = self.y0 + j * c
+            if not (b0 < box.bottom and b0 + c > box.top):
+                continue                                # touches the row only along a line
+            row = self.state[j]
+            for i in range(i0, i1):
+                a0 = self.x0 + i * c
+                if not (a0 < box.right and a0 + c > box.left):
+                    continue
+                s = row[i]
+                if s == 1:
+                    return True
+                if s == 2:
+                    crossed = True
+        return None if crossed else False
+
+
 def _bounds(poly: Polygon):
     xs = [p[0] for p in poly]
     ys = [p[1] for p in poly]
