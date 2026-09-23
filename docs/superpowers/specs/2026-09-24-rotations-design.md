@@ -48,10 +48,9 @@ allows, so a turn in place, or a turn and a shift, is a move like any other,
 taken only when it lowers the cost. A part given one rotation is only
 shifted, as now.
 
-**Time.** The scan is 4x the candidates for the affected parts. The plan
-measures the core board copy; if a run is more than 1.5x its current
-resolve, profile and bring it back under before release (the coarse pass of
-a scored scan is where candidates multiply).
+**Time.** The scan is 4x the candidates for the affected parts: about
+2.1x the resolve time on the corpus. Decided 2026-09-24: accepted for the
+gain, in place of the 1.5x limit this spec first set.
 
 ## What does not change
 

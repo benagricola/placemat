@@ -28,6 +28,8 @@
 
 ### Task 2: Blocks
 
+Outcome: not measurable - the bench declares loose parts only, so blocks keep one rotation (the spec's default) until a corpus with blocks exists.
+
 - [ ] Bench with `_turns` applied to a block's scan (`scan_block`). Include it only if the tally is better on balance and time stays within 1.5x; either way, the tally goes in the commit or the spec's measured section.
 
 ### Task 3: The cleanup pass turns parts

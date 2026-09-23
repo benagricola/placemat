@@ -14,26 +14,12 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 Bugs, each checked against the code on 2026-09-23 (reproduced where it says so):
 
-- **The pocket search refuses room that is not one rectangle.** `pockets()`
-  offers the largest free rectangle and stops when the item does not fit it,
-  and `_no_pocket_note` declares the item hopeless from that one rectangle,
-  so an item that fits an L- or T-shaped space is refused. Four cells on the
-  fairing core, and on the core board copy `inputpower.j_gnd` and
-  `logic.c_vdda_1u`. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell" item 2 and "the power cells" item 2.
-- **A keepout's `layers=` does not narrow its parts reservation.** The
-  reservation in `layout.py` (`occ.reserve(poly, "keepout ...", allow=,
-  owners=)`) passes no `layer`, though `Occupancy.reserve` takes one, so a
-  front-only keepout blocks the back. Blocks a fanout band declared as a
-  keepout. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things" item 1 and "passive orientation" item 3.
 - **A through-hole pad claims the whole part on both faces.** `through =
   any(p.through for p in fp.pads) or bool(fp.npth)` (`occupancy.py`) sends
   the courtyard and body to the far face; only the holes reach it. Vias in
   an exposed pad are plated pads, so an SMD chip with a via-in-pad claims
   its body on the back as well. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things" item 5 and "the power
   cells" item 1.
-- **A part with no declaration gets no finding.** It stays where the
-  generator put it, with no step and nothing in `findings` (reproduced).
-  Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 4.
 - **The cached generation is never invalidated.** `generate()` restores
   `.placemat/generated/` whenever it exists; a changed `.zen` or fragment is
   only picked up with `--fresh`. Wanted: a key over the generator's inputs
@@ -67,12 +53,6 @@ Bugs, each checked against the code on 2026-09-23 (reproduced where it says so):
 
 Features:
 
-- **All four rotations for a searched part by default**, and rotation (and a
-  180 flip) in the cleanup pass. Now a searched part is scanned only at its
-  `rotation` unless `rotations=` is given (`layout.py`, the `scan` call).
-  The fairing agent measured crossings 1,318 -> 1,124 on the core with all
-  four. Needs a bench run for time and HPWL. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive orientation",
-  items 1 and 5.
 - **`[drc] severities`**: a table placemat writes into the generated
   project's `rule_severities`, so KiCad and placemat judge the board alike
   (the project file is regenerated on every fresh generation). Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU
@@ -113,7 +93,25 @@ Features:
 
 ## Done
 
-- **Coinciding outlines** (unreleased): `polys_overlap` finds shared
+- **Three gaps bugs** (0.28.0): the pocket search takes the largest room
+  the item fits, and the check before a search rounds toward room; a parts
+  keepout or stamped rule area keeps parts off only the faces its layers
+  name; an undeclared part is a finding. Source: fairing-instrument
+  `electronics/PLACEMAT_GAPS.md`, "the MCU cell" item 2, "the power cells"
+  item 2, "seven things" item 1, "passive orientation" item 3, "the bench
+  panel cell" item 4.
+- **Rotations for searched parts** (0.28.0): all four for a part with none
+  declared, in the search, the pocket fallback and the cleanup pass;
+  `[place] rotations = "declared"` for the old behaviour. Bench: +13 placed,
+  median HPWL 0.84 (default). Core board copy (its script already lists
+  four rotations on searched parts): 126 placed either way, wire cost
+  1385.1 -> 1383.7, 589 -> 676 CPU s under power save. Blocks keep one
+  rotation (the bench has none to measure). Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`,
+  "passive orientation", items 1 and 5.
+- **legal() faster** (0.28.0): shapes turned once per rotation, rectangles
+  by their boxes; the same placements, about a third less resolve time in
+  the courtyard envelope.
+- **Coinciding outlines** (0.28.0): `polys_overlap` finds shared
   interior when every vertex lies on the other's boundary; two satellites on
   one pad are refused with the reason, not stacked. Source: fairing-instrument
   `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 1.

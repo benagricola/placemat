@@ -169,6 +169,10 @@ coordinates nobody chose.
   three drops are three lines, not a loop; two ends are two blocks, not a
   table of dicts. A short function called once per thing is fine when its
   name says what it lays out. No globals, no helpers defined inside a phase.
+- Leave a searched part's rotation out unless its turn matters: the
+  search tries all four and keeps the one that puts its pads nearest what
+  they connect to. Say `rotation=` for a part whose orientation is a fact
+  (a polarised part read by assembly, a connector's mouth).
 - Freedom, not order: file order never decides execution. How much a
   declaration left to find is DERIVED from the place you gave it
   (`at=Location`/`Centre` is `fixed`, `OnEdge` with `along` is `edge`, the
