@@ -223,6 +223,9 @@ def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None) -> Board:
     against it. A script that raises is a RunFailure naming its line."""
     from .kicad.read import read_board
     geometry = read_board(pcb or src.pcb, courtyard_excess_mm=fab.courtyard_excess)
+    from .pins import board_pin_names
+    import dataclasses as _dc
+    geometry = _dc.replace(geometry, pin_names=board_pin_names(src, Path(pcb or src.pcb).parent))
     board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size, keep_going=keep_going,
                   courtyard_excess=fab.courtyard_excess, settings=cfg, component_spacing=fab.component_spacing)
     try:

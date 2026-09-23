@@ -329,6 +329,13 @@ def cmd_measure(args) -> int:
                     l["box"][3] - l["box"][1], *l["box"]) for l in labels] or ["no labels on this board"]))
         return 0
     snap = read_board(pcb)
+    try:                                            # pin names, when the board's source is beside it
+        import dataclasses as _dc
+        from .pins import board_pin_names
+        src = find_board(p if p.suffix != ".kicad_pcb" else pcb.parent.parent)
+        snap = _dc.replace(snap, pin_names=board_pin_names(src, pcb.parent))
+    except (FileNotFoundError, ValueError, OSError):
+        pass
     items = args.items or sorted(snap.cells)
     docs, lines = [], []
     for name in items:

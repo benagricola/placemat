@@ -200,6 +200,7 @@ class BoardGeometry:
     hole_to_hole: float = 0.25            # the nearest two drilled holes may come, from the board's rules
     hole_clearance: float = 0.0           # a hole's clearance to copper of another net
     silk_clearance: float = 0.0           # silk to silk and to a mask opening, from the board's rules
+    pin_names: dict = field(default_factory=dict, compare=False)   # refdes -> {pad number: pin name}, from the symbols
     _by_ref: dict = field(default_factory=dict, repr=False, compare=False)
     _by_inst: dict = field(default_factory=dict, repr=False, compare=False)
 
@@ -232,7 +233,19 @@ class BoardGeometry:
             raise KeyError("no cell (group) named %r; cells: %s" % (name, sorted(self.cells)))
 
     def pad(self, part, key) -> PadGeom:
-        return self.footprint(part).pad(key)
+        fp = self.footprint(part)
+        kind, value = pad_key(key)
+        if kind != "pin":
+            return fp.pad(key)
+        names = self.pin_names.get(fp.ref, {})
+        numbers = sorted((n for n, name in names.items() if name == value), key=lambda n: (len(n), n))
+        if not numbers:
+            raise KeyError("%s has no pin named %r%s" % (
+                fp.ref, value, ("; its pins are %s" % ", ".join(sorted(set(names.values())))) if names
+                else ": no pin names were read for it (its symbol is not among the board's libraries)"))
+        if len(numbers) > 1:
+            raise KeyError("%s: pin %r is pads %s; name the pad by number" % (fp.ref, value, ", ".join(numbers)))
+        return fp.pad(int(numbers[0]) if numbers[0].isdigit() else numbers[0])
 
     def cell_pad(self, cell, *, net=None, number=None, ref_prefix=None) -> PadGeom:
         """One pad inside a cell, found by net or by number, optionally only on

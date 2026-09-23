@@ -49,7 +49,8 @@ def pad_facts(fp, pad, geometry=None) -> dict:
         attribute = "smd %s" % ("front" if next(iter(pad.layers)) is CopperLayer.F else "back")
     else:
         attribute = "smd"
-    return {"number": pad.number, "net": pad.net, "at": _xy(pad.box.center),
+    names = getattr(geometry, "pin_names", None) or {}
+    return {"number": pad.number, "pin": names.get(fp.ref, {}).get(pad.number), "net": pad.net, "at": _xy(pad.box.center),
             "size": _wh(pad.box), "through": pad.through, "attribute": attribute,
             "drill": round(pad.drill_mm, 3) if pad.through else None,
             "layers": sorted(l.value for l in pad.layers),
@@ -136,8 +137,8 @@ def part_lines(fp, geometry=None, pads: bool = False, digest: str = "") -> list:
         deep = max([len(s) for s in drills], default=0)
         for d, where, drill in zip(facts, wheres, drills):
             column = "%-*s" % (wide, where) + ("  %-*s" % (deep, drill) if deep else "")
-            lines.append("  pad %-5s %-14s %s  at (%.3f, %.3f)  %.3f x %.3f%s" % (
-                d["number"], d["net"] or "-", column,
+            lines.append("  pad %-5s %s%-14s %s  at (%.3f, %.3f)  %.3f x %.3f%s" % (
+                d["number"], ("%-12s " % d["pin"]) if d["pin"] else "", d["net"] or "-", column,
                 d["at"][0], d["at"][1], d["size"][0], d["size"][1],
                 ("  " + "/".join(d["mask_paste"])) if d["mask_paste"] else ""))
     return lines

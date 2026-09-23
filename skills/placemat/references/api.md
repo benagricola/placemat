@@ -135,7 +135,13 @@ board.link(PadRef(Part("c_bulk"), "V48"), PadRef(Part("rpf"), "V48_OUT"), weight
 board.place(Part("c_bulk"))                                             # seeds beside the FET, once it is down
 ```
 The step note reads `seeded on V48` and the achieved link lengths are in
-the run. A chain of small parts is the same thing repeated: each stage
+the run. A pad is named by number (`PadRef(part, 3)`), by net
+(`PadRef(part, "V48")`), or by the pin name its symbol gives it:
+`PadRef(Part("mcu"), pin="VDD3P3_CPU")`. Pin names are read from the
+symbols the board's .zen files use, through the generator's netlist; a name
+on several pads (a symbol's repeated GND) asks for the number instead, and
+`placemat measure <board> <part> --pads` prints each pad's pin name beside
+its number. A chain of small parts is the same thing repeated: each stage
 linked to the stage before it and the two ends linked to the real pads
 they terminate on, every stage a bare `place()`.
 

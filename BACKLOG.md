@@ -21,17 +21,6 @@ Features:
   library matter (`fetch_parts.py` does not normalise courtyards); noted,
   not placemat's. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 6.
 
-- **Pin names for pads.** `measure --pads` prints pad number and net only, so
-  a script linking bypass capacitors to supply pins had to read pin names from
-  an exported KiCad netlist, and an IC with several pads on one rail (a strap
-  pin beside the supply pin) cannot be told apart. Wanted: the pin name beside
-  the pad number in `measure --pads`, and `PadRef(part, pin="VDD")`. The
-  generated board and the `pcb` netlist (`layout/default.net`) carry no pin
-  names; the symbols (`.kicad_sym`) or a KiCad-exported netlist do, so the
-  first question is where placemat reads them from. Needs a spec.
-  Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "2026-09-22:
-  which pad is the supply pin".
-
 ## Housekeeping
 
 - `mnb-ecosystem/pyproject.toml` points placemat at the stale
@@ -40,6 +29,13 @@ Features:
 
 ## Done
 
+- **Pin names for pads** (unreleased): read from the symbols the .zen files
+  use (through the component's footprint, else the netlist's name);
+  `PadRef(part, pin=)` and pin names in `measure --pads`. 53 parts named on
+  the fairing core, the MCU's 57 pins among them. Spec:
+  `docs/superpowers/specs/2026-09-24-pin-names-design.md`. Source:
+  fairing-instrument `electronics/PLACEMAT_GAPS.md`, "2026-09-22: which pad
+  is the supply pin", "the power cells" item 4.
 - **Neighbours trade places in the cleanup pass** (unreleased): two
   neighbouring two-pad parts of any size are tried in each other's places,
   in any rotation each may take. Bench: 6 better, 0 worse. Source:

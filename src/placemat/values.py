@@ -328,12 +328,20 @@ class Cell:
         return self.name
 
 
+@dataclass(frozen=True)
+class PinName:
+    """A pad key by the name the part's symbol gives its pin."""
+    name: str
+
+
 def pad_key(key):
     """A pad is addressed by its NUMBER (an int) or by the NET on it (a str).
     A numeric string is neither, and is rejected rather than guessed. A net
     that several of the part's pads carry names the FIRST of them in pad
     order, the same one everywhere it is used, so an offset measured off a
     pad is applied through that pad; name the number to pick another."""
+    if isinstance(key, PinName):
+        return ("pin", key.name)
     if isinstance(key, bool):
         raise TypeError("pad key must be an int pad number or a net name, not %r" % (key,))
     if isinstance(key, int):
@@ -350,13 +358,21 @@ def pad_key(key):
 @dataclass(frozen=True)
 class PadRef:
     """A pad on a part, resolved to a location only after placement: the
-    part's pad by number (int) or by net (str). `dx`/`dy` offset the point."""
+    part's pad by number (int), by net (str), or `pin=` by the name its
+    symbol gives the pin. `dx`/`dy` offset the point."""
     part: Part
-    key: object
+    key: object = None
     dx: float = 0.0
     dy: float = 0.0
+    pin: str | None = None
 
     def __post_init__(self):
+        if self.pin is not None:
+            if self.key is not None:
+                raise TypeError("a PadRef names its pad one way: a key or pin=, not both")
+            object.__setattr__(self, "key", PinName(self.pin))
+        elif self.key is None:
+            raise TypeError("a PadRef needs a pad: a number, a net, or pin=")
         pad_key(self.key)
 
     def offset(self, dx: float = 0.0, dy: float = 0.0) -> "PadRef":
