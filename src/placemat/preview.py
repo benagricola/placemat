@@ -305,7 +305,10 @@ def draw(plan, faces=("front", "back"), heat: bool = True, links: bool = True, c
         box = region
     panels = [Face(f) if not isinstance(f, Face) else f for f in faces]
     total_w = len(panels) * box.width + (len(panels) - 1) * GAP + GAP + SIDE
-    side, side_h = _side(plan, LEFT + len(panels) * (box.width + GAP), HEAD)
+    # A close look is the region alone: the counts and the legend belong to the whole view.
+    side, side_h = _side(plan, LEFT + len(panels) * (box.width + GAP), HEAD) if region is None else ([], 0.0)
+    if region is not None:
+        total_w -= GAP + SIDE
     total_w += LEFT
     total_h = HEAD + max(box.height, side_h) + FOOT
     out = ['<?xml version="1.0" encoding="UTF-8"?>',

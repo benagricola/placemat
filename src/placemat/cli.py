@@ -496,6 +496,11 @@ def cmd_preview(args) -> int:
     console.say("preview", "svg %s" % result.svg)
     if result.png is not None:
         console.say("preview", "png %s" % result.png)
+        if result.model_edge:
+            console.say("preview", "a model that scales images to a %d px long edge ([preview] model_edge, an "
+                        "assumption) sees about %.0f px per mm%s" % (
+                            result.model_edge, result.seen_px_per_mm, "" if result.seen_px_per_mm >= 20 else
+                            ": too coarse for small passives and their gaps - look closer with --around or --zoom"))
     elif not args.svg:
         console.say("preview", "no png: %s" % result.png_problem)
     return 0

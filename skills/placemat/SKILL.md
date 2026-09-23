@@ -37,6 +37,17 @@ a footprint that draws no courtyard now claims its body rather than its pads.
    the finding name the metric. Read it before editing again - the best
    arrangement is still in `.placemat/runs/best.json`, and the edit you just
    made is the one that lost ground.
+   **Between runs, look with `placemat preview`**: the same placement in
+   seconds when little changed, drawn, without the write, DRC and render.
+   The whole board answers layout questions - free space, where a cluster
+   sits, a red over-limit link, the congestion hot spot, what did not place.
+   A whole board is likely scaled down before you see it - to a few pixels a
+   millimetre, too coarse to judge small passives or their gaps. For those
+   draw the region, `--around <part>` or `--zoom`: the preview reports the
+   resolution you would see if images are scaled to `[preview] model_edge`
+   pixels (set it to what your model does); aim for 20 px/mm or more (40 for
+   0201s). Gaps are numbers - `measure`, `occupancy`, the
+   findings - not pixels. Run `placemat run` to check before calling it done.
 2. **Before reading a board's numbers, run `placemat settings`.** The values
    it was laid out with may not be the defaults: a `placemat.toml` anywhere
    from the board's directory up to the filesystem root can set any of them,

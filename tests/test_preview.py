@@ -156,3 +156,10 @@ def test_placemat_preview_on_a_fixture_module_writes_both_and_reuses_on_a_second
     assert not (mod / ".placemat/runs/latest.json").exists()
     second = subprocess.run(exe, capture_output=True, text=True, timeout=600)
     assert "reused  all" in second.stdout, second.stdout
+
+
+def test_the_resolution_a_model_sees_after_downscaling():
+    from placemat.previewer import seen_px_per_mm
+    assert seen_px_per_mm(20.0, 10.0, 40.0) == pytest.approx(40.0)          # 800 px: kept as drawn
+    assert seen_px_per_mm(180.0, 90.0, 40.0) == pytest.approx(1568 / 180.0)  # 7200 px: scaled to 1568
+    assert seen_px_per_mm(180.0, 90.0, 40.0, edge=3600) == pytest.approx(20.0)

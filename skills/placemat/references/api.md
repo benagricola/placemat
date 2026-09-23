@@ -797,6 +797,30 @@ footprint with no board at all, in the footprint's own frame, and prints the
 file's SHA-256 so two variants of a part can be told apart; a pad read that way
 reports an attribute rather than layers, because a footprint has no stackup.
 
+`preview` places the board as a run does - the cached generation, the
+previous run's steps replayed - and draws it, without writing the board,
+running DRC or rendering it:
+
+```
+placemat preview <script> [--svg] [--face front|back|both] [--out DIR]
+                 [--zoom X0,Y0,X1,Y1 | --around PART [--margin MM]]
+                 [--no-heat] [--no-links] [--no-copper]
+```
+
+It writes `preview.svg` and, through `[preview] converter`, `preview.png` at
+`[preview] px_per_mm`, under `<board>/.placemat/preview/`, and prints the
+paths, the step counts, what it reused, the congestion line and the findings.
+Each face is a panel, the back mirrored as seen from the front, on a
+millimetre grid: the board, keepouts and reservations, each part's pads,
+courtyard, fab body, silk and reference, planned copper, declared links
+(green within their limit, red over it, with their lengths), parts that took
+a pocket, the congestion heat map with its worst cell, and a column with the
+parts not placed and why. `--zoom` and `--around` draw one region of each
+face. A preview writes no run record; `placemat run` is still what checks the
+board. It also prints the resolution a model reading the PNG sees: an
+image's long edge is scaled to about 1568 px before a model reads it, so a
+whole board comes through at a few pixels a millimetre.
+
 `parts` answers "what are the parts called": one line per footprint with its
 cell, courtyard area, pin count and value. The area and the pin count are what
 the placement rank is worked out from, so the listing also explains the order
@@ -983,6 +1007,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `solve.rounds` | 8 | solve-then-spread rounds, the pull toward the spread doubling each round |
 | `preview.converter` | "rsvg-convert --width {width} -o {png} {svg}" | the command `placemat preview` runs to turn its SVG into a PNG; `{svg}`, `{png}` and `{width}` are filled in |
 | `preview.px_per_mm` | 40.0 | the preview PNG's resolution, pixels per millimetre of the drawing |
+| `preview.model_edge` | 1568 | the long edge, in pixels, an image is scaled to before the model reading it sees it - an assumption about that model, which placemat cannot know; the preview reports the resolution the model would then see. 0 reports nothing |
 | `cleanup.enabled` | true | after the searched tier, move and swap plain searched parts where that shortens their wire and declared links |
 | `cleanup.passes` | 2 | passes over the movable parts; one that changes nothing ends it |
 | `cleanup.radius` | 3.0 | how far round its optimal region, and round where it stands, a part is searched |

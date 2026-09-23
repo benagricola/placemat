@@ -23,6 +23,8 @@ class Preview:
     plan: object = None
     reused: str = ""
     lines: list = field(default_factory=list)
+    seen_px_per_mm: float = 0.0
+    model_edge: int = 0
 
 
 def converter_command(template: str, svg, png, width: int) -> list:
@@ -63,6 +65,19 @@ def newest_record(candidates) -> tuple:
         if best is None or stamp > best[0]:
             best = (stamp, record, label)
     return (best[1], best[2]) if best else (None, None)
+
+
+def seen_px_per_mm(width_mm: float, height_mm: float, px_per_mm: float, edge: int = 1568) -> float:
+    """The resolution a model reading the PNG sees if it scales an image's
+    long edge down to `edge` pixels before reading it - [preview] model_edge,
+    an assumption about the model, which placemat cannot know."""
+    long_px = max(width_mm, height_mm) * px_per_mm
+    return px_per_mm * min(1.0, edge / long_px) if long_px > 0 else px_per_mm
+
+
+def svg_size_mm(svg_text: str) -> tuple:
+    m = re.search(r'viewBox="[-0-9.]+ [-0-9.]+ ([0-9.]+) ([0-9.]+)"', svg_text)
+    return (float(m.group(1)), float(m.group(2))) if m else (100.0, 100.0)
 
 
 def svg_width_mm(svg_text: str) -> float:
@@ -119,6 +134,10 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
             if png.exists():
                 png.unlink()
             width = int(math.ceil(svg_width_mm(text) * cfg.preview_px_per_mm))
+            if cfg.preview_model_edge > 0:
+                result.seen_px_per_mm = seen_px_per_mm(*svg_size_mm(text), cfg.preview_px_per_mm,
+                                                       cfg.preview_model_edge)
+                result.model_edge = cfg.preview_model_edge
             result.png_problem = convert(cfg.preview_converter, svg, png, width)
             result.png = None if result.png_problem else png
     return result

@@ -31,6 +31,13 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **placemat preview** (0.27.0): the plan drawn without building the board,
+  with links, pockets, unplaced parts, copper and a congestion heat map;
+  core board unchanged preview 5.3 s. A part not yet placed no longer blocks
+  pockets, copper checks or cutouts; RUDY without pad blockage.
+- **Code quality pass** (0.26.x): dead code, helpers for repeated code,
+  stale docstrings, reuse keys without memory addresses.
+
 - **Run reuse** (0.26.0): replay up to the first changed step, exact. Core
   board: unchanged rerun 125 s -> 7 s; a late part changed 118 s -> 24 s.
 - **Speed** (0.26.0): block satellites from cached shapes, a raster for

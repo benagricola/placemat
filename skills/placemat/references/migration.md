@@ -4,6 +4,14 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.27
+
+Nothing to change. `placemat preview` is new: the placement drawn in
+seconds, without building the board (see the API reference). Pads no longer
+take capacity in the congestion measure, so `metrics.rudy` reads lower where
+large pads were; a part not yet placed no longer blocks a pocket, a planned
+track or a cutout, which can let a board place parts it could not before.
+
 ## To 0.26
 
 - The cleanup pass defaults to 2 passes at a 0.5 mm step (was 3 at 0.25): a
