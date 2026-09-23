@@ -14,10 +14,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 Bugs, each checked against the code on 2026-09-23 (reproduced where it says so):
 
-- **A `Layout()` fragment gets default rules** (silk clearance 0, stdlib
-  netclass) unless it declares a board config. Probably a generator
-  (`pcb`) matter; to confirm. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 3.
-
 Features:
 
 - **`[drc] severities`**: a table placemat writes into the generated
@@ -60,6 +56,10 @@ Features:
 
 ## Done
 
+- **A fragment laid out by default rules is named** (unreleased): the rules
+  come from the generator (`pcb`); a run notes a board whose silk clearance
+  is 0 and the skill says to give a fragment the parent's config. Source:
+  fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 3.
 - **Courtyards judged as KiCad judges them** (unreleased): measured, KiCad's
   DRC counts touching courtyards as overlapping and its polygon lies inside
   the drawn box (by 0.03 for a 0.05 stroke). Each footprint's margin is

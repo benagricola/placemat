@@ -169,6 +169,11 @@ coordinates nobody chose.
   three drops are three lines, not a loop; two ends are two blocks, not a
   table of dicts. A short function called once per thing is fine when its
   name says what it lays out. No globals, no helpers defined inside a phase.
+- A module fragment (`Layout(name=, path=)`) is generated, and so laid out,
+  by its own board's rules: without `Board(..., config=)` in its .zen that
+  is the stdlib's defaults (no silk clearance, the default netclass), not
+  the rules of the board that stamps it. Give the fragment the parent's
+  config; a run says so when the silk clearance it reads is 0.
 - Leave a searched part's rotation out unless its turn matters: the
   search tries all four and keeps the one that puts its pads nearest what
   they connect to. Say `rotation=` for a part whose orientation is a fact

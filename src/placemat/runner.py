@@ -191,6 +191,19 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
                     route_exclude=route_exclude, keep_going=keep_going, reuse=reuse)
 
 
+def rule_notes(geometry) -> list:
+    """What the generated board's own rules leave unchecked. A module
+    fragment declared with Layout() and no board config is generated with
+    the stdlib's defaults - no silk clearance among them - and is laid out
+    by those, not by the board that stamps it."""
+    notes = []
+    if not geometry.silk_clearance:
+        notes.append("the generated board's minimum silk clearance is 0, so nothing keeps silk apart; a module "
+                     "fragment is generated with the stdlib's default rules unless its .zen declares "
+                     "Board(..., config=) with the rules of the board that stamps it")
+    return notes
+
+
 def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None) -> Board:
     """The generated board read (`pcb`, else the board's own file), a Board
     over it with this board's fab profile and settings, and the script run
@@ -281,6 +294,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
 
         t0 = time.time()
         board = scripted_board(script, src, cfg, fab, keep_going)
+        for note in rule_notes(board.geometry):
+            say("note", note)
         log_lines = []
 
         from .layout import STEP_HEADER
