@@ -86,6 +86,7 @@ pub struct Shape {
     pub owner: String,
     pub owner_is_footprint: bool, // owner in Occupancy._footprint_refs (== "in self.items", see module doc)
     pub is_lead: bool,  // (owner, label) in Occupancy._leads: a through pad standing proud of the far face
+    pub margin: f64,    // Occupancy._margins.get(owner, 0.0): how far KiCad's own courtyard lies inside courtyard_box
 }
 
 pub struct ConflictConfig {
@@ -163,9 +164,17 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
         let depth = (s.bbox.2.min(o.bbox.2) - s.bbox.0.max(o.bbox.0))
             .min(s.bbox.3.min(o.bbox.3) - s.bbox.1.max(o.bbox.1));
         let has_width = (s.bbox.2 - s.bbox.0) > 0.0 && (o.bbox.2 - o.bbox.0) > 0.0;
+        // KiCad's own courtyard polygon lies inside courtyard_box by each
+        // part's margin, so two boxes can overlap by up to the sum of their
+        // margins (less a stroke-width fudge) while KiCad's own courtyards
+        // still only touch. place_courtyard_touch alone is the floor - a
+        // plain "may touch" allowance - not the whole story (placemat
+        // commit "Courtyards may overlap by the margin KiCad's own lie
+        // inside them"; the flat-threshold-only version was c785a04).
+        let allowed = cfg.touch.max(s.margin + o.margin - 0.001);
         // to a nanometre: depth is a difference of coordinates, and exactly
-        // the allowance must not read as more (placemat commit c785a04).
-        if depth <= cfg.touch + 1e-9 && has_width {
+        // the allowance must not read as more.
+        if depth <= allowed + 1e-9 && has_width {
             return false;
         }
         return (s.faces & o.faces) != 0 && polys_overlap(&s.poly, &o.poly);
@@ -292,8 +301,14 @@ mod tests {
 
     fn shape_ex(kind: Kind, owner: &str, poly: Vec<Point>, faces: u8, layers: u32, net: &str,
                 owner_is_footprint: bool, is_lead: bool) -> Shape {
+        shape_margin(kind, owner, poly, faces, layers, net, owner_is_footprint, is_lead, 0.0)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn shape_margin(kind: Kind, owner: &str, poly: Vec<Point>, faces: u8, layers: u32, net: &str,
+                    owner_is_footprint: bool, is_lead: bool, margin: f64) -> Shape {
         let bbox = bounds(&poly);
-        Shape { kind, faces, layers, net: net.into(), poly, bbox, owner: owner.into(), owner_is_footprint, is_lead }
+        Shape { kind, faces, layers, net: net.into(), poly, bbox, owner: owner.into(), owner_is_footprint, is_lead, margin }
     }
 
     fn bounds(poly: &[Point]) -> Bounds {
@@ -326,6 +341,26 @@ mod tests {
         let a = shape(Kind::Courtyard, "U1", rect(0.0, 0.0, 2.0, 2.0), 1, 0, "", true);
         let b = shape(Kind::Courtyard, "U2", rect(2.0, 0.0, 2.0, 2.0), 1, 0, "", true); // touching edge
         assert!(!conflict(&a, &b, None, &cfg()));
+    }
+
+    #[test]
+    fn courtyards_overlapping_by_less_than_their_combined_margin_do_not_conflict() {
+        // Each box reaches 0.05mm past its part's real (KiCad) courtyard.
+        // Two such boxes can overlap by up to their margins summed (less
+        // the 0.001 fudge) while the real courtyards only touch.
+        let a = shape_margin(Kind::Courtyard, "U1", rect(0.0, 0.0, 2.0, 2.0), 1, 0, "", true, false, 0.05);
+        let b = shape_margin(Kind::Courtyard, "U2", rect(1.95, 0.0, 2.0, 2.0), 1, 0, "", true, false, 0.05);
+        // overlap depth: a.right=1.0, b.left=0.95 -> depth 0.05, under
+        // allowed = max(touch, 0.05+0.05-0.001) = 0.099.
+        assert!(!conflict(&a, &b, None, &cfg()));
+    }
+
+    #[test]
+    fn courtyards_overlapping_by_more_than_their_combined_margin_conflict() {
+        let a = shape_margin(Kind::Courtyard, "U1", rect(0.0, 0.0, 2.0, 2.0), 1, 0, "", true, false, 0.05);
+        let b = shape_margin(Kind::Courtyard, "U2", rect(1.8, 0.0, 2.0, 2.0), 1, 0, "", true, false, 0.05);
+        // depth = 1.0 - 0.8 = 0.2, over allowed = 0.099.
+        assert!(conflict(&a, &b, None, &cfg()));
     }
 
     #[test]

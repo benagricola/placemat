@@ -26,7 +26,7 @@ def _box_poly(b):
 
 def footprint(ref, cx, cy, w=4.0, h=2.0, nets=("A", "B"), through=False, face=Face.FRONT,
               rotation=0.0, cell=None, inst=None, excess=0.1, fields=None, silk=(0.0, 0.0, 0.0, 0.0),
-              silk_boxes=(), fab=None, mask_grow=None):
+              silk_boxes=(), fab=None, mask_grow=None, courtyard_margin=0.0):
     """A two-pad part: pad 1 at the west end, pad 2 at the east end (rotation 0).
     `silk` is how far drawn graphics reach past the body: (west, north, east, south)."""
     inst = inst or ref.lower()
@@ -47,7 +47,7 @@ def footprint(ref, cx, cy, w=4.0, h=2.0, nets=("A", "B"), through=False, face=Fa
         phys = Box.union([phys] + extra)
     return Footprint(ref, inst, cell, ref, Location(cx, cy), rotation, face,
                      body, body.inflate(excess), phys, pads, fields=dict(fields or {}),
-                     silk=silk_polys, mask=mask_polys, fab=fab_polys)
+                     silk=silk_polys, mask=mask_polys, fab=fab_polys, courtyard_margin=courtyard_margin)
 
 
 def board_geometry(footprints, cells=(), copper=(), width=50.0, height=50.0, clearance=0.2, extra_nets=(),

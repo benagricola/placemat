@@ -29,15 +29,18 @@ fn point_segment_distance(p: Point, a: Point, b: Point) -> f64 {
 
 /// A `shapes::Shape` as a plain tuple, for tests to build from Python
 /// without going through `Occupancy` at all: (kind, faces, layers, net,
-/// poly, owner, owner_is_footprint, is_lead). `faces` bit 0 = front, bit 1
-/// = back; `layers` a bitmask (only its zero-ness matters to `conflict`, so
-/// any nonzero value works in a test that never mixes it with a real layer
-/// set). `owner` is compared directly (the courtyard-vs-lead rule needs
-/// "is this the SAME part's own lead"), not just hashed/bucketed.
-type PyShape = (String, u8, u32, String, Vec<Point>, String, bool, bool);
+/// poly, owner, owner_is_footprint, is_lead, margin). `faces` bit 0 = front,
+/// bit 1 = back; `layers` a bitmask (only its zero-ness matters to
+/// `conflict`, so any nonzero value works in a test that never mixes it
+/// with a real layer set). `owner` is compared directly (the
+/// courtyard-vs-lead rule needs "is this the SAME part's own lead"), not
+/// just hashed/bucketed. `margin` is Occupancy._margins.get(owner, 0.0) -
+/// only meaningful for a courtyard shape, but carried on every shape for a
+/// uniform tuple shape.
+type PyShape = (String, u8, u32, String, Vec<Point>, String, bool, bool, f64);
 
 fn build_shape(t: &PyShape) -> PyResult<shapes::Shape> {
-    let (kind_s, faces, layers, net, poly, owner, owner_is_footprint, is_lead) = t;
+    let (kind_s, faces, layers, net, poly, owner, owner_is_footprint, is_lead, margin) = t;
     let kind = shapes::Kind::from_str(kind_s)
         .ok_or_else(|| PyValueError::new_err(format!("unknown shape kind {kind_s:?}")))?;
     let bbox = geometry_bounds(poly);
@@ -51,6 +54,7 @@ fn build_shape(t: &PyShape) -> PyResult<shapes::Shape> {
         owner: owner.clone(),
         owner_is_footprint: *owner_is_footprint,
         is_lead: *is_lead,
+        margin: *margin,
     })
 }
 

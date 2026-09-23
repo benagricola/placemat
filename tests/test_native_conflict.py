@@ -39,29 +39,30 @@ def _encode_layers(layers) -> int:
     return bits
 
 
-def _py_shape(s: Shape, owner_is_footprint: bool, is_lead: bool = False):
+def _py_shape(s: Shape, owner_is_footprint: bool, is_lead: bool = False, margin: float = 0.0):
     return (s.kind, _encode_faces(s.faces), _encode_layers(s.layers), s.net or "", tuple(s.poly), s.owner,
-            owner_is_footprint, is_lead)
+            owner_is_footprint, is_lead, margin)
 
 
 def _all_shapes(occ: Occupancy):
     """Every Shape the occupancy currently holds, paired with whether its
     owner is a footprint (== occ._footprint_refs, confirmed equal to "in
     occ.items" since every footprint is pre-registered in __init__ and no
-    other owner is ever added to occ.items) and whether it is one of
-    occ._leads. Adds a synthetic npth shape (none of the fixture footprints
-    draw one) so the courtyard-over-npth, npth-cuts-copper and body/npth
-    rules get covered too."""
+    other owner is ever added to occ.items), whether it is one of
+    occ._leads, and its owner's courtyard margin. Adds a synthetic npth
+    shape (none of the fixture footprints draw one) so the
+    courtyard-over-npth, npth-cuts-copper and body/npth rules get covered
+    too."""
     out = []
     for owner, g in occ.items.items():
         for s in g.shapes:
-            out.append((s, owner in occ._footprint_refs, (s.owner, s.label) in occ._leads))
+            out.append((s, owner in occ._footprint_refs, (s.owner, s.label) in occ._leads, occ._margins.get(owner, 0.0)))
     for c in occ.copper:
-        out.append((c, c.owner in occ._footprint_refs, (c.owner, c.label) in occ._leads))
+        out.append((c, c.owner in occ._footprint_refs, (c.owner, c.label) in occ._leads, occ._margins.get(c.owner, 0.0)))
     hole_poly = tuple((10.0 + 0.4 * math.cos(2 * math.pi * i / 12), 10.0 + 0.4 * math.sin(2 * math.pi * i / 12))
                       for i in range(12))
     hole = Shape("U1", "npth", frozenset([Face.FRONT, Face.BACK]), frozenset(CopperLayer), "", hole_poly, Box.of_points(hole_poly))
-    out.append((hole, True, False))
+    out.append((hole, True, False, 0.0))
     return out
 
 
@@ -109,14 +110,14 @@ def test_conflict_agrees_with_python_on_randomised_shape_pairs(envelope):
     mismatches = []
     n = 0
     for _ in range(20000):
-        (s, s_is_fp, s_is_lead), (o, o_is_fp, o_is_lead) = rnd.choice(shapes), rnd.choice(shapes)
+        (s, s_is_fp, s_is_lead, s_margin), (o, o_is_fp, o_is_lead, o_margin) = rnd.choice(shapes), rnd.choice(shapes)
         dx, dy = rnd.uniform(-3, 3), rnd.uniform(-3, 3)
         s_moved = _shifted(s, dx, dy) if rnd.random() < 0.5 else s
         o_moved = _shifted(o, dx * rnd.uniform(-1, 1), dy * rnd.uniform(-1, 1)) if rnd.random() < 0.5 else o
         clearance = rnd.choice([None, None, None, 0.1, 0.3])
         py = occ._conflict(s_moved, o_moved, clearance) is not None
-        native = placemat_native.conflict(_py_shape(s_moved, s_is_fp, s_is_lead), _py_shape(o_moved, o_is_fp, o_is_lead),
-                                          clearance, **cfg)
+        native = placemat_native.conflict(_py_shape(s_moved, s_is_fp, s_is_lead, s_margin),
+                                          _py_shape(o_moved, o_is_fp, o_is_lead, o_margin), clearance, **cfg)
         n += 1
         if py != native:
             mismatches.append((s_moved.kind, o_moved.kind, dx, dy, clearance, py, native))
@@ -130,12 +131,12 @@ def test_conflict_agrees_with_vias_blocking_courtyards():
     rnd = random.Random(7)
     mismatches = []
     for _ in range(6000):
-        (s, s_is_fp, s_is_lead), (o, o_is_fp, o_is_lead) = rnd.choice(shapes), rnd.choice(shapes)
+        (s, s_is_fp, s_is_lead, s_margin), (o, o_is_fp, o_is_lead, o_margin) = rnd.choice(shapes), rnd.choice(shapes)
         dx, dy = rnd.uniform(-1, 1), rnd.uniform(-1, 1)
         o_moved = _shifted(o, dx, dy)
         py = occ._conflict(s, o_moved, None) is not None
-        native = placemat_native.conflict(_py_shape(s, s_is_fp, s_is_lead), _py_shape(o_moved, o_is_fp, o_is_lead),
-                                          None, **cfg)
+        native = placemat_native.conflict(_py_shape(s, s_is_fp, s_is_lead, s_margin),
+                                          _py_shape(o_moved, o_is_fp, o_is_lead, o_margin), None, **cfg)
         if py != native:
             mismatches.append((s.kind, o_moved.kind, dx, dy))
     assert not mismatches
@@ -162,11 +163,45 @@ def test_conflict_agrees_on_a_courtyard_over_another_parts_lead():
     assert (py is not None) == native
 
 
+def test_conflict_agrees_on_courtyards_overlapping_by_their_kicad_margin():
+    """A positive control for the margin allowance (placemat commit
+    "Courtyards may overlap by the margin KiCad's own lie inside them"):
+    two REAL footprints with a courtyard_margin (so occ._margins carries
+    both, exactly as a real board would), their courtyard_box overlapping
+    by less than the two margins summed, must be legal in both engines -
+    and overlapping by more than that must conflict in both.
+
+    R1's courtyard_box right edge sits at 10 + 4/2 + 0.1 (default excess) =
+    12.1; R2's left edge at cx2 - 4/2 - 0.1 = cx2 - 2.1. Overlap depth =
+    12.1 - (cx2 - 2.1) = 14.2 - cx2. allowed = max(touch, 0.05+0.05-0.001)
+    = 0.099."""
+    for cx2, want_conflict in ((14.15, False), (14.05, True)):  # depth 0.05, 0.15
+        occ = occ_with(footprint("R1", 10, 10, w=4, h=2, courtyard_margin=0.05),
+                       footprint("R2", cx2, 10, w=4, h=2, courtyard_margin=0.05), width=60)
+        cfg = _cfg_kwargs(occ)
+        r1 = occ.items["R1"].shapes[0]
+        r2 = occ.items["R2"].shapes[0]
+        assert r1.kind == "courtyard" and r2.kind == "courtyard"
+        py = occ._conflict(r1, r2, None)
+        native = placemat_native.conflict(_py_shape(r1, True, False, occ._margins["R1"]),
+                                          _py_shape(r2, True, False, occ._margins["R2"]), None, **cfg)
+        assert (py is not None) == want_conflict, "python: cx2 %.2f" % cx2
+        assert native == want_conflict, "native: cx2 %.2f" % cx2
+        assert (py is not None) == native
+
+
 def test_conflict_agrees_at_the_courtyard_touch_boundary():
     """The c785a04 epsilon: two courtyards overlapping by exactly
     place.courtyard_touch must not conflict, even when the depth reads as
-    0.0200000000000013 from rounding."""
-    occ = occ_with(footprint("R1", 11.9, 10), width=60)
+    0.0200000000000013 from rounding. place_courtyard_touch's own default is
+    0.0 now (real boards get their touch allowance from courtyard_margin
+    instead - see test_conflict_agrees_on_courtyards_overlapping_by_their_kicad_margin),
+    so this sets it explicitly to keep testing the flat-threshold epsilon
+    the setting itself still has to honour."""
+    import dataclasses
+    from placemat.settings import Settings
+    settings = dataclasses.replace(Settings(), place_courtyard_touch=0.02)
+    occ = Occupancy(board_geometry([footprint("R1", 11.9, 10)], width=60), edge_margin=1.0, settings=settings)
     cfg = _cfg_kwargs(occ)
     r1 = occ.items["R1"].shapes[0]
     assert r1.kind == "courtyard"

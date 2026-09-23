@@ -40,7 +40,7 @@ class Shape:
 # A Shape as a plain tuple, for the optional native accelerator (kind,
 # faces as a bitmask, layers as a bitmask, net, poly, owner, whether the
 # owner is a footprint this Occupancy knows, whether (owner, label) is one
-# of its leads) - see _to_native_shape and
+# of its leads, the owner's courtyard margin) - see _to_native_shape and
 # docs/superpowers/specs/2026-09-24-native-core-design.md ("Phase 2"). The
 # bit assignments only need to be consistent within one call; they carry no
 # meaning outside this module.
@@ -58,19 +58,20 @@ def _native_layers(layers: frozenset) -> int:
     return bits
 
 
-def _to_native_shape(s: Shape, footprint_refs: frozenset, leads: frozenset) -> tuple:
+def _to_native_shape(s: Shape, footprint_refs: frozenset, leads: frozenset, margins: dict) -> tuple:
     return (s.kind, _native_faces(s.faces), _native_layers(s.layers), s.net or "", tuple(s.poly), s.owner,
-            s.owner in footprint_refs, (s.owner, s.label) in leads)
+            s.owner in footprint_refs, (s.owner, s.label) in leads, margins.get(s.owner, 0.0))
 
 
-def _to_native_shape_shifted(s: Shape, dx: float, dy: float, footprint_refs: frozenset, leads: frozenset) -> tuple:
+def _to_native_shape_shifted(s: Shape, dx: float, dy: float, footprint_refs: frozenset, leads: frozenset,
+                             margins: dict) -> tuple:
     """As `_to_native_shape`, but for an origin-turned shape moved by
     `(dx, dy)` - without building the intermediate `Shape` (with its box and
     a real polygon copy) a caller that only wants the native tuple, not the
     Shape object, does not need."""
     poly = tuple([(x + dx, y + dy) for x, y in s.poly])  # tuple(a list comp) beats tuple(a genexpr): no frame suspension per point
     return (s.kind, _native_faces(s.faces), _native_layers(s.layers), s.net or "", poly, s.owner,
-            s.owner in footprint_refs, (s.owner, s.label) in leads)
+            s.owner in footprint_refs, (s.owner, s.label) in leads, margins.get(s.owner, 0.0))
 
 
 @dataclass(frozen=True)
@@ -560,8 +561,9 @@ class Occupancy:
             return hit
         shapes = [s for owner, g in self.items.items() if owner not in skip for s in g.shapes]
         shapes += [c for c in self.copper if c.owner not in skip]
-        index = native.NativeObstacles([_to_native_shape(s, self._footprint_refs, self._leads) for s in shapes],
-                                       **self._native_conflict_kwargs())
+        index = native.NativeObstacles(
+            [_to_native_shape(s, self._footprint_refs, self._leads, self._margins) for s in shapes],
+            **self._native_conflict_kwargs())
         entry = (index, shapes)
         self._native_obstacle_cache[skip] = entry
         return entry
@@ -644,7 +646,8 @@ class Occupancy:
             native_index, native_shapes = native_entry
             origin_shapes = list(self._origin_shapes(item, geom, placement))
             hit = native_index.first_conflict(
-                [_to_native_shape_shifted(s, dx, dy, self._footprint_refs, self._leads) for s in origin_shapes], clearance)
+                [_to_native_shape_shifted(s, dx, dy, self._footprint_refs, self._leads, self._margins)
+                 for s in origin_shapes], clearance)
             if hit is None:
                 return None
             si, oi = hit

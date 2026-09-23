@@ -339,6 +339,50 @@ Python-side registration), which is more Rust surface than this round's
 budget covered carefully. Flagged for the user rather than built in a
 rush.
 
+### Kept in sync with upstream: the margin allowance (rebase onto "Courtyards may overlap by the margin KiCad's own lie inside them")
+
+Main's courtyard-vs-courtyard touch rule stopped being a flat threshold:
+`place_courtyard_touch`'s own default dropped to 0.0, and each footprint
+now carries `courtyard_margin` (how far KiCad's own courtyard polygon lies
+inside `courtyard_box`); the allowed overlap is
+`max(place_courtyard_touch, margins[a] + margins[b] - 0.001)`, read off
+`Occupancy._margins` (a `{ref: margin}` dict, only entries with a nonzero
+margin). Ported: `shapes::Shape` gained a `margin: f64` field (like
+`owner_is_footprint` and `is_lead`, computed once at marshal time, since
+`_margins` is fixed for an Occupancy's life); `conflict()`'s
+courtyard-courtyard branch computes the same `allowed` expression, in the
+same order, before the same `+ 1e-9` boundary comparison. `PyShape` grew
+from an 8-tuple to a 9-tuple; every builder
+(`_to_native_shape(_shifted)`, both native test files' tuple helpers)
+updated together, same pattern as the lead-rule change before it.
+
+One pre-existing test broke on the rebase, unrelated to native:
+`test_conflict_agrees_at_the_courtyard_touch_boundary` asserted an exact
+epsilon case that depended on `place_courtyard_touch`'s OLD default
+(0.02); with the default now 0.0 and no margin on its synthetic footprint,
+the pure-Python `Occupancy._conflict` itself started calling that case a
+real overlap (correctly - a flat 0.0 touch setting no longer forgives it,
+by design). Fixed by setting `place_courtyard_touch` explicitly in that
+test rather than relying on the default, which restores the epsilon case
+it was written to check without depending on a value the project has since
+changed on purpose.
+
+New coverage: `native/src/shapes.rs` unit tests for overlapping by less
+than / more than the combined margin; `tests/test_native_conflict.py`'s
+`test_conflict_agrees_on_courtyards_overlapping_by_their_kicad_margin`, a
+positive control with two REAL footprints carrying `courtyard_margin` (so
+`occ._margins` is populated the way a real board populates it, not a
+hand-built dict), checked on both sides of the boundary in both engines.
+`test_the_actual_wired_legal_agrees_with_itself_native_on_and_off`
+already exercises this on real fixture boards (their footprints' real,
+KiCad-read `courtyard_margin` values) without needing any change - the
+strongest coverage here, since it calls the shipped `Occupancy.legal()`
+both ways, not a re-implementation.
+
+`pytest -q` and `PLACEMAT_NATIVE=0 pytest -q`: both green.
+`fixtures/bench.py --jobs 4`: `same 32` in every config against main's
+current `fixtures/bench.json`.
+
 ### Proposed further stages (not started; for the user to confirm)
 
 A later request asked for the whole performance-critical core to move to
