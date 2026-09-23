@@ -112,3 +112,47 @@ def test_a_part_not_yet_placed_conflicts_with_no_copper_and_covers_no_board():
     occ.pending |= {"BIG"}
     assert occ.copper_conflicts(track) == []
     assert occ.free_area(Face.FRONT) > before
+
+
+def _tee():
+    """A 20 x 20 board whose free room is a T: a 20 x 3 bar along the top and
+    a 4-wide stem down the middle, the stem the bigger rectangle."""
+    fps = [footprint("L1", 4, 11.5, w=8, h=17, inst="l1", excess=0.0),       # x 0..8, y 3..20
+           footprint("R1", 16, 11.5, w=8, h=17, inst="r1", excess=0.0),      # x 12..20, y 3..20
+           footprint("Q1", 60, 60, w=9.6, h=2.4, inst="q1", excess=0.0)]
+    occ = Occupancy(board_geometry(fps, width=20, height=20), edge_margin=0.0)
+    for fp in fps[:2]:
+        occ.commit(fp, Placement(fp.location, 0.0, Face.FRONT))
+    return occ
+
+
+def test_a_pocket_is_found_where_the_item_fits_though_a_bigger_one_does_not():
+    occ = _tee()
+    found = pockets(occ, width=10.0, height=2.5, face=Face.FRONT, step=0.5)
+    assert found and found[0].box.width >= 10.0 and found[0].box.height >= 2.5
+    assert found[0].box.bottom <= 3.0 + 1e-9                                    # the bar, not the stem
+    assert pockets(occ, width=5.0, height=5.0, face=Face.FRONT, step=0.5) == []
+
+
+def test_a_gap_off_the_grid_is_not_lost_to_rounding():
+    """Walls at 5.25 and 8.25 leave exactly 3 mm; rounding each wall out to the
+    0.5 mm grid left 2.5, and the check before a search called a 3 mm part
+    hopeless. That check rounds toward room."""
+    fps = [footprint("W1", 2.625, 10, w=5.25, h=20, inst="w1", excess=0.0),
+           footprint("W2", 14.125, 10, w=11.75, h=20, inst="w2", excess=0.0)]
+    occ = Occupancy(board_geometry(fps, width=20, height=20), edge_margin=0.0)
+    for fp in fps:
+        occ.commit(fp, Placement(fp.location, 0.0, Face.FRONT))
+    assert pockets(occ, width=3.0, height=3.0, face=Face.FRONT, step=0.5, covered=True)
+
+
+def test_an_item_that_fits_the_smaller_room_is_placed_there():
+    fps = [footprint("L1", 4, 11.5, w=8, h=17, inst="l1", excess=0.0),
+           footprint("R1", 16, 11.5, w=8, h=17, inst="r1", excess=0.0),
+           footprint("Q1", 60, 60, w=9.6, h=2.4, inst="q1", nets=("P", "Z"), excess=0.0)]
+    b = Board(board_geometry(fps, width=20, height=20), edge_margin=0.0)
+    b.place(Part("l1"), at=Location(4, 11.5))
+    b.place(Part("r1"), at=Location(16, 11.5))
+    b.place(Part("q1"), rotation=0)
+    plan = b.resolve()
+    assert plan.placement("q1") is not None, plan.step("q1").note

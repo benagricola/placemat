@@ -2831,7 +2831,7 @@ class Board:
         envs = []
         for rot in (self._turns(i)):
             env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, i.face))
-            if pockets(occ, env.width, env.height, i.face, step=max(i.step, 0.5), limit=1):
+            if pockets(occ, env.width, env.height, i.face, step=max(i.step, 0.5), limit=1, covered=True):
                 return ""
             envs.append(env)
         env = envs[0]

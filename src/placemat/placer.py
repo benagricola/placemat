@@ -10,7 +10,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 import math
 
-from .geometry import polys_overlap, transform_box
+from .geometry import _rect_of, point_in_polygon, polys_overlap, transform_box
 from .occupancy import Occupancy, ShapeIndex
 from .placement import Placement
 from .values import Box, Edge, Face, Location, bearing_vector, box_support
@@ -294,9 +294,11 @@ class Pocket:
     face: Face
 
 
-def _largest_rectangle(free, rows, cols):
-    """Largest all-free axis-aligned rectangle in a boolean grid, by the
-    histogram method. Returns (area, r0, c0, r1, c1) exclusive, or None."""
+def _largest_rectangle(free, rows, cols, need_r: int = 1, need_c: int = 1):
+    """Largest all-free axis-aligned rectangle in a boolean grid at least
+    `need_r` rows by `need_c` columns, by the histogram method. Every maximal
+    free rectangle is met on its bottom row, so the largest that meets the
+    size is among them. Returns (area, r0, c0, r1, c1) exclusive, or None."""
     heights = [0] * cols
     best = None
     for r in range(rows):
@@ -309,78 +311,134 @@ def _largest_rectangle(free, rows, cols):
             while stack and stack[-1][1] >= h:
                 s, sh = stack.pop()
                 area = sh * (c - s)
-                if sh and (best is None or area > best[0]):
+                if sh >= need_r and c - s >= need_c and (best is None or area > best[0]):
                     best = (area, r - sh + 1, s, r + 1, c)
                 start = s
             stack.append((start, h))
     return best
 
 
-def _board_mask(occ: Occupancy, inner: Box, rows: int, cols: int, step: float) -> list:
+def _board_mask(occ: Occupancy, inner: Box, rows: int, cols: int, step: float, covered: bool = False) -> list:
     """Which raster cells lie on the board. On a board that is not a
-    rectangle only the cells inside it are free, and testing each against
-    the outline is most of a raster's cost; the answer depends only on the
-    outline, the margin and the grid, so it is kept on the occupancy."""
+    rectangle a cell the outline crosses is out, or with `covered` in: then
+    a cell is out only when no corner and not its centre may be used, so no
+    room is lost to the raster. The answer depends only on the outline, the
+    margin and the grid, so it is kept on the occupancy."""
     shape = occ.board_shape
-    key = (id(shape), occ.edge_margin, inner, rows, cols, step)
+    key = (id(shape), occ.edge_margin, inner, rows, cols, step, covered)
     cache = occ.__dict__.setdefault("_board_masks", {})
     if key not in cache:
         mask = [[True] * cols for _ in range(rows)]
         if shape is not None:
+            def out(x, y):
+                return shape.why_not(Box(x, y, x, y), occ.edge_margin) is not None
             for r in range(rows):
                 y = inner.top + r * step
                 for c in range(cols):
                     x = inner.left + c * step
-                    if shape.why_not(Box(x, y, x + step, y + step), occ.edge_margin) is not None:
+                    h = step / 2
+                    if not covered:
+                        if shape.why_not(Box(x, y, x + step, y + step), occ.edge_margin) is not None:
+                            mask[r][c] = False
+                    elif out(x, y) and out(x + step, y) and out(x, y + step) and out(x + step, y + step) \
+                            and out(x + h, y + h):
                         mask[r][c] = False
         cache[key] = (shape, mask)          # the shape is held so its id cannot be reused
     return cache[key][1]
 
 
+def _cells(box: Box, inner: Box, step: float, rows: int, cols: int, covered: bool):
+    """(r0, r1, c0, c1) of the cells a blocker's box touches, or with
+    `covered` the cells wholly inside it; None when there are none."""
+    if covered:
+        c0 = max(0, int(math.ceil((box.left - inner.left) / step - 1e-9)))
+        c1 = min(cols, int(math.floor((box.right - inner.left) / step + 1e-9)))
+        r0 = max(0, int(math.ceil((box.top - inner.top) / step - 1e-9)))
+        r1 = min(rows, int(math.floor((box.bottom - inner.top) / step + 1e-9)))
+    else:
+        c0 = max(0, int((box.left - inner.left) / step))
+        c1 = min(cols, int(math.ceil((box.right - inner.left) / step)))
+        r0 = max(0, int((box.top - inner.top) / step))
+        r1 = min(rows, int(math.ceil((box.bottom - inner.top) / step)))
+    if c1 <= c0 or r1 <= r0:
+        return None
+    return r0, r1, c0, c1
+
+
+def _convex(poly) -> bool:
+    n = len(poly)
+    sign = 0
+    for k in range(n):
+        (x0, y0), (x1, y1), (x2, y2) = poly[k], poly[(k + 1) % n], poly[(k + 2) % n]
+        z = (x1 - x0) * (y2 - y1) - (y1 - y0) * (x2 - x1)
+        if abs(z) > 1e-12:
+            if sign and (z > 0) != (sign > 0):
+                return False
+            sign = 1 if z > 0 else -1
+    return True
+
+
 def pockets(occ: Occupancy, width: float, height: float, face: Face = Face.FRONT, step: float = 0.5,
-            limit: int = 8) -> list:
+            limit: int = 8, covered: bool = False) -> list:
     """The free rectangles on `face` at least `width` x `height`, biggest
     first: the board rastered at `step`, what parts claim on that face
     blocked (courtyards and holes; bodies, pads and silk too in a drawn
     envelope) and every through-via, the edge margin excluded, the largest
-    free rectangle taken and masked out until nothing fits or `limit`
-    pockets are found. An upper bound on where a search can succeed."""
+    free rectangle the size fits taken and masked out until none is left or
+    `limit` pockets are found.
+
+    A cell anything touches is taken, so a pocket is room a search can use.
+    With `covered` only the cells wholly inside a blocker are, so the
+    raster rounds toward room: no pocket then means a search cannot
+    succeed, and that is what the check before a search asks."""
     board = occ.board_box
     if board is None:
         return []
     inner = board.inflate(-occ.edge_margin)
-    cols = int(inner.width / step)
-    rows = int(inner.height / step)
+    if covered:                                             # a part cell at the far side is room too
+        cols, rows = int(math.ceil(inner.width / step - 1e-9)), int(math.ceil(inner.height / step - 1e-9))
+    else:
+        cols, rows = int(inner.width / step), int(inner.height / step)
     if cols <= 0 or rows <= 0:
         return []
-    free = [row[:] for row in _board_mask(occ, inner, rows, cols, step)]
+    free = [row[:] for row in _board_mask(occ, inner, rows, cols, step, covered)]
     kinds = ("courtyard", "npth", "through") if occ.envelope == "courtyard" else \
         ("courtyard", "npth", "through", "body", "pad", "silk")          # what a drawn envelope claims instead
     # A part the script has not placed yet is pending: it stands where the
     # generator left it, which is nowhere, and blocks nothing.
-    blocks = [s.box for owner, g in occ.items.items() if owner not in occ.pending for s in g.shapes
+    blocks = [s.poly for owner, g in occ.items.items() if owner not in occ.pending for s in g.shapes
               if s.kind in kinds and face in s.faces]
-    blocks += [c.box for c in occ.copper if c.kind == "through"]        # vias come through: no face is free under them
-    for b in blocks:
-        c0 = max(0, int((b.left - inner.left) / step))
-        c1 = min(cols, int(math.ceil((b.right - inner.left) / step)))
-        r0 = max(0, int((b.top - inner.top) / step))
-        r1 = min(rows, int(math.ceil((b.bottom - inner.top) / step)))
+    blocks += [c.poly for c in occ.copper if c.kind == "through"]      # vias come through: no face is free under them
+    for poly in blocks:
+        box = Box.of_points(poly)
+        span = _cells(box, inner, step, rows, cols, covered)
+        if span is None:
+            continue
+        r0, r1, c0, c1 = span
+        rect = _rect_of(poly) or not covered            # touched: the box is what blocks
+        if not rect and not _convex(poly):
+            continue                                    # covered, and a concave shape: none is sure
         for r in range(r0, r1):
             row = free[r]
+            y0, y1 = inner.top + r * step, inner.top + (r + 1) * step
             for c in range(c0, c1):
+                if not rect:
+                    x0, x1 = inner.left + c * step, inner.left + (c + 1) * step
+                    if not all(point_in_polygon(q, poly) for q in ((x0, y0), (x1, y0), (x1, y1), (x0, y1))):
+                        continue
                 row[c] = False
-    need_c, need_r = int(math.ceil(width / step)), int(math.ceil(height / step))
+    # An item w wide meets at least ceil(w / step) cells, however it sits.
+    need_c, need_r = int(math.ceil(width / step - 1e-9)), int(math.ceil(height / step - 1e-9))
+    if not covered:
+        need_c, need_r = int(math.ceil(width / step)), int(math.ceil(height / step))
     out = []
     while len(out) < limit:
-        best = _largest_rectangle(free, rows, cols)
+        best = _largest_rectangle(free, rows, cols, need_r, need_c)
         if best is None:
             break
         area, r0, c0, r1, c1 = best
-        if (c1 - c0) < need_c or (r1 - r0) < need_r:
-            break
         out.append(Pocket(Box(inner.left + c0 * step, inner.top + r0 * step,
-                              inner.left + c1 * step, inner.top + r1 * step), face))
+                              min(inner.right, inner.left + c1 * step), min(inner.bottom, inner.top + r1 * step)), face))
         for r in range(r0, r1):
             for c in range(c0, c1):
                 free[r][c] = False
