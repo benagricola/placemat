@@ -659,7 +659,8 @@ class Occupancy:
             # courtyards may touch: a shared edge, to a rounding, is packing, not a collision
             depth = min(min(s.box.right, o.box.right) - max(s.box.left, o.box.left),
                         min(s.box.bottom, o.box.bottom) - max(s.box.top, o.box.top))
-            if depth <= self._touch and (s.box.width > 0 and o.box.width > 0):
+            # to a nanometre: the depth is a difference of coordinates, and exactly the allowance must not read as more
+            if depth <= self._touch + 1e-9 and (s.box.width > 0 and o.box.width > 0):
                 return None
             if s.faces & o.faces and polys_overlap(s.poly, o.poly):
                 return "%s courtyard overlaps %s courtyard%s" % (

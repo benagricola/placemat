@@ -256,3 +256,13 @@ def test_the_note_counts_the_through_pads_that_carry_no_net():
     occ = Occupancy(g, edge_margin=0.0)
     why = occ.legal(g.footprint("U1"), Placement(Location(30.0, 30.0), 0.0, Face.FRONT))
     assert "2 through-hole pads, none with a net" in why, why
+
+
+def test_courtyards_overlapping_by_exactly_the_touch_allowance_may_sit_there():
+    """`place.courtyard_touch` is 0.02 mm; the depth of an overlap is
+    computed from coordinates, so exactly 0.02 can read as 0.0200000000000013
+    and a spot on the placement grid was refused or not by rounding."""
+    occ = occ_with(footprint("R1", 11.9, 10), width=60)       # courtyard 9.8 .. 14.0
+    r2 = footprint("R2", 40, 30)
+    assert (11.9 + 2.1) - (16.08 - 2.1) > 0.02                # the rounding this is about
+    assert occ.legal(r2, Placement(Location(16.08, 10), 0, Face.FRONT)) is None
