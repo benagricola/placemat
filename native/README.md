@@ -46,24 +46,39 @@ native and Python answers directly; they skip themselves (not fail) when
 ## What's in here
 
 - `src/geometry.rs`: pure geometry predicates (`polys_overlap`,
-  `poly_distance`, `point_segment_distance`, and what they're built from),
-  ported expression-for-expression from `placemat.geometry` so floating
-  point comparisons land the same way. No PyO3 dependency in this module -
-  it's plain Rust, unit-tested on its own.
-- `src/shapes.rs`: the near-obstacle conflict search - `Shape`, a uniform
-  grid over obstacle boxes, and `Occupancy._conflict` / `_drawn_conflict`'s
-  boolean decision (which pair conflicts, not why - Python still produces
-  the reason string from the identified pair). Also plain Rust, unit-tested
-  on its own; see the module's own doc comment for how this replaces
-  `ShapeIndex.near()` without a two-stage filter.
+  `poly_distance`, `point_segment_distance`, and what they're built from,
+  including the `_rect_of` axis-aligned-rectangle shortcut), ported
+  expression-for-expression from `placemat.geometry` so floating point
+  comparisons land the same way. No PyO3 dependency in this module - it's
+  plain Rust, unit-tested on its own.
+- `src/shapes.rs`: the near-obstacle conflict search - `Shape` (carrying
+  `owner`, `owner_is_footprint`, `is_lead` and `margin`, each precomputed
+  once at marshal time rather than read from Python state per candidate), a
+  uniform grid over obstacle boxes, and `Occupancy._conflict` /
+  `_drawn_conflict`'s boolean decision (which pair conflicts, not why -
+  Python still produces the reason string from the identified pair).
+  `ShapeGrid::first_conflict_shifted` takes a candidate's UNSHIFTED,
+  once-per-turn shapes plus `(dx, dy)` and shifts them inside Rust, so a
+  candidate on an already-registered turn costs two floats crossing the FFI
+  boundary. Also plain Rust, unit-tested on its own; see the module's own
+  doc comment for how this replaces `ShapeIndex.near()` without a
+  two-stage filter.
+- `src/pockets.rs`: `placer._largest_rectangle`, ported whole - the
+  largest all-free axis-aligned rectangle in a boolean grid, by the
+  histogram method. Pure integer/boolean logic, no floating point, so no
+  epsilon-boundary question at all (an exact port, not an approximation).
 - `src/lib.rs`: the PyO3 module - `#[pyfunction]` wrappers around
-  `geometry.rs`, and the `NativeObstacles` class (`shapes.rs`'s grid,
-  queried once per candidate from `Occupancy.legal()`) - with no decision
-  logic of its own. Registration (building a `NativeObstacles` from a list
-  of shape tuples) is a Python-side concern: `Occupancy` caches one
-  instance per skip-set (`_native_obstacle_cache`), rebuilding it only when
-  `self.items` or `self.copper` changes, rather than once per
-  `Occupancy.obstacles()` call - see the spec's "Phase 3".
+  `geometry.rs` and `pockets.rs`, and two classes over `shapes.rs`:
+  `NativeObstacles` (a scan's obstacle pool, registered once and queried
+  once per candidate from `Occupancy.legal()`) and `NativeOriginShapes` (a
+  candidate item's own shapes for one turn, registered once per
+  (item, rotation, face) rather than re-marshalled every call). Neither
+  class has decision logic of its own. Registration is a Python-side
+  concern: `Occupancy` caches one `NativeObstacles` per skip-set
+  (`_native_obstacle_cache`) and one `NativeOriginShapes` per turn
+  (`_native_shape_cache`), rebuilding only when the underlying state
+  changes - see the spec's "Phase 3" and "per-candidate shapes stay
+  native" sections.
 
 ## Packaging
 
