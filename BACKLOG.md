@@ -9,6 +9,20 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   has the solve better than the sequential seed on 13 modules and worse on
   15: better on 7 of the 11 with fourteen or more parts, worse on 11 of the 21
   smaller. Whether to turn it on, or on above some size, is the user's call.
+- **Improving the solve** - measured 2026-09-23 on the benchmark as patches,
+  none shipped (against no solve, better / worse of 32):
+  - Bound2Bound net model (Kraftwerk2, SimPL) instead of the chain: 15 / 13,
+    and 9 / 2 on the 11 largest modules.
+  - SimPL anchor weights (linear growth, divided by distance to the spread
+    cell): 16 / 11.
+  - Bound2Bound and a re-solve every 3 placements with what is placed as
+    anchors: 17 / 11.
+  - The solve only for items nothing placed pulls yet: 16 / 10, 11 / 4 on the
+    21 smaller modules.
+  - Worse: hints from the spread positions (11 / 17 with Bound2Bound), and
+    more rounds (10 / 18 at 16 or 30). The spread ignores fixed parts,
+    keepouts and a non-rectangular outline, which is the likely reason; a
+    spread into the free area is the untested next step.
 
 ## Open
 
@@ -22,20 +36,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   first question is where placemat reads them from. Needs a spec.
   Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "2026-09-22:
   which pad is the supply pin".
-- **`find_board` ignores `layout = False`** (`project.py:41-81`). A `.zen`
-  that declares a board with layout turned off is still taken as the board,
-  so a script's `.zen` has to declare `Board()` first. Source: same file,
-  "2026-09-22: the upgrade from 0.5 to 0.20 on the modular core".
-- **Choosing one run of `board.edge(facing=...)`.** On an outline with
-  several runs facing one way it returns all of them; a script wanting the
-  outermost filtered `board.edges()` by hand. Worth asking whether an
-  `outermost` choice (or the runs sorted by how far out they lie) belongs in
-  the API. Source: same entry.
-- **The rank can place a part before the part its link was written against.**
-  Ordering by size and pin count put a small shunt down before its inductor;
-  it seeded toward the wrong end and found no legal spot. The pocket fallback
-  places it, but far off. Worth measuring whether a linked item should wait
-  for its link target. Source: same entry.
 
 ## Housekeeping
 
@@ -44,6 +44,12 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Three PLACEMAT_GAPS items** (0.22.0): `find_board` skips `layout =
+  False`; `board.edge(facing, outermost=True)`; of two linked items neither
+  placed, the one with less pull waits (on the core board's pre-block RF
+  chain: one pocket fewer, 13.5 mm less link length; the current script is
+  unchanged).
 
 - **Run time on large boards** (0.21.1). A 220-part board's resolve went
   from 945-1167 s to 110 s with identical placements: prepared many-vertex

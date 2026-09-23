@@ -532,6 +532,7 @@ class Board:
         self._rank_score: dict = {}
         self._rank_of: dict = {}
         self._rank_note: dict = {}
+        self._waited: dict = {}                # item key -> the linked partner it waited for
         self._copper: list[CopperIntent] = []
         self._labels: list = []
         self._faces: tuple | None = None
@@ -2395,6 +2396,7 @@ class Board:
         tie-break's business, not this one's."""
         from .ranking import pin_count, rank_scores
         self._rank_score, self._rank_of, self._rank_note = {}, {}, {}
+        self._waited = {}
         searched = [i for i in self._placements() if not i.freedom.decided]
         if not searched:
             return
@@ -2621,13 +2623,45 @@ class Board:
             pull = sum(w for it in parts for _, _, w in self._targets(it, occ, placed))
             return self._rank_score.get(obj.key, 0.0), pull, area
 
-        scored = sorted(((measure(o), o) for o in pending),
+        measured = {o.key: measure(o) for o in pending}
+        # Of two linked items neither placed, the one with more placed
+        # connections goes first: the other is then seeded on it, the part
+        # the link joins it to, instead of on whatever else it touches.
+        waits = self._link_waits(pending, {k: m[1] for k, m in measured.items()})
+        for k, partner in waits.items():
+            self._waited.setdefault(k, partner)
+        free = [o for o in pending if o.key not in waits] or pending
+        scored = sorted(((measured[o.key], o) for o in free),
                         key=lambda m: (-m[1].priority.rank, -m[0][0], -m[0][1], -m[0][2], m[1].key))
         (score, pull, area), obj = scored[0]
         # A ranked item's step is tagged with its rank already; only an unranked
         # one needs saying why it went next.
         why = "" if obj.key in self._rank_note else "next: largest (%.0f mm2)" % area
+        if obj.key in self._waited:
+            why = (why + "; " if why else "") + "waited for %s, the item it is linked to with more placed connections" % (
+                self._waited[obj.key])
         return obj, why
+
+    def _link_waits(self, pending: list, pull: dict) -> dict:
+        """{item key: the linked partner it waits for}, over declared links
+        between two pending items: the one with less pull toward what is
+        placed waits. Level pull waits for nothing."""
+        owner = {}
+        for o in pending:
+            for fp in (o.item.members if o.kind in ("block", "cell") else (o.item,)):
+                owner[fp.ref] = o
+        waits = {}
+        for link in self._links:
+            if link.weight <= 0:
+                continue
+            a, b = owner.get(link.a[0]), owner.get(link.b[0])
+            if a is None or b is None or a is b:
+                continue
+            pa, pb = pull[a.key], pull[b.key]
+            if abs(pa - pb) > 1e-9:
+                slow, fast = (a, b) if pa < pb else (b, a)
+                waits.setdefault(slow.key, fast.key)
+        return waits
 
     def _settle_block(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set) -> Step:
         spec = i.item

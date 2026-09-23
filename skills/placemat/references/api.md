@@ -216,7 +216,11 @@ and does not wait behind the cells for being a single part. The script's
 `priority=` tier leads, then the rank - courtyard area and pin count, each
 measured against this board's other searched items - then the strongest link
 pull toward what is placed, which only separates items the rank cannot, then
-the largest. The sentence that chose each is in its step.
+the largest. The sentence that chose each is in its step. One exception to
+the rank: of two items joined by a `board.link()` and neither placed, the one
+with less pull toward what is placed waits for the other, so it is seeded on
+the part the link joins it to; its step says "waited for" which. Two pulled
+equally keep the rank's order.
 
 **Where each is searched from.** An explicit `at=Near(...)` first. Otherwise
 the item is centred on the placed pads it is wired to, and an item wired to

@@ -4,6 +4,20 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.22
+
+- A declaration with `layout = False` beside the board is no longer taken for
+  a board, so a `.zen` with sub-circuits no longer needs the board declared
+  first.
+- `board.edge(facing, outermost=True)` takes the run lying furthest out that
+  way when several face it; a script filtering `board.edges()` for that can
+  use it.
+- Of two linked items neither placed, the one with less pull toward what is
+  placed now waits for the other, so a part is seeded on the one its link
+  joins it to. A script whose linked items were each already pulled to placed
+  parts is unchanged; a block made only to force that order can go back to
+  links.
+
 ## To 0.21.1
 
 Nothing to change. Placement is faster on large boards - a 220-part board's
