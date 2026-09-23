@@ -12,6 +12,99 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+Bugs, each checked against the code on 2026-09-23 (reproduced where it says so):
+
+- **`polys_overlap` misses overlaps whose boundaries coincide.** Two identical
+  courtyard rectangles, or the same one shifted 0.3 mm along its long side,
+  read as not overlapping when the first vertex is one the half-open
+  point-in-polygon test excludes: every vertex lies on the other's boundary
+  and no edge crosses properly. Reproduced. `legal()` still refuses a stacked
+  part (its distance test catches it); the direct boolean callers do not -
+  a block's member-vs-member check (`placer.py:472,480`), the far-face and
+  cutout checks in `occupancy.py`, `checks.py:314`, the keepout tests in
+  `layout.py` and `queries.py`. This is why two satellites aimed at one pad
+  land on one spot: reproduced with two capacitors on one anchor pin, both
+  at (24.8, 40.0) in either envelope. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 1.
+- **The pocket search refuses room that is not one rectangle.** `pockets()`
+  offers the largest free rectangle and stops when the item does not fit it,
+  and `_no_pocket_note` declares the item hopeless from that one rectangle,
+  so an item that fits an L- or T-shaped space is refused. Four cells on the
+  fairing core, and on the core board copy `inputpower.j_gnd` and
+  `logic.c_vdda_1u`. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell" item 2 and "the power cells" item 2.
+- **A keepout's `layers=` does not narrow its parts reservation.** The
+  reservation in `layout.py` (`occ.reserve(poly, "keepout ...", allow=,
+  owners=)`) passes no `layer`, though `Occupancy.reserve` takes one, so a
+  front-only keepout blocks the back. Blocks a fanout band declared as a
+  keepout. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things" item 1 and "passive orientation" item 3.
+- **A through-hole pad claims the whole part on both faces.** `through =
+  any(p.through for p in fp.pads) or bool(fp.npth)` (`occupancy.py`) sends
+  the courtyard and body to the far face; only the holes reach it. Vias in
+  an exposed pad are plated pads, so an SMD chip with a via-in-pad claims
+  its body on the back as well. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things" item 5 and "the power
+  cells" item 1.
+- **A part with no declaration gets no finding.** It stays where the
+  generator put it, with no step and nothing in `findings` (reproduced).
+  Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 4.
+- **The cached generation is never invalidated.** `generate()` restores
+  `.placemat/generated/` whenever it exists; a changed `.zen` or fragment is
+  only picked up with `--fresh`. Wanted: a key over the generator's inputs
+  (the `.zen` files and fragments it reads), or at least a warning. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`,
+  "the bench panel cell", item 3.
+- **The run id ignores modules the script imports**, and the script's
+  directory is not on `sys.path` (`context.run_script` loads the file by
+  path only), so a shared geometry module needs `sys.path.insert` in every
+  script and changing it keeps the run id. The fab profile is in the id
+  now. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things" items 2 and 3.
+- **"Wholly off the board" counts a region's vertices.** A strip whose
+  corners sit on or past the outline is refused though it covers board
+  (`_keepout_unusable`). Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things", item 4.
+- **KiCad reports parts a keepout allows as `items_not_allowed`.** The
+  written rule area has no allow list and placemat does not filter those
+  from the DRC report. 9 of 17 on the fairing core. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the power cells",
+  item 3.
+- **A row in the physical envelope lets different-net pads meet.** Two
+  buttons came out with pads 0.05 mm apart (0.16 needed). Not reproduced
+  yet. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 4.
+- **A label on a back-face part at rotation 90 lands on the part's own
+  silk**, whichever side is asked for. Not reproduced yet. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven
+  things", item 7.
+- **A stamped cell's labels are not reserved in the parent.** Not
+  reproduced yet. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 2.
+- **`place.courtyard_touch` and KiCad disagree** on courtyards within
+  0.02 mm once KiCad does not round them out. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things", item 6.
+- **A `Layout()` fragment gets default rules** (silk clearance 0, stdlib
+  netclass) unless it declares a board config. Probably a generator
+  (`pcb`) matter; to confirm. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 3.
+
+Features:
+
+- **All four rotations for a searched part by default**, and rotation (and a
+  180 flip) in the cleanup pass. Now a searched part is scanned only at its
+  `rotation` unless `rotations=` is given (`layout.py`, the `scan` call).
+  The fairing agent measured crossings 1,318 -> 1,124 on the core with all
+  four. Needs a bench run for time and HPWL. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive orientation",
+  items 1 and 5.
+- **`[drc] severities`**: a table placemat writes into the generated
+  project's `rule_severities`, so KiCad and placemat judge the board alike
+  (the project file is regenerated on every fresh generation). Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU
+  cell", item 1.
+- **Per-net airwire in the run record, and coordinates in `parts`.** Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`,
+  "the bench panel cell", item 5.
+- **Label boxes in `measure`, and a fragment preview framed on its
+  `board.size()` frame.** `preview --zoom` covers the framing if the frame
+  is offered as a region. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 5.
+- **A fanout band for a fine-pitch part**: a band round its pads, per side,
+  that only satellites and parts linked SHORT to a pin may enter. Depends on
+  the per-face keepout fix above. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive orientation", item 5.
+- **A crossing swap in the cleanup pass**: two neighbouring two-pad parts
+  whose ratsnest lines cross are swapped or turned. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive
+  orientation", item 5.
+- **`Centre(x, None)` seeds each item by its links** rather than sharing a
+  line evenly. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive orientation", item 4.
+- **Stdlib passive courtyards smaller than a 0.2 mm silk clearance.** A
+  library matter (`fetch_parts.py` does not normalise courtyards); noted,
+  not placemat's. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 6.
+
 - **Pin names for pads.** `measure --pads` prints pad number and net only, so
   a script linking bypass capacitors to supply pins had to read pin names from
   an exported KiCad netlist, and an IC with several pads on one rail (a strap
