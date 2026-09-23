@@ -267,6 +267,8 @@ coordinates nobody chose.
   because it is not always better - compare the two runs on the `best` line.
   A step that "took the pocket" had no room by what it connects to: make room
   there, or give it a `Near`.
+- A step noting `cleanup:` was moved after its turn, to shorten its wire and
+  links; a part that must stay where the search put it takes a `Near`.
 - When DRC reports `silk_overlap` or `silk_over_copper` between different
   parts, or the run's `footprints` line names courtyards that understate
   their parts, try `[place] envelope = "physical"`: parts then claim what they

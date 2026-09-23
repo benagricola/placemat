@@ -251,6 +251,21 @@ courtyard by more than the silk clearance (`footprints`, and
 unaffected. `placemat measure` prints each part's drawn envelope and the layer
 that sets each side.
 
+**The cleanup pass.** Once every searched item is down, and before the copper
+that joins them is planned, a cleanup pass revisits the plain searched parts:
+each is tried near the middle of what it connects to and round where it
+stands, and identical parts (one courtyard, pad count and face) are tried in
+each other's places, keeping a change only when the part's wire (the
+half-perimeter of its nets that pull) plus each declared link's weight times
+its length gets shorter. No change leaves a limited link over its limit and
+longer, rotations and faces stay, and every placement is legal as a search's
+is. It leaves alone any part with a place of its own (`Near`, an edge, a row,
+a ring, a line), a block or cell member, a labelled part, and a part another
+declaration's place refers to. A moved step says `cleanup: moved D mm` or
+`swapped with K`; `metrics.cleanup` holds the moves, swaps and the cost
+before and after. On the module benchmark it made 23 of 32 modules better and
+none worse. `[cleanup] enabled = false` turns it off.
+
 **Where each is searched from.** An explicit `at=Near(...)` first. Otherwise
 the item is centred on the placed pads it is wired to, and an item wired to
 nothing placed yet takes the largest free rectangle that fits it. A centred
@@ -959,7 +974,7 @@ seeded. One net seeding most of the board is a missing `board.plane()`. And
 `metrics.pocketed`, when any were: how many searched items found no room by
 what they connect to and took a pocket instead; the run prints their names.
 And `metrics.footprints`, in courtyard mode, when any courtyard understates
-its part.
+its part, and `metrics.cleanup` when the cleanup pass ran.
 
 Every verb whose default appears here takes an explicit argument that still
 wins: `board.plane(..., inset=1.0)` beats `copper.plane_inset`.

@@ -5,24 +5,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## In progress
 
-- **The solve's default.** With the pocket fallback in, the module benchmark
-  has the solve better than the sequential seed on 13 modules and worse on
-  15: better on 7 of the 11 with fourteen or more parts, worse on 11 of the 21
-  smaller. Whether to turn it on, or on above some size, is the user's call.
-- **Improving the solve** - measured 2026-09-23 on the benchmark as patches,
-  none shipped (against no solve, better / worse of 32):
-  - Bound2Bound net model (Kraftwerk2, SimPL) instead of the chain: 15 / 13,
-    and 9 / 2 on the 11 largest modules.
-  - SimPL anchor weights (linear growth, divided by distance to the spread
-    cell): 16 / 11.
-  - Bound2Bound and a re-solve every 3 placements with what is placed as
-    anchors: 17 / 11.
-  - The solve only for items nothing placed pulls yet: 16 / 10, 11 / 4 on the
-    21 smaller modules.
-  - Worse: hints from the spread positions (11 / 17 with Bound2Bound), and
-    more rounds (10 / 18 at 16 or 30). The spread ignores fixed parts,
-    keepouts and a non-rectangular outline, which is the likely reason; a
-    spread into the free area is the untested next step.
+- **The solve's default.** With the pocket fallback and the cleanup pass in,
+  the module benchmark has the solve better than the sequential seed on 16
+  modules and worse on 11. It stays off; the measured variants are under
+  Done.
 
 ## Open
 
@@ -44,6 +30,27 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Cleanup pass** (0.25.0): moves and swaps after the searched tier.
+  Benchmark: 23 better, 0 worse in default and physical, 26 better with the
+  solve; core board (mid-normalisation snapshot): findings 26 -> 22, link
+  length 831 -> 774 mm.
+- **Improving the solve** (measured 2026-09-23 as patches, not shipped).
+  Against no solve, better / worse of 32, before the cleanup pass:
+  - Bound2Bound net model (Kraftwerk2, SimPL) instead of the chain: 15 / 13,
+    and 9 / 2 on the 11 largest modules.
+  - SimPL anchor weights (linear growth, divided by distance to the spread
+    cell): 16 / 11.
+  - Bound2Bound and a re-solve every 3 placements with what is placed as
+    anchors: 17 / 11.
+  - The solve only for items nothing placed pulls yet: 16 / 10, 11 / 4 on the
+    21 smaller modules.
+  - Worse: hints from the spread positions (11 / 17 with Bound2Bound), and
+    more rounds (10 / 18 at 16 or 30). The spread ignores fixed parts,
+    keepouts and a non-rectangular outline, which is the likely reason; a
+    spread into the free area is the untested next step.
+  - With the cleanup prototype after each, none beat default plus cleanup
+    (best 16 better / 10 worse).
 
 - **PLACEMAT_GAPS 2026-09-23** (0.24.0): `measure` box edges, pad outlines,
   mask/paste layers and courtyard findings; a block satellite aimed at an

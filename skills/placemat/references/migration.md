@@ -4,6 +4,14 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.25
+
+Searched parts may move after placement: a cleanup pass moves and swaps the
+plain searched parts where that shortens their wire and declared links, so a
+board re-runs to a different, shorter placement. Parts with a place of their
+own, labelled parts and parts another declaration refers to stay where they
+were. `[cleanup] enabled = false` gives the placement of 0.24.
+
 ## To 0.24
 
 - A block satellite may name the anchor's pad by number - `(Part(...), 20)` -
