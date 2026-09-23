@@ -160,3 +160,21 @@ def test_in_physical_a_pocket_is_not_where_a_placed_body_stands():
     occ.commit(a, Placement(a.location, a.rotation, a.face))
     for p in pockets(occ, 5.0, 5.0, Face.FRONT):
         assert not p.box.overlaps(Box(10, 5, 50, 35)), p.box
+
+
+def test_in_physical_a_blocks_members_keep_the_same_gaps_from_each_other():
+    """A satellite laid at its pin is another part: its silk may not reach the
+    anchor's silk or pads, as between any two parts. Both are pending, as in a
+    resolve, so only the block's own check can see one against the other."""
+    from placemat.placer import BlockSpec, layout_block
+    anchor = footprint("U1", 20, 20, w=6, h=3, inst="u1", nets=("VIN", "VOUT"),
+                       silk_boxes=[(16.0, 19.35, 16.9, 19.45)], mask_grow=0.0)        # a silk stub west of pad 1
+    sat = footprint("C1", 40, 20, w=2, h=1, inst="c1", nets=("VIN", "GND"),
+                    silk_boxes=[(39.6, 19.35, 40.0, 19.45)], mask_grow=0.0)            # in the stub's row
+    g, occ = _occ([anchor, sat], "physical")
+    occ.pending |= {"U1", "C1"}
+    spec = BlockSpec(g.footprint("u1"), ((g.footprint("c1"), "VIN"),), gap=None)
+    members, why = layout_block(occ, spec, Placement(Location(20, 20), 0.0, Face.FRONT))
+    assert members is not None, why
+    occ.commit(g.footprint("u1"), members["u1"])
+    assert occ.legal(g.footprint("c1"), members["c1"]) is None

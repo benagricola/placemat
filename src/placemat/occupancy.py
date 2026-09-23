@@ -160,6 +160,7 @@ class Occupancy:
         self.component_spacing = component_spacing          # body to body, body to another part's pad
         self.silk_clearance = geometry.silk_clearance       # silk to silk, silk to a mask opening
         self._footprint_refs = frozenset(fp.ref for fp in geometry.footprints)
+        self._drawn_gap = max(component_spacing, self.silk_clearance)   # the furthest a silk, mask or body check reaches
         if self.envelope != "courtyard" and self._gap < max(component_spacing, self.silk_clearance):
             raise ValueError("[place] conflict_gap %.2f is less than the %.2f mm the %s envelope needs a check to reach"
                              % (self._gap, max(component_spacing, self.silk_clearance), self.envelope))
@@ -498,10 +499,28 @@ class Occupancy:
         if not near:
             return None
         # Only a shape whose moved box reaches an obstacle is worth moving as a polygon.
+        if self.envelope != "courtyard":
+            # A drawn envelope has many more shapes to move: each is moved once
+            # per turn and face, then shifted, and only the ones near something.
+            dx, dy = placement.location.x, placement.location.y
+            for s in self._origin_shapes(item, geom, placement):
+                sb = s.box.moved(dx, dy)
+                close = [o for o in near if sb.overlaps(o.box, gap=self.gap_for(s))]
+                if not close:
+                    continue
+                moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
+                              tuple((x + dx, y + dy) for x, y in s.poly), sb, s.label)
+                for o in close:
+                    why = self._conflict(moved, o, clearance)
+                    if why:
+                        if blame is not None:
+                            blame.append(Blocker(o.kind, self.who(o.owner), frozenset(o.faces)))
+                        return why
+            return None
         flip = placement.face != geom.reference.face
         for s in geom.shapes:
             sb = transform_box(s.box, t)
-            close = [o for o in near if sb.overlaps(o.box, gap=self._gap)]
+            close = [o for o in near if sb.overlaps(o.box, gap=self.gap_for(s))]
             if not close:
                 continue
             poly = transform_polygon(s.poly, t, clean=False)
@@ -550,6 +569,32 @@ class Occupancy:
             return "%s %s is %.2f mm from %s %s (needs %.2f)" % (
                 self.who(s.owner), _NAMES[s.kind], d, self.who(o.owner), _NAMES[o.kind], gap)
         return None
+
+    def _origin_shapes(self, item, geom: ItemGeometry, placement: Placement) -> list:
+        """The item's shapes turned and faced as `placement` asks, at the
+        origin: moved once per turn and face, then only shifted."""
+        cache = self.__dict__.setdefault("_shape_cache", {})
+        key = (id(geom), placement.rotation, placement.face)
+        hit = cache.get(key)
+        if hit is None or hit[0] is not geom:
+            _, shapes = self.candidate_shapes(item, Placement(Location(0.0, 0.0), placement.rotation, placement.face))
+            hit = (geom, shapes)
+            cache[key] = hit
+        return hit[1]
+
+    def shifted_shapes(self, item, placement: Placement) -> list:
+        """The item's shapes at `placement`, from the turned shapes at the origin."""
+        dx, dy = placement.location.x, placement.location.y
+        return [Shape(s.owner, s.kind, s.faces, s.layers, s.net, tuple((x + dx, y + dy) for x, y in s.poly),
+                      s.box.moved(dx, dy), s.label)
+                for s in self._origin_shapes(item, self._geometry(item), placement)]
+
+    def gap_for(self, s: Shape) -> float:
+        """How far from `s` another shape can still conflict with it: a pad's
+        clearance can be as wide as the conflict gap; silk, a mask opening
+        or a body reaches no further than the drawn gaps. A pad against a
+        body is judged from the pad's side too, at the wider gap."""
+        return self._drawn_gap if s.kind in _DRAWN else self._gap
 
     def _extent(self, geom: ItemGeometry) -> Box:
         """The box round all of an item's shapes where it stands now."""

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import math
 
 from .geometry import polys_overlap, transform_box
-from .occupancy import Occupancy
+from .occupancy import Occupancy, ShapeIndex
 from .placement import Placement
 from .values import Box, Edge, Face, Location, bearing_vector, box_support
 
@@ -426,6 +426,11 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
     taken = []          # courtyard polygons of members already laid, for member-vs-member checks
     _, ashapes = occ.candidate_shapes(spec.anchor, anchor)
     taken += [sh.poly for sh in ashapes if sh.kind == "courtyard"]
+    # In a drawn envelope a member is judged against the members already laid
+    # as against any other part: silk, mask openings, bodies and pads, each at
+    # its gap. The courtyards alone are what a courtyard envelope claims.
+    drawn = occ.envelope != "courtyard"
+    laid = ShapeIndex(ashapes) if drawn else ShapeIndex()
     for sat, net in spec.satellites:
         pin = spec.anchor.pad(net)
         p = pads[(spec.anchor.ref, pin.number)]
@@ -455,22 +460,33 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
                     continue
                 # The members first: at the tightest gaps a satellite's courtyard
                 # meets its anchor's, and that is cheaper to find than the board.
-                _, sshapes = occ.candidate_shapes(sat, cand)
-                mine = [sh.poly for sh in sshapes if sh.kind == "courtyard"]
-                if any(polys_overlap(a, b) for a in mine for b in taken):
-                    continue
+                if drawn:
+                    sshapes = occ.shifted_shapes(sat, cand)
+                    mine = [sh.poly for sh in sshapes if sh.kind == "courtyard"]
+                    if any(polys_overlap(a, b) for a in mine for b in taken):
+                        continue
+                    if any(occ._conflict(a, b, clearance)
+                           for a in sshapes for b in laid.near(a.box, occ.gap_for(a))):
+                        continue
+                else:
+                    _, sshapes = occ.candidate_shapes(sat, cand)
+                    mine = [sh.poly for sh in sshapes if sh.kind == "courtyard"]
+                    if any(polys_overlap(a, b) for a in mine for b in taken):
+                        continue
                 reason = occ.legal(sat, cand, clearance, others=others.get(sat.inst))
                 if reason:
                     continue
                 key = (-outward, rot)
                 if best is None or key < best[0]:
-                    best = (key, cand, mine)
+                    best = (key, cand, mine, sshapes)
             if best is not None:
                 break                       # the tightest gap that works
         if best is None:
             return None, "%s: no legal spot on the %s pin's axis" % (sat.inst, net)
         out[sat.inst] = best[1]
         taken += best[2]
+        if drawn:
+            laid = ShapeIndex(list(laid) + list(best[3]))
     return out, None
 
 
