@@ -1219,7 +1219,8 @@ class Board:
         Centre(x, y)            the body box centre; each axis a number or
                                 a reference                                -> FIXED, no freedom
         Location(x, None)       one axis pinned, the other free: the item
-        Centre(None, y)         slides along the line, sharing it evenly  -> searched, one freedom
+        Centre(None, y)         slides along the line, from across what it
+                                connects to, else sharing it evenly     -> searched, one freedom
         Pin(key, x, y)          the item's own pad `key` (number or net)
                                 lands on the point                        -> FIXED, no freedom
         OnEdge(edge, along=)    its reach at the keep-in, at that distance
@@ -2747,10 +2748,12 @@ class Board:
             i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3))))
         return self._step(i, None, 0.0, "UNPLACED: " + "; ".join(reasons.values()))
 
-    def _settle_along_line(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
+    def _settle_along_line(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, placed: set = frozenset()) -> Step:
         """x or y pinned, the other free: the item's body centre sits on the
-        pinned line, shares it evenly with the items pinned to the same
-        value, and slides along it to the nearest legal spot."""
+        pinned line and slides along it to the nearest legal spot, from the
+        point across from what it connects to when any of that is placed,
+        else from an even share of the line with the items pinned to the
+        same value."""
         axis = "x" if i.pin_x is not None else "y"
         pinned = _coord(self, occ, i.pin_x if axis == "x" else i.pin_y, axis)
         fellows = [o for o in self._placements() if (o.pin_x if axis == "x" else o.pin_y) is not None
@@ -2760,13 +2763,20 @@ class Board:
         lo, hi = (box.top, box.bottom) if axis == "x" else (box.left, box.right)
         lo, hi = lo + self.keep_in, hi - self.keep_in
         ideal = lo + (hi - lo) * (k + 1) / (n + 1)
+        targets = self._targets(i.item, occ, placed)
+        seeded = ""
+        if targets:
+            hint = self._seed_hint(i.item, occ, targets, i.rotation, i.face)
+            anchor = hint.location if (i.pinned_by == "at" and i.kind != "cell") else occ.body_box(i.item, hint).center
+            ideal = min(max(anchor.y if axis == "x" else anchor.x, lo), hi)
+            seeded = "; across from what it connects to"
 
         def at(along):
             point = Location(pinned, along) if axis == "x" else Location(along, pinned)
             if i.pinned_by == "at" and i.kind != "cell":
                 return Placement(point, i.rotation, i.face)
             return box_centered_placement(occ, i.item, point, i.rotation, i.face)
-        return self._slide(occ, i, plan, clr, ideal, lo, hi, at, "on the line %s = %.2f" % (axis, pinned))
+        return self._slide(occ, i, plan, clr, ideal, lo, hi, at, "on the line %s = %.2f%s" % (axis, pinned, seeded))
 
     def _edge_fraction(self, edge: Edge, occ: Occupancy, fraction: float) -> float:
         """A distance along `edge` as a fraction of its usable length,
@@ -3078,7 +3088,7 @@ class Board:
         if i.edge is not None:
             return self._settle_along_edge(occ, i, plan, clr)
         if i.pin_x is not None or i.pin_y is not None:
-            return self._settle_along_line(occ, i, plan, clr)
+            return self._settle_along_line(occ, i, plan, clr, placed)
         targets = self._targets(i.item, occ, placed)
         seeded = ""
         solved = None

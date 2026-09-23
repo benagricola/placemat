@@ -70,9 +70,10 @@ a1's R2 courtyard`.
 body centre, or the item's own pad `key` (a number or a net), each axis a
 number or a reference): a cap whose pad must sit on a pin's axis, a diode
 whose pad faces another's, is a `Pin`. `Location(30, None)` or
-`Centre(None, y)` fix one: the item slides along the line, at its middle
-alone, sharing it evenly with the items pinned to the same value, aside
-from what is there. `OnEdge(edge, along=)` fixes both: the reach at the
+`Centre(None, y)` fix one: the item slides along the line, starting across
+from what it connects to when any of that is placed, else at its middle alone or
+sharing it evenly with the items pinned to the same value, aside from what
+is there. `OnEdge(edge, along=)` fixes both: the reach at the
 keep-in, and `along` the edge a number in mm, a reference, `Along.START`,
 `MID` or `END`, or `Fraction(0.3)` of the usable length, the same on
 every edge. `OnEdge(edge)` fixes one: it slides along the edge, midpoint

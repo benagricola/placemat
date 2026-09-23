@@ -6,6 +6,9 @@ whether any of it applies.
 
 ## To 0.29
 
+- An item on a line (`Location(x, None)`, `Centre(None, y)`) with parts it
+  connects to already placed now starts across from them rather than at an
+  even share of the line; one with nothing placed to pull it is as before.
 - `[place] courtyard_touch` defaults to 0 (was 0.02): each pair of parts may
   overlap by the margins read from KiCad's own courtyards instead, so
   placements pack as tightly as KiCad's DRC allows and no tighter. A part

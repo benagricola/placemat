@@ -20,8 +20,6 @@ Features:
 - **A crossing swap in the cleanup pass**: two neighbouring two-pad parts
   whose ratsnest lines cross are swapped or turned. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive
   orientation", item 5.
-- **`Centre(x, None)` seeds each item by its links** rather than sharing a
-  line evenly. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive orientation", item 4.
 - **Stdlib passive courtyards smaller than a 0.2 mm silk clearance.** A
   library matter (`fetch_parts.py` does not normalise courtyards); noted,
   not placemat's. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 6.
@@ -45,6 +43,10 @@ Features:
 
 ## Done
 
+- **A line item starts across from its links** (unreleased): `Location(x, None)`
+  and `Centre(None, y)` slide from the point across from what they connect
+  to when that is placed. Source: fairing-instrument
+  `electronics/PLACEMAT_GAPS.md`, "passive orientation", item 4.
 - **Label boxes in `measure`; a fragment framed** (unreleased): `measure
   --labels` gives every board silk text's drawn box; `placemat preview`
   frames on the board outline and the placed parts, so parts left at the
