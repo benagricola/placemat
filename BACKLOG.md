@@ -14,17 +14,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 Bugs, each checked against the code on 2026-09-23 (reproduced where it says so):
 
-- **`polys_overlap` misses overlaps whose boundaries coincide.** Two identical
-  courtyard rectangles, or the same one shifted 0.3 mm along its long side,
-  read as not overlapping when the first vertex is one the half-open
-  point-in-polygon test excludes: every vertex lies on the other's boundary
-  and no edge crosses properly. Reproduced. `legal()` still refuses a stacked
-  part (its distance test catches it); the direct boolean callers do not -
-  a block's member-vs-member check (`placer.py:472,480`), the far-face and
-  cutout checks in `occupancy.py`, `checks.py:314`, the keepout tests in
-  `layout.py` and `queries.py`. This is why two satellites aimed at one pad
-  land on one spot: reproduced with two capacitors on one anchor pin, both
-  at (24.8, 40.0) in either envelope. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 1.
 - **The pocket search refuses room that is not one rectangle.** `pockets()`
   offers the largest free rectangle and stops when the item does not fit it,
   and `_no_pocket_note` declares the item hopeless from that one rectangle,
@@ -124,6 +113,10 @@ Features:
 
 ## Done
 
+- **Coinciding outlines** (unreleased): `polys_overlap` finds shared
+  interior when every vertex lies on the other's boundary; two satellites on
+  one pad are refused with the reason, not stacked. Source: fairing-instrument
+  `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 1.
 - **placemat preview** (0.27.0): the plan drawn without building the board,
   with links, pockets, unplaced parts, copper and a congestion heat map;
   core board unchanged preview 5.3 s. A part not yet placed no longer blocks

@@ -289,3 +289,18 @@ def test_a_satellite_with_no_spot_says_which_pad_it_was_aimed_at():
     members, why = layout_block(occ, spec, Placement(Location(30, 30), 0.0, b.geometry.footprint("ldo").face))
     assert members is None
     assert "U1 pad 2 (GND" in why
+
+
+def test_a_second_satellite_aimed_at_a_taken_pad_is_refused_and_told_why():
+    from placemat.placement import Placement
+    from placemat.placer import layout_block
+    from placemat.occupancy import Occupancy
+    fps = [footprint("U1", 30, 30, w=6, h=3, inst="ldo", nets=("VIN", "VOUT")),
+           footprint("C1", 60, 60, inst="ca", nets=("VIN", "GND")),
+           footprint("C2", 60, 65, inst="cb", nets=("VIN", "GND"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    spec = b.block(Part("ldo"), satellites=[(Part("ca"), "VIN"), (Part("cb"), "VIN")])
+    occ = Occupancy(b.geometry, 1.0)
+    members, why = layout_block(occ, spec, Placement(Location(30, 40), 0.0, b.geometry.footprint("ldo").face))
+    assert members is None
+    assert "cb: no legal spot on the axis of U1 pad 1 (VIN" in why and "ca already sits there" in why

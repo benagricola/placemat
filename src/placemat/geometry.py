@@ -165,8 +165,46 @@ def polys_overlap(a: Polygon, b: Polygon) -> bool:
         for q1, q2 in eb:
             if segments_intersect(p1, p2, q1, q2):
                 return True
-    return any(within(p, bx0, by0, bx1, by1) and _strictly_inside(p, b) for p in a[1:]) or \
-        any(within(q, ax0, ay0, ax1, ay1) and _strictly_inside(q, a) for q in b[1:])
+    if any(within(p, bx0, by0, bx1, by1) and _strictly_inside(p, b) for p in a[1:]) or \
+            any(within(q, ax0, ay0, ax1, ay1) and _strictly_inside(q, a) for q in b[1:]):
+        return True
+    ina, inb = (lambda p: _strictly_inside(p, a)), (lambda p: _strictly_inside(p, b))
+    va = [p for p in a if within(p, bx0, by0, bx1, by1)]
+    vb = [q for q in b if within(q, ax0, ay0, ax1, ay1)]
+    return _along_shared_boundary(ea, vb, ina, inb) or _along_shared_boundary(eb, va, ina, inb)
+
+
+_NUDGE = 1e-7       # off a boundary, well past strictness (1e-9) and well inside the 1e-6 coordinate grid
+
+
+def _along_shared_boundary(edges, others, in_a, in_b) -> bool:
+    """Whether the interiors meet beside one polygon's edges. With no edge
+    crossing another and no vertex strictly inside the other polygon, the
+    interiors can still share area when the boundaries coincide - the same
+    rectangle, or one slid along a side. Each edge is split where the other
+    polygon's vertices lie on it, so each piece is wholly inside, outside or
+    on the other's boundary; a point just off a piece's midpoint, on either
+    side, inside both polygons is shared interior."""
+    for p1, p2 in edges:
+        dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+        n2 = dx * dx + dy * dy
+        if n2 == 0.0:
+            continue
+        on = [min(1.0, max(0.0, ((q[0] - p1[0]) * dx + (q[1] - p1[1]) * dy) / n2))
+              for q in others if point_segment_distance(q, p1, p2) <= 1e-9]
+        if not on:
+            continue                    # no vertex of the other on this edge: the other pass or the vertex tests decide
+        ts = {0.0, 1.0, *on}
+        n = math.sqrt(n2)
+        nx, ny = -dy / n * _NUDGE, dx / n * _NUDGE
+        ts = sorted(ts)
+        for t0, t1 in zip(ts, ts[1:]):
+            mx, my = p1[0] + dx * (t0 + t1) / 2, p1[1] + dy * (t0 + t1) / 2
+            for s in (1.0, -1.0):
+                probe = (mx + s * nx, my + s * ny)
+                if in_a(probe) and in_b(probe):
+                    return True
+    return False
 
 
 class _Prepared:
@@ -288,8 +326,14 @@ def _prepared_overlap(pa: _Prepared, pb: _Prepared) -> bool:
         for q1, q2 in eb:
             if segments_intersect(p1, p2, q1, q2):
                 return True
-    return any(strictly(pb, p) for p in vertices(pa, bx0, by0, bx1, by1)) or \
-        any(strictly(pa, q) for q in vertices(pb, ax0, ay0, ax1, ay1))
+    if any(strictly(pb, p) for p in vertices(pa, bx0, by0, bx1, by1)) or \
+            any(strictly(pa, q) for q in vertices(pb, ax0, ay0, ax1, ay1)):
+        return True
+    va = vertices(pa, bx0, by0, bx1, by1) + ([a[0]] if within(a[0], bx0, by0, bx1, by1) else [])
+    vb = vertices(pb, ax0, ay0, ax1, ay1) + ([b[0]] if within(b[0], ax0, ay0, ax1, ay1) else [])
+    ina, inb = (lambda p: strictly(pa, p)), (lambda p: strictly(pb, p))
+    return _along_shared_boundary(edges(pa, bx0, by0, bx1, by1), vb, ina, inb) or \
+        _along_shared_boundary(eb, va, ina, inb)
 
 
 class PolyRaster:

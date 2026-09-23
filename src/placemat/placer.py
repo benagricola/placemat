@@ -488,7 +488,10 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
             if best is not None:
                 break                       # the tightest gap that works
         if best is None:
-            return None, "%s: no legal spot on the axis of %s" % (sat.inst, _aim_text(spec, k, pin, net))
+            there = [s.inst for j, (s, n) in enumerate(spec.satellites[:k]) if _aimed_at(spec, j, n) is pin]
+            return None, "%s: no legal spot on the axis of %s%s" % (
+                sat.inst, _aim_text(spec, k, pin, net),
+                "; %s already sits there: aim at another pad, or link it instead" % ", ".join(there) if there else "")
         out[sat.inst] = best[1]
         taken += best[2]
         if drawn:

@@ -4,6 +4,14 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.28
+
+- Two satellites aimed at the same anchor pad no longer both take the one
+  spot on its axis: the second is refused, naming the first. Aim it at
+  another pad carrying the net, or link it to the pad instead.
+- Overlap tests catch outlines that coincide (the same courtyard twice, or
+  one slid along a side), which some checks read as clear before.
+
 ## To 0.27
 
 Nothing to change. `placemat preview` is new: the placement drawn in

@@ -93,3 +93,50 @@ def test_polygons_that_only_touch_along_an_edge_still_do_not_overlap():
     a = ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0))
     b = ((1.0, 0.0), (2.0, 0.0), (2.0, 1.0), (1.0, 1.0))
     assert not polys_overlap(a, b) and not polys_overlap(b, a)
+
+
+def _starts(poly):
+    """The polygon from each of its vertices in turn, both ways round."""
+    n = len(poly)
+    out = []
+    for k in range(n):
+        turned = tuple(poly[k:]) + tuple(poly[:k])
+        out += [turned, tuple(reversed(turned))]
+    return out
+
+
+def _dense(x0, y0, x1, y1, per_side=8):
+    """A rectangle with extra vertices along each side: enough for a grid."""
+    pts = []
+    for (ax, ay), (bx, by) in (((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)), ((x1, y1), (x0, y1)), ((x0, y1), (x0, y0))):
+        pts += [(round(ax + (bx - ax) * k / per_side, 6), round(ay + (by - ay) * k / per_side, 6)) for k in range(per_side)]
+    return tuple(pts)
+
+
+def test_polygons_whose_boundaries_coincide_overlap_whatever_vertex_they_start_from():
+    """Every vertex of one on the other's boundary and no edge crossing: the
+    first-vertex test is half-open, so it caught the overlap from some
+    starting vertices and not others."""
+    court = ((26.9, 41.1), (22.7, 41.1), (22.7, 38.9), (26.9, 38.9))
+    shifted = tuple((round(x + 0.3, 6), y) for x, y in court)
+    inner = ((22.7, 41.1), (24.0, 41.1), (24.0, 38.9), (22.7, 38.9))    # shares three sides of court
+    for a in _starts(court):
+        for b in _starts(court) + _starts(shifted) + _starts(inner):
+            assert polys_overlap(a, b) and polys_overlap(b, a), (a, b)
+
+
+def test_polygons_of_many_vertices_whose_boundaries_coincide_overlap():
+    big = _dense(0.0, 0.0, 10.0, 4.0)
+    assert len(big) >= 24
+    for a in _starts(big):
+        for b in _starts(big)[::7] + [rect(0.0, 0.0, 10.0, 4.0)]:
+            assert polys_overlap(a, b) and polys_overlap(b, a), (a[0], b[0])
+
+
+def test_polygons_that_share_whole_edges_but_no_interior_do_not_overlap():
+    a = ((0.0, 0.0), (2.0, 0.0), (2.0, 1.0), (0.0, 1.0))
+    beside = ((2.0, 0.0), (4.0, 0.0), (4.0, 1.0), (2.0, 1.0))
+    notch = ((0.0, 1.0), (2.0, 1.0), (2.0, 3.0), (1.0, 3.0), (1.0, 2.0), (0.0, 2.0))    # sits on a's top edge
+    for x in _starts(a):
+        for y in _starts(beside) + _starts(notch) + _starts(_dense(2.0, 0.0, 6.0, 1.0)):
+            assert not polys_overlap(x, y) and not polys_overlap(y, x), (x, y)
