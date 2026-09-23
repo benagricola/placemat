@@ -356,7 +356,9 @@ def pockets(occ: Occupancy, width: float, height: float, face: Face = Face.FRONT
     free = [row[:] for row in _board_mask(occ, inner, rows, cols, step)]
     kinds = ("courtyard", "npth", "through") if occ.envelope == "courtyard" else \
         ("courtyard", "npth", "through", "body", "pad", "silk")          # what a drawn envelope claims instead
-    blocks = [s.box for g in occ.items.values() for s in g.shapes
+    # A part the script has not placed yet is pending: it stands where the
+    # generator left it, which is nowhere, and blocks nothing.
+    blocks = [s.box for owner, g in occ.items.items() if owner not in occ.pending for s in g.shapes
               if s.kind in kinds and face in s.faces]
     blocks += [c.box for c in occ.copper if c.kind == "through"]        # vias come through: no face is free under them
     for b in blocks:

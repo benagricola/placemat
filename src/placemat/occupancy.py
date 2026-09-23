@@ -324,6 +324,8 @@ class Occupancy:
         """Every pad or copper of another net within clearance of `shape`."""
         out = []
         for owner, g in self.items.items():
+            if owner in self.pending:
+                continue                        # not placed yet: its pads are nowhere
             for o in g.shapes:
                 if o.kind not in ("pad", "through") or not shape.box.overlaps(o.box, gap=1.0):
                     continue
@@ -447,7 +449,9 @@ class Occupancy:
         total = 0.0
         for f in faces:
             used = 0.0
-            for g in self.items.values():
+            for owner, g in self.items.items():
+                if owner in self.pending:
+                    continue
                 for s in g.shapes:
                     if s.kind == "courtyard" and f in s.faces:
                         used += s.box.area

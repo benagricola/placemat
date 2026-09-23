@@ -700,7 +700,7 @@ class Board:
         box = Box(min(p[0] for p in loop), min(p[1] for p in loop),
                   max(p[0] for p in loop), max(p[1] for p in loop))
         for owner, g in occ.items.items():
-            if (g.reach or g.body).overlaps(box):
+            if owner not in occ.pending and (g.reach or g.body).overlaps(box):
                 return "would be milled through %s" % owner
         return None
 

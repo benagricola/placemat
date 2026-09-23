@@ -83,3 +83,32 @@ def test_a_search_that_no_pocket_can_satisfy_is_not_run():
     note = plan.step("b1").note
     assert "UNPLACED" in note and "no pocket fits" in note and "15.0 x 15.0" in note
     assert not any("no legal location within" in f for f in plan.findings)
+
+
+def test_a_part_not_yet_placed_blocks_no_pocket():
+    """The generator leaves every part somewhere; one the script has not
+    placed yet is pending, not an obstacle, so a pocket may lie under it."""
+    from placemat.occupancy import Occupancy
+    from placemat.placer import pockets
+    from placemat.values import Face
+    fps = [footprint("BIG", 30, 10, w=58, h=18, inst="big", nets=("D", "E"))]
+    g = board_geometry(fps, width=60, height=20)
+    occ = Occupancy(g, 0.5, board_box=g.outline_box)
+    occ.pending |= {"BIG"}
+    assert pockets(occ, 6.0, 6.0, Face.FRONT)
+
+
+def test_a_part_not_yet_placed_conflicts_with_no_copper_and_covers_no_board():
+    from placemat.occupancy import Occupancy, Shape
+    from placemat.geometry import box_polygon
+    from placemat.values import Box, Face
+    fps = [footprint("BIG", 30, 10, w=58, h=18, inst="big", nets=("D", "E"))]
+    g = board_geometry(fps, width=60, height=20)
+    occ = Occupancy(g, 0.5, board_box=g.outline_box)
+    track = Shape("", "copper", frozenset([Face.FRONT]), frozenset([CopperLayer.F]), "X",
+                  box_polygon(Box(0, 9.9, 60, 10.1)), Box(0, 9.9, 60, 10.1))
+    before = occ.free_area(Face.FRONT)
+    assert occ.copper_conflicts(track)
+    occ.pending |= {"BIG"}
+    assert occ.copper_conflicts(track) == []
+    assert occ.free_area(Face.FRONT) > before
