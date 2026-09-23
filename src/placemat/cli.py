@@ -317,7 +317,7 @@ def cmd_measure(args) -> int:
                 describe.part_lines(fp, pads=args.pads, digest=digest)))
         return 0
     pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
-    if args.labels:
+    if getattr(args, "labels", False):
         from .kicad.read import read_labels
         labels = read_labels(pcb)
         if args.json:
