@@ -907,12 +907,23 @@ directory, and `PLACEMAT_SHOW_KICAD=1` prints it all. Anything KiCad says
 that is not one of the known noise patterns is printed regardless.
 
 A run leaves `.placemat/runs/<id>/` beside the board (`<id>` is the hash of
-the script, the generated board and the tool; `--label` adds a symlink
+the script and the modules it imports from beside it, the generated board,
+the tool, the settings and the fab profile; `--label` adds a symlink
 alias): `run.json`,
 `script.log`, `drc.json`, `generate.log`, `impact.txt`, the written
 `layout.kicad_pcb`, and `route/` (the routed copy, `route.json`,
 `router.log`, DRC before and after) when routing ran. The generation is
-cached in `.placemat/generated/`; `--fresh` regenerates.
+cached in `.placemat/generated/`, with the digests of what it was made
+from beside it (`<board>.inputs.json`: the board's .zen, every file a .zen
+names by relative path - modules, loads, footprints, symbols - the
+layout of each stamped fragment, the workspace's pcb.toml and the generate
+arguments). A run whose inputs changed generates again and says which
+file changed; `--fresh` regenerates regardless. `placemat preview` never
+generates, and says when the cache it draws from is out of date.
+
+A script runs with its own directory importable: geometry several scripts
+share can live in a module beside them (`import core_geometry`), and a
+change to it changes the run id.
 
 Every finished run is judged against the best earlier run of the same parts -
 its **family**, the runs whose script asked to place the same items - and
@@ -948,6 +959,7 @@ in a place of its own:
 |---|---|---|
 | `run` | the placed board: `layout.kicad_pcb`, the project's presets and a `.kicad_dru` of the script's rules | the board's layout directory |
 | `run` | the generation, cached so a rerun skips `pcb layout` | `.placemat/generated/<board>/` |
+| `run` | what that generation was made from, to know when it is out of date | `.placemat/generated/<board>.inputs.json` |
 | `run` | the run: `run.json`, `script.log`, a copy of the board, renders, `drc.json`, `impact.txt`, `reuse.json` (what the next run replays) | `.placemat/runs/<id>/` |
 | `run` | `latest.json`, `best.json`, and with `--label` an alias | `.placemat/runs/` |
 | `preview` | `preview.svg`, `preview.png`, and `reuse.json` (what the next preview replays) | `.placemat/preview/`, or `--out DIR` |

@@ -12,6 +12,7 @@ import re
 import shlex
 import subprocess
 
+from .console import console
 from . import reuse as reuse_mod
 
 
@@ -92,7 +93,7 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
     from .board_geometry import members_of
     from .preview import draw_annotated
     from .project import fab_profile, find_board
-    from .runner import RunRecord, cached_generation, reuse_parts, scripted_board
+    from .runner import RunRecord, cached_generation, reuse_parts, scripted_board, stale_inputs
     from . import settings as settings_mod
     from .values import Box
     script = Path(script).resolve()
@@ -106,6 +107,10 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
     if not generated.exists():
         raise ValueError("%s has no cached generation yet: run `placemat run %s` once, then preview"
                          % (src.name, script.name))
+    stale = stale_inputs(src)
+    if stale and not quiet:
+        console.say("board", "the cached generation is out of date (%s): this preview shows the old one; "
+                             "`placemat run %s` generates it again" % (stale, script.name), level="finding")
     with settings_mod.bind(cfg):
         fab = fab_profile(src.board_dir)
         board = scripted_board(script, src, cfg, fab, keep_going=True, pcb=generated)

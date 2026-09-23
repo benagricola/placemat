@@ -15,7 +15,7 @@ from .console import configure, console
 from .layout import Board
 from .context import run_script
 from . import checks, settings
-from .project import BoardSource, fab_profile, find_board
+from .project import BoardSource, fab_profile, find_board, generator_inputs, script_fingerprint
 from .report import (RunRecord, against_best, airwires_from_drc, comparable, congestion,
                      impact, is_better, run_id)
 
@@ -107,26 +107,55 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
     generator ran."""
     cache = cached_generation(src)
     log = run_dir / "generate.log"
-    if cache.exists() and not fresh:
+    inputs = generator_inputs(src)
+    stale = stale_inputs(src, inputs) if cache.exists() else None
+    if cache.exists() and not fresh and not stale:
         shutil.rmtree(src.layout_dir, ignore_errors=True)
         shutil.copytree(cache, src.layout_dir)
         log.write_text("restored the cached generation from %s\n" % cache)
         _say(quiet, "board   restored from cache (%s)" % cache.relative_to(src.board_dir))
         return False
+    if stale and not fresh:
+        _say(quiet, "board   the cached generation is out of date: %s" % stale)
     env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
     shutil.rmtree(src.layout_dir, ignore_errors=True)
     src.layout_dir.mkdir(parents=True, exist_ok=True)
     _say(quiet, "board   generating %s with pcb layout ..." % src.zen.name)
     cmd = ["pcb", "layout", "--no-open"] + list(src.generate_args) + [src.zen.name]
     rc, dt = _sh(cmd, src.board_dir, log, timeout, env)
+    if stale and not fresh:
+        with open(log, "a") as f:
+            f.write("\ngenerated again: %s\n" % stale)
     if rc != 0 or not src.pcb.exists():
         raise RunFailure("generation", "Schematic generation failed",
                          {"command": " ".join(cmd), "cwd": str(src.board_dir),
                           "exit_code": rc, "log": str(log), "tail": _tail(log)})
     shutil.rmtree(cache, ignore_errors=True)
     shutil.copytree(src.layout_dir, cache)
+    _inputs_record(src).write_text(json.dumps(inputs, indent=1, sort_keys=True))
     _say(quiet, "board   generated in %.0fs" % dt)
     return True
+
+
+def _inputs_record(src: BoardSource) -> Path:
+    """Where a cached generation's inputs are recorded: beside the cache."""
+    cache = cached_generation(src)
+    return cache.with_name(cache.name + ".inputs.json")
+
+
+def stale_inputs(src: BoardSource, inputs: dict | None = None) -> str:
+    """Why the cached generation no longer matches what the generator would
+    read, or "" when it does: the inputs that changed, appeared or went."""
+    try:
+        was = json.loads(_inputs_record(src).read_text())
+    except (OSError, ValueError):
+        return "no record of the files it was generated from"
+    now = generator_inputs(src) if inputs is None else inputs
+    changed = sorted(k for k in set(was) | set(now) if was.get(k) != now.get(k))
+    if not changed:
+        return ""
+    shown = ", ".join(changed[:4]) + (" and %d more" % (len(changed) - 4) if len(changed) > 4 else "")
+    return "%s changed since it was generated" % shown
 
 
 def keep_route(final_dir: Path, staging: Path) -> None:
@@ -227,7 +256,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         # The run's name: a hash of the script, the generated board and the tool.
         from . import __version__
         fab = fab_profile(src.board_dir)
-        rid = run_id(script.read_text(), src.pcb.read_bytes(), __version__, cfg.json(), fab.json())
+        rid = run_id(script_fingerprint(script), src.pcb.read_bytes(), __version__, cfg.json(), fab.json())
         final_dir = runs / rid
         keep_route(final_dir, staging)
         shutil.rmtree(final_dir, ignore_errors=True)

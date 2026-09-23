@@ -20,16 +20,6 @@ Bugs, each checked against the code on 2026-09-23 (reproduced where it says so):
   an exposed pad are plated pads, so an SMD chip with a via-in-pad claims
   its body on the back as well. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things" item 5 and "the power
   cells" item 1.
-- **The cached generation is never invalidated.** `generate()` restores
-  `.placemat/generated/` whenever it exists; a changed `.zen` or fragment is
-  only picked up with `--fresh`. Wanted: a key over the generator's inputs
-  (the `.zen` files and fragments it reads), or at least a warning. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`,
-  "the bench panel cell", item 3.
-- **The run id ignores modules the script imports**, and the script's
-  directory is not on `sys.path` (`context.run_script` loads the file by
-  path only), so a shared geometry module needs `sys.path.insert` in every
-  script and changing it keeps the run id. The fab profile is in the id
-  now. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things" items 2 and 3.
 - **"Wholly off the board" counts a region's vertices.** A strip whose
   corners sit on or past the outline is refused though it covers board
   (`_keepout_unusable`). Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things", item 4.
@@ -93,6 +83,11 @@ Features:
 
 ## Done
 
+- **What a run is made from** (unreleased): the cached generation records
+  its inputs and regenerates when one changes; the script's directory is
+  importable and its sibling modules count in the run id. Source:
+  fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things" items
+  2 and 3, "the bench panel cell" item 3.
 - **Three gaps bugs** (0.28.0): the pocket search takes the largest room
   the item fits, and the check before a search rounds toward room; a parts
   keepout or stamped rule area keeps parts off only the faces its layers

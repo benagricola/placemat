@@ -122,3 +122,97 @@ def fab_profile(start) -> FabProfile:
             return FabProfile(via.get("default_drill_mm", 0.3), via.get("default_size_mm", 0.6),
                               excess, widths, f, court.get("component_spacing_mm", 2 * excess))
     return FabProfile()
+
+
+# ------------------------------------------------------------ what a run is made from
+_QUOTED_RE = re.compile(r'"([^"\n]+)"')
+_PROJECT_PATH_RE = re.compile(r'\bProject\s*\([^)]*?\bpath\s*=\s*"([^"]+)"', re.S)
+
+
+def _sha_file(path: Path) -> str:
+    import hashlib
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def generator_inputs(src: BoardSource) -> dict:
+    """{path relative to the board directory: sha256} of what `pcb layout`
+    reads for this board: its .zen and every file a .zen names by a
+    relative path (modules and loads, followed through theirs; footprints
+    and symbols), the layout a module's `Layout(path=)` points at (a stamped
+    fragment), each pcb.toml from the board up to the workspace, and the
+    extra generate arguments. The board's own layout directory is the
+    output, not an input. A package reference (`@stdlib/...`) is left to
+    the toolchain's own pinning."""
+    import os
+    out = {}
+    own = src.layout_dir.resolve()
+    base = src.board_dir.resolve()
+
+    def add(path: Path):
+        out[os.path.relpath(path, base)] = _sha_file(path)
+
+    seen, todo = set(), [src.zen.resolve()]
+    while todo:
+        zen = todo.pop()
+        if zen in seen or not zen.is_file():
+            continue
+        seen.add(zen)
+        add(zen)
+        text = zen.read_text(errors="replace")
+        # A Project's path is where the generator writes the schematic project: output.
+        written = [(zen.parent / w).resolve() for w in _PROJECT_PATH_RE.findall(text)]
+        for ref in _QUOTED_RE.findall(text):
+            if ref.startswith("@") or "://" in ref or ref.startswith("/"):
+                continue
+            p = (zen.parent / ref).resolve()
+            if any(p == w or w in p.parents for w in written):
+                continue
+            if p.is_dir():
+                if p != own and (p / "layout.kicad_pcb").is_file():
+                    add(p / "layout.kicad_pcb")
+            elif p.is_file():
+                if p.suffix == ".zen":
+                    todo.append(p)
+                elif own not in p.parents and p.suffix != ".py":
+                    add(p)
+    d = base
+    while True:
+        if (d / "pcb.toml").is_file():
+            add(d / "pcb.toml")
+            if "[workspace]" in (d / "pcb.toml").read_text(errors="replace"):
+                break
+        if d.parent == d:
+            break
+        d = d.parent
+    out["(generate arguments)"] = " ".join(src.generate_args)
+    return dict(sorted(out.items()))
+
+
+def script_fingerprint(script) -> str:
+    """The script's text and that of every module it imports from beside it,
+    followed through their own imports: what the run id hashes, so a change
+    to shared geometry in a sibling module is a different run."""
+    import ast
+    script = Path(script).resolve()
+    here = script.parent
+    parts, seen, todo = [], set(), [script]
+    while todo:
+        path = todo.pop(0)
+        if path in seen or not path.is_file():
+            continue
+        seen.add(path)
+        text = path.read_text(errors="replace")
+        parts.append("%s\0%s" % (path.relative_to(here) if path != script else "", text))
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            names = [a.name for a in node.names] if isinstance(node, ast.Import) else \
+                [node.module] if isinstance(node, ast.ImportFrom) and node.module and not node.level else []
+            for name in names:
+                rel = Path(*name.split("."))
+                for cand in (here / rel.with_suffix(".py"), here / rel / "__init__.py"):
+                    if cand.is_file():
+                        todo.append(cand.resolve())
+    return "\0\0".join(parts)

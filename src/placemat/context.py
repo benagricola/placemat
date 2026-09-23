@@ -47,6 +47,20 @@ def run_script(path, real):
     spec = importlib.util.spec_from_file_location("placemat_layout_script", str(path))
     module = importlib.util.module_from_spec(spec)
     sys.dont_write_bytecode = True
-    with bind(real):
-        spec.loader.exec_module(module)
+    # The script's own directory is importable while it runs, so geometry
+    # shared by several scripts can live in a module beside them. What it
+    # imported from there is dropped afterwards: the next run reads it again.
+    here = str(path.parent)
+    had = set(sys.modules)
+    sys.path.insert(0, here)
+    try:
+        with bind(real):
+            spec.loader.exec_module(module)
+    finally:
+        if sys.path and sys.path[0] == here:
+            del sys.path[0]
+        for name in set(sys.modules) - had:
+            f = getattr(sys.modules[name], "__file__", None) or ""
+            if f and Path(f).resolve().parent.is_relative_to(path.parent):
+                del sys.modules[name]
     return module

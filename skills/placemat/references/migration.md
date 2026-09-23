@@ -4,6 +4,16 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.29
+
+- The first run after upgrading generates the board again: the cached
+  generation has no record of its inputs yet. From then on a changed .zen,
+  footprint, symbol or stamped fragment regenerates by itself; `--fresh`
+  is only needed for something outside those (a toolchain update).
+- A script may import a module beside it without touching `sys.path`; drop
+  any `sys.path.insert` added for that. Such a module now counts in the run
+  id, so the first run after upgrading has a new id.
+
 ## To 0.28
 
 - A keepout (or a stamped cell's rule area) with `"parts"` and `layers=`
