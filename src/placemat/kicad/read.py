@@ -305,6 +305,20 @@ def _rule_areas(board, groups_of) -> tuple:
             layers, missing = resolve_marker(declared, stack)
         out.append(RuleArea(z.GetZoneName(), groups_of.get(_kiid(z)), poly, layers,
                             excludes, missing))
+    # A stamped cell's silk texts - its fragment's board.label() names - keep
+    # parts out on their face as the fragment reserved them: read as a region
+    # of the cell, so it moves and turns over with the cell.
+    for d in board.GetDrawings():
+        cell = groups_of.get(_kiid(d))
+        if cell is None or not isinstance(d, pcbnew.PCB_TEXT) or d.GetText().startswith(FACES_PREFIX):
+            continue
+        if d.GetLayer() not in (pcbnew.F_SilkS, pcbnew.B_SilkS):
+            continue
+        bb = d.GetEffectiveShape().BBox()
+        x0, y0, x1, y1 = mm(bb.GetLeft()), mm(bb.GetTop()), mm(bb.GetRight()), mm(bb.GetBottom())
+        face = CopperLayer.B if d.GetLayer() == pcbnew.B_SilkS else CopperLayer.F
+        out.append(RuleArea("label %s" % d.GetText(), cell, ((x0, y0), (x1, y0), (x1, y1), (x0, y1)),
+                            frozenset((face,)), frozenset(("parts",))))
     return tuple(out)
 
 

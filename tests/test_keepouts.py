@@ -586,3 +586,19 @@ def test_a_region_wholly_inside_a_hole_in_the_board_is_off_it():
     b.place(Part("u1"), at=Location(b.centre.x, b.centre.y + 12.0))
     with pytest.raises(ValueError, match="wholly off the board"):
         b.resolve()
+
+
+def test_a_stamped_cell_s_label_keeps_parts_off_it_once_the_cell_lands():
+    from placemat.board_geometry import RuleArea
+    fps = [footprint("U1", 10, 10, w=4, h=2, cell="panel", inst="panel.u", nets=("A", "B")),
+           footprint("R1", 30, 30, w=2, h=1, inst="r1", nets=("B", "C"))]
+    g = board_geometry(fps, cells=["panel"], width=60, height=60)
+    g = dataclasses.replace(g, rule_areas=(
+        RuleArea("label BOOT", "panel", ((9.0, 12.0), (11.0, 12.0), (11.0, 13.0), (9.0, 13.0)),
+                 frozenset([CopperLayer.F]), frozenset(["parts"])),))
+    occ = Occupancy(g, edge_margin=0.0)
+    cell = g.cell("panel")
+    occ.commit(cell, Placement(cell.box.center, 0.0, Face.FRONT))
+    why = occ.legal(g.footprint("R1"), Placement(Location(10.0, 12.5), 0.0, Face.FRONT)) or ""
+    assert "label 'BOOT' from the panel cell" in why
+    assert occ.legal(g.footprint("R1"), Placement(Location(10.0, 12.5), 0.0, Face.BACK)) is None

@@ -437,7 +437,9 @@ nothing, and the script says otherwise.
 
 **A stamped cell brings its own.** A module fragment's regions arrive with the
 cell, inside its group, and are honoured: they move with the cell and fence the
-placer. They are read from the generated board, so a keepout whose name would
+placer. Its labels come the same way: each silk text in the cell's group keeps
+parts off its box on its face once the cell lands (`sits in the reservation
+for label 'BOOT' from the debug cell`), so a parent need not declare them again. They are read from the generated board, so a keepout whose name would
 collide with one is refused.
 
 **Layers a module's board does not have.** A module fragment is a two-layer

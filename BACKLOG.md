@@ -14,8 +14,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 Bugs, each checked against the code on 2026-09-23 (reproduced where it says so):
 
-- **A stamped cell's labels are not reserved in the parent.** Not
-  reproduced yet. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 2.
 - **`place.courtyard_touch` and KiCad disagree** on courtyards within
   0.02 mm once KiCad does not round them out. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things", item 6.
 - **A `Layout()` fragment gets default rules** (silk clearance 0, stdlib
@@ -64,6 +62,10 @@ Features:
 
 ## Done
 
+- **A stamped cell's labels are reserved in the parent** (unreleased): each
+  silk text in a cell's group is read as a parts-excluding region of the
+  cell on its face. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`,
+  "the bench panel cell", item 2.
 - **A label keeps the silk clearance from its part** (unreleased): the label
   gap is at least the board's silk clearance. Reproduced with the flag tab
   footprint and KiCad's DRC: at gap 0 every side touched the tab's silk on

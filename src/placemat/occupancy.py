@@ -433,7 +433,8 @@ class Occupancy:
             pair[1] = poly
             claims, layer = parts_claim(ra.layers, flip=placement.face != geom.reference.face)
             if claims:
-                self.reserve(poly, "rule area %r from the %s cell" % (ra.name, ra.cell), source=tag, layer=layer)
+                what = ("label %r" % ra.name[len("label "):]) if ra.name.startswith("label ") else "rule area %r" % ra.name
+                self.reserve(poly, "%s from the %s cell" % (what, ra.cell), source=tag, layer=layer)
         own = by_owner.get(item.name, [])
         self.copper = [c for c in self.copper if c.owner != item.name] + own
 

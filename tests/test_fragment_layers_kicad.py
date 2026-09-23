@@ -106,3 +106,34 @@ def test_writing_widens_a_stamped_zone_to_what_it_declared(tmp_path):
               for z in board.Zones() if z.GetIsRuleArea()}
     assert layers["keepout clearance [*.Cu]_1"] == ["B.Cu", "F.Cu", "In1.Cu", "In2.Cu"]
     assert layers["keepout plain_1"] == ["F.Cu"]            # no marker: left alone
+
+
+def test_a_stamped_cell_s_silk_text_reads_as_a_region_parts_keep_out_of(tmp_path):
+    """A module fragment's board.label() arrives in the parent as a silk text
+    in the cell's group. It is read as a region on its face that keeps parts
+    out, moving with the cell like the cell's own rule areas."""
+    import pcbnew
+    from placemat.kicad.read import read_board
+    b = pcbnew.CreateEmptyBoard()
+    g = pcbnew.PCB_GROUP(b)
+    g.SetName("panel")
+    b.Add(g)
+    def text(s, layer, grouped):
+        t = pcbnew.PCB_TEXT(b)
+        t.SetText(s)
+        t.SetLayer(layer)
+        t.SetTextSize(pcbnew.VECTOR2I(pcbnew.FromMM(1), pcbnew.FromMM(1)))
+        t.SetPosition(pcbnew.VECTOR2I(pcbnew.FromMM(20), pcbnew.FromMM(20)))
+        b.Add(t)
+        if grouped:
+            g.AddItem(t)
+    text("BOOT", pcbnew.B_SilkS, True)
+    text("placemat faces outward=N", pcbnew.Cmts_User, True)
+    text("LOOSE", pcbnew.F_SilkS, False)
+    path = tmp_path / "layout.kicad_pcb"
+    b.Save(str(path))
+    (ra,) = read_board(path).rule_areas
+    assert ra.cell == "panel" and ra.name == "label BOOT"
+    assert ra.layers == frozenset((B,)) and ra.excludes == frozenset(("parts",))
+    xs = [p[0] for p in ra.polygon]
+    assert min(xs) < 20.0 < max(xs)
