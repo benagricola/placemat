@@ -118,3 +118,15 @@ def test_a_planes_automatic_connections_still_do_not_pull():
     b.place(Part("c1"))                      # no link declared
     plan = b.resolve()
     assert "nothing it connects to is placed" in plan.step("c1").note
+
+
+def test_the_declared_link_between_two_pads_is_the_first_declared_either_way_round():
+    from placemat.values import LinkWeight, PadRef, Part
+    fps = [footprint("U1", 10, 10, inst="u1", nets=("A", "B")), footprint("U2", 20, 10, inst="u2", nets=("A", "C"))]
+    b = Board(board_geometry(fps, width=40, height=30))
+    first = b.link(PadRef(Part("u1"), 1), PadRef(Part("u2"), 1), weight=LinkWeight.SHORT)
+    b.link(PadRef(Part("u2"), 1), PadRef(Part("u1"), 1), weight=LinkWeight.PREFER)
+    assert b._declared_link(("U2", "1"), ("U1", "1")) is first
+    assert b._declared_link(("U1", "2"), ("U2", "1")) is None
+    later = b.link(PadRef(Part("u1"), 2), PadRef(Part("u2"), 2))
+    assert b._declared_link(("U2", "2"), ("U1", "2")) is later

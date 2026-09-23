@@ -1559,11 +1559,16 @@ class Board:
     def _declared_link(self, pad_a: tuple, pad_b: tuple):
         """The link the script declared between these two pads, or None. A
         weight of DEFAULT is what an undeclared connection is worth, so the
-        weight alone cannot say whether anybody asked for one."""
-        for l in self._links:
-            if {l.a, l.b} == {pad_a, pad_b}:
-                return l
-        return None
+        weight alone cannot say whether anybody asked for one. The first one
+        declared, when the script declared two."""
+        index = self.__dict__.get("_link_index")
+        if index is None or index[0] != len(self._links):
+            by_pair = {}
+            for l in self._links:
+                by_pair.setdefault(frozenset((l.a, l.b)), l)
+            index = (len(self._links), by_pair)
+            self._link_index = index
+        return index[1].get(frozenset((pad_a, pad_b)))
 
     def _link_weight(self, pad_a: tuple, pad_b: tuple) -> int:
         link = self._declared_link(pad_a, pad_b)
