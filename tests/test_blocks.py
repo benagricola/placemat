@@ -243,3 +243,49 @@ def test_a_block_lands_where_it_did_with_the_obstacles_gathered_once():
     finally:
         placer.layout_block = real
     assert fast == slow
+
+
+def _twin_board():
+    """An anchor with both pads on one net: pad 1 west, pad 2 east."""
+    fps = [footprint("U1", 30, 30, w=6, h=3, inst="ldo", nets=("GND", "GND")),
+           footprint("C1", 60, 60, inst="cin", nets=("GND", "VIN"))]
+    return Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+
+
+def test_a_satellite_named_by_net_takes_the_first_pad_carrying_it():
+    b = _twin_board()
+    b.place(b.block(Part("ldo"), satellites=[(Part("cin"), "GND")], gap=0.5), at=Location(30, 30))
+    plan = b.resolve()
+    assert plan.placement("cin").location.x < 30
+
+
+def test_a_satellite_can_name_the_anchor_pad_by_number():
+    b = _twin_board()
+    b.place(b.block(Part("ldo"), satellites=[(Part("cin"), 2)], gap=0.5), at=Location(30, 30))
+    plan = b.resolve()
+    assert plan.placement("cin").location.x > 30
+    assert plan.occupancy.pad_location("C1", "1").x > plan.occupancy.pad_location("U1", "2").x
+
+
+def test_a_satellite_must_carry_the_net_of_the_pad_it_is_aimed_at():
+    fps = [footprint("U1", 30, 30, w=6, h=3, inst="ldo", nets=("GND", "VOUT")),
+           footprint("C1", 60, 60, inst="cin", nets=("GND", "VIN"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    with pytest.raises(KeyError):
+        b.block(Part("ldo"), satellites=[(Part("cin"), 2)])
+
+
+def test_a_satellite_with_no_spot_says_which_pad_it_was_aimed_at():
+    from placemat.placement import Placement
+    from placemat.placer import layout_block
+    fps = [footprint("U1", 30, 30, w=6, h=3, inst="ldo", nets=("GND", "GND")),
+           footprint("C1", 60, 60, inst="cin", nets=("GND", "VIN")),
+           footprint("W1", 36.2, 30, w=6, h=20, inst="wall", excess=0.0)]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    spec = b.block(Part("ldo"), satellites=[(Part("cin"), 2)], gap=0.0)
+    from placemat.occupancy import Occupancy
+    occ = Occupancy(b.geometry, 1.0)
+    occ.commit(b.geometry.footprint("wall"), Placement(Location(36.2, 30), 0.0, b.geometry.footprint("wall").face))
+    members, why = layout_block(occ, spec, Placement(Location(30, 30), 0.0, b.geometry.footprint("ldo").face))
+    assert members is None
+    assert "U1 pad 2 (GND" in why

@@ -392,6 +392,8 @@ class BlockSpec:
     anchor: object                   # Footprint
     satellites: tuple                # ((Footprint, net), ...)
     gap: float | None = None         # pad edge to pin edge; None: as close as the two courtyards allow
+    pins: tuple = ()                 # the anchor pad NUMBER each satellite is aimed at; () - the first pad on its net
+    named: tuple = ()                # per satellite, True when the script named the pad by number
 
     @property
     def key(self) -> str:
@@ -431,8 +433,8 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
     # its gap. The courtyards alone are what a courtyard envelope claims.
     drawn = occ.envelope != "courtyard"
     laid = ShapeIndex(ashapes) if drawn else ShapeIndex()
-    for sat, net in spec.satellites:
-        pin = spec.anchor.pad(net)
+    for k, (sat, net) in enumerate(spec.satellites):
+        pin = _aimed_at(spec, k, net)
         p = pads[(spec.anchor.ref, pin.number)]
         ux, uy = p.x - centre.x, p.y - centre.y
         n = math.hypot(ux, uy)
@@ -482,7 +484,7 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
             if best is not None:
                 break                       # the tightest gap that works
         if best is None:
-            return None, "%s: no legal spot on the %s pin's axis" % (sat.inst, net)
+            return None, "%s: no legal spot on the axis of %s" % (sat.inst, _aim_text(spec, k, pin, net))
         out[sat.inst] = best[1]
         taken += best[2]
         if drawn:
@@ -512,6 +514,24 @@ def block_obstacles(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: fl
     region = Box(x - reach, y - reach, x + reach, y + reach)
     return {m.inst: occ.obstacles(occ._geometry(m), region)
             for m in [spec.anchor] + [sat for sat, _ in spec.satellites]}
+
+
+def _aimed_at(spec: BlockSpec, k: int, net: str):
+    """The anchor pad satellite `k` sits at: the one the script numbered, or
+    the first pad carrying its net."""
+    if k < len(spec.pins):
+        return next(p for p in spec.anchor.pads if p.number == spec.pins[k])
+    return spec.anchor.pad(net)
+
+
+def _aim_text(spec: BlockSpec, k: int, pin, net: str) -> str:
+    """Which anchor pad a satellite was aimed at, and why that one."""
+    text = "%s pad %s (%s" % (spec.anchor.ref, pin.number, net)
+    by_number = k < len(spec.named) and spec.named[k]
+    carrying = sum(1 for p in spec.anchor.pads if p.net == net)
+    if not by_number and carrying > 1:
+        text += ", the first of its %d pads on it: name a pad number to aim at another" % carrying
+    return text + ")"
 
 
 def _half_extent(box: Box, ux: float, uy: float) -> float:

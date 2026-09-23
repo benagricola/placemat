@@ -1143,19 +1143,28 @@ class Board:
     # ------------------------------------------------------------ blocks
     def block(self, anchor, satellites, gap: float | None = None) -> BlockSpec:
         """A part and the satellites that sit at its pins: `satellites` is a
-        list of (Part, net) pairs, each placed on that pin's axis `gap` out,
+        list of (Part, pad) pairs, each placed on that pin's axis `gap` out,
         body outward of its pad; the default gap is the two courtyards
-        touching. Place the returned block like a part; it is laid out from
+        touching. The pad is the anchor's, a net name (the first pad carrying
+        it) or an int pad number; the satellite sits by its own pad on that
+        pad's net. Place the returned block like a part; it is laid out from
         the anchor's real pads at every candidate."""
         a = self.geometry.footprint(anchor)
-        sats = []
-        for part, net in satellites:
+        sats, pins, named = [], [], []
+        for part, key in satellites:
             fp = self.geometry.footprint(part)
-            name = self.geometry.require_net(net)
-            a.pad(name)              # the anchor must carry the net
-            fp.pad(name)             # and so must the satellite
+            kind, value = pad_key(key)
+            if kind == "number":
+                pad = a.pad(key)
+                name = pad.net
+            else:
+                name = self.geometry.require_net(key)
+                pad = a.pad(name)        # the anchor must carry the net
+            fp.pad(name)                 # and so must the satellite
             sats.append((fp, name))
-        return BlockSpec(a, tuple(sats), gap)
+            pins.append(pad.number)
+            named.append(kind == "number")
+        return BlockSpec(a, tuple(sats), gap, tuple(pins), tuple(named))
 
     # ------------------------------------------------------------ placement
     def place(self, item, at=None, *, rotation: float | None = None, face: Face = Face.FRONT,
