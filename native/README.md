@@ -50,8 +50,16 @@ native and Python answers directly; they skip themselves (not fail) when
   ported expression-for-expression from `placemat.geometry` so floating
   point comparisons land the same way. No PyO3 dependency in this module -
   it's plain Rust, unit-tested on its own.
-- `src/lib.rs`: the PyO3 module, `#[pyfunction]` wrappers around
-  `geometry.rs` with no logic of their own.
+- `src/shapes.rs`: the near-obstacle conflict search - `Shape`, a uniform
+  grid over obstacle boxes, and `Occupancy._conflict` / `_drawn_conflict`'s
+  boolean decision (which pair conflicts, not why - Python still produces
+  the reason string from the identified pair). Also plain Rust, unit-tested
+  on its own; see the module's own doc comment for how this replaces
+  `ShapeIndex.near()` without a two-stage filter.
+- `src/lib.rs`: the PyO3 module - `#[pyfunction]` wrappers around
+  `geometry.rs`, and the `NativeObstacles` class (`shapes.rs`'s grid,
+  registered once per scan from `Occupancy.obstacles()`, queried once per
+  candidate from `Occupancy.legal()`) - with no decision logic of its own.
 
 ## Packaging
 

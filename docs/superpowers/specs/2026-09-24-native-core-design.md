@@ -1,7 +1,23 @@
 # A native core for the placement hot path
 
 Date: 2026-09-24
-Status: design
+Status: implemented (Phase 1 and Phase 2 both landed this round; see the
+plan's Task 4 for what is left)
+
+**Note on the profile below:** it was taken against the branch point before
+this work started. Placemat's own `main` gained three Python-side
+speed-ups to the same code path while this was in progress (commit
+0b642da: `legal()` turns a part's shapes once per rotation for the
+courtyard envelope too, and `polys_overlap` answers two axis-aligned
+rectangles from their boxes; c785a04: the courtyard-touch comparison
+allows a nanometre; e2614d8: `polys_overlap` catches a coinciding-outline
+case the edge walk missed). This work rebased onto that and ported the
+CURRENT algorithms (the profile's numbers are still representative of
+where the cost is, since the rectangle shortcut helps rectangle-vs-rectangle
+pairs specifically and the overall shape of the profile is unchanged; the
+Rust code matches what is on `main` today, not what is described in this
+paragraph's diff summaries). See "Phase 2" below for the numbers measured
+against the current code.
 
 ## Problem
 
@@ -121,36 +137,78 @@ cannot flip a verdict. Tests compare native and Python distances with an
 epsilon, not bit-exact equality, matching how the codebase itself compares
 them.
 
-### Phase 2: batched near-obstacle conflict search (next; not in this round)
+### Phase 2: batched near-obstacle conflict search (implemented this round)
 
-Design, not yet built: `Occupancy.obstacles()` registers its `ShapeIndex`
-into a native structure once per `scan()` (mirroring `ShapeIndex`'s grid),
-returning a handle `legal()` reuses for every candidate in that sweep, the
-same way `others` already is in Python. Per candidate, `legal()` passes its
-own (already-transformed) shapes and gets back the FIRST conflicting
-(shape, obstacle) pair, or none - Rust replicates `_conflict` /
-`_drawn_conflict`'s BOOLEAN decision (the gap thresholds, the courtyard
-touch depth, the box-gap short-circuit before `poly_distance`) to find that
-pair, but does not format anything. Python then calls the existing,
-untouched `_conflict` / `_drawn_conflict` on that one identified pair to
-produce the reason string and `Blocker` - so the string a script sees is
-still produced by the reference implementation, byte for byte, and Rust's
-job is only to find the same pair Python's linear scan would have stopped
-at first. The handle is invalidated (rebuilt) on `Occupancy.commit()`,
-matching `ShapeIndex`'s own lifetime (`obstacles()` is called fresh per
-scan already).
+`Occupancy.obstacles()` registers its shape list into a native
+`NativeObstacles` index once per call (mirrored on the returned
+`ShapeIndex` as `idx._native`), the same object `legal()` already reuses
+for every candidate in a sweep (`others`). Per candidate, `legal()` passes
+its own (already-transformed) shapes to `first_conflict(...)` and gets back
+the FIRST conflicting (shape, obstacle) pair, or none - `native/src/shapes.rs`
+replicates `_conflict` / `_drawn_conflict`'s BOOLEAN decision (the gap
+thresholds, the courtyard touch depth including its `+ 1e-9` allowance, the
+box-gap short-circuit before `poly_distance`, `vias_block_courtyards`) to
+find that pair, but formats nothing. Python then calls the existing,
+untouched `Occupancy._conflict` on that one identified pair to produce the
+reason string and `Blocker` - the string a script sees is still produced by
+the reference implementation, byte for byte. A native/Python disagreement
+on the identified pair (native says conflict, `_conflict` on the same pair
+says none) raises `AssertionError` rather than silently resolving one way -
+fuzz testing (below) found none, but a silent divergence would be worse
+than a loud one.
 
-Expected win, from the profile above: `near()` + `legal()`'s own loop +
-both `_conflict` layers + `gap_for` are collectively ~11.4s of this
-module's 23.6s `legal()`-cumulative time; collapsing that into one native
-call per `legal()` invocation (rather than dozens of Python-level box and
-attribute-access calls) is where the multi-x win this project is for would
-come from, not from Phase 1's predicate swap. This is scoped as the next
-task in the plan and is substantial - it needs `Shape`, `ShapeIndex` and
-the `_conflict` / `_drawn_conflict` decision tree ported faithfully,
-including every gap/threshold combination silk, mask, body, pad, through,
-copper, courtyard and npth can hit - not started this session; see the
-plan for its own task breakdown and risk notes.
+`ShapeIndex.near()`'s own two-stage filter (a coarse box test at the
+candidate's whole reach, then a precise per-shape test) is not mirrored as
+two stages: the coarse box is provably a superset of the precise one
+(`Occupancy.__init__` asserts `_gap >= gap_for(s)` for every shape kind),
+so `ShapeGrid`'s single per-shape grid query at the shape's own box and gap
+finds the same obstacles, in the same order, as `near()` + the per-shape
+filter together would - see the `shapes` module's own doc comment.
+
+**Correctness testing**, all zero mismatches: `native/src/shapes.rs`'s own
+unit tests (each `_conflict` / `_drawn_conflict` rule, the courtyard-touch
+epsilon, a via not blocking a body); `tests/test_native_conflict.py` (the
+boolean decision alone, ~90,000 randomised shape pairs across every
+envelope, real shape kinds including a synthetic npth and a via, the
+`vias_block_courtyards` house rule, and the exact touch boundary);
+`tests/test_native_legal.py` (the full near-obstacle search end to end - a
+verdict, a reason string and a blame tuple - on a synthetic board and on
+three real fixture boards under multiple envelopes and clearance
+overrides, ~6,400 randomised candidates). The one bug this found was in the
+test helper, not the port: an early draft hardcoded `owner_is_footprint =
+False` for every shape, which made every body/pad and body/through rule
+read as "let it through" - caught because the fixture-board comparison
+disagreed with the live `Occupancy.legal()`.
+
+**Measured effect.** [numbers pending - see the plan/report]. Profiling
+`legal()` with native wired (SlotControl, `physical`) found the win was
+smaller than the Phase 1 profile's arithmetic suggested, and why: handing
+a candidate's shapes to native costs real Python-side marshalling
+(`_to_native_shape_shifted`: building a plain tuple, including a shifted
+polygon, per candidate shape, for every shape - not only the ones that
+turn out to conflict). An early version of this wiring built a full
+`occupancy.Shape` object (a dataclass, with its own box) for every
+candidate shape unconditionally before converting each to a native tuple -
+1.1M `Shape.__init__` calls on the SlotControl/`physical` profile alone,
+most of them for shapes that were never the ones that conflicted. Fixed:
+only the ONE shape native identifies as the conflicting one is ever turned
+into a full `Shape` (to hand to the untouched `_conflict` for its
+message); every other candidate shape is marshalled straight from the
+turned-once-per-rotation origin shape to a native tuple, no intermediate
+object. This roughly halved `legal()`'s own (non-native, non-`_conflict`)
+time in the same profile (7.6s to 3.4s tottime over 64,567 calls). Even
+after that fix, the per-call marshalling (building a plain tuple with a
+shifted polygon for every candidate shape, once per `legal()` call) is
+larger than native's own compute (`first_conflict` itself measured ~1.9s
+of tottime in the same profile, against ~5.3s for
+`_to_native_shape_shifted`) - crossing the FFI boundary is not free even
+"once per call", and for a courtyard-envelope part (one shape) it is
+proportionally worse than for physical (several shapes, but still fewer
+crossings than obstacles). A further win is available by caching the
+native index across scans (see "Left for a follow-up" below) rather than
+rebuilding it - and re-marshalling every candidate shape from scratch -
+on every `Occupancy.obstacles()` call, which the current implementation
+still does.
 
 Not ported in Phase 2 either: `board_shape.why_not` (the polymorphic
 rectangle/disc/outline edge and cutout test, run once per candidate before
@@ -158,6 +216,25 @@ obstacles) and `Reservation.overlaps` (run once per reservation per
 candidate). Both are cheap relative to the near-obstacle search in the
 profile and are not the bottleneck; they stay Python until measurement says
 otherwise.
+
+### Left for a follow-up: caching the native index across scans
+
+`Occupancy.obstacles()` builds a fresh `NativeObstacles` index (and
+marshals every obstacle shape into a native tuple) on every call, which is
+once per `scan()` - reused across every candidate in that one sweep, but
+not across scans. A `scan()` with a wide radius amortises this well
+(hundreds of candidates share one registration); a tight local search
+(`cleanup.py`'s move/swap pass, small radius and step) does not - it pays
+the same registration cost for a handful of candidates. Caching the index
+on the `Occupancy` itself, keyed by what it excludes (`geom.owners |
+self.pending`, which differs per item), and invalidating it on `commit()`
+rather than rebuilding fresh every call, would help this case, but was not
+attempted here: it needs either one cached index per distinct skip-set (a
+memory/staleness trade-off) or extending native's grid query to take a
+skip-set and filter obstacles by owner at query time (rather than at
+Python-side registration), which is more Rust surface than this round's
+budget covered carefully. Flagged for the user rather than built in a
+rush.
 
 ## What stays Python, permanently
 

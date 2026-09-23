@@ -14,6 +14,7 @@ import functools
 import math
 from dataclasses import dataclass
 
+from . import geometry as _geometry_module
 from .geometry import (_clean, PolyRaster, Polygon, Transform, box_polygon, circle_polygon, poly_distance,
                        polys_overlap, transform_box, transform_polygon)
 from .placement import Placement
@@ -34,6 +35,40 @@ class Shape:
     poly: Polygon
     box: Box
     label: str = ""                 # pad number for a pad shape
+
+
+# A Shape as a plain tuple, for the optional native accelerator (kind,
+# faces as a bitmask, layers as a bitmask, net, poly, whether the owner is a
+# footprint this Occupancy knows) - see _to_native_shape and
+# docs/superpowers/specs/2026-09-24-native-core-design.md ("Phase 2"). The
+# bit assignments only need to be consistent within one call; they carry no
+# meaning outside this module.
+_NATIVE_LAYER_ORDER = list(CopperLayer)
+
+
+def _native_faces(faces: frozenset) -> int:
+    return (1 if Face.FRONT in faces else 0) | (2 if Face.BACK in faces else 0)
+
+
+def _native_layers(layers: frozenset) -> int:
+    bits = 0
+    for l in layers:
+        bits |= 1 << _NATIVE_LAYER_ORDER.index(l)
+    return bits
+
+
+def _to_native_shape(s: Shape, footprint_refs: frozenset) -> tuple:
+    return (s.kind, _native_faces(s.faces), _native_layers(s.layers), s.net or "", tuple(s.poly),
+            s.owner in footprint_refs)
+
+
+def _to_native_shape_shifted(s: Shape, dx: float, dy: float, footprint_refs: frozenset) -> tuple:
+    """As `_to_native_shape`, but for an origin-turned shape moved by
+    `(dx, dy)` - without building the intermediate `Shape` (with its box and
+    a real polygon copy) a caller that only wants the native tuple, not the
+    Shape object, does not need."""
+    poly = tuple([(x + dx, y + dy) for x, y in s.poly])  # tuple(a list comp) beats tuple(a genexpr): no frame suspension per point
+    return (s.kind, _native_faces(s.faces), _native_layers(s.layers), s.net or "", poly, s.owner in footprint_refs)
 
 
 @dataclass(frozen=True)
@@ -471,7 +506,36 @@ class Occupancy:
         out += [c for c in self.copper if c.owner not in skip]
         if region is not None:
             out = [o for o in out if o.box.overlaps(region, gap=self._gap)]
-        return ShapeIndex(out)
+        idx = ShapeIndex(out)
+        idx._native = self._build_native_obstacles(out)
+        return idx
+
+    def _native_conflict_kwargs(self) -> dict:
+        """The scalars and the net-clearance lookup `_conflict` reads off
+        `self` and `self.geometry`, gathered once so a native obstacle
+        index does not read Python state again per candidate. Cached: these
+        never change within one Occupancy's life (`self.geometry` and the
+        board's netclasses are fixed at construction)."""
+        cache = self.__dict__.get("_native_kwargs")
+        if cache is None:
+            net_clearance = {n: self.geometry.netclass(n).clearance for n in self.geometry.nets}
+            cache = dict(touch=self._touch, vias_block_courtyards=self.vias_block_courtyards,
+                        silk_clearance=self.silk_clearance, component_spacing=self.component_spacing,
+                        default_clearance=self.geometry.default_clearance, net_clearance=net_clearance,
+                        gap=self._gap, drawn_gap=self._drawn_gap)
+            self.__dict__["_native_kwargs"] = cache
+        return cache
+
+    def _build_native_obstacles(self, shapes: list):
+        """A native index over `shapes`, or None when there is no native
+        module (the pure-Python `near()` + per-shape loop in `legal()` is
+        then what runs - see the Phase 2 note in
+        docs/superpowers/specs/2026-09-24-native-core-design.md)."""
+        native = _geometry_module._native
+        if native is None:
+            return None
+        return native.NativeObstacles([_to_native_shape(s, self._footprint_refs) for s in shapes],
+                                      **self._native_conflict_kwargs())
 
     def legal(self, item, placement: Placement, clearance: float | None = None, others=None,
               past_edge: bool = False, blame: list | None = None) -> str | None:
@@ -517,6 +581,34 @@ class Occupancy:
                 return "sits in the reservation for %s" % r.why
         if others is None:
             others = self.obstacles(geom)
+        dx, dy = placement.location.x, placement.location.y
+        native_index = getattr(others, "_native", None)
+        if native_index is not None:
+            # The near-obstacle search itself - ShapeIndex.near() plus the
+            # per-shape "close" filter plus _conflict/_drawn_conflict's own
+            # decision - runs once, natively, over every registered obstacle;
+            # see docs/superpowers/specs/2026-09-24-native-core-design.md
+            # ("Phase 2"). It decides ONLY which pair conflicts; the untouched
+            # Python _conflict below still produces the reason string, so the
+            # text a script sees is always the reference implementation's.
+            origin_shapes = list(self._origin_shapes(item, geom, placement))
+            hit = native_index.first_conflict(
+                [_to_native_shape_shifted(s, dx, dy, self._footprint_refs) for s in origin_shapes], clearance)
+            if hit is None:
+                return None
+            si, oi = hit
+            o = others[oi]
+            s = origin_shapes[si]
+            moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
+                         tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label)
+            why = self._conflict(moved, o, clearance)
+            if why is None:
+                raise AssertionError(
+                    "native found a conflict between a %s and a %s that _conflict disagrees with; "
+                    "this is a native/Python mismatch, not a placement question" % (moved.kind, o.kind))
+            if blame is not None:
+                blame.append(Blocker(o.kind, self.who(o.owner), frozenset(o.faces)))
+            return why
         # What a conflict can reach from: the body, or in a drawn envelope every
         # shape the part claims - silk can stand well past the body.
         reach = body if self.envelope == "courtyard" else \
@@ -527,7 +619,6 @@ class Occupancy:
             return None
         # Each shape is turned and faced once per rotation and face, then
         # shifted; only a shape whose box reaches an obstacle is moved as a polygon.
-        dx, dy = placement.location.x, placement.location.y
         for s in self._origin_shapes(item, geom, placement):
             sb = s.box.moved(dx, dy)
             close = [o for o in near if sb.overlaps(o.box, gap=self.gap_for(s))]
