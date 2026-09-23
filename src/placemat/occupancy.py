@@ -117,12 +117,26 @@ _GAP = 1.0      # how far outside a box a conflict can still reach: the largest 
 TOUCH = 0.02    # two courtyards this close are touching, not overlapping: a footprint's courtyard stroke rounds by this much
 
 
-def _fp_shapes(fp: Footprint) -> list[Shape]:
+def _fp_shapes(fp: Footprint, envelope: str = "courtyard") -> list[Shape]:
+    """What a part claims. `courtyard`: its courtyard and its pads. `physical`:
+    its pads, mask openings, silk and body - or, for a footprint that draws
+    neither silk nor fab, its courtyard (which falls back to its pads).
+    `union`: both."""
     shapes = []
     through = any(p.through for p in fp.pads) or bool(fp.npth)
     faces = _BOTH if through else frozenset([fp.face])
-    ct = box_polygon(fp.courtyard_box)
-    shapes.append(Shape(fp.ref, "courtyard", faces, frozenset(), "", ct, fp.courtyard_box))
+    drawn = bool(fp.silk or fp.fab)
+    if envelope != "physical" or not drawn:
+        ct = box_polygon(fp.courtyard_box)
+        shapes.append(Shape(fp.ref, "courtyard", faces, frozenset(), "", ct, fp.courtyard_box))
+    if envelope != "courtyard":
+        for face, poly in fp.mask:
+            shapes.append(Shape(fp.ref, "mask", frozenset([face]), frozenset(), "", poly, Box.of_points(poly)))
+        for face, poly in fp.silk:
+            shapes.append(Shape(fp.ref, "silk", frozenset([face]), frozenset(), "", poly, Box.of_points(poly)))
+        for face, poly in fp.fab:
+            shapes.append(Shape(fp.ref, "body", _BOTH if through else frozenset([face]), frozenset(), "",
+                                poly, Box.of_points(poly)))
     for p in fp.pads:
         for poly in p.outlines:
             shapes.append(Shape(fp.ref, "through" if p.through else "pad",
@@ -137,11 +151,18 @@ def _fp_shapes(fp: Footprint) -> list[Shape]:
 class Occupancy:
     def __init__(self, geometry: BoardGeometry, edge_margin: float = 0.0, board_box: Box | None = None,
                  vias_block_courtyards: bool = False, board_shape=None, board_cutouts=None,
-                 settings: Settings | None = None):
+                 settings: Settings | None = None, component_spacing: float = 0.2):
         self.settings = settings if settings is not None else Settings()
         self._gap = self.settings.place_conflict_gap
         self._touch = self.settings.place_courtyard_touch
         self.geometry = geometry
+        self.envelope = self.settings.place_envelope
+        self.component_spacing = component_spacing          # body to body, body to another part's pad
+        self.silk_clearance = geometry.silk_clearance       # silk to silk, silk to a mask opening
+        self._footprint_refs = frozenset(fp.ref for fp in geometry.footprints)
+        if self.envelope != "courtyard" and self._gap < max(component_spacing, self.silk_clearance):
+            raise ValueError("[place] conflict_gap %.2f is less than the %.2f mm the %s envelope needs a check to reach"
+                             % (self._gap, max(component_spacing, self.silk_clearance), self.envelope))
         self.edge_margin = edge_margin
         self.vias_block_courtyards = vias_block_courtyards
         # The board a script declared, when it is not a rectangle (a Disc or an Outline):
@@ -189,7 +210,7 @@ class Occupancy:
     # ------------------------------------------------------------ geometry of a candidate
     def _register(self, fp: Footprint) -> ItemGeometry:
         g = ItemGeometry(frozenset([fp.ref]), Placement(fp.location, fp.rotation, fp.face),
-                         tuple(_fp_shapes(fp)), fp.body_box, frozenset(p.net for p in fp.pads),
+                         tuple(_fp_shapes(fp, self.envelope)), fp.body_box, frozenset(p.net for p in fp.pads),
                          Box.union([fp.body_box, fp.phys_box]))
         self.items[fp.ref] = g
         return g
@@ -468,12 +489,15 @@ class Occupancy:
                 return "sits in the reservation for %s" % r.why
         if others is None:
             others = self.obstacles(geom)
-        near = others.near(body, self._gap) if isinstance(others, ShapeIndex) else \
-            [o for o in others if o.box.overlaps(body, gap=self._gap)]
+        t = self._transform(geom, placement)
+        # What a conflict can reach from: the body, or in a drawn envelope every
+        # shape the part claims - silk can stand well past the body.
+        reach = body if self.envelope == "courtyard" else Box.union([body, transform_box(self._extent(geom), t)])
+        near = others.near(reach, self._gap) if isinstance(others, ShapeIndex) else \
+            [o for o in others if o.box.overlaps(reach, gap=self._gap)]
         if not near:
             return None
         # Only a shape whose moved box reaches an obstacle is worth moving as a polygon.
-        t = self._transform(geom, placement)
         flip = placement.face != geom.reference.face
         for s in geom.shapes:
             sb = transform_box(s.box, t)
@@ -492,11 +516,58 @@ class Occupancy:
                     return why
         return None
 
+    def _drawn_conflict(self, s: Shape, o: Shape) -> str | None:
+        """Silk, mask openings and bodies of two different parts, each gap
+        the board's own: silk keeps the silk clearance from silk and from a
+        mask opening, a body the component spacing from a body and from
+        another part's pad, and silk may touch a body but not enter it. Any
+        other pair - a mask opening beside a pad, silk over copper - is not a
+        placement question."""
+        if not (s.faces & o.faces):
+            return None
+        pair = frozenset((s.kind, o.kind))
+        if pair in (frozenset(("silk",)), frozenset(("silk", "mask"))):
+            gap = self.silk_clearance
+        elif pair == frozenset(("silk", "body")) or pair == frozenset(("body", "npth")):
+            gap = 0.0
+        elif pair == frozenset(("body",)):
+            gap = self.component_spacing
+        elif "body" in pair and pair & {"pad", "through"}:
+            other = o if s.kind == "body" else s
+            if other.owner not in self._footprint_refs:
+                return None                 # a track or via may run under a body
+            gap = self.component_spacing
+        else:
+            return None
+        if gap <= 0.0:
+            if polys_overlap(s.poly, o.poly):
+                return "%s %s overlaps %s %s" % (self.who(s.owner), _NAMES[s.kind], self.who(o.owner), _NAMES[o.kind])
+            return None
+        if _box_gap(s.box, o.box) >= gap - 1e-9:
+            return None
+        d = poly_distance(s.poly, o.poly)
+        if d < gap - 1e-9:
+            return "%s %s is %.2f mm from %s %s (needs %.2f)" % (
+                self.who(s.owner), _NAMES[s.kind], d, self.who(o.owner), _NAMES[o.kind], gap)
+        return None
+
+    def _extent(self, geom: ItemGeometry) -> Box:
+        """The box round all of an item's shapes where it stands now."""
+        key = id(geom)
+        cache = self.__dict__.setdefault("_extents", {})
+        hit = cache.get(key)
+        if hit is None or hit[0] is not geom:
+            hit = (geom, Box.union([s.box for s in geom.shapes] + [geom.body]))
+            cache[key] = hit
+        return hit[1]
+
     def _conflict(self, s: Shape, o: Shape, clearance: float | None) -> str | None:
         """The DRC rules, in occupancy terms. A via under a body is legal to
         DRC and is only refused when `vias_block_courtyards` is set (a house
         rule for boards that pair through-feature cells with via-free parts)."""
         ks, ko = s.kind, o.kind
+        if ks in _DRAWN or ko in _DRAWN:
+            return self._drawn_conflict(s, o)
         if ks == "courtyard" and ko == "courtyard":
             # courtyards may touch: a shared edge, to a rounding, is packing, not a collision
             depth = min(min(s.box.right, o.box.right) - max(s.box.left, o.box.left),
@@ -539,6 +610,10 @@ class Occupancy:
             if polys_overlap(s.poly, o.poly):
                 return "%s hole cuts %s copper" % (self.who(s.owner), o.net or self.who(o.owner))
         return None
+
+
+_DRAWN = frozenset(("silk", "mask", "body"))
+_NAMES = {"silk": "silk", "mask": "mask opening", "body": "body", "pad": "pad", "through": "pad", "npth": "hole"}
 
 
 def _box_gap(a: Box, b: Box) -> float:

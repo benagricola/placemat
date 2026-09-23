@@ -73,7 +73,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     blockers: Counter = Counter()
     tried = 0
     geom = occ._geometry(item)
-    reach = radius + max(geom.body.width, geom.body.height)       # any rotation of the body, anywhere in the scan
+    span = geom.body if occ.envelope == "courtyard" else occ._extent(geom)     # silk can stand past the body
+    reach = radius + max(span.width, span.height)                  # any rotation of it, anywhere in the scan
     region = Box(hint.location.x - reach, hint.location.y - reach, hint.location.x + reach, hint.location.y + reach)
     others = occ.obstacles(geom, region)
     seen: set = set()

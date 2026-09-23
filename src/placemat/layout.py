@@ -518,11 +518,14 @@ class Board:
 
     def __init__(self, geometry: BoardGeometry, edge_margin: float | None = None, clearance: float | None = None,
                  via_drill: float = 0.3, via_size: float = 0.6, keep_going: bool = False,
-                 courtyard_excess: float = 0.1, settings: Settings | None = None):
+                 courtyard_excess: float = 0.1, settings: Settings | None = None,
+                 component_spacing: float | None = None):
         self.settings = settings if settings is not None else Settings()
         self._solve_hints = None
         self.geometry = geometry
         self.courtyard_excess = courtyard_excess    # the fab's assembly margin round a part: the only spacing that comes free
+        # body to body in the physical envelope: twice the excess, the touching courtyards of a well-drawn footprint
+        self.component_spacing = 2 * courtyard_excess if component_spacing is None else component_spacing
         self.edge_margin = geometry.edge_clearance if edge_margin is None else edge_margin
         self.clearance = clearance
         self.via_drill, self.via_size = via_drill, via_size
@@ -606,10 +609,16 @@ class Board:
         copper-to-edge rule. Edge placement puts an item's reach here."""
         return self.edge_margin
 
+    def _bare_occupancy(self) -> Occupancy:
+        """An occupancy with nothing placed, for measuring an item on its own:
+        with this board's settings, so it measures what the envelope claims."""
+        return Occupancy(self.geometry, self.edge_margin, board_box=None, settings=self.settings,
+                         component_spacing=self.component_spacing)
+
     def extent(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
         """The item's body box at `rotation`, placed at the origin: a size, not a place."""
         geom, _, _ = self._item(item)
-        occ = Occupancy(self.geometry, self.edge_margin, board_box=None)
+        occ = self._bare_occupancy()
         return occ.body_box(geom, Placement(Location(0.0, 0.0), rotation, face))
 
     def claim(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
@@ -617,7 +626,7 @@ class Board:
         (body, pads, silk) and its courtyard together. What a row spaces by,
         so a zero gap is courtyards touching."""
         geom, _, _ = self._item(item)
-        occ = Occupancy(self.geometry, self.edge_margin, board_box=None)
+        occ = self._bare_occupancy()
         p = Placement(Location(0.0, 0.0), rotation, face)
         courts = [transform_box(s.box, occ._transform(occ._geometry(geom), p))
                   for s in occ._geometry(geom).shapes if s.kind == "courtyard"]
@@ -627,7 +636,7 @@ class Board:
         """Everything the item physically is (body, pads, silk) at
         `rotation`, at the origin: what edge placement and rows measure."""
         geom, _, _ = self._item(item)
-        occ = Occupancy(self.geometry, self.edge_margin, board_box=None)
+        occ = self._bare_occupancy()
         return occ.reach_box(geom, Placement(Location(0.0, 0.0), rotation, face))
 
     def _pad_ref(self, ref):
@@ -2014,7 +2023,8 @@ class Board:
 
     def resolve(self, progress=None) -> Plan:
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
-                        board_cutouts=self._cutouts, settings=self.settings)
+                        board_cutouts=self._cutouts, settings=self.settings,
+                        component_spacing=self.component_spacing)
         for intent in self._placements():
             declared = [intent.item.anchor] + [fp for fp, _ in intent.item.satellites] if intent.kind == "block" else [intent.item]
             for item in declared:

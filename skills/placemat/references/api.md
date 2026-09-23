@@ -866,6 +866,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `rank.pins` | 0.3 | weight on pin count when ordering searched items |
 | `place.radius` | 3.0 | a search's default radius |
 | `place.step` | 0.2 | a search's default step |
+| `place.envelope` | "courtyard" | what a part claims against another: `courtyard` (its courtyard and pads), `physical` (its pads, mask openings, silk and body, each at the board's own gap), or `union` (both) |
 | `place.coarse_steps` | 4 | how many steps apart a scored scan's first pass walks |
 | `place.coarse_from` | 12 | radius-to-step ratio from which a scan goes coarse first |
 | `place.refine_around` | 3 | how many of the best coarse spots get a fine pass |
