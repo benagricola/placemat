@@ -25,6 +25,7 @@ class Preview:
     lines: list = field(default_factory=list)
     seen_px_per_mm: float = 0.0
     model_edge: int = 0
+    notes: list = field(default_factory=list)
 
 
 def converter_command(template: str, svg, png, width: int) -> list:
@@ -89,9 +90,9 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
             links: bool = True, copper: bool = True, region=None, around: str | None = None,
             margin: float = 5.0, quiet: bool = False) -> Preview:
     from .board_geometry import members_of
-    from .preview import draw
+    from .preview import draw_annotated
     from .project import fab_profile, find_board
-    from .runner import RunRecord, generate, reuse_parts, scripted_board
+    from .runner import RunRecord, cached_generation, reuse_parts, scripted_board
     from . import settings as settings_mod
     from .values import Box
     script = Path(script).resolve()
@@ -99,11 +100,16 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
     cfg = settings_mod.load(src.board_dir)
     out = Path(out) if out else src.board_dir / ".placemat" / "preview"
     out.mkdir(parents=True, exist_ok=True)
+    # The generation is read where the first run cached it. The board's own
+    # file is the last run's placed board, and a preview leaves it alone.
+    generated = cached_generation(src) / src.pcb.name
+    if not generated.exists():
+        raise ValueError("%s has no cached generation yet: run `placemat run %s` once, then preview"
+                         % (src.name, script.name))
     with settings_mod.bind(cfg):
-        generate(src, out, False, quiet, cfg.timeout_generate)
         fab = fab_profile(src.board_dir)
-        board = scripted_board(script, src, cfg, fab, keep_going=True)
-        parts = reuse_parts(src, cfg, fab)
+        board = scripted_board(script, src, cfg, fab, keep_going=True, pcb=generated)
+        parts = reuse_parts(src, cfg, fab, pcb=generated)
         board.reuse_extra = "|".join(parts[k] for k in ("tool", "board", "settings", "fab"))
         runs = src.board_dir / ".placemat" / "runs"
         candidates = [(out / "reuse.json", "the last preview")]
@@ -124,11 +130,11 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
                 raise ValueError("%s is not placed, so there is nothing to draw round" % around)
             box = Box.union([plan.occupancy.items[fp.ref].body for fp in fps])
             region = box.inflate(margin)
-        text = draw(plan, faces=faces, heat=heat, links=links, copper=copper, region=region,
-                    title="%s - preview%s" % (src.name, "" if region is None else " (zoomed)"))
+        text, notes = draw_annotated(plan, faces=faces, heat=heat, links=links, copper=copper, region=region,
+                                     title="%s - preview%s" % (src.name, "" if region is None else " (zoomed)"))
         svg = out / "preview.svg"
         svg.write_text(text)
-        result = Preview(svg, None, plan=plan, reused=reuse_mod.summary(plan.reuse, previous, source))
+        result = Preview(svg, None, plan=plan, reused=reuse_mod.summary(plan.reuse, previous, source), notes=notes)
         if not svg_only:
             png = out / "preview.png"
             if png.exists():

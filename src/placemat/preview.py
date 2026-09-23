@@ -9,13 +9,15 @@ parts that were not placed. Units are millimetres throughout (the viewBox);
 whoever turns it into pixels chooses the size."""
 from __future__ import annotations
 
+from dataclasses import dataclass
+import re
 from types import SimpleNamespace
 
 from .board_geometry import members_of
 from .copper import Pour, Text, Track, Via, Zone
 from .geometry import circle_polygon
 from .placement import Placement
-from .values import Box, Face
+from .values import Box, Face, Location
 
 MARGIN = 3.0            # mm round the board inside a panel
 LEFT = 4.0              # mm left of the first panel, for its axis labels
@@ -24,6 +26,7 @@ FOOT = 3.0              # mm below the panels, for their axis labels
 GAP = 6.0               # mm between panels
 SIDE = 46.0             # mm of the column beside the panels
 FONT = 0.9              # mm, a reference's text
+TAG = 0.75              # mm, an annotation tag's radius: the tag on the image, its text from the command
 
 _COLOUR = {"pad": "#e8a33d", "through": "#c9a227", "courtyard": "#c03cc0", "body": "#4a7fc1", "silk": "#222222",
            "keepout": "#f2b8c6", "reservation": "#b8d4f2", "track": "#c05050", "via": "#8a5a2b", "plane": "#d9a0a0",
@@ -132,7 +135,6 @@ def _heat(panel: _Panel, rudy):
     w = rudy.worst_at
     panel.add('<circle class="worst" cx="%s" cy="%s" r="%s" fill="none" stroke="#c92a2a" stroke-width="0.15"/>' % (
         _n(w.x), _n(w.y), _n(cell * 1.6)))
-    panel.text(w.x, w.y - cell * 2.4, "worst %.2f" % rudy.worst, size=0.8, cls="worst-label", colour="#c92a2a")
 
 
 def _grid(panel: _Panel, box: Box):
@@ -160,7 +162,7 @@ def _face_of(layer) -> Face | None:
     return getattr(layer, "face", None)
 
 
-def _panel(plan, face: Face, mirrored: bool, box: Box, heat: bool, links: bool, copper: bool) -> list:
+def _panel(plan, face: Face, mirrored: bool, box: Box, heat: bool, links: bool, copper: bool, notes=()) -> list:
     """One face's drawing. `heat` is asked of the first panel only: congestion
     is one map for the board, and drawn twice it hides the second face."""
     occ = plan.occupancy
@@ -250,11 +252,110 @@ def _panel(plan, face: Face, mirrored: bool, box: Box, heat: bool, links: bool, 
             state = "free" if l.limit_mm is None else ("ok" if a.distance(b) <= l.limit_mm + 1e-9 else "over")
             p.add('<line class="link %s" x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="0.12" '
                   'stroke-dasharray="0.5 0.25"/>' % (state, _n(a.x), _n(a.y), _n(b.x), _n(b.y), _COLOUR[state]))
-            if l.limit_mm is not None:
-                p.text((a.x + b.x) / 2, (a.y + b.y) / 2 - 0.6, "%.1f/%.1f" % (a.distance(b), l.limit_mm),
-                       size=0.7, cls="link-label", colour=_COLOUR[state])
         p.add("</g>")
+    for note in notes:
+        if note.at is None:
+            continue
+        p.add('<circle class="tag %s" cx="%s" cy="%s" r="%s" fill="#ffffff" stroke="%s" stroke-width="0.12"/>' % (
+            note.kind, _n(note.at.x), _n(note.at.y), _n(TAG), note.colour))
+        p.text(note.at.x, note.at.y, note.tag, size=TAG * 1.1, cls="tag-id", colour=note.colour)
     return p.out
+
+
+@dataclass(frozen=True)
+class Note:
+    """One annotation: its tag, drawn at `at` (None when it is outside the
+    view), and the exact text the command prints for it."""
+    tag: str
+    kind: str
+    at: Location | None
+    text: str
+    colour: str
+
+
+def _inside(p: Location, box: Box) -> bool:
+    return box.left <= p.x <= box.right and box.top <= p.y <= box.bottom
+
+
+def _clipped(a: Location, b: Location, box: Box):
+    """The part of segment a-b inside the box (Liang-Barsky), or None."""
+    t0, t1 = 0.0, 1.0
+    dx, dy = b.x - a.x, b.y - a.y
+    for p, q in ((-dx, a.x - box.left), (dx, box.right - a.x), (-dy, a.y - box.top), (dy, box.bottom - a.y)):
+        if abs(p) < 1e-12:
+            if q < 0:
+                return None
+            continue
+        t = q / p
+        if p < 0:
+            t0 = max(t0, t)
+        else:
+            t1 = min(t1, t)
+        if t0 > t1:
+            return None
+    return Location(a.x + t0 * dx, a.y + t0 * dy), Location(a.x + t1 * dx, a.y + t1 * dy)
+
+
+_AT = re.compile(r"\((-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?)\)")
+
+
+def annotations(plan, view: Box, links: bool = True, heat: bool = True) -> list:
+    """The view's annotations, numbered the same whatever the view: links by
+    declaration (L), parts that took a pocket in step order (P), the worst
+    congestion cell (C), and findings that name a point (F)."""
+    occ, out = plan.occupancy, []
+    placed = {fp.ref for _, fp in _placed(plan)}
+    if links:
+        for k, l in enumerate(plan.links, start=1):
+            if l.a[0] not in placed or l.b[0] not in placed:
+                continue
+            a, b = occ.pad_location(*l.a), occ.pad_location(*l.b)
+            d = a.distance(b)
+            state = "free" if l.limit_mm is None else ("ok" if d <= l.limit_mm + 1e-9 else "over")
+            part = _clipped(a, b, view)
+            at = None if part is None else Location((part[0].x + part[1].x) / 2, (part[0].y + part[1].y) / 2)
+            limit = "no limit" if l.limit_mm is None else "limit %.2f (%s)" % (l.limit_mm, "within" if state == "ok" else "OVER")
+            out.append(Note("L%d" % k, "link", at, "link %s pad %s -> %s pad %s  %.2f mm, %s  (%.2f, %.2f) -> (%.2f, %.2f)%s"
+                            % (l.a[0], l.a[1], l.b[0], l.b[1], d, limit, a.x, a.y, b.x, b.y,
+                               ("  " + l.why) if l.why else ""), _COLOUR[state]))
+    steps = {s.item: s for s in plan.steps}
+    for n, key in enumerate(plan.pocketed, start=1):
+        item = plan._items.get(key)
+        if item is None:
+            continue
+        boxes = [occ.items[fp.ref].body for fp in members_of(item) if fp.ref in occ.items]
+        if not boxes:
+            continue
+        body = Box.union(boxes)
+        corner = Location(body.right, body.top)
+        note = steps[key].note if key in steps else ""
+        why = note[note.index("took the pocket"):] if "took the pocket" in note else "took a pocket"
+        out.append(Note("P%d" % n, "pocketed", corner if _inside(corner, view) else None,
+                        "%s %s" % (key, why), _COLOUR["pocketed"]))
+    r = getattr(plan, "rudy", None)
+    if heat and r is not None:
+        out.append(Note("C", "worst", r.worst_at if _inside(r.worst_at, view) else None,
+                        "the most congested cell: demand %.2f of capacity, at (%.1f, %.1f)" % (
+                            r.worst, r.worst_at.x, r.worst_at.y), "#c92a2a"))
+    n = 0
+    for f in plan.findings:
+        m = _AT.search(f)
+        if m is None:
+            continue
+        n += 1
+        at = Location(float(m.group(1)), float(m.group(2)))
+        out.append(Note("F%d" % n, "finding", at if _inside(at, view) else None, f, "#862e9c"))
+    return out
+
+
+def note_lines(notes) -> list:
+    """What the command prints: each tag in the view with its exact text,
+    then the tags outside it."""
+    lines = ["%-4s %s" % (n.tag, n.text) for n in notes if n.at is not None]
+    away = [n.tag for n in notes if n.at is None]
+    if away:
+        lines.append("outside this view: %s" % ", ".join(away))
+    return lines
 
 
 def _side(plan, x: float, top: float) -> tuple:
@@ -296,14 +397,22 @@ def _side(plan, x: float, top: float) -> tuple:
 
 def draw(plan, faces=("front", "back"), heat: bool = True, links: bool = True, copper: bool = True,
          title: str = "", region: Box | None = None) -> str:
-    """The plan as SVG text. `region`, a box in board millimetres, draws that
-    part of each face alone, clipped: a close look at a crowded spot."""
+    """The plan as SVG text; draw_annotated() gives its annotations too."""
+    return draw_annotated(plan, faces, heat, links, copper, title, region)[0]
+
+
+def draw_annotated(plan, faces=("front", "back"), heat: bool = True, links: bool = True, copper: bool = True,
+                   title: str = "", region: Box | None = None) -> tuple:
+    """(SVG text, annotations). `region`, a box in board millimetres, draws
+    that part of each face alone, clipped: a close look at a crowded spot.
+    The annotations are drawn as tags; their text is the caller's to print."""
     if region is None:
         box = _extent(plan)
         box = Box(box.left - MARGIN, box.top - MARGIN, box.right + MARGIN, box.bottom + MARGIN + 1.5)
     else:
         box = region
     panels = [Face(f) if not isinstance(f, Face) else f for f in faces]
+    notes = annotations(plan, box, links=links, heat=heat)
     total_w = len(panels) * box.width + (len(panels) - 1) * GAP + GAP + SIDE
     # A close look is the region alone: the counts and the legend belong to the whole view.
     side, side_h = _side(plan, LEFT + len(panels) * (box.width + GAP), HEAD) if region is None else ([], 0.0)
@@ -332,9 +441,9 @@ def draw(plan, faces=("front", "back"), heat: bool = True, links: bool = True, c
             face.value, _n(box.left), _n(box.top), _n(box.width), _n(box.height)))
         out.append('<g class="face %s" transform="%s">' % (face.value, transform))
         out.append('<g clip-path="url(#clip-%s)">' % face.value)
-        out += _panel(plan, face, mirrored, box, heat and k == 0, links, copper)
+        out += _panel(plan, face, mirrored, box, heat and k == 0, links, copper, notes)
         out.append("</g>")
         out.append("</g>")
     out += side
     out.append("</svg>")
-    return "\n".join(out) + "\n"
+    return "\n".join(out) + "\n", notes

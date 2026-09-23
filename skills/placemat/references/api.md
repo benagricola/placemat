@@ -923,6 +923,30 @@ smoothing off (a measurement: a small two-layer board routes in about 10 s), `--
 is the router's whole run. The search budget per net is the router's own
 unless `--iterations` caps it.
 
+## Report form and the files placemat writes
+
+Every command takes `--format text|json` (text by default; `--json` is the
+same as `--format json`) and `--output FILE`, which writes the report to FILE
+instead of the terminal, without colour. A command writes a report file only
+when `--output` asks for one.
+
+Besides that, these commands write files as part of what they are for, each
+in a place of its own:
+
+| Command | What it writes | Where |
+|---|---|---|
+| `run` | the placed board: `layout.kicad_pcb`, the project's presets and a `.kicad_dru` of the script's rules | the board's layout directory |
+| `run` | the generation, cached so a rerun skips `pcb layout` | `.placemat/generated/<board>/` |
+| `run` | the run: `run.json`, `script.log`, a copy of the board, renders, `drc.json`, `impact.txt`, `reuse.json` (what the next run replays) | `.placemat/runs/<id>/` |
+| `run` | `latest.json`, `best.json`, and with `--label` an alias | `.placemat/runs/` |
+| `preview` | `preview.svg`, `preview.png`, and `reuse.json` (what the next preview replays) | `.placemat/preview/`, or `--out DIR` |
+| `route` | the input and routed boards, the router's log, `route.json` | `.placemat/route/`, or `--out DIR` |
+| `show` | the item's renders | `.placemat/show/`, or `--out DIR` |
+| `datasheet --show` | the page's render | beside the PDF, or `--out DIR` |
+| `faces` | the declared sides, into the fragment | the fragment named |
+
+`.placemat/` sits in the board's directory. The other commands only read.
+
 ## Settings
 
 `placemat.toml` holds every behavioural constant. It is found by walking up

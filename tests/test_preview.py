@@ -163,3 +163,62 @@ def test_the_resolution_a_model_sees_after_downscaling():
     assert seen_px_per_mm(20.0, 10.0, 40.0) == pytest.approx(40.0)          # 800 px: kept as drawn
     assert seen_px_per_mm(180.0, 90.0, 40.0) == pytest.approx(1568 / 180.0)  # 7200 px: scaled to 1568
     assert seen_px_per_mm(180.0, 90.0, 40.0, edge=3600) == pytest.approx(20.0)
+
+
+def test_annotations_are_tags_on_the_image_and_exact_text_for_the_command():
+    from placemat.preview import draw_annotated, note_lines
+    plan = _plan()
+    svg, notes = draw_annotated(plan)
+    tags = {n.tag: n for n in notes}
+    assert {"L1", "L2", "P1", "C"} <= set(tags)
+    assert "within" in tags["L1"].text and "OVER" in tags["L2"].text
+    assert "u1 took the pocket" in tags["P1"].text
+    root = ET.fromstring(svg)
+    ids = {"".join(e.itertext()) for e in _cls(root, "tag-id")}
+    assert {"L1", "L2", "P1", "C"} <= ids
+    assert not [e for e in root.iter() if "/" in "".join(e.itertext()) and "link-label" in (e.get("class") or "")]
+    lines = note_lines(notes)
+    assert any(l.startswith("L2") and "limit 1.00 (OVER)" in l for l in lines)
+
+
+def test_a_close_look_keeps_a_link_that_leaves_it_tagged_at_its_edge():
+    from placemat.preview import draw_annotated, note_lines
+    from placemat.values import Box
+    plan = _plan()
+    whole = {n.tag: n for n in draw_annotated(plan)[1]}
+    a = plan.occupancy.pad_location("U1", "2")
+    region = Box(a.x - 1.0, a.y - 1.0, a.x + 1.0, a.y + 1.0)           # round u1's pad 2 only
+    notes = {n.tag: n for n in draw_annotated(plan, region=region)[1]}
+    assert notes["L1"].at is not None and notes["L1"].text == whole["L1"].text
+    assert region.left <= notes["L1"].at.x <= region.right
+    assert notes["C"].at is None or region.left <= notes["C"].at.x <= region.right
+    assert any(l.startswith("outside this view:") for l in note_lines(notes.values()))
+
+
+@pytest.mark.skipif(__import__("shutil").which("rsvg-convert") is None, reason="rsvg-convert not installed")
+def test_a_preview_leaves_the_placed_board_alone(tmp_path):
+    import pathlib, shutil, subprocess, sys
+    from tests.conftest import _has_pcbnew
+    if not _has_pcbnew():
+        pytest.skip("pcbnew not importable")
+    root = pathlib.Path(__file__).resolve().parent.parent
+    mod = tmp_path / "UsbC"
+    shutil.copytree(root / "fixtures/mnb/modules/UsbC", mod)
+    shutil.copytree(mod / "layout", mod / ".placemat/generated/UsbC")
+    placed = mod / "layout" / "layout.kicad_pcb"
+    placed.write_text(placed.read_text() + "\n")                      # stands for the last run's board
+    before = placed.read_bytes()
+    done = subprocess.run([sys.executable, "-m", "placemat", "preview", str(mod / "UsbC_layout.py"), "--svg"],
+                          capture_output=True, text=True, timeout=600)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert placed.read_bytes() == before
+
+
+def test_a_board_never_run_is_asked_to_run_first(tmp_path):
+    import pathlib, shutil, subprocess, sys
+    root = pathlib.Path(__file__).resolve().parent.parent
+    mod = tmp_path / "UsbC"
+    shutil.copytree(root / "fixtures/mnb/modules/UsbC", mod)
+    done = subprocess.run([sys.executable, "-m", "placemat", "preview", str(mod / "UsbC_layout.py")],
+                          capture_output=True, text=True, timeout=600)
+    assert done.returncode == 2 and "run `placemat run" in done.stdout + done.stderr

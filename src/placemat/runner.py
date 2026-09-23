@@ -93,13 +93,19 @@ def _tail(path: Path, n: int = 12) -> str:
         return ""
 
 
+def cached_generation(src: BoardSource) -> Path:
+    """Where a board's cached generation is: the board `pcb layout` wrote,
+    copied aside by the first run."""
+    return src.board_dir / ".placemat" / "generated" / src.name
+
+
 def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
              timeout: int = 900) -> bool:
     """Put a freshly generated (unscripted) board in src.layout_dir. A copy of
     the generation is cached beside the runs so a rerun of the script does not
     pay for `pcb layout` again; `fresh` forces it. Returns True when the
     generator ran."""
-    cache = src.board_dir / ".placemat" / "generated" / src.name
+    cache = cached_generation(src)
     log = run_dir / "generate.log"
     if cache.exists() and not fresh:
         shutil.rmtree(src.layout_dir, ignore_errors=True)
@@ -156,12 +162,12 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
                     route_exclude=route_exclude, keep_going=keep_going, reuse=reuse)
 
 
-def scripted_board(script, src, cfg, fab, keep_going: bool) -> Board:
-    """The generated board read, a Board over it with this board's fab
-    profile and settings, and the script run against it. A script that
-    raises is a RunFailure naming its line."""
+def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None) -> Board:
+    """The generated board read (`pcb`, else the board's own file), a Board
+    over it with this board's fab profile and settings, and the script run
+    against it. A script that raises is a RunFailure naming its line."""
     from .kicad.read import read_board
-    geometry = read_board(src.pcb, courtyard_excess_mm=fab.courtyard_excess)
+    geometry = read_board(pcb or src.pcb, courtyard_excess_mm=fab.courtyard_excess)
     board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size, keep_going=keep_going,
                   courtyard_excess=fab.courtyard_excess, settings=cfg, component_spacing=fab.component_spacing)
     try:
@@ -177,14 +183,14 @@ def scripted_board(script, src, cfg, fab, keep_going: bool) -> Board:
     return board
 
 
-def reuse_parts(src, cfg, fab) -> dict:
+def reuse_parts(src, cfg, fab, pcb=None) -> dict:
     """What a reuse record's context is made of beyond the script: digests
     of the tool version, the generated board, the settings and the fab
     profile, kept apart so a run can say which of them changed."""
     import hashlib
     from . import __version__
     from . import reuse as reuse_mod
-    return {"tool": __version__, "board": hashlib.sha256(src.pcb.read_bytes()).hexdigest(),
+    return {"tool": __version__, "board": hashlib.sha256((pcb or src.pcb).read_bytes()).hexdigest(),
             "settings": hashlib.sha256(reuse_mod.placement_settings(cfg).encode()).hexdigest(),
             "fab": hashlib.sha256(fab.json().encode()).hexdigest()}
 

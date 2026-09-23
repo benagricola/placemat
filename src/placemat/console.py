@@ -46,8 +46,9 @@ class Console:
             self.say(stage, line, level=level)
 
     def data(self, text: str):
-        """Structured output the caller asked for (JSON): raw to stdout."""
-        print(text, file=sys.stdout, flush=True)
+        """Structured output the caller asked for (JSON): raw, to stdout or
+        the file --output named."""
+        print(text, file=self._stream if self._stream is not None else sys.stdout, flush=True)
 
 
 console = Console()

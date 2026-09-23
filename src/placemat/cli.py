@@ -137,6 +137,14 @@ def parser() -> argparse.ArgumentParser:
     ck.add_argument("--limit", action="append", default=[], metavar="CHECK=VALUE",
                     help="a bound for a reporting check, e.g. hot-loop=20 (mm2) or switch-node=15 (mm2)")
     ck.add_argument("--json", action="store_true")
+    # One way to ask for the report's form and place, whatever the command.
+    for sp in sub.choices.values():
+        sp.add_argument("--format", choices=("text", "json"), default=None,
+                        help="the report as text (the default) or JSON; --json is the same as --format json")
+        sp.add_argument("--output", metavar="FILE", default=None,
+                        help="write the report to FILE instead of the terminal")
+        if not any(a.dest == "json" for a in sp._actions):
+            sp.set_defaults(json=False)
     return root
 
 
@@ -208,8 +216,14 @@ def cmd_run(args) -> int:
 
 def cmd_impact(args) -> int:
     from .report import RunRecord, impact
-    console.lines("impact", impact(RunRecord.load(_record(args.before, args.board)),
-                                   RunRecord.load(_record(args.after, args.board))))
+    before, after = RunRecord.load(_record(args.before, args.board)), RunRecord.load(_record(args.after, args.board))
+    text = impact(before, after)
+    if args.json:
+        console.data(json.dumps({"before": {"run_id": before.run_id, "metrics": before.metrics},
+                                 "after": {"run_id": after.run_id, "metrics": after.metrics},
+                                 "lines": text.splitlines()}, indent=2, sort_keys=True, default=str))
+        return 0
+    console.lines("impact", text)
     return 0
 
 
@@ -483,8 +497,21 @@ def cmd_preview(args) -> int:
     except ValueError as e:
         console.say("preview", str(e), level="fail")
         return 2
+    from .preview import note_lines
     plan = result.plan
     placed = sum(1 for s in plan.steps if s.placement is not None)
+    if args.json:
+        console.data(json.dumps({
+            "svg": str(result.svg), "png": str(result.png) if result.png else None,
+            "png_problem": result.png_problem or None, "placed": placed, "findings": plan.findings,
+            "reused": result.reused or None,
+            "congestion": None if plan.rudy is None else {"worst": plan.rudy.worst,
+                                                          "at": [plan.rudy.worst_at.x, plan.rudy.worst_at.y]},
+            "seen_px_per_mm": round(result.seen_px_per_mm, 1) if result.model_edge else None,
+            "notes": [{"tag": n.tag, "kind": n.kind, "in_view": n.at is not None,
+                       "at": None if n.at is None else [round(n.at.x, 3), round(n.at.y, 3)], "text": n.text}
+                      for n in result.notes]}, indent=2))
+        return 0
     console.say("script", "%d placed, %d finding(s)" % (placed, len(plan.findings)))
     if result.reused:
         console.say("reused", result.reused[len("reused "):])
@@ -493,6 +520,8 @@ def cmd_preview(args) -> int:
             plan.rudy.worst, plan.rudy.worst_at.x, plan.rudy.worst_at.y))
     for f in plan.findings:
         console.say("finding", f, level="finding")
+    for line in note_lines(result.notes):
+        console.say("tag", line)
     console.say("preview", "svg %s" % result.svg)
     if result.png is not None:
         console.say("preview", "png %s" % result.png)
@@ -583,33 +612,51 @@ def cmd_show(args) -> int:
     pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
     snap = read_board(pcb)
     name = args.item
+    doc = {}
     if name in snap.cells:
         c = snap.cell(name)
-        console.say("show", "cell %s  %.2f x %.2f mm  %d members  faces: %s" % (
-            name, c.box.width, c.box.height, len(c.members),
-            ", ".join("%s=%s" % kv for kv in sorted(c.faces.items())) or "none declared (edge placement assumes local +Y outward)"))
+        doc = {"kind": "cell", "name": name, "size": [round(c.box.width, 3), round(c.box.height, 3)],
+               "members": len(c.members), "faces": dict(sorted(c.faces.items()))}
         fps = list(c.members)
     else:
         fp = snap.footprint(name)
-        console.say("show", "part %s (%s)  %.2f x %.2f mm  face %s  rotation %g" % (
-            fp.inst, fp.ref, fp.body_box.width, fp.body_box.height, fp.face.value, fp.rotation))
+        doc = {"kind": "part", "name": fp.inst, "ref": fp.ref,
+               "size": [round(fp.body_box.width, 3), round(fp.body_box.height, 3)],
+               "face": fp.face.value, "rotation": fp.rotation}
         fps = [fp]
         name = fp.ref
     ref_box = snap.cell(name).box if name in snap.cells else fps[0].body_box
+    doc["footprints"] = []
     for fp in fps:
-        console.say("show", "  %-6s %-24s at (%+.2f, %+.2f) from the %s centre, rot %g, %s" % (
-            fp.ref, fp.inst, fp.location.x - ref_box.center.x, fp.location.y - ref_box.center.y,
-            "cell" if name in snap.cells else "part", fp.rotation, fp.face.value))
+        pads = []
         for pad in fp.pads:
             side = ("N" if pad.location.y < ref_box.center.y - 0.01 else "S" if pad.location.y > ref_box.center.y + 0.01 else "") + \
                    ("W" if pad.location.x < ref_box.center.x - 0.01 else "E" if pad.location.x > ref_box.center.x + 0.01 else "")
-            console.say("show", "      pad %-4s %-20s %s of centre" % (pad.number, pad.net or "-", side or "at the"))
-    out = Path(args.out) if args.out else pcb.parent.parent.parent / ".placemat" / "show" if pcb.parent.name != "." else pcb.parent / ".placemat" / "show"
-    if not args.out:
-        # <board dir>/.placemat/show: the board dir holds layout/<Board>/layout.kicad_pcb
-        out = pcb.parents[2] / ".placemat" / "show" if pcb.parent.parent.name == "layout" else pcb.parent / ".placemat" / "show"
-    pngs = show_item(pcb, name, out)
-    for png in pngs:
+            pads.append({"number": pad.number, "net": pad.net, "side": side})
+        doc["footprints"].append({"ref": fp.ref, "instance": fp.inst,
+                                  "from_centre": [round(fp.location.x - ref_box.center.x, 3),
+                                                  round(fp.location.y - ref_box.center.y, 3)],
+                                  "rotation": fp.rotation, "face": fp.face.value, "pads": pads})
+    # <board dir>/.placemat/show: the board dir holds layout/<Board>/layout.kicad_pcb
+    out = Path(args.out) if args.out else (pcb.parents[2] / ".placemat" / "show" if pcb.parent.parent.name == "layout"
+                                           else pcb.parent / ".placemat" / "show")
+    doc["renders"] = [str(png) for png in show_item(pcb, name, out)]
+    if args.json:
+        console.data(json.dumps(doc, indent=2))
+        return 0
+    if doc["kind"] == "cell":
+        console.say("show", "cell %s  %.2f x %.2f mm  %d members  faces: %s" % (
+            doc["name"], doc["size"][0], doc["size"][1], doc["members"],
+            ", ".join("%s=%s" % kv for kv in doc["faces"].items()) or "none declared (edge placement assumes local +Y outward)"))
+    else:
+        console.say("show", "part %s (%s)  %.2f x %.2f mm  face %s  rotation %g" % (
+            doc["name"], doc["ref"], doc["size"][0], doc["size"][1], doc["face"], doc["rotation"]))
+    for f in doc["footprints"]:
+        console.say("show", "  %-6s %-24s at (%+.2f, %+.2f) from the %s centre, rot %g, %s" % (
+            f["ref"], f["instance"], f["from_centre"][0], f["from_centre"][1], doc["kind"], f["rotation"], f["face"]))
+        for pad in f["pads"]:
+            console.say("show", "      pad %-4s %-20s %s of centre" % (pad["number"], pad["net"] or "-", pad["side"] or "at the"))
+    for png in doc["renders"]:
         console.say("show", "render %s" % png)
     return 0
 
@@ -622,7 +669,11 @@ def cmd_faces(args) -> int:
         if k not in ("outward", "quiet", "handoff") or v.upper() not in ("N", "S", "E", "W"):
             raise SystemExit("a side is outward=, quiet= or handoff= with N, S, E or W, not %r" % item)
         faces[k] = v.upper()
-    console.say("faces", "%s: %s" % (args.fragment, write_faces(args.fragment, faces)))
+    result = write_faces(args.fragment, faces)
+    if args.json:
+        console.data(json.dumps({"fragment": str(args.fragment), "faces": faces, "result": result}, indent=2))
+        return 0
+    console.say("faces", "%s: %s" % (args.fragment, result))
     return 0
 
 
@@ -650,6 +701,20 @@ def cmd_check(args) -> int:
 
 def main(argv=None) -> int:
     args = parser().parse_args(argv)
+    if args.format == "json":
+        args.json = True
+    if args.output is None:
+        return _dispatch(args)
+    with open(args.output, "w") as stream:
+        previous, colour = console._stream, console.colour
+        console._stream, console.colour = stream, False
+        try:
+            return _dispatch(args)
+        finally:
+            console._stream, console.colour = previous, colour
+
+
+def _dispatch(args) -> int:
     return {"run": cmd_run, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
             "route": cmd_route, "check": cmd_check, "show": cmd_show, "faces": cmd_faces,
             "settings": cmd_settings, "parts": cmd_parts,
