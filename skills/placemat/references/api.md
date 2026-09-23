@@ -86,6 +86,14 @@ LEDs, buttons and a connector whose exact spot does not matter are
 `searched` for anything with a freedom left - and it is DERIVED from
 `at=`, never given.
 
+**Rotation of a searched part.** A part searched from its links or round a
+`Near()` hint, declared with neither `rotation=` nor `rotations=`, is tried
+at 0, 90, 180 and 270, and the search keeps the turn that puts its pads
+nearest what they connect to. `rotation=` keeps that one rotation;
+`rotations=` the ones listed. An edge, a line or a ring decides its item's
+rotation, and a cell or a block keeps its own. `[place] rotations =
+"declared"` tries only the declared rotation, as before 0.28.
+
 **The rank.** Unless the script says, a searched item's place in the queue
 is worked out from what it IS: how much board its courtyard needs and how
 many pins it has, both against the rest of this board's searched items,
@@ -983,6 +991,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `rank.pins` | 0.3 | weight on pin count when ordering searched items |
 | `place.radius` | 3.0 | a search's default radius |
 | `place.step` | 0.2 | a search's default step |
+| `place.rotations` | "all" | a searched part with no `rotation=` or `rotations=`: `all` four rotations, or only its `declared` one |
 | `place.envelope` | "courtyard" | what a part claims against another: `courtyard` (its courtyard and pads), `physical` (its pads, mask openings, silk and body, each at the board's own gap), or `union` (both) |
 | `place.coarse_steps` | 4 | how many steps apart a scored scan's first pass walks |
 | `place.coarse_from` | 12 | radius-to-step ratio from which a scan goes coarse first |

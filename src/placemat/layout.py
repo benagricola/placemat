@@ -197,6 +197,7 @@ class PlaceIntent:
     run: object = None                 # a stretch of a shaped board's edge, from board.edge(facing=)
     freedom: Freedom = Freedom.SEARCHED   # derived from at=, never chosen
     required: bool = False                # failing to place this stops the run
+    rotation_given: bool = False          # the script said rotation=: that one, not a choice of four
 
     @property
     def rank(self):
@@ -1300,6 +1301,7 @@ class Board:
                              "position to have it searched" % (key, priority.value))
         priority = priority or Priority.DEFAULT
         faces_note = ""
+        rotation_given = rotation is not None
         if rotation is None:
             if isinstance(run, CutoutEdge):
                 rotation, faces_note = None, ""      # the stretch is not known yet: turned when it is
@@ -1323,7 +1325,7 @@ class Board:
         intent = PlaceIntent(key, geom, kind, priority, turn, face, at, center, edge, along,
                              standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs),
                              pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward, about, run,
-                             freedom, required)
+                             freedom, required, rotation_given)
         self._intents.append(intent)
         return intent
 
@@ -2424,7 +2426,10 @@ class Board:
         """Nothing this item connects to is placed and no hint was given: put
         it in the biggest free rectangle its envelope fits, trying each
         rotation asked for (and the two orthogonal ones when none was)."""
-        rots = list(i.rotations) or [i.rotation, (i.rotation + 90) % 360]
+        if self.settings.place_rotations == "declared":
+            rots = list(i.rotations) or [i.rotation, (i.rotation + 90) % 360]
+        else:
+            rots = list(self._turns(i))
         tried = []
         for rot in rots:
             env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, i.face))
@@ -2806,13 +2811,24 @@ class Board:
             return box_centered_placement(occ, i.item, polar_point(centre, i.angle, r), i.rotation, i.face)
         return self._slide(occ, i, plan, clr, ideal, lo, hi, at, "out along the %.0f degree spoke" % i.angle)
 
+    def _turns(self, i: PlaceIntent) -> tuple:
+        """The rotations a search may take an item at: the list the script
+        gave, else the one rotation it gave, else - for a part, with
+        `[place] rotations = "all"` - all four from its own. A cell's sides
+        are declared and a block is laid from its anchor: each keeps its one."""
+        if i.rotations:
+            return tuple(i.rotations)
+        if i.rotation_given or i.kind != "part" or self.settings.place_rotations != "all":
+            return (i.rotation,)
+        return tuple((i.rotation + d) % 360 for d in (0, 90, 180, 270))
+
     def _no_pocket_note(self, occ: Occupancy, i: PlaceIntent) -> str:
         """A search cannot succeed where no free rectangle holds the item's
         envelope at any of its rotations: say so instead of scanning."""
         if occ.board_box is None:
             return ""
         envs = []
-        for rot in (i.rotations or (i.rotation,)):
+        for rot in (self._turns(i)):
             env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, i.face))
             if pockets(occ, env.width, env.height, i.face, step=max(i.step, 0.5), limit=1):
                 return ""
@@ -3041,7 +3057,7 @@ class Board:
         if hopeless:
             plan.findings.append("%s: %s" % (i.key, hopeless))
             return self._step(i, None, 0.0, "UNPLACED: " + hopeless)
-        result = scan(occ, i.item, hint, radius, i.step, i.rotations or (i.rotation,), clr, score=score)
+        result = scan(occ, i.item, hint, radius, i.step, self._turns(i), clr, score=score)
         if result.chosen is None and solved is not None:
             # The solve spreads items without seeing what is already placed, so
             # its hint can land where nothing is legal. That must not cost a
@@ -3053,7 +3069,7 @@ class Board:
         if result.chosen is None:
             blame = "no legal location within %.1f mm of %s (%s)" % (radius, _loc(hint.location), _blame_text(result))
             if i.near is None:
-                step, tried = self._seeded_pocket(occ, i, plan, clr, hint, score, i.rotations or (i.rotation,),
+                step, tried = self._seeded_pocket(occ, i, plan, clr, hint, score, self._turns(i),
                                                   "%s, but no legal spot within %.1f mm (%s)" % (
                                                       seeded or "seeded", radius, _blame_text(result)))
                 if step is not None:

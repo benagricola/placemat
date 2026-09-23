@@ -6,6 +6,12 @@ whether any of it applies.
 
 ## To 0.28
 
+- A part searched from its links or round a `Near()` hint, with neither
+  `rotation=` nor `rotations=`, is now tried at all four rotations, so parts
+  turn and a board re-runs to a different placement. A part whose turn
+  matters says `rotation=`; `[place] rotations = "declared"` in
+  `placemat.toml` keeps the old behaviour for the whole board. The
+  pocket fallback follows the same rule.
 - Two satellites aimed at the same anchor pad no longer both take the one
   spot on its axis: the second is refused, naming the first. Aim it at
   another pad carrying the net, or link it to the pad instead.

@@ -48,6 +48,7 @@ class Settings:
     place_radius: float = 3.0
     place_step: float = 0.2
     place_envelope: str = "courtyard"   # what a part claims: its courtyard, its pads, mask, silk and body, or both
+    place_rotations: str = "all"        # a searched part with no rotation given: all four, or only its declared one
     place_coarse_steps: int = 4
     place_coarse_from: float = 12.0
     place_refine_around: int = 3
@@ -189,7 +190,7 @@ class SettingsError(ValueError):
 
 
 # Keys with a fixed set of values.
-_CHOICES = {"place_envelope": ("courtyard", "physical", "union")}
+_CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotations": ("all", "declared")}
 
 # Keys with a floor. A value at or below it is a setting that cannot work: a
 # zero scan step never moves, a zero timeout never runs. Weights are absent

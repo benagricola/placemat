@@ -143,7 +143,7 @@ def _resolve(g, overrides: dict, planes: set, size) -> dict:
     for net in sorted(planes):
         b.plane(Net(net), [CopperLayer.B], why="benchmark: a net most parts share")
     for fp in sorted(g.footprints, key=lambda f: f.inst):
-        b.place(Part(fp.inst), rotation=fp.rotation)
+        b.place(Part(fp.inst))          # no rotation given: the search chooses it, as a script that leaves it out
     plan = b.resolve()
     placed = {s.item for s in plan.steps if s.placement is not None and s.kind == "part"}
     pads = []
