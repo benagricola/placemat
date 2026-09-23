@@ -135,6 +135,20 @@ def _strictly_inside(p: Point, poly: Polygon) -> bool:
     return point_in_polygon(p, poly) and all(point_segment_distance(p, q1, q2) > 1e-9 for q1, q2 in _edges(poly))
 
 
+def _rect_of(poly: Polygon) -> bool:
+    """Whether the polygon is an axis-aligned rectangle with area: four
+    vertices whose sides run alternately along x and y. A courtyard, a pad
+    and a body box usually are."""
+    if len(poly) != 4:
+        return False
+    (x0, y0), (x1, y1), (x2, y2), (x3, y3) = poly
+    if x0 == x1 and y1 == y2 and x2 == x3 and y3 == y0:
+        return x0 != x2 and y0 != y1
+    if y0 == y1 and x1 == x2 and y2 == y3 and x3 == x0:
+        return y0 != y2 and x0 != x1
+    return False
+
+
 def polys_overlap(a: Polygon, b: Polygon) -> bool:
     """True when the two polygons share interior (touching edges do not count).
 
@@ -149,6 +163,8 @@ def polys_overlap(a: Polygon, b: Polygon) -> bool:
     bx0, by0, bx1, by1 = pb.bounds
     if ax0 >= bx1 or bx0 >= ax1 or ay0 >= by1 or by0 >= ay1:
         return False                    # boxes apart or touching: no shared interior
+    if _rect_of(a) and _rect_of(b):
+        return True                     # two rectangles are their boxes, and the boxes share interior
     if pa.grid is not None or pb.grid is not None:
         return _prepared_overlap(pa, pb)
     # What follows is the full test with what the boxes rule out skipped: a

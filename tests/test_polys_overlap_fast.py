@@ -107,3 +107,30 @@ def test_an_outline_built_of_lists_is_answered_too():
     ring = [list(p) for p in _ring(25, 25, 19, 21, 160)]
     box = _rect(44, 24, 46, 26)
     assert geometry.polys_overlap(ring, box) == expected(tuple(map(tuple, ring)), box)
+
+
+def _general(a, b):
+    """polys_overlap's answer by the edge walk, with the rectangle shortcut off."""
+    saved = geometry._rect_of
+    geometry._rect_of = lambda poly: None
+    try:
+        return geometry.polys_overlap(a, b)
+    finally:
+        geometry._rect_of = saved
+
+
+def test_axis_aligned_rectangles_answer_as_the_edge_walk_does():
+    rng = random.Random(7)
+    def rect(x0, y0, x1, y1):
+        pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+        k = rng.randrange(4)
+        pts = pts[k:] + pts[:k]
+        return tuple(reversed(pts)) if rng.random() < 0.5 else tuple(pts)
+    for _ in range(4000):
+        grid = rng.choice([0.5, 0.25, 1.0])      # a coarse grid makes shared edges and corners common
+        x, y = rng.randrange(8) * grid, rng.randrange(8) * grid
+        a = rect(x, y, x + rng.randrange(0, 5) * grid, y + rng.randrange(1, 5) * grid)
+        x, y = rng.randrange(8) * grid, rng.randrange(8) * grid
+        b = rect(x, y, x + rng.randrange(1, 5) * grid, y + rng.randrange(1, 5) * grid)
+        assert geometry.polys_overlap(a, b) == _general(a, b), (a, b)
+        assert geometry.polys_overlap(b, a) == _general(b, a), (a, b)

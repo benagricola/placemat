@@ -480,7 +480,7 @@ class Occupancy:
         found: the same refusal in parts rather than prose, so a scan can
         count who was in the way rather than only how often."""
         geom = self._geometry(item)
-        body = self.body_box(item, placement)
+        body = self.shifted_body_box(item, placement)
         if self.edge_margin is not None and not past_edge:
             if self.board_shape is not None:
                 why = self.board_shape.why_not(body, self.edge_margin)
@@ -513,43 +513,24 @@ class Occupancy:
                 return "sits in the reservation for %s" % r.why
         if others is None:
             others = self.obstacles(geom)
-        t = self._transform(geom, placement)
         # What a conflict can reach from: the body, or in a drawn envelope every
         # shape the part claims - silk can stand well past the body.
-        reach = body if self.envelope == "courtyard" else Box.union([body, transform_box(self._extent(geom), t)])
+        reach = body if self.envelope == "courtyard" else \
+            Box.union([body, transform_box(self._extent(geom), self._transform(geom, placement))])
         near = others.near(reach, self._gap) if isinstance(others, ShapeIndex) else \
             [o for o in others if o.box.overlaps(reach, gap=self._gap)]
         if not near:
             return None
-        # Only a shape whose moved box reaches an obstacle is worth moving as a polygon.
-        if self.envelope != "courtyard":
-            # A drawn envelope has many more shapes to move: each is moved once
-            # per turn and face, then shifted, and only the ones near something.
-            dx, dy = placement.location.x, placement.location.y
-            for s in self._origin_shapes(item, geom, placement):
-                sb = s.box.moved(dx, dy)
-                close = [o for o in near if sb.overlaps(o.box, gap=self.gap_for(s))]
-                if not close:
-                    continue
-                moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
-                              tuple((x + dx, y + dy) for x, y in s.poly), sb, s.label)
-                for o in close:
-                    why = self._conflict(moved, o, clearance)
-                    if why:
-                        if blame is not None:
-                            blame.append(Blocker(o.kind, self.who(o.owner), frozenset(o.faces)))
-                        return why
-            return None
-        flip = placement.face != geom.reference.face
-        for s in geom.shapes:
-            sb = transform_box(s.box, t)
+        # Each shape is turned and faced once per rotation and face, then
+        # shifted; only a shape whose box reaches an obstacle is moved as a polygon.
+        dx, dy = placement.location.x, placement.location.y
+        for s in self._origin_shapes(item, geom, placement):
+            sb = s.box.moved(dx, dy)
             close = [o for o in near if sb.overlaps(o.box, gap=self.gap_for(s))]
             if not close:
                 continue
-            poly = transform_polygon(s.poly, t, clean=False)
-            faces = self._flip_faces(s.faces) if (flip and len(s.faces) == 1) else s.faces
-            layers = self._flip_layers(s.layers) if flip else s.layers
-            moved = Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label)
+            moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
+                          tuple((x + dx, y + dy) for x, y in s.poly), sb, s.label)
             for o in close:
                 why = self._conflict(moved, o, clearance)
                 if why:
