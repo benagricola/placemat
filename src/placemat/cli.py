@@ -150,6 +150,13 @@ def parser() -> argparse.ArgumentParser:
     pv.add_argument("--accept", action="store_true",
                      help="with --explore: write the best variant's decisions to the lock and use them")
 
+    fz = sub.add_parser("freeze", help="move lock entries into the script's place() calls, if the script then "
+                                       "places exactly as the lock did")
+    fz.add_argument("script", help="the board's layout script")
+    fz.add_argument("items", nargs="*", help="the entries to freeze")
+    fz.add_argument("--all", action="store_true", help="every entry")
+    fz.add_argument("--fixed", action="store_true",
+                    help="write a firm Location rather than a search with no room (goes down before anything searched)")
     lk = sub.add_parser("lock", help="the lock file: decisions an explore run found and --accept kept")
     lk.add_argument("script", help="the board's layout script")
     lk.add_argument("--release", nargs="+", metavar="ITEM", help="drop these items' entries")
@@ -263,6 +270,25 @@ def cmd_lock(args) -> int:
     gone = lock.release(path, None if args.release_all else set(args.release))
     console.say("lock", "released %d: %s" % (len(gone), ", ".join(gone) or "-"))
     return 0
+
+
+def cmd_freeze(args) -> int:
+    from .freeze import FreezeError, freeze
+    if not args.items and not args.all:
+        raise SystemExit("name the entries to freeze, or --all")
+    try:
+        report = freeze(args.script, None if args.all else set(args.items), fixed=args.fixed)
+    except FreezeError as e:
+        console.say("freeze", str(e), level="fail")
+        return 1
+    for r in report["refused"]:
+        console.say("freeze", "refused: " + r, level="finding")
+    if report["differences"]:
+        console.say("freeze", "not written: the frozen script would place differently", level="fail")
+        console.lines("freeze", "\n".join("  " + d for d in report["differences"]))
+        return 1
+    console.say("freeze", "froze %d: %s" % (len(report["frozen"]), ", ".join(report["frozen"]) or "-"))
+    return 0 if report["frozen"] or not report["refused"] else 1
 
 
 def cmd_run(args) -> int:
@@ -798,7 +824,7 @@ def main(argv=None) -> int:
 
 
 def _dispatch(args) -> int:
-    return {"run": cmd_run, "lock": cmd_lock, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
+    return {"run": cmd_run, "lock": cmd_lock, "freeze": cmd_freeze, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
             "route": cmd_route, "check": cmd_check, "show": cmd_show, "faces": cmd_faces,
             "settings": cmd_settings, "parts": cmd_parts,
             "datasheet": cmd_datasheet, "occupancy": cmd_occupancy, "preview": cmd_preview}[args.command](args)
