@@ -4,6 +4,11 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.32.1
+
+Nothing to change. A lock written by 0.32.0 released every linked item on
+the next run; accept again (`--explore ... --accept`) to rewrite it.
+
 ## To 0.32
 
 Nothing to change. New: `--explore` on `run` and `preview`, the lock file
