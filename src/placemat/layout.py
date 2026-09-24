@@ -19,7 +19,7 @@ import math
 
 from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
                      resolve_bridges)
-from .geometry import circle_polygon, polys_overlap, transform_box
+from .geometry import box_polygon, circle_polygon, polys_overlap, transform_box
 from .occupancy import Occupancy, Shape, TOUCH, parts_claim
 from .cutouts import Cutouts, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
@@ -2727,6 +2727,10 @@ class Board:
                 note += "; sits on " + ", ".join(hits)
             if reserve:
                 occ.reserve(op.box, "label %s" % key.split(" ", 1)[1], layer=face.copper)     # the text's own box, no more
+                # The reservation keeps bodies off the text; as silk it also keeps
+                # a later part's silk the silk clearance away where the envelope
+                # claims silk, as KiCad checks it.
+                occ.add_copper([Shape(key, "silk", frozenset([face]), frozenset(), "", box_polygon(op.box), op.box)])
                 note += "; reserved"
             plan.steps.append(Step(key, "copper", Priority.DEFAULT, None, 0.0, note, why, 1))
             done[key] = (op, own, face)

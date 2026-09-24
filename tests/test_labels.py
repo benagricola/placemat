@@ -172,3 +172,22 @@ def test_a_label_keeps_the_silk_clearance_from_its_own_part(side, face):
     gap = {Edge.NORTH: reach.top - t.box.bottom, Edge.SOUTH: t.box.top - reach.bottom,
            Edge.EAST: t.box.left - reach.right, Edge.WEST: reach.left - t.box.right}[side]
     assert gap >= 0.2 - 1e-9
+
+
+def test_a_part_searched_later_keeps_its_silk_the_silk_clearance_from_a_label():
+    import dataclasses
+    from placemat.settings import Settings
+    from placemat.values import Box
+    fps = [footprint("J1", 10, 10, w=8, h=4, inst="j1", nets=("A", "B")),
+           footprint("R1", 40, 10, w=2, h=1, inst="r1", nets=("A", "C"),
+                     silk_boxes=[(39.0, 9.2, 41.0, 9.3)])]            # a silk line 0.2 mm north of its body
+    g = board_geometry(fps, width=60, height=60, silk_clearance=0.2)
+    b = Board(g, edge_margin=1.0, settings=dataclasses.replace(Settings(), place_envelope="physical"))
+    b.place(Part("j1"), at=Location(20, 20))
+    b.label(Part("j1"), "GND", side=Edge.SOUTH)
+    b.place(Part("r1"), at=Near(Location(20, 24.2), radius=3))       # its silk would lie on the label's lower edge
+    plan = b.resolve()
+    (t,) = labels(plan)
+    silk = Box.union([s.box for s in plan.occupancy.items["R1"].shapes if s.kind == "silk"])
+    gap = max(t.box.left - silk.right, silk.left - t.box.right, t.box.top - silk.bottom, silk.top - t.box.bottom)
+    assert gap >= 0.2 - 1e-9, (t.box, silk)

@@ -4,6 +4,13 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.32.2
+
+Nothing to change. With `envelope = "physical"` or `"union"`, a reserved
+label is silk to parts placed after it: their silk keeps the board's silk
+clearance from the label's box, so a part packed against a label may move
+by up to that clearance.
+
 ## To 0.32.1
 
 Nothing to change. A lock written by 0.32.0 released every linked item on
