@@ -301,10 +301,10 @@ class Link:
     b: tuple
     weight: int
     limit_mm: float | None
-    why: str
-    a_ref: object
-    b_ref: object
-    achieved_mm: float | None = None
+    why: str = field(metadata={"reuse": False})                  # prose: decides nothing
+    a_ref: object = None
+    b_ref: object = None
+    achieved_mm: float | None = field(default=None, metadata={"reuse": False})   # measured by a resolve, not declared
 
     @property
     def within_limit(self) -> bool:

@@ -77,3 +77,9 @@ def test_focus_flags_need_explore(tmp_path):
     mod, script = _module(tmp_path)
     rc, out = _cli("preview", script, "--svg", "--accept")
     assert rc != 0 and "go with --explore" in out
+
+
+def test_an_unknown_focus_is_a_clean_error(tmp_path):
+    mod, script = _module(tmp_path, searched=True)
+    rc, out = _cli("preview", script, "--svg", "--explore", "3", "--focus", "nope")
+    assert rc != 0 and "nothing searched is called 'nope'" in out and "Traceback" not in out, out

@@ -189,9 +189,10 @@ def generator_inputs(src: BoardSource) -> dict:
 
 
 def script_fingerprint(script) -> str:
-    """The script's text and that of every module it imports from beside it,
-    followed through their own imports: what the run id hashes, so a change
-    to shared geometry in a sibling module is a different run."""
+    """The script's text, that of every module it imports from beside it
+    (followed through their own imports) and its lock file: what the run id
+    hashes, so a change to shared geometry in a sibling module, or an
+    accepted explore result, is a different run."""
     import ast
     script = Path(script).resolve()
     here = script.parent
@@ -215,4 +216,7 @@ def script_fingerprint(script) -> str:
                 for cand in (here / rel.with_suffix(".py"), here / rel / "__init__.py"):
                     if cand.is_file():
                         todo.append(cand.resolve())
+    lock = script.with_name(script.stem + ".lock.json")      # accepted decisions decide placements too
+    if lock.is_file():
+        parts.append("lock\0%s" % lock.read_text(errors="replace"))
     return "\0\0".join(parts)

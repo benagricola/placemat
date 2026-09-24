@@ -128,3 +128,12 @@ def test_a_project_the_generator_writes_is_not_an_input(tmp_path):
     _write(board / "kicad" / "Main.kicad_pro", "{}\n")
     _write(board / "kicad" / "sub.kicad_sch", "(kicad_sch)\n")
     assert not [k for k in generator_inputs(src) if k.startswith("kicad/")]
+
+
+def test_the_fingerprint_changes_with_the_script_s_lock(tmp_path):
+    """The lock decides placements, so accepting and running again is a
+    different run."""
+    script = _write(tmp_path / "Main_layout.py", "X = 1\n")
+    without = script_fingerprint(script)
+    _write(tmp_path / "Main_layout.lock.json", '{"format": 1, "entries": []}\n')
+    assert script_fingerprint(script) != without

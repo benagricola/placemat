@@ -330,9 +330,12 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         parts = reuse_parts(src, cfg, fab)
         board.reuse_extra = "|".join(parts[k] for k in ("tool", "board", "settings", "fab"))
         from . import explore as explore_mod
-        lock_entries, explored = explore_mod.before_resolve(
-            script, board, explore_mod.BoardFactory(script, src, cfg, fab, keep_going, board.geometry),
-            explore, say)
+        try:
+            lock_entries, explored = explore_mod.before_resolve(
+                script, board, explore_mod.BoardFactory(script, src, cfg, fab, keep_going, board.geometry),
+                explore, say)
+        except explore_mod.FocusError as e:
+            raise RunFailure("explore", str(e), {"tail": str(e)})
         try:
             plan = board.resolve(progress=progress, reuse=previous_reuse, lock=lock_entries)
         except PlacementCollision as e:

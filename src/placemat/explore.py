@@ -26,6 +26,10 @@ def explorable(intent) -> bool:
             and intent.angle is None and intent.radius_at is None)
 
 
+class FocusError(ValueError):
+    """A focus that names nothing explorable, with what can be explored."""
+
+
 def focus_keys(board, keys=(), after_line: int | None = None, box=None, baseline=None) -> frozenset:
     """The keys of the explorable items in focus: named by key, declared at
     or after a script line, or placed inside `box` by `baseline` (a plan).
@@ -34,8 +38,11 @@ def focus_keys(board, keys=(), after_line: int | None = None, box=None, baseline
     chosen = set()
     if keys:
         for k in keys:
+            if k not in pool and "block " + k in pool:
+                k = "block " + k                         # a block named by its anchor, without the prefix
             if k not in pool:
-                raise KeyError("%s: no searched item by that key (explorable: %s)" % (k, ", ".join(sorted(pool))))
+                raise FocusError("nothing searched is called %r: explorable here are %s" % (
+                    k, ", ".join(sorted(pool)) or "none (every item's place is decided)"))
             chosen.add(k)
     if after_line is not None:
         chosen |= {k for k, i in pool.items() if i.line >= after_line}

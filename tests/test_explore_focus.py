@@ -44,7 +44,8 @@ def test_with_no_focus_every_searched_item_is_in_focus():
 def test_focus_by_key_names_items_and_a_cell_counts_as_itself():
     b, _ = _declared()
     assert focus_keys(b, keys=["r2", "pwr"]) == {"r2", "pwr"}
-    with pytest.raises(KeyError, match="no searched item"):
+    from placemat.explore import FocusError
+    with pytest.raises(FocusError, match="nothing searched is called 'mcu'"):
         focus_keys(b, keys=["mcu"])                    # fixed: nothing to vary
 
 
@@ -70,3 +71,20 @@ def test_a_declaration_s_line_is_not_in_its_reuse_key():
     i = b.place(Part("r1"))
     moved = dataclasses.replace(i, line=i.line + 40)
     assert reuse.step_key("k", i, []) == reuse.step_key("k", moved, [])
+
+
+def test_a_focus_key_may_name_a_block_without_its_prefix():
+    from placemat.values import Part as P
+    fps = [footprint("U1", 10, 10, w=6, h=3, inst="ldo", nets=("VIN", "VOUT")),
+           footprint("C1", 60, 60, inst="cin", nets=("VIN", "GND"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.place(b.block(P("ldo"), satellites=[(P("cin"), "VIN")]))
+    assert focus_keys(b, keys=["ldo"]) == {"block ldo"}
+    assert focus_keys(b, keys=["block ldo"]) == {"block ldo"}
+
+
+def test_an_unknown_focus_is_a_clean_error_naming_what_can_be_explored():
+    from placemat.explore import FocusError
+    b, _ = _declared()
+    with pytest.raises(FocusError, match="nothing searched is called 'nope'.*r1"):
+        focus_keys(b, keys=["nope"])

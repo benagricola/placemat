@@ -124,3 +124,30 @@ def test_a_locked_block_is_held_with_its_satellites():
     assert held.placement("block ldo") == variant.placement("block ldo")
     assert held.placement("cin") == variant.placement("cin")
     assert "held by lock" in held.step("block ldo").note
+
+
+def test_a_linked_item_s_entry_holds_on_a_fresh_run():
+    """A link records its length once a plan is resolved; the digest an
+    entry is accepted with must not include it, or a fresh run - whose
+    links are not measured yet - releases every linked item."""
+    from placemat.values import LinkWeight, PadRef
+
+    def make():
+        b = _board()
+        b.link(PadRef(Part("r1"), 1), PadRef(Part("mcu"), 1), weight=LinkWeight.SHORT)
+        return b
+    b = make()
+    variant = b.resolve(explore=Explore(seed=9, focus=FOCUS))
+    entries = lock.entries(b, variant, sorted(FOCUS))
+    held = make().resolve(lock=entries)
+    assert "held by lock" in held.step("r1").note, held.step("r1").note
+
+
+def test_a_link_s_measured_length_is_not_in_its_reuse_key():
+    from placemat import reuse
+    from placemat.values import PadRef
+    b = _board()
+    l = b.link(PadRef(Part("r1"), 1), PadRef(Part("mcu"), 1))
+    before = reuse.canonical(l)
+    b.resolve()
+    assert l.achieved_mm is not None and reuse.canonical(l) == before
