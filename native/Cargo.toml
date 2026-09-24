@@ -1,6 +1,6 @@
 [package]
 name = "placemat_native"
-version = "0.30.0"      # placemat's own version: placemat uses a native module only of its own release
+version = "0.31.0"      # placemat's own version: placemat uses a native module only of its own release
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

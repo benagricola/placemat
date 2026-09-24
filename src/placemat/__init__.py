@@ -2,7 +2,7 @@
 
 Exports `board` (the proxy a script declares to) and the typed values a
 script uses. Only placemat.kicad imports pcbnew."""
-__version__ = "0.30.0"      # the one version: pyproject reads it, and the plugin manifests match it
+__version__ = "0.31.0"      # the one version: pyproject reads it, and the plugin manifests match it
 
 from .context import board
 from .cutouts import Circle, Path, Slot
