@@ -1,6 +1,7 @@
 [package]
 name = "placemat_native"
-version = "0.31.0"      # placemat's own version: placemat uses a native module only of its own release
+version = "0.0.0"       # the wheel's version only, set from the tag by the release workflow; the
+                        # module reports the release it was built from (build.rs: the git tag)
 edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

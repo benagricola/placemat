@@ -21,8 +21,16 @@ placemat = { path = "../placemat", extras = ["native"] }    # a consumer's [tool
 A tagged release (`v*`) also attaches prebuilt wheels for Linux x86_64 and
 aarch64 and Apple Silicon to its GitHub Release (one wheel per platform,
 Python 3.12 and later). placemat uses a native module only when its version
-is placemat's own; a leftover build from another release is set aside with
-a one-line note, and the pure-Python path runs.
+is placemat's own release; a leftover build from another release is set
+aside with a one-line note, and the pure-Python path runs.
+
+No version is typed anywhere: it is the git tag. placemat's comes from the
+tag through hatch-vcs (`0.31.0` on the tagged commit, `0.31.0.postN.dev0+g<sha>`
+after it); the module's `build.rs` reads the same tag; `Cargo.toml` carries a
+placeholder the release workflow replaces with the tag's version for the
+wheels. uv rebuilds the module when the Rust, the commit or the tags change.
+A release is: set the two `.claude-plugin/*.json` versions, commit, tag
+`vX.Y.Z`, push the tag.
 
 ## Build
 

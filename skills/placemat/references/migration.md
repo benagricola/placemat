@@ -6,7 +6,8 @@ whether any of it applies.
 
 ## To 0.31
 
-Nothing to change. The native module installs with placemat's `native`
+Nothing to change. placemat's version is its git tag now; an install from
+a checkout needs the tags (`git fetch --tags`) to report it. The native module installs with placemat's `native`
 extra (a Rust toolchain on the machine), and a native module built for
 another placemat release is no longer used: rebuild it after upgrading.
 

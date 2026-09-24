@@ -16,16 +16,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0             # the tags: every version is read from them
       - uses: astral-sh/setup-uv@v5
-      - name: The tag is placemat's version
-        run: |
-          version=$(sed -n 's/^__version__ = "\([^"]*\)".*/\1/p' src/placemat/__init__.py)
-          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME but placemat is $version"; exit 1; }
       - name: Suite, pure Python
         run: |
           uv venv --python 3.12
           uv pip install -e ".[dev]"
           PLACEMAT_NATIVE=0 .venv/bin/python -m pytest -q
+      - name: The version is the tag, and the plugin manifests say so too
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          got=$(.venv/bin/python -c "import placemat; print(placemat.__version__)")
+          test "$got" = "$want" || { echo "tag $GITHUB_REF_NAME but placemat reports $got"; exit 1; }
+          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json; do
+            grep -q "\"version\": \"$want\"" "$f" || { echo "$f does not say $want"; exit 1; }
+          done
       - name: Suite, native (built from native/ on install)
         run: |
           uv pip install -e ".[dev,native]"
@@ -43,9 +49,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0             # the tags: every version is read from them
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: The wheel's version is the tag's
+        run: sed -i.bak "s/^version = \"0.0.0\"/version = \"${GITHUB_REF_NAME#v}\"/" native/Cargo.toml
       - uses: PyO3/maturin-action@v1
         with:
           working-directory: native
@@ -62,6 +72,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0             # the tags: every version is read from them
       - uses: astral-sh/setup-uv@v5
       - run: uv build --out-dir dist
       - uses: actions/upload-artifact@v4

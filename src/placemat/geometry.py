@@ -19,13 +19,15 @@ Polygon = tuple[Point, ...]
 # as the fallback and the reference - see
 # docs/superpowers/specs/2026-09-24-native-core-design.md.
 def _accept_native(module, version: str):
-    """(module, "") when a native module is this placemat's own build, else
-    (None, why): a module built from another release could place
-    differently, so it is set aside rather than trusted."""
+    """(module, "") when a native module was built from this placemat's
+    release, else (None, why): a module from another release could place
+    differently, so it is set aside rather than trusted. Between tags both
+    carry the last tag's release; a changed source is rebuilt by uv."""
+    from . import release
     theirs = getattr(module, "__version__", None)
     if theirs is None:
         return None, "placemat_native has no version: it is not used; rebuild it from this checkout's native/"
-    if theirs != version:
+    if release(theirs) != release(version):
         return None, ("placemat_native is %s, placemat is %s: it is not used; rebuild it from this checkout's "
                       "native/ (uv pip install -e \".[native]\")" % (theirs, version))
     return module, ""

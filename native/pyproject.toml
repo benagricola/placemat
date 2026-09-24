@@ -11,3 +11,9 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
 ]
 dynamic = ["version"]
+
+[tool.uv]
+# Rebuild when the Rust or the release changes, not only this file: a path
+# dependency is otherwise cached on its pyproject.toml alone.
+cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" }, { file = "build.rs" },
+              { file = "src/**/*.rs" }, { git = { commit = true, tags = true } }]

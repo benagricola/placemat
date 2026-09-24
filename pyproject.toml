@@ -26,11 +26,23 @@ native = ["placemat_native"]
 [tool.uv.sources]
 placemat_native = { path = "native" }
 
+[tool.uv]
+# An install is refreshed when the commit or the tags move, so the version
+# it reports is the checkout's.
+cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true, tags = true } }]
+
+# The version is the git tag (v0.31.0 -> 0.31.0); between tags it is the
+# last tag's with a .post/.dev suffix (no-guess-dev keeps the release it
+# builds on). Written into src/placemat/_version.py at build or install.
 [tool.hatch.version]
-path = "src/placemat/__init__.py"
+source = "vcs"
+raw-options = { version_scheme = "no-guess-dev" }
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/placemat/_version.py"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]

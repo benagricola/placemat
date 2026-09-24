@@ -28,12 +28,12 @@ def _manifest_version(path: Path) -> str:
 def test_the_package_and_the_plugin_say_the_same_version(path):
     if not path.exists():
         pytest.skip("not a source checkout: %s" % path)
-    assert _manifest_version(path) == placemat.__version__
+    assert _manifest_version(path) == placemat.release(placemat.__version__)
 
 
 def test_the_installed_package_reports_that_version_too():
-    """pyproject reads __init__, so a bump in one place moves both. If this
-    fails, the dynamic version has been replaced by a literal again."""
+    """The version file and the package metadata are written from the same
+    tag at install: they agree unless the install is stale."""
     from importlib.metadata import version
     assert version("placemat") == placemat.__version__
 
@@ -46,15 +46,31 @@ def test_the_version_is_what_names_a_run():
     assert run_id(*same, placemat.__version__) != run_id(*same, "0.0.0")
 
 
-def test_the_native_crate_carries_the_same_version():
-    """The compiled module is built from the same tree: its version is
-    placemat's, so a module left over from another release can be told."""
-    cargo = ROOT / "native" / "Cargo.toml"
-    if not cargo.exists():
-        pytest.skip("not a source checkout: %s" % cargo)
-    import re
-    m = re.search(r'^version = "([^"]+)"', cargo.read_text(), re.M)
-    assert m and m.group(1) == placemat.__version__
+def test_the_native_module_reports_the_release_it_was_built_from():
+    """Both versions come from the git tag: placemat's through hatch-vcs, the
+    module's through build.rs. They agree on the release."""
+    try:
+        import placemat_native
+    except ImportError:
+        pytest.skip("placemat_native is not built")
+    assert placemat.release(placemat_native.__version__) == placemat.release(placemat.__version__)
+
+
+@pytest.mark.parametrize("version, base", [("0.31.0", "0.31.0"), ("0.31.0.post2.dev0+g1a2b3c4", "0.31.0"),
+                                           ("0.31.0+d20260924", "0.31.0"), ("1.2", "1.2")])
+def test_a_version_s_release_is_the_tag_it_builds_on(version, base):
+    assert placemat.release(version) == base
+
+
+def test_the_version_is_the_checkout_s_git_tag():
+    """No version is typed anywhere: the tag is it."""
+    import subprocess
+    try:
+        tag = subprocess.run(["git", "describe", "--tags", "--abbrev=0", "--match", "v*"], cwd=ROOT,
+                             capture_output=True, text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        pytest.skip("not a git checkout with a v* tag")
+    assert placemat.release(placemat.__version__) == tag[1:]
 
 
 def test_a_native_module_from_another_release_is_not_used():
@@ -64,10 +80,10 @@ def test_a_native_module_from_another_release_is_not_used():
 
     class Module:
         __version__ = "0.0.1"
-    module, note = _accept_native(Module(), placemat.__version__)
-    assert module is None and "0.0.1" in note and placemat.__version__ in note
-    Module.__version__ = placemat.__version__
-    module, note = _accept_native(Module(), placemat.__version__)
+    module, note = _accept_native(Module(), "0.31.0.post2.dev0+g1a2b3c4")
+    assert module is None and "0.0.1" in note
+    Module.__version__ = "0.31.0"                       # built at the tag, placemat two commits on
+    module, note = _accept_native(Module(), "0.31.0.post2.dev0+g1a2b3c4")
     assert module is not None and note == ""
 
 
