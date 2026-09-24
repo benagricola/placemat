@@ -100,14 +100,56 @@ Where the cost is used:
 - **Cleanup.** Every move and swap is kept only when the cost falls. No
   limited link may end over its limit and longer than it was (today's
   rule, kept).
-- **Explore.** In `explore.score`, the wire component becomes this cost.
-  The order stays placed, findings, worst RUDY cell, cost.
-- **Best-run ranking.** Every run records `crossings_counted`: KiCad's
-  crossings, from its DRC, over the counted nets. It also reports the
-  change against the best run. Where crossings enter `report.objective` is
-  left open: plan task 7 replays the recorded runs of the fairing core and
-  the bench under each candidate order, and Ben chooses from what each
-  order would have kept. Until then the objective is unchanged.
+- **Explore and ranking.** Both use the run score below.
+
+## The run score
+
+Runs, explore variants and bench results are judged by one weighted score
+instead of a fixed order (Ben, 2026-09-24). Every term is a count times a
+weight, in millimetres of wire, and lower is better:
+
+| Term | Counted as | Weight setting | Default |
+|---|---|---|---|
+| unplaced part | each part not placed, times its declared priority's multiplier | `score_unplaced`; `score_priority_high`, `_default`, `_low` | 500 mm; x2, x1, x0.5 |
+| DRC violation | each real DRC violation (runs only) | `score_drc` | 200 mm |
+| link over its limit | mm over the limit, times the link's weight (SHORT 8, PREFER 2, DEFAULT 1) | `score_link_over` | 20 mm per mm |
+| fixed item not legal where put | each | `score_fixed` | 200 mm |
+| copper conflict or uncrossable tracks | each | `score_copper` | 200 mm |
+| label on a part | each | `score_label` | 50 mm |
+| crossed escape | each | `score_escape_crossed` | 10 mm |
+| walled-off pad | each | `score_walled` | 50 mm |
+| setup finding (undeclared part, missing layer, web) | each | `score_setup` | 0 |
+| ratsnest crossing | each, on counted nets | `crossing_cost` (the search's) | from task 4's measurement |
+| airwire | mm | 1 (the unit) | - |
+| worst RUDY cell (explore only) | steps of `explore_congestion_step` | `score_congestion` | from measurement |
+
+The defaults are starting values. Task 3's replay checks them against the
+fairing core's recorded runs: which run each set would keep, shown to Ben
+before they are fixed.
+
+- **Findings get a kind.** A finding becomes `Finding(kind, text)`, with
+  the kinds in the table. Every site that emits one names its kind. The
+  text is unchanged, so what a run prints and the reuse replay stay as
+  they are.
+- **No double count.** An unplaced part is one term. Its finding text is
+  still printed, but it is scored only as unplaced.
+- **Stored as measurements.** A run records its counts by kind and its
+  measures, not its score. The score is computed when runs are compared,
+  so a weight changed in `placemat.toml` re-ranks at once, including
+  against the stored best run.
+- **Noise.** KiCad gives different ratsnests for identical boards
+  (report.py's AIRWIRE_NOISE note). Two scores tie when they differ by
+  less than `best_airwire_noise` x airwire plus `best_crossing_noise` x
+  crossings x `crossing_cost`. The crossing band is measured from repeat
+  runs of identical inputs, as the airwire one was.
+- **Where it is used:**
+  - the best-run ranking, replacing `report.objective`'s order;
+  - explore, replacing `explore.score`'s order: no DRC term, and
+    placemat's own crossing count;
+  - the bench verdict: a module is better or worse when its score moves
+    beyond the noise band.
+- **Reported.** A run prints its score by term against the best run, so
+  the term that decided is visible.
 
 ## Escape room
 
@@ -216,8 +258,8 @@ The brief's own targets:
   - every satellite on its normal or offset within its limit;
   - every bypass link limit met.
 - Core: crossings below 1,041 (run 985825a5) with no new findings; plane
-  nets weighted by `crossing_plane_weight`; the ranking order chosen from
-  task 7's replay.
+  nets weighted by `crossing_plane_weight`; runs ranked by the run score,
+  with its defaults checked by the replay.
 - Bench:
   - it records crossings (placemat's count) and HPWL;
   - the default, solve and physical configurations have no module worse on

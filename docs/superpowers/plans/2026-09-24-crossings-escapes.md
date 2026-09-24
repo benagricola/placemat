@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ratsnest crossings and escape room count in the search, cleanup, explore and (after a replay) the best-run ranking; cleanup can swap any two parts and move satellites within a limit; crossed and walled-off escapes are findings.
+**Goal:** Runs, explore variants and the bench are judged by one weighted score with configurable weights; ratsnest crossings and escape room count in it and in the search and cleanup; cleanup can swap any two parts and move satellites within a limit; crossed and walled-off escapes are findings.
 
-**Architecture:** A new `ratsnest.py` computes KiCad's per-net MST and its crossings, with an incremental form for scoring one candidate. A new `escapes.py` keeps each placed pad's corridors. `Board._scorer`, `cleanup.cost` and `explore.score` share one cost function; cleanup gains lift-and-search swaps and satellite moves.
+**Architecture:** A new `ratsnest.py` computes KiCad's per-net MST and its crossings, with an incremental form for scoring one candidate. A new `escapes.py` keeps each placed pad's corridors. A new `score.py` gives the weighted run score used by the ranking, explore and the bench. `Board._scorer` and `cleanup.cost` add the crossing and escape terms; cleanup gains lift-and-search swaps and satellite moves.
 
 **Tech Stack:** Python standard library; kicad-cli for the KiCad cross-checks (the existing KiCad-marked tests).
 
@@ -41,14 +41,57 @@
 - [ ] KiCad test: on each fixture board the suite writes and checks with kicad-cli, placemat's count over counted nets equals `airwires_from_drc`'s, within KiCad's own run-to-run variation (run it three times and take the range).
 - [ ] Implement; suite both ways; commit. The measure is not used by placement yet, so no bench is needed.
 
-### Task 2: the bench records crossings
+### Task 2: findings with a kind
 
-**Files:** `fixtures/bench.py`, `fixtures/bench.json`, `tests/test_bench*.py`.
+**Files:** `src/placemat/layout.py`, `src/placemat/copper.py` and `src/placemat/runner.py` (every emitting site), `src/placemat/reuse.py` (replay keeps the kind), `tests/test_finding_kinds.py`.
 
-- [ ] Failing test: `_resolve` returns `crossings`, and the report line shows it beside hpwl.
-- [ ] Add the column; the verdict is unchanged (placed, findings, hpwl) until task 3 measures it. Regenerate the baseline, whose placements are unchanged, only the new column. Commit with the three tallies.
+**Interfaces (produced):**
+- `Finding(kind: str, text: str)`, a `str` subclass carrying `.kind`, so every reader of `plan.findings` as strings keeps working.
+- Kinds: `unplaced`, `link_over`, `fixed`, `copper`, `label`, `escape_crossed`, `walled`, `setup`.
+- `plan.findings_by_kind() -> dict[kind, list]`.
 
-### Task 3: crossings in the search cost, and its default
+- [ ] Failing tests:
+  - each emitting site gives its kind (one case per site, from the grep of `findings.append`);
+  - the texts are unchanged;
+  - a replayed run keeps the kinds;
+  - an old reuse cache without kinds reads them as `setup`, or re-resolves.
+- [ ] Implement; suite both ways; bench (placements unchanged); commit.
+
+### Task 3: the run score
+
+**Files:** Create `src/placemat/score.py`; modify `settings.py` (the `score_*` settings, `best_crossing_noise`), `report.py` (`objective` -> the score, stored measurements, the noise band, the per-term report), `runner.py` (metrics record counts by kind, link excess, `crossings_counted` from DRC over counted nets), `explore.py` (`score` -> the run score without DRC, with placemat's crossings and the RUDY term), `fixtures/bench.py` (records crossings and the score; verdict by score beyond noise), api.md rows, tests `tests/test_run_score.py`, `tests/test_report*.py`, `tests/test_explore_score.py`, bench tests.
+
+**Interfaces (produced):**
+- `score.terms(measures: dict, cfg: Settings) -> dict[term, float]`;
+- `score.total(measures, cfg) -> float`;
+- `score.noise(measures, cfg) -> float`;
+- `score.compare(a, b, cfg) -> (sign, deciding term)`.
+
+`measures` holds:
+- `unplaced` by priority;
+- `drc_real`;
+- `link_excess`: the sum of (mm over x link weight);
+- the finding counts by kind;
+- `crossings_counted`;
+- `airwire_mm`;
+- `rudy_steps`.
+
+- [ ] Failing tests:
+  - each term computed from its measure and weight;
+  - an unplaced part counted once, not also as a finding;
+  - a HIGH part's absence costs twice a DEFAULT's;
+  - a link 0.03 mm over costs 0.03 x 20 x its weight;
+  - two runs within the noise band tie;
+  - a changed weight in the settings re-ranks two stored runs without re-running them;
+  - the best-run report names the deciding term;
+  - explore orders variants by the score;
+  - the bench verdict moves only beyond noise;
+  - old best tables and run records (0.32 metrics) are read, with the measures they lack taken as zero, as `comparable()` does today.
+- [ ] Implement. The crossing weight is `place_crossing_cost`, which task 4 measures. Until then its default is a placeholder of 2 mm, stated in the commit and replaced in task 4.
+- [ ] Replay: the fairing core's recorded runs (`.placemat/runs/*/run.json`) and the bench corpus. Tabulate the run each gives as best under the old order and under the default weights, and where they differ, why. Show Ben; adjust the defaults if he asks; record the table in the spec.
+- [ ] Bench: new baseline (score column); tally; commit.
+
+### Task 4: crossings in the search cost, and its default
 
 **Files:** `src/placemat/settings.py` (`place_crossing_cost`, `place_crossing_plane_weight`), `src/placemat/layout.py` (`_scorer` adds `crossing_cost * ratsnest.added(...)`; `Ratsnest.update` on every commit), `src/placemat/occupancy.py` (holds the Ratsnest), `skills/placemat/references/api.md` (settings rows), `tests/test_crossing_cost.py`.
 
@@ -58,9 +101,9 @@
   - a plane net's crossing costs nothing at the default weight.
 - [ ] Implement.
 - [ ] Measure: the bench at `crossing_cost` in {0, 0.5, 1, 2, 4} mm, recording crossings, hpwl, placed, findings and time. Pick the default from the table: the fewest crossings with no module worse on placed or findings, and hpwl within 3%. Put the table in the spec and the commit.
-- [ ] The bench verdict gains crossings (a module is worse if placed or findings fall, or if crossings rise beyond noise with hpwl not better). New baseline; tally; commit.
+- [ ] Replace task 3's placeholder crossing weight with the measured default; new baseline; tally; commit.
 
-### Task 4: escape corridors
+### Task 5: escape corridors
 
 **Files:** Create `src/placemat/escapes.py`; modify `settings.py` (`place_escape_depth`, `place_escape_cost`), `layout.py` (`_scorer` adds the escape term; corridors registered as pads commit), api.md rows; tests `tests/test_escapes.py`.
 
@@ -75,9 +118,9 @@
   - same-net copper, and the pad's own part, never close a corridor;
   - with the MCU-like quad anchor from `tests/test_blocks.py`, a part linked to pin 3 is not placed across pin 4's corridor when room under pins 2-3 is free.
 - [ ] Implement.
-- [ ] Measure `escape_depth` in {0.5, 1.0, 2.0} mm and `escape_cost` in {0.5, 1, 2} x `crossing_cost` on the bench. Pick the defaults as in task 3. Put the table in the spec; tally; baseline; commit.
+- [ ] Measure `escape_depth` in {0.5, 1.0, 2.0} mm and `escape_cost` in {0.5, 1, 2} x `crossing_cost` on the bench. Pick the defaults as in task 4. Put the table in the spec; tally; baseline; commit.
 
-### Task 5: cleanup - the cost, satellites and swaps
+### Task 6: cleanup - the cost, satellites and swaps
 
 **Files:** `src/placemat/cleanup.py`, `src/placemat/layout.py` (`_cleanup_movable` gains satellites with their limits, parts linked to one anchor, and cells; `_cleanup` passes the Ratsnest and Escapes), `tests/test_cleanup_swaps.py`, `tests/test_cleanup_satellites.py`.
 
@@ -96,29 +139,15 @@
 - [ ] Implement. The lift-and-search swap replaces the two swap loops. Cells take part as a unit.
 - [ ] Suite both ways; bench (tally, baseline); commit.
 
-### Task 6: explore judges the cost; the findings
+### Task 7: the escape findings
 
-**Files:** `src/placemat/explore.py` (`score` uses the shared cost), `src/placemat/escapes.py` (`path_out(occ, ref, number)`: a grid path search at track width and clearance in an `escape_depth` window), `src/placemat/layout.py` (the findings after cleanup), tests `tests/test_explore_score.py` (extend), `tests/test_escape_findings.py`.
+**Files:** `src/placemat/escapes.py` (`path_out(occ, ref, number)`: a grid path search at track width and clearance in an `escape_depth` window), `src/placemat/layout.py` (the findings after cleanup, kinds `escape_crossed` and `walled`), `tests/test_escape_findings.py`.
 
 - [ ] Failing tests:
-  - explore's score orders two variants of equal wire by crossings;
-  - a "crossed escape" finding for two pads of one part whose edges cross within `escape_depth`, worded "U1 pins 3/4: L2 VDD_RF crosses C2 MCU_EN";
-  - a "walled off" finding only where the path search confirms it, not where corridors alone say so;
-  - the findings keep their wording through reuse (replayed runs).
+  - a crossed-escape finding for two pads of one part whose edges cross within `escape_depth`, worded "U1 pins 3/4: L2 VDD_RF crosses C2 MCU_EN";
+  - a walled-off finding only where the path search confirms it, not where corridors alone say so;
+  - both keep their wording and kind through reuse.
 - [ ] Implement; suite; bench; `bench.py --explore 64` tally; commit.
-
-### Task 7: crossings in the run record, and the ranking replay
-
-**Files:** `src/placemat/runner.py`, `src/placemat/report.py` (`crossings_counted` in metrics; in the against-best report), a replay script at `fixtures/rank_replay.py`, tests `tests/test_report_crossings.py`.
-
-- [ ] Failing tests: a run records `crossings_counted` (KiCad's crossings over counted nets) and reports its change against the best run; `objective` unchanged.
-- [ ] Implement; commit.
-- [ ] Replay: for the recorded runs of the fairing core and the bench corpus, list the run each candidate order would keep. The candidates are:
-  - crossings before airwire;
-  - crossings after airwire;
-  - crossings ahead of findings.
-
-  Each crossings comparison uses a noise band, `best.crossing_noise`, measured from repeat runs of identical inputs as `AIRWIRE_NOISE` was. Present the table to Ben; apply the order he chooses in a separate commit (with api.md and migration notes).
 
 ### Task 8: preview without tags
 
