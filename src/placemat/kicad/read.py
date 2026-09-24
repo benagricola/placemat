@@ -231,7 +231,8 @@ def _pads(board, fp, err_nm: int = CLEAR_ERR_NM) -> tuple[PadGeom, ...]:
                             outlines=outs, box=Box.of_points([p for o in outs for p in o]),
                             through=attr == pcbnew.PAD_ATTRIB_PTH,
                             drill_mm=mm(drill.x) if attr == pcbnew.PAD_ATTRIB_PTH else 0.0,
-                            mask_paste=_mask_paste(pad)))
+                            mask_paste=_mask_paste(pad),
+                            anchor=Location(mm(pad.ShapePos(cu[0]).x), mm(pad.ShapePos(cu[0]).y))))
     return tuple(pads)
 
 
@@ -260,7 +261,7 @@ def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footpr
 def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, ...]:
     items = []
 
-    def add(kind, obj, net, owner=None, width=0.0, drill=0.0):
+    def add(kind, obj, net, owner=None, width=0.0, drill=0.0, anchors=()):
         cu = [l for l in obj.GetLayerSet().CuStack() if board.IsLayerEnabled(l)]
         if not cu:
             return                      # nothing on a layer this board has
@@ -268,7 +269,8 @@ def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, .
         if not outs:
             return
         items.append(CopperItem(kind, net, _copper_layers(board, obj.GetLayerSet()), outs,
-                                Box.of_points([p for o in outs for p in o]), owner, width, drill))
+                                Box.of_points([p for o in outs for p in o]), owner, width, drill,
+                                tuple((mm(v.x), mm(v.y)) for v in anchors)))
 
     for fp in board.GetFootprints():
         for pad in fp.Pads():
@@ -277,13 +279,14 @@ def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, .
             add("pad", pad, pad.GetNetname(), fp.GetReference())
     for t in board.GetTracks():
         owner = groups_of.get(_kiid(t))
+        # anchors as KiCad's connectivity takes them (CN_LIST::Add): a via's centre, a track's or arc's ends
         if isinstance(t, pcbnew.PCB_VIA):
-            add("via", t, t.GetNetname(), owner, drill=mm(t.GetDrillValue()))
+            add("via", t, t.GetNetname(), owner, drill=mm(t.GetDrillValue()), anchors=(t.GetStart(),))
         else:
-            add("track", t, t.GetNetname(), owner, mm(t.GetWidth()))
+            add("track", t, t.GetNetname(), owner, mm(t.GetWidth()), anchors=(t.GetStart(), t.GetEnd()))
     for d in board.GetDrawings():
         if isinstance(d, pcbnew.PCB_SHAPE) and d.GetLayerSet().CuStack():
-            add("poly", d, d.GetNetname(), groups_of.get(_kiid(d)))
+            add("poly", d, d.GetNetname(), groups_of.get(_kiid(d)), anchors=tuple(d.GetConnectionPoints()))
     for i in range(board.GetAreaCount()):
         z = board.GetArea(i)
         for layer in z.GetLayerSet().CuStack():

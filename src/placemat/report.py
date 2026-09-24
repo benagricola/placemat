@@ -8,6 +8,8 @@ import math
 from pathlib import Path
 import re
 
+from .ratsnest import segments_cross
+
 
 @dataclass
 class RunRecord:
@@ -89,15 +91,8 @@ def airwires_from_drc(drc: dict) -> dict:
         net = m.group(1) if m else "?"
         edges.append((net, (a.get("x", 0.0), a.get("y", 0.0)), (b.get("x", 0.0), b.get("y", 0.0))))
 
-    def ccw(ax, ay, bx, by, cx, cy):
-        return (cy - ay) * (bx - ax) > (by - ay) * (cx - ax)
-
     def cross(e, f):
-        (ax, ay), (bx, by) = e[1], e[2]
-        (cx, cy), (dx, dy) = f[1], f[2]
-        if max(ax, bx) < min(cx, dx) or max(cx, dx) < min(ax, bx) or max(ay, by) < min(cy, dy) or max(cy, dy) < min(ay, by):
-            return False
-        return ccw(ax, ay, cx, cy, dx, dy) != ccw(bx, by, cx, cy, dx, dy) and ccw(ax, ay, bx, by, cx, cy) != ccw(ax, ay, bx, by, dx, dy)
+        return segments_cross(e[1], e[2], f[1], f[2])
 
     crossings = 0
     crossings_per_net: dict = {}

@@ -24,10 +24,17 @@ class PadGeom:
     through: bool               # plated through hole: occupies both faces
     drill_mm: float = 0.0
     mask_paste: tuple = ()      # the mask and paste layers the pad opens, e.g. ("F.Mask", "F.Paste")
+    anchor: Location | None = None  # KiCad's PAD::ShapePos: where its airwires end; None: the box centre
 
     @property
     def location(self) -> Location:
         return self.box.center
+
+    @property
+    def airwire_end(self) -> Location:
+        """Where KiCad's airwires to this pad end: its shape position, exact
+        where the outline's box centre carries the polygon's rounding."""
+        return self.anchor if self.anchor is not None else self.box.center
 
 
 @dataclass(frozen=True)
@@ -170,6 +177,7 @@ class CopperItem:
     owner: str | None = None    # refdes for a pad, cell name for cell copper
     width_mm: float = 0.0       # tracks
     drill_mm: float = 0.0       # vias: the hole, for the hole-to-hole rule
+    anchors: tuple = ()         # KiCad's connection points: a track's ends, a via's centre (the ratsnest's nodes)
 
 
 @dataclass(frozen=True)

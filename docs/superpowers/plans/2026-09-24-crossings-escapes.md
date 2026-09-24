@@ -20,7 +20,7 @@
 
 ---
 
-### Task 1: placemat's ratsnest
+### Task 1: placemat's ratsnest (done)
 
 **Files:** Create `src/placemat/ratsnest.py`; tests `tests/test_ratsnest.py`, `tests/test_ratsnest_kicad.py` (KiCad-marked).
 
@@ -30,7 +30,7 @@
 - `crossings(edges, weights=None) -> (count, per_net)`: proper intersections between edges of different nets, the same test as `report.airwires_from_drc`, each weighted by its nets' weights (plane nets at `crossing_plane_weight`).
 - `class Ratsnest`: kept on the Occupancy. `update(refs)` recomputes the nets those parts touch; `added(item, placement) -> float` gives the weighted crossings a candidate's leaf edges add. It uses a grid index over edge boxes (cell size `[place] geometry_index_cells` pattern).
 
-- [ ] Tests:
+- [x] Tests:
   - an MST on hand-made point sets with a known tree;
   - equal-distance ties broken as KiCad's order key;
   - copper-joined pads never get an edge;
@@ -38,8 +38,14 @@
   - crossings counted once per pair, and never between edges of one net;
   - plane nets weighted;
   - `added()` equals the full recount's difference for a leaf join on random small boards.
-- [ ] KiCad test: on each fixture board the suite writes and checks with kicad-cli, placemat's count over counted nets equals `airwires_from_drc`'s, within KiCad's own run-to-run variation (run it three times and take the range).
-- [ ] Implement; suite both ways; commit. The measure is not used by placement yet, so no bench is needed.
+- [x] KiCad test: on each fixture board the suite writes and checks with kicad-cli, placemat's count over counted nets equals `airwires_from_drc`'s, within KiCad's own run-to-run variation (run it three times and take the range).
+- [x] Implement; suite both ways; commit. The measure is not used by placement yet, so no bench is needed.
+
+Result: every fixture board whose airwires end at pads (20 of 34; the 14 routed boards end airwires at tracks and vias, whose reported position is not the airwire's end) matches kicad-cli's airwire count and length exactly, and its crossings within one equal-length tie. On the way:
+- a pad's anchor is `PAD::ShapePos`, read into `PadGeom.anchor`: the polygon's box centre drifted enough to make a row's airwires cross;
+- track ends, vias and copper shapes' connection points are nodes, as KiCad's connectivity has them;
+- anchors at one position in different clusters are joined at weight 1, as KiCad does;
+- the crossing test is exact (whole nanometres) and order-independent: an airwire that ends on another only touches it. `report.airwires_from_drc` uses the same test, so a run's crossing count can move slightly from 0.32's.
 
 ### Task 2: findings with a kind
 
