@@ -4,6 +4,12 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.30
+
+Nothing to change. An optional native module (`native/`, see its README)
+makes placement 2.5-4.6x faster with identical results; placemat runs
+without it, and `PLACEMAT_NATIVE=0` turns it off.
+
 ## To 0.29
 
 - An item on a line (`Location(x, None)`, `Centre(None, y)`) with parts it

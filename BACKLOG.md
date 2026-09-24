@@ -7,7 +7,8 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-Features:
+- **Packaging the native module**: a prebuilt wheel per platform, a build
+  at install, or a manual opt-in step. Ben's decision.
 
 ## Housekeeping (left for Ben: outside this repository)
 
@@ -17,6 +18,18 @@ Features:
 
 ## Done
 
+- **A native core** (0.30.0): an optional Rust module (`native/`, built with
+  maturin; `PLACEMAT_NATIVE=0` forces Python) takes the geometry
+  predicates, the near-obstacle conflict search inside `legal()` with each
+  candidate's shapes held natively, and the pocket raster's largest
+  rectangle; reasons are formatted once per rejection bucket. Sequential
+  timing on the merged code, Python then native, CPU time, whole bench
+  corpus: default 62.3 -> 25.0 s (2.49x), solve 59.3 -> 22.0 s (2.70x),
+  physical 136.2 -> 30.6 s (4.45x); the fairing core's resolve 224.1 ->
+  48.3 s (4.64x). All 102 bench results and all 174 core steps identical;
+  the suite passes both ways. Spec:
+  `docs/superpowers/specs/2026-09-24-native-core-design.md`. Open: how the
+  compiled module is packaged for a release.
 - **PLACEMAT_GAPS "placemat 0.28"** (after 0.29.0): item 1, a stamped keepout
   costing the parent: the cell's step now says how much board its regions
   take beyond its members, and `board.fanout()` is the band that follows
