@@ -560,8 +560,19 @@ started from: instrumented total 16.7s to 14.0s (16%); `_conflict` /
 `_drawn_conflict` no longer appear in the top 35 functions by time at all
 (from a combined ~3.3s). Whole-corpus `--jobs 4` bench seconds: `default`
 59.6s to 48.1s, `physical` 58.4s to 44.6s, `solve` 46.6s to 39.2s (noisy,
-parallel, machine shared with other work - see the sequential A/B figures
-below for the authoritative comparison).
+parallel, machine shared with other work).
+
+**Sequential whole-corpus A/B, this stage alone** (`time.process_time`,
+alternating native/Python order twice per config to cancel warmup bias,
+all 34 fixture modules, machine shared with other concurrent work -
+`process_time` counts this process's own CPU time only, so contention
+slows the wall clock but not the measurement): `default` native 29.0s /
+Python 62.8s = **2.17x**, `physical` native 31.4s / Python 147.2s =
+**4.69x**, `solve` native 24.4s / Python 62.1s = **2.54x**. This clears
+the 2x bar set for `default` specifically (the config the per-candidate-
+shapes and pockets() stages had left near 1x) - see the `pad_location`
+cache below for a further, not-yet-separately-timed improvement on top of
+this figure.
 
 **Also found and fixed while profiling this stage, not native at all:**
 `Occupancy.pad_location(ref, number)` recomputed `Box.union(...).center`
