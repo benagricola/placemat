@@ -36,13 +36,17 @@ def test_the_airwires_are_kicads(pcb, tmp_path):
     from placemat.kicad.read import read_board
     from placemat.ratsnest import crossings, from_geometry
     from placemat.report import airwires_from_drc
+    import shutil
+    for f in pcb.parent.iterdir():          # a copy: kicad-cli leaves its .kicad_prl beside the board it checks
+        if (f.stem == pcb.stem and f.suffix in (".kicad_pcb", ".kicad_pro")) or f.suffix == ".kicad_dru":
+            shutil.copy(f, tmp_path / f.name)
     out = tmp_path / "drc.json"
-    run_drc(pcb, out)
+    run_drc(tmp_path / pcb.name, out)
     drc = json.loads(out.read_text())
     if not _pads_only(drc):
         pytest.skip("an airwire ends at a track or via, whose reported position is not its end")
     theirs = airwires_from_drc(drc)
-    edges = from_geometry(read_board(pcb)).edges()
+    edges = from_geometry(read_board(tmp_path / pcb.name)).edges()
     assert len(edges) == theirs["count"]
     assert sum(math.hypot(e.a.x - e.b.x, e.a.y - e.b.y) for e in edges) == pytest.approx(theirs["total_mm"], abs=0.01)
     ours = crossings(edges)[0]
