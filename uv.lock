@@ -37,10 +37,20 @@ source = { editable = "." }
 dev = [
     { name = "pytest" },
 ]
+native = [
+    { name = "placemat-native" },
+]
 
 [package.metadata]
-requires-dist = [{ name = "pytest", marker = "extra == 'dev'", specifier = ">=8" }]
-provides-extras = ["dev"]
+requires-dist = [
+    { name = "placemat-native", marker = "extra == 'native'", directory = "native" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
+]
+provides-extras = ["dev", "native"]
+
+[[package]]
+name = "placemat-native"
+source = { directory = "native" }
 
 [[package]]
 name = "pluggy"
