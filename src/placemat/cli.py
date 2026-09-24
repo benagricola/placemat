@@ -32,6 +32,18 @@ def parser() -> argparse.ArgumentParser:
                      help="carry on past decided items that collide (recorded as findings) instead of stopping "
                           "there; an item declared required=True still stops the run")
 
+    run.add_argument("--explore", type=float, metavar="SECONDS",
+                     help="first spend up to SECONDS trying variants of the focused items' spots and order, and "
+                          "report what the best would move")
+    run.add_argument("--focus", action="append", default=[], metavar="ITEM",
+                     help="with --explore: vary this item (a part, cell or block key); repeatable")
+    run.add_argument("--focus-after", type=int, metavar="LINE",
+                     help="with --explore: vary what the script declares from this line on")
+    run.add_argument("--focus-box", metavar="X0,Y0,X1,Y1", help="with --explore: vary what sits in this box (mm)")
+    run.add_argument("--jobs", type=int, help="with --explore: worker processes (default [explore] jobs)")
+    run.add_argument("--accept", action="store_true",
+                     help="with --explore: write the best variant's decisions to the lock and use them")
+
     rt = sub.add_parser("route", help="route a copy of a placed board with KiCadRoutingTools and score closure")
     rt.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
     rt.add_argument("--exclude", nargs="*", default=[], help="nets to leave unrouted (planes, pours)")
@@ -125,6 +137,23 @@ def parser() -> argparse.ArgumentParser:
     pv.add_argument("--zoom", help="draw only X0,Y0,X1,Y1 (board mm) of each face")
     pv.add_argument("--around", help="draw only round this placed part or cell (its instance name)")
     pv.add_argument("--margin", type=float, default=5.0, help="mm round --around (default 5)")
+
+    pv.add_argument("--explore", type=float, metavar="SECONDS",
+                     help="first spend up to SECONDS trying variants of the focused items' spots and order, and "
+                          "report what the best would move")
+    pv.add_argument("--focus", action="append", default=[], metavar="ITEM",
+                     help="with --explore: vary this item (a part, cell or block key); repeatable")
+    pv.add_argument("--focus-after", type=int, metavar="LINE",
+                     help="with --explore: vary what the script declares from this line on")
+    pv.add_argument("--focus-box", metavar="X0,Y0,X1,Y1", help="with --explore: vary what sits in this box (mm)")
+    pv.add_argument("--jobs", type=int, help="with --explore: worker processes (default [explore] jobs)")
+    pv.add_argument("--accept", action="store_true",
+                     help="with --explore: write the best variant's decisions to the lock and use them")
+
+    lk = sub.add_parser("lock", help="the lock file: decisions an explore run found and --accept kept")
+    lk.add_argument("script", help="the board's layout script")
+    lk.add_argument("--release", nargs="+", metavar="ITEM", help="drop these items' entries")
+    lk.add_argument("--release-all", action="store_true", help="drop every entry")
     st = sub.add_parser("settings", help="every resolved setting, its value and the file it came from")
     st.add_argument("where", nargs="?", default=".", help="a layout script or a board directory (default: here)")
     st.add_argument("--json", action="store_true")
@@ -203,12 +232,46 @@ def cmd_settings(args) -> int:
     return 0
 
 
+def _explore_options(args):
+    """The ExploreOptions --explore and its flags ask for, or None."""
+    if getattr(args, "explore", None) is None:
+        if any(getattr(args, k, None) for k in ("focus", "focus_after", "focus_box", "accept")):
+            raise SystemExit("--focus, --focus-after, --focus-box and --accept go with --explore SECONDS")
+        return None
+    from .explore import ExploreOptions
+    from .values import Box
+    box = None
+    if args.focus_box:
+        try:
+            x0, y0, x1, y1 = (float(v) for v in args.focus_box.split(","))
+        except ValueError:
+            raise SystemExit("--focus-box is X0,Y0,X1,Y1 in board millimetres, not %r" % args.focus_box)
+        box = Box(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+    return ExploreOptions(args.explore, tuple(args.focus), args.focus_after, box, args.jobs, args.accept)
+
+
+def cmd_lock(args) -> int:
+    from . import lock
+    from pathlib import Path
+    path = lock.path_for(Path(args.script).resolve())
+    if not args.release and not args.release_all:
+        entries = lock.read(path)
+        console.lines("lock", "\n".join("%s  %s %s  turn %d" % (e.key, "%s.%s" % e.anchor if e.anchor else "board",
+                                                                  e.offset, e.turn) for e in entries)
+                      or "%s: no entries" % path.name)
+        return 0
+    gone = lock.release(path, None if args.release_all else set(args.release))
+    console.say("lock", "released %d: %s" % (len(gone), ", ".join(gone) or "-"))
+    return 0
+
+
 def cmd_run(args) -> int:
     from .runner import run
     result = run(args.script, label=args.label, fresh=args.fresh, render=not args.no_render,
                  drc=not args.no_drc, quiet=args.quiet or args.json, verbose=args.verbose,
                  route=args.route, route_quick=not args.route_full, route_exclude=args.route_exclude,
-                 keep_going=args.keep_going, overrides=overrides_from(args), reuse=not args.no_reuse)
+                 keep_going=args.keep_going, overrides=overrides_from(args), reuse=not args.no_reuse,
+                 explore=_explore_options(args))
     if args.json:
         console.data(json.dumps(json.loads((result.run_dir / "run.json").read_text()), indent=2))
     # a run that placed but came out worse than the best of its parts is a
@@ -510,7 +573,7 @@ def cmd_preview(args) -> int:
     try:
         result = preview(args.script, faces=faces, svg_only=args.svg, out=args.out, heat=not args.no_heat,
                          links=not args.no_links, copper=not args.no_copper, region=region, around=args.around,
-                         margin=args.margin)
+                         margin=args.margin, explore=_explore_options(args))
     except RunFailure as e:
         console.say("fail", "%s: %s" % (e, e.details.get("error", "")), level="fail")
         return 1
@@ -735,7 +798,7 @@ def main(argv=None) -> int:
 
 
 def _dispatch(args) -> int:
-    return {"run": cmd_run, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
+    return {"run": cmd_run, "lock": cmd_lock, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
             "route": cmd_route, "check": cmd_check, "show": cmd_show, "faces": cmd_faces,
             "settings": cmd_settings, "parts": cmd_parts,
             "datasheet": cmd_datasheet, "occupancy": cmd_occupancy, "preview": cmd_preview}[args.command](args)

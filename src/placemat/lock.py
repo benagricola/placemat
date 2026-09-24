@@ -135,3 +135,20 @@ def entries(board, plan, keys, release: str = "") -> list:
         e = entry_from_turn(key, turn, declaration_digest(board, intent), release)
         out.append(LockEntry(**{**asdict(e), "turn": len(out)}))
     return out
+
+
+def renumber(entries, plan) -> list:
+    """The entries' turns renumbered in the order `plan` placed their items:
+    entries accepted at different times keep one order among themselves."""
+    from dataclasses import replace
+    order = lambda e: (plan.turns[e.key]["order"] if e.key in plan.turns else 1 << 30, e.key)
+    return [replace(e, turn=k) for k, e in enumerate(sorted(entries, key=order))]
+
+
+def release(path, keys) -> list:
+    """Drop the entries for `keys` (None: all of them) from a lock file;
+    the keys dropped."""
+    entries = read(path)
+    gone = [e.key for e in entries if keys is None or e.key in keys]
+    write(path, [e for e in entries if e.key not in gone])
+    return gone

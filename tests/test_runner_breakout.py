@@ -154,3 +154,31 @@ def test_a_plan_reports_its_extent_and_how_much_of_it_is_empty():
     ext = extent_of(b.resolve())
     assert ext.width == pytest.approx(10.2) and ext.height == pytest.approx(1.2)      # courtyards: the excess is part of what is claimed
     assert ext.empty == pytest.approx(1 - 2 * (2.2 * 1.2) / (10.2 * 1.2))
+
+
+def test_a_run_explores_accepts_and_the_next_run_holds_the_lock(scratch_ecosystem):
+    """--explore on a real run: the search is recorded in metrics.explore,
+    --accept writes the lock beside the script, and a plain run after it
+    holds what was accepted."""
+    from placemat.explore import ExploreOptions
+    script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
+    script.write_text(SCRIPT + 'board.place(Part("trunk_led_ra"))\n')
+    try:
+        rec = run(script, label="explored", render=False, drc=False,
+                  explore=ExploreOptions(seconds=6, jobs=2, accept=True))
+        data = json.loads((scratch_ecosystem / "breakout/.placemat/runs/explored/run.json").read_text())
+        ex = data["metrics"]["explore"]
+        assert ex["focus"] == ["trunk_led_ra"] and ex["tried"] >= 1
+        lock = scratch_ecosystem / "breakout" / "Breakout_layout.lock.json"
+        if ex["accepted"]:
+            assert lock.exists()
+            again = run(script, label="held", render=False, drc=False)
+            steps = json.loads((scratch_ecosystem / "breakout/.placemat/runs/held/run.json").read_text())["steps"]
+            assert any("held by lock" in s["note"] for s in steps if s["item"] == "trunk_led_ra")
+        else:
+            assert not lock.exists()
+    finally:
+        script.write_text(SCRIPT)
+        lock = scratch_ecosystem / "breakout" / "Breakout_layout.lock.json"
+        if lock.exists():
+            lock.unlink()

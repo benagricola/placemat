@@ -117,49 +117,39 @@ class ExploreResult:
     results: list          # (seed, score), best first
 
 
-def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=None) -> ExploreResult:
+def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=None, lock=None) -> ExploreResult:
     """Resolve variants of `make_board()` (a fresh board per variant, the
     script already declared on it) until `seconds` pass, in `jobs` worker
     processes (None: [explore] jobs, 0 there meaning the CPU count less
     one), and return them scored by the board's [explore] settings, the
-    best first. Seed 0 - the plain
-    placement - is always tried first; `seeds` fixes the variants to try
-    (a count, not a time, for a reproducible answer). Each variant replays
-    the plain run's steps before its first focused item."""
+    best first. Seed 0 - the plain placement - is always tried first;
+    `seeds` fixes the variants to try (a count, not a time, for a
+    reproducible answer). Each variant replays the plain run's steps before
+    its first focused item. With `lock` entries, the plain placement - seed
+    0 - is the locked one, and every variant keeps the unfocused items'
+    entries.
+
+    Workers are started fresh (spawn), not forked: the parent may hold
+    KiCad's threads, and a fork of a threaded process can deadlock. So
+    `make_board` must pickle - a module-level function, or an object such
+    as BoardFactory - and it may carry a `context()` to enter round each
+    variant (the settings binding a script needs)."""
     import multiprocessing as mp
-    import time
     import os
-    base_board = make_board()
-    plain = base_board.resolve()
-    baseline = score(base_board, plain)
+    import time
+    with _context_of(make_board):
+        base_board = make_board()
+        plain = base_board.resolve(lock=lock)
+        baseline = score(base_board, plain)
     if jobs is None:
         jobs = base_board.settings.explore_jobs or max(1, (os.cpu_count() or 2) - 1)
     deadline = time.time() + seconds
-    order = [s for s in (seeds if seeds is not None else ()) if s != 0]
-    fixed = seeds is not None
-    ctx = mp.get_context("fork")
+    order = [s for s in seeds if s != 0] if seeds is not None else None
+    ctx = mp.get_context("spawn")
     counter = ctx.Value("l", 0)
     out = ctx.Queue()
-
-    def work():
-        while True:
-            with counter.get_lock():
-                k = counter.value
-                counter.value += 1
-            if fixed:
-                if k >= len(order):
-                    break
-                seed = order[k]
-            else:
-                if time.time() >= deadline:
-                    break
-                seed = k + 1
-            b = make_board()
-            p = b.resolve(reuse=plain.reuse, explore=Explore(seed, frozenset(focus)))
-            out.put((seed, score(b, p)))
-        out.put(None)
-
-    procs = [ctx.Process(target=work) for _ in range(max(1, jobs))]
+    procs = [ctx.Process(target=_work, args=(make_board, frozenset(focus), lock, plain.reuse, order, deadline,
+                                             counter, out)) for _ in range(max(1, jobs))]
     for pr in procs:
         pr.start()
     results, done = [(0, baseline)], 0
@@ -173,3 +163,160 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
         pr.join()
     results.sort(key=lambda r: (r[1], r[0]))
     return ExploreResult(results[0][0], results[0][1], baseline, len(results), results)
+
+
+def _context_of(make_board):
+    from contextlib import nullcontext
+    ctx = getattr(make_board, "context", None)
+    return ctx() if ctx is not None else nullcontext()
+
+
+def _work(make_board, focus, lock, reuse, order, deadline, counter, out):
+    """A worker: take the next seed until the list or the deadline runs out."""
+    import time
+    try:
+        while True:
+            with counter.get_lock():
+                k = counter.value
+                counter.value += 1
+            if order is not None:
+                if k >= len(order):
+                    break
+                seed = order[k]
+            else:
+                if time.time() >= deadline:
+                    break
+                seed = k + 1
+            with _context_of(make_board):
+                b = make_board()
+                p = b.resolve(reuse=reuse, explore=Explore(seed, focus), lock=lock)
+                out.put((seed, score(b, p)))
+    finally:
+        out.put(None)
+
+
+@dataclass
+class BoardFactory:
+    """A board built by running a script against an already-read generated
+    board, as a run builds it: what an explore worker needs, in a form it
+    can be sent in."""
+    script: object
+    src: object
+    cfg: object
+    fab: object
+    keep_going: bool
+    geometry: object
+
+    def context(self):
+        from . import settings as _settings
+        return _settings.bind(self.cfg)
+
+    def __call__(self):
+        from .runner import scripted_board
+        return scripted_board(self.script, self.src, self.cfg, self.fab, self.keep_going, geometry=self.geometry)
+
+
+# ------------------------------------------------------------ search and accept
+def search(make_board, script, seconds: float, jobs: int | None = None, keys=(), after_line=None, box=None,
+           accept: bool = False, seeds=None, release: str = "") -> tuple:
+    """What `--explore` does: read the script's lock, choose the focus, run
+    the variants, and report what the best would move against the current
+    placement. With `accept`, write the best's decisions for the focused
+    items to the lock (merged with the entries for other items). Returns
+    (report, entries): the entries a run should now resolve with."""
+    from . import lock as _lock
+    path = _lock.path_for(script)
+    entries = _lock.read(path)
+    with _context_of(make_board):
+        base = make_board()
+        current = base.resolve(lock=entries)
+    focus = focus_keys(base, keys, after_line, box, baseline=current)
+    if not focus:
+        return {"tried": 0, "focus": [], "baseline": list(score(base, current)), "best": list(score(base, current)),
+                "best_seed": 0, "moves": [], "accepted": False, "empty": True}, entries
+    result = explore(make_board, focus, seconds, jobs, seeds=seeds, lock=entries)
+    report = {"tried": result.tried, "focus": sorted(focus), "baseline": list(result.baseline),
+              "best": list(result.best), "best_seed": result.best_seed, "moves": [], "accepted": False}
+    if result.best_seed == 0:
+        return report, entries
+    with _context_of(make_board):
+        board = make_board()
+        best = board.resolve(explore=Explore(result.best_seed, frozenset(focus)), lock=entries)
+    for key in sorted(focus):
+        was, now = current.placement(key), best.placement(key)
+        if was is None or now is None:
+            if was != now:
+                report["moves"].append({"key": key, "mm": None, "rotation": [getattr(was, "rotation", None),
+                                                                              getattr(now, "rotation", None)]})
+            continue
+        d = was.location.distance(now.location)
+        if d > 1e-6 or was.rotation != now.rotation:
+            report["moves"].append({"key": key, "mm": round(d, 3), "rotation": [was.rotation, now.rotation]})
+    if accept:
+        placed = [k for k in focus if best.placement(k) is not None]
+        new = _lock.entries(board, best, placed, release)
+        kept = [e for e in entries if e.key not in focus]
+        entries = _lock.renumber(kept + new, best)
+        _lock.write(path, entries)
+        report["accepted"] = True
+    return report, entries
+
+
+# ------------------------------------------------------------ the runner's side
+@dataclass(frozen=True)
+class ExploreOptions:
+    """What --explore and its flags asked for."""
+    seconds: float
+    keys: tuple = ()
+    after_line: int | None = None
+    box: object = None
+    jobs: int | None = None
+    accept: bool = False
+
+
+def before_resolve(script, board, make_board, options, say) -> tuple:
+    """The lock entries a run resolves with, and the explore report when
+    --explore was given (else None): the search runs first, and with
+    --accept its decisions are in the entries returned."""
+    from . import __version__
+    from . import lock as _lock
+    if options is None:
+        return _lock.read(_lock.path_for(script)), None
+    import time
+    t0 = time.time()
+    report, entries = search(make_board, script, options.seconds, options.jobs, options.keys,
+                             options.after_line, options.box, options.accept, release=__version__)
+    report["seconds"] = round(time.time() - t0, 1)
+    for line in report_lines(report):
+        say("explore", line)
+    return entries, report
+
+
+def report_lines(report) -> list:
+    b, a = report["baseline"], report["best"]
+    if report.get("empty"):
+        return ["nothing to explore: no searched item is in focus (every item's place is decided, or the focus "
+                "names none)"]
+    head = "%d variants in %.0f s over %d focused item%s" % (
+        report["tried"], report.get("seconds", 0.0), len(report["focus"]), "" if len(report["focus"]) == 1 else "s")
+    if not report["best_seed"]:
+        return [head + ": no variant scored better than the current placement"]
+    lines = [head + ": placed %d -> %d, findings %d -> %d, worst cell %d -> %d steps, wire %.1f -> %.1f mm; "
+             "%d item%s would move" % (-b[0], -a[0], b[1], a[1], b[2], a[2], b[3], a[3], len(report["moves"]),
+                                      "" if len(report["moves"]) == 1 else "s")]
+    for m in report["moves"]:
+        turn = "" if m["rotation"][0] == m["rotation"][1] else ", rotation %s -> %s" % tuple(
+            "-" if r is None else "%g" % r for r in m["rotation"])
+        lines.append("  %s: %s%s" % (m["key"], "placed/unplaced" if m["mm"] is None else "%.2f mm" % m["mm"], turn))
+    lines.append("accepted: written to the lock" if report["accepted"] else "not accepted: --accept writes it to the lock")
+    return lines
+
+
+def lock_summary(plan) -> str:
+    """How the lock fared in a plan: held, drifted, released, from its notes."""
+    held = sum(1 for s in plan.steps if "held by lock" in (s.note or ""))
+    drifted = sum(1 for s in plan.steps if "lock: drifted" in (s.note or ""))
+    released = sum(1 for s in plan.steps if "lock: released" in (s.note or ""))
+    if not (held or drifted or released):
+        return ""
+    return "%d held by lock, %d drifted, %d released" % (held, drifted, released)

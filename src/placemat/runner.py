@@ -177,7 +177,7 @@ def keep_route(final_dir: Path, staging: Path) -> None:
 
 def run(script, label: str | None = None, fresh: bool = False, render: bool = True, drc: bool = True,
         quiet: bool = False, verbose: bool = False, route: bool = False, route_quick: bool = True,
-        route_exclude=(), keep_going: bool = False, overrides=None, reuse: bool = True) -> RunResult:
+        route_exclude=(), keep_going: bool = False, overrides=None, reuse: bool = True, explore=None) -> RunResult:
     """One layout attempt, with this board's settings resolved and bound for
     the whole of it: the deep geometry helpers read the binding, and the run
     id carries the settings so a changed one cannot collide with a previous
@@ -188,7 +188,7 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
     with settings.bind(cfg):
         return _run(script, src, cfg, label=label, fresh=fresh, render=render, drc=drc,
                     quiet=quiet, verbose=verbose, route=route, route_quick=route_quick,
-                    route_exclude=route_exclude, keep_going=keep_going, reuse=reuse)
+                    route_exclude=route_exclude, keep_going=keep_going, reuse=reuse, explore=explore)
 
 
 def drc_metrics(report, aw: dict, free: float) -> dict:
@@ -217,15 +217,18 @@ def rule_notes(geometry) -> list:
     return notes
 
 
-def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None) -> Board:
+def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None, geometry=None) -> Board:
     """The generated board read (`pcb`, else the board's own file), a Board
     over it with this board's fab profile and settings, and the script run
-    against it. A script that raises is a RunFailure naming its line."""
-    from .kicad.read import read_board
-    geometry = read_board(pcb or src.pcb, courtyard_excess_mm=fab.courtyard_excess)
-    from .pins import board_pin_names
-    import dataclasses as _dc
-    geometry = _dc.replace(geometry, pin_names=board_pin_names(src, Path(pcb or src.pcb).parent))
+    against it. A script that raises is a RunFailure naming its line.
+    `geometry`, when given, is the board already read: a fresh Board over it
+    runs the script again without reading the file (an explore variant)."""
+    if geometry is None:
+        from .kicad.read import read_board
+        geometry = read_board(pcb or src.pcb, courtyard_excess_mm=fab.courtyard_excess)
+        from .pins import board_pin_names
+        import dataclasses as _dc
+        geometry = _dc.replace(geometry, pin_names=board_pin_names(src, Path(pcb or src.pcb).parent))
     board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size, keep_going=keep_going,
                   courtyard_excess=fab.courtyard_excess, settings=cfg, component_spacing=fab.component_spacing)
     try:
@@ -255,7 +258,7 @@ def reuse_parts(src, cfg, fab, pcb=None) -> dict:
 
 def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render: bool = True,
          drc: bool = True, quiet: bool = False, verbose: bool = False, route: bool = False,
-         route_quick: bool = True, route_exclude=(), keep_going: bool = False, reuse: bool = True) -> RunResult:
+         route_quick: bool = True, route_exclude=(), keep_going: bool = False, reuse: bool = True, explore=None) -> RunResult:
     configure(quiet=quiet)
     say = console.say
     runs = src.board_dir / ".placemat" / "runs"
@@ -326,8 +329,12 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         from .layout import CriticalUnplaced, PlacementCollision
         parts = reuse_parts(src, cfg, fab)
         board.reuse_extra = "|".join(parts[k] for k in ("tool", "board", "settings", "fab"))
+        from . import explore as explore_mod
+        lock_entries, explored = explore_mod.before_resolve(
+            script, board, explore_mod.BoardFactory(script, src, cfg, fab, keep_going, board.geometry),
+            explore, say)
         try:
-            plan = board.resolve(progress=progress, reuse=previous_reuse)
+            plan = board.resolve(progress=progress, reuse=previous_reuse, lock=lock_entries)
         except PlacementCollision as e:
             (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
             raise RunFailure("placement", "Firm placements collide; fix the script (or --keep-going to see the rest)",
@@ -384,6 +391,11 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         if line:
             say("reused", line[len("reused "):])
         metrics = run_metrics(plan, n_place, n_copper, extent_metrics)
+        if explored is not None:
+            metrics["explore"] = explored
+        held = explore_mod.lock_summary(plan)
+        if held:
+            say("lock", held)
         if previous_reuse:
             metrics["reused"] = {"steps": plan.reuse["reused"], "of": len(plan.reuse["steps"]),
                                  "from": previous_id, "first_change": plan.reuse["first_change"]}

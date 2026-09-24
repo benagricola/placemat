@@ -89,7 +89,7 @@ def svg_width_mm(svg_text: str) -> float:
 
 def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, heat: bool = True,
             links: bool = True, copper: bool = True, region=None, around: str | None = None,
-            margin: float = 5.0, quiet: bool = False) -> Preview:
+            margin: float = 5.0, quiet: bool = False, explore=None) -> Preview:
     from .board_geometry import members_of
     from .preview import draw_annotated
     from .project import fab_profile, find_board
@@ -125,7 +125,15 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
             except (ValueError, TypeError, KeyError, OSError):
                 pass
         previous, source = newest_record(candidates)
-        plan = board.resolve(reuse=previous)
+        from . import explore as explore_mod
+        say = (lambda stage, text: None) if quiet else (lambda stage, text: console.say(stage, text))
+        lock_entries, explored = explore_mod.before_resolve(
+            script, board, explore_mod.BoardFactory(script, src, cfg, fab, True, board.geometry),
+            explore, say)
+        plan = board.resolve(reuse=previous, lock=lock_entries)
+        held = explore_mod.lock_summary(plan)
+        if held and not quiet:
+            console.say("lock", held)
         plan.reuse["parts"] = parts
         reuse_mod.write(out / "reuse.json", plan.reuse)
         if around is not None:
