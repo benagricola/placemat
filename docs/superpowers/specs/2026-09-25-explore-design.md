@@ -76,13 +76,11 @@ items (a helper, a loop) is refused with its line: that item's declaration
 is moved out by hand. Each declaration records the script line of its
 call, which is how freeze finds it.
 
-How the call is edited is Ben's decision: LibCST (a format-preserving
-syntax tree, an optional `placemat[freeze]` extra; about 62,000 lines and a
-compiled parser, pulling in pyyaml; our code 40-60 lines) or the standard
-library's `ast` positions with exact range splicing (no dependency; our
-code 120-170 lines, owning the edge cases: byte columns, inserting into a
-multi-line call in its own layout, trailing commas, comments inside the
-argument list).
+The call is edited with the standard library: `ast` gives the call's and
+each argument's exact start and end (lines and UTF-8 byte columns), and the
+edit replaces or inserts within those ranges only, in the call's own layout
+(decided 2026-09-25: splicing, no LibCST; the test plan's awkward layouts
+are its proof).
 
 ## What varies
 
