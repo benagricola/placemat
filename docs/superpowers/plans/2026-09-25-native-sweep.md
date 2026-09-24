@@ -80,5 +80,5 @@
 
 ### Task 9: Measure and decide the later stages
 
-- [ ] Sequential timings (corpus default, solve and physical, the core board, `bench.py --explore 64`), Python then native, against the spec's targets; profile what remains; write in the spec whether blocks, the cleanup pass or explore's per-variant overhead is next, with numbers.
+- [x] Sequential timings (corpus default, solve and physical, the core board, `bench.py --explore 64`), Python then native, against the spec's targets; profile what remains; write in the spec whether blocks, the cleanup pass or explore's per-variant overhead is next, with numbers.
 - [ ] Docs (`native/README.md`, the spec, the migration note if anything a user sees changes), release; commit.

@@ -1,7 +1,7 @@
 # The native core, stage two: the candidate sweep
 
 Date: 2026-09-25
-Status: design, revised 2026-09-24 after 0.33
+Status: implemented 2026-09-24 (see Results); revised after 0.33
 
 ## Revision after 0.33
 
@@ -225,3 +225,64 @@ Measured sequentially, CPU time, Python first then native, as for 0.30:
 
 Unchanged: the native module builds from the `native` extra and the tagged
 release carries wheels.
+
+## Results
+
+Measured 2026-09-24 on the same machine (8 cores), sequentially
+(`bench.py --jobs 1`), pure Python (`PLACEMAT_NATIVE=0`), then native,
+then the v0.33.0 tag with its native module:
+
+| corpus, 32 modules | pure Python | 0.33 native | native now | against 0.33 |
+|---|---|---|---|---|
+| default | 71.1 s | 35.8 s | 10.0 s | 3.6x |
+| solve | 69.6 s | 33.1 s | 9.4 s | 3.5x |
+| physical | 138.6 s | 36.2 s | 15.0 s | 2.4x |
+
+- A candidate, legality and score: about 1.1 microseconds (target 5).
+- The corpus default at 3.6x 0.33's native (target 2x).
+- `bench.py --explore 64`: 0.06 s per variant against 0.33's 0.30 (5x;
+  target 2x); pure Python 0.52-0.81 s.
+- fairing/SlotControl, the slowest module: 9.7 s at 0.33, 2.1 s now.
+- The fairing MCU cell's script (it declares blocks): 2.3 s at 0.33,
+  1.0 s now, the same placement. The core board's script stops on one of
+  its own assertions with the fragments now checked out, at 0.33 and now
+  alike, so it was not timed.
+
+Consistency: the suite passes native and pure Python; the bench is `same
+32` in every configuration, three runs each, native and pure Python give
+the same results in all three configurations, and `--explore 64` chooses
+the same variant on every module both ways.
+
+Two early full explore runs gave fairing/SlotControl 1697.7 where eleven
+later runs, native and pure Python, gave 1598.4, with the same seed
+chosen. It did not recur with a fixed or a varied hash seed, under load,
+or alone; the cause is not known.
+
+## What is next
+
+Profile of the corpus default, native, sequential (18.2 s under the
+profiler, 10.0 s without):
+
+| | cumulative |
+|---|---|
+| the scans (`placer.scan`) | 10.9 s |
+| - the Rust sweep itself | 1.5 s |
+| - Python round it: the grid (`_grid`), the triples and tallies (`native_sweep`), decoding refusals (`_decode`) | 4.2 s |
+| - the sweeper's setup: the obstacle index and origin shapes per scan | 1.0 s |
+| upkeep at each commit, lift and unlift: escape corridors (`Escapes.refresh`, `pad_corridors`) and the ratsnest (`_ratsnest_refresh`) | 3.1 s |
+| the cleanup pass's native scorer builds (`PartScore._build`) | 1.4 s |
+| reading the boards (bench only) | 1.4 s |
+
+- Blocks: no corpus module declares one, and the one script measured
+  that does spends 1.0 s in all. Not next.
+- Explore: a variant's resolve averages 0.15 s over the corpus, but each
+  `explore` call spends about 2.3 s starting its 8 spawned workers (0.25 s
+  for one; eight bare imports of placemat together take 0.8 s, so about
+  1.5 s of it is not yet accounted for). That dominates the bench's
+  `--explore`; a timed `--explore` pays it once.
+
+Next: the Python round the sweep. Generating each pass's grid natively,
+decoding a refusal only for the first of its bucket and the blockers
+report, and keeping the obstacle index across scans that skip the same
+items would take most of the 5.2 s. After that, the corridor upkeep
+(`pad_corridors` natively), then explore's worker start-up.

@@ -4,6 +4,13 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.34
+
+Nothing to change; placements are the same as 0.33's. With the native
+module, the candidate search weighs whole sweeps natively (legality, wire,
+crossings and escapes), so runs and explore are several times faster.
+Rebuild the native module after upgrading.
+
 ## To 0.33
 
 Nothing to change in a script. Placements move, and lock entries can
