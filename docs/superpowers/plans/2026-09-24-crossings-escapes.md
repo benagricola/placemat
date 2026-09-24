@@ -47,21 +47,21 @@ Result: every fixture board whose airwires end at pads (20 of 34; the 14 routed 
 - anchors at one position in different clusters are joined at weight 1, as KiCad does;
 - the crossing test is exact (whole nanometres) and order-independent: an airwire that ends on another only touches it. `report.airwires_from_drc` uses the same test, so a run's crossing count can move slightly from 0.32's.
 
-### Task 2: findings with a kind
+### Task 2: findings with a kind (done)
 
 **Files:** `src/placemat/layout.py`, `src/placemat/copper.py` and `src/placemat/runner.py` (every emitting site), `src/placemat/reuse.py` (replay keeps the kind), `tests/test_finding_kinds.py`.
 
 **Interfaces (produced):**
 - `Finding(kind: str, text: str)`, a `str` subclass carrying `.kind`, so every reader of `plan.findings` as strings keeps working.
 - Kinds: `unplaced`, `link_over`, `fixed`, `copper`, `label`, `escape_crossed`, `escape_closed`, `escape_walled`, `setup`.
-- `plan.findings_by_kind() -> dict[kind, list]`.
+- `plan.findings` is a `Findings` list, which refuses a bare string; `plan.findings.by_kind() -> dict[kind, list]`.
 
-- [ ] Failing tests:
+- [x] Failing tests:
   - each emitting site gives its kind (one case per site, from the grep of `findings.append`);
   - the texts are unchanged;
   - a replayed run keeps the kinds;
   - an old reuse cache without kinds reads them as `setup`, or re-resolves.
-- [ ] Implement; suite both ways; bench (placements unchanged); commit.
+- [x] Implement; suite both ways; bench (placements unchanged); commit.
 
 ### Task 3: the run score
 

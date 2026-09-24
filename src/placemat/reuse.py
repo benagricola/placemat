@@ -185,3 +185,16 @@ def read(path):
         return json.loads(path.read_text())
     except (OSError, ValueError):
         return None
+
+
+def finding_to_json(f) -> list:
+    return [f.kind, str(f)]
+
+
+def finding_from_json(v):
+    """A stored finding: [kind, text]; a bare sentence, as a cache from
+    before findings had kinds kept it, reads as a setup finding."""
+    from .findings import Finding
+    if isinstance(v, str):
+        return Finding("setup", v)
+    return Finding(v[0], v[1])

@@ -20,6 +20,7 @@ import math
 from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
                      resolve_bridges)
 from .geometry import box_polygon, circle_polygon, polys_overlap, transform_box
+from .findings import Finding, Findings
 from .occupancy import Occupancy, Shape, TOUCH, parts_claim
 from .cutouts import Cutouts, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
@@ -406,7 +407,7 @@ class Plan:
     geometry: BoardGeometry
     occupancy: Occupancy
     steps: list[Step] = field(default_factory=list)
-    findings: list[str] = field(default_factory=list)
+    findings: Findings = field(default_factory=Findings)
     copper: list = field(default_factory=list)
     links: list = field(default_factory=list)
     rules: list = field(default_factory=list)
@@ -900,7 +901,7 @@ class Board:
                 if gap < self.web - 1e-9:
                     why = "would leave a %.2f mm web, under the %.2f mm minimum" % (gap, self.web)
             if why:
-                plan.findings.append("%s (cutout): %s" % (name, why))
+                plan.findings.append(Finding("fixed", "%s (cutout): %s" % (name, why)))
             plan.cutouts_placed[name] = settled
 
     def _check_keepouts(self, plan: Plan):
@@ -924,10 +925,11 @@ class Board:
                 if not Box.of_points(k.poly).overlaps(op.box):
                     continue
                 if polys_overlap(k.poly, op.polygon):
-                    plan.findings.append(
+                    plan.findings.append(Finding(
+                        "copper",
                         "%s %s crosses keepout %r (%s): a %s goes exactly where it is put, so move it, "
                         "reshape it, or name its net in the keepout's allow="
-                        % (word, op.net, k.name, k.why, word))
+                        % (word, op.net, k.name, k.why, word)))
 
     def _check_web(self, plan: "Plan"):
         """How much board is left round every hole. A web under the declared
@@ -940,8 +942,8 @@ class Board:
             return
         gap, which = holes.web_against([shape.loops[0]])
         if gap < self.web - 1e-9:
-            plan.findings.append("web %.2f mm round %s is under the %.2f mm minimum"
-                                 % (gap, self._cutout_label(which), self.web))
+            plan.findings.append(Finding("setup", "web %.2f mm round %s is under the %.2f mm minimum"
+                                 % (gap, self._cutout_label(which), self.web)))
 
     def _cutout_label(self, n: int) -> str:
         """Which hole a measurement was taken on. Named cutouts come first,
@@ -988,15 +990,17 @@ class Board:
         for k in self._keepouts.values():
             lost = sorted((l for l in (k.layers or ()) if l not in have), key=stackup_order)
             if lost:
-                plan.findings.append(
+                plan.findings.append(Finding(
+                    "setup",
                     "keepout %s declares %s, which this %d-layer board does not have: recorded "
                     "in its name, and honoured by a board that has it"
-                    % (k.name, ", ".join(l.value for l in lost), len(self.geometry.layers)))
+                    % (k.name, ", ".join(l.value for l in lost), len(self.geometry.layers))))
         for r in self.geometry.rule_areas:
             if r.missing:
-                plan.findings.append(
+                plan.findings.append(Finding(
+                    "setup",
                     "%s from the %s cell declares %s, which this board does not have either"
-                    % (r.base, r.cell or "board", ", ".join(l.value for l in r.missing)))
+                    % (r.base, r.cell or "board", ", ".join(l.value for l in r.missing))))
 
     def cutout(self, name: str) -> CutoutHandle:
         """A named cutout, so something can be placed against its boundary."""
@@ -1754,16 +1758,16 @@ class Board:
                 declared |= {fp.ref for fp in members_of(item)}
         for fp in sorted(self.geometry.footprints, key=lambda f: f.inst):
             if fp.ref not in declared:
-                plan.findings.append("%s (%s): no declaration places it, so it stays where the generator put it"
-                                     % (fp.inst, fp.ref))
+                plan.findings.append(Finding("setup", "%s (%s): no declaration places it, so it stays where the generator put it"
+                                     % (fp.inst, fp.ref)))
 
     def _report_links(self, occ: Occupancy, plan: Plan, placed: set):
         for l in self._links:
             if l.a[0] in placed and l.b[0] in placed:
                 l.achieved_mm = round(occ.pad_location(*l.a).distance(occ.pad_location(*l.b)), 3)
                 if not l.within_limit:
-                    plan.findings.append("link %s.%s to %s.%s is %.2f mm, over its %.2f mm limit%s" % (
-                        l.a[0], l.a[1], l.b[0], l.b[1], l.achieved_mm, l.limit_mm, (": " + l.why) if l.why else ""))
+                    plan.findings.append(Finding("link_over", "link %s.%s to %s.%s is %.2f mm, over its %.2f mm limit%s" % (
+                        l.a[0], l.a[1], l.b[0], l.b[1], l.achieved_mm, l.limit_mm, (": " + l.why) if l.why else "")))
             plan.links.append(l)
 
     # ------------------------------------------------------------ copper
@@ -2167,7 +2171,7 @@ class Board:
             path = c.shape.path_at(centre, turn)
             step = Step(intent.key, "cutout", None, why=intent.why)
             if why:
-                plan.findings.append("%s (cutout): %s" % (c.name, why))
+                plan.findings.append(Finding("fixed", "%s (cutout): %s" % (c.name, why)))
                 step.note = why
             else:
                 self._add_cutout(occ, c.name, PlacedCutout(c.name, tuple(path), centre, turn))
@@ -2193,7 +2197,7 @@ class Board:
                 why = None
             step = Step(intent.key, "keepout", None, why=intent.why)
             if why:
-                plan.findings.append("%s (keepout): %s" % (k.name, why))
+                plan.findings.append(Finding("fixed", "%s (keepout): %s" % (k.name, why)))
                 step.note = why
             else:
                 path = k.shape.path_at(centre, turn)
@@ -2405,7 +2409,7 @@ class Board:
             step = self._settle(occ, obj, plan, placed)
         entry = {"step": _reuse.step_to_json(step), "commits": commits,
                  "steps": [_reuse.step_to_json(s) for s in plan.steps[n_steps:]],
-                 "findings": plan.findings[n_findings:], "pocketed": plan.pocketed[n_pocketed:],
+                 "findings": [_reuse.finding_to_json(f) for f in plan.findings[n_findings:]], "pocketed": plan.pocketed[n_pocketed:],
                  "seeded": {n: c - seeded.get(n, 0) for n, c in plan.seeded_by_net.items() if c != seeded.get(n, 0)},
                  "solve": dict(plan.solve) if plan.solve != solve else None,
                  "items": [[k, "cell", v.name] if isinstance(v, CellGeom) else [k, "fp", v.ref]
@@ -2443,7 +2447,7 @@ class Board:
         from . import reuse as _reuse
         self._apply_commits(occ, entry["commits"])
         plan.steps.extend(_reuse.step_from_json(s) for s in entry["steps"])
-        plan.findings.extend(entry["findings"])
+        plan.findings.extend(_reuse.finding_from_json(f) for f in entry["findings"])
         plan.pocketed.extend(entry["pocketed"])
         for net, c in entry["seeded"].items():
             plan.seeded_by_net[net] += c
@@ -2546,10 +2550,10 @@ class Board:
                         pocket.box.width, pocket.box.height, pocket.box.center.x, pocket.box.center.y)
                     return self._step(i, result.chosen, 0.0, note)
                 tried.append(pocket)
-        plan.findings.append("%s: no pocket fits its %s envelope on the %s face (%d pocket(s) tried)" % (
+        plan.findings.append(Finding("unplaced", "%s: no pocket fits its %s envelope on the %s face (%d pocket(s) tried)" % (
             i.key, "%.1f x %.1f" % (occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).width,
                                     occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).height),
-            i.face.value, len(tried)))
+            i.face.value, len(tried))))
         return self._step(i, None, 0.0, "UNPLACED: no pocket fits")
 
     def _seeded_pocket(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, hint: Placement, score,
@@ -2691,7 +2695,7 @@ class Board:
                                if g.reference.face is face and r not in occ.pending and (g.reach or g.body).overlaps(op.box)} - own)
                 for h in hits:
                     if not any(f.startswith("%s: sits on" % key) and h in f for f in plan.findings):
-                        plan.findings.append("%s: sits on %s" % (key, h))
+                        plan.findings.append(Finding("label", "%s: sits on %s" % (key, h)))
         def box_of(item):
             refs = self._label_refs(item)
             if isinstance(item, (PadRef, CellPadRef)):
@@ -2723,7 +2727,7 @@ class Board:
                            if g.reference.face is face and r not in occ.pending and (g.reach or g.body).overlaps(op.box)} - own)
             note = "%s of %s" % (side.name.lower(), key.split(" ", 2)[1])
             if hits:
-                plan.findings.append("%s: sits on %s" % (key, ", ".join(hits)))
+                plan.findings.append(Finding("label", "%s: sits on %s" % (key, ", ".join(hits))))
                 note += "; sits on " + ", ".join(hits)
             if reserve:
                 occ.reserve(op.box, "label %s" % key.split(" ", 1)[1], layer=face.copper)     # the text's own box, no more
@@ -2752,7 +2756,7 @@ class Board:
         entries = [(op, c.priority.rank, c.bridge) for c, op in tracks]
         ops, notes, findings = resolve_bridges(entries, ctx.fixed_tracks, self.via_drill, self.via_size,
                                                self.settings.copper_bridge_half)
-        plan.findings += findings + ctx.notes
+        plan.findings += findings + [Finding("copper", n) for n in ctx.notes]
         ctx.notes = []
         ctx.planned_tracks += [op for op in ops if isinstance(op, Track)]
         for c in deferred:
@@ -2780,7 +2784,7 @@ class Board:
             if shape is None:
                 continue
             for hit in occ.copper_conflicts(shape):
-                plan.findings.append("copper %s: %s" % (op.net, hit))
+                plan.findings.append(Finding("copper", "copper %s: %s" % (op.net, hit)))
             shapes.append(shape)
         occ.add_copper(shapes)
         if any(c.freedom.decided for c in intents):
@@ -2870,8 +2874,8 @@ class Board:
             key = _reason_key(why)
             rejected[key] += 1
             reasons.setdefault(key, why)
-        plan.findings.append("%s: no room anywhere %s (%s)" % (
-            i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3))))
+        plan.findings.append(Finding("unplaced", "%s: no room anywhere %s (%s)" % (
+            i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3)))))
         return self._step(i, None, 0.0, "UNPLACED: " + "; ".join(reasons.values()))
 
     def _settle_along_line(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, placed: set = frozenset()) -> Step:
@@ -3216,7 +3220,7 @@ class Board:
                 box_centered_placement(occ, spec.anchor, _locate(self, occ, i.center), i.rotation, i.face)
             members, why = layout_block(occ, spec, anchor, clr)
             if members is None:
-                plan.findings.append("%s (fixed): %s" % (i.key, why))
+                plan.findings.append(Finding("fixed", "%s (fixed): %s" % (i.key, why)))
                 members = {spec.anchor.inst: anchor}
             note = why or ""
         else:
@@ -3256,8 +3260,8 @@ class Board:
                 best, tried, rejected, reasons = scan_block(occ, spec, hint, radius, i.step, i.rotations or (i.rotation,), clr, score,
                                                             pick=self._pick(i))
                 if best is None:
-                    plan.findings.append("%s: no legal spot within %.1f mm of %s (%s)" % (
-                        i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in rejected.most_common(3))))
+                    plan.findings.append(Finding("unplaced", "%s: no legal spot within %.1f mm of %s (%s)" % (
+                        i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in rejected.most_common(3)))))
                     members = {}
                     note = "UNPLACED"
                 else:
@@ -3323,7 +3327,7 @@ class Board:
                             past_edge=(i.edge is not None or i.run is not None or i.rim == "rim")
                             and i.clearance < self.keep_in)
             if why:
-                plan.findings.append("%s (%s): %s" % (i.key, i.freedom.value, why))
+                plan.findings.append(Finding("fixed", "%s (%s): %s" % (i.key, i.freedom.value, why)))
             return self._step(i, p, 0.0, "; ".join(x for x in (chose, why) if x))
         if i.run is not None:
             return self._settle_along_run(occ, i, plan, clr)
@@ -3371,7 +3375,7 @@ class Board:
         radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)
         hopeless = self._no_pocket_note(occ, i)
         if hopeless:
-            plan.findings.append("%s: %s" % (i.key, hopeless))
+            plan.findings.append(Finding("unplaced", "%s: %s" % (i.key, hopeless)))
             return self._step(i, None, 0.0, "UNPLACED: " + hopeless)
         result = scan(occ, i.item, hint, radius, i.step, self._turns(i), clr, score=score, pick=self._pick(i))
         if result.chosen is None and solved is not None:
@@ -3391,7 +3395,7 @@ class Board:
                 if step is not None:
                     return step
                 blame += "; no pocket took it (%d tried)" % tried
-            plan.findings.append("%s: %s" % (i.key, blame))
+            plan.findings.append(Finding("unplaced", "%s: %s" % (i.key, blame)))
             return self._step(i, None, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()))
         note = seeded
         if result.moved_mm > 0:

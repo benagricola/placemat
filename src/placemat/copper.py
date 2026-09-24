@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
+from .findings import Finding
 from .geometry import Polygon
 from .values import Box, CopperLayer, Face, Location
 
@@ -235,8 +236,8 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
                     notes.append("%s passes under %s at (%.2f, %.2f): %s" % (
                         entries[k][0].net, entries[other][0].net, pt[0], pt[1], why))
             else:
-                findings.append("%s and %s cross on %s at (%.2f, %.2f) and neither may bridge" % (
-                    entries[i][0].net, entries[j][0].net, entries[i][0].layer.value, pt[0], pt[1]))
+                findings.append(Finding("copper", "%s and %s cross on %s at (%.2f, %.2f) and neither may bridge" % (
+                    entries[i][0].net, entries[j][0].net, entries[i][0].layer.value, pt[0], pt[1])))
         for ft in fixed_tracks:
             pt = _crossing_point(entries[i][0], ft)
             if pt is None:
@@ -244,8 +245,8 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
             if entries[i][2]:
                 cuts[i].append(pt)
             else:
-                findings.append("%s crosses FIXED %s on %s at (%.2f, %.2f) and may not bridge" % (
-                    entries[i][0].net, ft.net, ft.layer.value, pt[0], pt[1]))
+                findings.append(Finding("copper", "%s crosses FIXED %s on %s at (%.2f, %.2f) and may not bridge" % (
+                    entries[i][0].net, ft.net, ft.layer.value, pt[0], pt[1])))
     ops = []
     for i, (t, _, _) in enumerate(entries):
         seen = []
