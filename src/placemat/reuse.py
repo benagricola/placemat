@@ -117,8 +117,11 @@ def links_on(board, intent) -> list:
     return [l for l in board._links if l.a[0] in refs or l.b[0] in refs]
 
 
-def step_key(previous: str, intent, links) -> str:
-    return _sha("step", previous, canonical(intent), canonical(sorted(canonical(l) for l in links)))
+def step_key(previous: str, intent, links, extra: str = "") -> str:
+    """`extra` is what else decides this step: an explore variant's seed
+    for a focused item."""
+    parts = ["step", previous, canonical(intent), canonical(sorted(canonical(l) for l in links))]
+    return _sha(*(parts + [extra] if extra else parts))
 
 
 # ------------------------------------------------------------ the record

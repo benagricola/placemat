@@ -2101,7 +2101,12 @@ class Board:
 
     reuse_extra = ""        # what the runner adds to the reuse context: tool version, board file, settings, fab profile
 
-    def resolve(self, progress=None, reuse=None) -> Plan:
+    def resolve(self, progress=None, reuse=None, explore=None) -> Plan:
+        # An explore variant (explore.py): seed 0, or none, is the plain placement.
+        self._explore = explore if (explore is not None and explore.seed) else None
+        if self._explore is not None:
+            import random as _random
+            self._order_rng = _random.Random("%d:order" % self._explore.seed)
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
                         board_cutouts=self._cutouts, settings=self.settings,
                         component_spacing=self.component_spacing)
@@ -2210,7 +2215,9 @@ class Board:
 
         def place_one(obj, why_now=""):
             # The key is taken before anything below changes the declaration.
-            key = _reuse.step_key(chain["key"], obj, _reuse.links_on(self, obj))
+            ex = self._explore
+            key = _reuse.step_key(chain["key"], obj, _reuse.links_on(self, obj),
+                                  "explore:%d" % ex.seed if ex is not None and getattr(obj, "key", None) in ex.focus else "")
             chain["key"] = key
             position = len(record["steps"])
             if chain["replaying"] and not (position < len(previous) and previous[position]["key"] == key):
@@ -2302,6 +2309,11 @@ class Board:
                 place_one(hole)
             while pending:
                 obj, why_now = self._next_to_place(pending, occ, placed)
+                ex = self._explore
+                if ex is not None and obj.key in ex.focus and len(pending) > 1 and self._order_rng.random() < ex.swap:
+                    other, other_why = self._next_to_place([o for o in pending if o is not obj], occ, placed)
+                    if other.key in ex.focus:           # two focused neighbours trade turns
+                        obj, why_now = other, (other_why + "; " if other_why else "") + "explore: before " + obj.key
                 pending.remove(obj)
                 place_one(obj, why_now)
 
@@ -2968,6 +2980,16 @@ class Board:
             return box_centered_placement(occ, i.item, polar_point(centre, i.angle, r), i.rotation, i.face)
         return self._slide(occ, i, plan, clr, ideal, lo, hi, at, "out along the %.0f degree spoke" % i.angle)
 
+    def _pick(self, i):
+        """An explore variant's draw for a focused item, else None (the best)."""
+        ex = getattr(self, "_explore", None)
+        if ex is None or i.key not in ex.focus:
+            return None
+        import random as _random
+        from .explore import draw
+        rng = _random.Random("%d:%s" % (ex.seed, i.key))
+        return lambda cands: draw(cands, rng, ex.slack)
+
     def _turns(self, i: PlaceIntent) -> tuple:
         """The rotations a search may take an item at: the list the script
         gave, else the one rotation it gave, else - for a part, with
@@ -3098,7 +3120,8 @@ class Board:
                     return self._scorer(spec.anchor, occ, targets)(members[spec.anchor.inst])
             body = occ._geometry(spec.anchor).body
             radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)
-            best, tried, rejected, reasons = scan_block(occ, spec, hint, radius, i.step, i.rotations or (i.rotation,), clr, score)
+            best, tried, rejected, reasons = scan_block(occ, spec, hint, radius, i.step, i.rotations or (i.rotation,), clr, score,
+                                                        pick=self._pick(i))
             if best is None:
                 plan.findings.append("%s: no legal spot within %.1f mm of %s (%s)" % (
                     i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in rejected.most_common(3))))
@@ -3214,7 +3237,7 @@ class Board:
         if hopeless:
             plan.findings.append("%s: %s" % (i.key, hopeless))
             return self._step(i, None, 0.0, "UNPLACED: " + hopeless)
-        result = scan(occ, i.item, hint, radius, i.step, self._turns(i), clr, score=score)
+        result = scan(occ, i.item, hint, radius, i.step, self._turns(i), clr, score=score, pick=self._pick(i))
         if result.chosen is None and solved is not None:
             # The solve spreads items without seeing what is already placed, so
             # its hint can land where nothing is legal. That must not cost a
