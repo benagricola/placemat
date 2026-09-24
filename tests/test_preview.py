@@ -222,3 +222,20 @@ def test_a_board_never_run_is_asked_to_run_first(tmp_path):
     done = subprocess.run([sys.executable, "-m", "placemat", "preview", str(mod / "UsbC_layout.py")],
                           capture_output=True, text=True, timeout=600)
     assert done.returncode == 2 and "run `placemat run" in done.stdout + done.stderr
+
+
+def test_tags_can_be_left_off_the_image_and_their_text_is_still_given():
+    """At 40 px/mm the tags cover a close look's parts: `tags=False` draws the
+    picture without them, and the notes the command prints are the same."""
+    from placemat.preview import draw_annotated
+    plan = _plan()
+    svg, notes = draw_annotated(plan)
+    bare, same = draw_annotated(plan, tags=False)
+    assert 'class="tag' in svg and 'class="tag' not in bare and 'tag-id' not in bare
+    assert [(n.tag, n.text) for n in same] == [(n.tag, n.text) for n in notes]
+
+
+def test_preview_takes_no_tags():
+    from placemat.cli import parser
+    args = parser().parse_args(["preview", "x_layout.py", "--zoom", "0,0,5,5", "--no-tags"])
+    assert args.no_tags

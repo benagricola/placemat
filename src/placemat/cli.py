@@ -134,6 +134,9 @@ def parser() -> argparse.ArgumentParser:
     pv.add_argument("--no-heat", action="store_true", help="leave out the congestion heat map")
     pv.add_argument("--no-links", action="store_true", help="leave out the declared links")
     pv.add_argument("--no-copper", action="store_true", help="leave out the planned copper")
+    pv.add_argument("--no-tags", action="store_true",
+                    help="leave the annotation tags off the picture (their text is still printed): a close look "
+                         "at small parts, which the tags cover")
     pv.add_argument("--zoom", help="draw only X0,Y0,X1,Y1 (board mm) of each face")
     pv.add_argument("--around", help="draw only round this placed part or cell (its instance name)")
     pv.add_argument("--margin", type=float, default=5.0, help="mm round --around (default 5)")
@@ -599,7 +602,7 @@ def cmd_preview(args) -> int:
     try:
         result = preview(args.script, faces=faces, svg_only=args.svg, out=args.out, heat=not args.no_heat,
                          links=not args.no_links, copper=not args.no_copper, region=region, around=args.around,
-                         margin=args.margin, explore=_explore_options(args))
+                         margin=args.margin, explore=_explore_options(args), tags=not args.no_tags)
     except RunFailure as e:
         console.say("fail", "%s: %s" % (e, e.details.get("error", "")), level="fail")
         return 1

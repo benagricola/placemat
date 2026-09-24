@@ -89,7 +89,7 @@ def svg_width_mm(svg_text: str) -> float:
 
 def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, heat: bool = True,
             links: bool = True, copper: bool = True, region=None, around: str | None = None,
-            margin: float = 5.0, quiet: bool = False, explore=None) -> Preview:
+            margin: float = 5.0, quiet: bool = False, explore=None, tags: bool = True) -> Preview:
     from .board_geometry import members_of
     from .preview import draw_annotated
     from .project import fab_profile, find_board
@@ -143,7 +143,7 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
                 raise ValueError("%s is not placed, so there is nothing to draw round" % around)
             box = Box.union([plan.occupancy.items[fp.ref].body for fp in fps])
             region = box.inflate(margin)
-        text, notes = draw_annotated(plan, faces=faces, heat=heat, links=links, copper=copper, region=region,
+        text, notes = draw_annotated(plan, faces=faces, heat=heat, links=links, copper=copper, region=region, tags=tags,
                                      title="%s - preview%s" % (src.name, "" if region is None else " (zoomed)"))
         svg = out / "preview.svg"
         svg.write_text(text)

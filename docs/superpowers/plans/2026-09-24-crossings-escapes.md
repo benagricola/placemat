@@ -166,12 +166,12 @@ Result: parts and satellites move and swap; cells are not yet movable as units (
 
 Result: a resolve reports `escape_crossed` ("U2 pins 3/4: L2 VDD_RF crosses C2 MCU_EN"), `escape_closed` and `escape_walled` ("U9 pin 1 (IN): walled off by R9") findings, confirmed by the path search; the run score counts escapes from these findings. An airwire between two pads of one part is no escape. Geometry tests set escape findings aside (`tests/fixtures.placement_findings`).
 
-### Task 8: preview without tags
+### Task 8: preview without tags (done)
 
 **Files:** `src/placemat/preview.py` (`draw_annotated(..., tags=True)`), `src/placemat/cli.py` (`--no-tags` on preview), `tests/test_preview*.py`.
 
-- [ ] Failing test: `--no-tags` output has no tag elements, and the notes are still printed.
-- [ ] Implement; commit.
+- [x] Failing test: `--no-tags` output has no tag elements, and the notes are still printed.
+- [x] Implement; commit.
 
 ### Task 9: measure on the fairing core, docs, release
 

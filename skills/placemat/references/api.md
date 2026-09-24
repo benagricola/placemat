@@ -862,7 +862,7 @@ running DRC or rendering it:
 ```
 placemat preview <script> [--svg] [--face front|back|both] [--out DIR]
                  [--zoom X0,Y0,X1,Y1 | --around PART [--margin MM]]
-                 [--no-heat] [--no-links] [--no-copper]
+                 [--no-heat] [--no-links] [--no-copper] [--no-tags]
 ```
 
 It writes `preview.svg` and, through `[preview] converter`, `preview.png` at
@@ -874,7 +874,9 @@ courtyard, fab body, silk and reference, planned copper, declared links
 (green within their limit, red over it, with their lengths), parts that took
 a pocket, the congestion heat map with its worst cell, and a column with the
 parts not placed and why. `--zoom` and `--around` draw one region of each
-face. A preview writes no run record; `placemat run` is still what checks the
+face; `--no-tags` leaves the annotation tags off the picture, which at a
+close look cover small parts, and still prints their text. A preview writes
+no run record; `placemat run` is still what checks the
 board. It also prints the resolution a model reading the PNG sees: an
 image's long edge is scaled to about 1568 px before a model reads it, so a
 whole board comes through at a few pixels a millimetre.

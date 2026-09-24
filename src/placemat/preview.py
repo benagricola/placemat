@@ -402,10 +402,11 @@ def draw(plan, faces=("front", "back"), heat: bool = True, links: bool = True, c
 
 
 def draw_annotated(plan, faces=("front", "back"), heat: bool = True, links: bool = True, copper: bool = True,
-                   title: str = "", region: Box | None = None) -> tuple:
+                   title: str = "", region: Box | None = None, tags: bool = True) -> tuple:
     """(SVG text, annotations). `region`, a box in board millimetres, draws
     that part of each face alone, clipped: a close look at a crowded spot.
-    The annotations are drawn as tags; their text is the caller's to print."""
+    The annotations are drawn as tags - or, with `tags` False, left off the
+    picture - and their text is the caller's to print."""
     if region is None:
         box = _extent(plan)
         box = Box(box.left - MARGIN, box.top - MARGIN, box.right + MARGIN, box.bottom + MARGIN + 1.5)
@@ -441,7 +442,7 @@ def draw_annotated(plan, faces=("front", "back"), heat: bool = True, links: bool
             face.value, _n(box.left), _n(box.top), _n(box.width), _n(box.height)))
         out.append('<g class="face %s" transform="%s">' % (face.value, transform))
         out.append('<g clip-path="url(#clip-%s)">' % face.value)
-        out += _panel(plan, face, mirrored, box, heat and k == 0, links, copper, notes)
+        out += _panel(plan, face, mirrored, box, heat and k == 0, links, copper, notes if tags else ())
         out.append("</g>")
         out.append("</g>")
     out += side
