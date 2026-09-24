@@ -7,30 +7,35 @@ ITEMS = ("mcu", "buck5", "j_usb", "c_bulk")
 
 
 def _rec(run_id="a1", placed=4, drc=9, findings=15, airwire=5790.0, items=ITEMS,
-         landed=None, status="ok"):
+         landed=None, status="ok", unplaced=None, crossings=0):
     landed = items if landed is None else landed
+    unplaced = max(0, len(items) - placed) if unplaced is None else unplaced
+    measures = {"unplaced": {"default": unplaced} if unplaced else {}, "drc": drc, "link_excess": 0.0,
+                "findings": {"label": findings} if findings else {}, "airwire_mm": airwire,
+                "crossings": {"signal": crossings, "plane": 0}}
     return RunRecord(run_id=run_id, board="b", status=status,
                      placements={i: {"x": 0, "y": 0} for i in landed},
                      steps=[{"item": i} for i in items],
                      metrics={"placed": placed, "drc_real": {"clearance": drc} if drc else {},
-                              "findings": findings, "airwire_mm": airwire})
+                              "findings": findings, "airwire_mm": airwire, "measures": measures})
 
 
-def test_the_objective_puts_completeness_before_everything():
+def test_completeness_outweighs_everything_else_at_the_default_weights():
     """A run at drc 6 that placed 29 of 101
     items: fewer parts is less copper is fewer violations. Ranking on DRC
     alone crowns a board that was barely laid out."""
-    whole = _rec(placed=101, drc=12, findings=12, airwire=5083)
-    part = _rec(placed=29, drc=6, findings=3, airwire=11050)
-    assert report.objective(whole.metrics) < report.objective(part.metrics)
+    whole = _rec(placed=101, unplaced=0, drc=12, findings=12, airwire=5083)
+    part = _rec(placed=29, unplaced=72, drc=6, findings=3, airwire=11050)
+    assert report.is_better(whole, part) and not report.is_better(part, whole)
 
 
-def test_among_equally_complete_runs_drc_leads_then_findings_then_wire():
+def test_each_thing_that_went_wrong_is_weighed_not_ranked_in_a_fixed_order():
+    """One DRC violation costs 200 mm of wire at the defaults: a run with one
+    more violation but 300 mm less airwire is better, with 100 mm less it is
+    not. The order of old - DRC before everything - is a matter of weights."""
     base = _rec(drc=12, findings=12, airwire=5083)
-    for other in (_rec(drc=13, findings=1, airwire=1.0),
-                  _rec(drc=12, findings=13, airwire=1.0),
-                  _rec(drc=12, findings=12, airwire=5084)):
-        assert report.objective(base.metrics) < report.objective(other.metrics)
+    assert report.is_better(_rec(drc=13, findings=12, airwire=4783), base)
+    assert not report.is_better(_rec(drc=13, findings=12, airwire=4983), base)
 
 
 def test_a_run_that_improves_wire_without_regressing_drc_is_better():
@@ -69,7 +74,7 @@ def test_the_family_does_not_depend_on_the_order_things_were_placed():
 def test_a_run_that_failed_to_place_a_part_regresses_against_its_family(tmp_path):
     path = tmp_path / "best.json"
     report.update_best(path, _rec(run_id="whole", placed=4))
-    failed = _rec(run_id="short", placed=3, landed=ITEMS[1:], drc=0, airwire=1.0)
+    failed = _rec(run_id="short", placed=3, landed=ITEMS[1:])        # otherwise the same run
     best = report.best_for(path, report.family_of(failed))
     assert best.run_id == "whole"
     said = report.regression(failed, best)
@@ -172,7 +177,9 @@ def test_an_airwire_change_beyond_the_noise_still_counts():
 def test_the_noise_band_is_a_setting():
     from placemat.settings import Settings
     assert Settings().best_airwire_noise == 0.01
-    wide = report.regression(_rec(airwire=5402.0), _rec(airwire=5083.0), airwire_noise=0.10)
+    import dataclasses
+    wide = report.regression(_rec(airwire=5402.0), _rec(airwire=5083.0),
+                             dataclasses.replace(Settings(), best_airwire_noise=0.10))
     assert wide is None
 
 

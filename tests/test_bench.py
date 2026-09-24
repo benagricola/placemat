@@ -10,20 +10,22 @@ import sys as _sys
 _sys.modules.setdefault("bench", bench)        # pickle finds ModuleBoard by its module's name
 
 
-def row(placed, findings=0, hpwl=100.0):
-    return {"placed": placed, "findings": findings, "hpwl": hpwl}
+def row(placed, findings=0, hpwl=100.0, crossings=0, parts=5):
+    return {"placed": placed, "findings": findings, "hpwl": hpwl, "crossings": crossings,
+            "measures": {"unplaced": {"default": parts - placed} if parts > placed else {}, "drc": 0,
+                         "link_excess": 0.0, "findings": {"label": findings} if findings else {},
+                         "crossings": {"signal": crossings, "plane": 0}, "airwire_mm": hpwl}}
 
 
-def test_more_placed_wins_over_findings_and_wire():
-    assert bench.verdict(row(5, 3, 900.0), row(4, 0, 10.0)) == 1
-    assert bench.verdict(row(4, 0, 10.0), row(5, 3, 900.0)) == -1
+def test_the_verdict_is_the_run_score():
+    # an unplaced part (500 mm) outweighs three labels (150 mm) and 290 mm more wire
+    assert bench.verdict(row(5, 3, 400.0), row(4, 0, 110.0)) == 1
+    assert bench.verdict(row(4, 0, 110.0), row(5, 3, 400.0)) == -1
+    # a crossing is weighed against wire
+    assert bench.verdict(row(5, 0, 100.0, crossings=0), row(5, 0, 100.0, crossings=3)) == 1
 
 
-def test_fewer_findings_wins_when_as_many_are_placed():
-    assert bench.verdict(row(5, 1, 900.0), row(5, 2, 10.0)) == 1
-
-
-def test_wire_decides_last_and_one_percent_is_the_same():
+def test_within_the_noise_band_is_the_same():
     assert bench.verdict(row(5, 0, 98.0), row(5, 0, 100.0)) == 1
     assert bench.verdict(row(5, 0, 102.0), row(5, 0, 100.0)) == -1
     assert bench.verdict(row(5, 0, 100.9), row(5, 0, 100.0)) == 0
@@ -72,7 +74,7 @@ def test_a_module_board_pickles_and_builds_what_the_bench_places():
 
 
 def test_explore_tally_counts_variants_better_than_the_plain_run():
-    rows = {"a": {"baseline": [-3, 0, 5, 10.0], "best": [-3, 0, 4, 11.0]},
-            "b": {"baseline": [-3, 0, 5, 10.0], "best": [-3, 0, 5, 10.0]},
-            "c": {"baseline": [-2, 1, 5, 10.0], "best": [-3, 0, 6, 12.0]}}
+    rows = {"a": {"baseline": 110.0, "best": 100.0, "unplaced": [0, 0]},
+            "b": {"baseline": 110.0, "best": 110.0, "unplaced": [0, 0]},
+            "c": {"baseline": 610.0, "best": 120.0, "unplaced": [1, 0]}}
     assert bench.explore_tally(rows) == {"better": 2, "same": 1, "placed": 1}

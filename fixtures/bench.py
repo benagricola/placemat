@@ -2,10 +2,12 @@
 
 Every part of each module under fixtures/*/modules/ is released to a bare
 place() and resolved under each configuration in CONFIGS. A result is scored
-by parts placed, then placemat's findings, then half-perimeter wirelength
-(HPWL) over the nets that are not planes, and compared with the committed
-baseline in bench.json: more placed is better, then fewer findings, then HPWL
-more than NOISE shorter.
+by the run score (placemat's score.py, at the default weights: unplaced
+parts, findings by kind, links past their limit, ratsnest crossings and
+airwire), and compared with the committed baseline in bench.json: a lower
+score beyond the score's noise band is better. Placed, findings, crossings
+and half-perimeter wirelength (HPWL) over the nets that are not planes are
+shown beside it.
 
     .venv/bin/python fixtures/bench.py [name ...] [--config NAME] [--jobs N] [--update]
 
@@ -46,15 +48,10 @@ def hpwl(pads, skip=frozenset()) -> float:
 
 
 def verdict(new: dict, old: dict) -> int:
-    if new["placed"] != old["placed"]:
-        return 1 if new["placed"] > old["placed"] else -1
-    if new["findings"] != old["findings"]:
-        return 1 if new["findings"] < old["findings"] else -1
-    if new["hpwl"] < old["hpwl"] * (1 - NOISE):
-        return 1
-    if new["hpwl"] > old["hpwl"] * (1 + NOISE):
-        return -1
-    return 0
+    """1 when `new` scores better than `old`, -1 worse, 0 within the noise band."""
+    from placemat import score
+    from placemat.settings import Settings
+    return -score.compare(new["measures"], old["measures"], Settings())[0]
 
 
 def diff(run: dict, base: dict) -> list:
@@ -67,7 +64,7 @@ def diff(run: dict, base: dict) -> list:
             new, old = new_m.get(c), old_m.get(c)
             if new is None and old is None:
                 continue
-            if old is None:
+            if old is None or "measures" not in old:        # a baseline from before the run score
                 kind = "new"
             elif new is None:
                 kind = "gone"
@@ -156,7 +153,8 @@ class ModuleBoard:
 
 
 def _resolve(g, overrides: dict, planes: set, size) -> dict:
-    plan = ModuleBoard(g, overrides, planes, size)().resolve()
+    board = ModuleBoard(g, overrides, planes, size)()
+    plan = board.resolve()
     placed = {s.item for s in plan.steps if s.placement is not None and s.kind == "part"}
     pads = []
     for fp in g.footprints:
@@ -164,7 +162,10 @@ def _resolve(g, overrides: dict, planes: set, size) -> dict:
             for p in fp.pads:
                 at = plan.occupancy.pad_location(fp.ref, p.number)
                 pads.append((p.net, at.x, at.y))
-    return {"placed": len(placed), "findings": len(plan.findings), "hpwl": hpwl(pads, planes)}
+    from placemat import score
+    m = score.plan_measures(board, plan)
+    return {"placed": len(placed), "findings": len(plan.findings), "hpwl": hpwl(pads, planes),
+            "crossings": m["crossings"]["signal"], "score": round(score.total(m, board.settings), 1), "measures": m}
 
 
 def _hand_pads(g) -> list:
@@ -202,8 +203,9 @@ def _line(c, m, new, old) -> str:
     def pair(key, fmt):
         a, b = old[key], new[key]
         return (fmt % b) if a == b else ((fmt + " -> " + fmt) % (a, b))
-    return "%-8s %-28s placed %s, findings %s, hpwl %s" % (
-        c, m, pair("placed", "%d"), pair("findings", "%d"), pair("hpwl", "%.1f"))
+    return "%-8s %-28s score %s: placed %s, findings %s, crossings %s, hpwl %s" % (
+        c, m, pair("score", "%.1f"), pair("placed", "%d"), pair("findings", "%d"), pair("crossings", "%d"),
+        pair("hpwl", "%.1f"))
 
 
 def report(run: dict, base: dict, say=print) -> None:
@@ -231,10 +233,10 @@ def report(run: dict, base: dict, say=print) -> None:
 
 def explore_tally(rows: dict) -> dict:
     """How many modules the best of their variants beat the plain placement
-    on (by the explore score), how many it did not, and how many it placed
+    on (by the run score), how many it did not, and how many it placed
     more parts on."""
-    better = sum(1 for r in rows.values() if tuple(r["best"]) < tuple(r["baseline"]))
-    placed = sum(1 for r in rows.values() if r["best"][0] < r["baseline"][0])
+    better = sum(1 for r in rows.values() if r["best"] < r["baseline"] - 1e-9)
+    placed = sum(1 for r in rows.values() if r["unplaced"][1] < r["unplaced"][0])
     return {"better": better, "same": len(rows) - better, "placed": placed}
 
 
@@ -258,9 +260,10 @@ def explore_bench(paths, configs: dict, n: int, jobs: int) -> None:
             r = explore(make, focus, 0, jobs, seeds=range(n))
             dt = time.perf_counter() - t0
             spent, tried = spent + dt, tried + r.tried
-            rows[_name(path)] = {"baseline": list(r.baseline), "best": list(r.best), "seed": r.best_seed}
-            print("%-8s %-28s %s -> %s  seed %d  %.1f s" % (c, _name(path), tuple(r.baseline), tuple(r.best),
-                                                          r.best_seed, dt), flush=True)
+            unplaced = [sum(m["unplaced"].values()) for m in (r.baseline_measures, r.best_measures)]
+            rows[_name(path)] = {"baseline": r.baseline, "best": r.best, "seed": r.best_seed, "unplaced": unplaced}
+            print("%-8s %-28s score %.1f -> %.1f  seed %d  %.1f s" % (c, _name(path), r.baseline, r.best,
+                                                                    r.best_seed, dt), flush=True)
         t = explore_tally(rows)
         print("%s: explore %d seeds: better %d, same %d of %d modules; more placed on %d; %.2f s per variant" % (
             c, n, t["better"], t["same"], len(rows), t["placed"], spent / max(1, tried)), flush=True)

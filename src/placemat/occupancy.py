@@ -412,6 +412,19 @@ class Occupancy:
         self._pad_location_cache[key] = loc
         return loc
 
+    def pad_anchor(self, ref: str, number: str) -> Location:
+        """Where the airwires to a pad end NOW: its anchor as read
+        (`PadGeom.airwire_end`, KiCad's PAD::ShapePos) moved as the part has
+        moved since. The outline's box centre carries the polygon's rounding,
+        enough to make the airwires along a row of pads cross."""
+        fp = self.geometry.footprint(ref)
+        pad = next((p for p in fp.pads if p.number == number), None)
+        if pad is None:
+            return self.pad_location(ref, number)
+        read = ItemGeometry(frozenset([ref]), Placement(fp.location, fp.rotation, fp.face), (), fp.body_box,
+                            frozenset())
+        return self._transform(read, self.items[ref].reference).apply_location(pad.airwire_end)
+
     def add_copper(self, shapes) -> None:
         """Planned copper becomes an obstacle for everything placed after it."""
         self.copper.extend(shapes)

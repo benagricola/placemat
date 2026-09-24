@@ -23,27 +23,29 @@ def _make():
 FOCUS = frozenset({"r1", "r2", "r3", "c1"})
 
 
-def test_the_score_orders_placed_findings_worst_cell_then_wire():
+def test_a_variant_is_scored_by_the_run_score_with_the_worst_cell_in_it():
+    from placemat import score as run_score
+    from placemat.explore import measure
     b = _make()
     plan = b.resolve()
-    s = score(b, plan)
-    assert s[0] == -5 and s[1] == 0
-    assert s[2] == int(plan.rudy.worst / 0.05 + 1e-9) and s[3] > 0
-    assert score(b, plan, step=0)[2] == 0                 # left out
-    assert b.settings.explore_congestion_step == 0.05     # the default, from the settings
+    m = measure(b, plan)
+    assert m["unplaced"] == {} and m["rudy_steps"] == int(plan.rudy.worst / 0.05 + 1e-9)
+    assert score(b, plan) == run_score.total(m, b.settings)
+    assert "rudy_steps" not in measure(b, plan, step=0)          # left out
+    assert b.settings.explore_congestion_step == 0.05             # the default, from the settings
 
 
 def test_the_same_seeds_give_the_same_best_whatever_the_jobs():
     one = explore(_make, FOCUS, seconds=60, jobs=1, seeds=range(0, 12))
     two = explore(_make, FOCUS, seconds=60, jobs=2, seeds=range(0, 12))
-    assert one.best_seed == two.best_seed and one.best == two.best
+    assert one.best_seed == two.best_seed and one.best == two.best and one.best_measures == two.best_measures
     assert one.tried == two.tried == 12
 
 
 def test_seed_zero_is_always_tried_and_the_best_is_no_worse():
     r = explore(_make, FOCUS, seconds=60, jobs=2, seeds=range(3, 9))
     assert r.baseline == score(_make(), _make().resolve())
-    assert r.best <= r.baseline and 0 in [s for s, _ in r.results]
+    assert r.best <= r.baseline and 0 in [s for s, _, _ in r.results]
 
 
 def test_the_deadline_is_kept():

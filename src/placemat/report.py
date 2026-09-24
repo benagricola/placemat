@@ -78,9 +78,11 @@ def resolve_run(runs_dir, ref: str) -> Path:
     raise ValueError("%r matches %d runs in %s: %s" % (ref, len(matches), runs_dir, ", ".join(m.name for m in matches)))
 
 
-def airwires_from_drc(drc: dict) -> dict:
+def airwires_from_drc(drc: dict, quiet=()) -> dict:
     """The ratsnest KiCad reports as unconnected items: count, straight-line
-    length, crossings between different nets, and length per net."""
+    length, crossings between different nets, and length per net.
+    `crossings_quiet` counts the crossings with a `quiet` net's airwire (a
+    plane's or a free net's), which the score weighs apart."""
     edges = []
     for u in drc.get("unconnected_items", []):
         items = u.get("items", [])
@@ -94,12 +96,15 @@ def airwires_from_drc(drc: dict) -> dict:
     def cross(e, f):
         return segments_cross(e[1], e[2], f[1], f[2])
 
-    crossings = 0
+    crossings = quiet_crossings = 0
+    quiet = set(quiet)
     crossings_per_net: dict = {}
     for i in range(len(edges)):
         for j in range(i + 1, len(edges)):
             if edges[i][0] != edges[j][0] and cross(edges[i], edges[j]):
                 crossings += 1
+                if edges[i][0] in quiet or edges[j][0] in quiet:
+                    quiet_crossings += 1
                 for net in (edges[i][0], edges[j][0]):
                     crossings_per_net[net] = crossings_per_net.get(net, 0) + 1
     per_net: dict = {}
@@ -108,7 +113,8 @@ def airwires_from_drc(drc: dict) -> dict:
         d = math.hypot(a[0] - b[0], a[1] - b[1])
         total += d
         per_net[net] = round(per_net.get(net, 0.0) + d, 3)
-    return {"count": len(edges), "total_mm": round(total, 3), "crossings": crossings, "per_net": per_net,
+    return {"count": len(edges), "total_mm": round(total, 3), "crossings": crossings,
+            "crossings_quiet": quiet_crossings, "per_net": per_net,
             "crossings_per_net": dict(sorted(crossings_per_net.items(), key=lambda kv: (-kv[1], kv[0])))}
 
 
@@ -275,77 +281,71 @@ def _drc_total(metrics: dict) -> int:
     return sum(real.values()) if isinstance(real, dict) else int(real or 0)
 
 
-def objective(metrics: dict) -> tuple:
-    """How good a run is, lower first, compared left to right.
-
-    Completeness leads because DRC does not mean anything without it: a run
-    that placed 29 of 101 items can show 6 violations where the whole board
-    shows more, because fewer parts is less copper is fewer ways to break a
-    rule.
-    Among runs that laid out the same amount of board, violations lead, then
-    placemat's own findings, then how far the airwires have to go."""
-    return (-int(metrics.get("placed") or 0),
-            _drc_total(metrics),
-            int(metrics.get("findings") or 0),
-            round(float(metrics.get("airwire_mm") or 0.0), 3))
-
-
-# What each component of the objective is called when it regresses, in order.
-_PARTS = (("placed", "placed", False), ("drc_real", "DRC violations", True),
-          ("findings", "findings", True), ("airwire_mm", "airwire", True))
-
-
 # How far airwire may move, as a fraction, before it counts. kicad-cli reports
 # a different set of ratsnest edges each run for a byte-identical board - four
 # runs of the same inputs gave 2872.80, 2873.11, 2872.80 and 2868.87 mm - so an
-# exact comparison fails an identical rerun.
+# exact comparison fails an identical rerun. The default of `[best] airwire_noise`.
 AIRWIRE_NOISE = 0.01
 
 
-def _verdict(now: dict, best: dict, airwire_noise: float) -> tuple:
-    """(sign, index) of the first component that differs: sign -1 when `now`
-    is better, 1 when worse, 0 when every component ties. Airwire ties when
-    the two are within `airwire_noise` of each other."""
-    a, b = objective(now), objective(best)
-    for i in range(len(a)):
-        x, y = a[i], b[i]
-        if _PARTS[i][0] == "airwire_mm":
-            if abs(x - y) <= airwire_noise * max(abs(x), abs(y)):
-                continue
-        elif x == y:
-            continue
-        return (-1 if x < y else 1), i
-    return 0, None
+def _cfg(cfg):
+    from .settings import Settings
+    return cfg if cfg is not None else Settings()
 
 
 def comparable(rec: RunRecord) -> bool:
-    """Whether a run measured everything the objective reads. A run made with
+    """Whether a run measured everything the score reads. A run made with
     --no-drc has no violations and no airwire, and reading those missing
     numbers as zero made it the best possible run - every real run after it
     then "regressed" against airwire 0. Presence is the test, not value: zero
-    airwire after DRC means everything is joined, and is a real measurement."""
-    return all(k in rec.metrics for k, _, _ in _PARTS)
+    airwire after DRC means everything is joined, and is a real measurement.
+    A run recorded before the score (0.32 and earlier) has no measures, so a
+    stored best from then reads as absent and the next run takes its place."""
+    return all(k in rec.metrics for k in ("drc_real", "airwire_mm", "measures"))
 
 
-def is_better(now: RunRecord, best: RunRecord | None, airwire_noise: float = AIRWIRE_NOISE) -> bool:
+def is_better(now: RunRecord, best: RunRecord | None, cfg=None) -> bool:
+    from . import score as _score
     if not comparable(now):
         return False
     if best is None:
         return True
-    return _verdict(now.metrics, best.metrics, airwire_noise)[0] < 0
+    return _score.compare(now.metrics["measures"], best.metrics["measures"], _cfg(cfg))[0] < 0
 
 
-def regression(now: RunRecord, best: RunRecord | None,
-               airwire_noise: float = AIRWIRE_NOISE) -> str | None:
-    """The first component of the objective this run is worse on, said in
-    numbers. None when the run is at least as good."""
+def regression(now: RunRecord, best: RunRecord | None, cfg=None) -> str | None:
+    """How this run's score is worse than the best's, said in numbers with
+    the term that moved it most. None when the run is at least as good."""
+    from . import score as _score
     if best is None or not comparable(now):
         return None
-    sign, i = _verdict(now.metrics, best.metrics, airwire_noise)
+    cfg = _cfg(cfg)
+    a, b = now.metrics["measures"], best.metrics["measures"]
+    sign, term = _score.compare(a, b, cfg)
     if sign <= 0:
         return None
-    a, b = objective(now.metrics)[i], objective(best.metrics)[i]
-    return "%s %g against %g in the best run (%s)" % (_PARTS[i][1], abs(a), abs(b), best.run_id)
+    ta, tb = _score.terms(a, cfg), _score.terms(b, cfg)
+    return "score %.1f mm against %.1f in the best run (%s); most of it %s, %.1f -> %.1f mm" % (
+        sum(ta.values()), sum(tb.values()), best.run_id, term, tb[term], ta[term])
+
+
+def score_line(now: RunRecord, best: RunRecord | None, cfg=None) -> str:
+    """The run's score by term, beside the best's where they differ."""
+    from . import score as _score
+    cfg = _cfg(cfg)
+    ta = _score.terms(now.metrics["measures"], cfg)
+    tb = _score.terms(best.metrics["measures"], cfg) if best is not None and comparable(best) else None
+    parts = []
+    for t in _score.TERMS:
+        if tb is None:
+            if ta[t]:
+                parts.append("%s %.1f" % (t, ta[t]))
+        elif abs(ta[t] - tb[t]) > 1e-6:
+            parts.append("%s %.1f (best %.1f)" % (t, ta[t], tb[t]))
+    head = "score %.1f mm" % sum(ta.values())
+    if tb is not None:
+        head += " (best %.1f)" % sum(tb.values())
+    return head + (": " + ", ".join(parts) if parts else "")
 
 
 def _best_table(path) -> dict:
@@ -367,24 +367,24 @@ def best_for(path, family: str) -> RunRecord | None:
     return rec if comparable(rec) else None
 
 
-def update_best(path, now: RunRecord, airwire_noise: float = AIRWIRE_NOISE) -> bool:
+def update_best(path, now: RunRecord, cfg=None) -> bool:
     """Record this run as its family's best when it is one. A run that did not
     finish is never the best, however good its numbers look."""
     if now.status != "ok":
         return False
     family = family_of(now)
     table = _best_table(path)
-    if not is_better(now, best_for(path, family), airwire_noise):
+    if not is_better(now, best_for(path, family), cfg):
         return False
     table[family] = asdict(now)
     Path(path).write_text(json.dumps(table, indent=2, sort_keys=True) + "\n")
     return True
 
 
-def against_best(path, now: RunRecord, airwire_noise: float = AIRWIRE_NOISE) -> tuple:
+def against_best(path, now: RunRecord, cfg=None) -> tuple:
     """(regression, prior best) for this run, recording it as its family's best
     when it is one. The regression is a sentence naming the metric, or None."""
     prior = best_for(path, family_of(now))
-    said = regression(now, prior, airwire_noise)
-    update_best(path, now, airwire_noise)
+    said = regression(now, prior, cfg)
+    update_best(path, now, cfg)
     return said, prior

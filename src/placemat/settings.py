@@ -106,6 +106,24 @@ class Settings:
     noise_patterns: tuple = ()
     # [best] - judging a run against the best of its family
     best_airwire_noise: float = 0.01
+    best_crossing_noise: float = 0.02   # a fraction of the crossings, as airwire's: kicad-cli's ratsnest varies too
+    # [score] - what each thing that can go wrong costs a run, in millimetres of wire (score.py)
+    score_unplaced: float = 500.0       # a part left unplaced, times its declared priority's multiplier
+    score_priority_high: float = 2.0
+    score_priority_default: float = 1.0
+    score_priority_low: float = 0.5
+    score_drc: float = 200.0            # a real DRC violation
+    score_link_over: float = 20.0       # a millimetre of link past its limit, times the link's weight
+    score_fixed: float = 200.0          # a decided item not legal where it was put
+    score_copper: float = 200.0         # planned copper that meets another net, crosses a keepout or cannot bridge
+    score_label: float = 50.0           # a label with a part on it
+    score_setup: float = 0.0            # the same every run of a script: an undeclared part, a layer the board lacks
+    score_crossing: float = 2.0         # a ratsnest crossing; the search weighs a candidate's crossings by it too
+    score_crossing_plane: float = 0.0   # a crossing with a plane's or free net's airwire, as a share of score_crossing
+    score_escape_crossed: float = 20.0  # two escapes from one part's pins crossing near its pin row
+    score_escape_closed: float = 50.0   # a pad's last route toward what it connects to closed
+    score_escape_walled: float = 400.0  # a pad with no route out at all
+    score_congestion: float = 10.0      # explore: a step (explore.congestion_step) of the worst RUDY cell
     # [solve] - the global pre-solve for the searched tier's hints
     solve_enabled: bool = False
     solve_iterations: int = 200
@@ -213,6 +231,9 @@ _ABOVE_ZERO = frozenset((
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "preview_px_per_mm"))
 _AT_LEAST_ZERO = frozenset((
     "rank_area", "rank_pins", "place_courtyard_touch", "cleanup_passes", "preview_model_edge", "copper_chamfer", "best_airwire_noise",
+    "best_crossing_noise", "score_unplaced", "score_priority_high", "score_priority_default", "score_priority_low",
+    "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
+    "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_congestion",
     "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm"))
 

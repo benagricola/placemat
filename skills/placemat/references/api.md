@@ -977,17 +977,32 @@ change to it changes the run id.
 
 Every finished run is judged against the best earlier run of the same parts -
 its **family**, the runs whose script asked to place the same items - and
-`.placemat/runs/best.json` keeps one best per family. Better means, in order:
-more items placed, fewer real DRC violations, fewer findings, shorter airwire.
-Completeness leads because DRC means nothing without it: a run that placed 29
-of 101 items has little copper and so few violations. Airwire within
-`best.airwire_noise` (1%) is a tie, because kicad-cli picks different
-ratsnest edges each run for a byte-identical board. A run made with
-`--no-drc` measured neither, so it is not judged and never becomes a best.
-The run prints one `best` line - first of its family, matches, better than,
-worse than, or not judged. **A run
-that comes out worse is a finding naming the metric, and `placemat run` exits
-1**, so a regression cannot pass unnoticed in a loop. Adding or removing a
+`.placemat/runs/best.json` keeps one best per family. Better means a lower
+**run score**: one number in millimetres of wire, each thing that can go
+wrong counted and weighted by a `[score]` setting (the table below):
+
+- an unplaced part, times its declared priority's multiplier;
+- a real DRC violation;
+- each millimetre a link is past its limit, times the link's weight;
+- each finding by its kind: a fixed item not legal where put, copper that
+  breaks a rule, a label on a part, a crossed, closed or walled-off escape,
+  and a setup finding (the same every run, 0 by default);
+- each ratsnest crossing, with a plane's or free net's crossing at
+  `score.crossing_plane` of it;
+- the airwire itself, a millimetre each.
+
+A run records these measures, not its score, so a weight changed in
+placemat.toml re-ranks the recorded runs at once, the stored best included.
+Two scores tie within `best.airwire_noise` of the airwire plus
+`best.crossing_noise` of the crossings' term, because kicad-cli picks
+different ratsnest edges each run for a byte-identical board. A run made
+with `--no-drc` measured neither, so it is not judged and never becomes a
+best; nor is a best recorded before the score (0.32 and earlier), which the
+next run replaces. The run prints a `score` line (each term, beside the
+best's where they differ) and one `best` line - first of its family,
+matches, better than, worse than, or not judged. **A run that comes out
+worse is a finding naming the score and the term that moved it most, and
+`placemat run` exits 1**, so a regression cannot pass unnoticed in a loop. Adding or removing a
 part starts a new family. Routing needs
 KiCadRoutingTools at `$KRT_DIR` (default `~/work/KiCadRoutingTools`) with
 its own venv; quick mode is one routing round with the router's post-route
@@ -1151,7 +1166,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `explore.slack` | 0.25 | an explored item draws among spots scoring within this fraction of its best |
 | `explore.swap` | 0.2 | the chance two focused items next in the placement order trade turns |
 | `explore.rank_power` | 1.0 | an explored item's spot at rank r among its candidates is drawn with weight 1 / r to this power: higher keeps it nearer its best |
-| `explore.congestion_step` | 0.05 | variants are ranked by parts placed, findings, then the worst congestion cell in steps of this (0 leaves it out), then wire |
+| `explore.congestion_step` | 0.05 | variants are ranked by the run score, with the worst congestion cell counted in steps of this at `score.congestion` each (0 leaves it out) |
 | `explore.jobs` | 0 | worker processes for `--explore`; 0 is the CPU count less one |
 | `drc.severities` | none | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
 | `drc.real_kinds` | eight classes | which violations mean the board is not done |
@@ -1168,6 +1183,23 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `timeout.render` | 300 | seconds for a render |
 | `noise.patterns` | none | extra KiCad stderr patterns to suppress, ADDED to the built-ins |
 | `best.airwire_noise` | 0.01 | how far airwire may move, as a fraction, before a run counts as better or worse than its family's best: kicad-cli picks different ratsnest edges each run for a byte-identical board |
+| `best.crossing_noise` | 0.02 | how far the crossings' term may move, as a fraction, before a score counts as better or worse: kicad-cli's ratsnest varies run to run |
+| `score.unplaced` | 500 | mm a part left unplaced costs the run score, times its priority's multiplier |
+| `score.priority_high` | 2.0 | the unplaced multiplier for a part declared `priority=HIGH` |
+| `score.priority_default` | 1.0 | the unplaced multiplier for a part with no declared priority |
+| `score.priority_low` | 0.5 | the unplaced multiplier for a part declared `priority=LOW` |
+| `score.drc` | 200 | mm a real DRC violation costs |
+| `score.link_over` | 20 | mm per millimetre a link is past its limit, times the link's weight |
+| `score.fixed` | 200 | mm a decided item (fixed, a cutout, a keepout) not legal where it was put costs |
+| `score.copper` | 200 | mm planned copper that meets another net, crosses a keepout or cannot bridge costs |
+| `score.label` | 50 | mm a label with a part on it costs |
+| `score.setup` | 0 | mm a setup finding costs: the same every run of a script (an undeclared part, a layer the board lacks) |
+| `score.crossing` | 2.0 | mm a ratsnest crossing costs, in the run score and in the search |
+| `score.crossing_plane` | 0 | a crossing with a plane's or free net's airwire, as a share of `score.crossing`: each of its pads drops to the plane by a via |
+| `score.escape_crossed` | 20 | mm two escapes from one part's pins crossing near its pin row cost |
+| `score.escape_closed` | 50 | mm a pad whose last route toward what it connects to is closed costs |
+| `score.escape_walled` | 400 | mm a pad with no route out at all costs |
+| `score.congestion` | 10 | explore: mm per `explore.congestion_step` of the worst RUDY cell |
 | `solve.enabled` | false | give the searched tier its hints from a global solve of the whole netlist, before any item is scanned |
 | `solve.iterations` | 200 | the solve's conjugate-gradient cap per axis per round |
 | `solve.tolerance` | 1e-06 | the residual the solve stops at |

@@ -75,38 +75,20 @@ def draw(candidates, rng, slack: float, power: float):
 
 
 # ------------------------------------------------------------ scoring
-def score(board, plan, step: float | None = None) -> tuple:
-    """A variant judged in order: more parts placed, then fewer findings, then
-    a less congested worst cell (RUDY), in `step`s so a difference below one
-    decides nothing, then less wire - the half-perimeter of the nets that pull
-    (planes and free nets do not) plus each declared link's weight times its
-    length. The worst cell leads the wire because it is the measure that
-    agreed with the router (congestion.py); wire length alone did not.
-    `step` 0 leaves the worst cell out."""
-    placed = sorted({fp.ref for s in plan.steps if s.placement is not None and s.item in plan._items
-                     for fp in _members(plan._items[s.item])})
-    quiet = board._plane_nets() | set(board._free_nets)
-    pts: dict = {}
-    for ref in placed:
-        g = plan.occupancy.items.get(ref)
-        if g is None:
-            continue
-        for s in g.shapes:
-            if s.kind in ("pad", "through") and s.net and s.net not in quiet:
-                pts.setdefault(s.net, []).append(s.box.center)
-    wire = 0.0
-    for net in sorted(pts):
-        p = pts[net]
-        if len(p) > 1:
-            wire += max(q.x for q in p) - min(q.x for q in p) + max(q.y for q in p) - min(q.y for q in p)
-    for l in plan.links:
-        if l.achieved_mm is not None and int(l.weight) > 0:
-            wire += int(l.weight) * l.achieved_mm
+def measure(board, plan, step: float | None = None) -> dict:
+    """A variant's measures for the run score (score.py): its own ratsnest's
+    crossings and airwire, and the worst RUDY cell in `step`s, the measure
+    that agreed with the router (congestion.py). `step` 0 leaves the worst
+    cell out."""
+    from . import score as _score
     step = board.settings.explore_congestion_step if step is None else step
-    worst = getattr(getattr(plan, "rudy", None), "worst", 0.0) or 0.0
-    cell = int(worst / step + 1e-9) if step > 0 else 0
-    n_parts = sum(1 for s in plan.steps if s.kind == "part" and s.placement is not None)
-    return (-n_parts, len(plan.findings), cell, round(wire, 6))
+    return _score.plan_measures(board, plan, congestion_step=step or None)
+
+
+def score(board, plan, step: float | None = None) -> float:
+    """A variant's run score, in millimetres: lower is better."""
+    from . import score as _score
+    return _score.total(measure(board, plan, step), board.settings)
 
 
 def _members(item):
@@ -118,10 +100,12 @@ def _members(item):
 @dataclass
 class ExploreResult:
     best_seed: int
-    best: tuple
-    baseline: tuple
+    best: float            # the run score, mm
+    baseline: float
     tried: int
-    results: list          # (seed, score), best first
+    results: list          # (seed, score, measures), best first
+    best_measures: dict = None
+    baseline_measures: dict = None
 
 
 def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=None, lock=None) -> ExploreResult:
@@ -147,7 +131,8 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
     with _context_of(make_board):
         base_board = make_board()
         plain = base_board.resolve(lock=lock)
-        baseline = score(base_board, plain)
+        base_m = measure(base_board, plain)
+        baseline = _total(base_board, base_m)
     if jobs is None:
         jobs = base_board.settings.explore_jobs or max(1, (os.cpu_count() or 2) - 1)
     deadline = time.time() + seconds
@@ -159,7 +144,7 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
                                              counter, out)) for _ in range(max(1, jobs))]
     for pr in procs:
         pr.start()
-    results, done = [(0, baseline)], 0
+    results, done = [(0, baseline, base_m)], 0
     while done < len(procs):
         item = out.get()
         if item is None:
@@ -169,7 +154,12 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
     for pr in procs:
         pr.join()
     results.sort(key=lambda r: (r[1], r[0]))
-    return ExploreResult(results[0][0], results[0][1], baseline, len(results), results)
+    return ExploreResult(results[0][0], results[0][1], baseline, len(results), results, results[0][2], base_m)
+
+
+def _total(board, m) -> float:
+    from . import score as _score
+    return _score.total(m, board.settings)
 
 
 def _context_of(make_board):
@@ -197,7 +187,8 @@ def _work(make_board, focus, lock, reuse, order, deadline, counter, out):
             with _context_of(make_board):
                 b = make_board()
                 p = b.resolve(reuse=reuse, explore=Explore(seed, focus), lock=lock)
-                out.put((seed, score(b, p)))
+                m = measure(b, p)
+                out.put((seed, _total(b, m), m))
     finally:
         out.put(None)
 
@@ -239,11 +230,13 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         current = base.resolve(lock=entries)
     focus = focus_keys(base, keys, after_line, box, baseline=current)
     if not focus:
-        return {"tried": 0, "focus": [], "baseline": list(score(base, current)), "best": list(score(base, current)),
+        now = score(base, current)
+        return {"tried": 0, "focus": [], "baseline": now, "best": now,
                 "best_seed": 0, "moves": [], "accepted": False, "empty": True}, entries
     result = explore(make_board, focus, seconds, jobs, seeds=seeds, lock=entries)
-    report = {"tried": result.tried, "focus": sorted(focus), "baseline": list(result.baseline),
-              "best": list(result.best), "best_seed": result.best_seed, "moves": [], "accepted": False}
+    report = {"tried": result.tried, "focus": sorted(focus), "baseline": result.baseline,
+              "best": result.best, "best_seed": result.best_seed, "moves": [], "accepted": False,
+              "terms": _moved_terms(base, result.baseline_measures, result.best_measures)}
     if result.best_seed == 0:
         return report, entries
     with _context_of(make_board):
@@ -299,6 +292,15 @@ def before_resolve(script, board, make_board, options, say) -> tuple:
     return entries, report
 
 
+def _moved_terms(board, before, after) -> dict:
+    """{term: [before, after]} for the terms of the run score that differ."""
+    from . import score as _score
+    if not before or not after:
+        return {}
+    tb, ta = _score.terms(before, board.settings), _score.terms(after, board.settings)
+    return {t: [round(tb[t], 1), round(ta[t], 1)] for t in _score.TERMS if abs(tb[t] - ta[t]) > 1e-6}
+
+
 def report_lines(report) -> list:
     b, a = report["baseline"], report["best"]
     if report.get("empty"):
@@ -308,9 +310,9 @@ def report_lines(report) -> list:
         report["tried"], report.get("seconds", 0.0), len(report["focus"]), "" if len(report["focus"]) == 1 else "s")
     if not report["best_seed"]:
         return [head + ": no variant scored better than the current placement"]
-    lines = [head + ": placed %d -> %d, findings %d -> %d, worst cell %d -> %d steps, wire %.1f -> %.1f mm; "
-             "%d item%s would move" % (-b[0], -a[0], b[1], a[1], b[2], a[2], b[3], a[3], len(report["moves"]),
-                                      "" if len(report["moves"]) == 1 else "s")]
+    moved = ", ".join("%s %.1f -> %.1f" % (t, x, y) for t, (x, y) in (report.get("terms") or {}).items())
+    lines = [head + ": score %.1f -> %.1f mm%s; %d item%s would move" % (
+        b, a, " (%s)" % moved if moved else "", len(report["moves"]), "" if len(report["moves"]) == 1 else "s")]
     for m in report["moves"]:
         turn = "" if m["rotation"][0] == m["rotation"][1] else ", rotation %s -> %s" % tuple(
             "-" if r is None else "%g" % r for r in m["rotation"])

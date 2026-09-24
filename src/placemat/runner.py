@@ -16,8 +16,8 @@ from .layout import Board
 from .context import run_script
 from . import checks, settings
 from .project import BoardSource, fab_profile, find_board, generator_inputs, script_fingerprint
-from .report import (RunRecord, against_best, airwires_from_drc, comparable, congestion,
-                     impact, is_better, run_id)
+from .report import (RunRecord, _drc_total, against_best, airwires_from_drc, best_for, comparable, congestion,
+                     family_of, impact, is_better, run_id, score_line)
 
 
 class RunFailure(Exception):
@@ -394,6 +394,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         if line:
             say("reused", line[len("reused "):])
         metrics = run_metrics(plan, n_place, n_copper, extent_metrics)
+        from . import score as score_mod
+        metrics["measures"] = score_mod.plan_measures(board, plan)
         if explored is not None:
             metrics["explore"] = explored
         held = explore_mod.lock_summary(plan)
@@ -407,9 +409,14 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             # KiCad's rule area has no allow list: what a keepout lets in is set aside.
             allow = {"keepout %s" % k.name: (set(k.owners), set(k.allow)) for k in plan.keepouts.values()}
             report = run_drc(src.pcb, run_dir / "drc.json", allow=allow)
-            aw = airwires_from_drc(json.loads((run_dir / "drc.json").read_text()))
+            quiet = set(board._plane_nets()) | set(board._free_nets)
+            aw = airwires_from_drc(json.loads((run_dir / "drc.json").read_text()), quiet)
             free = plan.occupancy.free_area()
             metrics.update(drc_metrics(report, aw, free))
+            # KiCad's own ratsnest and DRC replace the plan's estimates in the score
+            metrics["measures"].update(drc=_drc_total(metrics), airwire_mm=aw["total_mm"],
+                                       crossings={"signal": aw["crossings"] - aw["crossings_quiet"],
+                                                  "plane": aw["crossings_quiet"]})
             cong = metrics["congestion"]
             rec.timing_s["drc"] = round(time.time() - t0, 1)
             say("check", "%s | airwires %d, %.1f mm, %d crossings, congestion %s  (%.1fs)" % (
@@ -484,7 +491,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         rec.paths["run_dir"] = str(run_dir)
     regressed = None
     if rec.status == "ok":
-        regressed = _against_best(rec, run_dir.parent / "best.json", say, cfg.best_airwire_noise)
+        regressed = _against_best(rec, run_dir.parent / "best.json", say, cfg)
     rec.save(run_dir / "run.json")
     latest = run_dir.parent / "latest.json"
     text = ""
@@ -505,23 +512,26 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
     return RunResult(rec, run_dir, generated, text, plan, regressed)
 
 
-def _against_best(rec: RunRecord, best_path: Path, say, airwire_noise: float) -> str | None:
+def _against_best(rec: RunRecord, best_path: Path, say, cfg) -> str | None:
     """Judge a finished run against the best of its family - the runs whose
-    script asked to place the same things - and record it if it is the new
-    best. A regression becomes a finding naming the metric that got worse.
+    script asked to place the same things - by the run score, and record it
+    if it is the new best. A regression becomes a note naming the score and
+    the term that moved it most.
 
-    It is appended after `metrics.findings` was counted, so the objective goes
-    on measuring the layout rather than the verdict about it."""
+    It is appended after the measures were taken, so the score goes on
+    measuring the layout rather than the verdict about it."""
     if not comparable(rec):
         say("best", "not judged: this run measured no DRC, so it has nothing to compare")
         return None
-    said, prior = against_best(best_path, rec, airwire_noise)
+    prior = best_for(best_path, family_of(rec))
+    say("score", score_line(rec, prior if prior is not None and prior.run_id != rec.run_id else None, cfg))
+    said, prior = against_best(best_path, rec, cfg)
     if said:
         rec.findings.append("worse than the best run of these parts: %s" % said)
         say("best", "worse than %s: %s" % (prior.run_id, said), level="fail")
     elif prior is None:
         say("best", "the first run of these parts, so the best so far")
-    elif prior.run_id == rec.run_id or not is_better(rec, prior, airwire_noise):
+    elif prior.run_id == rec.run_id or not is_better(rec, prior, cfg):
         say("best", "matches %s, the best run of these parts" % prior.run_id)
     else:
         say("best", "better than %s: now the best run of these parts" % prior.run_id)
