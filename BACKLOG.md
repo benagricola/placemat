@@ -15,6 +15,14 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **Explore, the lock and freeze** (0.32.0): `--explore SECONDS` on run and
+  preview varies the focused items' spots, rotations and order in parallel
+  variants and reports the best; `--accept` keeps it in a lock file of
+  anchor-relative entries that later runs apply, drifting or releasing
+  with a note; `placemat freeze` moves entries into the script. Measured
+  with `bench.py --explore 64`: better on 26 of 32 modules, worse on none.
+  Next: large neighbourhood search (spec
+  `docs/superpowers/specs/2026-09-25-explore-design.md`, Phase two).
 - **Packaging the native module** (0.31.0): the `native` extra builds it on
   install with the machine's Rust toolchain (uv, from `native/`); a tag
   `v*` runs `.github/workflows/release.yml`: the suite without and with

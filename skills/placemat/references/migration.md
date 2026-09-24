@@ -4,6 +4,13 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.32
+
+Nothing to change. New: `--explore` on `run` and `preview`, the lock file
+beside the script (`<script stem>.lock.json`, commit it with the script),
+`placemat lock` and `placemat freeze`. A declaration's script line is
+recorded; comments added above a declaration still replay.
+
 ## To 0.31
 
 Nothing to change. placemat's version is its git tag now; an install from

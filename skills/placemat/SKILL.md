@@ -174,6 +174,12 @@ coordinates nobody chose.
   is the stdlib's defaults (no silk clearance, the default netclass), not
   the rules of the board that stamps it. Give the fragment the parent's
   config; a run says so when the silk clearance it reads is 0.
+- Explore once the declarations are right: `placemat run <script>
+  --explore 60 --focus <the cluster in question>` (or `--focus-after LINE`
+  for what the script places last), read what would move and why it
+  scores better, then `--accept` what is sound. The lock beside the script
+  keeps it; `placemat freeze` moves an entry into the script when it has
+  become intent. Commit the lock with the script.
 - Leave a searched part's rotation out unless its turn matters: the
   search tries all four and keeps the one that puts its pads nearest what
   they connect to. Say `rotation=` for a part whose orientation is a fact

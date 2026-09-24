@@ -994,6 +994,67 @@ smoothing off (a measurement: a small two-layer board routes in about 10 s), `--
 is the router's whole run. The search budget per net is the router's own
 unless `--iterations` caps it.
 
+## Exploring a placement
+
+Once the declarations are right, the placer can search its own choices for
+the items it was left to place:
+
+```
+placemat run <script> --explore SECONDS [--focus ITEM ...] [--focus-after LINE]
+                      [--focus-box X0,Y0,X1,Y1] [--jobs N] [--accept]
+placemat preview <script> --explore SECONDS [the same]
+placemat lock <script> [--release ITEM ... | --release-all]
+placemat freeze <script> ITEM ... | --all [--fixed]
+```
+
+**What varies.** Only the items in focus, and only what the search chooses
+for them: a focused item draws among its better legal spots (within
+`[explore] slack` of its best, the best the likeliest), rotation with the
+spot, and two focused items next in the placement order sometimes trade
+turns (`[explore] swap`). Everything else is placed as the plain run places
+it. An item in focus is one searched from its links or round a `Near()`
+hint - fixed, edge, line and rim items never vary.
+
+**The focus.** `--focus` names items by key (a part, a cell, a block);
+`--focus-after LINE` takes what the script declares from that line on;
+`--focus-box` what the current placement put inside the box. With none,
+every searched item. A focus with nothing in it says so and searches
+nothing.
+
+**Judging a variant.** More parts placed, then fewer findings, then a less
+congested worst cell (RUDY, in steps of `[explore] congestion_step`), then
+less wire (the cleanup pass's cost). The worst cell leads the wire because
+it is the measure that agreed with the router in the congestion study.
+
+**What a run says.** `explore  N variants in S s over K focused items:
+placed, findings, worst cell and wire before -> after; M items would move`,
+then one line per item that would move. `metrics.explore` records it.
+Without `--accept` nothing persists.
+
+**The lock.** `--accept` writes the best variant's decisions for the
+focused items to `<script stem>.lock.json` beside the script, and the run
+uses them. Each entry places its item off the placed pad it depends on
+most, in that pad's part's frame (it follows the part when it moves or
+turns), keeps its turn among the locked items, and carries a digest of the
+item's declaration. Every later run applies the lock: `held by lock` when
+the spot is legal, `lock: drifted N mm` when something now blocks it (the
+nearest legal spot round it), `lock: released - why` when the declaration
+changed or the anchor is gone, turned over or placed later. The cleanup
+pass leaves a held item where it is. Commit the lock with the script; a
+run prints how many items it held, drifted and released. `placemat lock`
+lists entries and releases them.
+
+**Freeze.** `placemat freeze <script> ITEM` (or `--all`) writes entries
+into the script: the item's `place()` call gains
+`at=Near(PadRef(<anchor>).offset(dx, dy), radius=0)` and `rotation=`,
+which keeps it in the same turn of the order, exactly where the lock put
+it; `--fixed` writes a firm `Location(X(...), Y(...))` instead, allowed
+when the anchor is fixed. Only that call's arguments change - comments and
+every other line stay - and the script and lock are written only when the
+edited script places every item exactly as the lock did; otherwise freeze
+says what would have moved. A call inside a loop or a helper function
+declares more than one item and is refused with its line.
+
 ## Report form and the files placemat writes
 
 Every command takes `--format text|json` (text by default; `--json` is the
@@ -1012,6 +1073,8 @@ in a place of its own:
 | `run` | the run: `run.json`, `script.log`, a copy of the board, renders, `drc.json`, `impact.txt`, `reuse.json` (what the next run replays) | `.placemat/runs/<id>/` |
 | `run` | `latest.json`, `best.json`, and with `--label` an alias | `.placemat/runs/` |
 | `preview` | `preview.svg`, `preview.png`, and `reuse.json` (what the next preview replays) | `.placemat/preview/`, or `--out DIR` |
+| `run` / `preview` with `--explore --accept` | the lock: accepted decisions | `<script stem>.lock.json` beside the script |
+| `freeze` | the script's frozen `place()` calls, and the lock less those entries | the script, and its lock |
 | `route` | the input and routed boards, the router's log, `route.json` | `.placemat/route/`, or `--out DIR` |
 | `show` | the item's renders | `.placemat/show/`, or `--out DIR` |
 | `datasheet --show` | the page's render | beside the PDF, or `--out DIR` |
