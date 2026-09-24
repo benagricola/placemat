@@ -1,9 +1,10 @@
 # A native core for the placement hot path
 
 Date: 2026-09-24
-Status: implemented (Phases 1, 2 and 3 landed; see "Proposed further
-stages" for what is not started, and the plan's Task 4/5 for what each
-phase's own report covers)
+Status: implemented (Phases 1, 2 and 3, per-candidate shapes, pockets(),
+and deferred conflict-reason formatting landed; see "Proposed further
+stages" for what is not started, and the plan's own tasks for what each
+stage's report covers)
 
 **Note on the profile below:** it was taken against the branch point before
 this work started. Placemat's own `main` gained three Python-side
@@ -491,23 +492,118 @@ pytest -q and PLACEMAT_NATIVE=0 pytest -q: both green.
 bench (native built, --jobs 4): default, physical, solve: better 0, worse
 0, same 32 each, against main's current fixtures/bench.json.
 
+### Stage: deferred conflict-reason formatting in scan()'s sweep (implemented)
+
+A full-corpus profile of the `default` config (courtyard envelope, no
+solve) specifically - re-run because the sequential A/B timing after the
+per-candidate-shapes stage showed `default` barely above 1x while
+`physical` was over 3x - found the remaining cost was not the geometry
+predicates or the near-obstacle search itself (both already native and
+small in this profile) but `Occupancy.legal()`'s own native branch
+re-running the real, unmodified `_conflict` / `_drawn_conflict` on EVERY
+native hit to get the reason sentence - `_conflict` alone cost 3.3s of a
+16.7s instrumented profile (~20%), almost entirely `who()`'s cell lookups,
+`_cross_face_note`, and the geometry-predicate calls needed only to
+reconstruct a sentence, not to decide the candidate is illegal (native
+already decided that). The waste: `scan()`'s `sweep()` only ever keeps ONE
+example sentence per rejection bucket (`ScanResult.reasons.setdefault`),
+however many candidates land in it, and a scan's candidates are rejected
+far more often than not (this project's own opening profile: ~85%) - so
+that formatting work ran on every rejection to produce a sentence almost
+always thrown away.
+
+**Design:** `Occupancy.legal_bucket(item, placement, clearance, others,
+blame)`, alongside the unchanged `legal()`, for `sweep()`'s use. Returns
+`None` when legal, else `(bucket, get_reason)`: `bucket` is what
+`_reason_key` would answer for `legal()`'s sentence, known here without
+formatting one; `get_reason()` - called only when `sweep()` has not seen
+that bucket yet this scan - calls the same untouched `_conflict` on the
+same pair, so the sentence a script ever sees is still the reference
+implementation's, byte for byte. `Occupancy._native_bucket(s, o)` derives
+`bucket` from the pair's shape kinds alone, mirroring `_conflict`'s OWN
+dispatch order (drawn kinds first, since a body-vs-npth pair is a drawn
+conflict despite npth also being a kind `_conflict` checks on its own
+branch) - see that method's own doc in occupancy.py for the full reasoning
+per branch, and its "Divergence" note on the one theoretical case
+(a net or refdes literally containing one of `_reason_key`'s six checked
+words) this cannot fully replicate, which is a pre-existing fragility of
+substring-matching arbitrary project names, not something this change
+introduces. The edge/reservation checks were extracted into
+`Occupancy._edge_or_reservation_conflict`, shared unchanged by `legal()`
+and `legal_bucket()`, since they already produce a sentence cheaply and
+have nothing to gain from deferring. `_reason_key` itself moved from
+`placer.py` to `occupancy.py` (re-exported from `placer.py` for its
+existing importers) so `legal_bucket` can call it without a circular
+import.
+
+No new Rust surface: profiling showed the win was in NOT calling
+`_conflict` at all for a repeat bucket, not in how cheaply the bucket or
+the blame owner name can be computed - `who()` (used for both bucket and
+blame) costs a fraction of what `_conflict`'s full formatting did.
+`scan_block` / `layout_block`'s own sweep still calls `legal()` directly,
+unchanged - out of scope for this stage, left for a follow-up (see below).
+
+**Correctness testing:** `tests/test_native_bucket.py` - `_native_bucket`
+against `_reason_key(the real sentence)` on ~20,000 randomised shape pairs
+per envelope from a rich synthetic occupancy (a real bug found this way:
+the first draft checked npth-involvement before drawn-kind involvement,
+misbucketing a body-vs-npth drawn conflict as "copper" instead of by
+owner - fixed by checking drawn kinds first, matching `_conflict`'s own
+dispatch order); `legal_bucket` against `legal()` end to end (bucket,
+formatted sentence, and blame) on 600 randomised candidates each across
+three real fixture boards and three envelopes. `pytest -q` and
+`PLACEMAT_NATIVE=0 pytest -q` both green. `fixtures/bench.py --jobs 4`:
+`same 32` in every config (this changes performance only).
+
+**Measured effect:** the same `SlotControl`/`default` profile this stage
+started from: instrumented total 16.7s to 14.0s (16%); `_conflict` /
+`_drawn_conflict` no longer appear in the top 35 functions by time at all
+(from a combined ~3.3s). Whole-corpus `--jobs 4` bench seconds: `default`
+59.6s to 48.1s, `physical` 58.4s to 44.6s, `solve` 46.6s to 39.2s (noisy,
+parallel, machine shared with other work - see the sequential A/B figures
+below for the authoritative comparison).
+
+**Also found and fixed while profiling this stage, not native at all:**
+`Occupancy.pad_location(ref, number)` recomputed `Box.union(...).center`
+from scratch on every call, even for a pin that has not moved since the
+last `commit()` - and `cleanup.py`'s `where()` / `hp()` call it for every
+pin of a net to weigh moving just one key, so the same committed pins get
+re-unioned on every one of a scan's candidates. Cached per `(ref, number)`,
+cleared on `commit()` (the only place `self.items[ref]` changes). Pure
+Python, no Rust surface, no precision change (identical `Box.union`
+result, just not recomputed) - correctness is a cache invalidation
+question only, covered by the existing suite (`test_cleanup.py`,
+`test_occupancy_parity.py`) with no new tests needed. Effect, same
+`default` profile: `cleanup.py`'s `hp` cumulative time 2.5s to 0.8s,
+`where` 2.1s to 0.4s; instrumented total 14.0s to 12.7s (a further 9%).
+This closes most of the gap the "Proposed further stages" note below
+originally flagged for `cleanup.py`'s cost functions - a native port of
+`hp` / `cost` / `where` remains possible but its ceiling is now small
+(~1.2s of a 12.7s profile) next to what a cache already captured for free.
+
 ### Proposed further stages (not started; for the user to confirm)
 
-Remaining from the later request's list: the whole candidate sweep of
-`scan()` (now understood to be the smallest and riskiest of the group, per
-the finding above - still worth doing, just not the next-highest payoff),
-`scan_block` / `layout_block` (the same near-obstacle search wired a
-second time, for a block's members laid out together - should be a
-smaller, mostly-mechanical follow-on once `scan()` itself is done, since it
-reuses the same native primitives), and the cleanup pass's cost and moves
-(`cleanup.py`'s `hp` / `cost` / `where` and layout.py's `score` closures
-are pure coordinate/distance arithmetic on already-placed pads - no
-conflict decision or reason string at all, so - like `pockets()` - a clean
-port with no message-formatting entanglement; the profile shows these
-functions with real cumulative time, `cost`+`hp`+`where` alone summing to
-several seconds, so this may be the next-best payoff after `scan()`'s
-sweep or even ahead of it, but was not profiled in isolation to confirm
-that before this report). Each remaining stage deserves the same
+Remaining: `scan_block` / `layout_block` (the same near-obstacle search
+wired a second time for a block's members, and the same deferred-reason
+idea would apply to its own sweep - should be a smaller, mostly-mechanical
+follow-on since it reuses the same native primitives and the same
+`legal_bucket` pattern); `layout.py`'s `_scorer` closure (`candidate_pad_locations`
+cumulative to ~1.6s of the post-cache `default` profile - pure coordinate
+arithmetic, no conflict decision, but a turn-cached version would shift
+pad centres the same way `legal()`'s native path shifts shapes: by simple
+addition after a once-per-turn rounding, not the single-shot
+`Transform.apply_location` (round-once) `candidate_pad_locations` uses
+today. Considered and deliberately NOT done in this round: the two can
+differ by up to about the same 1-ULP-class margin the geometry predicates'
+hypot divergence already carries, and unlike a predicate's boolean/distance
+answer this feeds directly into which candidate a scored scan picks -
+`min()` on exact tuples, no tolerance. The full-corpus bench's `same 32`
+would likely catch a real regression, but "likely" is not the bar this
+project holds itself to for "same chosen placements"; flagged for the
+user rather than guessed at); and a native port of `cleanup.py`'s `hp` /
+`cost` / `where` (its remaining ceiling after the `pad_location` cache
+above is small, ~1.2s of a 12.7s profile - the cache captured most of what
+made this look promising). Each remaining stage deserves the same
 spec-numbers-plan-TDD treatment already applied above; see the plan
 document for a task sketch.
 

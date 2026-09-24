@@ -12,7 +12,7 @@ import math
 
 from . import geometry as _geometry_module
 from .geometry import _rect_of, point_in_polygon, polys_overlap, transform_box
-from .occupancy import Occupancy, ShapeIndex
+from .occupancy import Occupancy, ShapeIndex, _reason_key
 from .placement import Placement
 from .values import Box, Edge, Face, Location, bearing_vector, box_support
 
@@ -96,16 +96,22 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 cand = Placement(Location(x, y), rot, hint.face)
                 tried += 1
                 blame = []
-                why = occ.legal(item, cand, clearance, others=others, blame=blame)
-                if why is None:
+                # legal_bucket: a sweep never keeps more than one example
+                # sentence per bucket (the `key not in reasons` check below),
+                # so it asks for the sentence only the first time a bucket is
+                # seen - see Occupancy.legal_bucket's own doc for why this
+                # matters on the native path.
+                hit = occ.legal_bucket(item, cand, clearance, others, blame)
+                if hit is None:
                     d = math.hypot(x - hint.location.x, y - hint.location.y)
                     legal.append((score(cand) if score else 0.0, d, rot, cand))
                     if stop_at_first:
                         return legal
                     continue
-                key = _reason_key(why)
+                key, get_reason = hit
                 rejected[key] += 1
-                reasons.setdefault(key, why)
+                if key not in reasons:
+                    reasons[key] = get_reason()
                 for b in blame:
                     blockers[(b.kind, b.owner, "/".join(sorted(f.value for f in b.faces)))] += 1
         return legal
@@ -140,13 +146,6 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     result = ScanResult(chosen, hint, tried, rejected, reasons, blockers)
     result.score = best[0]
     return result
-
-
-def _reason_key(why: str) -> str:
-    for word in ("courtyard", "edge", "reservation", "copper", "through", "npth"):
-        if word in why:
-            return word
-    return why.split(" ")[0]
 
 
 def edge_placement(occ: Occupancy, item, edge: Edge, along: float, rotation: float,

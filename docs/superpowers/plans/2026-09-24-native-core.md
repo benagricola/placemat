@@ -196,8 +196,36 @@ loop overhead, with none of `scan`'s reason-string/`who()` entanglement
 
 ---
 
+### Task 8: Deferred conflict-reason formatting in scan()'s sweep
+
+**Goal:** stop paying `_conflict` / `_drawn_conflict`'s full sentence
+formatting cost on every native near-obstacle rejection, when a scan only
+ever keeps one example sentence per bucket. See the spec's matching
+section for the profile that motivated this (a `default`-config profile
+specifically, after Task 6/7 left `physical` well over 2x but `default`
+near 1x).
+
+**Files:**
+- Modify: `src/placemat/occupancy.py` (`_edge_or_reservation_conflict` extracted from `legal()`; `legal_bucket`, `_native_bucket`, `_COPPERISH`; `_reason_key` moved here from `placer.py`)
+- Modify: `src/placemat/placer.py` (`sweep()` inside `scan()` calls `legal_bucket` instead of `legal`; imports `_reason_key` from `occupancy` instead of defining it)
+- Test: `tests/test_native_bucket.py`
+
+**Interfaces:**
+- Produces: `Occupancy.legal_bucket(item, placement, clearance, others, blame) -> tuple[str, Callable[[], str]] | None`.
+
+- [x] **Step 1: Extract `_edge_or_reservation_conflict`** from `legal()`'s body, no behaviour change - `legal()` calls it and returns its answer unchanged when it fires.
+- [x] **Step 2: Move `_reason_key`** to `occupancy.py`; `placer.py` imports it from there (re-exported, so `layout.py`'s existing `from .placer import _reason_key` needs no change).
+- [x] **Step 3: Rust-vs-prose fuzz test first** (`tests/test_native_bucket.py`): `_native_bucket(s, o)` against `_reason_key(occ._conflict(s, o, None))` on ~20,000 randomised pairs per envelope from `test_native_conflict.py`'s rich synthetic occupancy, over every kind combination that can actually conflict.
+- [x] **Step 4: Run to verify it fails, implement `_native_bucket`**, mirroring `_conflict`'s dispatch order (drawn kinds checked first). Found and fixed a real bug this way: the first draft checked npth-involvement before drawn-kind involvement, misbucketing a body-vs-npth pair.
+- [x] **Step 5: Implement `legal_bucket`**, calling the shared edge/reservation check, then (native available) the existing `first_conflict_shifted` call with formatting deferred via a closure, or (no native) `legal()` itself with `_reason_key` on its answer - zero optimisation possible or needed on the no-native path, since `_conflict` has to run there anyway to know the candidate is illegal.
+- [x] **Step 6: Wire `placer.py`'s `sweep()`** (inside `scan()` only - `scan_block`'s own sweep is unchanged, left for a follow-up) to call `legal_bucket` and only call `get_reason()` for a bucket not already in `reasons`.
+- [x] **Step 7: End-to-end test** (`tests/test_native_bucket.py`): `legal_bucket` against `legal()` - bucket, formatted sentence once fetched, and blame - on 600 randomised candidates each across three real fixture boards and three envelopes.
+- [x] **Step 8: Run tests and suite both ways; bench both ways; commit** with the tally and the profile numbers.
+
+---
+
 ### Proposed further stages (not started; see spec's own section)
 
-`scan()`'s full candidate sweep, `scan_block` / `layout_block`, and the
-cleanup pass's cost/move functions - see the spec for what each would need
-and the evidence-based reordering among them.
+`scan_block` / `layout_block`'s own sweep (the same near-obstacle search
+and the same deferred-reason idea, wired a second time), and the cleanup
+pass's cost/move functions - see the spec for what each would need.

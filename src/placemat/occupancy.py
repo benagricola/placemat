@@ -256,6 +256,7 @@ class Occupancy:
         self.reservations: list[Reservation] = []
         self.copper: list[Shape] = []
         self._cells: dict[str, ItemGeometry] = {}        # a cell's geometry, until something moves
+        self._pad_location_cache: dict[tuple[str, str], Location] = {}   # (ref, number) -> Location, until a commit
         self.pending: set[str] = set()                    # owners the script will place: not obstacles where the generator left them
         # A native obstacle index (Rust), one per distinct skip-set (an
         # item's own owners, plus self.pending, at the time it was asked
@@ -395,11 +396,21 @@ class Occupancy:
         return {k: t.apply_location(Box.union(v).center) for k, v in boxes.items()}
 
     def pad_location(self, ref: str, number: str) -> Location:
-        """Where a pad is NOW (after every commit so far): its outline's box centre."""
+        """Where a pad is NOW (after every commit so far): its outline's box
+        centre. Cached per (ref, number) until the next commit() - a
+        cleanup pass asks this for every pin of a net to weigh one key's
+        move, and only the moving key's own pins actually change between
+        two such asks."""
+        key = (ref, number)
+        hit = self._pad_location_cache.get(key)
+        if hit is not None:
+            return hit
         boxes = [s.box for s in self.items[ref].shapes if s.kind in ("pad", "through") and s.label == number]
         if not boxes:
             raise KeyError("%s has no pad %s" % (ref, number))
-        return Box.union(boxes).center
+        loc = Box.union(boxes).center
+        self._pad_location_cache[key] = loc
+        return loc
 
     def add_copper(self, shapes) -> None:
         """Planned copper becomes an obstacle for everything placed after it."""
@@ -459,6 +470,7 @@ class Occupancy:
         """Record that `item` now sits at `placement`; later checks see it there."""
         geom, shapes = self.candidate_shapes(item, placement)
         self._cells.clear()
+        self._pad_location_cache.clear()
         self._invalidate_native()
         self.pending -= geom.owners
         if isinstance(item, Footprint):
@@ -573,18 +585,14 @@ class Occupancy:
             self.__dict__["_native_kwargs"] = cache
         return cache
 
-    def legal(self, item, placement: Placement, clearance: float | None = None, others=None,
-              past_edge: bool = False, blame: list | None = None) -> str | None:
-        """None when `item` may sit at `placement`, else one sentence saying
-        what stops it. The first failure found is reported. `others` is a
-        prefiltered obstacle list from `obstacles()`; without one every
-        shape on the board is a candidate obstacle. `past_edge` allows a
-        body over the edge margin: a connector face declared to overhang.
-        `blame`, when a list is passed, collects a `Blocker` for the conflict
-        found: the same refusal in parts rather than prose, so a scan can
-        count who was in the way rather than only how often."""
-        geom = self._geometry(item)
-        body = self.shifted_body_box(item, placement)
+    def _edge_or_reservation_conflict(self, geom: ItemGeometry, body: Box, placement: Placement,
+                                      past_edge: bool, blame: list | None) -> str | None:
+        """The two checks `legal()` runs before it ever looks at an
+        obstacle: the board edge (and cutouts) and the reservations. Both
+        produce a ready sentence cheaply (a box test, or a polymorphic
+        `why_not` call), so unlike the near-obstacle search below there is
+        nothing to gain from deferring them - `legal()` and `legal_bucket()`
+        both call this and return its answer unchanged when it fires."""
         if self.edge_margin is not None and not past_edge:
             if self.board_shape is not None:
                 why = self.board_shape.why_not(body, self.edge_margin)
@@ -615,6 +623,23 @@ class Occupancy:
                 if blame is not None:
                     blame.append(Blocker("reservation", r.why, frozenset()))
                 return "sits in the reservation for %s" % r.why
+        return None
+
+    def legal(self, item, placement: Placement, clearance: float | None = None, others=None,
+              past_edge: bool = False, blame: list | None = None) -> str | None:
+        """None when `item` may sit at `placement`, else one sentence saying
+        what stops it. The first failure found is reported. `others` is a
+        prefiltered obstacle list from `obstacles()`; without one every
+        shape on the board is a candidate obstacle. `past_edge` allows a
+        body over the edge margin: a connector face declared to overhang.
+        `blame`, when a list is passed, collects a `Blocker` for the conflict
+        found: the same refusal in parts rather than prose, so a scan can
+        count who was in the way rather than only how often."""
+        geom = self._geometry(item)
+        body = self.shifted_body_box(item, placement)
+        why = self._edge_or_reservation_conflict(geom, body, placement, past_edge, blame)
+        if why is not None:
+            return why
         if others is None:
             others = self.obstacles(geom)
         dx, dy = placement.location.x, placement.location.y
@@ -675,6 +700,102 @@ class Occupancy:
                         blame.append(Blocker(o.kind, self.who(o.owner), frozenset(o.faces)))
                     return why
         return None
+
+    def legal_bucket(self, item, placement: Placement, clearance: float | None = None, others=None,
+                     blame: list | None = None):
+        """As `legal()`, but for a scan's sweep, which only ever keeps ONE
+        example sentence per rejection bucket (`ScanResult.reasons`,
+        `reasons.setdefault(key, why)`) however many candidates land in it -
+        `rejected` only ever needs the bucket, counted. Returns `None` when
+        legal, else `(bucket, get_reason)`: `bucket` is what `_reason_key`
+        would answer for the sentence `legal()` would return, known here
+        without formatting one; `get_reason()` - call it only when `bucket`
+        has not been seen before this sweep - returns that sentence, from
+        the same unmodified `_conflict` / `_drawn_conflict` `legal()` itself
+        calls.
+
+        The saving is real only on the native near-obstacle path: Rust
+        already knows which pair conflicts (see `legal()`'s own native
+        branch), so formatting a sentence for a rejection nothing keeps -
+        `who()`'s cell lookups, `_cross_face_note`, the `%`-formatting
+        itself - is pure waste on all but the first candidate a bucket
+        sees, and a scan's candidates are rejected far more often than not.
+        The edge/reservation checks and the no-native fallback already
+        produce their sentence cheaply (a box test or a `_conflict` call
+        that has to run anyway to know the candidate is illegal at all), so
+        they run exactly as `legal()` does and bucket the result with
+        `_reason_key`, unchanged."""
+        geom = self._geometry(item)
+        body = self.shifted_body_box(item, placement)
+        why = self._edge_or_reservation_conflict(geom, body, placement, False, blame)
+        if why is not None:
+            return _reason_key(why), (lambda why=why: why)
+        if others is None:
+            others = self.obstacles(geom)
+        native_entry = getattr(others, "_native", None)
+        if native_entry is None:
+            why = self.legal(item, placement, clearance, others=others, blame=blame)
+            return None if why is None else (_reason_key(why), (lambda why=why: why))
+        native_index, native_shapes = native_entry
+        dx, dy = placement.location.x, placement.location.y
+        origin_shapes = list(self._origin_shapes(item, geom, placement))
+        origin_handle = self._native_origin_shapes(item, geom, placement)
+        hit = native_index.first_conflict_shifted(origin_handle, dx, dy, clearance)
+        if hit is None:
+            return None
+        si, oi = hit
+        o = native_shapes[oi]
+        s = origin_shapes[si]
+        moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
+                     tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label)
+        if blame is not None:
+            blame.append(Blocker(o.kind, self.who(o.owner), frozenset(o.faces)))
+
+        def get_reason(moved=moved, o=o, clearance=clearance):
+            why = self._conflict(moved, o, clearance)
+            if why is None:
+                raise AssertionError(
+                    "native found a conflict between a %s and a %s that _conflict disagrees with; "
+                    "this is a native/Python mismatch, not a placement question" % (moved.kind, o.kind))
+            return why
+        return self._native_bucket(moved, o), get_reason
+
+    def _native_bucket(self, s: Shape, o: Shape) -> str:
+        """`_reason_key`'s answer for a near-obstacle conflict, from the
+        pair's shape kinds alone - no sentence needed. Mirrors
+        `_conflict`'s OWN dispatch order, because a pair's message depends
+        on which branch fires, not just which kinds are present:
+        `_conflict` checks "is either shape a drawn kind (silk/mask/body)"
+        FIRST, before courtyard or npth - so a body-vs-npth pair (the one
+        case that is both: `_drawn_conflict` recognises `{"body","npth"}`
+        as its own pair, at gap 0) goes to `_drawn_conflict`, never to
+        `_conflict`'s own npth-vs-copper branch. A drawn-envelope message
+        (silk/mask/body pairs, or a body against another part's pad) never
+        contains any of `_reason_key`'s six checked words - `_NAMES` maps
+        "through" to "pad" and "npth" to "hole" for display - so
+        `_reason_key` falls through to the sentence's first word, always
+        `who(s.owner)` (`legal()` always calls `_conflict(moved, o, ...)`,
+        the candidate's own shape first). Once drawn kinds are ruled out, a
+        courtyard message always contains the word "courtyard"
+        (courtyard-vs-courtyard and courtyard-vs-lead/npth both say so); a
+        pad/through/copper clearance message and the npth-cuts-copper one
+        both always contain "copper" (checked before "through"/"npth" in
+        `_reason_key`'s own order, so it always wins first regardless).
+        Verified against the live `_conflict` / `_drawn_conflict` by
+        fuzzing every branch - see tests/test_native_bucket.py. (A net or
+        refdes literally containing one of the six checked words as a
+        substring could in principle beat this - `_reason_key` itself is a
+        substring match over arbitrary project names, not a property of the
+        conflict kind alone - but that was already true of `_reason_key`
+        before this method existed, and no fixture or real board comes
+        close to it.)"""
+        if s.kind in _DRAWN or o.kind in _DRAWN:
+            return self.who(s.owner).split(" ")[0]
+        if s.kind == "courtyard" or o.kind == "courtyard":
+            return "courtyard"
+        if (s.kind in _COPPERISH and o.kind in _COPPERISH) or s.kind == "npth" or o.kind == "npth":
+            return "copper"
+        return self.who(s.owner).split(" ")[0]
 
     def _drawn_conflict(self, s: Shape, o: Shape) -> str | None:
         """Silk, mask openings and bodies of two different parts, each gap
@@ -850,6 +971,7 @@ class Occupancy:
 
 
 _DRAWN = frozenset(("silk", "mask", "body"))
+_COPPERISH = frozenset(("pad", "through", "copper"))
 _NAMES = {"silk": "silk", "mask": "mask opening", "body": "body", "pad": "pad", "through": "pad", "npth": "hole"}
 
 
@@ -862,3 +984,14 @@ def _box_gap(a: Box, b: Box) -> float:
 
 def _fmt(b: Box) -> str:
     return "%.2f,%.2f..%.2f,%.2f" % (b.left, b.top, b.right, b.bottom)
+
+
+def _reason_key(why: str) -> str:
+    """Which bucket a refusal sentence counts under, for a scan's `rejected`
+    Counter and `reasons` dict (moved here from placer.py, which still
+    re-exports it, so legal_bucket's native path can derive the same key
+    without formatting the sentence first - see legal_bucket's own doc)."""
+    for word in ("courtyard", "edge", "reservation", "copper", "through", "npth"):
+        if word in why:
+            return word
+    return why.split(" ")[0]
