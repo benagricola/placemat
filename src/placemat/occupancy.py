@@ -429,6 +429,8 @@ class Occupancy:
         """Planned copper becomes an obstacle for everything placed after it."""
         self.copper.extend(shapes)
         self._invalidate_native()
+        if self.__dict__.get("_escapes") is not None:
+            self._escapes.add_copper(shapes)
 
     def copper_conflicts(self, shape: Shape) -> list[str]:
         """Every pad or copper of another net within clearance of `shape`."""
@@ -485,6 +487,17 @@ class Occupancy:
         self._commit(item, placement)
         if self.__dict__.get("_ratsnest") is not None:
             self._ratsnest_refresh(owners)
+        if self.__dict__.get("_escapes") is not None:
+            self._escapes.refresh(owners)
+
+    def escapes(self):
+        """The corridors out of every placed pad (escapes.py), kept as items commit."""
+        esc = self.__dict__.get("_escapes")
+        if esc is None:
+            from .escapes import Escapes
+            esc = Escapes(self)
+            self.__dict__["_escapes"] = esc
+        return esc
 
     # ------------------------------------------------------------ the ratsnest
     quiet_nets: frozenset = frozenset()     # plane and free nets: their crossings weigh score.crossing_plane

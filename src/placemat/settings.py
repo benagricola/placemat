@@ -54,6 +54,8 @@ class Settings:
     place_refine_around: int = 3
     place_block_gap_step: float = 0.05
     place_block_gap_reach: float = 2.0
+    place_escape_depth: float = 1.0     # how far each corridor out of a pad runs (escapes.py)
+    place_escape_pads: int = 1          # a part keeps escapes for its pads when it has at least this many
     place_courtyard_touch: float = 0.0   # courtyards may touch, never overlap: KiCad counts touching polygons, and its are inside ours by half a stroke
     place_conflict_gap: float = 1.0
     # [copper]
@@ -222,7 +224,7 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 # from this table because weighting a dimension at nothing is a real choice.
 _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_coarse_from", "place_coarse_steps",
-    "place_refine_around", "place_block_gap_step", "place_block_gap_reach",
+    "place_refine_around", "place_block_gap_step", "place_block_gap_reach", "place_escape_depth",
     "place_conflict_gap", "copper_bridge_half", "copper_finger_bridge_width",
     "copper_plane_min_thickness", "copper_pour_stroke", "label_size",
     "label_thickness", "geometry_arc_sag", "geometry_index_cells",

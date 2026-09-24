@@ -201,43 +201,62 @@ the noise band.
 
 ## Escape room
 
-Every placed pad on a counted net keeps short escape corridors:
+Every placed pad on a net with another pad to join keeps short escape
+corridors (escapes.py):
 
-- one per free side of the pad: a side that does not face its own part's
-  body or its neighbours in the same pad row;
-- each corridor is as wide as the net's track width plus its clearance on
-  both sides, and `[place] escape_depth` long (a setting with a documented
-  default, chosen by measurement);
-- a pad in a row of a many-pin part has one corridor, along the row's
-  normal (`placer._pin_normal`);
-- a two-pad part's pad has up to three: outward along its axis and to
-  either side.
+- a pad of a part with more than two pads has one, along its row's normal
+  (`placer._pin_normal`); a pad of a two-pad part one outward along the
+  axis and one to either side;
+- each is the net's track width plus its clearance on both sides wide and
+  `place.escape_depth` long (1 mm);
+- each direction also has a via spot: a via touching the pad's edge that
+  way, with its clearance.
 
-A corridor is open while no foreign copper, pad or body (anything not on
-the pad's net and not the pad's own part) overlaps it.
+A corridor is closed by copper of another net, or an unconnected pad, that
+shares a copper layer with the pad; a via spot by such copper on any layer.
+A part's body closes neither, since a track can run under it, and neither
+does the pad's own part. (The first design had bodies closing corridors and
+no via spots; measured, it called 287 pads walled across the bench of which
+the path search below confirmed 75, and the search over-reacted to them.)
 
-A pad's **escape toward its target** is open while at least one of its open
-corridors points toward what it connects to. That is its ratsnest
-neighbour, or for a plane net any open corridor (a via can go at its end).
-Pointing toward means a positive dot product with the direction to the
-target. A candidate closes an escape when it takes that last open corridor.
-Each escape closed adds `escape_closed`.
+A pad's escape toward its target is open while a corridor pointing at a
+ratsnest neighbour (a positive dot product), or any via spot, is open; a
+quiet net's pad, or one with nothing placed to join, takes any way out as
+toward. The search charges a candidate `score.escape_closed` for each pad
+whose last way out toward its target it takes, `score.escape_walled` for
+each pad it leaves no way out at all (its neighbours' pads and its own),
+and `score.escape_crossed` for each of its airwires crossing another net's
+airwire from the same neighbouring part within `escape_depth` of that
+part's pads.
 
-A pad with no open corridor at all is **walled off**. Each pad a candidate
-walls off adds `escape_walled` (instead of `escape_closed`). At 400 mm the
-search walls a pad off only when the alternative is no spot at all.
+**Confirmed for the score.** The run score counts only what a grid path
+search confirms (Ben, 2026-09-24): for each pad the corridors call closed
+or walled, a path at the net's track width and clearance from other nets'
+copper, in 0.05 mm cells over a window `escape_depth` round the pad, to the
+window's edge (facing the target, for closed) or to a spot where a via fits
+clear of every other net's copper. Obstacles are taken as their boxes.
 
-A candidate whose own ratsnest edges cross another edge from the same
-neighbouring part within `escape_depth` of that part's pads adds
-`escape_crossed` (on top of the crossing's own `crossing_cost`).
+`place.escape_pads` (1: every part) limits escapes to parts with at least
+that many pads.
 
-At the end of a resolve a grid path search checks every pad the corridors
-call walled off or closed. It searches at the net's track width and
-clearance, in a window of `escape_depth` round the pad, for a path to the
-window's edge or to a via spot. Only pads it confirms become findings.
+### Measurements (task 5)
 
-`board.fanout()` stays the explicit way to reserve a band at a part that
-needs more than this.
+The bench, confirmed counts: walled pads, signal crossings, HPWL.
+
+| | default | solve | physical |
+|---|---|---|---|
+| escapes off | 75, 226, 1456 | 60, 219, 1506 | 75, 156, 1282 |
+| on, every part | 47, 226, 1428 | 53, 200, 1549 | 51, 175, 1314 |
+| on, parts of 3+ pads | 40, 229, 1431 | 48, 201, 1548 | 57, 185, 1318 |
+
+Every part is the default: walled pads -29%, crossings 601 -> 601, HPWL
+about +1%, default resolve 87 s against 0.32.2's 65 s. The depth stays
+1 mm without a sweep: the confirmed count is measured within that window,
+so counts at different depths do not compare.
+
+The router, quick mode, on the fairing MCU cell: escapes off 93.6% closure
+with 5 nets open, on 94.9% with 4 (crossings 42 and 48); with the first
+design, the core went from 75.3% (55 open) to 76.6% raw (52 open).
 
 ## Satellites
 

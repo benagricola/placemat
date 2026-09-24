@@ -117,7 +117,13 @@ def segments_cross(p1, p2, q1, q2) -> bool:
     way round either is written. The test runs on whole nanometres, KiCad's
     own unit, so a touch is exact rather than a floating-point rounding
     either way."""
-    (ax, ay), (bx, by), (cx, cy), (dx, dy) = [(_nm(x), _nm(y)) for x, y in (p1, p2, q1, q2)]
+    return _cross_nm(_nm(p1[0]), _nm(p1[1]), _nm(p2[0]), _nm(p2[1]), _nm(q1[0]), _nm(q1[1]), _nm(q2[0]), _nm(q2[1]))
+
+
+def _cross_nm(ax, ay, bx, by, cx, cy, dx, dy) -> bool:
+    """segments_cross on whole nanometres already."""
+    if max(ax, bx) < min(cx, dx) or max(cx, dx) < min(ax, bx) or max(ay, by) < min(cy, dy) or max(cy, dy) < min(ay, by):
+        return False
     return _turn(ax, ay, bx, by, cx, cy) * _turn(ax, ay, bx, by, dx, dy) < 0 and \
         _turn(cx, cy, dx, dy, ax, ay) * _turn(cx, cy, dx, dy, bx, by) < 0
 
@@ -175,10 +181,12 @@ class Ratsnest:
         self._anchors: dict = {}
         self._edges: dict = {}
         self._grid: dict = {}
+        self._nmends: dict = {}         # id(edge) -> its ends in whole nanometres
 
     def set_net(self, net: str, anchors, joined=()) -> None:
         """The placed pads of `net` are now `anchors` (with `joined` as mst takes it)."""
         for e in self._edges.pop(net, ()):
+            self._nmends.pop(id(e), None)
             for c in _cells(*_ends(e)):
                 bucket = self._grid.get(c)
                 if bucket is not None:
@@ -190,18 +198,16 @@ class Ratsnest:
         edges = mst(net, self._anchors[net], joined)
         self._edges[net] = edges
         for e in edges:
+            self._nmends[id(e)] = (_nm(e.a.x), _nm(e.a.y), _nm(e.b.x), _nm(e.b.y))
             for c in _cells(*_ends(e)):
                 self._grid.setdefault(c, []).append(e)
 
     def edges(self) -> list:
         return [e for net in sorted(self._edges) for e in self._edges[net]]
 
-    def added(self, pads, own=frozenset()) -> float:
-        """The weighted crossings a candidate adds: `pads` its (net, x, y),
-        each joined to the nearest placed pad of its net not on a part in
-        `own` (the leaf an MST would grow), against the airwires of other
-        nets not touching `own`, and against each other."""
-        leaves = []
+    def _leaves(self, pads, own):
+        """A candidate's leaf airwires: (net, weight, p, q, the anchor joined)."""
+        out = []
         for net, x, y in pads:
             w = _weight(self.weights, net)
             if w <= 0:
@@ -214,21 +220,81 @@ class Ratsnest:
                 if best is None or d < best[0]:
                     best = (d, a)
             if best is not None and best[0] > 0:
-                leaves.append((net, w, (x, y), (best[1].x, best[1].y)))
-        total = 0.0
-        for k, (net, w, p, q) in enumerate(leaves):
+                out.append((net, w, (x, y), (best[1].x, best[1].y), best[1]))
+        return out
+
+    def leaf_costs(self, pads, own=frozenset(), depth: float = 1.0) -> tuple:
+        """(weighted crossings added, escapes crossed) for a candidate: `added`
+        and `crossed_escapes` from one search for its leaf airwires."""
+        leaves = self._leaves(pads, own)
+        total, crossed = 0.0, 0
+        for k, (net, w, p, q, joined) in enumerate(leaves):
+            pn = (_nm(p[0]), _nm(p[1]), _nm(q[0]), _nm(q[1]))
             seen = set()
             for c in _cells(p, q):
                 for e in self._grid.get(c, ()):
                     if e.net == net or id(e) in seen or e.a.ref in own or e.b.ref in own:
                         continue
                     seen.add(id(e))
-                    if segments_cross(p, q, *_ends(e)):
-                        total += min(w, _weight(self.weights, e.net))
-            for net2, w2, p2, q2 in leaves[k + 1:]:
+                    if not _cross_nm(*pn, *self._nmends[id(e)]):
+                        continue
+                    total += min(w, _weight(self.weights, e.net))
+                    n = joined.ref
+                    if n and n in (e.a.ref, e.b.ref):
+                        at = _crossing_point(p, q, *_ends(e))
+                        ends = [q] + [(v.x, v.y) for v in (e.a, e.b) if v.ref == n]
+                        if at is not None and min(math.hypot(at[0] - ex, at[1] - ey) for ex, ey in ends) <= depth:
+                            crossed += 1
+            for net2, w2, p2, q2, _ in leaves[k + 1:]:
                 if net2 != net and segments_cross(p, q, p2, q2):
                     total += min(w, w2)
-        return total
+        return total, crossed
+
+    def crossed_escapes(self, pads, own=frozenset(), depth: float = 1.0) -> int:
+        """How many escapes from one part's pins a candidate's leaf airwires
+        cross near that part: a leaf joining a pad of part N that crosses
+        another net's airwire from N, within `depth` of N's pads at either
+        end. `pads` and `own` as for `added`."""
+        return self.leaf_costs(pads, own, depth)[1]
+
+    def crossed_pairs(self, depth: float = 1.0) -> int:
+        """Pairs of airwires of different nets that leave pads of one part and
+        cross within `depth` of that part's pads: crossed escapes."""
+        count = 0
+        edges = self.edges()
+        index = {id(e): i for i, e in enumerate(edges)}
+        for i, e in enumerate(edges):
+            parts_e = {e.a.ref, e.b.ref} - {""}
+            seen = set()
+            for c in _cells(*_ends(e)):
+                for f in self._grid.get(c, ()):
+                    if id(f) in seen or f.net == e.net or index.get(id(f), -1) <= i:
+                        continue
+                    seen.add(id(f))
+                    shared = parts_e & ({f.a.ref, f.b.ref} - {""})
+                    if not shared or not segments_cross(*_ends(e), *_ends(f)):
+                        continue
+                    at = _crossing_point(*_ends(e), *_ends(f))
+                    ends = [(v.x, v.y) for v in (e.a, e.b, f.a, f.b) if v.ref in shared]
+                    if at is not None and min(math.hypot(at[0] - x, at[1] - y) for x, y in ends) <= depth:
+                        count += 1
+        return count
+
+    def added(self, pads, own=frozenset()) -> float:
+        """The weighted crossings a candidate adds: `pads` its (net, x, y),
+        each joined to the nearest placed pad of its net not on a part in
+        `own` (the leaf an MST would grow), against the airwires of other
+        nets not touching `own`, and against each other."""
+        return self.leaf_costs(pads, own)[0]
+
+
+def _crossing_point(p, q, r, t):
+    (x1, y1), (x2, y2), (x3, y3), (x4, y4) = p, q, r, t
+    den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+    if den == 0:
+        return None
+    u = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den
+    return x1 + u * (x2 - x1), y1 + u * (y2 - y1)
 
 
 def _touch(a_outlines, a_box, b_outlines, b_box) -> bool:

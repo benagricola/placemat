@@ -1743,18 +1743,30 @@ class Board:
         return Placement(Location(round(cx - ox, 3), round(cy - oy, 3)), rotation, face)
 
     def _scorer(self, item, occ: Occupancy, targets: list):
-        """A candidate's cost: each connection's weight times its length, and
-        `score.crossing` for each ratsnest crossing its airwires would add."""
-        crossing = self.settings.score_crossing
+        """A candidate's cost: each connection's weight times its length,
+        `score.crossing` for each ratsnest crossing its airwires would add,
+        and the escape weights for each escape it would cross, close or wall
+        off (escapes.py)."""
+        s = self.settings
+        crossing = s.score_crossing
         rn = occ.ratsnest() if crossing > 0 else None
+        escaping = s.score_escape_crossed > 0 or s.score_escape_closed > 0 or s.score_escape_walled > 0
+        esc = occ.escapes() if escaping else None
         own = frozenset(fp.ref for fp in members_of(item))
+
+        depth = s.place_escape_depth
 
         def score(placement: Placement) -> float:
             pads = occ.candidate_pad_locations(item, placement)
-            wire = sum(w * pads[key].distance(target) for key, target, w in targets if key in pads)
-            if rn is None:
-                return wire
-            return wire + crossing * rn.added(occ.candidate_anchors(item, placement), own)
+            cost = sum(w * pads[key].distance(target) for key, target, w in targets if key in pads)
+            crossed = None
+            if rn is not None:
+                added, crossed = rn.leaf_costs(occ.candidate_anchors(item, placement), own, depth)
+                cost += crossing * added
+            if esc is not None:
+                crossed, closed, walled = esc.closed(item, placement, crossed)
+                cost += s.score_escape_crossed * crossed + s.score_escape_closed * closed + s.score_escape_walled * walled
+            return cost
         return score
 
     def _report_undeclared(self, plan: Plan):

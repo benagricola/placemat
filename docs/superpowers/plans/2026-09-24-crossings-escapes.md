@@ -113,7 +113,7 @@ Replay and chosen defaults: see the spec's run score section (unplaced 2000, lin
 
 Result: default 4 mm per crossing; the sweep table is in the spec. A block is scored by its anchor's crossings only; its satellites' come with task 6.
 
-### Task 5: escape corridors
+### Task 5: escape corridors (done)
 
 **Files:** Create `src/placemat/escapes.py`; modify `settings.py` (`place_escape_depth`; the three escape weights exist from task 3), `layout.py` (`_scorer` adds the escape term; corridors registered as pads commit), api.md rows; tests `tests/test_escapes.py`.
 
@@ -121,15 +121,17 @@ Result: default 4 mm per crossing; the sweep table is in the spec. A block is sc
 - `corridors(occ, ref) -> list[Corridor]`: `Corridor(ref, number, net, box, direction)`, built on the pad's free sides. A row pad of a many-pin part (pads in a row, as `_pin_normal` finds them) gets one corridor along its normal; a two-pad part's pad gets up to three.
 - `Escapes.closed(item, placement) -> (crossed, closed, walled)`: how many escapes from a neighbour's pin row the candidate's edges cross; how many pads' last corridor toward their target it takes; how many pads' last corridor of any kind it takes.
 
-- [ ] Failing tests:
+- [x] Failing tests:
   - a part placed across the only corridor of a row pad toward its target costs `escape_closed`, and one beside it costs nothing;
   - a pad with another corridor still open toward its target costs nothing;
   - taking a pad's last corridor of any kind costs `escape_walled`, not `escape_closed`;
   - at the default weights, the search walls a pad off only when no other legal spot exists;
   - same-net copper, and the pad's own part, never close a corridor;
   - with the MCU-like quad anchor from `tests/test_blocks.py`, a part linked to pin 3 is not placed across pin 4's corridor when room under pins 2-3 is free.
-- [ ] Implement.
-- [ ] Measure `escape_depth` in {0.5, 1.0, 2.0} mm and `escape_closed` in {25, 50, 100} mm on the bench (`escape_crossed` and `escape_walled` scaled with it). Pick the defaults as in task 4. Put the table in the spec; tally; baseline; commit.
+- [x] Implement.
+- [x] Measure `escape_depth` in {0.5, 1.0, 2.0} mm and `escape_closed` in {25, 50, 100} mm on the bench (`escape_crossed` and `escape_walled` scaled with it). Pick the defaults as in task 4. Put the table in the spec; tally; baseline; commit.
+
+Result: via spots added, bodies do not close corridors, unconnected pads have no escapes but block others, the path search (`escapes.path_out`, from task 7) brought forward so the run score counts confirmed escapes only. Measurements and the router check are in the spec.
 
 ### Task 6: cleanup - the cost, satellites and swaps
 
@@ -152,7 +154,7 @@ Result: default 4 mm per crossing; the sweep table is in the spec. A block is sc
 
 ### Task 7: the escape findings
 
-**Files:** `src/placemat/escapes.py` (`path_out(occ, ref, number)`: a grid path search at track width and clearance in an `escape_depth` window), `src/placemat/layout.py` (the findings after cleanup, kinds `escape_crossed`, `escape_closed` and `escape_walled`), `tests/test_escape_findings.py`.
+**Files:** `src/placemat/layout.py` (the findings after cleanup; `escapes.path_out` exists from task 5, kinds `escape_crossed`, `escape_closed` and `escape_walled`), `tests/test_escape_findings.py`.
 
 - [ ] Failing tests:
   - a crossed-escape finding for two pads of one part whose edges cross within `escape_depth`, worded "U1 pins 3/4: L2 VDD_RF crosses C2 MCU_EN";

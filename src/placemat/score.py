@@ -74,6 +74,11 @@ def compare(a: dict, b: dict, cfg) -> tuple:
     return sign, term
 
 
+# Measured from the plan itself, not counted from its findings: unplaced by
+# priority, links by how far past their limit, escapes from the corridors.
+_MEASURED_APART = ("unplaced", "link_over", "escape_crossed", "escape_closed", "escape_walled")
+
+
 # ------------------------------------------------------------ measuring a plan
 def plan_measures(board, plan, congestion_step: float | None = None) -> dict:
     """The measures of a resolved plan, without DRC: its own ratsnest gives
@@ -98,8 +103,12 @@ def plan_measures(board, plan, congestion_step: float | None = None) -> dict:
     found: dict = {}
     for f in plan.findings:
         kind = f.kind if isinstance(f, Finding) else "setup"
-        if kind not in ("unplaced", "link_over"):
+        if kind not in _MEASURED_APART:
             found[kind] = found.get(kind, 0) + 1
+    crossed, closed, walled = plan.occupancy.escapes().count()
+    for kind, n in (("escape_crossed", crossed), ("escape_closed", closed), ("escape_walled", walled)):
+        if n:
+            found[kind] = n
     quiet = set(board._plane_nets()) | set(board._free_nets)
     occ = plan.occupancy
     by_net: dict = {}
