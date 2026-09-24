@@ -1213,6 +1213,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `cleanup.passes` | 2 | passes over the movable parts; one that changes nothing ends it |
 | `cleanup.radius` | 3.0 | how far round its optimal region, and round where it stands, a part is searched |
 | `cleanup.step` | 0.5 | that search's step |
+| `cleanup.swap_neighbours` | 4 | each part is offered a swap with this many of its nearest movable neighbours: both lifted, each searched round the other's old spot |
+| `cleanup.swap_radius` | 1.0 | how far round the other's old spot each part of a swap is searched |
 
 A run also records `metrics.seeded_by_net`: how many searched items each net
 seeded. One net seeding most of the board is a missing `board.plane()`. And

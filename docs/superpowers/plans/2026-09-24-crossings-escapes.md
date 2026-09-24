@@ -133,7 +133,7 @@ Result: default 4 mm per crossing; the sweep table is in the spec. A block is sc
 
 Result: via spots added, bodies do not close corridors, unconnected pads have no escapes but block others, the path search (`escapes.path_out`, from task 7) brought forward so the run score counts confirmed escapes only. Measurements and the router check are in the spec.
 
-### Task 6: cleanup - the cost, satellites and swaps
+### Task 6: cleanup - the cost, satellites and swaps (done but for cells)
 
 **Files:** `src/placemat/cleanup.py`, `src/placemat/layout.py` (`_cleanup_movable` gains satellites with their limits, parts linked to one anchor, and cells; `_cleanup` passes the Ratsnest and Escapes), `tests/test_cleanup_swaps.py`, `tests/test_cleanup_satellites.py`.
 
@@ -142,15 +142,17 @@ Result: via spots added, bodies do not close corridors, unconnected pads have no
   - `cost_terms(keys, override) -> float` gives the crossing and escape terms;
   - `limits[key] = (pin (ref, number), own pad number, mm)` holds each satellite's limit.
 
-- [ ] Failing tests:
+- [x] Failing tests:
   - **The brief's case.** A quad anchor, `c_en` a satellite on pin 4, `l_rf_supply` linked SHORT to pin 3 and placed under pin 6: VDD_RF crosses MCU_EN. After cleanup the two are swapped, or `l_rf_supply` is under pins 2-3, and the crossing is gone.
   - A satellite never ends further from its pin than its limit (link limit if declared, else `block_gap_reach`, pad edge to pad edge).
   - A swap of a large and a small part, lifted: the larger is searched round the smaller's old spot, then the smaller round the larger's.
   - A swap that would push a limited link over its limit is refused.
   - Fixed, edge, lock-held and explore-focused items never move.
   - The old identical-part and two-pad swaps still happen, as special cases (today's tests keep passing).
-- [ ] Implement. The lift-and-search swap replaces the two swap loops. Cells take part as a unit.
-- [ ] Suite both ways; bench (tally, baseline); commit.
+- [x] Implement. The lift-and-search swap replaces the two swap loops. Cells take part as a unit.
+- [x] Suite both ways; bench (tally, baseline); commit.
+
+Result: parts and satellites move and swap; cells are not yet movable as units (the spec's "Not yet"). Measurements are in the spec.
 
 ### Task 7: the escape findings
 

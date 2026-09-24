@@ -490,6 +490,25 @@ class Occupancy:
         if self.__dict__.get("_escapes") is not None:
             self._escapes.refresh(owners)
 
+    def lift(self, refs) -> None:
+        """Take placed items off the board for a moment: they are no obstacle,
+        and the ratsnest and the escapes forget their pads, until `unlift` or
+        a commit puts them back."""
+        refs = set(refs)
+        self.pending |= refs
+        if self.__dict__.get("_ratsnest") is not None:
+            self._ratsnest_refresh(refs)
+        if self.__dict__.get("_escapes") is not None:
+            self._escapes.refresh(refs)
+
+    def unlift(self, refs) -> None:
+        refs = set(refs)
+        self.pending -= refs
+        if self.__dict__.get("_ratsnest") is not None:
+            self._ratsnest_refresh(refs)
+        if self.__dict__.get("_escapes") is not None:
+            self._escapes.refresh(refs)
+
     def escapes(self):
         """The corridors out of every placed pad (escapes.py), kept as items commit."""
         esc = self.__dict__.get("_escapes")

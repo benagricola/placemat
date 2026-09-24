@@ -139,6 +139,8 @@ class Settings:
     cleanup_passes: int = 2             # the module sweep: a third pass or a 0.25 mm step bought little for 2-3x the time
     cleanup_radius: float = 3.0
     cleanup_step: float = 0.5
+    cleanup_swap_neighbours: int = 4    # each part is offered a swap with this many of its nearest movable neighbours
+    cleanup_swap_radius: float = 1.0    # how far round the other's old spot each part of a swap is searched
 
     # Where each value came from: a file path, "flag", or "default". Never
     # part of equality or of the run id: it says where, not what.
@@ -230,9 +232,9 @@ _ABOVE_ZERO = frozenset((
     "label_thickness", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_copper_oz",
     "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
-    "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "preview_px_per_mm"))
+    "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm"))
 _AT_LEAST_ZERO = frozenset((
-    "rank_area", "rank_pins", "place_courtyard_touch", "cleanup_passes", "preview_model_edge", "copper_chamfer", "best_airwire_noise",
+    "rank_area", "rank_pins", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge", "copper_chamfer", "best_airwire_noise",
     "best_crossing_noise", "score_unplaced", "score_priority_high", "score_priority_default", "score_priority_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_congestion",

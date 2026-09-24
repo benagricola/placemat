@@ -12,7 +12,11 @@ placed, DRC, findings, airwire. A best recorded by 0.32 has no score and
 gives way to the next run. Explore variants and the bench are judged by it
 too. The search now weighs the ratsnest crossings a spot would add
 (`score.crossing`, 4 mm each): searched parts can land elsewhere than they
-did, and lock entries can drift; accept again where they do. A block's satellite now sits on the normal of its pin's
+did, and lock entries can drift; accept again where they do. The search
+and the cleanup pass also keep pads' escapes open (`score.escape_*`), and
+the cleanup pass may move a block's satellite off its pin's normal, within
+its link's limit or `place.block_gap_reach`, and swaps any two neighbouring
+parts. A block's satellite now sits on the normal of its pin's
 pad row; before, it sat on the ray from the anchor's centre through the
 pin, which near a corner put it in front of the next pins. Satellites at
 pins near a corner move, and parts placed round them can move with them:

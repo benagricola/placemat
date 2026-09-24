@@ -275,35 +275,52 @@ edge: the declared link's limit when a link joins them, else
 
 ## Swaps between any parts
 
-A cleanup step after the moves, for every pair of movable items on the same
-face whose bodies are within `cleanup_radius` plus their sizes of each
-other. Movable items:
-
-- searched parts;
-- satellites, within their limit;
-- parts linked to the same anchor;
-- cells.
-
-Fixed, edge and lock-held items do not move, nor do focused items inside an
-explore variant.
+A cleanup step after the moves. Each movable part is offered a swap with
+its `cleanup.swap_neighbours` (4) nearest movable neighbours on its face,
+and with every part identical to it (courtyard size and pad count) at any
+distance, as the pass always swapped identical parts. Movable: searched
+parts, and block satellites within their limit. Fixed, edge, lock-held and
+explore-focused items do not move. (Cells as units are not in this stage:
+see "Not yet".)
 
 For a pair:
 
-1. Lift both: mark them pending, so their room is free.
-2. Search the larger (by body area) round the smaller's old spot, within
-   `cleanup_radius`, in every rotation its declaration allows, scored by
+1. A first look, neither part lifted: the two exchanged centre on centre in
+   their own turns, on wire, links and crossings. Only a pair that gains
+   there goes on.
+2. Lift both: their room is free, the ratsnest and the escapes forget
+   their pads.
+3. Search the larger (by body area) round the smaller's old spot, within
+   `cleanup.swap_radius` (1 mm), in every rotation it may take, scored by
    the cost, legal against everything else.
-3. Search the smaller round the larger's old spot, in what is left.
-4. Keep the swap only when the cost of the two falls and no limited link
-   ends over its limit. Otherwise put both back where they were.
+4. Search the smaller round the larger's old spot, in what is left.
+5. Keep the swap only when the cost of the two falls and no limit is
+   broken. Otherwise put both back.
 
-These swaps replace today's identical-part and two-pad-neighbour swaps,
-which are special cases of them.
+Moves and swaps alike weigh a part lifted, so where it stands and where it
+might go are judged the same way. A spot whose wire alone reaches the best
+cost seen is not weighed further (crossings and escapes can only add), in
+the search as in the cleanup; outside explore, which draws among spots near
+the best and needs every one weighed.
 
 **Deferred.** Pushing small neighbours aside to make room for the larger
-part is not in this stage. It needs chains of moves, each judged. It is
-measured after plain swaps: if the MCU cell reaches its target without it,
-it stays out.
+part is not in this stage. It needs chains of moves, each judged.
+
+### Measurements (task 6)
+
+The bench, against task 5 (walled, crossings, crossed escapes, HPWL, s):
+
+| | default | solve | physical |
+|---|---|---|---|
+| task 5 | 47, 226, 127, 1428, 87 | 53, 200, 116, 1549, 66 | 51, 175, 78, 1314, 67 |
+| cleanup, first cut | 0, 164, 46, 1825, 447 | 0, 165, 40, 1939, 324 | 0, 114, 37, 1577, 341 |
+| + swap radius, first look, pruning | 0, 172, 56, 1672, 78 | 4, 154, 55, 1833, 63 | 8, 124, 43, 1451, 60 |
+
+HPWL rises 8-17% as the pass trades wire for crossings and escapes at the
+chosen weights. The router, quick mode, on the fairing core (scratch copy):
+the MCU cell 94.9% closure and 4 nets open at task 5, 97.4% and 2 open now,
+with 48 -> 37 crossings; the core 76.1% raw (53 open) against 75.2% (55
+open), crossings 1,120 -> 1,083, within what one quick route varies.
 
 ## Findings
 
@@ -317,6 +334,11 @@ it stays out.
 
 `preview --no-tags` draws the view without annotation tags, with `--zoom`,
 `--around` or the whole board. The notes are still printed.
+
+## Not yet
+
+- Cells as units in the cleanup pass and its swaps.
+- Pushing neighbours aside for a swap (above).
 
 ## Done when
 

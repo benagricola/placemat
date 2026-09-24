@@ -523,6 +523,11 @@ class CriticalUnplaced(Exception):
         super().__init__(message)
 
 
+# What a candidate the scorer did not finish weighing scores on top of its
+# wire: more than any real cost, so it is never chosen over one weighed in full.
+PRUNED = 1e6
+
+
 class Board:
     """One board being laid out. Questions are answered from the geometry read
     off the generated .kicad_pcb; declarations are collected and resolved
@@ -1742,7 +1747,7 @@ class Board:
         oy = sum(p.y for p in own) / len(own) - current.location.y if own else 0.0
         return Placement(Location(round(cx - ox, 3), round(cy - oy, 3)), rotation, face)
 
-    def _scorer(self, item, occ: Occupancy, targets: list):
+    def _scorer(self, item, occ: Occupancy, targets: list, prune: bool = True):
         """A candidate's cost: each connection's weight times its length,
         `score.crossing` for each ratsnest crossing its airwires would add,
         and the escape weights for each escape it would cross, close or wall
@@ -1755,10 +1760,13 @@ class Board:
         own = frozenset(fp.ref for fp in members_of(item))
 
         depth = s.place_escape_depth
+        best = [math.inf]
 
         def score(placement: Placement) -> float:
             pads = occ.candidate_pad_locations(item, placement)
             cost = sum(w * pads[key].distance(target) for key, target, w in targets if key in pads)
+            if prune and cost >= best[0]:
+                return cost + PRUNED        # its crossings and escapes can only add: it cannot be the best
             crossed = None
             if rn is not None:
                 added, crossed = rn.leaf_costs(occ.candidate_anchors(item, placement), own, depth)
@@ -1766,6 +1774,7 @@ class Board:
             if esc is not None:
                 crossed, closed, walled = esc.closed(item, placement, crossed)
                 cost += s.score_escape_crossed * crossed + s.score_escape_closed * closed + s.score_escape_walled * walled
+            best[0] = min(best[0], cost)
             return cost
         return score
 
@@ -2504,6 +2513,30 @@ class Board:
                     or not self._solvable(i) or i.item.ref in held or s.item in kept):
                 continue
             out[s.item] = i.item
+        placed = {s.item for s in plan.steps if s.placement is not None}
+        for key, (sat, _) in self._cleanup_limits(plan).items():
+            if key in placed and sat.ref not in held and key not in kept:
+                out[key] = sat
+        return out
+
+    def _cleanup_limits(self, plan: Plan) -> dict:
+        """{satellite key: (footprint, (its pin, its own pad, mm))} for every
+        block's satellites the cleanup pass may move: its pad no further from
+        its pin than the declared link's limit, else `place.block_gap_reach`,
+        edge to edge. A locked or focused block's satellites stay."""
+        from .placer import _aimed_at
+        kept = set(self._lock_held) | (set(self._explore.focus) if self._explore is not None else set())
+        out = {}
+        for i in self._placements():
+            spec = i.item
+            if not isinstance(spec, BlockSpec) or i.key in kept:
+                continue
+            for k, (sat, net) in enumerate(spec.satellites):
+                pin = _aimed_at(spec, k, net)
+                own = sat.pad(net)
+                link = self._declared_link((sat.ref, own.number), (spec.anchor.ref, pin.number))
+                mm = link.limit_mm if link is not None and link.limit_mm is not None else self.settings.place_block_gap_reach
+                out[sat.inst] = (sat, ((spec.anchor.ref, pin.number), (sat.ref, own.number), mm))
         return out
 
     def _cleanup(self, occ: Occupancy, plan: Plan):
@@ -2527,8 +2560,12 @@ class Board:
         pins = {n: v for n, v in pins.items() if len(v) > 1}
         s = self.settings
         intents = {i.key: i for i in self._placements()}
+        limits = {k: lim for k, (_, lim) in self._cleanup_limits(plan).items() if k in movable}
+        every = (0.0, 90.0, 180.0, 270.0)
         r = cleanup(occ, movable, pins, list(self._links), self.clearance, s.cleanup_passes,
-                    s.cleanup_radius, s.cleanup_step, turns={k: self._turns(intents[k]) for k in movable})
+                    s.cleanup_radius, s.cleanup_step,
+                    turns={k: self._turns(intents[k]) if k in intents else every for k in movable},
+                    limits=limits, settings=s)
         swapped = {}
         for a, b in r.swaps:
             swapped.setdefault(a, []).append(b)
@@ -3275,8 +3312,10 @@ class Board:
                     hint = Placement(current.location, i.rotation, i.face)
                 score = None
                 if targets:
+                    anchor_score = self._scorer(spec.anchor, occ, targets, prune=self._pick(i) is None)
+
                     def score(members):
-                        return self._scorer(spec.anchor, occ, targets)(members[spec.anchor.inst])
+                        return anchor_score(members[spec.anchor.inst])
                 body = occ._geometry(spec.anchor).body
                 radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)
                 best, tried, rejected, reasons = scan_block(occ, spec, hint, radius, i.step, i.rotations or (i.rotation,), clr, score,
@@ -3391,7 +3430,7 @@ class Board:
                 plan.seeded_by_net[n] += 1
         else:
             return self._settle_in_pocket(occ, i, plan, clr)
-        score = self._scorer(i.item, occ, targets) if targets else None
+        score = self._scorer(i.item, occ, targets, prune=self._pick(i) is None) if targets else None
         # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
         body = occ._geometry(i.item).body
         radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)

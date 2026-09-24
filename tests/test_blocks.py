@@ -6,6 +6,12 @@ from placemat.layout import Board
 from placemat.values import Near, Cell, Location, Part, PadRef
 from tests.fixtures import board_geometry, footprint, declared_findings
 
+import dataclasses as _dc
+from placemat.settings import Settings as _Settings
+
+# The block's own layout, before the cleanup pass may move a satellite within its limit
+NO_CLEANUP = _dc.replace(_Settings(), cleanup_enabled=False)
+
 
 def make_board():
     fps = [footprint("U1", 30, 30, w=6, h=3, inst="ldo", nets=("VIN", "VOUT")),      # pad 1 west (VIN), pad 2 east (VOUT)
@@ -13,7 +19,7 @@ def make_board():
            footprint("C2", 60, 65, inst="cout", nets=("VOUT", "GND")),
            footprint("J1", 5, 5, w=8, h=3, inst="j1", nets=("VIN", "GND")),
            footprint("W1", 30, 20, w=20, h=6, inst="wall", excess=0.0)]
-    return Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    return Board(board_geometry(fps, width=60, height=60), edge_margin=1.0, settings=NO_CLEANUP)
 
 
 def test_satellites_sit_on_their_pins_axis_one_gap_out():
@@ -332,7 +338,7 @@ def _quad_board():
     fps = [_quad("U1", "mcu", 30, 30, {1: "EN", 9: "VRF"}, pitch=1.0, body=10.0),     # both at a row's corner end
            footprint("C1", 50, 50, inst="c_en", nets=("EN", "GND")),
            footprint("C2", 50, 55, inst="c_rf", nets=("VRF", "GND"))]
-    return Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    return Board(board_geometry(fps, width=60, height=60), edge_margin=1.0, settings=NO_CLEANUP)
 
 
 @pytest.mark.parametrize("rotation", [0, 90, 180, 270])
