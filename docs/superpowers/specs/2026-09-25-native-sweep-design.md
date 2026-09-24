@@ -118,6 +118,20 @@ does.
 What stays in Python: the grid and pass structure, scoring, the tallies,
 every message, every decision about what to do with the result.
 
+## Mutation sites (task 1)
+
+What the native keep-in and reservations mirror, and every place it
+changes:
+
+- `board_shape`, `board_cutouts`, `board_box`, `edge_margin`: set in
+  `Occupancy.__init__`; `Board._add_cutout` replaces the shape or cutouts
+  with a new object (never edits one), so the native copy is keyed by the
+  objects' identity and rebuilt when either is a different object.
+- `reservations`: appended by `Occupancy.reserve` (keepouts, fanout bands,
+  labels, rule areas at start and on a cell's commit), and rebound by
+  `Occupancy._commit` when a cell's commit drops its old rule areas. Both
+  bump a generation number the native copy is keyed by.
+
 ## The Occupancy's native handle
 
 Beside the obstacle cache, an Occupancy keeps one native handle holding:

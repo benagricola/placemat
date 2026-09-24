@@ -21,17 +21,17 @@
 
 ### Task 1: Spike, profile and mutation sites
 
-- [ ] Prototype a sweep over the obstacle test alone (edge and reservations still called from Python per candidate) on fairing/SlotControl; measure the candidate-check cost and what share the edge and reservation tests keep; record in the spec.
-- [ ] List every site that changes `board_shape`, `board_cutouts`, `edge_margin` or `reservations` on an Occupancy (the handle's generation must bump at each); record in the spec.
+- [x] Prototype a sweep over the obstacle test alone (edge and reservations still called from Python per candidate) on fairing/SlotControl; measure the candidate-check cost and what share the edge and reservation tests keep; record in the spec.
+- [x] List every site that changes `board_shape`, `board_cutouts`, `edge_margin` or `reservations` on an Occupancy (the handle's generation must bump at each); record in the spec.
 - [x] Profile at 0.33 (the spec's revision): legality 35%, the scorer 31%; the scorer goes native (tasks 6-8).
 
 ### Task 2: Exact arithmetic
 
 **Files:** `native/src/exact.rs` (new), `native/src/lib.rs` (expose both for the tests), `tests/test_native_exact.py`.
 
-- [ ] Failing tests: native `clean(v)` equals `_clean(v)` bit for bit on ten million values (random magnitudes, grid multiples of 0.001-1.0 mm plus sums of them, exact decimal ties at the ninth place, negatives, zero and negative zero); native `hypot(a, b)` equals `math.hypot(a, b)` bit for bit on ten million pairs (random, equal magnitude, one zero, subnormal, near overflow).
-- [ ] Implement: `clean` by `{:.9}` format and parse; `hypot` ported from CPython's `vector_norm` two-argument path (cite the `mathmodule.c` lines in the comment).
-- [ ] `cargo test`; the pytest file; commit.
+- [x] Failing tests: native `clean(v)` equals `_clean(v)` bit for bit on ten million values (random magnitudes, grid multiples of 0.001-1.0 mm plus sums of them, exact decimal ties at the ninth place, negatives, zero and negative zero); native `hypot(a, b)` equals `math.hypot(a, b)` bit for bit on ten million pairs (random, equal magnitude, one zero, subnormal, near overflow).
+- [x] Implement: `clean` by `{:.9}` format and parse; `hypot` ported from CPython's `vector_norm` two-argument path (cite the `mathmodule.c` lines in the comment).
+- [x] `cargo test`; the pytest file; commit.
 
 ### Task 3: The keep-in, native
 
