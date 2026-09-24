@@ -6,10 +6,16 @@ whether any of it applies.
 
 ## To 0.34
 
-Nothing to change; placements are the same as 0.33's. With the native
-module, the candidate search weighs whole sweeps natively (legality, wire,
-crossings and escapes), so runs and explore are several times faster.
-Rebuild the native module after upgrading.
+Nothing to change; placements are the same as 0.33's, but for the block
+below. With the native module, the candidate search weighs whole sweeps
+natively (legality, wire, crossings and escapes), so runs and explore are
+several times faster. Rebuild the native module after upgrading.
+
+- A block's satellite that has no legal spot on its pin's normal slides
+  along the pin row, up to `place.block_gap_reach`, instead of failing the
+  block: 0.33 left a block unplaced where two satellites wider than the
+  pitch sat on neighbouring pins. Blocks that placed under 0.33 place the
+  same.
 
 ## To 0.33
 

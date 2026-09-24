@@ -356,3 +356,30 @@ def test_a_satellite_near_a_corner_sits_on_its_pins_normal_not_the_ray_from_the_
             assert abs(s.y - p.y) < 1e-6 and (s.x - p.x) * (p.x - centre.x) > 0, (sat, p, s)
         else:
             assert abs(s.x - p.x) < 1e-6 and (s.y - p.y) * (p.y - centre.y) > 0, (sat, p, s)
+
+
+@pytest.mark.parametrize("gap", [None, 0.3])
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_satellites_on_adjacent_pins_slide_along_the_row_when_their_normals_are_too_close(gap, rotation):
+    """Two satellites wider than the pin pitch cannot both sit on their pins'
+    normals: the second slides along the pin row, the least that clears,
+    rather than failing the block."""
+    fps = [_quad("U1", "q", 30, 30, {3: "VA", 4: "VB"}, pitch=1.3, body=12.0),
+           footprint("C1", 50, 50, w=2.4, h=1.25, inst="ca", nets=("VA", "GND")),
+           footprint("C2", 50, 55, w=2.4, h=1.25, inst="cb", nets=("VB", "GND"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0, settings=NO_CLEANUP)
+    b.place(b.block(Part("q"), satellites=[(Part("ca"), 3), (Part("cb"), 4)], gap=gap),
+            at=Location(30, 30), rotation=rotation)
+    plan = b.resolve()
+    occ = plan.occupancy
+    assert all(plan.placement(i) is not None for i in ("q", "ca", "cb"))
+    reach = occ.settings.place_block_gap_reach
+    centre = occ.items["U1"].body.center
+    a, first = occ.pad_location("U1", "3"), occ.pad_location("C1", "1")
+    p, s = occ.pad_location("U1", "4"), occ.pad_location("C2", "1")
+    across_x = abs(p.x - centre.x) > abs(p.y - centre.y)
+    along = (lambda q: q.y) if across_x else (lambda q: q.x)
+    assert abs(along(first) - along(a)) < 1e-6                   # the first on its normal
+    slide = along(s) - along(p)
+    assert 1e-6 < abs(slide) <= reach + 1e-6                     # the second slid, within reach
+    assert slide * (along(p) - along(a)) > 0                     # away from the first

@@ -527,7 +527,10 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
     reason the block cannot sit there. Each satellite's pad on its served
     net lands on the anchor pin's axis (the normal of its pad row, see
     `_pin_normal`), `gap` beyond the pin, with the
-    satellite's body outward of its pad. `others`, from `block_obstacles`,
+    satellite's body outward of its pad; where no spot on the normal is
+    legal (a satellite wider than the pitch beside another), it slides along
+    the pin's row, up to `block_gap_reach`, unless another satellite already
+    sits at that pin. `others`, from `block_obstacles`,
     is each member's obstacles gathered once for a whole scan."""
     others = others or {}
     why = occ.legal(spec.anchor, anchor, clearance, others=others.get(spec.anchor.inst))
@@ -536,18 +539,27 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
     pads = occ.candidate_pad_locations(spec.anchor, anchor)
     centre = occ.body_box(spec.anchor, anchor).center
     out = {spec.anchor.inst: anchor}
-    taken = []          # courtyard polygons of members already laid, for member-vs-member checks
     _, ashapes = occ.candidate_shapes(spec.anchor, anchor)
     pad_boxes = {}
     for sh in ashapes:
         if sh.kind in ("pad", "through") and sh.owner == spec.anchor.ref:
             pad_boxes[sh.label] = sh.box if sh.label not in pad_boxes else Box.union([pad_boxes[sh.label], sh.box])
-    taken += [sh.poly for sh in ashapes if sh.kind == "courtyard"]
     # In a drawn envelope a member is judged against the members already laid
     # as against any other part: silk, mask openings, bodies and pads, each at
-    # its gap. The courtyards alone are what a courtyard envelope claims.
+    # its gap. The courtyards alone are what a courtyard envelope claims. The
+    # anchor and the satellites laid are kept apart: the gap at which a
+    # satellite clears the anchor alone is where it slides along the row.
     drawn = occ.envelope != "courtyard"
-    laid = ShapeIndex(ashapes) if drawn else ShapeIndex()
+    anchor_yard = [sh.poly for sh in ashapes if sh.kind == "courtyard"]
+    anchor_laid = ShapeIndex(ashapes) if drawn else ShapeIndex()
+    taken = []          # courtyard polygons of the satellites already laid
+    laid = ShapeIndex()
+
+    def meets(mine, sshapes, yards, index):
+        return (any(polys_overlap(a, b) for a in mine for b in yards)
+                or any(occ._conflict(a, b, clearance) for a in sshapes for b in index.near(a.box, occ.gap_for(a))))
+
+    step_mm, reach = occ.settings.place_block_gap_step, occ.settings.place_block_gap_reach
     for k, (sat, net) in enumerate(spec.satellites):
         pin = _aimed_at(spec, k, net)
         p = pads[(spec.anchor.ref, pin.number)]
@@ -566,16 +578,17 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
         half_anchor = _half_extent(pin_box, ux, uy)
         half_sat = _half_extent(sat_pin.box, ux, uy)
         # the gap the script named, else the smallest at which the two courtyards no longer touch
-        step_mm, reach = occ.settings.place_block_gap_step, occ.settings.place_block_gap_reach
         gaps = [spec.gap] if spec.gap is not None else [round(g * step_mm, 6)
                                                         for g in range(int(reach / step_mm) + 1)]
-        best = None
         # The satellite's pad at each turn is the same whatever the gap: asked once.
         probes = {rot: occ.candidate_pad_locations(sat, Placement(Location(0.0, 0.0), rot, anchor.face))[
             (sat.ref, sat_pin.number)] for rot in (0, 90, 180, 270)}
-        for gap in gaps:
-            target = Location(p.x + ux * (half_anchor + gap + half_sat), p.y + uy * (half_anchor + gap + half_sat))
-            for rot in (0, 90, 180, 270):
+        clear = {}          # turn -> the tightest gap on the normal at which it clears the anchor
+
+        def attempt(gap, slide, rots, best):
+            out_by = half_anchor + gap + half_sat
+            target = Location(p.x + ux * out_by - uy * slide, p.y + uy * out_by + ux * slide)
+            for rot in rots:
                 sp = probes[rot]
                 cand = Placement(Location(round(target.x - sp.x, 6), round(target.y - sp.y, 6)), rot, anchor.face)
                 body = occ.shifted_body_box(sat, cand).center
@@ -587,29 +600,48 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
                 if drawn:
                     sshapes = occ.shifted_shapes(sat, cand)
                     mine = [sh.poly for sh in sshapes if sh.kind == "courtyard"]
-                    if any(polys_overlap(a, b) for a in mine for b in taken):
-                        continue
-                    if any(occ._conflict(a, b, clearance)
-                           for a in sshapes for b in laid.near(a.box, occ.gap_for(a))):
-                        continue
                 else:
                     sshapes = ()
                     mine = occ.shifted_courtyards(sat, cand)
-                    if any(polys_overlap(a, b) for a in mine for b in taken):
-                        continue
+                if meets(mine, sshapes, anchor_yard, anchor_laid):
+                    continue
+                if slide == 0.0:
+                    clear.setdefault(rot, gap)
+                if meets(mine, sshapes, taken, laid):
+                    continue
                 reason = occ.legal(sat, cand, clearance, others=others.get(sat.inst))
                 if reason:
                     continue
                 key = (-outward, rot)
                 if best is None or key < best[0]:
                     best = (key, cand, mine, sshapes)
+            return best
+
+        best = None
+        for gap in gaps:
+            best = attempt(gap, 0.0, (0, 90, 180, 270), best)
             if best is not None:
                 break                       # the tightest gap that works
+        there = [s.inst for j, (s, n) in enumerate(spec.satellites[:k]) if _aimed_at(spec, j, n) is pin]
+        if best is None and clear and not there:
+            # Nothing on the normal: slide along the pin's row, the least that
+            # works, at each turn's own gap off the anchor; away from the
+            # row's middle first where both ways work.
+            side = 1.0 if (p.x - centre.x) * -uy + (p.y - centre.y) * ux >= 0 else -1.0
+            for j in range(1, int(reach / step_mm) + 1):
+                for sign in (side, -side):
+                    for rot, gap in sorted(clear.items()):
+                        best = attempt(gap, sign * round(j * step_mm, 6), (rot,), best)
+                    if best is not None:
+                        break
+                if best is not None:
+                    break
         if best is None:
-            there = [s.inst for j, (s, n) in enumerate(spec.satellites[:k]) if _aimed_at(spec, j, n) is pin]
-            return None, "%s: no legal spot on the axis of %s%s" % (
-                sat.inst, _aim_text(spec, k, pin, net),
-                "; %s already sits there: aim at another pad, or link it instead" % ", ".join(there) if there else "")
+            if there:
+                return None, "%s: no legal spot on the axis of %s; %s already sits there: aim at another pad, " \
+                    "or link it instead" % (sat.inst, _aim_text(spec, k, pin, net), ", ".join(there))
+            return None, "%s: no legal spot on the axis of %s, nor slid up to %g mm along its row" % (
+                sat.inst, _aim_text(spec, k, pin, net), reach)
         out[sat.inst] = best[1]
         taken += best[2]
         if drawn:
