@@ -154,15 +154,17 @@ Result: via spots added, bodies do not close corridors, unconnected pads have no
 
 Result: parts and satellites move and swap; cells are not yet movable as units (the spec's "Not yet"). Measurements are in the spec.
 
-### Task 7: the escape findings
+### Task 7: the escape findings (done)
 
 **Files:** `src/placemat/layout.py` (the findings after cleanup; `escapes.path_out` exists from task 5, kinds `escape_crossed`, `escape_closed` and `escape_walled`), `tests/test_escape_findings.py`.
 
-- [ ] Failing tests:
+- [x] Failing tests:
   - a crossed-escape finding for two pads of one part whose edges cross within `escape_depth`, worded "U1 pins 3/4: L2 VDD_RF crosses C2 MCU_EN";
   - a walled-off finding only where the path search confirms it, not where corridors alone say so;
   - both keep their wording and kind through reuse.
-- [ ] Implement; suite; bench; `bench.py --explore 64` tally; commit.
+- [x] Implement; suite; bench; `bench.py --explore 64` tally; commit.
+
+Result: a resolve reports `escape_crossed` ("U2 pins 3/4: L2 VDD_RF crosses C2 MCU_EN"), `escape_closed` and `escape_walled` ("U9 pin 1 (IN): walled off by R9") findings, confirmed by the path search; the run score counts escapes from these findings. An airwire between two pads of one part is no escape. Geometry tests set escape findings aside (`tests/fixtures.placement_findings`).
 
 ### Task 8: preview without tags
 

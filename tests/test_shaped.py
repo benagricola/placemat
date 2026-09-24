@@ -9,7 +9,7 @@ from placemat.copper import Zone
 from placemat.layout import Board
 from placemat.outline import Arc, Outline
 from placemat.values import (Freedom, Along, CopperLayer, Edge, Fraction, Location, Net, OnEdge, Part, Polar, Priority)
-from tests.fixtures import board_geometry, footprint
+from tests.fixtures import placement_findings, board_geometry, footprint
 
 SHAPES = {"j1": ("J1", 6.0, 4.0), "r1": ("R1", 2.0, 1.2), "u1": ("U1", 4.0, 4.0),
           "d1": ("D1", 1.6, 0.8), "d2": ("D2", 1.6, 0.8), "d3": ("D3", 1.6, 0.8)}
@@ -76,7 +76,7 @@ def test_a_part_on_a_curved_run_sits_at_the_keep_in_and_faces_out():
     top = b.edge(facing=Edge.NORTH)
     b.place(Part("j1"), at=OnEdge(top, along=Along.MID))
     plan = b.resolve()
-    assert plan.findings == []
+    assert placement_findings(plan) == []
     assert plan.step("j1").freedom is Freedom.EDGE
     far = max(c.distance(Location(20.0, 20.0)) for c in corners(reach_of(plan, "J1")))
     assert far == pytest.approx(19.5, abs=AT_KEEP_IN) and far <= 19.5   # the arc holds its furthest corner at the keep-in
@@ -91,7 +91,7 @@ def test_a_part_may_sit_a_length_along_a_run_or_a_fraction_of_it():
     b.place(Part("d1"), at=OnEdge(top, along=Fraction(0.25)))
     plan = b.resolve()
     where, facing = top.at(top.length * 0.25)
-    assert plan.findings == []
+    assert placement_findings(plan) == []
     far = max(c.distance(Location(20.0, 20.0)) for c in corners(reach_of(plan, "D1")))
     assert far == pytest.approx(19.5, abs=AT_KEEP_IN) and far <= 19.5    # at the keep-in a quarter of the way along
     assert plan.box("d1").center.distance(where) < 2.0                   # just inside the board, on that normal
@@ -104,7 +104,7 @@ def test_a_row_runs_along_a_curved_edge_turning_with_it():
     top = b.edge(facing=Edge.NORTH)
     row = b.row([Part("d1"), Part("d2"), Part("d3")], top, align="center")
     plan = b.resolve()
-    assert plan.findings == []
+    assert placement_findings(plan) == []
     assert row.alongs == sorted(row.alongs)                     # in order along the run
     # three 1.8 mm claims take MORE than 5.4 mm of a curve: they sit inboard of
     # it, where the same angle spans less of the edge, so the row opens out.
@@ -125,7 +125,7 @@ def test_a_free_item_slides_along_a_run():
     b.place(Part("j1"), at=OnEdge(top, along=Along.MID))
     b.place(Part("u1"), at=OnEdge(top))
     plan = b.resolve()
-    assert plan.findings == []
+    assert placement_findings(plan) == []
     assert "along the run" in plan.step("u1").note
     assert plan.box("u1").center.distance(plan.box("j1").center) > 4.0
 
@@ -144,7 +144,7 @@ def test_a_shaped_board_takes_coordinates_and_polar_places_too():
     b.place(Part("d1"), at=Location(20.0, 30.0))
     b.place(Part("d2"), at=Polar(8.0, Edge.SOUTH))              # about the board's centre
     plan = b.resolve()
-    assert plan.findings == []
+    assert placement_findings(plan) == []
     assert plan.box("d2").center == Location(20.0, 28.0)
 
 
@@ -178,7 +178,7 @@ def test_a_run_may_be_read_off_a_round_board_too():
     assert not north.straight and north.length == pytest.approx(math.pi * 20.0 / 2.0, rel=0.02)
     b.row([Part("d1"), Part("d2")], north, align="center")
     plan = b.resolve()
-    assert plan.findings == []
+    assert placement_findings(plan) == []
     for ref in ("D1", "D2"):
         far = max(c.distance(Location(20.0, 20.0)) for c in corners(reach_of(plan, ref)))
         assert far == pytest.approx(19.5, abs=AT_KEEP_IN) and far <= 19.5

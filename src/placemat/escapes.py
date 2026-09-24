@@ -255,15 +255,14 @@ class Escapes:
         targets = self._targets(ref, number, cs[0].net, at)
         return any(self._open.get(id(c)) and self._toward(c, targets) for c in cs)
 
-    def count(self) -> tuple:
-        """(crossed, closed, walled) over the board as it stands, confirmed:
-        pairs of escapes from one part's pins that cross near it; pads whose
-        corridors toward their target are all closed and from which the path
-        search finds no way out that way; and pads whose corridors are all
-        closed and from which it finds no way out at all."""
+    def confirmed(self) -> tuple:
+        """(closed, walled): the pads the path search confirms, each as
+        (ref, number, net, what closes its corridors, what it joins): walled
+        when no track or via gets out at all, closed when none gets out toward
+        what it joins."""
         occ = self.occ
-        closed = walled = 0
-        for ref, cs in self._corr.items():
+        closed, walled = [], []
+        for ref, cs in sorted(self._corr.items()):
             for group in _group(cs):
                 c0 = group[0]
                 open_ = [c for c in group if self._open.get(id(c))]
@@ -273,13 +272,34 @@ class Escapes:
                     continue
                 pad = Box.union([c.box for c in group])
                 near = list(self._bgrid.near(pad.inflate(self.depth + 1.0)))
-                if not open_:
-                    if not path_out(occ, ref, c0.number, self.depth, near=near):
-                        walled += 1
-                        continue
+                by = sorted({sh.owner for c in group for sh in self._bgrid.near(c.box) if self._closes_any(sh, c)})
+                if not open_ and not path_out(occ, ref, c0.number, self.depth, near=near):
+                    walled.append((ref, c0.number, c0.net, by, []))
+                    continue
                 if targets and not any(path_out(occ, ref, c0.number, self.depth, toward=t, near=near) for t in targets):
-                    closed += 1
-        return occ.ratsnest().crossed_pairs(self.depth), closed, walled
+                    closed.append((ref, c0.number, c0.net, by, self._joins(ref, c0.number, c0.net)))
+        return closed, walled
+
+    def _closes_any(self, s, c) -> bool:
+        """Whether `s` closes corridor `c`, the pad's own part included: what a
+        finding names as walling a pad in."""
+        return (s.net != c.net and bool(s.layers & c.layers) and s.box.overlaps(c.box)
+                and not (s.owner == c.ref and s.label == c.number) and polys_overlap(s.poly, c.poly))
+
+    def _joins(self, ref, number, net) -> list:
+        rn = self.occ.ratsnest()
+        out = set()
+        for e in rn._edges.get(net, ()):
+            if (e.a.ref, e.a.number) == (ref, number) and e.b.ref:
+                out.add(e.b.ref)
+            elif (e.b.ref, e.b.number) == (ref, number) and e.a.ref:
+                out.add(e.a.ref)
+        return sorted(out)
+
+    def count(self) -> tuple:
+        """(crossed, closed, walled) over the board as it stands, confirmed."""
+        closed, walled = self.confirmed()
+        return self.occ.ratsnest().crossed_pairs(self.depth), len(closed), len(walled)
 
     # ------------------------------------------------------------ a candidate
     def _at_origin(self, item, placement):

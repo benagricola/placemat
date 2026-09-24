@@ -240,7 +240,7 @@ class Ratsnest:
                         continue
                     total += min(w, _weight(self.weights, e.net))
                     n = joined.ref
-                    if n and n in (e.a.ref, e.b.ref):
+                    if n and n in (e.a.ref, e.b.ref) and not e.a.ref == e.b.ref == n:
                         at = _crossing_point(p, q, *_ends(e))
                         ends = [q] + [(v.x, v.y) for v in (e.a, e.b) if v.ref == n]
                         if at is not None and min(math.hypot(at[0] - ex, at[1] - ey) for ex, ey in ends) <= depth:
@@ -258,9 +258,13 @@ class Ratsnest:
         return self.leaf_costs(pads, own, depth)[1]
 
     def crossed_pairs(self, depth: float = 1.0) -> int:
-        """Pairs of airwires of different nets that leave pads of one part and
-        cross within `depth` of that part's pads: crossed escapes."""
-        count = 0
+        """How many pairs of airwires of different nets leave pads of one part
+        and cross within `depth` of that part's pads: crossed escapes."""
+        return len(self.crossed_pair_list(depth))
+
+    def crossed_pair_list(self, depth: float = 1.0) -> list:
+        """(part, edge, edge) for each crossed escape `crossed_pairs` counts."""
+        out = []
         edges = self.edges()
         index = {id(e): i for i, e in enumerate(edges)}
         for i, e in enumerate(edges):
@@ -272,13 +276,17 @@ class Ratsnest:
                         continue
                     seen.add(id(f))
                     shared = parts_e & ({f.a.ref, f.b.ref} - {""})
-                    if not shared or not segments_cross(*_ends(e), *_ends(f)):
+                    if not shared or not _cross_nm(*self._nmends[id(e)], *self._nmends[id(f)]):
                         continue
                     at = _crossing_point(*_ends(e), *_ends(f))
-                    ends = [(v.x, v.y) for v in (e.a, e.b, f.a, f.b) if v.ref in shared]
-                    if at is not None and min(math.hypot(at[0] - x, at[1] - y) for x, y in ends) <= depth:
-                        count += 1
-        return count
+                    for n in sorted(shared):
+                        if e.a.ref == e.b.ref == n or f.a.ref == f.b.ref == n:
+                            continue            # an airwire between two of the part's own pads is no escape
+                        ends = [(v.x, v.y) for v in (e.a, e.b, f.a, f.b) if v.ref == n]
+                        if at is not None and min(math.hypot(at[0] - x, at[1] - y) for x, y in ends) <= depth:
+                            out.append((n, e, f))
+                            break
+        return out
 
     def added(self, pads, own=frozenset()) -> float:
         """The weighted crossings a candidate adds: `pads` its (net, x, y),

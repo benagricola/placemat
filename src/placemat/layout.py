@@ -1791,6 +1791,27 @@ class Board:
                 plan.findings.append(Finding("setup", "%s (%s): no declaration places it, so it stays where the generator put it"
                                      % (fp.inst, fp.ref)))
 
+    def _report_escapes(self, occ: Occupancy, plan: Plan):
+        """Escapes left crossed at a pin row, and pads the path search finds
+        closed toward what they join or walled off (escapes.py)."""
+        esc = occ.escapes()
+        rn = occ.ratsnest()
+        for n, e, f in rn.crossed_pair_list(esc.depth):
+            ends = []
+            for edge in (e, f):
+                mine, other = (edge.a, edge.b) if edge.a.ref == n else (edge.b, edge.a)
+                ends.append((mine.number, other.ref or "copper", edge.net))
+            ends.sort(key=lambda t: (int(t[0]) if t[0].isdigit() else 1 << 30, t[0]))
+            (pa, xa, na), (pb, xb, nb) = ends
+            plan.findings.append(Finding("escape_crossed", "%s pins %s/%s: %s %s crosses %s %s" % (n, pa, pb, xa, na, xb, nb)))
+        closed, walled = esc.confirmed()
+        for ref, number, net, by, joins in closed:
+            plan.findings.append(Finding("escape_closed", "%s pin %s (%s): closed toward %s by %s" % (
+                ref, number, net, ", ".join(joins) or "what it joins", ", ".join(by) or "copper")))
+        for ref, number, net, by, _ in walled:
+            plan.findings.append(Finding("escape_walled", "%s pin %s (%s): walled off by %s" % (
+                ref, number, net, ", ".join(by) or "copper")))
+
     def _report_links(self, occ: Occupancy, plan: Plan, placed: set):
         for l in self._links:
             if l.a[0] in placed and l.b[0] in placed:
@@ -2386,6 +2407,7 @@ class Board:
         self._check_keepouts(plan)
         plan.rudy = self._rudy(occ, plan)
         self._report_links(occ, plan, placed)
+        self._report_escapes(occ, plan)
         self._report_undeclared(plan)
         self._place_labels(occ, plan, placed, progress, final=True)
         if self._faces is not None:

@@ -89,7 +89,15 @@ def make_pdf(path, body: str):
     return Path(path)
 
 
+def placement_findings(plan) -> list:
+    """The plan's findings less the escape findings: a routing diagnosis the
+    geometry tests are not about."""
+    return [f for f in plan.findings if not getattr(f, "kind", "").startswith("escape_")]
+
+
 def declared_findings(plan) -> list:
-    """The plan's findings less the ones for fixture parts no test declares:
-    a fixture board often carries parts a test never places."""
-    return [f for f in plan.findings if "no declaration places it" not in f]
+    """The plan's findings less the ones for fixture parts no test declares
+    (a fixture board often carries parts a test never places) and the escape
+    findings, a routing diagnosis the geometry tests are not about."""
+    return [f for f in plan.findings if "no declaration places it" not in f
+            and not getattr(f, "kind", "").startswith("escape_")]

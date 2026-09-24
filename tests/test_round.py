@@ -9,7 +9,7 @@ from placemat.copper import Zone
 from placemat.layout import Board
 from placemat.values import (Freedom, CopperLayer, Disc, Edge, Fraction, Location, Net, OnBore, OnEdge, OnRim,
                              Part, Polar, Priority)
-from tests.fixtures import board_geometry, footprint
+from tests.fixtures import placement_findings, board_geometry, footprint
 
 SHAPES = {"j1": ("J1", 6.0, 4.0), "r1": ("R1", 2.0, 1.2), "u1": ("U1", 4.0, 4.0),
           "d1": ("D1", 1.6, 0.8), "d2": ("D2", 1.6, 0.8), "d3": ("D3", 1.6, 0.8), "d4": ("D4", 1.6, 0.8)}
@@ -92,7 +92,7 @@ def test_an_item_may_overhang_the_rim():
     b.place(Part("j1"), at=OnRim(Edge.EAST, overhang=0.5))
     plan = b.resolve()
     assert far_from(plan, "J1", b.centre) == pytest.approx(20.5, abs=AT_KEEP_IN)
-    assert plan.findings == []                          # declared to overhang, so the keep-in does not refuse it
+    assert placement_findings(plan) == []                          # declared to overhang, so the keep-in does not refuse it
 
 
 def test_polar_puts_a_body_centre_at_a_radius_and_bearing():
@@ -112,7 +112,7 @@ def test_polar_may_leave_the_ring_or_the_spoke_free():
     b.place(Part("r1"), at=Polar(12.0))                # somewhere on that ring
     plan = b.resolve()
     assert plan.box("r1").center.distance(b.centre) == pytest.approx(12.0, abs=1e-6)
-    assert plan.findings == []
+    assert placement_findings(plan) == []
     b2 = make_board("r1")
     b2.disc(diameter=40.0, hole=8.0)
     b2.place(Part("r1"), at=Polar(None, Edge.EAST))    # out along that spoke
@@ -143,7 +143,7 @@ def test_an_item_at_the_bore_stands_off_it_and_faces_it():
     assert math.hypot(dx, dy) == pytest.approx(5.5, abs=AT_KEEP_IN)   # the bore's radius plus the keep-in
     assert plan.box("d1").center.y < 20.0              # north of the centre
     assert plan.placement("d1").rotation == pytest.approx(0.0)   # its outward side turned to face the bore, southward
-    assert plan.findings == []
+    assert placement_findings(plan) == []
 
 
 def test_a_free_rim_item_slides_round_the_rim_to_the_room_that_is_left():
@@ -152,7 +152,7 @@ def test_a_free_rim_item_slides_round_the_rim_to_the_room_that_is_left():
     b.place(Part("j1"), at=OnRim(Edge.NORTH))
     b.place(Part("u1"), at=OnRim())
     plan = b.resolve()
-    assert plan.findings == []                          # it found a place, and nothing is on anything
+    assert placement_findings(plan) == []                          # it found a place, and nothing is on anything
     assert far_from(plan, "U1", b.centre) == pytest.approx(19.5, abs=AT_KEEP_IN)   # still hard against the keep-in
     landed = bearing_at(plan, "u1", b.centre)
     assert min(landed, 360.0 - landed) > 5.0                                 # it moved off the top, where J1 sits
@@ -165,7 +165,7 @@ def test_a_ring_spaces_its_items_round_the_arc_by_what_they_claim():
     b.disc(diameter=40.0)
     ring = b.ring([Part("d1"), Part("d2"), Part("d3")], radius=15.0)
     plan = b.resolve()
-    assert plan.findings == []
+    assert placement_findings(plan) == []
     for key in ("d1", "d2", "d3"):
         assert plan.box(key).center.distance(b.centre) == pytest.approx(15.0, abs=1e-6)
     steps = [ring.angles[1] - ring.angles[0], ring.angles[2] - ring.angles[1]]
@@ -185,7 +185,7 @@ def test_a_ring_may_spread_its_items_evenly_round_the_turn():
     plan = b.resolve()
     assert plan.box("d1").center == Location(20.0, 4.0)           # at the top, 16 out
     assert plan.box("d3").center == Location(20.0, 36.0)
-    assert plan.findings == []
+    assert placement_findings(plan) == []
 
 
 def test_a_ring_with_no_radius_puts_every_item_at_the_rim():
@@ -193,7 +193,7 @@ def test_a_ring_with_no_radius_puts_every_item_at_the_rim():
     b.disc(diameter=40.0)
     b.ring([Part("d1"), Part("d2"), Part("d3")], radius=None, start=Edge.SOUTH)
     plan = b.resolve()
-    assert plan.findings == []
+    assert placement_findings(plan) == []
     for ref in ("D1", "D2", "D3"):
         assert far_from(plan, ref, b.centre) == pytest.approx(19.5, abs=AT_KEEP_IN)
 
@@ -235,7 +235,7 @@ def test_a_round_board_still_takes_plain_coordinates():
     b.place(Part("r1"), at=Centre(X(b.centre), Y(b.centre, 6.0)))   # 6 mm south of the board's centre
     b.place(Part("u1"), at=Centre(X(b.centre, -8.0), None))         # pinned in x, free to slide in y
     plan = b.resolve()
-    assert plan.findings == []
+    assert placement_findings(plan) == []
     assert plan.placement("j1").location == Location(18.0, 6.0)
     assert plan.box("r1").center == Location(20.0, 26.0)
     assert plan.box("u1").center.x == pytest.approx(12.0)
@@ -250,7 +250,7 @@ def test_polar_measures_from_a_centre_so_it_works_on_any_board():
     plan = b.resolve()
     assert plan.box("d1").center == Location(30.0, 20.0)
     assert plan.box("d2").center == Location(10.0, 25.0)
-    assert plan.findings == []
+    assert placement_findings(plan) == []
 
 
 def test_a_ring_may_sit_about_a_point_on_a_square_board():
@@ -262,4 +262,4 @@ def test_a_ring_may_sit_about_a_point_on_a_square_board():
     assert ring.angles == pytest.approx([0.0, 90.0, 180.0, 270.0])
     assert plan.box("d1").center == Location(12.0, 4.0)
     assert plan.box("d2").center == Location(20.0, 12.0)
-    assert plan.findings == []
+    assert placement_findings(plan) == []
