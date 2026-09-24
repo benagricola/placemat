@@ -63,7 +63,14 @@ a footprint that draws no courtyard now claims its body rather than its pads.
    crossings and congestion is the one to keep, and the nets with the most
    crossings name the parts to move. Two firm placements that collide stop
    the run at once with the reason: fix the declaration, do not search
-   around it. Findings name a searched part that had nowhere to go.
+   around it. Findings name a searched part that had nowhere to go, a link
+   past its limit, and the escapes left crossed at a pin row, closed toward
+   what a pad joins, or walled off. The `score` line weighs all of it in
+   millimetres of wire (the `[score]` settings) against the best run: the
+   term that moved most is where to look. The search and the cleanup pass
+   already weigh crossings and escapes; a crossed or walled escape that
+   remains is a placement to change by hand (a swap, a satellite's pin, a
+   `board.fanout()`).
 4. **Read the `seeded` line.** It says which nets pulled how many items into
    place. One net seeding most of the board is a missing `board.plane()`, not a
    placement problem: an undeclared plane net pulls every part that shares it

@@ -340,6 +340,28 @@ open), crossings 1,120 -> 1,083, within what one quick route varies.
 - Cells as units in the cleanup pass and its swaps.
 - Pushing neighbours aside for a swap (above).
 
+## Where it stands (task 9)
+
+The fairing core at 1492f4d, a fresh scratch copy of each run, 0.32.2 (the
+fairing's own install) against this code, quick routing:
+
+| | 0.32.2 | now |
+|---|---|---|
+| MCU cell: crossings, airwire | 43, 191.4 mm | 37, 195.5 mm |
+| MCU cell: route closure, nets open | 98.7%, 1 | 97.4%, 2 |
+| MCU cell: findings | 5 link | 6 link, 5 crossed escapes, 0 walled |
+| Core: crossings, airwire | 1,035, 2,055 mm | 1,106, 2,367 mm |
+| Core: route closure, nets open | 74.3%, 57 | 78.8%, 47 |
+| Core: resolve | 174 s | 72 s |
+
+Against "Done when" below: no pad is walled off and every satellite is on
+its normal or within its limit; the MCU cell's crossings fall 43 -> 37,
+short of 34; five crossed escapes remain at the flash bus's pins (29-34);
+one bypass link (C8-L2) ends 0.11 mm past its limit. On the core the
+router closes more nets but the crossings and the airwire rise. The one
+quick route per case varies by a net or two run to run, so the MCU cell's
+difference is within it; the core's ten nets are likely not.
+
 ## Done when
 
 The brief's own targets:

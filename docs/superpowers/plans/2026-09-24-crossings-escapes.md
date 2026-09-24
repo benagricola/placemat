@@ -175,13 +175,13 @@ Result: a resolve reports `escape_crossed` ("U2 pins 3/4: L2 VDD_RF crosses C2 M
 
 ### Task 9: measure on the fairing core, docs, release
 
-- [ ] Work in a scratch copy of fairing-instrument electronics (`--no-reuse`). Check against the spec's "Done when":
+- [x] Work in a scratch copy of fairing-instrument electronics (`--no-reuse`). Check against the spec's "Done when":
   - MCU cell crossings, crossed escapes, walled-off pads, satellite offsets and link limits;
   - core crossings and findings against run 985825a5.
 
   Record the numbers in the spec.
 - [ ] If the MCU cell misses 34 crossings, measure where the remaining crossings are before adding anything. The push-aside moves come in only with numbers showing they are needed.
-- [ ] Docs:
+- [x] Docs:
   - api.md settings and explanations;
   - SKILL.md: when crossings and escapes decide;
   - migration notes: placements move, lock entries may drift, re-accept.
