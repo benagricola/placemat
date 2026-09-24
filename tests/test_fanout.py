@@ -57,3 +57,24 @@ def test_a_fanout_names_a_part_placed_by_the_script():
     b = _board()
     with pytest.raises(KeyError):
         b.fanout(Part("nothing"), depth=2.0)
+
+
+def test_a_fanout_on_a_stamped_cell_s_member_is_banded_when_the_cell_lands():
+    """The MCU of a stamped cell: the parent declares the band on the member
+    part, and it is reserved round that part's pad rows once the cell is
+    down - the rows' span only, no corners beyond it."""
+    from placemat.values import Cell
+    fps = [footprint("U1", 10, 30, w=10, h=4, cell="logic", inst="logic.mcu", nets=("GPIO", "VDD")),
+           footprint("R1", 60, 60, w=2, h=1, inst="pull", nets=("GPIO", "X"))]
+    b = Board(board_geometry(fps, cells=["logic"], width=60, height=60), edge_margin=1.0)
+    b.place(Cell("logic"), at=Location(30, 30))
+    b.fanout(Part("logic.mcu"), depth=2.0)
+    b.link(PadRef(Part("pull"), 1), PadRef(Part("logic.mcu"), 1))
+    b.place(Part("pull"))
+    plan = b.resolve()
+    bands = _band_edges(plan)
+    assert {("west" in r.why, "east" in r.why) for r in bands} == {(True, False), (False, True)}
+    pad = plan.occupancy.pad_location("U1", "1")
+    (west,) = [r for r in bands if "west" in r.why]
+    assert west.box.top >= pad.y - 0.5 - 1e-6 and west.box.bottom <= pad.y + 0.5 + 1e-6   # the row's span only
+    assert not plan.box("pull").overlaps(west.box)
