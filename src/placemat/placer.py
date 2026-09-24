@@ -63,7 +63,8 @@ REFINE_AROUND = 3
 
 
 def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
-         rotations=None, clearance: float | None = None, commit: bool = False, score=None) -> ScanResult:
+         rotations=None, clearance: float | None = None, commit: bool = False, score=None,
+         pick=None) -> ScanResult:
     """A legal location within `radius` of `hint`, on a `step` grid, trying
     each rotation at each location. Without `score` it is the nearest legal
     candidate to the hint; with `score(placement) -> float` it is the legal
@@ -139,7 +140,10 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                                 if math.hypot(x - hint.location.x, y - hint.location.y) <= radius + 1e-9), False)
     if not legal:
         return ScanResult(None, hint, tried, rejected, reasons, blockers)
-    best = min(legal, key=lambda k: k[:3])
+    if pick is None:
+        best = min(legal, key=lambda k: k[:3])
+    else:                                   # explore: the caller draws among them, best first
+        best = pick(sorted(legal, key=lambda k: k[:3]))
     chosen = best[3]
     if commit:
         occ.commit(item, chosen)
@@ -611,7 +615,7 @@ def _half_extent(box: Box, ux: float, uy: float) -> float:
 
 
 def scan_block(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float, step: float,
-               rotations=None, clearance=None, score=None):
+               rotations=None, clearance=None, score=None, pick=None):
     """The block's anchor placement (and its members') nearest the hint, or
     with the lowest score, where every member is legal. A scored scan over a
     wide radius is coarse first, then fine around its best spots, as a single
@@ -667,5 +671,10 @@ def scan_block(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float, 
                 # at the edge of the radius: keep only what is still inside it.
                 fits += sweep(((x, y) for _, x, y in _grid(cand.location, coarse, step)
                                if math.hypot(x - hx, y - hy) <= radius + 1e-9), False)
-    best = min(fits, key=lambda f: f[0]) if fits else None
+    if not fits:
+        best = None
+    elif pick is None:
+        best = min(fits, key=lambda f: f[0])
+    else:                                   # explore: drawn as a part's are, best first
+        best = pick([f[0] + (f,) for f in sorted(fits, key=lambda f: f[0])])[3]
     return best, tried, rejected, reasons

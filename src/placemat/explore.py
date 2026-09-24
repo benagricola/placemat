@@ -55,3 +55,15 @@ def focus_keys(board, keys=(), after_line: int | None = None, box=None, baseline
     if not keys and after_line is None and box is None:
         chosen = set(pool)
     return frozenset(chosen)
+
+
+def draw(candidates, rng, slack: float):
+    """One of a scan's legal candidates, best first as (score, distance,
+    rotation, placement): only those within `slack` of the best (a fraction
+    of it; for a best of 0, `slack` millimetres), each weighted by one over
+    its rank, so the best stays the likeliest."""
+    best = candidates[0][0]
+    limit = best * (1.0 + slack) if best > 0 else best + slack
+    pool = [c for c in candidates if c[0] <= limit + 1e-12]
+    weights = [1.0 / (k + 1) for k in range(len(pool))]
+    return rng.choices(pool, weights=weights, k=1)[0]
