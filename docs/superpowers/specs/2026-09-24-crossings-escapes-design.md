@@ -74,7 +74,8 @@ within the variation KiCad itself shows between runs of the same board
 One cost everywhere, in millimetres of wire:
 
 ```
-cost = wire + links + crossing_cost * crossings + escape_cost * escapes_closed
+cost = wire + links + crossing_cost * crossings
+     + escape_crossed * crossed + escape_closed * closed + escape_walled * walled
 ```
 
 - `wire` and `links` are as today: the search's pad-to-target sum, and
@@ -82,10 +83,19 @@ cost = wire + links + crossing_cost * crossings + escape_cost * escapes_closed
 - `crossings` is the number of crossings the change adds, between the
   item's own ratsnest edges and those of every other net already placed,
   and among its own edges of different nets.
-- `escapes_closed` is defined under Escape room.
-- `[place] crossing_cost` (mm per crossing) and `[place] escape_cost`
-  (mm per escape closed) are settings with documented defaults. The
-  defaults are chosen by bench measurement (plan tasks 4 and 5), not guessed.
+- `crossed`, `closed` and `walled` are the three escape levels, defined
+  under Escape room.
+- `[place] crossing_cost` (mm per crossing) and the three escape weights
+  are settings with documented defaults. The same settings weigh the same
+  things in the run score, so placement and ranking agree. The defaults are
+  checked by bench measurement (plan tasks 4 and 5) and by the replay (task
+  3).
+
+| Setting | Level | Starting weight |
+|---|---|---|
+| `escape_crossed` | two escapes from one part's pins cross near its pin row: a via or a detour | 20 mm |
+| `escape_closed` | a pad's last route toward its target is closed, other directions still open: the track goes the long way round | 50 mm |
+| `escape_walled` | a pad has no route out at all: nothing reaches it until something moves | 400 mm, just under an unplaced part |
 
 For one candidate, the item's new edges are approximated by joining each
 of its counted pads to the nearest placed pad on the same net: the leaf
@@ -116,8 +126,9 @@ weight, in millimetres of wire, and lower is better:
 | fixed item not legal where put | each | `score_fixed` | 200 mm |
 | copper conflict or uncrossable tracks | each | `score_copper` | 200 mm |
 | label on a part | each | `score_label` | 50 mm |
-| crossed escape | each | `score_escape_crossed` | 10 mm |
-| walled-off pad | each | `score_walled` | 50 mm |
+| crossed escape | each | `escape_crossed` (shared with the search) | 20 mm |
+| escape closed toward its target (corridors, at the end of the resolve) | each | `escape_closed` (shared) | 50 mm |
+| walled-off pad (confirmed by the path search) | each | `escape_walled` (shared) | 400 mm |
 | setup finding (undeclared part, missing layer, web) | each | `score_setup` | 0 |
 | ratsnest crossing | each, on counted nets | `crossing_cost` (the search's) | from task 4's measurement |
 | airwire | mm | 1 (the unit) | - |
@@ -173,10 +184,15 @@ corridors points toward what it connects to. That is its ratsnest
 neighbour, or for a plane net any open corridor (a via can go at its end).
 Pointing toward means a positive dot product with the direction to the
 target. A candidate closes an escape when it takes that last open corridor.
-Each escape closed adds `escape_cost`.
+Each escape closed adds `escape_closed`.
 
-A pad with no open corridor at all is **walled off**. When the candidate
-walls a pad off, it costs twice `escape_cost`.
+A pad with no open corridor at all is **walled off**. Each pad a candidate
+walls off adds `escape_walled` (instead of `escape_closed`). At 400 mm the
+search walls a pad off only when the alternative is no spot at all.
+
+A candidate whose own ratsnest edges cross another edge from the same
+neighbouring part within `escape_depth` of that part's pads adds
+`escape_crossed` (on top of the crossing's own `crossing_cost`).
 
 At the end of a resolve a grid path search checks every pad the corridors
 call walled off or closed. It searches at the net's track width and
