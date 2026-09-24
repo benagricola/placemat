@@ -2310,7 +2310,7 @@ class Board:
             while pending:
                 obj, why_now = self._next_to_place(pending, occ, placed)
                 ex = self._explore
-                if ex is not None and obj.key in ex.focus and len(pending) > 1 and self._order_rng.random() < ex.swap:
+                if ex is not None and obj.key in ex.focus and len(pending) > 1 and self._order_rng.random() < self.settings.explore_swap:
                     other, other_why = self._next_to_place([o for o in pending if o is not obj], occ, placed)
                     if other.key in ex.focus:           # two focused neighbours trade turns
                         obj, why_now = other, (other_why + "; " if other_why else "") + "explore: before " + obj.key
@@ -2988,7 +2988,8 @@ class Board:
         import random as _random
         from .explore import draw
         rng = _random.Random("%d:%s" % (ex.seed, i.key))
-        return lambda cands: draw(cands, rng, ex.slack)
+        s = self.settings
+        return lambda cands: draw(cands, rng, s.explore_slack, s.explore_rank_power)
 
     def _turns(self, i: PlaceIntent) -> tuple:
         """The rotations a search may take an item at: the list the script

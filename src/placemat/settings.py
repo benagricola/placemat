@@ -85,6 +85,12 @@ class Settings:
     drc_outstanding_kinds: tuple = DEFAULT_OUTSTANDING_KINDS
     drc_footprint_kinds: tuple = DEFAULT_FOOTPRINT_KINDS
     drc_refill_zones: bool = True
+    # [explore] - the time-boxed search (explore.py)
+    explore_slack: float = 0.25        # a drawn spot scores within this fraction of the item's best
+    explore_swap: float = 0.2          # the chance two focused neighbours trade turns
+    explore_rank_power: float = 1.0    # a drawn spot at rank r is weighted 1 / r ** this: higher keeps nearer the best
+    explore_congestion_step: float = 0.05   # the worst RUDY cell ranks variants in steps of this; 0 leaves it out
+    explore_jobs: int = 0              # worker processes; 0: the CPU count less one
     drc_severities: dict = field(default_factory=dict)   # KiCad rule -> error|warning|ignore, written into the board's project
     # [route]
     route_router_dir: str = ""          # "": fall back to $KRT_DIR, then the built-in

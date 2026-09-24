@@ -1084,6 +1084,11 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `check.rise_c` | 10.0 | the rise a current path is sized for (`--rise`) |
 | `check.copper_oz` | 1.0 | outer copper weight the widths are sized for (`--copper-oz`) |
 | `check.limits` | none | a bound per check, e.g. `"hot-loop" = 20.0` (`--limit`) |
+| `explore.slack` | 0.25 | an explored item draws among spots scoring within this fraction of its best |
+| `explore.swap` | 0.2 | the chance two focused items next in the placement order trade turns |
+| `explore.rank_power` | 1.0 | an explored item's spot at rank r among its candidates is drawn with weight 1 / r to this power: higher keeps it nearer its best |
+| `explore.congestion_step` | 0.05 | variants are ranked by parts placed, findings, then the worst congestion cell in steps of this (0 leaves it out), then wire |
+| `explore.jobs` | 0 | worker processes for `--explore`; 0 is the CPU count less one |
 | `drc.severities` | none | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
 | `drc.real_kinds` | eight classes | which violations mean the board is not done |
 | `drc.outstanding_kinds` | three classes | which violations are copper not yet joined |

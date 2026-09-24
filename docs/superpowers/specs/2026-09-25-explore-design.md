@@ -122,12 +122,15 @@ rows and anything decided never vary.
 
 ## Scoring
 
-A variant is judged as the benchmark judges a module: more items placed
-first, then fewer findings, then a lower cost - the cleanup pass's cost
-(half-perimeter wire of the nets that pull, plus each link's weight times
-its length) plus `[explore] congestion` (default 0) times the worst RUDY
-cell's utilisation. Nothing needs KiCad: DRC and the render run once, on
-the winner.
+A variant is judged in order: more items placed, then fewer findings, then
+a less congested worst cell (RUDY), counted in steps of `[explore]
+congestion_step` (default 0.05) so a difference below a step decides
+nothing, then less wire - the cleanup pass's cost (half-perimeter wire of
+the nets that pull, plus each link's weight times its length). The worst
+cell leads the wire because it is the one measure that picked the
+better-routing of two placements more often than chance in the routing
+study (73-77% of pairs); wire length and crossings did not. Nothing needs
+KiCad: DRC and the render run once, on the result.
 
 ## How it runs
 

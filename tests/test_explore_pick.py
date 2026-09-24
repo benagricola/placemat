@@ -19,19 +19,19 @@ def test_a_draw_never_goes_beyond_the_slack():
     rng = random.Random(1)
     cands = _cands([10.0, 11.0, 12.4, 12.6, 30.0])
     for _ in range(2000):
-        assert draw(cands, rng, 0.25)[0] <= 12.5
+        assert draw(cands, rng, 0.25, 1.0)[0] <= 12.5
 
 
 def test_with_a_best_of_nothing_the_slack_is_in_millimetres():
     rng = random.Random(1)
     cands = _cands([0.0, 0.2, 0.3])
-    assert {draw(cands, rng, 0.25)[0] for _ in range(500)} == {0.0, 0.2}
+    assert {draw(cands, rng, 0.25, 1.0)[0] for _ in range(500)} == {0.0, 0.2}
 
 
 def test_the_best_is_the_likeliest():
     rng = random.Random(2)
     cands = _cands([10.0, 10.5, 11.0, 11.5])
-    n = Counter(draw(cands, rng, 0.25)[3] for _ in range(10000))
+    n = Counter(draw(cands, rng, 0.25, 1.0)[3] for _ in range(10000))
     assert n["c0"] > n["c1"] > n["c2"] > n["c3"] > 0
 
 
@@ -51,3 +51,11 @@ def test_a_scan_picks_as_told_and_by_default_takes_the_best():
     assert plain.chosen.location == Location(30, 30)
     assert seen and seen[0] == sorted(seen[0])                 # best first
     assert picked.chosen != plain.chosen
+
+
+def test_a_higher_rank_power_keeps_the_draw_nearer_the_best():
+    cands = _cands([10.0, 10.5, 11.0, 11.5])
+    def share_of_best(power):
+        rng = random.Random(3)
+        return sum(draw(cands, rng, 0.25, power)[3] == "c0" for _ in range(5000)) / 5000
+    assert share_of_best(3.0) > share_of_best(1.0) > share_of_best(0.0)
