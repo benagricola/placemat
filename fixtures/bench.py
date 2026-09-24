@@ -134,17 +134,29 @@ def _size(g, hand: bool):
     return side, side
 
 
+class ModuleBoard:
+    """A module's benchmark board, declared and not yet resolved: every part
+    searched, its size and planes as the benchmark sets them. It pickles, so
+    an explore worker can be sent one."""
+
+    def __init__(self, g, overrides: dict, planes: set, size):
+        self.g, self.overrides, self.planes, self.size = g, dict(overrides), set(planes), size
+
+    def __call__(self):
+        from placemat.layout import Board
+        from placemat.settings import Settings
+        from placemat.values import CopperLayer, Net, Part
+        b = Board(self.g, edge_margin=0.2, keep_going=True, settings=dataclasses.replace(Settings(), **self.overrides))
+        b.size(width=round(self.size[0], 2), height=round(self.size[1], 2))
+        for net in sorted(self.planes):
+            b.plane(Net(net), [CopperLayer.B], why="benchmark: a net most parts share")
+        for fp in sorted(self.g.footprints, key=lambda f: f.inst):
+            b.place(Part(fp.inst))          # no rotation given: the search chooses it, as a script that leaves it out
+        return b
+
+
 def _resolve(g, overrides: dict, planes: set, size) -> dict:
-    from placemat.layout import Board
-    from placemat.settings import Settings
-    from placemat.values import CopperLayer, Net, Part
-    b = Board(g, edge_margin=0.2, keep_going=True, settings=dataclasses.replace(Settings(), **overrides))
-    b.size(width=round(size[0], 2), height=round(size[1], 2))
-    for net in sorted(planes):
-        b.plane(Net(net), [CopperLayer.B], why="benchmark: a net most parts share")
-    for fp in sorted(g.footprints, key=lambda f: f.inst):
-        b.place(Part(fp.inst))          # no rotation given: the search chooses it, as a script that leaves it out
-    plan = b.resolve()
+    plan = ModuleBoard(g, overrides, planes, size)().resolve()
     placed = {s.item for s in plan.steps if s.placement is not None and s.kind == "part"}
     pads = []
     for fp in g.footprints:
@@ -217,18 +229,60 @@ def report(run: dict, base: dict, say=print) -> None:
         "%.1f" % base["configs"][c]["seconds"] if base["configs"].get(c, {}).get("seconds") is not None else "-") for c in sorted(run["configs"])))
 
 
+def explore_tally(rows: dict) -> dict:
+    """How many modules the best of their variants beat the plain placement
+    on (by the explore score), how many it did not, and how many it placed
+    more parts on."""
+    better = sum(1 for r in rows.values() if tuple(r["best"]) < tuple(r["baseline"]))
+    placed = sum(1 for r in rows.values() if r["best"][0] < r["baseline"][0])
+    return {"better": better, "same": len(rows) - better, "placed": placed}
+
+
+def explore_bench(paths, configs: dict, n: int, jobs: int) -> None:
+    """--explore N: each module's plain placement against the best of N
+    fixed seeds, every part in focus, per config; module by module, the
+    variants of one module spread over `jobs` workers."""
+    from placemat.explore import explore, focus_keys
+    from placemat.kicad.read import read_board
+    for c, overrides in configs.items():
+        rows, spent, tried = {}, 0.0, 0
+        for path in paths:
+            g = read_board(path)
+            if len(g.footprints) < 2:
+                continue
+            make = ModuleBoard(g, overrides, _planes(g), _size(g, any(path.parents[1].glob("*_layout.py"))))
+            focus = focus_keys(make())
+            if not focus:
+                continue
+            t0 = time.perf_counter()
+            r = explore(make, focus, 0, jobs, seeds=range(n))
+            dt = time.perf_counter() - t0
+            spent, tried = spent + dt, tried + r.tried
+            rows[_name(path)] = {"baseline": list(r.baseline), "best": list(r.best), "seed": r.best_seed}
+            print("%-8s %-28s %s -> %s  seed %d  %.1f s" % (c, _name(path), tuple(r.baseline), tuple(r.best),
+                                                          r.best_seed, dt), flush=True)
+        t = explore_tally(rows)
+        print("%s: explore %d seeds: better %d, same %d of %d modules; more placed on %d; %.2f s per variant" % (
+            c, n, t["better"], t["same"], len(rows), t["placed"], spent / max(1, tried)), flush=True)
+
+
 def main(argv) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("names", nargs="*")
     ap.add_argument("--config", action="append")
     ap.add_argument("--jobs", type=int, default=os.cpu_count())
     ap.add_argument("--update", action="store_true")
+    ap.add_argument("--explore", type=int, metavar="N",
+                    help="the best of N explore seeds per module against its plain placement, instead of the tally")
     a = ap.parse_args(argv)
     if a.update and (a.names or a.config):
         print("--update needs the whole corpus and every configuration", file=sys.stderr)
         return 2
     configs = {k: v for k, v in CONFIGS.items() if not a.config or k in a.config}
     paths = [p for p in boards() if not a.names or any(n in _name(p) for n in a.names)]
+    if a.explore:
+        explore_bench(paths, configs, a.explore, a.jobs)
+        return 0
     run = {"configs": {c: {"seconds": 0.0} for c in configs}, "modules": {}}
     with concurrent.futures.ProcessPoolExecutor(max_workers=a.jobs) as pool:
         for name, row, seconds in pool.map(bench_module, [str(p) for p in paths], [configs] * len(paths)):

@@ -164,11 +164,26 @@ restarts leave improvement on the table.
 ## Measurement
 
 `fixtures/bench.py --explore N` runs N fixed seeds per module (a count, not
-a time, so the tally is reproducible) and reports the tally against the
-baseline. The plan's acceptance: with 64 seeds the default config is better
-on at least half the modules and worse on none (seed 0 guarantees none is
-worse by the score). Time per variant is reported per module, native and
-pure Python.
+a time, so the tally is reproducible), every searched part in focus, and
+reports the best against the plain placement.
+
+Measured 2026-09-25, `--explore 64 --config default`, 8 workers:
+
+| | modules better | same | more parts placed | seconds per variant |
+|---|---|---|---|---|
+| native | 26 of 32 | 6 | 2 | 0.15 |
+| pure Python | 26 of 32 | 6 | 2 | 0.32 |
+
+Every module's best variant is the same in both. None is worse (seed 0 is
+always a variant). The six that did not improve are small modules whose
+parts have one good place.
+
+**Phase two.** The winning seeds are spread up to the last few of the 64
+(seeds 44 to 60 won on eight modules), so more seeds keep finding better
+boards: the restarts leave improvement on the table. The next step is the
+large neighbourhood search: lift a focused cluster out of the best board
+so far and re-place it with the same draws, keeping what scores better -
+not in this plan.
 
 ## Test plan
 

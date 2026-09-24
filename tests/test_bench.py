@@ -6,6 +6,8 @@ _spec = importlib.util.spec_from_file_location(
     "bench", pathlib.Path(__file__).resolve().parent.parent / "fixtures" / "bench.py")
 bench = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bench)
+import sys as _sys
+_sys.modules.setdefault("bench", bench)        # pickle finds ModuleBoard by its module's name
 
 
 def row(placed, findings=0, hpwl=100.0):
@@ -54,3 +56,23 @@ def test_a_baseline_written_twice_is_the_same_bytes_and_reads_back():
 def test_hpwl_sums_each_nets_box_and_skips_planes_and_lone_pads():
     pads = [("N1", 0, 0), ("N1", 3, 4), ("N1", 1, 1), ("GND", 0, 0), ("GND", 50, 50), ("LONE", 9, 9)]
     assert bench.hpwl(pads, skip={"GND"}) == 7.0
+
+
+def test_a_module_board_pickles_and_builds_what_the_bench_places():
+    """--explore sends each module's board builder to spawned workers."""
+    import pickle
+    from placemat.values import Freedom
+    from tests.fixtures import board_geometry, footprint
+    g = board_geometry([footprint("R1", 10, 10, inst="r1", nets=("A", "B")),
+                        footprint("R2", 20, 20, inst="r2", nets=("A", "C"))], width=40, height=40)
+    make = pickle.loads(pickle.dumps(bench.ModuleBoard(g, {}, set(), (30.0, 30.0))))
+    b = make()
+    assert {i.key for i in b._placements()} == {"r1", "r2"}
+    assert all(i.freedom is Freedom.SEARCHED for i in b._placements())
+
+
+def test_explore_tally_counts_variants_better_than_the_plain_run():
+    rows = {"a": {"baseline": [-3, 0, 5, 10.0], "best": [-3, 0, 4, 11.0]},
+            "b": {"baseline": [-3, 0, 5, 10.0], "best": [-3, 0, 5, 10.0]},
+            "c": {"baseline": [-2, 1, 5, 10.0], "best": [-3, 0, 6, 12.0]}}
+    assert bench.explore_tally(rows) == {"better": 2, "same": 1, "placed": 1}
