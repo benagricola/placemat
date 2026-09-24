@@ -416,12 +416,12 @@ def _expected_from(args) -> dict:
 
 def _datasheet_check(args) -> int:
     from . import datasheet as ds
-    from .kicad.read import read_footprint
     from .pdf import read as pdf
     if len(args.rest) != 2:
         console.say("datasheet", "check takes a datasheet and a footprint: "
                                  "placemat datasheet check <pdf> <footprint.kicad_mod>")
         return 1
+    from .kicad.read import read_footprint        # after the usage check: that needs no KiCad
     pdf_path, mod = Path(args.rest[0]), Path(args.rest[1])
     try:
         by_page = _pages_of(pdf, pdf_path, args, with_paths=False)

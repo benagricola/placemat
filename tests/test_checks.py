@@ -1,6 +1,7 @@
 """Design checks: the board is read with the `Pm.*` facts its parts carry
 (written by the capture as footprint fields), and each check reports a
 number, the limit it is judged against and a verdict."""
+from tests.conftest import needs_kicad
 import json
 import math
 
@@ -122,6 +123,7 @@ def test_run_checks_reports_every_check_with_its_name():
     assert all(v.unit for v in report)
 
 
+@needs_kicad          # it patches placemat.kicad.read, which imports pcbnew
 def test_the_check_command_prints_one_line_per_verdict_and_fails_on_a_failed_one(monkeypatch, capsys):
     from placemat import cli
     cin, u, l, cout, rfb = buck()

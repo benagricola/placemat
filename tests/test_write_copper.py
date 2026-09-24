@@ -1,5 +1,9 @@
 """Copper ops written through pcbnew come back when the board file is read again, and DRC on the
 result is readable as numbers."""
+import pytest
+
+pytest.importorskip("pcbnew")        # the module imports placemat.kicad, which needs KiCad's pcbnew
+
 import math
 import shutil
 

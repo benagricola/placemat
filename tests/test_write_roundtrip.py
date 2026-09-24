@@ -1,5 +1,9 @@
 """Slice 3, KiCad side: a resolved plan applied through pcbnew moves parts and
 cells exactly, draws the outline, and writes the same bytes twice."""
+import pytest
+
+pytest.importorskip("pcbnew")        # the module imports placemat.kicad, which needs KiCad's pcbnew
+
 import shutil
 
 from placemat.layout import Board

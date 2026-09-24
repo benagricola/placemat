@@ -8,6 +8,22 @@ implementation, which stays the reference for correctness. See
 here and why, and `docs/superpowers/plans/2026-09-24-native-core.md` for
 the task breakdown.
 
+## Install
+
+With a Rust toolchain (cargo) on the machine, ask for the `native` extra and
+uv builds it from this checkout while installing placemat:
+
+```
+uv pip install -e ".[native]"                               # in placemat's own venv
+placemat = { path = "../placemat", extras = ["native"] }    # a consumer's [tool.uv.sources]
+```
+
+A tagged release (`v*`) also attaches prebuilt wheels for Linux x86_64 and
+aarch64 and Apple Silicon to its GitHub Release (one wheel per platform,
+Python 3.12 and later). placemat uses a native module only when its version
+is placemat's own; a leftover build from another release is set aside with
+a one-line note, and the pure-Python path runs.
+
 ## Build
 
 Requires a Rust toolchain (1.93+) and `maturin` (installed into

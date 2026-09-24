@@ -1,5 +1,9 @@
 """The read surface against real boards: the standalone footprint reader, the
 board's true outline, and the promise that this reader and the placer's agree."""
+import pytest
+
+pytest.importorskip("pcbnew")        # the module imports placemat.kicad, which needs KiCad's pcbnew
+
 import glob
 import hashlib
 import os

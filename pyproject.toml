@@ -18,6 +18,13 @@ placemat = "placemat.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# The Rust accelerator (native/): built on install by uv from this checkout,
+# which needs a Rust toolchain (cargo) on the installing machine; a tagged
+# release also carries prebuilt wheels. placemat runs without it.
+native = ["placemat_native"]
+
+[tool.uv.sources]
+placemat_native = { path = "native" }
 
 [tool.hatch.version]
 path = "src/placemat/__init__.py"

@@ -5,6 +5,10 @@ answer and KiCad gets another, so a disagreement here is not a cosmetic one:
 every via-in-pad, every Pin() placement and every clearance the model judged
 inherits it. These tests write a real board and read it back, because the only
 authority on what KiCad did is KiCad."""
+import pytest
+
+pytest.importorskip("pcbnew")        # the module imports placemat.kicad, which needs KiCad's pcbnew
+
 import shutil
 
 import pytest

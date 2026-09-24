@@ -4,6 +4,12 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.31
+
+Nothing to change. The native module installs with placemat's `native`
+extra (a Rust toolchain on the machine), and a native module built for
+another placemat release is no longer used: rebuild it after upgrading.
+
 ## To 0.30
 
 Nothing to change. An optional native module (`native/`, see its README)

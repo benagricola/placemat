@@ -44,3 +44,34 @@ def test_the_version_is_what_names_a_run():
     from placemat.report import run_id
     same = ("board.size(40, 40)", b"PCB")
     assert run_id(*same, placemat.__version__) != run_id(*same, "0.0.0")
+
+
+def test_the_native_crate_carries_the_same_version():
+    """The compiled module is built from the same tree: its version is
+    placemat's, so a module left over from another release can be told."""
+    cargo = ROOT / "native" / "Cargo.toml"
+    if not cargo.exists():
+        pytest.skip("not a source checkout: %s" % cargo)
+    import re
+    m = re.search(r'^version = "([^"]+)"', cargo.read_text(), re.M)
+    assert m and m.group(1) == placemat.__version__
+
+
+def test_a_native_module_from_another_release_is_not_used():
+    """An old build could place differently after an upgrade without a word:
+    placemat uses a native module only when it is its own version."""
+    from placemat.geometry import _accept_native
+
+    class Module:
+        __version__ = "0.0.1"
+    module, note = _accept_native(Module(), placemat.__version__)
+    assert module is None and "0.0.1" in note and placemat.__version__ in note
+    Module.__version__ = placemat.__version__
+    module, note = _accept_native(Module(), placemat.__version__)
+    assert module is not None and note == ""
+
+
+def test_a_native_module_with_no_version_is_not_used():
+    from placemat.geometry import _accept_native
+    module, note = _accept_native(object(), placemat.__version__)
+    assert module is None and "no version" in note

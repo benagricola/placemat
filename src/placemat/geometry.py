@@ -18,12 +18,31 @@ Polygon = tuple[Point, ...]
 # when it was. Every function it supplies has its Python body kept in place
 # as the fallback and the reference - see
 # docs/superpowers/specs/2026-09-24-native-core-design.md.
+def _accept_native(module, version: str):
+    """(module, "") when a native module is this placemat's own build, else
+    (None, why): a module built from another release could place
+    differently, so it is set aside rather than trusted."""
+    theirs = getattr(module, "__version__", None)
+    if theirs is None:
+        return None, "placemat_native has no version: it is not used; rebuild it from this checkout's native/"
+    if theirs != version:
+        return None, ("placemat_native is %s, placemat is %s: it is not used; rebuild it from this checkout's "
+                      "native/ (uv pip install -e \".[native]\")" % (theirs, version))
+    return module, ""
+
+
 try:
     import placemat_native as _native
 except ImportError:
     _native = None
 if os.environ.get("PLACEMAT_NATIVE") == "0":
     _native = None
+if _native is not None:
+    from . import __version__ as _version
+    _native, _why = _accept_native(_native, _version)
+    if _why:
+        import sys as _sys
+        print("placemat: " + _why, file=_sys.stderr)
 
 
 @dataclass(frozen=True)

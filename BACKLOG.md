@@ -7,9 +7,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **Packaging the native module**: a prebuilt wheel per platform, a build
-  at install, or a manual opt-in step. Ben's decision.
-
 ## Housekeeping (left for Ben: outside this repository)
 
 - `mnb-ecosystem/pyproject.toml` points placemat at the stale
@@ -18,6 +15,12 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **Packaging the native module** (0.31.0): the `native` extra builds it on
+  install with the machine's Rust toolchain (uv, from `native/`); a tag
+  `v*` runs `.github/workflows/release.yml`: the suite without and with
+  native, abi3 wheels for Linux x86_64/aarch64 and Apple Silicon, and
+  placemat's wheel and sdist, attached to the GitHub Release. A native
+  module from another release is not used.
 - **A native core** (0.30.0): an optional Rust module (`native/`, built with
   maturin; `PLACEMAT_NATIVE=0` forces Python) takes the geometry
   predicates, the near-obstacle conflict search inside `legal()` with each

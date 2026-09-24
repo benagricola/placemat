@@ -1,0 +1,84 @@
+# A tagged release (v0.31.0, ...): the suite with and without the native
+# module, then prebuilt native wheels for Linux (x86_64, aarch64) and Apple
+# Silicon, placemat's own wheel and sdist, all attached to the tag's GitHub
+# Release. Nothing runs on a plain push.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: The tag is placemat's version
+        run: |
+          version=$(sed -n 's/^__version__ = "\([^"]*\)".*/\1/p' src/placemat/__init__.py)
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME but placemat is $version"; exit 1; }
+      - name: Suite, pure Python
+        run: |
+          uv venv --python 3.12
+          uv pip install -e ".[dev]"
+          PLACEMAT_NATIVE=0 .venv/bin/python -m pytest -q
+      - name: Suite, native (built from native/ on install)
+        run: |
+          uv pip install -e ".[dev,native]"
+          .venv/bin/python -c "import placemat.geometry as g; assert g._native is not None"
+          .venv/bin/python -m pytest -q
+
+  native-wheels:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64 }
+          - { os: ubuntu-latest, target: aarch64 }
+          - { os: macos-14, target: aarch64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: native
+          target: ${{ matrix.target }}
+          manylinux: auto
+          args: --release --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.os }}-${{ matrix.target }}
+          path: native/dist/*.whl
+
+  placemat:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build --out-dir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: placemat
+          path: dist/*
+
+  release:
+    needs: [native-wheels, placemat]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
