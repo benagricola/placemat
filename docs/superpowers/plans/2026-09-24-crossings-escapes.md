@@ -63,7 +63,7 @@ Result: every fixture board whose airwires end at pads (20 of 34; the 14 routed 
   - an old reuse cache without kinds reads them as `setup`, or re-resolves.
 - [x] Implement; suite both ways; bench (placements unchanged); commit.
 
-### Task 3: the run score
+### Task 3: the run score (done)
 
 **Files:** Create `src/placemat/score.py`; modify `settings.py` (the `score_*` settings and the three escape weights, which task 5 then uses in the search and measures, `best_crossing_noise`), `report.py` (`objective` -> the score, stored measurements, the noise band, the per-term report), `runner.py` (metrics record counts by kind, link excess, `crossings_counted` from DRC over counted nets), `explore.py` (`score` -> the run score without DRC, with placemat's crossings and the RUDY term), `fixtures/bench.py` (records crossings and the score; verdict by score beyond noise), api.md rows, tests `tests/test_run_score.py`, `tests/test_report*.py`, `tests/test_explore_score.py`, bench tests.
 
@@ -82,7 +82,7 @@ Result: every fixture board whose airwires end at pads (20 of 34; the 14 routed 
 - `airwire_mm`;
 - `rudy_steps`.
 
-- [ ] Failing tests:
+- [x] Failing tests:
   - each term computed from its measure and weight;
   - an unplaced part counted once, not also as a finding;
   - a HIGH part's absence costs twice a DEFAULT's;
@@ -93,9 +93,11 @@ Result: every fixture board whose airwires end at pads (20 of 34; the 14 routed 
   - explore orders variants by the score;
   - the bench verdict moves only beyond noise;
   - old best tables and run records (0.32 metrics) are read, with the measures they lack taken as zero, as `comparable()` does today.
-- [ ] Implement. The crossing weight is `place_crossing_cost`, which task 4 measures. Until then its default is a placeholder of 2 mm, stated in the commit and replaced in task 4.
-- [ ] Replay: the fairing core's recorded runs (`.placemat/runs/*/run.json`) and the bench corpus. Tabulate the run each gives as best under the old order and under the default weights, and where they differ, why. Show Ben; adjust the defaults if he asks; record the table in the spec.
-- [ ] Bench: new baseline (score column); tally; commit.
+- [x] Implement. The crossing weight is `place_crossing_cost`, which task 4 measures. Until then its default is a placeholder of 2 mm, stated in the commit and replaced in task 4.
+- [x] Replay: the fairing core's recorded runs (`.placemat/runs/*/run.json`) and the bench corpus. Tabulate the run each gives as best under the old order and under the default weights, and where they differ, why. Show Ben; adjust the defaults if he asks; record the table in the spec.
+- [x] Bench: new baseline (score column); tally; commit.
+
+Replay and chosen defaults: see the spec's run score section (unplaced 2000, link 20 x weight). A best stored by 0.32 reads as absent (no measures) rather than with its missing measures as zero, so it is never judged against numbers it did not take.
 
 ### Task 4: crossings in the search cost, and its default
 

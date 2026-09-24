@@ -108,7 +108,7 @@ class Settings:
     best_airwire_noise: float = 0.01
     best_crossing_noise: float = 0.02   # a fraction of the crossings, as airwire's: kicad-cli's ratsnest varies too
     # [score] - what each thing that can go wrong costs a run, in millimetres of wire (score.py)
-    score_unplaced: float = 500.0       # a part left unplaced, times its declared priority's multiplier
+    score_unplaced: float = 2000.0      # a part left unplaced, times its declared priority's multiplier
     score_priority_high: float = 2.0
     score_priority_default: float = 1.0
     score_priority_low: float = 0.5

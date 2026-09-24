@@ -18,7 +18,7 @@ def row(placed, findings=0, hpwl=100.0, crossings=0, parts=5):
 
 
 def test_the_verdict_is_the_run_score():
-    # an unplaced part (500 mm) outweighs three labels (150 mm) and 290 mm more wire
+    # an unplaced part (2000 mm) outweighs three labels (150 mm) and 290 mm more wire
     assert bench.verdict(row(5, 3, 400.0), row(4, 0, 110.0)) == 1
     assert bench.verdict(row(4, 0, 110.0), row(5, 3, 400.0)) == -1
     # a crossing is weighed against wire

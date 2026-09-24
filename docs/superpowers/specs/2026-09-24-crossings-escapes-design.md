@@ -120,7 +120,7 @@ weight, in millimetres of wire, and lower is better:
 
 | Term | Counted as | Weight setting | Default |
 |---|---|---|---|
-| unplaced part | each part not placed, times its declared priority's multiplier | `score_unplaced`; `score_priority_high`, `_default`, `_low` | 500 mm; x2, x1, x0.5 |
+| unplaced part | each part not placed, times its declared priority's multiplier | `score_unplaced`; `score_priority_high`, `_default`, `_low` | 2000 mm; x2, x1, x0.5 |
 | DRC violation | each real DRC violation (runs only) | `score_drc` | 200 mm |
 | link over its limit | mm over the limit, times the link's weight (SHORT 8, PREFER 2, DEFAULT 1) | `score_link_over` | 20 mm per mm |
 | fixed item not legal where put | each | `score_fixed` | 200 mm |
@@ -134,9 +134,24 @@ weight, in millimetres of wire, and lower is better:
 | airwire | mm | 1 (the unit) | - |
 | worst RUDY cell (explore only) | steps of `explore_congestion_step` | `score_congestion` | from measurement |
 
-The defaults are starting values. Task 3's replay checks them against the
-fairing core's recorded runs: which run each set would keep, shown to Ben
-before they are fixed.
+The defaults were checked by task 3's replay (`fixtures/rank_replay.py`)
+against the fairing core's recorded runs, 45 families of two or more runs,
+walked in order and the best kept as best.json keeps it:
+
+| Weights | Families keeping a different run than 0.32's order | Of those, a run with fewer parts placed |
+|---|---|---|
+| unplaced 500, link 20 | 7 | 3 |
+| unplaced 2000 | 5 | 1 |
+| link 5 | 6 | 1 |
+| unplaced 2000, link 5 | 6 | 1 |
+
+Where the same parts were placed, the score took the run with fewer
+crossings and less link excess, even with one more finding: a link a hair
+past its limit while the others got shorter. At unplaced 500, two core
+families kept a run with a part fewer for halving the link excess. The one
+run with fewer parts kept at 2000 is Backlight's, whose 0.32 best placed
+every part with its links 1,391 mm x weight past their limits. Ben chose
+unplaced 2000 and link 20 x the link's weight (2026-09-24).
 
 - **Findings get a kind.** A finding becomes `Finding(kind, text)`, with
   the kinds in the table. Every site that emits one names its kind. The

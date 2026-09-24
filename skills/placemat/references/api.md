@@ -1184,7 +1184,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `noise.patterns` | none | extra KiCad stderr patterns to suppress, ADDED to the built-ins |
 | `best.airwire_noise` | 0.01 | how far airwire may move, as a fraction, before a run counts as better or worse than its family's best: kicad-cli picks different ratsnest edges each run for a byte-identical board |
 | `best.crossing_noise` | 0.02 | how far the crossings' term may move, as a fraction, before a score counts as better or worse: kicad-cli's ratsnest varies run to run |
-| `score.unplaced` | 500 | mm a part left unplaced costs the run score, times its priority's multiplier |
+| `score.unplaced` | 2000 | mm a part left unplaced costs the run score, times its priority's multiplier |
 | `score.priority_high` | 2.0 | the unplaced multiplier for a part declared `priority=HIGH` |
 | `score.priority_default` | 1.0 | the unplaced multiplier for a part with no declared priority |
 | `score.priority_low` | 0.5 | the unplaced multiplier for a part declared `priority=LOW` |
