@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** One native call judges a whole sweep pass (edge, reservations and obstacles), so a candidate check costs a few microseconds instead of about thirty.
+**Goal:** One native call judges and scores a whole sweep pass - edge, keepouts, obstacles, then wire, crossings and escapes for the legal candidates - so a candidate costs a few microseconds instead of tens.
 
 **Architecture:** The keep-in and the reservations are registered on a per-Occupancy native handle with a generation number; `sweep()` takes one pass's points and rotations and returns each candidate's verdict and detail; `placer.scan` turns those into its tallies, blockers and sentences as now, and falls back to `legal_bucket()` per candidate without the module. Scoring, messages and all decisions stay in Python.
 
@@ -23,7 +23,7 @@
 
 - [ ] Prototype a sweep over the obstacle test alone (edge and reservations still called from Python per candidate) on fairing/SlotControl; measure the candidate-check cost and what share the edge and reservation tests keep; record in the spec.
 - [ ] List every site that changes `board_shape`, `board_cutouts`, `edge_margin` or `reservations` on an Occupancy (the handle's generation must bump at each); record in the spec.
-- [ ] Decide the scorer option (spec: The scorer) from the profile; commit.
+- [x] Profile at 0.33 (the spec's revision): legality 35%, the scorer 31%; the scorer goes native (tasks 6-8).
 
 ### Task 2: Exact arithmetic
 
@@ -54,11 +54,31 @@
 - [ ] Failing tests: on every fixture module, for every scan the resolve makes (recorded by wrapping `placer.scan`), the native and Python scans give the same chosen placement, `tried`, `rejected`, `reasons`, `blockers` and score, for scored and unscored scans.
 - [ ] Implement; suite both ways; bench `same 32` x3; `bench.py --explore 64` identical both ways; commit with the tally and timings.
 
-### Task 6: The scorer
+### Task 6: The ratsnest, native
 
-- [ ] The option task 1 chose: native pad positions (bit-identical transform with the native `clean`), and the native sum with the hypot port if chosen. Randomised equality tests against `candidate_pad_locations` and the Python sum; bench; explore bench identical; commit.
+**Files:** `native/src/ratsnest.rs` (new), `native/src/lib.rs`, `src/placemat/occupancy.py` (the native mirror updated in `_ratsnest_refresh`), `tests/test_native_ratsnest.py`.
 
-### Task 7: Measure and decide the later stages
+- [ ] Failing tests: native `leaf_costs(pads, own, depth)` equals `Ratsnest.leaf_costs` (weighted crossings and crossed escapes, exactly) on random boards of up to 40 nets, with quiet nets weighted 0 and 0.25, own parts excluded, and after random `set_net` updates.
+- [ ] Implement: anchors per net, airwires with their nanometre ends, the 2 mm grid; the nearest-anchor search in Python's order (ties to the first); the crossing point and the depth test with the hypot port.
+- [ ] Suite both ways; bench `same`; commit.
+
+### Task 7: The escapes, native
+
+**Files:** `native/src/escapes.rs` (new), `native/src/lib.rs`, `src/placemat/escapes.py` (the native mirror updated in `refresh` and `add_copper`), `tests/test_native_escapes.py`.
+
+- [ ] Failing tests: native `closed(item, placement, crossed)` equals `Escapes.closed` on every candidate of every scan of three fixture modules (recorded by wrapping the scorer), and after random commits, lifts and planned copper.
+- [ ] Implement: corridors and via spots as Python builds them (built in Python, handed over), their open flags, the blocking copper grid, the candidate's pads and own corridors at the origin per turn, shifted.
+- [ ] Suite both ways; bench `same`; commit.
+
+### Task 8: The scorer in the sweep
+
+**Files:** `native/src/sweep.rs`, `src/placemat/layout.py` (`_scorer` hands its targets, weights and floor to the native sweep), `src/placemat/cleanup.py` (the move and swap scores), `tests/test_native_sweep.py`.
+
+- [ ] Failing tests: every scan of every fixture module gives the same chosen placement, score, tried count, rejections and blockers native and Python, for the search and the cleanup pass; explore variants (unpruned) the same.
+- [ ] Implement: the wire sum in Python's order with the hypot port, the leaf costs and escape check from tasks 6-7, the pruning floor.
+- [ ] Suite both ways; bench `same 32` x3; `bench.py --explore 64` identical both ways; commit with the tally and timings.
+
+### Task 9: Measure and decide the later stages
 
 - [ ] Sequential timings (corpus default, solve and physical, the core board, `bench.py --explore 64`), Python then native, against the spec's targets; profile what remains; write in the spec whether blocks, the cleanup pass or explore's per-variant overhead is next, with numbers.
 - [ ] Docs (`native/README.md`, the spec, the migration note if anything a user sees changes), release; commit.

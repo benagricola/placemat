@@ -1,7 +1,45 @@
 # The native core, stage two: the candidate sweep
 
 Date: 2026-09-25
-Status: design
+Status: design, revised 2026-09-24 after 0.33
+
+## Revision after 0.33
+
+0.33 added a crossing and escape cost to every legal candidate (the
+crossings-escapes spec). Profile of fairing/SlotControl at 0.33, default
+config, native module on (9.7 s unprofiled; under the profiler):
+
+| | cumulative |
+|---|---|
+| candidate sweeps (`placer.scan`) | 20.9 s of 23.6 |
+| legality (`legal_bucket`: edge, keepouts, obstacles) | 8.2 s |
+| the scorer on legal candidates (wire, crossings, escapes) | 7.4 s |
+| - the crossing leaf search (`Ratsnest.leaf_costs`) | 4.1 s |
+| - the escape check (`Escapes.closed`) | 4.3 s |
+| candidate pad positions (`candidate_pad_locations`) | 2.0 s |
+| the native conflict search itself | 0.5 s |
+
+Legality alone leaves the scorer behind: a third of the time. So the
+native sweep does both, in two stages:
+
+1. **Legality** as designed below (edge, keepouts, obstacles).
+2. **The scorer**: the wire (each target's weight times its distance), the
+   crossing leaf search against the placed ratsnest, and the escape check
+   against the placed corridors and copper, for each legal candidate, with
+   the pruning floor (a candidate whose wire reaches the best cost seen is
+   not weighed further) kept as it is. The native side mirrors the
+   occupancy's Ratsnest (anchors, airwires, their grid) and Escapes
+   (corridors, their open flags, the blocking copper), updated at each
+   commit, lift and unlift through the same calls that update the Python
+   ones. Python keeps building both, and stays the reference and the
+   fallback.
+
+Bit-identical: the wire sums in the order Python sums; distances use the
+CPython hypot port; the crossing test is already whole nanometres; the
+escape boxes and polygons use the native `polys_overlap`. Explore draws
+among candidates by their exact scores, so explore keeps the unpruned
+scorer, as in Python.
+
 
 ## Where the time goes now
 
@@ -163,9 +201,10 @@ The pure-Python path stays the reference and the fallback
 
 Measured sequentially, CPU time, Python first then native, as for 0.30:
 
-- a candidate check at 5 microseconds or less on average (about 30 now);
+- a candidate check, legality and score, at 5 microseconds or less on
+  average;
 - the whole benchmark corpus's default resolve at least twice as fast as
-  0.32's native;
+  0.33's native (78-83 s);
 - `bench.py --explore 64` at least twice as many variants per second.
 
 ## Packaging
