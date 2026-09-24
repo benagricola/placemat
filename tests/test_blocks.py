@@ -304,3 +304,49 @@ def test_a_second_satellite_aimed_at_a_taken_pad_is_refused_and_told_why():
     members, why = layout_block(occ, spec, Placement(Location(30, 40), 0.0, b.geometry.footprint("ldo").face))
     assert members is None
     assert "cb: no legal spot on the axis of U1 pad 1 (VIN" in why and "ca already sits there" in why
+
+
+def _quad(ref, inst, cx, cy, nets, per_side=8, pitch=0.5, body=5.0):
+    """A four-sided package: pads numbered counter-clockwise from the top of
+    the west row, each long across its row, the rows set in from the corners."""
+    from placemat.board_geometry import Footprint
+    from placemat.values import Box, Face
+    from tests.fixtures import pad
+    span = (per_side - 1) * pitch / 2
+    row = body / 2 - 0.1
+    pads, n = [], 0
+    sides = [lambda t: (cx - row, cy - span + t, 0.8, 0.25),       # west, north to south
+             lambda t: (cx - span + t, cy + row, 0.25, 0.8),       # south, west to east
+             lambda t: (cx + row, cy + span - t, 0.8, 0.25),       # east, south to north
+             lambda t: (cx + span - t, cy - row, 0.25, 0.8)]       # north, east to west
+    for side in sides:
+        for k in range(per_side):
+            x, y, w, h = side(k * pitch)
+            n += 1
+            pads.append(pad(ref, inst, n, nets.get(n, "N%d" % n), x, y, w, h))
+    box = Box(cx - body / 2, cy - body / 2, cx + body / 2, cy + body / 2)
+    return Footprint(ref, inst, None, ref, Location(cx, cy), 0.0, Face.FRONT, box, box.inflate(0.1), box, tuple(pads))
+
+
+def _quad_board():
+    fps = [_quad("U1", "mcu", 30, 30, {1: "EN", 9: "VRF"}, pitch=1.0, body=10.0),     # both at a row's corner end
+           footprint("C1", 50, 50, inst="c_en", nets=("EN", "GND")),
+           footprint("C2", 50, 55, inst="c_rf", nets=("VRF", "GND"))]
+    return Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+
+
+@pytest.mark.parametrize("rotation", [0, 90, 180, 270])
+def test_a_satellite_near_a_corner_sits_on_its_pins_normal_not_the_ray_from_the_centre(rotation):
+    b = _quad_board()
+    blk = b.block(Part("mcu"), satellites=[(Part("c_en"), 1), (Part("c_rf"), 9)], gap=0.3)
+    b.place(blk, at=Location(30, 30), rotation=rotation)
+    plan = b.resolve()
+    occ = plan.occupancy
+    centre = occ.items["U1"].body.center
+    for sat, pin in (("C1", "1"), ("C2", "9")):
+        p, s = occ.pad_location("U1", pin), occ.pad_location(sat, "1")
+        across_x = abs(p.x - centre.x) > abs(p.y - centre.y)      # the pin's row runs north-south
+        if across_x:
+            assert abs(s.y - p.y) < 1e-6 and (s.x - p.x) * (p.x - centre.x) > 0, (sat, p, s)
+        else:
+            assert abs(s.x - p.x) < 1e-6 and (s.y - p.y) * (p.y - centre.y) > 0, (sat, p, s)

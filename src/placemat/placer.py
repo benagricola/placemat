@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 import math
 
 from . import geometry as _geometry_module
-from .geometry import _rect_of, point_in_polygon, polys_overlap, transform_box
+from .geometry import Transform, _rect_of, point_in_polygon, polys_overlap, transform_box
 from .occupancy import Occupancy, ShapeIndex, _reason_key
 from .placement import Placement
 from .values import Box, Edge, Face, Location, bearing_vector, box_support
@@ -486,7 +486,8 @@ this the part is not at its pin. `[place] block_gap_reach`."""
 def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=None, others=None):
     """Satellite placements for the block with its anchor at `anchor`, or a
     reason the block cannot sit there. Each satellite's pad on its served
-    net lands on the anchor pin's axis, `gap` beyond the pin, with the
+    net lands on the anchor pin's axis (the normal of its pad row, see
+    `_pin_normal`), `gap` beyond the pin, with the
     satellite's body outward of its pad. `others`, from `block_obstacles`,
     is each member's obstacles gathered once for a whole scan."""
     others = others or {}
@@ -498,6 +499,10 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
     out = {spec.anchor.inst: anchor}
     taken = []          # courtyard polygons of members already laid, for member-vs-member checks
     _, ashapes = occ.candidate_shapes(spec.anchor, anchor)
+    pad_boxes = {}
+    for sh in ashapes:
+        if sh.kind in ("pad", "through") and sh.owner == spec.anchor.ref:
+            pad_boxes[sh.label] = sh.box if sh.label not in pad_boxes else Box.union([pad_boxes[sh.label], sh.box])
     taken += [sh.poly for sh in ashapes if sh.kind == "courtyard"]
     # In a drawn envelope a member is judged against the members already laid
     # as against any other part: silk, mask openings, bodies and pads, each at
@@ -507,14 +512,19 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
     for k, (sat, net) in enumerate(spec.satellites):
         pin = _aimed_at(spec, k, net)
         p = pads[(spec.anchor.ref, pin.number)]
-        ux, uy = p.x - centre.x, p.y - centre.y
-        n = math.hypot(ux, uy)
-        if n < 1e-9:
-            ux, uy = 1.0, 0.0
+        pin_box = pad_boxes.get(pin.number, pin.box)
+        normal = _pin_normal(pads, spec.anchor.ref, p, anchor.rotation, pin_box)
+        if normal is not None:
+            ux, uy = normal
         else:
-            ux, uy = ux / n, uy / n
+            ux, uy = p.x - centre.x, p.y - centre.y
+            n = math.hypot(ux, uy)
+            if n < 1e-9:
+                ux, uy = 1.0, 0.0
+            else:
+                ux, uy = ux / n, uy / n
         sat_pin = sat.pad(net)
-        half_anchor = _half_extent(pin.box, ux, uy)
+        half_anchor = _half_extent(pin_box, ux, uy)
         half_sat = _half_extent(sat_pin.box, ux, uy)
         # the gap the script named, else the smallest at which the two courtyards no longer touch
         step_mm, reach = occ.settings.place_block_gap_step, occ.settings.place_block_gap_reach
@@ -608,6 +618,34 @@ def _aim_text(spec: BlockSpec, k: int, pin, net: str) -> str:
     if not by_number and carrying > 1:
         text += ", the first of its %d pads on it: name a pad number to aim at another" % carrying
     return text + ")"
+
+
+def _pin_normal(pads: dict, ref: str, p: Location, rotation: float, pin_box: Box):
+    """The way out from pin `p`: the outward normal of the pad row it sits
+    in. In the anchor's own axes the pin's row is the side of its pads'
+    centres it is proportionally nearest; where two sides tie (a corner of
+    the pad field) the pad's long side decides, as a pad runs across its
+    row. None when neither does - a square pad at a corner, or the one pad
+    at the centre - and the ray from the body's centre is used instead."""
+    to_part, to_board = Transform.rotate(-rotation), Transform.rotate(rotation)
+    local = [to_part.apply((q.x, q.y)) for (r, _), q in pads.items() if r == ref]
+    xs, ys = [q[0] for q in local], [q[1] for q in local]
+    cx, cy = (min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0
+    hw, hh = (max(xs) - min(xs)) / 2.0, (max(ys) - min(ys)) / 2.0
+    px, py = to_part.apply((p.x, p.y))
+    rx = abs(px - cx) / hw if hw > 1e-6 else 0.0
+    ry = abs(py - cy) / hh if hh > 1e-6 else 0.0
+    if abs(rx - ry) < 1e-6:
+        w, h = pin_box.width, pin_box.height
+        if rotation % 180 == 90:
+            w, h = h, w
+        if abs(w - h) < 1e-6:
+            return None
+        rx, ry = (1.0, 0.0) if w > h else (0.0, 1.0)
+    n = (1.0 if px >= cx else -1.0, 0.0) if rx > ry else (0.0, 1.0 if py >= cy else -1.0)
+    ux, uy = to_board.apply(n)
+    size = math.hypot(ux, uy)
+    return ux / size, uy / size
 
 
 def _half_extent(box: Box, ux: float, uy: float) -> float:

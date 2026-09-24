@@ -4,6 +4,15 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.32.3
+
+Nothing to change. A block's satellite now sits on the normal of its pin's
+pad row; before, it sat on the ray from the anchor's centre through the
+pin, which near a corner put it in front of the next pins. Satellites at
+pins near a corner move, and parts placed round them can move with them:
+check the run's link findings, and accept again (`--explore ... --accept`)
+where the lock reports entries drifted.
+
 ## To 0.32.2
 
 Nothing to change. With `envelope = "physical"` or `"union"`, a reserved

@@ -673,7 +673,8 @@ board.place(ldo)                                                    # seeds from
 ```
 A block is a part and the satellites that sit at its pins: each satellite's
 pad on the named net lands on that pin's axis `gap` beyond it, body
-outward. A net names the anchor's FIRST pad carrying it; when several do (a
+outward. The axis is the outward normal of the pin's pad row, so a
+satellite at a pin near a corner stays in front of that pin. A net names the anchor's FIRST pad carrying it; when several do (a
 supply, a ground with thermal vias numbered into an exposed pad), name the
 anchor's pad by number instead - `(Part("cdec"), 20)` - and the satellite
 sits by its own pad on that pad's net. A satellite with no spot says which
