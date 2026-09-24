@@ -425,6 +425,7 @@ class Plan:
     cleanup: dict = field(default_factory=dict)                   # what the cleanup pass did, when it ran
     rudy: object = None                                           # congestion.Rudy of the placed board
     reuse: dict = field(default_factory=dict)                     # this run's record, for the next run to replay
+    turns: dict = field(default_factory=dict, repr=False)        # each searched item's turn: where it went and the pad it depends on (lock.py)
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -2101,9 +2102,13 @@ class Board:
 
     reuse_extra = ""        # what the runner adds to the reuse context: tool version, board file, settings, fab profile
 
-    def resolve(self, progress=None, reuse=None, explore=None) -> Plan:
+    def resolve(self, progress=None, reuse=None, explore=None, lock=None) -> Plan:
         # An explore variant (explore.py): seed 0, or none, is the plain placement.
         self._explore = explore if (explore is not None and explore.seed) else None
+        # Accepted decisions (lock.py): tried first at each locked item's turn.
+        self._lock = {e.key: e for e in (lock or ())}
+        self._lock_notes = {}
+        self._lock_held = set()          # locked items at (or drifted from) their spot: the cleanup pass leaves them
         if self._explore is not None:
             import random as _random
             self._order_rng = _random.Random("%d:order" % self._explore.seed)
@@ -2217,7 +2222,7 @@ class Board:
             # The key is taken before anything below changes the declaration.
             ex = self._explore
             key = _reuse.step_key(chain["key"], obj, _reuse.links_on(self, obj),
-                                  "explore:%d" % ex.seed if ex is not None and getattr(obj, "key", None) in ex.focus else "")
+                                  self._step_extra(obj))
             chain["key"] = key
             position = len(record["steps"])
             if chain["replaying"] and not (position < len(previous) and previous[position]["key"] == key):
@@ -2267,6 +2272,10 @@ class Board:
             plan.steps.append(step)
             if step.placement is None and getattr(obj, "required", False) and not self.keep_going:
                 raise CriticalUnplaced(obj.key, self._no_place_report(occ, obj, step), plan)
+            if step.placement is not None and isinstance(obj, PlaceIntent) and not obj.freedom.decided:
+                plan.turns[obj.key] = dict(self._turn_of(occ, obj, step.placement, placed), order=len(plan.turns))
+            if obj.key in self._lock_notes:
+                step.note = (step.note + "; " if step.note else "") + self._lock_notes.pop(obj.key)
             if step.placement is None:
                 pass                    # unplaced: left off the board, pulls nothing, blocks nothing
             elif obj.kind == "block":
@@ -2309,6 +2318,12 @@ class Board:
                 place_one(hole)
             while pending:
                 obj, why_now = self._next_to_place(pending, occ, placed)
+                if self._locked(obj) is not None:       # the locked items go in their accepted order
+                    ready = sorted((self._lock[o.key].turn, o.index, o) for o in pending
+                                   if getattr(o, "key", None) in self._lock and self._locked(o) is not None
+                                   and o.needs <= placed)
+                    if ready and ready[0][2] is not obj:
+                        obj, why_now = ready[0][2], "locked order"
                 ex = self._explore
                 if ex is not None and obj.key in ex.focus and len(pending) > 1 and self._order_rng.random() < self.settings.explore_swap:
                     other, other_why = self._next_to_place([o for o in pending if o is not obj], occ, placed)
@@ -2453,11 +2468,14 @@ class Board:
                     held.add(self._pad_ref(obj)[0])
                 else:
                     held |= {fp.ref for fp in members_of(self._item(obj)[0])}
+        # A locked item keeps its spot, and inside an explore variant a focused
+        # item keeps the spot it drew: that spot is what a lock records.
+        kept = set(self._lock_held) | (set(self._explore.focus) if self._explore is not None else set())
         out = {}
         for s in plan.steps:
             i = intents.get(s.item)
             if (s.kind != "part" or s.placement is None or i is None or i.kind != "part"
-                    or not self._solvable(i) or i.item.ref in held):
+                    or not self._solvable(i) or i.item.ref in held or s.item in kept):
                 continue
             out[s.item] = i.item
         return out
@@ -2980,6 +2998,99 @@ class Board:
             return box_centered_placement(occ, i.item, polar_point(centre, i.angle, r), i.rotation, i.face)
         return self._slide(occ, i, plan, clr, ideal, lo, hi, at, "out along the %.0f degree spoke" % i.angle)
 
+    def _step_extra(self, obj) -> str:
+        """What else decides a step, for its reuse key: an explore variant's
+        seed for a focused item, a lock entry for a locked one."""
+        key = getattr(obj, "key", None)
+        ex = self._explore
+        if ex is not None and key in ex.focus:
+            return "explore:%d" % ex.seed
+        entry = self._lock.get(key)
+        return "lock:%r" % (entry,) if entry is not None else ""
+
+    def _locked(self, i):
+        """The item's lock entry, unless an explore variant is varying it."""
+        ex = self._explore
+        if ex is not None and i.key in ex.focus:
+            return None
+        return self._lock.get(i.key)
+
+    def _anchor_pad(self, item, occ: Occupancy, placed: set):
+        """The placed pad an item depends on most: its strongest connection
+        (a declared link's weight, else a pulling net's), ties to the lowest
+        (refdes, pad number)."""
+        quiet = self._plane_nets() | self._free_nets
+        fps = item.members if isinstance(item, CellGeom) else (item,)
+        own = {fp.ref for fp in fps}
+        best = None
+        for fp in fps:
+            for p in fp.pads:
+                if not p.net:
+                    continue
+                for other in self.geometry.pads_on_net(p.net):
+                    if other.owner in own or other.owner not in placed:
+                        continue
+                    link = self._declared_link((fp.ref, p.number), (other.owner, other.number))
+                    if p.net in quiet and link is None:
+                        continue
+                    w = link.weight if link is not None else int(LinkWeight.DEFAULT)
+                    if w <= 0:
+                        continue
+                    k = (-int(w), other.owner, other.number)
+                    if best is None or k < best:
+                        best = k
+        return None if best is None else (best[1], best[2])
+
+    def _turn_of(self, occ: Occupancy, i, placement: Placement, placed: set) -> dict:
+        """What a lock entry needs of an item's turn: where it went, and the
+        pad it depends on with its part's rotation and face at that moment."""
+        item = i.item.anchor if i.kind == "block" else i.item
+        anchor = self._anchor_pad(item, occ, placed)
+        turn = {"placement": placement, "anchor": anchor}
+        if anchor is not None:
+            g = occ.items[anchor[0]]
+            turn.update(anchor_at=occ.pad_location(*anchor), anchor_rotation=g.reference.rotation,
+                        anchor_face=g.reference.face.value)
+        return turn
+
+    def _lock_spot(self, occ: Occupancy, i, plan: Plan):
+        """(placement, drift_from) for a locked item, or (None, None) after
+        noting why its entry was released."""
+        from . import lock as _lock
+        entry = self._locked(i)
+        if entry is None:
+            return None, None
+        if entry.declaration != _lock.declaration_digest(self, i):
+            self._lock_notes[i.key] = "lock: released - its declaration changed since it was accepted"
+            return None, None
+        spot, why = _lock.placement_of(entry, occ)
+        if spot is None:
+            self._lock_notes[i.key] = "lock: released - " + why
+            return None, None
+        return spot, spot
+
+    def _settle_locked(self, occ: Occupancy, i, plan: Plan, clr):
+        """A locked part or cell: at its locked spot when that is legal, else
+        at the nearest legal spot round it, saying how far it drifted; None
+        when there is no entry or it was released."""
+        spot, _ = self._lock_spot(occ, i, plan)
+        if spot is None:
+            return None
+        held = scan(occ, i.item, spot, 0.0, i.step, (spot.rotation,), clr)
+        self._lock_held.add(i.key)
+        if held.chosen is not None:
+            return self._step(i, held.chosen, 0.0, "held by lock")
+        body = occ._geometry(i.item).body
+        radius = max(i.radius, body.width, body.height)
+        drift = scan(occ, i.item, spot, radius, i.step, (spot.rotation,), clr)
+        if drift.chosen is None:
+            self._lock_held.discard(i.key)
+            self._lock_notes[i.key] = "lock: released - no legal spot within %.1f mm of its locked spot" % radius
+            return None
+        d = drift.chosen.location.distance(spot.location)
+        first = next(iter(held.reasons.values()), "")
+        return self._step(i, drift.chosen, d, "lock: drifted %.2f mm from its locked spot%s" % (d, (": " + first) if first else ""))
+
     def _pick(self, i):
         """An explore variant's draw for a focused item, else None (the best)."""
         ex = getattr(self, "_explore", None)
@@ -3105,37 +3216,54 @@ class Board:
                 members = {spec.anchor.inst: anchor}
             note = why or ""
         else:
+            spot, _ = self._lock_spot(occ, i, plan)
+            locked = None
+            if spot is not None:
+                locked = scan_block(occ, spec, spot, 0.0, i.step, (spot.rotation,), clr)[0]
+                if locked is None:
+                    body = occ._geometry(spec.anchor).body
+                    locked = scan_block(occ, spec, spot, max(i.radius, body.width, body.height), i.step,
+                                        (spot.rotation,), clr)[0]
+                    if locked is None:
+                        self._lock_notes[i.key] = "lock: released - no legal spot round its locked spot"
             targets = self._targets(spec.anchor, occ, placed)
             current = occ._geometry(spec.anchor).reference
-            if i.near is not None:
-                hint = Placement(_locate(self, occ, i.near), i.rotation, i.face)
-            elif targets:
-                hint = self._seed_hint(spec.anchor, occ, targets, i.rotation, i.face)
-            elif self._outline is not None:  # nothing placed pulls it: search from the board, not from where the generator dropped it
-                hint = Placement(self._outline.center, i.rotation, i.face)
+            if locked is not None:
+                self._lock_held.add(i.key)
+                _, anchor, members = locked
+                d = anchor.location.distance(spot.location)
+                note = "block of %d laid out from the anchor's pads; %s" % (
+                    len(members), "held by lock" if d < 1e-9 else "lock: drifted %.2f mm from its locked spot" % d)
             else:
-                hint = Placement(current.location, i.rotation, i.face)
-            score = None
-            if targets:
-                def score(members):
-                    return self._scorer(spec.anchor, occ, targets)(members[spec.anchor.inst])
-            body = occ._geometry(spec.anchor).body
-            radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)
-            best, tried, rejected, reasons = scan_block(occ, spec, hint, radius, i.step, i.rotations or (i.rotation,), clr, score,
-                                                        pick=self._pick(i))
-            if best is None:
-                plan.findings.append("%s: no legal spot within %.1f mm of %s (%s)" % (
-                    i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in rejected.most_common(3))))
-                members = {}
-                note = "UNPLACED"
-            else:
-                _, anchor, members = best
-                moved = anchor.location.distance(hint.location)
-                note = "block of %d laid out from the anchor's pads" % len(members)
-                if moved > 0:
-                    note += "; moved %.2f mm off the hint" % moved
-                    first = next(iter(reasons.values()), "")
-                    note += (": " + first) if first else ""
+                if i.near is not None:
+                    hint = Placement(_locate(self, occ, i.near), i.rotation, i.face)
+                elif targets:
+                    hint = self._seed_hint(spec.anchor, occ, targets, i.rotation, i.face)
+                elif self._outline is not None:  # nothing placed pulls it: search from the board, not from where the generator dropped it
+                    hint = Placement(self._outline.center, i.rotation, i.face)
+                else:
+                    hint = Placement(current.location, i.rotation, i.face)
+                score = None
+                if targets:
+                    def score(members):
+                        return self._scorer(spec.anchor, occ, targets)(members[spec.anchor.inst])
+                body = occ._geometry(spec.anchor).body
+                radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)
+                best, tried, rejected, reasons = scan_block(occ, spec, hint, radius, i.step, i.rotations or (i.rotation,), clr, score,
+                                                            pick=self._pick(i))
+                if best is None:
+                    plan.findings.append("%s: no legal spot within %.1f mm of %s (%s)" % (
+                        i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in rejected.most_common(3))))
+                    members = {}
+                    note = "UNPLACED"
+                else:
+                    _, anchor, members = best
+                    moved = anchor.location.distance(hint.location)
+                    note = "block of %d laid out from the anchor's pads" % len(members)
+                    if moved > 0:
+                        note += "; moved %.2f mm off the hint" % moved
+                        first = next(iter(reasons.values()), "")
+                        note += (": " + first) if first else ""
         for fp in spec.members:
             if fp.inst in members and fp is not spec.anchor:
                 plan._items[fp.inst] = fp
@@ -3205,6 +3333,9 @@ class Board:
             return self._settle_along_edge(occ, i, plan, clr)
         if i.pin_x is not None or i.pin_y is not None:
             return self._settle_along_line(occ, i, plan, clr, placed)
+        locked = self._settle_locked(occ, i, plan, clr)
+        if locked is not None:
+            return locked
         targets = self._targets(i.item, occ, placed)
         seeded = ""
         solved = None
