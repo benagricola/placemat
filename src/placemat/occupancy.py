@@ -481,6 +481,72 @@ class Occupancy:
 
     def commit(self, item, placement: Placement):
         """Record that `item` now sits at `placement`; later checks see it there."""
+        owners = self._geometry(item).owners
+        self._commit(item, placement)
+        if self.__dict__.get("_ratsnest") is not None:
+            self._ratsnest_refresh(owners)
+
+    # ------------------------------------------------------------ the ratsnest
+    quiet_nets: frozenset = frozenset()     # plane and free nets: their crossings weigh score.crossing_plane
+
+    def ratsnest(self):
+        """placemat's ratsnest (ratsnest.py) of every item placed so far, kept
+        as items commit: what a candidate's crossings are counted against.
+        A quiet net (a plane's, a free net's) weighs `score.crossing_plane`."""
+        rn = self.__dict__.get("_ratsnest")
+        if rn is None:
+            from .ratsnest import Ratsnest
+            rn = Ratsnest({n: self.settings.score_crossing_plane for n in self.quiet_nets})
+            self.__dict__["_ratsnest"] = rn
+            self.__dict__["_rn_anchors"] = {}
+            self._ratsnest_refresh(set(self.items))
+        return rn
+
+    def _ratsnest_refresh(self, refs) -> None:
+        """Take `refs`' pads out of the ratsnest and put back those placed now."""
+        from .ratsnest import Anchor
+        anchors = self.__dict__["_rn_anchors"]
+        touched = set()
+        for net, pads in anchors.items():
+            for key in [k for k in pads if k[0] in refs]:
+                del pads[key]
+                touched.add(net)
+        for ref in refs:
+            g = self.items.get(ref)
+            if g is None or ref in self.pending or not self.geometry.has_footprint(ref):
+                continue
+            for s in g.shapes:
+                if s.kind in ("pad", "through") and s.net and s.owner == ref:
+                    a = self.pad_anchor(ref, s.label)
+                    anchors.setdefault(s.net, {})[(ref, s.label)] = Anchor(ref, s.label, a.x, a.y)
+                    touched.add(s.net)
+        rn = self.__dict__["_ratsnest"]
+        for net in touched:
+            rn.set_net(net, sorted(anchors.get(net, {}).values(), key=lambda a: (a.ref, a.number)))
+
+    def candidate_anchors(self, item, placement: Placement) -> list:
+        """(net, x, y) of each of the item's pads at a candidate placement,
+        at their airwire anchors: turned and faced once per rotation and face,
+        then shifted."""
+        geom = self._geometry(item)
+        cache = self.__dict__.setdefault("_anchor_cache", {})
+        key = (id(geom), placement.rotation, placement.face)
+        hit = cache.get(key)
+        if hit is None or hit[0] is not geom:
+            t = self._transform(geom, Placement(Location(0.0, 0.0), placement.rotation, placement.face))
+            seen, out = set(), []
+            for s in geom.shapes:
+                if s.kind in ("pad", "through") and s.net and (s.owner, s.label) not in seen \
+                        and self.geometry.has_footprint(s.owner):
+                    seen.add((s.owner, s.label))
+                    a = t.apply_location(self.pad_anchor(s.owner, s.label))
+                    out.append((s.net, a.x, a.y))
+            hit = (geom, out)
+            cache[key] = hit
+        dx, dy = placement.location.x, placement.location.y
+        return [(net, x + dx, y + dy) for net, x, y in hit[1]]
+
+    def _commit(self, item, placement: Placement):
         geom, shapes = self.candidate_shapes(item, placement)
         self._cells.clear()
         self._pad_location_cache.clear()

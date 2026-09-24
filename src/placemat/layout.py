@@ -1743,9 +1743,18 @@ class Board:
         return Placement(Location(round(cx - ox, 3), round(cy - oy, 3)), rotation, face)
 
     def _scorer(self, item, occ: Occupancy, targets: list):
+        """A candidate's cost: each connection's weight times its length, and
+        `score.crossing` for each ratsnest crossing its airwires would add."""
+        crossing = self.settings.score_crossing
+        rn = occ.ratsnest() if crossing > 0 else None
+        own = frozenset(fp.ref for fp in members_of(item))
+
         def score(placement: Placement) -> float:
             pads = occ.candidate_pad_locations(item, placement)
-            return sum(w * pads[key].distance(target) for key, target, w in targets if key in pads)
+            wire = sum(w * pads[key].distance(target) for key, target, w in targets if key in pads)
+            if rn is None:
+                return wire
+            return wire + crossing * rn.added(occ.candidate_anchors(item, placement), own)
         return score
 
     def _report_undeclared(self, plan: Plan):
@@ -2119,6 +2128,7 @@ class Board:
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
                         board_cutouts=self._cutouts, settings=self.settings,
                         component_spacing=self.component_spacing)
+        occ.quiet_nets = frozenset(self._plane_nets() | set(self._free_nets))
         for intent in self._placements():
             declared = [intent.item.anchor] + [fp for fp, _ in intent.item.satellites] if intent.kind == "block" else [intent.item]
             for item in declared:

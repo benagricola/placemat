@@ -118,7 +118,7 @@ class Settings:
     score_copper: float = 200.0         # planned copper that meets another net, crosses a keepout or cannot bridge
     score_label: float = 50.0           # a label with a part on it
     score_setup: float = 0.0            # the same every run of a script: an undeclared part, a layer the board lacks
-    score_crossing: float = 2.0         # a ratsnest crossing; the search weighs a candidate's crossings by it too
+    score_crossing: float = 4.0         # a ratsnest crossing; the search weighs a candidate's crossings by it too
     score_crossing_plane: float = 0.0   # a crossing with a plane's or free net's airwire, as a share of score_crossing
     score_escape_crossed: float = 20.0  # two escapes from one part's pins crossing near its pin row
     score_escape_closed: float = 50.0   # a pad's last route toward what it connects to closed

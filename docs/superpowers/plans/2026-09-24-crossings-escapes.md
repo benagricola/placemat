@@ -99,17 +99,19 @@ Result: every fixture board whose airwires end at pads (20 of 34; the 14 routed 
 
 Replay and chosen defaults: see the spec's run score section (unplaced 2000, link 20 x weight). A best stored by 0.32 reads as absent (no measures) rather than with its missing measures as zero, so it is never judged against numbers it did not take.
 
-### Task 4: crossings in the search cost, and its default
+### Task 4: crossings in the search cost, and its default (done)
 
-**Files:** `src/placemat/settings.py` (`place_crossing_cost`, `place_crossing_plane_weight`), `src/placemat/layout.py` (`_scorer` adds `crossing_cost * ratsnest.added(...)`; `Ratsnest.update` on every commit), `src/placemat/occupancy.py` (holds the Ratsnest), `skills/placemat/references/api.md` (settings rows), `tests/test_crossing_cost.py`.
+**Files:** `src/placemat/settings.py` (`score_crossing`, `score_crossing_plane` (task 3)), `src/placemat/layout.py` (`_scorer` adds `crossing_cost * ratsnest.added(...)`; `Ratsnest.update` on every commit), `src/placemat/occupancy.py` (holds the Ratsnest), `skills/placemat/references/api.md` (settings rows), `tests/test_crossing_cost.py`.
 
-- [ ] Failing tests:
+- [x] Failing tests:
   - two candidate spots with equal wire, where one crosses a placed net: the search takes the other;
   - with `crossing_cost = 0` the choice is today's;
   - a plane net's crossing costs nothing at the default weight.
-- [ ] Implement.
-- [ ] Measure: the bench at `crossing_cost` in {0, 0.5, 1, 2, 4} mm, recording crossings, hpwl, placed, findings and time. Pick the default from the table: the fewest crossings with no module worse on placed or findings, and hpwl within 3%. Put the table in the spec and the commit.
-- [ ] Replace task 3's placeholder crossing weight with the measured default; new baseline; tally; commit.
+- [x] Implement.
+- [x] Measure: the bench at `crossing_cost` in {0, 0.5, 1, 2, 4} mm, recording crossings, hpwl, placed, findings and time. Pick the default from the table: the fewest crossings with no module worse on placed or findings, and hpwl within 3%. Put the table in the spec and the commit.
+- [x] Replace task 3's placeholder crossing weight with the measured default; new baseline; tally; commit.
+
+Result: default 4 mm per crossing; the sweep table is in the spec. A block is scored by its anchor's crossings only; its satellites' come with task 6.
 
 ### Task 5: escape corridors
 

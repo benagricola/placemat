@@ -10,7 +10,9 @@ Nothing to change. Runs are judged by the run score, one weighted number
 in millimetres (the `[score]` settings), in place of the fixed order
 placed, DRC, findings, airwire. A best recorded by 0.32 has no score and
 gives way to the next run. Explore variants and the bench are judged by it
-too. A block's satellite now sits on the normal of its pin's
+too. The search now weighs the ratsnest crossings a spot would add
+(`score.crossing`, 4 mm each): searched parts can land elsewhere than they
+did, and lock entries can drift; accept again where they do. A block's satellite now sits on the normal of its pin's
 pad row; before, it sat on the ray from the anchor's centre through the
 pin, which near a corner put it in front of the next pins. Satellites at
 pins near a corner move, and parts placed round them can move with them:

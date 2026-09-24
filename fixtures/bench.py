@@ -277,11 +277,19 @@ def main(argv) -> int:
     ap.add_argument("--update", action="store_true")
     ap.add_argument("--explore", type=int, metavar="N",
                     help="the best of N explore seeds per module against its plain placement, instead of the tally")
+    ap.add_argument("--set", action="append", default=[], metavar="NAME=VALUE",
+                    help="a setting for every configuration, e.g. score_crossing=1 (a measurement, never --update)")
+    ap.add_argument("--out", help="write this run's results here, as bench.json is written")
     a = ap.parse_args(argv)
-    if a.update and (a.names or a.config):
-        print("--update needs the whole corpus and every configuration", file=sys.stderr)
+    if a.update and (a.names or a.config or a.set):
+        print("--update needs the whole corpus, every configuration and the settings as they are", file=sys.stderr)
         return 2
-    configs = {k: v for k, v in CONFIGS.items() if not a.config or k in a.config}
+    extra = {}
+    for item in a.set:
+        from placemat.settings import Settings
+        name, _, value = item.partition("=")
+        extra[name] = type(getattr(Settings(), name))(value)
+    configs = {k: {**v, **extra} for k, v in CONFIGS.items() if not a.config or k in a.config}
     paths = [p for p in boards() if not a.names or any(n in _name(p) for n in a.names)]
     if a.explore:
         explore_bench(paths, configs, a.explore, a.jobs)
@@ -303,6 +311,8 @@ def main(argv) -> int:
                 "modules": {m: {k: v for k, v in r.items() if k in ("parts", "hand") or k in run["configs"]}
                             for m, r in base["modules"].items() if m in run["modules"]}}
     report(run, base)
+    if a.out:
+        pathlib.Path(a.out).write_text(dump(run))
     if a.update:
         BASELINE.write_text(dump(run))
         print("wrote %s" % BASELINE.relative_to(ROOT.parent))

@@ -1194,7 +1194,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.copper` | 200 | mm planned copper that meets another net, crosses a keepout or cannot bridge costs |
 | `score.label` | 50 | mm a label with a part on it costs |
 | `score.setup` | 0 | mm a setup finding costs: the same every run of a script (an undeclared part, a layer the board lacks) |
-| `score.crossing` | 2.0 | mm a ratsnest crossing costs, in the run score and in the search |
+| `score.crossing` | 4.0 | mm a ratsnest crossing costs, in the run score and in the search |
 | `score.crossing_plane` | 0 | a crossing with a plane's or free net's airwire, as a share of `score.crossing`: each of its pads drops to the plane by a via |
 | `score.escape_crossed` | 20 | mm two escapes from one part's pins crossing near its pin row cost |
 | `score.escape_closed` | 50 | mm a pad whose last route toward what it connects to is closed costs |

@@ -130,7 +130,7 @@ weight, in millimetres of wire, and lower is better:
 | escape closed toward its target (corridors, at the end of the resolve) | each | `escape_closed` (shared) | 50 mm |
 | walled-off pad (confirmed by the path search) | each | `escape_walled` (shared) | 400 mm |
 | setup finding (undeclared part, missing layer, web) | each | `score_setup` | 0 |
-| ratsnest crossing | each, on counted nets | `crossing_cost` (the search's) | from task 4's measurement |
+| ratsnest crossing | each, on counted nets | `score_crossing` (the search's too) | 4 mm (task 4) |
 | airwire | mm | 1 (the unit) | - |
 | worst RUDY cell (explore only) | steps of `explore_congestion_step` | `score_congestion` | from measurement |
 
@@ -176,6 +176,28 @@ unplaced 2000 and link 20 x the link's weight (2026-09-24).
     beyond the noise band.
 - **Reported.** A run prints its score by term against the best run, so
   the term that decided is visible.
+
+### The crossing weight (task 4)
+
+The bench (32 modules, three configurations) at each weight: signal
+crossings / HPWL mm / findings / parts placed / seconds.
+
+| Weight | default | solve | physical |
+|---|---|---|---|
+| 0 | 257 / 1424 / 5 / 423 / 65 | 227 / 1501 / 4 / 424 / 55 | 206 / 1292 / 3 / 425 / 55 |
+| 0.5 | 233 / 1441 / 5 / 423 / 76 | 221 / 1525 / 4 / 424 / 56 | 176 / 1293 / 3 / 425 / 63 |
+| 1 | 249 / 1442 / 5 / 423 / 76 | 240 / 1534 / 4 / 424 / 57 | 163 / 1289 / 3 / 425 / 60 |
+| 2 | 227 / 1438 / 5 / 423 / 77 | 222 / 1538 / 4 / 424 / 56 | 160 / 1296 / 3 / 425 / 56 |
+| 4 | 226 / 1456 / 5 / 423 / 74 | 219 / 1506 / 4 / 424 / 54 | 156 / 1282 / 3 / 425 / 59 |
+| 8 | 233 / 1524 / 5 / 423 / 75 | 210 / 1512 / 4 / 424 / 55 | 247 / 1412 / 3 / 425 / 60 |
+| 16 | 242 / 1514 / 5 / 423 / 76 | 204 / 1509 / 4 / 424 / 53 | 248 / 1406 / 3 / 425 / 59 |
+
+4 mm is the default: crossings 690 -> 601 over the three configurations
+(-13%), HPWL +2.3%, +0.3% and -0.8%, nothing placed or found differently,
+default resolve time +14%. From 8 up the search moves parts away to dodge
+crossings and the physical configuration loses: 247 crossings, HPWL +9%.
+The ranking replay at 4 keeps one more family's run differently, within
+the noise band.
 
 ## Escape room
 
