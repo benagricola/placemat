@@ -74,11 +74,16 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
     esc = occ.escapes() if escaping else None
 
     def pads_at(k, pl):
+        # keyed by the part's geometry as it stands, as the occupancy's own
+        # caches are: once it has moved, its offsets are worked out again
+        geom = occ._geometry(movable[k])
         key = (k, pl.rotation, pl.face)
-        if key not in offsets:
-            offsets[key] = occ.candidate_pad_locations(movable[k], Placement(Location(0.0, 0.0), pl.rotation, pl.face))
+        hit = offsets.get(key)
+        if hit is None or hit[0] is not geom:
+            hit = (geom, occ.candidate_pad_locations(movable[k], Placement(Location(0.0, 0.0), pl.rotation, pl.face)))
+            offsets[key] = hit
         x, y = pl.location.x, pl.location.y
-        return {rn_: Location(q.x + x, q.y + y) for rn_, q in offsets[key].items()}
+        return {rn_: Location(q.x + x, q.y + y) for rn_, q in hit[1].items()}
 
     def where(ref, number, override):
         k = key_of_ref.get(ref)
@@ -182,9 +187,7 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
             k = self.k
             fp, ref = movable[k], ref_of[k]
             origin = [Placement(Location(0.0, 0.0), r, face) for r in rots]
-            # pads_at's own offsets, cached for the whole pass: once the part
-            # has moved, a fresh transform rounds them a hair differently
-            turned = [pads_at(k, pl) for pl in origin]
+            turned = [pads_at(k, pl) for pl in origin]      # the same offsets the Python cost uses
             order = list(turned[0])
             index = {key: i for i, key in enumerate(order)}
             pads = [[(d[key].x, d[key].y) for key in order] for d in turned]
