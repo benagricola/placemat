@@ -85,7 +85,7 @@ cost = wire + links + crossing_cost * crossings + escape_cost * escapes_closed
 - `escapes_closed` is defined under Escape room.
 - `[place] crossing_cost` (mm per crossing) and `[place] escape_cost`
   (mm per escape closed) are settings with documented defaults. The
-  defaults are chosen by bench measurement (plan task 3), not guessed.
+  defaults are chosen by bench measurement (plan tasks 4 and 5), not guessed.
 
 For one candidate, the item's new edges are approximated by joining each
 of its counted pads to the nearest placed pad on the same net: the leaf
