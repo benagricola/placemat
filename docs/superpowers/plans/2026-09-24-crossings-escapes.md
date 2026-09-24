@@ -59,7 +59,7 @@
 
 ### Task 3: the run score
 
-**Files:** Create `src/placemat/score.py`; modify `settings.py` (the `score_*` settings (the escape weights are task 5's, shared), `best_crossing_noise`), `report.py` (`objective` -> the score, stored measurements, the noise band, the per-term report), `runner.py` (metrics record counts by kind, link excess, `crossings_counted` from DRC over counted nets), `explore.py` (`score` -> the run score without DRC, with placemat's crossings and the RUDY term), `fixtures/bench.py` (records crossings and the score; verdict by score beyond noise), api.md rows, tests `tests/test_run_score.py`, `tests/test_report*.py`, `tests/test_explore_score.py`, bench tests.
+**Files:** Create `src/placemat/score.py`; modify `settings.py` (the `score_*` settings and the three escape weights, which task 5 then uses in the search and measures, `best_crossing_noise`), `report.py` (`objective` -> the score, stored measurements, the noise band, the per-term report), `runner.py` (metrics record counts by kind, link excess, `crossings_counted` from DRC over counted nets), `explore.py` (`score` -> the run score without DRC, with placemat's crossings and the RUDY term), `fixtures/bench.py` (records crossings and the score; verdict by score beyond noise), api.md rows, tests `tests/test_run_score.py`, `tests/test_report*.py`, `tests/test_explore_score.py`, bench tests.
 
 **Interfaces (produced):**
 - `score.terms(measures: dict, cfg: Settings) -> dict[term, float]`;
@@ -105,7 +105,7 @@
 
 ### Task 5: escape corridors
 
-**Files:** Create `src/placemat/escapes.py`; modify `settings.py` (`place_escape_depth`, `escape_crossed`, `escape_closed`, `escape_walled`), `layout.py` (`_scorer` adds the escape term; corridors registered as pads commit), api.md rows; tests `tests/test_escapes.py`.
+**Files:** Create `src/placemat/escapes.py`; modify `settings.py` (`place_escape_depth`; the three escape weights exist from task 3), `layout.py` (`_scorer` adds the escape term; corridors registered as pads commit), api.md rows; tests `tests/test_escapes.py`.
 
 **Interfaces (produced):**
 - `corridors(occ, ref) -> list[Corridor]`: `Corridor(ref, number, net, box, direction)`, built on the pad's free sides. A row pad of a many-pin part (pads in a row, as `_pin_normal` finds them) gets one corridor along its normal; a two-pad part's pad gets up to three.
