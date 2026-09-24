@@ -144,6 +144,84 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
         dy = max(mine.top - theirs.bottom, theirs.top - mine.bottom, 0.0)
         return math.hypot(dx, dy) <= mm + 1e-9
 
+    class PartScore:
+        """Part `k`'s cost at a candidate, as the scans of a move or a swap
+        weigh it: over a limit, `_OVER`; wire reaching the best cost seen
+        (`best[0]`), its wire plus `_OVER`; else the wire, links, crossings
+        and escapes. Called, it is the Python reference; `native(rots, face)`
+        gives the native sweep the same cost (NativeCleanupScoring)."""
+
+        def __init__(self, k, nets, floor):
+            self.k, self.nets, self.best = k, nets, [floor]
+            self._native = {}
+
+        def __call__(self, pl):
+            k, nets, floor = self.k, self.nets, self.best
+            if not (limits_ok([k], {k: pl}) and satellite_ok(k, pl)):
+                return _OVER
+            wire = cost([k], nets, {k: pl})
+            if wire >= floor[0]:
+                return wire + _OVER     # its crossings and escapes only add: no better than staying
+            total = wire + terms(k, pl)
+            floor[0] = min(floor[0], total)
+            return total
+
+        def native(self, rots, face):
+            if (rn is not None and rn.mirror is None) or (esc is not None and esc.mirror is None):
+                return None
+            key = (tuple(rots), face)
+            hit = self._native.get(key)
+            if hit is None:
+                hit = self._build(rots, face)
+                self._native[key] = hit
+            hit.floor = self.best[0]
+            return hit
+
+        def _build(self, rots, face):
+            from .values import Box
+            k = self.k
+            fp, ref = movable[k], ref_of[k]
+            origin = [Placement(Location(0.0, 0.0), r, face) for r in rots]
+            # pads_at's own offsets, cached for the whole pass: once the part
+            # has moved, a fresh transform rounds them a hair differently
+            turned = [pads_at(k, pl) for pl in origin]
+            order = list(turned[0])
+            index = {key: i for i, key in enumerate(order)}
+            pads = [[(d[key].x, d[key].y) for key in order] for d in turned]
+            nets = []
+            for n in self.nets:
+                fixed = [occ.pad_location(r, m) for r, m in pins[n] if key_of_ref.get(r) != k]
+                mine = [index[(r, m)] for r, m in pins[n] if key_of_ref.get(r) == k]
+                ext = (min(q.x for q in fixed), max(q.x for q in fixed), min(q.y for q in fixed),
+                       max(q.y for q in fixed)) if fixed else None
+                nets.append((ext, mine))
+
+            def end(r, m):
+                if key_of_ref.get(r) == k:
+                    return (index[(r, m)], 0.0, 0.0)
+                at = occ.pad_location(r, m)
+                return (-1, at.x, at.y)
+            links_ = [(float(int(l.weight)), end(*l.a), end(*l.b), l.limit_mm, link_len(l, {})) for l in links_of[k]]
+            satellite = None
+            if k in limits:
+                pin, own_pad, mm = limits[k]
+                mine = []
+                for pl in origin:
+                    b = Box.union([sh.box for sh in occ.shifted_shapes(fp, pl)
+                                   if sh.kind in ("pad", "through") and sh.label == own_pad[1]])
+                    mine.append((b.left, b.top, b.right, b.bottom))
+                t = Box.union([sh.box for sh in occ.items[pin[0]].shapes
+                               if sh.kind in ("pad", "through") and sh.label == pin[1]])
+                satellite = (mine, (t.left, t.top, t.right, t.bottom), mm)
+            mirror = rn.mirror if rn is not None else None
+            return occ.native_module().NativeCleanupScoring(
+                pads, nets, links_, satellite, mirror,
+                [occ.candidate_anchors(fp, pl) for pl in origin] if rn is not None else [],
+                [esc._native_turn(fp, pl) for pl in origin] if esc is not None else [],
+                [ref], crossing, esc is not None,
+                (s.score_escape_crossed, s.score_escape_closed, s.score_escape_walled), s.place_escape_depth,
+                _OVER, self.best[0])
+
     def total_cost():
         nets = sorted({n for k in keys for n in nets_of[k]})
         return cost(keys, nets, {})
@@ -177,18 +255,7 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
             occ.lift([ref_of[k]])
             now = cost([k], nets, {}) + terms(k, cur)
 
-            floor = [now]
-
-            def score(pl, k=k, nets=nets, floor=floor):
-                if not (limits_ok([k], {k: pl}) and satellite_ok(k, pl)):
-                    return _OVER
-                wire = cost([k], nets, {k: pl})
-                if wire >= floor[0]:
-                    return wire + _OVER     # its crossings and escapes only add: no better than staying
-                total = wire + terms(k, pl)
-                floor[0] = min(floor[0], total)
-                return total
-
+            score = PartScore(k, nets, now)
             best = None
             for h in hints_for(k, cur, nets):
                 r = scan(occ, movable[k], h, radius, step, turns.get(k, (cur.rotation,)), clearance, score=score)
@@ -204,7 +271,8 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
                 occ.unlift([ref_of[k]])
         # ---------------------------------------------------------------- swaps
         if _swaps(occ, movable, keys, placement, ref_of, nets_of, links_of, cost, terms, limits_ok, satellite_ok,
-                  turns, s.cleanup_swap_radius, step, clearance, s.cleanup_swap_neighbours, result, rn, crossing):
+                  turns, s.cleanup_swap_radius, step, clearance, s.cleanup_swap_neighbours, result, rn, crossing,
+                  PartScore):
             changed = True
         if not changed:
             break
@@ -213,7 +281,8 @@ def cleanup(occ, movable: dict, pins: dict, links, clearance, passes: int, radiu
 
 
 def _swaps(occ, movable, keys, placement, ref_of, nets_of, links_of, cost, terms, limits_ok, satellite_ok,
-           turns, radius, step, clearance, neighbours: int, result, rn=None, crossing: float = 0.0) -> bool:
+           turns, radius, step, clearance, neighbours: int, result, rn=None, crossing: float = 0.0,
+           part_score=None) -> bool:
     """Offer each part a swap with its nearest movable neighbours, and with
     every part identical to it: lift both, search the larger round the
     smaller's old spot, then the smaller round the larger's; keep it when
@@ -272,17 +341,7 @@ def _swaps(occ, movable, keys, placement, ref_of, nets_of, links_of, cost, terms
         def search(k, around):
             target = occ.body_box(movable[around], spot[around]).center
 
-            floor = [math.inf]
-
-            def score(pl, k=k, floor=floor):
-                if not (limits_ok([k], {k: pl}) and satellite_ok(k, pl)):
-                    return _OVER
-                wire = cost([k], nets_of[k], {k: pl})
-                if wire >= floor[0]:
-                    return wire + _OVER
-                total = wire + terms(k, pl)
-                floor[0] = min(floor[0], total)
-                return total
+            score = part_score(k, nets_of[k], math.inf)
             best = None
             for rot in turns.get(k, (spot[k].rotation,)):
                 c = occ.shifted_body_box(movable[k], Placement(Location(0.0, 0.0), rot, spot[k].face)).center

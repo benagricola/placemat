@@ -528,6 +528,75 @@ class CriticalUnplaced(Exception):
 PRUNED = 1e6
 
 
+class Scorer:
+    """A searched item's cost at a candidate placement: each connection's
+    weight times its length, `score.crossing` for each ratsnest crossing its
+    airwires would add, and the escape weights for each escape it would
+    cross, close or wall off (escapes.py). With `prune`, a candidate whose
+    wire alone reaches the best cost weighed so far (`best[0]`) is not
+    weighed further: its crossings and escapes can only add. Explore draws
+    among candidates near the best and needs every one weighed.
+
+    Called, it is the Python reference; `native(rots, face)` hands a scan
+    the same cost, worked out in the native sweep (placemat_native.NativeScoring),
+    sharing `best` with it."""
+
+    def __init__(self, settings, item, occ: Occupancy, targets: list, prune: bool):
+        s = settings
+        self.s, self.item, self.occ, self.targets, self.prune = s, item, occ, targets, prune
+        self.crossing = s.score_crossing
+        self.rn = occ.ratsnest() if self.crossing > 0 else None
+        self.escaping = s.score_escape_crossed > 0 or s.score_escape_closed > 0 or s.score_escape_walled > 0
+        self.esc = occ.escapes() if self.escaping else None
+        self.own = frozenset(fp.ref for fp in members_of(item))
+        self.depth = s.place_escape_depth
+        self.best = [math.inf]
+        self._native = {}
+
+    def __call__(self, placement: Placement) -> float:
+        occ, s = self.occ, self.s
+        pads = occ.candidate_pad_locations(self.item, placement)
+        cost = sum(w * pads[key].distance(target) for key, target, w in self.targets if key in pads)
+        if self.prune and cost >= self.best[0]:
+            return cost + PRUNED        # its crossings and escapes can only add: it cannot be the best
+        crossed = None
+        if self.rn is not None:
+            added, crossed = self.rn.leaf_costs(occ.candidate_anchors(self.item, placement), self.own, self.depth)
+            cost += self.crossing * added
+        if self.esc is not None:
+            crossed, closed, walled = self.esc.closed(self.item, placement, crossed)
+            cost += s.score_escape_crossed * crossed + s.score_escape_closed * closed + s.score_escape_walled * walled
+        self.best[0] = min(self.best[0], cost)
+        return cost
+
+    def native(self, rots, face):
+        """The same cost for the native sweep over these turns, or None when
+        the native mirrors it needs are not there."""
+        occ, s = self.occ, self.s
+        rn = occ.ratsnest()
+        mirror = rn.mirror
+        if mirror is None or (self.esc is not None and self.esc.mirror is None):
+            return None
+        key = (tuple(rots), face)
+        hit = self._native.get(key)
+        if hit is None:
+            geom = occ._geometry(self.item)
+            centres = occ.reference_pad_centres(self.item)
+            targets = [((centres[k].x, centres[k].y), (t.x, t.y), w) for k, t, w in self.targets if k in centres]
+            origin = [Placement(Location(0.0, 0.0), r, face) for r in rots]
+            esc = self.esc if self.esc is not None else occ.escapes()
+            hit = occ.native_module().NativeScoring(
+                mirror, targets, [occ.turn_transform(geom, r, face) for r in rots],
+                [occ.candidate_anchors(self.item, pl) for pl in origin],
+                [esc._native_turn(self.item, pl) for pl in origin] if self.esc is not None else [],
+                sorted(self.own), self.crossing, self.esc is not None,
+                (s.score_escape_crossed, s.score_escape_closed, s.score_escape_walled), self.depth,
+                self.prune, PRUNED, self.best[0])
+            self._native[key] = hit
+        hit.floor = self.best[0]
+        return hit
+
+
 class Board:
     """One board being laid out. Questions are answered from the geometry read
     off the generated .kicad_pcb; declarations are collected and resolved
@@ -1751,32 +1820,8 @@ class Board:
         """A candidate's cost: each connection's weight times its length,
         `score.crossing` for each ratsnest crossing its airwires would add,
         and the escape weights for each escape it would cross, close or wall
-        off (escapes.py)."""
-        s = self.settings
-        crossing = s.score_crossing
-        rn = occ.ratsnest() if crossing > 0 else None
-        escaping = s.score_escape_crossed > 0 or s.score_escape_closed > 0 or s.score_escape_walled > 0
-        esc = occ.escapes() if escaping else None
-        own = frozenset(fp.ref for fp in members_of(item))
-
-        depth = s.place_escape_depth
-        best = [math.inf]
-
-        def score(placement: Placement) -> float:
-            pads = occ.candidate_pad_locations(item, placement)
-            cost = sum(w * pads[key].distance(target) for key, target, w in targets if key in pads)
-            if prune and cost >= best[0]:
-                return cost + PRUNED        # its crossings and escapes can only add: it cannot be the best
-            crossed = None
-            if rn is not None:
-                added, crossed = rn.leaf_costs(occ.candidate_anchors(item, placement), own, depth)
-                cost += crossing * added
-            if esc is not None:
-                crossed, closed, walled = esc.closed(item, placement, crossed)
-                cost += s.score_escape_crossed * crossed + s.score_escape_closed * closed + s.score_escape_walled * walled
-            best[0] = min(best[0], cost)
-            return cost
-        return score
+        off (escapes.py). See `Scorer`."""
+        return Scorer(self.settings, item, occ, targets, prune)
 
     def _report_undeclared(self, plan: Plan):
         """A footprint no declaration places - itself, or as a cell's or a

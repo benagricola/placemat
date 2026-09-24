@@ -384,6 +384,33 @@ class Occupancy:
             out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label))
         return geom, out
 
+    @staticmethod
+    def native_module():
+        return _geometry_module._native
+
+    def reference_pad_centres(self, item) -> dict:
+        """{(refdes, pad number): centre} of the item's pads where its
+        geometry stands: what `candidate_pad_locations` moves."""
+        geom = self._geometry(item)
+        boxes: dict = {}
+        for s in geom.shapes:
+            if s.kind in ("pad", "through"):
+                boxes.setdefault((s.owner, s.label), []).append(s.box)
+        return {k: Box.union(v).center for k, v in boxes.items()}
+
+    def turn_transform(self, geom, rotation: float, face) -> tuple:
+        """`_transform(geom, placement)` before its last step, the move to the
+        placement's location: (a, b, c, d, tx, ty). The native scorer adds
+        that step itself, as `Transform.then` does."""
+        ref = geom.reference
+        t = Transform.translate(-ref.location.x, -ref.location.y)
+        flip = face != ref.face
+        if flip:
+            t = t.then(Transform.mirror_x(Location(0, 0)))
+        turn = rotation + ref.rotation if flip else rotation - ref.rotation
+        t = t.then(Transform.rotate(turn))
+        return (t.a, t.b, t.c, t.d, t.tx, t.ty)
+
     def candidate_pad_locations(self, item, placement: Placement) -> dict:
         """{(refdes, pad number): Location} for the item at a candidate
         placement: the pad centres at the reference, moved as points."""
@@ -528,7 +555,10 @@ class Occupancy:
         rn = self.__dict__.get("_ratsnest")
         if rn is None:
             from .ratsnest import Ratsnest
-            rn = Ratsnest({n: self.settings.score_crossing_plane for n in self.quiet_nets})
+            weights = {n: self.settings.score_crossing_plane for n in self.quiet_nets}
+            native = _geometry_module._native
+            mirror = native.NativeRatsnest(weights) if native is not None and hasattr(native, "NativeRatsnest") else None
+            rn = Ratsnest(weights, mirror=mirror)
             self.__dict__["_ratsnest"] = rn
             self.__dict__["_rn_anchors"] = {}
             self._ratsnest_refresh(set(self.items))
@@ -871,6 +901,20 @@ class Occupancy:
             return why
         return self._native_bucket(moved, o), get_reason
 
+    def native_sweeper(self, item, face, rots, others, clearance):
+        """A whole sweep pass judged natively (placemat_native.sweep), or None
+        when the pieces it needs are not there: the module, the obstacles'
+        native index, the board's native mirror. The answers are the ones
+        `legal_bucket` gives each candidate in turn - see NativeSweeper."""
+        native = _geometry_module._native
+        entry = getattr(others, "_native", None)
+        if native is None or entry is None or not hasattr(native, "sweep"):
+            return None
+        board = native_board(self)
+        if board is None:
+            return None
+        return NativeSweeper(self, item, face, rots, entry, board, clearance)
+
     def _native_bucket(self, s: Shape, o: Shape) -> str:
         """`_reason_key`'s answer for a near-obstacle conflict, from the
         pair's shape kinds alone - no sentence needed. Mirrors
@@ -985,16 +1029,22 @@ class Occupancy:
         return [tuple((_clean(x + dx), _clean(y + dy)) for x, y in s.poly)
                 for s in self._origin_shapes(item, self._geometry(item), placement) if s.kind == "courtyard"]
 
-    def shifted_body_box(self, item, placement: Placement) -> Box:
-        """body_box() at `placement`, from the body turned at the origin."""
+    def origin_body_box(self, item, rotation: float, face) -> Box:
+        """body_box() turned and faced at the origin, unrounded: what
+        `shifted_body_box` shifts."""
         cache = self.__dict__.setdefault("_body_cache", {})
         geom = self._geometry(item)
-        key = (id(geom), placement.rotation, placement.face)
+        key = (id(geom), rotation, face)
         hit = cache.get(key)
         if hit is None or hit[0] is not geom:
-            hit = (geom, self.body_box(item, Placement(Location(0.0, 0.0), placement.rotation, placement.face)))
+            hit = (geom, self.body_box(item, Placement(Location(0.0, 0.0), rotation, face)))
             cache[key] = hit
-        b, dx, dy = hit[1], placement.location.x, placement.location.y
+        return hit[1]
+
+    def shifted_body_box(self, item, placement: Placement) -> Box:
+        """body_box() at `placement`, from the body turned at the origin."""
+        b = self.origin_body_box(item, placement.rotation, placement.face)
+        dx, dy = placement.location.x, placement.location.y
         return Box(_clean(b.left + dx), _clean(b.top + dy), _clean(b.right + dx), _clean(b.bottom + dy))
 
     def shifted_shapes(self, item, placement: Placement) -> list:
@@ -1095,6 +1145,147 @@ def _box_gap(a: Box, b: Box) -> float:
 
 def _fmt(b: Box) -> str:
     return "%.2f,%.2f..%.2f,%.2f" % (b.left, b.top, b.right, b.bottom)
+
+
+# The edge refusals, by the code the native keep-in gives them
+# (native/src/board.rs): what `_edge_or_reservation_conflict` says.
+_EDGE_WHY = {1: "outside the board", 2: "inside a cutout", 3: "past the board's keep-in (%.2f mm)",
+             4: "past the cutout's keep-in (%.2f mm)", 5: "past the rim's keep-in (%.2f mm)",
+             6: "into the bore's keep-in (%.2f mm)"}
+
+
+def edge_sentence(code: int, body: Box, margin: float) -> str:
+    """The sentence `_edge_or_reservation_conflict` gives for a native edge code."""
+    if code == 7:
+        return "body box %s crosses the board edge margin (%.2f mm)" % (_fmt(body), margin)
+    why = _EDGE_WHY[code]
+    return "body box %s is %s" % (_fmt(body), why % margin if "%" in why else why)
+
+
+class NativeSweeper:
+    """One scan's native legality: its turns' shapes and origin body boxes,
+    the reservations that apply to the item, registered once; `run` judges a
+    pass. Each refusal comes back from Rust as a detail (an edge code, a
+    reservation, a conflicting pair) with how many candidates it refused and
+    the first; this turns a detail into what `legal_bucket` gives: the
+    bucket, the sentence (for the first candidate only) and the blocker."""
+
+    def __init__(self, occ, item, face, rots, entry, board, clearance):
+        from .placement import Placement
+        self.occ, self.item, self.face, self.rots = occ, item, face, tuple(rots)
+        self.index, self.shapes = entry
+        self.board, self.clearance = board, clearance
+        geom = occ._geometry(item)
+        self.geom = geom
+        self.handles, self.origin, self.bodies = [], [], []
+        for rot in self.rots:
+            at = Placement(Location(0.0, 0.0), rot, face)
+            self.handles.append(occ._native_origin_shapes(item, geom, at))
+            self.origin.append(list(occ._origin_shapes(item, geom, at)))
+            b = occ.origin_body_box(item, rot, face)
+            self.bodies.append((b.left, b.top, b.right, b.bottom))
+        faces = {face} | ({Face.FRONT, Face.BACK} if any(s.kind in ("through", "npth") for s in geom.shapes) else set())
+        self.reservations = [i for i, r in enumerate(occ.reservations)
+                             if not (r.layer is not None and r.layer.face not in faces)
+                             and not ((geom.owners & r.owners) or (geom.nets & r.allow))]
+        self._decoded = {}
+
+    def run(self, triples, stop_at_first: bool, scoring=None):
+        """(indexes of the legal candidates, their scores, refusals) for
+        (x, y, turn) triples; each refusal (bucket, count, first index,
+        reason, blocker key), in the order first met. With `scoring` (a
+        NativeScoring for these turns) each legal candidate is scored as the
+        scan's scorer would score it; else its score is 0."""
+        from . import geometry as _g
+        legal, scores, refused = _g._native.sweep(self.board, self.reservations, self.index, self.handles,
+                                                  self.bodies, triples, self.clearance, stop_at_first, scoring)
+        out = []
+        for kind, a, b, count, first in refused:
+            bucket, blocker, reason = self._decode(kind, a, b, triples[first])
+            out.append((bucket, count, first, reason, blocker))
+        return legal, scores, out
+
+    def _decode(self, kind, a, b, triple):
+        from .placement import Placement
+        occ = self.occ
+        x, y, turn = triple
+        cand = Placement(Location(x, y), self.rots[turn], self.face)
+        if kind == 0:
+            key = ("edge", a)
+            hit = self._decoded.get(key)
+            if hit is None:
+                why = edge_sentence(a, occ.shifted_body_box(self.item, cand), occ.edge_margin)
+                hit = (_reason_key(why), ("edge", "", ""))
+                self._decoded[key] = hit
+            return hit[0], hit[1], (lambda: edge_sentence(a, occ.shifted_body_box(self.item, cand), occ.edge_margin))
+        if kind == 1:
+            r = occ.reservations[a]
+            why = "sits in the reservation for %s" % r.why
+            return _reason_key(why), ("reservation", r.why, ""), (lambda why=why: why)
+        turn_of, si = a >> 32, a & 0xffffffff
+        s, o = self.origin[turn_of][si], self.shapes[b]
+        moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net, tuple((px + x, py + y) for px, py in s.poly),
+                      s.box.moved(x, y), s.label)
+        key = ("conflict", a, b)
+        hit = self._decoded.get(key)
+        if hit is None:
+            hit = (occ._native_bucket(moved, o), (o.kind, occ.who(o.owner), "/".join(sorted(f.value for f in o.faces))))
+            self._decoded[key] = hit
+        clearance = self.clearance
+
+        def reason(moved=moved, o=o):
+            why = occ._conflict(moved, o, clearance)
+            if why is None:
+                raise AssertionError("native found a conflict between a %s and a %s that _conflict disagrees with; "
+                                     "this is a native/Python mismatch, not a placement question" % (moved.kind, o.kind))
+            return why
+        return hit[0], hit[1], reason
+
+
+def native_board(occ):
+    """The occupancy's keep-in and reservations mirrored natively
+    (placemat_native.NativeBoard), or None without the module or for a board
+    shape it does not know. Rebuilt when the board's shape, cutouts, box or
+    margin is a different object or value, or the reservation list was
+    replaced; a reservation added to the same list is added to it."""
+    native = _geometry_module._native
+    if native is None or not hasattr(native, "NativeBoard"):
+        return None
+    key = (occ.board_shape, occ.board_cutouts, occ.board_box, occ.edge_margin, occ.reservations)
+    hit = occ.__dict__.get("_native_board")
+    if hit is not None and all(a is b for a, b in zip(hit[0][:3] + hit[0][4:], key[:3] + key[4:])) \
+            and hit[0][3] == key[3]:
+        board, added = hit[1], hit[2]
+    else:
+        shape = occ.board_shape
+        margin = occ.edge_margin
+        if shape is not None:
+            from .outline import Outline
+            from .values import Disc
+            if isinstance(shape, Disc):
+                board = native.NativeBoard("disc", margin, loops=[list(l) for l in shape.cutouts.loops],
+                                           centre=(shape.centre.x, shape.centre.y), radius=shape.radius,
+                                           bore=shape.bore)
+            elif isinstance(shape, Outline):
+                board = native.NativeBoard("outline", margin, loops=[list(l) for l in shape.loops])
+            else:
+                return None
+        elif occ.board_box is not None:
+            b = occ.board_box
+            cut = occ.board_cutouts
+            board = native.NativeBoard("rect", margin, box=(b.left, b.top, b.right, b.bottom),
+                                       loops=[list(l) for l in cut.loops] if cut else [])
+        else:
+            board = native.NativeBoard("none", margin)
+        added = 0
+    for r in occ.reservations[added:]:
+        raster = None
+        if len(r.poly) >= 24:
+            ras = r._raster
+            raster = (ras.x0, ras.y0, ras.cell, ras.nx, ras.ny, ras.state)
+        board.add_reservation([tuple(p) for p in r.poly], raster)
+    occ.__dict__["_native_board"] = (key, board, len(occ.reservations))
+    return board
 
 
 def _reason_key(why: str) -> str:

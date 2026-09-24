@@ -62,6 +62,11 @@ REFINE_AROUND = 3
 """How many of the best coarse spots get a fine pass. `[place] refine_around`."""
 
 
+# Whether a scan judges its passes natively when it can: switched off to
+# compare against the pure-Python sweep (tests/test_native_sweep.py).
+NATIVE_SWEEP = True
+
+
 def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
          rotations=None, clearance: float | None = None, commit: bool = False, score=None,
          pick=None) -> ScanResult:
@@ -83,11 +88,15 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     region = Box(hint.location.x - reach, hint.location.y - reach, hint.location.x + reach, hint.location.y + reach)
     others = occ.obstacles(geom, region)
     seen: set = set()
+    native = occ.native_sweeper(item, hint.face, rots, others, clearance) if NATIVE_SWEEP else None
+    scoring = score.native(rots, hint.face) if native is not None and hasattr(score, "native") else None
 
     def sweep(points, stop_at_first: bool) -> list:
         """Evaluate every (x, y) in `points` at every rotation; the legal
         ones as (score, distance from the hint, rotation, placement)."""
         nonlocal tried
+        if native is not None:
+            return native_sweep(points, stop_at_first)
         legal = []
         for x, y in points:
             for rot in rots:
@@ -115,6 +124,36 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                     reasons[key] = get_reason()
                 for b in blame:
                     blockers[(b.kind, b.owner, "/".join(sorted(f.value for f in b.faces)))] += 1
+        return legal
+
+    def native_sweep(points, stop_at_first: bool) -> list:
+        """The same pass, judged natively (Occupancy.native_sweeper): the same
+        legal candidates, tallies, first sentences and blockers."""
+        nonlocal tried
+        triples = []
+        for x, y in points:
+            for k, rot in enumerate(rots):
+                if (x, y, rot) in seen:
+                    continue
+                seen.add((x, y, rot))
+                triples.append((x, y, k))
+        if scoring is not None:
+            scoring.floor = score.best[0]
+        found, scores, refused = native.run(triples, stop_at_first, scoring)
+        if scoring is not None:
+            score.best[0] = scoring.floor
+        tried += found[0] + 1 if stop_at_first and found else len(triples)
+        for bucket, count, first, reason, blocker in refused:
+            rejected[bucket] += count
+            if bucket not in reasons:
+                reasons[bucket] = reason()
+            blockers[blocker] += count
+        legal = []
+        for i, sc in zip(found, scores):
+            x, y, k = triples[i]
+            cand = Placement(Location(x, y), rots[k], hint.face)
+            d = math.hypot(x - hint.location.x, y - hint.location.y)
+            legal.append(((sc if scoring is not None else score(cand)) if score else 0.0, d, rots[k], cand))
         return legal
 
     cfg = occ.settings

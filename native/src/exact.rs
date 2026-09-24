@@ -137,9 +137,33 @@ pub fn clean9(v: f64) -> f64 {
     if r == 0.0 { 0.0 } else { r }
 }
 
-/// `math.radians`: `x * (pi / 180)`, CPython's own constant.
-pub fn radians(x: f64) -> f64 {
-    x * (std::f64::consts::PI / 180.0)
+/// CPython 3.12's built-in `sum()` over floats (Python/bltinmodule.c,
+/// lines 2609-2643): Neumaier's compensated summation, the compensation
+/// added once at the end. A sum that starts from the int 0 adds its first
+/// float exactly, which starting from 0.0 does too.
+pub struct PySum {
+    f: f64,
+    c: f64,
+}
+
+impl PySum {
+    pub fn new() -> PySum {
+        PySum { f: 0.0, c: 0.0 }
+    }
+
+    pub fn add(&mut self, x: f64) {
+        let t = self.f + x;
+        if self.f.abs() >= x.abs() {
+            self.c += (self.f - t) + x;
+        } else {
+            self.c += (x - t) + self.f;
+        }
+        self.f = t;
+    }
+
+    pub fn total(&self) -> f64 {
+        if self.c != 0.0 && self.c.is_finite() { self.f + self.c } else { self.f }
+    }
 }
 
 #[cfg(test)]
@@ -158,6 +182,15 @@ mod tests {
         assert_eq!(clean9(1.0000000004), 1.0);
         assert_eq!(clean9(1.0000000006), 1.000000001);
         assert_eq!(clean9(-0.0000000001).to_bits(), 0.0f64.to_bits());
+    }
+
+    #[test]
+    fn pysum_compensates_as_cpython_does() {
+        let mut s = PySum::new();
+        for x in [1e16, 1.0, -1e16] {
+            s.add(x);
+        }
+        assert_eq!(s.total(), 1.0);             // CPython 3.12: sum([1e16, 1.0, -1e16]) == 1.0
     }
 
     #[test]

@@ -91,6 +91,23 @@ native and Python answers directly; they skip themselves (not fail) when
   largest all-free axis-aligned rectangle in a boolean grid, by the
   histogram method. Pure integer/boolean logic, no floating point, so no
   epsilon-boundary question at all (an exact port, not an approximation).
+- `src/exact.rs`: arithmetic that must land on CPython's bits - its own
+  `math.hypot` (not the C library's), `round(v, 9)` (`geometry._clean`)
+  and the built-in `sum()` over floats (compensated since 3.12).
+- `src/board.rs`: the board's keep-in (a rectangle, a disc with its bore,
+  a shaped outline, their cutouts) and the reservations, as
+  `Occupancy._edge_or_reservation_conflict` tests a body box.
+- `src/ratsnest.rs`: `ratsnest.mst`, and a mirror of the occupancy's placed
+  ratsnest for `leaf_costs`, the crossings a candidate's airwires add.
+- `src/escapes.rs`: a mirror of the placed pads' escape corridors for
+  `Escapes.closed`, the escapes a candidate closes or walls off.
+- `sweep()` (in `src/lib.rs`): one pass of `placer.scan` judged whole -
+  the edge, the reservations and the obstacles for each candidate, then,
+  for the legal ones, the scan's cost (`NativeScoring` for the search,
+  `NativeCleanupScoring` for the cleanup pass). Python keeps the grid, the
+  tallies, every sentence and every decision; `Occupancy.native_sweeper`
+  and the scorers' `native()` build what a scan hands over. See
+  docs/superpowers/specs/2026-09-25-native-sweep-design.md.
 - `src/lib.rs`: the PyO3 module - `#[pyfunction]` wrappers around
   `geometry.rs` and `pockets.rs`, and two classes over `shapes.rs`:
   `NativeObstacles` (a scan's obstacle pool, registered once and queried

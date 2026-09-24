@@ -37,46 +37,46 @@
 
 **Files:** `native/src/keepin.rs` (new), `native/src/lib.rs`, `src/placemat/occupancy.py` (build the handle's keep-in; bump the generation at each site from task 1), `tests/test_native_keepin.py`.
 
-- [ ] Failing tests: the native verdict (none, or which of the seven edge kinds) matches the kind of sentence Python's edge test gives on 100,000 grid-drawn body boxes each against a rectangle with and without cutouts, a disc with and without a bore and cutouts, and a shaped outline with arcs and cutouts, at margins 0, 0.3 and 1.0 mm, and `past_edge` skipping it.
-- [ ] Implement, porting `Where` (the segment grid), `loops_around`, `segment_box` and the rect/disc/outline/cutout `why_not` order; tests; suite both ways; bench; commit.
+- [x] Failing tests: the native verdict (none, or which of the seven edge kinds) matches the kind of sentence Python's edge test gives on 100,000 grid-drawn body boxes each against a rectangle with and without cutouts, a disc with and without a bore and cutouts, and a shaped outline with arcs and cutouts, at margins 0, 0.3 and 1.0 mm, and `past_edge` skipping it.
+- [x] Implement, porting `Where` (the segment grid), `loops_around`, `segment_box` and the rect/disc/outline/cutout `why_not` order; tests; suite both ways; bench; commit.
 
 ### Task 4: Reservations, native
 
 **Files:** `native/src/reservations.rs` (new), `native/src/lib.rs`, `src/placemat/occupancy.py` (register reservations on the handle; generation bump on add and replace), `tests/test_native_reservations.py`.
 
-- [ ] Failing tests: the native first-hit reservation index equals Python's on random grid boxes against keepouts with `layers=`, `allow=` nets and owners, through-hole items (both faces), label and fanout reservations, and polygons of 4, 23, 24 and 200 vertices (both sides of the raster threshold).
-- [ ] Implement with the existing native `polys_overlap`; tests; bench; commit.
+- [x] Failing tests: the native first-hit reservation index equals Python's on random grid boxes against keepouts with `layers=`, `allow=` nets and owners, through-hole items (both faces), label and fanout reservations, and polygons of 4, 23, 24 and 200 vertices (both sides of the raster threshold).
+- [x] Implement with the existing native `polys_overlap`; tests; bench; commit.
 
 ### Task 5: `sweep()` in the scan
 
 **Files:** `native/src/sweep.rs` (new), `native/src/lib.rs`, `src/placemat/occupancy.py` (the handle's `sweep`, the detail-to-bucket/blocker/sentence mapping with per-sweep memo), `src/placemat/placer.py` (`scan`'s `sweep()` calls it when native is present), `tests/test_native_sweep.py`.
 
-- [ ] Failing tests: on every fixture module, for every scan the resolve makes (recorded by wrapping `placer.scan`), the native and Python scans give the same chosen placement, `tried`, `rejected`, `reasons`, `blockers` and score, for scored and unscored scans.
-- [ ] Implement; suite both ways; bench `same 32` x3; `bench.py --explore 64` identical both ways; commit with the tally and timings.
+- [x] Failing tests: on every fixture module, for every scan the resolve makes (recorded by wrapping `placer.scan`), the native and Python scans give the same chosen placement, `tried`, `rejected`, `reasons`, `blockers` and score, for scored and unscored scans.
+- [x] Implement; suite both ways; bench `same 32` x3; `bench.py --explore 64` identical both ways; commit with the tally and timings.
 
 ### Task 6: The ratsnest, native
 
 **Files:** `native/src/ratsnest.rs` (new), `native/src/lib.rs`, `src/placemat/occupancy.py` (the native mirror updated in `_ratsnest_refresh`), `tests/test_native_ratsnest.py`.
 
-- [ ] Failing tests: native `leaf_costs(pads, own, depth)` equals `Ratsnest.leaf_costs` (weighted crossings and crossed escapes, exactly) on random boards of up to 40 nets, with quiet nets weighted 0 and 0.25, own parts excluded, and after random `set_net` updates.
-- [ ] Implement: anchors per net, airwires with their nanometre ends, the 2 mm grid; the nearest-anchor search in Python's order (ties to the first); the crossing point and the depth test with the hypot port.
-- [ ] Suite both ways; bench `same`; commit.
+- [x] Failing tests: native `leaf_costs(pads, own, depth)` equals `Ratsnest.leaf_costs` (weighted crossings and crossed escapes, exactly) on random boards of up to 40 nets, with quiet nets weighted 0 and 0.25, own parts excluded, and after random `set_net` updates.
+- [x] Implement: anchors per net, airwires with their nanometre ends, the 2 mm grid; the nearest-anchor search in Python's order (ties to the first); the crossing point and the depth test with the hypot port.
+- [x] Suite both ways; bench `same`; commit.
 
 ### Task 7: The escapes, native
 
 **Files:** `native/src/escapes.rs` (new), `native/src/lib.rs`, `src/placemat/escapes.py` (the native mirror updated in `refresh` and `add_copper`), `tests/test_native_escapes.py`.
 
-- [ ] Failing tests: native `closed(item, placement, crossed)` equals `Escapes.closed` on every candidate of every scan of three fixture modules (recorded by wrapping the scorer), and after random commits, lifts and planned copper.
-- [ ] Implement: corridors and via spots as Python builds them (built in Python, handed over), their open flags, the blocking copper grid, the candidate's pads and own corridors at the origin per turn, shifted.
-- [ ] Suite both ways; bench `same`; commit.
+- [x] Failing tests: native `closed(item, placement, crossed)` equals `Escapes.closed` on every candidate of every scan of three fixture modules (recorded by wrapping the scorer), and after random commits, lifts and planned copper.
+- [x] Implement: corridors and via spots as Python builds them (built in Python, handed over), their open flags, the blocking copper grid, the candidate's pads and own corridors at the origin per turn, shifted.
+- [x] Suite both ways; bench `same`; commit.
 
 ### Task 8: The scorer in the sweep
 
 **Files:** `native/src/sweep.rs`, `src/placemat/layout.py` (`_scorer` hands its targets, weights and floor to the native sweep), `src/placemat/cleanup.py` (the move and swap scores), `tests/test_native_sweep.py`.
 
-- [ ] Failing tests: every scan of every fixture module gives the same chosen placement, score, tried count, rejections and blockers native and Python, for the search and the cleanup pass; explore variants (unpruned) the same.
-- [ ] Implement: the wire sum in Python's order with the hypot port, the leaf costs and escape check from tasks 6-7, the pruning floor.
-- [ ] Suite both ways; bench `same 32` x3; `bench.py --explore 64` identical both ways; commit with the tally and timings.
+- [x] Failing tests: every scan of every fixture module gives the same chosen placement, score, tried count, rejections and blockers native and Python, for the search and the cleanup pass; explore variants (unpruned) the same.
+- [x] Implement: the wire sum in Python's order with the hypot port, the leaf costs and escape check from tasks 6-7, the pruning floor.
+- [x] Suite both ways; bench `same 32` x3; `bench.py --explore 64` identical both ways; commit with the tally and timings.
 
 ### Task 9: Measure and decide the later stages
 

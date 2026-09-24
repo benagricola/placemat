@@ -67,6 +67,11 @@ def mst(net: str, anchors, joined=()) -> list:
     nodes = list(anchors)
     if len(nodes) < 2:
         return []
+    from . import geometry as _geometry
+    native = _geometry._native
+    if native is not None and hasattr(native, "mst"):       # the same tree, worked out natively
+        pairs = native.mst([(a.x, a.y, a.ref, a.number) for a in nodes], [tuple(p) for p in joined])
+        return [Edge(net, nodes[i], nodes[j]) for i, j in pairs]
     order = sorted(range(len(nodes)), key=lambda i: (_nm(nodes[i].x), _nm(nodes[i].y), nodes[i].ref, nodes[i].number))
     tag = {i: t for t, i in enumerate(order)}
     parent = list(range(len(nodes)))
@@ -176,8 +181,11 @@ class Ratsnest:
     candidate can be asked what it would add without recounting the board.
     A net whose weight is 0 is not kept: nothing it crosses counts."""
 
-    def __init__(self, weights: dict | None = None):
+    def __init__(self, weights: dict | None = None, mirror=None):
         self.weights = dict(weights or {})
+        # placemat_native.NativeRatsnest, kept in step with every set_net:
+        # it answers leaf_costs, the question every candidate asks
+        self.mirror = mirror
         self._anchors: dict = {}
         self._edges: dict = {}
         self._grid: dict = {}
@@ -194,9 +202,14 @@ class Ratsnest:
         self._anchors[net] = list(anchors)
         if _weight(self.weights, net) <= 0:
             self._edges[net] = []
+            if self.mirror is not None:
+                self.mirror.set_net(net, [(a.ref, a.number, a.x, a.y) for a in self._anchors[net]], [])
             return
         edges = mst(net, self._anchors[net], joined)
         self._edges[net] = edges
+        if self.mirror is not None:
+            self.mirror.set_net(net, [(a.ref, a.number, a.x, a.y) for a in self._anchors[net]],
+                                [(e.a.ref, e.a.number, e.a.x, e.a.y, e.b.ref, e.b.number, e.b.x, e.b.y) for e in edges])
         for e in edges:
             self._nmends[id(e)] = (_nm(e.a.x), _nm(e.a.y), _nm(e.b.x), _nm(e.b.y))
             for c in _cells(*_ends(e)):
@@ -225,7 +238,10 @@ class Ratsnest:
 
     def leaf_costs(self, pads, own=frozenset(), depth: float = 1.0) -> tuple:
         """(weighted crossings added, escapes crossed) for a candidate: `added`
-        and `crossed_escapes` from one search for its leaf airwires."""
+        and `crossed_escapes` from one search for its leaf airwires. The
+        native mirror answers it when there is one, the same way."""
+        if self.mirror is not None:
+            return self.mirror.leaf_costs(list(pads), list(own), depth)
         leaves = self._leaves(pads, own)
         total, crossed = 0.0, 0
         for k, (net, w, p, q, joined) in enumerate(leaves):

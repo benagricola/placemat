@@ -26,7 +26,7 @@ from dataclasses import dataclass
 import math
 
 from .geometry import polys_overlap
-from .values import Box, Location
+from .values import Box, CopperLayer, Location
 
 _CELL = 2.0     # mm: the grid corridors and blockers are bucketed into
 
@@ -160,7 +160,7 @@ class Escapes:
     """The corridors of every placed pad, which are open, and what copper
     closes them; kept as items commit."""
 
-    def __init__(self, occ):
+    def __init__(self, occ, mirror: bool = True):
         self.occ = occ
         self.depth = occ.settings.place_escape_depth
         self._corr: dict = {}           # ref -> [Corridor]
@@ -168,6 +168,13 @@ class Escapes:
         self._cgrid = _Grid()
         self._blockers: dict = {}       # ref (or copper key) -> [Shape]
         self._bgrid = _Grid()
+        # The native mirror (the occupancy's placemat_native.NativeRatsnest,
+        # which also holds the ratsnest `closed` reads): kept in step after
+        # every refresh, it answers `closed`. `_nid` is each corridor's id there.
+        self.mirror = occ.ratsnest().mirror if mirror else None
+        self._nid: dict = {}
+        if self.mirror is not None:
+            self.mirror.esc_set_quiet(sorted(occ.quiet_nets))
         self.refresh(set(occ.items), copper=True)
 
     # ------------------------------------------------------------ keeping up
@@ -175,10 +182,12 @@ class Escapes:
         """Take `refs`' corridors and copper out and put back what is placed now."""
         occ = self.occ
         vacated = []
+        touched = []
         for ref in refs:
             for c in self._corr.pop(ref, ()):
                 self._cgrid.remove(c, c.box)
                 self._open.pop(id(c), None)
+                self._nid.pop(id(c), None)
             for s in self._blockers.pop(ref, ()):
                 self._bgrid.remove(s, s.box)
                 vacated.append(s.box)
@@ -207,19 +216,49 @@ class Escapes:
             for c in self._cgrid.near(s.box):
                 if self._open.get(id(c)) and self._closes(s, c):
                     self._open[id(c)] = False
+                    touched.append(c)
         for box in vacated:                 # what copper that moved away may have opened
             for c in self._cgrid.near(box):
                 if not self._open.get(id(c), True):
                     self._open[id(c)] = self._clear(c)
+                    touched.append(c)
+        if self.mirror is not None:
+            self._sync(refs, copper, touched)
+
+    def _sync(self, refs, copper: bool, touched) -> None:
+        """Hand the mirror what `refresh` changed: the parts' corridors and
+        pads, the planned copper, and the open flags it set elsewhere."""
+        m = self.mirror
+        for ref in refs:
+            cs = self._corr.get(ref, [])
+            centres = {}
+            if cs:
+                centres = {n: b.center for n, (_, _, b) in _pads_of(self.occ.items[ref].shapes, ref).items()}
+            ids = m.esc_set_part(ref, [_corr_tuple(c, self._open[id(c)], centres[c.number]) for c in cs])
+            for c, i in zip(cs, ids):
+                self._nid[id(c)] = i
+            m.esc_set_metal(ref, [_metal_tuple(sh) for sh in self._blockers.get(ref, ())])
+        if copper:
+            m.esc_set_metal(":copper", [_metal_tuple(sh) for sh in self._blockers.get(":copper", ())])
+        flags = [(self._nid[id(c)], self._open[id(c)]) for c in touched if id(c) in self._nid]
+        if flags:
+            m.esc_set_open(flags)
 
     def add_copper(self, shapes) -> None:
         metal = [s for s in shapes if s.kind in ("copper", "through")]
         self._blockers.setdefault(":copper", []).extend(metal)
+        touched = []
         for s in metal:
             self._bgrid.add(s, s.box)
             for c in self._cgrid.near(s.box):
                 if self._open.get(id(c)) and self._closes(s, c):
                     self._open[id(c)] = False
+                    touched.append(c)
+        if self.mirror is not None:
+            self.mirror.esc_set_metal(":copper", [_metal_tuple(sh) for sh in metal], add=True)
+            flags = [(self._nid[id(c)], False) for c in touched if id(c) in self._nid]
+            if flags:
+                self.mirror.esc_set_open(flags)
 
     @staticmethod
     def _closes(s, c) -> bool:
@@ -324,6 +363,21 @@ class Escapes:
             cache[key] = hit
         return hit[1], hit[2]
 
+    def _native_turn(self, item, placement):
+        """The mirror's handle on `_at_origin` for this turn."""
+        geom = self.occ._geometry(item)
+        cache = self.__dict__.setdefault("_turns", {})
+        key = (id(geom), placement.rotation, placement.face)
+        hit = cache.get(key)
+        if hit is None or hit[0] is not geom:
+            pads, groups = self._at_origin(item, placement)
+            handle = self.mirror.esc_turn([_metal_tuple(s) for s in pads],
+                                          [([_corr_tuple(c, True, centre) for c in group], (centre.x, centre.y))
+                                           for group, centre in groups])
+            hit = (geom, handle)
+            cache[key] = hit
+        return hit[1]
+
     def closed(self, item, placement, crossed: int | None = None) -> tuple:
         """(crossed, closed, walled) that placing `item` at `placement` would
         cause: escapes crossed near a neighbour's pin row, pads whose last
@@ -334,6 +388,11 @@ class Escapes:
         occ = self.occ
         own = frozenset(fp.ref for fp in members_of(item))
         dx, dy = placement.location.x, placement.location.y
+        if self.mirror is not None:
+            closed, walled = self.mirror.esc_closed(self._native_turn(item, placement), dx, dy, list(own))
+            if crossed is None:
+                crossed = occ.ratsnest().crossed_escapes(occ.candidate_anchors(item, placement), own, self.depth)
+            return crossed, closed, walled
         origin_pads, origin_corr = self._at_origin(item, placement)
         cand = [Shape(s.owner, s.kind, s.faces, s.layers, s.net, tuple((x + dx, y + dy) for x, y in s.poly),
                       s.box.moved(dx, dy), s.label) for s in origin_pads]
@@ -453,6 +512,24 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
                 seen.add((a, b))
                 todo.append((a, b))
     return False
+
+
+_LAYER_BIT = {l: 1 << i for i, l in enumerate(CopperLayer)}      # a copper layer set as the mirror's bits
+
+
+def _layer_bits(layers) -> int:
+    return sum(_LAYER_BIT[l] for l in layers)
+
+
+def _corr_tuple(c, open_: bool, centre) -> tuple:
+    b = c.box
+    return (c.ref, c.number, c.net, _layer_bits(c.layers), [tuple(p) for p in c.poly], (b.left, b.top, b.right, b.bottom),
+            c.direction, c.via, bool(open_), (centre.x, centre.y))
+
+
+def _metal_tuple(s) -> tuple:
+    b = s.box
+    return (s.owner, s.net or "", _layer_bits(s.layers), [tuple(p) for p in s.poly], (b.left, b.top, b.right, b.bottom))
 
 
 def _group(cs):
