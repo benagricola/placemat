@@ -198,6 +198,7 @@ class PlaceIntent:
     freedom: Freedom = Freedom.SEARCHED   # derived from at=, never chosen
     required: bool = False                # failing to place this stops the run
     rotation_given: bool = False          # the script said rotation=: that one, not a choice of four
+    line: int = field(default=0, metadata={"reuse": False})   # the script line that declared it: not what it decides
 
     @property
     def rank(self):
@@ -1360,7 +1361,7 @@ class Board:
         intent = PlaceIntent(key, geom, kind, priority, turn, face, at, center, edge, along,
                              standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs),
                              pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward, about, run,
-                             freedom, required, rotation_given)
+                             freedom, required, rotation_given, _script_line())
         self._intents.append(intent)
         return intent
 
@@ -3311,6 +3312,20 @@ def _label_op(text, box: Box, face: Face, side: Edge, gap: float, align: str, si
     if side is Edge.NORTH:
         vj, x = across[align]; return T(text, Location(x, off.top - gap), face, size, thick, 90.0, "left", vj, knockout, mirrored)
     vj, x = across[align]; return T(text, Location(x, off.bottom + gap), face, size, thick, 90.0, "right", vj, knockout, mirrored)
+
+
+def _script_line() -> int:
+    """The line of the script (or test) that made the declaration being
+    built: the first frame outside the placemat package."""
+    import inspect
+    import os
+    here = os.path.dirname(os.path.abspath(__file__))
+    f = inspect.currentframe()
+    while f is not None:
+        if not os.path.abspath(f.f_code.co_filename).startswith(here + os.sep):
+            return f.f_lineno
+        f = f.f_back
+    return 0
 
 
 def _run_along(board: "Board", occ: Occupancy, i: PlaceIntent) -> float:

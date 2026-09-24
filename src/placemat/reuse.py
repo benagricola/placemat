@@ -48,7 +48,7 @@ def canonical(obj, _seen=None) -> str:
         return "{" + ",".join(sorted("%s:%s" % (canonical(k, _seen), canonical(v, _seen)) for k, v in obj.items())) + "}"
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
         return "%s(%s)" % (kind, ",".join("%s=%s" % (f.name, canonical(getattr(obj, f.name), _seen))
-                                          for f in dataclasses.fields(obj)))
+                                          for f in dataclasses.fields(obj) if f.metadata.get("reuse", True)))
     if callable(obj) and not hasattr(obj, "__dict__"):
         return "fn:%s" % getattr(obj, "__qualname__", kind)
     if hasattr(obj, "__dict__") or hasattr(obj, "__slots__"):
