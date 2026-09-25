@@ -1,15 +1,24 @@
-"""How much a route's outcome depends on where the board sits on the router's
-grid: the same board routed at N sub-grid offsets.
+"""How much a route's outcome depends on small changes to its input: one
+board routed N ways, reported as a spread.
 
 On a dense board a small change to the input changes which nets fail, so one
-route cannot judge a placement or a router change. This routes the board at
-N offsets inside one grid cell (the first is no offset; the rest follow a
-Halton sequence, so they cover the cell evenly), each in a fresh process
-with the router `placemat route` drives, and reports the spread: failed nets
-per run (min, median, max) and how often each net failed.
+route cannot judge a placement or a router change. Two perturbations:
 
-    route_spread.py BOARD.kicad_pcb OUT [--runs N] [--grid G] [--jobs J]
-                    [--router DIR] -- ROUTER ARGS...
+- `order` (the default): the router's own net order (MPS, computed with the
+  router's code) with a few neighbouring pairs swapped, a different seeded
+  set per run; run 0 is the order unswapped. Routed with `--ordering
+  original`, so a router's own ordering passes after MPS do not apply.
+- `offset`: the whole board moved by N sub-grid offsets (a Halton cover of
+  one cell; run 0 is no offset). This measures grid alignment, which on a
+  minimum-pitch part dominates: a row whose centre lines leave the grid seals.
+
+Each run is a fresh process with the router `placemat route` drives. Reported:
+failed nets per run (min, median, max) and how often each net failed.
+
+    route_spread.py BOARD.kicad_pcb OUT [--runs N] [--perturb order|offset]
+                    [--swaps K] [--grid G] [--jobs J] [--router DIR] -- ROUTER ARGS...
+
+ROUTER ARGS must name the nets (`--nets ...`) for the order perturbation.
 
 ROUTER ARGS go to the router's route.py as given (nets, layers, rules).
 Results: OUT/spread.json and one directory per run.
@@ -67,9 +76,56 @@ def shifted(board: Path, out: Path, dx: float, dy: float) -> Path:
     return dst
 
 
+MPS = """
+import sys, json
+sys.path.insert(0, sys.argv[1] + "/py_router")
+from kicad_parser import parse_kicad_pcb
+from net_queries import compute_mps_net_ordering
+pcb = parse_kicad_pcb(sys.argv[2])
+names = {nid: getattr(n, 'name', n) for nid, n in pcb.nets.items()}
+ids = {v: k for k, v in names.items()}
+nets = json.loads(sys.argv[3])
+order = compute_mps_net_ordering(pcb, [ids[n] for n in nets if n in ids])
+order = order if isinstance(order, list) else order.ordered_ids
+print(json.dumps([names[n] for n in order]))
+"""
+
+
+def mps_order(router: str, board: str, nets: list) -> list:
+    py = Path(router) / ".venv/bin/python"
+    r = subprocess.run([str(py), "-c", MPS, router, board, json.dumps(nets)], capture_output=True, text=True,
+                       cwd=router)
+    return json.loads(r.stdout.strip().splitlines()[-1])
+
+
+def swapped(order: list, seed: int, swaps: int) -> list:
+    """`order` with `swaps` neighbouring pairs swapped, chosen by `seed`."""
+    import random
+    out = list(order)
+    rng = random.Random(seed)
+    for _ in range(swaps if seed else 0):
+        i = rng.randrange(len(out) - 1)
+        out[i], out[i + 1] = out[i + 1], out[i]
+    return out
+
+
+def nets_in(args: list) -> tuple:
+    """(the nets named after --nets, the args without them)."""
+    if "--nets" not in args:
+        return [], list(args)
+    i = args.index("--nets")
+    j = i + 1
+    while j < len(args) and not args[j].startswith("--"):
+        j += 1
+    return args[i + 1:j], args[:i] + args[j:]
+
+
 def route(job) -> dict:
     board, out, dx, dy, router, args = job
-    src = shifted(Path(board), Path(out), dx, dy)
+    if isinstance(dx, str):                 # an explicit order: ("order", nets)
+        src = shifted(Path(board), Path(out), 0.0, 0.0)
+    else:
+        src = shifted(Path(board), Path(out), dx, dy)
     py = Path(router) / ".venv/bin/python"
     r = subprocess.run([str(py), "-X", "utf8", str(Path(router) / "py_router/route.py"), str(src),
                         str(Path(out) / "out.kicad_pcb"), "--json-out", str(Path(out) / "r.json")] + list(args),
@@ -81,7 +137,7 @@ def route(job) -> dict:
         failed += sorted(f["net_name"] for f in (j.get("failed_multipoint") or []) if f.get("net_name") not in failed)
     except (OSError, ValueError):
         failed = None
-    return {"dx": dx, "dy": dy, "failed": failed, "rc": r.returncode}
+    return {"dx": dx, "dy": dy, "failed": failed, "rc": r.returncode}   # order runs: dx "order", dy the seed
 
 
 def spread(runs: list) -> dict:
@@ -110,9 +166,20 @@ def main(argv) -> int:
     ap.add_argument("--grid", type=float, default=0.1)
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--router", default=os.environ.get("KRT_DIR", os.path.expanduser("~/work/KiCadRoutingTools")))
+    ap.add_argument("--perturb", choices=("order", "offset"), default="order")
+    ap.add_argument("--swaps", type=int, default=0, help="order: pairs swapped per run (default: a tenth of the nets)")
     a = ap.parse_args(argv)
     out = Path(a.out)
-    jobs = [(a.board, out / ("run%02d" % k), dx, dy, a.router, args) for k, (dx, dy) in enumerate(offsets(a.runs, a.grid))]
+    if a.perturb == "offset":
+        jobs = [(a.board, out / ("run%02d" % k), dx, dy, a.router, args) for k, (dx, dy) in enumerate(offsets(a.runs, a.grid))]
+    else:
+        nets, rest = nets_in(args)
+        if not nets:
+            ap.error("the order perturbation needs --nets in the router arguments")
+        base = mps_order(a.router, a.board, nets)
+        swaps = a.swaps or max(1, len(base) // 10)
+        jobs = [(a.board, out / ("run%02d" % k), "order", k, a.router,
+                 rest + ["--ordering", "original", "--nets"] + swapped(base, k, swaps)) for k in range(a.runs)]
     with concurrent.futures.ProcessPoolExecutor(a.jobs) as ex:
         runs = list(ex.map(route, jobs))
     result = {"board": a.board, "router": a.router, "args": args, "grid": a.grid, "runs": runs, "spread": spread(runs)}
