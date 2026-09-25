@@ -78,7 +78,7 @@ def resolve_run(runs_dir, ref: str) -> Path:
     raise ValueError("%r matches %d runs in %s: %s" % (ref, len(matches), runs_dir, ", ".join(m.name for m in matches)))
 
 
-def airwires_from_drc(drc: dict, quiet=()) -> dict:
+def airwires_from_drc(drc: dict, quiet=(), pair_patterns=("*",)) -> dict:
     """The ratsnest KiCad reports as unconnected items: count, straight-line
     length, crossings between different nets, and length per net.
     `crossings_quiet` counts the crossings with a `quiet` net's airwire (a
@@ -101,7 +101,7 @@ def airwires_from_drc(drc: dict, quiet=()) -> dict:
 
     crossings = quiet_crossings = pair_crossings = 0
     quiet = set(quiet)
-    partners = pairs_of({e[0] for e in edges})
+    partners = pairs_of({e[0] for e in edges}, tuple(pair_patterns))
     crossings_per_net: dict = {}
     for i in range(len(edges)):
         for j in range(i + 1, len(edges)):

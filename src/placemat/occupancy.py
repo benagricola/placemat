@@ -562,7 +562,7 @@ class Occupancy:
             # a pair crossing itself weighs score.pair_crossing; the search
             # prices the ratsnest's weighted count at score.crossing
             nets = {s.net for g in self.items.values() for s in g.shapes if s.net}
-            partners = {n: m for n, m in pairs_of(nets).items()
+            partners = {n: m for n, m in pairs_of(nets, tuple(self.settings.route_diff_pairs)).items()
                         if n not in self.quiet_nets and m not in self.quiet_nets}
             s = self.settings
             pair_weight = s.score_pair_crossing / s.score_crossing if s.score_crossing > 0 else 1.0

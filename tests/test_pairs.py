@@ -33,3 +33,14 @@ def test_what_is_not_a_pair():
     assert pair_key("Net-(BZ1--)") is None       # a passive's '-' terminal
     assert pairs_of(["USB_P"]) == {}             # no partner
     assert pairs_of(["3V3-MCU", "VCC"]) == {}
+
+
+def test_patterns_select_which_pairs_count():
+    """As the router selects pairs (net_queries.matches_diff_pair_patterns): a
+    pattern matching either half, its leaf, or the pair's base selects it."""
+    nets = ["USB_D_P", "USB_D_N", "XTAL_P", "XTAL_N"]
+    assert pairs_of(nets, patterns=("USB_D*",)) == {"USB_D_P": "USB_D_N", "USB_D_N": "USB_D_P"}
+    assert pairs_of(nets, patterns=("*_N",)) == pairs_of(nets)          # one half selects the pair
+    assert pairs_of(nets, patterns=("XTAL",)) == {"XTAL_P": "XTAL_N", "XTAL_N": "XTAL_P"}   # the base
+    assert pairs_of(["/usb/D_P", "/usb/D_N"], patterns=("D_P",)) == {"/usb/D_P": "/usb/D_N", "/usb/D_N": "/usb/D_P"}
+    assert pairs_of(nets, patterns=()) == {}

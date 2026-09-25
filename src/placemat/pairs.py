@@ -73,18 +73,29 @@ def pair_key(net_name: str):
     return None
 
 
-def pairs_of(nets) -> dict:
+def selected(net: str, base: str, patterns) -> bool:
+    """Whether a glob of `patterns` selects this pair half: matched against
+    the net, its leaf (after the last '/'), the pair's base and the base's
+    leaf, as the router's net_queries.matches_diff_pair_patterns does."""
+    from fnmatch import fnmatch
+    candidates = (net, net.rsplit('/', 1)[-1], base, base.rsplit('/', 1)[-1])
+    return any(fnmatch(c, p) for p in patterns for c in candidates)
+
+
+def pairs_of(nets, patterns=("*",)) -> dict:
     """{net: its partner} for every net of `nets` that has exactly one
-    partner of the other polarity under the same base and style."""
+    partner of the other polarity under the same base and style, in a pair
+    `patterns` selects (either half matching selects both)."""
     halves: dict = {}
     for net in nets:
         k = pair_key(net)
         if k is not None:
             halves.setdefault((k[0], k[2]), {}).setdefault(k[1], []).append(net)
     out = {}
-    for sides in halves.values():
+    for (base, _style), sides in halves.items():
         pos, neg = sides.get(True, []), sides.get(False, [])
-        if len(pos) == 1 and len(neg) == 1:
+        if len(pos) == 1 and len(neg) == 1 and \
+                (selected(pos[0], base, patterns) or selected(neg[0], base, patterns)):
             out[pos[0]] = neg[0]
             out[neg[0]] = pos[0]
     return out

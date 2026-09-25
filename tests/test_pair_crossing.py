@@ -87,3 +87,14 @@ def test_a_crossed_pair_on_decided_parts_is_reported_with_its_parts():
     # priced once, by the crossings term, not again as a finding
     t = score.terms(score.plan_measures(b, plan), b.settings)
     assert "pair_crossed" not in t
+
+
+def test_route_diff_pairs_names_which_pairs_are_weighed():
+    parts = [_chip(), footprint("R1", 25, 32, inst="r1", nets=("D_P", "E_P")),
+             footprint("R2", 25, 28, inst="r2", nets=("D_N", "E_N"))]
+    b = _board(parts, route_diff_pairs=("OTHER*",))
+    for ref, at in (("u1", (10, 30)), ("r1", (25, 32)), ("r2", (25, 28))):
+        b.place(Part(ref), at=Location(*at))
+    plan = b.resolve()
+    assert score.plan_measures(b, plan)["crossings"]["pair"] == 0     # D is not named a pair
+    assert not [f for f in plan.findings if f.kind == "pair_crossed"]

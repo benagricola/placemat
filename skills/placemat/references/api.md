@@ -1185,7 +1185,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `route.quick` | true | one routing round rather than the router's full run |
 | `route.iterations` | the router's own | cap on the router's search per net |
 | `route.layers` | every copper layer | which layers the router may use |
-| `route.diff_pairs` | `["*"]` | net patterns whose differential pairs the router's pair router (route_diff.py) routes first, as pairs; `[]` routes every net single-ended |
+| `route.diff_pairs` | `["*"]` | net patterns naming the differential pairs: the router's pair router (route_diff.py) routes them first, as pairs, and placement prices their own crossings at `score.pair_crossing`; `[]` names none (every net single-ended, no pair weighting) |
 | `route.diff_pair_gap` | 0 | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
 | `route.diff_pair_width` | 0 | mm, a pair's track width; 0 is the net class's diff pair width |
 | `timeout.generate` | 900 | seconds for `pcb layout` |
@@ -1207,7 +1207,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.setup` | 0 | mm a setup finding costs: the same every run of a script (an undeclared part, a layer the board lacks) |
 | `score.crossing` | 4.0 | mm a ratsnest crossing costs, in the run score and in the search |
 | `score.crossing_plane` | 0 | a crossing with a plane's or free net's airwire, as a share of `score.crossing`: each of its pads drops to the plane by a via |
-| `score.pair_crossing` | 100 | mm a differential pair crossing itself costs, in place of `score.crossing`: such a pair has to exchange sides to route coupled, so a swap of two identical parts or a turned part is worth wire |
+| `score.pair_crossing` | 100 | mm a differential pair (as `route.diff_pairs` names them) crossing itself costs, in place of `score.crossing`: such a pair has to exchange sides to route coupled, so a swap of two identical parts or a turned part is worth wire |
 | `score.escape_crossed` | 20 | mm two escapes from one part's pins crossing near its pin row cost |
 | `score.escape_closed` | 50 | mm a pad whose last route toward what it connects to is closed costs |
 | `score.escape_walled` | 400 | mm a pad with no route out at all costs |

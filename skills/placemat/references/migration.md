@@ -7,7 +7,9 @@ whether any of it applies.
 ## To 0.36
 
 Nothing to change in a script. Placements with a differential pair (nets
-named as KiCad pairs them) can change: a crossing between a pair's two
+named as KiCad pairs them, among those `route.diff_pairs` selects; name
+only the real pairs there, e.g. `["USB_D*"]`, so a crystal's `XTAL_P`/`XTAL_N`
+is not weighed as one) can change: a crossing between a pair's two
 halves now costs `score.pair_crossing` (100 mm) instead of `score.crossing`,
 so the search and cleanup uncross a pair by a swap or a turn where they
 can, and each crossed pair left is a `pair_crossed` finding. Set
