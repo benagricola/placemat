@@ -62,8 +62,10 @@ board (fixed placements through `Board.place(at=...)`), writes it, routes a
 copy with `placemat.kicad.route.route_board`, and records per pin:
 
 - **escaped**: the router connected the pin to its sink, and how: on the
-  pin's layer (the goal), or through a via (a fallback), with the via's
-  distance from the pad and which neighbours' lanes its clearance took;
+  pin's layer (the goal), or through a via (allowed, but counted), with the
+  via's distance from the pad and which neighbours' lanes its clearance
+  took;
+- **vias**: how many the escapes used, per case;
 - **detour**: the routed length against the straight distance;
 - **blocker**: for a failed pin, what `blocking_analysis` names;
 - **placemat's view** of the same board: the crossed, closed and walled
@@ -100,7 +102,8 @@ boards. The first run is cases 1, 2 and 5, which decide the model.
 For each candidate model below: does it say escaped where the router
 escaped and blocked where it failed, per pin, and does its count rank the
 cases as the router's closure does? A model is good enough when it agrees
-with the router on at least 90% of pins in cases 1-4, ranks the case 6
+with the router on at least 90% of pins in cases 1-4 (escaped on the layer,
+escaped by a via, or not at all), ranks the case 6
 variants in the router's order, and reproduces the hand layout's rules.
 
 Candidates, from simplest:
@@ -123,11 +126,13 @@ Candidates, from simplest:
   or B in the search.
 
 In every candidate an escape on the pin's own layer is the goal. A via
-escape is a fallback that costs: a via and its clearance (often larger than
-a track's) take more room than the lane it replaces and can block the
-neighbours' lanes, so a model has to count the room a via takes as well as
-the pin it frees. Today an open via spot makes a pin cost nothing, which
-is the wrong way round.
+escape is still an escape, and may be the only one a fine-pitch part has,
+but each via costs: it has electrical effects, and a via and its clearance
+(often larger than a track's) take more room than the lane it replaces and
+can block the neighbours' lanes. So a model counts a pin that escapes by a
+via as escaped, charges the via, and counts the room the via takes against
+its neighbours. The aim is fewest vias, not none. Today an open via spot
+makes a pin cost nothing and costs its neighbours nothing.
 
 The depth setting then goes the way the data says: likely replaced by
 lengths derived from the net class and the package, with a separate
