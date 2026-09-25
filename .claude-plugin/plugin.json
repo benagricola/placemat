@@ -1,7 +1,7 @@
 {
   "name": "placemat",
   "description": "PCB layout as code for KiCad: placement scripts, copper, real DRC gates, and the craft rules behind them",
-  "version": "0.34.1",
+  "version": "0.35.0",
   "author": { "name": "Ben Agricola" },
   "homepage": "https://github.com/benagricola/placemat",
   "repository": "https://github.com/benagricola/placemat",

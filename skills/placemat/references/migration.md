@@ -4,6 +4,23 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.35
+
+Nothing to change in a script; placements are the same as 0.34's, but for
+the first point below.
+
+- A cell is judged against keepouts and the board's edge by its members'
+  bodies, not by the box round the whole cell, so a cell whose box crosses a
+  keepout or the edge while its parts do not can now be placed there.
+- Routing (`placemat route`, `run --route`) routes differential pairs as
+  pairs: the router's pair router routes every pair named as KiCad pairs them
+  (`_P`/`_N`, `P`/`N`, `+`/`-`) first, at the net class's diff pair width and
+  gap, then the router routes the rest around them. Give a pair its class in
+  the board's project (a pattern in `netclass_patterns` does), or set
+  `route.diff_pair_gap` and `route.diff_pair_width`. A pair the pair router
+  cannot route coupled is routed single-ended and listed in the report's
+  `pairs`. `route.diff_pairs = []` in `placemat.toml` routes as 0.34 did.
+
 ## To 0.34
 
 0.34.0 was tagged but never published (its release checks failed); 0.34.1 is
