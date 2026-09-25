@@ -1185,6 +1185,9 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `route.quick` | true | one routing round rather than the router's full run |
 | `route.iterations` | the router's own | cap on the router's search per net |
 | `route.layers` | every copper layer | which layers the router may use |
+| `route.diff_pairs` | `["*"]` | net patterns whose differential pairs the router's pair router (route_diff.py) routes first, as pairs; `[]` routes every net single-ended |
+| `route.diff_pair_gap` | 0 | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
+| `route.diff_pair_width` | 0 | mm, a pair's track width; 0 is the net class's diff pair width |
 | `timeout.generate` | 900 | seconds for `pcb layout` |
 | `timeout.drc` | 600 | seconds for kicad-cli DRC |
 | `timeout.route` | 3600 | seconds for the router |

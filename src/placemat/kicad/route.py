@@ -74,6 +74,8 @@ class RouteReport:
     # Router copper inside a region that forbids it. The router honours rule
     # areas; this is what keeps that a checked fact rather than an assumed one.
     keepout_breaches: list = field(default_factory=list)
+    # What the pair router did with the differential pairs (Pairs.as_dict).
+    pairs: dict = field(default_factory=dict)
 
     def summary(self) -> str:
         head = "route %s: closure %.1f%% clean (%.1f%% raw), %d -> %d open signal item(s)" % (
@@ -85,6 +87,10 @@ class RouteReport:
             head += "  shorted: " + ", ".join(self.shorted)
         if self.keepout_breaches:
             head += "  %d item(s) inside a keepout" % len(self.keepout_breaches)
+        p = self.pairs or {}
+        if any(p.get(k) for k in ("coupled", "partial", "failed", "single_ended")):
+            head += "  pairs: %d coupled, %d partial, %d failed, %d single-ended" % tuple(
+                len(p.get(k) or []) for k in ("coupled", "partial", "failed", "single_ended"))
         return head
 
     def as_dict(self) -> dict:
@@ -93,7 +99,8 @@ class RouteReport:
                 "shorted": self.shorted, "excluded": self.excluded, "layers": self.layers,
                 "seconds": self.seconds, "router_version": self.router_version, "drc_after": self.drc_after,
                 "routed_pcb": str(self.routed_pcb), "log": str(self.log), "quick": self.quick,
-                "invalid_reason": self.invalid_reason, "keepout_breaches": list(self.keepout_breaches)}
+                "invalid_reason": self.invalid_reason, "keepout_breaches": list(self.keepout_breaches),
+                "pairs": self.pairs}
 
 
 def lock_copper(pcb_path: str) -> int:
@@ -134,6 +141,96 @@ def _nets_in_violations(drc: dict) -> set:
             if m:
                 out.add(m.group(1))
     return out
+
+
+@dataclass
+class Pairs:
+    """The pair router's outcome, from its own summary: pairs routed coupled,
+    partly coupled, failed, or left to single-ended routing, and the nets of
+    the pairs whose copper stays for the single-ended route to route around."""
+    coupled: list = field(default_factory=list)
+    partial: list = field(default_factory=list)
+    failed: list = field(default_factory=list)
+    single_ended: list = field(default_factory=list)
+    routed_nets: set = field(default_factory=set)
+
+    def as_dict(self) -> dict:
+        return {"coupled": self.coupled, "partial": self.partial, "failed": self.failed,
+                "single_ended": self.single_ended}
+
+
+def read_pairs(log: str) -> Pairs:
+    """The pair router's (route_diff.py) outcome from its log: its own
+    JSON_SUMMARY, the last one carrying the pair lists (a nested run prints
+    summaries without them). Coupled and partial pairs keep their copper; a
+    failed pair, or one the pair router left single-ended, is routed by the
+    single-ended route like any other net."""
+    found = None
+    for line in log.splitlines():
+        if line.startswith("JSON_SUMMARY: "):
+            try:
+                d = json.loads(line[len("JSON_SUMMARY: "):])
+            except ValueError:
+                continue
+            if "routed_diff_pairs" in d:
+                found = d
+    if found is None:
+        return Pairs()
+    out = Pairs(sorted(found.get("routed_diff_pairs") or []), sorted(found.get("partial_diff_pairs") or []),
+                sorted(found.get("failed_diff_pairs") or []), sorted(found.get("single_ended_diff_pairs") or []))
+    keep = set(out.coupled) | set(out.partial)
+    for r in found.get("pair_reports") or []:
+        if r.get("pair") in keep:
+            out.routed_nets |= {n for n in (r.get("p_net"), r.get("n_net")) if n}
+    return out
+
+
+def pair_command(python, script, pcb_in, pcb_out, patterns, layers, gap: float = 0.0, width: float = 0.0,
+                 iterations: int | None = None, probe: int | None = None) -> list:
+    """The pair router's command line. Width and gap are the net class's
+    unless set (route_diff.py reads them from the board's project)."""
+    cmd = [str(python), str(script), str(pcb_in), str(pcb_out), "--nets"] + list(patterns) + \
+          ["--layers"] + list(layers) + ["--escalation", "off"]
+    if gap:
+        cmd += ["--diff-pair-gap", str(gap)]
+    if width:
+        cmd += ["--track-width", str(width)]
+    if iterations is not None:
+        cmd += ["--max-iterations", str(iterations)]
+    if probe is not None:
+        cmd += ["--max-probe-iterations", str(probe)]
+    return cmd
+
+
+def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, patterns, layers, cfg, iterations, probe,
+                timeout, env) -> tuple:
+    """Route the differential pairs with the router's pair router: returns
+    (the board to route the rest on, Pairs). A board with no pair matching
+    the patterns comes back as it went in."""
+    script = Path(router_dir_path) / "py_router/route_diff.py"
+    if not patterns or not script.exists():
+        return pcb_in, Pairs()
+    pcb_out = work / "pairs.kicad_pcb"
+    cmd = pair_command(rpy, script, pcb_in, pcb_out, patterns, layers, cfg.route_diff_pair_gap,
+                       cfg.route_diff_pair_width, iterations, probe)
+    log = work / "pairs.log"
+    with open(log, "w") as f:
+        f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
+        f.flush()
+        rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=env,
+                            timeout=timeout).returncode
+    text = log.read_text(errors="replace")
+    pairs = read_pairs(text)
+    if rc != 0 or not pcb_out.exists():
+        if "matched no differential pair" in text or "No differential pairs" in text:
+            return pcb_in, Pairs()
+        tail = "\n".join(text.splitlines()[-8:])
+        raise RuntimeError("the pair router exited %d without a routed board; log %s\n%s" % (rc, log, tail))
+    for ext in (".kicad_pro", ".kicad_dru"):
+        if (work / ("in" + ext)).exists():
+            shutil.copy(work / ("in" + ext), work / ("pairs" + ext))
+    lock_copper(str(pcb_out))
+    return pcb_out, pairs
 
 
 def router_version(router_dir: str) -> str:
@@ -194,12 +291,16 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
     pcb_out = work / "routed.kicad_pcb"
     summary = work / "router_summary.json"
     script = str(ONE_ROUND) if quick else str(route_py)
-    cmd = router_command(rpy, script, pcb_in, pcb_out, excluded, layers, summary, iterations, probe, quick)
     env = dict(os.environ)
     env.pop("KICAD_ROUTE_TRACE", None)
     env["KRT_DIR"] = str(router_dir_path)
-    log = work / "router.log"
     t0 = time.time()
+    # the differential pairs first, as pairs; the rest route around them
+    board, pairs = route_pairs(rpy, router_dir_path, pcb_in, work, tuple(cfg.route_diff_pairs), layers, cfg,
+                               iterations, probe, timeout, env)
+    cmd = router_command(rpy, script, board, pcb_out, excluded | pairs.routed_nets, layers, summary,
+                         iterations, probe, quick)
+    log = work / "router.log"
     with open(log, "w") as f:
         f.write("$ %s\n\n" % " ".join(cmd))
         f.flush()
@@ -220,7 +321,7 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
                          dict(sorted(open1.items())), sc.shorted, sorted(excluded), layers, seconds,
                          router_version(router_dir_path), after.by_type, pcb_out, log, work,
                          "" if valid else "placement DRC not clean before routing: %s" % before.real, quick,
-                         router_breaches(pcb_in, pcb_out))
+                         router_breaches(pcb_in, pcb_out), pairs.as_dict())
     (work / "route.json").write_text(json.dumps(report.as_dict(), indent=2) + "\n")
     return report
 

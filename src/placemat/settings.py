@@ -99,6 +99,9 @@ class Settings:
     route_quick: bool = True
     route_iterations: int | None = None
     route_layers: tuple | None = None
+    route_diff_pairs: tuple = ("*",)    # nets the router's pair router routes first, as pairs; (): none
+    route_diff_pair_gap: float = 0.0    # mm between a pair's tracks; 0: the net class's
+    route_diff_pair_width: float = 0.0  # mm, a pair's track width; 0: the net class's
     # [timeout] - seconds
     timeout_generate: int = 900
     timeout_drc: int = 600
@@ -239,7 +242,7 @@ _AT_LEAST_ZERO = frozenset((
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_congestion",
     "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset",
-    "copper_plane_clearance", "label_gap", "check_keep_out_mm"))
+    "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width"))
 
 
 def _declared(name: str) -> str:

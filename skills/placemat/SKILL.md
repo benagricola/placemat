@@ -88,9 +88,14 @@ a footprint that draws no courtyard now claims its body rather than its pads.
    pour locked and the plane nets excluded, then reports closure: the share
    of open signal connections it closed under the board's own rules, and the
    clean closure that counts a net closed through a violation as still
-   open. Run it when crossings and congestion have stopped falling, never
-   while big parts are still moving; read `still open` for the nets that
-   name the next placement problem. The routed copy is evidence, not the
+   open. Differential pairs, named as KiCad pairs them (`_P`/`_N`, `P`/`N`,
+   `+`/`-`), route first as pairs with the router's pair router, at their net
+   class's width and gap unless `route.diff_pair_width`/`route.diff_pair_gap`
+   say otherwise; the rest route around them, and the report's `pairs` says
+   which went coupled, partly, single-ended or failed. `route.diff_pairs = []`
+   routes every net single-ended. Run it when crossings and congestion have
+   stopped falling, never while big parts are still moving; read `still
+   open` for the nets that name the next placement problem. The routed copy is evidence, not the
    layout: the script does not change because the router found a path.
 6. Full record: `.placemat/runs/<id>/run.json`, `script.log`,
    `drc.json`, `generate.log`, `layout.kicad_pcb`, and `route/` when routing
