@@ -32,7 +32,7 @@ def test_a_finding_is_its_text_and_carries_its_kind():
     assert f.startswith("link") and "over its" in f
     with pytest.raises(ValueError):
         Finding("nonsense", "x")
-    assert set(KINDS) == {"unplaced", "link_over", "fixed", "copper", "label", "escape_crossed",
+    assert set(KINDS) == {"unplaced", "link_over", "fixed", "copper", "label", "escape_crossed", "pair_crossed",
                           "escape_closed", "escape_walled", "setup"}
 
 

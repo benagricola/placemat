@@ -4,6 +4,15 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.36
+
+Nothing to change in a script. Placements with a differential pair (nets
+named as KiCad pairs them) can change: a crossing between a pair's two
+halves now costs `score.pair_crossing` (100 mm) instead of `score.crossing`,
+so the search and cleanup uncross a pair by a swap or a turn where they
+can, and each crossed pair left is a `pair_crossed` finding. Set
+`score.pair_crossing` to the value of `score.crossing` for 0.35's weighting.
+
 ## To 0.35
 
 Nothing to change in a script; placements are the same as 0.34's, but for

@@ -14,6 +14,7 @@ KINDS = (
     "escape_crossed",   # two escapes from one part's pins cross near its pin row
     "escape_closed",    # a pad's last route toward what it connects to is closed
     "escape_walled",    # a pad with no route out at all
+    "pair_crossed",     # a differential pair's two halves cross: a swap or a turn uncrosses it
     "setup",            # the same every run of the script: an undeclared part, a layer the board lacks
 )
 

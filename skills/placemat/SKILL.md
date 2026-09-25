@@ -70,7 +70,11 @@ a footprint that draws no courtyard now claims its body rather than its pads.
    term that moved most is where to look. The search and the cleanup pass
    already weigh crossings and escapes; a crossed or walled escape that
    remains is a placement to change by hand (a swap, a satellite's pin, a
-   `board.fanout()`).
+   `board.fanout()`). A differential pair whose two halves cross (a
+   `pair_crossed` finding, priced at `score.pair_crossing`) cannot route
+   coupled without exchanging sides: before routing, swap two interchangeable
+   parts on it or turn a part whose pinout is mirrored 180 degrees; the
+   router's crossover is the fallback, not the fix.
 4. **Read the `seeded` line.** It says which nets pulled how many items into
    place. One net seeding most of the board is a missing `board.plane()`, not a
    placement problem: an undeclared plane net pulls every part that shares it

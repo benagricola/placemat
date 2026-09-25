@@ -1838,9 +1838,17 @@ class Board:
 
     def _report_escapes(self, occ: Occupancy, plan: Plan):
         """Escapes left crossed at a pin row, and pads the path search finds
-        closed toward what they join or walled off (escapes.py)."""
+        closed toward what they join or walled off (escapes.py); and each
+        differential pair whose two halves' airwires cross."""
         esc = occ.escapes()
         rn = occ.ratsnest()
+        from .pairs import pair_key
+        for e, f in rn.pair_crossings():
+            parts = sorted({v.ref for v in (e.a, e.b, f.a, f.b) if v.ref})
+            pos, neg = (e.net, f.net) if (pair_key(e.net) or (0, True))[1] else (f.net, e.net)
+            plan.findings.append(Finding("pair_crossed", "%s/%s cross between %s: swap two interchangeable parts on "
+                                         "the pair, or turn a part whose pinout is mirrored 180 degrees"
+                                         % (pos, neg, ", ".join(parts))))
         for n, e, f in rn.crossed_pair_list(esc.depth):
             ends = []
             for edge in (e, f):

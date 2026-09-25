@@ -80,7 +80,7 @@ def compare(a: dict, b: dict, cfg) -> tuple:
 
 # Measured from the plan itself, not counted from its findings: unplaced by
 # priority, links by how far past their limit.
-_MEASURED_APART = ("unplaced", "link_over")
+_MEASURED_APART = ("unplaced", "link_over", "pair_crossed")     # a crossed pair is priced by the crossings term
 
 
 # ------------------------------------------------------------ measuring a plan

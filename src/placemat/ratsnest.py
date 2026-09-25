@@ -321,6 +321,26 @@ class Ratsnest:
                             break
         return out
 
+    def pair_crossings(self) -> list:
+        """(edge, edge) for each crossing between a differential pair's two
+        halves (`partners`), each pair of airwires once."""
+        out = []
+        edges = self.edges()
+        index = {id(e): i for i, e in enumerate(edges)}
+        for i, e in enumerate(edges):
+            partner = self.partners.get(e.net)
+            if partner is None:
+                continue
+            seen = set()
+            for c in _cells(*_ends(e)):
+                for f in self._grid.get(c, ()):
+                    if id(f) in seen or f.net != partner or index.get(id(f), -1) <= i:
+                        continue
+                    seen.add(id(f))
+                    if _cross_nm(*self._nmends[id(e)], *self._nmends[id(f)]):
+                        out.append((e, f))
+        return out
+
     def added(self, pads, own=frozenset()) -> float:
         """The weighted crossings a candidate adds: `pads` its (net, x, y),
         each joined to the nearest placed pad of its net not on a part in
