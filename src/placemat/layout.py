@@ -19,7 +19,7 @@ import math
 
 from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
                      resolve_bridges)
-from .geometry import box_polygon, circle_polygon, polys_overlap, transform_box
+from .geometry import Transform, box_polygon, circle_polygon, poly_distance, polys_overlap, transform_box
 from .findings import Finding, Findings
 from .occupancy import Occupancy, Shape, TOUCH, parts_claim
 from .cutouts import Cutouts, loop_gap, signed_area
@@ -1018,6 +1018,47 @@ class Board:
         if gap < self.web - 1e-9:
             plan.findings.append(Finding("setup", "web %.2f mm round %s is under the %.2f mm minimum"
                                  % (gap, self._cutout_label(which), self.web)))
+
+    def _check_pitch(self, plan: "Plan"):
+        """A net class whose clearance does not fit its pads' pitch. A track
+        of the class's width leaves a pad straight out from the part's body,
+        along the part's nearer axis, centred on the pad; its lane is the
+        distance from that track to the part's other pads of other nets. A
+        pad with another pad straight ahead of it (inside a grid) leaves some
+        other way and is not measured. Under the clearance, the router cannot
+        escape the pad. One finding per part, on its tightest lane."""
+        g = self.geometry
+        reach = max((c.clearance for c in g.netclasses.values()), default=0.0)
+        for fp in g.footprints:
+            pads = [p for p in fp.pads if p.net and p.outlines]
+            worst, short = None, 0
+            for p in pads:
+                nc = g.netclass(p.net)
+                lane_of = _escape_lane(fp, p, pads, nc.track_width, reach)
+                if lane_of is None:
+                    continue
+                for q in pads:
+                    if q.net == p.net or not (p.layers & q.layers):
+                        continue
+                    need = g.clearance(p.net, q.net)
+                    lane = lane_of(q)
+                    if lane is None or lane >= need - 1e-6:
+                        continue
+                    if poly_distance(p.outlines[0], q.outlines[0]) <= 0.0:
+                        continue                # pads that touch: the footprint's fault, not the class's
+                    short += 1
+                    if worst is None or lane - need < worst[0] - worst[1]:
+                        worst = (lane, need, p, q, nc)
+            if worst is None:
+                continue
+            lane, need, p, q, nc = worst
+            plan.findings.append(Finding(
+                "setup",
+                "%s: net class %r (clearance %.2f mm, track %.2f mm) does not fit the pads' pitch: the lane out "
+                "of pad %s past pad %s is %.3f mm for a %.2f mm clearance (%d lane(s) short), so the router "
+                "cannot escape them; a clearance of %.2f mm or less fits"
+                % (fp.ref, nc.name, nc.clearance, nc.track_width, p.number, q.number, lane, need, short,
+                   math.floor(lane * 100 + 1e-6) / 100)))
 
     def _cutout_label(self, n: int) -> str:
         """Which hole a measurement was taken on. Named cutouts come first,
@@ -2443,6 +2484,7 @@ class Board:
 
         place_ranked(RANK_FIXED, RANK_EDGE)
         self._check_web(plan)
+        self._check_pitch(plan)
         self._plan_copper(occ, ctx, fixed_copper, plan, progress)
         # Every searched item is one queue, whatever kind it is: a connector can
         # be the most important thing on a board, and it does not wait behind a
@@ -3805,3 +3847,45 @@ def _fmt(s: Step) -> str:
     if s.note:
         out += "  " + s.note
     return out
+
+
+def _escape_lane(fp, pad, pads, width: float, reach: float):
+    """The straight track out of `pad` (see Board._check_pitch), as a
+    function of another pad: the distance from the track to it, or None when
+    the pad is not beside the track. None instead of a function when the pad
+    has no straight way out: it sits at the body's centre, or another pad
+    lies ahead of it, across any of its width (an inner ball of a grid, an
+    exposed pad inside a row)."""
+    c = pad.box.center
+    body = fp.body_box.center
+    t = Transform.rotate(fp.rotation)
+    axes = [t.apply((1.0, 0.0)), t.apply((0.0, 1.0))]
+    ox, oy = c.x - body.x, c.y - body.y
+    if math.hypot(ox, oy) < 1e-6:
+        return None
+    ux, uy = max(axes, key=lambda a: abs(ox * a[0] + oy * a[1]))
+    if ox * ux + oy * uy < 0:
+        ux, uy = -ux, -uy
+    along = [(x - c.x) * ux + (y - c.y) * uy for x, y in pad.outlines[0]]
+    end = max(along)
+
+    def strip(length):
+        hx, hy = -uy * width / 2.0, ux * width / 2.0
+        fx, fy = c.x + ux * length, c.y + uy * length
+        return ((c.x + hx, c.y + hy), (fx + hx, fy + hy), (fx - hx, fy - hy), (c.x - hx, c.y - hy))
+
+    ahead = strip(end + reach + width)
+    side = [(x - c.x) * -uy + (y - c.y) * ux for x, y in pad.outlines[0]]
+    for q in pads:
+        if q is pad or not (q.layers & pad.layers):
+            continue
+        beyond = min((x - c.x) * ux + (y - c.y) * uy for x, y in q.outlines[0])
+        across = [(x - c.x) * -uy + (y - c.y) * ux for x, y in q.outlines[0]]
+        if beyond > end - 1e-9 and min(across) < max(side) and max(across) > min(side):
+            return None
+
+    near = Box.of_points(ahead).inflate(reach)
+
+    def lane(q):
+        return poly_distance(ahead, q.outlines[0]) if near.overlaps(q.box) else None
+    return lane

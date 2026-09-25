@@ -74,7 +74,10 @@ a footprint that draws no courtyard now claims its body rather than its pads.
    `pair_crossed` finding, priced at `score.pair_crossing`) cannot route
    coupled without exchanging sides: before routing, swap two interchangeable
    parts on it or turn a part whose pinout is mirrored 180 degrees; the
-   router's crossover is the fallback, not the fix.
+   router's crossover is the fallback, not the fix. A net class whose
+   clearance does not fit a part's pad pitch is a setup finding naming the
+   part and the clearance that fits: its pads cannot be escaped, so fix the
+   class (or give those nets their own) before routing.
 4. **Read the `seeded` line.** It says which nets pulled how many items into
    place. One net seeding most of the board is a missing `board.plane()`, not a
    placement problem: an undeclared plane net pulls every part that shares it

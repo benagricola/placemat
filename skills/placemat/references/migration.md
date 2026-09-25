@@ -15,6 +15,11 @@ so the search and cleanup uncross a pair by a swap or a turn where they
 can, and each crossed pair left is a `pair_crossed` finding. Set
 `score.pair_crossing` to the value of `score.crossing` for 0.35's weighting.
 
+A net class whose clearance does not fit the pitch of pads its nets land on
+(the lane out of a pad, past the next pad of another net, under the
+clearance) is a new setup finding, naming the part and the clearance that
+fits. It is the same on every run of a board.
+
 ## To 0.35
 
 Nothing to change in a script; placements are the same as 0.34's, but for
