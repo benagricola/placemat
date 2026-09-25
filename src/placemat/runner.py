@@ -416,7 +416,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             # KiCad's own ratsnest and DRC replace the plan's estimates in the score
             metrics["measures"].update(drc=_drc_total(metrics), airwire_mm=aw["total_mm"],
                                        crossings={"signal": aw["crossings"] - aw["crossings_quiet"],
-                                                  "plane": aw["crossings_quiet"]})
+                                                  "plane": aw["crossings_quiet"],
+                                                  "pair": aw.get("crossings_pair", 0)})
             cong = metrics["congestion"]
             rec.timing_s["drc"] = round(time.time() - t0, 1)
             say("check", "%s | airwires %d, %.1f mm, %d crossings, congestion %s  (%.1fs)" % (

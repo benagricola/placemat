@@ -200,3 +200,13 @@ def test_the_drc_metrics_record_airwire_per_net_longest_first():
     aw = {"total_mm": 13.0, "crossings": 1, "crossings_per_net": {"A": 1}, "per_net": {"A": 3.0, "B": 10.0}}
     m = drc_metrics(Report(), aw, free=100.0)
     assert list(m["airwire_per_net"]) == ["B", "A"] and m["airwire_mm"] == 13.0
+
+
+def test_a_differential_pairs_own_crossing_is_counted_apart():
+    drc = {"unconnected_items": [
+        {"items": [{"description": "Pad 1 [USB_P] of R1", "pos": {"x": 0, "y": 0}}, {"description": "x", "pos": {"x": 10, "y": 10}}]},
+        {"items": [{"description": "Pad 1 [USB_N] of R2", "pos": {"x": 0, "y": 10}}, {"description": "x", "pos": {"x": 10, "y": 0}}]},
+        {"items": [{"description": "Pad 1 [C] of R3", "pos": {"x": 5, "y": -5}}, {"description": "x", "pos": {"x": 5, "y": 15}}]},
+    ]}
+    aw = airwires_from_drc(drc)
+    assert aw["crossings"] == 3 and aw["crossings_pair"] == 1       # USB_P x USB_N; the two with C are ordinary

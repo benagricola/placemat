@@ -82,7 +82,10 @@ def airwires_from_drc(drc: dict, quiet=()) -> dict:
     """The ratsnest KiCad reports as unconnected items: count, straight-line
     length, crossings between different nets, and length per net.
     `crossings_quiet` counts the crossings with a `quiet` net's airwire (a
-    plane's or a free net's), which the score weighs apart."""
+    plane's or a free net's), and `crossings_pair` those between a
+    differential pair's two halves (pairs.pairs_of), which the score weighs
+    apart."""
+    from .pairs import pairs_of
     edges = []
     for u in drc.get("unconnected_items", []):
         items = u.get("items", [])
@@ -96,8 +99,9 @@ def airwires_from_drc(drc: dict, quiet=()) -> dict:
     def cross(e, f):
         return segments_cross(e[1], e[2], f[1], f[2])
 
-    crossings = quiet_crossings = 0
+    crossings = quiet_crossings = pair_crossings = 0
     quiet = set(quiet)
+    partners = pairs_of({e[0] for e in edges})
     crossings_per_net: dict = {}
     for i in range(len(edges)):
         for j in range(i + 1, len(edges)):
@@ -105,6 +109,8 @@ def airwires_from_drc(drc: dict, quiet=()) -> dict:
                 crossings += 1
                 if edges[i][0] in quiet or edges[j][0] in quiet:
                     quiet_crossings += 1
+                elif partners.get(edges[i][0]) == edges[j][0]:
+                    pair_crossings += 1
                 for net in (edges[i][0], edges[j][0]):
                     crossings_per_net[net] = crossings_per_net.get(net, 0) + 1
     per_net: dict = {}
@@ -114,7 +120,7 @@ def airwires_from_drc(drc: dict, quiet=()) -> dict:
         total += d
         per_net[net] = round(per_net.get(net, 0.0) + d, 3)
     return {"count": len(edges), "total_mm": round(total, 3), "crossings": crossings,
-            "crossings_quiet": quiet_crossings, "per_net": per_net,
+            "crossings_quiet": quiet_crossings, "crossings_pair": pair_crossings, "per_net": per_net,
             "crossings_per_net": dict(sorted(crossings_per_net.items(), key=lambda kv: (-kv[1], kv[0])))}
 
 

@@ -125,6 +125,7 @@ class Settings:
     score_setup: float = 0.0            # the same every run of a script: an undeclared part, a layer the board lacks
     score_crossing: float = 4.0         # a ratsnest crossing; the search weighs a candidate's crossings by it too
     score_crossing_plane: float = 0.0   # a crossing with a plane's or free net's airwire, as a share of score_crossing
+    score_pair_crossing: float = 100.0  # a differential pair crossing itself: it must exchange sides to route coupled
     score_escape_crossed: float = 20.0  # two escapes from one part's pins crossing near its pin row
     score_escape_closed: float = 50.0   # a pad's last route toward what it connects to closed
     score_escape_walled: float = 400.0  # a pad with no route out at all
@@ -242,7 +243,8 @@ _AT_LEAST_ZERO = frozenset((
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_congestion",
     "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset",
-    "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width"))
+    "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
+    "score_pair_crossing"))
 
 
 def _declared(name: str) -> str:

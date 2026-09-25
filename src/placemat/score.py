@@ -12,8 +12,10 @@ measures:
     drc          real DRC violations (a run; a plan has none)
     link_excess  the sum over links past their limit of (mm past it x the link's weight)
     findings     {kind: count} of the other findings (findings.KINDS)
-    crossings    {"signal": n, "plane": n}: ratsnest crossings, those with a
-                 plane's or free net's airwire counted apart
+    crossings    {"signal": n, "plane": n, "pair": n}: ratsnest crossings, those
+                 with a plane's or free net's airwire counted apart, and
+                 "pair" those of the signal crossings between a
+                 differential pair's two halves (priced score.pair_crossing)
     airwire_mm   the ratsnest's length
     rudy_steps   explore only: the worst RUDY cell, in explore.congestion_step steps
 """
@@ -42,7 +44,9 @@ def terms(m: dict, cfg) -> dict:
     }
     for kind, setting in _FINDING_WEIGHTS.items():
         out[kind] = getattr(cfg, setting) * found.get(kind, 0)
-    out["crossings"] = cfg.score_crossing * (cross.get("signal", 0) + cfg.score_crossing_plane * cross.get("plane", 0))
+    pair = cross.get("pair", 0)             # within "signal", priced apart
+    out["crossings"] = (cfg.score_crossing * (cross.get("signal", 0) - pair + cfg.score_crossing_plane * cross.get("plane", 0))
+                        + cfg.score_pair_crossing * pair)
     out["airwire"] = float(m.get("airwire_mm") or 0.0)
     out["congestion"] = cfg.score_congestion * (m.get("rudy_steps") or 0)
     return out
@@ -119,8 +123,12 @@ def plan_measures(board, plan, congestion_step: float | None = None) -> dict:
     edges = [e for net in sorted(by_net) for e in mst(net, list(by_net[net].values()))]
     every = crossings(edges)[0]
     signal = crossings(edges, weights={n: 0.0 for n in quiet})[0]
+    from .pairs import pairs_of
+    partners = {n: m for n, m in pairs_of(by_net).items() if n not in quiet and m not in quiet}
+    # only a pair's own crossings count here: every other crossing weighs 0
+    pair = crossings(edges, weights={n: 0.0 for n in by_net}, partners=partners, pair_weight=1.0)[0]
     out = {"unplaced": unplaced, "drc": 0, "link_excess": round(excess, 6), "findings": found,
-           "crossings": {"signal": int(signal), "plane": int(every - signal)},
+           "crossings": {"signal": int(signal), "plane": int(every - signal), "pair": int(pair)},
            "airwire_mm": round(sum(((e.a.x - e.b.x) ** 2 + (e.a.y - e.b.y) ** 2) ** 0.5 for e in edges), 3)}
     if congestion_step:
         worst = getattr(getattr(plan, "rudy", None), "worst", 0.0) or 0.0
