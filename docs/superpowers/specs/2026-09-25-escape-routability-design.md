@@ -1,7 +1,7 @@
 # Escape routability: measure first, then rework escape depth
 
 Date: 2026-09-25
-Status: proposal
+Status: approved 2026-09-25; the lab runs cases 1, 2 and 5 first
 
 ## Why
 
@@ -103,8 +103,8 @@ For each candidate model below: does it say escaped where the router
 escaped and blocked where it failed, per pin, and does its count rank the
 cases as the router's closure does? A model is good enough when it agrees
 with the router on at least 90% of pins in cases 1-4 (escaped on the layer,
-escaped by a via, or not at all), ranks the case 6
-variants in the router's order, and reproduces the hand layout's rules.
+escaped by a via, or not at all), ranks the case 6 variants in the
+router's order, and reproduces the hand layout's rules.
 
 Candidates, from simplest:
 
@@ -145,7 +145,9 @@ from the lab's result as their own spec. The score-depth change (findings
 measured at a fixed `score.escape_depth`) is on hold in `git stash`; it only
 made scores comparable across depths and would be superseded.
 
-## Open questions
+## Layers
 
-- Is 2-layer routing the case to judge (both layers signal), or F.Cu only
-  with B.Cu as ground, as on the fairing boards?
+Every case runs twice: F.Cu signal with B.Cu ground (as the fairing boards
+are, where a via only serves a plane pin), and both layers signal (as the
+RP2350 module is, where relief vias carry signals on B.Cu). That shows
+whether the model has to know the stack-up.
