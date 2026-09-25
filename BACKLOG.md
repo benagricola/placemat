@@ -7,6 +7,14 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+- **Route layers from the declared planes** (a board agent's router A/B,
+  2026-09-25): the route step gives the router every copper layer unless
+  `[route] layers` says otherwise, so on a board whose inner layers are
+  planes the router runs signals (and a differential pair's reference
+  side) through them, and KiCad flags every such track and via against the
+  plane zones. The layers a `board.plane()` fills whole could be left out
+  of the default.
+
 ## Housekeeping (left for Ben: outside this repository)
 
 - `mnb-ecosystem/pyproject.toml` points placemat at the stale
@@ -14,6 +22,13 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **A class clearance that does not fit a pad pitch** (unreleased, from a
+  board agent's request): a setup finding naming the part, its tightest
+  escape lane and the clearance that fits (32131a1).
+- **Pair crossings weighed at placement** (unreleased): a differential
+  pair's own crossing costs `score.pair_crossing`; a crossed pair is a
+  `pair_crossed` finding (spec `2026-09-25-pair-crossing-design.md`).
 
 - **Explore, the lock and freeze** (0.32.0): `--explore SECONDS` on run and
   preview varies the focused items' spots, rotations and order in parallel
