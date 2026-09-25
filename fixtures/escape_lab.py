@@ -30,6 +30,7 @@ import math
 import os
 import shutil
 import sys
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -138,6 +139,21 @@ def sink_at(pin, edge):
 
 
 # ------------------------------------------------------------ building a board
+def _fixed_uuid(item, name: str) -> None:
+    """A UUID made from the item's name: KiCad writes items in UUID order and
+    the router reads them in that order, so random UUIDs let one case route
+    differently from build to build."""
+    item.SetUuid(_pcbnew().KIID(str(uuid.uuid5(uuid.NAMESPACE_URL, "placemat-escape-lab/" + name))))
+
+
+def _fix_footprint(fp, ref: str) -> None:
+    _fixed_uuid(fp, ref)
+    for pad in fp.Pads():
+        _fixed_uuid(pad, "%s/pad/%s" % (ref, pad.GetNumber()))
+    for k, item in enumerate(list(fp.GetFields()) + list(fp.GraphicalItems())):
+        _fixed_uuid(item, "%s/item/%d" % (ref, k))
+
+
 def project_json(nc: NetClass) -> dict:
     rules = {"min_clearance": 0.0, "min_track_width": min(0.1, nc.track), "min_via_diameter": min(0.4, nc.via),
              "min_through_hole_diameter": min(0.2, nc.drill), "min_via_annular_width": 0.05,
@@ -174,6 +190,7 @@ def build(case: Case, setup: str, chip_path: str, out: Path) -> tuple:
     chip = load_footprint(chip_path)
     chip.SetReference("U1")
     chip.SetPosition(pcbnew.VECTOR2I(mm(cx), mm(cy)))
+    _fix_footprint(chip, "U1")
     board.Add(chip)
     signals = {}
     for p in chip.Pads():
@@ -204,6 +221,7 @@ def build(case: Case, setup: str, chip_path: str, out: Path) -> tuple:
         fp.Add(pad)
         fp.SetPosition(pcbnew.VECTOR2I(mm(cx + sx), mm(cy + sy)))
         pad.SetNet(net(name))
+        _fix_footprint(fp, "TP%d" % k)
         board.Add(fp)
     for e in case.extras:
         fp = load_footprint(e.lib, e.name)
@@ -214,6 +232,7 @@ def build(case: Case, setup: str, chip_path: str, out: Path) -> tuple:
         for p in fp.Pads():
             if p.GetNumber() in byn:
                 p.SetNet(net(byn[p.GetNumber()]))
+        _fix_footprint(fp, e.ref)
         board.Add(fp)
     half = edge + SINK_OUT + MARGIN
     corners = [(cx - half, cy - half), (cx + half, cy - half), (cx + half, cy + half), (cx - half, cy + half)]
@@ -224,6 +243,7 @@ def build(case: Case, setup: str, chip_path: str, out: Path) -> tuple:
         s.SetStart(pcbnew.VECTOR2I(mm(x0), mm(y0)))
         s.SetEnd(pcbnew.VECTOR2I(mm(x1), mm(y1)))
         s.SetWidth(mm(0.1))
+        _fixed_uuid(s, "edge/%.4f,%.4f" % (x0, y0))
         board.Add(s)
     if setup == "one":
         z = pcbnew.ZONE(board)
@@ -236,6 +256,7 @@ def build(case: Case, setup: str, chip_path: str, out: Path) -> tuple:
             chain.Append(mm(x + 0.5 * (1 if x < cx else -1)), mm(y + 0.5 * (1 if y < cy else -1)))
         chain.SetClosed(True)
         z.Outline().AddOutline(chain)
+        _fixed_uuid(z, "zone/" + GROUND)
         board.Add(z)
         pcbnew.ZONE_FILLER(board).Fill(board.Zones())
     path = out / "board.kicad_pcb"
