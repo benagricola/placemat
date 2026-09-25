@@ -561,7 +561,7 @@ fn pymax3(a: f64, b: f64, c: f64) -> f64 {
 /// b = the obstacle). With `stop_at_first`
 /// it stops at the first legal candidate.
 #[pyfunction]
-#[pyo3(signature = (board, reservations, obstacles, origins, bodies, points, clearance, stop_at_first, scoring=None))]
+#[pyo3(signature = (board, reservations, obstacles, origins, bodies, points, clearance, stop_at_first, scoring=None, parts=None))]
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn sweep(
     py: Python<'_>,
@@ -574,7 +574,9 @@ fn sweep(
     clearance: Option<f64>,
     stop_at_first: bool,
     scoring: Option<Bound<'_, PyAny>>,
+    parts: Option<Vec<Vec<PyBox>>>,
 ) -> PyResult<(Vec<usize>, Vec<f64>, Vec<(u8, i64, i64, usize, usize)>)> {
+    let parts = parts.unwrap_or_default();
     let mut search: Option<PyRefMut<'_, NativeScoring>> = None;
     let mut tidy: Option<PyRefMut<'_, NativeCleanupScoring>> = None;
     if let Some(sc) = scoring.as_ref() {
@@ -617,11 +619,33 @@ fn sweep(
             r: exact::clean9(o.2 + x),
             b: exact::clean9(o.3 + y),
         };
+        // A cell whose box fails is judged again by its members' boxes
+        // (`Occupancy._edge_or_reservation_conflict`); b names the member
+        // whose box the edge refused, 1-based, or 0 for the whole box.
+        let members: Vec<board::B> = match parts.get(turn) {
+            Some(ps) if !ps.is_empty() => ps.iter().map(|p| board::B {
+                l: exact::clean9(p.0 + x),
+                t: exact::clean9(p.1 + y),
+                r: exact::clean9(p.2 + x),
+                b: exact::clean9(p.3 + y),
+            }).collect(),
+            _ => Vec::new(),
+        };
         if let Some(code) = board.keepin.why_not(&body) {
-            refuse((0, code as i64, 0), idx, &mut refused);
-            continue;
+            let hit = if members.is_empty() {
+                Some((code, 0usize))
+            } else {
+                members.iter().enumerate().find_map(|(k, m)| board.keepin.why_not(m).map(|c| (c, k + 1)))
+            };
+            if let Some((code, k)) = hit {
+                refuse((0, code as i64, k as i64), idx, &mut refused);
+                continue;
+            }
         }
-        if let Some(&ri) = reservations.iter().find(|&&ri| board.reservations[ri].overlaps(&body)) {
+        if let Some(&ri) = reservations.iter().find(|&&ri| {
+            let r = &board.reservations[ri];
+            r.overlaps(&body) && (members.is_empty() || members.iter().any(|m| r.overlaps(m)))
+        }) {
             refuse((1, ri as i64, 0), idx, &mut refused);
             continue;
         }

@@ -174,6 +174,7 @@ class ItemGeometry:
     body: Box
     nets: frozenset[str]
     reach: Box | None = None            # everything the item physically is: pads and drawn graphics (silk), not the courtyard
+    parts: tuple = ()                   # a cell's members' bodies (and its own copper): what the edge and keepouts judge
 
 
 _BOTH = frozenset([Face.FRONT, Face.BACK])
@@ -337,7 +338,8 @@ class Occupancy:
             reach = Box.union([m.reach or m.body for m in members] + own)
             self._cells[item.name] = ItemGeometry(frozenset(m for mg in members for m in mg.owners) | {item.name},
                                                   Placement(body.center, 0.0, Face.FRONT), shapes, body,
-                                                  frozenset(n for m in members for n in m.nets), reach)
+                                                  frozenset(n for m in members for n in m.nets), reach,
+                                                  tuple(m.body for m in members) + tuple(own))
             return self._cells[item.name]
         raise TypeError("cannot place a %s" % type(item).__name__)
 
@@ -734,25 +736,19 @@ class Occupancy:
         `why_not` call), so unlike the near-obstacle search below there is
         nothing to gain from deferring them - `legal()` and `legal_bucket()`
         both call this and return its answer unchanged when it fires."""
+        # A cell whose box fails is judged again by its members' boxes: the
+        # box of an L-shaped cell has an empty corner that may sit in a
+        # keepout or past a round board's rim.
+        parts = None
         if self.edge_margin is not None and not past_edge:
-            if self.board_shape is not None:
-                why = self.board_shape.why_not(body, self.edge_margin)
-                if why:
-                    if blame is not None:
-                        blame.append(Blocker("edge", "", frozenset()))
-                    return "body box %s is %s" % (_fmt(body), why)
-            elif self.board_box is not None:
-                inner = self.board_box.inflate(-self.edge_margin)
-                if not inner.contains(body):
-                    if blame is not None:
-                        blame.append(Blocker("edge", "", frozenset()))
-                    return "body box %s crosses the board edge margin (%.2f mm)" % (_fmt(body), self.edge_margin)
-                if self.board_cutouts:
-                    why = self.board_cutouts.why_not(body, self.edge_margin)
-                    if why:
-                        if blame is not None:
-                            blame.append(Blocker("edge", "", frozenset()))
-                        return "body box %s is %s" % (_fmt(body), why)
+            why = self._edge_why(body)
+            if why and geom.parts:
+                parts = self._shifted_parts(geom, placement)
+                why = next((w for w in map(self._edge_why, parts) if w), None)
+            if why:
+                if blame is not None:
+                    blame.append(Blocker("edge", "", frozenset()))
+                return why
         faces = {placement.face} | ({Face.FRONT, Face.BACK} if any(s.kind in ("through", "npth") for s in geom.shapes) else set())
         for r in self.reservations:
             if r.layer is not None and r.layer.face not in faces:
@@ -761,10 +757,45 @@ class Occupancy:
                 continue                                   # named, or carrying a net let through
             # the box first because it is cheap, and the placer asks this tens of thousands of times
             if r.overlaps(body):
+                if geom.parts:
+                    parts = self._shifted_parts(geom, placement) if parts is None else parts
+                    if not any(r.overlaps(p) for p in parts):
+                        continue
                 if blame is not None:
                     blame.append(Blocker("reservation", r.why, frozenset()))
                 return "sits in the reservation for %s" % r.why
         return None
+
+    def _edge_why(self, body: Box) -> str | None:
+        """What the board's edge says of a body box, or None."""
+        if self.board_shape is not None:
+            why = self.board_shape.why_not(body, self.edge_margin)
+            return ("body box %s is %s" % (_fmt(body), why)) if why else None
+        if self.board_box is not None:
+            inner = self.board_box.inflate(-self.edge_margin)
+            if not inner.contains(body):
+                return "body box %s crosses the board edge margin (%.2f mm)" % (_fmt(body), self.edge_margin)
+            if self.board_cutouts:
+                why = self.board_cutouts.why_not(body, self.edge_margin)
+                if why:
+                    return "body box %s is %s" % (_fmt(body), why)
+        return None
+
+    def origin_parts(self, geom: ItemGeometry, rotation: float, face) -> list:
+        """A cell's member boxes (`parts`) turned and faced at the origin."""
+        cache = self.__dict__.setdefault("_parts_cache", {})
+        key = (id(geom), rotation, face)
+        hit = cache.get(key)
+        if hit is None or hit[0] is not geom:
+            t = self._transform(geom, Placement(Location(0.0, 0.0), rotation, face))
+            hit = (geom, [transform_box(b, t) for b in geom.parts])
+            cache[key] = hit
+        return hit[1]
+
+    def _shifted_parts(self, geom: ItemGeometry, placement: Placement) -> list:
+        dx, dy = placement.location.x, placement.location.y
+        return [Box(_clean(b.left + dx), _clean(b.top + dy), _clean(b.right + dx), _clean(b.bottom + dy))
+                for b in self.origin_parts(geom, placement.rotation, placement.face)]
 
     def legal(self, item, placement: Placement, clearance: float | None = None, others=None,
               past_edge: bool = False, blame: list | None = None) -> str | None:
@@ -1177,13 +1208,14 @@ class NativeSweeper:
         self.board, self.clearance = board, clearance
         geom = occ._geometry(item)
         self.geom = geom
-        self.handles, self.origin, self.bodies = [], [], []
+        self.handles, self.origin, self.bodies, self.parts = [], [], [], []
         for rot in self.rots:
             at = Placement(Location(0.0, 0.0), rot, face)
             self.handles.append(occ._native_origin_shapes(item, geom, at))
             self.origin.append(list(occ._origin_shapes(item, geom, at)))
             b = occ.origin_body_box(item, rot, face)
             self.bodies.append((b.left, b.top, b.right, b.bottom))
+            self.parts.append([(p.left, p.top, p.right, p.bottom) for p in occ.origin_parts(geom, rot, face)])
         faces = {face} | ({Face.FRONT, Face.BACK} if any(s.kind in ("through", "npth") for s in geom.shapes) else set())
         self.reservations = [i for i, r in enumerate(occ.reservations)
                              if not (r.layer is not None and r.layer.face not in faces)
@@ -1198,7 +1230,8 @@ class NativeSweeper:
         scan's scorer would score it; else its score is 0."""
         from . import geometry as _g
         legal, scores, refused = _g._native.sweep(self.board, self.reservations, self.index, self.handles,
-                                                  self.bodies, triples, self.clearance, stop_at_first, scoring)
+                                                  self.bodies, triples, self.clearance, stop_at_first, scoring,
+                                                  self.parts if self.geom.parts else None)
         out = []
         for kind, a, b, count, first in refused:
             bucket, blocker, reason = self._decode(kind, a, b, triples[first])
@@ -1211,13 +1244,15 @@ class NativeSweeper:
         x, y, turn = triple
         cand = Placement(Location(x, y), self.rots[turn], self.face)
         if kind == 0:
+            def box():              # b: the member whose box the edge refused, 1-based; 0 the whole box
+                return occ.shifted_body_box(self.item, cand) if b == 0 else occ._shifted_parts(self.geom, cand)[b - 1]
             key = ("edge", a)
             hit = self._decoded.get(key)
             if hit is None:
-                why = edge_sentence(a, occ.shifted_body_box(self.item, cand), occ.edge_margin)
+                why = edge_sentence(a, box(), occ.edge_margin)
                 hit = (_reason_key(why), ("edge", "", ""))
                 self._decoded[key] = hit
-            return hit[0], hit[1], (lambda: edge_sentence(a, occ.shifted_body_box(self.item, cand), occ.edge_margin))
+            return hit[0], hit[1], (lambda: edge_sentence(a, box(), occ.edge_margin))
         if kind == 1:
             r = occ.reservations[a]
             why = "sits in the reservation for %s" % r.why
