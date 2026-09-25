@@ -1,6 +1,6 @@
 # Pair Crossing Weighed at Placement: Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Status:** done (tasks 1-4, 345f1db 26d5666 c0229c2 a8a9601; pattern selection 82872f8); bench at each step in the commits.
 
