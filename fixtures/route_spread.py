@@ -15,6 +15,8 @@ route cannot judge a placement or a router change. Two perturbations:
 - `offset`: the whole board moved by N sub-grid offsets (a Halton cover of
   one cell; run 0 is no offset). This measures grid alignment, which on a
   minimum-pitch part dominates: a row whose centre lines leave the grid seals.
+  Every offset run, run 0 too, is the board saved through KiCad, so the runs
+  compare with each other; order and jitter runs route the file as given.
 
 Each run is a fresh process with the router `placemat route` drives. Reported:
 failed nets per run (min, median, max) and how often each net failed; with
@@ -84,6 +86,19 @@ def shifted(board: Path, out: Path, dx: float, dy: float) -> Path:
     return dst
 
 
+def copied(board: Path, out: Path) -> Path:
+    """The board as given, byte for byte, with its project if it has one.
+    Order and jitter runs route this: a save through KiCad reorders and
+    reformats the file, and the router's result can depend on that."""
+    out.mkdir(parents=True, exist_ok=True)
+    dst = out / "in.kicad_pcb"
+    shutil.copy(board, dst)
+    pro = board.with_suffix(".kicad_pro")
+    if pro.exists():
+        shutil.copy(pro, out / "in.kicad_pro")
+    return dst
+
+
 MPS = """
 import sys, json
 sys.path.insert(0, sys.argv[1] + "/py_router")
@@ -147,7 +162,7 @@ def route(job) -> dict:
     board, out, dx, dy, router, args, connectivity = job
     env = dict(os.environ)
     if isinstance(dx, str):                 # ("order", seed) or ("jitter", seed)
-        src = shifted(Path(board), Path(out), 0.0, 0.0)
+        src = copied(Path(board), Path(out))
         if dx == "jitter":
             env["KICAD_ORDER_JITTER"] = str(dy)
     else:
