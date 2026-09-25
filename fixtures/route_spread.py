@@ -8,15 +8,22 @@ route cannot judge a placement or a router change. Two perturbations:
   router's code) with a few neighbouring pairs swapped, a different seeded
   set per run; run 0 is the order unswapped. Routed with `--ordering
   original`, so a router's own ordering passes after MPS do not apply.
+- `jitter`: the router's own ordering, all passes included, with a seeded
+  set of neighbouring swaps made by the router after its fan pass
+  (KICAD_ORDER_JITTER, run k seed k; run 0 none). Needs a router that has
+  the knob.
 - `offset`: the whole board moved by N sub-grid offsets (a Halton cover of
   one cell; run 0 is no offset). This measures grid alignment, which on a
   minimum-pitch part dominates: a row whose centre lines leave the grid seals.
 
 Each run is a fresh process with the router `placemat route` drives. Reported:
-failed nets per run (min, median, max) and how often each net failed.
+failed nets per run (min, median, max) and how often each net failed; with
+`--connectivity`, the same for the nets the router's `check_connected.py`
+finds unrouted or broken in the output.
 
-    route_spread.py BOARD.kicad_pcb OUT [--runs N] [--perturb order|offset]
-                    [--swaps K] [--grid G] [--jobs J] [--router DIR] -- ROUTER ARGS...
+    route_spread.py BOARD.kicad_pcb OUT [--runs N] [--perturb order|jitter|offset]
+                    [--swaps K] [--grid G] [--jobs J] [--router DIR] [--connectivity]
+                    -- ROUTER ARGS...
 
 ROUTER ARGS must name the nets (`--nets ...`) for the order perturbation.
 
@@ -29,6 +36,7 @@ import argparse
 import concurrent.futures
 import json
 import os
+import re
 import shutil
 import statistics
 import subprocess
@@ -120,16 +128,34 @@ def nets_in(args: list) -> tuple:
     return args[i + 1:j], args[:i] + args[j:]
 
 
+UNROUTED = re.compile(r"^    (\S.*) \(\d+ pads\)$")
+BROKEN = re.compile(r"^  (\S.*) \(net \d+\):$")
+
+
+def disconnected(router: str, pcb: Path) -> list | None:
+    """The nets the router's connectivity check finds unrouted or broken."""
+    py = Path(router) / ".venv/bin/python"
+    r = subprocess.run([str(py), "-X", "utf8", str(Path(router) / "py_router/check_connected.py"), str(pcb), "--quiet"],
+                       cwd=router, capture_output=True, text=True, errors="replace")
+    lines = r.stdout.splitlines()
+    if not any(l.strip() in ("OK",) or l.startswith("FAILED") for l in lines):
+        return None
+    return sorted({m.group(1) for l in lines for m in (UNROUTED.match(l), BROKEN.match(l)) if m})
+
+
 def route(job) -> dict:
-    board, out, dx, dy, router, args = job
-    if isinstance(dx, str):                 # an explicit order: ("order", nets)
+    board, out, dx, dy, router, args, connectivity = job
+    env = dict(os.environ)
+    if isinstance(dx, str):                 # ("order", seed) or ("jitter", seed)
         src = shifted(Path(board), Path(out), 0.0, 0.0)
+        if dx == "jitter":
+            env["KICAD_ORDER_JITTER"] = str(dy)
     else:
         src = shifted(Path(board), Path(out), dx, dy)
     py = Path(router) / ".venv/bin/python"
     r = subprocess.run([str(py), "-X", "utf8", str(Path(router) / "py_router/route.py"), str(src),
                         str(Path(out) / "out.kicad_pcb"), "--json-out", str(Path(out) / "r.json")] + list(args),
-                       cwd=router, capture_output=True, text=True, errors="replace")
+                       cwd=router, capture_output=True, text=True, errors="replace", env=env)
     (Path(out) / "route.log").write_text(r.stdout + r.stderr)
     try:
         j = json.load(open(Path(out) / "r.json"))
@@ -137,15 +163,18 @@ def route(job) -> dict:
         failed += sorted(f["net_name"] for f in (j.get("failed_multipoint") or []) if f.get("net_name") not in failed)
     except (OSError, ValueError):
         failed = None
-    return {"dx": dx, "dy": dy, "failed": failed, "rc": r.returncode}   # order runs: dx "order", dy the seed
+    res = {"dx": dx, "dy": dy, "failed": failed, "rc": r.returncode}
+    if connectivity:
+        res["disconnected"] = disconnected(router, Path(out) / "out.kicad_pcb")
+    return res   # order/jitter runs: dx the mode, dy the seed
 
 
-def spread(runs: list) -> dict:
-    ok = [r for r in runs if r["failed"] is not None]
-    counts = [len(r["failed"]) for r in ok]
+def spread(runs: list, key: str = "failed") -> dict:
+    ok = [r for r in runs if r.get(key) is not None]
+    counts = [len(r[key]) for r in ok]
     freq = {}
     for r in ok:
-        for n in r["failed"]:
+        for n in r[key]:
             freq[n] = freq.get(n, 0) + 1
     return {"runs": len(runs), "errors": len(runs) - len(ok),
             "failed_min": min(counts) if counts else None, "failed_median": statistics.median(counts) if counts else None,
@@ -166,12 +195,16 @@ def main(argv) -> int:
     ap.add_argument("--grid", type=float, default=0.1)
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--router", default=os.environ.get("KRT_DIR", os.path.expanduser("~/work/KiCadRoutingTools")))
-    ap.add_argument("--perturb", choices=("order", "offset"), default="order")
+    ap.add_argument("--perturb", choices=("order", "jitter", "offset"), default="order")
+    ap.add_argument("--connectivity", action="store_true",
+                    help="also run the router's check_connected.py on each output")
     ap.add_argument("--swaps", type=int, default=0, help="order: pairs swapped per run (default: a tenth of the nets)")
     a = ap.parse_args(argv)
     out = Path(a.out)
     if a.perturb == "offset":
-        jobs = [(a.board, out / ("run%02d" % k), dx, dy, a.router, args) for k, (dx, dy) in enumerate(offsets(a.runs, a.grid))]
+        jobs = [(a.board, out / ("run%02d" % k), dx, dy, a.router, args, a.connectivity) for k, (dx, dy) in enumerate(offsets(a.runs, a.grid))]
+    elif a.perturb == "jitter":
+        jobs = [(a.board, out / ("run%02d" % k), "jitter", k, a.router, args, a.connectivity) for k in range(a.runs)]
     else:
         nets, rest = nets_in(args)
         if not nets:
@@ -179,10 +212,12 @@ def main(argv) -> int:
         base = mps_order(a.router, a.board, nets)
         swaps = a.swaps or max(1, len(base) // 10)
         jobs = [(a.board, out / ("run%02d" % k), "order", k, a.router,
-                 rest + ["--ordering", "original", "--nets"] + swapped(base, k, swaps)) for k in range(a.runs)]
+                 rest + ["--ordering", "original", "--nets"] + swapped(base, k, swaps), a.connectivity) for k in range(a.runs)]
     with concurrent.futures.ProcessPoolExecutor(a.jobs) as ex:
         runs = list(ex.map(route, jobs))
     result = {"board": a.board, "router": a.router, "args": args, "grid": a.grid, "runs": runs, "spread": spread(runs)}
+    if a.connectivity:
+        result["connectivity"] = spread(runs, "disconnected")
     out.mkdir(parents=True, exist_ok=True)
     (out / "spread.json").write_text(json.dumps(result, indent=1))
     s = result["spread"]
@@ -190,6 +225,12 @@ def main(argv) -> int:
         s["failed_min"], s["failed_median"], s["failed_max"], s["runs"], s["errors"]))
     for n, c in s["net_failures"].items():
         print("  %-40s %d of %d" % (n, c, s["runs"] - s["errors"]))
+    if a.connectivity:
+        s = result["connectivity"]
+        print("disconnected nets per run: min %s, median %s, max %s over %d runs (%d errors)" % (
+            s["failed_min"], s["failed_median"], s["failed_max"], s["runs"], s["errors"]))
+        for n, c in s["net_failures"].items():
+            print("  %-40s %d of %d" % (n, c, s["runs"] - s["errors"]))
     return 0
 
 
