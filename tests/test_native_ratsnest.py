@@ -50,3 +50,32 @@ def test_leaf_costs_are_the_pythons_exactly(seed):
         want = Ratsnest.leaf_costs(py, pads, own, depth)
         got = nat.leaf_costs(pads, own, depth)
         assert got == want, (seed, trial, pads, own, depth)
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_leaf_costs_with_pairs_are_the_pythons_exactly(seed):
+    """With pairs among the nets, a crossing between partners weighs the pair
+    weight in the native mirror exactly as in Python."""
+    rng = random.Random(100 + seed)
+    weights = {"N1": 0.25}
+    partners = {}
+    for a, b in (("N2", "N3"), ("N4", "N5"), ("N6", "N7")):
+        partners[a], partners[b] = b, a
+    py = Ratsnest(weights, partners=partners, pair_weight=25.0)
+    mirror = native.NativeRatsnest(weights)
+    mirror.set_partners(sorted(partners.items()), 25.0)
+    nat = Ratsnest(weights, mirror=mirror, partners=partners, pair_weight=25.0)
+    nets = {}
+    for n in range(12):
+        pts = [Anchor(rng.choice(["P%d" % i for i in range(8)] + [""]), str(i),
+                      round(rng.uniform(0, 20) / 0.5) * 0.5, round(rng.uniform(0, 20) / 0.5) * 0.5)
+               for i in range(rng.randint(1, 5))]
+        nets["N%d" % n] = pts
+        py.set_net("N%d" % n, pts)
+        nat.set_net("N%d" % n, pts)
+    names = sorted(nets)
+    for _ in range(300):
+        pads = [(rng.choice(names), round(rng.uniform(0, 20) / 0.25) * 0.25, round(rng.uniform(0, 20) / 0.25) * 0.25)
+                for _ in range(rng.randint(1, 5))]
+        own = frozenset(rng.sample(["P%d" % i for i in range(8)], rng.randint(0, 2)))
+        assert nat.leaf_costs(pads, own, 1.0) == Ratsnest.leaf_costs(py, pads, own, 1.0)

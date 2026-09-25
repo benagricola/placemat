@@ -155,3 +155,24 @@ def test_a_track_joins_the_pads_it_touches_and_its_ends_are_nodes():
     B = frozenset([CopperLayer.B])
     anchors, joined = board_nets([pad("a", 0, 0), pad("c", 5.3, 0)], [("track", "N", B) + track[3:]])["N"]
     assert len(mst("N", anchors, joined)) == 2      # a-track end, track end-c... or a-c: two airwires, nothing joined
+
+
+def test_a_pairs_own_crossing_weighs_the_pair_weight():
+    """Two crossing airwires of a pair's two nets count `pair_weight`; two of
+    unrelated nets count as before (the lighter weight, 1 by default)."""
+    p = mst("D_P", [Anchor("U1", "1", 0, 0), Anchor("R1", "1", 10, 10)])
+    n = mst("D_N", [Anchor("U1", "2", 0, 10), Anchor("R2", "1", 10, 0)])
+    assert crossings(p + n)[0] == 1
+    partners = {"D_P": "D_N", "D_N": "D_P"}
+    assert crossings(p + n, partners=partners, pair_weight=25.0)[0] == 25.0
+    other = mst("X", [Anchor("U1", "3", 0, 10), Anchor("R3", "1", 10, 0)])
+    assert crossings(p + other, partners=partners, pair_weight=25.0)[0] == 1
+
+
+def test_a_candidate_leaf_crossing_its_partner_weighs_the_pair_weight():
+    rn = Ratsnest({}, partners={"D_P": "D_N", "D_N": "D_P"}, pair_weight=25.0)
+    rn.set_net("D_P", [Anchor("U1", "1", 0, 0), Anchor("R1", "1", 10, 10)])
+    rn.set_net("D_N", [Anchor("U1", "2", 0, 10)])
+    # R2's pad for D_N at (10, 0): its leaf (10,0)-(0,10) crosses D_P's airwire
+    assert rn.leaf_costs([("D_N", 10.0, 0.0)])[0] == 25.0
+    assert rn.leaf_costs([("D_N", 10.0, 20.0)])[0] == 0.0

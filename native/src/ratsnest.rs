@@ -140,6 +140,9 @@ fn cells(p: (f64, f64), q: (f64, f64)) -> impl Iterator<Item = (i64, i64)> {
 pub struct Ratsnest {
     names: HashMap<String, u32>,
     weights: HashMap<u32, f64>,
+    // a differential pair's halves: their crossing counts pair_weight
+    partners: HashMap<u32, u32>,
+    pair_weight: f64,
     anchors: HashMap<u32, Vec<Anchor>>,
     edges: Vec<Option<Edge>>,
     free: Vec<usize>,
@@ -174,6 +177,26 @@ impl Ratsnest {
 
     fn weight(&self, net: u32) -> f64 {
         *self.weights.get(&net).unwrap_or(&1.0)
+    }
+
+    /// `Ratsnest(partners=, pair_weight=)`: the pairs whose own crossing
+    /// counts `pair_weight` rather than the lighter net weight.
+    pub fn set_partners(&mut self, pairs: &[(String, String)], pair_weight: f64) {
+        self.partners.clear();
+        for (a, b) in pairs {
+            let (ia, ib) = (self.intern(a), self.intern(b));
+            self.partners.insert(ia, ib);
+        }
+        self.pair_weight = pair_weight;
+    }
+
+    /// ratsnest._crossing_weight: the pair weight for a pair's two halves,
+    /// else the lighter of the two nets' weights.
+    fn crossing_weight(&self, a: u32, wa: f64, b: u32, wb: f64) -> f64 {
+        if self.partners.get(&a) == Some(&b) {
+            return self.pair_weight;
+        }
+        if wa < wb { wa } else { wb }
     }
 
     /// `Ratsnest.set_net` with the tree already worked out: `anchors` in the
@@ -312,7 +335,7 @@ impl Ratsnest {
                         continue;
                     }
                     let we = self.weight(e.net);
-                    total += if we < w { we } else { w };
+                    total += self.crossing_weight(net, w, e.net, we);
                     if joined != 0 && (e.a.part == joined || e.b.part == joined) && !(e.a.part == joined && e.b.part == joined) {
                         if let Some(at) = crossing_point(p, q, (e.a.x, e.a.y), (e.b.x, e.b.y)) {
                             let mut m = hypot(at.0 - q.0, at.1 - q.1);
@@ -333,7 +356,7 @@ impl Ratsnest {
             }
             for &(net2, w2, p2, q2, _) in &leaves[k + 1..] {
                 if net2 != net && segments_cross(p, q, p2, q2) {
-                    total += if w2 < w { w2 } else { w };
+                    total += self.crossing_weight(net, w, net2, w2);
                 }
             }
         }

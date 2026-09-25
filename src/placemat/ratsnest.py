@@ -149,10 +149,21 @@ def _weight(weights, net) -> float:
     return 1.0 if weights is None else weights.get(net, 1.0)
 
 
-def crossings(edges, weights=None) -> tuple:
+def _crossing_weight(weights, partners, pair_weight, a, wa, b, wb) -> float:
+    """What a crossing of nets `a` and `b` (weights `wa`, `wb`) counts: the
+    pair weight when they are one pair's two halves (a pair crossing itself
+    must exchange sides to route coupled), else the lighter of the two."""
+    if partners and partners.get(a) == b:
+        return pair_weight
+    return wa if wa < wb else wb
+
+
+def crossings(edges, weights=None, partners=None, pair_weight: float = 1.0) -> tuple:
     """(weighted count, crossings per net) over `edges`: each crossing of two
     different nets counts the lighter of the two nets' weights (`weights`,
-    net -> weight, 1 when absent); per net counts every crossing."""
+    net -> weight, 1 when absent), or `pair_weight` when the two are one
+    differential pair's halves (`partners`, net -> its partner); per net
+    counts every crossing."""
     grid: dict = {}
     for k, e in enumerate(edges):
         for c in _cells(*_ends(e)):
@@ -170,7 +181,8 @@ def crossings(edges, weights=None) -> tuple:
                     continue
                 seen.add((i, j))
                 if segments_cross(*_ends(e), *_ends(f)):
-                    total += min(_weight(weights, e.net), _weight(weights, f.net))
+                    total += _crossing_weight(weights, partners, pair_weight, e.net, _weight(weights, e.net),
+                                              f.net, _weight(weights, f.net))
                     for n in (e.net, f.net):
                         per_net[n] = per_net.get(n, 0) + 1
     return total, dict(sorted(per_net.items(), key=lambda kv: (-kv[1], kv[0])))
@@ -181,8 +193,12 @@ class Ratsnest:
     candidate can be asked what it would add without recounting the board.
     A net whose weight is 0 is not kept: nothing it crosses counts."""
 
-    def __init__(self, weights: dict | None = None, mirror=None):
+    def __init__(self, weights: dict | None = None, mirror=None, partners: dict | None = None,
+                 pair_weight: float = 1.0):
         self.weights = dict(weights or {})
+        # a differential pair's halves: their crossing counts pair_weight
+        self.partners = dict(partners or {})
+        self.pair_weight = pair_weight
         # placemat_native.NativeRatsnest, kept in step with every set_net:
         # it answers leaf_costs, the question every candidate asks
         self.mirror = mirror
@@ -254,7 +270,8 @@ class Ratsnest:
                     seen.add(id(e))
                     if not _cross_nm(*pn, *self._nmends[id(e)]):
                         continue
-                    total += min(w, _weight(self.weights, e.net))
+                    total += _crossing_weight(self.weights, self.partners, self.pair_weight,
+                                              net, w, e.net, _weight(self.weights, e.net))
                     n = joined.ref
                     if n and n in (e.a.ref, e.b.ref) and not e.a.ref == e.b.ref == n:
                         at = _crossing_point(p, q, *_ends(e))
@@ -263,7 +280,7 @@ class Ratsnest:
                             crossed += 1
             for net2, w2, p2, q2, _ in leaves[k + 1:]:
                 if net2 != net and segments_cross(p, q, p2, q2):
-                    total += min(w, w2)
+                    total += _crossing_weight(self.weights, self.partners, self.pair_weight, net, w, net2, w2)
         return total, crossed
 
     def crossed_escapes(self, pads, own=frozenset(), depth: float = 1.0) -> int:

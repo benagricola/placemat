@@ -723,6 +723,12 @@ impl NativeRatsnest {
         NativeRatsnest { inner, esc: escapes::Escapes::default() }
     }
 
+    /// The differential pairs, (net, partner) both ways: a crossing between a
+    /// pair's two halves counts `pair_weight` (ratsnest._crossing_weight).
+    fn set_partners(&mut self, pairs: Vec<(String, String)>, pair_weight: f64) {
+        self.inner.set_partners(&pairs, pair_weight);
+    }
+
     /// The quiet nets (a plane's, a free net's): any way out of their pads will do.
     fn esc_set_quiet(&mut self, nets: Vec<String>) {
         self.esc.quiet = nets.iter().map(|n| self.inner.intern(n)).collect();
