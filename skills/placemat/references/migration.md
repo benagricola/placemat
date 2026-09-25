@@ -6,6 +6,9 @@ whether any of it applies.
 
 ## To 0.34
 
+0.34.0 was tagged but never published (its release checks failed); 0.34.1 is
+the release.
+
 Nothing to change; placements are the same as 0.33's, but for the block
 below. With the native module, the candidate search weighs whole sweeps
 natively (legality, wire, crossings and escapes), so runs and explore are
