@@ -9,8 +9,33 @@ A `.zen` is the schematic. Placemat lays it out and checks the layout
 against what the capture says the circuit needs. Those needs are not in
 the netlist unless the capture states them, so a capture written for
 placemat carries them as annotations on parts, as net classes, and as
-interfaces. Everything here lands on the board and is read back from it;
-nothing is kept in a side file.
+interfaces. Executable requirements live in the capture and layout source;
+the analysis explaining and validating them belongs in the project's design
+records.
+
+## Verification and component-choice records
+
+When verifying a circuit or judging a component for a specific role, preserve
+the analysis and conclusion in the repository, following its documentation
+conventions (for example, a focused Markdown record under `review/`). Include
+passing checks, rejected candidates and unresolved evidence. Scale the
+detail to the question; related components can share one assessment.
+
+Identify the circuit, exact part/package, requirements and assumptions;
+cite primary-source revisions and sections with test conditions. Show the
+calculation or reproducible evidence, operating corners and margins.
+Distinguish guaranteed bounds from typical values, sensitivity cases from
+manufacturer data, normal operation from faults, and screening from
+simulation or hardware validation. Conclude whether the choice is suitable
+within stated conditions, unsuitable, or not yet qualified, and why.
+Record outstanding work and selection/approval/implementation status
+separately; documentation does not grant approval for a component change.
+
+Link the record from the capture or layout declaration that uses its
+conclusions, and update it when a relevant premise changes. Keep constraints
+and annotations in executable source: the record preserves their derivation,
+not a second set of placement instructions. Follow the repository's policy
+for approval, evidence artifacts and retaining superseded conclusions.
 
 ## Where a fact lives
 
