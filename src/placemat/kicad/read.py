@@ -67,6 +67,30 @@ def outlines_of(item, layer_id, err_nm=CLEAR_ERR_NM):
     return tuple(out)
 
 
+def copper_outlines(item, layer_id, err_nm=CLEAR_ERR_NM):
+    """A copper item's outlines. A stroked polygon is read as KiCad's DRC
+    tests it - its fill and a round-ended stroke along every edge - since
+    the outline KiCad's own conversion gives drops the stroke along some
+    edges of a polygon that doubles back on itself (a pour's did, and a via
+    passed 0.127 mm from it against a 0.16 rule)."""
+    if isinstance(item, pcbnew.PCB_SHAPE) and item.GetShape() == pcbnew.SHAPE_T_POLY and item.GetWidth() > 0:
+        from ..copper import _segment_polygon
+        ps = item.GetPolyShape()
+        w = mm(item.GetWidth()) + 2 * mm(err_nm)      # outside by the tolerance, as KiCad's own conversion is
+        out = []
+        for k in range(ps.OutlineCount()):
+            o = ps.Outline(k)
+            pts = [(mm(o.CPoint(j).x), mm(o.CPoint(j).y)) for j in range(o.PointCount())]
+            if item.IsSolidFill() if hasattr(item, "IsSolidFill") else item.IsFilled():
+                if len(pts) >= 3:
+                    out.append(tuple(pts))
+            for a, b in zip(pts, pts[1:] + pts[:1]):
+                out.append(_segment_polygon(Location(*a), Location(*b), w))
+        if out:
+            return tuple(out)
+    return outlines_of(item, layer_id, err_nm)
+
+
 def _kiid(item) -> str:
     return item.m_Uuid.AsString()
 
@@ -203,7 +227,7 @@ def _copper_art(fp, err_nm: int = CLEAR_ERR_NM) -> tuple:
         layer = d.GetLayer()
         if isinstance(d, pcbnew.PCB_SHAPE) and pcbnew.IsCopperLayer(layer):
             name = fp.GetBoard().GetLayerName(layer) if fp.GetBoard() else pcbnew.LayerName(layer)
-            out += [(CopperLayer.of(name), poly) for poly in outlines_of(d, layer, err_nm)]
+            out += [(CopperLayer.of(name), poly) for poly in copper_outlines(d, layer, err_nm)]
     return tuple(out)
 
 
@@ -304,7 +328,7 @@ def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, .
         cu = [l for l in obj.GetLayerSet().CuStack() if board.IsLayerEnabled(l)]
         if not cu:
             return                      # nothing on a layer this board has
-        outs = outlines_of(obj, cu[0], err_nm)
+        outs = copper_outlines(obj, cu[0], err_nm)
         if not outs:
             return
         items.append(CopperItem(kind, net, _copper_layers(board, obj.GetLayerSet()), outs,
