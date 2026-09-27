@@ -23,13 +23,13 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **A cell's zones under the board's own plane** (unreleased, from Ben on
+- **A cell's zones under the board's own plane** (0.37.0, from Ben on
   2026-09-27; a core board had 17 cell zones on nets and layers its own
   planes cover): merged into the plane at write, `copper.cell_zones_under_planes`.
-- **A class clearance that does not fit a pad pitch** (unreleased, from a
+- **A class clearance that does not fit a pad pitch** (0.36.0, from a
   board agent's request): a setup finding naming the part, its tightest
   escape lane and the clearance that fits (32131a1).
-- **Pair crossings weighed at placement** (unreleased): a differential
+- **Pair crossings weighed at placement** (0.36.0): a differential
   pair's own crossing costs `score.pair_crossing`; a crossed pair is a
   `pair_crossed` finding (spec `2026-09-25-pair-crossing-design.md`).
 
