@@ -739,7 +739,7 @@ class Occupancy:
         return cache
 
     def _edge_or_reservation_conflict(self, geom: ItemGeometry, body: Box, placement: Placement,
-                                      past_edge: bool, blame: list | None) -> str | None:
+                                      past_edge: bool, blame: list | None, by_corners: bool = False) -> str | None:
         """The two checks `legal()` runs before it ever looks at an
         obstacle: the board edge (and cutouts) and the reservations. Both
         produce a ready sentence cheaply (a box test, or a polymorphic
@@ -755,6 +755,10 @@ class Occupancy:
             if why and geom.parts:
                 parts = self._shifted_parts(geom, placement)
                 why = next((w for w in map(self._edge_why, parts) if w), None)
+            elif why and by_corners and self.board_shape is not None and self._corners_inside(geom, placement):
+                # a decided part turned off the axes: its box's corner passes a round rim, the part does not.
+                # Only for a place the script decided: a scan judges by boxes, natively and in Python alike
+                why = None
             if why:
                 if blame is not None:
                     blame.append(Blocker("edge", "", frozenset()))
@@ -802,13 +806,23 @@ class Occupancy:
             cache[key] = hit
         return hit[1]
 
+    def _corners_inside(self, geom: ItemGeometry, placement: Placement) -> bool:
+        """Every corner of every shape the part is made of - pads, body,
+        courtyard, as the envelope claims them - inside the board's shape
+        with the keep-in to spare. On a round board a convex shape whose
+        corners are inside is inside."""
+        t = self._transform(geom, placement)
+        corners = [pt for s in geom.shapes if s.kind != "npth" for pt in transform_polygon(s.poly, t)]
+        return bool(corners) and all(self.board_shape.why_not(Box(x, y, x, y), self.edge_margin) is None
+                                     for x, y in corners)
+
     def _shifted_parts(self, geom: ItemGeometry, placement: Placement) -> list:
         dx, dy = placement.location.x, placement.location.y
         return [Box(_clean(b.left + dx), _clean(b.top + dy), _clean(b.right + dx), _clean(b.bottom + dy))
                 for b in self.origin_parts(geom, placement.rotation, placement.face)]
 
     def legal(self, item, placement: Placement, clearance: float | None = None, others=None,
-              past_edge: bool = False, blame: list | None = None) -> str | None:
+              past_edge: bool = False, blame: list | None = None, by_corners: bool = False) -> str | None:
         """None when `item` may sit at `placement`, else one sentence saying
         what stops it. The first failure found is reported. `others` is a
         prefiltered obstacle list from `obstacles()`; without one every
@@ -819,7 +833,7 @@ class Occupancy:
         count who was in the way rather than only how often."""
         geom = self._geometry(item)
         body = self.shifted_body_box(item, placement)
-        why = self._edge_or_reservation_conflict(geom, body, placement, past_edge, blame)
+        why = self._edge_or_reservation_conflict(geom, body, placement, past_edge, blame, by_corners)
         if why is not None:
             return why
         if others is None:

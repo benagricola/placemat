@@ -3721,7 +3721,7 @@ class Board:
                 p = edge_placement(occ, i.item, i.edge, along, i.rotation, i.clearance, i.face)
             why = occ.legal(i.item, p, clr,
                             past_edge=(i.edge is not None or i.run is not None or i.rim == "rim")
-                            and i.clearance < self.keep_in)
+                            and i.clearance < self.keep_in, by_corners=True)
             if why:
                 plan.findings.append(Finding("fixed", "%s (%s): %s" % (i.key, i.freedom.value, why)))
             return self._step(i, p, 0.0, "; ".join(x for x in (chose, why) if x))
