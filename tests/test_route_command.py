@@ -25,3 +25,12 @@ def test_a_quick_route_skips_the_smoothing_pass():
     assert "--no-smoothing" in cmd
     full = router_command("py", "route.py", "in.kicad_pcb", "out.kicad_pcb", set(), ["F.Cu"], "s.json", quick=False)
     assert "--no-smoothing" not in full
+
+
+def test_the_router_keeps_the_scripts_own_copper():
+    """Declared copper is the script's intent: the router's cleanup passes
+    (dead-end sweep, orphan islands, prunes) may not remove it."""
+    from placemat.kicad.route import pair_command, router_command
+    single = router_command("py", "route.py", "in.kicad_pcb", "out.kicad_pcb", set(), ["F.Cu", "B.Cu"], "s.json")
+    pairs = pair_command("py", "route_diff.py", "in.kicad_pcb", "out.kicad_pcb", ["USB_D*"], ["F.Cu", "B.Cu"])
+    assert "--keep-input-copper" in single and "--keep-input-copper" in pairs

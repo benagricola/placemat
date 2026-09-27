@@ -271,7 +271,7 @@ def pair_command(python, script, pcb_in, pcb_out, patterns, layers, gap: float =
     """The pair router's command line. Width and gap are the net class's
     unless set (route_diff.py reads them from the board's project)."""
     cmd = [str(python), str(script), str(pcb_in), str(pcb_out), "--nets"] + list(patterns) + \
-          ["--layers"] + list(layers) + ["--escalation", "off"]
+          ["--layers"] + list(layers) + ["--escalation", "off", "--keep-input-copper"]
     if gap:
         cmd += ["--diff-pair-gap", str(gap)]
     if width:
@@ -328,7 +328,8 @@ def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
     it skips the router's post-route smoothing pass: that pass cannot change
     what closed in one round and costs most of the run."""
     cmd = [str(python), str(script), str(pcb_in), str(pcb_out), "--nets", "*"] + \
-          ["!" + n for n in sorted(excluded)] + ["--layers"] + list(layers) + ["--escalation", "off"]
+          ["!" + n for n in sorted(excluded)] + ["--layers"] + list(layers) + ["--escalation", "off"] + \
+          ["--keep-input-copper"]       # the script's copper is its intent: no cleanup pass removes it
     if quick:
         cmd.append("--no-smoothing")
     if iterations is not None:
