@@ -120,9 +120,9 @@ def test_a_via_keeps_clear_of_a_tail_planned_before_it_in_the_batch():
         ctx.plan = plan
         ctx.planned_tails = list(tails)
         return b._free_spot(ctx, spot, "SIG", 0.3, 0.6)
-    alone, _, _ = search([])
+    alone, _, _, _ = search([])
     across = Track("GND", CopperLayer.F, 0.2, Location(alone.x, alone.y - 2), Location(alone.x, alone.y + 2))
-    moved, _, _ = search([across])
+    moved, _, _, _ = search([across])
     ring = Via("SIG", moved, 0.3, 0.6).polygon
     assert moved.distance(alone) > 1e-6
     assert poly_distance(ring, across.polygon) >= 0.2 - 1e-6
@@ -141,3 +141,72 @@ def test_a_tail_is_no_wider_than_its_pad_when_the_class_is_wider():
     plan = b.resolve()
     (tail,) = _tails(plan)
     assert tail.width <= 1.0 + 1e-9
+
+
+def _pin_row(pitch, width):
+    """A fine-pitch row of pins on nets N0..N16 above an exposed pad, the
+    row a via on each neighbouring pin crowds."""
+    from placemat.board_geometry import Footprint
+    from placemat.values import Box, Face
+    from tests.fixtures import pad
+    pads = [pad("U1", "u1", i + 1, "N%d" % i, 16 + i * pitch, 20, width, 0.8) for i in range(17)]
+    pads.append(pad("U1", "u1", 99, "EP", 16 + 8 * pitch, 22.0, 16 * pitch + 1, 2.2))
+    body = Box(15.5, 19.5, 16 + 16 * pitch + 0.5, 23.5)
+    fp = Footprint("U1", "u1", None, "U1", Location(20, 21.5), 0.0, Face.FRONT, body, body.inflate(0.1), body,
+                   tuple(pads))
+    return board_geometry([fp], width=40, height=40)
+
+
+def test_vias_on_neighbouring_pins_keep_clear_of_each_others_tails():
+    import itertools
+    from placemat.geometry import poly_distance
+    for pitch, width in ((0.4, 0.2), (0.5, 0.25), (0.65, 0.3)):
+        for order in itertools.permutations(range(5, 8), 3):
+            b = Board(_pin_row(pitch, width), edge_margin=0.5)
+            b.place(Part("u1"), at=Location(20, 21.5))
+            for i in order:
+                b.via(Net("N%d" % i), at=FreeSpot(near=PadRef(Part("u1"), i + 1)))
+            plan = b.resolve()
+            vias = [c for c in plan.copper if isinstance(c, Via)]
+            tails = [c for c in plan.copper if isinstance(c, Track)]
+            gaps = [poly_distance(t.polygon, v.polygon) for t in tails for v in vias if v.net != t.net]
+            gaps += [poly_distance(t.polygon, u.polygon) for t in tails for u in tails if u.net != t.net]
+            assert min(gaps, default=9.0) >= 0.2 - 1e-6, (pitch, width, order)
+
+
+def test_a_pin_of_two_apart_lands_gets_its_tail_from_one_of_them():
+    """The centre of two lands' union can be bare board between them: the
+    search and the tail start from a land's own centre."""
+    from placemat.board_geometry import Footprint
+    from placemat.geometry import point_in_polygon
+    from placemat.values import Box, Face
+    from tests.fixtures import pad
+    lands = (pad("J1", "j1", 1, "GND", 18.0, 20.0, 0.8, 0.8), pad("J1", "j1", 1, "GND", 19.8, 20.0, 0.8, 0.8),
+             pad("J1", "j1", 2, "SIG", 18.9, 21.5, 0.6, 0.6))
+    body = Box(17.4, 19.4, 20.4, 22.0)
+    fp = Footprint("J1", "j1", None, "J1", Location(18.9, 20.7), 0.0, Face.FRONT, body, body.inflate(0.1), body,
+                   lands)
+    b = Board(board_geometry([fp], width=40, height=40), edge_margin=0.5)
+    b.place(Part("j1"), at=Location(18.9, 20.7))
+    b.via(Net("GND"), at=FreeSpot(near=PadRef(Part("j1"), 1)))
+    plan = b.resolve()
+    (tail,) = [c for c in plan.copper if isinstance(c, Track)]
+    assert any(point_in_polygon((tail.start.x, tail.start.y), land.outlines[0]) for land in lands[:2])
+
+
+def test_a_via_keeps_clear_of_tracks_declared_before_it_in_its_batch():
+    """Tracks of one batch reach the occupancy only once the batch is
+    planned: the search judges against those planned before it."""
+    from placemat.geometry import poly_distance
+    b = _board()
+    b.place(Part("u1"), at=Location(20, 20))
+    b.place(Part("r1"), at=Location(20, 26))
+    for x in (19.45, 17.75):
+        b.track(Net("V3"), [Location(x, 15.0), Location(x, 25.0)], layer=CopperLayer.F)
+    b.via(Net("GND"), at=FreeSpot(near=PadRef(Part("u1"), "GND")), why="tap")
+    plan = b.resolve()
+    (via,) = [c for c in plan.copper if isinstance(c, Via)]
+    ours = [via] + _tails(plan)
+    theirs = [c for c in plan.copper if isinstance(c, Track) and c.net == "V3"]
+    assert theirs
+    assert min(poly_distance(a.polygon, t.polygon) for a in ours for t in theirs) >= 0.2 - 1e-6

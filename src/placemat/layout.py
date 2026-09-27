@@ -19,7 +19,7 @@ import math
 
 from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
                      resolve_bridges)
-from .geometry import Transform, box_polygon, circle_polygon, poly_distance, polys_overlap, transform_box
+from .geometry import Transform, box_polygon, circle_polygon, point_in_polygon, poly_distance, polys_overlap, transform_box
 from .findings import Finding, Findings
 from .occupancy import Occupancy, Shape, TOUCH, parts_claim
 from .cutouts import Cutouts, loop_gap, signed_area
@@ -2114,8 +2114,7 @@ class Board:
                 found = self._free_spot(ctx, at, name, d, s)
                 if found is None:
                     return []
-                where, layer, width = found
-                start = ctx.locate(at.near)
+                where, layer, width, start = found
                 if at.tail and not at.in_pad and where.distance(start) > 1e-9:
                     tail = Track(name, layer, width, start, where)
                     ctx.planned_tails.append(tail)
@@ -2139,6 +2138,9 @@ class Board:
         start = ctx.locate(spot.near)
         placed = occ.items[owner].shapes if owner in occ.items else ()
         own = [sh for sh in placed if sh.label == number and sh.kind in ("pad", "through")]
+        if own and not any(point_in_polygon((start.x, start.y), sh.poly) for sh in own):
+            # a pin of several apart lands: the centre of their union can be bare board
+            start = min((sh.box.center for sh in own), key=start.distance)
         layer = CopperLayer.of(spot.layer) if spot.layer is not None else (
             sorted((l for sh in own for l in sh.layers), key=stackup_order) or [CopperLayer.F])[0]
         nc = self.geometry.netclasses.get(net)
@@ -2174,14 +2176,18 @@ class Board:
                     clr = self.geometry.clearance(net, v.net)
                     if c.distance(v.at) - (size + v.size) / 2.0 < clr - 1e-9:
                         return "copper %.2f mm from the %s via" % (c.distance(v.at) - (size + v.size) / 2.0, v.net), ()
-            for t in ctx.planned_tails:
+                    if c.distance(start) > 1e-9 and poly_distance(queries._segment(start, c, width), v.polygon) < clr - 1e-9:
+                        return "tail %.2f mm from the %s via" % (
+                            poly_distance(queries._segment(start, c, width), v.polygon), v.net), ()
+            for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
                 if t.net == net:
                     continue
                 clr = self.geometry.clearance(net, t.net)
                 if poly_distance(ring, t.polygon) < clr - 1e-9:
-                    return "copper %.2f mm from the %s via's tail" % (poly_distance(ring, t.polygon), t.net), ()
-                if c.distance(start) > 1e-9 and poly_distance(queries._segment(start, c, width), t.polygon) < clr - 1e-9:
-                    return "tail crosses the %s via's tail" % t.net, ()
+                    return "copper %.2f mm from a %s track planned before it" % (poly_distance(ring, t.polygon), t.net), ()
+                if (t.layer is layer and c.distance(start) > 1e-9
+                        and poly_distance(queries._segment(start, c, width), t.polygon) < clr - 1e-9):
+                    return "tail crosses a %s track planned before it" % t.net, ()
             for at, dia in holes:
                 gap = c.distance(at) - (drill + dia) / 2.0
                 if gap < self.geometry.hole_to_hole - 1e-9:
@@ -2203,7 +2209,7 @@ class Board:
                 net, spot.radius, owner, number, tried,
                 ", ".join("%s x%d" % kv for kv in tally.most_common())))
             return None
-        return found.at, layer, width
+        return found.at, layer, width, start
 
     def pour(self, net, points, *, layer: CopperLayer, stroke: float | None = None, swallow_pads: bool = False,
              priority: Priority = Priority.DEFAULT, why: str = ""):
@@ -2964,12 +2970,15 @@ class Board:
         follow (a finger yields to every track already planned)."""
         tracks, others = [], []
         deferred = []
+        ctx.batch_tracks = []
         for c in sorted(intents, key=lambda c: c.index):
             if c.key.startswith("finger"):
                 deferred.append(c)          # a finger is cut by the tracks planned in this batch
                 continue
             for op in c.plan(ctx):
                 (tracks if isinstance(op, Track) else others).append((c, op))
+                if isinstance(op, Track):
+                    ctx.batch_tracks.append(op)     # a later FreeSpot in this batch judges against it
         entries = [(op, c.priority.rank, c.bridge) for c, op in tracks]
         ops, notes, findings = resolve_bridges(entries, ctx.fixed_tracks, self.via_drill, self.via_size,
                                                self.settings.copper_bridge_half)
@@ -3788,6 +3797,7 @@ class _CopperContext:
         self.notes: list = []              # findings a copper plan raises about itself
         self.planned_vias: list = []       # every via planned so far, for a FreeSpot's hole rule
         self.planned_tails: list = []      # every FreeSpot tail planned so far: not in the occupancy until the batch ends
+        self.batch_tracks: list = []       # tracks planned so far in the batch being planned: not in the occupancy yet
         self.via_at: dict = {}             # via intent index -> where it landed, for a track ending on it
         self.plan = None                   # the plan being built: its keepouts, for a FreeSpot
 
