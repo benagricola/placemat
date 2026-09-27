@@ -19,7 +19,7 @@ import math
 
 from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
                      resolve_bridges)
-from .geometry import Transform, box_polygon, circle_polygon, point_in_polygon, poly_distance, polys_overlap, transform_box
+from .geometry import Transform, box_polygon, circle_polygon, point_in_polygon, poly_distance, poly_within, polys_overlap, transform_box
 from .findings import Finding, Findings
 from .occupancy import Occupancy, Shape, TOUCH, parts_claim
 from .cutouts import Cutouts, loop_gap, signed_area
@@ -2195,6 +2195,56 @@ class Board:
                             via_step, chamfer, self.geometry.clearance(p_name, n_name), sfaces, efaces)
         return self._copper_intent("pair %s/%s" % (p_name, n_name), net_p, priority, plan, refs, why, bridge)
 
+    def vias(self, net, pad, *, pitch: float | None = None, size: float | None = None, drill: float | None = None,
+             inset: float = 0.0, priority: Priority = Priority.DEFAULT, why: str = ""):
+        """A pad filled with vias of `net`: a square grid `pitch` apart (by
+        default the closest the board's hole-to-hole rule allows), in the
+        part's own frame and centred on each of the pin's lands, keeping each
+        via whose copper, grown by `inset`, lies wholly in that land. Resolved
+        when the pad's part is placed. A via in a pad is filled or plugged at
+        the fab."""
+        name = self.geometry.require_net(net)
+        nc = self.geometry.netclasses.get(name)
+        s = float(size) if size is not None else (nc.via_diameter if nc else self.via_size)
+        d = float(drill) if drill is not None else (nc.via_drill if nc else self.via_drill)
+        floor = d + self.geometry.hole_to_hole
+        step = max(s, floor) if pitch is None else float(pitch)
+        if step < floor - 1e-9:
+            raise ValueError("%s: vias %.2f mm apart break the hole-to-hole rule (a %.2f mm hole plus %.2f): "
+                             "%.2f mm at least" % (name, step, d, self.geometry.hole_to_hole, floor))
+        owner, number, _, _ = self._pad_ref(pad)
+
+        def plan(ctx):
+            from .lock import _turn
+            g = ctx.occ.items[owner]
+            rot = g.reference.rotation
+            lands = [sh.poly for sh in g.shapes if sh.label == number and sh.kind in ("pad", "through")]
+            vias = []
+            for land in lands:
+                c = Box.of_points(land).center
+                local = [_turn(x - c.x, y - c.y, -rot) for x, y in land]      # the land in its part's frame
+                lx0, lx1 = min(p[0] for p in local), max(p[0] for p in local)
+                ly0, ly1 = min(p[1] for p in local), max(p[1] for p in local)
+                mx, my = (lx0 + lx1) / 2.0, (ly0 + ly1) / 2.0
+
+                def count(extent):
+                    return max(0, int(math.floor((extent - s - 2.0 * inset) / step + 1e-9)) + 1)
+                nx, ny = count(lx1 - lx0), count(ly1 - ly0)
+                for i in range(nx):
+                    for j in range(ny):
+                        ox, oy = _turn(mx + (i - (nx - 1) / 2.0) * step, my + (j - (ny - 1) / 2.0) * step, rot)
+                        at = Location(round(c.x + ox, 6), round(c.y + oy, 6))
+                        # a nanometre short of the copper: a via reaching the land's edge is inside it
+                        if poly_within(circle_polygon(at, s / 2.0 + inset - 1e-6, 24), land):
+                            vias.append(Via(name, at, d, s))
+            if not vias:
+                ctx.notes.append("vias %s: no via fits in %s.%s (%.2f mm via, %.2f mm drill, %.2f mm inset)" % (
+                    name, owner, number, s, d, inset))
+                return []
+            ctx.planned_vias += vias           # a later FreeSpot keeps the rule from them
+            return vias
+        return self._copper_intent("vias %s" % name, net, priority, plan, _refs_in([pad]), why)
+
     def via(self, net, at, *, drill: float | None = None, size: float | None = None,
             priority: Priority = Priority.DEFAULT, why: str = ""):
         """A via of `net`. `at` is a position, or a `FreeSpot` near a pad:
@@ -3184,7 +3234,8 @@ class Board:
         if any(c.freedom.decided for c in intents):
             ctx.fixed_tracks += [op for op in ops]
         for key, (prio, n, why, freedom) in by_key.items():
-            step = Step(key, "copper", prio, None, 0.0, "%d op(s)" % n, why, n, freedom=freedom)
+            note = "%d op(s)" % n + ("; in the pad: filled or plugged at the fab" if key.startswith("vias ") else "")
+            step = Step(key, "copper", prio, None, 0.0, note, why, n, freedom=freedom)
             plan.steps.append(step)
             if progress:
                 progress(_fmt(step))
