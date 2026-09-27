@@ -21,7 +21,7 @@
 //! shape's own box and gap finds exactly the same obstacles `near` + `close`
 //! would, in the same order, without needing the two-stage split.
 
-use crate::geometry::{poly_distance, polys_overlap, Point};
+use crate::geometry::{point_in_polygon, point_segment_distance, poly_distance, polys_overlap, Point};
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -163,18 +163,56 @@ fn drawn_conflict(s: &Shape, o: &Shape, cfg: &ConflictConfig) -> bool {
     poly_distance(&s.poly, &o.poly) < gap - 1e-9
 }
 
+/// `occupancy._HOLE_SLACK`: how much further the hole rules' box prefilter
+/// reaches, as a share of the boxes' widths (a hole's polygon, and a turned
+/// one's box, lie inside its circle).
+const HOLE_SLACK: f64 = 0.02;
+
+/// `occupancy._circle`: a hole's centre and radius, from its polygon's
+/// vertices, which lie on the circle.
+fn circle(s: &Shape) -> (Point, f64) {
+    let c = ((s.bbox.0 + s.bbox.2) / 2.0, (s.bbox.1 + s.bbox.3) / 2.0);
+    let r = s.poly.iter().map(|p| ((p.0 - c.0).powi(2) + (p.1 - c.1).powi(2)).sqrt()).fold(0.0, f64::max);
+    (c, r)
+}
+
+/// `occupancy._circle_distance`: copper's distance from a hole's circle.
+fn circle_distance(hole: &Shape, poly: &[Point]) -> f64 {
+    let (c, r) = circle(hole);
+    if point_in_polygon(c, poly) {
+        return -r;
+    }
+    let n = poly.len();
+    (0..n).map(|i| point_segment_distance(c, poly[i], poly[(i + 1) % n])).fold(f64::INFINITY, f64::min) - r
+}
+
+/// Whether two kinds can meet at all: a plated hole meets only another hole.
+fn may_meet(a: Kind, b: Kind) -> bool {
+    if a == Kind::Hole {
+        return b.is_hole();
+    }
+    if b == Kind::Hole {
+        return a.is_hole();
+    }
+    true
+}
+
 /// `Occupancy._conflict`: the DRC rules in occupancy terms.
 pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &ConflictConfig) -> bool {
     if s.kind.is_drawn() || o.kind.is_drawn() {
         return drawn_conflict(s, o, cfg);
     }
     if s.kind.is_hole() && o.kind.is_hole() {
-        // hole to hole is net-blind (placemat commit "Placing keeps the hole-to-hole rule")
+        // hole to hole is net-blind, measured between the circles the
+        // polygons were drawn from (Occupancy._conflict, _circle)
         let need = cfg.hole_to_hole;
-        if box_gap(s.bbox, o.bbox) >= need - 1e-9 {
+        let slack = HOLE_SLACK * ((s.bbox.2 - s.bbox.0) + (o.bbox.2 - o.bbox.0));
+        if box_gap(s.bbox, o.bbox) >= need + slack - 1e-9 {
             return false;
         }
-        return polys_overlap(&s.poly, &o.poly) || poly_distance(&s.poly, &o.poly) < need - 1e-9;
+        let ((sx, sy), rs) = circle(s);
+        let ((ox, oy), ro) = circle(o);
+        return ((sx - ox).powi(2) + (sy - oy).powi(2)).sqrt() - rs - ro < need - 1e-9;
     }
     if s.kind == Kind::Hole || o.kind == Kind::Hole {
         return false; // its pad or via ring answers for everything else
@@ -233,7 +271,10 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
             return true;
         }
         let need = cfg.hole_clearance;
-        return need > 0.0 && box_gap(s.bbox, o.bbox) < need - 1e-9 && poly_distance(&s.poly, &o.poly) < need - 1e-9;
+        let (hole, metal) = if s.kind == Kind::Npth { (s, o) } else { (o, s) };
+        let slack = HOLE_SLACK * (hole.bbox.2 - hole.bbox.0);
+        return need > 0.0 && box_gap(hole.bbox, metal.bbox) < need + slack - 1e-9
+            && circle_distance(hole, &metal.poly) < need - 1e-9;
     }
     false
 }
@@ -305,6 +346,9 @@ impl ShapeGrid {
         for (si, s) in candidate_shapes.iter().enumerate() {
             let gap = cfg.gap_for(s);
             for oi in self.near(s.bbox, gap) {
+                if !may_meet(s.kind, self.shapes[oi].kind) {
+                    continue;
+                }
                 if conflict(s, &self.shapes[oi], explicit_clearance, cfg) {
                     return Some((si, oi));
                 }
@@ -336,6 +380,9 @@ impl ShapeGrid {
             let bbox = (s0.bbox.0 + dx, s0.bbox.1 + dy, s0.bbox.2 + dx, s0.bbox.3 + dy);
             let gap = cfg.gap_for(s0);
             for oi in self.near(bbox, gap) {
+                if !may_meet(s0.kind, self.shapes[oi].kind) {
+                    continue;
+                }
                 let poly: Vec<Point> = s0.poly.iter().map(|p| (p.0 + dx, p.1 + dy)).collect();
                 let s = Shape { poly, bbox, ..s0.clone() };
                 if conflict(&s, &self.shapes[oi], explicit_clearance, cfg) {

@@ -68,7 +68,7 @@ class Blocker:
     """Why one candidate placement was refused, in parts rather than prose:
     what kind of conflict, whose shape it was, and which faces it holds. The
     sentence `legal` returns is for a human; this is for counting."""
-    kind: str                       # courtyard | pad | through | copper | npth | edge | reservation
+    kind: str                       # courtyard | pad | through | copper | npth | hole | edge | reservation
     owner: str                      # as who() formats it: a cell member carries its cell
     faces: frozenset
 
@@ -1035,9 +1035,11 @@ class Occupancy:
         FIRST, before courtyard or npth - so a body-vs-npth pair (the one
         case that is both: `_drawn_conflict` recognises `{"body","npth"}`
         as its own pair, at gap 0) goes to `_drawn_conflict`, never to
-        `_conflict`'s own npth-vs-copper branch. A drawn-envelope message
+        `_conflict`'s own npth-vs-copper branch. Next, two holes (plated or
+        unplated) are the hole-to-hole rule, whose sentence says
+        "hole-to-hole" and none of the words before it. A drawn-envelope message
         (silk/mask/body pairs, or a body against another part's pad) never
-        contains any of `_reason_key`'s six checked words - `_NAMES` maps
+        contains any of `_reason_key`'s seven checked words - `_NAMES` maps
         "through" to "pad" and "npth" to "hole" for display - so
         `_reason_key` falls through to the sentence's first word, always
         `who(s.owner)` (`legal()` always calls `_conflict(moved, o, ...)`,
@@ -1049,7 +1051,7 @@ class Occupancy:
         `_reason_key`'s own order, so it always wins first regardless).
         Verified against the live `_conflict` / `_drawn_conflict` by
         fuzzing every branch - see tests/test_native_bucket.py. (A net or
-        refdes literally containing one of the six checked words as a
+        refdes literally containing one of the seven checked words as a
         substring could in principle beat this - `_reason_key` itself is a
         substring match over arbitrary project names, not a property of the
         conflict kind alone - but that was already true of `_reason_key`
@@ -1064,6 +1066,14 @@ class Occupancy:
         if (s.kind in _COPPERISH and o.kind in _COPPERISH) or s.kind == "npth" or o.kind == "npth":
             return "copper"
         return self.who(s.owner).split(" ")[0]
+
+    def _hole_name(self, s: Shape) -> str:
+        """A hole as a refusal names it: a part's, a cell's via, or a via."""
+        if s.kind == "hole" and s.owner in self.geometry.cells:
+            return "cell %s's via" % s.owner
+        if not s.owner:
+            return "a via"
+        return "%s's hole" % self.who(s.owner)
 
     def _drawn_conflict(self, s: Shape, o: Shape) -> str | None:
         """Silk, mask openings and bodies of two different parts, each gap
@@ -1194,12 +1204,13 @@ class Occupancy:
         if ks in _HOLES and ko in _HOLES:
             # hole to hole is net-blind: two holes of one net drilled too close still break the bit
             need = self.geometry.hole_to_hole
-            if _box_gap(s.box, o.box) >= need - 1e-9:
+            if _box_gap(s.box, o.box) >= need + _HOLE_SLACK * (s.box.width + o.box.width) - 1e-9:
                 return None
-            gap = poly_distance(s.poly, o.poly) if not polys_overlap(s.poly, o.poly) else 0.0
+            (cs, rs), (co, ro) = _circle(s), _circle(o)
+            gap = math.dist(cs, co) - rs - ro
             if gap < need - 1e-9:
-                return "%s hole %.2f mm from %s's hole (hole-to-hole needs %.2f)" % (
-                    self.who(s.owner) or "a via", gap, self.who(o.owner) or "a via", need)
+                return "%s %.2f mm from %s (hole-to-hole needs %.2f)" % (
+                    self._hole_name(s), max(gap, 0.0), self._hole_name(o), need)
             return None
         if ks == "hole" or ko == "hole":
             return None                     # its pad or via ring answers for everything else
@@ -1257,8 +1268,8 @@ class Occupancy:
             if polys_overlap(hole.poly, metal.poly):
                 return "%s hole cuts %s copper" % (self.who(hole.owner), metal.net or self.who(metal.owner))
             need = self.geometry.hole_clearance
-            if need > 0 and _box_gap(hole.box, metal.box) < need - 1e-9:
-                gap = poly_distance(hole.poly, metal.poly)
+            if need > 0 and _box_gap(hole.box, metal.box) < need + _HOLE_SLACK * hole.box.width - 1e-9:
+                gap = _circle_distance(hole, metal.poly)
                 if gap < need - 1e-9:
                     return "%s copper %.2f mm from %s's unplated hole (needs %.2f)" % (
                         metal.net or self.who(metal.owner), gap, self.who(hole.owner), need)
@@ -1268,6 +1279,27 @@ class Occupancy:
 _DRAWN = frozenset(("silk", "mask", "body"))
 _COPPERISH = frozenset(("pad", "through", "copper"))
 _HOLES = frozenset(("hole", "npth"))
+# A hole's polygon lies inside its circle, by up to 1 - cos(pi/16) of the
+# radius between vertices, and a turned one's box with it: the box prefilter
+# for the hole rules reaches this share of the boxes' widths further.
+_HOLE_SLACK = 0.02
+
+
+def _circle(s: Shape) -> tuple:
+    """A hole shape's centre and radius, as the circle it was drawn from:
+    its polygon's vertices lie on the circle, whichever way it was turned."""
+    c = s.box.center
+    return (c.x, c.y), max(math.dist((c.x, c.y), p) for p in s.poly)
+
+
+def _circle_distance(hole: Shape, poly) -> float:
+    """How far copper `poly` lies from the edge of `hole`'s circle; 0 or less
+    when it reaches it."""
+    (cx, cy), r = _circle(hole)
+    if _geometry_module.point_in_polygon((cx, cy), poly):
+        return -r
+    n = len(poly)
+    return min(_geometry_module.point_segment_distance((cx, cy), poly[i], poly[(i + 1) % n]) for i in range(n)) - r
 _NAMES = {"silk": "silk", "mask": "mask opening", "body": "body", "pad": "pad", "through": "pad", "npth": "hole"}
 
 

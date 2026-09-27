@@ -2313,9 +2313,11 @@ class Board:
         via on the board, a stamped cell's and those planned before - every
         unplated hole, and the keepouts and rule areas that forbid vias."""
         occ = ctx.occ
-        holes = [(sh.box.center, sh.box.width) for o, g in occ.items.items() if o not in occ.pending
-                 for sh in g.shapes if sh.kind == "hole"]
-        holes += [(sh.box.center, sh.box.width) for sh in occ.copper if sh.kind == "hole"]
+        def hole(sh):                    # the circle the polygon was drawn from: its box is short of it when turned
+            c = sh.box.center
+            return c, 2 * max(math.dist((c.x, c.y), p) for p in sh.poly)
+        holes = [hole(sh) for o, g in occ.items.items() if o not in occ.pending for sh in g.shapes if sh.kind == "hole"]
+        holes += [hole(sh) for sh in occ.copper if sh.kind == "hole" and sh.owner not in occ.pending]
         # unplated holes (a connector's locating pegs): no copper, so the via's copper keeps the board's hole
         # clearance from the hole's edge as well as the hole-to-hole rule
         bare = [(sh.box.center, sh.box.width) for o, g in occ.items.items() if o not in occ.pending
@@ -4207,6 +4209,9 @@ def _shape_of(op) -> Shape | None:
     return None            # a zone pulls back round everything; it is never an obstacle
 
 
+_BLOCKED_BY = {"hole-to-hole": ("hole", "npth")}      # a bucket named for its rule: the obstacle kinds behind it
+
+
 def _blame_text(result) -> str:
     """The rejection counts, and for each kind the owners that caused most of
     them. The owner and the faces are computed for every candidate the scan
@@ -4216,7 +4221,7 @@ def _blame_text(result) -> str:
     for kind, n in result.rejected.most_common(3):
         owners = sorted(((owner, faces, count)
                          for (k, owner, faces), count in result.blockers.items()
-                         if k == kind and owner),
+                         if (k == kind or k in _BLOCKED_BY.get(kind, ())) and owner),
                         key=lambda t: -t[2])[:3]
         detail = "" if not owners else ": " + ", ".join(
             "%s%s x%d" % (owner, (" %s face" % faces) if faces else "", count)

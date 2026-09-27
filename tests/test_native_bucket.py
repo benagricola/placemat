@@ -37,19 +37,25 @@ def test_native_bucket_agrees_with_reason_key_on_every_conflicting_pair(envelope
     rnd = random.Random(20260924)
     checked = 0
     mismatches = []
+    from tests.test_native_conflict import _shifted
+    kinds = set()
     for _ in range(20000):
         a = rnd.choice(shapes)
         b = rnd.choice(shapes)
+        if rnd.random() < 0.5:           # moved against each other: pairs apart where they stand meet
+            b = _shifted(b, rnd.uniform(-2, 2), rnd.uniform(-2, 2))
         why = occ._conflict(a, b, None)
         if why is None:
             continue
         checked += 1
+        kinds.add(frozenset((a.kind, b.kind)))
         want = _reason_key(why)
         got = occ._native_bucket(a, b)
         if want != got:
             mismatches.append((a.kind, b.kind, why, want, got))
     assert checked > 200, "fuzz found too few actual conflicts to be a meaningful check"
     assert not mismatches, mismatches[:10]
+    assert frozenset(("hole",)) in kinds and any("npth" in k and k & {"pad", "through", "copper"} for k in kinds)
 
 
 @pytest.mark.parametrize("board_name,envelope", [

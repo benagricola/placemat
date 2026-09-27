@@ -123,3 +123,77 @@ def test_vias_filling_a_pad_keep_clear_of_a_via_already_on_the_board():
     vias = [c for c in plan.copper if isinstance(c, Via)]
     assert vias
     assert all(v.at.distance(Location(20.3, 20.3)) - 0.3 >= 0.25 - 1e-6 for v in vias)
+
+
+def _hole(owner, x, y, drill):
+    from placemat.occupancy import hole_shape
+    return hole_shape(owner, Location(x, y), drill)
+
+
+def test_holes_are_measured_as_circles_not_as_their_polygons():
+    """Between the polygon's vertices a circle's polygon lies inside the
+    circle: two holes 0.295 mm apart along 11.25 degrees read 0.30 apart."""
+    import math
+    occ = _occ([footprint("R1", 40, 40)])
+    d = 0.3 + 0.295                                   # 0.3 mm drills, 0.295 mm apart
+    a = _hole("A", 20, 20, 0.3)
+    b = _hole("B", 20 + d * math.cos(math.radians(11.25)), 20 + d * math.sin(math.radians(11.25)), 0.3)
+    assert occ._conflict(a, b, None) is not None
+    peg = Shape("J1", "npth", frozenset([Face.FRONT, Face.BACK]), frozenset(CopperLayer), "",
+                circle_polygon(Location(20, 20), 1.5), Box.of_points(circle_polygon(Location(20, 20), 1.5)))
+    # a pad's corner 0.24 mm off a 3 mm peg along 11.25 degrees, hole clearance 0.25
+    r = 1.5 + 0.24
+    cx, cy = 20 + r * math.cos(math.radians(11.25)), 20 + r * math.sin(math.radians(11.25))
+    land = ((cx, cy), (cx + 1, cy), (cx + 1, cy + 1), (cx, cy + 1))
+    pad = Shape("D1", "pad", frozenset([Face.FRONT]), frozenset([F]), "A", land, Box.of_points(land), "1")
+    assert occ._conflict(pad, peg, None) is not None
+
+
+def test_the_native_scan_measures_holes_as_circles_too():
+    import math
+    import pytest
+    native = pytest.importorskip("placemat_native")
+    from tests.test_native_conflict import _cfg_kwargs, _py_shape
+    occ = _occ([footprint("R1", 40, 40)])
+    d = 0.3 + 0.295
+    a = _hole("A", 20, 20, 0.3)
+    b = _hole("B", 20 + d * math.cos(math.radians(11.25)), 20 + d * math.sin(math.radians(11.25)), 0.3)
+    assert native.conflict(_py_shape(a, False), _py_shape(b, False), None, **_cfg_kwargs(occ))
+
+
+def test_a_scan_refused_by_holes_names_whose_holes():
+    from placemat.layout import _blame_text
+    from collections import Counter
+    from types import SimpleNamespace
+    result = SimpleNamespace(rejected=Counter({"hole-to-hole": 3}), blockers=Counter({("hole", "cell a", ""): 3}))
+    assert "cell a x3" in _blame_text(result)
+
+
+def test_a_cells_via_is_named_as_the_cells_via():
+    occ = _cells()
+    b, at = _b_with_its_via_at(occ, 12.5 + 0.55, 10)
+    why = occ.legal(b, at)
+    assert "cell b's via" in why and "cell a's via" in why
+
+
+def test_the_via_planner_keeps_clear_of_a_placed_cells_via():
+    from placemat.copper import Via
+    from placemat.layout import Board
+    from placemat.values import Cell, Net, PadRef, Part
+    from tests.fixtures import pad
+    from tests.test_pad_vias import _part
+    lands = [pad("U1", "u1", 1, "GND", 20, 20, 3.0, 3.0), pad("U1", "u1", 2, "SIG", 20, 23, 1, 1)]
+    cell = footprint("C1", 10, 4, w=1, h=1, cell="m", inst="m.c", nets=("GND", "GND"))
+    g = board_geometry([_part(lands), cell], cells=["m"], copper=[_via("GND", 10, 11.5, owner="m")],
+                       width=40, height=40, extra_nets=("GND",))
+    b = Board(dataclasses.replace(g, hole_to_hole=0.25), edge_margin=0.5)
+    b.place(Part("u1"), at=Location(20, 21.5))                 # its GND pad now centred on (20, 20.5)
+    c = g.cell("m").box.center
+    b.place(Cell("m"), at=Location(20.3 + c.x - 10, 20.8 + c.y - 11.5))     # the cell's via at (20.3, 20.8)
+    b.vias(Net("GND"), PadRef(Part("u1"), 1), size=0.6, drill=0.3)
+    plan = b.resolve()
+    at = [c for c in plan.occupancy.copper if c.kind == "hole" and c.owner == "m"][0].box.center
+    assert at.distance(Location(20.3, 20.8)) < 1e-6
+    vias = [c for c in plan.copper if isinstance(c, Via)]
+    assert 0 < len(vias) < 25                                   # the sites round the cell's via are left out
+    assert all(v.at.distance(at) - 0.3 >= 0.25 - 1e-6 for v in vias)
