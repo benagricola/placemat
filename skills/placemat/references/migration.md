@@ -6,6 +6,16 @@ whether any of it applies.
 
 ## To 0.39
 
+Scripts that place by typed positions - `Location(...)` of numbers or of
+named constants, `PadRef(...).offset(...)` copied from a query, `radius=0` -
+move to intent as they are touched: a part with its links, searched, its
+spot found by `--explore` and kept in the lock; a via by `FreeSpot`, joined
+by its tail; a track ending on the via `board.via()` returns. A number from
+outside the board (an enclosure or datasheet dimension) stays, as a named
+constant citing its source. A position placemat cannot say any other way is
+a placemat gap: keep the number with a `why=` naming the gap, and report
+it. SKILL.md's check line counts them.
+
 A `FreeSpot` via now draws its tail to the pad: a script that joined one by
 hand draws it twice, so drop that track, or say `tail=False`. A via typed as
 a pad offset copied from `occupancy --via-near` can become

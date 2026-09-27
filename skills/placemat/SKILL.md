@@ -25,6 +25,32 @@ release, and fix those lines first. A script with no hits still re-places on a
 newer placemat, which that file also explains - and on 0.11 it will move, because
 a footprint that draws no courtyard now claims its body rather than its pads.
 
+**Then count its typed positions**:
+`grep -cP "Location\((?!\s*X\()|\.offset\(|radius=0\b" <script>`, and read
+its module-level numeric constants. A number from outside the board - an
+enclosure drawing, a datasheet, a mechanical limit - is a fact: it belongs
+in a named constant that cites its source. A number that says where a part,
+a via or a track goes is a decision typed by hand, and a script full of
+those is not a style to follow. Nobody can re-check such a number: it goes
+stale when a part, a footprint or the board changes, and the next agent
+copies it into the next line and the next file. Working in such a script:
+
+- Write every new declaration by intent, whatever the lines round it do:
+  links, blocks, rows, `fanout()`, `Near(PadRef(...))` for a need the
+  netlist cannot say, `FreeSpot` for a via, a track ending on the via
+  `board.via()` returns.
+- Convert the coordinates you touch. A part placed by numbers becomes a
+  searched part with its links; `--explore` finds its spot and `--accept`
+  keeps it in the lock, which holds it relative to its anchor and re-checks
+  it every run. Copy nothing from `measure`, `occupancy`, a lock or a routed
+  board into the script.
+- A coordinate you cannot remove is a placemat gap, not a layout choice:
+  placemat has no way to say what the number says. Write the smallest
+  number that works, with `why=` naming the gap, and record the gap where
+  the project keeps placemat's (what was needed, why placemat could not say
+  it, what was done instead, what placemat could offer). Remove the number
+  when placemat can say it.
+
 ## The loop
 
 1. **Run** `placemat run boards/<x>/<X>_layout.py`. A run is named by a
@@ -199,8 +225,10 @@ coordinates nobody chose.
   --explore 60 --focus <the cluster in question>` (or `--focus-after LINE`
   for what the script places last), read what would move and why it
   scores better, then `--accept` what is sound. The lock beside the script
-  keeps it; `placemat freeze` moves an entry into the script when it has
-  become intent. Commit the lock with the script.
+  keeps it, relative to each item's anchor, and every run re-checks it:
+  that is where an explore result lives. Commit the lock with the script.
+  `placemat freeze` moves an entry into the script only to hand the item
+  to the decided tier; never type a lock's numbers into a script by hand.
 - Leave a searched part's rotation out unless its turn matters: the
   search tries all four and keeps the one that puts its pads nearest what
   they connect to. Say `rotation=` for a part whose orientation is a fact
