@@ -27,3 +27,15 @@ def test_a_pad_on_a_footprints_copper_trace_is_refused():
 def test_a_pad_clear_of_the_trace_is_placed():
     plan = _board(25.0)
     assert not [f for f in plan.findings if "c1" in f], plan.findings
+
+
+def test_a_via_on_a_footprints_copper_trace_is_a_conflict():
+    """Script copper and vias see a footprint's copper too, not only the
+    placer: a ground drop may not land on a winding."""
+    from placemat.geometry import circle_polygon
+    from placemat.occupancy import Shape
+    from placemat.values import Box
+    plan = _board(30.0)
+    ring = circle_polygon(Location(20.0, 23.0), 0.3)
+    via = Shape("", "copper", frozenset(), frozenset([CopperLayer.F, CopperLayer.B]), "GND", ring, Box.of_points(ring))
+    assert plan.occupancy.copper_conflicts(via)

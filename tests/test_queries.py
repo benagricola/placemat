@@ -207,3 +207,11 @@ def test_a_via_keeps_its_copper_off_an_unplated_hole():
     at = Location(20.95, 20.0)          # holes 0.3 apart edge to edge (the rule's 0.25 met); copper 0.15 off the peg
     v = queries.judge_via(g, at, "GND", 0.6, 0.3)
     assert not v.clear and any("unplated" in h for h in v.hard)
+
+
+def test_via_near_keeps_off_a_footprints_own_copper():
+    art = rect(20.0, 20.0, 4.0, 0.4)
+    fp = dataclasses.replace(footprint("L1", 10, 10, nets=("A", "B")), copper=((F, art),))
+    g = _geom(fps=[fp])
+    v = queries.judge_via(g, Location(20.0, 20.5), "GND", 0.6, 0.3)
+    assert not v.clear

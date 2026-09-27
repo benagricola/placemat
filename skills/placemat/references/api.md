@@ -21,6 +21,7 @@ board; declarations are collected and resolved together.
 | `board.netclass(Net("CAN_P"))` | its class: `.track_width`, `.clearance`, `.diff_pair_width`, `.diff_pair_gap` |
 | `board.keep_in` | the board's copper-to-edge rule: where an EDGE item's reach lands |
 | `board.reach(item, rotation=)` | the item's body, pads and silk together, as a box at the origin |
+| `board.height_of(part)` | the part's height in mm from its `Pm.Height` field; an error naming the field when it has none |
 | `board.parts(net=None)` | every part on the board as a `Part`, or those with a pad on `net`: derive drops and checks from the netlist |
 | `board.envelope(item, rotation=, face=)` | what the placer keeps for the item under `[place] envelope`, as a box at the origin: what a row or stack built by hand spaces by |
 
@@ -279,8 +280,9 @@ as stroked (the footprint's text fields excluded - `board.label()` text stays
 a reservation) and its body, the box of its fab graphics. A footprint that
 draws neither silk nor fab keeps its courtyard. `union` is both. Under every
 envelope a footprint's own copper graphics (a net-tie's winding, a printed
-antenna) are copper of no net: every other net's copper keeps its clearance
-from them. Between two
+antenna) are copper of no net: every other part, track and via - placed,
+drawn by the script, or found by `FreeSpot` and `--via-near` - keeps the
+default clearance from them. Between two
 different parts, every gap is the board's own:
 
 | | another part's copper | mask opening | silk | body |
@@ -525,8 +527,10 @@ GND.
 `max_height=` (a keepout that excludes parts) admits every part no taller,
 by its `Pm.Height` field (`1.1mm`): the room a case leaves over a region,
 said once, where naming the short parts in `allow=` goes stale when a part is
-added or swapped. A part with no `Pm.Height` counts as taller and its
-refusal says so; `allow=` still admits by name. `board.height_of(part)` and
+added or swapped. A part with no `Pm.Height` counts as taller; the refusal
+names each part too tall or with no height. A cell is let in only when every
+member is short enough, and judged whole otherwise; `allow=` still admits by
+name. `board.height_of(part)` and
 `placemat parts` give a part's height.
 
 **When it is settled.** With the firm items, in dependency order, so a

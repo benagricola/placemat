@@ -413,7 +413,7 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
         if (work / ("in" + ext)).exists():
             shutil.copy(work / ("in" + ext), work / ("routed" + ext))
     fill_zones(str(pcb_out))
-    after = run_drc(pcb_out, work / "drc_after.json")
+    after = run_drc(pcb_out, work / "drc_after.json", refill_zones=False)     # filled just now
     open1 = {n: v for n, v in after.open_nets.items() if n not in excluded}
     violated = _nets_in_violations(json.loads((work / "drc_after.json").read_text()))
     sc = score(open0, open1, {n for n in violated if n not in excluded})

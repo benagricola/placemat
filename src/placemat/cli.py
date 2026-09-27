@@ -434,10 +434,11 @@ def cmd_measure(args) -> int:
         if args.json:
             console.data(json.dumps({"labels": labels, "graphics": graphics}, indent=2))
         else:
-            lines = ["%-20s %-5s %-12s %8.3f x %.3f  box %.3f %.3f %.3f %.3f  h %.2f stroke %.2f at %g%s" % (
-                l["text"][:20], l["face"], (l["cell"] or "-")[:12], l["box"][2] - l["box"][0],
-                l["box"][3] - l["box"][1], *l["box"], l["height"], l["stroke"], l["angle"],
-                " mirrored" if l["mirrored"] else "") for l in labels] or ["no labels on this board"]
+            lines = ["%-20s %-5s %-12s %8.3f x %.3f  box %.3f %.3f %.3f %.3f  at %.3f %.3f  h %.2f stroke %.2f "
+                     "angle %g%s" % (
+                         l["text"][:20], l["face"], (l["cell"] or "-")[:12], l["box"][2] - l["box"][0],
+                         l["box"][3] - l["box"][1], *l["box"], *l["at"], l["height"], l["stroke"], l["angle"],
+                         " mirrored" if l["mirrored"] else "") for l in labels] or ["no labels on this board"]
             lines += ["%-20s %-5s %-12s box %.3f %.3f %.3f %.3f  stroke %.2f" % (
                 "(" + g["kind"] + ")", g["face"], (g["cell"] or "-")[:12], *g["box"], g["stroke"]) for g in graphics]
             console.lines("measure", "\n".join(lines))

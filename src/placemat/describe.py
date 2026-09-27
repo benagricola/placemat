@@ -145,6 +145,16 @@ def part_lines(fp, geometry=None, pads: bool = False, digest: str = "") -> list:
     return lines
 
 
+def _height_or_bad(fp):
+    """A part's height, None when it has none, or its field's text when it is
+    not a length: the listing is where a bad field is found, so it does not
+    stop it."""
+    try:
+        return part_height(fp)
+    except ValueError:
+        return fp.fields.get("Pm.Height")
+
+
 def parts_rows(geometry, fields=()) -> list:
     """One row per part; `fields` names footprint fields to add (an order
     code, a manufacturer part number), empty where a part has none."""
@@ -152,7 +162,7 @@ def parts_rows(geometry, fields=()) -> list:
              "x": fp.location.x, "y": fp.location.y, "rotation": fp.rotation,
              "centre": [round(fp.body_box.center.x, 3), round(fp.body_box.center.y, 3)],
              "mm2": round(fp.courtyard_box.area, 3), "pins": pin_count(fp),
-             "value": fp.value, "footprint": fp.lib_id, "height": part_height(fp),
+             "value": fp.value, "footprint": fp.lib_id, "height": _height_or_bad(fp),
              "nets": sorted({p.net for p in fp.pads if p.net}),
              **({"fields": {f: fp.fields.get(f, "") for f in fields}} if fields else {})}
             for fp in sorted(geometry.footprints, key=lambda f: f.inst)]
@@ -170,7 +180,8 @@ def parts_lines(geometry, fields=()) -> list:
         out.append("%-26s %-6s %-6s %-12s %8.2f %8.2f %5g %8.2f %5d %6s  %-28s %s" % (
             r["instance"][:26], r["ref"], r["face"], (r["cell"] or "-")[:12],
             r["x"], r["y"], r["rotation"], r["mm2"], r["pins"],
-            "-" if r["height"] is None else "%.2f" % r["height"], r["value"][:28], "  ".join(extra)))
+            "-" if r["height"] is None else ("%.2f" % r["height"] if isinstance(r["height"], float) else "?"),
+            r["value"][:28], "  ".join(extra)))
     return out
 
 

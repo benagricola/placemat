@@ -72,6 +72,14 @@ def judge_via(geometry, at: Location, net: str, size: float, drill: float) -> Vi
             soft.append("the %s pour on %s would give way" % (c.net, where))
         elif c.kind in _HARD:
             hard.append("%.2f mm from %s %s on %s (needs %.2f)" % (gap, c.net or "-", c.kind, where, reach))
+    for fp in geometry.footprints:                   # a footprint's own copper graphics: copper of no net
+        for layer, art in fp.copper:
+            if not box.overlaps(Box.of_points(art), gap=geometry.default_clearance):
+                continue
+            gap = poly_distance(poly, art)
+            if gap < geometry.default_clearance - 1e-9:
+                hard.append("%.2f mm from %s's own copper on %s (needs %.2f)" % (gap, fp.ref, layer.value,
+                                                                              geometry.default_clearance))
     for centre, dia, what in _holes(geometry):
         gap = at.distance(centre) - (drill + dia) / 2.0
         if gap < geometry.hole_to_hole - 1e-9:

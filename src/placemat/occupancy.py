@@ -85,6 +85,7 @@ class Reservation:
     layer: CopperLayer | None       # None: both faces, any layer
     owners: frozenset[str] = frozenset()
     source: str = ""                # what put it here, so a re-commit can replace its own
+    admitted: frozenset | None = None   # a height-limited region: the parts short enough to sit in it
 
     @functools.cached_property
     def box(self) -> Box:
@@ -470,8 +471,8 @@ class Occupancy:
         for owner, g in self.items.items():
             if owner in self.pending:
                 continue                        # not placed yet: its pads are nowhere
-            for o in g.shapes:
-                if o.kind not in ("pad", "through") or not shape.box.overlaps(o.box, gap=1.0):
+            for o in g.shapes:                  # its pads, and its own copper graphics (a net-tie's winding)
+                if o.kind not in ("pad", "through", "copper") or not shape.box.overlaps(o.box, gap=1.0):
                     continue
                 why = self._conflict(shape, o, None)
                 if why:
@@ -505,13 +506,39 @@ class Occupancy:
 
     # ------------------------------------------------------------ mutation
     def reserve(self, region, why: str, allow=(), layer: CopperLayer | None = None, owners=(),
-                source: str = ""):
+                source: str = "", admitted=None):
         """Keep a region clear. `region` is a Box or a polygon. `source` names
         what put it there, so committing that thing again replaces its own
         regions instead of leaving the old ones behind."""
         poly = box_polygon(region) if isinstance(region, Box) else tuple(tuple(p) for p in region)
         self.reservations.append(Reservation(poly, why, frozenset(str(n) for n in allow),
-                                             layer, frozenset(str(o) for o in owners), source))
+                                             layer, frozenset(str(o) for o in owners), source,
+                                             None if admitted is None else frozenset(admitted)))
+
+    def _parts_of(self, geom) -> set:
+        """The parts an item is: its own refdes, or a cell's members'."""
+        return {o for o in geom.owners if o in self._footprint_refs}
+
+    def let_in(self, r: Reservation, geom) -> bool:
+        """Whether a reservation lets the item in: named, carrying a net let
+        through, or - in a height-limited region - every part of it short
+        enough. A cell with one tall member is judged whole."""
+        if (geom.owners & r.owners) or (geom.nets & r.allow):
+            return True
+        return r.admitted is not None and bool(self._parts_of(geom)) and self._parts_of(geom) <= r.admitted
+
+    def refusal(self, r: Reservation, geom) -> str:
+        """The sentence for an item a reservation keeps out; in a height-
+        limited region it names each part that is too tall or has no height."""
+        why = "sits in the reservation for %s" % r.why
+        if r.admitted is None:
+            return why
+        from .board_geometry import part_height
+        said = []
+        for ref in sorted(self._parts_of(geom) - r.admitted):
+            h = part_height(self.geometry.footprint(ref))
+            said.append("%s has no Pm.Height" % ref if h is None else "%s is %g mm" % (ref, h))
+        return why + (": " + ", ".join(said) if said else "")
 
     def commit(self, item, placement: Placement):
         """Record that `item` now sits at `placement`; later checks see it there."""
@@ -770,8 +797,8 @@ class Occupancy:
         for r in self.reservations:
             if r.layer is not None and r.layer.face not in faces:
                 continue                                   # reserved on the other face only
-            if (geom.owners & r.owners) or (geom.nets & r.allow):
-                continue                                   # named, or carrying a net let through
+            if self.let_in(r, geom):
+                continue                                   # named, carrying a net let through, or short enough
             # the box first because it is cheap, and the placer asks this tens of thousands of times
             if r.overlaps(body):
                 if geom.parts:
@@ -780,7 +807,7 @@ class Occupancy:
                         continue
                 if blame is not None:
                     blame.append(Blocker("reservation", r.why, frozenset()))
-                return "sits in the reservation for %s" % r.why
+                return self.refusal(r, geom)
         return None
 
     def standing_faces(self, geom: ItemGeometry, face) -> set:
@@ -1257,7 +1284,7 @@ class NativeSweeper:
         faces = occ.standing_faces(geom, face)
         self.reservations = [i for i, r in enumerate(occ.reservations)
                              if not (r.layer is not None and r.layer.face not in faces)
-                             and not ((geom.owners & r.owners) or (geom.nets & r.allow))]
+                             and not occ.let_in(r, geom)]
         self._decoded = {}
 
     def run(self, triples, stop_at_first: bool, scoring=None):
@@ -1293,7 +1320,7 @@ class NativeSweeper:
             return hit[0], hit[1], (lambda: edge_sentence(a, box(), occ.edge_margin))
         if kind == 1:
             r = occ.reservations[a]
-            why = "sits in the reservation for %s" % r.why
+            why = occ.refusal(r, self.geom)
             return _reason_key(why), ("reservation", r.why, ""), (lambda why=why: why)
         turn_of, si = a >> 32, a & 0xffffffff
         s, o = self.origin[turn_of][si], self.shapes[b]

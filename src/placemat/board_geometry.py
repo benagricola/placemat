@@ -44,9 +44,12 @@ def part_height(fp) -> float | None:
     if not text:
         return None
     try:
-        return float(text[:-2] if text.lower().endswith("mm") else text)
+        h = float(text[:-2] if text.lower().endswith("mm") else text)
     except ValueError:
         raise ValueError("%s: Pm.Height %r is not a length in mm" % (fp.ref, text))
+    if h < 0:
+        raise ValueError("%s: Pm.Height %r is negative" % (fp.ref, text))
+    return h
 
 
 @dataclass(frozen=True)

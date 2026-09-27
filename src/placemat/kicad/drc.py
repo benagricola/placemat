@@ -133,7 +133,7 @@ def run_drc(pcb, out_json, refill_zones: bool | None = None, timeout: int | None
             real_kinds=None, outstanding_kinds=None, allow=None) -> DrcReport:
     """Run kicad-cli DRC (zones refilled for the check only; the board file is
     not touched) and parse the JSON into buckets."""
-    pcb, out_json = Path(pcb).resolve(), Path(out_json).resolve()   # kicad-cli runs in the board's folder
+    pcb, out_json = Path(pcb).absolute(), Path(out_json).absolute()   # kicad-cli runs in the board's folder
     cfg = active()
     refill_zones = cfg.drc_refill_zones if refill_zones is None else refill_zones
     timeout = cfg.timeout_drc if timeout is None else timeout
