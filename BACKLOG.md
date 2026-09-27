@@ -23,6 +23,12 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **Five PLACEMAT_GAPS bugs, 2026-09-26** (unreleased): cleanup leaves a
+  decided block's satellites alone (cf9f1cd); `--via-near` keeps out of
+  every land of a split pin (7a299af); `datasheet` reads text with a
+  character reference XML forbids (8ed7488); a run compares with and
+  reuses its own board's last run (9278996); a searched `Near` on another
+  searched item's pad waits for it (f55c17b).
 - **A cell's zones under the board's own plane** (0.37.0, from Ben on
   2026-09-27; a core board had 17 cell zones on nets and layers its own
   planes cover): merged into the plane at write, `copper.cell_zones_under_planes`.
