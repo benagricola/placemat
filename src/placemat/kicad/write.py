@@ -577,10 +577,31 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     _draw_keepouts(board, plan)
     draw_copper(board, plan.copper)
     out = str(out_path or pcb_path)
+    plan.models = _reanchor_models(board, Path(out).parent)
     save(board, out)
     from ..rules import write_rules
     write_rules(out, plan.rules)
     return out
+
+
+def _reanchor_models(board, project_dir) -> dict:
+    """Each footprint's model path that does not resolve from the project's
+    folder, re-anchored to the folder above that holds it (models.reanchor).
+    What was done: {"reanchored": n, "missing": [file names]}."""
+    from ..models import reanchor, workspace_root
+    stop = workspace_root(project_dir)
+    done, missing = 0, []
+    for fp in board.GetFootprints():
+        models = fp.Models()
+        for i in range(len(models)):
+            m = models[i]                 # by index: iterating the list hands out copies
+            new, found = reanchor(m.m_Filename, project_dir, stop)
+            if new is not None:
+                m.m_Filename = new
+                done += 1
+            elif not found:
+                missing.append(m.m_Filename.replace("\\", "/").rsplit("/", 1)[-1])
+    return {"reanchored": done, "missing": sorted(set(missing))}
 
 
 def _kiid(item) -> str:

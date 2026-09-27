@@ -1230,6 +1230,15 @@ in a place of its own:
 
 `.placemat/` sits in the board's directory. The other commands only read.
 
+A written board's 3D model paths resolve from its own folder: a
+`${KIPRJMOD}`-relative or relative model path that does not is re-anchored
+to the nearest folder above the project that holds the same tail
+(`parts/<part>/<file>.step`), up to the workspace, and written back
+`${KIPRJMOD}`-relative; a module deeper in the tree than the board its
+library was written for renders with its bodies. A path under another
+variable, or absolute, is left. The run's `models` line says how many were
+re-anchored and names any found nowhere.
+
 ## Settings
 
 `placemat.toml` holds every behavioural constant. It is found by walking up

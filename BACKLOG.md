@@ -7,14 +7,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **3D model paths that do not resolve from a deeper project** (a board's
-  layout work, 2026-09-27): a footprint's model path written
-  `${KIPRJMOD}/../../../parts/<part>/<file>.step` resolves for a board at
-  `boards/<board>/layout` but not for a module two levels deeper, so the
-  module's renders have no bodies. When placemat writes a board, a model path
-  that does not resolve could be re-anchored: the same tail
-  (`parts/<part>/<file>`) at the nearest ancestor folder holding it, written
-  back `${KIPRJMOD}`-relative. Needs a spec.
 - **Placing relative to a searched item** (PLACEMAT_GAPS 2026-09-26, twice):
   a `Pin` or a cutout on a searched item is refused ("only FIXED and EDGE
   items may be referred to"). Needs a spec.
@@ -39,6 +31,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **3D model paths that resolve from any project depth** (unreleased; a
+  board's layout work, 2026-09-27): the write re-anchors a model path that
+  does not resolve to the nearest folder above that holds it
+  (spec `2026-09-27-model-paths-design.md`).
 - **Hole spacing when placing** (0.44.0; a board's layout work,
   2026-09-27): drilled holes of different owners keep hole_to_hole whatever
   their nets; copper keeps hole_clearance from an unplated hole; the via

@@ -442,6 +442,7 @@ class Plan:
     adopted: dict = field(default_factory=dict)                   # net -> "held", or "dropped: why": routed copper kept beside the script
     cell_zones_under_planes: str = "drop"                         # settings: a cell's zone under the board's own plane is merged into it
     merged_zones: list = field(default_factory=list)              # the cell zones the write merged into a plane (MergedZone)
+    models: dict = field(default_factory=dict)                    # the write's model paths: {"reanchored": n, "missing": [files]}
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:

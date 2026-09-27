@@ -4,6 +4,13 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.45
+
+Nothing to change in a script. A written board's 3D model paths that did
+not resolve from its own folder are re-anchored to where the file is, so a
+module deeper in the tree renders with its bodies; a fixed-depth
+`${KIPRJMOD}/../..` prefix no longer needs a per-depth copy.
+
 ## To 0.44
 
 Nothing to change in a script. Placing keeps the board's hole-to-hole rule

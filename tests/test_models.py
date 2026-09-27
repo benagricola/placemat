@@ -60,3 +60,8 @@ def test_backslashes_are_separators(tmp_path):
     project = _tree(tmp_path)
     assert models.reanchor("${KIPRJMOD}\\..\\..\\..\\parts\\p\\f.step", project) == \
         ("${KIPRJMOD}/../../../../../parts/p/f.step", True)
+
+
+def test_the_run_line_says_what_was_done_and_nothing_when_nothing_was():
+    assert models.models_line({"reanchored": 0, "missing": []}) == ""
+    assert models.models_line({"reanchored": 2, "missing": ["a.step"]}) == "2 re-anchored, 1 not found (a.step)"

@@ -25,6 +25,15 @@ def workspace_root(start) -> Path | None:
     return None
 
 
+def models_line(done: dict) -> str:
+    """The run's line for what the write did to model paths: "" when nothing."""
+    n, missing = done.get("reanchored", 0), done.get("missing", [])
+    if not n and not missing:
+        return ""
+    line = "%d re-anchored, %d not found" % (n, len(missing))
+    return line + (" (%s%s)" % (", ".join(missing[:5]), ", ..." if len(missing) > 5 else "") if missing else "")
+
+
 def reanchor(text: str, project_dir, stop=None) -> tuple:
     """(the path to write, or None to leave `text` as it is; whether the
     model was found at all). Only a `${KIPRJMOD}`-relative or a relative

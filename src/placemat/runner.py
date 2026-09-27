@@ -446,6 +446,10 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         apply_plan(src.pcb, plan)
         for cell, zones in _merged_by_cell(plan.merged_zones):
             say("zones", "%s: %s merged into the board's plane" % (cell, zones))
+        from .models import models_line
+        line = models_line(plan.models)
+        if line:
+            say("models", line)
         finish_board(src.pcb, fab, refs_to_fab=getattr(board, "refs_on_fab", True))
         rec.timing_s["write"] = round(time.time() - t0, 1)
         shutil.copy(src.pcb, run_dir / "layout.kicad_pcb")
