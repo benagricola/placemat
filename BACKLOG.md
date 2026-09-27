@@ -23,7 +23,7 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **Five PLACEMAT_GAPS bugs, 2026-09-26** (unreleased): cleanup leaves a
+- **Five PLACEMAT_GAPS bugs, 2026-09-26** (0.38.0): cleanup leaves a
   decided block's satellites alone (cf9f1cd); `--via-near` keeps out of
   every land of a split pin (7a299af); `datasheet` reads text with a
   character reference XML forbids (8ed7488); a run compares with and
