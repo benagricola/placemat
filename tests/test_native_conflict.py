@@ -80,6 +80,8 @@ def _rich_occupancy(envelope="union", vias_block_courtyards=False):
         footprint("U2", 20, 10, w=3, h=3, through=True, fab=(18.5, 8.5, 21.5, 11.5)),
         footprint("U3", 10, 20, w=2, h=2, silk_boxes=[(9, 19, 11, 19.2)]),
     ]
+    from tests.test_courtyard_polygons import _sector
+    fps.append(_sector("L1", "l1", centre=(30.0, 30.0)))             # a courtyard claimed as KiCad draws it
     import dataclasses
     g = dataclasses.replace(board_geometry(fps, width=60, height=60, silk_clearance=0.1), hole_clearance=0.2)
     from placemat.settings import Settings

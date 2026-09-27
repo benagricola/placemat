@@ -57,6 +57,7 @@ class Settings:
     place_escape_depth: float = 1.0     # how far each corridor out of a pad runs (escapes.py)
     place_escape_pads: int = 1          # a part keeps escapes for its pads when it has at least this many
     place_courtyard_touch: float = 0.0   # courtyards may touch, never overlap: KiCad counts touching polygons, and its are inside ours by half a stroke
+    place_courtyard_polygon_share: float = 0.98   # a courtyard polygon covering less of its box than this is claimed as drawn, not as its box
     place_conflict_gap: float = 1.0
     place_fit_room: float = 10.0        # a fit frame's provisional room: how far round the decided content a searched item may go
     # [copper]
@@ -242,7 +243,7 @@ _ABOVE_ZERO = frozenset((
     "geometry_arc_error_nm", "check_rise_c", "check_copper_oz",
     "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm",
-    "route_plane_share", "route_adopt_tolerance"))
+    "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share"))
 _AT_LEAST_ZERO = frozenset((
     "rank_area", "rank_pins", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge", "copper_chamfer", "best_airwire_noise",
     "best_crossing_noise", "score_unplaced", "score_priority_high", "score_priority_default", "score_priority_low",

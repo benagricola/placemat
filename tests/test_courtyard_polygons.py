@@ -46,3 +46,59 @@ def test_a_triangular_courtyard_reads_back_as_its_triangle(breakout_pcb, tmp_pat
 def test_a_rectangular_courtyard_reads_back_as_a_rectangle(breakout):
     fp = next(f for f in breakout.footprints if f.courtyard_poly)
     assert len(fp.courtyard_poly) == 4
+
+
+def _sector(ref, inst, centre=(20.0, 20.0), radius=6.0, span=30.0):
+    """A part shaped like a slice of a disc, its origin at the disc's centre
+    and its courtyard the slice (0 to `span` degrees); its box is much more."""
+    from tests.fixtures import footprint
+    cx, cy = centre
+    wedge = ((cx, cy),) + tuple((cx + radius * math.cos(math.radians(a)), cy + radius * math.sin(math.radians(a)))
+                                for a in range(0, int(span) + 1, 5))
+    fp = footprint(ref, cx + 4.0, cy + 0.9, w=2.4, h=1.0, inst=inst, nets=("N%s1" % ref, "N%s2" % ref))
+    return dataclasses.replace(fp, location=Location(cx, cy), courtyard_box=Box.of_points(wedge),
+                               body_box=Box.of_points(wedge), courtyard_poly=wedge)
+
+
+def _occupancy(*fps):
+    from placemat.occupancy import Occupancy
+    from tests.fixtures import board_geometry
+    return Occupancy(board_geometry(list(fps), width=60, height=60), edge_margin=0.0)
+
+
+def test_two_slices_of_a_disc_apart_may_stand_though_their_boxes_overlap():
+    from placemat.placement import Placement
+    from placemat.values import Face
+    a, b = _sector("L1", "l1"), _sector("L2", "l2")
+    occ = _occupancy(a, b)
+    assert occ.legal(b, Placement(Location(20, 20), 35.0, Face.FRONT)) is None
+
+
+def test_two_slices_of_a_disc_that_overlap_are_refused():
+    from placemat.placement import Placement
+    from placemat.values import Face
+    a, b = _sector("L1", "l1"), _sector("L2", "l2")
+    occ = _occupancy(a, b)
+    why = occ.legal(b, Placement(Location(20, 20), 20.0, Face.FRONT))
+    assert why is not None and "courtyard" in why
+
+
+def test_a_rectangular_courtyard_keeps_its_box():
+    from tests.fixtures import footprint
+    fp = footprint("R1", 10, 10, w=2, h=1)
+    square = dataclasses.replace(fp, courtyard_poly=((8.9, 9.4), (11.1, 9.4), (11.1, 10.6), (8.9, 10.6)))
+    occ = _occupancy(square)
+    (court,) = [s for s in occ.items["R1"].shapes if s.kind == "courtyard"]
+    assert Box.of_points(court.poly) == square.courtyard_box
+
+
+def test_a_slice_at_a_round_boards_centre_is_judged_by_its_polygon_at_the_edge():
+    from placemat.layout import Board
+    from placemat.values import Part
+    from tests.fixtures import board_geometry
+    fp = _sector("L1", "l1", centre=(7.0, 7.0))
+    b = Board(board_geometry([fp], width=14, height=14), edge_margin=0.5)
+    b.disc(diameter=14.0)
+    b.place(Part("l1"), at=Location(7.0, 7.0), rotation=45)           # the box's far corner 6.7 out, past 6.5
+    plan = b.resolve()
+    assert not [f for f in plan.findings if f.kind == "fixed"], list(plan.findings)

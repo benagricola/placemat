@@ -185,7 +185,23 @@ _GAP = 1.0      # how far outside a box a conflict can still reach: the largest 
 TOUCH = 0.02    # two courtyards this close are touching, not overlapping: a footprint's courtyard stroke rounds by this much
 
 
-def _fp_shapes(fp: Footprint, envelope: str = "courtyard") -> list[Shape]:
+def _polygon_area(poly) -> float:
+    n = len(poly)
+    return abs(sum(poly[i][0] * poly[(i + 1) % n][1] - poly[(i + 1) % n][0] * poly[i][1] for i in range(n))) / 2.0
+
+
+def courtyard_drawn(fp: Footprint, share: float) -> bool:
+    """Whether the part's courtyard is claimed as KiCad draws it rather than
+    as the box round it: its polygon covers less than `share` of its box (a
+    slice of a disc, an L), so the box would claim room the part does not."""
+    poly = getattr(fp, "courtyard_poly", ())
+    if len(poly) < 3:
+        return False
+    box = Box.of_points(poly)
+    return box.area > 0 and _polygon_area(poly) < share * box.area
+
+
+def _fp_shapes(fp: Footprint, envelope: str = "courtyard", polygon_share: float = 0.0) -> list[Shape]:
     """What a part claims. `courtyard`: its courtyard and its pads. `physical`:
     its pads, mask openings, silk and body - or, for a footprint that draws
     neither silk nor fab, its courtyard (which falls back to its pads).
@@ -196,8 +212,12 @@ def _fp_shapes(fp: Footprint, envelope: str = "courtyard") -> list[Shape]:
     faces = frozenset([fp.face])
     drawn = bool(fp.silk or fp.fab)
     if envelope != "physical" or not drawn:
-        ct = box_polygon(fp.courtyard_box)
-        shapes.append(Shape(fp.ref, "courtyard", faces, frozenset(), "", ct, fp.courtyard_box))
+        if courtyard_drawn(fp, polygon_share):
+            ct = tuple(fp.courtyard_poly)
+            shapes.append(Shape(fp.ref, "courtyard", faces, frozenset(), "", ct, Box.of_points(ct)))
+        else:
+            ct = box_polygon(fp.courtyard_box)
+            shapes.append(Shape(fp.ref, "courtyard", faces, frozenset(), "", ct, fp.courtyard_box))
     if envelope != "courtyard":
         for face, poly in fp.mask:
             shapes.append(Shape(fp.ref, "mask", frozenset([face]), frozenset(), "", poly, Box.of_points(poly)))
@@ -251,7 +271,11 @@ class Occupancy:
         self.component_spacing = component_spacing          # body to body, body to another part's pad
         self.silk_clearance = geometry.silk_clearance       # silk to silk, silk to a mask opening
         self._footprint_refs = frozenset(fp.ref for fp in geometry.footprints)
-        self._margins = {fp.ref: fp.courtyard_margin for fp in geometry.footprints if fp.courtyard_margin}
+        # KiCad's courtyard lies inside the box by the stroke: two boxes may overlap by that much. A
+        # courtyard claimed as drawn is KiCad's own polygon, with nothing to allow for.
+        share = self.settings.place_courtyard_polygon_share
+        self._margins = {fp.ref: fp.courtyard_margin for fp in geometry.footprints
+                         if fp.courtyard_margin and not courtyard_drawn(fp, share)}
         self._leads = frozenset((fp.ref, p.number) for fp in geometry.footprints for p in fp.pads if _is_lead(fp, p))
         self._drawn_gap = max(component_spacing, self.silk_clearance)   # the furthest a silk, mask or body check reaches
         if self.envelope != "courtyard" and self._gap < max(component_spacing, self.silk_clearance):
@@ -329,7 +353,8 @@ class Occupancy:
     # ------------------------------------------------------------ geometry of a candidate
     def _register(self, fp: Footprint) -> ItemGeometry:
         g = ItemGeometry(frozenset([fp.ref]), Placement(fp.location, fp.rotation, fp.face),
-                         tuple(_fp_shapes(fp, self.envelope)), fp.body_box, frozenset(p.net for p in fp.pads),
+                         tuple(_fp_shapes(fp, self.envelope, self.settings.place_courtyard_polygon_share)),
+                         fp.body_box, frozenset(p.net for p in fp.pads),
                          Box.union([fp.body_box, fp.phys_box]))
         self.items[fp.ref] = g
         self._invalidate_native()
