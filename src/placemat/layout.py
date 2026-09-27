@@ -2300,12 +2300,18 @@ class Board:
                 pts = tuple((l.x, l.y) for l in (ctx.locate(p) for p in outline))
             elif self._shape is not None:
                 pts = self._shape.polygon(inset)
+            elif self._fit:                     # planned once the frame is fitted to what was placed
+                f, ch = ctx.plan.outline, self._chamfer if chamfer is None else chamfer
+                pts = board_zone_outline(f.width, f.height, inset, ch, origin=(f.left, f.top))
             else:
                 ch = self._chamfer if chamfer is None else chamfer
                 pts = board_zone_outline(self.width, self.height, inset, ch)
             return [Zone(name, l, pts, clearance, min_thickness, solid_pads) for l in layers]
         refs = [] if outline is None else _refs_in(outline)
-        return self._copper_intent("plane %s" % name, net, priority, plan, refs, why)
+        intent = self._copper_intent("plane %s" % name, net, priority, plan, refs, why)
+        if self._fit and outline is None:
+            self._fit_planes.add(intent.index)
+        return intent
 
     def finger(self, net, *, layer: CopperLayer, from_, to, width: float,
                bridge_width: float | None = None, priority: Priority = Priority.DEFAULT, why: str = ""):
@@ -2396,8 +2402,8 @@ class Board:
                     plan.footprints.append("%s: courtyard understates the part by %.2f mm (%s)" % (fp.ref, u[0], u[1]))
         self._derive_copper_freedom()
         placements = sorted(self._intents, key=lambda i: i.rank)   # holes included: they are placed too
-        fixed_copper = [c for c in self._copper if c.freedom.decided]
-        other_copper = [c for c in self._copper if not c.freedom.decided]
+        fixed_copper = [c for c in self._copper if c.freedom.decided and c.index not in self._fit_planes]
+        other_copper = [c for c in self._copper if not c.freedom.decided and c.index not in self._fit_planes]
         placed: set = set()
         self._place_fanouts(occ, plan, placed, progress)
         self._place_labels(occ, plan, placed, progress)        # labels on parts the script never moves
@@ -2612,6 +2618,12 @@ class Board:
                 record["cleanup"] = self._recorded_cleanup(occ, plan)
                 record["cleanup"]["key"] = chain["key"]
         self._plan_copper(occ, ctx, other_copper, plan, progress)
+        if self._fit:
+            # the frame, now that everything is placed: the content plus the margin, and the planes that follow it
+            content = self._placed_box(occ, plan)
+            frame = (content or Box(0.0, 0.0, 0.0, 0.0)).inflate(self._fit_margin)
+            plan.outline = self._outline = occ.board_box = frame
+            self._plan_copper(occ, ctx, [c for c in self._copper if c.index in self._fit_planes], plan, progress)
         self._check_keepouts(plan)
         plan.rudy = self._rudy(occ, plan)
         self._report_links(occ, plan, placed)

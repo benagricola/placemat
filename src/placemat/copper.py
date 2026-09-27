@@ -299,12 +299,18 @@ def finger_ops(net: str, layer: CopperLayer, a: Location, b: Location, width: fl
     return ops
 
 
-def board_zone_outline(width: float, height: float, inset: float, chamfer: float = 0.0) -> tuple:
+def board_zone_outline(width: float, height: float, inset: float, chamfer: float = 0.0,
+                       origin: tuple = (0.0, 0.0)) -> tuple:
+    """A plane's outline: the board's rectangle, its top left at `origin`,
+    inset and chamfered."""
     W, H, ch, i = width, height, chamfer, inset
     if ch:
-        return ((ch + i, i), (W - ch - i, i), (W - i, ch + i), (W - i, H - ch - i),
-                (W - ch - i, H - i), (ch + i, H - i), (i, H - ch - i), (i, ch + i))
-    return ((i, i), (W - i, i), (W - i, H - i), (i, H - i))
+        pts = ((ch + i, i), (W - ch - i, i), (W - i, ch + i), (W - i, H - ch - i),
+               (W - ch - i, H - i), (ch + i, H - i), (i, H - ch - i), (i, ch + i))
+    else:
+        pts = ((i, i), (W - i, i), (W - i, H - i), (i, H - i))
+    ox, oy = origin
+    return pts if (ox, oy) == (0.0, 0.0) else tuple((x + ox, y + oy) for x, y in pts)
 
 
 # ------------------------------------------------------------------ pairs
