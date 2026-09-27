@@ -176,9 +176,10 @@ def parser() -> argparse.ArgumentParser:
                     help="write a firm Location rather than a search with no room (goes down before anything searched)")
     lk = sub.add_parser("lock", help="the lock file: decisions an explore run found and --accept kept")
     lk.add_argument("script", help="the board's layout script")
-    lk.add_argument("--release", nargs="+", metavar="ITEM", help="drop these items' entries")
-    lk.add_argument("--release-all", action="store_true", help="drop every entry")
-    lk.add_argument("--current", action="store_true",
+    how = lk.add_mutually_exclusive_group()
+    how.add_argument("--release", nargs="+", metavar="ITEM", help="drop these items' entries")
+    how.add_argument("--release-all", action="store_true", help="drop every entry")
+    how.add_argument("--current", action="store_true",
                     help="lock every searched item where the board stands (the last run's placement)")
     st = sub.add_parser("settings", help="every resolved setting, its value and the file it came from")
     st.add_argument("where", nargs="?", default=".", help="a layout script or a board directory (default: here)")
@@ -293,27 +294,50 @@ def cmd_lock(args) -> int:
     return 0
 
 
-def _lock_current(script: Path, keys) -> int:
-    """Lock `keys` (None: every searched item) where the board stands; 1 when
-    any would not land there."""
+def _lock_where_it_stands(script: Path, keys, key_of=None) -> tuple:
+    """(lock entries, keys locked, {key: why not}, last run's id): `keys`
+    (None: every searched item; `key_of(board)` gives them once the board
+    is built) locked where the board stands, and checked by resolving once
+    more with them: nothing is locked unless every one of them lands where
+    the board has it. A script that does not resolve is a ValueError."""
     from . import lock
     from ._version import __version__
     from .previewer import resolve_like_last_run, written_pads
+    board, plan, src, run_id = resolve_like_last_run(script)
+    if key_of is not None:
+        keys = key_of(board) & set(plan.turns)
+    path = lock.path_for(script.resolve())
+    written = written_pads(src.pcb)
+    tol = board.settings.route_adopt_tolerance
+    entries, locked, refused = lock.current(board, plan, written, lock.read(path), tol, keys=keys,
+                                            release=__version__, run=run_id)
+    if locked:
+        board2, plan2, _, _ = resolve_like_last_run(script, lock_entries=entries)
+        _, held, off = lock.current(board2, plan2, written, [], tol, keys=set(locked))
+        for key in sorted(set(locked) - set(held)):
+            refused[key] = "locked, it would not come back there (%s)" % off.get(key, "not placed")
+        if set(locked) - set(held):
+            locked = []
+    return entries, locked, refused, run_id
+
+
+def _lock_current(script: Path, keys) -> int:
+    """Lock `keys` (None: every searched item) where the board stands; 1 when
+    any would not land there, and then nothing is locked."""
+    from . import lock
     try:
-        board, plan, src, run_id = resolve_like_last_run(script)
+        entries, locked, refused, run_id = _lock_where_it_stands(script, keys)
     except ValueError as e:
         console.say("lock", str(e), level="fail")
         return 1
-    path = lock.path_for(script.resolve())
-    entries, locked, refused = lock.current(board, plan, written_pads(src.pcb), lock.read(path),
-                                            board.settings.route_adopt_tolerance, keys=keys, release=__version__,
-                                            run=run_id)
+    if refused:
+        locked = []
     if locked:
-        lock.write(path, entries)
+        lock.write(lock.path_for(script.resolve()), entries)
     console.say("lock", "locked %d where the board stands (run %s)%s" % (
-        len(locked), run_id, "" if not refused else "; %d not" % len(refused)))
+        len(locked), run_id, "" if not refused else "; nothing written: %d would not stand there" % len(refused)))
     for key, why in sorted(refused.items()):
-        console.say("lock", "%s not locked: %s; run the script, then lock" % (key, why), level="finding")
+        console.say("lock", "%s: %s; run the script, then lock" % (key, why), level="finding")
     return 1 if refused else 0
 
 
@@ -446,7 +470,6 @@ def _adopt(script: Path, nets, report, lock_items: bool = True) -> None:
     since kept copper is dropped when they move. A placement the next run
     would not reproduce adopts nothing."""
     from . import lock, routes
-    from ._version import __version__
     from .kicad.read import read_board
     skipped = {}
     new = routes.adoptable(read_board(report.work / "in.kicad_pcb"), read_board(report.routed_pcb), nets,
@@ -454,17 +477,12 @@ def _adopt(script: Path, nets, report, lock_items: bool = True) -> None:
     for net, why in skipped.items():
         console.say("adopt", "%s not adopted: %s" % (net, why))
     if new and lock_items:
-        from .previewer import resolve_like_last_run, written_pads
         try:
-            board, plan, src, run_id = resolve_like_last_run(script)
+            entries, locked, refused, run_id = _lock_where_it_stands(
+                script, None, key_of=lambda board: routes.items_of(new, board))
         except ValueError as e:
             console.say("adopt", "nothing adopted: %s" % e, level="fail")
             return
-        keys = routes.items_of(new, board) & set(plan.turns)
-        path = lock.path_for(script.resolve())
-        entries, locked, refused = lock.current(board, plan, written_pads(src.pcb), lock.read(path),
-                                                board.settings.route_adopt_tolerance, keys=keys,
-                                                release=__version__, run=run_id)
         if refused:
             console.say("adopt", "nothing adopted: the placement the route was given is not the one the next "
                                  "run makes, and kept copper would be dropped", level="fail")
@@ -473,7 +491,7 @@ def _adopt(script: Path, nets, report, lock_items: bool = True) -> None:
             console.say("adopt", "run the script, route again, then adopt")
             return
         if locked:
-            lock.write(path, entries)
+            lock.write(lock.path_for(script.resolve()), entries)
             console.say("adopt", "locked %d item(s) the kept nets join where the board stands" % len(locked))
     routes.keep(script, new)
     for e in new:

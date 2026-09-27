@@ -165,7 +165,10 @@ def resolve(entry: RouteEntry, occ, tolerance: float):
     gone or on another net, the parts have moved or turned relative to each
     other since it was adopted (by more than `tolerance`, mm at any of their
     kept pads), or an end that met the net's other copper no longer does."""
-    from .lock import ref_of
+    insts = {fp.inst: fp.ref for fp in occ.geometry.footprints}
+
+    def ref_of(_geometry, name):             # an instance path, or a refdes as 0.43-0.46 wrote it
+        return insts.get(name, name)
 
     def label(name):                          # the instance a script names, and the refdes KiCad shows
         ref = ref_of(occ.geometry, name)

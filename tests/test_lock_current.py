@@ -1,6 +1,7 @@
 """`placemat lock <script> --current`: every searched item locked where the
 board stands, once its resolve is seen to land there."""
 from placemat import lock
+from placemat.values import Part
 from tests.test_lock import FOCUS, _board, _where
 
 
@@ -51,3 +52,36 @@ def test_only_the_keys_asked_for_are_locked():
     plan = b.resolve()
     entries, locked, _ = lock.current(b, plan, _pads_of(plan), [], 0.001, keys={"r1"})
     assert locked == ["r1"] and {e.key for e in entries} == {"r1"}
+
+
+def _cleanup_board():
+    from tests.test_cleanup_wiring import _board as cleanup_board
+    b = cleanup_board(True)
+    b.place(Part("r1"))
+    b.place(Part("r2"))
+    return b
+
+
+def test_an_item_the_cleanup_moved_is_locked_where_the_cleanup_left_it():
+    b = _cleanup_board()
+    plan = b.resolve()
+    assert any("cleanup" in (s.note or "") for s in plan.steps)          # the board this is about
+    written = _pads_of(plan)
+    entries, locked, refused = lock.current(b, plan, written, [], 0.001)
+    assert set(locked) == {"r1", "r2"} and not refused
+    again = _pads_of(_cleanup_board().resolve(lock=entries))
+    assert all(abs(a - b) < 1e-6 for k in written for a, b in zip(written[k], again[k]))
+
+
+def test_locking_one_item_locks_the_items_it_is_anchored_on():
+    b = _cleanup_board()
+    plan = b.resolve()
+    written = _pads_of(plan)
+    anchor = plan.turns["r2"]["anchor"]
+    entries, locked, refused = lock.current(b, plan, written, [], 0.001, keys={"r2"})
+    assert "r2" in locked and not refused
+    if anchor is not None and anchor[0] == "R1":
+        assert "r1" in locked
+    again = _cleanup_board().resolve(lock=entries)
+    for k in (("r2", "1"), ("r2", "2")):
+        assert all(abs(a - b) < 1e-6 for a, b in zip(written[k], _pads_of(again)[k]))

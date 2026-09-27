@@ -52,11 +52,12 @@ def convert(template: str, svg, png, width: int) -> str:
     return ""
 
 
-def resolve_like_last_run(script) -> tuple:
+def resolve_like_last_run(script, lock_entries=None) -> tuple:
     """(board, plan, board source, last run's id): the script resolved as
     its last run resolved it - its cached generation, its replay record,
-    the lock - without writing anything. What `lock --current` checks
-    against the written board."""
+    the lock (or `lock_entries`) - without writing anything. What `lock
+    --current` checks against the written board. A script that does not
+    resolve is a ValueError saying why."""
     from .lock import path_for as lock_path, read as read_lock
     from .project import fab_profile, find_board
     from .report import latest_for
@@ -69,13 +70,27 @@ def resolve_like_last_run(script) -> tuple:
     last = latest_for(src.board_dir / ".placemat" / "runs", src.name)
     if not generated.exists() or last is None or not src.pcb.exists():
         raise ValueError("%s has not been run yet: `placemat run %s` first" % (src.name, script.name))
+    from . import reuse as reuse_mod
+    from .layout import CriticalUnplaced, PlacementCollision
+    from .runner import RunFailure
     with settings_mod.bind(cfg):
         fab = fab_profile(src.board_dir)
-        board = scripted_board(script, src, cfg, fab, keep_going=True, pcb=generated)
+        try:
+            board = scripted_board(script, src, cfg, fab, keep_going=False, pcb=generated)
+        except RunFailure as e:
+            raise ValueError("the script does not run: %s" % e)
         parts = reuse_parts(src, cfg, fab, pcb=generated)
         board.reuse_extra = "|".join(parts[k] for k in ("tool", "board", "settings", "fab"))
         previous, _ = newest_record([(Path(last.paths.get("run_dir", "")) / "reuse.json", "run %s" % last.run_id)])
-        plan = board.resolve(reuse=previous, lock=read_lock(lock_path(script)))
+        if previous is not None and previous.get("context") != reuse_mod.context_key(board, board.reuse_extra):
+            board.keep_going = True             # the last run went on past its collisions: so does its replay
+            if previous.get("context") != reuse_mod.context_key(board, board.reuse_extra):
+                board.keep_going = False
+        try:
+            plan = board.resolve(reuse=previous, lock=read_lock(lock_path(script)) if lock_entries is None
+                                 else lock_entries)
+        except (PlacementCollision, CriticalUnplaced) as e:
+            raise ValueError("the script does not place as it stands: %s" % str(e).splitlines()[0])
     return board, plan, src, last.run_id
 
 

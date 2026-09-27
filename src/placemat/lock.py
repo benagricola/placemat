@@ -209,6 +209,55 @@ def current(board, plan, written: dict, existing, tolerance: float, keys=None, r
                 break
         else:
             locked.append(key)
-    new = entries(board, plan, locked, release=release, run=run)
+    # the items those lean on come too: an unlocked anchor goes back to its first spot, taking the item with it
+    locked = _with_anchors(plan, locked, refused)
+    new = _final_entries(board, plan, locked, release, run)
     kept = [e for e in existing if e.key not in set(locked)]
     return renumber(kept + new, plan), locked, refused
+
+
+def _owner_of(plan, ref: str):
+    """The key of the searched item a part belongs to, or None."""
+    from .board_geometry import members_of
+    for key in plan.turns:
+        item = plan._items.get(key)
+        if item is not None and any(fp.ref == ref for fp in members_of(item)):
+            return key
+    return None
+
+
+def _with_anchors(plan, locked, refused) -> list:
+    """`locked` and, transitively, the searched items their anchors belong
+    to; an item whose anchor could not be locked is not locked either."""
+    out, todo = list(locked), list(locked)
+    while todo:
+        key = todo.pop()
+        anchor = plan.turns[key].get("anchor")
+        owner = _owner_of(plan, anchor[0]) if anchor else None
+        if owner is None or owner in out:
+            continue
+        if owner in refused:
+            out.remove(key)
+            refused[key] = "it hangs off %s, which stands elsewhere" % owner
+            continue
+        out.append(owner)
+        todo.append(owner)
+    return sorted(out, key=lambda k: plan.turns[k]["order"])
+
+
+def _final_entries(board, plan, keys, release: str, run: str) -> list:
+    """Entries for `keys` where the plan finally put them - after the
+    cleanup, which moves a searched item after its turn - each off its
+    anchor pad where that finally stands."""
+    occ = plan.occupancy
+    turns = {}
+    for key in keys:
+        turn = dict(plan.turns[key], placement=plan.step(key).placement)
+        a = turn.get("anchor")
+        if a is not None:
+            g = occ.items[a[0]]
+            turn.update(anchor_at=occ.pad_location(*a), anchor_rotation=g.reference.rotation,
+                        anchor_face=g.reference.face.value)
+        turns[key] = turn
+    import types
+    return entries(board, types.SimpleNamespace(turns=turns), keys, release=release, run=run)

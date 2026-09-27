@@ -11,8 +11,10 @@ every searched item where the board stands (a hand-written wrapper round
 the lock API can go); `route --adopt` locks the items the kept nets join,
 and adopts nothing when the placement it was given would not come back.
 The lock and the routes file name parts by instance path: a refdes
-renumbering no longer releases lock entries or drops kept routes. Files
-written by 0.43-0.46 still read. `placemat drc` names each failing violation
+renumbering no longer releases lock entries or drops kept routes once they
+are written by 0.47 (`lock --current` rewrites a lock; routing again
+rewrites the routes file). Files written by 0.43-0.46 still read, by
+refdes. `placemat drc` names each failing violation
 and where it is; `--json` lists every violation and open connection with
 its items' positions. `measure --pads` prints a custom pad's outline.
 
