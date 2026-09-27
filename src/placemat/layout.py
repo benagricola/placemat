@@ -402,6 +402,17 @@ class CutoutHandle:
         return abs(signed_area(self._loop))
 
 
+@dataclass(frozen=True)
+class MergedZone:
+    """A stamped cell's zone left out of the written board because the
+    board's own plane on its net and layer covers it; `note` says how the
+    cell's zone was set up differently from that plane, if it was."""
+    cell: str
+    net: str
+    layer: CopperLayer
+    note: str = ""
+
+
 @dataclass
 class Plan:
     geometry: BoardGeometry
@@ -427,6 +438,8 @@ class Plan:
     rudy: object = None                                           # congestion.Rudy of the placed board
     reuse: dict = field(default_factory=dict)                     # this run's record, for the next run to replay
     turns: dict = field(default_factory=dict, repr=False)        # each searched item's turn: where it went and the pad it depends on (lock.py)
+    cell_zones_under_planes: str = "drop"                         # settings: a cell's zone under the board's own plane is merged into it
+    merged_zones: list = field(default_factory=list)              # the cell zones the write merged into a plane (MergedZone)
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -2271,7 +2284,8 @@ class Board:
                 occ.pending |= occ._geometry(item).owners
         plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius,
                     shape=self._shape, cutouts=self._cutouts,
-                    rules=list(self._rules), draw_outline=self._draw_outline)
+                    rules=list(self._rules), draw_outline=self._draw_outline,
+                    cell_zones_under_planes=self.settings.copper_cell_zones_under_planes)
         ctx = _CopperContext(self, occ)
         ctx.plan = plan
         from . import reuse as _reuse

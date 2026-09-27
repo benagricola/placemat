@@ -15,9 +15,9 @@ from .quiet import import_pcbnew, quiet_stderr
 
 pcbnew = import_pcbnew()
 
-from ..layout import Plan
+from ..layout import MergedZone, Plan
 from ..copper import Pour, Text, Track, Via, Zone
-from ..geometry import Transform
+from ..geometry import Transform, poly_within
 from ..placement import Placement
 from ..board_geometry import (CellGeom, Footprint, layer_marker, resolve_marker, split_marker,
                               stackup_order)
@@ -73,6 +73,52 @@ def _move_cell(board, cell: CellGeom, target: Placement, groups: dict):
         if target.rotation:
             it.Rotate(pivot, angle)
         it.Move(delta)
+
+
+def _merge_cell_zones(board, plan: Plan) -> list:
+    """Leave out a stamped cell's zone on each layer where the board's own
+    plane has the same net and wholly covers it: the plane fills that area
+    anyway, and a second zone there is filled separately with the cell's
+    settings. Rule areas, pours and zones the board does not cover stay."""
+    planes = [op for op in plan.copper if isinstance(op, Zone)]
+    # every zone is found before any is deleted, and deleted, not removed: a
+    # removed zone is freed with its Python wrapper and corrupts board.Zones()
+    zones = [(g, it) for g in board.Groups() if g.GetName() in plan.geometry.cells
+             for it in g.GetItems() if isinstance(it, pcbnew.ZONE) and not it.GetIsRuleArea()]
+    merged = []
+    for g, z in zones:
+        net = z.GetNetname()
+        o = z.Outline()
+        outlines = [[(pcbnew.ToMM(o.COutline(k).CPoint(j).x), pcbnew.ToMM(o.COutline(k).CPoint(j).y))
+                     for j in range(o.COutline(k).PointCount())] for k in range(o.OutlineCount())]
+        keep = pcbnew.LSET()
+        for layer_id in z.GetLayerSet().CuStack():
+            layer = CopperLayer.of(board.GetLayerName(layer_id))
+            plane = next((p for p in planes if p.net == net and p.layer == layer
+                          and all(poly_within(ol, p.points) for ol in outlines)), None)
+            if plane is None:
+                keep.AddLayer(layer_id)
+            else:
+                merged.append(MergedZone(g.GetName(), net, layer, _zone_difference(z, plane)))
+        if keep.CuStack().size() == 0:
+            g.RemoveItem(z)
+            board.Delete(z)
+        elif keep.CuStack().size() < z.GetLayerSet().CuStack().size():
+            z.SetLayerSet(keep)
+    return merged
+
+
+def _zone_difference(z, plane: Zone) -> str:
+    """How a cell's zone was set up differently from the plane it merges into."""
+    words = []
+    solid = z.GetPadConnection() == pcbnew.ZONE_CONNECTION_FULL
+    if solid != plane.solid_pads:
+        words.append("its pads were %s, the plane's are %s" % ("solid" if solid else "thermal",
+                                                                "solid" if plane.solid_pads else "thermal"))
+    clearance = pcbnew.ToMM(z.GetLocalClearance())
+    if abs(clearance - plane.clearance) > 1e-6:
+        words.append("its clearance was %.2f mm, the plane's is %.2f mm" % (clearance, plane.clearance))
+    return "; ".join(words)
 
 
 def _xy(p) -> tuple:
@@ -525,6 +571,8 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
             _place_footprint(fp, Placement(item.location, item.rotation, item.face), step.placement)
         elif isinstance(item, CellGeom):
             _move_cell(board, item, step.placement, groups)
+    if plan.cell_zones_under_planes == "drop":
+        plan.merged_zones = _merge_cell_zones(board, plan)
     _draw_outline(board, plan)
     _draw_keepouts(board, plan)
     draw_copper(board, plan.copper)

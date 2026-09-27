@@ -26,6 +26,21 @@ class RunFailure(Exception):
         self.kind, self.details = kind, details or {}
 
 
+def _merged_by_cell(merged) -> list:
+    """(cell, "GND on In1.Cu, In4.Cu; V3V3 on In3.Cu (its pads were ...)")
+    per cell, in the order the write met them."""
+    out = {}
+    for m in merged:
+        nets = out.setdefault(m.cell, {})
+        layers, notes = nets.setdefault(m.net, ([], []))
+        layers.append(m.layer.value)
+        if m.note and m.note not in notes:
+            notes.append(m.note)
+    return [(cell, "; ".join("%s on %s%s" % (net, ", ".join(layers), " (%s)" % "; ".join(notes) if notes else "")
+                             for net, (layers, notes) in nets.items()))
+            for cell, nets in out.items()]
+
+
 def run_metrics(plan, n_place: int, n_copper: int, extent_metrics: dict) -> dict:
     """What a run records of its plan, before DRC adds its own."""
     metrics = {"board": [round(plan.outline.width, 3), round(plan.outline.height, 3)] if plan.outline else None,
@@ -369,6 +384,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
 
         t0 = time.time()
         apply_plan(src.pcb, plan)
+        for cell, zones in _merged_by_cell(plan.merged_zones):
+            say("zones", "%s: %s merged into the board's plane" % (cell, zones))
         finish_board(src.pcb, fab, refs_to_fab=getattr(board, "refs_on_fab", True))
         rec.timing_s["write"] = round(time.time() - t0, 1)
         shutil.copy(src.pcb, run_dir / "layout.kicad_pcb")

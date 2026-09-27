@@ -164,6 +164,14 @@ def _edges(poly: Polygon):
         yield poly[i], poly[(i + 1) % n]
 
 
+def poly_within(inner: Polygon, outer: Polygon) -> bool:
+    """Every point of `inner` inside `outer`: its vertices inside and no edge
+    crossing out, which a concave `outer` needs as well."""
+    if not all(point_in_polygon(p, outer) for p in inner):
+        return False
+    return not any(segments_intersect(p1, p2, q1, q2) for p1, p2 in _edges(inner) for q1, q2 in _edges(outer))
+
+
 def _strictly_inside(p: Point, poly: Polygon) -> bool:
     """Inside and not on the boundary, to a nanometre."""
     return point_in_polygon(p, poly) and all(point_segment_distance(p, q1, q2) > 1e-9 for q1, q2 in _edges(poly))

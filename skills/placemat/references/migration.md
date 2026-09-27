@@ -4,6 +4,14 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.37
+
+Nothing to change in a script; placements are the same as 0.36's. A board
+that stamps a cell with its own copper zone, on a net and layer the board's
+`board.plane()` covers, is written without that zone: the plane fills the
+area, and the run prints a `zones` line per cell. Set
+`copper.cell_zones_under_planes = "keep"` for 0.36's board.
+
 ## To 0.36
 
 Nothing to change in a script. Placements with a differential pair (nets

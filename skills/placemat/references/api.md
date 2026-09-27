@@ -467,6 +467,17 @@ its own parts`. For a part's escape band, `board.fanout()` follows the pad
 rows and admits the part's own satellites; a rectangle keepout does neither. They are read from the generated board, so a keepout whose name would
 collide with one is refused.
 
+**A stamped cell's zones under the board's own plane.** A module fragment's
+copper zone (its ground or supply fill) is merged into the parent's plane when
+the parent declares a `board.plane()` on the same net and layer that wholly
+covers it: the written board leaves the cell's zone out on that layer, and the
+run says `zones  <cell>: GND on In1.Cu merged into the board's plane`, adding
+how the cell's zone was set up differently (thermal or solid pads, its
+clearance) when it was. A cell zone on another net, on a layer the parent has
+no plane on, or reaching past the plane's outline is kept. The search never
+counted a zone in a cell's size, so placements are unchanged. Set
+`copper.cell_zones_under_planes = "keep"` to keep them all.
+
 **Layers a module's board does not have.** A module fragment is a two-layer
 board, and KiCad saves a zone on the layers its board has: a keepout declared
 on every layer, or on In1 and In2, would save as F and B and arrive in a
@@ -1160,6 +1171,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `copper.plane_clearance` | 0.2 | a zone's pullback from foreign copper |
 | `copper.plane_min_thickness` | 0.2 | a zone's minimum filled width |
 | `copper.pour_stroke` | 0.2 | a pour's outline stroke |
+| `copper.cell_zones_under_planes` | "drop" | a stamped cell's zone the board's own plane covers on its net and layer: `drop` merges it into the plane, `keep` keeps it |
 | `label.size` | 1.0 | silkscreen text height |
 | `label.thickness` | 0.15 | silkscreen stroke width |
 | `label.gap` | 0.0 | a label's gap from what it names; never less than the board's silk clearance |

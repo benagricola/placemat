@@ -234,7 +234,10 @@ coordinates nobody chose.
   Pad numbers are ints, nets are strings. A pad reference that names a
   missing net fails when declared, not at write time.
 - Module cells are rigid: place them, never their members. A cell that does
-  not fit is a module question, not a script workaround.
+  not fit is a module question, not a script workaround. A cell's own
+  ground or supply zone under the board's `board.plane()` on that net and
+  layer is merged into the plane when the board is written (the run's
+  `zones` line names each), so a module may keep its planes for its own run.
 - A board of any shape is declared `board.outline(path, holes=)`, a closed
   path of legs and `Arc(to=, via=)` curves. Its sides are chosen by which
   way they face, `board.edge(facing=Edge.NORTH)`, never named: that returns

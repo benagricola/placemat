@@ -23,6 +23,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **A cell's zones under the board's own plane** (unreleased, from Ben on
+  2026-09-27; a core board had 17 cell zones on nets and layers its own
+  planes cover): merged into the plane at write, `copper.cell_zones_under_planes`.
 - **A class clearance that does not fit a pad pitch** (unreleased, from a
   board agent's request): a setup finding naming the part, its tightest
   escape lane and the clearance that fits (32131a1).
