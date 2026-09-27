@@ -197,3 +197,13 @@ def test_a_tail_on_a_pad_at_an_angle_is_no_wider_than_its_narrow_side():
     corners = [(-1.0, -0.25), (1.0, -0.25), (1.0, 0.25), (-1.0, 0.25)]
     turned = tuple((10 + x * c - y * s, 10 + x * s + y * c) for x, y in corners)
     assert abs(queries.tail_width(2.0, [turned]) - 0.5) < 1e-9
+
+
+def test_a_via_keeps_its_copper_off_an_unplated_hole():
+    """Hole-to-hole alone lets a via's copper sit on a peg's edge: the board's
+    hole clearance keeps it off."""
+    fp = dataclasses.replace(footprint("J1", 10, 10, nets=("GND", "GND")), npth=((Location(20.0, 20.0), 1.0),))
+    g = _geom(fps=[fp], hole_clearance=0.25)
+    at = Location(20.95, 20.0)          # holes 0.3 apart edge to edge (the rule's 0.25 met); copper 0.15 off the peg
+    v = queries.judge_via(g, at, "GND", 0.6, 0.3)
+    assert not v.clear and any("unplated" in h for h in v.hard)

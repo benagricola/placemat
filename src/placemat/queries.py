@@ -76,6 +76,12 @@ def judge_via(geometry, at: Location, net: str, size: float, drill: float) -> Vi
         gap = at.distance(centre) - (drill + dia) / 2.0
         if gap < geometry.hole_to_hole - 1e-9:
             hard.append("hole %.2f mm from the %s hole (needs %.2f)" % (max(gap, 0.0), what, geometry.hole_to_hole))
+    for fp in geometry.footprints:                   # an unplated hole has no copper: the via's copper keeps off its edge
+        for centre, dia in fp.npth:
+            edge = at.distance(centre) - (size + dia) / 2.0
+            if edge < geometry.hole_clearance - 1e-9:
+                hard.append("copper %.2f mm from %s's unplated hole (needs %.2f)" % (max(edge, 0.0), fp.ref,
+                                                                                    geometry.hole_clearance))
     for ra in geometry.rule_areas:
         if "vias" in ra.excludes and ra.layers and polys_overlap(poly, ra.polygon):
             hard.append("inside %s, which forbids vias" % ra.base)

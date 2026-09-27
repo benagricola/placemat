@@ -2239,6 +2239,10 @@ class Board:
         every = frozenset(self.geometry.layers)
         holes = [(occ.pad_location(fp.ref, p.number), p.drill_mm)
                  for fp in self.geometry.footprints for p in fp.pads if p.through and p.drill_mm]
+        # unplated holes (a connector's locating pegs) where their parts now stand: no copper, so the via's
+        # copper keeps the board's hole clearance from the hole's edge as well as the hole-to-hole rule
+        bare = [(sh.box.center, sh.box.width) for owner, g in occ.items.items() if owner not in occ.pending
+                for sh in g.shapes if sh.kind == "npth"]
         forbidding = [(k.poly, k.layers) for k in (ctx.plan.keepouts.values() if ctx.plan else ())
                       if "vias" in k.excludes]
         forbidding += [(poly, ra.layers) for pairs in occ._cell_rule_areas.values() for ra, poly in pairs
@@ -2283,6 +2287,14 @@ class Board:
                 gap = c.distance(at) - (drill + dia) / 2.0
                 if gap < self.geometry.hole_to_hole - 1e-9:
                     return "hole %.2f mm from a pad's hole" % max(gap, 0.0), ()
+            for at, dia in bare:
+                gap = c.distance(at) - (drill + dia) / 2.0
+                if gap < self.geometry.hole_to_hole - 1e-9:
+                    return "hole %.2f mm from an unplated hole" % max(gap, 0.0), ()
+                edge = c.distance(at) - (size + dia) / 2.0
+                if edge < self.geometry.hole_clearance - 1e-9:
+                    return "copper %.2f mm from an unplated hole (needs %.2f)" % (max(edge, 0.0),
+                                                                                 self.geometry.hole_clearance), ()
             for poly, layers in forbidding:
                 if polys_overlap(ring, poly):
                     return "inside a keepout, which forbids vias", ()

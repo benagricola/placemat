@@ -7,6 +7,29 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+- **FreeSpot and `--via-near` do not see unplated holes** (PLACEMAT_GAPS
+  2026-09-27): a via landed on a USB-C locating peg (DRC hole_clearance and
+  hole_to_hole). Bug.
+- **The router's copy drops a net's declared copper** (PLACEMAT_GAPS
+  2026-09-27): the route reports a script-joined net open. Bug.
+- **`board.pair()` with one centreline point raises IndexError** (PLACEMAT_GAPS
+  2026-09-27): a message instead. Bug.
+- **A turned fixed part judged by its body's box against a round outline**
+  (PLACEMAT_GAPS 2026-09-27): false keep-in findings; judge by its drawn
+  polygons as cells are since 0.35.
+- **`check current-path` judges a net by its narrowest branch**
+  (PLACEMAT_GAPS 2026-09-27): sense and bootstrap branches fail every power
+  net; judge the path between the parts carrying `Pm.I`, or a sense role.
+- **`board.parts(net=)`** (PLACEMAT_GAPS 2026-09-27): the board's parts,
+  optionally by net, so drops are derived from the netlist.
+- **A fragment's extent in the run summary** (PLACEMAT_GAPS 2026-09-27), for
+  a frame drawn with draw=False.
+- **`measure --outline`** (PLACEMAT_GAPS 2026-09-27): a board's outline,
+  box and thickness, on any board.
+- **A route report of each net's path, or a preview of the routed copy**
+  (PLACEMAT_GAPS 2026-09-27).
+- **`board.pair()` finding its own centreline; `route.diff_pairs` taking
+  explicit net pairs** (PLACEMAT_GAPS 2026-09-27).
 - **Several vias in one pad** (PLACEMAT_GAPS 2026-09-27): a power or
   exposed pad filled with vias at the hole-to-hole rule,
   `board.vias(net, PadRef(...), pitch=)` or `fill=` on `board.via`.

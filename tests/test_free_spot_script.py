@@ -243,3 +243,28 @@ def test_a_via_keeps_clear_of_an_earlier_tail_alone():
     moved, _, _, _ = search([tail])
     assert poly_distance(Via("SIG", moved, 0.3, 0.6).polygon, tail.polygon) >= 0.2 - 1e-6
     assert poly_distance(Track("SIG", layer, width, start, moved).polygon, tail.polygon) >= 0.2 - 1e-6
+
+
+def test_a_via_keeps_clear_of_an_unplated_hole():
+    """A connector's locating peg is a hole with no copper: the via keeps the
+    hole-to-hole rule from it and its copper the hole clearance."""
+    import dataclasses
+    from placemat.geometry import poly_distance
+    b0 = _board()
+    b0.place(Part("u1"), at=Location(20, 20))
+    b0.place(Part("r1"), at=Location(20, 26))
+    b0.via(Net("GND"), at=FreeSpot(near=PadRef(Part("u1"), "GND")), why="tap")
+    (alone,) = [c for c in b0.resolve().copper if isinstance(c, Via)]
+    g = _board().geometry
+    u1 = g.footprint("u1")
+    pegged = dataclasses.replace(u1, npth=((alone.at, 1.0),))
+    g = dataclasses.replace(g, footprints=tuple(pegged if f.ref == "U1" else f for f in g.footprints),
+                            hole_clearance=0.25)
+    b = Board(g, edge_margin=0.5)
+    b.place(Part("u1"), at=Location(20, 20))
+    b.place(Part("r1"), at=Location(20, 26))
+    b.via(Net("GND"), at=FreeSpot(near=PadRef(Part("u1"), "GND")), why="tap")
+    (via,) = [c for c in b.resolve().copper if isinstance(c, Via)]
+    gap = via.at.distance(alone.at) - 1.0 / 2.0
+    assert gap - via.drill / 2.0 >= g.hole_to_hole - 1e-6
+    assert gap - via.size / 2.0 >= 0.25 - 1e-6
