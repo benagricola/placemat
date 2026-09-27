@@ -531,3 +531,9 @@ def distance_to_boundary(poly: Polygon, boundary: Polygon) -> float:
 def circle_polygon(center: Location, radius: float, n: int = 16) -> Polygon:
     return tuple((center.x + radius * math.cos(2 * math.pi * i / n),
                   center.y + radius * math.sin(2 * math.pi * i / n)) for i in range(n))
+
+
+def via_ring(center: Location, size: float, n: int = 16) -> Polygon:
+    """A via's copper as a polygon with every edge on or outside its circle,
+    as a track's round end is drawn: the copper is never less than it."""
+    return circle_polygon(center, size / 2.0 / math.cos(math.pi / n), n)

@@ -291,6 +291,12 @@ different parts, every gap is the board's own:
 | silk | - | silk clearance | silk clearance | 0 |
 | body | component spacing | - | 0 | component spacing |
 
+**A courtyard that is not a rectangle** - a slice of a disc, an L - is
+claimed as the polygon KiCad draws and its DRC tests, not the box round it:
+parts whose boxes overlap but whose courtyards do not may stand together, and
+on a round board its edge is judged by the polygon's points
+(`place.courtyard_polygon_share`).
+
 **The far face.** A part's courtyard and body are on its own face. Its
 plated pads and unplated holes reach both, so on the far face a part keeps
 only those: another part's pads keep their clearance from them, and another
@@ -1318,6 +1324,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.escape_depth` | 1.0 | how far each corridor out of a pad runs: the search and the run score count a candidate that crosses, closes or walls off a pad's corridors (`score.escape_*`) |
 | `place.escape_pads` | 1 | a part's pads keep escapes when it has at least this many (3 leaves two-pad parts out) |
 | `place.courtyard_touch` | 0.0 | how far two courtyards may overlap at least; each pair may also overlap by the two parts' margins (how far KiCad's courtyard polygon lies inside the drawn box) less 0.001 mm, which keeps KiCad's courtyards apart - it counts touching as overlapping |
+| `place.courtyard_polygon_share` | 0.98 | a courtyard whose polygon covers less of the box round it than this (a slice of a disc, an L, a rectangle turned off the axes) is claimed as KiCad draws it, with no margin; one that covers more is claimed as its box |
 | `place.conflict_gap` | 1.0 | how far outside a box a conflict can still reach |
 | `place.fit_room` | 10.0 | on a fit frame, how far round the decided content a searched item may go |
 | `copper.chamfer` | 1.0 | how far a right angle is cut back into two 45s |

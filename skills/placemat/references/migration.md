@@ -4,6 +4,15 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.48
+
+Nothing to change in a script. A courtyard that is not a rectangle (a
+slice of a disc, a part generated at a turn off the axes) is claimed as
+KiCad draws it rather than as the box round it: parts that collided by
+their boxes, or crossed a round board's keep-in by a box corner, may now
+stand. A via's copper is judged as the whole circle, so a via planned a
+hair inside a clearance (0.1575 against 0.16) moves off.
+
 ## To 0.47
 
 Nothing to change in a script. `placemat lock <script> --current` locks

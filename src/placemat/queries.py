@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import math
 import re
 
-from .geometry import (circle_polygon, distance_to_boundary, point_in_polygon, point_segment_distance,
+from .geometry import (circle_polygon, via_ring, distance_to_boundary, point_in_polygon, point_segment_distance,
                        poly_distance, polys_overlap)
 from .copper import _segment_polygon
 from .values import Box, Location
@@ -47,7 +47,7 @@ def _edge_rings(geometry):
 
 
 def judge_via(geometry, at: Location, net: str, size: float, drill: float) -> ViaVerdict:
-    poly = circle_polygon(at, size / 2.0)
+    poly = via_ring(at, size)
     box = Box(at.x - size / 2.0, at.y - size / 2.0, at.x + size / 2.0, at.y + size / 2.0)
     hard, soft = [], []
     rings = _edge_rings(geometry)
@@ -208,7 +208,7 @@ def via_judge(geometry, start: Location, net: str, size: float, drill: float, wi
     source to allow a via in the pad."""
     def judge(c):
         if source:
-            ring = circle_polygon(c, size / 2.0)
+            ring = via_ring(c, size)
             if any(polys_overlap(ring, o) for o in source):
                 return "in the source pad", ()
         v = judge_via(geometry, c, net, size, drill)

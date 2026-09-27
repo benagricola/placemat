@@ -46,9 +46,8 @@ class Via:
 
     @property
     def polygon(self) -> Polygon:
-        r = self.size / 2.0
-        return tuple((self.at.x + r * math.cos(2 * math.pi * i / 16),
-                      self.at.y + r * math.sin(2 * math.pi * i / 16)) for i in range(16))
+        from .geometry import via_ring
+        return via_ring(self.at, self.size)
 
     @property
     def box(self) -> Box:

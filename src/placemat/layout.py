@@ -19,7 +19,7 @@ import math
 
 from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
                      resolve_bridges)
-from .geometry import Transform, box_polygon, circle_polygon, point_in_polygon, poly_distance, poly_within, polys_overlap, transform_box
+from .geometry import Transform, box_polygon, circle_polygon, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, transform_box
 from .findings import Finding, Findings
 from .occupancy import Occupancy, Shape, TOUCH, hole_shape, parts_claim
 from .cutouts import Cutouts, loop_gap, signed_area
@@ -2339,7 +2339,7 @@ class Board:
         unplated one, and keepouts that forbid vias."""
         occ = ctx.occ
         holes, bare, forbidding = obstacles
-        ring = circle_polygon(c, size / 2.0)
+        ring = via_ring(c, size)
         box = Box.of_points(ring)
         if occ.board_shape is not None:
             if occ.board_shape.why_not(box, self.keep_in):
@@ -2400,7 +2400,7 @@ class Board:
         obstacles = self._via_obstacles(ctx)
 
         def judge(c):
-            ring = circle_polygon(c, size / 2.0)
+            ring = via_ring(c, size)
             if not spot.in_pad and any(polys_overlap(ring, sh.poly) for sh in own):
                 return "in the source pad", ()
             why = self._via_site_why(ctx, c, net, size, drill, obstacles)

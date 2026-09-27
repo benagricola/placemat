@@ -7,10 +7,11 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **A part whose courtyard is not a rectangle, judged by its box**
-  (PLACEMAT_GAPS 2026-09-27 "placement behaviour met on the ring test
-  board"): sector windings fixed at a disc centre collide with each other by
-  their courtyard boxes; judge by the courtyard polygon KiCad draws.
+- **A plane drop through the board lands on the other face's pads**
+  (PLACEMAT_GAPS 2026-09-27): drops on core-placed parts' GND/3V3 pads (in
+  the pad, else FreeSpot) gave 14 shorting_items and 11 clearance, each on
+  an other-face part's pad. Not reproduced on a small board (fixed or
+  searched, placed before or after): the conditions are asked for.
 - **Placement behaviours from the ring test board** (same entry): a block
   satellite slides along its pin row over other pins; the link-wait rule
   outranks `priority=`; a part seeded deep inside a parts keepout searches
@@ -44,6 +45,12 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **A courtyard that is not a rectangle, claimed as drawn** (unreleased;
+  PLACEMAT_GAPS 2026-09-27 "a turned part judged by its body's box against
+  a round outline"; spec `2026-09-27-courtyard-polygons-design.md`).
+- **A via's copper judged as its whole circle** (unreleased; a board's
+  layout work, 2026-09-27: a FreeSpot via 0.1575 mm from a pad against a
+  0.16 rule).
 - **Locking the placement a board stands in** (0.47.0; a board's
   layout work, 2026-09-27 "adopted routes move the placement they were
   routed on"): `placemat lock --current`, and `route --adopt` locks what it
