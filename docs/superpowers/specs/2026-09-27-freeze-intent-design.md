@@ -1,7 +1,7 @@
 # Freeze keeps the lock's frame and says where the spot came from
 
 Date: 2026-09-27
-Status: proposal, awaiting approval
+Status: approved 2026-09-27
 
 ## The problem
 
