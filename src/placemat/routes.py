@@ -118,7 +118,7 @@ def entries_from(placed, routed, nets) -> list:
                 fp, p = min(pads, key=lambda fp_p: math.dist(xy, _xy(centres[fp_p[0].ref][fp_p[1].number])))
             c = centres[fp.ref][p.number]
             used.setdefault(fp.ref, (fp, set()))[1].add(p.number)
-            out = {kind: [fp.ref, p.number], "offset": [round(xy[0] - c.x, 6), round(xy[1] - c.y, 6)]}
+            out = {kind: [fp.inst, p.number], "offset": [round(xy[0] - c.x, 6), round(xy[1] - c.y, 6)]}
             # a free end of the new copper that lay on the net's other copper: it must still, or it dangles
             if kind == "anchor" and ends.get((round(xy[0], 4), round(xy[1], 4)), 0) == 1 \
                     and any(point_in_polygon(xy, o) for c in own for o in c.outlines):
@@ -133,7 +133,7 @@ def entries_from(placed, routed, nets) -> list:
         parts = {}
         for ref, (fp, numbers) in sorted(used.items()):
             keep = sorted(set(numbers) | set(_spread(centres[ref])))
-            parts[ref] = {"face": fp.face.value,
+            parts[fp.inst] = {"face": fp.face.value,
                           "pads": {n: [round(centres[ref][n].x, 6), round(centres[ref][n].y, 6)] for n in keep}}
         out.append(RouteEntry(net, tracks, vias, parts, time.strftime("%Y-%m-%d")))
     return out
@@ -165,28 +165,33 @@ def resolve(entry: RouteEntry, occ, tolerance: float):
     gone or on another net, the parts have moved or turned relative to each
     other since it was adopted (by more than `tolerance`, mm at any of their
     kept pads), or an end that met the net's other copper no longer does."""
+    from .lock import ref_of
+
+    def label(name):                          # the instance a script names, and the refdes KiCad shows
+        ref = ref_of(occ.geometry, name)
+        return name if ref == name else "%s (%s)" % (name, ref)
     src, dst, whose = [], [], []
-    for ref in sorted(entry.parts):
-        kept = entry.parts[ref]
+    for name in sorted(entry.parts):          # an instance path, or a refdes as 0.43-0.46 wrote it
+        kept, ref = entry.parts[name], ref_of(occ.geometry, name)
         if ref not in occ.items:
-            return "%s is no longer on the board" % ref
+            return "%s is no longer on the board" % label(name)
         if occ.items[ref].reference.face.value != kept["face"]:
-            return "%s is on the other face now" % ref
+            return "%s is on the other face now" % label(name)
         for number, at in sorted(kept["pads"].items()):
             try:
                 now = occ.pad_location(ref, number)
             except KeyError:
-                return "%s has no pad %s now" % (ref, number)
+                return "%s has no pad %s now" % (label(name), number)
             src.append(tuple(at))
             dst.append((now.x, now.y))
-            whose.append(ref)
+            whose.append(name)
     points = [t[e] for t in entry.tracks for e in ("a", "b")] + [v["at"] for v in entry.vias]
     for pt in points:
         if "pad" in pt:
-            ref, number = pt["pad"]
-            net = _pad_net(occ, ref, number)
+            name, number = pt["pad"]
+            net = _pad_net(occ, ref_of(occ.geometry, name), number)
             if net != entry.net:
-                return "%s pad %s is on %s now" % (ref, number, net or "no net")
+                return "%s pad %s is on %s now" % (label(name), number, net or "no net")
     (c, s), (sx, sy), (dx, dy) = _fit(src, dst)
 
     def moved(p):
@@ -196,11 +201,11 @@ def resolve(entry: RouteEntry, occ, tolerance: float):
     if math.dist(moved(src[worst]), dst[worst]) > tolerance:
         others = sorted(set(whose) - {whose[worst]})
         return "%s has moved or turned relative to %s since it was adopted" % (
-            whose[worst], ", ".join(others) if others else "its own pads")
+            label(whose[worst]), ", ".join(map(label, others)) if others else "its own pads")
 
     def locate(pt):
-        ref, number = pt["pad"] if "pad" in pt else pt["anchor"]
-        at = occ.pad_location(ref, number)
+        name, number = pt["pad"] if "pad" in pt else pt["anchor"]
+        at = occ.pad_location(ref_of(occ.geometry, name), number)
         ox, oy = pt["offset"]
         return Location(round(at.x + c * ox - s * oy, 6), round(at.y + s * ox + c * oy, 6))
     copper = [o for o in occ.copper if o.net == entry.net]

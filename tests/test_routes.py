@@ -45,10 +45,10 @@ def test_new_copper_is_adopted_bound_to_its_pads():
     (e,) = routes.entries_from(placed, routed, ["X"])
     assert e.net == "X" and len(e.tracks) == 2 and len(e.vias) == 1
     ends = [t["a"] for t in e.tracks] + [t["b"] for t in e.tracks]
-    assert ["U1", "2"] in [p.get("pad") for p in ends] and ["R1", "1"] in [p.get("pad") for p in ends]
+    assert ["u1", "2"] in [p.get("pad") for p in ends] and ["r1", "1"] in [p.get("pad") for p in ends]   # by instance
     bend = [p for p in ends if "anchor" in p][0]
-    assert bend["anchor"] == ["U1", "2"] and bend["offset"] == pytest.approx([3.6, 0.0])
-    assert set(e.parts) == {"U1", "R1"}
+    assert bend["anchor"] == ["u1", "2"] and bend["offset"] == pytest.approx([3.6, 0.0])
+    assert set(e.parts) == {"u1", "r1"}
 
 
 def test_the_file_round_trips_and_a_new_entry_replaces_its_net(tmp_path):
@@ -165,7 +165,7 @@ def test_the_routes_command_lists_and_releases(tmp_path, capsys):
     routes.adopt(script, placed, routed, ["X"])
     assert cli.main(["routes", str(script)]) == 0
     out = capsys.readouterr().out
-    assert "X" in out and "2 track" in out and "1 via" in out and "R1" in out
+    assert "X" in out and "2 track" in out and "1 via" in out and "r1" in out
     assert cli.main(["routes", str(script), "--release", "X"]) == 0
     assert routes.read(routes.path_for(script)) == []
     assert cli.main(["routes", str(script), "--release", "Q"]) == 1       # not adopted: said, not ignored

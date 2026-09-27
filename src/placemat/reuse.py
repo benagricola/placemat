@@ -27,8 +27,10 @@ def omitted(obj, f) -> bool:
     return f.metadata.get("omit_default", False) and getattr(obj, f.name) == f.default
 
 
-def canonical(obj, _seen=None) -> str:
-    """A stable text form of a declaration value: equal values, equal text."""
+def canonical(obj, _seen=None, parts=None) -> str:
+    """A stable text form of a declaration value: equal values, equal text.
+    `parts` maps a refdes to the name a footprint is given instead (the lock
+    names parts by instance path, which a renumbering does not change)."""
     if _seen is None:
         _seen = set()
     if obj is None or isinstance(obj, (bool, int, str)):
@@ -38,7 +40,7 @@ def canonical(obj, _seen=None) -> str:
     if isinstance(obj, Enum):
         return "%s.%s" % (type(obj).__name__, obj.value)
     if isinstance(obj, Footprint):
-        return "fp:%s" % obj.ref
+        return "fp:%s" % (parts.get(obj.ref, obj.ref) if parts else obj.ref)
     if isinstance(obj, CellGeom):
         return "cell:%s" % obj.name
     kind = type(obj).__name__
@@ -48,20 +50,20 @@ def canonical(obj, _seen=None) -> str:
         return "<cycle>"
     _seen = _seen | {id(obj)}
     if isinstance(obj, (tuple, list)):
-        return "[" + ",".join(canonical(v, _seen) for v in obj) + "]"
+        return "[" + ",".join(canonical(v, _seen, parts) for v in obj) + "]"
     if isinstance(obj, (set, frozenset)):
-        return "{" + ",".join(sorted(canonical(v, _seen) for v in obj)) + "}"
+        return "{" + ",".join(sorted(canonical(v, _seen, parts) for v in obj)) + "}"
     if isinstance(obj, dict):
-        return "{" + ",".join(sorted("%s:%s" % (canonical(k, _seen), canonical(v, _seen)) for k, v in obj.items())) + "}"
+        return "{" + ",".join(sorted("%s:%s" % (canonical(k, _seen, parts), canonical(v, _seen, parts)) for k, v in obj.items())) + "}"
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
-        return "%s(%s)" % (kind, ",".join("%s=%s" % (f.name, canonical(getattr(obj, f.name), _seen))
+        return "%s(%s)" % (kind, ",".join("%s=%s" % (f.name, canonical(getattr(obj, f.name), _seen, parts))
                                           for f in dataclasses.fields(obj) if f.metadata.get("reuse", True)
                                           and not omitted(obj, f)))
     if callable(obj) and not hasattr(obj, "__dict__"):
         return "fn:%s" % getattr(obj, "__qualname__", kind)
     if hasattr(obj, "__dict__") or hasattr(obj, "__slots__"):
         names = sorted(set(getattr(obj, "__dict__", {})) | set(getattr(obj, "__slots__", ())))
-        return "%s(%s)" % (kind, ",".join("%s=%s" % (n, canonical(getattr(obj, n, None), _seen))
+        return "%s(%s)" % (kind, ",".join("%s=%s" % (n, canonical(getattr(obj, n, None), _seen, parts))
                                           for n in names if not n.startswith("_cached")))
     text = repr(obj)
     # A default repr names a memory address, which differs every run: say the type alone.

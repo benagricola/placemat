@@ -76,22 +76,39 @@ def _turn(dx: float, dy: float, degrees: float) -> tuple:
 _NOT_DECIDING = frozenset(("index", "line", "needs", "why", "faces_note", "priority_source"))
 
 
-def declaration_digest(board, intent) -> str:
+def declaration_digest(board, intent, legacy: bool = False) -> str:
     """What an entry was accepted against: the item's declaration, the links
-    on its pads and its footprint's shape."""
+    on its pads and its footprint's shape, each part named by its instance
+    path, which a renumbering of the board does not change. `legacy`: named
+    by refdes, as 0.43-0.46 wrote it, which a run still accepts."""
     import dataclasses
     from . import reuse as _reuse
     from .board_geometry import members_of
+    names = None if legacy else {fp.ref: fp.inst for fp in board.geometry.footprints}
     # a Turned rotation is declared by `turned`; `rotation` holds what it settled to, which follows its part
     skip = _NOT_DECIDING | ({"rotation"} if getattr(intent, "turned", None) is not None else set())
-    said = [(f.name, _reuse.canonical(getattr(intent, f.name))) for f in dataclasses.fields(intent)
+    said = [(f.name, _reuse.canonical(getattr(intent, f.name), parts=names)) for f in dataclasses.fields(intent)
             if f.name not in skip and not _reuse.omitted(intent, f)]
-    shape = [(fp.ref, round(fp.body_box.width, 4), round(fp.body_box.height, 4),
+    shape = [(fp.ref if legacy else fp.inst, round(fp.body_box.width, 4), round(fp.body_box.height, 4),
               round(fp.courtyard_box.width, 4), round(fp.courtyard_box.height, 4),
               sorted((p.number, p.net, round(p.box.width, 4), round(p.box.height, 4)) for p in fp.pads))
              for fp in members_of(intent.item)]
-    return _reuse._sha("lock", _reuse.canonical(said), _reuse.canonical(sorted(_reuse.canonical(l)
-                       for l in _reuse.links_on(board, intent))), _reuse.canonical(shape))[:16]
+    links = _reuse.links_on(board, intent)
+    if names:
+        links = [dataclasses.replace(l, a=(names.get(l.a[0], l.a[0]), l.a[1]), b=(names.get(l.b[0], l.b[0]), l.b[1]))
+                 for l in links]
+    return _reuse._sha("lock", _reuse.canonical(said), _reuse.canonical(sorted(_reuse.canonical(l, parts=names)
+                       for l in links)), _reuse.canonical(shape))[:16]
+
+
+def ref_of(geometry, name: str) -> str:
+    """The refdes a stored part name stands for now: an instance path
+    (what the lock and the routes file write), or a refdes as 0.43-0.46
+    wrote them."""
+    for fp in geometry.footprints:
+        if fp.inst == name:
+            return fp.ref
+    return name
 
 
 def entry_from_turn(key: str, turn: dict, declaration: str, release: str) -> LockEntry:
@@ -111,7 +128,7 @@ def placement_of(entry: LockEntry, occ) -> tuple:
     or (None, why) when it cannot say."""
     if entry.anchor is None:
         return Placement(Location(entry.offset[0], entry.offset[1]), entry.rotation, Face(entry.face)), ""
-    ref, number = entry.anchor
+    ref, number = ref_of(occ.geometry, entry.anchor[0]), entry.anchor[1]
     g = occ.items.get(ref)
     if g is None or ref in occ.pending:
         return None, "its anchor %s is not placed before it" % ref
@@ -137,7 +154,10 @@ def entries(board, plan, keys, release: str = "", run: str = "", score: float | 
         if turn is None or intent is None:
             continue
         e = entry_from_turn(key, turn, declaration_digest(board, intent), release)
-        out.append(LockEntry(**{**asdict(e), "turn": len(out), "run": run, "score": score}))
+        anchor = e.anchor
+        if anchor is not None:          # the anchor by instance: a renumbering does not move it
+            anchor = (next((fp.inst for fp in board.geometry.footprints if fp.ref == anchor[0]), anchor[0]), anchor[1])
+        out.append(LockEntry(**{**asdict(e), "anchor": anchor, "turn": len(out), "run": run, "score": score}))
     return out
 
 

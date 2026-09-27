@@ -69,7 +69,8 @@ def test_moving_and_turning_the_anchor_part_carries_a_locked_item_with_it():
     e = next(e for e in entries if e.key == "r1")
     moved = _board(mcu=(22, 28, 90), cleanup=False).resolve(lock=entries)
     g_old, g_new = variant.occupancy, moved.occupancy
-    a_old = g_old.pad_location(*e.anchor); a_new = g_new.pad_location(*e.anchor)
+    anchor = (lock.ref_of(g_old.geometry, e.anchor[0]), e.anchor[1])      # stored by instance
+    a_old = g_old.pad_location(*anchor); a_new = g_new.pad_location(*anchor)
     r_old = g_old.items["R1"].reference.location; r_new = g_new.items["R1"].reference.location
     d_old = (r_old.x - a_old.x, r_old.y - a_old.y)
     d_new = (r_new.x - a_new.x, r_new.y - a_new.y)

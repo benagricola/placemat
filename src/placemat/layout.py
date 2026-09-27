@@ -3580,7 +3580,7 @@ class Board:
         entry = self._locked(i)
         if entry is None:
             return None, None
-        if entry.declaration != _lock.declaration_digest(self, i):
+        if entry.declaration not in (_lock.declaration_digest(self, i), _lock.declaration_digest(self, i, legacy=True)):
             self._lock_notes[i.key] = "lock: released - its declaration changed since it was accepted"
             return None, None
         spot, why = _lock.placement_of(entry, occ)

@@ -17,4 +17,5 @@ def test_a_declaration_digest_is_the_one_0_39_wrote():
     b.place(Part("u1"), at=Location(20, 20))
     b.place(Part("c1"), at=Near(PadRef(Part("u1"), 1).offset(0.5, -2.0), radius=1.0))
     b.place(Part("r1"), rotation=90)
-    assert {i.key: lock.declaration_digest(b, i) for i in b._placements()} == ACCEPTED_BY_0_39
+    # a lock written then still holds: the digest by refdes is still accepted
+    assert {i.key: lock.declaration_digest(b, i, legacy=True) for i in b._placements()} == ACCEPTED_BY_0_39

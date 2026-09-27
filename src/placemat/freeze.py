@@ -164,7 +164,8 @@ def frozen_args(board, key, turn, fixed: bool, entry=None, why: str = "") -> dic
     said = {"why": why} if why else {}
     if entry is not None and entry.anchor is not None and not fixed:
         # the entry's own anchor: its offset and rotation are relative to that pad's part
-        ref, number = entry.anchor
+        from .lock import ref_of
+        ref, number = ref_of(board.geometry, entry.anchor[0]), entry.anchor[1]
         lx, ly = entry.offset
         if entry.anchor_face == "back":
             lx = -lx                    # the lock's frame is only turned; local() mirrors a part on the back
