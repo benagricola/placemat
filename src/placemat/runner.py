@@ -350,6 +350,11 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
     say("run", "%s: %s" % (src.name, script.relative_to(src.board_dir)))
     generated = False
     plan = None
+    # the layout folder as the last run left it: a run that fails before it
+    # writes the board puts it back, rather than leave the unplaced generation
+    before = staging / "before"
+    if src.layout_dir.exists():
+        shutil.copytree(src.layout_dir, before)
     try:
         t0 = time.time()
         generated = generate(src, run_dir, fresh, quiet, cfg.timeout_generate)
@@ -544,6 +549,11 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         rec.status = "failed"
         rec.failure = {"kind": e.kind, "message": str(e), **e.details}
         say("fail", str(e), level="fail")
+        kept = run_dir / "before"
+        if kept.exists() and "item" not in e.details:     # a critical item's failure writes the board as it stood
+            shutil.rmtree(src.layout_dir, ignore_errors=True)
+            shutil.copytree(kept, src.layout_dir)
+            say("fail", "the layout folder is as the last run left it")
         for k in ("script", "line", "source", "error", "command", "cwd", "exit_code", "log"):
             if e.details.get(k) is not None:
                 say("fail", "%-9s %s" % (k, e.details[k]))
@@ -551,6 +561,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             console.lines("fail", e.details["tail"])
         if verbose and e.details.get("traceback"):
             console.lines("fail", e.details["traceback"])
+    if rec.status == "ok":
+        shutil.rmtree(run_dir / "before", ignore_errors=True)    # only a failure needs it
     try:
         from .kicad.quiet import drain
         text = drain()

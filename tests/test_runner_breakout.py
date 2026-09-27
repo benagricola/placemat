@@ -186,3 +186,21 @@ def test_a_run_explores_accepts_and_the_next_run_holds_the_lock(scratch_ecosyste
         lock = scratch_ecosystem / "breakout" / "Breakout_layout.lock.json"
         if lock.exists():
             lock.unlink()
+
+
+def test_a_script_that_fails_leaves_the_board_as_the_last_run_wrote_it(scratch_ecosystem):
+    """A failed script used to leave the fresh, unplaced generation in the
+    layout folder in place of the last good board."""
+    script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
+    pcb = scratch_ecosystem / "breakout/layout/Breakout/layout.kicad_pcb"
+    good = run(script, label="good", render=False, drc=False)
+    assert good.status == "ok" and not (good.run_dir / "before").exists()
+    before = pcb.read_bytes()
+    original = script.read_text()
+    script.write_text(original + '\nraise RuntimeError("broken on purpose")\n')
+    try:
+        rec = run(script, label="broken", render=False, drc=False)
+    finally:
+        script.write_text(original)
+    assert rec.status == "failed" and rec.record.failure["kind"] == "script"
+    assert pcb.read_bytes() == before

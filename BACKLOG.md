@@ -24,8 +24,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   2026-09-25).
 - **The run score ranks escape settings the wrong way round** (PLACEMAT_GAPS
   2026-09-25): it measures escapes at the search's own escape_depth.
-- **Undoing a failed `--fresh` run** (PLACEMAT_GAPS 2026-09-26): the
-  regenerated files stay when the script then fails.
 - **A route report of each net's path, or a preview of the routed copy**
   (PLACEMAT_GAPS 2026-09-27).
 - **`board.pair()` finding its own centreline; `route.diff_pairs` taking
@@ -38,6 +36,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **A failed run leaves the last good board** (unreleased; PLACEMAT_GAPS
+  2026-09-26): a run that fails before writing the board puts the layout
+  folder back as the last run left it.
 - **A run keeps files it did not write; round track ends** (0.42.0; a
   board's layout work, 2026-09-27): the layout folder's other files and a
   hand-edited board survive a run; a track's end is round, so a clean

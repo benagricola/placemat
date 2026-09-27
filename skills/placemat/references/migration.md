@@ -4,6 +4,13 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.43
+
+Nothing to change in a script. A run that fails before it writes the board
+(the generator, the script, a firm-placement collision) now leaves the
+layout folder as the last run left it, not the unplaced generation; a
+critical part left unplaced still writes the board as it stood.
+
 ## To 0.42
 
 Nothing to change in a script. A parts keepout whose `allow=` names the
