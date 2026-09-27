@@ -122,3 +122,15 @@ def test_a_page_with_almost_no_text_is_thin():
     assert read.text_is_thin(thin)
     fat = tuple(ds.TextRun(1, "x" * 40, Box(0, 0, 10, 5)) for _ in range(10))
     assert not read.text_is_thin(fat)
+
+
+def test_a_character_xml_forbids_does_not_stop_the_page_being_read(monkeypatch):
+    """mutool writes a control character or a lone surrogate as a character
+    reference XML 1.0 forbids; the line still reads, the bad character as
+    the replacement character."""
+    stext = ('<document><page><block><line bbox="1 2 30 12">'
+             '<char c="A"/><char c="&#x1;"/><char c="&#55296;"/><char c="B"/>'
+             '</line></block></page></document>')
+    monkeypatch.setattr(read, "_stext", lambda path, page: stext)
+    (run,) = read.text_runs("any.pdf", 1)
+    assert run.text == "A��B"

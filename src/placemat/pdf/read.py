@@ -67,11 +67,30 @@ def _stext(path, page: int) -> str:
                 "reading positioned text", path)
 
 
+_CHAR_REF = re.compile(r"&#(x[0-9A-Fa-f]+|[0-9]+);")
+
+
+def _xml_char(code: int) -> bool:
+    return (code in (0x9, 0xA, 0xD) or 0x20 <= code <= 0xD7FF or 0xE000 <= code <= 0xFFFD
+            or 0x10000 <= code <= 0x10FFFF)
+
+
+def _legal_refs(text: str) -> str:
+    """A character reference XML 1.0 forbids (a control character, a lone
+    surrogate), which mutool writes for whatever a PDF's font maps there,
+    as the replacement character's."""
+    def fix(m):
+        v = m.group(1)
+        code = int(v[1:], 16) if v[0] in "xX" else int(v)
+        return m.group(0) if _xml_char(code) else "&#xfffd;"
+    return _CHAR_REF.sub(fix, text)
+
+
 def text_runs(path, page: int) -> tuple:
-    """Every line of text on the page with its box. mutool's stext is valid
+    """Every line of text on the page with its box. mutool's stext is
     XML, so it is parsed rather than matched: a character comes back as
     `c="&#x3a6;"` and only a parser decodes that correctly."""
-    root = ET.fromstring(_stext(path, page))
+    root = ET.fromstring(_legal_refs(_stext(path, page)))
     out = []
     for line in root.iter("line"):
         text = "".join(c.get("c", "") for c in line.iter("char"))
