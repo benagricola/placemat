@@ -20,6 +20,13 @@ from .values import Face, Freedom, Location, Priority
 VERSION = 2                 # of the record's format: 2 records the items a step names (a block's members)
 
 
+def omitted(obj, f) -> bool:
+    """A field added after declarations were first digested, still at its
+    default: left out, so the digest of a declaration that never set it is
+    the one an earlier release wrote, and a lock accepted then still holds."""
+    return f.metadata.get("omit_default", False) and getattr(obj, f.name) == f.default
+
+
 def canonical(obj, _seen=None) -> str:
     """A stable text form of a declaration value: equal values, equal text."""
     if _seen is None:
@@ -48,7 +55,8 @@ def canonical(obj, _seen=None) -> str:
         return "{" + ",".join(sorted("%s:%s" % (canonical(k, _seen), canonical(v, _seen)) for k, v in obj.items())) + "}"
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
         return "%s(%s)" % (kind, ",".join("%s=%s" % (f.name, canonical(getattr(obj, f.name), _seen))
-                                          for f in dataclasses.fields(obj) if f.metadata.get("reuse", True)))
+                                          for f in dataclasses.fields(obj) if f.metadata.get("reuse", True)
+                                          and not omitted(obj, f)))
     if callable(obj) and not hasattr(obj, "__dict__"):
         return "fn:%s" % getattr(obj, "__qualname__", kind)
     if hasattr(obj, "__dict__") or hasattr(obj, "__slots__"):

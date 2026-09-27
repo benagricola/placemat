@@ -199,7 +199,7 @@ class PlaceIntent:
     freedom: Freedom = Freedom.SEARCHED   # derived from at=, never chosen
     required: bool = False                # failing to place this stops the run
     rotation_given: bool = False          # the script said rotation=: that one, not a choice of four
-    turned: object = None                 # a Turned: the rotation is its part's plus its degrees, settled at placement
+    turned: object = field(default=None, metadata={"omit_default": True})   # a Turned: its part's rotation plus its degrees, settled at placement
     line: int = field(default=0, metadata={"reuse": False})   # the script line that declared it: not what it decides
 
     @property
@@ -1472,6 +1472,8 @@ class Board:
         priority = priority or Priority.DEFAULT
         faces_note = ""
         turned = rotation if isinstance(rotation, Turned) else None
+        if turned is not None and rotations:
+            raise ValueError("%s: rotation=Turned(...) settles the rotation; rotations= would override it" % key)
         if turned is not None:
             rotation = float(turned.degrees)        # provisional: the ranking measures by it until the part is down
         rotation_given = rotation is not None

@@ -11,9 +11,11 @@ Nothing to change in a script. `placemat freeze` now writes an entry as
 r)`, in the anchor's own frame, and adds to its `why=` the explore run and
 score it came from; a frozen item turns with its anchor. Entries frozen by
 0.39 or earlier wrote `.offset(...)` in board directions and an absolute
-rotation: they stay put only while the anchor keeps its rotation, so
-re-accept and re-freeze them, or give them links and let the search place
-them.
+rotation: they stay put only while the anchor keeps its rotation. To move
+one to the new form, remove its frozen `at=` and `rotation=` (a `radius=0`
+spot gives explore nothing to try), let the search place it with its links,
+then `--explore ... --accept` and freeze it again. A lock accepted by 0.39
+still holds.
 
 ## To 0.39
 

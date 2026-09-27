@@ -1105,10 +1105,11 @@ anchor part's own frame - and `rotation=Turned(Part(<anchor>), r)`, so it
 keeps its turn of the order and turns with its anchor exactly as the lock
 held it, and its `why=` gains where the spot came from (`explore <run>:
 <score> mm, frozen <date>`). `--fixed` writes a firm
-`Location(X(...), Y(...))` instead, allowed when the anchor is fixed. Only that call's arguments change - comments and
-every other line stay - and the script and lock are written only when the
-edited script places every item exactly as the lock did; otherwise freeze
-says what would have moved. A call inside a loop or a helper function
+`Location(X(...), Y(...))` instead, allowed when the anchor is fixed. Only
+that call's arguments change - comments and every other line stay - and the
+script and lock are written only when the edited script places every item
+exactly as the lock did; otherwise freeze says what would have moved (an
+entry that drifted is refused: accept it again where it now stands). A call inside a loop or a helper function
 declares more than one item and is refused with its line.
 
 ## Report form and the files placemat writes

@@ -34,3 +34,17 @@ def test_an_item_turned_by_a_searched_part_waits_for_it():
     order = [s.item for s in plan.steps]
     assert order.index("u1") < order.index("c1")
     assert plan.placement("c1").rotation == 90
+
+
+def test_turned_with_rotations_is_refused():
+    import pytest
+    b = _board()
+    with pytest.raises(ValueError, match="Turned"):
+        b.place(Part("c1"), rotation=Turned(Part("u1"), 90), rotations=(0,))
+
+
+def test_turned_names_a_part():
+    import pytest
+    from placemat.values import Cell
+    with pytest.raises(TypeError, match="Part"):
+        Turned(Cell("power"), 90)

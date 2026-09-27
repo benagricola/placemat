@@ -2,7 +2,7 @@
 locations, boxes, and references to nets, parts, cells and pads."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 import math
 
@@ -368,8 +368,10 @@ class PadRef:
     dx: float = 0.0
     dy: float = 0.0
     pin: str | None = None
-    lx: float = 0.0            # an offset in the part's own frame: turned, and on the back mirrored, with it
-    ly: float = 0.0
+    # an offset in the part's own frame: turned, and on the back mirrored, with it. Left out of a
+    # declaration's digest at 0, so a lock accepted before it existed still holds (reuse.canonical)
+    lx: float = field(default=0.0, metadata={"omit_default": True})
+    ly: float = field(default=0.0, metadata={"omit_default": True})
 
     def __post_init__(self):
         if self.pin is not None:
@@ -396,6 +398,10 @@ class Turned:
     settled when the item is placed, which waits for that part."""
     part: Part
     degrees: float = 0.0
+
+    def __post_init__(self):
+        if not isinstance(self.part, Part):
+            raise TypeError("Turned follows a Part's rotation, not %r" % (self.part,))
 
 
 @dataclass(frozen=True)

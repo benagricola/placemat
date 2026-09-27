@@ -140,6 +140,18 @@ def why_text(said: str, entry, date: str) -> str:
     return "%s; %s" % (said, stamp) if said else stamp
 
 
+def _pad_text(board, key, ref, number) -> str:
+    """A pad as the script names it: by number, or by its net when it has
+    no number to name it by."""
+    fp = board.geometry.footprint(ref)
+    if number.isdigit():
+        return "PadRef(Part(%r), %s)" % (fp.inst, number)
+    nets = [q.net for q in fp.pads if q.number == number and q.net]
+    if not nets or sum(1 for q in fp.pads if q.net == nets[0]) != 1:
+        raise FreezeError("%s: its anchor %s pad %s has no number or net to name it by" % (key, ref, number))
+    return "PadRef(Part(%r), %r)" % (fp.inst, nets[0])
+
+
 def frozen_args(board, key, turn, fixed: bool, entry=None, why: str = "") -> dict:
     """The keyword arguments that put an item where its turn did. With its
     lock entry: at its anchor pad's point plus the entry's offset in the
@@ -150,28 +162,24 @@ def frozen_args(board, key, turn, fixed: bool, entry=None, why: str = "") -> dic
     p = turn["placement"]
     rotation = "%g" % round(p.rotation, 6)
     said = {"why": why} if why else {}
+    if entry is not None and entry.anchor is not None and not fixed:
+        # the entry's own anchor: its offset and rotation are relative to that pad's part
+        ref, number = entry.anchor
+        lx, ly = entry.offset
+        if entry.anchor_face == "back":
+            lx = -lx                    # the lock's frame is only turned; local() mirrors a part on the back
+        return {"at": "Near(%s.local(%s, %s), radius=0)" % (_pad_text(board, key, ref, number), _n(lx), _n(ly)),
+                "rotation": "Turned(Part(%r), %s)" % (board.geometry.footprint(ref).inst, _n(entry.rotation)),
+                **said}
     if turn.get("anchor") is None:
         where = "Location(%s, %s)" % (_n(p.location.x), _n(p.location.y))
         return {"at": where if fixed else "Near(%s, radius=0)" % where, "rotation": rotation, **said}
     ref, number = turn["anchor"]
-    fp = board.geometry.footprint(ref)
     a = turn["anchor_at"]
     dx, dy = p.location.x - a.x, p.location.y - a.y
-    if number.isdigit():
-        pad = "PadRef(Part(%r), %s)" % (fp.inst, number)
-    else:
-        nets = [q.net for q in fp.pads if q.number == number and q.net]
-        if not nets or sum(1 for q in fp.pads if q.net == nets[0]) != 1:
-            raise FreezeError("%s: its anchor %s pad %s has no number or net to name it by" % (key, ref, number))
-        pad = "PadRef(Part(%r), %r)" % (fp.inst, nets[0])
+    pad = _pad_text(board, key, ref, number)
     if fixed:
         return {"at": "Location(X(%s, %s), Y(%s, %s))" % (pad, _n(dx), pad, _n(dy)), "rotation": rotation, **said}
-    if entry is not None and entry.anchor is not None:
-        lx, ly = entry.offset
-        if entry.anchor_face == "back":
-            lx = -lx                    # the lock's frame is only turned; local() mirrors a part on the back
-        return {"at": "Near(%s.local(%s, %s), radius=0)" % (pad, _n(lx), _n(ly)),
-                "rotation": "Turned(Part(%r), %s)" % (fp.inst, _n(entry.rotation)), **said}
     return {"at": "Near(%s.offset(%s, %s), radius=0)" % (pad, _n(dx), _n(dy)), "rotation": rotation, **said}
 
 

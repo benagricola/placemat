@@ -45,3 +45,16 @@ def test_the_why_names_the_run_and_score_when_the_lock_has_them():
         "the bypass by its pin; explore 1a2b3c4d: 812.5 mm, frozen 2026-09-27"
     old = lock.LockEntry("c1", ("U1", "1"), "front", (0.1, -2.5), 90.0, "front", "d")
     assert freeze.why_text("", old, "2026-09-27") == "explore: frozen 2026-09-27"
+
+
+def test_freeze_names_the_anchor_the_entry_was_accepted_against():
+    """The entry's offset and rotation are relative to its own anchor: a run
+    that now hangs the item off another pad does not change what is written."""
+    b = _board(0, Face.FRONT)
+    b.place(Part("c1"))
+    plan = b.resolve()
+    turn = plan.turns["c1"]
+    entry = lock.entry_from_turn("c1", turn, "digest", "")
+    other = dict(turn, anchor=("U1", "2" if entry.anchor[1] == "1" else "1"))
+    args = freeze.frozen_args(b, "c1", other, False, entry=entry, why="'x'")
+    assert "PadRef(Part('u1'), %s)" % entry.anchor[1] in args["at"]

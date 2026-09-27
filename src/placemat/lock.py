@@ -82,8 +82,10 @@ def declaration_digest(board, intent) -> str:
     import dataclasses
     from . import reuse as _reuse
     from .board_geometry import members_of
+    # a Turned rotation is declared by `turned`; `rotation` holds what it settled to, which follows its part
+    skip = _NOT_DECIDING | ({"rotation"} if getattr(intent, "turned", None) is not None else set())
     said = [(f.name, _reuse.canonical(getattr(intent, f.name))) for f in dataclasses.fields(intent)
-            if f.name not in _NOT_DECIDING]
+            if f.name not in skip and not _reuse.omitted(intent, f)]
     shape = [(fp.ref, round(fp.body_box.width, 4), round(fp.body_box.height, 4),
               round(fp.courtyard_box.width, 4), round(fp.courtyard_box.height, 4),
               sorted((p.number, p.net, round(p.box.width, 4), round(p.box.height, 4)) for p in fp.pads))

@@ -171,3 +171,20 @@ def test_an_entry_from_before_has_no_run_or_score(tmp_path):
                  "offset": [0.1, -2.5], "rotation": 90.0, "face": "front", "declaration": "abc"}]}))
     (e,) = lock.read(p)
     assert (e.run, e.score) == ("", None)
+
+
+def test_a_locked_item_turned_by_its_part_is_held_when_the_part_turns():
+    from placemat import Turned
+    from placemat.values import Near, PadRef
+
+    def board(turn):
+        fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B")),
+               footprint("C1", 26, 26, w=2, h=1, inst="c1", nets=("A", "GND"))]
+        b = Board(board_geometry(fps, width=40, height=40), edge_margin=0.5)
+        b.place(Part("u1"), at=Location(20, 20), rotation=turn)
+        b.place(Part("c1"), rotation=Turned(Part("u1"), 90))
+        return b
+    b = board(0)
+    entries = lock.entries(b, b.resolve(), ["c1"])
+    plan = board(90).resolve(lock=entries)
+    assert "held by lock" in plan.step("c1").note, plan.step("c1").note
