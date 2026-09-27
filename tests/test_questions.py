@@ -54,3 +54,22 @@ def test_a_pad_number_that_is_not_all_digits_is_still_a_pad_number():
         b.pad(Part("sw2"), "9")                                       # an all-digit string is neither: pass an int
     with pytest.raises(KeyError):
         b.pad(Part("sw2"), "zz")
+
+
+def _split_row():
+    """Four pins at 0.5 mm; pin 1 is drawn as two lands 0.25 mm apart, as an
+    L-shaped corner pad is."""
+    pads = (pad("U1", "u1", 1, "N0", 10.0, 10.0, 0.2, 0.6), pad("U1", "u1", 1, "N0", 10.0, 9.75, 0.2, 0.2)) + tuple(
+        pad("U1", "u1", i + 1, "N%d" % i, 10.0 + i * 0.5, 10.0, 0.25, 0.6) for i in range(1, 4))
+    body = Box(9.0, 9.0, 12.0, 11.0)
+    return Footprint("U1", "u1", None, "U1", Location(10.5, 10), 0.0, Face.FRONT, body, body, body, pads)
+
+
+def test_a_pin_drawn_as_two_lands_does_not_set_the_pitch():
+    b = Board(board_geometry([_split_row()]), edge_margin=1.0)
+    assert b.pitch(Part("u1")) == pytest.approx(0.5)
+
+
+def test_the_pitch_between_two_named_pins():
+    b = Board(board_geometry([_split_row()]), edge_margin=1.0)
+    assert b.pitch(Part("u1"), pins=(2, 4)) == pytest.approx(1.0)

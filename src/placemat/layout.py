@@ -703,12 +703,20 @@ class Board:
         """The net's class: `.track_width`, `.clearance`, `.diff_pair_width`, `.diff_pair_gap`."""
         return self.geometry.netclass(net)
 
-    def pitch(self, part) -> float:
-        """The spacing of a part's pads: the distance between neighbouring
-        pad centres, read from the footprint (a connector's pin pitch, a
-        two-pad part's pad spacing)."""
-        from .describe import pitch_of
+    def pitch(self, part, pins=None) -> float:
+        """The spacing of a part's pins: the distance between neighbouring
+        pin centres, read from the footprint (a connector's pin pitch, a
+        two-pad part's pad spacing), a pin drawn as several lands counting
+        as one. `pins=(a, b)`: the distance between those two pins."""
+        from .describe import pin_centres, pitch_of
         fp = self.geometry.footprint(part)
+        if pins is not None:
+            a, b = (str(n) for n in pins)
+            centres = pin_centres(fp.pads)
+            missing = [n for n in (a, b) if n not in centres]
+            if missing:
+                raise ValueError("%s has no pin %s" % (fp.ref, ", ".join(missing)))
+            return round(centres[a].distance(centres[b]), 6)
         found = pitch_of(fp.pads)
         if found is None:
             raise ValueError("%s has %d pad(s): no pitch" % (fp.ref, len(fp.pads)))

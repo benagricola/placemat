@@ -7,13 +7,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **`reach()` smaller than the envelope the placer keeps** (PLACEMAT_GAPS
-  2026-09-27): an 0402's reach is 0.82 mm where `measure` and the placer
-  use 0.88 mm (the silk stroke), so a pitch built from it is short;
-  `reach()` should measure what the envelope does.
-- **`pitch()` of one pad row** (PLACEMAT_GAPS 2026-09-27): on a part with
-  split lands it returns the gap between two primitives of one pin;
-  `pitch(part, side=)` or `pins=(5, 6)`.
 - **Several vias in one pad** (PLACEMAT_GAPS 2026-09-27): a power or
   exposed pad filled with vias at the hole-to-hole rule,
   `board.vias(net, PadRef(...), pitch=)` or `fill=` on `board.via`.
@@ -25,6 +18,12 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **`pitch()` on split lands** (unreleased; PLACEMAT_GAPS 2026-09-27): a
+  pin drawn as several lands is one pin, and `pitch(part, pins=(a, b))`
+  measures two named pins.
+- **`reach()` smaller than the envelope** (PLACEMAT_GAPS 2026-09-27): not
+  reproduced on 0.40 (0.88 mm, as the envelope); the board session confirmed
+  the reading came from before 0.39.
 - **A frame sized to its content** (0.40.0; PLACEMAT_GAPS 2026-09-27):
   `board.size(fit=True, margin=)`, planes following the fitted frame
   (spec `2026-09-27-fit-frame-design.md`).

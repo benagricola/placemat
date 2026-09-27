@@ -166,10 +166,21 @@ def parts_lines(geometry) -> list:
     return out
 
 
+def pin_centres(pads) -> dict:
+    """{pad number: its centre}, a pin drawn as several lands (an L-shaped
+    corner pad, a split thermal land) measured as one: the centre of the box
+    round its lands."""
+    lands = {}
+    for p in pads:
+        lands.setdefault(p.number, []).append(p.box)
+    return {n: Box.union(boxes).center for n, boxes in lands.items()}
+
+
 def pitch_of(pads):
-    """The nearest gap between two pad centres: a part's pin pitch. None when
-    there are not two pads to measure between."""
-    centres = [p.box.center for p in pads]
+    """The nearest gap between two pins' centres: a part's pin pitch, the
+    lands of one pin counting as that pin. None when there are not two pins
+    to measure between."""
+    centres = list(pin_centres(pads).values())
     if len(centres) < 2:
         return None
     return round(min(min(a.distance(b) for b in centres if b is not a) for a in centres), 6)

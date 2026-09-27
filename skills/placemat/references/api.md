@@ -15,7 +15,7 @@ board; declarations are collected and resolved together.
 | `board.part(Part("j1"))` | the footprint: `.ref`, `.inst`, `.pads`, `.body_box`, `.courtyard_box` |
 | `board.cell(Cell("mcu"))` | the cell: `.members`, `.box`, `.member("conn")` |
 | `board.pad(Part("j1"), 3)` / `board.pad(Part("j1"), "GND")` | a pad by number (int) or net (str): `.box` (size, centre), `.through`, `.drill_mm`, `.layers` |
-| `board.pitch(Part("j1"))` | the part's pad spacing, read from its pads: a connector's pin pitch |
+| `board.pitch(Part("j1"), pins=None)` | the part's pin spacing, read from its pads (a pin drawn as several lands is one pin): a connector's pin pitch; `pins=(5, 6)` the distance between two pins |
 | `board.cell_pad(Cell("bd0"), net="CANH", ref_prefix="H")` | one pad inside a cell |
 | `board.net(Net("V48"))` | the net name, or `KeyError` |
 | `board.netclass(Net("CAN_P"))` | its class: `.track_width`, `.clearance`, `.diff_pair_width`, `.diff_pair_gap` |
