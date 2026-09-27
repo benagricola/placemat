@@ -1,7 +1,7 @@
 # Keeping routed copper
 
 Date: 2026-09-27
-Status: proposal, awaiting approval
+Status: approved 2026-09-27
 Source: PLACEMAT_GAPS.md (a board's own), 2026-09-27 "router output cannot
 be kept in the script"
 
