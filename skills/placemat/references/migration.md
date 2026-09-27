@@ -4,6 +4,12 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.47
+
+Nothing to change in a script. `placemat drc` names each failing violation
+and where it is; `--json` lists every violation and open connection with
+its items' positions.
+
 ## To 0.46
 
 Nothing to change in a script. Routing keeps off footprint copper graphics

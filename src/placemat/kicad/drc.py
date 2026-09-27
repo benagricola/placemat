@@ -106,27 +106,60 @@ def count_violations(data: dict, allow: dict) -> tuple:
     script let into a keepout comes back as `items_not_allowed`; `allow`
     maps a keepout's name (without its layer marker) to (refdes, nets) it
     permits, and a violation every item of which it permits is set aside."""
-    from ..board_geometry import split_marker
     counted, permitted = Counter(), Counter()
     for v in data.get("violations", []):
         kind = v.get("type", "")
-        m = _AREA_RE.search(v.get("description", ""))
-        if kind == "items_not_allowed" and m:
-            refs, nets = allow.get(split_marker(m.group(1))[0], (set(), set()))
-
-            def ok(item):
-                d = item.get("description", "")
-                f = _FOOTPRINT_RE.match(d)
-                if f:
-                    return f.group(1) in refs
-                n = _NET_RE.search(d)
-                return bool(n) and n.group(1) in nets
-            items = v.get("items", [])
-            if items and all(ok(i) for i in items):
-                permitted[kind] += 1
-                continue
-        counted[kind] += 1
+        if _permitted(v, allow):
+            permitted[kind] += 1
+        else:
+            counted[kind] += 1
     return dict(counted), dict(permitted)
+
+
+def _permitted(v: dict, allow: dict) -> bool:
+    """A keepout's `items_not_allowed` every item of which its allow list lets in."""
+    from ..board_geometry import split_marker
+    m = _AREA_RE.search(v.get("description", ""))
+    if v.get("type", "") != "items_not_allowed" or not m:
+        return False
+    refs, nets = allow.get(split_marker(m.group(1))[0], (set(), set()))
+
+    def ok(item):
+        d = item.get("description", "")
+        f = _FOOTPRINT_RE.match(d)
+        if f:
+            return f.group(1) in refs
+        n = _NET_RE.search(d)
+        return bool(n) and n.group(1) in nets
+    items = v.get("items", [])
+    return bool(items) and all(ok(i) for i in items)
+
+
+def _items(v: dict) -> list:
+    return [{"description": i.get("description", ""),
+             "at": [i["pos"]["x"], i["pos"]["y"]] if isinstance(i.get("pos"), dict) else None}
+            for i in v.get("items", [])]
+
+
+def violation_items(data: dict, allow: dict) -> list:
+    """Each violation that counts, as KiCad describes it: its kind, severity,
+    description and the items it is between, each with where it is (mm)."""
+    return [{"kind": v.get("type", ""), "severity": v.get("severity", ""), "description": v.get("description", ""),
+             "items": _items(v)} for v in data.get("violations", []) if not _permitted(v, allow)]
+
+
+def unconnected_items(data: dict) -> list:
+    """Each open connection: its net and the two items it is between."""
+    out = []
+    for x in data.get("unconnected_items", []):
+        net = ""
+        for i in x.get("items", []):
+            m = re.search(r"\[([^\]]+)\]", i.get("description", ""))
+            if m:
+                net = m.group(1)
+                break
+        out.append({"net": net, "items": _items(x)})
+    return out
 
 
 def run_drc(pcb, out_json, refill_zones: bool | None = None, timeout: int | None = None,

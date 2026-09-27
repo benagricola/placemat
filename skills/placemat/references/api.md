@@ -927,6 +927,13 @@ placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise
 placemat settings [<script-or-board-dir>] [--json]
 ```
 
+`drc` runs kicad-cli's DRC on a board and prints the counts by kind, the
+airwires, and each violation that fails the board with where it is and the
+items it is between (the first twenty; `--json` gives them all as
+`violations`, each with its kind, severity, KiCad's description and its
+items' descriptions and positions, and every open connection as
+`unconnected_items`, by net).
+
 `measure` is the geometry query. Given a board it prints, per part, the
 instance, refdes, value, face, rotation and origin, the `body`, `courtyard` and
 `physical` boxes, its drawn envelope and the layer setting each side, how near

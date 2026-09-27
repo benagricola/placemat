@@ -15,9 +15,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   satellite slides along its pin row over other pins; the link-wait rule
   outranks `priority=`; a part seeded deep inside a parts keepout searches
   only its own size from the seed.
-- **`placemat drc --json` listing each item** with its description and
-  position (PLACEMAT_GAPS 2026-09-27 "reading a routed board's layers and DRC
-  items").
 - **`placemat impact` between a run and a KiCad file**, copper included
   (PLACEMAT_GAPS 2026-09-27 "folding a hand layout into a fragment's
   script").
@@ -49,6 +46,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **`placemat drc` lists each violation** (unreleased; PLACEMAT_GAPS
+  2026-09-27 "reading a routed board's layers and DRC items"): with its
+  description, items and positions.
 - **Footprint copper through the router** (0.46.0; PLACEMAT_GAPS
   2026-09-27 "the router moves a net-tie footprint's outer copper to silk"):
   rule areas keep the router off footprint copper graphics, and the routed

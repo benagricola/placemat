@@ -357,18 +357,28 @@ def _record(ref, board=None) -> Path:
 
 
 def cmd_drc(args) -> int:
-    from .kicad.drc import run_drc
+    from .kicad.drc import run_drc, unconnected_items, violation_items
     from .report import airwires_from_drc
     pcb = Path(args.pcb)
     out = pcb.parent / "drc.json"
     report = run_drc(pcb, out)
-    aw = airwires_from_drc(json.loads(out.read_text()))
+    data = json.loads(out.read_text())
+    aw = airwires_from_drc(data)
+    items = violation_items(data, {})
     if args.json:
         console.data(json.dumps({"by_type": report.by_type, "real": report.real, "outstanding": report.outstanding,
                                  "unconnected": report.unconnected, "open_nets": dict(report.open_nets),
-                                 "airwires": aw}, indent=2))
+                                 "airwires": aw, "violations": items, "unconnected_items": unconnected_items(data)},
+                                indent=2))
     else:
         console.say("drc", report.summary())
+        real = [v for v in items if v["kind"] in report.real_kinds]
+        for v in real[:20]:                     # the ones that fail the board, each where it is
+            at = next((i["at"] for i in v["items"] if i["at"]), None)
+            console.say("drc", "%s%s: %s; %s" % (v["kind"], " at (%.2f, %.2f)" % tuple(at) if at else "",
+                                                 v["description"], "; ".join(i["description"] for i in v["items"])))
+        if len(real) > 20:
+            console.say("drc", "... %d more with --json" % (len(real) - 20))
         console.say("drc", "airwires %d, %.1f mm, %d crossings" % (aw["count"], aw["total_mm"], aw["crossings"]))
         for net, mm in sorted(aw["per_net"].items(), key=lambda kv: -kv[1])[:10]:
             console.say("drc", "%-20s %6.1f mm  %d crossing(s)" % (net, mm, aw["crossings_per_net"].get(net, 0)))
