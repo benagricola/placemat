@@ -287,3 +287,11 @@ def test_every_placed_cutout_reaches_edge_cuts(breakout_pcb, tmp_path):
     assert ps.OutlineCount() == 1 and ps.HoleCount(0) == 1
     assert ps.Area() / 1e12 == pytest.approx(
         box.width * box.height - Slot(13.0, 3.0).area, rel=0.01)
+
+
+def test_drc_takes_a_relative_path(breakout_pcb, tmp_path, monkeypatch):
+    (tmp_path / "routed").mkdir()
+    _copy(breakout_pcb, tmp_path / "routed")
+    monkeypatch.chdir(tmp_path)
+    report = run_drc("routed/layout.kicad_pcb", "routed/drc.json")
+    assert report.real == {} and (tmp_path / "routed" / "drc.json").exists()
