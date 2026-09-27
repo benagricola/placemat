@@ -450,11 +450,36 @@ def read_labels(path) -> list:
         if not isinstance(d, pcbnew.PCB_TEXT) or d.GetLayer() not in (pcbnew.F_SilkS, pcbnew.B_SilkS):
             continue
         bb = d.GetEffectiveShape().BBox()
+        at = d.GetPosition()
         out.append({"text": d.GetText(), "face": "back" if d.GetLayer() == pcbnew.B_SilkS else "front",
                     "cell": groups_of.get(_kiid(d)),
                     "box": [round(mm(bb.GetLeft()), 3), round(mm(bb.GetTop()), 3),
-                            round(mm(bb.GetRight()), 3), round(mm(bb.GetBottom()), 3)]})
+                            round(mm(bb.GetRight()), 3), round(mm(bb.GetBottom()), 3)],
+                    "at": [round(mm(at.x), 3), round(mm(at.y), 3)], "height": round(mm(d.GetTextHeight()), 3),
+                    "stroke": round(mm(d.GetTextThickness()), 3), "angle": round(d.GetTextAngleDegrees(), 3),
+                    "mirrored": bool(d.IsMirrored())})
     return sorted(out, key=lambda l: (l["cell"] or "", l["text"], l["box"]))
+
+
+def read_silk_graphics(path) -> list:
+    """The board's own silk graphics (not a footprint's): each drawn shape
+    as {kind, face, cell, box, stroke}, an arrow or a mark beside a
+    connector among them."""
+    board = pcbnew.LoadBoard(str(path))
+    groups_of = {_kiid(it): g.GetName() for g in board.Groups() for it in g.GetItems()}
+    kinds = {pcbnew.SHAPE_T_SEGMENT: "segment", pcbnew.SHAPE_T_ARC: "arc", pcbnew.SHAPE_T_CIRCLE: "circle",
+             pcbnew.SHAPE_T_RECT: "rect", pcbnew.SHAPE_T_POLY: "poly"}
+    out = []
+    for d in board.GetDrawings():
+        if not isinstance(d, pcbnew.PCB_SHAPE) or d.GetLayer() not in (pcbnew.F_SilkS, pcbnew.B_SilkS):
+            continue
+        bb = d.GetBoundingBox()
+        out.append({"kind": kinds.get(d.GetShape(), "other"), "face": "back" if d.GetLayer() == pcbnew.B_SilkS else "front",
+                    "cell": groups_of.get(_kiid(d)),
+                    "box": [round(mm(bb.GetLeft()), 3), round(mm(bb.GetTop()), 3),
+                            round(mm(bb.GetRight()), 3), round(mm(bb.GetBottom()), 3)],
+                    "stroke": round(mm(d.GetWidth()), 3)})
+    return sorted(out, key=lambda g: (g["cell"] or "", g["box"]))
 
 
 def read_board(path, courtyard_excess_mm: float = 0.10, arc_error_nm: int | None = None) -> BoardGeometry:

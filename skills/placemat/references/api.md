@@ -917,8 +917,10 @@ footprint with no board at all, in the footprint's own frame, and prints the
 file's SHA-256 so two variants of a part can be told apart; a pad read that way
 reports an attribute rather than layers, because a footprint has no stackup.
 `--labels` lists the board's own silk texts instead - every `board.label()`
-text and a stamped cell's - with face, cell and the box KiCad draws, so a
-panel can be sized round them.
+text and a stamped cell's - with face, cell, the box KiCad draws, position,
+height, stroke, angle and mirroring, so a panel can be sized round them and
+another board's marks matched; then its silk graphics (an arrow, a mark),
+each with its kind, face, cell, box and stroke.
 
 `preview` places the board as a run does - the cached generation, the
 previous run's steps replayed - and draws it, without writing the board,

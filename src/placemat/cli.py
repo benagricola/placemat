@@ -429,15 +429,18 @@ def cmd_measure(args) -> int:
             console.lines("measure", "\n".join(lines))
         return 0
     if getattr(args, "labels", False):
-        from .kicad.read import read_labels
-        labels = read_labels(pcb)
+        from .kicad.read import read_labels, read_silk_graphics
+        labels, graphics = read_labels(pcb), read_silk_graphics(pcb)
         if args.json:
-            console.data(json.dumps({"labels": labels}, indent=2))
+            console.data(json.dumps({"labels": labels, "graphics": graphics}, indent=2))
         else:
-            console.lines("measure", "\n".join(
-                ["%-20s %-5s %-12s %8.3f x %.3f  box %.3f %.3f %.3f %.3f" % (
-                    l["text"][:20], l["face"], (l["cell"] or "-")[:12], l["box"][2] - l["box"][0],
-                    l["box"][3] - l["box"][1], *l["box"]) for l in labels] or ["no labels on this board"]))
+            lines = ["%-20s %-5s %-12s %8.3f x %.3f  box %.3f %.3f %.3f %.3f  h %.2f stroke %.2f at %g%s" % (
+                l["text"][:20], l["face"], (l["cell"] or "-")[:12], l["box"][2] - l["box"][0],
+                l["box"][3] - l["box"][1], *l["box"], l["height"], l["stroke"], l["angle"],
+                " mirrored" if l["mirrored"] else "") for l in labels] or ["no labels on this board"]
+            lines += ["%-20s %-5s %-12s box %.3f %.3f %.3f %.3f  stroke %.2f" % (
+                "(" + g["kind"] + ")", g["face"], (g["cell"] or "-")[:12], *g["box"], g["stroke"]) for g in graphics]
+            console.lines("measure", "\n".join(lines))
         return 0
     snap = read_board(pcb)
     try:                                            # pin names, when the board's source is beside it

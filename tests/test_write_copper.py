@@ -336,3 +336,33 @@ def test_a_footprints_copper_graphic_is_read_as_its_copper(breakout_pcb, tmp_pat
     board.Save(str(pcb))
     r9 = read_board(pcb).footprint("R9")
     assert [layer for layer, _ in r9.copper] == [CopperLayer.B]
+
+
+def test_measure_labels_gives_each_texts_size_angle_and_mirroring_and_the_silk_graphics(breakout_pcb, tmp_path, capsys):
+    import json
+    import pcbnew
+    from placemat.cli import main
+    pcb = _copy(breakout_pcb, tmp_path)
+    board = pcbnew.LoadBoard(str(pcb))
+    t = pcbnew.PCB_TEXT(board)
+    t.SetText("ARROW")
+    t.SetLayer(pcbnew.B_SilkS)
+    t.SetPosition(pcbnew.VECTOR2I(pcbnew.FromMM(20), pcbnew.FromMM(20)))
+    t.SetTextSize(pcbnew.VECTOR2I(pcbnew.FromMM(1.5), pcbnew.FromMM(1.5)))
+    t.SetTextThickness(pcbnew.FromMM(0.2))
+    t.SetTextAngleDegrees(90)
+    t.SetMirrored(True)
+    board.Add(t)
+    line = pcbnew.PCB_SHAPE(board)
+    line.SetShape(pcbnew.SHAPE_T_SEGMENT)
+    line.SetLayer(pcbnew.F_SilkS)
+    line.SetStart(pcbnew.VECTOR2I(pcbnew.FromMM(10), pcbnew.FromMM(10)))
+    line.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(14), pcbnew.FromMM(10)))
+    line.SetWidth(pcbnew.FromMM(0.15))
+    board.Add(line)
+    board.Save(str(pcb))
+    assert main(["measure", str(pcb), "--labels", "--json"]) == 0
+    doc = json.loads(capsys.readouterr().out)
+    (arrow,) = [l for l in doc["labels"] if l["text"] == "ARROW"]
+    assert (arrow["height"], arrow["stroke"], arrow["angle"], arrow["mirrored"]) == (1.5, 0.2, 90.0, True)
+    assert any(g["kind"] == "segment" and g["face"] == "front" and g["stroke"] == 0.15 for g in doc["graphics"])
