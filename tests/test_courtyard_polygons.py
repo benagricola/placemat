@@ -102,3 +102,22 @@ def test_a_slice_at_a_round_boards_centre_is_judged_by_its_polygon_at_the_edge()
     b.place(Part("l1"), at=Location(7.0, 7.0), rotation=45)           # the box's far corner 6.7 out, past 6.5
     plan = b.resolve()
     assert not [f for f in plan.findings if f.kind == "fixed"], list(plan.findings)
+
+
+@pytest.mark.parametrize("turn", [35.0, 90.0, 180.0, 270.0, 300.0, 325.0])
+def test_two_slices_sharing_only_their_apex_may_stand_whichever_way_turned(turn):
+    """KiCad does not count a shared vertex as an overlap; whether placemat
+    did depended on which way the part was turned."""
+    from placemat.placement import Placement
+    from placemat.values import Face
+    a, b = _sector("L1", "l1"), _sector("L2", "l2")
+    occ = _occupancy(a, b)
+    assert occ.legal(b, Placement(Location(20, 20), turn, Face.FRONT)) is None
+
+
+def test_polygons_sharing_one_vertex_do_not_overlap_in_either_order():
+    from placemat.geometry import polys_overlap
+    tri = ((0.0, 0.0), (4.0, 0.0), (0.0, 3.0))
+    other = ((0.0, 0.0), (-4.0, 0.0), (0.0, -3.0))
+    assert not polys_overlap(tri, other) and not polys_overlap(other, tri)
+    assert not polys_overlap(tri[::-1], other) and not polys_overlap(other[::-1], tri)

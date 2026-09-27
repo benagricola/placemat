@@ -171,8 +171,9 @@ pub fn polys_overlap(a: &Polygon, b: &Polygon) -> bool {
     if rect_of(a) && rect_of(b) {
         return true; // two rectangles are their boxes, and the boxes share interior
     }
-    if (within(a[0], bx0, by0, bx1, by1) && point_in_polygon(a[0], b))
-        || (within(b[0], ax0, ay0, ax1, ay1) && point_in_polygon(b[0], a))
+    // strictly inside, as every other vertex is judged (geometry.polys_overlap)
+    if (within(a[0], bx0, by0, bx1, by1) && strictly_inside(a[0], b))
+        || (within(b[0], ax0, ay0, ax1, ay1) && strictly_inside(b[0], a))
     {
         return true;
     }

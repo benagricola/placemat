@@ -216,8 +216,10 @@ def polys_overlap(a: Polygon, b: Polygon) -> bool:
     # whose box misses the other polygon's box crosses none of its edges.
     def within(p, x0, y0, x1, y1):
         return x0 <= p[0] <= x1 and y0 <= p[1] <= y1
-    if (within(a[0], bx0, by0, bx1, by1) and point_in_polygon(a[0], b)) or \
-            (within(b[0], ax0, ay0, ax1, ay1) and point_in_polygon(b[0], a)):
+    # strictly inside, as every other vertex is judged: a first vertex on the other's edge (two slices of
+    # a disc sharing their apex) read as inside or not by which way the polygon was wound
+    if (within(a[0], bx0, by0, bx1, by1) and _strictly_inside(tuple(a[0]), b)) or \
+            (within(b[0], ax0, ay0, ax1, ay1) and _strictly_inside(tuple(b[0]), a)):
         return True
     ea = [(p1, p2) for p1, p2 in _edges(a) if _edge_meets(p1, p2, bx0, by0, bx1, by1)]
     eb = [(q1, q2) for q1, q2 in _edges(b) if _edge_meets(q1, q2, ax0, ay0, ax1, ay1)]
@@ -348,8 +350,8 @@ def _prepared(poly: Polygon) -> _Prepared:
         return _Prepared(poly)
     try:
         return _prepared_many(poly)
-    except TypeError:                   # built of lists, so not hashable: prepared, not kept
-        return _Prepared(poly)
+    except TypeError:                   # built of lists, so not hashable: prepared as tuples, not kept
+        return _Prepared(tuple(tuple(p) for p in poly))
 
 
 def _prepared_overlap(pa: _Prepared, pb: _Prepared) -> bool:
@@ -361,9 +363,6 @@ def _prepared_overlap(pa: _Prepared, pb: _Prepared) -> bool:
 
     def within(p, x0, y0, x1, y1):
         return x0 <= p[0] <= x1 and y0 <= p[1] <= y1
-
-    def contains(pp, p):
-        return pp.contains(p) if pp.grid is not None else point_in_polygon(p, pp.poly)
 
     def strictly(pp, p):
         return pp.strictly_contains(p) if pp.grid is not None else _strictly_inside(p, pp.poly)
@@ -378,8 +377,8 @@ def _prepared_overlap(pa: _Prepared, pb: _Prepared) -> bool:
             return pp.vertices_within(x0, y0, x1, y1)
         return [p for p in pp.poly[1:] if within(p, x0, y0, x1, y1)]
 
-    if (within(a[0], bx0, by0, bx1, by1) and contains(pb, a[0])) or \
-            (within(b[0], ax0, ay0, ax1, ay1) and contains(pa, b[0])):
+    if (within(a[0], bx0, by0, bx1, by1) and strictly(pb, tuple(a[0]))) or \
+            (within(b[0], ax0, ay0, ax1, ay1) and strictly(pa, tuple(b[0]))):
         return True
     eb = edges(pb, ax0, ay0, ax1, ay1)
     for p1, p2 in edges(pa, bx0, by0, bx1, by1):
