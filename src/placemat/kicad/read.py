@@ -145,6 +145,22 @@ def courtyard_margin(fp) -> float:
     return max(0.0, round(min(min(xs) - box.left, box.right - max(xs), min(ys) - box.top, box.bottom - max(ys)), 6))
 
 
+def courtyard_poly(fp) -> tuple:
+    """The courtyard polygon KiCad's DRC tests, on the part's own face (the
+    other face's when that is the one drawn): its first outline, in board
+    coordinates. () when the footprint draws no courtyard."""
+    if not any(d.GetLayer() in _COURTYARD_LAYERS for d in fp.GraphicalItems()):
+        return ()
+    fp.BuildCourtyardCaches()
+    own = pcbnew.B_CrtYd if fp.GetLayer() == pcbnew.B_Cu else pcbnew.F_CrtYd
+    for layer in (own, pcbnew.F_CrtYd if own == pcbnew.B_CrtYd else pcbnew.B_CrtYd):
+        ps = fp.GetCourtyard(layer)
+        if ps.OutlineCount():
+            o = ps.Outline(0)
+            return tuple((mm(o.CPoint(j).x), mm(o.CPoint(j).y)) for j in range(o.PointCount()))
+    return ()
+
+
 def body_box(fp, excess_mm: float) -> Box:
     has_ct = any(d.GetLayer() in _COURTYARD_LAYERS for d in fp.GraphicalItems())
     if not has_ct:
@@ -278,7 +294,7 @@ def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footpr
                      fields={f.GetName(): f.GetText() for f in fp.GetFields()},
                      lib_id=fp.GetFPIDAsString(),
                      silk=_silk(fp, err_nm), mask=_mask(fp, err_nm), fab=_fab(fp), copper=_copper_art(fp, err_nm),
-                     courtyard_margin=courtyard_margin(fp))
+                     courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp))
 
 
 def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, ...]:
@@ -545,7 +561,7 @@ def read_footprint(path, courtyard_excess_mm: float = 0.10) -> tuple:
                      phys_box=phys_box(fp), pads=tuple(pads), npth=_npth(fp),
                      fields={f.GetName(): f.GetText() for f in fp.GetFields()},
                      lib_id=fp.GetFPIDAsString(),
-                     silk=_silk(fp), mask=_mask(fp), fab=_fab(fp), copper=_copper_art(fp), courtyard_margin=courtyard_margin(fp))
+                     silk=_silk(fp), mask=_mask(fp), fab=_fab(fp), copper=_copper_art(fp), courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp))
     return geom, digest
 
 
