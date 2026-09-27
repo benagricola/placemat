@@ -7,6 +7,25 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+- **Adopting router output** (PLACEMAT_GAPS 2026-09-27 "router output cannot
+  be kept in the script"): `placemat route --adopt NET ...` writing routed
+  copper into the script with PadRef ends; replaces a board's hand-written
+  fold-back tool. Needs a spec.
+- **Placing relative to a searched item** (PLACEMAT_GAPS 2026-09-26, twice):
+  a `Pin` or a cutout on a searched item is refused ("only FIXED and EDGE
+  items may be referred to"). Needs a spec.
+- **A block that fits nowhere, found before the search** (PLACEMAT_GAPS
+  2026-09-26): a run spent 15 minutes on a block that fit in no rotation.
+- **Each part's clearance to each keepout** (PLACEMAT_GAPS 2026-09-26):
+  physical, courtyard and maximum-package, as a report.
+- **A plated lead against a neighbour's courtyard on the same face under
+  physical envelopes** (PLACEMAT_GAPS 2026-09-26).
+- **A re-laid cell that outgrows the room its parent gave it** (PLACEMAT_GAPS
+  2026-09-25).
+- **The run score ranks escape settings the wrong way round** (PLACEMAT_GAPS
+  2026-09-25): it measures escapes at the search's own escape_depth.
+- **Undoing a failed `--fresh` run** (PLACEMAT_GAPS 2026-09-26): the
+  regenerated files stay when the script then fails.
 - **A route report of each net's path, or a preview of the routed copy**
   (PLACEMAT_GAPS 2026-09-27).
 - **`board.pair()` finding its own centreline; `route.diff_pairs` taking
