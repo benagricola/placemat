@@ -44,16 +44,16 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **Locking the placement a board stands in** (unreleased; a board's
+- **Locking the placement a board stands in** (0.47.0; a board's
   layout work, 2026-09-27 "adopted routes move the placement they were
   routed on"): `placemat lock --current`, and `route --adopt` locks what it
   adopts (spec `2026-09-27-lock-current-design.md`).
-- **The lock and adopted routes name parts by instance** (unreleased; a
+- **The lock and adopted routes name parts by instance** (0.47.0; a
   board's layout work, 2026-09-27 "adopted routes are keyed by reference
   designator").
-- **A custom pad's outline in `measure --pads`** (unreleased; PLACEMAT_GAPS
+- **A custom pad's outline in `measure --pads`** (0.47.0; PLACEMAT_GAPS
   2026-09-27 "a custom pad's outline").
-- **`placemat drc` lists each violation** (unreleased; PLACEMAT_GAPS
+- **`placemat drc` lists each violation** (0.47.0; PLACEMAT_GAPS
   2026-09-27 "reading a routed board's layers and DRC items"): with its
   description, items and positions.
 - **Footprint copper through the router** (0.46.0; PLACEMAT_GAPS
