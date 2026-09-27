@@ -223,7 +223,9 @@ a board edge are a `row` on the frame's edge; the board supplies the
 real outline. What is not on an edge is said in terms of parts and pads.
 
 **How a searched item finds its place.** With `Near` it scans around the
-hint. A scored scan over a wide radius is coarse first (four steps apart)
+hint. A `Near(PadRef(...))` on another searched item's pad waits for that
+item, block members included, whatever the two items' tiers and ranks, so it
+is searched round where the pad landed. A scored scan over a wide radius is coarse first (four steps apart)
 and fine only around its best spots, so a wide `radius=` costs little;
 a part the script will place later is not an obstacle where the
 generator left it, only once it is placed. Without one it is SEEDED: the hint is the weighted centroid of the

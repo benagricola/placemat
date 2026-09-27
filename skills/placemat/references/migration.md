@@ -12,6 +12,12 @@ the block put them rather than where cleanup moved them; copper planned
 against them now meets their pads. A board that turned `[cleanup] enabled`
 off for this can turn it back on.
 
+A searched item whose `Near` names another searched item's pad is now
+placed after that item, block members included, whatever
+their tiers: it used to be able to go first and search round the pad's
+parked position off the board. A script that gave such items tiers or a
+link to force the order can drop them.
+
 Boards run from one directory now each compare with, and reuse, their own
 last run: `.placemat/runs/latest-<board>.json` beside `latest.json`, which
 still names the last run of any board.

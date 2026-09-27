@@ -3362,6 +3362,14 @@ class Board:
             pull = sum(w for it in parts for _, _, w in self._targets(it, occ, placed))
             return self._rank_score.get(obj.key, 0.0), pull, area
 
+        # An item searched round a pad (a Near on a PadRef) waits while
+        # the item holding that pad is still to be searched: its hint is where
+        # the pad lands, not where the generator parked it. A cycle waits for
+        # nothing rather than for ever.
+        holds = {o.key: {fp.ref for fp in (o.item.members if o.kind == "block" else members_of(o.item))}
+                 for o in pending}
+        ready = [o for o in pending
+                 if not any(o.needs & refs for k, refs in holds.items() if k != o.key)] or pending
         measured = {o.key: measure(o) for o in pending}
         # Of two linked items neither placed, the one with more placed
         # connections goes first: the other is then seeded on it, the part
@@ -3369,7 +3377,7 @@ class Board:
         waits = self._link_waits(pending, {k: m[1] for k, m in measured.items()})
         for k, partner in waits.items():
             self._waited.setdefault(k, partner)
-        free = [o for o in pending if o.key not in waits] or pending
+        free = [o for o in ready if o.key not in waits] or ready
         scored = sorted(((measured[o.key], o) for o in free),
                         key=lambda m: (-m[1].priority.rank, -m[0][0], -m[0][1], -m[0][2], m[1].key))
         (score, pull, area), obj = scored[0]
