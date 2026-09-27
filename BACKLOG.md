@@ -39,7 +39,7 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **Hole spacing when placing** (unreleased; a board's layout work,
+- **Hole spacing when placing** (0.44.0; a board's layout work,
   2026-09-27): drilled holes of different owners keep hole_to_hole whatever
   their nets; copper keeps hole_clearance from an unplated hole; the via
   planner sees a stamped cell's vias (spec `2026-09-27-hole-spacing-design.md`).
