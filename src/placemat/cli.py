@@ -701,7 +701,7 @@ def cmd_occupancy(args) -> int:
     net = args.net if args.net is not None else pad.net
     size, drill, width = via_rules(net)
     layer = CopperLayer.of(args.layer) if args.layer else queries._ordered(pad.layers or g.layers)[0]
-    source = () if args.in_pad else pad.outlines
+    source = () if args.in_pad else queries.pad_copper(fp, number)
     spot, tally, tried = queries.free_spot(pad.box.center, queries.via_judge(g, pad.box.center, net, size, drill,
                                                                               width, layer, source),
                                            args.radius, args.step)

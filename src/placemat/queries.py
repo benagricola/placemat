@@ -157,6 +157,12 @@ def free_spot(start: Location, judge, radius: float = 2.0, step: float = 0.05) -
     return None, tally, tried
 
 
+def pad_copper(fp, number: str) -> tuple:
+    """Every outline of the part's pads numbered `number`: a pin drawn as
+    several primitives is all of them, and a via belongs in none."""
+    return tuple(o for q in fp.pads if q.number == number for o in q.outlines)
+
+
 def via_judge(geometry, start: Location, net: str, size: float, drill: float, width: float,
               layer, source=()):
     """The judge `free_spot` calls for a via of `net` fed from `start` by a

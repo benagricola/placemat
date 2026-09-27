@@ -163,3 +163,15 @@ def test_the_docs_describe_occupancy_and_free_spot():
     assert "placemat occupancy" in api and "FreeSpot(" in api
     assert "--via-near" in Path("skills/placemat/SKILL.md").read_text()
     assert "## To 0.19" in Path("skills/placemat/references/migration.md").read_text()
+
+
+def test_a_pin_split_into_two_lands_keeps_a_via_out_of_both():
+    """A pin drawn as two primitives with one number: the via stays out of
+    the second land as well as the first."""
+    fp = footprint("U1", 20, 20, w=4, h=2, nets=("GND", "GND"))
+    second = dataclasses.replace(fp.pads[1], number=fp.pads[0].number)
+    fp = dataclasses.replace(fp, pads=(fp.pads[0], second))
+    g = _geom(fps=[fp])
+    source = queries.pad_copper(fp, fp.pads[0].number)
+    judge = queries.via_judge(g, fp.pads[0].box.center, "GND", 0.6, 0.3, 0.2, F, source)
+    assert judge(second.box.center)[0] == "in the source pad"
