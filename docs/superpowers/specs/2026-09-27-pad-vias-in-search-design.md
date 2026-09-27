@@ -1,7 +1,7 @@
 # A via declared at a pad goes with its part during the search
 
 Date: 2026-09-27
-Status: draft
+Status: approved 2026-09-28
 Source: PLACEMAT_GAPS.md (a board's own), 2026-09-27 "a plane drop through
 the board lands on the other face's pads"
 

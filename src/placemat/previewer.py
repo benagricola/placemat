@@ -75,22 +75,38 @@ def resolve_like_last_run(script, lock_entries=None) -> tuple:
     from .runner import RunFailure
     with settings_mod.bind(cfg):
         fab = fab_profile(src.board_dir)
-        try:
-            board = scripted_board(script, src, cfg, fab, keep_going=False, pcb=generated)
-        except RunFailure as e:
-            raise ValueError("the script does not run: %s" % e)
-        parts = reuse_parts(src, cfg, fab, pcb=generated)
-        board.reuse_extra = "|".join(parts[k] for k in ("tool", "board", "settings", "fab"))
         previous, _ = newest_record([(Path(last.paths.get("run_dir", "")) / "reuse.json", "run %s" % last.run_id)])
-        if previous is not None and previous.get("context") != reuse_mod.context_key(board, board.reuse_extra):
-            board.keep_going = True             # the last run went on past its collisions: so does its replay
-            if previous.get("context") != reuse_mod.context_key(board, board.reuse_extra):
-                board.keep_going = False
+        lock_now = read_lock(lock_path(script)) if lock_entries is None else lock_entries
+
+        def build(keep_going):
+            try:
+                board = scripted_board(script, src, cfg, fab, keep_going=keep_going, pcb=generated)
+            except RunFailure as e:
+                raise ValueError("the script does not run: %s" % e)
+            parts = reuse_parts(src, cfg, fab, pcb=generated)
+            board.reuse_extra = "|".join(parts[k] for k in ("tool", "board", "settings", "fab"))
+            return board
+
+        # the keep_going the last run had: the one its replay record's context was made with; with no
+        # record to say, a board written past a firm collision was written by a run that kept going
+        board, known = build(False), False
+        for kg in (False, True):
+            board.keep_going = kg
+            if previous is not None and previous.get("context") == reuse_mod.context_key(board, board.reuse_extra):
+                known = True
+                break
+        else:
+            board.keep_going = False
         try:
-            plan = board.resolve(reuse=previous, lock=read_lock(lock_path(script)) if lock_entries is None
-                                 else lock_entries)
+            plan = board.resolve(reuse=previous, lock=lock_now)
         except (PlacementCollision, CriticalUnplaced) as e:
-            raise ValueError("the script does not place as it stands: %s" % str(e).splitlines()[0])
+            if known or board.keep_going:
+                raise ValueError("the script does not place as it stands: %s" % str(e).splitlines()[0])
+            board = build(True)
+            try:
+                plan = board.resolve(reuse=previous, lock=lock_now)
+            except (PlacementCollision, CriticalUnplaced) as e2:
+                raise ValueError("the script does not place as it stands: %s" % str(e2).splitlines()[0])
     return board, plan, src, last.run_id
 
 

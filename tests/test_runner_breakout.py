@@ -1,6 +1,7 @@
 """End to end on a scratch copy of the Breakout: generate the board with the
 pcb toolchain, run a script, write, check, record."""
 import json
+from pathlib import Path
 import os
 import shutil
 import subprocess
@@ -267,3 +268,23 @@ def test_adopting_a_net_locks_the_searched_items_it_joins(scratch_ecosystem, tmp
         script.write_text(SCRIPT)
         lock.path_for(script).unlink(missing_ok=True)
         routes.path_for(script).unlink(missing_ok=True)
+
+
+def test_lock_current_on_a_board_run_with_keep_going_and_no_record(scratch_ecosystem):
+    """A board written by a --keep-going run past a firm collision: with no
+    replay record to say so, the lock resolves the same way, not refuses."""
+    from placemat import cli, lock
+    from placemat.report import latest_for
+    script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
+    script.write_text(SCRIPT + 'board.place(Part("trunk_led_ra"))\n'
+                      'board.place(Part("term_far_jumper"), at=Location(8, 8))   # on mh1: a firm collision\n')
+    path = lock.path_for(script)
+    try:
+        run(script, label="kept-going", render=False, drc=False, keep_going=True)
+        last = latest_for(scratch_ecosystem / "breakout/.placemat/runs", "Breakout")
+        (Path(last.paths["run_dir"]) / "reuse.json").unlink()
+        assert cli.main(["lock", str(script), "--current"]) == 0
+        assert "trunk_led_ra" in {e.key for e in lock.read(path)}
+    finally:
+        script.write_text(SCRIPT)
+        path.unlink(missing_ok=True)
