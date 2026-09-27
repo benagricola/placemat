@@ -141,3 +141,45 @@ def resolve(entry: RouteEntry, occ, tolerance: float):
               for t in entry.tracks]
     vias = [Via(entry.net, locate(v["at"]), v["drill"], v["size"]) for v in entry.vias]
     return tracks, vias
+
+
+def adopt(script, placed, routed, nets=None, still_open=(), shorted=()) -> list:
+    """Adopt the router's new copper on `nets` (None: every net it added
+    copper to) into the script's routes file, merged over what it held. A
+    net still open or shorted after the route is left out: a net is adopted
+    whole and clean. The entries written."""
+    if nets is None:
+        had = {_key(c) for c in placed.copper if c.kind in ("track", "via")}
+        nets = sorted({c.net for c in routed.copper if c.kind in ("track", "via") and c.net and _key(c) not in had})
+    nets = [n for n in nets if n not in still_open and n not in shorted]
+    new = entries_from(placed, routed, nets)
+    if new:
+        path = path_for(script)
+        write(path, merged(read(path), new))
+    return new
+
+
+def release(script, nets) -> list:
+    """Drop `nets` from the script's routes file; the nets it did not hold."""
+    path = path_for(script)
+    old = read(path)
+    held = {e.net for e in old}
+    write(path, [e for e in old if e.net not in set(nets)])
+    return [n for n in nets if n not in held]
+
+
+def describe(entry: RouteEntry) -> str:
+    return "%-20s %d track(s), %d via(s), joining %s, adopted %s" % (
+        entry.net, len(entry.tracks), len(entry.vias), ", ".join(sorted(entry.parts)) or "-", entry.adopted or "-")
+
+
+def summary(plan) -> str:
+    """How a plan's adopted routes fared, for the run's log: "" when it had none."""
+    if not plan.adopted:
+        return ""
+    held = [n for n, s in plan.adopted.items() if s == "held"]
+    dropped = {n: s[len("dropped: "):] for n, s in plan.adopted.items() if s != "held"}
+    line = "%d held, %d dropped" % (len(held), len(dropped))
+    if dropped:
+        line += " (%s)" % "; ".join("%s: %s" % kv for kv in sorted(dropped.items()))
+    return line

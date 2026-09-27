@@ -403,7 +403,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         from .layout import CriticalUnplaced, PlacementCollision
         parts = reuse_parts(src, cfg, fab)
         board.reuse_extra = "|".join(parts[k] for k in ("tool", "board", "settings", "fab"))
-        from . import explore as explore_mod
+        from . import explore as explore_mod, routes as routes_mod
         try:
             lock_entries, explored = explore_mod.before_resolve(
                 script, board, explore_mod.BoardFactory(script, src, cfg, fab, keep_going, board.geometry),
@@ -411,7 +411,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         except explore_mod.FocusError as e:
             raise RunFailure("explore", str(e), {"tail": str(e)})
         try:
-            plan = board.resolve(progress=progress, reuse=previous_reuse, lock=lock_entries)
+            plan = board.resolve(progress=progress, reuse=previous_reuse, lock=lock_entries,
+                                 routes=routes_mod.read(routes_mod.path_for(script)))
         except PlacementCollision as e:
             (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
             raise RunFailure("placement", "Firm placements collide; fix the script (or --keep-going to see the rest)",
@@ -474,9 +475,14 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         metrics["measures"] = score_mod.plan_measures(board, plan)
         if explored is not None:
             metrics["explore"] = explored
+        if plan.adopted:
+            metrics["adopted"] = dict(plan.adopted)
         held = explore_mod.lock_summary(plan)
         if held:
             say("lock", held)
+        kept = routes_mod.summary(plan)
+        if kept:
+            say("adopted", kept)
         if previous_reuse:
             metrics["reused"] = {"steps": plan.reuse["reused"], "of": len(plan.reuse["steps"]),
                                  "from": previous_id, "first_change": plan.reuse["first_change"]}

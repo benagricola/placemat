@@ -138,3 +138,41 @@ def test_the_routes_file_is_part_of_the_scripts_fingerprint(tmp_path):
     placed, routed = _routed()
     routes.write(routes.path_for(script), routes.entries_from(placed, routed, ["X"]))
     assert script_fingerprint(script) != before
+
+
+def test_adopting_merges_the_nets_into_the_scripts_routes_file(tmp_path):
+    placed, routed = _routed()
+    script = tmp_path / "Board_layout.py"
+    routes.write(routes.path_for(script), [routes.RouteEntry("Y", (), (), {}, "earlier")])
+    got = routes.adopt(script, placed, routed, ["X"])
+    assert [e.net for e in got] == ["X"]
+    assert sorted(e.net for e in routes.read(routes.path_for(script))) == ["X", "Y"]
+
+
+def test_adopting_every_net_takes_those_the_route_closed(tmp_path):
+    placed, routed = _routed()
+    script = tmp_path / "Board_layout.py"
+    assert routes.adopt(script, placed, routed, None, still_open={"X": 1}) == []
+    assert routes.adopt(script, placed, routed, None, shorted=["X"]) == []
+    assert [e.net for e in routes.adopt(script, placed, routed, None)] == ["X"]
+
+
+def test_the_routes_command_lists_and_releases(tmp_path, capsys):
+    from placemat import cli
+    placed, routed = _routed()
+    script = tmp_path / "Board_layout.py"
+    script.write_text("")
+    routes.adopt(script, placed, routed, ["X"])
+    assert cli.main(["routes", str(script)]) == 0
+    out = capsys.readouterr().out
+    assert "X" in out and "2 track" in out and "1 via" in out and "R1" in out
+    assert cli.main(["routes", str(script), "--release", "X"]) == 0
+    assert routes.read(routes.path_for(script)) == []
+    assert cli.main(["routes", str(script), "--release", "Q"]) == 1       # not adopted: said, not ignored
+
+
+def test_a_plans_adopted_routes_are_summed_up_in_a_line():
+    held, dropped = _resolved((20, 16)), _resolved((21, 16))
+    assert routes.summary(held) == "1 held, 0 dropped"
+    assert routes.summary(dropped).startswith("0 held, 1 dropped (X: ") and "R1" in routes.summary(dropped)
+    assert routes.summary(Board(board_geometry(_parts(), width=40, height=40)).resolve()) == ""

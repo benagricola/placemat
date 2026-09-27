@@ -131,10 +131,14 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
         lock_entries, explored = explore_mod.before_resolve(
             script, board, explore_mod.BoardFactory(script, src, cfg, fab, True, board.geometry),
             explore, say)
-        plan = board.resolve(reuse=previous, lock=lock_entries)
+        from . import routes as routes_mod
+        plan = board.resolve(reuse=previous, lock=lock_entries, routes=routes_mod.read(routes_mod.path_for(script)))
         held = explore_mod.lock_summary(plan)
         if held and not quiet:
             console.say("lock", held)
+        kept = routes_mod.summary(plan)
+        if kept and not quiet:
+            console.say("adopted", kept)
         plan.reuse["parts"] = parts
         reuse_mod.write(out / "reuse.json", plan.reuse)
         if around is not None:

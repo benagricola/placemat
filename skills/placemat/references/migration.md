@@ -11,6 +11,13 @@ Nothing to change in a script. A run that fails before it writes the board
 layout folder as the last run left it, not the unplaced generation; a
 critical part left unplaced still writes the board as it stood.
 
+Routed copper can be kept: `placemat route <script> --adopt NET ...` (or
+`--adopt-all`) stores the router's copper on those nets in `<script
+stem>.routes.json`, relative to their pads, and every run draws it while the
+parts it joins stand as they did. A hand-written fold-back that turns a
+routed board into `board.track()` / `board.via()` calls with board
+coordinates can go: delete those calls, route, and adopt the nets instead.
+
 ## To 0.42
 
 Nothing to change in a script. A parts keepout whose `allow=` names the

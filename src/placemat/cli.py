@@ -52,6 +52,13 @@ def parser() -> argparse.ArgumentParser:
     rt.add_argument("--iterations", type=int, help="cap the router's search per net (default: the router's own)")
     rt.add_argument("--out", help="work directory (default: <board dir>/.placemat/route)")
     rt.add_argument("--json", action="store_true")
+    rt.add_argument("--adopt", nargs="+", metavar="NET",
+                    help="keep the router's copper on these nets: every run draws it (a layout script only)")
+    rt.add_argument("--adopt-all", action="store_true", help="keep the copper on every net the route closed")
+
+    rs = sub.add_parser("routes", help="the routes a layout script keeps (route --adopt), and releasing them")
+    rs.add_argument("script", help="a layout script")
+    rs.add_argument("--release", nargs="+", metavar="NET", help="stop keeping these nets: the router routes them again")
 
     imp = sub.add_parser("impact", help="what changed between two runs (ids, id prefixes, labels, or paths)")
     imp.add_argument("before")
@@ -371,6 +378,9 @@ def cmd_route(args) -> int:
     from .kicad.route import route_board
     from .project import find_board
     p = Path(args.pcb)
+    if (args.adopt or args.adopt_all) and p.suffix == ".kicad_pcb":
+        console.say("route", "--adopt keeps copper beside a layout script: give the script, not the board")
+        return 2
     pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
     work = Path(args.out) if args.out else pcb.parent.parent.parent / ".placemat" / "route"
     report = route_board(pcb, work, exclude_nets=set(args.exclude), layers=args.layers, quick=not args.full,
@@ -384,7 +394,41 @@ def cmd_route(args) -> int:
         for net, n in sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:15]:
             console.say("route", "%-20s %d open" % (net, n))
         console.say("route", "routed board: %s" % report.routed_pcb)
+    if args.adopt or args.adopt_all:
+        _adopt(p, args.adopt if args.adopt else None, report)
     return 0 if report.valid else 1
+
+
+def _adopt(script: Path, nets, report) -> None:
+    from . import routes
+    from .kicad.read import read_board
+    for net in nets or ():
+        if net in report.shorted:
+            console.say("adopt", "%s not adopted: the router shorted it" % net)
+        elif net in report.open_nets:
+            console.say("adopt", "%s not adopted: still %d open (a net is adopted whole)" % (net, report.open_nets[net]))
+    kept = routes.adopt(script, read_board(report.work / "in.kicad_pcb"), read_board(report.routed_pcb), nets,
+                        report.open_nets, report.shorted)
+    for e in kept:
+        console.say("adopt", routes.describe(e))
+    console.say("adopt", "%d net(s) kept in %s" % (len(kept), routes.path_for(script)))
+
+
+def cmd_routes(args) -> int:
+    from . import routes
+    script = Path(args.script)
+    if args.release:
+        missing = routes.release(script, args.release)
+        for net in missing:
+            console.say("routes", "%s was not adopted" % net)
+        if missing:
+            return 1
+    entries = routes.read(routes.path_for(script))
+    for e in entries:
+        console.say("routes", routes.describe(e))
+    if not entries:
+        console.say("routes", "no adopted routes (%s)" % routes.path_for(script))
+    return 0
 
 
 def _near(name: str, snap) -> str:
@@ -853,7 +897,7 @@ def main(argv=None) -> int:
 
 def _dispatch(args) -> int:
     return {"run": cmd_run, "lock": cmd_lock, "freeze": cmd_freeze, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
-            "route": cmd_route, "check": cmd_check, "show": cmd_show, "faces": cmd_faces,
+            "route": cmd_route, "routes": cmd_routes, "check": cmd_check, "show": cmd_show, "faces": cmd_faces,
             "settings": cmd_settings, "parts": cmd_parts,
             "datasheet": cmd_datasheet, "occupancy": cmd_occupancy, "preview": cmd_preview}[args.command](args)
 

@@ -7,10 +7,12 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **Adopting router output** (PLACEMAT_GAPS 2026-09-27 "router output cannot
-  be kept in the script"): `placemat route --adopt NET ...` writing routed
-  copper into the script with PadRef ends; replaces a board's hand-written
-  fold-back tool. Needs a spec.
+- **Two stamped cells' vias closer than the hole-to-hole rule** (a board's
+  layout work, 2026-09-27, core run core-study-3): a searched back-face cell's
+  GND via landed under 0.30 mm hole to hole from a fixed front cell's GND via.
+  Same net, so copper clearance passes; hole spacing is net-blind. A
+  candidate cell's through holes should be checked against placed vias and
+  holes by the hole-to-hole rule (hole clearance for unplated holes).
 - **Placing relative to a searched item** (PLACEMAT_GAPS 2026-09-26, twice):
   a `Pin` or a cutout on a searched item is refused ("only FIXED and EDGE
   items may be referred to"). Needs a spec.
@@ -26,6 +28,7 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   (PLACEMAT_GAPS 2026-09-27).
 - **`board.pair()` finding its own centreline; `route.diff_pairs` taking
   explicit net pairs** (PLACEMAT_GAPS 2026-09-27).
+
 ## Housekeeping (left for Ben: outside this repository)
 
 - `mnb-ecosystem/pyproject.toml` points placemat at the stale
@@ -34,6 +37,11 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **Keeping routed copper** (unreleased; PLACEMAT_GAPS 2026-09-27 "router
+  output cannot be kept in the script"): `placemat route <script> --adopt
+  NET ...` keeps the router's copper in `<script stem>.routes.json`,
+  relative to its pads; runs draw it while its parts stand, and drop a net
+  whose part moved. `placemat routes` lists and releases.
 - **A script imports from the folders above it** (unreleased; a board's
   layout work, 2026-09-27): up to the nearest placemat.toml, and those modules
   count in the run id.
