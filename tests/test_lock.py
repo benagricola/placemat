@@ -151,3 +151,23 @@ def test_a_link_s_measured_length_is_not_in_its_reuse_key():
     before = reuse.canonical(l)
     b.resolve()
     assert l.achieved_mm is not None and reuse.canonical(l) == before
+
+
+def test_an_entry_keeps_the_run_and_score_that_accepted_it(tmp_path):
+    from placemat import lock
+    e = lock.LockEntry("c1", ("U1", "1"), "front", (0.1, -2.5), 90.0, "front", "abc", 0, "0.40.0",
+                       run="1a2b3c4d", score=812.5)
+    p = tmp_path / "x.lock.json"
+    lock.write(p, [e])
+    (back,) = lock.read(p)
+    assert (back.run, back.score) == ("1a2b3c4d", 812.5)
+
+
+def test_an_entry_from_before_has_no_run_or_score(tmp_path):
+    import json
+    from placemat import lock
+    p = tmp_path / "x.lock.json"
+    p.write_text(json.dumps({"format": 1, "entries": [{"key": "c1", "anchor": ["U1", "1"], "anchor_face": "front",
+                 "offset": [0.1, -2.5], "rotation": 90.0, "face": "front", "declaration": "abc"}]}))
+    (e,) = lock.read(p)
+    assert (e.run, e.score) == ("", None)

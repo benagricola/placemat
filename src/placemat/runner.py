@@ -349,7 +349,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         try:
             lock_entries, explored = explore_mod.before_resolve(
                 script, board, explore_mod.BoardFactory(script, src, cfg, fab, keep_going, board.geometry),
-                explore, say)
+                explore, say, run_id=rid)
         except explore_mod.FocusError as e:
             raise RunFailure("explore", str(e), {"tail": str(e)})
         try:

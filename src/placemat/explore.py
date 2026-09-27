@@ -216,7 +216,7 @@ class BoardFactory:
 
 # ------------------------------------------------------------ search and accept
 def search(make_board, script, seconds: float, jobs: int | None = None, keys=(), after_line=None, box=None,
-           accept: bool = False, seeds=None, release: str = "") -> tuple:
+           accept: bool = False, seeds=None, release: str = "", run_id: str = "") -> tuple:
     """What `--explore` does: read the script's lock, choose the focus, run
     the variants, and report what the best would move against the current
     placement. With `accept`, write the best's decisions for the focused
@@ -254,7 +254,7 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
             report["moves"].append({"key": key, "mm": round(d, 3), "rotation": [was.rotation, now.rotation]})
     if accept:
         placed = [k for k in focus if best.placement(k) is not None]
-        new = _lock.entries(board, best, placed, release)
+        new = _lock.entries(board, best, placed, release, run_id, round(result.best, 1))
         kept = [e for e in entries if e.key not in focus]
         entries = _lock.renumber(kept + new, best)
         _lock.write(path, entries)
@@ -274,7 +274,7 @@ class ExploreOptions:
     accept: bool = False
 
 
-def before_resolve(script, board, make_board, options, say) -> tuple:
+def before_resolve(script, board, make_board, options, say, run_id: str = "") -> tuple:
     """The lock entries a run resolves with, and the explore report when
     --explore was given (else None): the search runs first, and with
     --accept its decisions are in the entries returned."""
@@ -285,7 +285,8 @@ def before_resolve(script, board, make_board, options, say) -> tuple:
     import time
     t0 = time.time()
     report, entries = search(make_board, script, options.seconds, options.jobs, options.keys,
-                             options.after_line, options.box, options.accept, release=__version__)
+                             options.after_line, options.box, options.accept, release=__version__,
+                             run_id=run_id)
     report["seconds"] = round(time.time() - t0, 1)
     for line in report_lines(report):
         say("explore", line)

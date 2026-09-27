@@ -28,6 +28,8 @@ class LockEntry:
     declaration: str                # digest of the item's declaration, links and footprint
     turn: int = 0                   # its place among the locked items in the accepted order
     release: str = ""               # the placemat release that accepted it, for the record
+    run: str = ""                   # the run whose explore accepted it
+    score: float | None = None      # that explore's best run score, mm
 
 
 def path_for(script) -> Path:
@@ -43,7 +45,7 @@ def read(path) -> list:
     data = json.loads(path.read_text())
     return [LockEntry(e["key"], tuple(e["anchor"]) if e["anchor"] is not None else None, e["anchor_face"],
                       tuple(e["offset"]), e["rotation"], e["face"], e["declaration"], e.get("turn", 0),
-                      e.get("release", ""))
+                      e.get("release", ""), e.get("run", ""), e.get("score"))
             for e in data.get("entries", [])]
 
 
@@ -123,9 +125,9 @@ def placement_of(entry: LockEntry, occ) -> tuple:
                      Face(entry.face)), ""
 
 
-def entries(board, plan, keys, release: str = "") -> list:
+def entries(board, plan, keys, release: str = "", run: str = "", score: float | None = None) -> list:
     """Entries for `keys` from a resolved plan, numbered in the order the
-    plan placed them."""
+    plan placed them, with the run and score that accepted them."""
     out = []
     for key in sorted(keys, key=lambda k: plan.turns[k]["order"] if k in plan.turns else 1 << 30):
         turn = plan.turns.get(key)
@@ -133,7 +135,7 @@ def entries(board, plan, keys, release: str = "") -> list:
         if turn is None or intent is None:
             continue
         e = entry_from_turn(key, turn, declaration_digest(board, intent), release)
-        out.append(LockEntry(**{**asdict(e), "turn": len(out)}))
+        out.append(LockEntry(**{**asdict(e), "turn": len(out), "run": run, "score": score}))
     return out
 
 
