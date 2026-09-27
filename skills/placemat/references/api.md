@@ -816,8 +816,8 @@ KiCad's differential tool does:
 ```python
 board.pair(CAN_P, CAN_N, [(padP, padN), (x, y), (x, y2), (padP2, padN2)], layer=B)
 ```
-The path starts and ends with a (P pad, N pad) tuple; the points between
-are the centreline. Width and gap come from the P net's class
+The path starts and ends with a (P pad, N pad) tuple; the points between,
+two or more, are the centreline. Width and gap come from the P net's class
 (`diff_pair_width`, `diff_pair_gap`; else the track width and clearance) or
 `width=`/`gap=`. Corners are chamfered at 45 (`chamfer=`), each track leaves
 its pad at 45 then straight to the nearest point of its line, and a lead

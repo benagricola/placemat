@@ -2153,8 +2153,8 @@ class Board:
              chamfer: float | None = None, via_step: float | None = None, priority: Priority = Priority.DEFAULT,
              bridge: bool = False, why: str = ""):
         """Two nets drawn together at `gap` along one centreline. `path`
-        starts and ends with a (P pad, N pad) tuple; the points between are
-        the centreline. Width and gap default to the P net's class. Corners
+        starts and ends with a (P pad, N pad) tuple; the points between, two
+        or more, are the centreline. Width and gap default to the P net's class. Corners
         are chamfered at 45, each track leaves its pad at 45, and a lead that
         would touch the partner goes over the other face from a via."""
         chamfer = self.settings.copper_pair_chamfer if chamfer is None else chamfer
@@ -2164,8 +2164,9 @@ class Board:
         nc = self.geometry.netclass(p_name)
         w = float(width) if width is not None else (nc.diff_pair_width or nc.track_width)
         g = float(gap) if gap is not None else (nc.diff_pair_gap or nc.clearance)
-        if len(path) < 3:
-            raise ValueError("a pair needs its two pad pairs and at least one centreline point between")
+        if len(path) < 4:
+            raise ValueError("%s/%s: a pair needs its two pad pairs and at least two centreline points between "
+                             "(the direction the pair runs is read from them); %d given" % (p_name, n_name, len(path) - 2))
         (sp, sn), (ep, en), mids = path[0], path[-1], path[1:-1]
         refs = _refs_in(path)
 
