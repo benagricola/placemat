@@ -23,10 +23,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **A via found near a pad, joined to it** (unreleased; PLACEMAT_GAPS
+- **A via found near a pad, joined to it** (0.39.0; PLACEMAT_GAPS
   2026-09-26 twice and 2026-09-27): a FreeSpot via draws its tail, and a
   via intent is a track end (spec `2026-09-27-via-tail-design.md`).
-- **Route layers from the declared planes** (unreleased; a board agent's
+- **Route layers from the declared planes** (0.39.0; a board agent's
   router A/B, 2026-09-25): the route step used to give the router every
   copper layer unless `[route] layers` said otherwise, so on a board whose
   inner layers are planes the router ran signals (and a differential
