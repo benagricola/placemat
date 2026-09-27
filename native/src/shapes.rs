@@ -31,6 +31,7 @@ pub enum Kind {
     Through,
     Copper,
     Npth,
+    Hole,
     Mask,
     Silk,
     Body,
@@ -44,6 +45,7 @@ impl Kind {
             "through" => Some(Kind::Through),
             "copper" => Some(Kind::Copper),
             "npth" => Some(Kind::Npth),
+            "hole" => Some(Kind::Hole),
             "mask" => Some(Kind::Mask),
             "silk" => Some(Kind::Silk),
             "body" => Some(Kind::Body),
@@ -53,6 +55,10 @@ impl Kind {
 
     fn is_drawn(self) -> bool {
         matches!(self, Kind::Silk | Kind::Mask | Kind::Body)
+    }
+
+    fn is_hole(self) -> bool {
+        matches!(self, Kind::Hole | Kind::Npth)
     }
 }
 
@@ -98,6 +104,8 @@ pub struct ConflictConfig {
     pub net_clearance: HashMap<String, f64>, // net name -> its netclass's own clearance
     pub gap: f64,       // Occupancy._gap: the conflict-gap prefilter for a non-drawn shape
     pub drawn_gap: f64, // Occupancy._drawn_gap: for a silk/mask/body shape
+    pub hole_to_hole: f64,   // BoardGeometry.hole_to_hole: two drilled holes, whatever their nets
+    pub hole_clearance: f64, // BoardGeometry.hole_clearance: copper to an unplated hole
 }
 
 impl ConflictConfig {
@@ -160,6 +168,17 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
     if s.kind.is_drawn() || o.kind.is_drawn() {
         return drawn_conflict(s, o, cfg);
     }
+    if s.kind.is_hole() && o.kind.is_hole() {
+        // hole to hole is net-blind (placemat commit "Placing keeps the hole-to-hole rule")
+        let need = cfg.hole_to_hole;
+        if box_gap(s.bbox, o.bbox) >= need - 1e-9 {
+            return false;
+        }
+        return polys_overlap(&s.poly, &o.poly) || poly_distance(&s.poly, &o.poly) < need - 1e-9;
+    }
+    if s.kind == Kind::Hole || o.kind == Kind::Hole {
+        return false; // its pad or via ring answers for everything else
+    }
     if s.kind == Kind::Courtyard && o.kind == Kind::Courtyard {
         let depth = (s.bbox.2.min(o.bbox.2) - s.bbox.0.max(o.bbox.0))
             .min(s.bbox.3.min(o.bbox.3) - s.bbox.1.max(o.bbox.1));
@@ -209,8 +228,12 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
         }
         return poly_distance(&s.poly, &o.poly) < clr - 1e-9;
     }
-    if s.kind == Kind::Npth && is_copperish(o.kind) {
-        return polys_overlap(&s.poly, &o.poly);
+    if (s.kind == Kind::Npth && is_copperish(o.kind)) || (o.kind == Kind::Npth && is_copperish(s.kind)) {
+        if polys_overlap(&s.poly, &o.poly) {
+            return true;
+        }
+        let need = cfg.hole_clearance;
+        return need > 0.0 && box_gap(s.bbox, o.bbox) < need - 1e-9 && poly_distance(&s.poly, &o.poly) < need - 1e-9;
     }
     false
 }
@@ -366,6 +389,8 @@ mod tests {
             net_clearance: HashMap::new(),
             gap: 1.0,
             drawn_gap: 0.2,
+            hole_to_hole: 0.25,
+            hole_clearance: 0.0,
         }
     }
 

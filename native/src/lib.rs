@@ -88,7 +88,7 @@ fn geometry_bounds(poly: &[Point]) -> (f64, f64, f64, f64) {
 /// direct fuzzing against the live Python method - see
 /// tests/test_native_conflict.py.
 #[pyfunction]
-#[pyo3(signature = (s, o, clearance, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance))]
+#[pyo3(signature = (s, o, clearance, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, hole_to_hole, hole_clearance))]
 #[allow(clippy::too_many_arguments)]
 fn conflict(
     s: PyShape,
@@ -100,11 +100,14 @@ fn conflict(
     component_spacing: f64,
     default_clearance: f64,
     net_clearance: HashMap<String, f64>,
+    hole_to_hole: f64,
+    hole_clearance: f64,
 ) -> PyResult<bool> {
     // gap/drawn_gap are only read by ShapeGrid::first_conflict's gap_for,
     // not by conflict() itself: unused here.
     let cfg = shapes::ConflictConfig {
         touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, gap: 0.0, drawn_gap: 0.0,
+        hole_to_hole, hole_clearance,
     };
     Ok(shapes::conflict(&build_shape(&s)?, &build_shape(&o)?, clearance, &cfg))
 }
@@ -122,7 +125,7 @@ struct NativeObstacles {
 #[pymethods]
 impl NativeObstacles {
     #[new]
-    #[pyo3(signature = (obstacles, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, gap, drawn_gap))]
+    #[pyo3(signature = (obstacles, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, gap, drawn_gap, hole_to_hole, hole_clearance))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         obstacles: Vec<PyShape>,
@@ -134,10 +137,13 @@ impl NativeObstacles {
         net_clearance: HashMap<String, f64>,
         gap: f64,
         drawn_gap: f64,
+        hole_to_hole: f64,
+        hole_clearance: f64,
     ) -> PyResult<Self> {
         let built: Vec<shapes::Shape> = obstacles.iter().map(build_shape).collect::<PyResult<_>>()?;
         let cfg = shapes::ConflictConfig {
             touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, gap, drawn_gap,
+            hole_to_hole, hole_clearance,
         };
         Ok(NativeObstacles { grid: shapes::ShapeGrid::new(built), cfg })
     }

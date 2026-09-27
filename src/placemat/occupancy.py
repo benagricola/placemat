@@ -28,7 +28,7 @@ class Shape:
     """One obstacle: a polygon on a set of copper layers (or both faces for a
     courtyard/through feature), tagged with who owns it and what net it is."""
     owner: str                      # refdes (or cell name for cell copper)
-    kind: str                       # courtyard | pad | through | copper | npth
+    kind: str                       # courtyard | pad | through | copper | npth | hole (a plated hole's drill)
     faces: frozenset[Face]          # which faces this shape occupies (courtyard sense)
     layers: frozenset[CopperLayer]  # copper layers (clearance sense); empty for courtyards
     net: str
@@ -213,10 +213,19 @@ def _fp_shapes(fp: Footprint, envelope: str = "courtyard") -> list[Shape]:
             shapes.append(Shape(fp.ref, "through" if p.through else "pad",
                                 _BOTH if p.through else frozenset([fp.face]),
                                 p.layers, p.net, poly, Box.of_points(poly), p.number))
+        if p.through and p.drill_mm:
+            shapes.append(hole_shape(fp.ref, p.box.center, p.drill_mm, p.net, p.number))
     for center, drill in fp.npth:
         poly = circle_polygon(center, drill / 2.0)
         shapes.append(Shape(fp.ref, "npth", _BOTH, frozenset(CopperLayer), "", poly, Box.of_points(poly)))
     return shapes
+
+
+def hole_shape(owner: str, centre: Location, drill: float, net: str = "", label: str = "") -> Shape:
+    """A plated hole's drill: net-blind, it keeps the board's hole-to-hole
+    rule from another owner's holes; its pad or via ring is its copper."""
+    poly = circle_polygon(centre, drill / 2.0)
+    return Shape(owner, "hole", _BOTH, frozenset(), net, poly, Box.of_points(poly), label)
 
 
 def _is_lead(fp, pad) -> bool:
@@ -248,6 +257,10 @@ class Occupancy:
         if self.envelope != "courtyard" and self._gap < max(component_spacing, self.silk_clearance):
             raise ValueError("[place] conflict_gap %.2f is less than the %.2f mm the %s envelope needs a check to reach"
                              % (self._gap, max(component_spacing, self.silk_clearance), self.envelope))
+        if self._gap < max(geometry.hole_to_hole, geometry.hole_clearance):
+            raise ValueError("[place] conflict_gap %.2f is less than the board's hole rules (%.2f hole to hole, %.2f "
+                             "hole clearance) need a check to reach" % (self._gap, geometry.hole_to_hole,
+                                                                         geometry.hole_clearance))
         self.edge_margin = edge_margin
         self.vias_block_courtyards = vias_block_courtyards
         # The board a script declared, when it is not a rectangle (a Disc or an Outline):
@@ -291,6 +304,9 @@ class Occupancy:
             for poly in c.outlines:
                 self.copper.append(Shape(c.owner or "", "through" if c.kind == "via" else "copper",
                                          faces, c.layers, c.net, poly, Box.of_points(poly)))
+            if c.kind == "via" and c.drill_mm:
+                at = Location(*c.anchors[0]) if c.anchors else c.box.center
+                self.copper.append(hole_shape(c.owner or "", at, c.drill_mm, c.net))
         # Rule areas the generated board already carries: a stamped cell brings
         # its module's with it. One that belongs to the board is reserved now;
         # one a cell owns has no position until that cell lands, so it waits
@@ -764,7 +780,8 @@ class Occupancy:
             cache = dict(touch=self._touch, vias_block_courtyards=self.vias_block_courtyards,
                         silk_clearance=self.silk_clearance, component_spacing=self.component_spacing,
                         default_clearance=self.geometry.default_clearance, net_clearance=net_clearance,
-                        gap=self._gap, drawn_gap=self._drawn_gap)
+                        gap=self._gap, drawn_gap=self._drawn_gap,
+                        hole_to_hole=self.geometry.hole_to_hole, hole_clearance=self.geometry.hole_clearance)
             self.__dict__["_native_kwargs"] = cache
         return cache
 
@@ -1040,6 +1057,8 @@ class Occupancy:
         close to it.)"""
         if s.kind in _DRAWN or o.kind in _DRAWN:
             return self.who(s.owner).split(" ")[0]
+        if s.kind in _HOLES and o.kind in _HOLES:
+            return "hole-to-hole"
         if s.kind == "courtyard" or o.kind == "courtyard":
             return "courtyard"
         if (s.kind in _COPPERISH and o.kind in _COPPERISH) or s.kind == "npth" or o.kind == "npth":
@@ -1172,6 +1191,18 @@ class Occupancy:
         ks, ko = s.kind, o.kind
         if ks in _DRAWN or ko in _DRAWN:
             return self._drawn_conflict(s, o)
+        if ks in _HOLES and ko in _HOLES:
+            # hole to hole is net-blind: two holes of one net drilled too close still break the bit
+            need = self.geometry.hole_to_hole
+            if _box_gap(s.box, o.box) >= need - 1e-9:
+                return None
+            gap = poly_distance(s.poly, o.poly) if not polys_overlap(s.poly, o.poly) else 0.0
+            if gap < need - 1e-9:
+                return "%s hole %.2f mm from %s's hole (hole-to-hole needs %.2f)" % (
+                    self.who(s.owner) or "a via", gap, self.who(o.owner) or "a via", need)
+            return None
+        if ks == "hole" or ko == "hole":
+            return None                     # its pad or via ring answers for everything else
         if ks == "courtyard" and ko == "courtyard":
             # courtyards may touch: a shared edge, to a rounding, is packing, not a collision
             depth = min(min(s.box.right, o.box.right) - max(s.box.left, o.box.left),
@@ -1221,14 +1252,22 @@ class Occupancy:
                     self.who(s.owner), what, s.net or "-", gap, o.net or self.who(o.owner),
                     "/".join(sorted(l.value for l in common)), clr)
             return None
-        if ks == "npth" and ko in ("pad", "through", "copper"):
-            if polys_overlap(s.poly, o.poly):
-                return "%s hole cuts %s copper" % (self.who(s.owner), o.net or self.who(o.owner))
+        if (ks == "npth" and ko in _COPPERISH) or (ko == "npth" and ks in _COPPERISH):
+            hole, metal = (s, o) if ks == "npth" else (o, s)
+            if polys_overlap(hole.poly, metal.poly):
+                return "%s hole cuts %s copper" % (self.who(hole.owner), metal.net or self.who(metal.owner))
+            need = self.geometry.hole_clearance
+            if need > 0 and _box_gap(hole.box, metal.box) < need - 1e-9:
+                gap = poly_distance(hole.poly, metal.poly)
+                if gap < need - 1e-9:
+                    return "%s copper %.2f mm from %s's unplated hole (needs %.2f)" % (
+                        metal.net or self.who(metal.owner), gap, self.who(hole.owner), need)
         return None
 
 
 _DRAWN = frozenset(("silk", "mask", "body"))
 _COPPERISH = frozenset(("pad", "through", "copper"))
+_HOLES = frozenset(("hole", "npth"))
 _NAMES = {"silk": "silk", "mask": "mask opening", "body": "body", "pad": "pad", "through": "pad", "npth": "hole"}
 
 
@@ -1393,7 +1432,7 @@ def _reason_key(why: str) -> str:
     Counter and `reasons` dict (moved here from placer.py, which still
     re-exports it, so legal_bucket's native path can derive the same key
     without formatting the sentence first - see legal_bucket's own doc)."""
-    for word in ("courtyard", "edge", "reservation", "copper", "through", "npth"):
+    for word in ("courtyard", "edge", "reservation", "copper", "through", "npth", "hole-to-hole"):
         if word in why:
             return word
     return why.split(" ")[0]

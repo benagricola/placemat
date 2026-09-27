@@ -66,7 +66,7 @@ def _native_legal(occ: Occupancy, item, placement: Placement, clearance=None):
     index = placemat_native.NativeObstacles(
         [_py_shape_tuple(occ, o) for o in others], cfg["touch"], cfg["vias_block_courtyards"],
         cfg["silk_clearance"], cfg["component_spacing"], cfg["default_clearance"], cfg["net_clearance"],
-        occ._gap, occ._drawn_gap,
+        occ._gap, occ._drawn_gap, cfg["hole_to_hole"], cfg["hole_clearance"],
     )
     dx, dy = placement.location.x, placement.location.y
     candidates = []

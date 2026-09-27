@@ -21,7 +21,7 @@ from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfered
                      resolve_bridges)
 from .geometry import Transform, box_polygon, circle_polygon, point_in_polygon, poly_distance, poly_within, polys_overlap, transform_box
 from .findings import Finding, Findings
-from .occupancy import Occupancy, Shape, TOUCH, parts_claim
+from .occupancy import Occupancy, Shape, TOUCH, hole_shape, parts_claim
 from .cutouts import Cutouts, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from .placement import Placement
@@ -3292,6 +3292,8 @@ class Board:
             for hit in occ.copper_conflicts(shape):
                 plan.findings.append(Finding("copper", "copper %s: %s" % (op.net, hit)))
             shapes.append(shape)
+            if isinstance(op, Via):
+                shapes.append(hole_shape("", op.at, op.drill, op.net))     # what is placed after keeps its holes clear
         occ.add_copper(shapes)
         if any(c.freedom.decided for c in intents):
             ctx.fixed_tracks += [op for op in ops]

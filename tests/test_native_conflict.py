@@ -70,7 +70,8 @@ def _cfg_kwargs(occ: Occupancy):
     net_clearance = {n: occ.geometry.netclass(n).clearance for n in occ.geometry.nets}
     return dict(touch=occ._touch, vias_block_courtyards=occ.vias_block_courtyards,
                 silk_clearance=occ.silk_clearance, component_spacing=occ.component_spacing,
-                default_clearance=occ.geometry.default_clearance, net_clearance=net_clearance)
+                default_clearance=occ.geometry.default_clearance, net_clearance=net_clearance,
+                hole_to_hole=occ.geometry.hole_to_hole, hole_clearance=occ.geometry.hole_clearance)
 
 
 def _rich_occupancy(envelope="union", vias_block_courtyards=False):
@@ -79,15 +80,17 @@ def _rich_occupancy(envelope="union", vias_block_courtyards=False):
         footprint("U2", 20, 10, w=3, h=3, through=True, fab=(18.5, 8.5, 21.5, 11.5)),
         footprint("U3", 10, 20, w=2, h=2, silk_boxes=[(9, 19, 11, 19.2)]),
     ]
-    g = board_geometry(fps, width=60, height=60, silk_clearance=0.1)
-    from placemat.settings import Settings
     import dataclasses
+    g = dataclasses.replace(board_geometry(fps, width=60, height=60, silk_clearance=0.1), hole_clearance=0.2)
+    from placemat.settings import Settings
     settings = dataclasses.replace(Settings(), place_envelope=envelope)
     occ = Occupancy(g, edge_margin=1.0, settings=settings, vias_block_courtyards=vias_block_courtyards,
                     component_spacing=0.2)
     via_poly = ((14.0, 14.0), (14.3, 14.0), (14.3, 14.3), (14.0, 14.3))
+    from placemat.occupancy import hole_shape
     occ.add_copper([Shape("", "through", frozenset([Face.FRONT, Face.BACK]), frozenset(CopperLayer),
-                          "GND", via_poly, Box.of_points(via_poly))])
+                          "GND", via_poly, Box.of_points(via_poly)),
+                    hole_shape("", Location(14.15, 14.15), 0.2, "GND")])     # the via's drill
     return occ
 
 
