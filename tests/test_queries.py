@@ -183,3 +183,17 @@ def test_a_tails_rounded_end_counts_against_a_pad_behind_its_start():
     pad = rect(19.0, 20.0, 0.8, 0.8)
     g = _geom([CopperItem("pad", "SIG", frozenset([F]), (pad,), Box.of_points(pad))])
     assert queries.judge_tail(g, Location(20.0, 20.0), Location(22.0, 20.0), "GND", 1.0, F)
+
+
+def test_a_spot_says_the_tail_it_was_judged_with():
+    spot = queries.Spot(Location(1.0, 2.0), 0.5)
+    text = "\n".join(queries.spot_lines(spot, queries.Counter(), 3, "GND", "u1.2", tail=(0.25, F)))
+    assert "tail 0.25 mm on F.Cu" in text
+
+
+def test_a_tail_on_a_pad_at_an_angle_is_no_wider_than_its_narrow_side():
+    import math
+    c, s = math.cos(math.pi / 4), math.sin(math.pi / 4)
+    corners = [(-1.0, -0.25), (1.0, -0.25), (1.0, 0.25), (-1.0, 0.25)]
+    turned = tuple((10 + x * c - y * s, 10 + x * s + y * c) for x, y in corners)
+    assert abs(queries.tail_width(2.0, [turned]) - 0.5) < 1e-9

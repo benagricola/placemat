@@ -2150,7 +2150,7 @@ class Board:
                 net, layer.value, owner, number))
             return None
         nc = self.geometry.netclasses.get(net)
-        width = queries.tail_width(nc.track_width if nc else 0.2, [sh.box for sh in own])
+        width = queries.tail_width(nc.track_width if nc else 0.2, [sh.poly for sh in own])
         every = frozenset(self.geometry.layers)
         holes = [(occ.pad_location(fp.ref, p.number), p.drill_mm)
                  for fp in self.geometry.footprints for p in fp.pads if p.through and p.drill_mm]

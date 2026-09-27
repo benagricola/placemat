@@ -16,8 +16,8 @@ constant citing its source. A position placemat cannot say any other way is
 a placemat gap: keep the number with a `why=` naming the gap, and report
 it. SKILL.md's check line counts them.
 
-A `FreeSpot` via now draws its tail to the pad: a script that joined one by
-hand draws it twice, so drop that track, or say `tail=False`. A via typed as
+Every `FreeSpot` via now draws its tail to the pad; say `tail=False` for a
+via that should stand alone. A via typed as
 a pad offset copied from `occupancy --via-near` can become
 `board.via(net, FreeSpot(near=PadRef(...)))`, and a track that ran on from it
 can end on the via `board.via()` returns. The tail is judged as the drawn

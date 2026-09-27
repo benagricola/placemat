@@ -700,7 +700,7 @@ def cmd_occupancy(args) -> int:
     pad = pads[0]
     net = args.net if args.net is not None else pad.net
     size, drill, width = via_rules(net)
-    width = queries.tail_width(width, [q.box for q in pads])
+    width = queries.tail_width(width, [o for q in pads for o in q.outlines])
     layer = CopperLayer.of(args.layer) if args.layer else queries._ordered(pad.layers or g.layers)[0]
     source = () if args.in_pad else queries.pad_copper(fp, number)
     spot, tally, tried = queries.free_spot(pad.box.center, queries.via_judge(g, pad.box.center, net, size, drill,
@@ -710,10 +710,11 @@ def cmd_occupancy(args) -> int:
         console.data(json.dumps({"spot": None if spot is None else {
             "at": [spot.at.x, spot.at.y], "distance": spot.distance, "soft": list(spot.soft)},
             "tally": dict(tally), "tried": tried, "net": net, "size": size, "drill": drill,
-            "layer": layer.value}, indent=2))
+            "layer": layer.value, "tail_width": width}, indent=2))
     else:
         console.lines("occupancy", "\n".join(queries.spot_lines(spot, tally, tried, net,
-                                                                  "%s.%s" % (fp.inst, pad.number))))
+                                                                  "%s.%s" % (fp.inst, pad.number),
+                                                                  tail=None if args.in_pad else (width, layer))))
     return 0 if spot is not None else 1
 
 

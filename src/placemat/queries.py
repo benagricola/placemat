@@ -89,12 +89,25 @@ def _segment(a: Location, b: Location, width: float):
     return _segment_polygon(a, b, width)
 
 
-def tail_width(width: float, pad_boxes) -> float:
+def _narrow_side(poly) -> float:
+    """A convex outline's least width: its extent across each edge's normal,
+    the least of them. A pad at an angle is as narrow as it is square on."""
+    best = math.inf
+    for (x0, y0), (x1, y1) in zip(poly, poly[1:] + poly[:1]):
+        n = math.hypot(x1 - x0, y1 - y0)
+        if n < 1e-12:
+            continue
+        nx, ny = -(y1 - y0) / n, (x1 - x0) / n
+        d = [x * nx + y * ny for x, y in poly]
+        best = min(best, max(d) - min(d))
+    return best
+
+
+def tail_width(width: float, pad_outlines) -> float:
     """The width of a via's tail: its class's track width, necked down to
     the narrower side of its pad, as a hand-drawn tail from a small pad on a
     wide power class is; a tail wider than its pad reaches its neighbours."""
-    sides = [min(b.width, b.height) for b in pad_boxes]
-    return min([width] + sides)
+    return min([width] + [_narrow_side(tuple(o)) for o in pad_outlines])
 
 
 def judge_tail(geometry, start: Location, end: Location, net: str, width: float, layer) -> tuple:
@@ -276,12 +289,16 @@ def box_lines(geometry, box: Box) -> list:
     return out
 
 
-def spot_lines(spot, tally, tried, net: str, pad_label: str) -> list:
+def spot_lines(spot, tally, tried, net: str, pad_label: str, tail=None) -> list:
+    """The answer as text; `tail` is the (width, layer) its straight tail was
+    judged at, which a tail drawn by hand must not exceed."""
     rest = ", ".join("%s x%d" % kv for kv in tally.most_common()) or "none"
     if spot is None:
         return ["via of %s near %s: nowhere, %d spot(s) tried: %s" % (net, pad_label, tried, rest)]
     out = ["via of %s near %s: (%.3f, %.3f), %.2f mm from the pad" % (
         net, pad_label, spot.at.x, spot.at.y, spot.distance)]
+    if tail is not None:
+        out.append("  tail %.2f mm on %s, judged straight from the pad's centre" % (tail[0], tail[1].value))
     out += ["  %s" % s for s in spot.soft]
     out.append("  nearer spots that failed: %s" % rest)
     return out
