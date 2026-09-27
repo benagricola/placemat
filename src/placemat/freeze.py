@@ -132,16 +132,27 @@ def ensure_imports(source: str, names) -> str:
 
 
 # ------------------------------------------------------------ the command
-def frozen_args(board, key, turn, fixed: bool) -> dict:
-    """The keyword arguments that put an item where its turn did: at its
-    anchor pad's point plus the offset in board directions, searched with no
-    room to move (the same tier and turn of the order), or `fixed` a firm
-    Location, which goes down before everything searched."""
+def why_text(said: str, entry, date: str) -> str:
+    """An item's why= once frozen: what the script said, then where the spot
+    came from - the explore run and its score when the lock kept them."""
+    stamp = ("explore %s: %s mm, frozen %s" % (entry.run, entry.score, date)
+             if entry.run and entry.score is not None else "explore: frozen %s" % date)
+    return "%s; %s" % (said, stamp) if said else stamp
+
+
+def frozen_args(board, key, turn, fixed: bool, entry=None, why: str = "") -> dict:
+    """The keyword arguments that put an item where its turn did. With its
+    lock entry: at its anchor pad's point plus the entry's offset in the
+    anchor part's own frame, turned with the anchor as the entry's rotation
+    is, searched with no room to move (the same tier and turn of the order).
+    `fixed`: a firm Location, which goes down before everything searched.
+    `why` is the call's why= text, quoted."""
     p = turn["placement"]
     rotation = "%g" % round(p.rotation, 6)
+    said = {"why": why} if why else {}
     if turn.get("anchor") is None:
         where = "Location(%s, %s)" % (_n(p.location.x), _n(p.location.y))
-        return {"at": where if fixed else "Near(%s, radius=0)" % where, "rotation": rotation}
+        return {"at": where if fixed else "Near(%s, radius=0)" % where, "rotation": rotation, **said}
     ref, number = turn["anchor"]
     fp = board.geometry.footprint(ref)
     a = turn["anchor_at"]
@@ -154,8 +165,14 @@ def frozen_args(board, key, turn, fixed: bool) -> dict:
             raise FreezeError("%s: its anchor %s pad %s has no number or net to name it by" % (key, ref, number))
         pad = "PadRef(Part(%r), %r)" % (fp.inst, nets[0])
     if fixed:
-        return {"at": "Location(X(%s, %s), Y(%s, %s))" % (pad, _n(dx), pad, _n(dy)), "rotation": rotation}
-    return {"at": "Near(%s.offset(%s, %s), radius=0)" % (pad, _n(dx), _n(dy)), "rotation": rotation}
+        return {"at": "Location(X(%s, %s), Y(%s, %s))" % (pad, _n(dx), pad, _n(dy)), "rotation": rotation, **said}
+    if entry is not None and entry.anchor is not None:
+        lx, ly = entry.offset
+        if entry.anchor_face == "back":
+            lx = -lx                    # the lock's frame is only turned; local() mirrors a part on the back
+        return {"at": "Near(%s.local(%s, %s), radius=0)" % (pad, _n(lx), _n(ly)),
+                "rotation": "Turned(Part(%r), %s)" % (fp.inst, _n(entry.rotation)), **said}
+    return {"at": "Near(%s.offset(%s, %s), radius=0)" % (pad, _n(dx), _n(dy)), "rotation": rotation, **said}
 
 
 def _n(v: float) -> str:
@@ -187,6 +204,8 @@ def freeze(script, keys, fixed: bool = False) -> dict:
     report = {"frozen": [], "refused": [], "differences": []}
     if not chosen:
         return report
+    import time
+    date = time.strftime("%Y-%m-%d")
     src = find_board(script)
     cfg = settings_mod.load(src.board_dir)
     generated = cached_generation(src) / src.pcb.name
@@ -208,7 +227,8 @@ def freeze(script, keys, fixed: bool = False) -> dict:
                     if owner is None or not owner.freedom.decided:
                         raise FreezeError("%s: --fixed refers to its anchor %s, which is searched: only a fixed or "
                                           "edge item may be referred to" % (e.key, turn["anchor"][0]))
-                edits.append((i.line, e.key, frozen_args(board, e.key, turn, fixed)))
+                edits.append((i.line, e.key, frozen_args(board, e.key, turn, fixed, entry=e,
+                                                         why=repr(why_text(i.why, e, date)))))
             except FreezeError as err:
                 report["refused"].append(str(err))
         for line, key, args in sorted(edits, key=lambda x: -x[0]):
@@ -219,7 +239,7 @@ def freeze(script, keys, fixed: bool = False) -> dict:
                 report["refused"].append("%s: %s" % (key, err))
         if not report["frozen"]:
             return report
-        text = ensure_imports(text, ["Near", "PadRef", "Part"] + (["Location", "X", "Y"] if fixed else ["Location"]))
+        text = ensure_imports(text, ["Near", "PadRef", "Part"] + (["Location", "X", "Y"] if fixed else ["Location", "Turned"]))
         remaining = [e for e in entries if e.key not in report["frozen"]]
         fd, tmp = tempfile.mkstemp(suffix=".py", prefix="." + script.stem + ".freeze.", dir=str(script.parent))
         try:

@@ -29,7 +29,8 @@ def test_freezing_moves_the_entries_into_the_script_and_places_the_same(tmp_path
     rc, out = _cli("freeze", script, "--all")
     assert rc == 0 and "froze" in out, out
     src = script.read_text()
-    assert "radius=0" in src and src != before_src
+    assert ".local(" in src and "Turned(Part(" in src and src != before_src
+    assert "explore: frozen " in src                 # accepted by a preview: no run to name
     assert json.loads((mod / "UsbC_layout.lock.json").read_text())["entries"] == []
     assert _placements(script) == locked
     # every line freeze did not edit is still there, in order
@@ -63,3 +64,10 @@ def test_an_item_with_no_entry_is_named(tmp_path):
     mod, script = _accepted(tmp_path)
     rc, out = _cli("freeze", script, "no_such_item")
     assert rc != 0 and "no_such_item" in out
+
+
+def test_freezing_keeps_the_why_a_call_had(tmp_path):
+    mod, script = _accepted(tmp_path)
+    rc, out = _cli("freeze", script, "--all")
+    assert rc == 0, out
+    assert "CC2's pulldown west of the ESD, its mirror; explore: frozen " in script.read_text()
