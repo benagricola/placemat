@@ -4,6 +4,20 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.39
+
+Nothing to change in a script; placements are the same as 0.38's. Routing
+(`placemat route`, `run --route`) left to itself (no `--layers` and no
+`route.layers`) no longer hands the router every copper layer: an inner
+layer whose own outline a `board.plane()` zone covers at least
+`route.plane_share` (0.9) of is left out, so a signal, or a differential
+pair's reference side, stops running straight through a plane and getting
+flagged against it in DRC. A stamped cell's own zone never counts toward
+this, and F.Cu and B.Cu are never left out. The route step prints which
+layers it left out and why, and `route.json`'s `plane_layers` names them
+too. A board that wants the old behaviour back sets `route.layers` to the
+board's full copper stack.
+
 ## To 0.38
 
 Nothing to change in a script. A FIXED or EDGE block's satellites no longer
