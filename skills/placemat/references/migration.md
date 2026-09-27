@@ -8,7 +8,7 @@ whether any of it applies.
 
 Nothing to change in a script. `placemat drc` names each failing violation
 and where it is; `--json` lists every violation and open connection with
-its items' positions.
+its items' positions. `measure --pads` prints a custom pad's outline.
 
 ## To 0.46
 

@@ -18,8 +18,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **`placemat impact` between a run and a KiCad file**, copper included
   (PLACEMAT_GAPS 2026-09-27 "folding a hand layout into a fragment's
   script").
-- **A custom pad's primitives in `measure --pads`** (PLACEMAT_GAPS
-  2026-09-27 "a custom pad's outline"): the polygon, not only its box.
 - **A plug on another board against a receptacle here** (PLACEMAT_GAPS
   2026-09-27, twice): pad-to-pad nets across two board files and a turn.
 - **Placing relative to a searched item** (PLACEMAT_GAPS 2026-09-26, twice):
@@ -46,6 +44,8 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **A custom pad's outline in `measure --pads`** (unreleased; PLACEMAT_GAPS
+  2026-09-27 "a custom pad's outline").
 - **`placemat drc` lists each violation** (unreleased; PLACEMAT_GAPS
   2026-09-27 "reading a routed board's layers and DRC items"): with its
   description, items and positions.

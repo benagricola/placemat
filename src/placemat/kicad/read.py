@@ -245,8 +245,17 @@ def _pads(board, fp, err_nm: int = CLEAR_ERR_NM) -> tuple[PadGeom, ...]:
                             through=attr == pcbnew.PAD_ATTRIB_PTH,
                             drill_mm=mm(drill.x) if attr == pcbnew.PAD_ATTRIB_PTH else 0.0,
                             mask_paste=_mask_paste(pad),
-                            anchor=Location(mm(pad.ShapePos(cu[0]).x), mm(pad.ShapePos(cu[0]).y))))
+                            anchor=Location(mm(pad.ShapePos(cu[0]).x), mm(pad.ShapePos(cu[0]).y)),
+                            custom=_is_custom(pad, cu[0])))
     return tuple(pads)
+
+
+def _is_custom(pad, layer) -> bool:
+    try:
+        shape = pad.GetShape(layer)          # a padstack's shape on one layer
+    except TypeError:
+        shape = pad.GetShape()
+    return shape == pcbnew.PAD_SHAPE_CUSTOM
 
 
 def _npth(fp):
@@ -529,7 +538,7 @@ def read_footprint(path, courtyard_excess_mm: float = 0.10) -> tuple:
                             outlines=outs, box=Box.of_points([q for o in outs for q in o]),
                             through=through,
                             drill_mm=mm(pad.GetDrillSize().x) if through else 0.0,
-                            mask_paste=_mask_paste(pad)))
+                            mask_paste=_mask_paste(pad), custom=_is_custom(pad, cu[0])))
     geom = Footprint(ref=p.stem, inst=p.stem, cell=None, value=fp.GetValue() or p.stem,
                      location=Location(0.0, 0.0), rotation=0.0, face=Face.FRONT,
                      body_box=body_box(fp, courtyard_excess_mm), courtyard_box=courtyard_box(fp),

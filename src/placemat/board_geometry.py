@@ -25,6 +25,7 @@ class PadGeom:
     drill_mm: float = 0.0
     mask_paste: tuple = ()      # the mask and paste layers the pad opens, e.g. ("F.Mask", "F.Paste")
     anchor: Location | None = None  # KiCad's PAD::ShapePos: where its airwires end; None: the box centre
+    custom: bool = False        # a custom pad: its copper is its primitives, and its box hides them
 
     @property
     def location(self) -> Location:

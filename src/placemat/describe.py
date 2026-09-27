@@ -56,6 +56,7 @@ def pad_facts(fp, pad, geometry=None) -> dict:
             "drill": round(pad.drill_mm, 3) if pad.through else None,
             "layers": sorted(l.value for l in pad.layers),
             "outline": [[[round(x, 4), round(y, 4)] for x, y in poly] for poly in pad.outlines],
+            "custom": bool(getattr(pad, "custom", False)),
             "mask_paste": list(pad.mask_paste)}
 
 
@@ -142,6 +143,9 @@ def part_lines(fp, geometry=None, pads: bool = False, digest: str = "") -> list:
                 d["number"], ("%-12s " % d["pin"]) if d["pin"] else "", d["net"] or "-", column,
                 d["at"][0], d["at"][1], d["size"][0], d["size"][1],
                 ("  " + "/".join(d["mask_paste"])) if d["mask_paste"] else ""))
+            if d["custom"]:                     # its box hides its shape: an exposed pad's fingers
+                for poly in d["outline"]:
+                    lines.append("        outline %s" % " ".join("(%.3f, %.3f)" % (x, y) for x, y in poly))
     return lines
 
 
