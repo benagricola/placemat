@@ -392,6 +392,36 @@ def _netclasses(board) -> tuple[dict[str, NetClass], float]:
     return classes, default
 
 
+def read_outline(path) -> dict:
+    """A board's edge as drawn on Edge.Cuts: each item (segment, arc,
+    circle, rect or polygon, in mm), the box round them and the board's
+    thickness from its stackup."""
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(str(path))
+    if board is None:
+        raise FileNotFoundError("no board at %s" % path)
+    kinds = {pcbnew.SHAPE_T_SEGMENT: "segment", pcbnew.SHAPE_T_ARC: "arc", pcbnew.SHAPE_T_CIRCLE: "circle",
+             pcbnew.SHAPE_T_RECT: "rect", pcbnew.SHAPE_T_POLY: "poly"}
+    edge = board.GetLayerID("Edge.Cuts")
+    items, boxes = [], []
+    for d in board.GetDrawings():
+        if not isinstance(d, pcbnew.PCB_SHAPE) or d.GetLayer() != edge:
+            continue
+        kind = kinds.get(d.GetShape(), "other")
+        item = {"kind": kind, "start": [mm(d.GetStart().x), mm(d.GetStart().y)],
+                "end": [mm(d.GetEnd().x), mm(d.GetEnd().y)]}
+        if kind == "arc":
+            item["mid"] = [mm(d.GetArcMid().x), mm(d.GetArcMid().y)]
+        if kind == "circle":
+            item["radius"] = mm(d.GetRadius())
+        items.append(item)
+        boxes.append(_box_of(d.GetBoundingBox()))
+    box = Box.union(boxes) if boxes else None
+    return {"items": items, "box": [box.left, box.top, box.right, box.bottom] if box else None,
+            "width": box.width if box else 0.0, "height": box.height if box else 0.0,
+            "thickness": mm(board.GetDesignSettings().GetBoardThickness())}
+
+
 def read_labels(path) -> list:
     """The board's own silk texts - what board.label() wrote, and a stamped
     cell's - each as {text, face, cell, box} with the box KiCad draws

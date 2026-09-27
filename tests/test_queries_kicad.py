@@ -135,3 +135,15 @@ def test_a_free_spot_via_and_its_tail_pass_kicads_drc(breakout_pcb, tmp_path):
     assert after.by_type.get("via_dangling", 0) == before.by_type.get("via_dangling", 0)
     assert after.by_type.get("track_dangling", 0) == before.by_type.get("track_dangling", 0)
     assert after.unconnected <= before.unconnected
+
+
+@needs_breakout
+def test_measure_outline_reports_the_boards_edge_and_thickness(breakout_pcb, capsys):
+    import json
+    from placemat.cli import main
+    from placemat.kicad.read import read_board
+    assert main(["measure", str(breakout_pcb), "--outline", "--json"]) == 0
+    doc = json.loads(capsys.readouterr().out)["outline"]
+    box = read_board(breakout_pcb).outline_box
+    assert abs(doc["width"] - box.width) < 1e-3 and abs(doc["height"] - box.height) < 1e-3
+    assert doc["thickness"] > 0 and doc["items"] and {i["kind"] for i in doc["items"]} <= {"segment", "arc", "circle", "rect", "poly"}

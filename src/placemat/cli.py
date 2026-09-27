@@ -70,6 +70,8 @@ def parser() -> argparse.ArgumentParser:
                    help="every pad's number, net, layers, centre and copper box")
     m.add_argument("--labels", action="store_true",
                    help="the board's silk texts (board.label() and a stamped cell's) with the box KiCad draws")
+    m.add_argument("--outline", action="store_true",
+                   help="the board's edge: each Edge.Cuts item, the box round them and the board's thickness")
     m.add_argument("--json", action="store_true")
 
     pl = sub.add_parser("parts", help="every part on the board: instance, refdes, face, cell, "
@@ -409,6 +411,21 @@ def cmd_measure(args) -> int:
                 describe.part_lines(fp, pads=args.pads, digest=digest)))
         return 0
     pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
+    if getattr(args, "outline", False):
+        from .kicad.read import read_outline
+        o = read_outline(pcb)
+        if args.json:
+            console.data(json.dumps({"outline": o}, indent=2))
+        else:
+            lines = ["%.3f x %.3f mm, %.2f mm thick, %d Edge.Cuts item(s)" % (o["width"], o["height"], o["thickness"],
+                                                                            len(o["items"]))]
+            if o["box"]:
+                lines.append("box %.3f %.3f %.3f %.3f" % tuple(o["box"]))
+            lines += ["%-8s %8.3f %8.3f -> %8.3f %8.3f%s" % (i["kind"], *i["start"], *i["end"],
+                                                           "  r %.3f" % i["radius"] if "radius" in i else "")
+                      for i in o["items"]]
+            console.lines("measure", "\n".join(lines))
+        return 0
     if getattr(args, "labels", False):
         from .kicad.read import read_labels
         labels = read_labels(pcb)

@@ -10,10 +10,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **`check current-path` judges a net by its narrowest branch**
   (PLACEMAT_GAPS 2026-09-27): sense and bootstrap branches fail every power
   net; judge the path between the parts carrying `Pm.I`, or a sense role.
-- **A fragment's extent in the run summary** (PLACEMAT_GAPS 2026-09-27), for
-  a frame drawn with draw=False.
-- **`measure --outline`** (PLACEMAT_GAPS 2026-09-27): a board's outline,
-  box and thickness, on any board.
 - **A route report of each net's path, or a preview of the routed copy**
   (PLACEMAT_GAPS 2026-09-27).
 - **`board.pair()` finding its own centreline; `route.diff_pairs` taking
@@ -29,6 +25,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **A fragment's extent, and `measure --outline`** (unreleased; PLACEMAT_GAPS
+  2026-09-27): the run's extent line measures parts as the envelope claims
+  them, so a physical-envelope fragment has one; `measure --outline` prints
+  a board's Edge.Cuts items, box and thickness.
 - **The 2026-09-27 afternoon gaps bugs and `board.parts()`** (unreleased):
   FreeSpot and `--via-near` keep off unplated holes; the router runs with
   `--keep-input-copper` so declared copper survives its cleanup;
