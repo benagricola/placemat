@@ -333,6 +333,8 @@ def _rule_areas(board, groups_of) -> tuple:
             continue
         o = outline.Outline(0)
         poly = tuple((mm(o.CPoint(j).x), mm(o.CPoint(j).y)) for j in range(o.PointCount()))
+        holes = tuple(tuple((mm(h.CPoint(j).x), mm(h.CPoint(j).y)) for j in range(h.PointCount()))
+                      for h in (outline.Hole(0, k) for k in range(outline.HoleCount(0))))
         excludes = frozenset(name for name, getter in _KEEPOUT_GETTERS if getattr(z, getter)())
         layers = _copper_layers(board, z.GetLayerSet())
         missing = ()
@@ -344,7 +346,7 @@ def _rule_areas(board, groups_of) -> tuple:
                           for l in board.GetEnabledLayers().CuStack())
             layers, missing = resolve_marker(declared, stack)
         out.append(RuleArea(z.GetZoneName(), groups_of.get(_kiid(z)), poly, layers,
-                            excludes, missing))
+                            excludes, missing, holes))
     # A stamped cell's silk texts - its fragment's board.label() names - keep
     # parts out on their face as the fragment reserved them: read as a region
     # of the cell, so it moves and turns over with the cell.

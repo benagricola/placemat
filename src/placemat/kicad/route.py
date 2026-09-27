@@ -139,7 +139,17 @@ def guard_footprint_copper(pcb_path: str) -> int:
             ps = pcbnew.SHAPE_POLY_SET()        # a stroked shape comes as its fill and each stroke: one outline
             d.TransformShapeToPolySet(ps, layer, 0, CLEAR_ERR_NM, pcbnew.ERROR_OUTSIDE)
             ps.Simplify()
+            # the footprint's own pads stay reachable: the router keeps every net, the pad's own
+            # included, off a rule area, and a winding that ends on a small pad would close it
+            own = pcbnew.SHAPE_POLY_SET()
+            for pad in fp.Pads():
+                if pad.IsOnLayer(layer):
+                    pad.TransformShapeToPolygon(own, layer, 0, CLEAR_ERR_NM, pcbnew.ERROR_OUTSIDE)
+            if own.OutlineCount():
+                ps.BooleanSubtract(own)
             if ps.OutlineCount():
+                n += 1
+            for i in range(ps.OutlineCount()):  # a zone a piece: placemat reads a rule area's first outline
                 z = pcbnew.ZONE(board)
                 z.SetIsRuleArea(True)
                 ls = pcbnew.LSET()
@@ -151,13 +161,11 @@ def guard_footprint_copper(pcb_path: str) -> int:
                 z.SetDoNotAllowZoneFills(False)
                 z.SetDoNotAllowFootprints(False)
                 o = z.Outline()
-                for i in range(ps.OutlineCount()):
-                    k = o.AddOutline(ps.Outline(i))
-                    for j in range(ps.HoleCount(i)):
-                        o.AddHole(ps.Hole(i, j), k)
+                k = o.AddOutline(ps.Outline(i))
+                for j in range(ps.HoleCount(i)):
+                    o.AddHole(ps.Hole(i, j), k)
                 z.SetZoneName("%s %s" % (GUARD, fp.GetReference()))
                 board.Add(z)
-            n += 1
     if n:
         with quiet_stderr():
             board.Save(pcb_path)
@@ -189,12 +197,16 @@ def restore_footprint_graphics(pcb_in: str, pcb_out: str) -> dict:
         theirs = [d for d in was.GraphicalItems() if isinstance(d, pcbnew.PCB_SHAPE)]
         if sorted(map(_shape_key, mine)) == sorted(map(_shape_key, theirs)):
             continue
+        kept = set(map(_shape_key, mine))
         for d in mine:
             fp.Delete(d)
         for d in theirs:
-            fp.Add(d.Duplicate())
+            dup = d.Duplicate()
+            fp.Add(dup)
+            if d.GetNetname():               # a shape with a net: this board's net, not the input's
+                dup.SetNet(board.FindNet(d.GetNetname()))
         fps += 1
-        items += sum(1 for d in theirs if pcbnew.IsCopperLayer(d.GetLayer()))
+        items += sum(1 for d in theirs if pcbnew.IsCopperLayer(d.GetLayer()) and _shape_key(d) not in kept)
     guards = [z for z in board.Zones() if z.GetZoneName().startswith(GUARD)]
     for z in guards:
         board.Delete(z)

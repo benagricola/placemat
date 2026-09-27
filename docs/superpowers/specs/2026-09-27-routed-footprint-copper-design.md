@@ -29,7 +29,8 @@ hands the router and the copy it reads back.
 ## The change
 
 1. **Before routing, keep the router off footprint copper.** For each
-   net-less copper graphic of a footprint on a layer the route uses, the
+   copper graphic of a footprint (net-less or not: the router models
+   neither), less the footprint's own pads on that layer, the
    router's input copy gains a rule area on that layer forbidding tracks and
    vias, drawn as the graphic's own outline (placemat reads these already:
    `Footprint.copper`). The router honours rule areas; placemat already
@@ -59,5 +60,5 @@ hands the router and the copy it reads back.
 ## Not in scope
 
 - Changing the router, or asking its maintainers to.
-- Net-tied copper graphics: the router leaves those in place and models
-  them.
+- Board-level (`gr_*`) copper graphics: the router models net-tied ones and
+  moves net-less ones to silk; restoring those is a separate change.

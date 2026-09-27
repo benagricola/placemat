@@ -130,3 +130,76 @@ def test_the_route_report_says_what_it_put_back(tmp_path):
     assert r.as_dict()["restored_graphics"] == {"footprints": 6, "items": 12}
     quiet = RouteReport(True, 1.0, 1.0, 2, 0, {}, [], [], ["F.Cu"], 1.0, "x", {}, tmp_path, tmp_path, tmp_path)
     assert "put back" not in quiet.summary()
+
+
+def test_a_guard_leaves_the_footprints_own_pads_reachable(breakout_pcb, tmp_path):
+    """A winding ending on its own pad: the guard over it must not cover the
+    pad, or the router, which keeps every net off a rule area, cannot reach it."""
+    import pcbnew
+    pcb = _copy(breakout_pcb, tmp_path / "in")
+    brd = pcbnew.LoadBoard(str(pcb))
+    fp = next(f for f in brd.GetFootprints() if any(p.GetNetname() == NET for p in f.Pads()))
+    pad = next(p for p in fp.Pads() if p.GetNetname() == NET)
+    c = pad.GetPosition()
+    art = pcbnew.PCB_SHAPE(fp, pcbnew.SHAPE_T_SEGMENT)
+    art.SetStart(c)
+    art.SetEnd(pcbnew.VECTOR2I(c.x, c.y - pcbnew.FromMM(2.0)))
+    art.SetWidth(pcbnew.FromMM(0.25))
+    art.SetLayer(pad.GetLayer() if pad.GetLayer() in (pcbnew.F_Cu, pcbnew.B_Cu) else pcbnew.F_Cu)
+    fp.Add(art)
+    brd.Save(str(pcb))
+    assert guard_footprint_copper(str(pcb)) == 1
+    (z,) = _guards(pcb)
+    assert not z.Outline().Contains(c)                               # the pad's centre is outside it
+    assert z.Outline().Contains(pcbnew.VECTOR2I(c.x, c.y - pcbnew.FromMM(1.5)))   # the winding is inside
+
+
+def test_only_the_graphics_the_router_moved_are_counted_as_put_back(breakout_pcb, tmp_path):
+    import pcbnew
+    pcb, ref, sq = _with_art(breakout_pcb, tmp_path)
+    brd = pcbnew.LoadBoard(str(pcb))
+    fp = next(f for f in brd.GetFootprints() if f.GetReference() == ref)
+    other = pcbnew.PCB_SHAPE(fp, pcbnew.SHAPE_T_RECT)                # a second graphic, on B.Cu, left alone below
+    other.SetStart(pcbnew.VECTOR2I(pcbnew.FromMM(sq.left), pcbnew.FromMM(sq.top)))
+    other.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(sq.right), pcbnew.FromMM(sq.bottom)))
+    other.SetFilled(True)
+    other.SetLayer(pcbnew.B_Cu)
+    fp.Add(other)
+    brd.Save(str(pcb))
+    routed = _routed_as_the_router_writes_it(pcb, tmp_path, sq)      # moves the F.Cu one only
+    assert restore_footprint_graphics(str(pcb), str(routed)) == {"footprints": 1, "items": 1}
+
+
+def test_copper_inside_a_ring_guards_hole_is_no_breach():
+    from placemat.board_geometry import CopperItem, RuleArea, keepout_breaches
+    from placemat.geometry import circle_polygon
+    from placemat.values import Box, CopperLayer, Location
+    ring = RuleArea("placemat footprint copper H5", None, circle_polygon(Location(10, 10), 2.15, n=32),
+                    frozenset([CopperLayer.F]), frozenset(["tracks", "vias"]),
+                    holes=(circle_polygon(Location(10, 10), 1.85, n=32),))
+    via = circle_polygon(Location(10, 10), 0.3)
+    inside = CopperItem("via", "A", frozenset([CopperLayer.F, CopperLayer.B]), (via,), Box.of_points(via))
+    over = circle_polygon(Location(12, 10), 0.3)
+    across = CopperItem("via", "A", frozenset([CopperLayer.F, CopperLayer.B]), (over,), Box.of_points(over))
+    assert keepout_breaches([ring], [inside]) == []
+    assert len(keepout_breaches([ring], [across])) == 1
+
+
+def test_a_ring_graphics_guard_is_read_with_its_hole(breakout_pcb, tmp_path):
+    import pcbnew
+    from placemat.kicad.read import read_board
+    pcb = _copy(breakout_pcb, tmp_path / "in")
+    sq = _free_square(pcb, side=4.0)
+    brd = pcbnew.LoadBoard(str(pcb))
+    fp = brd.GetFootprints()[0]
+    ring = pcbnew.PCB_SHAPE(fp, pcbnew.SHAPE_T_CIRCLE)
+    ring.SetCenter(pcbnew.VECTOR2I(pcbnew.FromMM(sq.center.x), pcbnew.FromMM(sq.center.y)))
+    ring.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(sq.center.x + 1.5), pcbnew.FromMM(sq.center.y)))
+    ring.SetFilled(False)
+    ring.SetWidth(pcbnew.FromMM(0.3))
+    ring.SetLayer(pcbnew.F_Cu)
+    fp.Add(ring)
+    brd.Save(str(pcb))
+    guard_footprint_copper(str(pcb))
+    (ra,) = [r for r in read_board(pcb).rule_areas if r.name.startswith("placemat footprint copper")]
+    assert len(ra.holes) == 1

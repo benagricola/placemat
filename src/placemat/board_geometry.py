@@ -126,6 +126,7 @@ class RuleArea:
     # Declared layers this board does not have, from the name's marker. The
     # region holds on the rest; these are reported, never silently dropped.
     missing: tuple = ()
+    holes: tuple = ()                    # polygons inside `polygon` the region does not cover (a ring's middle)
 
     @property
     def base(self) -> str:
@@ -346,7 +347,7 @@ def keepout_breaches(rule_areas, copper) -> list:
     a layer it covers. KiCad's DRC reports the same thing as one more
     `items_not_allowed` among the ones that are there by permission, which is
     how a region the router ignored used to go unnoticed."""
-    from .geometry import polys_overlap
+    from .geometry import poly_within, polys_overlap
     out = []
     for c in copper:
         flag = _FORBIDDING.get(c.kind)
@@ -357,7 +358,8 @@ def keepout_breaches(rule_areas, copper) -> list:
                 continue
             if not Box.of_points(ra.polygon).overlaps(c.box):
                 continue
-            if any(polys_overlap(ra.polygon, o) for o in c.outlines):
+            if any(polys_overlap(ra.polygon, o) and not any(poly_within(o, h) for h in ra.holes)
+                   for o in c.outlines):
                 out.append("the router laid a %s of %s inside %s, which forbids %s there"
                            % (c.kind, c.net, ra.base, flag))
                 break
