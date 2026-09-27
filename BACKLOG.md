@@ -49,7 +49,7 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **Footprint copper through the router** (unreleased; PLACEMAT_GAPS
+- **Footprint copper through the router** (0.46.0; PLACEMAT_GAPS
   2026-09-27 "the router moves a net-tie footprint's outer copper to silk"):
   rule areas keep the router off footprint copper graphics, and the routed
   copy gets them back before its DRC.
