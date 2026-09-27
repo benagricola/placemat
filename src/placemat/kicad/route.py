@@ -109,6 +109,94 @@ class RouteReport:
                 "pairs": self.pairs, "plane_layers": self.plane_layers}
 
 
+GUARD = "placemat footprint copper"
+
+
+def guard_footprint_copper(pcb_path: str) -> int:
+    """Keep the router off every footprint's copper graphics: it reads a
+    footprint's graphics only on Edge.Cuts, so a net-tie's winding is not an
+    obstacle to it. Each graphic gets a rule area on its own layer, drawn as
+    its copper outline, forbidding tracks and vias, named for its footprint
+    so `restore_footprint_graphics` finds it. The graphics guarded."""
+    from .quiet import import_pcbnew, quiet_stderr
+    from .read import CLEAR_ERR_NM
+    pcbnew = import_pcbnew()
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(pcb_path)
+    n = 0
+    for fp in board.GetFootprints():
+        for d in fp.GraphicalItems():
+            layer = d.GetLayer()
+            if not (isinstance(d, pcbnew.PCB_SHAPE) and pcbnew.IsCopperLayer(layer)):
+                continue
+            ps = pcbnew.SHAPE_POLY_SET()        # a stroked shape comes as its fill and each stroke: one outline
+            d.TransformShapeToPolySet(ps, layer, 0, CLEAR_ERR_NM, pcbnew.ERROR_OUTSIDE)
+            ps.Simplify()
+            if ps.OutlineCount():
+                z = pcbnew.ZONE(board)
+                z.SetIsRuleArea(True)
+                ls = pcbnew.LSET()
+                ls.AddLayer(layer)
+                z.SetLayerSet(ls)
+                z.SetDoNotAllowTracks(True)
+                z.SetDoNotAllowVias(True)
+                z.SetDoNotAllowPads(False)
+                z.SetDoNotAllowZoneFills(False)
+                z.SetDoNotAllowFootprints(False)
+                o = z.Outline()
+                for i in range(ps.OutlineCount()):
+                    k = o.AddOutline(ps.Outline(i))
+                    for j in range(ps.HoleCount(i)):
+                        o.AddHole(ps.Hole(i, j), k)
+                z.SetZoneName("%s %s" % (GUARD, fp.GetReference()))
+                board.Add(z)
+            n += 1
+    if n:
+        with quiet_stderr():
+            board.Save(pcb_path)
+    return n
+
+
+def _shape_key(d) -> tuple:
+    return (d.GetShape(), d.GetLayer(), d.GetStart().x, d.GetStart().y, d.GetEnd().x, d.GetEnd().y, d.GetWidth())
+
+
+def restore_footprint_graphics(pcb_in: str, pcb_out: str) -> dict:
+    """Put each footprint's graphic shapes in the routed copy back as they
+    are in the router's input (its writer moves outer-layer copper graphics
+    to silk), and delete the guards `guard_footprint_copper` added. What
+    was restored: {"footprints": n, "items": copper graphics put back}."""
+    from .quiet import import_pcbnew, quiet_stderr
+    pcbnew = import_pcbnew()
+    with quiet_stderr():
+        given = pcbnew.LoadBoard(pcb_in)
+        board = pcbnew.LoadBoard(pcb_out)
+    source = {fp.m_Uuid.AsString(): fp for fp in given.GetFootprints()}
+    by_ref = {fp.GetReference(): fp for fp in given.GetFootprints()}
+    fps = items = 0
+    for fp in board.GetFootprints():
+        was = source.get(fp.m_Uuid.AsString()) or by_ref.get(fp.GetReference())
+        if was is None:
+            continue
+        mine = [d for d in fp.GraphicalItems() if isinstance(d, pcbnew.PCB_SHAPE)]
+        theirs = [d for d in was.GraphicalItems() if isinstance(d, pcbnew.PCB_SHAPE)]
+        if sorted(map(_shape_key, mine)) == sorted(map(_shape_key, theirs)):
+            continue
+        for d in mine:
+            fp.Delete(d)
+        for d in theirs:
+            fp.Add(d.Duplicate())
+        fps += 1
+        items += sum(1 for d in theirs if pcbnew.IsCopperLayer(d.GetLayer()))
+    guards = [z for z in board.Zones() if z.GetZoneName().startswith(GUARD)]
+    for z in guards:
+        board.Delete(z)
+    if fps or guards:
+        with quiet_stderr():
+            board.Save(pcb_out)
+    return {"footprints": fps, "items": items}
+
+
 def lock_copper(pcb_path: str) -> int:
     """Lock every track, via and copper polygon so the router keeps them."""
     from .quiet import import_pcbnew, quiet_stderr
