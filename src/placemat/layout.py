@@ -2035,7 +2035,9 @@ class Board:
         for p in points:
             if isinstance(p, CopperIntent) and not p.key.startswith("via "):
                 raise TypeError("%s: a track may end on a via, and %r is not a via" % (net, p.key))
-        refs = _refs_in(points)
+            if isinstance(p, CopperIntent) and not any(p is c for c in self._copper):
+                raise TypeError("%s: %s is a via of another board" % (net, p.key))
+        refs = _refs_in(points, via_ends=True)
         name = self.geometry.require_net(net)
         w = self._width(name, width)
 
@@ -2143,6 +2145,10 @@ class Board:
             start = min((sh.box.center for sh in own), key=start.distance)
         layer = CopperLayer.of(spot.layer) if spot.layer is not None else (
             sorted((l for sh in own for l in sh.layers), key=stackup_order) or [CopperLayer.F])[0]
+        if spot.tail and not spot.in_pad and own and not any(layer in sh.layers for sh in own):
+            ctx.notes.append("via %s: its tail on %s would not join %s.%s, which is not on that layer" % (
+                net, layer.value, owner, number))
+            return None
         nc = self.geometry.netclasses.get(net)
         width = queries.tail_width(nc.track_width if nc else 0.2, [sh.box for sh in own])
         every = frozenset(self.geometry.layers)
@@ -3818,11 +3824,17 @@ def _cutout_half_across(cutout, bearing_deg: float) -> float:
     return box_support(Box(lo_x, lo_y, hi_x, hi_y), bearing_deg) / 2.0
 
 
-def _refs_in(points) -> list:
-    """Every pad, part or cell reference a list of points depends on (inside tuples and X/Y too)."""
+def _refs_in(points, via_ends: bool = False) -> list:
+    """Every pad, part or cell reference a list of points depends on (inside
+    tuples and X/Y too). A via intent is a point only where `via_ends` says
+    so: a track's own end points."""
     out = []
     for p in points:
-        if isinstance(p, (PadRef, CellPadRef, Part, Cell)):
+        if isinstance(p, CopperIntent):
+            if not via_ends:
+                raise TypeError("%s: a via may be a track's end point, and only that" % p.key)
+            out += list(p.refs)             # a via's pads: the track waits for them as the via does
+        elif isinstance(p, (PadRef, CellPadRef, Part, Cell)):
             out.append(p)
         elif isinstance(p, (X, Y)):
             out += _refs_in([p.ref])        # the ref may itself be a point or a pad
@@ -3830,8 +3842,6 @@ def _refs_in(points) -> list:
             out += _refs_in([p.near])       # the pad it searches from must be placed first
         elif isinstance(p, Mid):
             out += _refs_in([p.a, p.b])
-        elif isinstance(p, CopperIntent):
-            out += list(p.refs)             # a via's pads: the track waits for them as the via does
         elif isinstance(p, tuple):
             out += _refs_in(p)
         elif isinstance(p, (Centre, Location)):

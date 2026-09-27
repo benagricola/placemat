@@ -210,3 +210,36 @@ def test_a_via_keeps_clear_of_tracks_declared_before_it_in_its_batch():
     theirs = [c for c in plan.copper if isinstance(c, Track) and c.net == "V3"]
     assert theirs
     assert min(poly_distance(a.polygon, t.polygon) for a in ours for t in theirs) >= 0.2 - 1e-6
+
+
+def test_a_tail_on_a_layer_its_pad_is_not_on_is_a_finding_and_no_via():
+    b = _board()
+    b.place(Part("u1"), at=Location(20, 20))
+    b.place(Part("r1"), at=Location(20, 26))
+    b.via(Net("GND"), at=FreeSpot(near=PadRef(Part("u1"), "GND"), layer=CopperLayer.B), why="tap")
+    plan = b.resolve()
+    assert not [c for c in plan.copper if isinstance(c, (Via, Track))]
+    assert any("B.Cu" in f and "not on" in f for f in plan.findings)
+
+
+def test_a_via_keeps_clear_of_an_earlier_tail_alone():
+    """Only a tail of another net lies where the via would go: no via and no
+    track, so the rule that moves it is the tail rule."""
+    from placemat.geometry import poly_distance
+    from placemat.layout import _CopperContext
+    b = _board()
+    b.place(Part("u1"), at=Location(20, 20))
+    b.place(Part("r1"), at=Location(20, 26))
+    plan = b.resolve()
+    spot = FreeSpot(near=PadRef(Part("u1"), "SIG"))
+
+    def search(tails):
+        ctx = _CopperContext(b, plan.occupancy)
+        ctx.plan = plan
+        ctx.planned_tails = list(tails)
+        return b._free_spot(ctx, spot, "SIG", 0.3, 0.6)
+    alone, layer, width, start = search([])
+    tail = Track("GND", CopperLayer.F, 0.2, Location(alone.x - 0.1, alone.y - 1.5), Location(alone.x - 0.1, alone.y + 1.5))
+    moved, _, _, _ = search([tail])
+    assert poly_distance(Via("SIG", moved, 0.3, 0.6).polygon, tail.polygon) >= 0.2 - 1e-6
+    assert poly_distance(Track("SIG", layer, width, start, moved).polygon, tail.polygon) >= 0.2 - 1e-6
