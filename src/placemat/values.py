@@ -151,12 +151,15 @@ class FreeSpot:
     every other net's copper, hole, keepout and the board edge, and that a
     straight tail on `layer` (the pad's own by default) can reach. Resolved when
     the pad's part is placed, against the copper planned before it. The via
-    stays out of its own pad unless `in_pad` says otherwise."""
+    stays out of its own pad unless `in_pad` says otherwise, and the tail it
+    was judged by is drawn with it unless `tail=False` (a via in the pad has
+    none)."""
     near: object
     radius: float = 2.0
     step: float = 0.05
     layer: object = None
     in_pad: bool = False
+    tail: bool = True
 
 
 @dataclass(frozen=True)

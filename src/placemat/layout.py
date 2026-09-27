@@ -2101,15 +2101,22 @@ class Board:
         d, s = drill or self.via_drill, size or self.via_size
 
         def plan(ctx):
+            ops = []
             if isinstance(at, FreeSpot):
-                where = self._free_spot(ctx, at, name, d, s)
-                if where is None:
+                found = self._free_spot(ctx, at, name, d, s)
+                if found is None:
                     return []
+                where, layer, width = found
+                start = ctx.locate(at.near)
+                if at.tail and not at.in_pad and where.distance(start) > 1e-9:
+                    tail = Track(name, layer, width, start, where)
+                    ctx.planned_tails.append(tail)
+                    ops.append(tail)
             else:
                 where = ctx.locate(at)
             via = Via(name, where, d, s)
             ctx.planned_vias.append(via)        # a later FreeSpot in this batch sees it
-            return [via]
+            return [via] + ops
         return self._copper_intent("via %s" % name, net, priority, plan, refs, why)
 
     def _free_spot(self, ctx, spot, net: str, drill: float, size: float):
@@ -2157,6 +2164,14 @@ class Board:
                     clr = self.geometry.clearance(net, v.net)
                     if c.distance(v.at) - (size + v.size) / 2.0 < clr - 1e-9:
                         return "copper %.2f mm from the %s via" % (c.distance(v.at) - (size + v.size) / 2.0, v.net), ()
+            for t in ctx.planned_tails:
+                if t.net == net:
+                    continue
+                clr = self.geometry.clearance(net, t.net)
+                if poly_distance(ring, t.polygon) < clr - 1e-9:
+                    return "copper %.2f mm from the %s via's tail" % (poly_distance(ring, t.polygon), t.net), ()
+                if c.distance(start) > 1e-9 and poly_distance(queries._segment(start, c, width), t.polygon) < clr - 1e-9:
+                    return "tail crosses the %s via's tail" % t.net, ()
             for at, dia in holes:
                 gap = c.distance(at) - (drill + dia) / 2.0
                 if gap < self.geometry.hole_to_hole - 1e-9:
@@ -2178,7 +2193,7 @@ class Board:
                 net, spot.radius, owner, number, tried,
                 ", ".join("%s x%d" % kv for kv in tally.most_common())))
             return None
-        return found.at
+        return found.at, layer, width
 
     def pour(self, net, points, *, layer: CopperLayer, stroke: float | None = None, swallow_pads: bool = False,
              priority: Priority = Priority.DEFAULT, why: str = ""):
@@ -3762,6 +3777,7 @@ class _CopperContext:
         self.fixed_tracks: list = []       # tracks from the FIXED batch: never yield
         self.notes: list = []              # findings a copper plan raises about itself
         self.planned_vias: list = []       # every via planned so far, for a FreeSpot's hole rule
+        self.planned_tails: list = []      # every FreeSpot tail planned so far: not in the occupancy until the batch ends
         self.plan = None                   # the plan being built: its keepouts, for a FreeSpot
 
     def locate(self, ref) -> Location:
