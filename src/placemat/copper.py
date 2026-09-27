@@ -141,16 +141,33 @@ class Zone:
 CopperOp = Track | Via | Pour | Zone
 
 
+_CAP_STEPS = 8          # segments round each half-circle end
+
+
 def _segment_polygon(a: Location, b: Location, width: float) -> Polygon:
+    """A track as KiCad draws it: its two sides and a round end at each end.
+    Each end's vertices stand just outside the arc (every edge on or outside
+    it), so the polygon is never less than the copper, and a square end's
+    corner - 0.4 of the half width nearer a pad's corner than the copper -
+    is gone."""
     dx, dy = b.x - a.x, b.y - a.y
     n = math.hypot(dx, dy)
     h = width / 2.0
     if n == 0:
-        return ((a.x - h, a.y - h), (a.x + h, a.y - h), (a.x + h, a.y + h), (a.x - h, a.y + h))
-    ux, uy = dx / n, dy / n
-    px, py = -uy * h, ux * h
-    return ((a.x + px - ux * h, a.y + py - uy * h), (b.x + px + ux * h, b.y + py + uy * h),
-            (b.x - px + ux * h, b.y - py + uy * h), (a.x - px - ux * h, a.y - py - uy * h))
+        ux, uy = 1.0, 0.0
+    else:
+        ux, uy = dx / n, dy / n
+    base = math.atan2(uy, ux)
+    far = h / math.cos(math.pi / (2 * _CAP_STEPS))
+    step = math.pi / _CAP_STEPS
+
+    def cap(c, start):
+        pts = [(c.x + h * math.cos(start), c.y + h * math.sin(start))]
+        pts += [(c.x + far * math.cos(start + (j + 0.5) * step), c.y + far * math.sin(start + (j + 0.5) * step))
+                for j in range(_CAP_STEPS)]
+        pts.append((c.x + h * math.cos(start + math.pi), c.y + h * math.sin(start + math.pi)))
+        return pts
+    return tuple(cap(b, base - math.pi / 2) + cap(a, base + math.pi / 2))
 
 
 def polyline_tracks(net: str, layer: CopperLayer, width: float, points) -> list[Track]:

@@ -1189,8 +1189,10 @@ class Occupancy:
                 return None
             gap = poly_distance(s.poly, o.poly)
             if gap < clr - 1e-9:
-                return "%s pad %s is %.2f mm from %s copper on %s (needs %.2f)" % (
-                    self.who(s.owner), s.net or "-", gap, o.net or self.who(o.owner), "/".join(sorted(l.value for l in common)), clr)
+                what = "pad" if s.kind in ("pad", "through") else "copper"
+                return "%s %s %s is %.2f mm from %s copper on %s (needs %.2f)" % (
+                    self.who(s.owner), what, s.net or "-", gap, o.net or self.who(o.owner),
+                    "/".join(sorted(l.value for l in common)), clr)
             return None
         if ks == "npth" and ko in ("pad", "through", "copper"):
             if polys_overlap(s.poly, o.poly):

@@ -2168,7 +2168,13 @@ class Board:
             if len(points) > 2 and any(not clear(t.start, t.end) for t in ops):
                 # the script's waypoints steer this track into a pad: would pad to pad clear?
                 direct = polyline_tracks(name, layer, w, chamfered(octilinear([located[0], located[-1]], [pads[0], pads[-1]], clear), chamfer))
-                if all(clear(t.start, t.end) for t in direct):
+                others = [t for t in ctx.planned_tracks + ctx.batch_tracks
+                          if t.net != name and t.layer is layer]     # tracks not in the occupancy yet count too
+
+                def clear_of_tracks(t):
+                    return all(poly_distance(t.polygon, o.polygon) >= self.geometry.clearance(name, o.net) - 1e-9
+                               for o in others)
+                if all(clear(t.start, t.end) and clear_of_tracks(t) for t in direct):
                     ctx.notes.append("track %s: a waypoint steers it into another net's pad; drawn pad to pad it clears, "
                                      "so drop the waypoint(s) unless the route must go there" % name)
             return ops
