@@ -29,6 +29,10 @@ The same answers from the command line, for when no script is running, are
 
 `board.size(width, height, chamfer=0.0, radius=0.0, holes=(), web=0.0)` - the
 outline, origin top-left, y down.
+`board.size(fit=True, margin=None, chamfer=0.0, radius=0.0, draw=False)` - a
+fragment's frame sized to its content: the box round everything placed (each
+part as the placer claims it, labels, tracks, vias, pours) plus `margin`
+(default the keep-in), set once everything is placed.
 `board.disc(diameter, hole=0.0, holes=(), web=0.0)` - a round board at the origin, bored
 `hole` wide through the middle when it goes round a shaft. Places on it are
 bearings and radii (below); `board.centre`, `board.radius` and `board.bore`
@@ -226,6 +230,13 @@ to write, but its script may give it a frame, `board.size(w, h,
 draw=False)`, sized from its own rows, so the controls that must meet
 a board edge are a `row` on the frame's edge; the board supplies the
 real outline. What is not on an edge is said in terms of parts and pads.
+A fragment with no edge to meet takes `board.size(fit=True, draw=False)`:
+its main part at the origin, the rest from its pads, and the frame is what
+they fill plus the margin - no frame or anchor position computed by hand. A
+searched item on a fit board searches `place.fit_room` (10 mm) round what
+is decided; a `board.plane()` with no `outline=` is planned after the frame
+and inset from it. A frame edge, `board.centre`, `board.width` and
+`board.height` do not exist until the frame does, and are refused.
 
 **How a searched item finds its place.** With `Near` it scans around the
 hint. A `Near(PadRef(...))` on another searched item's pad waits for that
@@ -1186,6 +1197,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.escape_pads` | 1 | a part's pads keep escapes when it has at least this many (3 leaves two-pad parts out) |
 | `place.courtyard_touch` | 0.0 | how far two courtyards may overlap at least; each pair may also overlap by the two parts' margins (how far KiCad's courtyard polygon lies inside the drawn box) less 0.001 mm, which keeps KiCad's courtyards apart - it counts touching as overlapping |
 | `place.conflict_gap` | 1.0 | how far outside a box a conflict can still reach |
+| `place.fit_room` | 10.0 | on a fit frame, how far round the decided content a searched item may go |
 | `copper.chamfer` | 1.0 | how far a right angle is cut back into two 45s |
 | `copper.pair_chamfer` | 0.5 | the same, for a differential pair |
 | `copper.pair_via_step` | 0.4 | how far clear of its partner a pair's lead vias |

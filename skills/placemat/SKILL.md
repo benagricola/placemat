@@ -221,6 +221,9 @@ coordinates nobody chose.
   is the stdlib's defaults (no silk clearance, the default netclass), not
   the rules of the board that stamps it. Give the fragment the parent's
   config; a run says so when the silk clearance it reads is 0.
+- Size a fragment's frame with `board.size(fit=True, draw=False)` unless a
+  row must meet its edge: the frame is what is placed plus the keep-in.
+  Never compute a frame, or where the main part goes in it, by hand.
 - Explore once the declarations are right: `placemat run <script>
   --explore 60 --focus <the cluster in question>` (or `--focus-after LINE`
   for what the script places last), read what would move and why it

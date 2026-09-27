@@ -7,9 +7,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **A frame sized to its content** (PLACEMAT_GAPS 2026-09-27, "a
-  fragment's frame from its content"): `board.size(fit=True, margin=)`;
-  spec `2026-09-27-fit-frame-design.md`.
 - **`reach()` smaller than the envelope the placer keeps** (PLACEMAT_GAPS
   2026-09-27): an 0402's reach is 0.82 mm where `measure` and the placer
   use 0.88 mm (the silk stroke), so a pitch built from it is short;
@@ -28,6 +25,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **A frame sized to its content** (unreleased; PLACEMAT_GAPS 2026-09-27):
+  `board.size(fit=True, margin=)`, planes following the fitted frame
+  (spec `2026-09-27-fit-frame-design.md`).
 - **Freeze keeps intent** (unreleased; spec
   `2026-09-27-freeze-intent-design.md`): freeze writes `PadRef.local` and
   `Turned` from the lock's own numbers, with a `why=` naming the explore
