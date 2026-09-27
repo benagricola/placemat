@@ -11,6 +11,10 @@ Nothing to change in a script. A run that fails before it writes the board
 layout folder as the last run left it, not the unplaced generation; a
 critical part left unplaced still writes the board as it stood.
 
+A script can import modules from the folders above it, up to the nearest
+`placemat.toml`, and a change to one is a new run. A `sys.path.insert(...)`
+a script added to reach shared geometry above it can go.
+
 Routed copper can be kept: `placemat route <script> --adopt NET ...` (or
 `--adopt-all`) stores the router's copper on those nets in `<script
 stem>.routes.json`, relative to their pads, and every run draws it while the

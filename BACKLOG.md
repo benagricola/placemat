@@ -37,18 +37,18 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **Keeping routed copper** (unreleased; PLACEMAT_GAPS 2026-09-27 "router
+- **Keeping routed copper** (0.43.0; PLACEMAT_GAPS 2026-09-27 "router
   output cannot be kept in the script"): `placemat route <script> --adopt
   NET ...` keeps the router's copper in `<script stem>.routes.json`,
   relative to its pads; runs draw it while its parts stand, and drop a net
   whose part moved. `placemat routes` lists and releases.
-- **A script imports from the folders above it** (unreleased; a board's
+- **A script imports from the folders above it** (0.43.0; a board's
   layout work, 2026-09-27): up to the nearest placemat.toml, and those modules
   count in the run id.
-- **A block that fits nowhere, found before the search** (unreleased;
+- **A block that fits nowhere, found before the search** (0.43.0;
   PLACEMAT_GAPS 2026-09-26): a searched block is laid out alone at each of
   its rotations first.
-- **A failed run leaves the last good board** (unreleased; PLACEMAT_GAPS
+- **A failed run leaves the last good board** (0.43.0; PLACEMAT_GAPS
   2026-09-26): a run that fails before writing the board puts the layout
   folder back as the last run left it.
 - **A run keeps files it did not write; round track ends** (0.42.0; a
