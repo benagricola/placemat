@@ -21,6 +21,7 @@ board; declarations are collected and resolved together.
 | `board.netclass(Net("CAN_P"))` | its class: `.track_width`, `.clearance`, `.diff_pair_width`, `.diff_pair_gap` |
 | `board.keep_in` | the board's copper-to-edge rule: where an EDGE item's reach lands |
 | `board.reach(item, rotation=)` | the item's body, pads and silk together, as a box at the origin |
+| `board.envelope(item, rotation=, face=)` | what the placer keeps for the item under `[place] envelope`, as a box at the origin: what a row or stack built by hand spaces by |
 
 The same answers from the command line, for when no script is running, are
 `placemat parts <board>` and `placemat measure <board> <part> --pads`.

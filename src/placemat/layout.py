@@ -772,6 +772,17 @@ class Board:
                      [self.geometry.clearance(n) for n in nets if n in self.geometry.nets])
         return max(float(gap), widest)
 
+    def envelope(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
+        """What the placer keeps for the item at `rotation`, at the origin, as
+        `[place] envelope` claims it: its courtyard and pads (courtyard), its
+        pads, mask, silk and body (physical), or both (union). What a row or
+        a stack built by hand must space by for the placer's gaps to hold."""
+        geom, _, _ = self._item(item)
+        occ = self._bare_occupancy()
+        g = occ._geometry(geom)
+        t = occ._transform(g, Placement(Location(0.0, 0.0), rotation, face))
+        return Box.union([transform_box(s.box, t) for s in g.shapes if s.kind != "npth"])
+
     def claim(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
         """Everything the item claims at `rotation`, at the origin: its reach
         (body, pads, silk) and its courtyard together. What a row spaces by,

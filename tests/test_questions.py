@@ -73,3 +73,17 @@ def test_a_pin_drawn_as_two_lands_does_not_set_the_pitch():
 def test_the_pitch_between_two_named_pins():
     b = Board(board_geometry([_split_row()]), edge_margin=1.0)
     assert b.pitch(Part("u1"), pins=(2, 4)) == pytest.approx(1.0)
+
+
+def test_the_envelope_is_what_the_placer_keeps_under_the_setting():
+    import dataclasses
+    from placemat.settings import Settings
+    fp = footprint("R1", 30, 30, w=2, h=1, inst="r1", silk_boxes=[(28.8, 29.2, 31.2, 30.8)], excess=0.1)
+    court = Board(board_geometry([fp]), edge_margin=1.0).envelope(Part("r1"))
+    phys = Board(board_geometry([fp]), edge_margin=1.0,
+                 settings=dataclasses.replace(Settings(), place_envelope="physical")).envelope(Part("r1"))
+    assert (court.width, court.height) == pytest.approx((2.2, 1.2))       # the courtyard: the body plus its excess
+    assert (phys.width, phys.height) == pytest.approx((2.4, 1.6))         # the silk, which reaches past it
+    turned = Board(board_geometry([fp]), edge_margin=1.0,
+                   settings=dataclasses.replace(Settings(), place_envelope="physical")).envelope(Part("r1"), rotation=90)
+    assert (turned.width, turned.height) == pytest.approx((1.6, 2.4))

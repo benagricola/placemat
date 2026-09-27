@@ -18,6 +18,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **`board.envelope(item, rotation=)`** (unreleased; the board session,
+  2026-09-27): what the placer keeps under `[place] envelope`, documented,
+  so a hand-built row stops calling the internal `drawn_envelope`.
 - **`pitch()` on split lands** (unreleased; PLACEMAT_GAPS 2026-09-27): a
   pin drawn as several lands is one pin, and `pitch(part, pins=(a, b))`
   measures two named pins.
