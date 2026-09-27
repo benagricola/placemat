@@ -4,6 +4,13 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.46
+
+Nothing to change in a script. Routing keeps off footprint copper graphics
+(a winding drawn on copper layers) and the routed copy keeps them on their
+copper layers: a routed copy judged clean while its windings' outer copper
+had been moved to silk is now judged with it.
+
 ## To 0.45
 
 Nothing to change in a script. A written board's 3D model paths that did

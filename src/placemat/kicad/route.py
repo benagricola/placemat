@@ -80,6 +80,9 @@ class RouteReport:
     # fills it whole, {layer: the net that fills it}; empty when the layers
     # were given (an argument or [route] layers), not defaulted.
     plane_layers: dict = field(default_factory=dict)
+    # Footprint copper graphics put back in the routed copy (the router's
+    # writer moves outer-layer net-less ones to silk): {"footprints", "items"}.
+    restored_graphics: dict = field(default_factory=dict)
 
     def summary(self) -> str:
         head = "route %s: closure %.1f%% clean (%.1f%% raw), %d -> %d open signal item(s)" % (
@@ -97,6 +100,9 @@ class RouteReport:
                 len(p.get(k) or []) for k in ("coupled", "partial", "failed", "single_ended"))
         if self.plane_layers:
             head += "  " + plane_note(self.plane_layers)
+        if (self.restored_graphics or {}).get("items"):
+            head += "  %d footprint copper graphic(s) put back on %d footprint(s)" % (
+                self.restored_graphics["items"], self.restored_graphics["footprints"])
         return head
 
     def as_dict(self) -> dict:
@@ -106,7 +112,8 @@ class RouteReport:
                 "seconds": self.seconds, "router_version": self.router_version, "drc_after": self.drc_after,
                 "routed_pcb": str(self.routed_pcb), "log": str(self.log), "quick": self.quick,
                 "invalid_reason": self.invalid_reason, "keepout_breaches": list(self.keepout_breaches),
-                "pairs": self.pairs, "plane_layers": self.plane_layers}
+                "pairs": self.pairs, "plane_layers": self.plane_layers,
+                "restored_graphics": self.restored_graphics}
 
 
 GUARD = "placemat footprint copper"
@@ -474,6 +481,7 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
     before = run_drc(pcb_in, work / "drc_before.json")
     open0 = {n: v for n, v in before.open_nets.items() if n not in excluded}
     valid = not before.real
+    guard_footprint_copper(str(pcb_in))          # after the placement's own DRC: the guards are the router's
 
     pcb_out = work / "routed.kicad_pcb"
     summary = work / "router_summary.json"
@@ -500,6 +508,7 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
     for ext in (".kicad_pro", ".kicad_dru"):
         if (work / ("in" + ext)).exists():
             shutil.copy(work / ("in" + ext), work / ("routed" + ext))
+    restored = restore_footprint_graphics(str(pcb_in), str(pcb_out))
     fill_zones(str(pcb_out))
     after = run_drc(pcb_out, work / "drc_after.json", refill_zones=False)     # filled just now
     open1 = {n: v for n, v in after.open_nets.items() if n not in excluded}
@@ -509,7 +518,7 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
                          dict(sorted(open1.items())), sc.shorted, sorted(excluded), layers, seconds,
                          router_version(router_dir_path), after.by_type, pcb_out, log, work,
                          "" if valid else "placement DRC not clean before routing: %s" % before.real, quick,
-                         router_breaches(pcb_in, pcb_out), pairs.as_dict(), plane_dropped)
+                         router_breaches(pcb_in, pcb_out), pairs.as_dict(), plane_dropped, restored)
     (work / "route.json").write_text(json.dumps(report.as_dict(), indent=2) + "\n")
     return report
 

@@ -7,13 +7,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **The routed copy loses a net-tie footprint's outer-layer copper**
-  (PLACEMAT_GAPS 2026-09-27 "the router moves a net-tie footprint's outer
-  copper to silk"): the router's writer moves net-less F.Cu/B.Cu footprint
-  graphics to silk, so the routed copy's windings lose L1/L6 and DRC of the
-  copy is falsely clean. placemat restores the input's footprint graphics
-  into the routed copy (or refuses it), and counts net-less footprint copper
-  in the before/after comparison. The router is not changed.
 - **A part whose courtyard is not a rectangle, judged by its box**
   (PLACEMAT_GAPS 2026-09-27 "placement behaviour met on the ring test
   board"): sector windings fixed at a disc centre collide with each other by
@@ -56,6 +49,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **Footprint copper through the router** (unreleased; PLACEMAT_GAPS
+  2026-09-27 "the router moves a net-tie footprint's outer copper to silk"):
+  rule areas keep the router off footprint copper graphics, and the routed
+  copy gets them back before its DRC.
 - **3D model paths that resolve from any project depth** (0.45.0; a
   board's layout work, 2026-09-27): the write re-anchors a model path that
   does not resolve to the nearest folder above that holds it

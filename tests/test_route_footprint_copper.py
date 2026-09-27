@@ -120,3 +120,13 @@ def test_a_board_without_footprint_copper_is_left_alone(breakout_pcb, tmp_path):
     out = tmp_path / "routed.kicad_pcb"
     shutil.copy(pcb, out)
     assert restore_footprint_graphics(str(pcb), str(out)) == {"footprints": 0, "items": 0}
+
+
+def test_the_route_report_says_what_it_put_back(tmp_path):
+    from placemat.kicad.route import RouteReport
+    r = RouteReport(True, 1.0, 1.0, 2, 0, {}, [], [], ["F.Cu"], 1.0, "x", {}, tmp_path, tmp_path, tmp_path,
+                    restored_graphics={"footprints": 6, "items": 12})
+    assert "12 footprint copper graphic(s) put back on 6 footprint(s)" in r.summary()
+    assert r.as_dict()["restored_graphics"] == {"footprints": 6, "items": 12}
+    quiet = RouteReport(True, 1.0, 1.0, 2, 0, {}, [], [], ["F.Cu"], 1.0, "x", {}, tmp_path, tmp_path, tmp_path)
+    assert "put back" not in quiet.summary()

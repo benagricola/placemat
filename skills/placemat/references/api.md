@@ -1114,6 +1114,14 @@ stamped cell's zone never counts, and F.Cu/B.Cu never drop) - the route step
 prints which layers it left out and why, and the report's `plane_layers`
 names them too.
 
+A footprint's own copper graphics (a net-tie's winding, a copper logo) are
+not obstacles to the router, and its writer moves net-less ones on the
+outer layers to silk. So the router's input copy carries a rule area over
+each, on its own layer, forbidding tracks and vias (a route through one is
+a keepout breach naming its footprint), and the routed copy gets every
+footprint's graphics back as they were before its DRC is run; the report's
+`restored_graphics` counts them.
+
 **Keeping routed copper.** `placemat route <script> --adopt NET ...` routes
 as above, then keeps the router's new copper on the named nets in
 `<script stem>.routes.json` beside the script (commit it with the script);
