@@ -151,7 +151,11 @@ def test_measure_outline_reports_the_boards_edge_and_thickness(breakout_pcb, cap
 
 @needs_breakout
 def test_a_pad_filled_with_vias_passes_kicads_drc(breakout_pcb, tmp_path):
+    """A grid, not one via: the breakout has no large pad, so its copy grows
+    one before the board is measured, and DRC compares with and without the
+    vias only."""
     import shutil
+    import pcbnew
     from placemat.kicad.drc import run_drc
     from placemat.kicad.read import read_board
     from placemat.kicad.write import apply_plan
@@ -160,18 +164,19 @@ def test_a_pad_filled_with_vias_passes_kicads_drc(breakout_pcb, tmp_path):
     pcb = tmp_path / "layout.kicad_pcb"
     shutil.copy(breakout_pcb, pcb)
     shutil.copy(breakout_pcb.with_suffix(".kicad_pro"), tmp_path / "layout.kicad_pro")
+    board = pcbnew.LoadBoard(str(pcb))
+    fp = next(f for f in board.GetFootprints() if f.GetReference() == "R9")
+    pad = next(p for p in fp.Pads() if p.GetNumber() == "1")
+    pad.SetSize(pcbnew.VECTOR2I(pcbnew.FromMM(1.8), pcbnew.FromMM(1.8)))
+    board.Save(str(pcb))
     g = read_board(pcb)
     before = run_drc(pcb, tmp_path / "before.json")
-    # the largest pad that takes a via: one with another net's track under it takes none, rightly
-    for fp, pad in sorted(((f, p) for f in g.footprints if not f.cell for p in f.pads if p.net and not p.through),
-                          key=lambda fp_p: -fp_p[1].box.area):
-        b = Board(g, edge_margin=0.0, keep_going=True)
-        b.vias(Net(pad.net), PadRef(Part(fp.inst), int(pad.number) if pad.number.isdigit() else pad.number))
-        plan = b.resolve()
-        if [c for c in plan.copper if type(c).__name__ == "Via"]:
-            break
-    else:
-        raise AssertionError("no pad on the breakout takes a via")
+    b = Board(g, edge_margin=0.0, keep_going=True)
+    net = next(p.net for p in g.footprint("R9").pads if p.number == "1")
+    b.vias(Net(net), PadRef(Part(g.footprint("R9").inst), 1))
+    plan = b.resolve()
+    vias = [c for c in plan.copper if type(c).__name__ == "Via"]
+    assert len(vias) >= 4, plan.findings
     apply_plan(pcb, plan)
     after = run_drc(pcb, tmp_path / "after.json")
     assert after.real == before.real

@@ -116,3 +116,74 @@ def test_a_via_in_the_pad_keeps_off_another_nets_copper_on_the_far_side():
     backs = [sh.poly for sh in plan.occupancy.items["C9"].shapes if sh.kind == "pad"]
     vias = _vias(plan)
     assert vias and all(poly_distance(v.polygon, q) >= 0.2 - 1e-6 for v in vias for q in backs)
+
+
+def _clear_of_holes(vias, holes, rule):
+    return all(v.at.distance(h) - (v.drill + d) / 2.0 >= rule - 1e-6 for v in vias for h, d in holes)
+
+
+def test_vias_keep_off_another_nets_track_declared_in_the_same_batch():
+    from placemat.copper import Track
+    from placemat.geometry import poly_distance
+    b, g = _board(_square())
+    b.place(Part("u1"), at=Location(20, 21.5))
+    b.track(Net("SIG"), [PadRef(Part("u1"), 2), Location(20, 23.5), Location(20, 17.5)], layer=CopperLayer.B)
+    b.vias(Net("GND"), PadRef(Part("u1"), 1), size=0.6, drill=0.3)
+    plan = b.resolve()
+    sig = [t for t in plan.copper if isinstance(t, Track) and t.net == "SIG"]
+    vias = _vias(plan)
+    assert vias and sig and all(poly_distance(v.polygon, t.polygon) >= 0.2 - 1e-6 for v in vias for t in sig)
+
+
+def test_a_pin_with_its_own_holes_keeps_the_rule_from_each():
+    """An exposed pad drawn with thermal holes, numbered as the same pin: the
+    grid keeps the hole-to-hole rule from each of the pin's own holes."""
+    lands = [pad("U1", "u1", 1, "GND", 20, 20, 3.0, 3.0)] + [
+        pad("U1", "u1", 1, "GND", 20 + dx, 20 + dy, 0.6, 0.6, True) for dx in (-1.0, 1.0) for dy in (-1.0, 1.0)] + [
+        pad("U1", "u1", 2, "SIG", 20, 23, 1, 1)]
+    lands = [dataclasses.replace(p, drill_mm=0.3) if p.through else p for p in lands]
+    b, g = _board(lands)
+    b.place(Part("u1"), at=Location(20, 21.5))
+    b.vias(Net("GND"), PadRef(Part("u1"), 1), size=0.6, drill=0.3)
+    plan = b.resolve()
+    own = [(sh.box.center, 0.3) for sh in plan.occupancy.items["U1"].shapes if sh.kind == "through"]
+    vias = _vias(plan)
+    assert vias and len(own) == 4 and _clear_of_holes(vias, own, 0.25)
+
+
+def test_two_lands_of_a_pin_on_both_faces_do_not_stack_drills():
+    front = pad("U1", "u1", 1, "GND", 20, 20, 3.0, 3.0)
+    back = dataclasses.replace(front, layers=frozenset([CopperLayer.B]))
+    b, g = _board([front, back, pad("U1", "u1", 2, "SIG", 20, 23, 1, 1)])
+    b.place(Part("u1"), at=Location(20, 21.5))
+    b.vias(Net("GND"), PadRef(Part("u1"), 1), size=0.6, drill=0.3)
+    vias = _vias(b.resolve())
+    assert len({(round(v.at.x, 4), round(v.at.y, 4)) for v in vias}) == len(vias) == 25
+
+
+def test_a_part_at_an_odd_angle_gets_the_same_grid_in_its_own_frame():
+    rect = [pad("U1", "u1", 1, "GND", 20, 20, 3.0, 2.0), pad("U1", "u1", 2, "SIG", 20, 23, 1, 1)]
+    counts = {}
+    for rot in (0, 30, 45):
+        b, g = _board(rect)
+        b.place(Part("u1"), at=Location(20, 21.5), rotation=rot)
+        b.vias(Net("GND"), PadRef(Part("u1"), 1), size=0.6, drill=0.3)
+        counts[rot] = len(_vias(b.resolve()))
+    assert counts == {0: 15, 30: 15, 45: 15}
+
+
+def test_a_free_spot_after_the_grid_keeps_a_binding_hole_to_hole_rule():
+    b, g = _board(_square())
+    b = Board(dataclasses.replace(g, hole_to_hole=0.9), edge_margin=0.5)
+    b.place(Part("u1"), at=Location(20, 21.5))
+    b.vias(Net("GND"), PadRef(Part("u1"), 1), size=0.6, drill=0.3, pitch=1.2)
+    b.via(Net("GND"), at=FreeSpot(near=PadRef(Part("u1"), 1), in_pad=True, tail=False), why="one more")
+    vias = _vias(b.resolve())
+    assert len(vias) >= 2
+    assert all(a.at.distance(c.at) - 0.3 >= 0.9 - 1e-6 for a in vias for c in vias if a is not c)
+
+
+def test_a_negative_inset_is_refused():
+    b, g = _board(_square())
+    with pytest.raises(ValueError, match="inset"):
+        b.vias(Net("GND"), PadRef(Part("u1"), 1), inset=-0.1)

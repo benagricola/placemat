@@ -14,6 +14,19 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   (PLACEMAT_GAPS 2026-09-27).
 - **`board.pair()` finding its own centreline; `route.diff_pairs` taking
   explicit net pairs** (PLACEMAT_GAPS 2026-09-27).
+## Housekeeping (left for Ben: outside this repository)
+
+- `mnb-ecosystem/pyproject.toml` points placemat at the stale
+  `~/work/placemat-greenfield`; the `placemat-check` and
+  `placemat-greenfield` worktrees are stale.
+
+## Done
+
+- **Several vias in one pad** (unreleased; PLACEMAT_GAPS 2026-09-27):
+  `board.vias(net, PadRef(...), pitch=)` (spec `2026-09-27-pad-vias-design.md`).
+- **A one-face parts keepout and a cell's vias** (unreleased; a board's layout
+  work, 2026-09-27): a cell's vias no longer make it two-faced to a parts
+  keepout; plated leads and unplated holes still do.
 - **`check current-path` judges the load's route** (unreleased; PLACEMAT_GAPS
   2026-09-27; Ben chose dead-end branches skipped): the widest route between
   carrying parts, or from the one carrying part to another part.

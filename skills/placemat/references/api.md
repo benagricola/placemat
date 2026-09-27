@@ -818,7 +818,11 @@ part's own frame (it turns with the part), centred on each of the pin's
 lands, `pitch` apart (by default the closest the board's hole-to-hole rule
 allows, never closer than a via's size), keeping each via whose copper,
 grown by `inset`, lies wholly in its land and clears every other net's copper
-on every layer and every other hole. The net class's via by default. A pad
+on every layer (placed, and planned before it: tracks, tails, vias), every
+other hole by the hole-to-hole rule and an unplated one by the hole
+clearance, the board edge and keepouts that forbid vias. The net class's via
+by default (`board.via` takes the board's). A through land of the pin already
+has its hole and is not filled. A pad
 no via fits in is a finding; a `pitch` under the hole-to-hole rule is refused
 when declared. The step says the vias are in the pad: filled or plugged at
 the fab.

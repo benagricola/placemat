@@ -2209,6 +2209,8 @@ class Board:
         d = float(drill) if drill is not None else (nc.via_drill if nc else self.via_drill)
         floor = d + self.geometry.hole_to_hole
         step = max(s, floor) if pitch is None else float(pitch)
+        if inset < 0:
+            raise ValueError("%s: a negative inset lets a via's copper leave its pad; inset is 0 or more" % name)
         if step < floor - 1e-9:
             raise ValueError("%s: vias %.2f mm apart break the hole-to-hole rule (a %.2f mm hole plus %.2f): "
                              "%.2f mm at least" % (name, step, d, self.geometry.hole_to_hole, floor))
@@ -2219,22 +2221,8 @@ class Board:
             occ = ctx.occ
             g = occ.items[owner]
             rot = g.reference.rotation
-            lands = [sh.poly for sh in g.shapes if sh.label == number and sh.kind in ("pad", "through")]
-            every = frozenset(self.geometry.layers)
-            # other holes a via's must keep the hole-to-hole rule from: plated pads, unplated pegs, vias planned
-            holes = [(occ.pad_location(fp.ref, p.number), p.drill_mm) for fp in self.geometry.footprints
-                     for p in fp.pads if p.through and p.drill_mm and fp.ref not in occ.pending]
-            holes += [(sh.box.center, sh.box.width) for o, gi in occ.items.items() if o not in occ.pending
-                      for sh in gi.shapes if sh.kind == "npth"]
-            holes += [(v.at, v.drill) for v in ctx.planned_vias]
-
-            def clear(at):
-                """A via goes through every layer: no other net's copper on any of them within its clearance,
-                and the hole-to-hole rule from every other hole."""
-                ring = circle_polygon(at, s / 2.0)
-                if occ.copper_conflicts(Shape("", "copper", frozenset(), every, name, ring, Box.of_points(ring))):
-                    return False
-                return all(at.distance(h) - (d + hd) / 2.0 >= self.geometry.hole_to_hole - 1e-9 for h, hd in holes)
+            lands = [sh.poly for sh in g.shapes if sh.label == number and sh.kind == "pad"]   # a through land has its hole
+            obstacles = self._via_obstacles(ctx)
             vias = []
             for land in lands:
                 c = Box.of_points(land).center
@@ -2243,21 +2231,24 @@ class Board:
                 ly0, ly1 = min(p[1] for p in local), max(p[1] for p in local)
                 mx, my = (lx0 + lx1) / 2.0, (ly0 + ly1) / 2.0
 
-                def count(extent):
-                    return max(0, int(math.floor((extent - s - 2.0 * inset) / step + 1e-9)) + 1)
+                def count(extent):              # to 10 nm: a turned land's corners are rounded
+                    return max(0, int(math.floor((extent - s - 2.0 * inset) / step + 1e-5)) + 1)
                 nx, ny = count(lx1 - lx0), count(ly1 - ly0)
                 for i in range(nx):
                     for j in range(ny):
                         ox, oy = _turn(mx + (i - (nx - 1) / 2.0) * step, my + (j - (ny - 1) / 2.0) * step, rot)
                         at = Location(round(c.x + ox, 6), round(c.y + oy, 6))
-                        # a nanometre short of the copper: a via reaching the land's edge is inside it
-                        if poly_within(circle_polygon(at, s / 2.0 + inset - 1e-6, 24), land) and clear(at):
-                            vias.append(Via(name, at, d, s))
+                        # 10 nm short of the copper: a via reaching the land's edge is inside it
+                        if (poly_within(circle_polygon(at, s / 2.0 + inset - 1e-5, 24), land)
+                                and self._via_site_why(ctx, at, name, s, d, obstacles) is None):
+                            via = Via(name, at, d, s)
+                            vias.append(via)
+                            ctx.planned_vias.append(via)    # the next via, and a later FreeSpot, keep the rule from it
             if not vias:
-                ctx.notes.append("vias %s: no via fits in %s.%s (%.2f mm via, %.2f mm drill, %.2f mm inset)" % (
+                ctx.notes.append("vias %s: no via fits in %s.%s, or clears the copper and holes round it "
+                                 "(%.2f mm via, %.2f mm drill, %.2f mm inset)" % (
                     name, owner, number, s, d, inset))
                 return []
-            ctx.planned_vias += vias           # a later FreeSpot keeps the rule from them
             return vias
         return self._copper_intent("vias %s" % name, net, priority, plan, _refs_in([pad]), why)
 
@@ -2290,6 +2281,73 @@ class Board:
         intent = self._copper_intent("via %s" % name, net, priority, plan, refs, why)
         return intent
 
+    def _via_obstacles(self, ctx):
+        """What a via's site is judged against beyond the occupancy's copper:
+        every drilled hole where its part now stands (each plated hole at its
+        own land, so the holes of one pin stay apart), every unplated hole,
+        and the keepouts and rule areas that forbid vias."""
+        occ = ctx.occ
+        drill_of = {(fp.ref, p.number): p.drill_mm for fp in self.geometry.footprints for p in fp.pads
+                    if p.through and p.drill_mm}
+        holes = [(sh.box.center, drill_of[(o, sh.label)]) for o, g in occ.items.items() if o not in occ.pending
+                 for sh in g.shapes if sh.kind == "through" and (o, sh.label) in drill_of]
+        # unplated holes (a connector's locating pegs): no copper, so the via's copper keeps the board's hole
+        # clearance from the hole's edge as well as the hole-to-hole rule
+        bare = [(sh.box.center, sh.box.width) for o, g in occ.items.items() if o not in occ.pending
+                for sh in g.shapes if sh.kind == "npth"]
+        forbidding = [(k.poly, k.layers) for k in (ctx.plan.keepouts.values() if ctx.plan else ())
+                      if "vias" in k.excludes]
+        forbidding += [(poly, ra.layers) for pairs in occ._cell_rule_areas.values() for ra, poly in pairs
+                       if "vias" in ra.excludes]
+        forbidding += [(ra.polygon, ra.layers) for ra in self.geometry.rule_areas
+                       if ra.cell is None and "vias" in ra.excludes]
+        return holes, bare, forbidding
+
+    def _via_site_why(self, ctx, c: Location, net: str, size: float, drill: float, obstacles) -> str | None:
+        """Why a via of `net` may not stand at `c`, or None. A via goes
+        through every layer: the board's edge, every other net's copper
+        (placed, and planned so far in this batch: tracks, tails and vias),
+        the hole-to-hole rule from every hole, the hole clearance from an
+        unplated one, and keepouts that forbid vias."""
+        occ = ctx.occ
+        holes, bare, forbidding = obstacles
+        ring = circle_polygon(c, size / 2.0)
+        box = Box.of_points(ring)
+        if occ.board_shape is not None:
+            if occ.board_shape.why_not(box, self.keep_in):
+                return "off the board, or within %.2f mm of the board edge" % self.keep_in
+        elif occ.board_box is not None and not occ.board_box.inflate(-self.keep_in).contains(box):
+            return "within %.2f mm of the board edge" % self.keep_in
+        hits = occ.copper_conflicts(Shape("via", "copper", frozenset(), frozenset(self.geometry.layers), net, ring, box))
+        if hits:
+            return "copper " + hits[0]
+        for v in ctx.planned_vias:
+            gap = c.distance(v.at) - (drill + v.drill) / 2.0
+            if gap < self.geometry.hole_to_hole - 1e-9:
+                return "hole %.2f mm from the %s via's hole" % (max(gap, 0.0), v.net)
+            if v.net != net:
+                clr = self.geometry.clearance(net, v.net)
+                if c.distance(v.at) - (size + v.size) / 2.0 < clr - 1e-9:
+                    return "copper %.2f mm from the %s via" % (c.distance(v.at) - (size + v.size) / 2.0, v.net)
+        for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
+            if t.net != net and poly_distance(ring, t.polygon) < self.geometry.clearance(net, t.net) - 1e-9:
+                return "copper %.2f mm from a %s track planned before it" % (poly_distance(ring, t.polygon), t.net)
+        for at, dia in holes:
+            gap = c.distance(at) - (drill + dia) / 2.0
+            if gap < self.geometry.hole_to_hole - 1e-9:
+                return "hole %.2f mm from a pad's hole" % max(gap, 0.0)
+        for at, dia in bare:
+            gap = c.distance(at) - (drill + dia) / 2.0
+            if gap < self.geometry.hole_to_hole - 1e-9:
+                return "hole %.2f mm from an unplated hole" % max(gap, 0.0)
+            edge = c.distance(at) - (size + dia) / 2.0
+            if edge < self.geometry.hole_clearance - 1e-9:
+                return "copper %.2f mm from an unplated hole (needs %.2f)" % (max(edge, 0.0), self.geometry.hole_clearance)
+        for poly, layers in forbidding:
+            if polys_overlap(ring, poly):
+                return "inside a keepout, which forbids vias"
+        return None
+
     def _free_spot(self, ctx, spot, net: str, drill: float, size: float):
         """Run the search from the pad against the board as it stands: placed
         pads and planned copper through the occupancy, the vias planned so far,
@@ -2311,70 +2369,24 @@ class Board:
             return None
         nc = self.geometry.netclasses.get(net)
         width = queries.tail_width(nc.track_width if nc else 0.2, [sh.poly for sh in own])
-        every = frozenset(self.geometry.layers)
-        holes = [(occ.pad_location(fp.ref, p.number), p.drill_mm)
-                 for fp in self.geometry.footprints for p in fp.pads if p.through and p.drill_mm]
-        # unplated holes (a connector's locating pegs) where their parts now stand: no copper, so the via's
-        # copper keeps the board's hole clearance from the hole's edge as well as the hole-to-hole rule
-        bare = [(sh.box.center, sh.box.width) for owner, g in occ.items.items() if owner not in occ.pending
-                for sh in g.shapes if sh.kind == "npth"]
-        forbidding = [(k.poly, k.layers) for k in (ctx.plan.keepouts.values() if ctx.plan else ())
-                      if "vias" in k.excludes]
-        forbidding += [(poly, ra.layers) for pairs in occ._cell_rule_areas.values() for ra, poly in pairs
-                       if "vias" in ra.excludes]
-        forbidding += [(ra.polygon, ra.layers) for ra in self.geometry.rule_areas
-                       if ra.cell is None and "vias" in ra.excludes]
+        obstacles = self._via_obstacles(ctx)
 
         def judge(c):
             ring = circle_polygon(c, size / 2.0)
-            box = Box.of_points(ring)
             if not spot.in_pad and any(polys_overlap(ring, sh.poly) for sh in own):
                 return "in the source pad", ()
-            if occ.board_shape is not None:
-                if occ.board_shape.why_not(box, self.keep_in):
-                    return "off the board, or within %.2f mm of the board edge" % self.keep_in, ()
-            elif occ.board_box is not None and not occ.board_box.inflate(-self.keep_in).contains(box):
-                return "within %.2f mm of the board edge" % self.keep_in, ()
-            hits = occ.copper_conflicts(Shape("via", "copper", frozenset(), every, net, ring, box))
-            if hits:
-                return "copper " + hits[0], ()
-            for v in ctx.planned_vias:
-                gap = c.distance(v.at) - (drill + v.drill) / 2.0
-                if gap < self.geometry.hole_to_hole - 1e-9:
-                    return "hole %.2f mm from the %s via's hole" % (max(gap, 0.0), v.net), ()
-                if v.net != net:
-                    clr = self.geometry.clearance(net, v.net)
-                    if c.distance(v.at) - (size + v.size) / 2.0 < clr - 1e-9:
-                        return "copper %.2f mm from the %s via" % (c.distance(v.at) - (size + v.size) / 2.0, v.net), ()
-                    if c.distance(start) > 1e-9 and poly_distance(queries._segment(start, c, width), v.polygon) < clr - 1e-9:
-                        return "tail %.2f mm from the %s via" % (
-                            poly_distance(queries._segment(start, c, width), v.polygon), v.net), ()
-            for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
-                if t.net == net:
-                    continue
-                clr = self.geometry.clearance(net, t.net)
-                if poly_distance(ring, t.polygon) < clr - 1e-9:
-                    return "copper %.2f mm from a %s track planned before it" % (poly_distance(ring, t.polygon), t.net), ()
-                if (t.layer is layer and c.distance(start) > 1e-9
-                        and poly_distance(queries._segment(start, c, width), t.polygon) < clr - 1e-9):
-                    return "tail crosses a %s track planned before it" % t.net, ()
-            for at, dia in holes:
-                gap = c.distance(at) - (drill + dia) / 2.0
-                if gap < self.geometry.hole_to_hole - 1e-9:
-                    return "hole %.2f mm from a pad's hole" % max(gap, 0.0), ()
-            for at, dia in bare:
-                gap = c.distance(at) - (drill + dia) / 2.0
-                if gap < self.geometry.hole_to_hole - 1e-9:
-                    return "hole %.2f mm from an unplated hole" % max(gap, 0.0), ()
-                edge = c.distance(at) - (size + dia) / 2.0
-                if edge < self.geometry.hole_clearance - 1e-9:
-                    return "copper %.2f mm from an unplated hole (needs %.2f)" % (max(edge, 0.0),
-                                                                                 self.geometry.hole_clearance), ()
-            for poly, layers in forbidding:
-                if polys_overlap(ring, poly):
-                    return "inside a keepout, which forbids vias", ()
-            if c.distance(start) > 1e-9:
+            why = self._via_site_why(ctx, c, net, size, drill, obstacles)
+            if why:
+                return why, ()
+            if c.distance(start) > 1e-9:            # the tail it will draw: clear of other nets' vias and tracks
                 tail = queries._segment(start, c, width)
+                for v in ctx.planned_vias:
+                    if v.net != net and poly_distance(tail, v.polygon) < self.geometry.clearance(net, v.net) - 1e-9:
+                        return "tail %.2f mm from the %s via" % (poly_distance(tail, v.polygon), v.net), ()
+                for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
+                    if (t.net != net and t.layer is layer
+                            and poly_distance(tail, t.polygon) < self.geometry.clearance(net, t.net) - 1e-9):
+                        return "tail crosses a %s track planned before it" % t.net, ()
                 tail_hits = occ.copper_conflicts(Shape("via", "copper", frozenset(), frozenset([layer]),
                                                        net, tail, Box.of_points(tail)))
                 if tail_hits:
