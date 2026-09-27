@@ -2058,7 +2058,9 @@ class Board:
         # A bearing: turning by r takes a side pointing along bearing b to b - r,
         # so the rotation is the side's own bearing less the one wanted.
         local = _EDGE_BEARING[Edge(declared)] if declared else _EDGE_BEARING[Edge.SOUTH]
-        return (local - bearing(edge)) % 360.0, "" if declared else note
+        # to a millionth of a degree: a bearing read off a curve carries float noise (359.99999999999994 for
+        # 0), and a part turned by it has pads a hair off the axes, which the router reads as off the board
+        return round(local - bearing(edge), 6) % 360.0, "" if declared else note
 
     def label(self, item, text: str, *, side: Edge = Edge.NORTH, gap: float | None = None, align: str = "centre",
               size: float | None = None, thickness: float | None = None, knockout: bool = False,
