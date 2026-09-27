@@ -33,7 +33,7 @@ def test_a_finding_is_its_text_and_carries_its_kind():
     with pytest.raises(ValueError):
         Finding("nonsense", "x")
     assert set(KINDS) == {"unplaced", "link_over", "fixed", "copper", "label", "escape_crossed", "pair_crossed",
-                          "escape_closed", "escape_walled", "setup"}
+                          "escape_closed", "escape_walled", "setup", "route"}
 
 
 def test_a_plan_takes_only_findings_that_say_their_kind():

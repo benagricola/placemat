@@ -105,3 +105,36 @@ def test_a_point_over_another_nets_pad_binds_to_its_own_net():
     (e,) = routes.entries_from(placed, routed, ["X"])
     ends = [t["a"] for t in e.tracks] + [t["b"] for t in e.tracks]
     assert not any(p.get("pad", [None])[0] == "Q1" for p in ends)
+
+
+def _resolved(r1_at):
+    placed, routed = _routed()
+    (e,) = routes.entries_from(placed, routed, ["X"])
+    b = Board(board_geometry(_parts(), width=40, height=40), edge_margin=0.5)
+    b.place(Part("u1"), at=Location(10, 10))
+    b.place(Part("r1"), at=Location(*r1_at))
+    return b.resolve(routes=[e])
+
+
+def test_a_run_draws_an_adopted_route_where_its_parts_stand():
+    plan = _resolved((20, 16))
+    assert plan.adopted == {"X": "held"}
+    assert len([c for c in plan.copper if isinstance(c, Track) and c.net == "X"]) == 2
+    assert len([c for c in plan.copper if isinstance(c, Via) and c.net == "X"]) == 1
+
+
+def test_a_run_drops_an_adopted_route_whose_part_moved():
+    plan = _resolved((21, 16))
+    assert "R1" in plan.adopted["X"]
+    assert not [c for c in plan.copper if getattr(c, "net", None) == "X"]
+    assert any("adopted route X dropped" in f and "R1" in f for f in plan.findings)
+
+
+def test_the_routes_file_is_part_of_the_scripts_fingerprint(tmp_path):
+    from placemat.project import script_fingerprint
+    script = tmp_path / "Board_layout.py"
+    script.write_text("x = 1\n")
+    before = script_fingerprint(script)
+    placed, routed = _routed()
+    routes.write(routes.path_for(script), routes.entries_from(placed, routed, ["X"]))
+    assert script_fingerprint(script) != before

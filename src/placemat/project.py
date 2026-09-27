@@ -225,4 +225,7 @@ def script_fingerprint(script) -> str:
     lock = script.with_name(script.stem + ".lock.json")      # accepted decisions decide placements too
     if lock.is_file():
         parts.append("lock\0%s" % lock.read_text(errors="replace"))
+    kept = script.with_name(script.stem + ".routes.json")    # adopted routes are copper the run draws
+    if kept.is_file():
+        parts.append("routes\0%s" % kept.read_text(errors="replace"))
     return "\0\0".join(parts)

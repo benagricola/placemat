@@ -439,6 +439,7 @@ class Plan:
     rudy: object = None                                           # congestion.Rudy of the placed board
     reuse: dict = field(default_factory=dict)                     # this run's record, for the next run to replay
     turns: dict = field(default_factory=dict, repr=False)        # each searched item's turn: where it went and the pad it depends on (lock.py)
+    adopted: dict = field(default_factory=dict)                   # net -> "held", or "dropped: why": routed copper kept beside the script
     cell_zones_under_planes: str = "drop"                         # settings: a cell's zone under the board's own plane is merged into it
     merged_zones: list = field(default_factory=list)              # the cell zones the write merged into a plane (MergedZone)
     _items: dict = field(default_factory=dict, repr=False)
@@ -2515,7 +2516,7 @@ class Board:
 
     reuse_extra = ""        # what the runner adds to the reuse context: tool version, board file, settings, fab profile
 
-    def resolve(self, progress=None, reuse=None, explore=None, lock=None) -> Plan:
+    def resolve(self, progress=None, reuse=None, explore=None, lock=None, routes=None) -> Plan:
         # An explore variant (explore.py): seed 0, or none, is the plain placement.
         self._explore = explore if (explore is not None and explore.seed) else None
         # Accepted decisions (lock.py): tried first at each locked item's turn.
@@ -2785,6 +2786,8 @@ class Board:
                 record["cleanup"] = self._recorded_cleanup(occ, plan)
                 record["cleanup"]["key"] = chain["key"]
         self._plan_copper(occ, ctx, other_copper, plan, progress)
+        if routes:
+            self._draw_adopted(occ, ctx, plan, routes, progress)
         if self._fit:
             # the frame, now that everything is placed: the content plus the margin, and the planes that follow it
             content = self._placed_box(occ, plan)
@@ -3804,6 +3807,26 @@ class Board:
         anchor_at = members.get(spec.anchor.inst)
         plan.steps.append(Step(spec.anchor.inst, "part", i.priority, anchor_at, 0.0, "anchor of %s" % i.key))
         return self._step(i, anchor_at, 0.0, note)
+
+    def _draw_adopted(self, occ, ctx, plan: Plan, entries, progress):
+        """Routed copper kept beside the script (routes.py): each net drawn
+        while the parts it joins stand as they did when it was adopted,
+        else dropped with a finding, and the router routes it again."""
+        from . import routes as _routes
+        intents = []
+        for e in entries:
+            got = _routes.resolve(e, occ, self.settings.route_adopt_tolerance)
+            if isinstance(got, str):
+                plan.adopted[e.net] = "dropped: " + got
+                plan.findings.append(Finding("route", "adopted route %s dropped: %s; the router routes it again"
+                                             % (e.net, got)))
+                continue
+            plan.adopted[e.net] = "held"
+            ops = list(got[0]) + list(got[1])
+            intents.append(CopperIntent("adopted %s" % e.net, e.net, Priority.DEFAULT, lambda ctx, ops=ops: ops,
+                                        (), "kept from a route", len(self._copper) + len(intents)))
+        if intents:
+            self._plan_copper(occ, ctx, intents, plan, progress)
 
     def _block_alone(self, spec, rotations, face, clearance) -> str | None:
         """None when the block can be laid out on its own - on an empty board,

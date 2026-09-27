@@ -16,6 +16,7 @@ KINDS = (
     "escape_walled",    # a pad with no route out at all
     "pair_crossed",     # a differential pair's two halves cross: a swap or a turn uncrosses it
     "setup",            # the same every run of the script: an undeclared part, a layer the board lacks
+    "route",            # an adopted route dropped because a part it joins moved: the router routes it again
 )
 
 
