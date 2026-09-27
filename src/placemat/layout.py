@@ -2366,6 +2366,8 @@ class Board:
                         board_cutouts=self._cutouts, settings=self.settings,
                         component_spacing=self.component_spacing)
         occ.quiet_nets = frozenset(self._plane_nets() | set(self._free_nets))
+        if self._fit:
+            occ.board_box = None                # no frame yet: the decided items have no edge to be judged by
         for intent in self._placements():
             declared = [intent.item.anchor] + [fp for fp, _ in intent.item.satellites] if intent.kind == "block" else [intent.item]
             for item in declared:
@@ -2591,6 +2593,12 @@ class Board:
         self._check_web(plan)
         self._check_pitch(plan)
         self._plan_copper(occ, ctx, fixed_copper, plan, progress)
+        if self._fit:
+            # the search's room: round what is decided, or round the origin when nothing is
+            decided = self._placed_box(occ, plan)
+            room = self.settings.place_fit_room
+            occ.board_box = decided.inflate(room) if decided is not None else Box(-room, -room, room, room)
+            self._outline = occ.board_box       # the search's fallback hint and its pockets read it
         # Every searched item is one queue, whatever kind it is: a connector can
         # be the most important thing on a board, and it does not wait behind a
         # tier of cells for being a single part. What it needs decides.
@@ -2709,6 +2717,23 @@ class Board:
         for key, kind, name in entry.get("items", ()):
             plan._items[key] = self.geometry.cells[name] if kind == "cell" else self.geometry.footprint(name)
         return _reuse.step_from_json(entry["step"])
+
+    def _placed_box(self, occ: Occupancy, plan: Plan) -> Box | None:
+        """The box round what the plan has placed so far, as the placer
+        claims it - each placed part's shapes, the labels reserved for them,
+        planned tracks, vias and pours - or None when nothing is. Zones are
+        left out: they are sized from the frame, not the frame from them."""
+        from .board_geometry import members_of
+        boxes = []
+        for step in plan.steps:
+            if step.placement is None or step.kind not in ("part", "cell"):
+                continue
+            for fp in members_of(plan._items[step.item]):
+                if fp.ref in occ.items:
+                    boxes += [sh.box for sh in occ.items[fp.ref].shapes]
+        boxes += [r_box for r_box in (Box.of_points(r.poly) for r in occ.reservations if r.why.startswith("label "))]
+        boxes += [op.box for op in plan.copper if isinstance(op, (Track, Via, Pour))]
+        return Box.union(boxes) if boxes else None
 
     def _cleanup_movable(self, plan: Plan) -> dict:
         """{step key: footprint} for the parts the cleanup pass may move: a

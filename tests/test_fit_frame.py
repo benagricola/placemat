@@ -29,3 +29,19 @@ def test_what_needs_the_frame_is_refused_on_a_fit_board():
                 lambda: b.edge(Edge.NORTH)):
         with pytest.raises(ValueError, match="fit"):
             ask()
+
+
+def test_a_searched_part_goes_round_the_decided_content():
+    b = _board()
+    b.place(Part("u1"), at=Location(0, 0))
+    b.place(Part("c1"))
+    plan = b.resolve()
+    p = plan.placement("c1")
+    assert p is not None and p.location.distance(Location(0, 0)) < b.settings.place_fit_room + 5
+
+
+def test_with_nothing_decided_the_first_part_is_at_the_origin():
+    b = _board()
+    b.place(Part("u1"))
+    plan = b.resolve()
+    assert plan.placement("u1").location.distance(Location(0, 0)) < 1e-6
