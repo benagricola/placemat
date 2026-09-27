@@ -3771,9 +3771,18 @@ class Board:
                         return anchor_score(members[spec.anchor.inst])
                 body = occ._geometry(spec.anchor).body
                 radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)
-                best, tried, rejected, reasons = scan_block(occ, spec, hint, radius, i.step, i.rotations or (i.rotation,), clr, score,
-                                                            pick=self._pick(i))
-                if best is None:
+                alone = self._block_alone(spec, i.rotations or (i.rotation,), i.face, clr)
+                if alone is not None:           # no board position can help: say so now, not after the scan
+                    best, rejected = None, Counter()
+                else:
+                    best, tried, rejected, reasons = scan_block(occ, spec, hint, radius, i.step, i.rotations or (i.rotation,),
+                                                                clr, score, pick=self._pick(i))
+                if best is None and alone is not None:
+                    plan.findings.append(Finding("unplaced", "%s: cannot be laid out on its own at any rotation it may "
+                                                 "take, whatever room the board has (%s)" % (i.key, alone)))
+                    members = {}
+                    note = "UNPLACED: " + alone
+                elif best is None:
                     plan.findings.append(Finding("unplaced", "%s: no legal spot within %.1f mm of %s (%s)" % (
                         i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in rejected.most_common(3)))))
                     members = {}
@@ -3795,6 +3804,30 @@ class Board:
         anchor_at = members.get(spec.anchor.inst)
         plan.steps.append(Step(spec.anchor.inst, "part", i.priority, anchor_at, 0.0, "anchor of %s" % i.key))
         return self._step(i, anchor_at, 0.0, note)
+
+    def _block_alone(self, spec, rotations, face, clearance) -> str | None:
+        """None when the block can be laid out on its own - on an empty board,
+        nothing else placed - at some rotation it may take; else why not, at
+        each. A block its own satellites cannot fit round fails here in a
+        moment rather than after a scan of the whole board."""
+        from .placer import layout_block
+        key = (spec.key, tuple(rotations), face)
+        cache = self.__dict__.setdefault("_block_alone_cache", {})
+        if key not in cache:
+            bare = self._bare_occupancy()
+            bare.board_box, bare.board_shape, bare.board_cutouts = None, None, None
+            bare.copper, bare.reservations = [], []
+            bare.pending = {fp.ref for fp in self.geometry.footprints}
+            why = []
+            for rot in rotations:
+                members, reason = layout_block(bare, spec, Placement(Location(0.0, 0.0), rot, face), clearance,
+                                               others={fp.inst: [] for fp in spec.members})   # an empty board
+                if members is not None:
+                    why = None
+                    break
+                why.append("%g: %s" % (rot, reason))
+            cache[key] = None if why is None else "; ".join(why)
+        return cache[key]
 
     def _settle(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set = frozenset(),
                 solve: bool = True) -> Step:

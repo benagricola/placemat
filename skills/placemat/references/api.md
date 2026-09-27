@@ -725,7 +725,9 @@ satellite at a pin near a corner stays in front of that pin. Where no spot
 on the axis is legal (satellites wider than the pitch on neighbouring pins),
 the satellite slides along the pin row, the least that clears, up to
 `place.block_gap_reach`; one aimed at a pin another satellite already sits
-at does not. A net names the anchor's FIRST pad carrying it; when several do (a
+at does not. A searched block is first laid out on its own, on an empty
+board, at each rotation it may take: when none works, the finding says why
+at once rather than after a scan of the whole board. A net names the anchor's FIRST pad carrying it; when several do (a
 supply, a ground with thermal vias numbered into an exposed pad), name the
 anchor's pad by number instead - `(Part("cdec"), 20)` - and the satellite
 sits by its own pad on that pad's net. A satellite with no spot says which

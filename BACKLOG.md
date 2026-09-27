@@ -14,8 +14,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **Placing relative to a searched item** (PLACEMAT_GAPS 2026-09-26, twice):
   a `Pin` or a cutout on a searched item is refused ("only FIXED and EDGE
   items may be referred to"). Needs a spec.
-- **A block that fits nowhere, found before the search** (PLACEMAT_GAPS
-  2026-09-26): a run spent 15 minutes on a block that fit in no rotation.
 - **Each part's clearance to each keepout** (PLACEMAT_GAPS 2026-09-26):
   physical, courtyard and maximum-package, as a report.
 - **A plated lead against a neighbour's courtyard on the same face under
@@ -36,6 +34,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **A block that fits nowhere, found before the search** (unreleased;
+  PLACEMAT_GAPS 2026-09-26): a searched block is laid out alone at each of
+  its rotations first.
 - **A failed run leaves the last good board** (unreleased; PLACEMAT_GAPS
   2026-09-26): a run that fails before writing the board puts the layout
   folder back as the last run left it.
