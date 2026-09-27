@@ -19,11 +19,15 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **A keepout by part height** (unreleased; a board's layout work,
+- **A run keeps files it did not write; round track ends** (0.42.0; a
+  board's layout work, 2026-09-27): the layout folder's other files and a
+  hand-edited board survive a run; a track's end is round, so a clean
+  board no longer reads 0.13 mm against a 0.16 rule.
+- **A keepout by part height** (0.42.0; a board's layout work,
   2026-09-27): `Pm.Height` and `board.keepout(..., max_height=)`
   (spec `2026-09-27-part-height-design.md`).
 - **`measure --labels` with text size, angle, mirroring and silk graphics**
-  (unreleased; PLACEMAT_GAPS 2026-09-27).
+  (0.42.0; PLACEMAT_GAPS 2026-09-27).
 - **The 2026-09-27 evening gaps entries** (0.41.0): `placemat drc` takes a
   relative path; the routed copy is saved with its zones refilled; a
   footprint's copper graphics are copper to the placer; `placemat parts`

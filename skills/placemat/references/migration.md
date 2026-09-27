@@ -10,6 +10,12 @@ Nothing to change in a script. A parts keepout whose `allow=` names the
 parts short enough for the room a case leaves over it can say
 `max_height=` instead, once the capture gives each part `Pm.Height`.
 
+`placemat run` no longer deletes files in the layout folder that it did
+not write, and copies a board edited in KiCad since its last run to the
+run's `kept/` before writing over it. A track's end is now round, as KiCad
+draws it, so a clearance finding between a track's end and a pad corner
+that KiCad did not report goes away.
+
 ## To 0.41
 
 Nothing to change in a script. A grid of vias typed into a pad (offsets from
