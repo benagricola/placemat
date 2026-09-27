@@ -28,7 +28,7 @@ from .placement import Placement
 from .settings import Settings
 from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, stackup_order
-from .values import (Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Turned, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -199,6 +199,7 @@ class PlaceIntent:
     freedom: Freedom = Freedom.SEARCHED   # derived from at=, never chosen
     required: bool = False                # failing to place this stops the run
     rotation_given: bool = False          # the script said rotation=: that one, not a choice of four
+    turned: object = None                 # a Turned: the rotation is its part's plus its degrees, settled at placement
     line: int = field(default=0, metadata={"reuse": False})   # the script line that declared it: not what it decides
 
     @property
@@ -1470,6 +1471,9 @@ class Board:
                              "position to have it searched" % (key, priority.value))
         priority = priority or Priority.DEFAULT
         faces_note = ""
+        turned = rotation if isinstance(rotation, Turned) else None
+        if turned is not None:
+            rotation = float(turned.degrees)        # provisional: the ranking measures by it until the part is down
         rotation_given = rotation is not None
         if rotation is None:
             if isinstance(run, CutoutEdge):
@@ -1489,12 +1493,14 @@ class Board:
             needs.add(cutout_token(at.edge.name))   # the hole is cut before anything is put against it
         if isinstance(along, _RowSlot):
             needs |= along.row.needs
+        if turned is not None:
+            needs.add(self._pad_ref(turned.part)[0])   # turned by it: placed after it
         standoff = _standoff if _standoff is not None else (-float(overhang) if overhang else self.keep_in)
         turn = None if rotation is None else float(rotation)   # None: settled when the stretch is known
         intent = PlaceIntent(key, geom, kind, priority, turn, face, at, center, edge, along,
                              standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs),
                              pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward, about, run,
-                             freedom, required, rotation_given, _script_line())
+                             freedom, required, rotation_given, turned=turned, line=_script_line())
         self._intents.append(intent)
         return intent
 
@@ -2439,6 +2445,9 @@ class Board:
                 else:
                     settle_cutout(obj)
                 return
+            if getattr(obj, "turned", None) is not None:    # its part is placed by now: needs said so
+                ref = self._pad_ref(obj.turned.part)[0]
+                obj.rotation = (occ.items[ref].reference.rotation + obj.turned.degrees) % 360.0
             if isinstance(obj.run, CutoutEdge):     # the hole is down by now: read its real stretch
                 obj.run = self.cutout(obj.run.name).edge(side=obj.run.side, within=obj.run.within)
                 if isinstance(obj.along, (Along, Fraction)):

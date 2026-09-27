@@ -391,6 +391,14 @@ class PadRef:
 
 
 @dataclass(frozen=True)
+class Turned:
+    """A rotation relative to a part: its placed rotation plus `degrees`,
+    settled when the item is placed, which waits for that part."""
+    part: Part
+    degrees: float = 0.0
+
+
+@dataclass(frozen=True)
 class CellPadRef:
     """A pad inside a cell, found by net or number, optionally only on members
     whose refdes starts with `ref_prefix`; resolved after the cell is placed."""
