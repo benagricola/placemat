@@ -56,6 +56,7 @@ board.place(item, at=Location(x, y), rotation=0, face=Face.FRONT)      # FIXED: 
 board.place(item, at=Centre(X(Mid(a, b)), Y(a, 3.0)), rotation=0)       # FIXED: the body centre, said in terms of pads
 board.place(item, at=Pin("VIN", X(pin), Y(pin, 2.0)), rotation=90)       # FIXED: the item's own pad lands on the point
 board.place(item, at=Near(Location(x, y)), radius=3.0, step=0.2, rotations=(0, 90))  # searched round a hint
+board.place(item, at=Near(PadRef(u1, 3).local(0.4, -1.2), radius=0), rotation=Turned(u1, 90))  # off a pad in its part's own frame, turned with it
 ```
 `item` is a `Part` (schematic instance), a `Cell` (module group) or a block
 (below). One declaration per item. `why=` is recorded in the run. A FIXED
@@ -137,7 +138,11 @@ board.place(Part("c_bulk"))                                             # seeds 
 The step note reads `seeded on V48` and the achieved link lengths are in
 the run. A pad is named by number (`PadRef(part, 3)`), by net
 (`PadRef(part, "V48")`), or by the pin name its symbol gives it:
-`PadRef(Part("mcu"), pin="VDD3P3_CPU")`. Pin names are read from the
+`PadRef(Part("mcu"), pin="VDD3P3_CPU")`. `.offset(dx, dy)` moves the point
+in board directions; `.local(dx, dy)` moves it in the part's own frame, as
+its footprint is drawn, so the move turns with the part (and on the back
+mirrors). `rotation=Turned(Part("u1"), 90)` is that part's placed rotation
+plus 90; the item waits for the part. Pin names are read from the
 symbols the board's .zen files use, through the generator's netlist; a name
 on several pads (a symbol's repeated GND) asks for the number instead, and
 `placemat measure <board> <part> --pads` prints each pad's pin name beside
@@ -1094,11 +1099,13 @@ run prints how many items it held, drifted and released. `placemat lock`
 lists entries and releases them.
 
 **Freeze.** `placemat freeze <script> ITEM` (or `--all`) writes entries
-into the script: the item's `place()` call gains
-`at=Near(PadRef(<anchor>).offset(dx, dy), radius=0)` and `rotation=`,
-which keeps it in the same turn of the order, exactly where the lock put
-it; `--fixed` writes a firm `Location(X(...), Y(...))` instead, allowed
-when the anchor is fixed. Only that call's arguments change - comments and
+into the script in the lock's own terms: the item's `place()` call gains
+`at=Near(PadRef(<anchor>).local(dx, dy), radius=0)` - an offset in the
+anchor part's own frame - and `rotation=Turned(Part(<anchor>), r)`, so it
+keeps its turn of the order and turns with its anchor exactly as the lock
+held it, and its `why=` gains where the spot came from (`explore <run>:
+<score> mm, frozen <date>`). `--fixed` writes a firm
+`Location(X(...), Y(...))` instead, allowed when the anchor is fixed. Only that call's arguments change - comments and
 every other line stay - and the script and lock are written only when the
 edited script places every item exactly as the lock did; otherwise freeze
 says what would have moved. A call inside a loop or a helper function

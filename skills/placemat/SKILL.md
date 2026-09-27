@@ -227,8 +227,9 @@ coordinates nobody chose.
   scores better, then `--accept` what is sound. The lock beside the script
   keeps it, relative to each item's anchor, and every run re-checks it:
   that is where an explore result lives. Commit the lock with the script.
-  `placemat freeze` moves an entry into the script only to hand the item
-  to the decided tier; never type a lock's numbers into a script by hand.
+  `placemat freeze` moves an entry into the script, in its anchor's own
+  frame and with a `why=` naming the run it came from, once the spot is
+  part of the design; never type a lock's numbers into a script by hand.
 - Leave a searched part's rotation out unless its turn matters: the
   search tries all four and keeps the one that puts its pads nearest what
   they connect to. Say `rotation=` for a part whose orientation is a fact

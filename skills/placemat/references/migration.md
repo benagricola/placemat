@@ -4,6 +4,17 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.40
+
+Nothing to change in a script. `placemat freeze` now writes an entry as
+`Near(PadRef(...).local(dx, dy), radius=0)` with `rotation=Turned(Part(...),
+r)`, in the anchor's own frame, and adds to its `why=` the explore run and
+score it came from; a frozen item turns with its anchor. Entries frozen by
+0.39 or earlier wrote `.offset(...)` in board directions and an absolute
+rotation: they stay put only while the anchor keeps its rotation, so
+re-accept and re-freeze them, or give them links and let the search place
+them.
+
 ## To 0.39
 
 Scripts that place by typed positions - `Location(...)` of numbers or of

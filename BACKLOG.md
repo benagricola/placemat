@@ -7,14 +7,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **Freeze keeps intent** (Ben, 2026-09-27; next after the via tail): freeze
-  writes its offset in board directions (a turned anchor leaves the item
-  behind, unlike the lock) and an absolute Location when an item has no
-  anchor, with nothing saying why. Write the offset in the anchor's frame,
-  a `why=` naming the explore run and score, and say in SKILL.md that
-  explore results stay in the lock and are never copied into a script as
-  coordinates.
-
 ## Housekeeping (left for Ben: outside this repository)
 
 - `mnb-ecosystem/pyproject.toml` points placemat at the stale
@@ -23,6 +15,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **Freeze keeps intent** (unreleased; spec
+  `2026-09-27-freeze-intent-design.md`): freeze writes `PadRef.local` and
+  `Turned` from the lock's own numbers, with a `why=` naming the explore
+  run and score the lock now records.
 - **A via found near a pad, joined to it** (0.39.0; PLACEMAT_GAPS
   2026-09-26 twice and 2026-09-27): a FreeSpot via draws its tail, and a
   via intent is a track end (spec `2026-09-27-via-tail-design.md`).
