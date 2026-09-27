@@ -25,10 +25,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **A frame sized to its content** (unreleased; PLACEMAT_GAPS 2026-09-27):
+- **A frame sized to its content** (0.40.0; PLACEMAT_GAPS 2026-09-27):
   `board.size(fit=True, margin=)`, planes following the fitted frame
   (spec `2026-09-27-fit-frame-design.md`).
-- **Freeze keeps intent** (unreleased; spec
+- **Freeze keeps intent** (0.40.0; spec
   `2026-09-27-freeze-intent-design.md`): freeze writes `PadRef.local` and
   `Turned` from the lock's own numbers, with a `why=` naming the explore
   run and score the lock now records.
