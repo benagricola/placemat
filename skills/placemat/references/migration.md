@@ -6,12 +6,6 @@ whether any of it applies.
 
 ## To 0.40
 
-A fragment that computes its frame from its parts - a helper that adds up
-where each body lands when its pad sits at a point, then sizes the frame and
-places the main part at the numbers - can use `board.size(fit=True,
-draw=False)`: place the main part at the origin and the rest from its pads,
-and drop the arithmetic. Planes with no `outline=` follow the fitted frame.
-
 Nothing to change in a script. `placemat freeze` now writes an entry as
 `Near(PadRef(...).local(dx, dy), radius=0)` with `rotation=Turned(Part(...),
 r)`, in the anchor's own frame, and adds to its `why=` the explore run and
@@ -22,6 +16,13 @@ one to the new form, remove its frozen `at=` and `rotation=` (a `radius=0`
 spot gives explore nothing to try), let the search place it with its links,
 then `--explore ... --accept` and freeze it again. A lock accepted by 0.39
 still holds.
+
+Optional: a fragment that computes its frame from its parts - a helper
+that adds up where each body lands when its pad sits at a point, then sizes
+the frame and places the main part at the numbers - can use
+`board.size(fit=True)`: place the main part at the origin and the rest from
+its pads, and drop the arithmetic. Planes with no `outline=` follow the
+fitted frame.
 
 ## To 0.39
 

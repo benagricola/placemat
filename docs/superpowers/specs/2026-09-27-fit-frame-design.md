@@ -39,8 +39,12 @@ whenever a footprint, a rotation or the envelope setting changes.
 3. **The frame is fitted once everything is placed**, before any copper that
    depends on it: `board.plane()` with no `outline=` is planned after
    placement on a fit board, inset from the fitted frame as it is from a
-   sized one. The plan's outline is the fitted frame, so the run's extent,
-   the written fragment and the stamped cell all use it.
+   sized one. The plan's outline is the fitted frame, so the run's extent
+   uses it; a never-drawn frame reaches the board that stamps the fragment
+   through what is written inside it (its planes among them), as a sized
+   fragment's does. (Amended after review: the room grows before each
+   searched item, by the item's size too; a keepout needs a place of its
+   own; cleanup may still move the first searched item off the origin.)
 4. **What cannot be said on a fit board is refused when declared.** A frame
    edge (`OnEdge`, `Edge.*` rows, `edge(facing=)`), a `Centre()` of the board
    and `board.width`/`board.height` before resolve have no meaning until the

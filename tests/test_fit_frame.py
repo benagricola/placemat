@@ -88,3 +88,92 @@ def test_an_unchanged_fit_script_replays_to_the_same_frame():
     first = _pinned(_board()).resolve()
     again = _pinned(_board()).resolve(reuse=first.reuse)
     assert again.reuse["reused"] > 0 and again.outline == first.outline
+
+
+def _big(*extra):
+    fps = [footprint("U1", 20, 20, w=2, h=1, inst="u1", nets=("A", "B")),
+           footprint("J1", 40, 40, w=30, h=4, inst="j1", nets=("A", "GND")),
+           footprint("M1", 10, 50, w=24, h=12, inst="m1", nets=("B", "GND"))] + list(extra)
+    b = Board(board_geometry(fps, width=80, height=80), edge_margin=0.5)
+    b.size(fit=True, draw=False)
+    return b
+
+
+def test_a_large_searched_part_finds_room_and_the_frame_grows_round_it():
+    b = _big()
+    b.place(Part("u1"), at=Location(0, 0))
+    b.place(Part("j1"))
+    b.place(Part("m1"))
+    plan = b.resolve()
+    for key in ("j1", "m1"):
+        assert plan.placement(key) is not None, plan.step(key).note
+        assert plan.outline.contains(plan.occupancy.body_box(plan._items[key], plan.placement(key)))
+
+
+def test_a_large_part_with_nothing_decided_finds_room():
+    b = _big()
+    b.place(Part("m1"))
+    assert b.resolve().placement("m1") is not None
+
+
+def test_a_keepout_at_a_place_works_on_a_fit_board_and_one_with_a_freedom_is_refused():
+    from placemat.cutouts import Circle
+    b = _pinned(_board())
+    b.keepout(Circle(2.0), "clear", at=Location(8, 0), why="a clear area beside the part")
+    assert b.resolve().placement("u1") is not None
+    b = _pinned(_board())
+    with pytest.raises(ValueError, match="fit"):
+        b.keepout(Circle(2.0), "slides", at=Location(8, None), why="slides along the frame")
+
+
+def test_a_cells_own_copper_counts_toward_the_frame():
+    from placemat.board_geometry import CopperItem
+    from placemat.values import Box, Cell, CopperLayer
+    fps = [footprint("U1", 20, 20, w=4, h=2, inst="mod.u1", cell="mod", nets=("A", "B"))]
+    track = ((19.0, 20.0), (21.0, 20.0), (21.0, 29.0), (19.0, 29.0))
+    copper = [CopperItem("track", "A", frozenset([CopperLayer.F]), (track,), Box(19.0, 20.0, 21.0, 29.0), "mod")]
+    b = Board(board_geometry(fps, cells=["mod"], copper=copper, width=60, height=60), edge_margin=0.5)
+    b.size(fit=True, draw=False, margin=0.0)
+    b.place(Cell("mod"), at=Location(20, 24.5))
+    plan = b.resolve()
+    assert plan.outline.bottom - plan.outline.top >= 9.0 - 1e-6
+
+
+def test_a_plane_declared_before_the_fit_size_follows_the_frame():
+    fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "GND"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=0.5)
+    b.plane(Net("GND"), layers=(CopperLayer.B,))
+    b.size(fit=True, draw=False)
+    b.place(Part("u1"), at=Location(0, 0))
+    plan = b.resolve()
+    (z,) = [c for c in plan.copper if isinstance(c, Zone)]
+    assert min(p[0] for p in z.points) >= plan.outline.left
+
+
+def test_a_sized_frame_after_fit_is_a_sized_frame():
+    b = _board()
+    b.size(30, 20)
+    assert b.width == 30
+
+
+def test_fit_needs_no_draw_and_a_negative_margin_is_refused():
+    fps = [footprint("U1", 20, 20, inst="u1")]
+    b = Board(board_geometry(fps, width=60, height=60))
+    b.size(fit=True)
+    with pytest.raises(ValueError, match="margin"):
+        Board(board_geometry(fps, width=60, height=60)).size(fit=True, margin=-1.0)
+
+
+def test_an_unreserved_label_counts_toward_the_frame():
+    b = _pinned(_board(margin=0.0))
+    b.label(Part("u1"), "LONG LABEL TEXT", side="N", size=2.0, reserve=False)
+    plan = b.resolve()
+    texts = [c for c in plan.copper if type(c).__name__ == "Text"]
+    assert texts and all(plan.outline.contains(t.box) for t in texts)
+
+
+def test_edges_and_centroid_name_fit_on_a_fit_board():
+    b = _board()
+    for ask in (lambda: b.edges(Edge.NORTH), lambda: b.centroid):
+        with pytest.raises(ValueError, match="fit"):
+            ask()

@@ -679,7 +679,7 @@ class Board:
         self._sized = False                 # the script has declared the board size
         self._fit = False                   # board.size(fit=True): the frame is the placed content plus a margin
         self._fit_margin = 0.0
-        self._fit_planes: set = set()       # planes with no outline of their own: planned once the frame is fitted
+        self._frame_planes: set = set()     # planes with no outline of their own: on a fit board, planned once the frame is fitted
         self._draw_outline = True
         self._chamfer = 0.0
         self._radius = 0.0
@@ -944,6 +944,8 @@ class Board:
         region's corners - a strip across the board has every corner past an
         edge and covers the board between them."""
         from .geometry import point_in_polygon, point_segment_distance, polys_overlap
+        if self._fit:
+            return False                        # a fit frame grows to hold what is placed
         shape = self._shaped()
         loop = Cutouts([path]).loops[0]
         if not polys_overlap(loop, shape.loops[0]):
@@ -967,8 +969,10 @@ class Board:
         that is mostly off the board is visible; a point count, not an area,
         because a region whose boundary IS the outline has the board's own
         area and any area measure reads zero."""
-        shape = self._shaped()
         loop = Cutouts([path]).loops[0]
+        if self._fit:
+            return 0, len(loop)                 # a fit frame has no outline yet to be off
+        shape = self._shaped()
         outside = sum(1 for x, y in loop
                       if shape.why_not(Box(x, y, x, y), 0.0) == "outside the board")
         return outside, len(loop)
@@ -1132,6 +1136,9 @@ class Board:
         self._keepouts[name] = k
         needs = frozenset(self._pad_ref(r)[0] for r in _refs_in([at]))
         settled = not self._cutout_free(k)
+        if self._fit and not settled:
+            raise ValueError("keepout %r: a fit frame has no room for it to slide in until its content is placed; "
+                             "give it a place" % name)
         intent = KeepoutIntent("keepout %s" % name, k, why, len(self._intents), needs,
                                Freedom.FIXED if settled else Freedom.SEARCHED)
         self._intents.append(intent)
@@ -1198,7 +1205,7 @@ class Board:
         return tuple(named_paths) + tuple(raw)
 
     def size(self, width: float | None = None, height: float | None = None, chamfer: float = 0.0, radius: float = 0.0,
-             holes=(), web: float = 0.0, draw: bool = True, *, fit: bool = False, margin: float | None = None):
+             holes=(), web: float = 0.0, draw: bool | None = None, *, fit: bool = False, margin: float | None = None):
         """The board outline: a rectangle at the origin, chamfered or rounded.
         `holes` are cutouts in it - a slot for a cable, a window - each a
         closed path of straight legs and arcs, the same as any other board's.
@@ -1206,13 +1213,17 @@ class Board:
         the box round what is placed, plus `margin` (default the keep-in)."""
         if fit:
             if draw:
-                raise ValueError("fit=True sizes a fragment's frame (draw=False); a board's outline is a mechanical fact")
+                raise ValueError("fit=True sizes a fragment's frame, never drawn; a board's outline is a mechanical fact")
+            if margin is not None and margin < 0:
+                raise ValueError("a fit frame's margin is 0 or more, not %r" % (margin,))
             self._fit, self._fit_margin = True, self.keep_in if margin is None else float(margin)
             self._outline, self._shape, self._cached_outline = None, None, None
             self._cutouts = Cutouts()
             self._chamfer, self._radius = chamfer, radius
             self._sized, self._draw_outline = True, False
             return
+        self._fit = False
+        draw = True if draw is None else draw
         if width is None or height is None or width <= 0 or height <= 0:
             raise ValueError("board size must be positive")
         self._outline = Box(0.0, 0.0, float(width), float(height))
@@ -1232,6 +1243,7 @@ class Board:
         Polar and ring(). `holes` are cutouts anywhere in it - a slot for a
         cable, a window - each a closed path of straight legs and arcs, the
         same as a shaped board's."""
+        self._fit = False
         d = float(diameter)
         self.web = float(web)
         self._shape = Disc(Location(d / 2.0, d / 2.0), d, float(hole), self._cutout_paths(holes))
@@ -1251,6 +1263,7 @@ class Board:
         `Slot(l, w)`, `Path(points)` - which is centred on the board origin.
         `holes` are cutouts, each a `Cutout` or a path of its own. Stretches
         of it are selected by which way they face, with board.edge(facing=)."""
+        self._fit = False
         if hasattr(path, "path_at"):        # a shape, not a path: the board sits at the origin
             lo_x, lo_y, hi_x, hi_y = path.box_at(Location(0.0, 0.0), 0.0)
             path = path.path_at(Location((hi_x - lo_x) / 2.0, (hi_y - lo_y) / 2.0), 0.0)
@@ -1304,6 +1317,8 @@ class Board:
         """This board as an outline, whatever it was declared as: what runs
         are read off. A disc's rim is its polygon; a rectangle's four sides
         are its own."""
+        if self._fit and self._outline is None:
+            self._refuse_on_fit("the board's outline")
         if isinstance(self._shape, Outline):
             return self._shape
         if self._cached_outline is None:
@@ -2309,8 +2324,8 @@ class Board:
             return [Zone(name, l, pts, clearance, min_thickness, solid_pads) for l in layers]
         refs = [] if outline is None else _refs_in(outline)
         intent = self._copper_intent("plane %s" % name, net, priority, plan, refs, why)
-        if self._fit and outline is None:
-            self._fit_planes.add(intent.index)
+        if outline is None:
+            self._frame_planes.add(intent.index)    # on a fit board, planned once the frame is fitted
         return intent
 
     def finger(self, net, *, layer: CopperLayer, from_, to, width: float,
@@ -2402,8 +2417,9 @@ class Board:
                     plan.footprints.append("%s: courtyard understates the part by %.2f mm (%s)" % (fp.ref, u[0], u[1]))
         self._derive_copper_freedom()
         placements = sorted(self._intents, key=lambda i: i.rank)   # holes included: they are placed too
-        fixed_copper = [c for c in self._copper if c.freedom.decided and c.index not in self._fit_planes]
-        other_copper = [c for c in self._copper if not c.freedom.decided and c.index not in self._fit_planes]
+        held = self._frame_planes if self._fit else set()
+        fixed_copper = [c for c in self._copper if c.freedom.decided and c.index not in held]
+        other_copper = [c for c in self._copper if not c.freedom.decided and c.index not in held]
         placed: set = set()
         self._place_fanouts(occ, plan, placed, progress)
         self._place_labels(occ, plan, placed, progress)        # labels on parts the script never moves
@@ -2509,6 +2525,8 @@ class Board:
                     obj.rotation, obj.faces_note = self.outward_rotation(
                         obj.item, obj.run.at(obj.along if obj.along is not None else 0.0)[1])
             plan._items[obj.key] = obj.item
+            if self._fit and not obj.freedom.decided:
+                occ.board_box = self._outline = self._fit_room(occ, plan, obj)
             if chain["replaying"]:
                 step = self._replay_settle(occ, plan, previous[position])
                 record["steps"].append(previous[position])
@@ -2623,7 +2641,7 @@ class Board:
             content = self._placed_box(occ, plan)
             frame = (content or Box(0.0, 0.0, 0.0, 0.0)).inflate(self._fit_margin)
             plan.outline = self._outline = occ.board_box = frame
-            self._plan_copper(occ, ctx, [c for c in self._copper if c.index in self._fit_planes], plan, progress)
+            self._plan_copper(occ, ctx, [c for c in self._copper if c.index in held], plan, progress)
         self._check_keepouts(plan)
         plan.rudy = self._rudy(occ, plan)
         self._report_links(occ, plan, placed)
@@ -2730,6 +2748,17 @@ class Board:
             plan._items[key] = self.geometry.cells[name] if kind == "cell" else self.geometry.footprint(name)
         return _reuse.step_from_json(entry["step"])
 
+    def _fit_room(self, occ: Occupancy, plan: Plan, obj) -> Box:
+        """Where a searched item may go on a fit board: round everything placed
+        so far (round the origin when nothing is), by `place.fit_room` and the
+        item's own longest side, so a part larger than the room still fits."""
+        from .board_geometry import members_of
+        fps = [obj.item.anchor] + [fp for fp, _ in obj.item.satellites] if obj.kind == "block" else members_of(obj.item)
+        span = sum(max(b.width, b.height) for b in
+                   (occ.reach_box(fp, Placement(Location(0.0, 0.0), 0.0, Face.FRONT)) for fp in fps))
+        content = self._placed_box(occ, plan) or Box(0.0, 0.0, 0.0, 0.0)
+        return content.inflate(self.settings.place_fit_room + span)
+
     def _placed_box(self, occ: Occupancy, plan: Plan) -> Box | None:
         """The box round what the plan has placed so far, as the placer
         claims it - each placed part's shapes, the labels reserved for them,
@@ -2740,11 +2769,13 @@ class Board:
         for step in plan.steps:
             if step.placement is None or step.kind not in ("part", "cell"):
                 continue
-            for fp in members_of(plan._items[step.item]):
+            item = plan._items[step.item]
+            for fp in members_of(item):
                 if fp.ref in occ.items:
                     boxes += [sh.box for sh in occ.items[fp.ref].shapes]
-        boxes += [r_box for r_box in (Box.of_points(r.poly) for r in occ.reservations if r.why.startswith("label "))]
-        boxes += [op.box for op in plan.copper if isinstance(op, (Track, Via, Pour))]
+            if isinstance(item, CellGeom):      # the cell's own tracks, vias and pours, where it now stands
+                boxes += [c.box for c in occ.copper if c.owner == item.name]
+        boxes += [op.box for op in plan.copper if isinstance(op, (Track, Via, Pour, Text))]
         return Box.union(boxes) if boxes else None
 
     def _cleanup_movable(self, plan: Plan) -> dict:
