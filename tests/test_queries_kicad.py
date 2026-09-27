@@ -106,3 +106,32 @@ def test_via_near_an_smd_pad_lands_beside_it_and_drc_accepts(breakout_pcb, tmp_p
     b.Add(v)
     b.Save(str(pcb))
     assert run_drc(pcb, tmp_path / "after.json").real == before
+
+
+@needs_breakout
+def test_a_free_spot_via_and_its_tail_pass_kicads_drc(breakout_pcb, tmp_path):
+    import shutil
+    from placemat import FreeSpot
+    from placemat.kicad.drc import run_drc
+    from placemat.kicad.read import read_board
+    from placemat.kicad.write import apply_plan
+    from placemat.layout import Board
+    from placemat.values import Net, PadRef, Part
+    pcb = tmp_path / "layout.kicad_pcb"
+    shutil.copy(breakout_pcb, pcb)
+    shutil.copy(breakout_pcb.with_suffix(".kicad_pro"), tmp_path / "layout.kicad_pro")
+    g = read_board(pcb)
+    fp = next(f for f in g.footprints if not f.cell and any(p.net == "GND" and not p.through for p in f.pads))
+    pad = next(p for p in fp.pads if p.net == "GND" and not p.through)
+    before = run_drc(pcb, tmp_path / "before.json")
+    b = Board(g, edge_margin=0.0, keep_going=True)
+    b.via(Net("GND"), at=FreeSpot(near=PadRef(Part(fp.inst), int(pad.number) if pad.number.isdigit() else pad.number)))
+    plan = b.resolve()
+    assert not [f for f in plan.findings if "nowhere" in f]
+    assert [c for c in plan.copper if type(c).__name__ == "Track" and c.net == "GND"]
+    apply_plan(pcb, plan)
+    after = run_drc(pcb, tmp_path / "after.json")
+    assert after.real == before.real
+    assert after.by_type.get("via_dangling", 0) == before.by_type.get("via_dangling", 0)
+    assert after.by_type.get("track_dangling", 0) == before.by_type.get("track_dangling", 0)
+    assert after.unconnected <= before.unconnected

@@ -4,6 +4,17 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.39
+
+A `FreeSpot` via now draws its tail to the pad: a script that joined one by
+hand draws it twice, so drop that track, or say `tail=False`. A via typed as
+a pad offset copied from `occupancy --via-near` can become
+`board.via(net, FreeSpot(near=PadRef(...)))`, and a track that ran on from it
+can end on the via `board.via()` returns. The tail is judged as the drawn
+track is, round ends included, and is no wider than its pad (a wide power
+class necks down to it), so `--via-near` and a FreeSpot can answer a little
+differently from 0.38 beside small pads.
+
 ## To 0.38
 
 Nothing to change in a script. A FIXED or EDGE block's satellites no longer

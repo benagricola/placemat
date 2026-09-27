@@ -7,6 +7,13 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+- **Freeze keeps intent** (Ben, 2026-09-27; next after the via tail): freeze
+  writes its offset in board directions (a turned anchor leaves the item
+  behind, unlike the lock) and an absolute Location when an item has no
+  anchor, with nothing saying why. Write the offset in the anchor's frame,
+  a `why=` naming the explore run and score, and say in SKILL.md that
+  explore results stay in the lock and are never copied into a script as
+  coordinates.
 - **Route layers from the declared planes** (a board agent's router A/B,
   2026-09-25): the route step gives the router every copper layer unless
   `[route] layers` says otherwise, so on a board whose inner layers are
@@ -23,6 +30,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **A via found near a pad, joined to it** (unreleased; PLACEMAT_GAPS
+  2026-09-26 twice and 2026-09-27): a FreeSpot via draws its tail, and a
+  via intent is a track end (spec `2026-09-27-via-tail-design.md`).
 - **Five PLACEMAT_GAPS bugs, 2026-09-26** (0.38.0): cleanup leaves a
   decided block's satellites alone (cf9f1cd); `--via-near` keeps out of
   every land of a split pin (7a299af); `datasheet` reads text with a

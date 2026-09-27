@@ -13,6 +13,7 @@ import re
 
 from .geometry import (circle_polygon, distance_to_boundary, point_in_polygon, point_segment_distance,
                        poly_distance, polys_overlap)
+from .copper import _segment_polygon
 from .values import Box, Location
 
 _HARD = ("pad", "track", "via", "poly")
@@ -82,11 +83,18 @@ def judge_via(geometry, at: Location, net: str, size: float, drill: float) -> Vi
 
 
 def _segment(a: Location, b: Location, width: float):
-    """A straight track as a polygon: a rectangle along the segment, capped."""
-    dx, dy = b.x - a.x, b.y - a.y
-    n = math.hypot(dx, dy) or 1.0
-    ox, oy = -dy / n * width / 2.0, dx / n * width / 2.0
-    return ((a.x + ox, a.y + oy), (b.x + ox, b.y + oy), (b.x - ox, b.y - oy), (a.x - ox, a.y - oy))
+    """A straight track as a polygon, as the drawn track claims it: a
+    rectangle along the segment, reaching half the width past each end over
+    KiCad's round caps."""
+    return _segment_polygon(a, b, width)
+
+
+def tail_width(width: float, pad_boxes) -> float:
+    """The width of a via's tail: its class's track width, necked down to
+    the narrower side of its pad, as a hand-drawn tail from a small pad on a
+    wide power class is; a tail wider than its pad reaches its neighbours."""
+    sides = [min(b.width, b.height) for b in pad_boxes]
+    return min([width] + sides)
 
 
 def judge_tail(geometry, start: Location, end: Location, net: str, width: float, layer) -> tuple:

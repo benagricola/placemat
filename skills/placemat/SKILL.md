@@ -174,7 +174,9 @@ coordinates nobody chose.
 - Do not place a via by coordinate and wait for DRC to say it was wrong. Ask
   `placemat occupancy <board> --via-near <part>.<pad>`, or write the via as
   `board.via(net, FreeSpot(near=PadRef(...)))` so it lands at the nearest
-  legal spot once its part is placed.
+  legal spot once its part is placed, joined to the pad by its tail. A track
+  may end on the via `board.via()` returns; never copy a queried spot into
+  the script as an offset.
 - Every script is for one board: name it `<Board>_layout.py` after the
   `Board(name=)`, `Project(name=)` or `Layout(name=)` in the `.zen` beside it; a directory
   with several boards is told apart by that name. A declaration with

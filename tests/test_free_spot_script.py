@@ -126,3 +126,18 @@ def test_a_via_keeps_clear_of_a_tail_planned_before_it_in_the_batch():
     ring = Via("SIG", moved, 0.3, 0.6).polygon
     assert moved.distance(alone) > 1e-6
     assert poly_distance(ring, across.polygon) >= 0.2 - 1e-6
+
+
+def test_a_tail_is_no_wider_than_its_pad_when_the_class_is_wider():
+    """A power class's track can be wider than a small pad; the tail necks
+    down to the pad's narrower side, as a hand-drawn one does."""
+    import dataclasses
+    g = _board().geometry
+    wide = dataclasses.replace(g.netclasses["GND"], track_width=2.0)
+    b = Board(dataclasses.replace(g, netclasses={**g.netclasses, "GND": wide}), edge_margin=0.5)
+    b.place(Part("u1"), at=Location(20, 20))
+    b.place(Part("r1"), at=Location(20, 26))
+    b.via(Net("GND"), at=FreeSpot(near=PadRef(Part("u1"), "GND")), why="tap")
+    plan = b.resolve()
+    (tail,) = _tails(plan)
+    assert tail.width <= 1.0 + 1e-9

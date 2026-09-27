@@ -175,3 +175,11 @@ def test_a_pin_split_into_two_lands_keeps_a_via_out_of_both():
     source = queries.pad_copper(fp, fp.pads[0].number)
     judge = queries.via_judge(g, fp.pads[0].box.center, "GND", 0.6, 0.3, 0.2, F, source)
     assert judge(second.box.center)[0] == "in the source pad"
+
+
+def test_a_tails_rounded_end_counts_against_a_pad_behind_its_start():
+    """A drawn track ends in a half-width cap past each end point; the tail
+    judged is the track that will be drawn, caps included."""
+    pad = rect(19.0, 20.0, 0.8, 0.8)
+    g = _geom([CopperItem("pad", "SIG", frozenset([F]), (pad,), Box.of_points(pad))])
+    assert queries.judge_tail(g, Location(20.0, 20.0), Location(22.0, 20.0), "GND", 1.0, F)

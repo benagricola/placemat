@@ -2142,7 +2142,7 @@ class Board:
         layer = CopperLayer.of(spot.layer) if spot.layer is not None else (
             sorted((l for sh in own for l in sh.layers), key=stackup_order) or [CopperLayer.F])[0]
         nc = self.geometry.netclasses.get(net)
-        width = nc.track_width if nc else 0.2
+        width = queries.tail_width(nc.track_width if nc else 0.2, [sh.box for sh in own])
         every = frozenset(self.geometry.layers)
         holes = [(occ.pad_location(fp.ref, p.number), p.drill_mm)
                  for fp in self.geometry.footprints for p in fp.pads if p.through and p.drill_mm]

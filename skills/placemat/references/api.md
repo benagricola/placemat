@@ -758,7 +758,7 @@ placement on it says which pad that was. Name the number to pick another.
 ```python
 board.track(net, [p1, p2, ...], layer=CopperLayer.F, width=None, priority=Priority.DEFAULT, bridge=False)
 board.via(net, point)
-board.via(net, FreeSpot(near=PadRef(...), radius=2.0))               # the nearest legal spot to a pad
+board.via(net, FreeSpot(near=PadRef(...), radius=2.0))               # the nearest legal spot to a pad, joined to it by its tail
 board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False)     # filled polygon
 board.plane(net, layers=(CopperLayer.IN1,), outline=None, inset=0.4)  # zone(s), whole board or outline
 board.finger(net, layer=, from_=point, to=point, width=)               # pour along a centreline, cut and bridged at tracks
@@ -781,6 +781,15 @@ first. The via stays out of its own pad unless `in_pad=True`: an SMD pad's
 centre passes every other rule, and a via in a pad needs plugging. A search
 with nowhere to go is a finding carrying why every nearer spot failed, and no
 via is drawn.
+
+The via is drawn with the straight tail it was judged by, from the pad's
+centre on that layer at the net class's track width, or the pad's narrower
+side when that is less; `tail=False` draws the
+via alone, and a via in the pad has none. `board.via()` returns the via,
+and a `board.track()` may end on it - `v = board.via(GND, FreeSpot(...))`,
+then `board.track(GND, [v, PadRef(...)], layer=B)` - so a searched part's
+via is joined on wherever the part lands. A track through a via that found
+no spot is not drawn, and the finding says so.
 
 **Pairs.** Two nets drawn together at a gap along one centreline, the way
 KiCad's differential tool does:
