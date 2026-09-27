@@ -102,6 +102,10 @@ def test_a_second_run_reuses_the_generation_and_reports_no_movement(scratch_ecos
 
 
 def test_the_cli_runs_and_prints_a_one_line_verdict(scratch_ecosystem):
+    # the module's earlier runs leave a best behind; this run coming out a
+    # hair worse by run-to-run noise would exit 1 by the regression gate,
+    # which is not what this test is about
+    (scratch_ecosystem / "breakout" / ".placemat" / "runs" / "best.json").unlink(missing_ok=True)
     script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
     proc = subprocess.run([sys.executable, "-m", "placemat", "run", str(script), "--label", "cli", "--no-render"],
                           capture_output=True, text=True, cwd=str(scratch_ecosystem), timeout=600)
