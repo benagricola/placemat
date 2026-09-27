@@ -58,6 +58,7 @@ class Settings:
     place_escape_pads: int = 1          # a part keeps escapes for its pads when it has at least this many
     place_courtyard_touch: float = 0.0   # courtyards may touch, never overlap: KiCad counts touching polygons, and its are inside ours by half a stroke
     place_conflict_gap: float = 1.0
+    place_fit_room: float = 10.0        # a fit frame's provisional room: how far round the decided content a searched item may go
     # [copper]
     copper_chamfer: float = 1.0
     copper_pair_chamfer: float = 0.5
@@ -234,7 +235,7 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_coarse_from", "place_coarse_steps",
     "place_refine_around", "place_block_gap_step", "place_block_gap_reach", "place_escape_depth",
-    "place_conflict_gap", "copper_bridge_half", "copper_finger_bridge_width",
+    "place_conflict_gap", "place_fit_room", "copper_bridge_half", "copper_finger_bridge_width",
     "copper_plane_min_thickness", "copper_pour_stroke", "label_size",
     "label_thickness", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_copper_oz",

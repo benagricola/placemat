@@ -616,6 +616,30 @@ class Board:
     off the generated .kicad_pcb; declarations are collected and resolved
     together."""
 
+    @property
+    def width(self) -> float:
+        if getattr(self, "_fit", False):
+            raise ValueError("a fit frame has no width until its content is placed: the plan's outline has it")
+        return self._frame_width
+
+    @width.setter
+    def width(self, value):
+        self._frame_width = value
+
+    @property
+    def height(self) -> float:
+        if getattr(self, "_fit", False):
+            raise ValueError("a fit frame has no height until its content is placed: the plan's outline has it")
+        return self._frame_height
+
+    @height.setter
+    def height(self, value):
+        self._frame_height = value
+
+    def _refuse_on_fit(self, what: str):
+        if self._fit:
+            raise ValueError("%s: a fit frame has no edges or centre until its content is placed" % what)
+
     def __init__(self, geometry: BoardGeometry, edge_margin: float | None = None, clearance: float | None = None,
                  via_drill: float = 0.3, via_size: float = 0.6, keep_going: bool = False,
                  courtyard_excess: float = 0.1, settings: Settings | None = None,
@@ -653,6 +677,9 @@ class Board:
         self.web = 0.0                      # least material a hole may leave; 0: unchecked
         self._cached_outline = None         # this board as an outline, for reading runs off
         self._sized = False                 # the script has declared the board size
+        self._fit = False                   # board.size(fit=True): the frame is the placed content plus a margin
+        self._fit_margin = 0.0
+        self._fit_planes: set = set()       # planes with no outline of their own: planned once the frame is fitted
         self._draw_outline = True
         self._chamfer = 0.0
         self._radius = 0.0
@@ -1170,12 +1197,23 @@ class Board:
         self._named_cutouts = named
         return tuple(named_paths) + tuple(raw)
 
-    def size(self, width: float, height: float, chamfer: float = 0.0, radius: float = 0.0,
-             holes=(), web: float = 0.0, draw: bool = True):
+    def size(self, width: float | None = None, height: float | None = None, chamfer: float = 0.0, radius: float = 0.0,
+             holes=(), web: float = 0.0, draw: bool = True, *, fit: bool = False, margin: float | None = None):
         """The board outline: a rectangle at the origin, chamfered or rounded.
         `holes` are cutouts in it - a slot for a cable, a window - each a
-        closed path of straight legs and arcs, the same as any other board's."""
-        if width <= 0 or height <= 0:
+        closed path of straight legs and arcs, the same as any other board's.
+        `fit=True` (a fragment's frame, draw=False): no numbers - the frame is
+        the box round what is placed, plus `margin` (default the keep-in)."""
+        if fit:
+            if draw:
+                raise ValueError("fit=True sizes a fragment's frame (draw=False); a board's outline is a mechanical fact")
+            self._fit, self._fit_margin = True, self.keep_in if margin is None else float(margin)
+            self._outline, self._shape, self._cached_outline = None, None, None
+            self._cutouts = Cutouts()
+            self._chamfer, self._radius = chamfer, radius
+            self._sized, self._draw_outline = True, False
+            return
+        if width is None or height is None or width <= 0 or height <= 0:
             raise ValueError("board size must be positive")
         self._outline = Box(0.0, 0.0, float(width), float(height))
         self._shape = None
@@ -1241,6 +1279,7 @@ class Board:
         one wanted from edges(), or say `outermost=True` for the one whose
         middle lies furthest out that way - a tab or an arm's tip beyond the
         shoulders beside it. Two level at the furthest is still a question."""
+        self._refuse_on_fit("board.edge()")
         runs = self.edges(facing, within)
         if not runs:
             raise ValueError("no part of this board's edge faces %r within %g degrees" % (facing, within))
@@ -1290,6 +1329,7 @@ class Board:
         """The middle of the board: the centre of the box round it, which is
         what a mounting pattern and a ring are usually measured from.
         `board.centroid` is the area centre instead."""
+        self._refuse_on_fit("board.centre")
         if self._outline is None:
             raise ValueError("the board has no size yet: board.size() or board.disc() says what it is")
         return self._outline.center
@@ -1408,6 +1448,7 @@ class Board:
             outward = rotation is None
             at = None
         elif isinstance(at, OnEdge):
+            self._refuse_on_fit("%s on the frame's %s edge" % (key, Edge(at.edge).value))
             if isinstance(self._shape, Disc):
                 raise ValueError("%s: a disc has no edges; place it on the rim at a bearing, OnRim(angle), "
                                  "or on a stretch of it from board.edge(facing=)" % key)
@@ -1526,6 +1567,8 @@ class Board:
         pad's X()/Y(), a Mid); `before=` or `after=` another row, one gap
         away. A row placed by a reference is measured when its items are
         placed. Returns the Row."""
+        if isinstance(edge, Edge):
+            self._refuse_on_fit("a row on the frame's %s edge" % edge.value)
         gap = self._row_gap(items, gap)
         if isinstance(edge, Run):
             return self._row_on_run(items, edge, gap=gap, start=start, align=align, rotation=rotation,
