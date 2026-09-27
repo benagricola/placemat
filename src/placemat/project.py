@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import os
 import re
 
 
@@ -189,13 +190,16 @@ def generator_inputs(src: BoardSource) -> dict:
 
 
 def script_fingerprint(script) -> str:
-    """The script's text, that of every module it imports from beside it
-    (followed through their own imports) and its lock file: what the run id
+    """The script's text, that of every module it imports from beside it or
+    from the folders above it that run_script adds (followed through their
+    own imports) and its lock file: what the run id
     hashes, so a change to shared geometry in a sibling module, or an
     accepted explore result, is a different run."""
     import ast
+    from .context import _import_dirs
     script = Path(script).resolve()
     here = script.parent
+    dirs = _import_dirs(script)
     parts, seen, todo = [], set(), [script]
     while todo:
         path = todo.pop(0)
@@ -203,7 +207,7 @@ def script_fingerprint(script) -> str:
             continue
         seen.add(path)
         text = path.read_text(errors="replace")
-        parts.append("%s\0%s" % (path.relative_to(here) if path != script else "", text))
+        parts.append("%s\0%s" % (os.path.relpath(path, here) if path != script else "", text))
         try:
             tree = ast.parse(text)
         except SyntaxError:
@@ -213,9 +217,11 @@ def script_fingerprint(script) -> str:
                 [node.module] if isinstance(node, ast.ImportFrom) and node.module and not node.level else []
             for name in names:
                 rel = Path(*name.split("."))
-                for cand in (here / rel.with_suffix(".py"), here / rel / "__init__.py"):
-                    if cand.is_file():
-                        todo.append(cand.resolve())
+                for d in dirs:                  # where run_script lets it import from, innermost first
+                    found = [c for c in (d / rel.with_suffix(".py"), d / rel / "__init__.py") if c.is_file()]
+                    if found:
+                        todo.append(found[0].resolve())
+                        break
     lock = script.with_name(script.stem + ".lock.json")      # accepted decisions decide placements too
     if lock.is_file():
         parts.append("lock\0%s" % lock.read_text(errors="replace"))

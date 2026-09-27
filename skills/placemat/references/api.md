@@ -1057,9 +1057,11 @@ arguments). A run whose inputs changed generates again and says which
 file changed; `--fresh` regenerates regardless. `placemat preview` never
 generates, and says when the cache it draws from is out of date.
 
-A script runs with its own directory importable: geometry several scripts
-share can live in a module beside them (`import core_geometry`), and a
-change to it changes the run id.
+A script runs with its own directory importable, and each folder above it
+up to the one holding the nearest `placemat.toml`, innermost first: geometry
+several scripts share can live in a module beside them, or in the board's
+folder when each module's script sits in a folder of its own
+(`import core_geometry`). A change to such a module changes the run id.
 
 Every finished run is judged against the best earlier run of the same parts -
 its **family**, the runs whose script asked to place the same items - and

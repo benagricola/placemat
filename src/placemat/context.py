@@ -47,20 +47,36 @@ def run_script(path, real):
     spec = importlib.util.spec_from_file_location("placemat_layout_script", str(path))
     module = importlib.util.module_from_spec(spec)
     sys.dont_write_bytecode = True
-    # The script's own directory is importable while it runs, so geometry
-    # shared by several scripts can live in a module beside them. What it
-    # imported from there is dropped afterwards: the next run reads it again.
-    here = str(path.parent)
+    # The script's own directory is importable while it runs, and so is each
+    # folder above it up to the one holding the nearest placemat.toml, so
+    # helpers shared by the scripts of a board's modules can live in the
+    # board's folder. What it imported from them is dropped afterwards: the
+    # next run reads it again.
+    dirs = _import_dirs(path)
     had = set(sys.modules)
-    sys.path.insert(0, here)
+    added = [str(d) for d in dirs]
+    sys.path[0:0] = added                      # innermost first
     try:
         with bind(real):
             spec.loader.exec_module(module)
     finally:
-        if sys.path and sys.path[0] == here:
-            del sys.path[0]
+        for d in added:
+            if d in sys.path:
+                sys.path.remove(d)
         for name in set(sys.modules) - had:
             f = getattr(sys.modules[name], "__file__", None) or ""
-            if f and Path(f).resolve().parent.is_relative_to(path.parent):
+            if f and any(Path(f).resolve().parent.is_relative_to(d) for d in dirs):
                 del sys.modules[name]
     return module
+
+
+def _import_dirs(path: Path) -> list:
+    """The script's folder, then each one above it up to and including the
+    one that holds the nearest placemat.toml; the script's folder alone when
+    no placemat.toml is above it."""
+    out = [path.parent]
+    for d in path.parent.parents:
+        if (out[-1] / "placemat.toml").exists():
+            return out
+        out.append(d)
+    return [path.parent]

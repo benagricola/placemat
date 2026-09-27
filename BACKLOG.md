@@ -34,6 +34,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **A script imports from the folders above it** (unreleased; a board's
+  layout work, 2026-09-27): up to the nearest placemat.toml, and those modules
+  count in the run id.
 - **A block that fits nowhere, found before the search** (unreleased;
   PLACEMAT_GAPS 2026-09-26): a searched block is laid out alone at each of
   its rotations first.
