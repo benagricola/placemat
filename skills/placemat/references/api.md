@@ -298,6 +298,14 @@ part's courtyard may not sit over a lead (it stands proud of the far face).
 A via in one of the part's own surface pads (an exposed pad's thermal vias)
 is not a lead: on the far face it claims its copper only.
 
+**Holes.** Every drilled hole - a plated pad's, a via's (a stamped cell's
+included), an unplated one - keeps the board's hole-to-hole rule from
+another part's or cell's holes, whatever their nets: two ground vias of two
+cells may not be drilled closer than the rule, though their copper may
+touch. Copper keeps the board's hole clearance from an unplated hole,
+whichever of the two is being placed. A part's or a cell's own holes are its
+own.
+
 The silk clearance is the board's minimum silk item clearance; the component
 spacing is `courtyard.component_spacing_mm` in fab-profile.json, twice the
 courtyard excess when absent. Tracks and vias may run under a body. The
@@ -835,7 +843,8 @@ lands, `pitch` apart (by default the closest the board's hole-to-hole rule
 allows, never closer than a via's size), keeping each via whose copper,
 grown by `inset`, lies wholly in its land and clears every other net's copper
 on every layer (placed, and planned before it: tracks, tails, vias), every
-other hole by the hole-to-hole rule and an unplated one by the hole
+other hole (a part's, and every via on the board: a stamped cell's too) by
+the hole-to-hole rule and an unplated one by the hole
 clearance, the board edge and keepouts that forbid vias. The net class's via
 by default (`board.via` takes the board's). A through land of the pin already
 has its hole and is not filled. A pad

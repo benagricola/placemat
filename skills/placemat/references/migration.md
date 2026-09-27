@@ -4,6 +4,16 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.44
+
+Nothing to change in a script. Placing keeps the board's hole-to-hole rule
+between the drilled holes of different parts and cells whatever their nets
+(two cells' ground vias could land closer than the rule), and copper keeps
+the hole clearance from an unplated hole whichever of the two moved (a
+block could lay a pad over its anchor's peg hole). A searched part or cell
+that stood too close before now lands a little further off; a fixed one
+that does is refused as any collision is, naming the two holes.
+
 ## To 0.43
 
 Nothing to change in a script. A run that fails before it writes the board

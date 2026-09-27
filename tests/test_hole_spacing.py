@@ -103,3 +103,23 @@ def test_a_pad_over_an_unplated_hole_conflicts_whichever_moves():
     land = ((19.8, 19.8), (20.8, 19.8), (20.8, 20.8), (19.8, 20.8))
     pad = Shape("D1", "pad", frozenset([Face.FRONT]), frozenset([F]), "USB_P", land, Box.of_points(land), "3")
     assert occ._conflict(pad, peg, None) is not None and occ._conflict(peg, pad, None) is not None
+
+
+def test_vias_filling_a_pad_keep_clear_of_a_via_already_on_the_board():
+    """The via planner judged its sites against the parts' holes only: a
+    via the board already carried, or a stamped cell's, was not a hole to it."""
+    from placemat.copper import Via
+    from placemat.layout import Board
+    from placemat.values import Net, PadRef, Part
+    from tests.fixtures import pad
+    from tests.test_pad_vias import _part
+    lands = [pad("U1", "u1", 1, "GND", 20, 20, 3.0, 3.0), pad("U1", "u1", 2, "SIG", 20, 23, 1, 1)]
+    g = board_geometry([_part(lands)], copper=[_via("GND", 20.3, 20.3)], width=40, height=40, extra_nets=("GND",))
+    g = dataclasses.replace(g, hole_to_hole=0.25)
+    b = Board(g, edge_margin=0.5)
+    b.place(Part("u1"), at=Location(20, 21.5))
+    b.vias(Net("GND"), PadRef(Part("u1"), 1), size=0.6, drill=0.3)
+    plan = b.resolve()
+    vias = [c for c in plan.copper if isinstance(c, Via)]
+    assert vias
+    assert all(v.at.distance(Location(20.3, 20.3)) - 0.3 >= 0.25 - 1e-6 for v in vias)

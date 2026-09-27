@@ -7,12 +7,14 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **Two stamped cells' vias closer than the hole-to-hole rule** (a board's
-  layout work, 2026-09-27, core run core-study-3): a searched back-face cell's
-  GND via landed under 0.30 mm hole to hole from a fixed front cell's GND via.
-  Same net, so copper clearance passes; hole spacing is net-blind. A
-  candidate cell's through holes should be checked against placed vias and
-  holes by the hole-to-hole rule (hole clearance for unplated holes).
+- **3D model paths that do not resolve from a deeper project** (a board's
+  layout work, 2026-09-27): a footprint's model path written
+  `${KIPRJMOD}/../../../parts/<part>/<file>.step` resolves for a board at
+  `boards/<board>/layout` but not for a module two levels deeper, so the
+  module's renders have no bodies. When placemat writes a board, a model path
+  that does not resolve could be re-anchored: the same tail
+  (`parts/<part>/<file>`) at the nearest ancestor folder holding it, written
+  back `${KIPRJMOD}`-relative. Needs a spec.
 - **Placing relative to a searched item** (PLACEMAT_GAPS 2026-09-26, twice):
   a `Pin` or a cutout on a searched item is refused ("only FIXED and EDGE
   items may be referred to"). Needs a spec.
@@ -37,6 +39,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **Hole spacing when placing** (unreleased; a board's layout work,
+  2026-09-27): drilled holes of different owners keep hole_to_hole whatever
+  their nets; copper keeps hole_clearance from an unplated hole; the via
+  planner sees a stamped cell's vias (spec `2026-09-27-hole-spacing-design.md`).
 - **Keeping routed copper** (0.43.0; PLACEMAT_GAPS 2026-09-27 "router
   output cannot be kept in the script"): `placemat route <script> --adopt
   NET ...` keeps the router's copper in `<script stem>.routes.json`,

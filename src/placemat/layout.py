@@ -2308,14 +2308,14 @@ class Board:
 
     def _via_obstacles(self, ctx):
         """What a via's site is judged against beyond the occupancy's copper:
-        every drilled hole where its part now stands (each plated hole at its
-        own land, so the holes of one pin stay apart), every unplated hole,
-        and the keepouts and rule areas that forbid vias."""
+        every drilled hole where it now stands - each plated hole of a placed
+        part at its own land, so the holes of one pin stay apart, and every
+        via on the board, a stamped cell's and those planned before - every
+        unplated hole, and the keepouts and rule areas that forbid vias."""
         occ = ctx.occ
-        drill_of = {(fp.ref, p.number): p.drill_mm for fp in self.geometry.footprints for p in fp.pads
-                    if p.through and p.drill_mm}
-        holes = [(sh.box.center, drill_of[(o, sh.label)]) for o, g in occ.items.items() if o not in occ.pending
-                 for sh in g.shapes if sh.kind == "through" and (o, sh.label) in drill_of]
+        holes = [(sh.box.center, sh.box.width) for o, g in occ.items.items() if o not in occ.pending
+                 for sh in g.shapes if sh.kind == "hole"]
+        holes += [(sh.box.center, sh.box.width) for sh in occ.copper if sh.kind == "hole"]
         # unplated holes (a connector's locating pegs): no copper, so the via's copper keeps the board's hole
         # clearance from the hole's edge as well as the hole-to-hole rule
         bare = [(sh.box.center, sh.box.width) for o, g in occ.items.items() if o not in occ.pending
