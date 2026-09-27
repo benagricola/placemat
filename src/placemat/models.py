@@ -9,6 +9,7 @@ workspace, and the first hit is written back relative to the project."""
 from __future__ import annotations
 
 import os
+import posixpath
 from pathlib import Path
 
 PRJ = "${KIPRJMOD}"
@@ -36,21 +37,28 @@ def models_line(done: dict) -> str:
 
 def reanchor(text: str, project_dir, stop=None) -> tuple:
     """(the path to write, or None to leave `text` as it is; whether the
-    model was found at all). Only a `${KIPRJMOD}`-relative or a relative
-    path is judged: another variable (a KiCad library's) or an absolute
-    path is left, and counts as found."""
+    model was found at all). Only a path from the project's folder is
+    judged - `${KIPRJMOD}/...`, `$(KIPRJMOD)/...` or `../...` - since every
+    other form (an embedded model, another variable, a search-path alias, a
+    library-relative or absolute path) KiCad finds elsewhere: those are
+    left, and count as found. The tail searched for is the path, collapsed,
+    less its leading `..`; a bare file name is not searched for."""
     norm = text.replace("\\", "/")
-    if norm.startswith(PRJ):
-        rel = norm[len(PRJ):].lstrip("/")
-    elif norm.startswith("${") or norm.startswith("/") or (len(norm) > 1 and norm[1] == ":"):
-        return None, True
+    for prefix in (PRJ, "$(KIPRJMOD)"):
+        if norm.startswith(prefix):
+            rel = norm[len(prefix):].lstrip("/")
+            break
     else:
+        if not norm.startswith("../"):
+            return None, True
         rel = norm
     project = Path(project_dir).resolve()
     if (project / rel).exists():
         return None, True
-    tail = [p for p in rel.split("/") if p not in ("", ".", "..")]
-    if not tail:
+    tail = posixpath.normpath(rel).split("/")
+    while tail and tail[0] in ("..", "."):
+        tail.pop(0)
+    if len(tail) < 2:
         return None, False
     here = project
     stop = Path(stop).resolve() if stop is not None else None

@@ -420,6 +420,9 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         except CriticalUnplaced as e:
             (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
             apply_plan(src.pcb, e.plan)                      # the board as it stood when the critical item failed
+            from .models import models_line
+            if models_line(e.plan.models):
+                say("models", models_line(e.plan.models))
             finish_board(src.pcb, fab, refs_to_fab=getattr(board, "refs_on_fab", True))
             shutil.copy(src.pcb, run_dir / "layout.kicad_pcb")
             if render:

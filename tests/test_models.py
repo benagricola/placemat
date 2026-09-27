@@ -11,8 +11,6 @@ def _tree(tmp_path):
     return project
 
 
-
-
 def test_a_path_one_level_short_is_re_anchored(tmp_path):
     project = _tree(tmp_path)
     text, found = models.reanchor("${KIPRJMOD}/../../../parts/p/f.step", project)
@@ -65,3 +63,30 @@ def test_backslashes_are_separators(tmp_path):
 def test_the_run_line_says_what_was_done_and_nothing_when_nothing_was():
     assert models.models_line({"reanchored": 0, "missing": []}) == ""
     assert models.models_line({"reanchored": 2, "missing": ["a.step"]}) == "2 re-anchored, 1 not found (a.step)"
+
+
+def test_embedded_models_and_forms_kicad_finds_elsewhere_are_left_as_found(tmp_path):
+    project = _tree(tmp_path)
+    for text in ("kicad-embed://USB_C.step", ":MYLIB:r.step", "Resistor_SMD.3dshapes/R_0402.wrl"):
+        assert models.reanchor(text, project) == (None, True), text
+
+
+def test_the_parenthesised_variable_is_the_same_variable(tmp_path):
+    project = _tree(tmp_path)
+    assert models.reanchor("$(KIPRJMOD)/../parts/p/f.step", project) == \
+        ("${KIPRJMOD}/../../../../../parts/p/f.step", True)
+
+
+def test_only_the_leading_parent_steps_are_dropped(tmp_path):
+    project = _tree(tmp_path)
+    (tmp_path / "lib" / "parts" / "p").mkdir(parents=True)
+    (tmp_path / "lib" / "parts" / "p" / "f.step").write_text("")
+    # lib/../parts/p/f.step is parts/p/f.step, not lib/parts/p/f.step
+    assert models.reanchor("${KIPRJMOD}/../lib/../parts/p/f.step", project) == \
+        ("${KIPRJMOD}/../../../../../parts/p/f.step", True)
+
+
+def test_a_bare_file_name_is_not_searched_for(tmp_path):
+    project = _tree(tmp_path)
+    (tmp_path / "f.step").write_text("")
+    assert models.reanchor("${KIPRJMOD}/../f.step", project) == (None, False)

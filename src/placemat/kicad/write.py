@@ -628,6 +628,7 @@ def _extract_item(pcb_path: str, name: str, scratch: str) -> None:
         for it in coll:
             if _kiid(it) in keep:
                 new.Add(it.Duplicate(False) if isinstance(it, pcbnew.FOOTPRINT) else it.Duplicate())
+    _reanchor_models(new, Path(scratch).parent)          # the models as the scratch board's folder finds them
     new.Save(scratch)
 
 

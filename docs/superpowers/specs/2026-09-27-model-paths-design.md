@@ -32,9 +32,9 @@ model paths as the generator wrote them.
    libraries), an absolute path, and a path whose tail is found nowhere.
 3. **The run says what it did:** one log line, "models: N re-anchored, M not
    found (<first few files>)", only when N or M is not zero.
-4. A parent board that stamps a module gets the module's footprints with
-   the module's paths; its own write re-anchors them to its own depth, so
-   each board's file is right for its own folder.
+4. A parent board that stamps a module takes only the placements from the
+   module's board; its footprints, model paths included, come from the
+   library, and its own write re-anchors them to its own depth.
 
 ## Verification
 

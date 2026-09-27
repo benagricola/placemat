@@ -26,10 +26,15 @@ def test_a_model_path_one_level_short_is_written_to_resolve(breakout_pcb, tmp_pa
     brd = pcbnew.LoadBoard(str(pcb))
     fp = brd.GetFootprints()[0]
     ref = fp.GetReference()
-    model = pcbnew.FP_3DMODEL()
-    model.m_Filename = "${KIPRJMOD}/../parts/p/f.step"                # one level short of tmp_path
+    (tmp_path / "parts" / "p" / "g.step").write_text("")
     fp.Models().clear()
-    fp.Models().push_back(model)
+    for text in ("${KIPRJMOD}/../parts/p/f.step",                     # one level short of tmp_path
+                 "kicad-embed://body.step",                           # KiCad's to find: left
+                 "${KIPRJMOD}/../parts/p/g.step",
+                 "${KIPRJMOD}/../parts/p/nowhere.step"):
+        model = pcbnew.FP_3DMODEL()
+        model.m_Filename = text
+        fp.Models().push_back(model)
     brd.Save(str(pcb))
     g = read_board(pcb)
     b = Board(g, edge_margin=0.0)
@@ -37,5 +42,6 @@ def test_a_model_path_one_level_short_is_written_to_resolve(breakout_pcb, tmp_pa
     plan = b.resolve()
     apply_plan(pcb, plan)
     written = {f.GetReference(): [m.m_Filename for m in f.Models()] for f in pcbnew.LoadBoard(str(pcb)).GetFootprints()}
-    assert written[ref] == ["${KIPRJMOD}/../../../parts/p/f.step"]
-    assert plan.models["reanchored"] >= 1
+    assert written[ref] == ["${KIPRJMOD}/../../../parts/p/f.step", "kicad-embed://body.step",
+                            "${KIPRJMOD}/../../../parts/p/g.step", "${KIPRJMOD}/../parts/p/nowhere.step"]
+    assert plan.models == {"reanchored": 2, "missing": ["nowhere.step"]}

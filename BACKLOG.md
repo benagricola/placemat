@@ -7,6 +7,31 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+- **The routed copy loses a net-tie footprint's outer-layer copper**
+  (PLACEMAT_GAPS 2026-09-27 "the router moves a net-tie footprint's outer
+  copper to silk"): the router's writer moves net-less F.Cu/B.Cu footprint
+  graphics to silk, so the routed copy's windings lose L1/L6 and DRC of the
+  copy is falsely clean. placemat restores the input's footprint graphics
+  into the routed copy (or refuses it), and counts net-less footprint copper
+  in the before/after comparison. The router is not changed.
+- **A part whose courtyard is not a rectangle, judged by its box**
+  (PLACEMAT_GAPS 2026-09-27 "placement behaviour met on the ring test
+  board"): sector windings fixed at a disc centre collide with each other by
+  their courtyard boxes; judge by the courtyard polygon KiCad draws.
+- **Placement behaviours from the ring test board** (same entry): a block
+  satellite slides along its pin row over other pins; the link-wait rule
+  outranks `priority=`; a part seeded deep inside a parts keepout searches
+  only its own size from the seed.
+- **`placemat drc --json` listing each item** with its description and
+  position (PLACEMAT_GAPS 2026-09-27 "reading a routed board's layers and DRC
+  items").
+- **`placemat impact` between a run and a KiCad file**, copper included
+  (PLACEMAT_GAPS 2026-09-27 "folding a hand layout into a fragment's
+  script").
+- **A custom pad's primitives in `measure --pads`** (PLACEMAT_GAPS
+  2026-09-27 "a custom pad's outline"): the polygon, not only its box.
+- **A plug on another board against a receptacle here** (PLACEMAT_GAPS
+  2026-09-27, twice): pad-to-pad nets across two board files and a turn.
 - **Placing relative to a searched item** (PLACEMAT_GAPS 2026-09-26, twice):
   a `Pin` or a cutout on a searched item is refused ("only FIXED and EDGE
   items may be referred to"). Needs a spec.
