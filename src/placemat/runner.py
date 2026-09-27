@@ -114,6 +114,54 @@ def cached_generation(src: BoardSource) -> Path:
     return src.board_dir / ".placemat" / "generated" / src.name
 
 
+# What placemat itself writes into a layout folder, beside what the generator
+# writes (the cached generation's files): anything else there is someone's.
+_OURS = (".kicad_pcb", ".kicad_pro", ".kicad_prl", ".kicad_dru")
+_OUR_FILES = ("layout.png", "layout-iso.png", "layout-bottom.png", "drc.json")
+
+
+def _set_aside(src: BoardSource, run_dir: Path, cache: Path, quiet: bool) -> list:
+    """Before the layout folder is replaced: every file in it that neither
+    placemat nor the generator wrote is copied into the run's `kept/` and
+    returned with what was said, to be put back and logged; and a board
+    edited since its last run (a hand edit in KiCad) is copied there too,
+    since placemat writes over it. Both are said on the terminal."""
+    if not src.layout_dir.exists():
+        return [], []
+    generated = {p.relative_to(cache) for p in cache.rglob("*")} if cache.exists() else set()
+    ours = {Path(src.pcb.stem + ext) for ext in _OURS} | {Path(n) for n in _OUR_FILES}
+    kept_dir = run_dir / "kept"
+    foreign = []
+    for p in sorted(src.layout_dir.rglob("*")):
+        rel = p.relative_to(src.layout_dir)
+        if p.is_file() and rel not in generated and rel not in ours:
+            (kept_dir / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(p, kept_dir / rel)
+            foreign.append(rel)
+    notes = []
+    if foreign:
+        notes.append("kept %d file(s) placemat did not write, put back after generation: %s" % (
+            len(foreign), ", ".join(str(r) for r in foreign)))
+    try:
+        last = latest_for(src.board_dir / ".placemat" / "runs", src.name)
+    except (ValueError, OSError):
+        last = None
+    written = Path(last.paths.get("run_dir", "")) / "layout.kicad_pcb" if last else None
+    if src.pcb.exists() and written is not None and written.exists() and written.read_bytes() != src.pcb.read_bytes():
+        kept_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src.pcb, kept_dir / src.pcb.name)
+        notes.append("%s was edited since run %s: kept as %s" % (src.pcb.name, last.run_id, kept_dir / src.pcb.name))
+    for n in notes:
+        _say(quiet, "board   " + n)
+    return foreign, notes
+
+
+def _put_back(src: BoardSource, run_dir: Path, foreign: list) -> None:
+    for rel in foreign:
+        (src.layout_dir / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(run_dir / "kept" / rel, src.layout_dir / rel)
+
+
 def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
              timeout: int = 900) -> bool:
     """Put a freshly generated (unscripted) board in src.layout_dir. A copy of
@@ -124,10 +172,12 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
     log = run_dir / "generate.log"
     inputs = generator_inputs(src)
     stale = stale_inputs(src, inputs) if cache.exists() else None
+    foreign, notes = _set_aside(src, run_dir, cache, quiet)
     if cache.exists() and not fresh and not stale:
         shutil.rmtree(src.layout_dir, ignore_errors=True)
         shutil.copytree(cache, src.layout_dir)
-        log.write_text("restored the cached generation from %s\n" % cache)
+        _put_back(src, run_dir, foreign)
+        log.write_text("restored the cached generation from %s\n" % cache + "".join(n + "\n" for n in notes))
         _say(quiet, "board   restored from cache (%s)" % cache.relative_to(src.board_dir))
         return False
     if stale and not fresh:
@@ -147,6 +197,9 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
                           "exit_code": rc, "log": str(log), "tail": _tail(log)})
     shutil.rmtree(cache, ignore_errors=True)
     shutil.copytree(src.layout_dir, cache)
+    _put_back(src, run_dir, foreign)            # after the cache is taken: it holds only what was generated
+    with open(log, "a") as f:
+        f.writelines(n + "\n" for n in notes)
     _inputs_record(src).write_text(json.dumps(inputs, indent=1, sort_keys=True))
     _say(quiet, "board   generated in %.0fs" % dt)
     return True

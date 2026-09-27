@@ -137,3 +137,39 @@ def test_the_fingerprint_changes_with_the_script_s_lock(tmp_path):
     without = script_fingerprint(script)
     _write(tmp_path / "Main_layout.lock.json", '{"format": 1, "entries": []}\n')
     assert script_fingerprint(script) != without
+
+
+def test_a_file_placemat_did_not_write_survives_a_restore_and_a_regeneration(tmp_path, monkeypatch):
+    """A hand layout saved into the layout folder was deleted by the next run."""
+    root, board, src = _project(tmp_path)
+    calls = []
+    monkeypatch.setattr(runner, "_sh", _fake_pcb(calls))
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    assert runner.generate(src, run_dir, fresh=False, quiet=True) is True
+    hand = src.layout_dir / "layout_hand.kicad_pcb"
+    hand.write_text("(kicad_pcb by hand)\n")
+    assert runner.generate(src, run_dir, fresh=False, quiet=True) is False          # restored from the cache
+    assert hand.read_text() == "(kicad_pcb by hand)\n"
+    assert runner.generate(src, run_dir, fresh=True, quiet=True) is True            # generated again
+    assert hand.read_text() == "(kicad_pcb by hand)\n"
+    assert "layout_hand.kicad_pcb" in (run_dir / "generate.log").read_text()
+
+
+def test_a_board_edited_since_its_last_run_is_kept(tmp_path, monkeypatch):
+    from placemat.report import RunRecord, record_latest
+    root, board, src = _project(tmp_path)
+    calls = []
+    monkeypatch.setattr(runner, "_sh", _fake_pcb(calls))
+    runs = src.board_dir / ".placemat" / "runs"
+    last = runs / "last"
+    last.mkdir(parents=True)
+    (last / "layout.kicad_pcb").write_text("(kicad_pcb as placemat wrote it)\n")
+    rec = RunRecord(run_id="last", board=src.name, status="ok", paths={"run_dir": str(last)})
+    record_latest(runs, rec.save(last / "run.json"), src.name)
+    src.layout_dir.mkdir(parents=True, exist_ok=True)
+    src.pcb.write_text("(kicad_pcb moved by hand in KiCad)\n")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    runner.generate(src, run_dir, fresh=True, quiet=True)
+    assert (run_dir / "kept" / "layout.kicad_pcb").read_text() == "(kicad_pcb moved by hand in KiCad)\n"
