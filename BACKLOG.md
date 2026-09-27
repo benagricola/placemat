@@ -24,32 +24,32 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **The 2026-09-27 evening gaps entries** (unreleased): `placemat drc` takes a
+- **The 2026-09-27 evening gaps entries** (0.41.0): `placemat drc` takes a
   relative path; the routed copy is saved with its zones refilled; a
   footprint's copper graphics are copper to the placer; `placemat parts`
   lists each part's footprint and `--field NAME` columns; a part facing a
   curved edge gets a clean rotation.
-- **Several vias in one pad** (unreleased; PLACEMAT_GAPS 2026-09-27):
+- **Several vias in one pad** (0.41.0; PLACEMAT_GAPS 2026-09-27):
   `board.vias(net, PadRef(...), pitch=)` (spec `2026-09-27-pad-vias-design.md`).
-- **A one-face parts keepout and a cell's vias** (unreleased; a board's layout
+- **A one-face parts keepout and a cell's vias** (0.41.0; a board's layout
   work, 2026-09-27): a cell's vias no longer make it two-faced to a parts
   keepout; plated leads and unplated holes still do.
-- **`check current-path` judges the load's route** (unreleased; PLACEMAT_GAPS
+- **`check current-path` judges the load's route** (0.41.0; PLACEMAT_GAPS
   2026-09-27; Ben chose dead-end branches skipped): the widest route between
   carrying parts, or from the one carrying part to another part.
-- **A fragment's extent, and `measure --outline`** (unreleased; PLACEMAT_GAPS
+- **A fragment's extent, and `measure --outline`** (0.41.0; PLACEMAT_GAPS
   2026-09-27): the run's extent line measures parts as the envelope claims
   them, so a physical-envelope fragment has one; `measure --outline` prints
   a board's Edge.Cuts items, box and thickness.
-- **The 2026-09-27 afternoon gaps bugs and `board.parts()`** (unreleased):
+- **The 2026-09-27 afternoon gaps bugs and `board.parts()`** (0.41.0):
   FreeSpot and `--via-near` keep off unplated holes; the router runs with
   `--keep-input-copper` so declared copper survives its cleanup;
   `board.pair()` needs two centreline points and says so; a decided part
   turned near a round rim is judged by its corners; `board.parts(net=)`.
-- **`board.envelope(item, rotation=)`** (unreleased; a board's layout work,
+- **`board.envelope(item, rotation=)`** (0.41.0; a board's layout work,
   2026-09-27): what the placer keeps under `[place] envelope`, documented,
   so a hand-built row stops calling the internal `drawn_envelope`.
-- **`pitch()` on split lands** (unreleased; PLACEMAT_GAPS 2026-09-27): a
+- **`pitch()` on split lands** (0.41.0; PLACEMAT_GAPS 2026-09-27): a
   pin drawn as several lands is one pin, and `pitch(part, pins=(a, b))`
   measures two named pins.
 - **`reach()` smaller than the envelope** (PLACEMAT_GAPS 2026-09-27): not
