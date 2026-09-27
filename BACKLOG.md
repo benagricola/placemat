@@ -56,7 +56,7 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **3D model paths that resolve from any project depth** (unreleased; a
+- **3D model paths that resolve from any project depth** (0.45.0; a
   board's layout work, 2026-09-27): the write re-anchors a model path that
   does not resolve to the nearest folder above that holds it
   (spec `2026-09-27-model-paths-design.md`).
