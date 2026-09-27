@@ -128,6 +128,18 @@ def lock_copper(pcb_path: str) -> int:
     return n
 
 
+def fill_zones(pcb_path: str) -> None:
+    """Refill every zone and save: the router saves its new vias and tracks
+    into the planes without refilling them, so the routed copy is not clean
+    as it stands - only when a checker refills it."""
+    from .quiet import import_pcbnew, quiet_stderr
+    pcbnew = import_pcbnew()
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(pcb_path)
+        pcbnew.ZONE_FILLER(board).Fill(board.Zones())
+        board.Save(pcb_path)
+
+
 def _copper_layers(pcb_path: str) -> list:
     from .quiet import import_pcbnew, quiet_stderr
     pcbnew = import_pcbnew()
@@ -400,6 +412,7 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
     for ext in (".kicad_pro", ".kicad_dru"):
         if (work / ("in" + ext)).exists():
             shutil.copy(work / ("in" + ext), work / ("routed" + ext))
+    fill_zones(str(pcb_out))
     after = run_drc(pcb_out, work / "drc_after.json")
     open1 = {n: v for n, v in after.open_nets.items() if n not in excluded}
     violated = _nets_in_violations(json.loads((work / "drc_after.json").read_text()))

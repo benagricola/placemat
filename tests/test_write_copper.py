@@ -295,3 +295,26 @@ def test_drc_takes_a_relative_path(breakout_pcb, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     report = run_drc("routed/layout.kicad_pcb", "routed/drc.json")
     assert report.real == {} and (tmp_path / "routed" / "drc.json").exists()
+
+
+def test_a_routed_copy_is_saved_with_its_zones_refilled(breakout_pcb, tmp_path):
+    """The router saves new vias into a plane without refilling it; the
+    routed copy is refilled, so a copy published from it is clean as it
+    stands, not only when a checker refills it."""
+    import pcbnew
+    from placemat.kicad.route import fill_zones
+    pcb = _copy(breakout_pcb, tmp_path)
+    board = pcbnew.LoadBoard(str(pcb))
+    zone = next(z for z in board.Zones() if not z.GetIsRuleArea() and z.GetNetname() == "GND")
+    box = zone.GetBoundingBox()
+    v = pcbnew.PCB_VIA(board)
+    v.SetPosition(box.Centre())
+    v.SetWidth(pcbnew.FromMM(0.6))
+    v.SetDrill(pcbnew.FromMM(0.3))
+    v.SetNet(board.FindNet("TERM_NEAR_MID"))
+    board.Add(v)
+    board.Save(str(pcb))
+    stale = run_drc(pcb, tmp_path / "stale.json", refill_zones=False)
+    fill_zones(str(pcb))
+    fresh = run_drc(pcb, tmp_path / "fresh.json", refill_zones=False)
+    assert stale.by_type.get("clearance", 0) > fresh.by_type.get("clearance", 0)
