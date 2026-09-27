@@ -98,3 +98,15 @@ def test_the_board_lists_its_parts_and_those_on_a_net():
     assert [p.inst for p in b.parts()] == ["c1", "j1", "r1", "u1"]
     assert [p.inst for p in b.parts(net="GND")] == ["c1", "u1"]
     assert [p.inst for p in b.parts(net="V3V3")] == ["c1", "r1", "u1"]
+
+
+def test_the_parts_listing_gives_each_parts_footprint_and_named_fields():
+    import dataclasses
+    from placemat.describe import parts_lines, parts_rows
+    fp = dataclasses.replace(footprint("R1", 30, 30, inst="r1", fields={"LCSC": "C25744"}),
+                             lib_id="Resistor_SMD:R_0402_1005Metric")
+    g = board_geometry([fp])
+    (row,) = parts_rows(g, fields=("LCSC",))
+    assert row["footprint"] == "Resistor_SMD:R_0402_1005Metric" and row["fields"] == {"LCSC": "C25744"}
+    text = "\n".join(parts_lines(g, fields=("LCSC",)))
+    assert "R_0402_1005Metric" in text and "C25744" in text

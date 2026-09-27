@@ -277,7 +277,10 @@ with another. `courtyard` (the default) is its courtyard and its pads.
 each pad's mask opening (the pad grown by its expansion), every silk graphic
 as stroked (the footprint's text fields excluded - `board.label()` text stays
 a reservation) and its body, the box of its fab graphics. A footprint that
-draws neither silk nor fab keeps its courtyard. `union` is both. Between two
+draws neither silk nor fab keeps its courtyard. `union` is both. Under every
+envelope a footprint's own copper graphics (a net-tie's winding, a printed
+antenna) are copper of no net: every other net's copper keeps its clearance
+from them. Between two
 different parts, every gap is the board's own:
 
 | | another part's copper | mask opening | silk | body |
@@ -889,7 +892,7 @@ placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--layers L ...] 
 placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
 placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part ...] [--pads] [--labels] [--outline] [--json]
-placemat parts <layout.kicad_pcb | script> [--json]
+placemat parts <layout.kicad_pcb | script> [--field NAME ...] [--json]
 placemat datasheet <pdf> [--show PAGE|TOPIC] [--read] [--no-ocr] [--out DIR] [--dpi N] [--json]
 placemat datasheet check <pdf> <footprint.kicad_mod> [--pitch F] [--pad WxH] [--pads N] [--span F] [--tol F] [--json]
 placemat occupancy <layout.kicad_pcb | script> (--at X,Y | --box X0,Y0,X1,Y1 | --via-near PART.PAD)

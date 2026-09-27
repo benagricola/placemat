@@ -178,6 +178,19 @@ def _silk(fp, err_nm: int = CLEAR_ERR_NM) -> tuple:
     return tuple(out)
 
 
+def _copper_art(fp, err_nm: int = CLEAR_ERR_NM) -> tuple:
+    """Every copper graphic the footprint draws (not its pads): a net-tie's
+    winding, a printed antenna's trace. Copper the placer must keep other
+    nets clear of, stroke included."""
+    out = []
+    for d in fp.GraphicalItems():
+        layer = d.GetLayer()
+        if isinstance(d, pcbnew.PCB_SHAPE) and pcbnew.IsCopperLayer(layer):
+            name = fp.GetBoard().GetLayerName(layer) if fp.GetBoard() else pcbnew.LayerName(layer)
+            out += [(CopperLayer.of(name), poly) for poly in outlines_of(d, layer, err_nm)]
+    return tuple(out)
+
+
 def _mask(fp, err_nm: int = CLEAR_ERR_NM) -> tuple:
     """Each pad's mask aperture on each mask layer it opens: the pad grown by
     its expansion, the pad's own or else the board's. The outline KiCad gives
@@ -254,7 +267,8 @@ def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footpr
                      body_box=body_box(fp, excess_mm), courtyard_box=courtyard_box(fp),
                      phys_box=phys_box(fp), pads=_pads(board, fp, err_nm), npth=_npth(fp),
                      fields={f.GetName(): f.GetText() for f in fp.GetFields()},
-                     silk=_silk(fp, err_nm), mask=_mask(fp, err_nm), fab=_fab(fp),
+                     lib_id=fp.GetFPIDAsString(),
+                     silk=_silk(fp, err_nm), mask=_mask(fp, err_nm), fab=_fab(fp), copper=_copper_art(fp, err_nm),
                      courtyard_margin=courtyard_margin(fp))
 
 
@@ -494,7 +508,8 @@ def read_footprint(path, courtyard_excess_mm: float = 0.10) -> tuple:
                      body_box=body_box(fp, courtyard_excess_mm), courtyard_box=courtyard_box(fp),
                      phys_box=phys_box(fp), pads=tuple(pads), npth=_npth(fp),
                      fields={f.GetName(): f.GetText() for f in fp.GetFields()},
-                     silk=_silk(fp), mask=_mask(fp), fab=_fab(fp), courtyard_margin=courtyard_margin(fp))
+                     lib_id=fp.GetFPIDAsString(),
+                     silk=_silk(fp), mask=_mask(fp), fab=_fab(fp), copper=_copper_art(fp), courtyard_margin=courtyard_margin(fp))
     return geom, digest
 
 

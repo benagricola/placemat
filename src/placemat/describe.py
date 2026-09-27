@@ -144,25 +144,30 @@ def part_lines(fp, geometry=None, pads: bool = False, digest: str = "") -> list:
     return lines
 
 
-def parts_rows(geometry) -> list:
+def parts_rows(geometry, fields=()) -> list:
+    """One row per part; `fields` names footprint fields to add (an order
+    code, a manufacturer part number), empty where a part has none."""
     return [{"instance": fp.inst, "ref": fp.ref, "face": fp.face.value, "cell": fp.cell,
              "x": fp.location.x, "y": fp.location.y, "rotation": fp.rotation,
              "centre": [round(fp.body_box.center.x, 3), round(fp.body_box.center.y, 3)],
              "mm2": round(fp.courtyard_box.area, 3), "pins": pin_count(fp),
-             "value": fp.value, "nets": sorted({p.net for p in fp.pads if p.net})}
+             "value": fp.value, "footprint": fp.lib_id, "nets": sorted({p.net for p in fp.pads if p.net}),
+             **({"fields": {f: fp.fields.get(f, "") for f in fields}} if fields else {})}
             for fp in sorted(geometry.footprints, key=lambda f: f.inst)]
 
 
-def parts_lines(geometry) -> list:
-    rows = parts_rows(geometry)
+def parts_lines(geometry, fields=()) -> list:
+    rows = parts_rows(geometry, fields)
     if not rows:
         return ["no footprints on this board"]
-    out = ["%-26s %-6s %-6s %-12s %8s %8s %5s %8s %5s  %s" % (
-        "instance", "ref", "face", "cell", "x", "y", "rot", "mm2", "pins", "value")]
+    out = ["%-26s %-6s %-6s %-12s %8s %8s %5s %8s %5s  %-28s %s" % (
+        "instance", "ref", "face", "cell", "x", "y", "rot", "mm2", "pins", "value",
+        "  ".join(["footprint"] + list(fields)))]
     for r in rows:
-        out.append("%-26s %-6s %-6s %-12s %8.2f %8.2f %5g %8.2f %5d  %s" % (
+        extra = [r["footprint"] or "-"] + [r["fields"][f] or "-" for f in fields]
+        out.append("%-26s %-6s %-6s %-12s %8.2f %8.2f %5g %8.2f %5d  %-28s %s" % (
             r["instance"][:26], r["ref"], r["face"], (r["cell"] or "-")[:12],
-            r["x"], r["y"], r["rotation"], r["mm2"], r["pins"], r["value"][:28]))
+            r["x"], r["y"], r["rotation"], r["mm2"], r["pins"], r["value"][:28], "  ".join(extra)))
     return out
 
 

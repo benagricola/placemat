@@ -7,6 +7,8 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+- **`measure --labels` with text height, stroke, angle, mirroring and
+  graphic silk** (PLACEMAT_GAPS 2026-09-27).
 - **A region by part height** (a board's layout work, 2026-09-27): a part's
   height (a `Pm.Height` field, or the STEP model's extent) so a parts
   keepout can say `max_height=` instead of listing names.
@@ -22,6 +24,11 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **The 2026-09-27 evening gaps entries** (unreleased): `placemat drc` takes a
+  relative path; the routed copy is saved with its zones refilled; a
+  footprint's copper graphics are copper to the placer; `placemat parts`
+  lists each part's footprint and `--field NAME` columns; a part facing a
+  curved edge gets a clean rotation.
 - **Several vias in one pad** (unreleased; PLACEMAT_GAPS 2026-09-27):
   `board.vias(net, PadRef(...), pitch=)` (spec `2026-09-27-pad-vias-design.md`).
 - **A one-face parts keepout and a cell's vias** (unreleased; a board's layout

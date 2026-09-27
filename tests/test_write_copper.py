@@ -318,3 +318,21 @@ def test_a_routed_copy_is_saved_with_its_zones_refilled(breakout_pcb, tmp_path):
     fill_zones(str(pcb))
     fresh = run_drc(pcb, tmp_path / "fresh.json", refill_zones=False)
     assert stale.by_type.get("clearance", 0) > fresh.by_type.get("clearance", 0)
+
+
+def test_a_footprints_copper_graphic_is_read_as_its_copper(breakout_pcb, tmp_path):
+    import pcbnew
+    pcb = _copy(breakout_pcb, tmp_path)
+    board = pcbnew.LoadBoard(str(pcb))
+    fp = next(f for f in board.GetFootprints() if f.GetReference() == "R9")
+    art = pcbnew.PCB_SHAPE(fp)
+    art.SetShape(pcbnew.SHAPE_T_SEGMENT)
+    art.SetLayer(pcbnew.B_Cu)
+    at = fp.GetPosition()
+    art.SetStart(at)
+    art.SetEnd(pcbnew.VECTOR2I(at.x + pcbnew.FromMM(3), at.y))
+    art.SetWidth(pcbnew.FromMM(0.3))
+    fp.Add(art)
+    board.Save(str(pcb))
+    r9 = read_board(pcb).footprint("R9")
+    assert [layer for layer, _ in r9.copper] == [CopperLayer.B]

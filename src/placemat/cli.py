@@ -77,6 +77,8 @@ def parser() -> argparse.ArgumentParser:
     pl = sub.add_parser("parts", help="every part on the board: instance, refdes, face, cell, "
                                       "courtyard area, pin count and value")
     pl.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
+    pl.add_argument("--field", action="append", default=[], metavar="NAME",
+                    help="a footprint field to list for each part (an order code, a manufacturer part number); repeatable")
     pl.add_argument("--json", action="store_true")
 
     oc = sub.add_parser("occupancy", help="what copper is at a point or in a box, and where a via "
@@ -481,9 +483,9 @@ def cmd_parts(args) -> int:
     pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
     snap = read_board(pcb)
     if args.json:
-        console.data(json.dumps({"parts": describe.parts_rows(snap)}, indent=2))
+        console.data(json.dumps({"parts": describe.parts_rows(snap, args.field)}, indent=2))
         return 0
-    console.lines("parts", "\n".join(describe.parts_lines(snap)))
+    console.lines("parts", "\n".join(describe.parts_lines(snap, args.field)))
     return 0
 
 

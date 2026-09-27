@@ -204,6 +204,9 @@ def _fp_shapes(fp: Footprint, envelope: str = "courtyard") -> list[Shape]:
             shapes.append(Shape(fp.ref, "silk", frozenset([face]), frozenset(), "", poly, Box.of_points(poly)))
         for face, poly in fp.fab:
             shapes.append(Shape(fp.ref, "body", frozenset([face]), frozenset(), "", poly, Box.of_points(poly)))
+    for layer, poly in fp.copper:         # its own copper graphics: copper of no net, kept clear of every other
+        shapes.append(Shape(fp.ref, "copper", frozenset([layer.face]) if layer.face else frozenset(), frozenset([layer]),
+                            "", poly, Box.of_points(poly)))
     for p in fp.pads:
         for poly in p.outlines:
             shapes.append(Shape(fp.ref, "through" if p.through else "pad",

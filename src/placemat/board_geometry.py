@@ -54,8 +54,10 @@ class Footprint:
     silk: tuple = ()            # ((Face, polygon), ...): every silk graphic's stroked outline, no field text
     mask: tuple = ()            # ((Face, polygon), ...): each pad's mask aperture, the pad grown by its expansion
     fab: tuple = ()             # ((Face, polygon), ...): per face, the box of the fab graphics - the body
+    copper: tuple = ()          # ((CopperLayer, polygon), ...): the footprint's own copper graphics (a net-tie's winding)
     courtyard_margin: float = 0.0   # how far KiCad's courtyard polygon lies inside courtyard_box, least side
     fields: dict = field(default_factory=dict, compare=False)   # the footprint's text fields (the capture's Pm.* facts)
+    lib_id: str = field(default="", compare=False)              # the footprint it was drawn from, library:name
 
     @property
     def box(self) -> Box:
