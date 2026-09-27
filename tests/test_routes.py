@@ -176,3 +176,72 @@ def test_a_plans_adopted_routes_are_summed_up_in_a_line():
     assert routes.summary(held) == "1 held, 0 dropped"
     assert routes.summary(dropped).startswith("0 held, 1 dropped (X: ") and "R1" in routes.summary(dropped)
     assert routes.summary(Board(board_geometry(_parts(), width=40, height=40)).resolve()) == ""
+
+
+def test_a_pad_number_the_part_no_longer_has_drops_the_net():
+    placed, routed = _routed()
+    (e,) = routes.entries_from(placed, routed, ["X"])
+    t = dict(e.tracks[0], a={**e.tracks[0]["a"], "pad": ["U1", "9"]}) if "pad" in e.tracks[0]["a"] else \
+        dict(e.tracks[0], b={**e.tracks[0]["b"], "pad": ["U1", "9"]})
+    why = routes.resolve(dataclasses.replace(e, tracks=(t,) + e.tracks[1:]), _occupancy(), 0.001)
+    assert isinstance(why, str) and "U1" in why and "9" in why
+
+
+def test_a_pad_moved_to_another_net_drops_the_route():
+    placed, routed = _routed()
+    (e,) = routes.entries_from(placed, routed, ["X"])
+    parts = [_parts()[0], footprint("R1", 20, 16, w=2, h=1, inst="r1", nets=("B", "X"))]   # R1 pad 1 now on B
+    b = Board(board_geometry(parts, width=40, height=40), edge_margin=0.5)
+    b.place(Part("u1"), at=Location(10, 10))
+    b.place(Part("r1"), at=Location(20, 16))
+    why = routes.resolve(e, b.resolve().occupancy, 0.001)
+    assert isinstance(why, str) and "R1" in why and "B" in why
+
+
+def test_pads_sharing_a_number_resolve_where_the_track_ended():
+    u1 = _parts()[0]
+    u1 = dataclasses.replace(u1, pads=tuple(dataclasses.replace(p, number="S", net="X") for p in u1.pads))
+    parts = [u1, _parts()[1]]
+    placed = board_geometry(parts, width=40, height=40)
+    routed = dataclasses.replace(placed, copper=tuple(placed.copper) + (_track("X", (11.4, 10.0), (19.4, 16.0)),))
+    (e,) = routes.entries_from(placed, routed, ["X"])
+    b = Board(board_geometry(parts, width=40, height=40), edge_margin=0.5)
+    b.place(Part("u1"), at=Location(10, 10))
+    b.place(Part("r1"), at=Location(20, 16))
+    tracks, _ = routes.resolve(e, b.resolve().occupancy, 0.001)
+    ends = sorted((round(p.x, 6), round(p.y, 6)) for t in tracks for p in (t.start, t.end))
+    assert ends == [(11.4, 10.0), (19.4, 16.0)]
+
+
+def _meeting():
+    """U1's X pad to a point on a stub the script declares, (15, 10) to (15, 5)."""
+    placed = board_geometry(_parts(), width=40, height=40)
+    placed = dataclasses.replace(placed, copper=tuple(placed.copper) + (_track("X", (15.0, 10.0), (15.0, 5.0)),))
+    routed = dataclasses.replace(placed, copper=tuple(placed.copper) + (_track("X", (11.4, 10.0), (15.0, 10.0)),))
+    (e,) = routes.entries_from(placed, routed, ["X"])
+    return placed, e
+
+
+def test_a_route_whose_end_met_other_copper_holds_while_that_copper_is_there():
+    placed, e = _meeting()
+    b = Board(placed, edge_margin=0.5)
+    b.place(Part("u1"), at=Location(10, 10))
+    b.place(Part("r1"), at=Location(20, 16))
+    assert not isinstance(routes.resolve(e, b.resolve().occupancy, 0.001), str)
+
+
+def test_a_route_whose_end_met_other_copper_drops_when_that_copper_is_gone():
+    placed, e = _meeting()
+    why = routes.resolve(e, _occupancy(), 0.001)
+    assert isinstance(why, str) and "15.00" in why
+
+
+def test_adopting_says_why_a_net_was_not_kept(tmp_path):
+    placed, routed = _routed()
+    script = tmp_path / "Board_layout.py"
+    skipped = {}
+    routes.adopt(script, placed, routed, ["X", "Q"], still_open={"X": 2}, skipped=skipped)
+    assert "open" in skipped["X"] and "no copper" in skipped["Q"]
+    skipped = {}
+    routes.adopt(script, placed, routed, None, shorted=["X"], skipped=skipped)
+    assert "shorted" in skipped["X"]

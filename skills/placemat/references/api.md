@@ -1109,16 +1109,20 @@ names them too.
 as above, then keeps the router's new copper on the named nets in
 `<script stem>.routes.json` beside the script (commit it with the script);
 `--adopt-all` keeps every net the route closed. A net is adopted whole and
-clean: one still open or shorted after the route is not kept, and says so.
-Each point is stored relative to a pad of its net - the pad it lies on, or
-the net's nearest pad - in that pad's part's frame, so the copper moves and
-turns with the parts. Every run and preview draws the kept copper as copper
-of its net, after the script's own, while the parts it joins stand as they
-did relative to each other when it was adopted (within
-`route.adopt_tolerance`); a conflict with other copper is a `copper`
-finding. When one of them has moved, turned, changed face or left the
-board, that net is dropped with a finding naming the part ("adopted route
-NET dropped: ..."), and the next route routes it again. The run's
+clean: one still open or shorted after the route, or one the route added no
+copper to, is not kept, and says why. Each point is stored as an offset
+from a pad of its net - the pad it lies on, or the net's nearest pad - with
+the centres of the pads its parts were at, so a run fits how the parts have
+moved and turned and carries the copper with them. Every run and preview
+draws the kept copper as copper of its net, after the script's own, while
+the parts it joins stand as they did relative to each other when it was
+adopted (within `route.adopt_tolerance` at every kept pad); a conflict with
+other copper is a `copper` finding. The net is dropped with a finding
+("adopted route NET dropped: ...") when one of those parts has moved or
+turned relative to the others, changed face or left the board, when a pad
+it ends on is gone or on another net, or when an end that met the net's
+other copper (a via or track the script declares) no longer does; the next
+route routes it again. The run's
 `adopted` line and `run.json`'s `metrics.adopted` say which nets were held
 and which dropped. Kept copper is locked input copper on the written board,
 so a route leaves it alone and counts its net closed. `placemat routes
@@ -1304,7 +1308,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `route.diff_pairs` | `["*"]` | net patterns naming the differential pairs: the router's pair router (route_diff.py) routes them first, as pairs, and placement prices their own crossings at `score.pair_crossing`; `[]` names none (every net single-ended, no pair weighting) |
 | `route.diff_pair_gap` | 0 | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
 | `route.diff_pair_width` | 0 | mm, a pair's track width; 0 is the net class's diff pair width |
-| `route.adopt_tolerance` | 0.001 | mm a part may have moved relative to the others its kept routes join (and ten times that in degrees turned) before those routes are dropped |
+| `route.adopt_tolerance` | 0.001 | mm any kept pad may lie from where the parts' common motion puts it before the kept routes joining them are dropped |
 | `timeout.generate` | 900 | seconds for `pcb layout` |
 | `timeout.drc` | 600 | seconds for kicad-cli DRC |
 | `timeout.route` | 3600 | seconds for the router |

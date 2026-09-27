@@ -52,9 +52,10 @@ def parser() -> argparse.ArgumentParser:
     rt.add_argument("--iterations", type=int, help="cap the router's search per net (default: the router's own)")
     rt.add_argument("--out", help="work directory (default: <board dir>/.placemat/route)")
     rt.add_argument("--json", action="store_true")
-    rt.add_argument("--adopt", nargs="+", metavar="NET",
-                    help="keep the router's copper on these nets: every run draws it (a layout script only)")
-    rt.add_argument("--adopt-all", action="store_true", help="keep the copper on every net the route closed")
+    keep = rt.add_mutually_exclusive_group()
+    keep.add_argument("--adopt", nargs="+", metavar="NET",
+                      help="keep the router's copper on these nets: every run draws it (a layout script only)")
+    keep.add_argument("--adopt-all", action="store_true", help="keep the copper on every net the route closed")
 
     rs = sub.add_parser("routes", help="the routes a layout script keeps (route --adopt), and releasing them")
     rs.add_argument("script", help="a layout script")
@@ -402,13 +403,11 @@ def cmd_route(args) -> int:
 def _adopt(script: Path, nets, report) -> None:
     from . import routes
     from .kicad.read import read_board
-    for net in nets or ():
-        if net in report.shorted:
-            console.say("adopt", "%s not adopted: the router shorted it" % net)
-        elif net in report.open_nets:
-            console.say("adopt", "%s not adopted: still %d open (a net is adopted whole)" % (net, report.open_nets[net]))
+    skipped = {}
     kept = routes.adopt(script, read_board(report.work / "in.kicad_pcb"), read_board(report.routed_pcb), nets,
-                        report.open_nets, report.shorted)
+                        report.open_nets, report.shorted, skipped)
+    for net, why in skipped.items():
+        console.say("adopt", "%s not adopted: %s" % (net, why))
     for e in kept:
         console.say("adopt", routes.describe(e))
     console.say("adopt", "%d net(s) kept in %s" % (len(kept), routes.path_for(script)))

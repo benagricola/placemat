@@ -1,7 +1,7 @@
 # Hole spacing when placing
 
 Date: 2026-09-27
-Status: draft
+Status: approved 2026-09-27
 Source: a board's layout work, 2026-09-27 (core, run core-study-3): "two
 stamped cells' vias can land closer than the hole-to-hole rule"
 

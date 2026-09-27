@@ -70,9 +70,53 @@ def test_an_adopted_track_whose_part_moved_is_dropped(breakout_pcb, tmp_path):
     placed, entries = _adopted(breakout_pcb, tmp_path)
     e = entries[0]
     ref = sorted(e.parts)[-1]
-    x, y, r, face = e.parts[ref]
-    moved = dataclasses.replace(e, parts={**e.parts, ref: [x + 1.0, y, r, face]})   # as if it stood 1 mm away then
+    kept = e.parts[ref]
+    pads = {n: [x + 1.0, y] for n, (x, y) in kept["pads"].items()}             # as if it stood 1 mm away then
+    moved = dataclasses.replace(e, parts={**e.parts, ref: {**kept, "pads": pads}})
     plan = _board(read_board(placed)).resolve(routes=[moved])
     assert ref in plan.adopted[NET]
     assert not [c for c in plan.copper if getattr(c, "net", None) == NET]
     assert any("adopted route %s dropped" % NET in f and ref in f for f in plan.findings)
+
+
+def test_an_adopted_route_between_back_face_parts_is_drawn_where_it_was_routed(breakout_pcb, tmp_path):
+    """A flipped part's orientation as KiCad reads it is not the placement's:
+    the kept copper must come back where the router laid it."""
+    import pcbnew
+    from placemat.values import Face, Location
+    gen = _copy(breakout_pcb, tmp_path / "gen")
+    g0 = read_board(gen)
+    fps = {fp.inst: fp for fp in g0.footprints}
+    ra, rb = fps["term_near_ra"], fps["term_near_rb"]
+
+    def board(g):
+        b = _board(g)
+        for fp in (ra, rb):
+            b.place(Part(fp.inst), at=Location(fp.location.x, fp.location.y), rotation=90, face=Face.BACK)
+        return b
+    placed = _copy(breakout_pcb, tmp_path / "placed")
+    apply_plan(placed, board(g0).resolve())
+    gp = read_board(placed)
+    by_ref = {fp.ref: fp for fp in gp.footprints}
+    pa = [p for p in by_ref[ra.ref].pads if p.net == NET][0]
+    pb = [p for p in by_ref[rb.ref].pads if p.net == NET][0]
+    A, B = (pa.box.center.x + 0.05, pa.box.center.y), (pb.box.center.x, pb.box.center.y)
+    M = (A[0] + 1.0, A[1] + 0.7)
+    routed = tmp_path / "routed.kicad_pcb"
+    shutil.copy(placed, routed)
+    brd = pcbnew.LoadBoard(str(routed))
+    for p, q in ((A, M), (M, B)):
+        t = pcbnew.PCB_TRACK(brd)
+        t.SetStart(pcbnew.VECTOR2I(pcbnew.FromMM(p[0]), pcbnew.FromMM(p[1])))
+        t.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(q[0]), pcbnew.FromMM(q[1])))
+        t.SetWidth(pcbnew.FromMM(0.2))
+        t.SetLayer(pcbnew.B_Cu)
+        t.SetNet(brd.FindNet(NET))
+        brd.Add(t)
+    brd.Save(str(routed))
+    (e,) = routes.entries_from(gp, read_board(routed), [NET])
+    plan = board(read_board(gen)).resolve(routes=[e])
+    assert plan.adopted == {NET: "held"}
+    got = sorted((round(p.x, 4), round(p.y, 4)) for c in plan.copper if getattr(c, "net", None) == NET
+                 and hasattr(c, "start") for p in (c.start, c.end))
+    assert got == sorted((round(x, 4), round(y, 4)) for x, y in (A, M, M, B))

@@ -105,7 +105,7 @@ class Settings:
     route_diff_pairs: tuple = ("*",)    # nets the router's pair router routes first, as pairs; (): none
     route_diff_pair_gap: float = 0.0    # mm between a pair's tracks; 0: the net class's
     route_diff_pair_width: float = 0.0  # mm, a pair's track width; 0: the net class's
-    route_adopt_tolerance: float = 0.001   # mm: how far a part may have moved relative to the others before its adopted routes are dropped
+    route_adopt_tolerance: float = 0.001   # mm: how far a kept pad may lie from where the parts' common motion puts it before adopted routes are dropped
     # [timeout] - seconds
     timeout_generate: int = 900
     timeout_drc: int = 600
