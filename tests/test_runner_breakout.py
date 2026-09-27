@@ -204,3 +204,25 @@ def test_a_script_that_fails_leaves_the_board_as_the_last_run_wrote_it(scratch_e
         script.write_text(original)
     assert rec.status == "failed" and rec.record.failure["kind"] == "script"
     assert pcb.read_bytes() == before
+
+
+def test_lock_current_holds_the_placement_the_board_stands_in(scratch_ecosystem):
+    """A run, then `placemat lock --current`: the next run holds every
+    searched item where the board stood."""
+    from placemat import cli, lock
+    script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
+    script.write_text(SCRIPT + 'board.place(Part("trunk_led_ra"))\nboard.place(Part("term_far_jumper"))\n')
+    path = lock.path_for(script)
+    try:
+        first = run(script, label="to-lock", render=False, drc=False)
+        assert cli.main(["lock", str(script), "--current"]) == 0
+        keys = {e.key for e in lock.read(path)}
+        assert {"trunk_led_ra", "term_far_jumper"} <= keys
+        again = run(script, label="locked", render=False, drc=False)
+        steps = json.loads((scratch_ecosystem / "breakout/.placemat/runs/locked/run.json").read_text())["steps"]
+        for key in ("trunk_led_ra", "term_far_jumper"):
+            assert any("held by lock" in s["note"] for s in steps if s["item"] == key)
+        assert again.record.placements["trunk_led_ra"] == first.record.placements["trunk_led_ra"]
+    finally:
+        script.write_text(SCRIPT)
+        path.unlink(missing_ok=True)

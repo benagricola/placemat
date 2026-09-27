@@ -176,6 +176,8 @@ def parser() -> argparse.ArgumentParser:
     lk.add_argument("script", help="the board's layout script")
     lk.add_argument("--release", nargs="+", metavar="ITEM", help="drop these items' entries")
     lk.add_argument("--release-all", action="store_true", help="drop every entry")
+    lk.add_argument("--current", action="store_true",
+                    help="lock every searched item where the board stands (the last run's placement)")
     st = sub.add_parser("settings", help="every resolved setting, its value and the file it came from")
     st.add_argument("where", nargs="?", default=".", help="a layout script or a board directory (default: here)")
     st.add_argument("--json", action="store_true")
@@ -276,6 +278,8 @@ def cmd_lock(args) -> int:
     from . import lock
     from pathlib import Path
     path = lock.path_for(Path(args.script).resolve())
+    if getattr(args, "current", False):
+        return _lock_current(Path(args.script), None)
     if not args.release and not args.release_all:
         entries = lock.read(path)
         console.lines("lock", "\n".join("%s  %s %s  turn %d" % (e.key, "%s.%s" % e.anchor if e.anchor else "board",
@@ -285,6 +289,30 @@ def cmd_lock(args) -> int:
     gone = lock.release(path, None if args.release_all else set(args.release))
     console.say("lock", "released %d: %s" % (len(gone), ", ".join(gone) or "-"))
     return 0
+
+
+def _lock_current(script: Path, keys) -> int:
+    """Lock `keys` (None: every searched item) where the board stands; 1 when
+    any would not land there."""
+    from . import lock
+    from ._version import __version__
+    from .previewer import resolve_like_last_run, written_pads
+    try:
+        board, plan, src, run_id = resolve_like_last_run(script)
+    except ValueError as e:
+        console.say("lock", str(e), level="fail")
+        return 1
+    path = lock.path_for(script.resolve())
+    entries, locked, refused = lock.current(board, plan, written_pads(src.pcb), lock.read(path),
+                                            board.settings.route_adopt_tolerance, keys=keys, release=__version__,
+                                            run=run_id)
+    if locked:
+        lock.write(path, entries)
+    console.say("lock", "locked %d where the board stands (run %s)%s" % (
+        len(locked), run_id, "" if not refused else "; %d not" % len(refused)))
+    for key, why in sorted(refused.items()):
+        console.say("lock", "%s not locked: %s; run the script, then lock" % (key, why), level="finding")
+    return 1 if refused else 0
 
 
 def cmd_freeze(args) -> int:

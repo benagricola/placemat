@@ -52,6 +52,41 @@ def convert(template: str, svg, png, width: int) -> str:
     return ""
 
 
+def resolve_like_last_run(script) -> tuple:
+    """(board, plan, board source, last run's id): the script resolved as
+    its last run resolved it - its cached generation, its replay record,
+    the lock - without writing anything. What `lock --current` checks
+    against the written board."""
+    from .lock import path_for as lock_path, read as read_lock
+    from .project import fab_profile, find_board
+    from .report import latest_for
+    from .runner import cached_generation, reuse_parts, scripted_board
+    from . import settings as settings_mod
+    script = Path(script).resolve()
+    src = find_board(script)
+    cfg = settings_mod.load(src.board_dir)
+    generated = cached_generation(src) / src.pcb.name
+    last = latest_for(src.board_dir / ".placemat" / "runs", src.name)
+    if not generated.exists() or last is None or not src.pcb.exists():
+        raise ValueError("%s has not been run yet: `placemat run %s` first" % (src.name, script.name))
+    with settings_mod.bind(cfg):
+        fab = fab_profile(src.board_dir)
+        board = scripted_board(script, src, cfg, fab, keep_going=True, pcb=generated)
+        parts = reuse_parts(src, cfg, fab, pcb=generated)
+        board.reuse_extra = "|".join(parts[k] for k in ("tool", "board", "settings", "fab"))
+        previous, _ = newest_record([(Path(last.paths.get("run_dir", "")) / "reuse.json", "run %s" % last.run_id)])
+        plan = board.resolve(reuse=previous, lock=read_lock(lock_path(script)))
+    return board, plan, src, last.run_id
+
+
+def written_pads(pcb) -> dict:
+    """{(instance, pad number): (x, y)} of a written board's pads, pads that
+    share a number as one (the centre of their union, as the occupancy has it)."""
+    from .kicad.read import read_board
+    from .routes import _pad_centres
+    return {(fp.inst, n): (c.x, c.y) for fp in read_board(pcb).footprints for n, c in _pad_centres(fp).items()}
+
+
 def newest_record(candidates) -> tuple:
     """(record, where it came from) of the newest readable reuse record among
     `candidates` - (path, label) pairs - or (None, None)."""

@@ -176,3 +176,39 @@ def release(path, keys) -> list:
     gone = [e.key for e in entries if keys is None or e.key in keys]
     write(path, [e for e in entries if e.key not in gone])
     return gone
+
+
+def current(board, plan, written: dict, existing, tolerance: float, keys=None, release: str = "",
+            run: str = "") -> tuple:
+    """Lock each searched item (`keys` of them, or all) where the board
+    stands: `written` is {(instance, pad number): (x, y)} of the board as
+    it was written, and an item is locked only when every pad of it that
+    the resolve placed lies within `tolerance` of there. (the lock's
+    entries, the keys locked, {key: why} for the ones not)."""
+    import math
+    from .board_geometry import members_of
+    items = dict(plan._items)
+    locked, refused = [], {}
+    for key in sorted(plan.turns, key=lambda k: plan.turns[k]["order"]):
+        if keys is not None and key not in keys:
+            continue
+        for fp in members_of(items[key]) if key in items else ():
+            off = None
+            for p in fp.pads:
+                was = written.get((fp.inst, p.number))
+                if was is None:
+                    off = "%s pad %s is not on the board" % (fp.inst, p.number)
+                    break
+                now = plan.occupancy.pad_location(fp.ref, p.number)
+                if math.dist(was, (now.x, now.y)) > tolerance:
+                    off = "%s stands at (%.3f, %.3f) on the board and would be placed at (%.3f, %.3f) now" % (
+                        fp.inst, was[0], was[1], now.x, now.y)
+                    break
+            if off:
+                refused[key] = off
+                break
+        else:
+            locked.append(key)
+    new = entries(board, plan, locked, release=release, run=run)
+    kept = [e for e in existing if e.key not in set(locked)]
+    return renumber(kept + new, plan), locked, refused
