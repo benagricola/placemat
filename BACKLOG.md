@@ -7,6 +7,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+- **A region by part height** (a board's layout work, 2026-09-27): a part's
+  height (a `Pm.Height` field, or the STEP model's extent) so a parts
+  keepout can say `max_height=` instead of listing names.
 - **A route report of each net's path, or a preview of the routed copy**
   (PLACEMAT_GAPS 2026-09-27).
 - **`board.pair()` finding its own centreline; `route.diff_pairs` taking
@@ -23,14 +26,14 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   `--keep-input-copper` so declared copper survives its cleanup;
   `board.pair()` needs two centreline points and says so; a decided part
   turned near a round rim is judged by its corners; `board.parts(net=)`.
-- **`board.envelope(item, rotation=)`** (unreleased; the board session,
+- **`board.envelope(item, rotation=)`** (unreleased; a board's layout work,
   2026-09-27): what the placer keeps under `[place] envelope`, documented,
   so a hand-built row stops calling the internal `drawn_envelope`.
 - **`pitch()` on split lands** (unreleased; PLACEMAT_GAPS 2026-09-27): a
   pin drawn as several lands is one pin, and `pitch(part, pins=(a, b))`
   measures two named pins.
 - **`reach()` smaller than the envelope** (PLACEMAT_GAPS 2026-09-27): not
-  reproduced on 0.40 (0.88 mm, as the envelope); the board session confirmed
+  reproduced on 0.40 (0.88 mm, as the envelope); the board's layout work confirmed
   the reading came from before 0.39.
 - **A frame sized to its content** (0.40.0; PLACEMAT_GAPS 2026-09-27):
   `board.size(fit=True, margin=)`, planes following the fitted frame

@@ -763,7 +763,7 @@ class Occupancy:
                 if blame is not None:
                     blame.append(Blocker("edge", "", frozenset()))
                 return why
-        faces = {placement.face} | ({Face.FRONT, Face.BACK} if any(s.kind in ("through", "npth") for s in geom.shapes) else set())
+        faces = self.standing_faces(geom, placement.face)
         for r in self.reservations:
             if r.layer is not None and r.layer.face not in faces:
                 continue                                   # reserved on the other face only
@@ -779,6 +779,15 @@ class Occupancy:
                     blame.append(Blocker("reservation", r.why, frozenset()))
                 return "sits in the reservation for %s" % r.why
         return None
+
+    def standing_faces(self, geom: ItemGeometry, face) -> set:
+        """The faces an item stands on, for a reservation that keeps parts
+        out: its own, and the other when a plated lead or an unplated hole
+        goes through to it. A via does not: a cell's own vias leave its parts
+        on the face it is placed on."""
+        through = any(s.kind == "npth" or (s.kind == "through" and (s.owner, s.label) in self._leads)
+                      for s in geom.shapes)
+        return {face} | ({Face.FRONT, Face.BACK} if through else set())
 
     def _edge_why(self, body: Box) -> str | None:
         """What the board's edge says of a body box, or None."""
@@ -1240,7 +1249,7 @@ class NativeSweeper:
             b = occ.origin_body_box(item, rot, face)
             self.bodies.append((b.left, b.top, b.right, b.bottom))
             self.parts.append([(p.left, p.top, p.right, p.bottom) for p in occ.origin_parts(geom, rot, face)])
-        faces = {face} | ({Face.FRONT, Face.BACK} if any(s.kind in ("through", "npth") for s in geom.shapes) else set())
+        faces = occ.standing_faces(geom, face)
         self.reservations = [i for i, r in enumerate(occ.reservations)
                              if not (r.layer is not None and r.layer.face not in faces)
                              and not ((geom.owners & r.owners) or (geom.nets & r.allow))]
