@@ -243,8 +243,10 @@ class Extent:
 
 
 def extent_of(plan) -> "Extent | None":
-    """The box round every placed item's courtyard and the fraction of it
-    no courtyard covers: a fat cell shows as a high number."""
+    """The box round every placed part as the placer claims it (its
+    courtyard, or under `[place] envelope = "physical"` its pads, mask, silk
+    and body) and the fraction of it no part covers: a fat cell shows as a
+    high number."""
     from .board_geometry import members_of
     from .values import Box
     boxes, area = [], 0.0
@@ -258,10 +260,11 @@ def extent_of(plan) -> "Extent | None":
             g = plan.occupancy.items.get(fp.ref)
             if g is None:
                 continue
-            for s in g.shapes:
-                if s.kind == "courtyard":
-                    boxes.append(s.box)
-                    area += s.box.area
+            claimed = [s.box for s in g.shapes if s.kind != "npth"]
+            if claimed:
+                part = Box.union(claimed)
+                boxes.append(part)
+                area += part.area
     if not boxes:
         return None
     box = Box.union(boxes)
