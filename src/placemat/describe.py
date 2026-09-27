@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from .board_geometry import part_height
 from .geometry import distance_to_boundary, polys_overlap
 from .ranking import pin_count
 from .values import Box, CopperLayer
@@ -151,7 +152,8 @@ def parts_rows(geometry, fields=()) -> list:
              "x": fp.location.x, "y": fp.location.y, "rotation": fp.rotation,
              "centre": [round(fp.body_box.center.x, 3), round(fp.body_box.center.y, 3)],
              "mm2": round(fp.courtyard_box.area, 3), "pins": pin_count(fp),
-             "value": fp.value, "footprint": fp.lib_id, "nets": sorted({p.net for p in fp.pads if p.net}),
+             "value": fp.value, "footprint": fp.lib_id, "height": part_height(fp),
+             "nets": sorted({p.net for p in fp.pads if p.net}),
              **({"fields": {f: fp.fields.get(f, "") for f in fields}} if fields else {})}
             for fp in sorted(geometry.footprints, key=lambda f: f.inst)]
 
@@ -160,14 +162,15 @@ def parts_lines(geometry, fields=()) -> list:
     rows = parts_rows(geometry, fields)
     if not rows:
         return ["no footprints on this board"]
-    out = ["%-26s %-6s %-6s %-12s %8s %8s %5s %8s %5s  %-28s %s" % (
-        "instance", "ref", "face", "cell", "x", "y", "rot", "mm2", "pins", "value",
+    out = ["%-26s %-6s %-6s %-12s %8s %8s %5s %8s %5s %6s  %-28s %s" % (
+        "instance", "ref", "face", "cell", "x", "y", "rot", "mm2", "pins", "height", "value",
         "  ".join(["footprint"] + list(fields)))]
     for r in rows:
         extra = [r["footprint"] or "-"] + [r["fields"][f] or "-" for f in fields]
-        out.append("%-26s %-6s %-6s %-12s %8.2f %8.2f %5g %8.2f %5d  %-28s %s" % (
+        out.append("%-26s %-6s %-6s %-12s %8.2f %8.2f %5g %8.2f %5d %6s  %-28s %s" % (
             r["instance"][:26], r["ref"], r["face"], (r["cell"] or "-")[:12],
-            r["x"], r["y"], r["rotation"], r["mm2"], r["pins"], r["value"][:28], "  ".join(extra)))
+            r["x"], r["y"], r["rotation"], r["mm2"], r["pins"],
+            "-" if r["height"] is None else "%.2f" % r["height"], r["value"][:28], "  ".join(extra)))
     return out
 
 

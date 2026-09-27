@@ -66,6 +66,7 @@ use these:
 | `Pm.Aggressor` | `true` | keep-out, parallel-run, crossing-under |
 | `Pm.Sensitive` | the net on the part's pads that must stay clear, by name: `VFB` | keep-out, crossings-under |
 | `Pm.I` | amps at full load per net the part's pads carry: `vin:3A sw:3A`; a bare `3A` means every pad | current path capacity |
+| `Pm.Height` | the part's seated height in mm: `1.1mm` | a keepout's `max_height=` (the room a case leaves over a region) |
 | `Pm.Pd` | watts at full load, worst case, from the datasheet | heat |
 | `Pm.TjMax` | e.g. `125C` | heat |
 | `Pm.ThetaJb` | junction-to-board, e.g. `15.5C/W`: what a board temperature wants | heat |

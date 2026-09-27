@@ -4,6 +4,12 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.42
+
+Nothing to change in a script. A parts keepout whose `allow=` names the
+parts short enough for the room a case leaves over it can say
+`max_height=` instead, once the capture gives each part `Pm.Height`.
+
 ## To 0.41
 
 Nothing to change in a script. A grid of vias typed into a pad (offsets from

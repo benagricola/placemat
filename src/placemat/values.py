@@ -614,6 +614,7 @@ class Keepout:
     allow: tuple = ()
     layers: tuple | None = None          # None: every copper layer the board has
     why: str = ""
+    max_height: float | None = field(default=None, metadata={"omit_default": True})   # a parts keepout: admit parts no taller (Pm.Height)
 
     def __post_init__(self):
         if not self.name or not str(self.name).strip():

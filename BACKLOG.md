@@ -7,9 +7,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **A region by part height** (a board's layout work, 2026-09-27): a part's
-  height (a `Pm.Height` field, or the STEP model's extent) so a parts
-  keepout can say `max_height=` instead of listing names.
 - **A route report of each net's path, or a preview of the routed copy**
   (PLACEMAT_GAPS 2026-09-27).
 - **`board.pair()` finding its own centreline; `route.diff_pairs` taking
@@ -22,6 +19,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **A keepout by part height** (unreleased; a board's layout work,
+  2026-09-27): `Pm.Height` and `board.keepout(..., max_height=)`
+  (spec `2026-09-27-part-height-design.md`).
 - **`measure --labels` with text size, angle, mirroring and silk graphics**
   (unreleased; PLACEMAT_GAPS 2026-09-27).
 - **The 2026-09-27 evening gaps entries** (0.41.0): `placemat drc` takes a

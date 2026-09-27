@@ -486,9 +486,9 @@ def cmd_parts(args) -> int:
     pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
     snap = read_board(pcb)
     if args.json:
-        console.data(json.dumps({"parts": describe.parts_rows(snap, args.field)}, indent=2))
+        console.data(json.dumps({"parts": describe.parts_rows(snap, getattr(args, "field", ()))}, indent=2))
         return 0
-    console.lines("parts", "\n".join(describe.parts_lines(snap, args.field)))
+    console.lines("parts", "\n".join(describe.parts_lines(snap, getattr(args, "field", ()))))
     return 0
 
 

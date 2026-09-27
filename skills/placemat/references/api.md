@@ -439,7 +439,7 @@ A region that forbids, as against a cutout, which removes board.
 
 ```python
 board.keepout(shape, name, *, at, rotation=None, excludes=None,
-              allow=(), layers=None, why="")
+              allow=(), layers=None, max_height=None, why="")
 ```
 
 ```python
@@ -521,6 +521,13 @@ things: a `Part` or `Cell` may SIT inside, a `Net` may RUN through. Naming a
 net does not admit the parts that carry it, which is the point - an antenna's
 clearance holds its own matching network and every one of those parts carries
 GND.
+
+`max_height=` (a keepout that excludes parts) admits every part no taller,
+by its `Pm.Height` field (`1.1mm`): the room a case leaves over a region,
+said once, where naming the short parts in `allow=` goes stale when a part is
+added or swapped. A part with no `Pm.Height` counts as taller and its
+refusal says so; `allow=` still admits by name. `board.height_of(part)` and
+`placemat parts` give a part's height.
 
 **When it is settled.** With the firm items, in dependency order, so a
 clearance placed from a connector waits for that connector. A keepout placed

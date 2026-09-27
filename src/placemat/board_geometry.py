@@ -37,6 +37,18 @@ class PadGeom:
         return self.anchor if self.anchor is not None else self.box.center
 
 
+def part_height(fp) -> float | None:
+    """A part's height in mm from its `Pm.Height` field (`1.1mm`, `1.1`), or
+    None when it has none."""
+    text = (fp.fields.get("Pm.Height") or "").strip()
+    if not text:
+        return None
+    try:
+        return float(text[:-2] if text.lower().endswith("mm") else text)
+    except ValueError:
+        raise ValueError("%s: Pm.Height %r is not a length in mm" % (fp.ref, text))
+
+
 @dataclass(frozen=True)
 class Footprint:
     ref: str

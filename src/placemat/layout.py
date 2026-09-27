@@ -27,7 +27,7 @@ from .outline import Outline, Run, rect_outline
 from .placement import Placement
 from .settings import Settings
 from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
-from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, stackup_order
+from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .values import (Turned, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
@@ -703,6 +703,14 @@ class Board:
         """The net's class: `.track_width`, `.clearance`, `.diff_pair_width`, `.diff_pair_gap`."""
         return self.geometry.netclass(net)
 
+    def height_of(self, part) -> float:
+        """A part's height in mm, from its `Pm.Height` field."""
+        fp = self.geometry.footprint(part)
+        h = part_height(fp)
+        if h is None:
+            raise ValueError("%s has no height: the capture gives it as the field Pm.Height (e.g. 1.1mm)" % fp.ref)
+        return h
+
     def parts(self, net=None) -> list:
         """Every part on the board, by instance name; with `net`, those with a
         pad on it - so a drop to a plane, or a check on a rail, is derived from
@@ -1139,13 +1147,19 @@ class Board:
         return "cutout %r" % order[n] if 0 <= n < len(order) else "an unnamed cutout"
 
     def keepout(self, shape, name: str, *, at, rotation: float | None = None,
-                excludes=None, allow=(), layers=None, why: str = "") -> KeepoutIntent:
+                excludes=None, allow=(), layers=None, max_height: float | None = None,
+                why: str = "") -> KeepoutIntent:
         """A region that forbids. By default nothing may sit, fill, route, via
         or pad there on any copper layer the board has; `excludes` narrows
         what and `layers` narrows where. `allow` names the parts that may sit
         inside and the nets that may run through, which are different things:
         an antenna's clearance holds its own matching network, and naming
-        those parts' nets would admit every part that shares one."""
+        those parts' nets would admit every part that shares one.
+        `max_height` (a parts keepout) admits every part no taller, by its
+        `Pm.Height`; a part with none counts as taller."""
+        if max_height is not None and "parts" not in (excludes if excludes is not None else ("parts",)):
+            raise ValueError("keepout %r: max_height admits parts by height, so it is for a keepout that "
+                             "excludes parts" % name)
         if name in self._keepouts:
             raise ValueError("there is already a keepout named %r on this board" % name)
         clash = [r for r in self.geometry.rule_areas if r.base == "keepout %s" % name]
@@ -1159,7 +1173,8 @@ class Board:
                     tuple(excludes) if excludes is not None
                     else ("parts", "fill", "tracks", "vias", "pads"),
                     tuple(allow),
-                    None if layers is None else tuple(CopperLayer.of(l) for l in layers), why)
+                    None if layers is None else tuple(CopperLayer.of(l) for l in layers), why,
+                    None if max_height is None else float(max_height))
         self._keepouts[name] = k
         needs = frozenset(self._pad_ref(r)[0] for r in _refs_in([at]))
         settled = not self._cutout_free(k)
@@ -2603,9 +2618,15 @@ class Board:
                 nets = frozenset(self.geometry.require_net(a) for a in k.allow if isinstance(a, Net))
                 owners = frozenset(fp.ref for a in k.allow if isinstance(a, (Part, Cell))
                                    for fp in members_of(self._item(a)[0]))      # every member: KiCad names each
+                if k.max_height is not None:                    # admitted by height, as allow= admits by name
+                    owners |= {fp.ref for fp in self.geometry.footprints
+                               if (part_height(fp) is not None and part_height(fp) <= k.max_height + 1e-9)}
                 claims, layer = parts_claim(k.layers)
                 if "parts" in k.excludes and claims:
-                    occ.reserve(poly, "keepout %r (%s)" % (k.name, k.why), allow=nets, owners=owners, layer=layer)
+                    tall = ("; parts up to %g mm tall may sit here, and a part with no Pm.Height counts as taller"
+                            % k.max_height) if k.max_height is not None else ""
+                    occ.reserve(poly, "keepout %r (%s%s)" % (k.name, k.why, tall), allow=nets, owners=owners,
+                                layer=layer)
                 plan.keepouts[k.name] = PlacedKeepout(k.name, poly, centre, turn, k.excludes,
                                                       k.layers, nets, owners, k.why)
                 step.note = "kept clear at %.2f, %.2f" % (centre.x, centre.y)
