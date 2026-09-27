@@ -207,3 +207,26 @@ def test_heat_from_a_board_temperature_uses_junction_to_board_when_the_part_give
     ja_only = footprint("U1", 14, 13, nets=("VIN", "SW"), fields={"Pm.Pd": "0.74W", "Pm.Tjmax": "125C", "Pm.Thetaja": "92.6C/W"})
     (v,) = heat(board_geometry([cin, ja_only, l, cout, rfb]), ambient_c=100.0)
     assert v.value == pytest.approx(100 + 0.74 * 92.6) and not v.ok and "JEDEC" in v.note
+
+
+def test_a_sense_branch_does_not_set_a_nets_current_path():
+    """The load leaves the switch's pin by the wide track to the capacitor;
+    a thin branch from the same pin to a controller's sense pin carries no
+    load and is not the path the check judges."""
+    u = footprint("U1", 10, 10, w=4, h=1, nets=("VIN", "X"), fields={"Pm.I": "vin:3A"})
+    c = footprint("C1", 20, 10, w=2, h=1, nets=("VIN", "GND"))
+    ic = footprint("U2", 8.6, 16, w=4, h=1, nets=("X2", "VIN"))            # its pad 2 at x 10, on VIN
+    load = track("VIN", 8.6, 10, 19.4, 10, w=2.0)
+    sense = track("VIN", 10.0, 10, 10.0, 16, w=0.16)
+    (v,) = [x for x in current_paths(board_geometry([u, c, ic], copper=[load, sense])) if x.subject == "VIN"]
+    assert v.value == pytest.approx(2.0) and "C1" in v.note
+
+
+def test_between_two_carrying_parts_the_path_between_them_is_judged():
+    u = footprint("U1", 10, 10, w=4, h=1, nets=("VIN", "X"), fields={"Pm.I": "vin:3A"})
+    q = footprint("Q1", 30, 10, w=4, h=1, nets=("VIN", "Y"), fields={"Pm.I": "vin:3A"})
+    c = footprint("C1", 10, 20, w=2, h=1, nets=("VIN", "GND"))
+    trunk = track("VIN", 8.6, 10, 28.6, 10, w=0.8)
+    wide_stub = track("VIN", 8.6, 10, 8.6, 20, w=3.0)                     # to the capacitor, wider than the trunk
+    (v,) = [x for x in current_paths(board_geometry([u, q, c], copper=[trunk, wide_stub])) if x.subject == "VIN"]
+    assert v.value == pytest.approx(0.8)

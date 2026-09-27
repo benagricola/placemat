@@ -7,9 +7,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **`check current-path` judges a net by its narrowest branch**
-  (PLACEMAT_GAPS 2026-09-27): sense and bootstrap branches fail every power
-  net; judge the path between the parts carrying `Pm.I`, or a sense role.
 - **A route report of each net's path, or a preview of the routed copy**
   (PLACEMAT_GAPS 2026-09-27).
 - **`board.pair()` finding its own centreline; `route.diff_pairs` taking
@@ -25,6 +22,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **`check current-path` judges the load's route** (unreleased; PLACEMAT_GAPS
+  2026-09-27; Ben chose dead-end branches skipped): the widest route between
+  carrying parts, or from the one carrying part to another part.
 - **A fragment's extent, and `measure --outline`** (unreleased; PLACEMAT_GAPS
   2026-09-27): the run's extent line measures parts as the envelope claims
   them, so a physical-envelope fragment has one; `measure --outline` prints
