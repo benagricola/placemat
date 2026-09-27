@@ -103,3 +103,33 @@ def test_copper_planned_after_the_pass_reaches_the_pads_where_they_ended():
     assert tracks
     pts = [p for op in tracks for p in (op.start, op.end)]
     assert any(abs(p.x - end.x) < 1e-6 and abs(p.y - end.y) < 1e-6 for p in pts)
+
+
+def _fixed_block_with_copper(track=True):
+    """r1 is a fixed block's anchor and r2 its satellite on net B; r2's other
+    net runs to j2 north of it, so the pass would pull r2 toward j2."""
+    fps = [footprint("J1", 5, 20, w=2, h=2, inst="j1", nets=("A", "GND")),
+           footprint("J2", 24, 36, w=2, h=2, inst="j2", nets=("C", "GND")),
+           footprint("R1", 30, 30, w=4, h=2, inst="r1", nets=("A", "B")),
+           footprint("R2", 32, 34, w=2, h=1, inst="r2", nets=("B", "C"))]
+    b = Board(board_geometry(fps, width=60, height=40), edge_margin=0.5,
+              settings=dataclasses.replace(Settings(), cleanup_enabled=True))
+    b.place(Part("j1"), at=Location(5, 20))
+    b.place(Part("j2"), at=Location(24, 36))
+    blk = b.block(Part("r1"), satellites=[(Part("r2"), "B")], gap=0.5)
+    b.place(blk, at=Location(20, 20), rotation=0)
+    if track:
+        b.track(Net("B"), [PadRef(Part("r1"), 2), PadRef(Part("r2"), 1)], layer=CopperLayer.F)
+    return b.resolve()
+
+
+def test_a_fixed_blocks_satellite_does_not_move():
+    plan = _fixed_block_with_copper(track=False)
+    assert not any(s.item == "r2" and "cleanup" in s.note for s in plan.steps)
+
+
+def test_copper_planned_before_the_pass_still_reaches_its_pads():
+    plan = _fixed_block_with_copper()
+    end = plan.occupancy.pad_location("R2", "1")
+    pts = [p for op in plan.copper if getattr(op, "net", None) == "B" for p in (op.start, op.end)]
+    assert any(abs(p.x - end.x) < 1e-6 and abs(p.y - end.y) < 1e-6 for p in pts)

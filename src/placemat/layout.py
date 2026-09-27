@@ -2654,13 +2654,15 @@ class Board:
         """{satellite key: (footprint, (its pin, its own pad, mm))} for every
         block's satellites the cleanup pass may move: its pad no further from
         its pin than the declared link's limit, else `place.block_gap_reach`,
-        edge to edge. A locked or focused block's satellites stay."""
+        edge to edge. A locked or focused block's satellites stay, and so do
+        a block's whose place the script decided (FIXED or EDGE): copper
+        planned before the pass may end on them."""
         from .placer import _aimed_at
         kept = set(self._lock_held) | (set(self._explore.focus) if self._explore is not None else set())
         out = {}
         for i in self._placements():
             spec = i.item
-            if not isinstance(spec, BlockSpec) or i.key in kept:
+            if not isinstance(spec, BlockSpec) or i.key in kept or i.freedom.decided:
                 continue
             for k, (sat, net) in enumerate(spec.satellites):
                 pin = _aimed_at(spec, k, net)
