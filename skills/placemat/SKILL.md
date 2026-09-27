@@ -203,6 +203,8 @@ coordinates nobody chose.
   legal spot once its part is placed, joined to the pad by its tail. A track
   may end on the via `board.via()` returns; never copy a queried spot into
   the script as an offset.
+- Fill a power or exposed pad with `board.vias(net, PadRef(...))`; never
+  type a grid of via positions.
 - Every script is for one board: name it `<Board>_layout.py` after the
   `Board(name=)`, `Project(name=)` or `Layout(name=)` in the `.zen` beside it; a directory
   with several boards is told apart by that name. A declaration with

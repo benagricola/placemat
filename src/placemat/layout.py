@@ -2216,9 +2216,25 @@ class Board:
 
         def plan(ctx):
             from .lock import _turn
-            g = ctx.occ.items[owner]
+            occ = ctx.occ
+            g = occ.items[owner]
             rot = g.reference.rotation
             lands = [sh.poly for sh in g.shapes if sh.label == number and sh.kind in ("pad", "through")]
+            every = frozenset(self.geometry.layers)
+            # other holes a via's must keep the hole-to-hole rule from: plated pads, unplated pegs, vias planned
+            holes = [(occ.pad_location(fp.ref, p.number), p.drill_mm) for fp in self.geometry.footprints
+                     for p in fp.pads if p.through and p.drill_mm and fp.ref not in occ.pending]
+            holes += [(sh.box.center, sh.box.width) for o, gi in occ.items.items() if o not in occ.pending
+                      for sh in gi.shapes if sh.kind == "npth"]
+            holes += [(v.at, v.drill) for v in ctx.planned_vias]
+
+            def clear(at):
+                """A via goes through every layer: no other net's copper on any of them within its clearance,
+                and the hole-to-hole rule from every other hole."""
+                ring = circle_polygon(at, s / 2.0)
+                if occ.copper_conflicts(Shape("", "copper", frozenset(), every, name, ring, Box.of_points(ring))):
+                    return False
+                return all(at.distance(h) - (d + hd) / 2.0 >= self.geometry.hole_to_hole - 1e-9 for h, hd in holes)
             vias = []
             for land in lands:
                 c = Box.of_points(land).center
@@ -2235,7 +2251,7 @@ class Board:
                         ox, oy = _turn(mx + (i - (nx - 1) / 2.0) * step, my + (j - (ny - 1) / 2.0) * step, rot)
                         at = Location(round(c.x + ox, 6), round(c.y + oy, 6))
                         # a nanometre short of the copper: a via reaching the land's edge is inside it
-                        if poly_within(circle_polygon(at, s / 2.0 + inset - 1e-6, 24), land):
+                        if poly_within(circle_polygon(at, s / 2.0 + inset - 1e-6, 24), land) and clear(at):
                             vias.append(Via(name, at, d, s))
             if not vias:
                 ctx.notes.append("vias %s: no via fits in %s.%s (%.2f mm via, %.2f mm drill, %.2f mm inset)" % (

@@ -99,3 +99,20 @@ def test_a_later_free_spot_keeps_the_rule_from_the_grid():
     vias = _vias(b.resolve())
     sig = [v for v in vias if v.net == "SIG"]
     assert sig and all(s.at.distance(v.at) - (s.drill + v.drill) / 2 >= 0.25 - 1e-6 for s in sig for v in vias if v is not s)
+
+
+def test_a_via_in_the_pad_keeps_off_another_nets_copper_on_the_far_side():
+    """A via goes through every layer: a pad of another net on the back,
+    under the filled pad, keeps the vias off it."""
+    under = footprint("C9", 20, 20, w=1.2, h=0.6, inst="c9", nets=("SIG", "SIG"), face=Face.BACK)
+    g = board_geometry([_part(_square()), under, footprint("R1", 5, 5, w=2, h=1, inst="r1", nets=("GND", "SIG"))],
+                       width=40, height=40)
+    b = Board(dataclasses.replace(g, hole_to_hole=0.25), edge_margin=0.5)
+    b.place(Part("u1"), at=Location(20, 21.5))
+    b.place(Part("c9"), at=Location(20, 20.5), face=Face.BACK)
+    b.vias(Net("GND"), PadRef(Part("u1"), 1), size=0.6, drill=0.3)
+    plan = b.resolve()
+    from placemat.geometry import poly_distance
+    backs = [sh.poly for sh in plan.occupancy.items["C9"].shapes if sh.kind == "pad"]
+    vias = _vias(plan)
+    assert vias and all(poly_distance(v.polygon, q) >= 0.2 - 1e-6 for v in vias for q in backs)

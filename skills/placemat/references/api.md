@@ -779,6 +779,7 @@ placement on it says which pad that was. Name the number to pick another.
 board.track(net, [p1, p2, ...], layer=CopperLayer.F, width=None, priority=Priority.DEFAULT, bridge=False)
 board.via(net, point)
 board.via(net, FreeSpot(near=PadRef(...), radius=2.0))               # the nearest legal spot to a pad, joined to it by its tail
+board.vias(net, PadRef(...), pitch=None, size=None, drill=None, inset=0)  # a pad filled with a grid of vias, turned with its part
 board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False)     # filled polygon
 board.plane(net, layers=(CopperLayer.IN1,), outline=None, inset=0.4)  # zone(s), whole board or outline
 board.finger(net, layer=, from_=point, to=point, width=)               # pour along a centreline, cut and bridged at tracks
@@ -810,6 +811,17 @@ and a `board.track()` may end on it - `v = board.via(GND, FreeSpot(...))`,
 then `board.track(GND, [v, PadRef(...)], layer=B)` - so a searched part's
 via is joined on wherever the part lands. A track through a via that found
 no spot is not drawn, and the finding says so.
+
+**A pad filled with vias.** `board.vias(net, PadRef(...))` fills a power or
+exposed pad with a square grid of vias, placed once the pad's part is: in the
+part's own frame (it turns with the part), centred on each of the pin's
+lands, `pitch` apart (by default the closest the board's hole-to-hole rule
+allows, never closer than a via's size), keeping each via whose copper,
+grown by `inset`, lies wholly in its land and clears every other net's copper
+on every layer and every other hole. The net class's via by default. A pad
+no via fits in is a finding; a `pitch` under the hole-to-hole rule is refused
+when declared. The step says the vias are in the pad: filled or plugged at
+the fab.
 
 **Pairs.** Two nets drawn together at a gap along one centreline, the way
 KiCad's differential tool does:

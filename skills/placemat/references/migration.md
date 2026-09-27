@@ -4,6 +4,17 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.41
+
+Nothing to change in a script. A grid of vias typed into a pad (offsets from
+its centre at a pitch) can become `board.vias(net, PadRef(...), pitch=)`.
+`board.pitch()` now measures between pins, a pin drawn as several lands
+counting once, so on such a part it answers the row's pitch where it gave the
+gap between two lands of one pin. `check current-path` judges the route the
+load takes, so a power net that failed on a thin sense or bootstrap branch
+can pass. FreeSpot and `--via-near` now keep off unplated holes, and a route
+keeps the script's own copper (the router's `--keep-input-copper`).
+
 ## To 0.40
 
 Nothing to change in a script. `placemat freeze` now writes an entry as

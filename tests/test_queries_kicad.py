@@ -147,3 +147,31 @@ def test_measure_outline_reports_the_boards_edge_and_thickness(breakout_pcb, cap
     box = read_board(breakout_pcb).outline_box
     assert abs(doc["width"] - box.width) < 1e-3 and abs(doc["height"] - box.height) < 1e-3
     assert doc["thickness"] > 0 and doc["items"] and {i["kind"] for i in doc["items"]} <= {"segment", "arc", "circle", "rect", "poly"}
+
+
+@needs_breakout
+def test_a_pad_filled_with_vias_passes_kicads_drc(breakout_pcb, tmp_path):
+    import shutil
+    from placemat.kicad.drc import run_drc
+    from placemat.kicad.read import read_board
+    from placemat.kicad.write import apply_plan
+    from placemat.layout import Board
+    from placemat.values import Net, PadRef, Part
+    pcb = tmp_path / "layout.kicad_pcb"
+    shutil.copy(breakout_pcb, pcb)
+    shutil.copy(breakout_pcb.with_suffix(".kicad_pro"), tmp_path / "layout.kicad_pro")
+    g = read_board(pcb)
+    before = run_drc(pcb, tmp_path / "before.json")
+    # the largest pad that takes a via: one with another net's track under it takes none, rightly
+    for fp, pad in sorted(((f, p) for f in g.footprints if not f.cell for p in f.pads if p.net and not p.through),
+                          key=lambda fp_p: -fp_p[1].box.area):
+        b = Board(g, edge_margin=0.0, keep_going=True)
+        b.vias(Net(pad.net), PadRef(Part(fp.inst), int(pad.number) if pad.number.isdigit() else pad.number))
+        plan = b.resolve()
+        if [c for c in plan.copper if type(c).__name__ == "Via"]:
+            break
+    else:
+        raise AssertionError("no pad on the breakout takes a via")
+    apply_plan(pcb, plan)
+    after = run_drc(pcb, tmp_path / "after.json")
+    assert after.real == before.real
