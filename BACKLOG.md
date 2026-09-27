@@ -14,13 +14,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   a `why=` naming the explore run and score, and say in SKILL.md that
   explore results stay in the lock and are never copied into a script as
   coordinates.
-- **Route layers from the declared planes** (a board agent's router A/B,
-  2026-09-25): the route step gives the router every copper layer unless
-  `[route] layers` says otherwise, so on a board whose inner layers are
-  planes the router runs signals (and a differential pair's reference
-  side) through them, and KiCad flags every such track and via against the
-  plane zones. The layers a `board.plane()` fills whole could be left out
-  of the default.
 
 ## Housekeeping (left for Ben: outside this repository)
 
@@ -33,6 +26,15 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **A via found near a pad, joined to it** (unreleased; PLACEMAT_GAPS
   2026-09-26 twice and 2026-09-27): a FreeSpot via draws its tail, and a
   via intent is a track end (spec `2026-09-27-via-tail-design.md`).
+- **Route layers from the declared planes** (unreleased; a board agent's
+  router A/B, 2026-09-25): the route step used to give the router every
+  copper layer unless `[route] layers` said otherwise, so on a board whose
+  inner layers are planes the router ran signals (and a differential
+  pair's reference side) through them, and KiCad flagged every such track
+  and via against the plane zones. Left to itself, the default now leaves
+  out an inner layer whose own outline a `board.plane()` zone covers at
+  least `route.plane_share` of, never F.Cu or B.Cu; the route step prints
+  what it left out and why.
 - **Five PLACEMAT_GAPS bugs, 2026-09-26** (0.38.0): cleanup leaves a
   decided block's satellites alone (cf9f1cd); `--via-near` keeps out of
   every land of a split pin (7a299af); `datasheet` reads text with a

@@ -25,6 +25,17 @@ track is, round ends included, and is no wider than its pad (a wide power
 class necks down to it), so `--via-near` and a FreeSpot can answer a little
 differently from 0.38 beside small pads.
 
+Routing (`placemat route`, `run --route`) left to itself (no `--layers` and
+no `route.layers`) no longer hands the router every copper layer: an inner
+layer whose own outline a `board.plane()` zone covers at least
+`route.plane_share` (0.9) of is left out, so a signal, or a differential
+pair's reference side, stops running straight through a plane and getting
+flagged against it in DRC. A stamped cell's own zone never counts toward
+this, and F.Cu and B.Cu are never left out. The route step prints which
+layers it left out and why, and `route.json`'s `plane_layers` names them
+too. A board that wants the old behaviour back sets `route.layers` to the
+board's full copper stack.
+
 ## To 0.38
 
 Nothing to change in a script. A FIXED or EDGE block's satellites no longer

@@ -1036,7 +1036,12 @@ KiCadRoutingTools at `$KRT_DIR` (default `~/work/KiCadRoutingTools`) with
 its own venv; quick mode is one routing round with the router's post-route
 smoothing off (a measurement: a small two-layer board routes in about 10 s), `--full`
 is the router's whole run. The search budget per net is the router's own
-unless `--iterations` caps it.
+unless `--iterations` caps it. Left to itself (no `--layers` and no
+`route.layers`), the router gets every copper layer except an inner one whose
+own outline a `board.plane()` zone covers at least `route.plane_share` of (a
+stamped cell's zone never counts, and F.Cu/B.Cu never drop) - the route step
+prints which layers it left out and why, and the report's `plane_layers`
+names them too.
 
 ## Exploring a placement
 
@@ -1207,7 +1212,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `route.router_dir` | `$KRT_DIR`, else `~/work/KiCadRoutingTools` | the KiCadRoutingTools checkout |
 | `route.quick` | true | one routing round rather than the router's full run |
 | `route.iterations` | the router's own | cap on the router's search per net |
-| `route.layers` | every copper layer | which layers the router may use |
+| `route.layers` | every copper layer, minus an inner one the board's own plane fills whole | which layers the router may use |
+| `route.plane_share` | 0.9 | how much of the board's own outline a zone must cover, to count as a plane that fills its (inner) layer whole for `route.layers`' default |
 | `route.diff_pairs` | `["*"]` | net patterns naming the differential pairs: the router's pair router (route_diff.py) routes them first, as pairs, and placement prices their own crossings at `score.pair_crossing`; `[]` names none (every net single-ended, no pair weighting) |
 | `route.diff_pair_gap` | 0 | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
 | `route.diff_pair_width` | 0 | mm, a pair's track width; 0 is the net class's diff pair width |

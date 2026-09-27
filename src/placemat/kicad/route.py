@@ -76,6 +76,10 @@ class RouteReport:
     keepout_breaches: list = field(default_factory=list)
     # What the pair router did with the differential pairs (Pairs.as_dict).
     pairs: dict = field(default_factory=dict)
+    # An inner layer left out of `layers` because the board's own plane
+    # fills it whole, {layer: the net that fills it}; empty when the layers
+    # were given (an argument or [route] layers), not defaulted.
+    plane_layers: dict = field(default_factory=dict)
 
     def summary(self) -> str:
         head = "route %s: closure %.1f%% clean (%.1f%% raw), %d -> %d open signal item(s)" % (
@@ -91,6 +95,8 @@ class RouteReport:
         if any(p.get(k) for k in ("coupled", "partial", "failed", "single_ended")):
             head += "  pairs: %d coupled, %d partial, %d failed, %d single-ended" % tuple(
                 len(p.get(k) or []) for k in ("coupled", "partial", "failed", "single_ended"))
+        if self.plane_layers:
+            head += "  " + plane_note(self.plane_layers)
         return head
 
     def as_dict(self) -> dict:
@@ -100,7 +106,7 @@ class RouteReport:
                 "seconds": self.seconds, "router_version": self.router_version, "drc_after": self.drc_after,
                 "routed_pcb": str(self.routed_pcb), "log": str(self.log), "quick": self.quick,
                 "invalid_reason": self.invalid_reason, "keepout_breaches": list(self.keepout_breaches),
-                "pairs": self.pairs}
+                "pairs": self.pairs, "plane_layers": self.plane_layers}
 
 
 def lock_copper(pcb_path: str) -> int:
@@ -128,6 +134,81 @@ def _copper_layers(pcb_path: str) -> list:
     with quiet_stderr():
         board = pcbnew.LoadBoard(pcb_path)
     return [board.GetLayerName(l) for l in board.GetEnabledLayers().CuStack()]
+
+
+def _plane_zones(pcb_path: str) -> tuple:
+    """Every non-rule-area zone's plain data off a loaded board - layer, net,
+    whether it sits in a cell's group, and its own outline's area - plus the
+    board outline's own area, for plane_layers to judge coverage against.
+    Areas are left in pcbnew's own units: only ever compared as a ratio."""
+    from .quiet import import_pcbnew, quiet_stderr
+    pcbnew = import_pcbnew()
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(pcb_path)
+    grouped = {it.m_Uuid.AsString() for g in board.Groups() for it in g.GetItems()}
+    outline = pcbnew.SHAPE_POLY_SET()
+    board.GetBoardPolygonOutlines(outline, False)
+    zones = []
+    for i in range(board.GetAreaCount()):
+        z = board.GetArea(i)
+        if z.GetIsRuleArea():
+            continue
+        area = z.Outline().Area()
+        in_group = z.m_Uuid.AsString() in grouped
+        for layer in z.GetLayerSet().CuStack():
+            if board.IsLayerEnabled(layer):
+                zones.append({"layer": board.GetLayerName(layer), "net": z.GetNetname(),
+                             "in_group": in_group, "area": area})
+    return tuple(zones), outline.Area()
+
+
+def plane_layers(zones, board_area: float, share: float) -> list:
+    """Every inner layer whose only content is the board's own plane: a
+    zone that is not a rule area, not inside a cell's group (a stamped
+    module's own zone is kept), covering at least `share` of the board's
+    own outline. F.Cu and B.Cu never come back here - an outer layer is
+    where the router reaches a pad from, plane or not."""
+    if board_area <= 0:
+        return []
+    found = []
+    for z in zones:
+        layer = z["layer"]
+        if layer in ("F.Cu", "B.Cu") or z["in_group"] or layer in found:
+            continue
+        if z["area"] / board_area >= share:
+            found.append(layer)
+    return sorted(found)
+
+
+def resolved_layers(explicit, all_layers, zones, board_area: float, share: float) -> tuple:
+    """The layers to route on, and what a plane took out of the default, as
+    (layers, {layer: net}). An explicit list (an argument or [route] layers)
+    is used as given; left to itself, every copper layer minus what
+    plane_layers finds, F.Cu and B.Cu always among them - a real board's
+    floor of two layers, so this never routes on fewer than that either."""
+    if explicit:
+        return list(explicit), {}
+    dropped = plane_layers(zones, board_area, share)
+    kept = [l for l in all_layers if l not in dropped]
+    reasons = {z["layer"]: z["net"] for z in zones if z["layer"] in dropped}
+    return kept, reasons
+
+
+def plane_note(dropped: dict) -> str:
+    """The route step's line for what a board's own plane took off the
+    default layer list, and how to override it. `dropped` groups by the net
+    that filled each layer, so one plane naming several layers reads as one
+    clause."""
+    if not dropped:
+        return ""
+    groups: dict = {}
+    for layer in sorted(dropped):
+        groups.setdefault(dropped[layer], []).append(layer)
+    parts = []
+    for net, layers in groups.items():
+        pronoun = "it" if len(layers) == 1 else "them"
+        parts.append("%s left out, the %s plane fills %s" % (", ".join(layers), net, pronoun))
+    return "route layers: " + "; ".join(parts) + "; [route] layers to override"
 
 
 def _nets_in_violations(drc: dict) -> set:
@@ -281,7 +362,12 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
         if src.exists():
             shutil.copy(src, work / ("in" + ext))
     lock_copper(str(pcb_in))
-    layers = list(layers or _copper_layers(str(pcb_in)))
+    if layers:
+        all_layers, zones, board_area = [], (), 0.0
+    else:
+        all_layers = _copper_layers(str(pcb_in))
+        zones, board_area = _plane_zones(str(pcb_in))
+    layers, plane_dropped = resolved_layers(layers, all_layers, zones, board_area, cfg.route_plane_share)
     excluded = set(exclude_nets)
 
     before = run_drc(pcb_in, work / "drc_before.json")
@@ -321,7 +407,7 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
                          dict(sorted(open1.items())), sc.shorted, sorted(excluded), layers, seconds,
                          router_version(router_dir_path), after.by_type, pcb_out, log, work,
                          "" if valid else "placement DRC not clean before routing: %s" % before.real, quick,
-                         router_breaches(pcb_in, pcb_out), pairs.as_dict())
+                         router_breaches(pcb_in, pcb_out), pairs.as_dict(), plane_dropped)
     (work / "route.json").write_text(json.dumps(report.as_dict(), indent=2) + "\n")
     return report
 

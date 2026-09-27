@@ -100,6 +100,7 @@ class Settings:
     route_quick: bool = True
     route_iterations: int | None = None
     route_layers: tuple | None = None
+    route_plane_share: float = 0.9      # a plane's own zone must cover at least this share of the board's outline to count as filling an inner layer whole (route.py's default layer list then leaves it out)
     route_diff_pairs: tuple = ("*",)    # nets the router's pair router routes first, as pairs; (): none
     route_diff_pair_gap: float = 0.0    # mm between a pair's tracks; 0: the net class's
     route_diff_pair_width: float = 0.0  # mm, a pair's track width; 0: the net class's
@@ -238,7 +239,8 @@ _ABOVE_ZERO = frozenset((
     "label_thickness", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_copper_oz",
     "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
-    "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm"))
+    "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm",
+    "route_plane_share"))
 _AT_LEAST_ZERO = frozenset((
     "rank_area", "rank_pins", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge", "copper_chamfer", "best_airwire_noise",
     "best_crossing_noise", "score_unplaced", "score_priority_high", "score_priority_default", "score_priority_low",
