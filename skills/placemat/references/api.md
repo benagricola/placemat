@@ -1104,7 +1104,7 @@ in a place of its own:
 | `run` | the generation, cached so a rerun skips `pcb layout` | `.placemat/generated/<board>/` |
 | `run` | what that generation was made from, to know when it is out of date | `.placemat/generated/<board>.inputs.json` |
 | `run` | the run: `run.json`, `script.log`, a copy of the board, renders, `drc.json`, `impact.txt`, `reuse.json` (what the next run replays) | `.placemat/runs/<id>/` |
-| `run` | `latest.json`, `best.json`, and with `--label` an alias | `.placemat/runs/` |
+| `run` | `latest.json` (the last run of any board), `latest-<board>.json` (the last of each board: what a run compares with and reuses), `best.json`, and with `--label` an alias | `.placemat/runs/` |
 | `preview` | `preview.svg`, `preview.png`, and `reuse.json` (what the next preview replays) | `.placemat/preview/`, or `--out DIR` |
 | `run` / `preview` with `--explore --accept` | the lock: accepted decisions | `<script stem>.lock.json` beside the script |
 | `freeze` | the script's frozen `place()` calls, and the lock less those entries | the script, and its lock |

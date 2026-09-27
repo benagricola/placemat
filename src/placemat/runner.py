@@ -17,7 +17,7 @@ from .context import run_script
 from . import checks, settings
 from .project import BoardSource, fab_profile, find_board, generator_inputs, script_fingerprint
 from .report import (RunRecord, _drc_total, against_best, airwires_from_drc, best_for, comparable, congestion,
-                     family_of, impact, is_better, run_id, score_line)
+                     family_of, impact, is_better, latest_for, record_latest, run_id, score_line)
 
 
 class RunFailure(Exception):
@@ -280,11 +280,12 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
     from . import reuse as reuse_mod
     # The previous run's record is read now: a rerun with the same id replaces its directory.
     previous_reuse, previous_id = None, None
-    if reuse and (runs / "latest.json").exists():
+    if reuse:
         try:
-            last = RunRecord.load(runs / "latest.json")
-            previous_reuse = reuse_mod.read(Path(last.paths.get("run_dir", "")) / "reuse.json")
-            previous_id = last.run_id
+            last = latest_for(runs, src.name)
+            if last is not None:
+                previous_reuse = reuse_mod.read(Path(last.paths.get("run_dir", "")) / "reuse.json")
+                previous_id = last.run_id
         except (json.JSONDecodeError, TypeError, KeyError, OSError):
             previous_reuse = None
     staging = runs / ("." + time.strftime("%Y%m%d-%H%M%S-") + str(os.getpid()))
@@ -512,21 +513,20 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
     if rec.status == "ok":
         regressed = _against_best(rec, run_dir.parent / "best.json", say, cfg)
     rec.save(run_dir / "run.json")
-    latest = run_dir.parent / "latest.json"
     text = ""
     if rec.status == "ok":
-        if latest.exists():
-            try:
-                previous = RunRecord.load(latest)
+        try:
+            previous = latest_for(run_dir.parent, rec.board)
+            if previous is not None:
                 if previous.run_id != rec.run_id:
                     text = impact(previous, rec)
                 else:
                     text = "same inputs as the previous run: id %s again, nothing to compare" % rec.run_id
                 (run_dir / "impact.txt").write_text(text + "\n")
                 console.lines("impact", text)
-            except (json.JSONDecodeError, TypeError):
-                pass
-        shutil.copy(run_dir / "run.json", latest)
+        except (json.JSONDecodeError, TypeError):
+            pass
+        record_latest(run_dir.parent, run_dir / "run.json", rec.board)
     say("record", str(run_dir / "run.json"))
     return RunResult(rec, run_dir, generated, text, plan, regressed)
 

@@ -4,6 +4,18 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.38
+
+Nothing to change in a script. A FIXED or EDGE block's satellites no longer
+move in the cleanup pass, so a board with such a block can place them where
+the block put them rather than where cleanup moved them; copper planned
+against them now meets their pads. A board that turned `[cleanup] enabled`
+off for this can turn it back on.
+
+Boards run from one directory now each compare with, and reuse, their own
+last run: `.placemat/runs/latest-<board>.json` beside `latest.json`, which
+still names the last run of any board.
+
 ## To 0.37
 
 Nothing to change in a script; placements are the same as 0.36's. A board

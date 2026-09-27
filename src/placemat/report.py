@@ -7,6 +7,7 @@ import json
 import math
 from pathlib import Path
 import re
+import shutil
 
 from .ratsnest import segments_cross
 
@@ -360,6 +361,30 @@ def _best_table(path) -> dict:
     except (OSError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _latest_path(runs, board: str) -> Path:
+    return Path(runs) / ("latest-%s.json" % re.sub(r"[^A-Za-z0-9_.-]", "_", board))
+
+
+def latest_for(runs, board: str) -> RunRecord | None:
+    """The last run of `board` recorded in `runs`, or None. Boards laid out
+    from one directory share it, and a run is compared with, and reuses,
+    its own board's last run, not whichever board ran last. A directory
+    from before per-board records has only latest.json: it counts when it
+    is this board's."""
+    for path in (_latest_path(runs, board), Path(runs) / "latest.json"):
+        if path.exists():
+            rec = RunRecord.load(path)
+            if rec.board == board:
+                return rec
+    return None
+
+
+def record_latest(runs, run_json, board: str) -> None:
+    """A finished run as its board's last, and as the directory's."""
+    shutil.copy(run_json, _latest_path(runs, board))
+    shutil.copy(run_json, Path(runs) / "latest.json")
 
 
 def best_for(path, family: str) -> RunRecord | None:

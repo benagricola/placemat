@@ -93,7 +93,8 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
     from .board_geometry import members_of
     from .preview import draw_annotated
     from .project import fab_profile, find_board
-    from .runner import RunRecord, cached_generation, reuse_parts, scripted_board, stale_inputs
+    from .report import latest_for
+    from .runner import cached_generation, reuse_parts, scripted_board, stale_inputs
     from . import settings as settings_mod
     from .values import Box
     script = Path(script).resolve()
@@ -118,12 +119,12 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
         board.reuse_extra = "|".join(parts[k] for k in ("tool", "board", "settings", "fab"))
         runs = src.board_dir / ".placemat" / "runs"
         candidates = [(out / "reuse.json", "the last preview")]
-        if (runs / "latest.json").exists():
-            try:
-                last = RunRecord.load(runs / "latest.json")
+        try:
+            last = latest_for(runs, src.name)
+            if last is not None:
                 candidates.append((Path(last.paths.get("run_dir", "")) / "reuse.json", "run %s" % last.run_id))
-            except (ValueError, TypeError, KeyError, OSError):
-                pass
+        except (ValueError, TypeError, KeyError, OSError):
+            pass
         previous, source = newest_record(candidates)
         from . import explore as explore_mod
         say = (lambda stage, text: None) if quiet else (lambda stage, text: console.say(stage, text))
