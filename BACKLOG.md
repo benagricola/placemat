@@ -7,6 +7,19 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+- **A frame sized to its content** (PLACEMAT_GAPS 2026-09-27, "a
+  fragment's frame from its content"): `board.size(fit=True, margin=)`;
+  spec `2026-09-27-fit-frame-design.md`.
+- **`reach()` smaller than the envelope the placer keeps** (PLACEMAT_GAPS
+  2026-09-27): an 0402's reach is 0.82 mm where `measure` and the placer
+  use 0.88 mm (the silk stroke), so a pitch built from it is short;
+  `reach()` should measure what the envelope does.
+- **`pitch()` of one pad row** (PLACEMAT_GAPS 2026-09-27): on a part with
+  split lands it returns the gap between two primitives of one pin;
+  `pitch(part, side=)` or `pins=(5, 6)`.
+- **Several vias in one pad** (PLACEMAT_GAPS 2026-09-27): a power or
+  exposed pad filled with vias at the hole-to-hole rule,
+  `board.vias(net, PadRef(...), pitch=)` or `fill=` on `board.via`.
 ## Housekeeping (left for Ben: outside this repository)
 
 - `mnb-ecosystem/pyproject.toml` points placemat at the stale
