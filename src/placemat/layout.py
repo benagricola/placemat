@@ -2032,11 +2032,19 @@ class Board:
         that must yield: the lower priority, or at equal priority the shorter."""
         chamfer = self.settings.copper_chamfer if chamfer is None else chamfer
         layer = CopperLayer.of(layer)
+        for p in points:
+            if isinstance(p, CopperIntent) and not p.key.startswith("via "):
+                raise TypeError("%s: a track may end on a via, and %r is not a via" % (net, p.key))
         refs = _refs_in(points)
         name = self.geometry.require_net(net)
         w = self._width(name, width)
 
         def plan(ctx):
+            lost = [p for p in points if isinstance(p, CopperIntent) and p.index not in ctx.via_at]
+            if lost:
+                ctx.notes.append("track %s: its end on %s is not drawn, because that via found no spot" % (
+                    name, ", ".join(p.key for p in lost)))
+                return []
             pads = [isinstance(p, (PadRef, CellPadRef)) for p in points]
 
             def clear(a, b):          # a leg that touches no pad of another net
@@ -2116,8 +2124,10 @@ class Board:
                 where = ctx.locate(at)
             via = Via(name, where, d, s)
             ctx.planned_vias.append(via)        # a later FreeSpot in this batch sees it
+            ctx.via_at[intent.index] = where    # a track may end on it
             return [via] + ops
-        return self._copper_intent("via %s" % name, net, priority, plan, refs, why)
+        intent = self._copper_intent("via %s" % name, net, priority, plan, refs, why)
+        return intent
 
     def _free_spot(self, ctx, spot, net: str, drill: float, size: float):
         """Run the search from the pad against the board as it stands: placed
@@ -3778,9 +3788,12 @@ class _CopperContext:
         self.notes: list = []              # findings a copper plan raises about itself
         self.planned_vias: list = []       # every via planned so far, for a FreeSpot's hole rule
         self.planned_tails: list = []      # every FreeSpot tail planned so far: not in the occupancy until the batch ends
+        self.via_at: dict = {}             # via intent index -> where it landed, for a track ending on it
         self.plan = None                   # the plan being built: its keepouts, for a FreeSpot
 
     def locate(self, ref) -> Location:
+        if isinstance(ref, CopperIntent):
+            return self.via_at[ref.index]
         return _locate(self.board, self.occ, ref)
 
 
@@ -3807,6 +3820,8 @@ def _refs_in(points) -> list:
             out += _refs_in([p.near])       # the pad it searches from must be placed first
         elif isinstance(p, Mid):
             out += _refs_in([p.a, p.b])
+        elif isinstance(p, CopperIntent):
+            out += list(p.refs)             # a via's pads: the track waits for them as the via does
         elif isinstance(p, tuple):
             out += _refs_in(p)
         elif isinstance(p, (Centre, Location)):
