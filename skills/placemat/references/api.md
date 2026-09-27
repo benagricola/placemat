@@ -911,7 +911,7 @@ allows; a board uses as many as its stackup has), `Face.FRONT / BACK`,
 ```
 placemat run <script> [--label L] [--fresh] [--no-render] [--no-drc] [-v] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]]
 placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--json]
-               [--adopt NET ... | --adopt-all]
+               [--adopt NET ... | --adopt-all] [--no-lock]
 placemat routes <script> [--release NET ...]
 placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
@@ -1140,8 +1140,12 @@ clean: one still open or shorted after the route, or one the route added no
 copper to, is not kept, and says why. Each point is stored as an offset
 from a pad of its net - the pad it lies on, or the net's nearest pad - with
 the centres of the pads its parts were at, so a run fits how the parts have
-moved and turned and carries the copper with them. Every run and preview
-draws the kept copper as copper of its net, after the script's own, while
+moved and turned and carries the copper with them; a part is named by its
+instance path. Adopting also locks the searched items the kept nets join
+where the board stands (as `lock --current` does; `--no-lock` leaves the
+lock alone), since kept copper is dropped when they move; a placement the
+next run would not reproduce adopts nothing and says which items. Every
+run and preview draws the kept copper as copper of its net, after the script's own, while
 the parts it joins stand as they did relative to each other when it was
 adopted (within `route.adopt_tolerance` at every kept pad); a conflict with
 other copper is a `copper` finding. The net is dropped with a finding
@@ -1165,7 +1169,7 @@ the items it was left to place:
 placemat run <script> --explore SECONDS [--focus ITEM ...] [--focus-after LINE]
                       [--focus-box X0,Y0,X1,Y1] [--jobs N] [--accept]
 placemat preview <script> --explore SECONDS [the same]
-placemat lock <script> [--release ITEM ... | --release-all]
+placemat lock <script> [--current | --release ITEM ... | --release-all]
 placemat freeze <script> ITEM ... | --all [--fixed]
 ```
 
@@ -1204,7 +1208,16 @@ nearest legal spot round it), `lock: released - why` when the declaration
 changed or the anchor is gone, turned over or placed later. The cleanup
 pass leaves a held item where it is. Commit the lock with the script; a
 run prints how many items it held, drifted and released. `placemat lock`
-lists entries and releases them.
+lists entries and releases them. An anchor is named by its part's
+instance path, so a renumbering of the board moves nothing (a lock written
+by 0.46 or earlier still holds).
+
+`placemat lock <script> --current` locks every searched item where the
+board stands: the script is resolved as its last run resolved it, each
+item's pads are checked against the written board, and those that land
+there are locked, merged over the entries the lock holds. One that would
+land elsewhere is named and not locked, and the command exits 1: run the
+script, then lock.
 
 **Freeze.** `placemat freeze <script> ITEM` (or `--all`) writes entries
 into the script in the lock's own terms: the item's `place()` call gains
@@ -1238,7 +1251,7 @@ in a place of its own:
 | `run` | the run: `run.json`, `script.log`, a copy of the board, renders, `drc.json`, `impact.txt`, `reuse.json` (what the next run replays) | `.placemat/runs/<id>/` |
 | `run` | `latest.json` (the last run of any board), `latest-<board>.json` (the last of each board: what a run compares with and reuses), `best.json`, and with `--label` an alias | `.placemat/runs/` |
 | `preview` | `preview.svg`, `preview.png`, and `reuse.json` (what the next preview replays) | `.placemat/preview/`, or `--out DIR` |
-| `run` / `preview` with `--explore --accept` | the lock: accepted decisions | `<script stem>.lock.json` beside the script |
+| `run` / `preview` with `--explore --accept`, `lock --current`, `route --adopt` | the lock: accepted decisions | `<script stem>.lock.json` beside the script |
 | `freeze` | the script's frozen `place()` calls, and the lock less those entries | the script, and its lock |
 | `route --adopt` / `routes --release` | the kept routes | `<script stem>.routes.json` beside the script |
 | `route` | the input and routed boards, the router's log, `route.json` | `.placemat/route/`, or `--out DIR` |

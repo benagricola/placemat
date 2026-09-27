@@ -226,3 +226,44 @@ def test_lock_current_holds_the_placement_the_board_stands_in(scratch_ecosystem)
     finally:
         script.write_text(SCRIPT)
         path.unlink(missing_ok=True)
+
+
+def test_adopting_a_net_locks_the_searched_items_it_joins(scratch_ecosystem, tmp_path):
+    """No router: the route's work folder is made by hand, its routed copy one
+    track more on a net a searched part joins."""
+    import shutil
+    from types import SimpleNamespace
+    import pcbnew
+    from placemat import cli, lock, routes
+    from placemat.kicad.read import read_board
+    script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
+    script.write_text(SCRIPT + 'board.place(Part("trunk_led_ra"))\n')
+    try:
+        run(script, label="to-adopt", render=False, drc=False)
+        pcb = scratch_ecosystem / "breakout/layout/Breakout/layout.kicad_pcb"
+        g = read_board(pcb)
+        led = next(fp for fp in g.footprints if fp.inst == "trunk_led_ra")
+        pad = next(p for p in led.pads if p.net and any(q.net == p.net for fp in g.footprints if fp is not led
+                                                         for q in fp.pads))
+        other = next(q for fp in g.footprints if fp is not led for q in fp.pads if q.net == pad.net)
+        work = tmp_path / "route"
+        work.mkdir()
+        shutil.copy(pcb, work / "in.kicad_pcb")
+        routed = work / "routed.kicad_pcb"
+        shutil.copy(pcb, routed)
+        brd = pcbnew.LoadBoard(str(routed))
+        t = pcbnew.PCB_TRACK(brd)
+        t.SetStart(pcbnew.VECTOR2I(pcbnew.FromMM(pad.box.center.x), pcbnew.FromMM(pad.box.center.y)))
+        t.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(other.box.center.x), pcbnew.FromMM(other.box.center.y)))
+        t.SetWidth(pcbnew.FromMM(0.2))
+        t.SetLayer(pcbnew.F_Cu)
+        t.SetNet(brd.FindNet(pad.net))
+        brd.Add(t)
+        brd.Save(str(routed))
+        cli._adopt(script, [pad.net], SimpleNamespace(work=work, routed_pcb=routed, open_nets={}, shorted=[]))
+        assert [e.net for e in routes.read(routes.path_for(script))] == [pad.net]
+        assert "trunk_led_ra" in {e.key for e in lock.read(lock.path_for(script))}
+    finally:
+        script.write_text(SCRIPT)
+        lock.path_for(script).unlink(missing_ok=True)
+        routes.path_for(script).unlink(missing_ok=True)

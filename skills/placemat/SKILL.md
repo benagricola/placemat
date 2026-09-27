@@ -132,9 +132,11 @@ copies it into the next line and the next file. Working in such a script:
    layout: the script does not change because the router found a path.
    To keep what the router found (a module fragment stamped already
    routed), `placemat route <script> --adopt NET ...` stores it relative to
-   its pads beside the script, and every run draws it while those parts
-   stand. Never paste routed coordinates into a script as `board.track()`
-   calls: they go stale as soon as a part moves.
+   its pads beside the script, locks the parts it joins where they stand,
+   and every run draws it while those parts stand. Route a board the
+   current placemat has just run, or lock it first (`placemat lock <script>
+   --current`). Never paste routed coordinates into a script as
+   `board.track()` calls: they go stale as soon as a part moves.
 6. Full record: `.placemat/runs/<id>/run.json`, `script.log`,
    `drc.json`, `generate.log`, `layout.kicad_pcb`, and `route/` when routing
    ran. Logs are files; read the tail, not the whole thing.

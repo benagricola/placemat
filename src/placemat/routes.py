@@ -220,12 +220,24 @@ def resolve(entry: RouteEntry, occ, tolerance: float):
     return tracks, vias
 
 
-def adopt(script, placed, routed, nets=None, still_open=(), shorted=(), skipped=None) -> list:
-    """Adopt the router's new copper on `nets` (None: every net it added
-    copper to) into the script's routes file, merged over what it held. A
-    net still open or shorted after the route is left out: a net is adopted
-    whole and clean. The entries written; `skipped`, when given, gets
-    {net: why} for each net left out."""
+def items_of(entries, board) -> set:
+    """The keys of the items the script places that the entries' parts
+    belong to: a part placed on its own, or the cell it is a member of."""
+    from .board_geometry import members_of
+    owner = {}
+    for intent in board._placements():
+        item = getattr(intent, "item", None)
+        if item is None:
+            continue
+        for fp in members_of(item):
+            owner.setdefault(fp.inst, intent.key)
+    refs = {fp.ref: fp.inst for fp in board.geometry.footprints}
+    return {owner[n] for e in entries for n in (refs.get(p, p) for p in e.parts) if n in owner}
+
+
+def adoptable(placed, routed, nets=None, still_open=(), shorted=(), skipped=None) -> list:
+    """The entries `adopt` would write, and nothing written: `skipped`,
+    when given, gets {net: why} for each net left out."""
     skipped = {} if skipped is None else skipped
     added = {c.net for c in added_copper(placed.copper, routed.copper) if c.net}
     for net in (sorted(added) if nets is None else nets):
@@ -235,10 +247,24 @@ def adopt(script, placed, routed, nets=None, still_open=(), shorted=(), skipped=
             skipped[net] = "still %d open (a net is adopted whole)" % still_open[net]
         elif net not in added:
             skipped[net] = "the route added no copper to it (closed already, or no such net)"
-    new = entries_from(placed, routed, [n for n in (sorted(added) if nets is None else nets) if n not in skipped])
+    return entries_from(placed, routed, [n for n in (sorted(added) if nets is None else nets) if n not in skipped])
+
+
+def keep(script, new) -> None:
+    """Merge `new` into the script's routes file."""
     if new:
         path = path_for(script)
         write(path, merged(read(path), new))
+
+
+def adopt(script, placed, routed, nets=None, still_open=(), shorted=(), skipped=None) -> list:
+    """Adopt the router's new copper on `nets` (None: every net it added
+    copper to) into the script's routes file, merged over what it held. A
+    net still open or shorted after the route is left out: a net is adopted
+    whole and clean. The entries written; `skipped`, when given, gets
+    {net: why} for each net left out."""
+    new = adoptable(placed, routed, nets, still_open, shorted, skipped)
+    keep(script, new)
     return new
 
 

@@ -245,3 +245,19 @@ def test_adopting_says_why_a_net_was_not_kept(tmp_path):
     skipped = {}
     routes.adopt(script, placed, routed, None, shorted=["X"], skipped=skipped)
     assert "shorted" in skipped["X"]
+
+
+def test_an_adopted_nets_parts_are_named_as_the_items_the_script_places():
+    """A part placed on its own is its own item; a cell's member is its cell."""
+    from placemat.values import Cell
+    placed, routed = _routed()
+    (e,) = routes.entries_from(placed, routed, ["X"])
+    b = Board(board_geometry(_parts(), width=40, height=40), edge_margin=0.5)
+    b.place(Part("u1"))
+    b.place(Part("r1"))
+    assert routes.items_of([e], b) == {"u1", "r1"}
+    fps = [dataclasses.replace(fp, cell="m") if fp.inst == "r1" else fp for fp in _parts()]
+    b = Board(board_geometry(fps, cells=["m"], width=40, height=40), edge_margin=0.5)
+    b.place(Part("u1"))
+    b.place(Cell("m"))
+    assert routes.items_of([e], b) == {"u1", "m"}

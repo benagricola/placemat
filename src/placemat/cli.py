@@ -56,6 +56,8 @@ def parser() -> argparse.ArgumentParser:
     keep.add_argument("--adopt", nargs="+", metavar="NET",
                       help="keep the router's copper on these nets: every run draws it (a layout script only)")
     keep.add_argument("--adopt-all", action="store_true", help="keep the copper on every net the route closed")
+    rt.add_argument("--no-lock", action="store_true",
+                    help="with --adopt: leave the lock alone (by default the items the kept nets join are locked)")
 
     rs = sub.add_parser("routes", help="the routes a layout script keeps (route --adopt), and releasing them")
     rs.add_argument("script", help="a layout script")
@@ -434,21 +436,49 @@ def cmd_route(args) -> int:
             console.say("route", "%-20s %d open" % (net, n))
         console.say("route", "routed board: %s" % report.routed_pcb)
     if args.adopt or args.adopt_all:
-        _adopt(p, args.adopt if args.adopt else None, report)
+        _adopt(p, args.adopt if args.adopt else None, report, lock_items=not args.no_lock)
     return 0 if report.valid else 1
 
 
-def _adopt(script: Path, nets, report) -> None:
-    from . import routes
+def _adopt(script: Path, nets, report, lock_items: bool = True) -> None:
+    """Keep the route's copper on `nets` (None: every net it closed) and, by
+    default, lock the searched items those nets join where the board stands,
+    since kept copper is dropped when they move. A placement the next run
+    would not reproduce adopts nothing."""
+    from . import lock, routes
+    from ._version import __version__
     from .kicad.read import read_board
     skipped = {}
-    kept = routes.adopt(script, read_board(report.work / "in.kicad_pcb"), read_board(report.routed_pcb), nets,
-                        report.open_nets, report.shorted, skipped)
+    new = routes.adoptable(read_board(report.work / "in.kicad_pcb"), read_board(report.routed_pcb), nets,
+                           report.open_nets, report.shorted, skipped)
     for net, why in skipped.items():
         console.say("adopt", "%s not adopted: %s" % (net, why))
-    for e in kept:
+    if new and lock_items:
+        from .previewer import resolve_like_last_run, written_pads
+        try:
+            board, plan, src, run_id = resolve_like_last_run(script)
+        except ValueError as e:
+            console.say("adopt", "nothing adopted: %s" % e, level="fail")
+            return
+        keys = routes.items_of(new, board) & set(plan.turns)
+        path = lock.path_for(script.resolve())
+        entries, locked, refused = lock.current(board, plan, written_pads(src.pcb), lock.read(path),
+                                                board.settings.route_adopt_tolerance, keys=keys,
+                                                release=__version__, run=run_id)
+        if refused:
+            console.say("adopt", "nothing adopted: the placement the route was given is not the one the next "
+                                 "run makes, and kept copper would be dropped", level="fail")
+            for key, why in sorted(refused.items()):
+                console.say("adopt", "  %s: %s" % (key, why), level="finding")
+            console.say("adopt", "run the script, route again, then adopt")
+            return
+        if locked:
+            lock.write(path, entries)
+            console.say("adopt", "locked %d item(s) the kept nets join where the board stands" % len(locked))
+    routes.keep(script, new)
+    for e in new:
         console.say("adopt", routes.describe(e))
-    console.say("adopt", "%d net(s) kept in %s" % (len(kept), routes.path_for(script)))
+    console.say("adopt", "%d net(s) kept in %s" % (len(new), routes.path_for(script)))
 
 
 def cmd_routes(args) -> int:
