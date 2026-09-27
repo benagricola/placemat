@@ -703,6 +703,14 @@ class Board:
         """The net's class: `.track_width`, `.clearance`, `.diff_pair_width`, `.diff_pair_gap`."""
         return self.geometry.netclass(net)
 
+    def parts(self, net=None) -> list:
+        """Every part on the board, by instance name; with `net`, those with a
+        pad on it - so a drop to a plane, or a check on a rail, is derived from
+        the netlist rather than a list typed into the script."""
+        name = None if net is None else self.geometry.require_net(net)
+        return [Part(fp.inst) for fp in sorted(self.geometry.footprints, key=lambda f: f.inst)
+                if name is None or any(p.net == name for p in fp.pads)]
+
     def pitch(self, part, pins=None) -> float:
         """The spacing of a part's pins: the distance between neighbouring
         pin centres, read from the footprint (a connector's pin pitch, a

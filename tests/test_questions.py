@@ -87,3 +87,14 @@ def test_the_envelope_is_what_the_placer_keeps_under_the_setting():
     turned = Board(board_geometry([fp]), edge_margin=1.0,
                    settings=dataclasses.replace(Settings(), place_envelope="physical")).envelope(Part("r1"), rotation=90)
     assert (turned.width, turned.height) == pytest.approx((1.6, 2.4))
+
+
+def test_the_board_lists_its_parts_and_those_on_a_net():
+    fps = [footprint("U1", 10, 10, inst="u1", nets=("V3V3", "GND")),
+           footprint("C1", 20, 10, inst="c1", nets=("V3V3", "GND")),
+           footprint("R1", 30, 10, inst="r1", nets=("SIG", "V3V3")),
+           footprint("J1", 40, 10, inst="j1", nets=("SIG", "OUT"))]
+    b = Board(board_geometry(fps), edge_margin=1.0)
+    assert [p.inst for p in b.parts()] == ["c1", "j1", "r1", "u1"]
+    assert [p.inst for p in b.parts(net="GND")] == ["c1", "u1"]
+    assert [p.inst for p in b.parts(net="V3V3")] == ["c1", "r1", "u1"]

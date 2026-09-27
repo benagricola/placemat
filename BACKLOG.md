@@ -7,21 +7,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **FreeSpot and `--via-near` do not see unplated holes** (PLACEMAT_GAPS
-  2026-09-27): a via landed on a USB-C locating peg (DRC hole_clearance and
-  hole_to_hole). Bug.
-- **The router's copy drops a net's declared copper** (PLACEMAT_GAPS
-  2026-09-27): the route reports a script-joined net open. Bug.
-- **`board.pair()` with one centreline point raises IndexError** (PLACEMAT_GAPS
-  2026-09-27): a message instead. Bug.
-- **A turned fixed part judged by its body's box against a round outline**
-  (PLACEMAT_GAPS 2026-09-27): false keep-in findings; judge by its drawn
-  polygons as cells are since 0.35.
 - **`check current-path` judges a net by its narrowest branch**
   (PLACEMAT_GAPS 2026-09-27): sense and bootstrap branches fail every power
   net; judge the path between the parts carrying `Pm.I`, or a sense role.
-- **`board.parts(net=)`** (PLACEMAT_GAPS 2026-09-27): the board's parts,
-  optionally by net, so drops are derived from the netlist.
 - **A fragment's extent in the run summary** (PLACEMAT_GAPS 2026-09-27), for
   a frame drawn with draw=False.
 - **`measure --outline`** (PLACEMAT_GAPS 2026-09-27): a board's outline,
@@ -41,6 +29,11 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **The 2026-09-27 afternoon gaps bugs and `board.parts()`** (unreleased):
+  FreeSpot and `--via-near` keep off unplated holes; the router runs with
+  `--keep-input-copper` so declared copper survives its cleanup;
+  `board.pair()` needs two centreline points and says so; a decided part
+  turned near a round rim is judged by its corners; `board.parts(net=)`.
 - **`board.envelope(item, rotation=)`** (unreleased; the board session,
   2026-09-27): what the placer keeps under `[place] envelope`, documented,
   so a hand-built row stops calling the internal `drawn_envelope`.
