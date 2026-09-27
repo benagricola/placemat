@@ -368,6 +368,8 @@ class PadRef:
     dx: float = 0.0
     dy: float = 0.0
     pin: str | None = None
+    lx: float = 0.0            # an offset in the part's own frame: turned, and on the back mirrored, with it
+    ly: float = 0.0
 
     def __post_init__(self):
         if self.pin is not None:
@@ -379,7 +381,13 @@ class PadRef:
         pad_key(self.key)
 
     def offset(self, dx: float = 0.0, dy: float = 0.0) -> "PadRef":
-        return PadRef(self.part, self.key, self.dx + dx, self.dy + dy)
+        """The point moved in board directions."""
+        return PadRef(self.part, self.key, self.dx + dx, self.dy + dy, None, self.lx, self.ly)
+
+    def local(self, dx: float = 0.0, dy: float = 0.0) -> "PadRef":
+        """The point moved in the part's own frame, as its footprint is
+        drawn: the move turns with the part, and on the back mirrors."""
+        return PadRef(self.part, self.key, self.dx, self.dy, None, self.lx + dx, self.ly + dy)
 
 
 @dataclass(frozen=True)

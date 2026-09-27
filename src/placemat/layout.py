@@ -3777,7 +3777,14 @@ def _locate(board: "Board", occ: Occupancy, ref) -> Location:
         refs = [fp.ref for fp in (geom.members if kind == "cell" else (geom,))]
         return Box.union([occ.items[r].body for r in refs]).center      # where its body is now
     owner, number, dx, dy = board._pad_ref(ref)
-    return occ.pad_location(owner, number).offset(dx, dy)
+    at = occ.pad_location(owner, number).offset(dx, dy)
+    lx, ly = getattr(ref, "lx", 0.0), getattr(ref, "ly", 0.0)
+    if lx or ly:
+        from .lock import _turn
+        g = occ.items[owner].reference
+        vx, vy = _turn(-lx if g.face is Face.BACK else lx, ly, g.rotation)
+        at = at.offset(vx, vy)
+    return at
 
 
 def _coord(board: "Board", occ: Occupancy, v, axis: str) -> float:
