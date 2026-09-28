@@ -1,7 +1,7 @@
 # A plated lead and a neighbour's courtyard under a drawn envelope
 
 Date: 2026-09-28
-Status: draft
+Status: approved 2026-09-28
 Source: PLACEMAT_GAPS.md (a board's own), 2026-09-26 "same-face terminal
 lead versus capacitor courtyard"; confirmed on 0.49.2 (2026-09-28)
 
