@@ -1,7 +1,7 @@
 # Locking what stands, when some of it does not
 
 Date: 2026-09-28
-Status: draft
+Status: approved 2026-09-28
 Source: the fairing board's session, 2026-09-28: "`lock --current` refuses
 to write anything if any one item wouldn't stand, which made the 0.49 to
 0.50 migration all-or-nothing (29 of 75 refused)"

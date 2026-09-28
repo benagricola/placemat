@@ -1,7 +1,7 @@
 # Routing the taps a pour does not reach
 
 Date: 2026-09-28
-Status: draft
+Status: approved 2026-09-28
 Source: the fairing board's session, 2026-09-28 (on 0.50.0): "several power
 nets have small taps no pour can reach"
 
