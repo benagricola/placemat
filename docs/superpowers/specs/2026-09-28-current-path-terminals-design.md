@@ -1,7 +1,7 @@
 # The load's route, between the parts that carry it
 
 Date: 2026-09-28
-Status: draft
+Status: approved 2026-09-28
 Source: a board's layout work, 2026-09-28: "the check treats every pad and
 track of a net as the load's path, so sense, boot and bias connections fail
 it"
