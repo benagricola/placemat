@@ -35,6 +35,7 @@ pub enum Kind {
     Mask,
     Silk,
     Body,
+    Yard,
 }
 
 impl Kind {
@@ -49,6 +50,7 @@ impl Kind {
             "mask" => Some(Kind::Mask),
             "silk" => Some(Kind::Silk),
             "body" => Some(Kind::Body),
+            "yard" => Some(Kind::Yard),
             _ => None,
         }
     }
@@ -199,6 +201,13 @@ fn may_meet(a: Kind, b: Kind) -> bool {
 
 /// `Occupancy._conflict`: the DRC rules in occupancy terms.
 pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &ConflictConfig) -> bool {
+    if s.kind == Kind::Yard || o.kind == Kind::Yard {
+        // Occupancy's yard: a drawn part's courtyard under the physical
+        // envelope, judged only against another part's plated lead.
+        let (yard, other) = if s.kind == Kind::Yard { (s, o) } else { (o, s) };
+        return other.kind == Kind::Through && other.owner != yard.owner && other.is_lead
+            && polys_overlap(&yard.poly, &other.poly);
+    }
     if s.kind.is_drawn() || o.kind.is_drawn() {
         return drawn_conflict(s, o, cfg);
     }
@@ -529,6 +538,29 @@ mod tests {
         let body = shape(Kind::Body, "U1", rect(0.0, 0.0, 2.0, 2.0), 1, 0, "", true);
         let via = shape(Kind::Through, "", rect(0.0, 0.0, 0.3, 0.3), 3, 0xFFFF_FFFF, "GND", false); // owner "" not a footprint
         assert!(!conflict(&body, &via, None, &cfg()));
+    }
+
+    #[test]
+    fn a_yard_over_another_parts_lead_conflicts() {
+        let yard = shape(Kind::Yard, "C1", rect(0.0, 0.0, 2.0, 2.0), 1, 0, "", true);
+        let lead = shape_ex(Kind::Through, "J1", rect(0.5, 0.5, 0.3, 0.3), 3, 0xFFFF_FFFF, "A", true, true);
+        assert!(conflict(&yard, &lead, None, &cfg()));
+        assert!(conflict(&lead, &yard, None, &cfg()));
+    }
+
+    #[test]
+    fn a_yard_meets_nothing_but_another_parts_lead() {
+        let yard = shape(Kind::Yard, "C1", rect(0.0, 0.0, 2.0, 2.0), 1, 0, "", true);
+        let own = shape_ex(Kind::Through, "C1", rect(0.5, 0.5, 0.3, 0.3), 3, 0xFFFF_FFFF, "A", true, true);
+        let via = shape_ex(Kind::Through, "", rect(0.5, 0.5, 0.3, 0.3), 3, 0xFFFF_FFFF, "A", false, false);
+        let pad = shape(Kind::Pad, "R1", rect(0.5, 0.5, 0.3, 0.3), 1, 1, "B", true);
+        let body = shape(Kind::Body, "R1", rect(0.5, 0.5, 0.3, 0.3), 1, 0, "", true);
+        let court = shape(Kind::Courtyard, "R1", rect(0.5, 0.5, 0.3, 0.3), 1, 0, "", true);
+        let other = shape(Kind::Yard, "R1", rect(0.5, 0.5, 0.3, 0.3), 1, 0, "", true);
+        for o in [&own, &via, &pad, &body, &court, &other] {
+            assert!(!conflict(&yard, o, None, &cfg()));
+            assert!(!conflict(o, &yard, None, &cfg()));
+        }
     }
 
     #[test]
