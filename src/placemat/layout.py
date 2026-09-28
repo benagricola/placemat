@@ -4264,6 +4264,8 @@ def _shape_of(op) -> Shape | None:
 
 
 _BLOCKED_BY = {"hole-to-hole": ("hole", "npth")}      # a bucket named for its rule: the obstacle kinds behind it
+_KNOWN_BUCKETS = frozenset(("courtyard", "edge", "reservation", "copper", "through", "npth", "hole-to-hole"))
+_DRAWN_KINDS = frozenset(("silk", "mask", "body"))
 
 
 def _blame_text(result) -> str:
@@ -4273,14 +4275,18 @@ def _blame_text(result) -> str:
     has forty and a reader needs one."""
     parts = []
     for kind, n in result.rejected.most_common(3):
+        # a drawn envelope's refusal (silk, a mask opening, a body) is counted under its sentence's first
+        # word, the candidate's own name: it is shown as what it is, with the drawn things in the way
+        drawn = kind not in _KNOWN_BUCKETS
         owners = sorted(((owner, faces, count)
                          for (k, owner, faces), count in result.blockers.items()
-                         if (k == kind or k in _BLOCKED_BY.get(kind, ())) and owner),
+                         if (k in _DRAWN_KINDS if drawn else (k == kind or k in _BLOCKED_BY.get(kind, ())))
+                         and owner),
                         key=lambda t: -t[2])[:3]
         detail = "" if not owners else ": " + ", ".join(
             "%s%s x%d" % (owner, (" %s face" % faces) if faces else "", count)
             for owner, faces, count in owners)
-        parts.append("%s x%d%s" % (kind, n, detail))
+        parts.append("%s x%d%s" % ("body, silk or mask" if drawn else kind, n, detail))
     return "; ".join(parts)
 
 
