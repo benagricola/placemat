@@ -102,10 +102,9 @@ def _merge_cell_zones(board, plan: Plan) -> list:
             layer = CopperLayer.of(board.GetLayerName(layer_id))
             plane = next((p for p in planes if p.net == net and p.layer == layer
                           and all(poly_within(ol, p.points) for ol in outlines)), None)
-            solid = z.GetPadConnection() == pcbnew.ZONE_CONNECTION_FULL
             if plane is None:
                 keep.AddLayer(layer_id)
-            elif solid != plane.solid_pads:
+            elif z.GetPadConnection() != _plane_connection(plane):
                 keep.AddLayer(layer_id)
                 plan.kept_zones.append(MergedZone(g.GetName(), net, layer, _zone_difference(z, plane)))
             else:
@@ -140,13 +139,23 @@ def _keep_in_region(board, plan: Plan):
     return ps
 
 
+def _plane_connection(plane: Zone):
+    """How the board's plane joins its pads, as a zone's pad connection."""
+    return pcbnew.ZONE_CONNECTION_FULL if plane.solid_pads else pcbnew.ZONE_CONNECTION_THERMAL
+
+
+def _pad_join(connection) -> str:
+    return {pcbnew.ZONE_CONNECTION_FULL: "solid", pcbnew.ZONE_CONNECTION_THERMAL: "thermal",
+            pcbnew.ZONE_CONNECTION_THT_THERMAL: "solid, thermal on through pads",
+            pcbnew.ZONE_CONNECTION_NONE: "not joined"}.get(connection, "joined otherwise")
+
+
 def _zone_difference(z, plane: Zone) -> str:
     """How a cell's zone was set up differently from the plane it merges into."""
     words = []
-    solid = z.GetPadConnection() == pcbnew.ZONE_CONNECTION_FULL
-    if solid != plane.solid_pads:
-        words.append("its pads were %s, the plane's are %s" % ("solid" if solid else "thermal",
-                                                                "solid" if plane.solid_pads else "thermal"))
+    mine, theirs = z.GetPadConnection(), _plane_connection(plane)
+    if mine != theirs:
+        words.append("its pads were %s, the plane's are %s" % (_pad_join(mine), _pad_join(theirs)))
     clearance = pcbnew.ToMM(z.GetLocalClearance())
     if abs(clearance - plane.clearance) > 1e-6:
         words.append("its clearance was %.2f mm, the plane's is %.2f mm" % (clearance, plane.clearance))

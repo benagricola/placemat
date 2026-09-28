@@ -17,8 +17,15 @@ pour to their pours, as `run --route` did, and keeps other nets' tracks
 out of a partial inner-layer pour of those nets (the refill split it round
 them); a board-wide fill need not be switched off for routing, the router
 routes through it and the refill carves round the tracks. "No legal location" names the
-parts whose silk, mask or body were in the way under a drawn envelope, and a
-link's wait says when it set the item's `priority=` aside.
+parts whose silk, mask or body were in the way under a drawn envelope (a
+round board's rim or a cutout is counted as the edge), and a link's wait
+says when it set the item's `priority=` aside. A cell placed on the back
+with a member read at 90 or 270 degrees records that member's turn as its
+shapes stand: its airwire ends, a via declared at its pad, a part `turned=`
+from it and a lock entry anchored on it followed the mirror image before; a
+lock entry so anchored may land elsewhere; `placemat lock <script>
+--current` writes it again. `placemat route` leaves a stamped cell's own zone net to the
+router (only the board's own pours are left out, as `run --route` does).
 
 ## To 0.49.2
 

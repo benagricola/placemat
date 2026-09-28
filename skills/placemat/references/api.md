@@ -520,7 +520,8 @@ the parent declares a `board.plane()` on the same net and layer that covers it
 part inside it): the written board leaves the cell's zone out on that layer,
 and the run says `zones  <cell>: GND on In1.Cu merged into the board's plane`,
 adding its clearance when that differs. A cell zone whose pads join otherwise
-than the plane's (solid where the plane is thermal, or the reverse) is kept,
+than the plane's (solid, thermal, solid with thermal through pads, or not
+joined) is kept,
 and the run says `zones  <cell>: its GND zone on In1.Cu kept under the board's
 plane: ...`. A cell zone on another net, on a layer the parent has no plane
 on, or reaching past the plane's outline is kept. The search never

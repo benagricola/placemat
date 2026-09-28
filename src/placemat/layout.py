@@ -4280,6 +4280,8 @@ def _blame_text(result) -> str:
     has forty and a reader needs one."""
     parts = []
     for kind, n in result.rejected.most_common(3):
+        if kind == "body":
+            kind = "edge"       # "body box ... is past the rim's keep-in / outside the board / inside a cutout"
         # a drawn envelope's refusal (silk, a mask opening, a body) is counted under its sentence's first
         # word, the candidate's own name: it is shown as what it is, with the drawn things in the way
         drawn = kind not in _KNOWN_BUCKETS

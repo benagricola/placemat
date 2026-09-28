@@ -123,17 +123,22 @@ class RouteReport:
 
 def plane_nets_of(pcb) -> set:
     """The nets a board serves by a pour: each with a copper zone, or a
-    filled copper polygon, on it. What run --route leaves out as the plan's
-    plane nets, read off the written board."""
+    filled copper polygon, of the board's own on it. What run --route leaves
+    out as the plan's plane nets, read off the written board: a stamped
+    cell's local zone or pour (in its group) does not count, its net still
+    runs to parts elsewhere."""
     from .quiet import import_pcbnew, quiet_stderr
     pcbnew = import_pcbnew()
     with quiet_stderr():
         board = pcbnew.LoadBoard(str(pcb)) if Path(pcb).stat().st_size else None
     if board is None:
         return set()
-    nets = {z.GetNetname() for z in board.Zones() if not z.GetIsRuleArea() and z.GetNetname()}
+    grouped = {it.m_Uuid.AsString() for g in board.Groups() for it in g.GetItems()}
+    nets = {z.GetNetname() for z in board.Zones() if not z.GetIsRuleArea() and z.GetNetname()
+            and z.m_Uuid.AsString() not in grouped}
     nets |= {d.GetNetname() for d in board.GetDrawings() if isinstance(d, pcbnew.PCB_SHAPE) and d.GetNetname()
-             and d.IsOnCopperLayer() and (d.IsSolidFill() if hasattr(d, "IsSolidFill") else False)}
+             and d.IsOnCopperLayer() and (d.IsSolidFill() if hasattr(d, "IsSolidFill") else False)
+             and d.m_Uuid.AsString() not in grouped}
     return nets
 
 

@@ -71,3 +71,35 @@ def test_the_route_command_leaves_the_boards_plane_nets_to_their_pours(breakout_
     monkeypatch.setattr(route_mod, "route_board", stand_in)
     assert cli.main(["route", str(pcb), "--exclude", "EXTRA"]) == 0
     assert {"V48P", "EXTRA"} <= seen["exclude"]
+
+
+@needs_kicad
+@needs_breakout
+def test_a_cells_own_zone_leaves_its_net_to_the_router(breakout_pcb, tmp_path):
+    """run --route leaves out the script's own planes and pours, not a stamped
+    cell's local zone: its net (a regulator's output, say) runs to parts
+    elsewhere that still need routing."""
+    import shutil
+    import pcbnew
+    from placemat.kicad.route import plane_nets_of
+    for ext in (".kicad_pcb", ".kicad_pro"):
+        if breakout_pcb.with_suffix(ext).exists():
+            shutil.copy(breakout_pcb.with_suffix(ext), tmp_path / ("layout" + ext))
+    pcb = tmp_path / "layout.kicad_pcb"
+    before = plane_nets_of(pcb)
+    net = next(n for n in ("V48P", "TERM_NEAR_MID") if n not in before)
+    brd = pcbnew.LoadBoard(str(pcb))
+    z = pcbnew.ZONE(brd)
+    z.SetLayer(pcbnew.B_Cu)
+    z.SetNetCode(brd.GetNetcodeFromNetname(net))
+    o = z.Outline()
+    o.NewOutline()
+    for x, y in ((10, 10), (20, 10), (20, 20), (10, 20)):
+        o.Append(pcbnew.FromMM(x), pcbnew.FromMM(y))
+    brd.Add(z)
+    grp = pcbnew.PCB_GROUP(brd)
+    grp.SetName("cell")
+    brd.Add(grp)
+    grp.AddItem(z)
+    brd.Save(str(pcb))
+    assert net not in plane_nets_of(pcb)

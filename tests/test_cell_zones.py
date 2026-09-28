@@ -26,9 +26,10 @@ def _copy(breakout_pcb, tmp_path):
     return dst
 
 
-def _add_cell_zone(pcb, name, net, layer, group_name, solid_pads=True):
+def _add_cell_zone(pcb, name, net, layer, group_name, solid_pads=True, connection=None):
     """A copper zone inside a cell's group, the way `pcb layout` stamps a
-    module fragment's own plane: a 2 mm square at the cell's centre."""
+    module fragment's own plane: a 2 mm square at the cell's centre.
+    `connection`, a pcbnew ZONE_CONNECTION_* name, overrides `solid_pads`."""
     import pcbnew
     board = pcbnew.LoadBoard(str(pcb))
     (g,) = [g for g in board.Groups() if g.GetName() == group_name]
@@ -38,7 +39,8 @@ def _add_cell_zone(pcb, name, net, layer, group_name, solid_pads=True):
     z.SetIsRuleArea(False)
     z.SetLayer(board.GetLayerID(layer))
     z.SetNetCode(board.GetNetcodeFromNetname(net))
-    z.SetPadConnection(pcbnew.ZONE_CONNECTION_FULL if solid_pads else pcbnew.ZONE_CONNECTION_THERMAL)
+    z.SetPadConnection(getattr(pcbnew, connection) if connection
+                       else pcbnew.ZONE_CONNECTION_FULL if solid_pads else pcbnew.ZONE_CONNECTION_THERMAL)
     o = z.Outline()
     o.NewOutline()
     for x, y in ((cx - 1, cy - 1), (cx + 1, cy - 1), (cx + 1, cy + 1), (cx - 1, cy + 1)):
@@ -131,6 +133,18 @@ def test_a_thermal_cell_zone_under_a_solid_plane_is_kept_too(breakout_pcb, tmp_p
     plan = _write(pcb, solid_pads=True)
     assert "cell gnd" in _zone_names(pcb) and plan.merged_zones == []
 
+
+@pytest.mark.parametrize("connection, said", [("ZONE_CONNECTION_THT_THERMAL", "solid, thermal on through pads"),
+                                              ("ZONE_CONNECTION_NONE", "not joined")])
+def test_a_cell_zone_joining_pads_any_other_way_is_kept(breakout_pcb, tmp_path, connection, said):
+    """Solid surface pads with thermal through pads, or pads left unjoined:
+    merged into a thermal plane, they would all get spokes."""
+    pcb = _copy(breakout_pcb, tmp_path)
+    _add_cell_zone(pcb, "cell gnd", "GND", "B.Cu", "power_drop0", connection=connection)
+    plan = _write(pcb, solid_pads=False)
+    assert "cell gnd" in _zone_names(pcb) and plan.merged_zones == []
+    (k,) = plan.kept_zones
+    assert "its pads were %s, the plane's are thermal" % said in k.note, k.note
 
 
 def test_a_cell_zone_reaching_nearer_the_edge_than_the_plane_is_merged(breakout_pcb, tmp_path):
