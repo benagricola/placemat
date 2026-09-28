@@ -45,10 +45,15 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **A courtyard that is not a rectangle, claimed as drawn** (unreleased;
+- **Two drawn courtyards sharing only a vertex, and stroked polygons**
+  (unreleased; a board's layout work, 2026-09-27): polygons that share only
+  a vertex do not overlap whichever way wound; a stroked copper polygon is
+  read with its stroke on every edge; `lock --current` follows a run that
+  kept going.
+- **A courtyard that is not a rectangle, claimed as drawn** (0.48.0;
   PLACEMAT_GAPS 2026-09-27 "a turned part judged by its body's box against
   a round outline"; spec `2026-09-27-courtyard-polygons-design.md`).
-- **A via's copper judged as its whole circle** (unreleased; a board's
+- **A via's copper judged as its whole circle** (0.48.0; a board's
   layout work, 2026-09-27: a FreeSpot via 0.1575 mm from a pad against a
   0.16 rule).
 - **Locking the placement a board stands in** (0.47.0; a board's

@@ -11,7 +11,10 @@ slice of a disc, a part generated at a turn off the axes) is claimed as
 KiCad draws it rather than as the box round it: parts that collided by
 their boxes, or crossed a round board's keep-in by a box corner, may now
 stand. A via's copper is judged as the whole circle, so a via planned a
-hair inside a clearance (0.1575 against 0.16) moves off.
+hair inside a clearance (0.1575 against 0.16) moves off, and a stroked
+copper polygon (a pour) is read with its stroke along every edge, which a
+polygon that doubles back on itself had partly lost. `placemat lock
+--current` works on a board a `--keep-going` run wrote.
 
 ## To 0.47
 
