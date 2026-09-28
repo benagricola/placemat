@@ -7,6 +7,12 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+- **`check current-path` takes sense, boot and bias pads for the load's
+  path** (a board's layout work, 2026-09-28): a switcher's SW2 pin-to-pin
+  track, a boot capacitor's track, a current-sense line and an ideal-diode
+  controller's sense pins fail it at 0.02-0.16 mm, and a sense filter
+  resistor was taken for the load. The route should run between the pads
+  of the parts `Pm.I` names on the net, ignoring the others.
 - **Placement behaviours from the ring test board** (same entry): a block
   satellite slides along its pin row over other pins; the link-wait rule
   outranks `priority=`; a part seeded deep inside a parts keepout searches

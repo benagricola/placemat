@@ -11,6 +11,10 @@ travels with the part through its search, so plane drops at pads
 (`board.via(net, PadRef(...))`) no longer land over the other face's pads;
 a part with such drops may land a little further from where it did. A
 copper finding against a via says "via NET at (x, y)" rather than "pad".
+A stroked pour reads as one piece of copper again (0.48 read its strokes
+apart, and `check current-path` took a pour for a 0.3 mm strip). A cell's
+lock entry no longer releases when its fragment is stamped again; entries
+0.48 released are written again by `placemat lock <script> --current`.
 
 ## To 0.48
 

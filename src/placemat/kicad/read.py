@@ -87,7 +87,15 @@ def copper_outlines(item, layer_id, err_nm=CLEAR_ERR_NM):
             for a, b in zip(pts, pts[1:] + pts[:1]):
                 out.append(_segment_polygon(Location(*a), Location(*b), w))
         if out:
-            return tuple(out)
+            union = pcbnew.SHAPE_POLY_SET()             # the fill and its strokes are one piece of copper
+            for poly in out:
+                union.NewOutline()
+                for x, y in poly:
+                    union.Append(pcbnew.FromMM(x), pcbnew.FromMM(y))
+            union.Simplify()
+            merged = tuple(tuple((mm(o.CPoint(j).x), mm(o.CPoint(j).y)) for j in range(o.PointCount()))
+                           for o in (union.Outline(k) for k in range(union.OutlineCount())))
+            return tuple(m for m in merged if len(m) >= 3) or tuple(out)
     return outlines_of(item, layer_id, err_nm)
 
 
