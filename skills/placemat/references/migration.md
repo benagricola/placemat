@@ -4,6 +4,16 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.50
+
+Nothing to change in a script. `check current-path` judges each pair of
+parts carrying a net's current at the lesser of their two currents, through
+zone fills as well as tracks and pours, and does not judge carriers no
+copper joins yet. A controller that senses a load's net should give that
+net its own current in a per-net `Pm.I`, or leave it out: its sense pin is
+then judged at what it draws. Verdicts that were a pin lead, a boot track or
+a sense line become the load's own route.
+
 ## To 0.49.1
 
 Nothing to change in a script. `placemat route` routes with the board's own

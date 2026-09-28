@@ -328,25 +328,32 @@ def ipc2221_width_mm(current_a: float, rise_c: float = TRACK_RISE_C, copper_oz: 
 
 def _net_graph(geometry: BoardGeometry, net: str):
     """A net's copper as a graph: (nodes, neighbours). A node is (label, the
-    width current can pass through it, polygons, box): a pad or via passes
-    any, a track its width, a pour its narrowest neck. Two nodes touch when
-    their copper does."""
+    width current can pass through it, polygons, box, layers): a pad or via
+    passes any, a track its width, a drawn pour or a zone's fill its
+    narrowest neck. Two nodes touch when their copper does on a layer they
+    share."""
     nodes = []
     for fp in geometry.footprints:
         for p in fp.pads:
             if p.net == net and p.outlines:
-                nodes.append(("%s.%s" % (fp.ref, p.number), math.inf, p.outlines, p.box))
+                nodes.append(("%s.%s" % (fp.ref, p.number), math.inf, p.outlines, p.box, p.layers))
     for c in geometry.copper:
-        if c.net != net or c.kind not in ("track", "via", "poly") or not c.outlines:
+        if c.net != net or not c.outlines:
+            continue
+        if c.kind == "zone":                # each piece of the fill carries current by its narrowest neck
+            for o in c.outlines:
+                nodes.append(("zone", neck_mm(o), (o,), Box.of_points(o), c.layers))
+            continue
+        if c.kind not in ("track", "via", "poly"):
             continue
         cap = c.width_mm if c.kind == "track" else (min(neck_mm(o) for o in c.outlines) if c.kind == "poly" else math.inf)
-        nodes.append((c.kind, cap, c.outlines, c.box))
+        nodes.append((c.kind, cap, c.outlines, c.box, c.layers))
     near = {i: [] for i in range(len(nodes))}
     for i in range(len(nodes)):
         for j in range(i + 1, len(nodes)):
             a, b = nodes[i], nodes[j]
-            if a[3].overlaps(b[3], gap=1e-6) and any(polys_overlap(x, y) or poly_distance(x, y) <= 1e-6
-                                                      for x in a[2] for y in b[2]):
+            if a[4] & b[4] and a[3].overlaps(b[3], gap=1e-6) and \
+                    any(polys_overlap(x, y) or poly_distance(x, y) <= 1e-6 for x in a[2] for y in b[2]):
                 near[i].append(j)
                 near[j].append(i)
     return nodes, near
@@ -372,71 +379,61 @@ def _widest_from(nodes, near, sources) -> dict:
     return best
 
 
-def _load_path(geometry: BoardGeometry, net: str, carrying: list):
-    """(width, from, to) of the route the load takes on `net`, or None when
-    no copper joins a carrying pad to another part: between every two parts
-    carrying current on the net, the narrowest of their widest routes; with
-    one, its widest route to any other part's pad. A branch to a pin that
-    carries no load - a sense or bootstrap pin - is never the widest route,
-    so it does not set the width."""
+def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, copper_oz: float):
+    """The routes the load takes on `net`, carriers being {ref: amps}: for
+    each two carriers, the widest route from any pad of one to any pad of the
+    other, judged at the lesser current - what can flow between them - as
+    (width, need, amps, from, to); with one carrier, its widest route to any
+    other part's pad at its own current. And the pairs no copper joins yet."""
     nodes, near = _net_graph(geometry, net)
     owner = {i: n[0].split(".")[0] for i, n in enumerate(nodes) if math.isinf(n[1]) and "." in n[0]}
     pads = {ref: [i for i, o in owner.items() if o == ref] for ref in set(owner.values())}
-    worst = None
-    for a in carrying:
+    refs = sorted(carriers)
+    pairs = [(a, b) for k, a in enumerate(refs) for b in refs[k + 1:]] if len(refs) > 1 else \
+        [(refs[0], None)]
+    judged, apart = [], []
+    for a, b in pairs:
         if not pads.get(a):
+            apart.append((a, b))
             continue
         best = _widest_from(nodes, near, pads[a])
-        others = [r for r in carrying if r != a] if len(carrying) > 1 else [r for r in pads if r != a]
-        reach = [(best[i], nodes[i][0]) for r in others for i in pads.get(r, ()) if i in best and nodes[i][1] > 0]
-        # a route's width is its narrowest track: one made of pads and vias alone is not a route to judge
-        reach = [(w, to) for w, to in reach if not math.isinf(w)]
+        ends = pads.get(b, ()) if b is not None else [i for r, ii in pads.items() if r != a for i in ii]
+        # a route's width is its narrowest copper: one made of pads and vias alone is not a route to judge
+        reach = [(best[i], nodes[i][0]) for i in ends if i in best and not math.isinf(best[i])]
         if not reach:
+            apart.append((a, b))
             continue
-        w, to = min(reach) if len(carrying) > 1 else max(reach)
-        if worst is None or w < worst[0]:
-            worst = (w, nodes[pads[a][0]][0], to)
-    return worst
+        w, to = max(reach)                  # the current enters by the other end's widest-joined pad
+        start = max(((best.get(i, -1.0), nodes[i][0]) for i in pads[a]), default=(0, a))[1]
+        amps = carriers[a] if b is None else min(carriers[a], carriers[b])
+        judged.append((w, ipc2221_width_mm(amps, rise_c, copper_oz), amps, start, to))
+    return judged, apart
 
 
 def current_paths(geometry: BoardGeometry, rise_c: float = TRACK_RISE_C, copper_oz: float = COPPER_OZ) -> list[Verdict]:
     f = facts(geometry)
-    current: dict[str, float] = {}
-    carriers: dict[str, list] = {}
+    carriers: dict[str, dict] = {}
     for fp in geometry.footprints:
         fact = f[fp.ref]
         for p in fp.pads:
             amps = fact.current_a if fact.currents is None else fact.currents.get(p.net.lower())
-            if amps is not None:
-                current[p.net] = max(current.get(p.net, 0.0), amps)
-                if fp.ref not in carriers.setdefault(p.net, []):
-                    carriers[p.net].append(fp.ref)
+            if amps is not None and amps > 0:          # a net given no current, or 0, is not one it carries
+                on = carriers.setdefault(p.net, {})
+                on[fp.ref] = max(on.get(fp.ref, 0.0), amps)
     out = []
-    for net, amps in sorted(current.items()):
-        need = ipc2221_width_mm(amps, rise_c, copper_oz)
-        sized = "for %g A at %g C rise on %g oz" % (amps, rise_c, copper_oz)
-        route = _load_path(geometry, net, sorted(carriers[net]))
-        if route is not None:
-            w, a, b = route
-            out.append(Verdict("current-path", net, w, "mm", need, w >= need,
-                               "narrowest point of the load's widest route, %s to %s, %s" % (a, b, sized)))
+    for net, on in sorted(carriers.items()):
+        judged, apart = _pairs(geometry, net, on, rise_c, copper_oz)
+        loose = "; ".join("no copper joins %s %s yet" % (a, "and %s" % b if b else "to another part")
+                          for a, b in apart)
+        if not judged:
+            amps = max(on.values())
+            out.append(Verdict("current-path", net, 0.0, "mm", ipc2221_width_mm(amps, rise_c, copper_oz), None,
+                               "%s on %s (%g A)" % (loose, net, amps)))
             continue
-        tracks = [c for c in geometry.copper if c.net == net and c.kind == "track"]
-        pours = [c for c in geometry.copper if c.net == net and c.kind == "poly"]
-        need = ipc2221_width_mm(amps, rise_c, copper_oz)
-        sized = "for %g A at %g C rise on %g oz" % (amps, rise_c, copper_oz)
-        if pours:
-            neck = min(neck_mm(o) for c in pours for o in c.outlines)
-            leads = "; the %d track(s) are pin leads, narrowest %.2f mm" % (
-                len(tracks), min(c.width_mm for c in tracks)) if tracks else ""
-            out.append(Verdict("current-path", net, neck, "mm", need, neck >= need,
-                               "narrowest neck of the pour %s%s" % (sized, leads)))
-            continue
-        if not tracks:
-            out.append(Verdict("current-path", net, 0.0, "mm", need, None, "no track on the net yet (%g A)" % amps))
-            continue
-        narrowest = min(c.width_mm for c in tracks)
-        out.append(Verdict("current-path", net, narrowest, "mm", need, narrowest >= need, "narrowest track " + sized))
+        w, need, amps, a, b = min(judged, key=lambda j: j[0] / j[1])
+        note = "narrowest point of the load's widest route, %s to %s, for %g A at %g C rise on %g oz" % (
+            a, b, amps, rise_c, copper_oz)
+        out.append(Verdict("current-path", net, w, "mm", need, w >= need, note + ("; " + loose if loose else "")))
     return out
 
 

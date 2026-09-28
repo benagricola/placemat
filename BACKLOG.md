@@ -13,12 +13,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   them. A pour declared with `board.plane(outline=...)` could keep other
   nets' copper out of its outline on its layer. Needs a spec (a KiCad rule
   area has no allow list: the pour's own net must still reach it).
-- **`check current-path` takes sense, boot and bias pads for the load's
-  path** (a board's layout work, 2026-09-28): a switcher's SW2 pin-to-pin
-  track, a boot capacitor's track, a current-sense line and an ideal-diode
-  controller's sense pins fail it at 0.02-0.16 mm, and a sense filter
-  resistor was taken for the load. The route should run between the pads
-  of the parts `Pm.I` names on the net, ignoring the others.
 - **Placement behaviours from the ring test board** (same entry): a block
   satellite slides along its pin row over other pins; the link-wait rule
   outranks `priority=`; a part seeded deep inside a parts keepout searches
@@ -52,6 +46,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **check current-path between the parts that carry it** (unreleased; a
+  board's layout work, 2026-09-28; spec
+  `2026-09-28-current-path-terminals-design.md`).
 - **placemat route with the board's own settings; a kept end on a zone**
   (0.49.1; a board's layout work, 2026-09-28): `[route] layers` was ignored
   by the route command; a kept route ending on its net's zone dropped every

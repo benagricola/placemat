@@ -94,9 +94,9 @@ def test_ipc2221_width_for_an_outer_track():
 
 def test_a_current_path_is_judged_by_its_narrowest_track():
     cin, u, l, cout, rfb = buck()
-    vin = track("VIN", 8.6, 10, 12.6, 13, w=0.5)
-    sw = track("SW", 15.4, 13, 18.6, 13, w=1.5)
-    verdicts = current_paths(board_geometry([cin, u, l, cout, rfb], copper=[vin, sw]))
+    vin = [track("VIN", 8.6, 10, 8.6, 13, w=0.5), track("VIN", 8.6, 13, 12.6, 13, w=0.5)]      # C1 to U1
+    sw = track("SW", 15.4, 13, 18.6, 13, w=1.5)                                                  # U1 to L1
+    verdicts = current_paths(board_geometry([cin, u, l, cout, rfb], copper=vin + [sw]))
     by_net = {v.subject: v for v in verdicts}
     assert set(by_net) == {"VIN", "SW"}                 # U1 carries 3 A: the nets on its pads
     assert by_net["VIN"].value == pytest.approx(0.5) and not by_net["VIN"].ok
@@ -144,9 +144,11 @@ def test_a_current_may_be_given_per_net_so_a_control_pin_is_not_sized_for_the_po
     u = footprint("U1", 14, 13, nets=("VIN", "FB"), fields={"Pm.I": "vin:3A fb:1mA"})
     f = facts(board_geometry([u]))
     assert f["U1"].current_a is None and f["U1"].currents == {"vin": 3.0, "fb": 0.001}
-    vin = track("VIN", 8.6, 10, 12.6, 13, w=0.5)
-    fb = track("FB", 15.4, 13, 20, 13, w=0.2)
-    by_net = {v.subject: v for v in current_paths(board_geometry([u], copper=[vin, fb]))}
+    cin = footprint("C1", 8, 13, nets=("GND", "VIN"))                  # its VIN pad at (9.4, 13)
+    r = footprint("R1", 22, 13, nets=("FB", "X"))                       # its FB pad at (20.6, 13)
+    vin = track("VIN", 9.4, 13, 12.6, 13, w=0.5)
+    fb = track("FB", 15.4, 13, 20.6, 13, w=0.2)
+    by_net = {v.subject: v for v in current_paths(board_geometry([u, cin, r], copper=[vin, fb]))}
     assert not by_net["VIN"].ok and by_net["FB"].ok
     assert by_net["FB"].limit == pytest.approx(ipc2221_width_mm(0.001, 10.0, 1.0))
 
@@ -163,11 +165,12 @@ def test_a_net_carried_by_a_pour_is_judged_by_the_pour_not_its_pin_leads():
     from placemat.values import Box
     from tests.fixtures import rect
     u = footprint("U1", 14, 13, nets=("VIN", "SW"), fields={"Pm.I": "vin:3A"})
-    lead = track("VIN", 12.6, 13, 12.6, 11, w=0.2)                       # the pin's lead into the pour
-    outline = rect(12.6, 8, 6, 4)
+    c = footprint("C1", 12.6, 8, nets=("VIN", "GND"))                  # its VIN pad at (11.2, 8), in the pour
+    lead = track("VIN", 12.6, 13, 12.6, 11, w=0.2)                       # the pin's lead, beside its pad in the pour
+    outline = rect(12.6, 9.5, 6, 7)                                     # y 6..13: the pad's edge is in it
     pour = CopperItem("poly", "VIN", frozenset([F]), (outline,), Box.of_points(outline))
-    (v,) = current_paths(board_geometry([u], copper=[lead, pour]))
-    assert v.ok and v.value == pytest.approx(4.0) and "pin leads, narrowest 0.20" in v.note
+    (v,) = current_paths(board_geometry([u, c], copper=[lead, pour]))
+    assert v.ok and v.value == pytest.approx(6.0) and "U1." in v.note and "C1." in v.note
 
 
 def test_keep_out_ignores_a_parts_own_adjacent_pins():
@@ -189,12 +192,13 @@ def test_a_pours_narrowest_neck_is_the_current_paths_width():
     # two 4 x 4 pads of copper joined by a 1.0 wide, 3 long neck
     dumbbell = ((0, 0), (4, 0), (4, 1.5), (7, 1.5), (7, 0), (11, 0), (11, 4), (7, 4), (7, 2.5), (4, 2.5), (4, 4), (0, 4))
     assert neck_mm(dumbbell) == pytest.approx(1.0)
-    u = footprint("U1", 2, 2, nets=("VIN", "SW"), fields={"Pm.I": "vin:3A"})
+    u = footprint("U1", 2, 2, nets=("VIN", "SW"), fields={"Pm.I": "vin:3A"})     # its VIN pad in the left bell
+    c = footprint("C1", 9.4, 2, nets=("VIN", "GND"))                             # its VIN pad in the right one
     pour = CopperItem("poly", "VIN", frozenset([F]), (dumbbell,), Box.of_points(dumbbell))
-    (v,) = current_paths(board_geometry([u], copper=[pour]))
-    assert v.value == pytest.approx(1.0) and v.ok is False and "neck" in v.note
+    (v,) = current_paths(board_geometry([u, c], copper=[pour]))
+    assert v.value == pytest.approx(1.0) and v.ok is False and "U1." in v.note
     wide = CopperItem("poly", "VIN", frozenset([F]), (((0, 0), (11, 0), (11, 4), (0, 4)),), Box(0, 0, 11, 4))
-    (v,) = current_paths(board_geometry([u], copper=[wide]))
+    (v,) = current_paths(board_geometry([u, c], copper=[wide]))
     assert v.value == pytest.approx(4.0) and v.ok
 
 

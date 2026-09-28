@@ -1054,11 +1054,15 @@ second and a half a page and only runs on pages under 200 characters.
 placemat-design skill says which) and reports hot loop area, switch node
 copper, keep-out distance, crossings under sense tracks, current path
 width against IPC-2221 and junction temperature; exit 1 on a failed
-verdict. The current path is the route the load takes: between two parts
-carrying `Pm.I` on the net, the narrowest point of the widest route between
-them; with one, of its widest route to another part. A thin branch to a
-sense or bootstrap pin is not that route and does not set it; a net whose
-copper joins no carrying pad yet is judged by its narrowest track. A board with no facts reports nothing to check. **Every `placemat
+verdict. The current path is the route the load takes, through tracks,
+vias, pours and zone fills alike: each two parts carrying `Pm.I` on the net
+are judged at the lesser of their two currents - what can flow between
+them - by the narrowest point of the widest route from any pad of one to
+any pad of the other; the net's verdict is its worst pair, naming both ends
+and the current. With one carrier, its widest route to another part's pad
+at its own current. A part carries on a net only at a current above zero:
+a per-net `Pm.I` that leaves a net out, or gives it 0, leaves a sense pin
+out of the load. Two carriers no copper joins yet are said, not judged. A board with no facts reports nothing to check. **Every `placemat
 run` runs the same checks on the board it wrote**, prints one `checks` line -
 how many failed, passed and were not judged, then each failure - and keeps the
 verdicts in `run.json` under `verdicts`, with `checks_failed` and

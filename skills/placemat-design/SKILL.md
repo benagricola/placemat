@@ -76,7 +76,11 @@ use these:
 Name the net `Pm.Sensitive` protects as the capture names it; a name no pad
 of the part carries makes placemat take the part's least-connected net and
 say so in the verdict. Give `Pm.I` per net: a bare current on a switcher
-sizes its feedback pin for the load path.
+sizes its feedback pin for the load path. A controller that senses a load's
+net (a current-sense pin, an ideal-diode controller's anode and cathode)
+gives that net its own small current, or leaves it out: the check judges a
+pair of carriers at the lesser of their currents, so its sense pin is judged
+at what it draws, not at the load.
 
 A value is a plain string with its unit. A placeholder is allowed while the
 datasheet is pending, but say so in a comment beside it: a number with no
@@ -118,11 +122,11 @@ fact, and a check with no limit reports the number. Built:
   against `--keep-out` (default 2 mm)
 - `crossings-under`: other nets' copper on the other face under a
   sensitive net's tracks; zones do not count, the limit is zero
-- `current-path`: per net a `Pm.I` names, the narrowest section of its
-  copper (a pour's neck across its interior, else its narrowest track)
-  against the IPC-2221 outer-layer width for that current at `--rise`
-  (default 10 C) on `--copper-oz` (default 1 oz); an unrouted net is
-  reported, not judged
+- `current-path`: per net a `Pm.I` names, each two parts carrying on it
+  judged at the lesser of their currents by the narrowest point of the
+  widest route between them (tracks, vias, pours, zone fills) against the
+  IPC-2221 outer-layer width at `--rise` (default 10 C) on `--copper-oz`
+  (default 1 oz); carriers no copper joins yet are reported, not judged
 - `heat`: the board temperature (`--ambient`, default 100 C) plus `Pm.Pd`
   times `Pm.ThetaJb` (or `Pm.ThetaJa` when that is all the part has, which
   is pessimistic), against `Pm.TjMax`
