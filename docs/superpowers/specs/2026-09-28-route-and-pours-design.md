@@ -1,7 +1,7 @@
 # The router and the board's pours
 
 Date: 2026-09-28
-Status: draft
+Status: approved 2026-09-28
 Source: PLACEMAT_GAPS.md (a board's own), 2026-09-28 "which routed tracks
 cross a pour's outline"; the board's report of 2026-09-28 that its outer
 ground fills are switched off for every routing run
