@@ -1,7 +1,7 @@
 # Keeping the closed parts of an open net
 
 Date: 2026-09-28
-Status: draft
+Status: approved 2026-09-28
 Source: a board's layout work, 2026-09-28 (the core): "can route --adopt keep
 the closed parts of a net that is still open"
 

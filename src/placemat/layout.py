@@ -3853,15 +3853,20 @@ class Board:
         from . import routes as _routes
         intents = []
         for e in entries:
+            key = e.net                         # a net kept in part has an entry a pass: each its own
+            n = 1
+            while key in plan.adopted:
+                n += 1
+                key = "%s #%d" % (e.net, n)
             got = _routes.resolve(e, occ, self.settings.route_adopt_tolerance)
             if isinstance(got, str):
-                plan.adopted[e.net] = "dropped: " + got
+                plan.adopted[key] = "dropped: " + got
                 plan.findings.append(Finding("route", "adopted route %s dropped: %s; the router routes it again"
-                                             % (e.net, got)))
+                                             % (key, got)))
                 continue
-            plan.adopted[e.net] = "held"
+            plan.adopted[key] = "held"
             ops = list(got[0]) + list(got[1])
-            intents.append(CopperIntent("adopted %s" % e.net, e.net, Priority.DEFAULT, lambda ctx, ops=ops: ops,
+            intents.append(CopperIntent("adopted %s" % key, e.net, Priority.DEFAULT, lambda ctx, ops=ops: ops,
                                         (), "kept from a route", len(self._copper) + len(intents)))
         if intents:
             self._plan_copper(occ, ctx, intents, plan, progress)
