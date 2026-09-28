@@ -116,6 +116,22 @@ class RouteReport:
                 "restored_graphics": self.restored_graphics}
 
 
+def plane_nets_of(pcb) -> set:
+    """The nets a board serves by a pour: each with a copper zone, or a
+    filled copper polygon, on it. What run --route leaves out as the plan's
+    plane nets, read off the written board."""
+    from .quiet import import_pcbnew, quiet_stderr
+    pcbnew = import_pcbnew()
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(str(pcb)) if Path(pcb).stat().st_size else None
+    if board is None:
+        return set()
+    nets = {z.GetNetname() for z in board.Zones() if not z.GetIsRuleArea() and z.GetNetname()}
+    nets |= {d.GetNetname() for d in board.GetDrawings() if isinstance(d, pcbnew.PCB_SHAPE) and d.GetNetname()
+             and d.IsOnCopperLayer() and (d.IsSolidFill() if hasattr(d, "IsSolidFill") else False)}
+    return nets
+
+
 GUARD = "placemat footprint copper"
 
 

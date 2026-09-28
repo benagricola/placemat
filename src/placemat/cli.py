@@ -459,9 +459,11 @@ def cmd_route(args) -> int:
     pcb = p if src is None else src.pcb
     work = Path(args.out) if args.out else pcb.parent.parent.parent / ".placemat" / "route"
     cfg = load(src.board_dir if src is not None else pcb.parent)       # the board's own [route] settings
+    from .kicad.route import plane_nets_of
+    planes = plane_nets_of(pcb)             # served by their pours, as run --route leaves them
     with bind(cfg):
-        report = route_board(pcb, work, exclude_nets=set(args.exclude), layers=args.layers, quick=not args.full,
-                             iterations=args.iterations)
+        report = route_board(pcb, work, exclude_nets=set(args.exclude) | planes, layers=args.layers,
+                             quick=not args.full, iterations=args.iterations)
     if args.json:
         console.data(json.dumps(report.as_dict(), indent=2))
     else:
