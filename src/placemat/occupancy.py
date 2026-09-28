@@ -499,6 +499,14 @@ class Occupancy:
                             frozenset())
         return self._transform(read, self.items[ref].reference).apply_location(pad.airwire_end)
 
+    def carry(self, ref: str, shapes) -> None:
+        """Copper a part takes with it wherever it is placed: `shapes` in
+        its current frame, moved and turned as its own are."""
+        import dataclasses
+        g = self.items[ref]
+        self.items[ref] = dataclasses.replace(g, shapes=g.shapes + tuple(shapes))
+        self._invalidate_native()
+
     def add_copper(self, shapes) -> None:
         """Planned copper becomes an obstacle for everything placed after it."""
         self.copper.extend(shapes)

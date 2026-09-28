@@ -663,6 +663,7 @@ class Board:
         self._rank_note: dict = {}
         self._waited: dict = {}                # item key -> the linked partner it waited for
         self._copper: list[CopperIntent] = []
+        self._pad_vias: list = []          # (pad ref, net, drill, size) of each via declared at a pad: its part carries it
         self._labels: list = []
         self._fanouts: list = []           # (key, footprint, depth, sides or None, why)
         self._faces: tuple | None = None
@@ -819,6 +820,32 @@ class Board:
         geom, _, _ = self._item(item)
         occ = self._bare_occupancy()
         return occ.reach_box(geom, Placement(Location(0.0, 0.0), rotation, face))
+
+    def _carry_pad_vias(self, occ) -> None:
+        """Each via declared at a pad becomes copper of the pad's part - its
+        ring on every layer and its hole, where the pad puts it - so the part,
+        or the cell or block it is in, carries it through the search: a via
+        at a searched part's pad is otherwise planned after the part has
+        landed, over whatever the other face has there."""
+        from .lock import _turn
+        from .occupancy import _BOTH, hole_shape
+        for at, net, drill, size in self._pad_vias:
+            ref, number, _, _ = self._pad_ref(at)
+            if ref not in occ.items:
+                continue
+            g = occ.items[ref]
+            fp = self.geometry.footprint(ref)
+            boxes = [p.box for p in fp.pads if p.number == number]
+            if not boxes:
+                continue
+            c = Box.union(boxes).center
+            lx, ly = getattr(at, "lx", 0.0), getattr(at, "ly", 0.0)
+            vx, vy = _turn(-lx if g.reference.face is Face.BACK else lx, ly, g.reference.rotation)
+            c = Location(c.x + vx, c.y + vy)
+            owner = "via at %s.%s" % (ref, number)       # not the part's: its pad lookups must not take it
+            ring = via_ring(c, size)
+            occ.carry(ref, [Shape(owner, "through", _BOTH, frozenset(self.geometry.layers), net, ring,
+                                  Box.of_points(ring)), hole_shape(owner, c, drill, net)])
 
     def _pad_ref(self, ref):
         """Validate a pad reference now; return (refdes, pad number, dx, dy).
@@ -2286,6 +2313,9 @@ class Board:
         name = self.geometry.require_net(net)
         refs = _refs_in([at])
         d, s = drill or self.via_drill, size or self.via_size
+        if isinstance(at, (PadRef, CellPadRef)) and not (at.dx or at.dy):
+            # at the pad, or off it in the part's frame: it turns with the part, so the part carries it
+            self._pad_vias.append((at, name, d, s))
 
         def plan(ctx):
             ops = []
@@ -2532,6 +2562,7 @@ class Board:
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
                         board_cutouts=self._cutouts, settings=self.settings,
                         component_spacing=self.component_spacing)
+        self._carry_pad_vias(occ)          # before any cell's geometry is built from its members'
         occ.quiet_nets = frozenset(self._plane_nets() | set(self._free_nets))
         if self._fit:
             occ.board_box = None                # no frame yet: the decided items have no edge to be judged by
