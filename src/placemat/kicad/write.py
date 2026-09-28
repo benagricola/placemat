@@ -79,7 +79,10 @@ def _merge_cell_zones(board, plan: Plan) -> list:
     """Leave out a stamped cell's zone on each layer where the board's own
     plane has the same net and wholly covers it: the plane fills that area
     anyway, and a second zone there is filled separately with the cell's
-    settings. Rule areas, pours and zones the board does not cover stay."""
+    settings. Rule areas, pours and zones the board does not cover stay, and
+    so does one whose pads join otherwise than the plane's (a cell's solid
+    ground under a thermal board fill: merged, its solid joins became
+    spokes or none) - recorded in `plan.kept_zones`."""
     planes = [op for op in plan.copper if isinstance(op, Zone)]
     # every zone is found before any is deleted, and deleted, not removed: a
     # removed zone is freed with its Python wrapper and corrupts board.Zones()
@@ -96,8 +99,12 @@ def _merge_cell_zones(board, plan: Plan) -> list:
             layer = CopperLayer.of(board.GetLayerName(layer_id))
             plane = next((p for p in planes if p.net == net and p.layer == layer
                           and all(poly_within(ol, p.points) for ol in outlines)), None)
+            solid = z.GetPadConnection() == pcbnew.ZONE_CONNECTION_FULL
             if plane is None:
                 keep.AddLayer(layer_id)
+            elif solid != plane.solid_pads:
+                keep.AddLayer(layer_id)
+                plan.kept_zones.append(MergedZone(g.GetName(), net, layer, _zone_difference(z, plane)))
             else:
                 merged.append(MergedZone(g.GetName(), net, layer, _zone_difference(z, plane)))
         if keep.CuStack().size() == 0:

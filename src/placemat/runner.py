@@ -449,6 +449,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         apply_plan(src.pcb, plan)
         for cell, zones in _merged_by_cell(plan.merged_zones):
             say("zones", "%s: %s merged into the board's plane" % (cell, zones))
+        for k in plan.kept_zones:
+            say("zones", "%s: its %s zone on %s kept under the board's plane: %s" % (k.cell, k.net, k.layer.value, k.note))
         from .models import models_line
         line = models_line(plan.models)
         if line:

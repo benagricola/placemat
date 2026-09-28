@@ -54,9 +54,10 @@ def _zone_names(pcb):
     return {z.GetZoneName() for z in pcbnew.LoadBoard(str(pcb)).Zones()}
 
 
-def _write(pcb, settings=None, plane_outline=None):
+def _write(pcb, settings=None, plane_outline=None, solid_pads=None):
     b = Board(read_board(pcb), edge_margin=0.0, keep_going=True, settings=settings)
-    b.plane(Net("GND"), layers=(CopperLayer.B,), outline=plane_outline)
+    extra = {} if solid_pads is None else {"solid_pads": solid_pads}
+    b.plane(Net("GND"), layers=(CopperLayer.B,), outline=plane_outline, **extra)
     plan = b.resolve()
     apply_plan(pcb, plan)
     return plan
@@ -111,9 +112,22 @@ def test_the_setting_keeps_every_cell_zone(breakout_pcb, tmp_path):
     assert "cell gnd" in _zone_names(pcb)
 
 
-def test_a_merged_zone_says_how_its_pads_differed_from_the_plane(breakout_pcb, tmp_path):
+def test_a_cell_zone_whose_pads_join_otherwise_than_the_planes_is_kept(breakout_pcb, tmp_path):
+    """A cell's solid pour under a thermal board fill (its RF shunts and
+    exposed pads joined solidly): merged, those joins became thermal spokes
+    or none. It stays, and the run says why."""
+    pcb = _copy(breakout_pcb, tmp_path)
+    _add_cell_zone(pcb, "cell gnd", "GND", "B.Cu", "power_drop0", solid_pads=True)
+    plan = _write(pcb, solid_pads=False)
+    assert "cell gnd" in _zone_names(pcb)
+    assert plan.merged_zones == []
+    (k,) = plan.kept_zones
+    assert k.cell == "power_drop0" and "solid" in k.note and "thermal" in k.note
+
+
+def test_a_thermal_cell_zone_under_a_solid_plane_is_kept_too(breakout_pcb, tmp_path):
     pcb = _copy(breakout_pcb, tmp_path)
     _add_cell_zone(pcb, "cell gnd", "GND", "B.Cu", "power_drop0", solid_pads=False)
-    (m,) = _write(pcb).merged_zones
-    assert "thermal" in m.note and "solid" in m.note
+    plan = _write(pcb, solid_pads=True)
+    assert "cell gnd" in _zone_names(pcb) and plan.merged_zones == []
 
