@@ -46,7 +46,7 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 ## Done
 
 - **Two drawn courtyards sharing only a vertex, and stroked polygons**
-  (unreleased; a board's layout work, 2026-09-27): polygons that share only
+  (0.48.0; a board's layout work, 2026-09-27): polygons that share only
   a vertex do not overlap whichever way wound; a stroked copper polygon is
   read with its stroke on every edge; `lock --current` follows a run that
   kept going.
