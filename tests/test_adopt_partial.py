@@ -76,3 +76,31 @@ def test_every_entry_of_a_net_resolves_on_its_own_and_is_released_together(tmp_p
     script = tmp_path / "Board_layout.py"
     routes.write(routes.path_for(script), [first, first])
     assert routes.release(script, ["X"]) == [] and routes.read(routes.path_for(script)) == []
+
+
+def test_the_islands_are_counted_for_the_adopt_line():
+    placed = _board()
+    counts = {}
+    routes.adoptable(placed, _routed(placed), ["X"], still_open={"X": 1}, partial=True, counts=counts)
+    assert counts["X"] == {"kept": 2, "pads": 3, "planes": 1, "dropped": 1}
+    assert routes.island_line("X", counts["X"], 1) == \
+        "X: 2 island(s) kept, joining 3 pad(s) and a plane; 1 dropped (reaching one pad or none); still 1 open"
+
+
+def test_new_copper_ending_on_the_scripts_plane_drop_is_kept():
+    """A router track from a pad to a via the script put in the net's plane
+    joins a pad and the plane; its end meets copper that is not new."""
+    placed = _board()
+    placed = dataclasses.replace(placed, copper=tuple(placed.copper) + (_via("X", (5.0, 30.0)),))   # the script's drop
+    routed = dataclasses.replace(placed, copper=tuple(placed.copper) + (_track("X", (7.4, 30.0), (5.0, 30.0)),))
+    (e,) = routes.adoptable(placed, routed, ["X"], still_open={"X": 1}, partial=True)
+    assert len(e.tracks) == 1 and not e.vias
+
+
+def test_new_copper_reaching_a_pad_through_the_scripts_track_joins_it():
+    placed = _board()
+    placed = dataclasses.replace(placed, copper=tuple(placed.copper) + (_track("X", (19.4, 16.0), (19.4, 20.0)),))
+    routed = dataclasses.replace(placed, copper=tuple(placed.copper) + (_track("X", (11.4, 10.0), (11.4, 20.0)),
+                                                                        _track("X", (11.4, 20.0), (19.4, 20.0))))
+    (e,) = routes.adoptable(placed, routed, ["X"], still_open={"X": 1}, partial=True)
+    assert len(e.tracks) == 2                  # U1.2 to R1.1, the last stretch the script's own

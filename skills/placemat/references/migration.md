@@ -16,6 +16,10 @@ apart, and `check current-path` took a pour for a 0.3 mm strip). A cell's
 lock entry no longer releases when its fragment is stamped again; entries
 0.48 released are written again by `placemat lock <script> --current`.
 
+`route --adopt ... --partial` keeps the closed parts of a net the route
+left open (each island joining two pads, or a pad and a plane), so a plane
+net the router never finishes keeps its drops and joins from pass to pass.
+
 ## To 0.48
 
 Nothing to change in a script. A courtyard that is not a rectangle (a

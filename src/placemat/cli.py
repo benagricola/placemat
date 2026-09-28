@@ -56,6 +56,9 @@ def parser() -> argparse.ArgumentParser:
     keep.add_argument("--adopt", nargs="+", metavar="NET",
                       help="keep the router's copper on these nets: every run draws it (a layout script only)")
     keep.add_argument("--adopt-all", action="store_true", help="keep the copper on every net the route closed")
+    rt.add_argument("--partial", action="store_true",
+                    help="with --adopt: keep a net the route left open in part - each island of its new copper "
+                         "that joins two of its pads, or a pad and a plane of it")
     rt.add_argument("--no-lock", action="store_true",
                     help="with --adopt: leave the lock alone (by default the items the kept nets join are locked)")
 
@@ -460,22 +463,26 @@ def cmd_route(args) -> int:
             console.say("route", "%-20s %d open" % (net, n))
         console.say("route", "routed board: %s" % report.routed_pcb)
     if args.adopt or args.adopt_all:
-        _adopt(p, args.adopt if args.adopt else None, report, lock_items=not args.no_lock)
+        _adopt(p, args.adopt if args.adopt else None, report, lock_items=not args.no_lock,
+               partial=getattr(args, "partial", False))
     return 0 if report.valid else 1
 
 
-def _adopt(script: Path, nets, report, lock_items: bool = True) -> None:
+def _adopt(script: Path, nets, report, lock_items: bool = True, partial: bool = False) -> None:
     """Keep the route's copper on `nets` (None: every net it closed) and, by
     default, lock the searched items those nets join where the board stands,
     since kept copper is dropped when they move. A placement the next run
     would not reproduce adopts nothing."""
     from . import lock, routes
     from .kicad.read import read_board
-    skipped = {}
+    skipped, counts = {}, {}
     new = routes.adoptable(read_board(report.work / "in.kicad_pcb"), read_board(report.routed_pcb), nets,
-                           report.open_nets, report.shorted, skipped)
+                           report.open_nets, report.shorted, skipped, partial=partial, counts=counts)
     for net, why in skipped.items():
         console.say("adopt", "%s not adopted: %s" % (net, why))
+    for net, tally in sorted(counts.items()):
+        if tally["kept"]:
+            console.say("adopt", routes.island_line(net, tally, report.open_nets.get(net, 0)))
     if new and lock_items:
         try:
             entries, locked, refused, run_id = _lock_where_it_stands(

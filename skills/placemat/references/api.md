@@ -922,7 +922,7 @@ allows; a board uses as many as its stackup has), `Face.FRONT / BACK`,
 ```
 placemat run <script> [--label L] [--fresh] [--no-render] [--no-drc] [-v] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]]
 placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--json]
-               [--adopt NET ... | --adopt-all] [--no-lock]
+               [--adopt NET ... | --adopt-all] [--partial] [--no-lock]
 placemat routes <script> [--release NET ...]
 placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
@@ -1148,7 +1148,14 @@ as above, then keeps the router's new copper on the named nets in
 `<script stem>.routes.json` beside the script (commit it with the script);
 `--adopt-all` keeps every net the route closed. A net is adopted whole and
 clean: one still open or shorted after the route, or one the route added no
-copper to, is not kept, and says why. Each point is stored as an offset
+copper to, is not kept, and says why - unless `--partial`: then a net the
+route left open keeps each island of its new copper that joins two of its
+pads, or a pad and a plane of it (a via inside one of its zones), trimmed of
+copper that leads nowhere, as a partial entry; the adopt line says how many
+islands were kept and dropped and how much is still open. Copper already
+there (the script's, a kept route's) joins what it touches. A later pass
+adds another partial entry beside it; adopting the net whole replaces them
+all. Each point is stored as an offset
 from a pad of its net - the pad it lies on, or the net's nearest pad - with
 the centres of the pads its parts were at, so a run fits how the parts have
 moved and turned and carries the copper with them; a part is named by its

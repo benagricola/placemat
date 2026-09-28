@@ -95,39 +95,85 @@ def islands(placed, routed, net) -> list:
     """The router's new copper on `net` in islands - copper that touches on
     a layer they share, a pad of the net joining what touches it - each as
     (its copper, its terminals): the net's pads it touches, and "plane" for
-    a via of it inside one of the net's zones."""
+    a via of it inside one of the net's zones. Copper on no path between two
+    terminals (a stub off a pad, the end of a route that stopped) is trimmed
+    from its island."""
     from .geometry import poly_distance
     new = [c for c in added_copper(placed.copper, routed.copper) if c.net == net]
-    pads = [("pad", fp.ref, p) for fp in routed.footprints for p in fp.pads if p.net == net]
+    fresh = {id(c) for c in new}
+    pads = [(fp.ref, p) for fp in routed.footprints for p in fp.pads if p.net == net]
     zones = [c for c in routed.copper if c.kind == "zone" and c.net == net]
-    nodes = [(c.layers, c.outlines, c.box) for c in new] + [(p.layers, p.outlines, p.box) for _, _, p in pads]
-    up = list(range(len(nodes)))
-
-    def find(i):
-        while up[i] != i:
-            up[i] = up[up[i]]
-            i = up[i]
-        return i
-    for i in range(len(new)):
-        for j in range(i + 1, len(nodes)):
+    # the net's copper already there (the script's, a kept route's): it joins what it touches, and a via of
+    # it in the net's plane is the plane
+    there = [c for c in routed.copper if c.net == net and c.kind in ("track", "via", "poly") and id(c) not in fresh
+             and c.outlines]
+    nodes = [(c.layers, c.outlines, c.box) for c in new] + [(p.layers, p.outlines, p.box) for _, p in pads] + \
+        [(c.layers, c.outlines, c.box) for c in there]
+    first_there = len(new) + len(pads)
+    near = {i: set() for i in range(len(nodes))}
+    for i in list(range(len(new))) + list(range(first_there, len(nodes))):    # pad to pad: never copper
+        for j in range(i + 1, len(nodes)) if i < len(new) else list(range(len(new), first_there)) + \
+                list(range(i + 1, len(nodes))):
             (la, oa, ba), (lb, ob, bb) = nodes[i], nodes[j]
             if la & lb and ba.overlaps(bb, gap=1e-6) and \
-                    min(poly_distance(a, b) for a in oa for b in ob) <= 1e-6:
-                up[find(i)] = find(j)
-    out = {}
-    for i, c in enumerate(new):
-        out.setdefault(find(i), ([], set()))[0].append(c)
-    for k, (_, ref, p) in enumerate(pads):
-        root = find(len(new) + k)
-        if root in out:
-            out[root][1].add((ref, p.number))
-    for copper, terminals in out.values():
-        for c in copper:
-            if c.kind == "via":
-                at = _xy(c.anchors[0]) if c.anchors else (c.box.center.x, c.box.center.y)
-                if any(z.layers & c.layers and any(point_in_polygon(at, o) for o in z.outlines) for z in zones):
+                    min(poly_distance(x, y) for x in oa for y in ob) <= 1e-6:
+                near[i].add(j)
+                near[j].add(i)
+
+    def plane(i):
+        c = new[i] if i < len(new) else there[i - first_there]
+        if c.kind != "via":
+            return False
+        at = _xy(c.anchors[0]) if c.anchors else (c.box.center.x, c.box.center.y)
+        return any(z.layers & c.layers and any(point_in_polygon(at, o) for o in z.outlines) for z in zones)
+    planes = {i for i in list(range(len(new))) + list(range(first_there, len(nodes))) if plane(i)}
+    alive = set(range(len(new)))
+
+    def met(i, pt):
+        """Whether the point `pt` of item i lies on a pad of the net or on other live copper."""
+        return any(point_in_polygon(pt, o) for j in near[i] if j >= len(new) or j in alive
+                   for o in (nodes[j][1]))
+
+    def leads_nowhere(i):
+        c = new[i]
+        if i in planes:
+            return False
+        if c.kind == "track":           # an end that meets nothing
+            return not all(met(i, _xy(a)) for a in (c.anchors[0], c.anchors[-1]))
+        return len([j for j in near[i] if j in alive or j >= len(new)]) <= 1
+    trimmed = True
+    while trimmed:
+        trimmed = False
+        for i in sorted(alive):
+            if leads_nowhere(i):
+                alive.discard(i)
+                trimmed = True
+    seen, out = set(), []
+    for start in sorted(alive):
+        if start in seen:
+            continue
+        stack, copper, terminals = [start], [], set()
+        while stack:
+            i = stack.pop()
+            if i in seen:
+                continue
+            seen.add(i)
+            if i >= first_there:                # the net's copper already there: a join, a plane if it is one
+                if i in planes:
                     terminals.add("plane")
-    return list(out.values())
+                stack += [j for j in near[i] if j in alive or j >= len(new)]
+                continue
+            if i >= len(new):
+                terminals.add((pads[i - len(new)][0], pads[i - len(new)][1].number))
+                stack += [j for j in near[i] if j in alive or j >= first_there]
+                continue
+            copper.append(new[i])
+            if i in planes:
+                terminals.add("plane")
+            stack += [j for j in near[i] if j in alive or j >= len(new)]
+        out.append((copper, terminals))
+    dropped = [new[i] for i in range(len(new)) if i not in alive]
+    return out + ([(dropped, set())] if dropped else [])
 
 
 def entries_from(placed, routed, nets, pick=None) -> list:
@@ -288,7 +334,8 @@ def items_of(entries, board) -> set:
     return {owner[n] for e in entries for n in (refs.get(p, p) for p in e.parts) if n in owner}
 
 
-def adoptable(placed, routed, nets=None, still_open=(), shorted=(), skipped=None, partial: bool = False) -> list:
+def adoptable(placed, routed, nets=None, still_open=(), shorted=(), skipped=None, partial: bool = False,
+              counts=None) -> list:
     """The entries `adopt` would write, and nothing written: `skipped`,
     when given, gets {net: why} for each net left out. With `partial`, a net
     still open keeps each island of its new copper that joins two of its
@@ -301,10 +348,17 @@ def adoptable(placed, routed, nets=None, still_open=(), shorted=(), skipped=None
         if net in shorted:
             skipped[net] = "the router shorted it"
         elif net in still_open and partial:
-            keep = []
+            keep, tally = [], {"kept": 0, "pads": 0, "planes": 0, "dropped": 0}
             for copper, terminals in islands(placed, routed, net):
                 if len(terminals) >= 2:
                     keep += copper
+                    tally["kept"] += 1
+                    tally["pads"] += sum(1 for t in terminals if t != "plane")
+                    tally["planes"] += "plane" in terminals
+                else:
+                    tally["dropped"] += 1
+            if counts is not None:
+                counts[net] = tally
             if not keep:
                 skipped[net] = "still %d open, and no island of it joins two pads or a pad and a plane" % still_open[net]
             else:
@@ -315,6 +369,15 @@ def adoptable(placed, routed, nets=None, still_open=(), shorted=(), skipped=None
             skipped[net] = "the route added no copper to it (closed already, or no such net)"
     nets_kept = [n for n in (sorted(added) if nets is None else nets) if n not in skipped]
     return entries_from(placed, routed, nets_kept, pick={n: {_copper_id(c) for c in cs} for n, cs in pick.items()})
+
+
+def island_line(net: str, tally: dict, still: int) -> str:
+    """How much of an open net was kept, for the adopt line."""
+    joins = "%d pad(s)" % tally["pads"]
+    if tally["planes"]:
+        joins += " and a plane" if tally["planes"] == 1 else " and %d planes" % tally["planes"]
+    return "%s: %d island(s) kept, joining %s; %d dropped (reaching one pad or none); still %d open" % (
+        net, tally["kept"], joins, tally["dropped"], still)
 
 
 def _copper_id(c) -> tuple:

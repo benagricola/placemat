@@ -120,3 +120,32 @@ def test_an_adopted_route_between_back_face_parts_is_drawn_where_it_was_routed(b
     got = sorted((round(p.x, 4), round(p.y, 4)) for c in plan.copper if getattr(c, "net", None) == NET
                  and hasattr(c, "start") for p in (c.start, c.end))
     assert got == sorted((round(x, 4), round(y, 4)) for x, y in (A, M, M, B))
+
+
+def test_an_open_nets_joining_track_is_kept_in_part_and_a_dangling_one_is_not(breakout_pcb, tmp_path):
+    import pcbnew
+    placed = _copy(breakout_pcb, tmp_path / "placed")
+    routed = _copy(breakout_pcb, tmp_path / "routed")
+    g = read_board(routed)
+    pads = [(fp, p) for fp in g.footprints for p in fp.pads if p.net == NET]
+    (fa, pa), (fb, pb) = pads[0], next(x for x in pads if x[0].ref != pads[0][0].ref)
+    brd = pcbnew.LoadBoard(str(routed))
+
+    def track(a, b):
+        t = pcbnew.PCB_TRACK(brd)
+        t.SetStart(pcbnew.VECTOR2I(pcbnew.FromMM(a[0]), pcbnew.FromMM(a[1])))
+        t.SetEnd(pcbnew.VECTOR2I(pcbnew.FromMM(b[0]), pcbnew.FromMM(b[1])))
+        t.SetWidth(pcbnew.FromMM(0.2))
+        t.SetLayer(pcbnew.F_Cu)                                            # the pads' own layer
+        t.SetNet(brd.FindNet(NET))
+        brd.Add(t)
+    a, b = (pa.box.center.x, pa.box.center.y), (pb.box.center.x, pb.box.center.y)
+    bend = ((a[0] + b[0]) / 2, a[1] - 1.0)
+    track(a, bend)                                                          # joins two pads, round a bend
+    track(bend, b)
+    track(b, (b[0], b[1] + 3.0))                                            # from a pad to nothing
+    brd.Save(str(routed))
+    before, after = read_board(placed), read_board(routed)
+    assert routes.adoptable(before, after, [NET], still_open={NET: 1}) == []
+    (e,) = routes.adoptable(before, after, [NET], still_open={NET: 1}, partial=True)
+    assert e.partial and len(e.tracks) == 2
