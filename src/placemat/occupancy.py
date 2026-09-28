@@ -277,6 +277,11 @@ class Occupancy:
         self._margins = {fp.ref: fp.courtyard_margin for fp in geometry.footprints
                          if fp.courtyard_margin and not courtyard_drawn(fp, share)}
         self._leads = frozenset((fp.ref, p.number) for fp in geometry.footprints for p in fp.pads if _is_lead(fp, p))
+        # Under the physical envelope a drawn part does not claim its courtyard (_fp_shapes), but
+        # KiCad's DRC still refuses a courtyard over another part's plated lead: those courtyards
+        # are kept as yards, which meet nothing else. A board with no plated leads keeps none.
+        self._yard_refs = frozenset(fp.ref for fp in geometry.footprints if fp.silk or fp.fab) \
+            if self.envelope == "physical" and self._leads else frozenset()
         self._drawn_gap = max(component_spacing, self.silk_clearance)   # the furthest a silk, mask or body check reaches
         if self.envelope != "courtyard" and self._gap < max(component_spacing, self.silk_clearance):
             raise ValueError("[place] conflict_gap %.2f is less than the %.2f mm the %s envelope needs a check to reach"
@@ -421,15 +426,41 @@ class Occupancy:
 
     def candidate_shapes(self, item, placement: Placement) -> tuple[ItemGeometry, list[Shape]]:
         geom = self._geometry(item)
+        return geom, self._moved(geom, geom.shapes, placement)
+
+    def _moved(self, geom: ItemGeometry, shapes, placement: Placement) -> list[Shape]:
+        """`shapes`, where the item stands now, moved as the item moves to `placement`."""
         t = self._transform(geom, placement)
         flip = placement.face != geom.reference.face
         out = []
-        for s in geom.shapes:
+        for s in shapes:
             poly = transform_polygon(s.poly, t)
             faces = self._flip_faces(s.faces) if (flip and len(s.faces) == 1) else s.faces
             layers = self._flip_layers(s.layers) if flip else s.layers
             out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label))
-        return geom, out
+        return out
+
+    def _yard(self, ref: str) -> Shape:
+        """A part's courtyard where it stands now, as the courtyard envelope
+        would claim it (KiCad's polygon, or the box), as a `yard`: judged only
+        against another part's plated lead."""
+        g = self.items[ref]
+        cache = self.__dict__.setdefault("_yard_cache", {})
+        hit = cache.get(ref)
+        if hit is not None and hit[0] == g.reference:
+            return hit[1]
+        fp = self.geometry.footprint(ref)
+        ct = tuple(fp.courtyard_poly) if courtyard_drawn(fp, self.settings.place_courtyard_polygon_share) \
+            else box_polygon(fp.courtyard_box)
+        read = ItemGeometry(frozenset([ref]), Placement(fp.location, fp.rotation, fp.face), (), fp.body_box,
+                            frozenset())
+        yard = self._moved(read, (Shape(ref, "yard", frozenset([fp.face]), frozenset(), "", ct, Box.of_points(ct)),),
+                           g.reference)[0]
+        cache[ref] = (g.reference, yard)
+        return yard
+
+    def _yards_of(self, owners) -> list[Shape]:
+        return [self._yard(o) for o in owners if o in self._yard_refs and o in self.items]
 
     @staticmethod
     def native_module():
@@ -780,6 +811,7 @@ class Occupancy:
         skip = geom.owners | self.pending
         out = [s for owner, g in self.items.items() if owner not in skip for s in g.shapes]
         out += [c for c in self.copper if c.owner not in skip]
+        out += self._yards_of(o for o in self.items if o not in skip)
         if region is not None:
             out = [o for o in out if o.box.overlaps(region, gap=self._gap)]
         idx = ShapeIndex(out)
@@ -800,6 +832,7 @@ class Occupancy:
             return hit
         shapes = [s for owner, g in self.items.items() if owner not in skip for s in g.shapes]
         shapes += [c for c in self.copper if c.owner not in skip]
+        shapes += self._yards_of(o for o in self.items if o not in skip)
         index = native.NativeObstacles(
             [_to_native_shape(s, self._footprint_refs, self._leads, self._margins) for s in shapes],
             **self._native_conflict_kwargs())
@@ -949,7 +982,7 @@ class Occupancy:
             # (native_shapes), not in `others` (which may be region-filtered
             # and use a different indexing).
             native_index, native_shapes = native_entry
-            origin_shapes = list(self._origin_shapes(item, geom, placement))
+            origin_shapes = list(self._legal_origin_shapes(item, geom, placement))
             origin_handle = self._native_origin_shapes(item, geom, placement)
             hit = native_index.first_conflict_shifted(origin_handle, dx, dy, clearance)
             if hit is None:
@@ -965,18 +998,20 @@ class Occupancy:
                     "native found a conflict between a %s and a %s that _conflict disagrees with; "
                     "this is a native/Python mismatch, not a placement question" % (moved.kind, o.kind))
             if blame is not None:
-                blame.append(Blocker(o.kind, self.who(o.owner), frozenset(o.faces)))
+                blame.append(Blocker(_blocker_kind(o.kind), self.who(o.owner), frozenset(o.faces)))
             return why
         # What a conflict can reach from: the body, or in a drawn envelope every
         # shape the part claims - silk can stand well past the body.
-        reach = Box.union([body, transform_box(self._extent(geom), self._transform(geom, placement))])
+        shapes = self._legal_origin_shapes(item, geom, placement)
+        yards = [s.box.moved(dx, dy) for s in shapes if s.kind == "yard"]
+        reach = Box.union([body, transform_box(self._extent(geom), self._transform(geom, placement))] + yards)
         near = others.near(reach, self._gap) if isinstance(others, ShapeIndex) else \
             [o for o in others if o.box.overlaps(reach, gap=self._gap)]
         if not near:
             return None
         # Each shape is turned and faced once per rotation and face, then
         # shifted; only a shape whose box reaches an obstacle is moved as a polygon.
-        for s in self._origin_shapes(item, geom, placement):
+        for s in shapes:
             sb = s.box.moved(dx, dy)
             close = [o for o in near if sb.overlaps(o.box, gap=self.gap_for(s))]
             if not close:
@@ -987,7 +1022,7 @@ class Occupancy:
                 why = self._conflict(moved, o, clearance)
                 if why:
                     if blame is not None:
-                        blame.append(Blocker(o.kind, self.who(o.owner), frozenset(o.faces)))
+                        blame.append(Blocker(_blocker_kind(o.kind), self.who(o.owner), frozenset(o.faces)))
                     return why
         return None
 
@@ -1028,7 +1063,7 @@ class Occupancy:
             return None if why is None else (_reason_key(why), (lambda why=why: why))
         native_index, native_shapes = native_entry
         dx, dy = placement.location.x, placement.location.y
-        origin_shapes = list(self._origin_shapes(item, geom, placement))
+        origin_shapes = list(self._legal_origin_shapes(item, geom, placement))
         origin_handle = self._native_origin_shapes(item, geom, placement)
         hit = native_index.first_conflict_shifted(origin_handle, dx, dy, clearance)
         if hit is None:
@@ -1039,7 +1074,7 @@ class Occupancy:
         moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
                      tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label)
         if blame is not None:
-            blame.append(Blocker(o.kind, self.who(o.owner), frozenset(o.faces)))
+            blame.append(Blocker(_blocker_kind(o.kind), self.who(o.owner), frozenset(o.faces)))
 
         def get_reason(moved=moved, o=o, clearance=clearance):
             why = self._conflict(moved, o, clearance)
@@ -1095,6 +1130,8 @@ class Occupancy:
         conflict kind alone - but that was already true of `_reason_key`
         before this method existed, and no fixture or real board comes
         close to it.)"""
+        if s.kind == "yard" or o.kind == "yard":
+            return "courtyard"
         if s.kind in _DRAWN or o.kind in _DRAWN:
             return self.who(s.owner).split(" ")[0]
         if s.kind in _HOLES and o.kind in _HOLES:
@@ -1104,6 +1141,11 @@ class Occupancy:
         if (s.kind in _COPPERISH and o.kind in _COPPERISH) or s.kind == "npth" or o.kind == "npth":
             return "copper"
         return self.who(s.owner).split(" ")[0]
+
+    def _lead_sentence(self, court: Shape, lead: Shape) -> str:
+        return "%s courtyard sits over the through-hole lead of %s%s%s" % (
+            self.who(court.owner), self.who(lead.owner), " pad %s" % lead.label if lead.label else "",
+            "" if lead.net else " (a plated pad with no net: often a footprint defect)")
 
     def _hole_name(self, s: Shape) -> str:
         """A hole as a refusal names it: a part's, a cell's via, or a via."""
@@ -1162,6 +1204,21 @@ class Occupancy:
             cache[key] = hit
         return hit[1]
 
+    def _legal_origin_shapes(self, item, geom: ItemGeometry, placement: Placement) -> list:
+        """`_origin_shapes` and the item's own yards, turned and faced the
+        same way: what a legality check judges."""
+        own = self._yards_of(geom.owners)
+        if not own:
+            return self._origin_shapes(item, geom, placement)
+        cache = self.__dict__.setdefault("_legal_shape_cache", {})
+        key = (id(geom), placement.rotation, placement.face)
+        hit = cache.get(key)
+        if hit is None or hit[0] is not geom:
+            at = Placement(Location(0.0, 0.0), placement.rotation, placement.face)
+            hit = (geom, list(self._origin_shapes(item, geom, placement)) + self._moved(geom, own, at))
+            cache[key] = hit
+        return hit[1]
+
     def _native_origin_shapes(self, item, geom: ItemGeometry, placement: Placement):
         """The native mirror of `_origin_shapes`: a `NativeOriginShapes`
         handle for this (item, rotation, face) turn, registered once and
@@ -1179,7 +1236,7 @@ class Occupancy:
         hit = cache.get(key)
         if hit is not None and hit[0] is geom:
             return hit[1]
-        origin_shapes = self._origin_shapes(item, geom, placement)
+        origin_shapes = self._legal_origin_shapes(item, geom, placement)
         handle = native.NativeOriginShapes(
             [_to_native_shape(s, self._footprint_refs, self._leads, self._margins) for s in origin_shapes])
         cache[key] = (geom, handle)
@@ -1217,6 +1274,14 @@ class Occupancy:
                       s.box.moved(dx, dy), s.label)
                 for s in self._origin_shapes(item, self._geometry(item), placement)]
 
+    def shifted_yards(self, item, placement: Placement) -> list:
+        """The item's yards at `placement` (none outside the physical envelope,
+        or on a board without plated leads)."""
+        dx, dy = placement.location.x, placement.location.y
+        return [Shape(s.owner, s.kind, s.faces, s.layers, s.net, tuple((x + dx, y + dy) for x, y in s.poly),
+                      s.box.moved(dx, dy), s.label)
+                for s in self._legal_origin_shapes(item, self._geometry(item), placement) if s.kind == "yard"]
+
     def gap_for(self, s: Shape) -> float:
         """How far from `s` another shape can still conflict with it: a pad's
         clearance can be as wide as the conflict gap; silk, a mask opening
@@ -1239,6 +1304,12 @@ class Occupancy:
         DRC and is only refused when `vias_block_courtyards` is set (a house
         rule for boards that pair through-feature cells with via-free parts)."""
         ks, ko = s.kind, o.kind
+        if ks == "yard" or ko == "yard":
+            yard, other = (s, o) if ks == "yard" else (o, s)
+            if other.kind == "through" and other.owner != yard.owner and (other.owner, other.label) in self._leads \
+                    and polys_overlap(yard.poly, other.poly):
+                return self._lead_sentence(yard, other)
+            return None
         if ks in _DRAWN or ko in _DRAWN:
             return self._drawn_conflict(s, o)
         if ks in _HOLES and ko in _HOLES:
@@ -1272,9 +1343,7 @@ class Occupancy:
             court = s if ks == "courtyard" else o
             if other.kind == "through" and other.owner != court.owner and (other.owner, other.label) in self._leads:
                 if polys_overlap(court.poly, other.poly):
-                    return "%s courtyard sits over a through-hole lead of %s%s" % (
-                        self.who(court.owner), self.who(other.owner),
-                        "" if other.net else " (a plated pad with no net: often a footprint defect)")
+                    return self._lead_sentence(court, other)
                 return None
             if other.kind == "npth" or (other.kind == "through" and self.vias_block_courtyards
                                         and other.owner not in self.items):
@@ -1322,6 +1391,11 @@ class Occupancy:
 
 
 _DRAWN = frozenset(("silk", "mask", "body"))
+
+
+def _blocker_kind(kind: str) -> str:
+    """A shape kind as a Blocker counts it: a yard is a courtyard."""
+    return "courtyard" if kind == "yard" else kind
 _COPPERISH = frozenset(("pad", "through", "copper"))
 _HOLES = frozenset(("hole", "npth"))
 # A hole's polygon lies inside its circle, by up to 1 - cos(pi/16) of the
@@ -1393,7 +1467,7 @@ class NativeSweeper:
         for rot in self.rots:
             at = Placement(Location(0.0, 0.0), rot, face)
             self.handles.append(occ._native_origin_shapes(item, geom, at))
-            self.origin.append(list(occ._origin_shapes(item, geom, at)))
+            self.origin.append(list(occ._legal_origin_shapes(item, geom, at)))
             b = occ.origin_body_box(item, rot, face)
             self.bodies.append((b.left, b.top, b.right, b.bottom))
             self.parts.append([(p.left, p.top, p.right, p.bottom) for p in occ.origin_parts(geom, rot, face)])
@@ -1445,7 +1519,8 @@ class NativeSweeper:
         key = ("conflict", a, b)
         hit = self._decoded.get(key)
         if hit is None:
-            hit = (occ._native_bucket(moved, o), (o.kind, occ.who(o.owner), "/".join(sorted(f.value for f in o.faces))))
+            hit = (occ._native_bucket(moved, o), (_blocker_kind(o.kind), occ.who(o.owner),
+                                                  "/".join(sorted(f.value for f in o.faces))))
             self._decoded[key] = hit
         clearance = self.clearance
 

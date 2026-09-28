@@ -551,7 +551,7 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
     # satellite clears the anchor alone is where it slides along the row.
     drawn = occ.envelope != "courtyard"
     anchor_yard = [sh.poly for sh in ashapes if sh.kind == "courtyard"]
-    anchor_laid = ShapeIndex(ashapes) if drawn else ShapeIndex()
+    anchor_laid = ShapeIndex(ashapes + occ.shifted_yards(spec.anchor, anchor)) if drawn else ShapeIndex()
     taken = []          # courtyard polygons of the satellites already laid
     laid = ShapeIndex()
 
@@ -598,7 +598,7 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
                 # The members first: at the tightest gaps a satellite's courtyard
                 # meets its anchor's, and that is cheaper to find than the board.
                 if drawn:
-                    sshapes = occ.shifted_shapes(sat, cand)
+                    sshapes = occ.shifted_shapes(sat, cand) + occ.shifted_yards(sat, cand)
                     mine = [sh.poly for sh in sshapes if sh.kind == "courtyard"]
                 else:
                     sshapes = ()
