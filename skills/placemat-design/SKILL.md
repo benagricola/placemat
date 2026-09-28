@@ -124,7 +124,8 @@ fact, and a check with no limit reports the number. Built:
   sensitive net's tracks; zones do not count, the limit is zero
 - `current-path`: per net a `Pm.I` names, each two parts carrying on it
   judged at the lesser of their currents by the narrowest point of the
-  widest route between them (tracks, vias, pours, zone fills) against the
+  widest route between them (tracks, vias, pours; a zone fill joins but its
+  own width is not measured) against the
   IPC-2221 outer-layer width at `--rise` (default 10 C) on `--copper-oz`
   (default 1 oz); carriers no copper joins yet are reported, not judged
 - `heat`: the board temperature (`--ambient`, default 100 C) plus `Pm.Pd`

@@ -28,11 +28,29 @@ def _sw(parts, copper):
     return {v.subject: v for v in current_paths(board_geometry(parts, copper=copper))}["SW"]
 
 
-def test_the_load_running_in_a_zone_is_judged_by_the_zone_not_a_boot_track():
+def test_a_load_running_in_a_zone_is_not_judged_by_a_boot_track_and_the_zone_is_said():
+    """A zone fill's own width is not measured (its outline, as KiCad stores
+    it, is slit to each hole): a route through a fill alone is not judged,
+    and says so."""
     parts, copper = _power()
     boot = footprint("C1", 11.4, 14.6, w=1.6, h=0.8, nets=("SW", "BST"))
     v = _sw(parts + [boot], copper + [track("SW", 11.4, 10, 11.4, 14.4, w=0.16)])
-    assert v.ok and v.value >= 2.9 and "Q1." in v.note and "L1." in v.note
+    assert v.ok is None and "zone" in v.note and "not measured" in v.note and "Q1." in v.note
+
+
+def test_a_route_through_a_zone_and_a_track_is_judged_by_the_track():
+    parts, _ = _power()
+    copper = [_zone("SW", 13, 10, 4, 3), track("SW", 15, 10, 18.6, 10, w=0.5)]     # half zone, half a thin track
+    v = _sw(parts, copper)
+    assert v.ok is False and v.value == pytest.approx(0.5) and "zone" in v.note
+
+
+def test_the_note_names_the_pad_the_route_starts_from():
+    a1 = footprint("A1", 10, 10, nets=("SW", "SW"), fields={"Pm.I": "3.6A"})     # SW on both; A1 first of the pair
+    l1 = footprint("L1", 20, 10, nets=("SW", "VOUT"), fields={"Pm.I": "3.6A"})
+    v = _sw([a1, l1], [track("SW", 8.6, 10, 8.6, 13, w=2.0), track("SW", 8.6, 13, 18.6, 13, w=2.0),
+                       track("SW", 18.6, 13, 18.6, 10, w=2.0)])                  # from A1.1 only, round below
+    assert "A1.1" in v.note and "A1.2" not in v.note
 
 
 def test_a_controller_pair_is_judged_at_the_controllers_own_current():
@@ -47,7 +65,7 @@ def test_a_net_a_part_gives_zero_current_does_not_make_it_a_carrier():
     parts, copper = _power()
     sense = footprint("U2", 15, 14, nets=("SW", "GND"), fields={"Pm.I": "sw:0 gnd:1mA"})
     v = _sw(parts + [sense], copper + [track("SW", 13.6, 14, 13.6, 11.2, w=0.04)])
-    assert v.ok and "U2" not in v.note
+    assert v.ok is not False and "U2" not in v.note          # the 0.04 mm sense line is not the load's
 
 
 def test_carriers_no_copper_joins_are_not_judged():
@@ -67,4 +85,4 @@ def test_a_carrier_not_joined_yet_is_said_beside_the_pair_that_is_judged():
     parts, copper = _power()
     far = footprint("Q2", 40, 30, nets=("SW", "GND"), fields={"Pm.I": "2A"})
     v = _sw(parts + [far], copper)
-    assert v.ok and "Q1." in v.note and "L1." in v.note and "no copper joins" in v.note and "Q2" in v.note
+    assert v.ok is not False and "no copper joins" in v.note and "Q2" in v.note and "Q1." in v.note

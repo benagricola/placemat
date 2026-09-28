@@ -7,6 +7,12 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+- **A zone fill's width along the load's route** (from the current-path
+  review, 2026-09-28): `check current-path` does not measure a fill's own
+  width (KiCad slits each hole to the outline, so its narrowest neck reads
+  about 0). The width the route passes through inside the fill, between
+  where it enters and leaves (a raster and a widest-path search), would let
+  a load running in a zone lane be judged.
 - **The router cuts through a pour by its last fill** (a board's layout
   work, 2026-09-28): it treats a zone's fill, not its outline, as the
   obstacle, so tracks it adds on a layer with pours cut straight through

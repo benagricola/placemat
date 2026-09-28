@@ -8,7 +8,8 @@ whether any of it applies.
 
 Nothing to change in a script. `check current-path` judges each pair of
 parts carrying a net's current at the lesser of their two currents, through
-zone fills as well as tracks and pours, and does not judge carriers no
+zone fills as well as tracks and pours (a fill's own width is not measured:
+a route through a fill alone is not judged), and does not judge carriers no
 copper joins yet. A controller that senses a load's net should give that
 net its own current in a per-net `Pm.I`, or leave it out: its sense pin is
 then judged at what it draws. Verdicts that were a pin lead, a boot track or

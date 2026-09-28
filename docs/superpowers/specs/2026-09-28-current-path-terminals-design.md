@@ -41,9 +41,12 @@ Four things in the check produce these:
 
 ## The change
 
-1. **Zones are copper of the net's graph**: a zone's fill, on each layer, is
-   a node whose width is its narrowest neck, as a drawn pour's is, and it
-   joins what its fill touches.
+1. **Zones are copper of the net's graph**: a zone's fill, on each layer,
+   joins what it touches. Its own width is not measured (changed at review,
+   2026-09-28: KiCad stores a fill with each hole slit to its outline, so its
+   narrowest neck is a slit, about 0 mm; a real in-fill width is a backlog
+   item): a route through a fill is judged by its other copper and says so,
+   and one through a fill alone is not judged.
 2. **A pair of carrying parts is judged at the lesser of their two
    currents** on the net - what can flow between them - by the widest route
    from any pad of one to any pad of the other on the net. The net's verdict

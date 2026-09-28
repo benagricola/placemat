@@ -1055,7 +1055,10 @@ placemat-design skill says which) and reports hot loop area, switch node
 copper, keep-out distance, crossings under sense tracks, current path
 width against IPC-2221 and junction temperature; exit 1 on a failed
 verdict. The current path is the route the load takes, through tracks,
-vias, pours and zone fills alike: each two parts carrying `Pm.I` on the net
+vias, pours and zone fills alike - a zone fill's own width is not measured
+(as KiCad stores a fill, each hole is slit to its outline), so a route through
+one is judged by its other copper, says so, and a route through a fill alone
+is not judged: each two parts carrying `Pm.I` on the net
 are judged at the lesser of their two currents - what can flow between
 them - by the narrowest point of the widest route from any pad of one to
 any pad of the other; the net's verdict is its worst pair, naming both ends

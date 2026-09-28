@@ -340,9 +340,11 @@ def _net_graph(geometry: BoardGeometry, net: str):
     for c in geometry.copper:
         if c.net != net or not c.outlines:
             continue
-        if c.kind == "zone":                # each piece of the fill carries current by its narrowest neck
+        if c.kind == "zone":
+            # a fill passes any width here: as KiCad stores it each hole is slit to the outline, and its
+            # narrowest neck is a slit, or a thermal spoke to another part - not what the load passes through
             for o in c.outlines:
-                nodes.append(("zone", neck_mm(o), (o,), Box.of_points(o), c.layers))
+                nodes.append(("zone", math.inf, (o,), Box.of_points(o), c.layers))
             continue
         if c.kind not in ("track", "via", "poly"):
             continue
@@ -360,21 +362,22 @@ def _net_graph(geometry: BoardGeometry, net: str):
 
 
 def _widest_from(nodes, near, sources) -> dict:
-    """{node: the widest bottleneck of any route to it from `sources`}: the
+    """{node: (the widest bottleneck of any route to it from `sources`, the
+    source it set out from, whether it passed through a zone fill)}: the
     route current would take, judged by its narrowest point."""
     import heapq
-    best = {i: nodes[i][1] for i in sources}
-    heap = [(-best[i], i) for i in sources]
+    best = {i: (nodes[i][1], i, nodes[i][0] == "zone") for i in sources}
+    heap = [(-best[i][0], i) for i in sources]
     heapq.heapify(heap)
     while heap:
         w, i = heapq.heappop(heap)
         w = -w
-        if w < best.get(i, -1.0):
+        if w < best[i][0]:
             continue
         for j in near[i]:
             cand = min(w, nodes[j][1])
-            if cand > best.get(j, -1.0):
-                best[j] = cand
+            if cand > best.get(j, (-1.0,))[0]:
+                best[j] = (cand, best[i][1], best[i][2] or nodes[j][0] == "zone")
                 heapq.heappush(heap, (-cand, j))
     return best
 
@@ -382,32 +385,41 @@ def _widest_from(nodes, near, sources) -> dict:
 def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, copper_oz: float):
     """The routes the load takes on `net`, carriers being {ref: amps}: for
     each two carriers, the widest route from any pad of one to any pad of the
-    other, judged at the lesser current - what can flow between them - as
-    (width, need, amps, from, to); with one carrier, its widest route to any
-    other part's pad at its own current. And the pairs no copper joins yet."""
+    other, at the lesser current - what can flow between them; with one
+    carrier, its widest route to any other part's pad at its own current.
+    Returns (judged: [(width, need, amps, from, to, through a zone)],
+    unmeasured: [(from, to, why)] - a route through a zone fill or pads and
+    vias alone, which has no copper width to judge - and apart: the pairs no
+    copper joins yet)."""
     nodes, near = _net_graph(geometry, net)
-    owner = {i: n[0].split(".")[0] for i, n in enumerate(nodes) if math.isinf(n[1]) and "." in n[0]}
+    owner = {i: n[0].split(".")[0] for i, n in enumerate(nodes) if n[0] != "zone" and "." in n[0]
+             and math.isinf(n[1])}
     pads = {ref: [i for i, o in owner.items() if o == ref] for ref in set(owner.values())}
     refs = sorted(carriers)
     pairs = [(a, b) for k, a in enumerate(refs) for b in refs[k + 1:]] if len(refs) > 1 else \
         [(refs[0], None)]
-    judged, apart = [], []
+    searched = {}
+    judged, unmeasured, apart = [], [], []
     for a, b in pairs:
         if not pads.get(a):
             apart.append((a, b))
             continue
-        best = _widest_from(nodes, near, pads[a])
+        if a not in searched:               # one search a carrier, whoever it is paired with
+            searched[a] = _widest_from(nodes, near, pads[a])
+        best = searched[a]
         ends = pads.get(b, ()) if b is not None else [i for r, ii in pads.items() if r != a for i in ii]
-        # a route's width is its narrowest copper: one made of pads and vias alone is not a route to judge
-        reach = [(best[i], nodes[i][0]) for i in ends if i in best and not math.isinf(best[i])]
+        reach = [(best[i][0], nodes[i][0], nodes[best[i][1]][0], best[i][2]) for i in ends if i in best]
         if not reach:
             apart.append((a, b))
             continue
-        w, to = max(reach)                  # the current enters by the other end's widest-joined pad
-        start = max(((best.get(i, -1.0), nodes[i][0]) for i in pads[a]), default=(0, a))[1]
+        w, to, start, zoned = max(reach, key=lambda r: r[0])       # the other end's widest-joined pad
+        if math.isinf(w):
+            unmeasured.append((start, to, "through a zone fill, whose width is not measured" if zoned
+                               else "joined only through pads and vias"))
+            continue
         amps = carriers[a] if b is None else min(carriers[a], carriers[b])
-        judged.append((w, ipc2221_width_mm(amps, rise_c, copper_oz), amps, start, to))
-    return judged, apart
+        judged.append((w, ipc2221_width_mm(amps, rise_c, copper_oz), amps, start, to, zoned))
+    return judged, unmeasured, apart
 
 
 def current_paths(geometry: BoardGeometry, rise_c: float = TRACK_RISE_C, copper_oz: float = COPPER_OZ) -> list[Verdict]:
@@ -422,18 +434,21 @@ def current_paths(geometry: BoardGeometry, rise_c: float = TRACK_RISE_C, copper_
                 on[fp.ref] = max(on.get(fp.ref, 0.0), amps)
     out = []
     for net, on in sorted(carriers.items()):
-        judged, apart = _pairs(geometry, net, on, rise_c, copper_oz)
-        loose = "; ".join("no copper joins %s %s yet" % (a, "and %s" % b if b else "to another part")
-                          for a, b in apart)
+        judged, unmeasured, apart = _pairs(geometry, net, on, rise_c, copper_oz)
+        said = ["no copper joins %s %s on %s yet" % (a, "and %s" % b if b else "to another part", net)
+                for a, b in apart]
+        said += ["%s to %s: %s" % (a, b, why) for a, b, why in unmeasured]
         if not judged:
             amps = max(on.values())
             out.append(Verdict("current-path", net, 0.0, "mm", ipc2221_width_mm(amps, rise_c, copper_oz), None,
-                               "%s on %s (%g A)" % (loose, net, amps)))
+                               "not judged (%g A): %s" % (amps, "; ".join(said))))
             continue
-        w, need, amps, a, b = min(judged, key=lambda j: j[0] / j[1])
+        w, need, amps, a, b, zoned = min(judged, key=lambda j: j[0] / j[1])
         note = "narrowest point of the load's widest route, %s to %s, for %g A at %g C rise on %g oz" % (
             a, b, amps, rise_c, copper_oz)
-        out.append(Verdict("current-path", net, w, "mm", need, w >= need, note + ("; " + loose if loose else "")))
+        if zoned:
+            note += " (through a zone fill, whose width is not measured)"
+        out.append(Verdict("current-path", net, w, "mm", need, w >= need, note + ("; " + "; ".join(said) if said else "")))
     return out
 
 
