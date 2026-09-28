@@ -4,9 +4,12 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
-## To 0.50
+## To 0.49.2
 
-Nothing to change in a script. `check current-path` judges each pair of
+Nothing to change in a script. A later `route --adopt` keeps the entries of
+a net that held on the board it routed (it replaced them all, and the new
+islands resting on their copper dropped on the next run), and says which
+it replaced. `check current-path` judges each pair of
 parts carrying a net's current at the lesser of their two currents, through
 zone fills as well as tracks and pours (a fill's own width is not measured:
 a route through a fill alone is not judged), and does not judge carriers no

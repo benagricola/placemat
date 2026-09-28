@@ -79,7 +79,7 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 ## Done
 
 - **A later route --adopt kept no earlier entry of a net it routed again**
-  (unreleased; PLACEMAT_GAPS 2026-09-28 "a second --adopt-all --partial pass
+  (0.49.2; PLACEMAT_GAPS 2026-09-28 "a second --adopt-all --partial pass
   drops kept routes"): the resolve that says which entries held did not draw
   the routes file, so none held and every one was replaced; the adopt line
   now names what it replaced.
@@ -87,7 +87,7 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   keepout now takes the pocket nearest its seed; a re-laid cell's extent is
   read on every run (`board.extent`, `board.size(fit=True)`), so a room
   derived from it follows it.
-- **check current-path between the parts that carry it** (unreleased; a
+- **check current-path between the parts that carry it** (0.49.2; a
   board's layout work, 2026-09-28; spec
   `2026-09-28-current-path-terminals-design.md`).
 - **placemat route with the board's own settings; a kept end on a zone**
