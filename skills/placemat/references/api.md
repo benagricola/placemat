@@ -1162,12 +1162,15 @@ nets' pads sit in them.
 
 A pour net whose pours do not reach every pad of it (a rail's small taps on
 the far side of a cell) is named in `[route] islands` (or `--islands
-NET[=WIDTH]`): the route then runs the router on those nets first and alone.
+NET[=WIDTH]`): the route then runs the router on those nets first, one at a
+time, each kept out of the other island nets' partial inner-layer pours.
 The router counts a net's own zones as joining what they reach, so it joins
 only the pads and pieces the pours leave apart, at the net's netclass width
-(read from the board's project) or the WIDTH given; its tracks are then
-fixed and the main pass leaves the net to its pours, other nets kept out of
-its partial inner-layer pours. The route step says how many pieces each
+(read from the board's project) or the WIDTH given (the router raises a
+width below its own default track width to that); its tracks are then fixed
+and the main pass leaves the net to its pours, other nets kept out of its
+partial inner-layer pours. A name the board does not have is said and
+skipped; a malformed entry is refused when the settings load. The route step says how many pieces each
 island net had apart before and after (`islands` in the report); the
 island nets count in the closure, and `--adopt NET` keeps their routes like
 any other net's.

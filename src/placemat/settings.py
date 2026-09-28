@@ -223,6 +223,22 @@ def _files(start) -> list:
     return list(reversed(found))
 
 
+def parse_islands(items) -> dict:
+    """`[route] islands` / `--islands` entries, "NET" or "NET=WIDTH" (mm,
+    above 0), as {net: width or None}."""
+    out = {}
+    for item in items or ():
+        net, eq, width = str(item).partition("=")
+        try:
+            w = float(width) if eq else None
+        except ValueError:
+            w = 0.0
+        if not net or (eq and not (w or 0) > 0):
+            raise ValueError("%r is not NET or NET=WIDTH (a width in mm, above 0)" % item)
+        out[net] = w
+    return out
+
+
 class SettingsError(ValueError):
     """A placemat.toml that cannot be obeyed. A setting that quietly does
     nothing reads as though it is in force, so this is never a warning."""
@@ -301,6 +317,11 @@ def _validate(name: str, value, path: str):
         if bad:
             k, v = sorted(bad.items())[0]
             raise SettingsError("%s: drc.severities.%s must be error, warning or ignore, not %r" % (path, k, v))
+    if name == "route_islands":
+        try:
+            parse_islands(value)
+        except ValueError as e:
+            raise SettingsError("%s: %s: %s" % (path, dotted, e)) from None
     if name in _CHOICES and value not in _CHOICES[name]:
         raise SettingsError("%s: %s must be %s, not %r" % (
             path, dotted, ", ".join(_CHOICES[name][:-1]) + " or " + _CHOICES[name][-1], value))

@@ -338,9 +338,9 @@ def _lock_where_it_stands(script: Path, keys, key_of=None, plan_out=None, partia
         if not partial:
             locked = []
             break
-        entries, locked, more = lock.current(board, plan, written, lock.read(path), tol,
-                                             keys=set(locked) - moved, release=__version__, run=run_id)
-        refused.update(more)
+        # the refused seed the recomputation: what hangs off one is dropped with it, not its anchor re-locked
+        entries, locked, refused = lock.current(board, plan, written, lock.read(path), tol, keys=set(locked) - moved,
+                                                release=__version__, run=run_id, refused=refused)
     return entries, locked, refused, run_id
 
 
@@ -486,9 +486,14 @@ def cmd_route(args) -> int:
     from .kicad.route import plane_nets_of
     planes = plane_nets_of(pcb)             # served by their pours, as run --route leaves them
     with bind(cfg):
-        from .kicad.route import parse_islands
-        from .settings import active
-        islands = {**parse_islands(active().route_islands), **parse_islands(args.islands)}
+        from .settings import active, parse_islands
+        try:
+            flag = parse_islands(args.islands)
+        except ValueError as e:
+            console.say("route", "--islands: %s" % e, level="fail")
+            return 2
+        islands = parse_islands(active().route_islands)
+        islands.update({n: w for n, w in flag.items() if w is not None or n not in islands})   # a bare NET keeps its width
         report = route_board(pcb, work, exclude_nets=set(args.exclude) | planes, layers=args.layers,
                              quick=not args.full, iterations=args.iterations, islands=islands)
     if args.json:

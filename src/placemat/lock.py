@@ -184,16 +184,19 @@ def release(path, keys) -> list:
 
 
 def current(board, plan, written: dict, existing, tolerance: float, keys=None, release: str = "",
-            run: str = "") -> tuple:
+            run: str = "", refused=None) -> tuple:
     """Lock each searched item (`keys` of them, or all) where the board
     stands: `written` is {(instance, pad number): (x, y)} of the board as
     it was written, and an item is locked only when every pad of it that
     the resolve placed lies within `tolerance` of there. (the lock's
-    entries, the keys locked, {key: why} for the ones not)."""
+    entries, the keys locked, {key: why} for the ones not). `refused`, when
+    given, holds items already refused and gets the new ones: an item
+    hanging off one of them is not locked, nor its anchor locked for it."""
     import math
     from .board_geometry import members_of
     items = dict(plan._items)
-    locked, refused = [], {}
+    locked = []
+    refused = {} if refused is None else refused
     for key in sorted(plan.turns, key=lambda k: plan.turns[k]["order"]):
         if keys is not None and key not in keys:
             continue

@@ -95,3 +95,103 @@ def test_a_router_run_joins_the_pads_a_partial_pour_leaves_apart(breakout_pcb, t
     lid = routed.GetLayerID("In2.Cu")
     assert not any(t.GetNetname() != net and t.GetLayer() == lid and t.GetClass() == "PCB_TRACK"
                    and (outline.Contains(t.GetStart()) or outline.Contains(t.GetEnd())) for t in routed.GetTracks())
+
+
+def test_a_malformed_island_entry_is_refused_when_the_settings_load(tmp_path):
+    from placemat.settings import SettingsError, load
+    for bad in ('"VBIKE=wide"', '"=0.5"', '"VBIKE=0"'):
+        (tmp_path / "placemat.toml").write_text('[route]\nislands = [%s]\n' % bad)
+        with pytest.raises(SettingsError, match="route.islands"):
+            load(tmp_path)
+
+
+def test_a_bare_flag_keeps_the_width_the_setting_gives(tmp_path, monkeypatch):
+    from placemat import cli
+    import placemat.kicad.route as route_mod
+    (tmp_path / "placemat.toml").write_text('[route]\nislands = ["VBIKE=0.5"]\n')
+    pcb = tmp_path / "layout.kicad_pcb"
+    pcb.write_text("")
+    seen = {}
+
+    class Report:
+        valid, keepout_breaches, open_nets, routed_pcb = True, [], {}, pcb
+
+        def summary(self):
+            return "stand-in"
+
+    def stand_in(pcb, work, exclude_nets=(), islands=None, **kw):
+        seen["islands"] = islands
+        return Report()
+    monkeypatch.setattr(route_mod, "route_board", stand_in)
+    assert cli.main(["route", str(pcb), "--islands", "VBIKE", "VSHUNT"]) == 0
+    assert seen["islands"] == {"VBIKE": 0.5, "VSHUNT": None}
+    assert cli.main(["route", str(pcb), "--islands", "VBIKE=wide"]) == 2
+
+
+def _four_layer_with_pours(breakout_pcb, dest, nets):
+    """The breakout, four layers, a partial In2 pour of each net over the
+    box round its first two plated pads."""
+    import pcbnew
+    dest.mkdir()
+    for ext in (".kicad_pcb", ".kicad_pro"):
+        if breakout_pcb.with_suffix(ext).exists():
+            shutil.copy(breakout_pcb.with_suffix(ext), dest / ("layout" + ext))
+    pcb = dest / "layout.kicad_pcb"
+    brd = pcbnew.LoadBoard(str(pcb))
+    brd.SetCopperLayerCount(4)
+    for net in nets:
+        pads = [p for f in brd.GetFootprints() for p in f.Pads()
+                if p.GetNetname() == net and p.GetAttribute() == pcbnew.PAD_ATTRIB_PTH][:2]
+        box = pads[0].GetBoundingBox()
+        box.Merge(pads[1].GetBoundingBox())
+        box.Inflate(pcbnew.FromMM(1.0))
+        z = pcbnew.ZONE(brd)
+        z.SetLayer(brd.GetLayerID("In2.Cu"))
+        z.SetNetCode(brd.GetNetcodeFromNetname(net))
+        o = z.Outline()
+        o.NewOutline()
+        for x, y in ((box.GetLeft(), box.GetTop()), (box.GetRight(), box.GetTop()),
+                     (box.GetRight(), box.GetBottom()), (box.GetLeft(), box.GetBottom())):
+            o.Append(x, y)
+        brd.Add(z)
+    brd.Save(str(pcb))
+    return pcb
+
+
+@needs_kicad
+@needs_breakout
+def test_each_island_net_is_routed_with_the_others_pours_guarded(breakout_pcb, tmp_path, monkeypatch):
+    """Two island nets: each pass routes one, the other's partial pour kept
+    clear of it, and the board the main pass gets has neither guard (the
+    main pass guards both)."""
+    import subprocess
+    import pcbnew
+    import placemat.kicad.route as route_mod
+    pcb = _four_layer_with_pours(breakout_pcb, tmp_path / "in", ["PERMIT_A", "PERMIT_B"])
+    passes = []
+
+    def stand_in(cmd, **kw):          # the router: copies its input to its output
+        inp, out = cmd[2], cmd[3]
+        nets = cmd[cmd.index("--nets") + 1:cmd.index("--layers")]
+        brd = pcbnew.LoadBoard(inp)
+        passes.append((nets, sorted(z.GetZoneName() for z in brd.Zones() if z.GetIsRuleArea())))
+        shutil.copy(inp, out)
+        return subprocess.CompletedProcess(cmd, 0)
+    monkeypatch.setattr(route_mod.subprocess, "run", stand_in)
+    work = tmp_path / "work"
+    work.mkdir()
+    board, breaches = route_mod.route_islands("py", "route.py", str(tmp_path), pcb, work,
+                                              {"PERMIT_A": None, "PERMIT_B": None}, ["F.Cu", "In2.Cu", "B.Cu"],
+                                              None, None, True, 60, {}, 0.9)
+    assert passes == [(["PERMIT_A"], ["placemat pour PERMIT_B In2.Cu"]),
+                      (["PERMIT_B"], ["placemat pour PERMIT_A In2.Cu"])]
+    assert breaches == []
+    assert not [z for z in pcbnew.LoadBoard(str(board)).Zones() if z.GetIsRuleArea()]
+
+
+@needs_kicad
+@needs_breakout
+def test_an_island_net_not_on_the_board_is_said_and_skipped(breakout_pcb):
+    from placemat.kicad.route import islands_on_board
+    kept, missing = islands_on_board(breakout_pcb, {"PERMIT_A": None, "NO_SUCH_NET": 0.5})
+    assert kept == {"PERMIT_A": None} and missing == ["NO_SUCH_NET"]
