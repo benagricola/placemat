@@ -4,56 +4,59 @@ Date: 2026-09-28
 Status: draft
 Source: PLACEMAT_GAPS.md (a board's own), 2026-09-28 "which routed tracks
 cross a pour's outline"; the board's report of 2026-09-28 that its outer
-ground fills must be switched off for every routing run
+ground fills are switched off for every routing run
 
 ## The problem
 
-The router takes a zone's last fill as the obstacle, not its outline, which
-cuts both ways:
+The router does not see copper zones when it routes other nets: its
+obstacle map takes rule areas, not zones or their fills
+(KiCadRoutingTools `py_router/obstacle_map.py:392`; a zone's fill is read
+only for its own net's pour launch, `single_ended_routing.py:3235`).
+Measured on the breakout (2026-09-28): a quick route with a filled GND zone
+over the whole of B.Cu lays the same tracks as without it (12 segments,
+54 mm on B.Cu, 12 vias, 78.6% closure both times).
 
-- **A partial pour is cut apart.** An inner-layer power pour (VBIKE, VSHUNT,
-  PP5V, VBUS on In2) is filled round what was there; the router lays other
-  nets' tracks through its outline wherever the fill left room, and KiCad's
-  refill then splits the pour round them. DRC passes, so nothing says so.
-  The core routes on F.Cu and B.Cu only to avoid it.
-- **A board-wide fill blocks the router.** An outer ground fill covers the
-  whole layer, so the router finds no room on it; the board switches its
-  F.Cu/B.Cu ground fills off in the script for every routing run and back
-  on after.
+- **A partial inner-layer pour is cut apart.** A power pour on an inner
+  layer (a net's pour on In2 covering part of the board) gets other nets'
+  tracks laid through its outline, and KiCad's refill splits the pour round
+  them. DRC passes, so nothing says so. The board routes on F.Cu and B.Cu
+  only to avoid it.
+- **A board-wide fill does not block the router**, so switching a fill off
+  for routing changes nothing the router does.
 
 ## The change
 
-Only the router's input copy changes; the board and the routed copy's zones
-are placemat's as today.
+Only the router's input copy changes.
 
-1. **A partial pour keeps other nets' tracks out of its outline.** For each
-   zone on a routed layer whose net the route leaves out (a plane net, as
-   `plane_nets_of` finds them) and which covers less than
-   `route.plane_share` of the board, the input copy gets a rule area on that
-   layer over the zone's outline forbidding tracks (vias may pass: the pour
-   is refilled round them), removed again from the routed copy as the
-   footprint-copper guards are. A route through one is a keepout breach
-   naming the pour.
-2. **A board-wide fill does not block the router.** For each zone on a
-   routed layer whose net the route leaves out and which covers at least
-   `route.plane_share` of the board, the input copy's fill is cleared (its
-   outline stays): the router routes as the refill will leave room, and the
-   routed copy is filled again before its DRC, as today. The script need
-   not switch its fills off.
-3. **The route report** says how many pours it kept routes out of and how
-   many fills it cleared, and the breaches name the pour.
+1. **A partial inner-layer pour keeps other nets' tracks out of its
+   outline.** For each zone on a routed inner layer whose net the route
+   leaves out (a plane net, as `plane_nets_of` finds them) and whose outline
+   covers less than `[route] plane_share` of the board, the input copy gets
+   a rule area on that layer over the zone's outline that forbids tracks
+   (vias may pass: the pour is refilled round them). The rule area is named
+   after the pour ("pour <net> <layer>"), and the routed copy has it
+   removed again, as the footprint-copper guards are.
+2. **A route through one is a keepout breach naming the pour**, through
+   `router_breaches` as today.
+3. **The route report** says how many pours it kept other nets' tracks out
+   of.
+4. **Docs**: api.md's route paragraph: inner-layer pours of excluded nets
+   are kept clear of other nets' tracks; the router lays tracks through a
+   board-wide fill and the refill carves round them, so fills need not be
+   switched off for routing.
 
 ## Verification
 
-- KiCad tests (no router run): a copy with an In2-style partial pour of a
-  plane net gets a track-forbidding rule area over its outline in the input
-  copy, and none in the routed copy after the restore; a board-wide fill of
-  a plane net has no filled polygons in the input copy and is filled again
-  in the routed copy; a partial pour of a routed net is left alone.
-- A router run (quick) on the breakout with a partial pour: no track of
-  another net inside its outline.
+- KiCad tests (no router run): an input copy with a partial In2 pour of a
+  plane net gets a track-forbidding rule area over its outline on In2; the
+  routed copy has none after the restore; a pour of a routed net, a pour
+  covering at least the plane share, and a partial pour on F.Cu or B.Cu are
+  left alone.
+- A quick router run on the breakout with a partial inner-layer pour of an
+  excluded net: no track of another net inside its outline.
 
 ## Not in scope
 
+- Partial pours on F.Cu and B.Cu: other nets' surface pads sit inside them,
+  and a track-forbidding area over a pad leaves the pad unroutable.
 - Routing a plane net itself through its own pour.
-- Pours on a layer the route does not use.

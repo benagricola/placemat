@@ -45,12 +45,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   about 0). The width the route passes through inside the fill, between
   where it enters and leaves (a raster and a widest-path search), would let
   a load running in a zone lane be judged.
-- **The router cuts through a pour by its last fill** (a board's layout
-  work, 2026-09-28): it treats a zone's fill, not its outline, as the
-  obstacle, so tracks it adds on a layer with pours cut straight through
-  them. A pour declared with `board.plane(outline=...)` could keep other
-  nets' copper out of its outline on its layer. Needs a spec (a KiCad rule
-  area has no allow list: the pour's own net must still reach it).
+- **The router cuts through an inner-layer pour** (a board's layout work,
+  2026-09-28): the router does not see copper zones when routing other nets,
+  so tracks it adds on an inner layer run through a partial pour and the
+  refill splits it. Spec: docs/superpowers/specs/2026-09-28-route-and-pours-design.md.
 - **`placemat impact` between a run and a KiCad file**, copper included
   (PLACEMAT_GAPS 2026-09-27 "folding a hand layout into a fragment's
   script").
