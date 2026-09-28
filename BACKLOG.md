@@ -25,10 +25,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   about 0). The width the route passes through inside the fill, between
   where it enters and leaves (a raster and a widest-path search), would let
   a load running in a zone lane be judged.
-- **The router cuts through an inner-layer pour** (a board's layout work,
-  2026-09-28): the router does not see copper zones when routing other nets,
-  so tracks it adds on an inner layer run through a partial pour and the
-  refill splits it. Spec: docs/superpowers/specs/2026-09-28-route-and-pours-design.md.
 - **`placemat impact` between a run and a KiCad file**, copper included
   (PLACEMAT_GAPS 2026-09-27 "folding a hand layout into a fragment's
   script").
@@ -65,6 +61,11 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **placemat route routed a pour's net with thin tracks** (unreleased; a
   board's report, 2026-09-28): it leaves nets with a zone or filled pour to
   their pours, as `run --route` does.
+- **The router cut through an inner-layer pour** (unreleased; a board's
+  layout work, 2026-09-28; spec `2026-09-28-route-and-pours-design.md`): the
+  input copy keeps other nets' tracks out of a partial inner-layer pour of an
+  excluded net. Measured on the breakout: without the guard 6 other-net track
+  ends inside a GND pour on In2, with it none.
 - **"No legal location" named nothing under a drawn envelope; the link wait
   hid a priority set aside** (unreleased; PLACEMAT_GAPS 2026-09-27 and
   2026-09-28).

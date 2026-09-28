@@ -13,7 +13,10 @@ a refusal names the pad (in every envelope). A stamped cell's zone whose pads
 join otherwise than the board's plane is kept (it was merged, and its pads
 lost their solid connection); one reaching nearer the board edge than the
 plane's keep-in merges. `placemat route` leaves nets with a zone or a filled
-pour to their pours, as `run --route` did. "No legal location" names the
+pour to their pours, as `run --route` did, and keeps other nets' tracks
+out of a partial inner-layer pour of those nets (the refill split it round
+them); a board-wide fill need not be switched off for routing, the router
+routes through it and the refill carves round the tracks. "No legal location" names the
 parts whose silk, mask or body were in the way under a drawn envelope, and a
 link's wait says when it set the item's `priority=` aside.
 

@@ -1150,7 +1150,14 @@ stamped cell's zone never counts, and F.Cu/B.Cu never drop) - the route step
 prints which layers it left out and why, and the report's `plane_layers`
 names them too. A net with a zone or a filled copper pour on the board is
 left to its pour and not routed, as `run --route` leaves the plan's plane
-nets; `--exclude` adds to them.
+nets; `--exclude` adds to them. The router does not see copper zones when it routes other nets: it lays
+tracks through a board-wide fill, and the refill carves round them, so a fill
+need not be switched off for routing. A partial pour on an inner layer of a
+net left out would be split that way, so the router's input copy keeps other
+nets' tracks out of its outline (vias may pass) and the route step says how
+many pours it kept (`pours_kept` in the report); a route through one is a
+keepout breach naming the pour. Outer-layer pours are left open to it: other
+nets' pads sit in them.
 
 A footprint's own copper graphics (a net-tie's winding, a copper logo) are
 not obstacles to the router, and its writer moves net-less ones on the
