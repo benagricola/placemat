@@ -229,6 +229,37 @@ def test_lock_current_holds_the_placement_the_board_stands_in(scratch_ecosystem)
         path.unlink(missing_ok=True)
 
 
+def test_lock_current_partial_locks_what_stands_and_lists_the_rest(scratch_ecosystem):
+    """One part moved by hand on the written board would not stand where it
+    is; --partial locks the other and lists it, without it nothing is locked."""
+    import pcbnew
+    from placemat import cli, lock
+    script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
+    script.write_text(SCRIPT + 'board.place(Part("trunk_led_ra"))\nboard.place(Part("term_far_jumper"))\n')
+    path = lock.path_for(script)
+    try:
+        run(script, label="to-lock", render=False, drc=False)
+        pcb = scratch_ecosystem / "breakout/layout/Breakout/layout.kicad_pcb"
+        brd = pcbnew.LoadBoard(str(pcb))
+        ref = _ref_of(pcb, "term_far_jumper")
+        fp = next(f for f in brd.GetFootprints() if f.GetReference() == ref)
+        fp.Move(pcbnew.VECTOR2I(pcbnew.FromMM(3), 0))
+        brd.Save(str(pcb))
+        assert cli.main(["lock", str(script), "--current"]) == 1
+        assert not path.exists() or not lock.read(path)
+        assert cli.main(["lock", str(script), "--current", "--partial"]) == 1
+        keys = {e.key for e in lock.read(path)}
+        assert "trunk_led_ra" in keys and "term_far_jumper" not in keys
+    finally:
+        script.write_text(SCRIPT)
+        path.unlink(missing_ok=True)
+
+
+def _ref_of(pcb, inst):
+    from placemat.kicad.read import read_board
+    return next(fp.ref for fp in read_board(pcb).footprints if fp.inst == inst)
+
+
 def test_adopting_a_net_locks_the_searched_items_it_joins(scratch_ecosystem, tmp_path):
     """No router: the route's work folder is made by hand, its routed copy one
     track more on a net a searched part joins."""

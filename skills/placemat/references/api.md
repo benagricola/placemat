@@ -1212,7 +1212,7 @@ the items it was left to place:
 placemat run <script> --explore SECONDS [--focus ITEM ...] [--focus-after LINE]
                       [--focus-box X0,Y0,X1,Y1] [--jobs N] [--accept]
 placemat preview <script> --explore SECONDS [the same]
-placemat lock <script> [--current | --release ITEM ... | --release-all]
+placemat lock <script> [--current [--partial] | --release ITEM ... | --release-all]
 placemat freeze <script> ITEM ... | --all [--fixed]
 ```
 
@@ -1257,10 +1257,14 @@ by 0.46 or earlier still holds).
 
 `placemat lock <script> --current` locks every searched item where the
 board stands: the script is resolved as its last run resolved it, each
-item's pads are checked against the written board, and those that land
-there are locked, merged over the entries the lock holds. One that would
-land elsewhere is named and not locked, and the command exits 1: run the
-script, then lock.
+item's pads are checked against the written board, the items are locked,
+merged over the entries the lock holds, and the script is resolved again to
+check each comes back there. One that would land elsewhere is named, nothing
+is written, and the command exits 1: run the script, then lock. With
+`--partial` those that would not stand are dropped and the rest checked
+again (a smaller lock can move what is searched after it) until every one
+left comes back; those are written, the rest listed ("locked 46 of 75 ...;
+29 would not stand there"), and the command exits 1 when any was left out.
 
 **Freeze.** `placemat freeze <script> ITEM` (or `--all`) writes entries
 into the script in the lock's own terms: the item's `place()` call gains

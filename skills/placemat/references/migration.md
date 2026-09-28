@@ -4,6 +4,12 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.51.0
+
+Nothing to change in a script. `placemat lock <script> --current --partial`
+locks the items that stand and lists the rest, where `--current` alone
+writes nothing unless every item stands.
+
 ## To 0.50.0
 
 Nothing to change in a script. Under the `physical` envelope a part's

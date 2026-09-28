@@ -184,6 +184,9 @@ def parser() -> argparse.ArgumentParser:
     how.add_argument("--release-all", action="store_true", help="drop every entry")
     how.add_argument("--current", action="store_true",
                     help="lock every searched item where the board stands (the last run's placement)")
+    lk.add_argument("--partial", action="store_true",
+                    help="with --current: lock the items that stand and list the rest (else nothing is locked "
+                         "unless every one stands)")
     st = sub.add_parser("settings", help="every resolved setting, its value and the file it came from")
     st.add_argument("where", nargs="?", default=".", help="a layout script or a board directory (default: here)")
     st.add_argument("--json", action="store_true")
@@ -285,7 +288,9 @@ def cmd_lock(args) -> int:
     from pathlib import Path
     path = lock.path_for(Path(args.script).resolve())
     if getattr(args, "current", False):
-        return _lock_current(Path(args.script), None)
+        return _lock_current(Path(args.script), None, partial=args.partial)
+    if args.partial:
+        raise SystemExit("--partial goes with --current")
     if not args.release and not args.release_all:
         entries = lock.read(path)
         console.lines("lock", "\n".join("%s  %s %s  turn %d" % (e.key, "%s.%s" % e.anchor if e.anchor else "board",
@@ -297,12 +302,15 @@ def cmd_lock(args) -> int:
     return 0
 
 
-def _lock_where_it_stands(script: Path, keys, key_of=None, plan_out=None) -> tuple:
+def _lock_where_it_stands(script: Path, keys, key_of=None, plan_out=None, partial: bool = False) -> tuple:
     """(lock entries, keys locked, {key: why not}, last run's id): `keys`
     (None: every searched item; `key_of(board)` gives them once the board
     is built) locked where the board stands, and checked by resolving once
     more with them: nothing is locked unless every one of them lands where
-    the board has it. A script that does not resolve is a ValueError."""
+    the board has it. `partial`: those that would not are dropped and the
+    rest checked again (a smaller lock can move what is searched after it),
+    until what is left all lands there. A script that does not resolve is a
+    ValueError."""
     from . import lock
     from ._version import __version__
     from .previewer import resolve_like_last_run, written_pads
@@ -316,31 +324,44 @@ def _lock_where_it_stands(script: Path, keys, key_of=None, plan_out=None) -> tup
     tol = board.settings.route_adopt_tolerance
     entries, locked, refused = lock.current(board, plan, written, lock.read(path), tol, keys=keys,
                                             release=__version__, run=run_id)
-    if locked:
+    while locked:
         board2, plan2, _, _ = resolve_like_last_run(script, lock_entries=entries)
         _, held, off = lock.current(board2, plan2, written, [], tol, keys=set(locked))
-        for key in sorted(set(locked) - set(held)):
+        moved = set(locked) - set(held)
+        for key in sorted(moved):
             refused[key] = "locked, it would not come back there (%s)" % off.get(key, "not placed")
-        if set(locked) - set(held):
+        if not moved:
+            break
+        if not partial:
             locked = []
+            break
+        entries, locked, more = lock.current(board, plan, written, lock.read(path), tol,
+                                             keys=set(locked) - moved, release=__version__, run=run_id)
+        refused.update(more)
     return entries, locked, refused, run_id
 
 
-def _lock_current(script: Path, keys) -> int:
+def _lock_current(script: Path, keys, partial: bool = False) -> int:
     """Lock `keys` (None: every searched item) where the board stands; 1 when
-    any would not land there, and then nothing is locked."""
+    any would not land there, and then nothing is locked - or, `partial`,
+    the rest are."""
     from . import lock
     try:
-        entries, locked, refused, run_id = _lock_where_it_stands(script, keys)
+        entries, locked, refused, run_id = _lock_where_it_stands(script, keys, partial=partial)
     except ValueError as e:
         console.say("lock", str(e), level="fail")
         return 1
-    if refused:
+    if refused and not partial:
         locked = []
     if locked:
         lock.write(lock.path_for(script.resolve()), entries)
-    console.say("lock", "locked %d where the board stands (run %s)%s" % (
-        len(locked), run_id, "" if not refused else "; nothing written: %d would not stand there" % len(refused)))
+    if partial:
+        console.say("lock", "locked %d of %d where the board stands (run %s)%s" % (
+            len(locked), len(locked) + len(refused), run_id,
+            "" if not refused else "; %d would not stand there" % len(refused)))
+    else:
+        console.say("lock", "locked %d where the board stands (run %s)%s" % (
+            len(locked), run_id, "" if not refused else "; nothing written: %d would not stand there" % len(refused)))
     for key, why in sorted(refused.items()):
         console.say("lock", "%s: %s; run the script, then lock" % (key, why), level="finding")
     return 1 if refused else 0
