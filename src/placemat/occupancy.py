@@ -1291,6 +1291,11 @@ class Occupancy:
                 return None
             gap = poly_distance(s.poly, o.poly)
             if gap < clr - 1e-9:
+                if s.kind == "through" and not self.geometry.has_footprint(s.owner):
+                    c = s.box.center            # a via: the script's, planned, or one a part carries at its pad
+                    return "%svia %s at (%.2f, %.2f) is %.2f mm from %s copper on %s (needs %.2f)" % (
+                        "%s: " % s.owner if s.owner else "", s.net or "-", c.x, c.y, gap,
+                        o.net or self.who(o.owner), "/".join(sorted(l.value for l in common)), clr)
                 what = "pad" if s.kind in ("pad", "through") else "copper"
                 return "%s %s %s is %.2f mm from %s copper on %s (needs %.2f)" % (
                     self.who(s.owner), what, s.net or "-", gap, o.net or self.who(o.owner),

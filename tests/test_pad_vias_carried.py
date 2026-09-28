@@ -67,3 +67,14 @@ def test_a_cell_carries_the_vias_at_its_members_pads():
     b.place(Cell("m"), at=Near(Location(20, 20), radius=4))           # the cell's centre, u1's pad 1 then over r9
     b.via(Net("GND"), PadRef(Part("m.u1"), 1), size=0.45, drill=0.2)
     assert _gap_to_r9(b.resolve()) >= 0.2 - 1e-6
+
+
+def test_a_planned_via_over_another_nets_pad_is_named_as_a_via():
+    fps = [footprint("U1", 10, 10, w=3, h=1, inst="u1", nets=("GND", "X")),
+           footprint("R9", 10.1, 10, w=2, h=1, inst="r9", nets=("S", "T"), face=Face.BACK)]
+    b = Board(board_geometry(fps, width=30, height=30, extra_nets=("GND",)), edge_margin=0.5, keep_going=True)
+    b.place(Part("r9"), at=Location(10.1, 10), face=Face.BACK)
+    b.via(Net("GND"), Location(9.5, 10), size=0.45, drill=0.2)       # on r9's pad 1, through the board
+    plan = b.resolve()
+    copper = [f for f in plan.findings if f.kind == "copper"]
+    assert copper and all("via GND at (9.50, 10.00)" in f for f in copper), copper

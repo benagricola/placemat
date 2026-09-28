@@ -4,6 +4,14 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.49
+
+Nothing to change in a script. A via declared at a searched part's pad
+travels with the part through its search, so plane drops at pads
+(`board.via(net, PadRef(...))`) no longer land over the other face's pads;
+a part with such drops may land a little further from where it did. A
+copper finding against a via says "via NET at (x, y)" rather than "pad".
+
 ## To 0.48
 
 Nothing to change in a script. A courtyard that is not a rectangle (a

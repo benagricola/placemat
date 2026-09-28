@@ -820,7 +820,12 @@ declared: copper whose every endpoint belongs to something nothing will move
 - a fixed or edge part, or plain coordinates - is planned before the search
 and becomes an obstacle to it, so `board.via(net, Location(x, y))` reserves
 its spot with nothing to remember. Copper naming a searched part is planned
-after the search, once its shape is known.
+after the search, once its shape is known. A via at a searched part's pad
+(`board.via(net, PadRef(...))`, or off it by `.local()`) goes with the part
+through its search: the part, or the cell or block holding it, carries the
+via's ring on every layer and its hole, so it lands where the via clears the
+other face's copper and holes. A copper finding against a via names it as
+one: "via GND at (x, y) is ...".
 
 **A via where one fits.** `FreeSpot(near=PadRef(...), radius=2.0, step=0.05,
 layer=None, in_pad=False)` is the nearest point to the pad where a via clears

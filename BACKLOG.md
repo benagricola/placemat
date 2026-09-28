@@ -7,11 +7,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **A plane drop through the board lands on the other face's pads**
-  (PLACEMAT_GAPS 2026-09-27): drops on core-placed parts' GND/3V3 pads (in
-  the pad, else FreeSpot) gave 14 shorting_items and 11 clearance, each on
-  an other-face part's pad. Not reproduced on a small board (fixed or
-  searched, placed before or after): the conditions are asked for.
 - **Placement behaviours from the ring test board** (same entry): a block
   satellite slides along its pin row over other pins; the link-wait rule
   outranks `priority=`; a part seeded deep inside a parts keepout searches
@@ -45,6 +40,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **A via at a pad goes with its part through the search** (unreleased;
+  PLACEMAT_GAPS 2026-09-27 "a plane drop through the board lands on the
+  other face's pads"; spec `2026-09-27-pad-vias-in-search-design.md`).
 - **Two drawn courtyards sharing only a vertex, and stroked polygons**
   (0.48.0; a board's layout work, 2026-09-27): polygons that share only
   a vertex do not overlap whichever way wound; a stroked copper polygon is
