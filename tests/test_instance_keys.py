@@ -105,3 +105,19 @@ def test_a_cells_digest_does_not_follow_the_order_its_members_are_read_in():
         (intent,) = [i for i in b._placements() if i.key == "m"]
         digests.add(lock.declaration_digest(b, intent))
     assert len(digests) == 1
+
+
+def test_a_lock_written_by_0_48_with_its_members_as_read_still_holds():
+    from placemat.values import Cell
+    fps = [footprint("C1", 10, 10, w=2, h=1, inst="m.c1", nets=("A", "B"), cell="m"),
+           footprint("R1", 14, 10, w=2, h=1, inst="m.r1", nets=("B", "C"), cell="m")]
+    b = Board(board_geometry(fps[::-1], cells=["m"], width=40, height=40), edge_margin=0.5)
+    b.place(Cell("m"))
+    (intent,) = [i for i in b._placements() if i.key == "m"]
+    plan = b.resolve()
+    (e,) = lock.entries(b, plan, ["m"])
+    old = dataclasses.replace(e, declaration=lock.declaration_digest(b, intent, ordered=False))
+    assert old.declaration != e.declaration
+    b2 = Board(board_geometry(fps[::-1], cells=["m"], width=40, height=40), edge_margin=0.5)
+    b2.place(Cell("m"))
+    assert "held by lock" in b2.resolve(lock=[old]).step("m").note

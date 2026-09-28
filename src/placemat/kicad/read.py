@@ -78,14 +78,16 @@ def copper_outlines(item, layer_id, err_nm=CLEAR_ERR_NM):
         ps = item.GetPolyShape()
         w = mm(item.GetWidth()) + 2 * mm(err_nm)      # outside by the tolerance, as KiCad's own conversion is
         out = []
+        filled = item.IsSolidFill() if hasattr(item, "IsSolidFill") else item.IsFilled()
         for k in range(ps.OutlineCount()):
             o = ps.Outline(k)
             pts = [(mm(o.CPoint(j).x), mm(o.CPoint(j).y)) for j in range(o.PointCount())]
-            if item.IsSolidFill() if hasattr(item, "IsSolidFill") else item.IsFilled():
-                if len(pts) >= 3:
-                    out.append(tuple(pts))
+            if filled and len(pts) >= 3:
+                out.append(tuple(pts))
             for a, b in zip(pts, pts[1:] + pts[:1]):
                 out.append(_segment_polygon(Location(*a), Location(*b), w))
+        if out and not filled:
+            return tuple(out)                           # a stroke round nothing: its strips, its middle open
         if out:
             union = pcbnew.SHAPE_POLY_SET()             # the fill and its strokes are one piece of copper
             for poly in out:

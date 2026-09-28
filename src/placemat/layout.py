@@ -827,18 +827,22 @@ class Board:
         or the cell or block it is in, carries it through the search: a via
         at a searched part's pad is otherwise planned after the part has
         landed, over whatever the other face has there."""
+        from .board_geometry import members_of
         from .lock import _turn
         from .occupancy import _BOTH, hole_shape
+        # a decided item's vias are planned before the search, where it stands: only a searched one carries them
+        searched = {fp.ref for i in self._placements() if not i.freedom.decided
+                    for fp in (members_of(i.item) if hasattr(i, "item") and i.kind != "block" else
+                               [i.item.anchor] + [sat for sat, _ in i.item.satellites] if i.kind == "block" else [])}
         for at, net, drill, size in self._pad_vias:
             ref, number, _, _ = self._pad_ref(at)
-            if ref not in occ.items:
+            if ref not in occ.items or ref not in searched:
                 continue
             g = occ.items[ref]
-            fp = self.geometry.footprint(ref)
-            boxes = [p.box for p in fp.pads if p.number == number]
-            if not boxes:
+            try:
+                c = occ.pad_location(ref, number)       # where the planned via will stand, by the same measure
+            except KeyError:
                 continue
-            c = Box.union(boxes).center
             lx, ly = getattr(at, "lx", 0.0), getattr(at, "ly", 0.0)
             vx, vy = _turn(-lx if g.reference.face is Face.BACK else lx, ly, g.reference.rotation)
             c = Location(c.x + vx, c.y + vy)
@@ -2861,7 +2865,7 @@ class Board:
             if g is None:
                 continue
             for s in g.shapes:
-                if s.kind in ("pad", "through"):
+                if s.kind in ("pad", "through") and s.owner == ref:
                     pads.append((s.net, s.box, len(s.layers)))
         classes = list(self.geometry.netclasses.values())
         width = min((c.track_width for c in classes), default=0.2)
@@ -3186,7 +3190,7 @@ class Board:
             done.add(key)
             g = occ.items[fp.ref]
             body, face = g.body, g.reference.face
-            pads = [s.box for s in g.shapes if s.kind in ("pad", "through")]
+            pads = [s.box for s in g.shapes if s.kind in ("pad", "through") and s.owner == fp.ref]
             allowed = {fp.ref}
             for i in self._intents:
                 spec = getattr(i, "item", None)

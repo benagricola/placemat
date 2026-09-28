@@ -78,3 +78,39 @@ def test_a_planned_via_over_another_nets_pad_is_named_as_a_via():
     plan = b.resolve()
     copper = [f for f in plan.findings if f.kind == "copper"]
     assert copper and all("via GND at (9.50, 10.00)" in f for f in copper), copper
+
+
+def test_a_part_placed_after_a_cell_keeps_off_the_cells_carried_via():
+    from placemat.values import Cell, Priority
+    fps = [footprint("U1", 40, 40, w=3, h=1, inst="m.u1", nets=("GND", "X"), cell="m"),
+           footprint("R9", 5, 5, w=2, h=1, inst="r9", nets=("S", "T"), face=Face.BACK)]
+    b = Board(board_geometry(fps, cells=["m"], width=50, height=50, extra_nets=("GND",)), edge_margin=0.5)
+    b.place(Cell("m"), at=Near(Location(20, 20), radius=0.2), priority=Priority.HIGH)   # searched, and first
+    b.via(Net("GND"), PadRef(Part("m.u1"), 1), size=0.45, drill=0.2)
+    b.place(Part("r9"), at=Near(Location(18.9, 20), radius=4), face=Face.BACK)    # searched after, onto the via
+    plan = b.resolve()
+    assert not [f for f in plan.findings if f.kind == "copper"], list(plan.findings)
+
+
+def test_a_fixed_parts_via_over_the_other_face_is_a_finding_not_a_stop():
+    fps = [footprint("U1", 10, 10, w=3, h=1, inst="u1", nets=("GND", "X")),
+           footprint("R9", 9.1, 10, w=2, h=1, inst="r9", nets=("S", "T"), face=Face.BACK)]
+    b = Board(board_geometry(fps, width=30, height=30, extra_nets=("GND",)), edge_margin=0.5)
+    b.place(Part("r9"), at=Location(9.1, 10), face=Face.BACK)
+    b.place(Part("u1"), at=Location(10, 10))
+    b.via(Net("GND"), PadRef(Part("u1"), 1), size=0.45, drill=0.2)
+    plan = b.resolve()                                                   # no PlacementCollision
+    assert [f for f in plan.findings if f.kind == "copper"]
+
+
+def test_a_back_face_searched_part_carries_its_pad_via():
+    fps = [footprint("U1", 40, 40, w=3, h=1, inst="u1", nets=("GND", "X"), face=Face.BACK),
+           footprint("R9", 20, 20, w=2, h=1, inst="r9", nets=("S", "T"))]
+    b = Board(board_geometry(fps, width=50, height=50, extra_nets=("GND",)), edge_margin=0.5)
+    b.place(Part("r9"), at=Location(20, 20))
+    b.place(Part("u1"), at=Near(Location(20.9, 20), radius=4), face=Face.BACK)
+    b.via(Net("GND"), PadRef(Part("u1"), 1), size=0.45, drill=0.2)
+    plan = b.resolve()
+    at = plan.occupancy.pad_location("U1", "1")
+    ring = via_ring(at, 0.45)
+    assert min(poly_distance(ring, s.poly) for s in plan.occupancy.items["R9"].shapes if s.kind == "pad") >= 0.2 - 1e-6

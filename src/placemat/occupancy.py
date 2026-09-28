@@ -505,6 +505,11 @@ class Occupancy:
         import dataclasses
         g = self.items[ref]
         self.items[ref] = dataclasses.replace(g, shapes=g.shapes + tuple(shapes))
+        carried = self.__dict__.setdefault("_carried", {})
+        for s in shapes:
+            carried[s.owner] = ref                # a cell's commit hands them back to the part
+        self._cells.clear()
+        self._pad_location_cache.clear()
         self._invalidate_native()
 
     def add_copper(self, shapes) -> None:
@@ -712,8 +717,9 @@ class Occupancy:
             return
         t = self._transform(geom, placement)
         by_owner: dict[str, list[Shape]] = {}
+        carried = self.__dict__.get("_carried", {})
         for s in shapes:
-            by_owner.setdefault(s.owner, []).append(s)
+            by_owner.setdefault(carried.get(s.owner, s.owner), []).append(s)
         for fp in item.members:
             m = self.items[fp.ref]
             new_ref = Placement(t.apply_location(m.reference.location),
@@ -963,8 +969,7 @@ class Occupancy:
             return why
         # What a conflict can reach from: the body, or in a drawn envelope every
         # shape the part claims - silk can stand well past the body.
-        reach = body if self.envelope == "courtyard" else \
-            Box.union([body, transform_box(self._extent(geom), self._transform(geom, placement))])
+        reach = Box.union([body, transform_box(self._extent(geom), self._transform(geom, placement))])
         near = others.near(reach, self._gap) if isinstance(others, ShapeIndex) else \
             [o for o in others if o.box.overlaps(reach, gap=self._gap)]
         if not near:
@@ -1104,6 +1109,8 @@ class Occupancy:
         """A hole as a refusal names it: a part's, a cell's via, or a via."""
         if s.kind == "hole" and s.owner in self.geometry.cells:
             return "cell %s's via" % s.owner
+        if s.owner.startswith("via at "):
+            return "the via %s" % s.owner[len("via "):]
         if not s.owner:
             return "a via"
         return "%s's hole" % self.who(s.owner)
@@ -1293,9 +1300,9 @@ class Occupancy:
             if gap < clr - 1e-9:
                 if s.kind == "through" and not self.geometry.has_footprint(s.owner):
                     c = s.box.center            # a via: the script's, planned, or one a part carries at its pad
-                    return "%svia %s at (%.2f, %.2f) is %.2f mm from %s copper on %s (needs %.2f)" % (
-                        "%s: " % s.owner if s.owner else "", s.net or "-", c.x, c.y, gap,
-                        o.net or self.who(o.owner), "/".join(sorted(l.value for l in common)), clr)
+                    return "via %s at (%.2f, %.2f)%s is %.2f mm from %s copper on %s (needs %.2f)" % (
+                        s.net or "-", c.x, c.y, " (%s)" % s.owner[len("via "):] if s.owner.startswith("via at ") else "",
+                        gap, o.net or self.who(o.owner), "/".join(sorted(l.value for l in common)), clr)
                 what = "pad" if s.kind in ("pad", "through") else "copper"
                 return "%s %s %s is %.2f mm from %s copper on %s (needs %.2f)" % (
                     self.who(s.owner), what, s.net or "-", gap, o.net or self.who(o.owner),
