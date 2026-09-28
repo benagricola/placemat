@@ -195,3 +195,11 @@ def test_an_end_on_a_zone_of_the_net_holds_on_the_next_run():
     (e,) = routes.entries_from(placed, routed, ["X"])
     assert not any(p.get("meets") for t in e.tracks for p in (t["a"], t["b"]))
     assert not isinstance(routes.resolve(e, _occupancy(), 0.001), str)
+
+
+def test_the_entries_a_pass_replaces_are_named():
+    placed = _board()
+    (first,) = routes.adoptable(placed, _pass1(placed), ["X"], still_open={"X": 1}, partial=True)
+    held, stale = dataclasses.replace(first, adopted="held"), dataclasses.replace(first, adopted="stale")
+    again = dataclasses.replace(first, adopted="again")
+    assert routes.replaced([held, stale], [again], held=[True, False]) == [stale]

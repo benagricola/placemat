@@ -15,16 +15,21 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   connection and 21 fell to one spoke. Keep a cell's zone whose pad
   connection differs from the plane's; perhaps a stitching declaration for
   the islands an outer fill leaves.
-- **A second `--adopt-all --partial` pass drops kept routes** (PLACEMAT_GAPS
-  2026-09-28): entries rewritten by a later pass dropped on the next run
-  ("no longer meets"), 83 -> 100 open. To check on 0.49.1 (which fixed ends
-  on zones), and the route report should say which entries a pass replaced.
+- **The link wait outranks `priority=`** (PLACEMAT_GAPS 2026-09-27, checked
+  2026-09-28): a HIGH item waits for a DEFAULT partner it is linked to, and
+  its note says it waited but not that its priority was set aside.
+- **A slid block satellite does not say which pins it now stands in front
+  of** (PLACEMAT_GAPS 2026-09-27, checked 2026-09-28): stepping out and
+  turning on the pin's axis are already tried before the slide.
 - **A cell's zone at the board edge is not merged into the plane**
   (PLACEMAT_GAPS 2026-09-28): the plane is inset by the keep-in, so a zone
   reaching nearer the edge is never "wholly covered". Merge when the plane
   covers the part of the zone inside the keep-in.
-- **"No legal location" for a cell names neither the items nor the face**
-  (PLACEMAT_GAPS 2026-09-28 "why the PD controller cell had no legal spot").
+- **"No legal location" names nothing under a drawn envelope**
+  (PLACEMAT_GAPS 2026-09-28 "why the PD controller cell had no legal spot";
+  checked 2026-09-28): the refusal is counted under its sentence's first word
+  ("cell x709") while the blockers are kept by kind, so no owner or face is
+  named; the courtyard envelope names them.
 - **`placemat preview --layer L` with zone fills coloured by net**
   (PLACEMAT_GAPS 2026-09-28 "which net each inner-layer zone fill belongs
   to"); with the routed copy's tracks, and a finding for a track that
@@ -46,10 +51,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   them. A pour declared with `board.plane(outline=...)` could keep other
   nets' copper out of its outline on its layer. Needs a spec (a KiCad rule
   area has no allow list: the pour's own net must still reach it).
-- **Placement behaviours from the ring test board** (same entry): a block
-  satellite slides along its pin row over other pins; the link-wait rule
-  outranks `priority=`; a part seeded deep inside a parts keepout searches
-  only its own size from the seed.
 - **`placemat impact` between a run and a KiCad file**, copper included
   (PLACEMAT_GAPS 2026-09-27 "folding a hand layout into a fragment's
   script").
@@ -62,8 +63,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   physical, courtyard and maximum-package, as a report.
 - **A plated lead against a neighbour's courtyard on the same face under
   physical envelopes** (PLACEMAT_GAPS 2026-09-26).
-- **A re-laid cell that outgrows the room its parent gave it** (PLACEMAT_GAPS
-  2026-09-25).
 - **The run score ranks escape settings the wrong way round** (PLACEMAT_GAPS
   2026-09-25): it measures escapes at the search's own escape_depth.
 - **A route report of each net's path, or a preview of the routed copy**
@@ -79,6 +78,15 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **A later route --adopt kept no earlier entry of a net it routed again**
+  (unreleased; PLACEMAT_GAPS 2026-09-28 "a second --adopt-all --partial pass
+  drops kept routes"): the resolve that says which entries held did not draw
+  the routes file, so none held and every one was replaced; the adopt line
+  now names what it replaced.
+- **Checked 2026-09-28 and closed:** a part seeded deep inside a parts
+  keepout now takes the pocket nearest its seed; a re-laid cell's extent is
+  read on every run (`board.extent`, `board.size(fit=True)`), so a room
+  derived from it follows it.
 - **check current-path between the parts that carry it** (unreleased; a
   board's layout work, 2026-09-28; spec
   `2026-09-28-current-path-terminals-design.md`).

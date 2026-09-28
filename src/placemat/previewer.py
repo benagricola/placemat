@@ -77,6 +77,8 @@ def resolve_like_last_run(script, lock_entries=None) -> tuple:
         fab = fab_profile(src.board_dir)
         previous, _ = newest_record([(Path(last.paths.get("run_dir", "")) / "reuse.json", "run %s" % last.run_id)])
         lock_now = read_lock(lock_path(script)) if lock_entries is None else lock_entries
+        from . import routes as routes_mod
+        kept = routes_mod.read(routes_mod.path_for(script))        # drawn as the run drew them: which held is asked
 
         def build(keep_going):
             try:
@@ -98,13 +100,13 @@ def resolve_like_last_run(script, lock_entries=None) -> tuple:
         else:
             board.keep_going = False
         try:
-            plan = board.resolve(reuse=previous, lock=lock_now)
+            plan = board.resolve(reuse=previous, lock=lock_now, routes=kept)
         except (PlacementCollision, CriticalUnplaced) as e:
             if known or board.keep_going:
                 raise ValueError("the script does not place as it stands: %s" % str(e).splitlines()[0])
             board = build(True)
             try:
-                plan = board.resolve(reuse=previous, lock=lock_now)
+                plan = board.resolve(reuse=previous, lock=lock_now, routes=kept)
             except (PlacementCollision, CriticalUnplaced) as e2:
                 raise ValueError("the script does not place as it stands: %s" % str(e2).splitlines()[0])
     return board, plan, src, last.run_id

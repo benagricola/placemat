@@ -68,6 +68,12 @@ def merged(old, new, held=None) -> list:
     return out + list(new)
 
 
+def replaced(old, new, held=None) -> list:
+    """The entries of `old` that merging `new` drops."""
+    kept = merged(old, [], None) if not new else merged(old, new, held)
+    return [o for o in old if not any(o is k for k in kept)]
+
+
 def entry_keys(entries) -> list:
     """The key each entry is drawn and reported under: its net, and for a
     net's second and later entries "NET #n"."""

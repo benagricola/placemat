@@ -522,6 +522,8 @@ def _adopt(script: Path, nets, report, lock_items: bool = True, partial: bool = 
                 pass
         if last:
             held = routes.held_of(old, last[0].adopted)
+    for e in routes.replaced(old, new, held):
+        console.say("adopt", "replaced a kept entry of %s (adopted %s) that did not hold" % (e.net, e.adopted or "-"))
     routes.keep(script, new, held)
     for e in new:
         console.say("adopt", routes.describe(e))
