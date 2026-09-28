@@ -7,6 +7,12 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+- **Routing a pour net's taps the pours do not reach** (the fairing board's
+  session, 2026-09-28): spec `2026-09-28-pour-net-islands-design.md`.
+- **`lock --current` all-or-nothing** (the fairing board's session,
+  2026-09-28: 29 of 75 refused held back the rest): spec
+  `2026-09-28-lock-current-partial-design.md`.
+
 - **A slid block satellite does not say which pins it now stands in front
   of** (PLACEMAT_GAPS 2026-09-27, checked 2026-09-28): stepping out and
   turning on the pin's axis are already tried before the slide.
