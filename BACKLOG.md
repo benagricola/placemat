@@ -52,6 +52,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **placemat route with the board's own settings; a kept end on a zone**
+  (0.49.1; a board's layout work, 2026-09-28): `[route] layers` was ignored
+  by the route command; a kept route ending on its net's zone dropped every
+  run.
 - **A cell's lock digest independent of member order; a stroked pour read
   as one piece** (0.49.0; a board's layout work, 2026-09-28).
 - **Keeping the closed parts of an open net** (0.49.0; a board's layout
