@@ -46,10 +46,12 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **Keeping the closed parts of an open net** (unreleased; a board's layout
+- **A cell's lock digest independent of member order; a stroked pour read
+  as one piece** (0.49.0; a board's layout work, 2026-09-28).
+- **Keeping the closed parts of an open net** (0.49.0; a board's layout
   work, 2026-09-28): `route --adopt ... --partial` (spec
   `2026-09-28-adopt-partial-design.md`).
-- **A via at a pad goes with its part through the search** (unreleased;
+- **A via at a pad goes with its part through the search** (0.49.0;
   PLACEMAT_GAPS 2026-09-27 "a plane drop through the board lands on the
   other face's pads"; spec `2026-09-27-pad-vias-in-search-design.md`).
 - **Two drawn courtyards sharing only a vertex, and stroked polygons**
