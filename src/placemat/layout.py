@@ -3612,6 +3612,7 @@ class Board:
         if entry is None:
             return None, None
         if entry.declaration != _lock.declaration_digest(self, i) and \
+                entry.declaration != _lock.declaration_digest(self, i, ordered=False) and \
                 entry.declaration != _lock.declaration_digest(self, i, legacy=True):
             self._lock_notes[i.key] = "lock: released - its declaration changed since it was accepted"
             return None, None

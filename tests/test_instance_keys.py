@@ -86,3 +86,22 @@ def test_adopted_routes_written_with_refdes_still_resolve():
                               vias=tuple({**v, "at": point(v["at"])} for v in e.vias))
     from tests.test_routes import _occupancy
     assert not isinstance(routes.resolve(old, _occupancy(), 0.001), str)
+
+
+def test_a_cells_digest_does_not_follow_the_order_its_members_are_read_in():
+    """A re-stamped fragment lists its footprints in another order: the
+    lock's digest of the cell must not change with it."""
+    from placemat.values import Cell
+    def board(order):
+        fps = [footprint("C1", 10, 10, w=2, h=1, inst="m.c1", nets=("A", "B"), cell="m"),
+               footprint("R1", 14, 10, w=2, h=1, inst="m.r1", nets=("B", "C"), cell="m"),
+               footprint("U1", 12, 14, w=4, h=2, inst="m.u1", nets=("A", "C"), cell="m")]
+        b = Board(board_geometry([fps[i] for i in order], cells=["m"], width=40, height=40), edge_margin=0.5)
+        b.place(Cell("m"))
+        return b
+    digests = set()
+    for order in ((0, 1, 2), (2, 0, 1), (1, 2, 0)):
+        b = board(order)
+        (intent,) = [i for i in b._placements() if i.key == "m"]
+        digests.add(lock.declaration_digest(b, intent))
+    assert len(digests) == 1

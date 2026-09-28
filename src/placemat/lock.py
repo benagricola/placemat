@@ -76,11 +76,14 @@ def _turn(dx: float, dy: float, degrees: float) -> tuple:
 _NOT_DECIDING = frozenset(("index", "line", "needs", "why", "faces_note", "priority_source"))
 
 
-def declaration_digest(board, intent, legacy: bool = False) -> str:
+def declaration_digest(board, intent, legacy: bool = False, ordered: bool = True) -> str:
     """What an entry was accepted against: the item's declaration, the links
     on its pads and its footprint's shape, each part named by its instance
-    path, which a renumbering of the board does not change. `legacy`: named
-    by refdes, as 0.43-0.46 wrote it, which a run still accepts."""
+    path, which a renumbering of the board does not change, and a cell's
+    members in order of it, not in the order the board file lists them (a
+    re-stamped fragment lists them otherwise). `legacy`: named by refdes, as
+    0.43-0.46 wrote it; `ordered=False`: members as read, as 0.47-0.48 wrote
+    it; a run still accepts both."""
     import dataclasses
     from . import reuse as _reuse
     from .board_geometry import members_of
@@ -93,6 +96,8 @@ def declaration_digest(board, intent, legacy: bool = False) -> str:
               round(fp.courtyard_box.width, 4), round(fp.courtyard_box.height, 4),
               sorted((p.number, p.net, round(p.box.width, 4), round(p.box.height, 4)) for p in fp.pads))
              for fp in members_of(intent.item)]
+    if ordered and not legacy:
+        shape.sort(key=lambda t: t[0])
     links = _reuse.links_on(board, intent)
     if names:
         links = [dataclasses.replace(l, a=(names.get(l.a[0], l.a[0]), l.a[1]), b=(names.get(l.b[0], l.b[0]), l.b[1]))
