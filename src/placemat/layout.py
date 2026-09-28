@@ -3743,8 +3743,13 @@ class Board:
         # one needs saying why it went next.
         why = "" if obj.key in self._rank_note else "next: largest (%.0f mm2)" % area
         if obj.key in self._waited:
+            partner = self._waited[obj.key]
             why = (why + "; " if why else "") + "waited for %s, the item it is linked to with more placed connections" % (
-                self._waited[obj.key])
+                partner)
+            other = next((o for o in self._placements() if o.key == partner), None)
+            if other is not None and obj.priority.rank > other.priority.rank:
+                # the wait comes before the tier: say what it overrode
+                why += " (its own priority %s set aside for the link)" % obj.priority.name.lower()
         return obj, why
 
     def _link_waits(self, pending: list, pull: dict) -> dict:
