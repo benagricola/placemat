@@ -51,23 +51,23 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 ## Done
 
 - **A plated lead against a neighbour's courtyard under the physical
-  envelope** (unreleased; PLACEMAT_GAPS 2026-09-26; spec
+  envelope** (0.50.0; PLACEMAT_GAPS 2026-09-26; spec
   `2026-09-28-lead-courtyard-drawn-design.md`): a drawn part's courtyard is
   kept as a yard, judged only against another part's plated lead, both ways.
 - **A cell's solid ground pour under a thermal-relief plane; a cell's zone at
-  the board edge** (unreleased; PLACEMAT_GAPS 2026-09-28): a zone whose pads
+  the board edge** (0.50.0; PLACEMAT_GAPS 2026-09-28): a zone whose pads
   join otherwise than the plane's is kept; one reaching past the plane's
   keep-in merges by the part inside it.
-- **placemat route routed a pour's net with thin tracks** (unreleased; a
+- **placemat route routed a pour's net with thin tracks** (0.50.0; a
   board's report, 2026-09-28): it leaves nets with a zone or filled pour to
   their pours, as `run --route` does.
-- **The router cut through an inner-layer pour** (unreleased; a board's
+- **The router cut through an inner-layer pour** (0.50.0; a board's
   layout work, 2026-09-28; spec `2026-09-28-route-and-pours-design.md`): the
   input copy keeps other nets' tracks out of a partial inner-layer pour of an
   excluded net. Measured on the breakout: without the guard 6 other-net track
   ends inside a GND pour on In2, with it none.
 - **"No legal location" named nothing under a drawn envelope; the link wait
-  hid a priority set aside** (unreleased; PLACEMAT_GAPS 2026-09-27 and
+  hid a priority set aside** (0.50.0; PLACEMAT_GAPS 2026-09-27 and
   2026-09-28).
 
 - **A later route --adopt kept no earlier entry of a net it routed again**

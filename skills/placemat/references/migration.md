@@ -4,7 +4,7 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
-## To 0.50
+## To 0.50.0
 
 Nothing to change in a script. Under the `physical` envelope a part's
 courtyard keeps off another part's plated lead, both ways, as KiCad's DRC
