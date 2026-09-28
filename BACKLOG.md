@@ -50,12 +50,12 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **Routing a pour net's taps the pours do not reach** (unreleased; the
+- **Routing a pour net's taps the pours do not reach** (0.51.0; the
   fairing board's session, 2026-09-28; spec
   `2026-09-28-pour-net-islands-design.md`): `[route] islands`, routed first
   and alone. Breakout, a partial In2 pour over half of a net's pads: 3 pieces
   apart before, 0 after, its pour kept clear in the main pass.
-- **`lock --current` all-or-nothing** (unreleased; the fairing board's
+- **`lock --current` all-or-nothing** (0.51.0; the fairing board's
   session, 2026-09-28; spec `2026-09-28-lock-current-partial-design.md`):
   `--partial` locks what stands and lists the rest.
 
