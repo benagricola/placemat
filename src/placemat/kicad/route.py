@@ -83,6 +83,9 @@ class RouteReport:
     # Footprint copper graphics put back in the routed copy (the router's
     # writer moves outer-layer net-less ones to silk): {"footprints", "items"}.
     restored_graphics: dict = field(default_factory=dict)
+    # Partial inner-layer pours of nets left out, kept clear of other nets'
+    # tracks in the router's input copy: "NET on LAYER" each.
+    pours_kept: list = field(default_factory=list)
 
     def summary(self) -> str:
         head = "route %s: closure %.1f%% clean (%.1f%% raw), %d -> %d open signal item(s)" % (
@@ -103,6 +106,8 @@ class RouteReport:
         if (self.restored_graphics or {}).get("items"):
             head += "  %d footprint copper graphic(s) put back on %d footprint(s)" % (
                 self.restored_graphics["items"], self.restored_graphics["footprints"])
+        if self.pours_kept:
+            head += "  other nets kept out of %d pour(s)" % len(self.pours_kept)
         return head
 
     def as_dict(self) -> dict:
@@ -113,7 +118,7 @@ class RouteReport:
                 "routed_pcb": str(self.routed_pcb), "log": str(self.log), "quick": self.quick,
                 "invalid_reason": self.invalid_reason, "keepout_breaches": list(self.keepout_breaches),
                 "pairs": self.pairs, "plane_layers": self.plane_layers,
-                "restored_graphics": self.restored_graphics}
+                "restored_graphics": self.restored_graphics, "pours_kept": list(self.pours_kept)}
 
 
 def plane_nets_of(pcb) -> set:
@@ -188,6 +193,57 @@ def guard_footprint_copper(pcb_path: str) -> int:
     return n
 
 
+POUR_GUARD = "placemat pour"
+
+
+def guard_partial_pours(pcb_path: str, nets, layers, share: float) -> list:
+    """Keep other nets' tracks out of each partial inner-layer pour of a net
+    the route leaves out: the router does not see copper zones when it
+    routes other nets, so it would lay tracks through the pour's outline and
+    the refill would split it. Each such zone gets a rule area over its
+    outline on each inner layer the route uses, forbidding tracks (vias,
+    pads and fills may pass: the pour is refilled round a via), named for
+    the pour so `restore_footprint_graphics` removes it. A pour covering at
+    least `share` of the board is a plane, and an outer layer's pours hold
+    other nets' surface pads: neither is guarded. "NET on LAYER" per guard."""
+    from .quiet import import_pcbnew, quiet_stderr
+    pcbnew = import_pcbnew()
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(pcb_path)
+    outline = pcbnew.SHAPE_POLY_SET()
+    board.GetBoardPolygonOutlines(outline, False)
+    board_area = outline.Area()
+    routed = set(layers or ())
+    out = []
+    for z in list(board.Zones()):
+        if z.GetIsRuleArea() or z.GetNetname() not in nets:
+            continue
+        if board_area and z.Outline().Area() >= share * board_area:
+            continue
+        for layer in z.GetLayerSet().CuStack():
+            name = board.GetLayerName(layer)
+            if layer in (pcbnew.F_Cu, pcbnew.B_Cu) or name not in routed or not board.IsLayerEnabled(layer):
+                continue
+            g = pcbnew.ZONE(board)
+            g.SetIsRuleArea(True)
+            ls = pcbnew.LSET()
+            ls.AddLayer(layer)
+            g.SetLayerSet(ls)
+            g.SetDoNotAllowTracks(True)
+            g.SetDoNotAllowVias(False)
+            g.SetDoNotAllowPads(False)
+            g.SetDoNotAllowZoneFills(False)
+            g.SetDoNotAllowFootprints(False)
+            g.Outline().Append(z.Outline())
+            g.SetZoneName("%s %s %s" % (POUR_GUARD, z.GetNetname(), name))
+            board.Add(g)
+            out.append("%s on %s" % (z.GetNetname(), name))
+    if out:
+        with quiet_stderr():
+            board.Save(pcb_path)
+    return out
+
+
 def _shape_key(d) -> tuple:
     return (d.GetShape(), d.GetLayer(), d.GetStart().x, d.GetStart().y, d.GetEnd().x, d.GetEnd().y, d.GetWidth())
 
@@ -195,7 +251,8 @@ def _shape_key(d) -> tuple:
 def restore_footprint_graphics(pcb_in: str, pcb_out: str) -> dict:
     """Put each footprint's graphic shapes in the routed copy back as they
     are in the router's input (its writer moves outer-layer copper graphics
-    to silk), and delete the guards `guard_footprint_copper` added. What
+    to silk), and delete the guards `guard_footprint_copper` and
+    `guard_partial_pours` added. What
     was restored: {"footprints": n, "items": copper graphics put back}."""
     from .quiet import import_pcbnew, quiet_stderr
     pcbnew = import_pcbnew()
@@ -223,7 +280,7 @@ def restore_footprint_graphics(pcb_in: str, pcb_out: str) -> dict:
                 dup.SetNet(board.FindNet(d.GetNetname()))
         fps += 1
         items += sum(1 for d in theirs if pcbnew.IsCopperLayer(d.GetLayer()) and _shape_key(d) not in kept)
-    guards = [z for z in board.Zones() if z.GetZoneName().startswith(GUARD)]
+    guards = [z for z in board.Zones() if z.GetZoneName().startswith((GUARD, POUR_GUARD))]
     for z in guards:
         board.Delete(z)
     if fps or guards:
@@ -510,6 +567,7 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
     open0 = {n: v for n, v in before.open_nets.items() if n not in excluded}
     valid = not before.real
     guard_footprint_copper(str(pcb_in))          # after the placement's own DRC: the guards are the router's
+    pours = guard_partial_pours(str(pcb_in), excluded, layers, cfg.route_plane_share)
 
     pcb_out = work / "routed.kicad_pcb"
     summary = work / "router_summary.json"
@@ -546,7 +604,7 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
                          dict(sorted(open1.items())), sc.shorted, sorted(excluded), layers, seconds,
                          router_version(router_dir_path), after.by_type, pcb_out, log, work,
                          "" if valid else "placement DRC not clean before routing: %s" % before.real, quick,
-                         router_breaches(pcb_in, pcb_out), pairs.as_dict(), plane_dropped, restored)
+                         router_breaches(pcb_in, pcb_out), pairs.as_dict(), plane_dropped, restored, pours)
     (work / "route.json").write_text(json.dumps(report.as_dict(), indent=2) + "\n")
     return report
 
