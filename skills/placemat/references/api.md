@@ -269,8 +269,9 @@ pull toward what is placed, which only separates items the rank cannot, then
 the largest. The sentence that chose each is in its step. One exception to
 the rank: of two items joined by a `board.link()` and neither placed, the one
 with less pull toward what is placed waits for the other, so it is seeded on
-the part the link joins it to; its step says "waited for" which. Two pulled
-equally keep the rank's order.
+the part the link joins it to; its step says "waited for" which, and when
+its own `priority=` would have put it first, that it set that priority aside
+for the link. Two pulled equally keep the rank's order.
 
 **What a part claims.** `[place] envelope` says what one part may not share
 with another. `courtyard` (the default) is its courtyard and its pads.
@@ -278,7 +279,11 @@ with another. `courtyard` (the default) is its courtyard and its pads.
 each pad's mask opening (the pad grown by its expansion), every silk graphic
 as stroked (the footprint's text fields excluded - `board.label()` text stays
 a reservation) and its body, the box of its fab graphics. A footprint that
-draws neither silk nor fab keeps its courtyard. `union` is both. Under every
+draws neither silk nor fab keeps its courtyard. `union` is both. In
+`physical` a part's courtyard still keeps off another part's plated lead, and
+its plated leads out from under another part's courtyard, as KiCad's DRC
+judges them (`pth_inside_courtyard`); the refusal names the pad: `C1 courtyard
+sits over the through-hole lead of J1 pad 2`. Under every
 envelope a footprint's own copper graphics (a net-tie's winding, a printed
 antenna) are copper of no net: every other part, track and via - placed,
 drawn by the script, or found by `FreeSpot` and `--via-near` - keeps the
@@ -510,12 +515,15 @@ collide with one is refused.
 
 **A stamped cell's zones under the board's own plane.** A module fragment's
 copper zone (its ground or supply fill) is merged into the parent's plane when
-the parent declares a `board.plane()` on the same net and layer that wholly
-covers it: the written board leaves the cell's zone out on that layer, and the
-run says `zones  <cell>: GND on In1.Cu merged into the board's plane`, adding
-how the cell's zone was set up differently (thermal or solid pads, its
-clearance) when it was. A cell zone on another net, on a layer the parent has
-no plane on, or reaching past the plane's outline is kept. The search never
+the parent declares a `board.plane()` on the same net and layer that covers it
+(a zone reaching nearer the board edge than the plane's keep-in counts by the
+part inside it): the written board leaves the cell's zone out on that layer,
+and the run says `zones  <cell>: GND on In1.Cu merged into the board's plane`,
+adding its clearance when that differs. A cell zone whose pads join otherwise
+than the plane's (solid where the plane is thermal, or the reverse) is kept,
+and the run says `zones  <cell>: its GND zone on In1.Cu kept under the board's
+plane: ...`. A cell zone on another net, on a layer the parent has no plane
+on, or reaching past the plane's outline is kept. The search never
 counted a zone in a cell's size, so placements are unchanged. Set
 `copper.cell_zones_under_planes = "keep"` to keep them all.
 
@@ -1140,7 +1148,9 @@ unless `--iterations` caps it. Left to itself (no `--layers` and no
 own outline a `board.plane()` zone covers at least `route.plane_share` of (a
 stamped cell's zone never counts, and F.Cu/B.Cu never drop) - the route step
 prints which layers it left out and why, and the report's `plane_layers`
-names them too.
+names them too. A net with a zone or a filled copper pour on the board is
+left to its pour and not routed, as `run --route` leaves the plan's plane
+nets; `--exclude` adds to them.
 
 A footprint's own copper graphics (a net-tie's winding, a copper logo) are
 not obstacles to the router, and its writer moves net-less ones on the

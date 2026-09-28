@@ -7,29 +7,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **A thermal-relief board fill replaces the cells' solid ground pours**
-  (PLACEMAT_GAPS 2026-09-28): `_merge_cell_zones` drops a cell's zone
-  wherever the board's plane of the net and layer covers it, though it notes
-  the cell's pads were solid and the plane's thermal; with
-  `board.plane(GND, (F, B), solid_pads=False)` six ground pads lost their
-  connection and 21 fell to one spoke. Keep a cell's zone whose pad
-  connection differs from the plane's; perhaps a stitching declaration for
-  the islands an outer fill leaves.
-- **The link wait outranks `priority=`** (PLACEMAT_GAPS 2026-09-27, checked
-  2026-09-28): a HIGH item waits for a DEFAULT partner it is linked to, and
-  its note says it waited but not that its priority was set aside.
 - **A slid block satellite does not say which pins it now stands in front
   of** (PLACEMAT_GAPS 2026-09-27, checked 2026-09-28): stepping out and
   turning on the pin's axis are already tried before the slide.
-- **A cell's zone at the board edge is not merged into the plane**
-  (PLACEMAT_GAPS 2026-09-28): the plane is inset by the keep-in, so a zone
-  reaching nearer the edge is never "wholly covered". Merge when the plane
-  covers the part of the zone inside the keep-in.
-- **"No legal location" names nothing under a drawn envelope**
-  (PLACEMAT_GAPS 2026-09-28 "why the PD controller cell had no legal spot";
-  checked 2026-09-28): the refusal is counted under its sentence's first word
-  ("cell x709") while the blockers are kept by kind, so no owner or face is
-  named; the courtyard envelope names them.
 - **`placemat preview --layer L` with zone fills coloured by net**
   (PLACEMAT_GAPS 2026-09-28 "which net each inner-layer zone fill belongs
   to"); with the routed copy's tracks, and a finding for a track that
@@ -59,8 +39,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   items may be referred to"). Needs a spec.
 - **Each part's clearance to each keepout** (PLACEMAT_GAPS 2026-09-26):
   physical, courtyard and maximum-package, as a report.
-- **A plated lead against a neighbour's courtyard on the same face under
-  physical envelopes** (PLACEMAT_GAPS 2026-09-26).
 - **The run score ranks escape settings the wrong way round** (PLACEMAT_GAPS
   2026-09-25): it measures escapes at the search's own escape_depth.
 - **A route report of each net's path, or a preview of the routed copy**
@@ -75,6 +53,21 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **A plated lead against a neighbour's courtyard under the physical
+  envelope** (unreleased; PLACEMAT_GAPS 2026-09-26; spec
+  `2026-09-28-lead-courtyard-drawn-design.md`): a drawn part's courtyard is
+  kept as a yard, judged only against another part's plated lead, both ways.
+- **A cell's solid ground pour under a thermal-relief plane; a cell's zone at
+  the board edge** (unreleased; PLACEMAT_GAPS 2026-09-28): a zone whose pads
+  join otherwise than the plane's is kept; one reaching past the plane's
+  keep-in merges by the part inside it.
+- **placemat route routed a pour's net with thin tracks** (unreleased; a
+  board's report, 2026-09-28): it leaves nets with a zone or filled pour to
+  their pours, as `run --route` does.
+- **"No legal location" named nothing under a drawn envelope; the link wait
+  hid a priority set aside** (unreleased; PLACEMAT_GAPS 2026-09-27 and
+  2026-09-28).
 
 - **A later route --adopt kept no earlier entry of a net it routed again**
   (0.49.2; PLACEMAT_GAPS 2026-09-28 "a second --adopt-all --partial pass

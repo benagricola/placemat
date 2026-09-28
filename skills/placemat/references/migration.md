@@ -4,6 +4,19 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.50
+
+Nothing to change in a script. Under the `physical` envelope a part's
+courtyard keeps off another part's plated lead, both ways, as KiCad's DRC
+judges it: a part that stood with its courtyard over a lead moves clear, and
+a refusal names the pad (in every envelope). A stamped cell's zone whose pads
+join otherwise than the board's plane is kept (it was merged, and its pads
+lost their solid connection); one reaching nearer the board edge than the
+plane's keep-in merges. `placemat route` leaves nets with a zone or a filled
+pour to their pours, as `run --route` did. "No legal location" names the
+parts whose silk, mask or body were in the way under a drawn envelope, and a
+link's wait says when it set the item's `priority=` aside.
+
 ## To 0.49.2
 
 Nothing to change in a script. A later `route --adopt` keeps the entries of
