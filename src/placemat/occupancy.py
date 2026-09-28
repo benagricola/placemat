@@ -753,10 +753,14 @@ class Occupancy:
             by_owner.setdefault(carried.get(s.owner, s.owner), []).append(s)
         for fp in item.members:
             m = self.items[fp.ref]
-            new_ref = Placement(t.apply_location(m.reference.location),
-                                m.reference.rotation + (placement.rotation - geom.reference.rotation),
+            # the member's placement is where its own shapes went: _transform from it must move them so.
+            # A flip mirrors the member's turn with it: turned by the cell's, less its own.
+            flip = placement.face != geom.reference.face
+            turn = (placement.rotation + geom.reference.rotation - m.reference.rotation) % 360.0 if flip \
+                else m.reference.rotation + (placement.rotation - geom.reference.rotation)
+            new_ref = Placement(t.apply_location(m.reference.location), turn,
                                 (Face.BACK if m.reference.face is Face.FRONT else Face.FRONT)
-                                if placement.face != geom.reference.face else m.reference.face)
+                                if flip else m.reference.face)
             self.items[fp.ref] = ItemGeometry(m.owners, new_ref, tuple(by_owner.get(fp.ref, ())),
                                               transform_box(m.body, t), m.nets, transform_box(m.reach or m.body, t))
         tag = "cell:%s" % item.name
