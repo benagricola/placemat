@@ -131,3 +131,32 @@ def test_a_thermal_cell_zone_under_a_solid_plane_is_kept_too(breakout_pcb, tmp_p
     plan = _write(pcb, solid_pads=True)
     assert "cell gnd" in _zone_names(pcb) and plan.merged_zones == []
 
+
+
+def test_a_cell_zone_reaching_nearer_the_edge_than_the_plane_is_merged(breakout_pcb, tmp_path):
+    """A cell against the board edge: its zone runs 0.2 mm from the edge,
+    the plane stops at the keep-in. The strip between holds no copper, so
+    the plane covers all of the zone that can."""
+    import pcbnew
+    pcb = _copy(breakout_pcb, tmp_path)
+    g = read_board(pcb)
+    ob, keep = g.outline_box, g.edge_clearance
+    board = pcbnew.LoadBoard(str(pcb))
+    (grp,) = [x for x in board.Groups() if x.GetName() == "power_drop0"]
+    z = pcbnew.ZONE(board)
+    z.SetIsRuleArea(False)
+    z.SetLayer(board.GetLayerID("B.Cu"))
+    z.SetNetCode(board.GetNetcodeFromNetname("GND"))
+    z.SetPadConnection(pcbnew.ZONE_CONNECTION_FULL)          # as the plane joins pads: only the edge is at issue
+    o = z.Outline()
+    o.NewOutline()
+    x0, y0 = ob.left + 0.2, ob.top + 10
+    for x, y in ((x0, y0), (x0 + 3, y0), (x0 + 3, y0 + 3), (x0, y0 + 3)):
+        o.Append(pcbnew.FromMM(x), pcbnew.FromMM(y))
+    z.SetZoneName("cell gnd at the edge")
+    board.Add(z)
+    grp.AddItem(z)
+    board.Save(str(pcb))
+    plan = _write(pcb)
+    assert keep > 0.2 and "cell gnd at the edge" not in _zone_names(pcb)
+    assert [(m.cell, m.net) for m in plan.merged_zones] == [("power_drop0", "GND")]

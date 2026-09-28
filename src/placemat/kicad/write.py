@@ -89,9 +89,12 @@ def _merge_cell_zones(board, plan: Plan) -> list:
     zones = [(g, it) for g in board.Groups() if g.GetName() in plan.geometry.cells
              for it in g.GetItems() if isinstance(it, pcbnew.ZONE) and not it.GetIsRuleArea()]
     merged = []
+    keep_in = _keep_in_region(board, plan)
     for g, z in zones:
         net = z.GetNetname()
-        o = z.Outline()
+        o = pcbnew.SHAPE_POLY_SET(z.Outline())
+        if keep_in is not None:         # what nears the edge past the keep-in can hold no copper: the rest is judged
+            o.BooleanIntersection(keep_in)
         outlines = [[(pcbnew.ToMM(o.COutline(k).CPoint(j).x), pcbnew.ToMM(o.COutline(k).CPoint(j).y))
                      for j in range(o.COutline(k).PointCount())] for k in range(o.OutlineCount())]
         keep = pcbnew.LSET()
@@ -113,6 +116,28 @@ def _merge_cell_zones(board, plan: Plan) -> list:
         elif keep.CuStack().size() < z.GetLayerSet().CuStack().size():
             z.SetLayerSet(keep)
     return merged
+
+
+def _keep_in_region(board, plan: Plan):
+    """The board less the edge keep-in, as a polygon set: where copper may
+    be. None when the board has no outline to shrink."""
+    keep = plan.geometry.edge_clearance
+    if plan.outline is not None and plan.shape is None:
+        b = plan.outline
+        pts = ((b.left, b.top), (b.right, b.top), (b.right, b.bottom), (b.left, b.bottom))
+    elif plan.geometry.outline:
+        pts = plan.geometry.outline[0]
+    else:
+        return None
+    ps = pcbnew.SHAPE_POLY_SET()
+    ps.NewOutline()
+    for x, y in pts:
+        ps.Append(nm(x), nm(y))
+    # the outline's box includes the edge line itself (half its width outside the board's frame, which a
+    # plane is inset from): 0.1 mm more, where no copper may be either
+    if keep > 0:
+        ps.Inflate(-nm(keep + 0.1), pcbnew.CORNER_STRATEGY_ROUND_ALL_CORNERS, nm(0.005))
+    return ps
 
 
 def _zone_difference(z, plane: Zone) -> str:
