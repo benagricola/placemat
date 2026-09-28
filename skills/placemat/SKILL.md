@@ -133,7 +133,9 @@ copies it into the next line and the next file. Working in such a script:
    To keep what the router found (a module fragment stamped already
    routed), `placemat route <script> --adopt NET ...` stores it relative to
    its pads beside the script, locks the parts it joins where they stand,
-   and every run draws it while those parts stand. Route a board the
+   and every run draws it while those parts stand; with `--partial` a net
+   the router leaves open (a plane net) keeps its closed islands, pass by
+   pass. Route a board the
    current placemat has just run, or lock it first (`placemat lock <script>
    --current`). Never paste routed coordinates into a script as
    `board.track()` calls: they go stale as soon as a part moves.

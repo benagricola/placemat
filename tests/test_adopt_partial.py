@@ -82,9 +82,10 @@ def test_the_islands_are_counted_for_the_adopt_line():
     placed = _board()
     counts = {}
     routes.adoptable(placed, _routed(placed), ["X"], still_open={"X": 1}, partial=True, counts=counts)
-    assert counts["X"] == {"kept": 2, "pads": 3, "planes": 1, "dropped": 1}
+    assert counts["X"] == {"kept": 2, "joined": 4, "dropped": 1}    # U1.2 and R1.1; P1.1 and the plane
     assert routes.island_line("X", counts["X"], 1) == \
-        "X: 2 island(s) kept, joining 3 pad(s) and a plane; 1 dropped (reaching one pad or none); still 1 open"
+        "X: 2 island(s) kept, joining 4 of its separate pieces; 1 dropped (leading nowhere, or joining nothing " \
+        "new); still 1 open"
 
 
 def test_new_copper_ending_on_the_scripts_plane_drop_is_kept():
@@ -104,3 +105,79 @@ def test_new_copper_reaching_a_pad_through_the_scripts_track_joins_it():
                                                                         _track("X", (11.4, 20.0), (19.4, 20.0))))
     (e,) = routes.adoptable(placed, routed, ["X"], still_open={"X": 1}, partial=True)
     assert len(e.tracks) == 2                  # U1.2 to R1.1, the last stretch the script's own
+
+
+def _pass1(placed):
+    """U1.2 to R1.1 round a corner at (15, 10), (15, 16)."""
+    return dataclasses.replace(placed, copper=tuple(placed.copper) + (
+        _track("X", (11.4, 10.0), (15.0, 10.0)), _track("X", (15.0, 10.0), (15.0, 16.0)),
+        _track("X", (15.0, 16.0), (19.4, 16.0))))
+
+
+def _placed_board(placed):
+    from placemat.layout import Board
+    from placemat.values import Part
+    b = Board(placed, edge_margin=0.5)
+    for inst, at in (("u1", (10, 10)), ("r1", (20, 16)), ("c1", (30, 10)), ("p1", (8, 30))):
+        b.place(Part(inst), at=Location(*at))
+    return b
+
+
+def test_a_later_island_tied_to_an_earlier_ones_copper_holds():
+    placed = _board()
+    r1 = _pass1(placed)
+    (first,) = routes.adoptable(placed, r1, ["X"], still_open={"X": 1}, partial=True)
+    r2 = dataclasses.replace(r1, copper=tuple(r1.copper) + (_track("X", (29.4, 10.0), (29.4, 13.0)),
+                                                             _track("X", (29.4, 13.0), (15.0, 13.0))))
+    (second,) = routes.adoptable(r1, r2, ["X"], still_open={"X": 1}, partial=True)     # C1.1 to pass 1's middle
+    plan = _placed_board(placed).resolve(routes=routes.merged([first], [second], held=[True]))
+    assert sorted(plan.adopted.values()) == ["held", "held"], plan.adopted
+
+
+def test_the_pass_that_closes_a_net_keeps_the_islands_that_held():
+    placed = _board()
+    r1 = _pass1(placed)
+    (first,) = routes.adoptable(placed, r1, ["X"], still_open={"X": 1}, partial=True)
+    closing = dataclasses.replace(first, partial=False, adopted="closing")
+    assert routes.merged([first], [closing], held=[True]) == [first, closing]
+
+
+def test_an_entry_that_did_not_hold_is_replaced_by_the_next():
+    placed = _board()
+    (first,) = routes.adoptable(placed, _pass1(placed), ["X"], still_open={"X": 1}, partial=True)
+    stale = dataclasses.replace(first, adopted="stale")
+    again = dataclasses.replace(first, adopted="again")
+    assert routes.merged([stale], [again], held=[False]) == [again]
+
+
+def test_an_island_joining_only_what_is_already_joined_is_dropped():
+    """A stub from a pad to script copper that already reaches that pad
+    joins nothing new."""
+    placed = _board()
+    placed = dataclasses.replace(placed, copper=tuple(placed.copper) + (_track("X", (19.4, 16.0), (19.4, 20.0)),))
+    routed = dataclasses.replace(placed, copper=tuple(placed.copper) + (_track("X", (19.4, 20.0), (22.0, 20.0)),
+                                                                        _track("X", (22.0, 20.0), (19.4, 16.0))))
+    assert routes.adoptable(placed, routed, ["X"], still_open={"X": 1}, partial=True) == []
+
+
+def test_each_dropped_island_is_counted():
+    placed = _board()
+    routed = dataclasses.replace(placed, copper=tuple(placed.copper) + (
+        _track("X", (29.4, 10.0), (33.0, 10.0)), _track("X", (7.4, 30.0), (7.4, 34.0))))      # two stubs
+    counts = {}
+    routes.adoptable(placed, routed, ["X"], still_open={"X": 1}, partial=True, counts=counts)
+    assert counts["X"]["dropped"] == 2
+
+
+def test_a_track_ending_in_the_nets_pour_on_its_layer_reaches_the_plane():
+    placed = _board()
+    routed = dataclasses.replace(placed, copper=tuple(placed.copper) + (
+        _track("X", (7.4, 30.0), (4.0, 30.0), w=0.2),))                  # P1.1 into the plane, on B.Cu below
+    routed = dataclasses.replace(routed, copper=tuple(
+        dataclasses.replace(c, layers=frozenset([B])) if c.kind == "track" else c for c in routed.copper))
+    placed = dataclasses.replace(placed, footprints=tuple(
+        dataclasses.replace(fp, pads=tuple(dataclasses.replace(p, layers=frozenset([F, B])) for p in fp.pads))
+        for fp in placed.footprints))
+    routed = dataclasses.replace(routed, footprints=placed.footprints)
+    (e,) = routes.adoptable(placed, routed, ["X"], still_open={"X": 1}, partial=True)
+    assert len(e.tracks) == 1

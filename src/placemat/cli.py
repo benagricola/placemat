@@ -297,7 +297,7 @@ def cmd_lock(args) -> int:
     return 0
 
 
-def _lock_where_it_stands(script: Path, keys, key_of=None) -> tuple:
+def _lock_where_it_stands(script: Path, keys, key_of=None, plan_out=None) -> tuple:
     """(lock entries, keys locked, {key: why not}, last run's id): `keys`
     (None: every searched item; `key_of(board)` gives them once the board
     is built) locked where the board stands, and checked by resolving once
@@ -307,6 +307,8 @@ def _lock_where_it_stands(script: Path, keys, key_of=None) -> tuple:
     from ._version import __version__
     from .previewer import resolve_like_last_run, written_pads
     board, plan, src, run_id = resolve_like_last_run(script)
+    if plan_out is not None:
+        plan_out.append(plan)
     if key_of is not None:
         keys = key_of(board) & set(plan.turns)
     path = lock.path_for(script.resolve())
@@ -446,6 +448,9 @@ def cmd_route(args) -> int:
     from .kicad.route import route_board
     from .project import find_board
     p = Path(args.pcb)
+    if getattr(args, "partial", False) and not (args.adopt or args.adopt_all):
+        console.say("route", "--partial keeps an open net's islands when adopting: give --adopt NET ... or --adopt-all")
+        return 2
     if (args.adopt or args.adopt_all) and p.suffix == ".kicad_pcb":
         console.say("route", "--adopt keeps copper beside a layout script: give the script, not the board")
         return 2
@@ -483,10 +488,11 @@ def _adopt(script: Path, nets, report, lock_items: bool = True, partial: bool = 
     for net, tally in sorted(counts.items()):
         if tally["kept"]:
             console.say("adopt", routes.island_line(net, tally, report.open_nets.get(net, 0)))
+    last = []                           # the resolve the lock makes: which kept entries held on the routed board
     if new and lock_items:
         try:
             entries, locked, refused, run_id = _lock_where_it_stands(
-                script, None, key_of=lambda board: routes.items_of(new, board))
+                script, None, key_of=lambda board: routes.items_of(new, board), plan_out=last)
         except ValueError as e:
             console.say("adopt", "nothing adopted: %s" % e, level="fail")
             return
@@ -500,10 +506,21 @@ def _adopt(script: Path, nets, report, lock_items: bool = True, partial: bool = 
         if locked:
             lock.write(lock.path_for(script.resolve()), entries)
             console.say("adopt", "locked %d item(s) the kept nets join where the board stands" % len(locked))
-    routes.keep(script, new)
+    held = None
+    old = routes.read(routes.path_for(script))
+    if new and old:                     # a net's entries that did not hold are replaced; the ones that did stay
+        if not last:
+            try:
+                from .previewer import resolve_like_last_run
+                last.append(resolve_like_last_run(script)[1])
+            except ValueError:
+                pass
+        if last:
+            held = routes.held_of(old, last[0].adopted)
+    routes.keep(script, new, held)
     for e in new:
         console.say("adopt", routes.describe(e))
-    console.say("adopt", "%d net(s) kept in %s" % (len(new), routes.path_for(script)))
+    console.say("adopt", "%d entr%s kept in %s" % (len(new), "y" if len(new) == 1 else "ies", routes.path_for(script)))
 
 
 def cmd_routes(args) -> int:

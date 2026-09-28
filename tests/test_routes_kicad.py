@@ -126,6 +126,12 @@ def test_an_open_nets_joining_track_is_kept_in_part_and_a_dangling_one_is_not(br
     import pcbnew
     placed = _copy(breakout_pcb, tmp_path / "placed")
     routed = _copy(breakout_pcb, tmp_path / "routed")
+    for pcb in (placed, routed):                    # the net unrouted, so its pads are apart
+        brd = pcbnew.LoadBoard(str(pcb))
+        for t in list(brd.GetTracks()):
+            if t.GetNetname() == NET:
+                brd.Delete(t)
+        brd.Save(str(pcb))
     g = read_board(routed)
     pads = [(fp, p) for fp in g.footprints for p in fp.pads if p.net == NET]
     (fa, pa), (fb, pb) = pads[0], next(x for x in pads if x[0].ref != pads[0][0].ref)

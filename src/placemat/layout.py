@@ -3855,21 +3855,31 @@ class Board:
         while the parts it joins stand as they did when it was adopted,
         else dropped with a finding, and the router routes it again."""
         from . import routes as _routes
+        # an entry whose end met another kept entry's copper is judged once that one's is drawn: rounds
+        # until nothing more holds
+        keys = _routes.entry_keys(entries)
+        drawn, got, left = [], {}, list(range(len(entries)))
+        while left:
+            also = [_shape_of(op) for op in drawn]
+            now = {i: _routes.resolve(entries[i], occ, self.settings.route_adopt_tolerance, [s for s in also if s])
+                   for i in left}
+            held = [i for i in left if not isinstance(now[i], str)]
+            got.update(now)
+            if not held:
+                break
+            for i in held:
+                drawn += list(now[i][0]) + list(now[i][1])
+            left = [i for i in left if i not in held]
         intents = []
-        for e in entries:
-            key = e.net                         # a net kept in part has an entry a pass: each its own
-            n = 1
-            while key in plan.adopted:
-                n += 1
-                key = "%s #%d" % (e.net, n)
-            got = _routes.resolve(e, occ, self.settings.route_adopt_tolerance)
-            if isinstance(got, str):
-                plan.adopted[key] = "dropped: " + got
+        for i, e in enumerate(entries):
+            key = keys[i]
+            if isinstance(got[i], str):
+                plan.adopted[key] = "dropped: " + got[i]
                 plan.findings.append(Finding("route", "adopted route %s dropped: %s; the router routes it again"
-                                             % (key, got)))
+                                             % (key, got[i])))
                 continue
             plan.adopted[key] = "held"
-            ops = list(got[0]) + list(got[1])
+            ops = list(got[i][0]) + list(got[i][1])
             intents.append(CopperIntent("adopted %s" % key, e.net, Priority.DEFAULT, lambda ctx, ops=ops: ops,
                                         (), "kept from a route", len(self._copper) + len(intents)))
         if intents:
