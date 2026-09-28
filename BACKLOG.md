@@ -7,6 +7,12 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+- **The router cuts through a pour by its last fill** (a board's layout
+  work, 2026-09-28): it treats a zone's fill, not its outline, as the
+  obstacle, so tracks it adds on a layer with pours cut straight through
+  them. A pour declared with `board.plane(outline=...)` could keep other
+  nets' copper out of its outline on its layer. Needs a spec (a KiCad rule
+  area has no allow list: the pour's own net must still reach it).
 - **`check current-path` takes sense, boot and bias pads for the load's
   path** (a board's layout work, 2026-09-28): a switcher's SW2 pin-to-pin
   track, a boot capacitor's track, a current-sense line and an ideal-diode

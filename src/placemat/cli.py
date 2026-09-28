@@ -454,10 +454,14 @@ def cmd_route(args) -> int:
     if (args.adopt or args.adopt_all) and p.suffix == ".kicad_pcb":
         console.say("route", "--adopt keeps copper beside a layout script: give the script, not the board")
         return 2
-    pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
+    from .settings import bind, load
+    src = None if p.suffix == ".kicad_pcb" else find_board(p)
+    pcb = p if src is None else src.pcb
     work = Path(args.out) if args.out else pcb.parent.parent.parent / ".placemat" / "route"
-    report = route_board(pcb, work, exclude_nets=set(args.exclude), layers=args.layers, quick=not args.full,
-                         iterations=args.iterations)
+    cfg = load(src.board_dir if src is not None else pcb.parent)       # the board's own [route] settings
+    with bind(cfg):
+        report = route_board(pcb, work, exclude_nets=set(args.exclude), layers=args.layers, quick=not args.full,
+                             iterations=args.iterations)
     if args.json:
         console.data(json.dumps(report.as_dict(), indent=2))
     else:
@@ -468,8 +472,9 @@ def cmd_route(args) -> int:
             console.say("route", "%-20s %d open" % (net, n))
         console.say("route", "routed board: %s" % report.routed_pcb)
     if args.adopt or args.adopt_all:
-        _adopt(p, args.adopt if args.adopt else None, report, lock_items=not args.no_lock,
-               partial=getattr(args, "partial", False))
+        with bind(cfg):
+            _adopt(p, args.adopt if args.adopt else None, report, lock_items=not args.no_lock,
+                   partial=getattr(args, "partial", False))
     return 0 if report.valid else 1
 
 
