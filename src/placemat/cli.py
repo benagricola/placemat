@@ -47,6 +47,9 @@ def parser() -> argparse.ArgumentParser:
     rt = sub.add_parser("route", help="route a copy of a placed board with KiCadRoutingTools and score closure")
     rt.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
     rt.add_argument("--exclude", nargs="*", default=[], help="nets to leave unrouted (planes, pours)")
+    rt.add_argument("--islands", nargs="*", default=[], metavar="NET[=WIDTH]",
+                    help="nets with pours whose pads the pours do not reach: routed first and alone, at the "
+                         "netclass width or WIDTH mm (adds to [route] islands)")
     rt.add_argument("--layers", nargs="*", help="copper layers to route on (default: all)")
     rt.add_argument("--full", action="store_true", help="the router's full run, not one round")
     rt.add_argument("--iterations", type=int, help="cap the router's search per net (default: the router's own)")
@@ -483,8 +486,11 @@ def cmd_route(args) -> int:
     from .kicad.route import plane_nets_of
     planes = plane_nets_of(pcb)             # served by their pours, as run --route leaves them
     with bind(cfg):
+        from .kicad.route import parse_islands
+        from .settings import active
+        islands = {**parse_islands(active().route_islands), **parse_islands(args.islands)}
         report = route_board(pcb, work, exclude_nets=set(args.exclude) | planes, layers=args.layers,
-                             quick=not args.full, iterations=args.iterations)
+                             quick=not args.full, iterations=args.iterations, islands=islands)
     if args.json:
         console.data(json.dumps(report.as_dict(), indent=2))
     else:

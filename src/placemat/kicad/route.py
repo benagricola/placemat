@@ -86,6 +86,9 @@ class RouteReport:
     # Partial inner-layer pours of nets left out, kept clear of other nets'
     # tracks in the router's input copy: "NET on LAYER" each.
     pours_kept: list = field(default_factory=list)
+    # The island nets: {net: (open items before, after)}, their pads and
+    # pieces the pours leave apart, routed first and alone.
+    islands: dict = field(default_factory=dict)
 
     def summary(self) -> str:
         head = "route %s: closure %.1f%% clean (%.1f%% raw), %d -> %d open signal item(s)" % (
@@ -108,6 +111,8 @@ class RouteReport:
                 self.restored_graphics["items"], self.restored_graphics["footprints"])
         if self.pours_kept:
             head += "  other nets kept out of %d pour(s)" % len(self.pours_kept)
+        if self.islands:
+            head += "  islands: " + ", ".join("%s %d -> %d apart" % (n, a, b) for n, (a, b) in self.islands.items())
         return head
 
     def as_dict(self) -> dict:
@@ -118,7 +123,8 @@ class RouteReport:
                 "routed_pcb": str(self.routed_pcb), "log": str(self.log), "quick": self.quick,
                 "invalid_reason": self.invalid_reason, "keepout_breaches": list(self.keepout_breaches),
                 "pairs": self.pairs, "plane_layers": self.plane_layers,
-                "restored_graphics": self.restored_graphics, "pours_kept": list(self.pours_kept)}
+                "restored_graphics": self.restored_graphics, "pours_kept": list(self.pours_kept),
+                "islands": {n: list(v) for n, v in self.islands.items()}}
 
 
 def plane_nets_of(pcb) -> set:
@@ -518,15 +524,35 @@ def router_version(router_dir: str) -> str:
         return "unknown"
 
 
+def parse_islands(items) -> dict:
+    """`[route] islands` / `--islands` entries, "NET" or "NET=WIDTH" (mm),
+    as {net: width or None}."""
+    out = {}
+    for item in items or ():
+        net, _, width = str(item).partition("=")
+        try:
+            out[net] = float(width) if width else None
+        except ValueError:
+            raise ValueError("route islands: %r is not NET or NET=WIDTH (mm)" % item) from None
+    return out
+
+
 def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
-                   iterations: int | None = None, probe: int | None = None, quick: bool = False) -> list:
+                   iterations: int | None = None, probe: int | None = None, quick: bool = False,
+                   nets=None, widths=None) -> list:
     """The router's command line. The search budget is the router's own
     default unless the caller sets one. A quick route is a measurement, so
     it skips the router's post-route smoothing pass: that pass cannot change
-    what closed in one round and costs most of the run."""
-    cmd = [str(python), str(script), str(pcb_in), str(pcb_out), "--nets", "*"] + \
-          ["!" + n for n in sorted(excluded)] + ["--layers"] + list(layers) + ["--escalation", "off"] + \
+    what closed in one round and costs most of the run. `nets` routes those
+    alone rather than every net but the excluded; `widths` ({net: mm}) sets
+    their track widths over the netclass's."""
+    chosen = sorted(nets) if nets is not None else ["*"] + ["!" + n for n in sorted(excluded)]
+    cmd = [str(python), str(script), str(pcb_in), str(pcb_out), "--nets"] + chosen + \
+          ["--layers"] + list(layers) + ["--escalation", "off"] + \
           ["--keep-input-copper"]       # the script's copper is its intent: no cleanup pass removes it
+    if widths:
+        named = sorted(widths)
+        cmd += ["--power-nets"] + named + ["--power-nets-widths"] + ["%g" % widths[n] for n in named]
     if quick:
         cmd.append("--no-smoothing")
     if iterations is not None:
@@ -536,11 +562,39 @@ def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
     return cmd + ["--json-out", str(summary)]
 
 
+def route_islands(rpy, script, router_dir_path, board: Path, work: Path, islands: dict, layers, iterations, probe,
+                  quick, timeout, env) -> Path:
+    """Route the island nets alone: their pads and pieces their pours leave
+    apart (the router counts a net's own zones as joining what they reach).
+    Returns the board the main pass routes on, their tracks locked."""
+    pcb_out = work / "islands.kicad_pcb"
+    cmd = router_command(rpy, script, board, pcb_out, set(), layers, work / "islands_summary.json", iterations,
+                         probe, quick, nets=list(islands), widths={n: w for n, w in islands.items() if w})
+    log = work / "islands.log"
+    with open(log, "w") as f:
+        f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
+        f.flush()
+        rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=env,
+                            timeout=timeout).returncode
+    if rc != 0 or not pcb_out.exists():
+        tail = "\n".join(log.read_text(errors="replace").splitlines()[-8:])
+        raise RuntimeError("the router exited %d routing the island nets; log %s\n%s" % (rc, log, tail))
+    for ext in (".kicad_pro", ".kicad_dru"):
+        if (work / ("in" + ext)).exists():
+            shutil.copy(work / ("in" + ext), work / ("islands" + ext))
+    lock_copper(str(pcb_out))
+    return pcb_out
+
+
 def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: str | None = None,
                 quick: bool = False, iterations: int | None = None, probe: int | None = None,
-                timeout: int | None = None) -> RouteReport:
+                timeout: int | None = None, islands: dict | None = None) -> RouteReport:
+    """Route a copy of `pcb`. `islands` ({net: width or None}; None: the
+    `[route] islands` setting) are routed first and alone, then left to their
+    pours with the excluded nets."""
     from ..settings import active
     cfg = active()
+    islands = parse_islands(cfg.route_islands) if islands is None else dict(islands)
     router_dir_path = router_dir_override or router_dir(cfg)
     timeout = cfg.timeout_route if timeout is None else timeout
     iterations = cfg.route_iterations if iterations is None else iterations
@@ -566,13 +620,14 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
         all_layers = _copper_layers(str(pcb_in))
         zones, board_area = _plane_zones(str(pcb_in))
     layers, plane_dropped = resolved_layers(layers, all_layers, zones, board_area, cfg.route_plane_share)
-    excluded = set(exclude_nets)
+    excluded = set(exclude_nets) | set(islands)      # the main pass leaves the island nets to their pours
+    counted = excluded - set(islands)                  # what the closure leaves out: the island nets are routed
 
     before = run_drc(pcb_in, work / "drc_before.json")
-    open0 = {n: v for n, v in before.open_nets.items() if n not in excluded}
+    open0 = {n: v for n, v in before.open_nets.items() if n not in counted}
     valid = not before.real
     guard_footprint_copper(str(pcb_in))          # after the placement's own DRC: the guards are the router's
-    pours = guard_partial_pours(str(pcb_in), excluded, layers, cfg.route_plane_share)
+    pours = guard_partial_pours(str(pcb_in), excluded - set(islands), layers, cfg.route_plane_share)
 
     pcb_out = work / "routed.kicad_pcb"
     summary = work / "router_summary.json"
@@ -584,6 +639,10 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
     # the differential pairs first, as pairs; the rest route around them
     board, pairs = route_pairs(rpy, router_dir_path, pcb_in, work, tuple(cfg.route_diff_pairs), layers, cfg,
                                iterations, probe, timeout, env)
+    if islands:
+        board = route_islands(rpy, script, router_dir_path, board, work, islands, layers, iterations, probe, quick,
+                              timeout, env)
+        pours += guard_partial_pours(str(board), set(islands), layers, cfg.route_plane_share)
     cmd = router_command(rpy, script, board, pcb_out, excluded | pairs.routed_nets, layers, summary,
                          iterations, probe, quick)
     log = work / "router.log"
@@ -602,14 +661,19 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
     restored = restore_footprint_graphics(str(pcb_in), str(pcb_out))
     fill_zones(str(pcb_out))
     after = run_drc(pcb_out, work / "drc_after.json", refill_zones=False)     # filled just now
-    open1 = {n: v for n, v in after.open_nets.items() if n not in excluded}
+    open1 = {n: v for n, v in after.open_nets.items() if n not in counted}
     violated = _nets_in_violations(json.loads((work / "drc_after.json").read_text()))
-    sc = score(open0, open1, {n for n in violated if n not in excluded})
+    sc = score(open0, open1, {n for n in violated if n not in counted})
+    breaches = router_breaches(pcb_in, pcb_out)
+    if islands:     # the island nets' own pours were guarded after their pass: the main pass's copper against them
+        own = tuple("%s %s " % (POUR_GUARD, n) for n in islands)
+        breaches += [b for b in router_breaches(board, pcb_out) if any(g in b for g in own)]
     report = RouteReport(valid, round(sc.closure, 4), round(sc.closure_clean, 4), sum(open0.values()), sum(open1.values()),
-                         dict(sorted(open1.items())), sc.shorted, sorted(excluded), layers, seconds,
+                         dict(sorted(open1.items())), sc.shorted, sorted(counted), layers, seconds,
                          router_version(router_dir_path), after.by_type, pcb_out, log, work,
                          "" if valid else "placement DRC not clean before routing: %s" % before.real, quick,
-                         router_breaches(pcb_in, pcb_out), pairs.as_dict(), plane_dropped, restored, pours)
+                         breaches, pairs.as_dict(), plane_dropped, restored, pours,
+                         {n: (before.open_nets.get(n, 0), after.open_nets.get(n, 0)) for n in sorted(islands)})
     (work / "route.json").write_text(json.dumps(report.as_dict(), indent=2) + "\n")
     return report
 

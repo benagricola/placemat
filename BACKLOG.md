@@ -7,12 +7,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **Routing a pour net's taps the pours do not reach** (the fairing board's
-  session, 2026-09-28): spec `2026-09-28-pour-net-islands-design.md`.
-- **`lock --current` all-or-nothing** (the fairing board's session,
-  2026-09-28: 29 of 75 refused held back the rest): spec
-  `2026-09-28-lock-current-partial-design.md`.
-
 - **A slid block satellite does not say which pins it now stands in front
   of** (PLACEMAT_GAPS 2026-09-27, checked 2026-09-28): stepping out and
   turning on the pin's axis are already tried before the slide.
@@ -55,6 +49,15 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Routing a pour net's taps the pours do not reach** (unreleased; the
+  fairing board's session, 2026-09-28; spec
+  `2026-09-28-pour-net-islands-design.md`): `[route] islands`, routed first
+  and alone. Breakout, a partial In2 pour over half of a net's pads: 3 pieces
+  apart before, 0 after, its pour kept clear in the main pass.
+- **`lock --current` all-or-nothing** (unreleased; the fairing board's
+  session, 2026-09-28; spec `2026-09-28-lock-current-partial-design.md`):
+  `--partial` locks what stands and lists the rest.
 
 - **A plated lead against a neighbour's courtyard under the physical
   envelope** (0.50.0; PLACEMAT_GAPS 2026-09-26; spec

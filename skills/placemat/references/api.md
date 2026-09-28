@@ -930,7 +930,7 @@ allows; a board uses as many as its stackup has), `Face.FRONT / BACK`,
 
 ```
 placemat run <script> [--label L] [--fresh] [--no-render] [--no-drc] [-v] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]]
-placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--json]
+placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--islands NET[=WIDTH] ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--json]
                [--adopt NET ... | --adopt-all] [--partial] [--no-lock]
 placemat routes <script> [--release NET ...]
 placemat impact <run-dir-or-json> <run-dir-or-json>
@@ -1159,6 +1159,18 @@ nets' tracks out of its outline (vias may pass) and the route step says how
 many pours it kept (`pours_kept` in the report); a route through one is a
 keepout breach naming the pour. Outer-layer pours are left open to it: other
 nets' pads sit in them.
+
+A pour net whose pours do not reach every pad of it (a rail's small taps on
+the far side of a cell) is named in `[route] islands` (or `--islands
+NET[=WIDTH]`): the route then runs the router on those nets first and alone.
+The router counts a net's own zones as joining what they reach, so it joins
+only the pads and pieces the pours leave apart, at the net's netclass width
+(read from the board's project) or the WIDTH given; its tracks are then
+fixed and the main pass leaves the net to its pours, other nets kept out of
+its partial inner-layer pours. The route step says how many pieces each
+island net had apart before and after (`islands` in the report); the
+island nets count in the closure, and `--adopt NET` keeps their routes like
+any other net's.
 
 A footprint's own copper graphics (a net-tie's winding, a copper logo) are
 not obstacles to the router, and its writer moves net-less ones on the
@@ -1404,6 +1416,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `route.iterations` | the router's own | cap on the router's search per net |
 | `route.layers` | every copper layer, minus an inner one the board's own plane fills whole | which layers the router may use |
 | `route.plane_share` | 0.9 | how much of the board's own outline a zone must cover, to count as a plane that fills its (inner) layer whole for `route.layers`' default |
+| `route.islands` | `[]` | nets with pours whose pads the pours do not reach (a pour net's small taps), `"NET"` or `"NET=WIDTH"` (mm): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH; `placemat route --islands` adds to them |
 | `route.diff_pairs` | `["*"]` | net patterns naming the differential pairs: the router's pair router (route_diff.py) routes them first, as pairs, and placement prices their own crossings at `score.pair_crossing`; `[]` names none (every net single-ended, no pair weighting) |
 | `route.diff_pair_gap` | 0 | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
 | `route.diff_pair_width` | 0 | mm, a pair's track width; 0 is the net class's diff pair width |

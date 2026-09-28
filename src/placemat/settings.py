@@ -104,6 +104,7 @@ class Settings:
     route_layers: tuple | None = None
     route_plane_share: float = 0.9      # a plane's own zone must cover at least this share of the board's outline to count as filling an inner layer whole (route.py's default layer list then leaves it out)
     route_diff_pairs: tuple = ("*",)    # nets the router's pair router routes first, as pairs; (): none
+    route_islands: tuple = ()           # nets with pours whose pads the pours do not reach, routed first and alone: "NET" or "NET=WIDTH" (mm)
     route_diff_pair_gap: float = 0.0    # mm between a pair's tracks; 0: the net class's
     route_diff_pair_width: float = 0.0  # mm, a pair's track width; 0: the net class's
     route_adopt_tolerance: float = 0.001   # mm: how far a kept pad may lie from where the parts' common motion puts it before adopted routes are dropped

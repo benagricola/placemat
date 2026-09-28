@@ -10,6 +10,11 @@ Nothing to change in a script. `placemat lock <script> --current --partial`
 locks the items that stand and lists the rest, where `--current` alone
 writes nothing unless every item stands.
 
+A pour net with pads its pours do not reach (a rail's taps behind a cell)
+can be routed for those: `[route] islands = ["VSHUNT", "VBIKE=0.5"]` in
+`placemat.toml`, or `placemat route --islands NET[=WIDTH]`. Hand-drawn
+track legs kept only because 0.50 left such nets unrouted can go.
+
 ## To 0.50.0
 
 Nothing to change in a script. Under the `physical` envelope a part's
