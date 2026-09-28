@@ -7,6 +7,33 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+- **A thermal-relief board fill replaces the cells' solid ground pours**
+  (PLACEMAT_GAPS 2026-09-28): `_merge_cell_zones` drops a cell's zone
+  wherever the board's plane of the net and layer covers it, though it notes
+  the cell's pads were solid and the plane's thermal; with
+  `board.plane(GND, (F, B), solid_pads=False)` six ground pads lost their
+  connection and 21 fell to one spoke. Keep a cell's zone whose pad
+  connection differs from the plane's; perhaps a stitching declaration for
+  the islands an outer fill leaves.
+- **A second `--adopt-all --partial` pass drops kept routes** (PLACEMAT_GAPS
+  2026-09-28): entries rewritten by a later pass dropped on the next run
+  ("no longer meets"), 83 -> 100 open. To check on 0.49.1 (which fixed ends
+  on zones), and the route report should say which entries a pass replaced.
+- **A cell's zone at the board edge is not merged into the plane**
+  (PLACEMAT_GAPS 2026-09-28): the plane is inset by the keep-in, so a zone
+  reaching nearer the edge is never "wholly covered". Merge when the plane
+  covers the part of the zone inside the keep-in.
+- **"No legal location" for a cell names neither the items nor the face**
+  (PLACEMAT_GAPS 2026-09-28 "why the PD controller cell had no legal spot").
+- **`placemat preview --layer L` with zone fills coloured by net**
+  (PLACEMAT_GAPS 2026-09-28 "which net each inner-layer zone fill belongs
+  to"); with the routed copy's tracks, and a finding for a track that
+  crosses another net's zone outline (same day, "which routed tracks cross a
+  pour's outline").
+- **A pad and solder-joint count in the run summary; DRC items with each
+  part's instance path beside its refdes** (PLACEMAT_GAPS 2026-09-28).
+- **`measure` printing a footprint's model path, and its fab box in
+  `--json`** (PLACEMAT_GAPS 2026-09-27, two entries).
 - **A zone fill's width along the load's route** (from the current-path
   review, 2026-09-28): `check current-path` does not measure a fill's own
   width (KiCad slits each hole to the outline, so its narrowest neck reads
