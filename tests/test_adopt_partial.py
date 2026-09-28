@@ -6,7 +6,7 @@ from placemat import routes
 from placemat.board_geometry import CopperItem
 from placemat.values import Box, CopperLayer, Location
 from tests.fixtures import board_geometry, footprint, rect
-from tests.test_routes import _track, _via
+from tests.test_routes import _parts, _track, _via
 
 F, B = CopperLayer.F, CopperLayer.B
 
@@ -181,3 +181,17 @@ def test_a_track_ending_in_the_nets_pour_on_its_layer_reaches_the_plane():
     routed = dataclasses.replace(routed, footprints=placed.footprints)
     (e,) = routes.adoptable(placed, routed, ["X"], still_open={"X": 1}, partial=True)
     assert len(e.tracks) == 1
+
+
+def test_an_end_on_a_zone_of_the_net_holds_on_the_next_run():
+    """A zone is refilled round what is there, and a run's occupancy holds
+    no fills: an end that met the net's zone is not held to meeting it."""
+    from tests.test_routes import _occupancy
+    placed = board_geometry(_parts(), width=40, height=40, extra_nets=())
+    pour = rect(16, 10, 3, 3)
+    zone = CopperItem("zone", "X", frozenset([F]), (pour,), Box.of_points(pour))
+    placed = dataclasses.replace(placed, copper=tuple(placed.copper) + (zone,))
+    routed = dataclasses.replace(placed, copper=tuple(placed.copper) + (_track("X", (11.4, 10.0), (16.0, 10.0)),))
+    (e,) = routes.entries_from(placed, routed, ["X"])
+    assert not any(p.get("meets") for t in e.tracks for p in (t["a"], t["b"]))
+    assert not isinstance(routes.resolve(e, _occupancy(), 0.001), str)

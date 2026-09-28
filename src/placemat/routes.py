@@ -240,7 +240,9 @@ def entries_from(placed, routed, nets, pick=None) -> list:
         fps = [fp for fp in routed.footprints if any(p.net == net for p in fp.pads)]
         centres = {fp.ref: _pad_centres(fp) for fp in fps}
         pads = [(fp, p) for fp in fps for p in fp.pads if p.net == net]
-        own = [c for c in placed.copper if c.net == net and c.outlines]
+        # the net's other copper an end may rest on - not a zone: KiCad refills a zone round what is there,
+        # and a run holds no fills, so an end on one has nothing to be checked against
+        own = [c for c in placed.copper if c.net == net and c.outlines and c.kind != "zone"]
         ends = {}
         for c in new:
             for a in (c.anchors if c.kind == "track" else c.anchors[:1]):

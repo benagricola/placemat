@@ -4,6 +4,13 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.49.1
+
+Nothing to change in a script. `placemat route` routes with the board's own
+settings (`[route] layers` was ignored). A kept route whose end rests on a
+zone of its net no longer drops on every run; entries kept by 0.49 with
+such an end are replaced by the next `route --adopt`.
+
 ## To 0.49
 
 Nothing to change in a script. A via declared at a searched part's pad
