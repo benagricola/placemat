@@ -1197,6 +1197,10 @@ class Board:
                              "excludes parts" % name)
         if name in self._keepouts:
             raise ValueError("there is already a keepout named %r on this board" % name)
+        area = getattr(shape, "area", None)
+        if area is not None and not (area() if callable(area) else area) > 1e-9:
+            # KiCad reads such a rule area as malformed, and it keeps nothing out
+            raise ValueError("keepout %r: its shape has no area (its points lie on a line)" % name)
         clash = [r for r in self.geometry.rule_areas if r.base == "keepout %s" % name]
         if clash:
             raise ValueError(

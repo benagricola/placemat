@@ -618,3 +618,14 @@ def test_a_stamped_region_says_how_much_board_it_takes_beyond_its_cell():
     b.place(Cell("rf"), at=Location(30.0, 30.0))
     plan = b.resolve()
     assert "8.0 mm2 of board beyond its own parts" in plan.step("rf").note
+
+
+def test_a_keepout_with_no_area_is_refused():
+    """A rectangle whose two sides the script computes equal (a part moved
+    onto the band it was a gap across) keeps nothing out, and KiCad reads
+    its rule area as malformed: it is refused where it is declared."""
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0)
+    with pytest.raises(ValueError, match="keepout 'gap'.*no area"):
+        b.keepout(Path([(0.0, 5.0), (2.0, 5.0), (2.0, 5.0), (0.0, 5.0)]), "gap", at=Location(20.0, 20.0),
+                  why="the feed gap")

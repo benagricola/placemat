@@ -4,6 +4,12 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## Unreleased
+
+A keepout whose shape has no area (a computed rectangle whose two sides
+came out equal) is refused where it is declared: it kept nothing out, and
+KiCad reads its rule area as malformed. Fix the shape or drop the keepout.
+
 ## To 0.51.0
 
 Nothing to change in a script. `placemat lock <script> --current --partial`
