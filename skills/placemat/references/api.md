@@ -49,6 +49,7 @@ and write that form. When nothing here says it, do not compute it: see
 | a region that forbids parts, fill, tracks, vias or pads | `board.keepout(shape, name, at=)` | Keepouts |
 | a clearance anchored on a pad, in a datasheet's own coordinates | `Path(FIGURE, anchor=...)`, `at=PadRef(...)` | Keepouts |
 | a tall part kept out of a region a case leaves little room over | `board.keepout(..., excludes=("parts",), max_height=)` | Keepouts |
+| a region shaped by a part or cell already on the board, growing and turning with it | `board.keepout(item, name, margin=)` | Keepouts |
 | a board of any shape | `board.outline(path, holes=)` | Boards of any shape |
 | a stretch of edge chosen by which way it faces | `board.edge(facing=Edge.NORTH)` | Boards of any shape |
 | a module frame sized to its own content | `board.size(fit=True)` | Setup |
@@ -524,7 +525,7 @@ outline path instead. The default is 0.0, which means unchecked.
 A region that forbids, as against a cutout, which removes board.
 
 ```python
-board.keepout(shape, name, *, at, rotation=None, excludes=None,
+board.keepout(shape, name, *, at=None, rotation=None, margin=None, excludes=None,
               allow=(), layers=None, max_height=None, why="")
 ```
 
@@ -543,6 +544,23 @@ with a part already on the board. A freedom left in `at=` settles against
 what is on the board. `anchor=` is the point of the shape that lands on
 `at=`; without one it is the middle of the shape's box, which is right for
 a slot and meaningless for a stepped clearance.
+
+**A region shaped by an item.** `shape` may be a `Part` or a `Cell` already on
+the board instead: no `at=` or `rotation=`, `margin=` (default 0) in their
+place.
+
+```python
+board.keepout(Part("ant"), "antenna_body", margin=0.3,
+              why="clearance round the antenna's own footprint")
+```
+
+The region is that item's drawn envelope - pads, mask openings, silk and body,
+the same box `envelope.drawn_envelope` reads off a single footprint, and for a
+`Cell` the union of its members' (its own tracks, vias and pours are not a
+member's drawn envelope, so they are left out) - grown by `margin`, and it
+moves and turns with the item: settled once the item is, the same as a
+keepout at its pad. The item must already be FIXED or EDGE (as `at=PadRef(...)`
+already requires): one still searched raises "not placed by then".
 
 **What it forbids.** `excludes=` defaults to everything and narrows to any of
 the `Forbid` enum: `PARTS`, `FILL`, `TRACKS`, `VIAS`, `PADS` (the strings

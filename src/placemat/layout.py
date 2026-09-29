@@ -22,7 +22,7 @@ from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfer_c
 from .geometry import Transform, box_polygon, circle_polygon, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, transform_box
 from .findings import Finding, Findings
 from .occupancy import Occupancy, Shape, TOUCH, hole_shape, parts_claim
-from .cutouts import Cutouts, loop_gap, signed_area
+from .cutouts import Cutouts, Path, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from .placement import Placement
 from .settings import Settings
@@ -37,6 +37,12 @@ RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RAN
 # A cell generated with its connector's body bulk on local +Y ("outward")
 # faces out of each edge at this rotation.
 _OUTWARD_ROTATION = {Edge.SOUTH: 0.0, Edge.EAST: 90.0, Edge.NORTH: 180.0, Edge.WEST: 270.0}
+
+# What envelope.drawn_envelope unions for a single footprint - pads, mask
+# openings, silk and body - read as occupancy shape kinds, so a keepout
+# shaped by an item can grow the same box a cell's own members draw: the
+# item's courtyard (an assembly margin, not drawn geometry) is left out.
+_ENVELOPE_DRAWN_KINDS = frozenset(("silk", "body", "mask", "pad", "through"))
 
 @dataclass(frozen=True)
 class RowCoord:
@@ -722,6 +728,7 @@ class Board:
         self._settled_cutouts: dict = {}    # those of them that already have a position
         self._cutout_loop_of: dict = {}     # name -> its loop index in _shaped()
         self._keepouts: dict = {}           # the regions a script declared, by name
+        self._cell_placements: dict = {}    # cell name -> its settled Placement, for a region shaped by it
         self._groups: dict = {}             # the KiCad groups a script declared, by name (DeclaredGroup)
         self.web = 0.0                      # least material a hole may leave; 0: unchecked
         self._cached_outline = None         # this board as an outline, for reading runs off
@@ -866,6 +873,43 @@ class Board:
         geom, _, _ = self._item(item)
         occ = self._bare_occupancy()
         return occ.reach_box(geom, Placement(Location(0.0, 0.0), rotation, face))
+
+    def _item_envelope_shape(self, item, margin: float, name: str) -> Path:
+        """The region a keepout shaped by an item takes: envelope.drawn_envelope's
+        box - pads, mask, silk and body, a cell's own union of its members',
+        its own copper left out - grown by `margin`, in the item's own frame
+        at rotation 0 (whatever face it currently has, so no face carries a
+        spurious flip into the local shape): an anchor at the origin, so
+        `path_at` lands it exactly where the item settles and turns with it.
+
+        Read with its own occupancy, envelope forced to `physical`: what a
+        script's own `[place] envelope` setting claims for search (courtyard
+        by default) is a different question from what the item draws."""
+        import dataclasses
+        geom, key, kind = self._item(item)
+        settings = dataclasses.replace(self.settings, place_envelope="physical")
+        occ = Occupancy(self.geometry, self.edge_margin, board_box=None, settings=settings,
+                        component_spacing=self.component_spacing)
+        g = occ._geometry(geom)
+        t = occ._transform(g, Placement(Location(0.0, 0.0), 0.0, g.reference.face))
+        own = key if kind == "cell" else None      # a cell's own copper is not a member's drawn envelope
+        boxes = [transform_box(s.box, t) for s in g.shapes
+                if s.kind in _ENVELOPE_DRAWN_KINDS and s.owner != own]
+        env = Box.union(boxes)
+        if env is None:
+            raise ValueError("keepout %r: %s draws nothing to shape a region from" % (name, key))
+        return Path(box_polygon(env.inflate(margin)), anchor=(0.0, 0.0))
+
+    def _item_placement(self, occ: Occupancy, item) -> Placement:
+        """Where a placed Part or Cell stands, for a region that moves and
+        turns with it: a part's own settled placement, read off the
+        occupancy directly; a cell's, recorded when it was committed - the
+        occupancy itself keeps only each of its members' own, not the
+        cell's."""
+        geom, key, kind = self._item(item)
+        if kind == "cell":
+            return self._cell_placements[key]
+        return occ.items[geom.ref].reference
 
     def _carry_pad_vias(self, occ) -> None:
         """Each via declared at a pad becomes copper of the pad's part - its
@@ -1242,7 +1286,7 @@ class Board:
         order = list(self._named_cutouts)
         return "cutout %r" % order[n] if 0 <= n < len(order) else "an unnamed cutout"
 
-    def keepout(self, shape, name: str, *, at, rotation=None,
+    def keepout(self, shape, name: str, *, at=None, rotation=None, margin: float | None = None,
                 excludes=None, allow=(), layers=None, max_height: float | None = None,
                 why: str = "") -> KeepoutIntent:
         """A region that forbids. By default nothing may sit, fill, route, via
@@ -1254,7 +1298,26 @@ class Board:
         `max_height` (a parts keepout) admits every part no taller, by its
         `Pm.Height`; a part with none counts as taller. `rotation=` is a
         number, or `Turned(part, degrees)` to turn with a part already on
-        the board, the same as a place() does."""
+        the board, the same as a place() does.
+
+        `shape` may instead be a Part or a Cell already on the board (no
+        `at=` or `rotation=`, so `margin=` in their place): the region is
+        that item's own drawn envelope grown by `margin` (default 0), and it
+        moves and turns with the item, settled once the item is - a shape
+        from an item, not a hand-built polygon."""
+        region_of = shape if isinstance(shape, (Part, Cell)) else None
+        if region_of is not None:
+            if at is not None:
+                raise ValueError("keepout %r: an item shapes its own region; give margin=, not at=" % name)
+            if rotation is not None:
+                raise ValueError("keepout %r: an item's region turns with it; give no rotation=" % name)
+            m = 0.0 if margin is None else float(margin)
+            if m < 0:
+                raise ValueError("keepout %r: margin is 0 or more, not %r" % (name, margin))
+            shape = self._item_envelope_shape(region_of, m, name)
+        elif margin is not None:
+            raise ValueError("keepout %r: margin= grows an item's own envelope; give a shape and at= instead"
+                             % name)
         if max_height is not None and "parts" not in (excludes if excludes is not None else ("parts",)):
             raise ValueError("keepout %r: max_height admits parts by height, so it is for a keepout that "
                              "excludes parts" % name)
@@ -1276,11 +1339,14 @@ class Board:
                     else ("parts", "fill", "tracks", "vias", "pads"),
                     tuple(allow),
                     None if layers is None else tuple(CopperLayer.of(l) for l in layers), why,
-                    None if max_height is None else float(max_height))
+                    None if max_height is None else float(max_height), region_of)
         self._keepouts[name] = k
-        # rotation=Turned(part, degrees) waits for that part too, the same as a place() does
-        turned_by = [rotation.part] if isinstance(rotation, Turned) else []
-        needs = frozenset(self._pad_ref(r)[0] for r in _refs_in([at] + turned_by))
+        if region_of is not None:
+            needs = frozenset([self._pad_ref(region_of)[0]])   # waits for the item, like a keepout at its pad
+        else:
+            # rotation=Turned(part, degrees) waits for that part too, the same as a place() does
+            turned_by = [rotation.part] if isinstance(rotation, Turned) else []
+            needs = frozenset(self._pad_ref(r)[0] for r in _refs_in([at] + turned_by))
         settled = not self._cutout_free(k)
         if self._fit and not settled:
             raise ValueError("keepout %r: a fit frame has no room for it to slide in until its content is placed; "
@@ -2749,7 +2815,14 @@ class Board:
         def settle_keepout(intent):
             """A region takes its place like a hole does, then forbids."""
             k = intent.keepout
-            if self._cutout_free(k):
+            if k.region_of is not None:
+                p = self._item_placement(occ, k.region_of)
+                # a part's own rotation turns counter-clockwise on screen
+                # (Transform.rotate); a shape's path_at turns a bearing
+                # clockwise from the top (cutouts._turned) - negate so the
+                # region turns the same way the item actually does.
+                centre, turn, why = p.location, -p.rotation, None
+            elif self._cutout_free(k):
                 try:
                     centre, turn = self._slide_cutout(
                         occ, k, illegal=lambda path: self._keepout_unusable(path))
@@ -2868,6 +2941,7 @@ class Board:
                 occ.commit(obj.item, step.placement)
                 placed.update(fp.ref for fp in members_of(obj.item))
                 if obj.kind == "cell":
+                    self._cell_placements[obj.key] = step.placement
                     taken = self._stamped_region_cost(occ, obj.item)
                     if taken >= 0.05:
                         step.note = (step.note + "; " if step.note else "") + \

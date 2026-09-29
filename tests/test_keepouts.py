@@ -8,7 +8,7 @@ from placemat.cutouts import Circle, Cutouts, Path, Slot
 from placemat.layout import Board, PlacementCollision
 from placemat.occupancy import Occupancy
 from placemat.placement import Placement
-from placemat.values import (Box, Centre, CopperLayer, Face, Location, Net, OnRim, PadRef, Part, X, Y)
+from placemat.values import (Box, Cell, Centre, CopperLayer, Face, Location, Net, OnRim, PadRef, Part, Turned, X, Y)
 from tests.conftest import needs_kicad
 from tests.fixtures import board_geometry, footprint, declared_findings
 
@@ -710,3 +710,102 @@ def test_a_cutout_at_a_location_turns_with_a_part_when_rotation_is_turned():
     b.place(Part("u1"), at=Location(20.0, 10.0), rotation=90)
     plan = b.resolve()
     assert plan.cutouts_placed["slot"].rotation == pytest.approx(90.0)
+
+
+# ------------------------------------------------------------ a region shaped by an item (no at=)
+
+def _poly_box(poly) -> tuple:
+    xs, ys = [p[0] for p in poly], [p[1] for p in poly]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _asymmetric_part(inst="u1", ref="U1"):
+    """A part whose drawn silk sticks out west of its body only - so growing
+    or turning its envelope is never mistaken for the symmetric body box."""
+    return footprint(ref, 20.0, 20.0, w=4.0, h=2.0, inst=inst, nets=("A", "B"),
+                     silk_boxes=[(16.0, 19.0, 22.0, 21.0)])
+
+
+def test_a_keepout_shaped_by_a_part_is_its_drawn_envelope():
+    b = Board(board_geometry([_asymmetric_part()], width=60.0, height=60.0), edge_margin=0.5)
+    b.keepout(Part("u1"), "clr", why="the part's own footprint")
+    b.place(Part("u1"), at=Location(25.0, 20.0))
+    plan = b.resolve()
+    assert _poly_box(plan.keepouts["clr"].poly) == pytest.approx((21.0, 19.0, 27.0, 21.0), abs=0.01)
+
+
+def test_a_keepout_shaped_by_a_part_grows_by_margin():
+    b = Board(board_geometry([_asymmetric_part()], width=60.0, height=60.0), edge_margin=0.5)
+    b.keepout(Part("u1"), "clr", margin=0.5, why="clearance round the part")
+    b.place(Part("u1"), at=Location(25.0, 20.0))
+    plan = b.resolve()
+    assert _poly_box(plan.keepouts["clr"].poly) == pytest.approx((20.5, 18.5, 27.5, 21.5), abs=0.01)
+
+
+def test_a_keepout_shaped_by_a_part_turns_with_it():
+    """The silk sticks out west at rotation 0; turned +90 the same way a
+    part turns (counter-clockwise on screen), it sticks out south."""
+    b = Board(board_geometry([_asymmetric_part()], width=60.0, height=60.0), edge_margin=0.5)
+    b.keepout(Part("u1"), "clr", why="the part's own footprint, turned")
+    b.place(Part("u1"), at=Location(30.0, 25.0), rotation=90)
+    plan = b.resolve()
+    assert _poly_box(plan.keepouts["clr"].poly) == pytest.approx((29.0, 23.0, 31.0, 29.0), abs=0.01)
+    assert plan.keepouts["clr"].centre == Location(30.0, 25.0)
+
+
+def test_a_keepout_shaped_by_a_cell_is_the_union_of_its_members_own_copper_left_out():
+    """A cell's own via, far from either member, must not grow or shift the
+    region: only what its members draw does."""
+    from placemat.board_geometry import CopperItem
+    from placemat.geometry import circle_polygon
+    m1 = footprint("U1", 18.0, 20.0, w=2.0, h=2.0, inst="mod.u1", cell="mod", nets=("A", "B"),
+                   fab=(17.0, 19.0, 19.0, 21.0))
+    m2 = footprint("U2", 24.0, 20.0, w=2.0, h=2.0, inst="mod.u2", cell="mod", nets=("A", "GND"),
+                   fab=(23.0, 19.0, 25.0, 21.0))
+    ring = circle_polygon(Location(2.0, 2.0), 0.3)          # the cell's own via, far off in its own frame
+    via = CopperItem("via", "A", frozenset([CopperLayer.F, CopperLayer.B]), (ring,), Box.of_points(ring),
+                     "mod", drill_mm=0.3)
+    g = board_geometry([m1, m2], cells=["mod"], copper=[via], width=80.0, height=80.0)
+    b = Board(g, edge_margin=0.5)
+    b.keepout(Cell("mod"), "clr", why="the module's own footprint")
+    b.place(Cell("mod"), at=Location(50.0, 40.0))
+    plan = b.resolve()
+    members_box = Box.union([m1.body_box, m2.body_box])
+    cell_box = Box.union([members_box, via.box])            # the cell's own reference includes its copper
+    dx, dy = 50.0 - cell_box.center.x, 40.0 - cell_box.center.y
+    expected = members_box.moved(dx, dy)
+    got = _poly_box(plan.keepouts["clr"].poly)
+    assert got == pytest.approx((expected.left, expected.top, expected.right, expected.bottom), abs=0.01)
+
+
+def test_a_keepout_shaped_by_an_item_refuses_at():
+    b = Board(board_geometry([_asymmetric_part()], width=60.0, height=60.0), edge_margin=0.5)
+    with pytest.raises(ValueError, match="an item shapes its own region"):
+        b.keepout(Part("u1"), "clr", at=Location(20.0, 20.0), why="x")
+
+
+def test_a_keepout_shaped_by_an_item_refuses_rotation():
+    b = Board(board_geometry([_asymmetric_part()], width=60.0, height=60.0), edge_margin=0.5)
+    with pytest.raises(ValueError, match="an item's region turns with it"):
+        b.keepout(Part("u1"), "clr", rotation=Turned(Part("u1"), 0), why="x")
+
+
+def test_margin_is_refused_on_a_shape_keepout():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0)
+    with pytest.raises(ValueError, match="margin= grows an item's own envelope"):
+        b.keepout(Circle(10.0), "clr", at=Location(20.0, 20.0), margin=0.5, why="x")
+
+
+def test_a_keepout_shaped_by_an_item_still_says_why():
+    b = Board(board_geometry([_asymmetric_part()], width=60.0, height=60.0), edge_margin=0.5)
+    with pytest.raises(ValueError, match="says why"):
+        b.keepout(Part("u1"), "clr")
+
+
+def test_a_keepout_shaped_by_a_searched_item_is_refused():
+    b = Board(board_geometry([_asymmetric_part()], width=60.0, height=60.0), edge_margin=0.5)
+    b.keepout(Part("u1"), "clr", why="the part's own footprint")
+    b.place(Part("u1"))
+    with pytest.raises(ValueError, match="only FIXED and EDGE"):
+        b.resolve()
