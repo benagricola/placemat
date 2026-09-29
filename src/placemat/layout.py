@@ -26,9 +26,9 @@ from .cutouts import Cutouts, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from .placement import Placement
 from .settings import Settings
-from .placer import BlockSpec, _grid, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
+from .placer import BlockSpec, _grid, _reason_key, box_centered_placement, cell_pad_anchored_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
-from .values import (Turned, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Turned, Beside, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -86,6 +86,11 @@ class Row:
             self.begin(_coord(board, occ, value, axis) - self.length)
         elif kind == "start":
             self.begin(_coord(board, occ, value, axis))
+        elif kind == "of":
+            of, align = value
+            box = board._placed_envelope_box(occ, of)
+            lo, hi = (box.top, box.bottom) if axis == "y" else (box.left, box.right)
+            self.begin(lo + align.fraction * (hi - lo - self.length))
         elif kind == "before":
             value.begin_from(board, occ)
             self.begin(value.start - self.gap - self.length)
@@ -232,6 +237,9 @@ class PlaceIntent:
     required: bool = False                # failing to place this stops the run
     rotation_given: bool = False          # the script said rotation=: that one, not a choice of four
     turned: object = field(default=None, metadata={"omit_default": True})   # a Turned: its part's rotation plus its degrees, settled at placement
+    beside: object = field(default=None, metadata={"omit_default": True})   # a _BesideSpec: settled against its item's placed envelope
+    row_of: object = field(default=None, metadata={"omit_default": True})   # a row(of=) item: an edge placement measured off its envelope, not the board's
+    cell_pin: object = field(default=None, metadata={"omit_default": True})  # (owner, number, dx, dy): a cell placed by a member's pad
     line: int = field(default=0, metadata={"reuse": False})   # the script line that declared it: not what it decides
 
     @property
@@ -290,6 +298,20 @@ class KeepoutIntent:
     @property
     def rank(self):
         return (RANK_FIXED, self.index)
+
+
+@dataclass(frozen=True)
+class _BesideSpec:
+    """A resolved Beside(...): `item` (a Part, a Cell or a KeepoutIntent,
+    already placed by the time this settles), `side`, `gap` (None: the
+    envelope's own), and `align` normalised to `("along", Along)` or
+    `("pads", own_key, PadRef)` - `own_key` a pad of the part being placed,
+    the `PadRef` a pad of `item` (its own net when align was a bare
+    PadRef)."""
+    item: object
+    side: Edge
+    align: tuple
+    gap: float | None
 
 
 @dataclass
@@ -1547,11 +1569,149 @@ class Board:
             named.append(kind == "number")
         return BlockSpec(a, tuple(sats), gap, tuple(pins), tuple(named))
 
+    # ------------------------------------------------------------ Beside
+    def _beside_spec(self, key: str, geom, kind: str, at: Beside) -> "_BesideSpec":
+        """Resolve a `Beside(...)` against the generated board: validated
+        now, settled once `at.item` is placed. `align`, when it names pads,
+        is normalised to the placed item's own pad key."""
+        if kind == "block":
+            raise TypeError("%s: a block is placed by its anchor's position, not Beside" % key)
+        if isinstance(at.item, KeepoutIntent):
+            item_kind = "keepout"
+        elif isinstance(at.item, (Part, Cell)):
+            item_kind = "item"
+            self._item(at.item)          # a real part or cell, checked now
+        else:
+            raise TypeError("%s: Beside's item is a Part, a Cell or a keepout (what board.keepout(...) "
+                            "returns), not %r" % (key, at.item))
+        align = at.align
+        if align is None:
+            norm = ("along", Along.MID)
+        elif isinstance(align, Along):
+            norm = ("along", align)
+        elif isinstance(align, PadRef):
+            if item_kind == "keepout":
+                raise TypeError("%s: a keepout has no pads to align on; align=Along.START/MID/END, or "
+                                "leave align= out" % key)
+            if kind != "part":
+                raise TypeError("%s: align=PadRef needs the placed item's own pad; a %s has none - give "
+                                "align=(own_pad, their_pad)" % (key, kind))
+            their = self.geometry.pad(align.part, align.key)
+            if not their.net:
+                raise ValueError("%s: Beside's align pad %s has no net to line up on; give "
+                                 "align=(own_pad, %s) naming an own pad" % (key, align, align))
+            owns = geom.pads_on(their.net)
+            if not owns:
+                raise ValueError("%s carries no pad on %s, %s's net; give align=(own_pad, %s) naming one"
+                                 % (key, their.net, align.part, align))
+            number = owns[0].number
+            norm = ("pads", int(number) if number.isdigit() else number, align)
+        elif isinstance(align, tuple):
+            if len(align) != 2 or not isinstance(align[1], PadRef):
+                raise TypeError("%s: Beside's align pair is (own_pad, PadRef(item, pad)), not %r" % (key, align))
+            own_key, their = align
+            if kind != "part":
+                raise TypeError("%s: align=(own_pad, their_pad) needs the placed item's own pad; a %s has "
+                                "none - align=Along.START/MID/END instead" % (key, kind))
+            geom.pad(own_key)                          # a real pad of this part, checked now
+            self.geometry.pad(their.part, their.key)    # and a real pad of the item named
+            norm = ("pads", own_key, their)
+        else:
+            raise TypeError("%s: Beside's align is a PadRef, an (own_pad, their_pad) pair, Along.START/MID/END, "
+                            "or nothing (Along.MID), not %r" % (key, align))
+        return _BesideSpec(at.item, at.side, norm, at.gap)
+
+    def _placed_envelope_box(self, occ: Occupancy, item) -> Box:
+        """The envelope (courtyard, physical or their union, whichever
+        `[place] envelope` claims) a placed Part or Cell draws, read from
+        its committed geometry - its real position, not a measurement at
+        the origin."""
+        geom, _, _ = self._item(item)
+        g = occ._geometry(geom)
+        return Box.union([s.box for s in g.shapes if s.kind != "npth"])
+
+    def _beside_gap(self, spec: "_BesideSpec", new_item) -> float:
+        """Beside's own gap: what the script gave, else the envelope's own
+        - the row's rule (silk clearance, component spacing, the nets'
+        clearance), or courtyards touching under a courtyard envelope."""
+        if spec.gap is not None:
+            return float(spec.gap)
+        items = [new_item] if isinstance(spec.item, KeepoutIntent) else [spec.item, new_item]
+        return self._row_gap(items, 0.0)
+
+    def _beside_placement(self, occ: Occupancy, plan: "Plan", i: PlaceIntent) -> Placement:
+        """Where `Beside(...)` puts the item: its own drawn envelope `gap`
+        off `item`'s, on `side`, aligned across it."""
+        b = i.beside
+        if isinstance(b.item, KeepoutIntent):
+            pk = plan.keepouts.get(b.item.keepout.name)
+            if pk is None:
+                raise ValueError("%s: keepout %r has no place, so there is nothing to stand beside"
+                                 % (i.key, b.item.keepout.name))
+            item_box = Box.of_points(pk.poly)
+        else:
+            item_box = self._placed_envelope_box(occ, b.item)
+        own_box = self.envelope(i.item, i.rotation, i.face)
+        gap = self._beside_gap(b, i.item)
+        ox = oy = None
+        if b.side is Edge.EAST:
+            ox = item_box.right + gap - own_box.left
+        elif b.side is Edge.WEST:
+            ox = item_box.left - gap - own_box.right
+        elif b.side is Edge.SOUTH:
+            oy = item_box.bottom + gap - own_box.top
+        else:
+            oy = item_box.top - gap - own_box.bottom
+        align_kind = b.align[0]
+        if align_kind == "along":
+            along = b.align[1]
+            own_body = self.extent(i.item, i.rotation, i.face)
+            if b.side in (Edge.EAST, Edge.WEST):
+                lo, hi = item_box.top, item_box.bottom
+                oy = (lo + along.fraction * (hi - lo)) - own_body.center.y
+            else:
+                lo, hi = item_box.left, item_box.right
+                ox = (lo + along.fraction * (hi - lo)) - own_body.center.x
+        else:
+            own_key, their = b.align[1], b.align[2]
+            anchored = pad_anchored_placement(self._bare_occupancy(), i.item, own_key, Location(0.0, 0.0),
+                                              i.rotation, i.face)
+            own_pad = Location(-anchored.location.x, -anchored.location.y)
+            their_loc = _locate(self, occ, their)
+            if b.side in (Edge.EAST, Edge.WEST):
+                oy = their_loc.y - own_pad.y
+            else:
+                ox = their_loc.x - own_pad.x
+        return Placement(Location(round(ox, 6), round(oy, 6)), i.rotation, i.face)
+
+    def _row_of_placement(self, occ: Occupancy, i: PlaceIntent, along: float) -> Placement:
+        """Where one item of a `row(..., of=)` lands: its own drawn envelope
+        `i.clearance` (the row's line, already worked out) off `of`'s, on
+        `i.edge`; its body centre at `along` down the row, as an edge row's
+        does."""
+        of_box = self._placed_envelope_box(occ, i.row_of)
+        own_box = self.envelope(i.item, i.rotation, i.face)
+        own_body = self.extent(i.item, i.rotation, i.face)
+        ox = oy = None
+        if i.edge is Edge.EAST:
+            ox = of_box.right + i.clearance - own_box.left
+        elif i.edge is Edge.WEST:
+            ox = of_box.left - i.clearance - own_box.right
+        elif i.edge is Edge.SOUTH:
+            oy = of_box.bottom + i.clearance - own_box.top
+        else:
+            oy = of_box.top - i.clearance - own_box.bottom
+        if i.edge in (Edge.EAST, Edge.WEST):
+            oy = along - own_body.center.y
+        else:
+            ox = along - own_body.center.x
+        return Placement(Location(round(ox, 6), round(oy, 6)), i.rotation, i.face)
+
     # ------------------------------------------------------------ placement
     def place(self, item, at=None, *, rotation: float | None = None, face: Face = Face.FRONT,
               radius: float | None = None, step: float | None = None, rotations=(),
               priority: Priority | None = None, required: bool = False, why: str = "",
-              _standoff: float | None = None) -> PlaceIntent:
+              _standoff: float | None = None, _row_of: object = None) -> PlaceIntent:
         """Declare where an item goes: `at=` a place, whose kind says how
         much freedom is left.
 
@@ -1595,8 +1755,18 @@ class Board:
         pin_x = pin_y = None
         pinned = ""
         pin = None
+        beside = None
+        cell_pin = None
         if at is None:
             pass
+        elif isinstance(at, Pin) and kind == "cell":
+            if not isinstance(at.key, (CellPadRef, PadRef)):
+                raise TypeError("%s: a cell has no pad of its own; Pin's key is a CellPadRef, or a PadRef on "
+                                "one of its members, not %r" % (key, at.key))
+            owner, number, dx, dy = self._pad_ref(at.key)
+            if owner not in {fp.ref for fp in geom.members}:
+                raise TypeError("%s: Pin's %r is not a pad of one of cell %s's members" % (key, at.key, key))
+            cell_pin, center, at = (owner, number, dx, dy), (at.x, at.y), None
         elif isinstance(at, Pin):
             if kind != "part":
                 what = "a block is placed by its anchor's position, not a pad" if kind == "block" else \
@@ -1604,6 +1774,9 @@ class Board:
                 raise TypeError("%s: a Pin places a part by its pad; %s" % (key, what))
             geom.pad(at.key)                                # a real pad of this part, checked now
             pin, center, at = at.key, (at.x, at.y), None
+        elif isinstance(at, Beside):
+            beside = self._beside_spec(key, geom, kind, at)
+            at = None
         elif isinstance(at, OnEdge) and isinstance(at.edge, CutoutEdge):
             # a hole that is not settled yet: keep the promise and the named
             # `along`, and wait for the cutout the same way a position said
@@ -1618,12 +1791,13 @@ class Board:
             outward = rotation is None
             at = None
         elif isinstance(at, OnEdge):
-            self._refuse_on_fit("%s on the frame's %s edge" % (key, Edge(at.edge).value))
-            if isinstance(self._shape, Disc):
-                raise ValueError("%s: a disc has no edges; place it on the rim at a bearing, OnRim(angle), "
-                                 "or on a stretch of it from board.edge(facing=)" % key)
-            if isinstance(self._shape, Outline):
-                raise ValueError("%s: a shaped board's sides are chosen, not named: board.edge(facing=Edge.NORTH)" % key)
+            if _row_of is None:
+                self._refuse_on_fit("%s on the frame's %s edge" % (key, Edge(at.edge).value))
+                if isinstance(self._shape, Disc):
+                    raise ValueError("%s: a disc has no edges; place it on the rim at a bearing, OnRim(angle), "
+                                     "or on a stretch of it from board.edge(facing=)" % key)
+                if isinstance(self._shape, Outline):
+                    raise ValueError("%s: a shaped board's sides are chosen, not named: board.edge(facing=Edge.NORTH)" % key)
             edge, along, overhang = at.edge, at.along, at.overhang
             if isinstance(along, (Along, Fraction)):
                 along = _EdgeFraction(along.fraction, along.value if isinstance(along, Along) else "centre")
@@ -1680,11 +1854,11 @@ class Board:
         # anything searched and nothing may push it; a priority orders the
         # items that are still being searched a spot. FIXED and EDGE answer the
         # first question, so they hold exactly when the position is decided.
-        decided = (at is not None or center is not None
+        decided = (at is not None or center is not None or beside is not None
                    or ((edge is not None or run is not None) and along is not None)
                    or (rim is not None and angle is not None))
         freedom = Freedom.SEARCHED if not decided else \
-            Freedom.FIXED if (at is not None or center is not None) else Freedom.EDGE
+            Freedom.FIXED if (at is not None or center is not None or beside is not None) else Freedom.EDGE
         if decided and priority is not None:
             raise ValueError("%s: the declaration decided this position, so the item goes down before anything "
                              "searched and priority=%s has nothing to order; drop the priority, or drop the "
@@ -1719,16 +1893,24 @@ class Board:
             needs |= along.row.needs
         if turned is not None:
             needs.add(self._pad_ref(turned.part)[0])   # turned by it: placed after it
+        if beside is not None:
+            needs.add(cutout_token(beside.item.keepout.name) if isinstance(beside.item, KeepoutIntent)
+                      else self._pad_ref(beside.item)[0])
+            if beside.align[0] == "pads":
+                needs.add(self._pad_ref(beside.align[2])[0])
+        if _row_of is not None:
+            needs.add(self._pad_ref(_row_of)[0])
         standoff = _standoff if _standoff is not None else (-float(overhang) if overhang else self.keep_in)
         turn = None if rotation is None else float(rotation)   # None: settled when the stretch is known
         intent = PlaceIntent(key, geom, kind, priority, turn, face, at, center, edge, along,
                              standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs),
                              pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward, about, run,
-                             freedom, required, rotation_given, turned=turned, line=_script_line())
+                             freedom, required, rotation_given, turned=turned, beside=beside, row_of=_row_of,
+                             cell_pin=cell_pin, line=_script_line())
         self._intents.append(intent)
         return intent
 
-    def row(self, items, edge: Edge, *, gap: float = 0.0, start=None, align=Along.START,
+    def row(self, items, edge: Edge, *, of=None, gap: float = 0.0, start=None, align=Along.START,
             rotation: float | None = None, line=Line.CENTRE, behind: Row | None = None, inboard: float | None = None,
             overhang: float = 0.0,
             centre=None, end=None, before: Row | None = None, after: Row | None = None, why: str = "") -> Row:
@@ -1748,26 +1930,48 @@ class Board:
         flush with the far keep-in; `centre=` or `end=` a reference (a
         pad's X()/Y(), a Mid); `before=` or `after=` another row, one gap
         away. A row placed by a reference is measured when its items are
-        placed. Returns the Row."""
+        placed.
+
+        `of=Part(...)`/`Cell(...)` runs the row along `edge` of that item's
+        drawn envelope instead of the board's: `gap` (default the envelope's
+        own) is both the row's own gap and how far its near line stands off
+        `of`, and `align=Along.START/MID/END` is where along `of`'s side the
+        row sits (default START). It waits for `of` to be placed, and
+        accepts a fit frame, unlike a row on the board's own edge; `start=`,
+        `centre=`, `end=`, `before=`, `after=`, `behind=` and `inboard=`
+        are not said relative to a part, so they are refused together with
+        it. Returns the Row."""
         align = _as_align(align, "a row's align")
-        if isinstance(edge, Edge):
+        if of is not None:
+            given = [n for n, v in (("start", start), ("centre", centre), ("end", end),
+                                    ("before", before), ("after", after), ("behind", behind),
+                                    ("inboard", inboard)) if v is not None]
+            if given:
+                raise ValueError("a row of=%r is placed along its side; %s not with it"
+                                 % (of, " and ".join(given)))
+            if not isinstance(edge, Edge):
+                raise TypeError("a row of= a part is on one of its Edge.N/S/E/W sides, not %r" % (edge,))
+            self._item(of)                        # a real part or cell, checked now
+        elif isinstance(edge, Edge):
             self._refuse_on_fit("a row on the frame's %s edge" % edge.value)
-        gap = self._row_gap(items, gap)
+        gap = self._row_gap(list(items) + ([of] if of is not None else []), gap)
         if isinstance(edge, Run):
             return self._row_on_run(items, edge, gap=gap, start=start, align=align, rotation=rotation,
                                     overhang=overhang, why=why, unsupported=[
                                         ("line", line if line != "centre" else None), ("behind", behind),
                                         ("inboard", inboard), ("centre", centre), ("end", end),
                                         ("before", before), ("after", after)])
-        if isinstance(self._shape, Disc):
+        if of is None and isinstance(self._shape, Disc):
             raise ValueError("a disc has no edges: board.ring(items, radius=) is the row of a round board, "
                              "or board.row(items, board.edge(facing=)) puts them along a stretch of the rim")
-        if isinstance(self._shape, Outline):
+        if of is None and isinstance(self._shape, Outline):
             raise ValueError("a shaped board's sides are chosen, not named: "
                              "board.row(items, board.edge(facing=Edge.NORTH))")
         rots = [self.outward_rotation(it, edge)[0] for it in items] if rotation is None else \
             ([float(r) for r in rotation] if isinstance(rotation, (list, tuple)) else [float(rotation)] * len(items))
-        if behind is not None:
+        if of is not None:
+            clr = -float(overhang) if overhang else gap
+        elif behind is not None:
             if behind.edge is not edge:
                 raise ValueError("a row is behind a row on its own edge")
             if overhang:
@@ -1783,32 +1987,36 @@ class Board:
             keys.append(key)
             alongs.append(claim.height if along_axis else claim.width)
             depths.append(reach.width if along_axis else reach.height)
-        by_ref = start is not None and not isinstance(start, (int, float))
-        anchors = [("centre", centre), ("end", end), ("before", before), ("after", after), ("start", start if by_ref else None)]
-        given = [(k, v) for k, v in anchors if v is not None]
-        if len(given) > 1 or (given and ((start is not None and not by_ref) or align is not Along.START)):
-            raise ValueError("a row is placed one way: start=, align=Along.MID/END, centre=, end=, before= or after=")
         row = Row(edge, clr, gap, None, keys, alongs, max(depths))
-        if given:
-            row.anchor = given[0]
-            kind, value = given[0]
-            if kind in ("before", "after"):
-                row.needs = frozenset(value.needs) | frozenset(
-                    fp.ref for it in value.items for fp in (self._item(it)[0].members if self._item(it)[2] == "cell" else (self._item(it)[0],)))
-            else:
-                row.needs = frozenset(self._pad_ref(ref)[0] for ref in _refs_in([value]))
-        elif align is Along.MID:
-            if self._sized:                     # the script's own size, not the generator's frame
-                row.begin(row.centre_of(self._outline))
-            else:
-                row.anchor = ("outline", None)
-        elif align is Along.END:
-            if self._sized:
-                row.begin(row.end_of(self._outline, self.keep_in))
-            else:
-                row.anchor = ("outline_end", None)
+        if of is not None:
+            row.anchor = ("of", (of, align))
+            row.needs = frozenset([self._pad_ref(of)[0]])
         else:
-            row.begin(float(self.keep_in if start is None else start))
+            by_ref = start is not None and not isinstance(start, (int, float))
+            anchors = [("centre", centre), ("end", end), ("before", before), ("after", after), ("start", start if by_ref else None)]
+            given = [(k, v) for k, v in anchors if v is not None]
+            if len(given) > 1 or (given and ((start is not None and not by_ref) or align is not Along.START)):
+                raise ValueError("a row is placed one way: start=, align=Along.MID/END, centre=, end=, before= or after=")
+            if given:
+                row.anchor = given[0]
+                kind, value = given[0]
+                if kind in ("before", "after"):
+                    row.needs = frozenset(value.needs) | frozenset(
+                        fp.ref for it in value.items for fp in (self._item(it)[0].members if self._item(it)[2] == "cell" else (self._item(it)[0],)))
+                else:
+                    row.needs = frozenset(self._pad_ref(ref)[0] for ref in _refs_in([value]))
+            elif align is Along.MID:
+                if self._sized:                     # the script's own size, not the generator's frame
+                    row.begin(row.centre_of(self._outline))
+                else:
+                    row.anchor = ("outline", None)
+            elif align is Along.END:
+                if self._sized:
+                    row.begin(row.end_of(self._outline, self.keep_in))
+                else:
+                    row.anchor = ("outline_end", None)
+            else:
+                row.begin(float(self.keep_in if start is None else start))
         row.items = list(items)
         try:
             line = Line(line)
@@ -1820,7 +2028,7 @@ class Board:
         row.line = line.value          # the plain value: what a declaration digest wrote before Line existed
         for n, (item, r, c) in enumerate(zip(items, rots, clears)):
             along = row.centres[n] if row.start is not None else _RowSlot(row, n)
-            self.place(item, at=OnEdge(edge, along=along), _standoff=c, rotation=r, why=why)
+            self.place(item, at=OnEdge(edge, along=along), _standoff=c, rotation=r, why=why, _row_of=of)
         return row
 
     def ring(self, items, *, radius=None, start=Edge.NORTH, gap: float = 0.0, spread: bool = False,
@@ -4246,6 +4454,10 @@ class Board:
         if i.freedom.decided:
             if i.at is not None:
                 p = Placement(_locate(self, occ, i.at), i.rotation, i.face)
+            elif i.center is not None and i.cell_pin is not None:
+                owner, number, dx, dy = i.cell_pin
+                p = cell_pad_anchored_placement(occ, i.item, owner, number, dx, dy,
+                                                _locate(self, occ, i.center), i.rotation, i.face)
             elif i.center is not None and i.pin is not None:
                 p = pad_anchored_placement(occ, i.item, i.pin, _locate(self, occ, i.center), i.rotation, i.face)
                 # A net names one pad here, the first of however many carry it.
@@ -4270,6 +4482,8 @@ class Board:
                 p = disc_placement(occ, i.item, self._disc("the same place is "
                                                           "OnEdge(board.edge(facing=...))"),
                                    i.angle, i.clearance, i.rotation, i.face, bore=i.rim == "bore")
+            elif i.beside is not None:
+                p = self._beside_placement(occ, plan, i)
             else:
                 if isinstance(i.along, _RowSlot):
                     along = i.along.resolve(self, occ)
@@ -4281,7 +4495,8 @@ class Board:
                         along += half if i.along.anchor == "start" else -half
                 else:
                     along = _coord(self, occ, i.along, "x" if i.edge in (Edge.NORTH, Edge.SOUTH) else "y")
-                p = edge_placement(occ, i.item, i.edge, along, i.rotation, i.clearance, i.face)
+                p = self._row_of_placement(occ, i, along) if i.row_of is not None else \
+                    edge_placement(occ, i.item, i.edge, along, i.rotation, i.clearance, i.face)
             why = occ.legal(i.item, p, clr,
                             past_edge=(i.edge is not None or i.run is not None or i.rim == "rim")
                             and i.clearance < self.keep_in, by_corners=True)

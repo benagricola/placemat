@@ -1,7 +1,7 @@
 # The script surface
 
 ```python
-from placemat import (board, Along, Box, Cell, CellPadRef, Centre, Pin, Polar, OnRim, OnBore, Cutout, Disc, Arc,
+from placemat import (board, Along, Beside, Box, Cell, CellPadRef, Centre, Pin, Polar, OnRim, OnBore, Cutout, Disc, Arc,
                        Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Line, LinkWeight,
                        Location, Mid, Near, Net, OnEdge, PadRef, Part, Priority, Turned, X, Y)
 ```
@@ -30,11 +30,14 @@ and write that form. When nothing here says it, do not compute it: see
 | a part sliding along one line, the other axis free | `at=Centre(None, y)` / `Location(x, None)` | Placement |
 | a part somewhere the netlist cannot say (a thermal neighbour) | `at=Near(PadRef(...))` | Placement |
 | a part turned with another part | `rotation=Turned(part, deg)` | Placement |
+| a part (or cell) beside another item's envelope, a gap off it | `at=Beside(item, Edge.EAST, align=, gap=)` | Placement |
+| a cell placed by one of its members' pads | `at=Pin(CellPadRef(cell, net=), x, y)` | Placement |
 | a part's rotation that faces a board edge or a bearing | `board.outward_rotation(item, edge)` | Faces |
 | a part and the parts at its pins | `board.block(anchor, satellites=[(item, net), ...])` | Blocks |
 | parts down a board edge, in order | `board.row(items, edge)` | Placement (Rows) |
 | a row inboard of another edge row | `board.row(items, edge, behind=other_row)` | Placement (Rows) |
 | a row starting after a hole or a pad | `board.row(items, edge, start=Y(pad, gap))` | Placement (Rows) |
+| a row or stack measured from a part, not a board edge | `board.row(items, edge, of=Part(...))` | Placement (Rows) |
 | items round a centre | `board.ring(items, radius=)` | Round boards |
 | a part at a radius and bearing about the board centre | `at=Polar(radius, angle)` | Round boards |
 | a part on a disc's rim, facing out | `at=OnRim(edge)` | Round boards |
@@ -47,6 +50,7 @@ and write that form. When nothing here says it, do not compute it: see
 | a hole in the board | `Cutout(shape, name, at=)` in `holes=` | Cutouts |
 | a hole placed from the connector it serves | `at=Centre(X(Part(j)), Y(Part(j), d))` | Cutouts |
 | a region that forbids parts, fill, tracks, vias or pads | `board.keepout(shape, name, at=)` | Keepouts |
+| a part against a keepout's boundary | `at=Beside(keepout, Edge.SOUTH)` | Placement |
 | a clearance anchored on a pad, in a datasheet's own coordinates | `Path(FIGURE, anchor=...)`, `at=PadRef(...)` | Keepouts |
 | a tall part kept out of a region a case leaves little room over | `board.keepout(..., excludes=("parts",), max_height=)` | Keepouts |
 | a board of any shape | `board.outline(path, holes=)` | Boards of any shape |
@@ -60,8 +64,6 @@ and write that form. When nothing here says it, do not compute it: see
 | a wide pour along a centreline into a pad | `board.finger(net, from_=, to=, width=)` | Copper |
 | a coupled differential pair | `board.pair(p, n, path, layer=)` | Copper |
 | silk text on a connector, jumper, switch or LED | `board.label(item, text, side=)` | Labels |
-| a part beside another part, a gap off its envelope | no form yet | SKILL.md, Known gaps |
-| a row or stack measured from a part, not an edge | no form yet | SKILL.md, Known gaps |
 | a pour over a set of pads | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: through the pads, grown over every same-net pad its outline touches | Copper |
 
 ## Questions (answered from the generated board, before anything moves)
@@ -80,7 +82,7 @@ and write that form. When nothing here says it, do not compute it: see
 | `board.reach(item, rotation=)` | the item's body, pads and silk together, as a box at the origin |
 | `board.height_of(part)` | the part's height in mm from its `Pm.Height` field; an error naming the field when it has none |
 | `board.parts(net=None)` | every part on the board as a `Part`, or those with a pad on `net`: derive drops and checks from the netlist |
-| `board.envelope(item, rotation=, face=)` | what the placer keeps for the item under `[place] envelope`, as a box at the origin - the number `row()` and `block()` already space by; read it to check a gap's arithmetic, not to build a row or a stack by hand |
+| `board.envelope(item, rotation=, face=)` | what the placer keeps for the item under `[place] envelope`, as a box at the origin - the number `row()`, `block()` and `Beside` already space by; read it to check a gap's arithmetic, not to build a row or a stack by hand |
 | `board.claim(item, rotation=0, face=Face.FRONT)` | everything the item claims at that rotation, at the origin: its reach (body, pads, silk) and its courtyard together - what `row()`/`ring()` actually space by, so a zero gap is courtyards touching. A question to check a gap's number against, not a coordinate to place from |
 
 The same answers from the command line, for when no script is running, are
@@ -120,6 +122,7 @@ board.place(item, at=OnEdge(Edge.WEST, along=Along.MID), rotation=180)  # EDGE: 
 board.place(item, at=Location(x, y), rotation=0, face=Face.FRONT)      # FIXED: the origin, a mechanical fact (no freedom)
 board.place(item, at=Centre(X(Mid(a, b)), Y(a, 3.0)), rotation=0)       # FIXED: the body centre, said in terms of pads
 board.place(item, at=Pin("VIN", X(pin), Y(pin, 2.0)), rotation=90)       # FIXED: the item's own pad lands on the point
+board.place(item, at=Beside(Part("u1"), Edge.EAST, align=Along.MID))   # FIXED: the drawn envelope a gap off another item's
 board.place(item, at=Near(Location(x, y)), radius=3.0, step=0.2, rotations=(0, 90))  # searched round a hint
 board.place(item, at=Near(PadRef(u1, 3).local(0.4, -1.2), radius=0), rotation=Turned(u1, 90))  # off a pad in its part's own frame, turned with it
 ```
@@ -135,7 +138,9 @@ a1's R2 courtyard`.
 `Centre(x, y)` and `Pin(key, x, y)` fix both coordinates (the origin, the
 body centre, or the item's own pad `key` (a number or a net), each axis a
 number or a reference): a cap whose pad must sit on a pin's axis, a diode
-whose pad faces another's, is a `Pin`. `Location(30, None)` or
+whose pad faces another's, is a `Pin`. On a cell, which has no pad of its
+own, `key` is a `CellPadRef` or a `PadRef` naming one of its members' pads;
+the cell is carried rigidly so that pad lands on the point. `Location(30, None)` or
 `Centre(None, y)` fix one: the item slides along the line, starting across
 from what it connects to when any of that is placed, else at its middle alone or
 sharing it evenly with the items pinned to the same value, aside from what
@@ -243,6 +248,26 @@ rule; an edge item's reach (body, pads and silk together, `board.reach(item,
 rotation)`) lands there. A face that must stand proud of the edge says
 `OnEdge(edge, overhang=)` with a why. A row inboard of an edge row is `behind=` it.
 
+**Beside another item.** `at=Beside(item, Edge.EAST, align=None, gap=None)`
+stands the item on that side of `item` - a `Part`, a `Cell` or a keepout
+(what `board.keepout(...)` returns) - its drawn envelope `gap` off
+`item`'s (default: the envelope's own gap, the rule a row's default gap
+keeps too: the widest of the net clearance, the component spacing and the
+silk clearance, or courtyards touching under a courtyard envelope). FIXED
+like `Pin`: it waits for `item` to be placed, and keeps the rotation the
+script gave, or its default - `Beside` does not turn the item to face
+`item`. `align=` lines it up across the side: a `PadRef` of `item` (this
+item's own pad on the same net lands level with it), `(own_pad,
+their_pad)` when the nets differ, or an `Along` of `item`'s side (default
+`Along.MID`).
+
+```python
+board.place(Part("c_bypass"), at=Beside(Part("u1"), Edge.WEST, align=PadRef(Part("u1"), "VDD")))
+board.place(Cell("led_ring"), at=Beside(Part("j_conn"), Edge.SOUTH))          # MID of the connector's south side
+clr = board.keepout(Circle(10.0), "ant", at=PadRef(ANT, "FEED"), allow=(ANT,), why="the matching network")
+board.place(Part("r_series"), at=Beside(clr, Edge.NORTH, align=Along.START, gap=0.3))
+```
+
 **Rows.** Things along one edge, in order, `gap` apart (default 0:
 courtyards touching), their outward
 sides out (a cell generated with its connector's bulk on local +Y turns
@@ -273,6 +298,22 @@ declaration; `start`, `end` and `centre(item)` too when it starts at a
 number, otherwise refer to its items' pads. `row.inner` and `row.outer` are
 its inboard boundary and its outer line, usable as a coordinate in copper
 (`(power.inner + 1.0, y)`). Declare the size after the rows that set it.
+
+**A row off a part, not the board edge.** `board.row(items, Edge.SOUTH,
+of=Part("u1"), align=Along.START)` runs the row along that side of
+`Part("u1")`'s (or a `Cell`'s) drawn envelope instead of the board's: `gap`
+(default the envelope's own, as `Beside` keeps) is both the row's own gap
+and how far its near line stands off `of`, and `line=` still says how the
+row aligns across itself. `align=Along.START/MID/END` is where along
+`of`'s side the row sits (default `START`); `start=`, `centre=`, `end=`,
+`before=`, `after=`, `behind=` and `inboard=` are said relative to the
+board's edge, so they are refused together with `of=`. It waits for `of`
+to be placed, and - unlike a row on the board's own edge - accepts a fit
+frame:
+
+```python
+board.row([R_SDA, R_SCL], Edge.EAST, of=Part("u1"), align=Along.START)   # a lane east of U1, top-flush
+```
 
 **Positions said in terms of pads and parts.** `Centre` (and a point of
 references in `at=`) resolve when the item is placed:
