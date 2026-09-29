@@ -91,6 +91,17 @@ class Line(str, Enum):
     INNER = "inner"
 
 
+class Bend(str, Enum):
+    """Which end of an off-grid track leg takes its 45: the diagonal touches
+    that pad end, a straight run carries the rest of the leg; BOTH puts a
+    45 at each end with a straight between. Unset (the default), the
+    planner picks: the fewest turns against the legs either side, then the
+    shortest, then its own tie-break (the 45 at the pad end)."""
+    START = "start"
+    END = "end"
+    BOTH = "both"
+
+
 class Forbid(str, Enum):
     """What a keepout keeps out of its region."""
     PARTS = "parts"
@@ -495,6 +506,35 @@ class Mid:
     that sits between them: `X(Mid(pin_p, pin_n))`."""
     a: object
     b: object
+
+
+@dataclass(frozen=True)
+class Between:
+    """A track waypoint at the centreline of the gap between two pads:
+    `board.track(net, [..., Between(PadRef(a), PadRef(b)), ...], ...)`.
+    Resolved when both pads are placed, against the track's own width and
+    net class: a gap too narrow for the track and its clearance to each pad
+    is a finding naming both pads, and the track is still drawn through the
+    midpoint."""
+    a: object
+    b: object
+
+
+@dataclass(frozen=True)
+class Past:
+    """A track waypoint the track's own clearance off the given pads' `edge`
+    side, centred across them: `Past([PadRef(a), PadRef(b)], Edge.EAST)`.
+    Resolved when every pad is placed, against the track's own width and net
+    class."""
+    pads: tuple
+    edge: object
+
+    def __post_init__(self):
+        object.__setattr__(self, "pads", tuple(self.pads))
+        if not self.pads:
+            raise ValueError("Past needs at least one pad")
+        if not isinstance(self.edge, Edge):
+            raise TypeError("Past's edge is an Edge, not %r" % (self.edge,))
 
 
 class LinkWeight(IntEnum):

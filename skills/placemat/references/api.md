@@ -1,9 +1,9 @@
 # The script surface
 
 ```python
-from placemat import (board, Along, Axis, Beside, Box, Cell, CellPadRef, Centre, Pin, Polar, OnRim, OnBore, Cutout, Disc, Arc,
+from placemat import (board, Along, Axis, Bend, Beside, Between, Box, Cell, CellPadRef, Centre, Pin, Polar, OnRim, OnBore, Cutout, Disc, Arc,
                        Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Line, LinkWeight,
-                       Location, Mid, Near, Net, OnEdge, PadRef, Part, Priority, Turned, X, Y)
+                       Location, Mid, Near, Net, OnEdge, PadRef, Part, Past, Priority, Turned, X, Y)
 ```
 
 `board` is the board being laid out. Questions answer from the generated
@@ -59,14 +59,21 @@ and write that form. When nothing here says it, do not compute it: see
 | a module frame sized to its own content | `board.size(fit=True)` | Setup |
 | a module frame fitted in one axis, the other a declared number | `board.size(fit=Axis.X, height=)` | Setup |
 | a track from a pad to a pad | `board.track(net, [PadRef(a), PadRef(b)], layer=)` | Copper |
+| which end of a track's off-grid leg takes the 45 | `board.track(..., bend=Bend.START/END/BOTH)` | Copper |
+| a track through the gap between two pads | `board.track(net, [..., Between(PadRef(a), PadRef(b)), ...], layer=)` | Copper |
+| a track held the clearance off a pad's side | `board.track(net, [..., Past([PadRef(...), ...], Edge.EAST), ...], layer=)` | Copper |
 | a via at the nearest legal spot to a pad | `board.via(net, FreeSpot(near=PadRef(...)))` | Copper |
 | a power or exposed pad filled with vias | `board.vias(net, PadRef(...))` | Copper |
+| vias in a row out from a pad, along its escape axis | `board.vias(net, along=PadRef(...), count=N)` | Copper |
+| stitching vias over a cell, a pour or a keepout | `board.stitch(net, region)` | Copper |
 | a pour over a region | `board.pour(net, points, layer=)` | Copper |
+| a pour between two pads (a neck, as wide as the narrower) | `board.pour(net, [PadRef(a), PadRef(b)], layer=, swallow_pads=True)` | Copper |
 | a zone over the whole board, or an outline | `board.plane(net, layers=, outline=)` | Copper |
 | a wide pour along a centreline into a pad | `board.finger(net, from_=, to=, width=)` | Copper |
+| a finger as wide as a named pad | `board.finger(net, from_=, to=, width=PadRef(...))` | Copper |
 | a coupled differential pair | `board.pair(p, n, path, layer=)` | Copper |
 | silk text on a connector, jumper, switch or LED | `board.label(item, text, side=)` | Labels |
-| a pour over a set of pads | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: through the pads, grown over every same-net pad its outline touches | Copper |
+| a pour over a set of pads | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: through the pads, grown over every same-net pad its outline touches, and pulled back from every other net's copper | Copper |
 
 ## Questions (answered from the generated board, before anything moves)
 
@@ -952,11 +959,12 @@ Every copper call is named for the shape it leaves on the board:
 |---|---|
 | track | one straight trace segment of a width, on one layer; `board.track` draws several end to end |
 | via | a plated hole joining all copper layers at one point |
-| pour | a filled polygon of exactly the shape given, on one layer; it never pulls back from other copper, so it is drawn where nothing foreign is |
+| pour | a filled polygon of exactly the shape given, on one layer; it never pulls back from other copper, so it is drawn where nothing foreign is - except `swallow_pads`, which both grows it over the same-net pads its outline touches and pulls it back from every other net's copper to the netclass clearance |
 | zone | a filled area KiCad fills and refills, pulling back by the clearance round every foreign pad, track and via; what a plane is made of |
 | plane | a zone covering the whole board (or an outline) on one or more layers, for a net that everything reaches by a via |
 | bridge | a via, a short track on the opposite face passing under one or more tracks, and a via back: how a track gets past copper on its own layer without touching it |
 | finger | a rectangular pour of a width along a centreline (a wide reach from a big pour to a pad), cut and bridged where a track crosses it |
+| stitch | vias in a grid over a region (a cell, a pour or a keepout), at the via-to-via rule, clear of every other net's copper |
 
 A bus down a board is written as it looks: one vertical (or horizontal)
 track per net between the first and last pad it serves, `(x, Y(pad))` to
@@ -969,12 +977,24 @@ octilinear ways of up to three legs (the 45 at the start, at the end or
 between two straights, two 45s round a straight, the two L shapes), drops
 those whose legs touch another net's pad or copper, and keeps the one with
 the fewest direction changes against the legs either side (a chamfered
-right angle counting two), then the shortest. So a track is best given only
+right angle counting two), then the shortest, then (its own tie-break) the
+45 at the pad end. `bend=Bend.START`/`Bend.END`/`Bend.BOTH` says which end
+of every off-grid leg of the track takes the 45 instead, ahead of that
+scoring; a leg already on the grid, or already a single 45, is unaffected.
+So a track is best given only
 its ends and the waypoints where it must go; the tool routes round what it
 knows is there. Every right angle between axis legs is cut back `chamfer`
 (default 1.0 mm) along both legs into two 45s; `chamfer=0` keeps it sharp. A tap
 that must return is written as one chain: `..., (band, Y(pin)), pin,
 (X(pin, -2), Y(pin, 2)), (band, Y(pin, 2)), ...`.
+
+**Lane waypoints.** `Between(PadRef(a), PadRef(b))` is a point at the
+centreline of the gap between two pads, resolved once both are placed: the
+gap must hold the track's own width plus its clearance to each pad's net,
+or the declaration is a finding naming both pads. `Past([PadRef(...), ...],
+Edge.EAST)` is a point the track's own clearance off the given pads'
+`edge` side, centred across their combined box. Both are accepted wherever
+a track point is.
 
 **Who bridges.** Where two tracks of different nets cross on one layer, the
 lower `priority` passes under; at equal priority the shorter one does; a
@@ -986,8 +1006,10 @@ enters into it. Fingers always yield to tracks.
 Not in this API (they were verbs in the previous library): route45 and
 l45 (45-degree legs: give `track` the corner points), spine and plane_serve
 (joining plane drops with planned runs), band_with_notches, reserve,
-drop_via and stitch (via-in-pad drops), and the lane vocabulary (tap, hop,
-chain, crossing). They return only when a board needs them. A script that
+and drop_via (via-in-pad drops: `board.via(net, at, ...)` at a pad, or
+`board.vias(net, along=PadRef(...), count=N)` for a row of them), and the
+lane vocabulary (tap, hop, chain, crossing) beyond `Between`/`Past`. They
+return only when a board needs them. A script that
 needs a word of its own (a "corridor", a "spine") defines it where it first
 uses it, in these terms.
 
@@ -1001,13 +1023,16 @@ same pad in a `PadRef`, a `Pin`, a link and `board.part(x).pad(net)`; a
 placement on it says which pad that was. Name the number to pick another.
 
 ```python
-board.track(net, [p1, p2, ...], layer=CopperLayer.F, width=None, priority=Priority.DEFAULT, bridge=False)
+board.track(net, [p1, p2, ...], layer=CopperLayer.F, width=None, chamfer=None, bend=None, priority=Priority.DEFAULT, bridge=False)
 board.via(net, point)
 board.via(net, FreeSpot(near=PadRef(...), radius=2.0))               # the nearest legal spot to a pad, joined to it by its tail
 board.vias(net, PadRef(...), pitch=None, size=None, drill=None, inset=0)  # a pad filled with a grid of vias, turned with its part
+board.vias(net, along=PadRef(...), count=N, pitch=None, size=None, drill=None)  # a row out from a pad, along its escape axis
+board.stitch(net, region, pitch=None, size=None, drill=None)         # vias in a grid over a cell, a pour or a keepout
 board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False)     # filled polygon
+board.pour(net, [PadRef(a), PadRef(b)], layer=..., swallow_pads=True, width=None)  # the neck between two pads
 board.plane(net, layers=(CopperLayer.IN1,), outline=None, inset=0.4)  # zone(s), whole board or outline
-board.finger(net, layer=, from_=point, to=point, width=)               # pour along a centreline, cut and bridged at tracks
+board.finger(net, layer=, from_=point, to=point, width=)               # pour along a centreline, cut and bridged at tracks; width= a number or a PadRef
 ```
 All take `priority=`, which decides only who passes under where two tracks
 of different nets cross. WHEN a piece of copper is planned is derived, not
@@ -1062,6 +1087,40 @@ has its hole and is not filled. A pad
 no via fits in is a finding; a `pitch` under the hole-to-hole rule is refused
 when declared. The step says the vias are in the pad: filled or plugged at
 the fab.
+
+**Vias in a row.** `board.vias(net, along=PadRef(...), count=N)` draws N
+vias out from a pad along its escape axis (the outward normal of the pad
+row it sits in, or the ray from the part's body centre when the row does
+not decide one) at the via-to-via rule (by default the larger of the via's
+own size and a drilled hole plus the hole-to-hole rule), the first clear of
+the pad's own copper. A via the row cannot fit - the edge, another net's
+copper, a hole - is a finding, and the row stops there. `pad=`/`along=` are
+exclusive: one call, a grid over a pad or a row along its axis.
+
+**Stitching.** `board.stitch(net, region, pitch=None)` fills `region` - a
+`Cell`, the value `board.pour()` returns, or a keepout's name - with vias
+in a grid at `pitch` (by default the via-to-via rule), each one wholly
+inside the region and clear of every other net's copper, hole, keepout and
+the board edge. Resolved once the region itself is: after the cell is
+placed, the pour is drawn, or the keepout is settled.
+
+**A pour between two pads.** `board.pour(net, [PadRef(a), PadRef(b)],
+swallow_pads=True)` with exactly two pads draws the neck between them - a
+rectangle along their centreline, as wide as the narrower pad measured
+across the run, unless `width=` says otherwise - instead of needing a
+third point.
+
+**A swallowing pour pulls back too.** `swallow_pads` both grows the pour
+over the same-net pads its outline touches and pulls it back from every
+other net's copper on its layer (pads, tracks, vias, other pours) to the
+netclass clearance, as a zone fill does. A piece the pull-back cuts off
+that no longer touches a named or swallowed pad is dropped; if that leaves
+a named pad joined to nothing, it is a finding naming the pad. A pour
+without `swallow_pads` keeps exactly the shape it is given, still.
+
+**A finger as wide as a pad.** `board.finger(net, from_=, to=, width=PadRef(...))`
+runs the finger as wide as that pad measured across the run, instead of a
+fixed number.
 
 **Pairs.** Two nets drawn together at a gap along one centreline, the way
 KiCad's differential tool does:

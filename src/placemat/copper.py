@@ -102,13 +102,16 @@ class Text:
 class Pour:
     """A filled copper polygon of fixed shape on one layer. It is drawn exactly
     as given and never pulls back from other copper: a pour that touches a
-    foreign pad is a short. `swallow_pads` grows it over the same-net pads
-    its outline touches."""
+    foreign pad is a short - unless `swallow_pads`, which both grows it over
+    the same-net pads its outline touches AND pulls it back from every other
+    net's copper on its layer to the netclass clearance, dropping any piece
+    the pull-back cuts off that no longer touches a named or swallowed pad."""
     net: str
     layer: CopperLayer
     points: tuple[tuple[float, float], ...]
     stroke: float = 0.2
-    swallow_pads: bool = False       # grow the outline over same-net pads it touches
+    swallow_pads: bool = False       # grow the outline over same-net pads it touches, and pull back from foreign copper
+    named_pads: tuple = ()           # ((label, (x, y)), ...): the pads the declaration named, to check are still joined
 
     @property
     def polygon(self) -> Polygon:
@@ -470,14 +473,36 @@ def _leg_candidates(a: Location, b: Location) -> list:
     return out
 
 
-def route_leg(a: Location, b: Location, pad_a: bool, pad_b: bool, prev, nxt, clear) -> list:
+def _bend_matches(cand: list, bend) -> bool:
+    """Whether every diagonal sub-leg of `cand` sits exactly where `bend`
+    asks: START at a alone, END at b alone, BOTH at both with one straight
+    leg between them."""
+    dirs = [_dir(p, q) for p, q in zip(cand, cand[1:])]
+    diag = [i for i, d in enumerate(dirs) if d[0] != 0 and d[1] != 0]
+    if bend.value == "start":
+        return diag == [0]
+    if bend.value == "end":
+        return diag == [len(dirs) - 1]
+    return len(dirs) == 3 and diag == [0, 2]                    # BOTH
+
+
+def route_leg(a: Location, b: Location, pad_a: bool, pad_b: bool, prev, nxt, clear, bend=None) -> list:
     """The best octilinear way from a to b: among the candidates whose legs
     all `clear`, the fewest direction changes against the legs either side
     (a chamfered right angle counting two), then the shortest, then the 45
     at the pad end. If none clears, the fewest-turn candidate is returned
-    and the conflict is left for the run to report."""
+    and the conflict is left for the run to report.
+
+    `bend` (a `Bend`) narrows the candidates to those whose 45 sits at the
+    end it names, before that scoring runs; a leg with no room to choose
+    (already on the grid, or already a single 45) is unaffected."""
+    cands = _leg_candidates(a, b)
+    if bend is not None:
+        matched = [c for c in cands if _bend_matches(c, bend)]
+        if matched:
+            cands = matched
     scored = []
-    for k, cand in enumerate(_leg_candidates(a, b)):
+    for k, cand in enumerate(cands):
         dirs = [prev] + [_dir(p, q) for p, q in zip(cand, cand[1:])] + [nxt]
         turns = _turns(dirs)
         length = sum(p.distance(q) for p, q in zip(cand, cand[1:]))
@@ -489,16 +514,17 @@ def route_leg(a: Location, b: Location, pad_a: bool, pad_b: bool, prev, nxt, cle
     return scored[0][5]
 
 
-def octilinear(pts: list, at_pad=None, clear=None) -> list:
+def octilinear(pts: list, at_pad=None, clear=None, bend=None) -> list:
     """The polyline with every leg at 0, 45 or 90 degrees: a leg at another
     angle is routed by route_leg, the best clear octilinear way between its
-    ends given the legs either side."""
+    ends given the legs either side. `bend` is the script's own choice of
+    which end takes the 45 (None: the planner's)."""
     at_pad = at_pad or [False] * len(pts)
     out = [pts[0]] if pts else []
     for i, (a, b) in enumerate(zip(pts, pts[1:])):
         prev = _dir(out[-2], out[-1]) if len(out) > 1 else None
         nxt = _dir(b, pts[i + 2]) if i + 2 < len(pts) else None
-        out += route_leg(a, b, at_pad[i], at_pad[i + 1], prev, nxt, clear)[1:]
+        out += route_leg(a, b, at_pad[i], at_pad[i + 1], prev, nxt, clear, bend)[1:]
     return out
 
 

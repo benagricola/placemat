@@ -68,11 +68,9 @@ coordinates for one of them: place what you can by the nearest intent
 form and record the rest as a gap (above). This list is expected to
 shrink - the maintainers are building these.
 
-- A lane: a track, a via row or a column held a clearance off pad ends, a
-  via or another track.
-- Vias on a pad's axis, in rows under a pin row, or stitched along a
-  region's edge.
-- Which end of a track's leg takes the 45.
+- A column of parts held a clearance off pad ends. A lane held a clearance
+  off another track (`Between`/`Past` hold one off pads; not yet off a
+  track).
 - A keepout shaped like an absolute region with no item to anchor it (a
   sector, a band inset from the outline).
 
