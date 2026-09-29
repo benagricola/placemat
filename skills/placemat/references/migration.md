@@ -6,6 +6,11 @@ whether any of it applies.
 
 ## Unreleased
 
+The `placemat-design` skill is retired. Its placemat part - the `Pm.*`
+annotations, how wrappers forward them, what `placemat check` reads - is
+`references/capture.md` in this skill, signposted at the top of SKILL.md;
+general capture practice is the separate circuit-capture skill.
+
 Nothing to change in a script that works. New intent forms replace the
 coordinates the scripts audit found (see SKILL.md's "Declare by intent" and
 the intent index): `at=Beside(item, Edge.X, align=...)` for a part beside

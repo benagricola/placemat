@@ -1355,7 +1355,7 @@ A page carrying almost no text of its own is read off its render with
 second and a half a page and only runs on pages under 200 characters.
 
 `check` reads the `Pm.*` facts the capture put on its parts (the
-placemat-design skill says which) and reports hot loop area, switch node
+`references/capture.md` says which) and reports hot loop area, switch node
 copper, keep-out distance, crossings under sense tracks, current path
 width against IPC-2221 and junction temperature; exit 1 on a failed
 verdict. The keep-out verdict judges what layout can change - a part's own

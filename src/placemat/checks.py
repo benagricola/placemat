@@ -1,7 +1,7 @@
 """Design checks on a generated board.
 
-The capture writes what each part is as `Pm.*` footprint fields (the
-placemat-design skill lists them): the loop a part closes, whether its
+The capture writes what each part is as `Pm.*` footprint fields (the placemat
+skill's references/capture.md lists them): the loop a part closes, whether its
 copper is an aggressor, the net it senses, the current through it, its
 dissipation and junction limit. This module reads those facts off the
 board with its copper and reports, per check, a number, the limit it is

@@ -1,9 +1,15 @@
 ---
 name: placemat
-description: Lay out a KiCad board from a Python script with placemat - understand the board electrically first, declare placement and copper by intent, run, read the numbers, iterate. Use for any board or module layout, a placement change, or a "why did DRC change" question.
+description: Lay out a KiCad board from a Python script with placemat - understand the board electrically first, declare placement and copper by intent, run, read the numbers, iterate. Use for any board or module layout, a placement change, or a "why did DRC change" question. For electronics design or capture (a .zen, its Pm.* annotations for placemat's checks), read references/capture.md instead and skip the layout material.
 ---
 
 # placemat
+
+**Doing electronics design or capture, not layout?** Read
+`references/capture.md` (the `Pm.*` annotations a capture carries, how part
+wrappers forward them, and what `placemat check` reads from them), with the
+circuit-capture skill for general capture practice, and skip the rest of
+this file: it is about writing layout scripts.
 
 `placemat run <script>` generates the board, runs the script, writes the
 KiCad file, runs DRC and renders, and records what happened. One run is
