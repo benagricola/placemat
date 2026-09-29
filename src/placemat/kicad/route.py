@@ -451,6 +451,14 @@ class Pairs:
         return {"coupled": self.coupled, "partial": self.partial, "failed": self.failed,
                 "single_ended": self.single_ended}
 
+    def renamed(self, names: dict) -> "Pairs":
+        """The same outcome with each pair and net named by `names` where it
+        has an entry: an explicit pair's alias back to its own names."""
+        def back(items):
+            return sorted(names.get(x, x) for x in items)
+        return Pairs(back(self.coupled), back(self.partial), back(self.failed), back(self.single_ended),
+                     {names.get(n, n) for n in self.routed_nets})
+
 
 def read_pairs(log: str) -> Pairs:
     """The pair router's (route_diff.py) outcome from its log: its own
@@ -502,17 +510,88 @@ def _tuning() -> list:
     return ["--turn-cost", str(int(active_settings().route_turn_cost))]
 
 
+def _net_names(pcb) -> set:
+    from .quiet import import_pcbnew, quiet_stderr
+    pcbnew = import_pcbnew()
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(str(pcb))
+    return {str(n) for n in board.GetNetsByName().keys() if str(n)}
+
+
+def rename_nets(pcb_path: str, names: dict) -> None:
+    """Rename the board's nets {old: new}, the copper on them with them. The
+    router reads a net's class from the project by its name, so each new
+    name is given the classes the old one had there (its own assignment and
+    the patterns that matched it), and the old name's assignment goes."""
+    from fnmatch import fnmatchcase
+    from .quiet import import_pcbnew, quiet_stderr
+    pcbnew = import_pcbnew()
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(pcb_path)
+    by_name = board.GetNetsByName()
+    for old, new in names.items():
+        by_name[old].SetNetname(new)
+    with quiet_stderr():
+        board.Save(pcb_path)
+    pro = Path(pcb_path).with_suffix(".kicad_pro")
+    if not pro.exists():
+        return
+    data = json.loads(pro.read_text())
+    ns = data.get("net_settings") or {}
+    assigned = ns.get("netclass_assignments") or {}
+    patterns = [(e.get("pattern"), e.get("netclass")) for e in ns.get("netclass_patterns") or []]
+    moved = {}
+    for old, new in names.items():
+        own = assigned.get(old) or []
+        classes = list(own) if isinstance(own, list) else [own]
+        classes += [c for pat, c in patterns if pat and c and fnmatchcase(old, pat) and c not in classes]
+        if classes:
+            moved[new] = classes
+    if not moved and not set(names) & set(assigned):
+        return
+    ns["netclass_assignments"] = {**{k: v for k, v in assigned.items() if k not in names}, **moved}
+    data["net_settings"] = ns
+    pro.write_text(json.dumps(data, indent=2) + "\n")
+
+
 def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, patterns, layers, cfg, iterations, probe,
                 timeout, env) -> tuple:
     """Route the differential pairs with the router's pair router: returns
     (the board to route the rest on, Pairs). A board with no pair matching
-    the patterns comes back as it went in."""
-    script = Path(router_dir_path) / "py_router/route_diff.py"
-    if not patterns or not script.exists():
+    the patterns comes back as it went in.
+
+    The router pairs nets by their suffix alone, so a pair `patterns` names
+    outright ("NET_A/NET_B") is routed in a copy where its nets are renamed
+    to a suffix pair (pairs.pair_aliases), and renamed back in the routed
+    board before anything reads it. A named net the board does not have is
+    a ValueError, before the router runs."""
+    from ..pairs import explicit_pairs, globs, pair_aliases
+    if not patterns:
         return pcb_in, Pairs()
+    named = explicit_pairs(patterns)
+    aliases = []
+    if named:
+        names = _net_names(pcb_in)
+        missing = [n for pair in named for n in pair if n not in names]
+        if missing:
+            raise ValueError("route.diff_pairs names %s, which the board has no net called" % ", ".join(missing))
+        aliases = pair_aliases(named, names)
+    script = Path(router_dir_path) / "py_router/route_diff.py"
+    if not script.exists():
+        return pcb_in, Pairs()
+    router_in = pcb_in
+    renames = {}
+    if aliases:
+        renames = {old: base + suffix for base, p, n in aliases for old, suffix in ((p, "_P"), (n, "_N"))}
+        router_in = work / "pairs_in.kicad_pcb"
+        shutil.copy(pcb_in, router_in)
+        _copy_project(pcb_in, router_in)
+        rename_nets(str(router_in), renames)
+    back = {new: old for old, new in renames.items()}
+    back.update({base: "%s/%s" % (p, n) for base, p, n in aliases})
     pcb_out = work / "pairs.kicad_pcb"
-    cmd = pair_command(rpy, script, pcb_in, pcb_out, patterns, layers, cfg.route_diff_pair_gap,
-                       cfg.route_diff_pair_width, iterations, probe)
+    cmd = pair_command(rpy, script, router_in, pcb_out, globs(patterns) + tuple(a[0] for a in aliases), layers,
+                       cfg.route_diff_pair_gap, cfg.route_diff_pair_width, iterations, probe)
     log = work / "pairs.log"
     with open(log, "w") as f:
         f.write("$ %s\n\n" % " ".join(str(c) for c in cmd))
@@ -520,12 +599,14 @@ def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, patterns, layers
         rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=env,
                             timeout=timeout).returncode
     text = log.read_text(errors="replace")
-    pairs = read_pairs(text)
+    pairs = read_pairs(text).renamed(back)
     if rc != 0 or not pcb_out.exists():
         if "matched no differential pair" in text or "No differential pairs" in text:
             return pcb_in, Pairs()
         tail = "\n".join(text.splitlines()[-8:])
         raise RuntimeError("the pair router exited %d without a routed board; log %s\n%s" % (rc, log, tail))
+    if renames:
+        rename_nets(str(pcb_out), {new: old for old, new in renames.items()})
     for ext in (".kicad_pro", ".kicad_dru"):
         if (work / ("in" + ext)).exists():
             shutil.copy(work / ("in" + ext), work / ("pairs" + ext))

@@ -107,7 +107,7 @@ class Settings:
     route_iterations: int | None = None
     route_layers: tuple | None = None
     route_plane_share: float = 0.9      # a plane's own zone must cover at least this share of the board's outline to count as filling an inner layer whole (route.py's default layer list then leaves it out)
-    route_diff_pairs: tuple = ("*",)    # nets the router's pair router routes first, as pairs; (): none
+    route_diff_pairs: tuple = ("*",)    # nets the router's pair router routes first, as pairs; "NET_A/NET_B" names one pair (P first); (): none
     # The router prices a straight step at 1000 and a turn at this per 90 degrees (a 45 half of it). Its own
     # default, 1000, makes a 45-degree kink worth 0.05 mm of path, and its routes stair-step; 20000 measured on
     # the fairing core: 66.8% closure against 66.0%, 5.8 turns per 10 mm against 12.6, 10% less copper.
@@ -347,6 +347,12 @@ def _validate(name: str, value, path: str):
     if name == "route_islands":
         try:
             parse_islands(value)
+        except ValueError as e:
+            raise SettingsError("%s: %s: %s" % (path, dotted, e)) from None
+    if name == "route_diff_pairs":
+        from .pairs import explicit_pairs
+        try:
+            explicit_pairs(value)
         except ValueError as e:
             raise SettingsError("%s: %s: %s" % (path, dotted, e)) from None
     if name in _CHOICES and value not in _CHOICES[name]:

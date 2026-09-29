@@ -32,6 +32,13 @@ Escape findings, and so the run score, are measured at `score.escape_depth`
 shallower search depth no longer scores better by checking less. A best run
 recorded by 0.55.0 or earlier may give way to the next run.
 
+`route.diff_pairs` takes an entry `"NET_A/NET_B"` naming two nets as a
+differential pair (P first), for nets without a `_P`/`_N`, `P`/`N` or
+`+`/`-` suffix. The route step routes them under a suffix name in its copy
+and names them back; placement weighs their crossings as a pair's. An
+existing entry with one `/` that is not leading and has no glob character
+now reads as a pair.
+
 ## To 0.55.0
 
 A block satellite that slid along its anchor's pin row says so in its step:

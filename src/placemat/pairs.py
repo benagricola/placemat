@@ -5,6 +5,10 @@
 cite the router's issues), so placemat and the router never disagree about
 which nets form a pair. Two nets pair when their keys share a base and a
 style and differ in polarity.
+
+A `route.diff_pairs` entry "NET_A/NET_B" names a pair outright, whatever the
+two are called (`explicit_pairs`). The router takes no such pair, so the
+route step routes it under a suffix name (`pair_aliases`).
 """
 from __future__ import annotations
 
@@ -82,10 +86,67 @@ def selected(net: str, base: str, patterns) -> bool:
     return any(fnmatch(c, p) for p in patterns for c in candidates)
 
 
+# The base of the suffix pair an explicit pair is routed under: <ALIAS><i>_P / _N.
+ALIAS = "PMPAIR"
+
+
+def _names_pair(entry: str) -> bool:
+    """Whether a `route.diff_pairs` entry names a pair: one '/', with a net
+    on each side and no glob character. A leading '/' is a hierarchical
+    name's, so "/D_CK" stays a pattern."""
+    a, slash, b = entry.partition("/")
+    return bool(slash and a and b and "/" not in b and not any(c in entry for c in "*?["))
+
+
+def explicit_pairs(entries) -> list:
+    """The pairs `route.diff_pairs` names outright, "NET_A/NET_B", as
+    (P net, N net) in order. A net in two of them, or twice in one, is a
+    ValueError naming it."""
+    out, seen = [], set()
+    for entry in entries or ():
+        if not _names_pair(str(entry)):
+            continue
+        a, _, b = str(entry).partition("/")
+        for net in (a, b):
+            if net in seen:
+                raise ValueError("%s is named in more than one pair (%r)" % (net, entry))
+            seen.add(net)
+        out.append((a, b))
+    return out
+
+
+def globs(entries) -> tuple:
+    """The entries of `route.diff_pairs` that are patterns, not named pairs."""
+    return tuple(e for e in entries or () if not _names_pair(str(e)))
+
+
+def pair_aliases(pairs, names) -> list:
+    """(base, P net, N net) for each explicit pair: the base names the suffix
+    pair <base>_P / <base>_N it is routed under, one that no net of `names`
+    already is or that a pattern of the base would select."""
+    def taken(base):
+        for n in names:
+            k = pair_key(n)
+            if n in (base + "_P", base + "_N") or selected(n, k[0] if k else n, (base,)):
+                return True
+        return False
+    out, i = [], 0
+    for p, n in pairs:
+        while taken("%s%d" % (ALIAS, i)):
+            i += 1
+        out.append(("%s%d" % (ALIAS, i), p, n))
+        i += 1
+    return out
+
+
 def pairs_of(nets, patterns=("*",)) -> dict:
     """{net: its partner} for every net of `nets` that has exactly one
     partner of the other polarity under the same base and style, in a pair
-    `patterns` selects (either half matching selects both)."""
+    `patterns` selects (either half matching selects both), and for both
+    nets of each pair `patterns` names outright ("NET_A/NET_B") when `nets`
+    has the two. A named pair takes its nets from any suffix pair."""
+    named = explicit_pairs(patterns)
+    patterns = globs(patterns)
     halves: dict = {}
     for net in nets:
         k = pair_key(net)
@@ -98,4 +159,10 @@ def pairs_of(nets, patterns=("*",)) -> dict:
                 (selected(pos[0], base, patterns) or selected(neg[0], base, patterns)):
             out[pos[0]] = neg[0]
             out[neg[0]] = pos[0]
+    present = set(nets)
+    for p, n in named:
+        if p in present and n in present:
+            for net in (p, n):
+                out.pop(out.pop(net, None), None)
+            out[p], out[n] = n, p
     return out

@@ -1649,6 +1649,20 @@ own smoothing; `route.router_args` passes more of its flags through
 already kept stay as they were laid: `placemat routes <script>
 --release-all` drops them, and the next `route --adopt-all` lays them again.
 
+The pair router finds a pair by its nets' suffix (`_P`/`_N`, `P`/`N`,
+`+`/`-`) among the nets `route.diff_pairs` selects. Two nets named
+otherwise, such as a tank's two leads, are named as a pair with an entry
+`"NET_A/NET_B"` (the first is P): the route step renames the two in its own
+copy to `PMPAIR<i>_P`/`PMPAIR<i>_N`, a name no board net has, routes that
+pair, and names them back in the routed copy before its copper is read or
+kept. The renamed nets keep their net classes. The entry is a pair when it
+has one `/`, not leading, and no glob character; a hierarchical name
+(`/sheet/NET`) cannot be named this way. A named net the board does not
+have stops the route before the router runs; a net in two named pairs is
+refused when the settings load. Placement weighs a named pair's crossings
+as it does a suffix pair's, and a named pair takes its nets from any suffix
+pair they were in.
+
 A pour net whose pours do not reach every pad of it (a rail's small taps on
 the far side of a cell) is named in `[route] islands` (or `--islands
 NET[=WIDTH]`): the route then runs the router on those nets first, one at a
@@ -1915,7 +1929,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `route.router_args` | `[]` | more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`) is refused |
 | `route.pair_router_args` | `[]` | the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's |
 | `route.islands` | `[]` | nets with pours whose pads the pours do not reach (a pour net's small taps), `"NET"` or `"NET=WIDTH"` (mm): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH; `placemat route --islands` adds to them |
-| `route.diff_pairs` | `["*"]` | net patterns naming the differential pairs: the router's pair router (route_diff.py) routes them first, as pairs, and placement prices their own crossings at `score.pair_crossing`; `[]` names none (every net single-ended, no pair weighting) |
+| `route.diff_pairs` | `["*"]` | net patterns naming the differential pairs: the router's pair router (route_diff.py) routes them first, as pairs, and placement prices their own crossings at `score.pair_crossing`; an entry `"NET_A/NET_B"` names one pair outright, P first (see `placemat route` under Commands); `[]` names none (every net single-ended, no pair weighting) |
 | `route.diff_pair_gap` | 0 | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
 | `route.diff_pair_width` | 0 | mm, a pair's track width; 0 is the net class's diff pair width |
 | `route.adopt_tolerance` | 0.001 | mm any kept pad may lie from where the parts' common motion puts it before the kept routes joining them are dropped |
