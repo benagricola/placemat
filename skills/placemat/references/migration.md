@@ -12,6 +12,11 @@ declared outline: two pours over the two ends of a small part no longer
 meet. A script that dropped one of two neighbouring pours, or swapped it
 for a plain pour and a track, can declare both again.
 
+A swallowed or named pad counts as joined when the pour's copper (its fill
+and half its stroke) overlaps the pad, not only when the fill covers the
+pad's centre: a pull-back that cut a pour short of a pad's centre reported
+"joined to nothing" for a pad KiCad's connectivity saw joined.
+
 ## To 0.54.0
 
 The `placemat-design` skill is retired. Its placemat part - the `Pm.*`

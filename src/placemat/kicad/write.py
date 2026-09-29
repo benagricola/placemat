@@ -505,6 +505,31 @@ def _swallow_grown(board, op: Pour):
     return ps, joined
 
 
+def _joined_pad_copper(board, joined, layer) -> dict:
+    """label -> SHAPE_POLY_SET of that pad's copper on `layer`, for each
+    joined label ("REF.NUMBER") the board has: a piece of a pour is joined
+    to a pad when its copper overlaps the pad's, not only when it covers the
+    pad's centre (a pull-back can cut a pour short of a pad's centre and
+    still leave it joined)."""
+    layer_id = _layer_id(board, layer)
+    labels = {label for label, _ in joined}
+    out = {}
+    for fp in board.GetFootprints():
+        for p in fp.Pads():
+            label = "%s.%s" % (fp.GetReference(), p.GetNumber())
+            if label not in labels or not p.IsOnLayer(layer_id):
+                continue
+            ps = out.setdefault(label, pcbnew.SHAPE_POLY_SET())
+            p.TransformShapeToPolySet(ps, layer_id, 0, nm(0.001), pcbnew.ERROR_INSIDE)
+    return out
+
+
+def _overlaps(a, b) -> bool:
+    c = pcbnew.SHAPE_POLY_SET(a)
+    c.BooleanIntersection(b)
+    return c.OutlineCount() > 0
+
+
 def _draw_pour(board, op: Pour, geometry=None, other_ops=(), findings=None, existing=()):
     code = _netcode(board, op.net)
     ps, joined = _swallow_grown(board, op)
@@ -530,6 +555,7 @@ def _draw_pour(board, op: Pour, geometry=None, other_ops=(), findings=None, exis
                 if joined:
                     kept = pcbnew.SHAPE_POLY_SET()
                     touched = set()
+                    pad_copper = _joined_pad_copper(board, joined, op.layer)
                     for i in range(ps.OutlineCount()):
                         o = ps.Outline(i)
                         n = o.PointCount()
@@ -537,7 +563,16 @@ def _draw_pour(board, op: Pour, geometry=None, other_ops=(), findings=None, exis
                             continue
                         pts_nm = [(o.CPoint(j).x, o.CPoint(j).y) for j in range(n)]
                         pts_mm = [(pcbnew.ToMM(x), pcbnew.ToMM(y)) for x, y in pts_nm]
-                        hit = [label for label, pos in joined if point_in_polygon(pos, pts_mm)]
+                        # the piece as written reaches half its stroke past its outline
+                        piece = pcbnew.SHAPE_POLY_SET()
+                        piece.NewOutline()
+                        for x, y in pts_nm:
+                            piece.Append(x, y)
+                        if op.stroke > 0:
+                            piece.Inflate(nm(op.stroke / 2.0), pcbnew.CORNER_STRATEGY_ROUND_ALL_CORNERS, nm(0.001))
+                        hit = [label for label, pos in joined
+                               if (_overlaps(piece, pad_copper[label]) if label in pad_copper
+                                   else point_in_polygon(pos, pts_mm))]
                         if hit:
                             touched.update(hit)
                             kept.NewOutline()

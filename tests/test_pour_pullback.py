@@ -288,3 +288,27 @@ def test_two_swallow_pours_of_different_nets_keep_clearance_from_each_others_gro
     for number, outlines in ((1, a), (2, bb)):
         c = u1.pad(number).box.center
         assert any(point_in_polygon((c.x, c.y), o) for o in outlines), number
+
+
+def test_a_pad_the_pull_back_cuts_short_of_its_centre_is_still_joined(tmp_path):
+    """Two wide-stroked swallow pours over the two ends of a small part: each
+    pull-back cuts the other's pad past its centre, but the pour's fill still
+    overlaps its pad and its stroke covers the rest, so the pad is joined (as
+    KiCad's connectivity says) and no finding names it."""
+    pads = [("1", "PROBE_A", 10.0, 10.0, 0.5, 0.5), ("2", "PROBE_B", 10.9, 10.0, 0.5, 0.5)]
+    pcb = _board(tmp_path, pads, clearance=0.2)
+    b = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
+    b.size(width=40.0, height=40.0)
+    b.pour(Net("PROBE_A"), [Location(7.0, 9.7), Location(10.1, 9.7), Location(10.1, 10.3), Location(7.0, 10.3)],
+           layer=CopperLayer.F, stroke=0.5, swallow_pads=True)
+    b.pour(Net("PROBE_B"), [Location(10.8, 9.7), Location(14.0, 9.7), Location(14.0, 10.3), Location(10.8, 10.3)],
+           layer=CopperLayer.F, stroke=0.5, swallow_pads=True)
+    plan = b.resolve()
+    apply_plan(pcb, plan)
+    assert not any("joined to nothing" in f for f in plan.findings), plan.findings
+    after = read_board(pcb)
+    u1 = after.footprint("U1")
+    for number, net in ((1, "PROBE_A"), (2, "PROBE_B")):
+        outlines = [o for c in after.copper if c.kind == "poly" and c.net == net for o in c.outlines]
+        assert outlines, net
+        assert min(poly_distance(o, u1.pad(number).outlines[0]) for o in outlines) == 0.0, net
