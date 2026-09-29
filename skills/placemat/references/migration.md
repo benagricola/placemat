@@ -6,6 +6,17 @@ whether any of it applies.
 
 ## Unreleased
 
+`board.row(items, Edge.X, of=Part(...))` takes `centre=PadRef(...)` and
+`pitch=`: the row's middle on a pad's centre line (a pad of `of` or of any
+firmly placed part), its items' centres `pitch` apart. Two parts at a
+mechanical pitch centred on a driver's pin no longer need their positions
+worked out from the pin by hand.
+
+`board.plane(net, layers, over=[Part(...), Cell(...)], margin=)` bounds a
+plane to the box round those items' drawn envelopes, where they were
+placed, clipped to the frame. A plane outline built by hand from a group's
+box, which left off a part placed by `Beside` outside that box, can go.
+
 `placemat measure` prints each 3D model's file, offset, rotation and scale,
 and `--envelope` names the item that sets each side of a part's drawn
 envelope; `--json` adds `models`, `envelope_items` and a `fab` box.

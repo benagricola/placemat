@@ -38,6 +38,7 @@ and write that form. When nothing here says it, do not compute it: see
 | a row inboard of another edge row | `board.row(items, edge, behind=other_row)` | Placement (Rows) |
 | a row starting after a hole or a pad | `board.row(items, edge, start=Y(pad, gap))` | Placement (Rows) |
 | a row or stack measured from a part, not a board edge | `board.row(items, edge, of=Part(...))` | Placement (Rows) |
+| items at a mechanical pitch along a part's side, centred on a pad | `board.row(items, edge, of=Part(...), centre=PadRef(...), pitch=)` | Placement (Rows) |
 | items round a centre | `board.ring(items, radius=)` | Round boards |
 | a part at a radius and bearing about the board centre | `at=Polar(radius, angle)` | Round boards |
 | a part on a disc's rim, facing out | `at=OnRim(edge)` | Round boards |
@@ -69,6 +70,7 @@ and write that form. When nothing here says it, do not compute it: see
 | a pour over a region | `board.pour(net, points, layer=)` | Copper |
 | a pour between two pads (a neck, as wide as the narrower) | `board.pour(net, [PadRef(a), PadRef(b)], layer=, swallow_pads=True)` | Copper |
 | a zone over the whole board, or an outline | `board.plane(net, layers=, outline=)` | Copper |
+| a zone over a group of parts only, wherever they were placed | `board.plane(net, layers=, over=[Part(...), Cell(...)], margin=)` | Copper |
 | a wide pour along a centreline into a pad | `board.finger(net, from_=, to=, width=)` | Copper |
 | a finger as wide as a named pad | `board.finger(net, from_=, to=, width=PadRef(...))` | Copper |
 | a coupled differential pair | `board.pair(p, n, path, layer=)` | Copper |
@@ -332,14 +334,23 @@ of=Part("u1"), align=Along.START)` runs the row along that side of
 (default the envelope's own, as `Beside` keeps) is both the row's own gap
 and how far its near line stands off `of`, and `line=` still says how the
 row aligns across itself. `align=Along.START/MID/END` is where along
-`of`'s side the row sits (default `START`); `start=`, `centre=`, `end=`,
-`before=`, `after=`, `behind=` and `inboard=` are said relative to the
-board's edge, so they are refused together with `of=`. It waits for `of`
-to be placed, and - unlike a row on the board's own edge - accepts a fit
-frame:
+`of`'s side the row sits (default `START`). `centre=PadRef(...)` instead
+puts the row's middle on that pad's centre line: a pad of `of`, or of any
+part placed firmly by then; it is not given with `align=`. `pitch=` is the
+distance between neighbouring items' centres, in place of `gap=` between
+their envelopes (not both); with a pitch the row's middle is halfway
+between its first and last items' centres. The row still stands the
+envelope gap off `of`, and a pitch that brings two envelopes closer than
+that gap is refused, naming both items and the pitch they need. `start=`,
+`end=`, `before=`, `after=`, `behind=` and `inboard=` are said relative to
+the board's edge, so they are refused together with `of=`. It waits for
+`of` (and `centre=`'s part) to be placed, and - unlike a row on the
+board's own edge - accepts a fit frame:
 
 ```python
 board.row([R_SDA, R_SCL], Edge.EAST, of=Part("u1"), align=Along.START)   # a lane east of U1, top-flush
+board.row([Part("p_a"), Part("p_b")], Edge.NORTH, of=Part("u1"),
+          centre=PadRef(Part("u1"), 8), pitch=2.7)                         # two pins at a mechanical pitch, over U1's pin 8
 ```
 
 **Positions said in terms of pads and parts.** `Centre` (and a point of
@@ -983,7 +994,7 @@ Every copper call is named for the shape it leaves on the board:
 | via | a plated hole joining all copper layers at one point |
 | pour | a filled polygon of exactly the shape given, on one layer; it never pulls back from other copper, so it is drawn where nothing foreign is - except `swallow_pads`, which both grows it over the same-net pads its outline touches and pulls it back from every other net's copper to the netclass clearance |
 | zone | a filled area KiCad fills and refills, pulling back by the clearance round every foreign pad, track and via; what a plane is made of |
-| plane | a zone covering the whole board (or an outline) on one or more layers, for a net that everything reaches by a via |
+| plane | a zone covering the whole board (or an outline, or the box round named parts) on one or more layers, for a net that everything reaches by a via |
 | bridge | a via, a short track on the opposite face passing under one or more tracks, and a via back: how a track gets past copper on its own layer without touching it |
 | finger | a rectangular pour of a width along a centreline (a wide reach from a big pour to a pad), cut and bridged where a track crosses it |
 | stitch | vias in a grid over a region (a cell, a pour or a keepout), at the via-to-via rule, clear of every other net's copper; `edge=True` rows them along the region's own outline instead |
@@ -1055,6 +1066,7 @@ board.stitch(net, region, pitch=None, size=None, drill=None, edge=False)  # vias
 board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False)     # filled polygon
 board.pour(net, [PadRef(a), PadRef(b)], layer=..., swallow_pads=True, width=None)  # the neck between two pads
 board.plane(net, layers=(CopperLayer.IN1,), outline=None, inset=0.4)  # zone(s), whole board or outline
+board.plane(net, layers=(CopperLayer.IN1,), over=[Part(...), Cell(...)], margin=0.0)  # zone(s) over named items
 board.finger(net, layer=, from_=point, to=point, width=)               # pour along a centreline, cut and bridged at tracks; width= a number or a PadRef
 ```
 All take `priority=`, which decides only who passes under where two tracks
@@ -1074,6 +1086,20 @@ names the conflicting segment by its ends and layer, not its net alone:
 `chamfer` cut, not a leg the script asked for, the finding says so and
 points at the fix: "...; the 45 of its chamfer at (x, y); a smaller
 chamfer= there keeps clear".
+
+**A plane over named parts.** `board.plane(net, layers, over=[Part(...),
+Cell(...)], margin=0.0)` draws the zone over the box round those items'
+drawn envelopes - the region `board.keepout(item)` takes, a footprint's
+copper graphics included - where they were placed, grown by `margin` and
+clipped to the frame less `inset`. It waits for the items to be placed, so
+a part placed by `Beside` outside the others' box is still under it.
+`over=` and `outline=` are not given together. A part in the group whose
+copper the fill must stay off (a winding) takes
+`board.keepout(Part(...), name, excludes=(Forbid.FILL,), why=...)`:
+
+```python
+board.plane(Net("GND"), layers=(CopperLayer.IN1,), over=[Cell("driver"), Part("c_bulk")], margin=0.5)
+```
 
 **A via where one fits.** `FreeSpot(near=PadRef(...), radius=2.0, step=0.05,
 layer=None, in_pad=False)` is the nearest point to the pad where a via clears
