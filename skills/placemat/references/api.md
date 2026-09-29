@@ -725,8 +725,10 @@ board's own EDGE is not a rectangle or a circle.
 `board.radius` and `board.bore` are a disc's, and a shaped board refuses
 them with the verb that does the same thing: `OnEdge(board.edge(facing=X))`
 is where `OnRim(X)` would have put it, held at the keep-in and turned to
-the edge the same way. `Polar` is a coordinate about `board.centre`, so it
-works on any board.
+the edge the same way. `Polar` is a coordinate about `board.centre` by
+default, so it works on any board; `about=` moves the centre - a `Location`,
+an (x, y) pair, or a `Part`, `Cell` or `PadRef` resolved once the Polar
+item itself is placed, the same as `ring(about=)`.
 
 **The keep-in is radial.** The rim holds an item's furthest corner back by
 `board.keep_in`; a bore holds its nearest point out by the same, and that is

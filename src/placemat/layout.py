@@ -1634,10 +1634,19 @@ class Board:
             outward = rotation is None          # it faces out at whatever bearing it ends up on
             at = None
         elif isinstance(at, Polar):
-            about = self.centre if at.about is None else _as_point(at.about)
+            # about= a Location, an (x, y) pair or None resolves now, as it always did; a
+            # reference (a part not yet placed, a pad) resolves when this item is, through
+            # _locate - center holds the Polar itself, and radius_at/about the raw reference,
+            # so a declaration that never used about= digests exactly as before
+            about_now = at.about is None or isinstance(at.about, (Location, tuple))
             if at.radius is not None and at.angle is not None:
-                center, at = polar_point(about, at.angle, at.radius), None
+                if about_now:
+                    about = self.centre if at.about is None else _as_point(at.about)
+                    center, about, at = polar_point(about, at.angle, at.radius), about, None
+                else:
+                    center, about, at = at, at.about, None
             else:
+                about = (self.centre if at.about is None else _as_point(at.about)) if about_now else at.about
                 radius_at, angle = at.radius, (None if at.angle is None else bearing(at.angle))
                 at = None
         elif isinstance(at, Near):
@@ -1698,7 +1707,7 @@ class Board:
                 rotation, faces_note = 0.0, ""
         if kind == "cell" and at is not None and center is None:
             center, at = at, None
-        needs = {self._pad_ref(ref)[0] for ref in _refs_in([at, center, along, pin_x, pin_y, near])}   # a real pad, placed before this
+        needs = {self._pad_ref(ref)[0] for ref in _refs_in([at, center, along, pin_x, pin_y, near, about])}   # a real pad, placed before this
         if isinstance(at, OnEdge) and isinstance(at.edge, CutoutEdge):
             needs.add(cutout_token(at.edge.name))   # the hole is cut before anything is put against it
         if isinstance(along, _RowSlot):
@@ -1811,7 +1820,8 @@ class Board:
 
     def ring(self, items, *, radius=None, start=Edge.NORTH, gap: float = 0.0, spread: bool = False,
              rotation=None, about=None, why: str = "") -> "Ring":
-        """Items round a centre - the board's, or `about` another point - in
+        """Items round a centre - the board's, `about` another point, or
+        `about` a Part/Cell/PadRef resolved once each item is placed - in
         order clockwise from the bearing `start`, each turned to face
         outward: their body centres `radius` from that centre, or with no
         radius (a round board only) their reach at the rim's keep-in. Spaced by what they claim across the arc, `gap` mm of arc
@@ -1821,7 +1831,7 @@ class Board:
         (four mounting holes at 90 degrees). `rotation=` (one value or one
         per item) overrides the outward turn. Returns the Ring."""
         gap = self._row_gap(items, gap)
-        centre = self.centre if about is None else _as_point(about)
+        centre = about   # resolved per item by place()'s own Polar handling, same as an item's own about=
         # only a ring at the rim needs a rim; with a radius any board can hold one
         disc = self._disc("give ring() a radius, or board.row(items, board.edge(facing=...)) "
                           "puts them along a stretch of the edge") if radius is None else None
@@ -3665,7 +3675,7 @@ class Board:
 
     def _settle_round_ring(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
         """One degree of freedom: the item slides round the ring it was given."""
-        centre = i.about or self.centre
+        centre = self.centre if i.about is None else _locate(self, occ, i.about)
         ideal = self._round_slot(i)
         r = max(float(i.radius_at), 1e-6)
 
@@ -3677,7 +3687,7 @@ class Board:
     def _settle_along_spoke(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
         """One degree of freedom: the item slides out along its bearing, from
         the bore's keep-in (or the centre) to as far as the board reaches."""
-        centre = i.about or self.centre
+        centre = self.centre if i.about is None else _locate(self, occ, i.about)
         if isinstance(self._shape, Disc) and centre == self._shape.centre:
             lo, hi = self._shape.bore + self.keep_in, self._shape.radius - self.keep_in
         else:
@@ -4285,8 +4295,10 @@ def _as_point(value) -> Location:
 
 def _locate(board: "Board", occ: Occupancy, ref) -> Location:
     """A point on the board as things stand: a Location, a pad reference
-    (where that pad now is), the Mid of two points, or an (x, y) pair whose
-    members may be numbers, X()/Y() of references, or row coordinates."""
+    (where that pad now is), the Mid of two points, a bare X()/Y() of one
+    (the other axis its own), a Polar about a centre that may itself be a
+    reference, or an (x, y) pair whose members may be numbers, X()/Y() of
+    references, or row coordinates."""
     if isinstance(ref, Location):
         if isinstance(ref.x, (int, float)) and isinstance(ref.y, (int, float)):
             return ref
@@ -4294,6 +4306,13 @@ def _locate(board: "Board", occ: Occupancy, ref) -> Location:
     if isinstance(ref, Mid):
         a, b = _locate(board, occ, ref.a), _locate(board, occ, ref.b)
         return Location((a.x + b.x) / 2.0, (a.y + b.y) / 2.0)
+    if isinstance(ref, X):
+        return Location(_locate(board, occ, ref.ref).x + ref.dx, _locate(board, occ, ref.ref).y)
+    if isinstance(ref, Y):
+        return Location(_locate(board, occ, ref.ref).x, _locate(board, occ, ref.ref).y + ref.dy)
+    if isinstance(ref, Polar):
+        centre = board.centre if ref.about is None else _locate(board, occ, ref.about)
+        return polar_point(centre, ref.angle, float(ref.radius))
     if isinstance(ref, tuple) and len(ref) == 2:
         return Location(_coord(board, occ, ref[0], "x"), _coord(board, occ, ref[1], "y"))
     if isinstance(ref, Centre):
