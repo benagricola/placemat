@@ -48,8 +48,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   items may be referred to"). Needs a spec.
 - **A route report of each net's path, or a preview of the routed copy**
   (PLACEMAT_GAPS 2026-09-27).
-- **`board.pair()` finding its own centreline; `route.diff_pairs` taking
-  explicit net pairs** (PLACEMAT_GAPS 2026-09-27).
+- **`route.diff_pairs` taking explicit net pairs** (PLACEMAT_GAPS
+  2026-09-27; needs a spec): the router pairs nets only by their `_P`/`_N`,
+  `P`/`N` or `+`/`-` suffix and takes no explicit pair, so placemat would
+  rename the pair's nets in its routing copy and restore them after.
 
 ## Housekeeping (left for Ben: outside this repository)
 

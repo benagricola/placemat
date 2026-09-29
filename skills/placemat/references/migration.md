@@ -6,6 +6,10 @@ whether any of it applies.
 
 ## Unreleased
 
+`board.pair(p, n, [(padP, padN), (padP2, padN2)], layer=)` - the two pad
+pairs alone - finds its own centreline; a centreline typed as coordinates
+between two placed parts can go.
+
 `placemat measure --keepouts [NAME ...] [--near MM]` reports each part's
 physical and courtyard gap to each rule area near it.
 

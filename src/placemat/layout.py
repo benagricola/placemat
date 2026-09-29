@@ -2824,9 +2824,10 @@ class Board:
         nc = self.geometry.netclass(p_name)
         w = float(width) if width is not None else (nc.diff_pair_width or nc.track_width)
         g = float(gap) if gap is not None else (nc.diff_pair_gap or nc.clearance)
-        if len(path) < 4:
-            raise ValueError("%s/%s: a pair needs its two pad pairs and at least two centreline points between "
-                             "(the direction the pair runs is read from them); %d given" % (p_name, n_name, len(path) - 2))
+        if len(path) == 3 or len(path) < 2:
+            raise ValueError("%s/%s: a pair needs its two pad pairs, alone or with at least two centreline points "
+                             "between (the direction the pair runs is read from them); %d given"
+                             % (p_name, n_name, len(path) - 2))
         (sp, sn), (ep, en), mids = path[0], path[-1], path[1:-1]
         refs = _refs_in(path)
 
@@ -2839,10 +2840,33 @@ class Board:
             (lp, tp, fp), (ln, tn, fn) = out
             return (lp, ln, tp, tn), (fp, fn)
 
+        def own_centreline(start, end):
+            """The pair's own centreline when the script gives none: from a pitch
+            out of the first pad pair's middle to a pitch short of the last's,
+            octilinear as a track's leg."""
+            (sp_, sn_), (ep_, en_) = start[:2], end[:2]
+            ms = Location((sp_.x + sn_.x) / 2.0, (sp_.y + sn_.y) / 2.0)
+            me = Location((ep_.x + en_.x) / 2.0, (ep_.y + en_.y) / 2.0)
+            d = ms.distance(me)
+            step = w + g
+            if d <= 2.0 * step:
+                return None
+            ux, uy = (me.x - ms.x) / d, (me.y - ms.y) / d
+            cs = Location(round(ms.x + ux * step, 6), round(ms.y + uy * step, 6))
+            ce = Location(round(me.x - ux * step, 6), round(me.y - uy * step, 6))
+            return octilinear([cs, ce])
+
         def plan(ctx):
             start, sfaces = pad_end(sp, sn, ctx)
             end, efaces = pad_end(ep, en, ctx)
-            centre = [ctx.locate(m) for m in mids]
+            if mids:
+                centre = [ctx.locate(m) for m in mids]
+            else:
+                centre = own_centreline(start, end)
+                if centre is None:
+                    ctx.notes.append("pair %s/%s: its pad pairs are too close for a centreline of its own; give "
+                                     "the centreline's points" % (p_name, n_name))
+                    return []
             return pair_ops(p_name, n_name, layer, w, g, start, centre, end, self.via_drill, self.via_size,
                             via_step, chamfer, self.geometry.clearance(p_name, n_name), sfaces, efaces)
         return self._copper_intent("pair %s/%s" % (p_name, n_name), net_p, priority, plan, refs, why, bridge)

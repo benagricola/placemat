@@ -1259,7 +1259,11 @@ KiCad's differential tool does:
 board.pair(CAN_P, CAN_N, [(padP, padN), (x, y), (x, y2), (padP2, padN2)], layer=B)
 ```
 The path starts and ends with a (P pad, N pad) tuple; the points between,
-two or more, are the centreline. Width and gap come from the P net's class
+two or more, are the centreline. Given the two pad pairs alone -
+`board.pair(P, N, [(padP, padN), (padP2, padN2)], layer=B)` - the pair
+finds its own: from a pitch (width plus gap) out of the first pair's middle
+to a pitch short of the last's, octilinear as a track's leg; pad pairs too
+close for that are a finding asking for the points. Width and gap come from the P net's class
 (`diff_pair_width`, `diff_pair_gap`; else the track width and clearance) or
 `width=`/`gap=`. Corners are chamfered at 45 (`chamfer=`), each track leaves
 its pad at 45 then straight to the nearest point of its line, and a lead
