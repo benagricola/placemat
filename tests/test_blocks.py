@@ -462,3 +462,60 @@ def test_a_block_may_be_placed_on_a_run():
     plan = b.resolve()
     assert declared_findings(plan) == []
     assert plan.box("ldo").top == pytest.approx(1.0, abs=0.1)
+
+
+def test_a_block_may_overhang_the_edge_at_a_distance():
+    """A block's anchor overhangs exactly as a lone part on the same OnEdge
+    would; a satellite still keeps clear of the edge margin - nothing in the
+    script declared its own reach past it."""
+    b = make_board()
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")], gap=0.5)
+    b.place(blk, at=OnEdge(Edge.SOUTH, along=Along.MID, overhang=0.5))
+    plan = b.resolve()
+    assert declared_findings(plan) == []
+    assert plan.box("ldo").bottom == pytest.approx(60.5, abs=0.05)   # 0.5 mm past the board edge
+    assert plan.box("cin").bottom <= 59.0 + 1e-6                     # the satellite still keeps the keep-in
+
+
+def test_a_block_on_an_edge_with_no_along_may_overhang():
+    b = make_board()
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")], gap=0.5)
+    b.place(blk, at=OnEdge(Edge.SOUTH, overhang=0.5))
+    plan = b.resolve()
+    assert declared_findings(plan) == []
+    assert plan.box("ldo").bottom == pytest.approx(60.5, abs=0.05)
+
+
+def test_a_block_may_overhang_the_rim():
+    fps = [footprint("U1", 20, 20, w=6, h=3, inst="ldo", nets=("VIN", "VOUT")),
+           footprint("C1", 20, 20, inst="cin", nets=("VIN", "GND"))]
+    b = Board(board_geometry(fps, width=50, height=50), edge_margin=1.0, settings=NO_CLEANUP)
+    b.disc(diameter=50.0)
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")], gap=0.5)
+    b.place(blk, at=OnRim(Edge.EAST, overhang=0.5))
+    plan = b.resolve()
+    assert declared_findings(plan) == []
+    box = plan.box("ldo")
+    far = max(b.centre.distance(Location(x, y)) for x in (box.left, box.right) for y in (box.top, box.bottom))
+    assert far == pytest.approx(25.5, abs=0.3)                # its reach at the radius, plus the overhang
+
+
+def test_a_block_may_overhang_a_run():
+    """The anchor overhangs a run exactly as a lone part on the same OnEdge
+    does (checked directly against a part below)."""
+    fps = [footprint("U1", 30, 40, w=6, h=3, inst="ldo", nets=("VIN", "VOUT"))]
+    b = Board(board_geometry(fps, width=80, height=60), edge_margin=1.0, settings=NO_CLEANUP)
+    b.outline([(0.0, 0.0), (80.0, 0.0), (80.0, 60.0), (0.0, 60.0)])
+    b.place(Part("ldo"), at=OnEdge(b.edge(facing=Edge.NORTH), along=Along.MID, overhang=0.5))
+    part_plan = b.resolve()
+    assert declared_findings(part_plan) == []
+
+    fps = [footprint("U1", 30, 40, w=6, h=3, inst="ldo", nets=("VIN", "VOUT")),
+           footprint("C1", 30, 40, inst="cin", nets=("VIN", "GND"))]
+    b = Board(board_geometry(fps, width=80, height=60), edge_margin=1.0, settings=NO_CLEANUP)
+    b.outline([(0.0, 0.0), (80.0, 0.0), (80.0, 60.0), (0.0, 60.0)])
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")], gap=0.5)
+    b.place(blk, at=OnEdge(b.edge(facing=Edge.NORTH), along=Along.MID, overhang=0.5))
+    plan = b.resolve()
+    assert declared_findings(plan) == []
+    assert plan.box("ldo").top == pytest.approx(part_plan.box("ldo").top, abs=1e-4)

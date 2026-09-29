@@ -3601,7 +3601,9 @@ class Board:
         rejected: Counter = Counter()
         reasons: dict = {}
         for along in candidates:
-            members, why = layout_block(occ, spec, anchor_at(along), clr)
+            members, why = layout_block(occ, spec, anchor_at(along), clr,
+                                        past_edge=(i.edge is not None or i.run is not None or i.rim == "rim")
+                                        and i.clearance < self.keep_in)
             if members is not None:
                 moved = abs(along - ideal)
                 note = what
@@ -4093,7 +4095,9 @@ class Board:
                 else:
                     along = _coord(self, occ, i.along, "x" if i.edge in (Edge.NORTH, Edge.SOUTH) else "y")
                 anchor = edge_placement(occ, spec.anchor, i.edge, along, i.rotation, i.clearance, i.face)
-            members, why = layout_block(occ, spec, anchor, clr)
+            members, why = layout_block(occ, spec, anchor, clr,
+                                        past_edge=(i.edge is not None or i.run is not None or i.rim == "rim")
+                                        and i.clearance < self.keep_in)
             if members is None:
                 plan.findings.append(Finding("fixed", "%s (%s): %s" % (i.key, i.freedom.value, why)))
                 members = {spec.anchor.inst: anchor}
