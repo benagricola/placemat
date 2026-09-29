@@ -1,7 +1,7 @@
 # Pad edges, envelopes and arithmetic as references; copper from pads
 
 Date: 2026-09-29
-Status: approved 2026-09-29 (Ben: implement unless a decision is needed)
+Status: withdrawn 2026-09-29 (replaced by 2026-09-29-missing-intent-relations-design.md: intent forms, not coordinate arithmetic)
 Source: PLACEMAT_GAPS.md (fairing), 2026-09-29 "a position that is a sum of an
 x and a y" and "pad edges and drawn envelopes as placement and copper
 references". The fairing's workaround helpers are the reference behaviour:
