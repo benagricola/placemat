@@ -28,7 +28,7 @@ from .placement import Placement
 from .settings import Settings
 from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
-from .values import (Turned, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Turned, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -78,6 +78,8 @@ class Row:
         axis = "x" if self.edge in (Edge.NORTH, Edge.SOUTH) else "y"
         if kind == "outline":
             self.begin(self.centre_of(occ.board_box))
+        elif kind == "outline_end":
+            self.begin(self.end_of(occ.board_box, board.keep_in))
         elif kind == "centre":
             self.begin(_coord(board, occ, value, axis) - self.length / 2.0)
         elif kind == "end":
@@ -104,6 +106,12 @@ class Row:
     def centre_of(self, outline: Box) -> float:
         total = outline.height if self.edge in (Edge.EAST, Edge.WEST) else outline.width
         return (total - self.length) / 2.0
+
+    def end_of(self, outline: Box, keep_in: float) -> float:
+        """Where the row starts so its far end sits flush with the far
+        keep-in, the mirror of the near keep-in a plain "start" begins at."""
+        total = outline.height if self.edge in (Edge.EAST, Edge.WEST) else outline.width
+        return total - keep_in - self.length
 
     def centre(self, item) -> float:
         """The along-edge centre of one item (the item, or its key)."""
@@ -151,6 +159,30 @@ def _free_axis(value):
     if isinstance(value, tuple) and len(value) == 2 and (value[0] is None) != (value[1] is None):
         return "x" if value[0] is None else "y"
     return None
+
+
+_ALIGN_ALIASES = {"centre": Along.MID, "center": Along.MID}    # Along's own spelling is "mid"
+
+
+def _as_align(value, what: str = "align") -> Along:
+    """A row's or a label's `align=`: the Along enum, or the string a
+    script already writes ("start", "centre", the misspelling "center",
+    "end"), normalised so either spelling reads the same rule."""
+    if isinstance(value, Along):
+        return value
+    if value in _ALIGN_ALIASES:
+        return _ALIGN_ALIASES[value]
+    try:
+        return Along(value)
+    except ValueError:
+        raise ValueError("%s is \"start\", \"centre\"/\"center\", \"end\" or Along.START/MID/END, not %r"
+                         % (what, value)) from None
+
+
+def _align_word(a: Along) -> str:
+    """The three-word spelling _label_op still reads ("centre", not
+    Along.MID's own "mid")."""
+    return "centre" if a is Along.MID else a.value
 
 
 @dataclass(frozen=True)
@@ -1527,6 +1559,10 @@ class Board:
         radius = self.settings.place_radius if radius is None else radius
         step = self.settings.place_step if step is None else step
         geom, key, kind = self._item(item)
+        try:
+            face = Face(face)
+        except ValueError:
+            raise TypeError("%s: face is Face.FRONT/BACK or \"front\"/\"back\", not %r" % (key, face)) from None
         if any(i.key == key for i in self._intents):
             raise ValueError("%s is already placed; one declaration per item" % key)
         center = edge = along = near = about = run = None
@@ -1656,8 +1692,8 @@ class Board:
         self._intents.append(intent)
         return intent
 
-    def row(self, items, edge: Edge, *, gap: float = 0.0, start=None, align: str = "start",
-            rotation: float | None = None, line: str = "centre", behind: Row | None = None, inboard: float | None = None,
+    def row(self, items, edge: Edge, *, gap: float = 0.0, start=None, align=Along.START,
+            rotation: float | None = None, line=Line.CENTRE, behind: Row | None = None, inboard: float | None = None,
             overhang: float = 0.0,
             centre=None, end=None, before: Row | None = None, after: Row | None = None, why: str = "") -> Row:
         """Items down `edge` in order, `gap` apart (default: courtyards
@@ -1666,16 +1702,18 @@ class Board:
         parts with no outward side). The row's outer line is the board's
         keep-in, or `inboard` (default `gap`) behind the inner line of the
         row it is `behind=`; `overhang=` puts a face that far past the edge. Across the row the items align
-        on one line: `line="centre"` (the default) puts their centres on
-        the line the deepest item's centre falls on; `"outer"` puts every
-        outward reach on the outer line (connectors edge-hard); `"inner"`
+        on one line: `line=Line.CENTRE` (the default) puts their centres on
+        the line the deepest item's centre falls on; `Line.OUTER` puts every
+        outward reach on the outer line (connectors edge-hard); `Line.INNER`
         aligns the inboard edges. A row butted `before=` or `after=`
         another takes that row's line. Where the row sits along the edge:
         `start=` a number (default: the keep-in) or a reference;
-        `align="center"` on the board; `centre=` or `end=` a reference (a
+        `align=Along.MID` (or "centre"/"center") on the board, `Along.END`
+        flush with the far keep-in; `centre=` or `end=` a reference (a
         pad's X()/Y(), a Mid); `before=` or `after=` another row, one gap
         away. A row placed by a reference is measured when its items are
         placed. Returns the Row."""
+        align = _as_align(align, "a row's align")
         if isinstance(edge, Edge):
             self._refuse_on_fit("a row on the frame's %s edge" % edge.value)
         gap = self._row_gap(items, gap)
@@ -1712,8 +1750,8 @@ class Board:
         by_ref = start is not None and not isinstance(start, (int, float))
         anchors = [("centre", centre), ("end", end), ("before", before), ("after", after), ("start", start if by_ref else None)]
         given = [(k, v) for k, v in anchors if v is not None]
-        if len(given) > 1 or (given and ((start is not None and not by_ref) or align == "center")):
-            raise ValueError("a row is placed one way: start=, align=\"center\", centre=, end=, before= or after=")
+        if len(given) > 1 or (given and ((start is not None and not by_ref) or align is not Along.START)):
+            raise ValueError("a row is placed one way: start=, align=Along.MID/END, centre=, end=, before= or after=")
         row = Row(edge, clr, gap, None, keys, alongs, max(depths))
         if given:
             row.anchor = given[0]
@@ -1723,16 +1761,23 @@ class Board:
                     fp.ref for it in value.items for fp in (self._item(it)[0].members if self._item(it)[2] == "cell" else (self._item(it)[0],)))
             else:
                 row.needs = frozenset(self._pad_ref(ref)[0] for ref in _refs_in([value]))
-        elif align == "center":
+        elif align is Along.MID:
             if self._sized:                     # the script's own size, not the generator's frame
                 row.begin(row.centre_of(self._outline))
             else:
                 row.anchor = ("outline", None)
+        elif align is Along.END:
+            if self._sized:
+                row.begin(row.end_of(self._outline, self.keep_in))
+            else:
+                row.anchor = ("outline_end", None)
         else:
             row.begin(float(self.keep_in if start is None else start))
         row.items = list(items)
-        if line not in ("centre", "outer", "inner"):
-            raise ValueError("a row's line is centre, outer or inner, not %r" % (line,))
+        try:
+            line = Line(line)
+        except ValueError:
+            raise ValueError("a row's line is centre, outer or inner, not %r" % (line,)) from None
         base = row.anchor[1] if row.anchor and row.anchor[0] in ("before", "after") else row
         ref = base.standoff + {"centre": base.depth / 2.0, "outer": 0.0, "inner": base.depth}[line]   # the line, from the edge
         clears = [ref - {"centre": d / 2.0, "outer": 0.0, "inner": d}[line] for d in depths]
@@ -1831,8 +1876,10 @@ class Board:
         first_half = claims[0].width / 2.0 if claims else 0.0
         alongs, last_half = walk(first_half)
         total = (alongs[-1] + last_half) - (alongs[0] - first_half) if alongs else 0.0
-        if align == "center":
+        if align is Along.MID:
             s0 = max(0.0, (run.length - total) / 2.0) + first_half
+        elif align is Along.END:
+            s0 = max(0.0, run.length - total) + first_half
         elif start is None:
             s0 = first_half
         elif isinstance(start, (int, float)):
@@ -2129,15 +2176,15 @@ class Board:
         # 0), and a part turned by it has pads a hair off the axes, which the router reads as off the board
         return round(local - bearing(edge), 6) % 360.0, "" if declared else note
 
-    def label(self, item, text: str, *, side: Edge = Edge.NORTH, gap: float | None = None, align: str = "centre",
+    def label(self, item, text: str, *, side: Edge = Edge.NORTH, gap: float | None = None, align=Along.MID,
               size: float | None = None, thickness: float | None = None, knockout: bool = False,
               rotation: float = 0.0,
               reserve: bool = True, line=None, why: str = ""):
         """Silkscreen text that marks a user-facing feature: a connector,
         jumper, switch or LED. It sits `gap` off `side` of the item's reach
         (a Part or Cell) or of one pad (a PadRef/CellPadRef), on the item's
-        own face, aligned `"centre"`, `"start"` (west or north end) or
-        `"end"` along that side; `rotation=90` runs it up the page;
+        own face, aligned `Along.MID` (or "centre"/"center"), `Along.START`
+        (west or north end) or `Along.END` along that side; `rotation=90` runs it up the page;
         a list of items with a list of texts is one label each, all on
         one line: `gap` off `side` of the deepest of them, each aligned
         on its own item, so the labels of a row read as a row; `line=`
@@ -2150,8 +2197,7 @@ class Board:
         gap = self.settings.label_gap if gap is None else gap
         size = self.settings.label_size if size is None else size
         thickness = self.settings.label_thickness if thickness is None else thickness
-        if align not in ("centre", "start", "end"):
-            raise ValueError("a label aligns centre, start or end, not %r" % (align,))
+        align = _align_word(_as_align(align, "a label's align"))
         if rotation not in (0, 90):
             raise ValueError("a label reads across (0) or up the page (90), not %r" % (rotation,))
         if isinstance(item, (list, tuple)):

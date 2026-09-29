@@ -1,7 +1,7 @@
 # The script surface
 
 ```python
-from placemat import board, Net, Part, Cell, PadRef, CellPadRef, X, Y, Location, Centre, Pin, OnEdge, Near, Edge, Face, CopperLayer, Priority
+from placemat import board, Net, Part, Cell, PadRef, CellPadRef, X, Y, Location, Centre, Pin, OnEdge, Near, Edge, Face, CopperLayer, Priority, Along, Line, Forbid
 ```
 
 `board` is the board being laid out. Questions answer from the generated
@@ -128,7 +128,9 @@ stops a run by itself.
 it by `rotation=`. That is KiCad's own F key (`editing.flip_left_right`, its
 default), and a part and a cell flip the same way. KiCad's orientation field
 will read `rotation + 180` for a back-face part, which is exactly what you get
-by drawing that part upright on the front and pressing F.
+by drawing that part upright on the front and pressing F. `face=` takes
+`Face.FRONT`/`Face.BACK` or the string it prints, `"front"`/`"back"`; anything
+else is refused at declaration.
 
 **The default is a bare `place()`.** A part with a wired neighbour already
 on the board needs no position: price the connection and leave it to seed.
@@ -189,24 +191,25 @@ sides out (a cell generated with its connector's bulk on local +Y turns
 270 on the west edge, 90 east, 180 north, 0 south; `rotation=` overrides
 that, one value or one per item). A row's outer line is the keep-in, or
 `inboard` (default `gap`) behind the inner line of the row it is
-`behind=`. Across the row the items align on one line: `line="centre"`
-(the default) puts their centres on one line, `"outer"` puts every
-outward reach on the outer line (connectors edge-hard), `"inner"` aligns
-their inboard edges; a row butted before or after another takes that
-row's line:
+`behind=`. Across the row the items align on one line: `line=Line.CENTRE`
+(the default; also "centre") puts their centres on one line,
+`Line.OUTER` ("outer") puts every outward reach on the outer line
+(connectors edge-hard), `Line.INNER` ("inner") aligns their inboard
+edges; a row butted before or after another takes that row's line:
 
 ```python
-power = board.row(PD, Edge.WEST, gap=3.0, start=TOP, line="outer")                  # connectors edge-hard; gap= only with a reason (default 0: courtyards touch)
-trunk = board.row([CN, U13], Edge.NORTH, gap=2.5, align="center", line="outer")
+power = board.row(PD, Edge.WEST, gap=3.0, start=TOP, line=Line.OUTER)               # connectors edge-hard; gap= only with a reason (default 0: courtyards touch)
+trunk = board.row([CN, U13], Edge.NORTH, gap=2.5, align=Along.MID, line=Line.OUTER)
 pair = board.row([RB, RA], Edge.NORTH, gap=1.5, behind=trunk, inboard=2.0, rotation=180, centre=X(Mid(pin_n, pin_p)))
 board.row([JUMPER], Edge.NORTH, gap=1.5, rotation=180, before=pair)   # on the resistors' centre line
 legs = board.row(LEGS, Edge.SOUTH, gap=1.0, behind=mot_aux, start=Y(PadRef(MH3, 1), 4.0))   # after the hole
 board.size(width=board.keep_in + power.depth + 4 + bus.depth + board.keep_in, height=max(power.end, bus.end) + TOP)
 ```
 Where a row sits along its edge, one of: `start=` a number or a
-reference; `align="center"` on the board; `centre=` or `end=` a reference
-(`X(Mid(pin_n, pin_p))`, `X(pad, -2.0)`); `before=` or `after=` another
-row, one gap away. A row's `depth` (how far inboard its reach goes),
+reference; `align=Along.MID` (also "centre"/"center") on the board,
+`Along.END` ("end") flush with the far keep-in; `centre=` or `end=` a
+reference (`X(Mid(pin_n, pin_p))`, `X(pad, -2.0)`); `before=` or `after=`
+another row, one gap away. A row's `depth` (how far inboard its reach goes),
 `standoff` (its outer line, in from the edge) and `length` are numbers at
 declaration; `start`, `end` and `centre(item)` too when it starts at a
 number, otherwise refer to its items' pads. `row.inner` and `row.outer` are
@@ -478,9 +481,10 @@ the shape that lands on `at=`; without one it is the middle of the shape's box,
 which is right for a slot and meaningless for a stepped clearance.
 
 **What it forbids.** `excludes=` defaults to everything and narrows to any of
-`"parts"`, `"fill"`, `"tracks"`, `"vias"`, `"pads"`. Each is one KiCad
-rule-area flag, and `"parts"` is what the placer enforces itself, before
-anything is written.
+the `Forbid` enum: `PARTS`, `FILL`, `TRACKS`, `VIAS`, `PADS` (the strings
+`"parts"`, `"fill"`, `"tracks"`, `"vias"`, `"pads"` still work). Each is one
+KiCad rule-area flag, and `Forbid.PARTS` is what the placer enforces itself,
+before anything is written.
 
 **Where.** `layers=` defaults to every copper layer the board has, whatever the
 count. Narrow it with a list of `CopperLayer`. It narrows what is CHECKED as
@@ -621,7 +625,7 @@ top = board.edge(facing=Edge.NORTH)                        # the stretch of edge
 board.place(J, at=OnEdge(top, along=Along.MID))            # reach at the keep-in, turned to the edge there
 board.place(J, at=OnEdge(top, along=8.0))                  # 8 mm along the run from its start
 board.place(TP, at=OnEdge(top))                            # slides along that run to the room left
-board.row([L1, L2, L3], top, align="center")               # a row that turns with the edge
+board.row([L1, L2, L3], top, align=Along.MID)               # a row that turns with the edge
 for run in board.edges(facing=Edge.EAST, within=10.0): ...  # every stretch facing that way
 tip = board.edge(facing=Edge.SOUTH, outermost=True)        # of several facing south, the one furthest south
 ```
@@ -649,9 +653,10 @@ still means a coordinate, as it always did.)
 **Placed against a curve**, an item's reach is held at the keep-in from the
 edge and it is turned so its outward side follows the local normal, so a row
 along a rounded top fans with the curve. A row along a run takes `gap=`,
-`start=`, `align="center"`, `rotation=` and `overhang=`; the anchors that
-only mean something on a straight side (`line=`, `behind=`, `before=`,
-`after=`, `centre=`, `end=`) are refused for now. Claims on a curve are
+`start=`, `align=Along.MID/END` (also "centre"/"center"/"end"), `rotation=`
+and `overhang=`; the anchors that only mean something on a straight side
+(`line=`, `behind=`, `before=`, `after=`, `centre=`, `end=`) are refused
+for now. Claims on a curve are
 spaced by how much the edge bends under them - the items sit inboard, where
 the same angle spans less edge - and are left the rounding two courtyards
 may touch by, since round a curve two claims can only ever meet at a point.
@@ -921,15 +926,16 @@ with the run gets a lead along its line. The pair is one step,
 
 ```python
 board.label(Part("j_mot"), "MOTOR", side=Edge.SOUTH, knockout=True)              # gap= only with a reason (default 0)
-board.label(Cell("power"), "POWER", side=Edge.NORTH, align="start", size=1.2)
+board.label(Cell("power"), "POWER", side=Edge.NORTH, align=Along.START, size=1.2)
 board.label(PadRef(Part("jp1"), 1), "1", side=Edge.WEST, gap=0.3, size=0.6)
 board.label(Part("j_bus"), "CAN", side=Edge.EAST, rotation=90, why="reads along the edge it plugs into")
 board.label([SW_BOOT, SW_RUN, LED], ["BOOT", "RUN", "MCU"], side=Edge.SOUTH, knockout=True)   # one line for a row
 board.label([PadRef(J, 1), PadRef(J, 2)], ["GND", "CLK"], side=Edge.NORTH, line=J)           # pin labels clear of the part
 ```
 Text `gap` off `side` of the item's reach (or of one pad), on the item's
-own face (mirrored on the back), aligned `centre`, `start` (the west or
-north end of that side) or `end`; `rotation=90` runs it up the page.
+own face (mirrored on the back), aligned `Along.MID` (also "centre"/
+"center"), `Along.START` (also "start", the west or north end of that
+side) or `Along.END` (also "end"); `rotation=90` runs it up the page.
 A list of items with a list of texts is one label each on ONE line,
 `gap` off the deepest of them, each over its own item: the labels of a
 row of parts of different heights read as a row; `line=` names the part

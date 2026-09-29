@@ -54,6 +54,47 @@ def test_a_row_may_be_centred_on_its_edge():
     assert plan.placement("j1").rotation == 180           # outward faces north
 
 
+def test_a_row_may_be_aligned_with_the_british_or_the_american_spelling():
+    """"centre" and the misspelling "center" both centre the row, the same
+    as "center" (the only spelling that ever worked) already did."""
+    from placemat.values import Along
+    for align in ("centre", "center", Along.MID):
+        b = make_board()
+        b.row([Part("j1")], Edge.NORTH, gap=3.0, align=align)
+        plan = b.resolve()
+        box = plan.box("j1")
+        assert box.center.x == pytest.approx(50.0), align
+
+
+def test_a_row_aligned_end_sits_flush_with_the_far_keep_in():
+    """The mirror of the "start" default (row.begin(keep_in)): the row's
+    claim, not the body, is flush with the far keep-in, so the body sits
+    the courtyard excess (0.1) short of it, the same as "start" is long."""
+    from placemat.values import Along
+    for align in ("end", Along.END):
+        b = make_board()
+        b.row([Part("j1")], Edge.NORTH, gap=3.0, align=align)
+        plan = b.resolve()
+        box = plan.box("j1")
+        assert box.right == pytest.approx(100.0 - 2.0 - 0.1), align
+
+
+def test_a_rows_align_refuses_an_unknown_spelling():
+    b = make_board()
+    with pytest.raises(ValueError):
+        b.row([Part("j1")], Edge.NORTH, gap=3.0, align="middle")
+
+
+def test_a_rows_line_takes_the_line_enum_too():
+    from placemat.values import Line
+    b = make_board()
+    row = b.row([Cell("a"), Cell("b"), Cell("c")], Edge.WEST, gap=3.0, start=10.0, line=Line.OUTER)
+    plan = b.resolve()
+    assert row.line is Line.OUTER
+    a = plan.box("a")
+    assert a.left == pytest.approx(2.0)                    # outer: edge-hard, same as line="outer"
+
+
 def test_a_row_after_another_starts_where_it_ends():
     b = make_board()
     first = b.row([Cell("a"), Cell("b")], Edge.WEST, gap=3.0, start=10.0)

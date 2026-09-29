@@ -77,6 +77,22 @@ class Along(str, Enum):
         return {"start": 0.0, "mid": 0.5, "end": 1.0}[self.value]
 
 
+class Line(str, Enum):
+    """How a row's items align across the row, from the edge inward."""
+    CENTRE = "centre"
+    OUTER = "outer"
+    INNER = "inner"
+
+
+class Forbid(str, Enum):
+    """What a keepout keeps out of its region."""
+    PARTS = "parts"
+    FILL = "fill"
+    TRACKS = "tracks"
+    VIAS = "vias"
+    PADS = "pads"
+
+
 @dataclass(frozen=True)
 class Centre:
     """A place for an item's body centre. Each axis is a number, a reference

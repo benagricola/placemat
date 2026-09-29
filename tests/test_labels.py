@@ -48,6 +48,25 @@ def test_a_label_may_align_to_either_end_of_its_side_and_sit_on_any_side():
     assert by["W"].at == Location(box.left - 1.0, box.center.y) and by["W"].rotation == 90
 
 
+def test_a_labels_align_takes_along_or_its_string_spelling():
+    """align= is the same vocabulary as a row's: the Along enum, or
+    "centre"/"center"/"start"/"end"."""
+    from placemat.values import Along
+    for align in ("centre", "center", Along.MID):
+        b = make_board()
+        b.place(Part("j1"), at=Location(20, 20))
+        b.label(Part("j1"), "M", side=Edge.NORTH, align=align, gap=0.5)
+        (t,) = labels(b.resolve())
+        assert t.hjust == "centre", align
+
+
+def test_a_labels_align_refuses_an_unknown_spelling():
+    b = make_board()
+    b.place(Part("j1"), at=Location(20, 20))
+    with pytest.raises(ValueError):
+        b.label(Part("j1"), "M", side=Edge.NORTH, align="middle")
+
+
 def test_a_label_on_a_back_face_part_goes_on_the_back_silk_mirrored():
     b = make_board()
     b.place(Part("j2"), at=Location(30, 30), face=Face.BACK)

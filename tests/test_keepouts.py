@@ -109,6 +109,27 @@ def make_board(*insts, margin=0.5, keep_going=False):
     return Board(board_geometry(fps, width=60, height=60), edge_margin=margin, keep_going=keep_going)
 
 
+def test_excludes_takes_the_forbid_enum_or_its_string_spelling():
+    """The forbidden kinds are a fixed set (values.py Forbid), and the
+    strings a script already writes keep working."""
+    from placemat.values import Forbid
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0)
+    b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0),
+              excludes=(Forbid.PARTS, "fill"), why="the clearance")
+    plan = b.resolve()
+    assert plan.keepouts["antenna"].excludes == (Forbid.PARTS, "fill")
+    assert "parts" in plan.keepouts["antenna"].excludes            # still compares equal to the string
+
+
+def test_excludes_refuses_an_unknown_kind():
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0)
+    with pytest.raises(ValueError):
+        b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0),
+                  excludes=("aliens",), why="the clearance")
+
+
 def test_a_part_may_not_sit_in_a_keepout():
     b = make_board("u1")
     b.size(width=40.0, height=40.0)
