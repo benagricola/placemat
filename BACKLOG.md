@@ -10,11 +10,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **The fragment each stamped part came from, in `parts`** (PLACEMAT_GAPS
   2026-09-29 "which fragment a nested module's parts came from"), or
   "ignored: ancestor authoritative".
-- **One land of a multi-land pin** (PLACEMAT_GAPS 2026-09-29): a `PadRef`
-  locates at the centre of all a pin's lands, and a pour over pads
-  (`Cover.HULL`) covers every land, which is the pour the entry needed;
-  naming one land (the largest, or by index) is still open, for a track
-  or a via to end on it.
 - **Reference arithmetic or a 45-degree lane** (PLACEMAT_GAPS 2026-09-29 "a
   position that is a sum of an x and a y"; needs a spec): `X(a) + Y(b) - k`
   or a `Diagonal(ref, clearance)` lane; `X(Part)` is the box centre, not the
@@ -23,9 +18,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   2026-09-29 "measures a branch, not the load path"; needs a spec): source
   to load between the parts that carry the current, or a path the script
   names.
-- **A keepout inside a part's pad ring** (PLACEMAT_GAPS 2026-09-29 "a plane
-  bounded to a group of parts"): the region between a receiver's two pad
-  columns.
 - **A finding when a 3D model's box does not sit over the footprint's pads**
   (PLACEMAT_GAPS 2026-09-29 "a footprint's 3D model transform"; the path and
   transform are in `measure` now): needs the model file's own extents.
@@ -40,22 +32,11 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   script").
 - **A plug on another board against a receptacle here** (PLACEMAT_GAPS
   2026-09-27, twice): pad-to-pad nets across two board files and a turn.
-- **Placing relative to a searched item** (PLACEMAT_GAPS 2026-09-26, twice):
-  a `Pin` or a cutout on a searched item is refused ("only FIXED and EDGE
-  items may be referred to"). Needs a spec.
-- **`route.diff_pairs` taking explicit net pairs** (PLACEMAT_GAPS
-  2026-09-27; needs a spec): the router pairs nets only by their `_P`/`_N`,
-  `P`/`N` or `+`/`-` suffix and takes no explicit pair, so placemat would
-  rename the pair's nets in its routing copy and restore them after.
-
-## Housekeeping (left for Ben: outside this repository)
-
-- `mnb-ecosystem/pyproject.toml` points placemat at the stale
-  `~/work/placemat-greenfield`; the `placemat-check` and
-  `placemat-greenfield` worktrees are stale.
-
-## Done
-
+- **Riders, Inside, one land, explicit router pairs; the skill rewritten**
+  (0.56.1; spec `2026-09-29-remaining-backlog-design.md`): a firm placement
+  on a searched item rides its search; `keepout(Inside(Part))`;
+  `PadRef(..., land=)`; `route.diff_pairs` "NET_A/NET_B"; a region on an
+  east or west edge flush with it; SKILL.md without a gaps list.
 - **Zone fills by net and tracks across a zone outline** (0.56.0;
   PLACEMAT_GAPS 2026-09-28, two entries): `placemat layer <board> <LAYER>`;
   the router has kept out of a left-out net's partial inner pour since
