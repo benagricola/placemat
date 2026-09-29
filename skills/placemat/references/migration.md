@@ -6,19 +6,47 @@ whether any of it applies.
 
 ## Unreleased
 
+Read `SKILL.md`'s "Declare by intent" section first: a script says where a
+part goes relative to what, and placemat computes the numbers. The check
+line now counts `X()`/`Y()` with offsets, `.local(`/`.offset(` and
+measurements read into numbers; each is a place to use an intent form (the
+index at the top of api.md) or, where none fits, a gap to record.
+
+Documented forms that were broken now work: a block placed on an edge, a
+run, a rim or a bore, or with one axis given, lands there (it was centred);
+`OnEdge(..., along=<reference>)` on a board's or a cutout's edge; a cutout
+or keepout `at=Near(...)`; `Polar(about=)` and `ring(about=)` a part or a
+pad; a keepout or cutout `rotation=Turned(...)`, one at fixed numbers
+included. `row(align=)` and `label(align=)` take `Along` (the strings still
+work, and `row(align="centre")`/`"end"` now do what they say: they acted as
+"start"); `row(line=)` takes `Line`; `keepout(excludes=)` takes `Forbid`;
+`place(face=)` refuses anything but a `Face` or its name. A finger's copper
+is exactly `width` wide (it was 0.2 mm wider): a script that narrowed its
+width to make up for it can use the width it means.
+
 A keepout's `allow=Net(...)` lets that net's copper through and no longer
 admits the parts that carry it, as the docs always said: a part that stood
 in a keepout only because it carried an allowed net is refused there now
 (the finding names the keepout); name it with `Part(...)` or `Cell(...)`.
 
-Nothing to change in a script. Each stamped cell's KiCad group is lifted
-out of its module sheet's group to the top level on the written board, so
-moving a sub-module by hand in pcbnew no longer drags its module; a module
-keeps its own parts. `[write] split_groups = "split"` also takes the parts
-a script places one by one out of their module's group; `"keep"` writes the
-groups as generated. `board.group(name,
-items)` writes a group of the parts named: a script that rewrote
-the board's groups with pcbnew afterwards can declare them instead.
+Each stamped cell's KiCad group is lifted out of its module sheet's group to
+the top level on the written board (groups are one level), so moving a
+sub-module by hand in pcbnew no longer drags its module; a module keeps its
+own parts. `[write] split_groups = "split"` also takes the parts a script
+places one by one out of their module's group; `"keep"` writes the groups as
+generated. `board.group(name, parts)` writes a top-level group of the parts
+named: a script that rewrote the board's groups with pcbnew afterwards can
+declare them instead.
+
+New reports: `placemat nets` (each net's pads, span, routed length, detour,
+vias, layers); `placemat parts` warns for a placed part with no order number
+(`[parts] order_fields`); `placemat occupancy --corridor A B --layer L
+--width W` gives the clear paths on one layer between two pads, or the
+blockers. The keep-out verdict names the copper it measured (a part's own
+pins, which it does not judge, said after it when nearer), a current-path
+verdict gives its neck's point and length, and a copper finding against a
+declared track names its segment, and its chamfer when that is what came
+within clearance.
 
 ## To 0.52.0
 

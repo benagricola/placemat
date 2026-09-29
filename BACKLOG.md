@@ -7,22 +7,11 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **A keep-out or current-path verdict naming the copper it measured**
-  (PLACEMAT_GAPS 2026-09-28): the two items and points that set a keep-out
-  distance, and whether both are pads of one part; a current-path neck's
-  length as well as its width.
-- **A clearance finding naming the segment, and a chamfer's cut** (PLACEMAT_GAPS
-  2026-09-28 "the usb5v cell's copper by net"): the offending segment's ends,
-  and when the leg is a chamfer that cut within clearance of foreign copper.
-- **`placemat nets`** (PLACEMAT_GAPS 2026-09-29 "which nets span the core
-  furthest"): each net's pads, parts, span, routed length, detour ratio, vias
-  and layers, sortable.
-- **Clear corridors on one layer between two pads** (PLACEMAT_GAPS 2026-09-29
-  "a clear column on one inner layer"): `occupancy --corridor A B --layer L
-  --width W`, kept routes optionally ignored.
-- **A placed part with neither an LCSC number nor an MPN** (PLACEMAT_GAPS
-  2026-09-29): `placemat parts --field Lcsc --field Mpn` already lists both;
-  a warning for a part with neither would remain.
+- **The intent relations layout scripts are missing** (audits 2026-09-29;
+  spec `2026-09-29-missing-intent-relations-design.md`, awaiting approval):
+  Beside, a row along a part, Between/Past track waypoints, the 45 end of a
+  leg, via rows and stitching, a cell placed by a member's pad, a keepout
+  shaped by an item, one-axis fit, a two-pad pour, a finger as wide as a pad.
 
 - **A slid block satellite does not say which pins it now stands in front
   of** (PLACEMAT_GAPS 2026-09-27, checked 2026-09-28): stepping out and
@@ -66,6 +55,16 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Intent first** (unreleased; the owner, 2026-09-29; audits
+  `docs/audits/2026-09-29-*.md`): the skill leads with declaring by intent,
+  api.md opens with an intent index, the check line counts computed offsets;
+  the documented forms that were broken fixed; fixed-set arguments as enums.
+- **Written groups one level; board.group** (unreleased; PLACEMAT_GAPS
+  2026-09-29 "groups a hand placement can move").
+- **A keepout's allowed net admits no part** (unreleased; the docs' rule).
+- **placemat nets; parts without an order number; findings naming copper;
+  corridors on one layer** (unreleased; PLACEMAT_GAPS 2026-09-28/29).
 
 - **Staircase routes** (0.52.0; PLACEMAT_GAPS 2026-09-29 "how jagged the kept
   routes are"; spec `2026-09-29-router-turn-cost-design.md`): the router's
