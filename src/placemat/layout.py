@@ -4888,8 +4888,8 @@ class Board:
         for fp in spec.members:
             if fp.inst in members and fp is not spec.anchor:
                 plan._items[fp.inst] = fp
-                note = "in %s" % i.key + ("; %s" % slid[fp.inst] if slid.get(fp.inst) else "")
-                plan.steps.append(Step(fp.inst, "part", i.priority, members[fp.inst], 0.0, note))
+                member_note = "in %s" % i.key + ("; %s" % slid[fp.inst] if slid.get(fp.inst) else "")
+                plan.steps.append(Step(fp.inst, "part", i.priority, members[fp.inst], 0.0, member_note))
                 occ.commit(fp, members[fp.inst])
         plan._items[spec.anchor.inst] = spec.anchor
         anchor_at = members.get(spec.anchor.inst)
