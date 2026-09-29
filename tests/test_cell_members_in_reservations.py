@@ -113,3 +113,25 @@ def test_a_cells_own_track_elsewhere_is_named_as_its_copper():
     occ.reserve(Box(15.2, 5, 16.8, 15), "the gap")
     why = occ.legal(g.cells["k"], AT)
     assert why is not None and "its own copper" in why and "L1" not in why, why
+
+
+def test_the_sweep_counts_each_refused_member_as_its_own():
+    """A band two members cross in turn as the cell slides: the sweep keeps a
+    refusal (and a blocker) per member, each saying which, as legal() does."""
+    pytest.importorskip("placemat_native")
+    g, occ = _occ()
+    occ.reserve(Box(12.8, 5, 13.2, 15), "a narrow band")
+    cell = g.cells["k"]
+    others = occ.obstacles(occ._geometry(cell))
+    sweep = occ.native_sweeper(cell, Face.FRONT, [0.0], others, None)
+    triples = [(8.0 + 0.5 * i, 10.0, 0) for i in range(30)]
+    _, _, refused = sweep.run(triples, False)
+    said = {reason() for _, _, _, reason, _ in refused}
+    assert any("member L1" in s for s in said) and any("member C1" in s for s in said), said
+    blockers = {b[1] for *_, b in refused}
+    assert any("L1" in o for o in blockers) and any("C1" in o for o in blockers), blockers
+    for _, _, first, reason, blocker in refused:
+        x, y, _ = triples[first]
+        blame = []
+        assert reason() == occ.legal(cell, Placement(Location(x, y), 0.0, Face.FRONT), others=list(others), blame=blame)
+        assert blame[0].owner == blocker[1]

@@ -652,17 +652,23 @@ fn sweep(
                 continue;
             }
         }
-        if let Some(&ri) = reservations.iter().enumerate().find_map(|(pos, ri)| {
+        // b: the part the reservation refuses, 1-based (a cell's member or its own copper, in
+        // `Occupancy.judged` order); 0 for an item with no parts
+        if let Some((ri, k)) = reservations.iter().enumerate().find_map(|(pos, ri)| {
             let r = &board.reservations[*ri];
-            let hit = r.overlaps(&body)
-                && (members.is_empty()
-                    || match judged.as_ref() {
-                        Some(j) => j[pos].iter().any(|&k| k < members.len() && r.overlaps(&members[k])),
-                        None => members.iter().any(|m| r.overlaps(m)),
-                    });
-            if hit { Some(ri) } else { None }
+            if !r.overlaps(&body) {
+                return None;
+            }
+            if members.is_empty() {
+                return Some((*ri, 0usize));
+            }
+            let hit = match judged.as_ref() {
+                Some(j) => j[pos].iter().copied().find(|&k| k < members.len() && r.overlaps(&members[k])),
+                None => (0..members.len()).find(|&k| r.overlaps(&members[k])),
+            };
+            hit.map(|k| (*ri, k + 1))
         }) {
-            refuse((1, ri as i64, 0), idx, &mut refused);
+            refuse((1, ri as i64, k as i64), idx, &mut refused);
             continue;
         }
         match obstacles.grid.first_conflict_shifted(&origins[turn].shapes, x, y, clearance, &obstacles.cfg) {

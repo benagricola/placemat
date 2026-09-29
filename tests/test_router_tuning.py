@@ -72,3 +72,11 @@ def test_the_turn_cost_may_not_be_negative(tmp_path):
     (tmp_path / "placemat.toml").write_text('[route]\nturn_cost = -5\n')
     with pytest.raises(SettingsError, match="turn_cost"):
         load(tmp_path)
+
+
+def test_release_all_with_nothing_kept_writes_nothing(tmp_path):
+    from placemat import cli, routes
+    script = tmp_path / "Board_layout.py"
+    script.write_text("")
+    assert cli.main(["routes", str(script), "--release-all"]) == 0
+    assert not routes.path_for(script).exists()

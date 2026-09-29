@@ -634,17 +634,17 @@ class Occupancy:
             out += [n + j for j, s in enumerate(own[:len(geom.parts) - n]) if not (s.net and s.net in r.allow)]
         return out
 
-    def reservation_sentence(self, r: Reservation, geom, placement: Placement) -> str:
-        """What `_edge_or_reservation_conflict` says of an item at
-        `placement` that `r` refuses: the member it refuses, or the cell's
-        own copper."""
-        if not geom.part_refs:
-            return self.refusal(r, geom)
-        parts = self._shifted_parts(geom, placement)
-        k = next((k for k in self.judged(r, geom) if r.overlaps(parts[k])), None)
-        if k is not None and k >= len(geom.part_refs):
-            return "its own copper sits in the reservation for %s" % r.why
-        return self.refusal(r, geom, geom.part_refs[k] if k is not None else None)
+    def reservation_hit(self, r: Reservation, geom, k: int | None) -> tuple:
+        """(the sentence, the blocker's owner) for a reservation refusing an
+        item: `k` the cell's part it refuses (a member, or past them its own
+        copper), None for an item with no parts. Each member is its own
+        blocker, so a scan counts which of them was in the way."""
+        if k is None:
+            return self.refusal(r, geom), r.why
+        if k >= len(geom.part_refs):
+            return "its own copper sits in the reservation for %s" % r.why, "its own copper in %s" % r.why
+        member = geom.part_refs[k]
+        return self.refusal(r, geom, member), "%s in %s" % (member, r.why)
 
     def refusal(self, r: Reservation, geom, member: str | None = None) -> str:
         """The sentence for an item a reservation keeps out; in a height-
@@ -935,20 +935,16 @@ class Occupancy:
                 continue                                   # named, carrying a net let through, or short enough
             # the box first because it is cheap, and the placer asks this tens of thousands of times
             if r.overlaps(body):
-                member = None
+                hit = None
                 if geom.parts:
                     parts = self._shifted_parts(geom, placement) if parts is None else parts
                     hit = next((k for k in self.judged(r, geom) if r.overlaps(parts[k])), None)
                     if hit is None:
                         continue
-                    if hit >= len(geom.part_refs):
-                        if blame is not None:
-                            blame.append(Blocker("reservation", r.why, frozenset()))
-                        return "its own copper sits in the reservation for %s" % r.why
-                    member = geom.part_refs[hit]
+                why, owner = self.reservation_hit(r, geom, hit)
                 if blame is not None:
-                    blame.append(Blocker("reservation", r.why, frozenset()))
-                return self.refusal(r, geom, member)
+                    blame.append(Blocker("reservation", owner, frozenset()))
+                return why
         return None
 
     def standing_faces(self, geom: ItemGeometry, face) -> set:
@@ -1565,8 +1561,8 @@ class NativeSweeper:
             return hit[0], hit[1], (lambda: edge_sentence(a, box(), occ.edge_margin))
         if kind == 1:
             r = occ.reservations[a]
-            why = occ.reservation_sentence(r, self.geom, cand)
-            return _reason_key(why), ("reservation", r.why, ""), (lambda why=why: why)
+            why, owner = occ.reservation_hit(r, self.geom, b - 1 if b else None)
+            return _reason_key(why), ("reservation", owner, ""), (lambda why=why: why)
         turn_of, si = a >> 32, a & 0xffffffff
         s, o = self.origin[turn_of][si], self.shapes[b]
         moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net, tuple((px + x, py + y) for px, py in s.poly),

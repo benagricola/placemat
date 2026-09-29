@@ -572,8 +572,9 @@ def cmd_routes(args) -> int:
     script = Path(args.script)
     if args.release_all:
         gone = routes.read(routes.path_for(script))
-        routes.release(script, [e.net for e in gone])
-        console.say("routes", "released %d net(s)" % len({e.net for e in gone}))
+        if gone:
+            routes.release(script, [e.net for e in gone])
+            console.say("routes", "released %d net(s)" % len({e.net for e in gone}))
     if args.release:
         missing = routes.release(script, args.release)
         for net in missing:
