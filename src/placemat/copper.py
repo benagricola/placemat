@@ -26,6 +26,7 @@ class Track:
     width: float
     start: Location
     end: Location
+    chamfer_cut: bool = False        # a 45 `track()` cut from a right-angle corner, not a leg the script asked for
 
     @property
     def polygon(self) -> Polygon:

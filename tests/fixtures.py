@@ -76,7 +76,8 @@ def track(net, x1, y1, x2, y2, w=0.3, layer=CopperLayer.F, owner=None):
         outline = rect((x1 + x2) / 2, (y1 + y2) / 2, w, abs(y2 - y1) + w)
     else:
         outline = rect((x1 + x2) / 2, (y1 + y2) / 2, abs(x2 - x1) + w, w)
-    return CopperItem("track", net, frozenset([layer]), (outline,), Box.of_points(outline), owner, w)
+    return CopperItem("track", net, frozenset([layer]), (outline,), Box.of_points(outline), owner, w,
+                      anchors=((x1, y1), (x2, y2)))
 
 
 def make_pdf(path, body: str):
