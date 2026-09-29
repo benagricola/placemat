@@ -1815,7 +1815,7 @@ class Board:
         base = row.anchor[1] if row.anchor and row.anchor[0] in ("before", "after") else row
         ref = base.standoff + {"centre": base.depth / 2.0, "outer": 0.0, "inner": base.depth}[line]   # the line, from the edge
         clears = [ref - {"centre": d / 2.0, "outer": 0.0, "inner": d}[line] for d in depths]
-        row.line = line
+        row.line = line.value          # the plain value: what a declaration digest wrote before Line existed
         for n, (item, r, c) in enumerate(zip(items, rots, clears)):
             along = row.centres[n] if row.start is not None else _RowSlot(row, n)
             self.place(item, at=OnEdge(edge, along=along), _standoff=c, rotation=r, why=why)

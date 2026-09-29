@@ -90,7 +90,7 @@ def test_a_rows_line_takes_the_line_enum_too():
     b = make_board()
     row = b.row([Cell("a"), Cell("b"), Cell("c")], Edge.WEST, gap=3.0, start=10.0, line=Line.OUTER)
     plan = b.resolve()
-    assert row.line is Line.OUTER
+    assert row.line == Line.OUTER          # stored as the plain value, so a declaration digest is unchanged by Line existing
     a = plan.box("a")
     assert a.left == pytest.approx(2.0)                    # outer: edge-hard, same as line="outer"
 
