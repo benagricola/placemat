@@ -98,6 +98,41 @@ def test_a_part_may_sit_a_length_along_a_run_or_a_fraction_of_it():
     assert plan.placement("d1").rotation == pytest.approx((180.0 - facing) % 360.0, abs=1.0)
 
 
+@pytest.mark.parametrize("rotation", [None, 0.0])
+def test_along_a_run_may_be_a_pad_reference(rotation):
+    """along= on OnEdge(run, ...) may be a reference - X()/Y() of a pad, or
+    a bare Mid/PadRef - which lands at the nearest place on the run, with
+    or without an explicit rotation=; api.md documents this, but a
+    reference crashed (at declaration with no rotation=, at resolve with
+    one) because the run's own along= is a length, not a coordinate."""
+    from placemat.values import PadRef, X
+    b = make_board("r1", "d1")
+    b.outline([(0.0, 0.0), (80.0, 0.0), (80.0, 60.0), (0.0, 60.0)])
+    b.place(Part("r1"), at=Location(40.0, 40.0))
+    top = b.edge(facing=Edge.NORTH)
+    b.place(Part("d1"), at=OnEdge(top, along=X(PadRef(Part("r1"), 1))), rotation=rotation)
+    plan = b.resolve()
+    assert placement_findings(plan) == []
+    assert plan.step("d1").freedom is Freedom.EDGE
+    pad = plan.occupancy.pad_location("R1", "1")
+    assert plan.box("d1").center.x == pytest.approx(pad.x, abs=0.05)
+    assert plan.placement("d1").rotation == pytest.approx(180.0 if rotation is None else 0.0)
+
+
+@pytest.mark.parametrize("rotation", [None, 0.0])
+def test_along_a_run_may_be_the_mid_of_two_pads(rotation):
+    from placemat.values import Mid, PadRef
+    b = make_board("r1", "d1")
+    b.outline([(0.0, 0.0), (80.0, 0.0), (80.0, 60.0), (0.0, 60.0)])
+    b.place(Part("r1"), at=Location(40.0, 40.0))
+    top = b.edge(facing=Edge.NORTH)
+    b.place(Part("d1"), at=OnEdge(top, along=Mid(PadRef(Part("r1"), 1), PadRef(Part("r1"), 2))), rotation=rotation)
+    plan = b.resolve()
+    assert placement_findings(plan) == []
+    assert plan.box("d1").center.x == pytest.approx(40.0, abs=0.05)
+    assert plan.placement("d1").rotation == pytest.approx(180.0 if rotation is None else 0.0)
+
+
 def test_a_row_runs_along_a_curved_edge_turning_with_it():
     b = make_board("d1", "d2", "d3")
     b.outline(ROUNDED_TOP)

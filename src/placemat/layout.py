@@ -1697,8 +1697,10 @@ class Board:
         if rotation is None:
             if isinstance(run, CutoutEdge):
                 rotation, faces_note = None, ""      # the stretch is not known yet: turned when it is
-            elif run is not None and along is not None:
+            elif run is not None and isinstance(along, (int, float)):
                 rotation, faces_note = self.outward_rotation(item, run.at(along)[1])
+            elif run is not None and along is not None:
+                rotation, faces_note = None, ""      # along is a reference: not known until it is placed
             elif rim is not None and angle is not None:
                 rotation, faces_note = self.outward_rotation(item, angle + (180.0 if rim == "bore" else 0.0))
             elif edge is not None and along is None:
@@ -4083,8 +4085,12 @@ class Board:
             elif i.center is not None:
                 p = box_centered_placement(occ, i.item, _locate(self, occ, i.center), i.rotation, i.face)
             elif i.run is not None:
+                along = _run_along(self, occ, i)
+                # a numeric along= turns the item at declaration; a reference's length along
+                # the run is not known until now, so its outward turn waits for it too
+                rot = self.outward_rotation(i.item, i.run.at(along)[1])[0] if i.rotation is None else i.rotation
                 p = run_placement(occ, i.item, occ.board_shape or self._shaped(), i.run,
-                                  _run_along(self, occ, i), i.clearance, i.rotation, i.face)
+                                  along, i.clearance, rot, i.face)
             elif i.rim is not None:
                 p = disc_placement(occ, i.item, self._disc("the same place is "
                                                           "OnEdge(board.edge(facing=...))"),
