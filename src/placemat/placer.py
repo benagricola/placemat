@@ -330,6 +330,23 @@ def pad_anchored_placement(occ: Occupancy, item, key, point: Location, rotation:
     return Placement(Location(round(point.x - at.x, 6), round(point.y - at.y, 6)), rotation, face)
 
 
+def cell_pad_anchored_placement(occ: Occupancy, cell, owner: str, number: str, dx: float, dy: float,
+                                point: Location, rotation: float = 0.0, face: Face = Face.FRONT) -> Placement:
+    """The placement that puts a cell so member `owner`'s pad `number`
+    (offset `dx`, `dy` in board directions) lands on `point`: `Pin` for a
+    cell, whose own pad is one of its members'. `owner`/`number` name a
+    single pad among a cell's shapes, which several members may number
+    alike."""
+    probe = Placement(Location(0.0, 0.0), rotation, face)
+    geom = occ._geometry(cell)
+    t = occ._transform(geom, probe)
+    boxes = [transform_box(s.box, t) for s in geom.shapes
+             if s.kind in ("pad", "through") and s.owner == owner and s.label == number]
+    at = Box.union(boxes).center
+    target = Location(point.x - dx, point.y - dy)
+    return Placement(Location(round(target.x - at.x, 6), round(target.y - at.y, 6)), rotation, face)
+
+
 @dataclass(frozen=True)
 class Pocket:
     """A free rectangle on one face, found by scanning the board."""

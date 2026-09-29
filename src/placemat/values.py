@@ -151,6 +151,38 @@ class OnEdge:
 
 
 @dataclass(frozen=True)
+class Beside:
+    """A place at another item's side: the item's drawn envelope, `gap`
+    from `item`'s (default: the envelope's own gap - the widest of the net
+    clearance, the component spacing and the silk clearance, or courtyards
+    touching under a courtyard envelope), on `side`. `item` is a Part, a
+    Cell or a keepout (what `board.keepout(...)` returns); it is placed
+    before this waits for it.
+
+    `align` lines the part up across `side`:
+    - a `PadRef` of `item`: this part's own pad on the same net lands level
+      with it;
+    - `(own_pad, their_pad)`: an own pad key and a `PadRef` of `item`, for
+      when the nets differ;
+    - an `Along` of `item`'s side (default `Along.MID`).
+
+    Firm, like `Pin`: the position is decided, not searched. The
+    rotation is what the script gave, or its default - `Beside` does not
+    turn the part to face `item`."""
+    item: object
+    side: Edge
+    align: object = None
+    gap: float | None = None
+
+    def __post_init__(self):
+        if not isinstance(self.side, Edge):
+            raise TypeError("Beside's side is an Edge, not %r" % (self.side,))
+        if self.align is not None and not isinstance(self.align, (Along, PadRef, tuple)):
+            raise TypeError("Beside's align is a PadRef, an (own_pad, their_pad) pair, Along.START/MID/END, "
+                            "or nothing (Along.MID), not %r" % (self.align,))
+
+
+@dataclass(frozen=True)
 class Near:
     """A hint to search round: the item is placed at the best legal spot
     within `radius` of `location`, on a `step` grid, at each rotation
