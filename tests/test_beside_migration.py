@@ -1,8 +1,7 @@
 """Migration check (docs/superpowers/specs/2026-09-29-missing-intent-relations-design.md,
-"Verification"): StatusPulls_layout.py's row of pull-ups
-(docs/audits/2026-09-29-layout-scripts.md, StatusPulls_layout.py:30-36) is a
-`fragment_frame.Content.beside()` case, the design's Content.beside/put()
-pattern. `Content.beside(part, 1, prev, 1, PITCH, 0.0, rot, why)` places
+"Verification"): a module's row of pull-ups, placed by hand as a helper's
+`beside()` does it (docs/audits/2026-09-29-layout-scripts.md, the most
+common coordinate pattern). `beside(part, 1, prev, 1, PITCH, 0.0, rot, why)` places
 `part`'s pad 1 at `(prev's pad 1) + (PITCH, 0.0)`, `PITCH` the previous
 resistor's drawn envelope width plus the board's silk gap - unrolled below
 as `_hand_placed()`. `at=Beside(prev, Edge.EAST, align=PadRef(prev, 1),
@@ -14,8 +13,8 @@ from placemat.layout import Board
 from placemat.values import Beside, Edge, Location, PadRef, Part, Pin, X, Y
 from tests.fixtures import board_geometry, footprint
 
-GAP = 0.2     # the board's silk-to-silk clearance, as StatusPulls names it
-ROW = ("r_sda", "r_scl", "r_rail_fault", "r_ina_alert", "r_als_int")   # the bus pull-ups, west to east
+GAP = 0.2     # the board's silk-to-silk clearance
+ROW = ("r_a", "r_b", "r_c", "r_d", "r_e")   # the pull-ups, west to east
 
 
 def _board():
@@ -26,7 +25,7 @@ def _board():
 
 
 def _hand_placed():
-    """StatusPulls_layout.py's own arithmetic, unrolled: each pull-up's pad
+    """The hand arithmetic, unrolled: each pull-up's pad
     1 (V3V3) lands PITCH east of the previous one's pad 1, PITCH the
     previous part's drawn envelope width plus the silk gap."""
     b = _board()
