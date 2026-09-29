@@ -17,7 +17,8 @@ pcbnew = import_pcbnew()
 
 from ..layout import MergedZone, Plan
 from ..copper import Pour, Text, Track, Via, Zone
-from ..geometry import Transform, poly_within
+from ..findings import Finding
+from ..geometry import Transform, point_in_polygon, poly_within
 from ..placement import Placement
 from ..board_geometry import (CellGeom, Footprint, layer_marker, resolve_marker, split_marker,
                               stackup_order)
@@ -375,12 +376,64 @@ def _draw_text(board, op: Text):
     board.Add(t)
 
 
-def _draw_pour(board, op: Pour):
+# A rounded Inflate() is a chord-approximated circle, and BooleanSubtract/
+# Fracture chain a few more of them: each stays within its own aErrorMax of
+# the true offset, but which side of it varies. This margin is added on top
+# of every clearance below so the fracture chain still clears the true rule
+# on its worst corner, not just on average - the same bias read.py's own
+# `copper_outlines` takes ("outside by the tolerance, as KiCad's own
+# conversion is") for the same reason.
+_PULLBACK_MARGIN = 0.01
+
+
+def _foreign_pour_obstacles(board, op: Pour, geometry, other_ops):
+    """((x0,y0,x1,y1) box-free polygon, clearance) for every other net's
+    copper on `op`'s layer: every other net's pad (the real footprint
+    geometry), every Track and Pour of another net drawn on this layer, and
+    every Via of another net (a via joins every layer). The clearance each
+    carries is grown by half `op`'s own stroke: a filled poly with a stroke
+    draws copper that far past the vertices too (as `copper_outlines` in
+    read.py already accounts for, reading one back for DRC)."""
+    out = []
+    layer_id = _layer_id(board, op.layer)
+    code = _netcode(board, op.net)
+    half_stroke = op.stroke / 2.0
+    for fp in board.GetFootprints():
+        for p in fp.Pads():
+            if p.GetNetCode() == code or p.GetNetCode() <= 0 or not p.IsOnLayer(layer_id):
+                continue
+            other_net = p.GetNetname()
+            if other_net not in geometry.nets:
+                continue
+            bb = p.GetBoundingBox()
+            out.append((((bb.GetLeft(), bb.GetTop()), (bb.GetRight(), bb.GetTop()),
+                        (bb.GetRight(), bb.GetBottom()), (bb.GetLeft(), bb.GetBottom())),
+                       nm(geometry.clearance(op.net, other_net) + half_stroke + _PULLBACK_MARGIN), True))
+    for other in other_ops:
+        if other is op or other.net == op.net:
+            continue
+        if isinstance(other, Track) and other.layer is op.layer:
+            poly = other.polygon
+            extra = 0.0
+        elif isinstance(other, Via):
+            poly = other.polygon
+            extra = 0.0
+        elif isinstance(other, Pour) and other.layer is op.layer:
+            poly = other.polygon
+            extra = other.stroke / 2.0            # its own copper reaches that far past its vertices too
+        else:
+            continue
+        out.append((poly, nm(geometry.clearance(op.net, other.net) + half_stroke + extra + _PULLBACK_MARGIN), False))
+    return out
+
+
+def _draw_pour(board, op: Pour, geometry=None, other_ops=(), findings=None):
     code = _netcode(board, op.net)
     ps = pcbnew.SHAPE_POLY_SET()
     ps.NewOutline()
     for x, y in op.points:
         ps.Append(nm(x), nm(y))
+    joined = list(op.named_pads)          # (label, (x, y)) mm: still meant to be part of the result
     if op.swallow_pads:
         m = nm(0.12)
         for fp in board.GetFootprints():
@@ -398,7 +451,47 @@ def _draw_pour(board, op: Pour):
                                  (bb.GetRight() + m, bb.GetBottom() + m), (bb.GetLeft() - m, bb.GetBottom() + m)):
                         r.Append(x, y)
                     ps.BooleanAdd(r)
+                    pos = p.GetPosition()
+                    joined.append(("%s.%s" % (fp.GetReference(), p.GetNumber()),
+                                  (pcbnew.ToMM(pos.x), pcbnew.ToMM(pos.y))))
         ps.Simplify()
+        if geometry is not None:
+            foreign = pcbnew.SHAPE_POLY_SET()
+            has_foreign = False
+            for poly, clr_nm, is_box in _foreign_pour_obstacles(board, op, geometry, other_ops):
+                r = pcbnew.SHAPE_POLY_SET()
+                r.NewOutline()
+                for x, y in poly:
+                    r.Append(int(x) if is_box else nm(x), int(y) if is_box else nm(y))
+                if clr_nm:
+                    r.Inflate(clr_nm, pcbnew.CORNER_STRATEGY_ROUND_ALL_CORNERS, nm(0.001))
+                foreign.BooleanAdd(r)
+                has_foreign = True
+            if has_foreign:
+                ps.BooleanSubtract(foreign)
+                if joined:
+                    ps.Fracture()
+                    kept = pcbnew.SHAPE_POLY_SET()
+                    touched = set()
+                    for i in range(ps.OutlineCount()):
+                        o = ps.Outline(i)
+                        n = o.PointCount()
+                        if n < 3:
+                            continue
+                        pts_nm = [(o.CPoint(j).x, o.CPoint(j).y) for j in range(n)]
+                        pts_mm = [(pcbnew.ToMM(x), pcbnew.ToMM(y)) for x, y in pts_nm]
+                        hit = [label for label, pos in joined if point_in_polygon(pos, pts_mm)]
+                        if hit:
+                            touched.update(hit)
+                            kept.NewOutline()
+                            for x, y in pts_nm:
+                                kept.Append(x, y)
+                    missing = sorted({label for label, _ in joined} - touched)
+                    if missing and findings is not None:
+                        findings.append(Finding(
+                            "copper", "pour %s: pulling back from other nets' copper leaves %s joined to nothing"
+                            % (op.net, ", ".join(missing))))
+                    ps = kept
     sh = pcbnew.PCB_SHAPE(board, pcbnew.SHAPE_T_POLY)
     sh.SetLayer(_layer_id(board, op.layer))
     sh.SetFilled(True)
@@ -444,7 +537,7 @@ def _draw_zone(board, op: Zone):
     return z
 
 
-def draw_copper(board, ops):
+def draw_copper(board, ops, geometry=None, findings=None):
     zones = []
     for op in ops:
         if isinstance(op, Track):
@@ -452,7 +545,7 @@ def draw_copper(board, ops):
         elif isinstance(op, Via):
             _draw_via(board, op)
         elif isinstance(op, Pour):
-            _draw_pour(board, op)
+            _draw_pour(board, op, geometry, ops, findings)
         elif isinstance(op, Text):
             _draw_text(board, op)
         elif isinstance(op, Zone):
@@ -616,7 +709,7 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
         plan.merged_zones = _merge_cell_zones(board, plan)
     _draw_outline(board, plan)
     _draw_keepouts(board, plan)
-    draw_copper(board, plan.copper)
+    draw_copper(board, plan.copper, plan.geometry, plan.findings)
     plan.group_notes = _write_groups(board, plan)
     out = str(out_path or pcb_path)
     plan.models = _reanchor_models(board, Path(out).parent)
