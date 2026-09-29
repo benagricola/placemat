@@ -6,6 +6,9 @@ whether any of it applies.
 
 ## Unreleased
 
+`placemat measure --keepouts [NAME ...] [--near MM]` reports each part's
+physical and courtyard gap to each rule area near it.
+
 Escape findings, and so the run score, are measured at `score.escape_depth`
 (1.5 mm), not at the search's `place.escape_depth` (still 1.0 mm): a
 shallower search depth no longer scores better by checking less. A best run

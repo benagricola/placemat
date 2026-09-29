@@ -46,8 +46,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **Placing relative to a searched item** (PLACEMAT_GAPS 2026-09-26, twice):
   a `Pin` or a cutout on a searched item is refused ("only FIXED and EDGE
   items may be referred to"). Needs a spec.
-- **Each part's clearance to each keepout** (PLACEMAT_GAPS 2026-09-26):
-  physical, courtyard and maximum-package, as a report.
 - **A route report of each net's path, or a preview of the routed copy**
   (PLACEMAT_GAPS 2026-09-27).
 - **`board.pair()` finding its own centreline; `route.diff_pairs` taking

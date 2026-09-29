@@ -90,6 +90,10 @@ def parser() -> argparse.ArgumentParser:
     m.add_argument("--copper", nargs="*", default=None, metavar="NET",
                    help="every track segment of these nets (default: all) with its layer, width, ends, bearing and "
                         "what each end lands on, a leg off 0/45/90 flagged; and the vias")
+    m.add_argument("--keepouts", nargs="*", default=None, metavar="NAME",
+                   help="each part within --near of these rule areas (default: all): its physical and courtyard "
+                        "gap to it, or that it reaches in")
+    m.add_argument("--near", type=float, default=1.0, help="with --keepouts: how near a part is listed (mm, default 1)")
     m.add_argument("--envelope", action="store_true",
                    help="for each side of a part's drawn envelope, the item that sets it: its layer, which one and its box")
     m.add_argument("--labels", action="store_true",
@@ -677,6 +681,13 @@ def cmd_measure(args) -> int:
             console.lines("measure", "\n".join(lines))
         return 0
     snap = read_board(pcb)
+    if getattr(args, "keepouts", None) is not None:
+        near = getattr(args, "near", 1.0)
+        if args.json:
+            console.data(json.dumps({"keepouts": describe.keepout_clearances(snap, args.keepouts, near)}, indent=2))
+        else:
+            console.lines("measure", "\n".join(describe.keepout_lines(snap, args.keepouts, near)))
+        return 0
     if getattr(args, "copper", None) is not None:
         if args.json:
             console.data(json.dumps({"segments": describe.copper_segments(snap, args.copper)}, indent=2))

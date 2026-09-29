@@ -326,3 +326,55 @@ def copper_lines(geometry, nets) -> list:
             lines.append("%s  via  (%.3f, %.3f)  size %.2f drill %.2f" % (
                 c.net, c.box.center.x, c.box.center.y, c.box.width, c.drill_mm))
     return lines or ["no tracks or vias%s" % (" on " + " ".join(nets) if nets else "")]
+
+
+def _gap_to_region(poly, region) -> tuple:
+    """(gap in mm, overlaps) from a part's polygon to a rule area: 0 and True
+    when it reaches into the region, a hole of the region counting as outside."""
+    from .geometry import distance_to_boundary, poly_distance, poly_within
+    for hole in region.holes:
+        if poly_within(poly, hole):
+            return distance_to_boundary(poly, hole), False
+    if polys_overlap(poly, region.polygon):
+        return 0.0, True
+    return poly_distance(poly, region.polygon), False
+
+
+def keepout_clearances(geometry, names, near: float = 1.0) -> list:
+    """Every part within `near` mm of a rule area (of `names`, or every one),
+    on a face the area covers: its physical box's gap to the area and its
+    courtyard's, and whether each reaches into it."""
+    from .geometry import box_polygon
+    want = set(names)
+    rows = []
+    for r in geometry.rule_areas:
+        if want and r.name not in want:
+            continue
+        for fp in geometry.footprints:
+            if r.layers and fp.face.copper not in r.layers:
+                continue
+            phys, pin = _gap_to_region(box_polygon(fp.phys_box), r)
+            yard = fp.courtyard_poly or box_polygon(fp.courtyard_box)
+            court, cin = _gap_to_region(yard, r)
+            if min(phys, court) > near:
+                continue
+            rows.append({"keepout": r.name, "ref": fp.ref, "instance": fp.inst,
+                         "physical": round(phys, 4), "physical_overlaps": pin,
+                         "courtyard": round(court, 4), "courtyard_overlaps": cin})
+    rows.sort(key=lambda row: (row["keepout"], row["physical"], row["courtyard"], row["ref"]))
+    return rows
+
+
+def keepout_lines(geometry, names, near: float = 1.0) -> list:
+    def gap(v, inside):
+        return "overlaps" if inside else "%.3f mm" % v
+    lines, last = [], None
+    for row in keepout_clearances(geometry, names, near):
+        if row["keepout"] != last:
+            area = next(r for r in geometry.rule_areas if r.name == row["keepout"])
+            lines.append("%s (excludes %s):" % (row["keepout"], ", ".join(sorted(area.excludes)) or "nothing"))
+            last = row["keepout"]
+        lines.append("  %s (%s)  physical %s  courtyard %s" % (
+            row["ref"], row["instance"], gap(row["physical"], row["physical_overlaps"]),
+            gap(row["courtyard"], row["courtyard_overlaps"])))
+    return lines or ["no part within %.2f mm of %s" % (near, " ".join(names) if names else "a keepout")]

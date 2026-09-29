@@ -1316,7 +1316,7 @@ placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--islands NET[=W
 placemat routes <script> [--release NET ... | --release-all]
 placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
-placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part ...] [--pads] [--envelope] [--copper [NET ...]] [--labels] [--outline] [--json]
+placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part ...] [--pads] [--envelope] [--copper [NET ...]] [--keepouts [NAME ...] [--near MM]] [--labels] [--outline] [--json]
 placemat parts <layout.kicad_pcb | script> [--field NAME ...] [--json]
 placemat nets <layout.kicad_pcb | script> [--sort COLUMN] [--net NET ...] [--inst] [--json]
 placemat datasheet <pdf> [--show PAGE|TOPIC] [--read] [--no-ocr] [--out DIR] [--dpi N] [--json]
@@ -1352,6 +1352,11 @@ of that layer's items it is (a pad by number) and its box (`--json`:
 of those nets (all when none is named) - layer, width, both ends and what
 each lands on (a pad as REF.NUMBER, a via, another track, or `-`), length
 and bearing, `off 0/45/90` on a leg at any other angle - then the vias.
+`--keepouts [NAME ...]` lists, per rule area (all when none is named) and
+what it excludes, each part within `--near` mm (default 1) on a face it
+covers: the gap from its physical box and from its courtyard to the area,
+or `overlaps` - so a keepout DRC finding a courtyard causes is told from a
+body inside the area.
 `--pads`
 adds every pad's number, net, layers, drill, centre in the board frame, **the
 box round its copper** - not the anchor size, which for a custom pad is not the
