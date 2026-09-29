@@ -24,11 +24,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **A keepout inside a part's pad ring** (PLACEMAT_GAPS 2026-09-29 "a plane
   bounded to a group of parts"): the region between a receiver's two pad
   columns.
-- **`placemat preview --layer L` with zone fills coloured by net**
-  (PLACEMAT_GAPS 2026-09-28 "which net each inner-layer zone fill belongs
-  to"); with the routed copy's tracks, and a finding for a track that
-  crosses another net's zone outline (same day, "which routed tracks cross a
-  pour's outline").
+- **Keep the router out of another net's zone outline** (PLACEMAT_GAPS
+  2026-09-28 "which routed tracks cross a pour's outline"; `placemat layer`
+  lists the crossings now).
 - **A finding when a 3D model's box does not sit over the footprint's pads**
   (PLACEMAT_GAPS 2026-09-29 "a footprint's 3D model transform"; the path and
   transform are in `measure` now): needs the model file's own extents.

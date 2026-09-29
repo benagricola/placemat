@@ -6,6 +6,9 @@ whether any of it applies.
 
 ## Unreleased
 
+`placemat layer <board> <LAYER>` draws one copper layer by net and lists
+tracks inside another net's zone outline.
+
 `board.pair(p, n, [(padP, padN), (padP2, padN2)], layer=)` - the two pad
 pairs alone - finds its own centreline; a centreline typed as coordinates
 between two placed parts can go.

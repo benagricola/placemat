@@ -165,6 +165,13 @@ def parser() -> argparse.ArgumentParser:
                      help="do not read a text-poor page off its render")
     dsp.add_argument("--json", action="store_true")
 
+    ly = sub.add_parser("layer", help="one copper layer of a board: its zone fills, tracks, vias and pads coloured "
+                                      "by net with a legend, and each track inside another net's zone outline")
+    ly.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
+    ly.add_argument("layer", help="a copper layer, e.g. In2.Cu")
+    ly.add_argument("--out", help="the SVG to write (default <board dir>/.placemat/layer-<layer>.svg)")
+    ly.add_argument("--json", action="store_true")
+
     sh = sub.add_parser("show", help="one cell or part on its own: a render from above and below, its pads by net, "
                                      "and the sides its module declared (outward, quiet, handoff)")
     sh.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
@@ -1062,6 +1069,32 @@ def cmd_occupancy(args) -> int:
     return 0 if spot is not None else 1
 
 
+def cmd_layer(args) -> int:
+    from .layerview import layer_crossings, layer_svg, read_layer
+    from .project import find_board
+    p = Path(args.pcb)
+    pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
+    try:
+        items = read_layer(pcb, args.layer)
+    except ValueError as e:
+        console.say("layer", str(e), level="fail")
+        return 2
+    out = Path(args.out) if args.out else pcb.parent / ".placemat" / ("layer-%s.svg" % args.layer.replace(".", "_"))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(layer_svg(items, args.layer))
+    crossings = layer_crossings(items)
+    nets = sorted({z["net"] for z in items["zones"] if z["net"]})
+    if args.json:
+        console.data(json.dumps({"svg": str(out), "zone_nets": nets, "crossings": crossings}, indent=2))
+        return 0
+    console.say("layer", "%s: %d zone(s) (%s), %d track(s), %d via(s); %s" % (
+        args.layer, len(items["zones"]), ", ".join(nets) or "none", len(items["tracks"]), len(items["vias"]), out))
+    for c in crossings:
+        console.say("layer", "%s track (%.2f, %.2f)-(%.2f, %.2f) runs inside %s's zone outline" % (
+            c["track_net"], *c["start"], *c["end"], c["zone_net"]), level="finding")
+    return 0
+
+
 def cmd_show(args) -> int:
     from .kicad.read import read_board
     from .kicad.write import show_item
@@ -1174,7 +1207,7 @@ def main(argv=None) -> int:
 
 def _dispatch(args) -> int:
     return {"run": cmd_run, "lock": cmd_lock, "freeze": cmd_freeze, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
-            "route": cmd_route, "routes": cmd_routes, "check": cmd_check, "show": cmd_show, "faces": cmd_faces,
+            "route": cmd_route, "routes": cmd_routes, "check": cmd_check, "show": cmd_show, "layer": cmd_layer, "faces": cmd_faces,
             "settings": cmd_settings, "parts": cmd_parts, "nets": cmd_nets,
             "datasheet": cmd_datasheet, "occupancy": cmd_occupancy, "preview": cmd_preview}[args.command](args)
 

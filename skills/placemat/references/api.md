@@ -1329,6 +1329,7 @@ placemat occupancy <layout.kicad_pcb | script> (--at X,Y | --box X0,Y0,X1,Y1 | -
                    [--net N] [--size D] [--drill H] [--layer L] [--radius R] [--step S] [--in-pad] [--json]
                    [--width W] [--margin MM] [--ignore-kept]
 placemat show <layout.kicad_pcb | script> <cell | part> [--out DIR]
+placemat layer <layout.kicad_pcb | script> <LAYER> [--out FILE] [--json]
 placemat faces <module layout.kicad_pcb> outward=N [quiet=S] [handoff=E]
 placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise C] [--copper-oz OZ] [--limit CHECK=VALUE ...] [--json]
 placemat settings [<script-or-board-dir>] [--json]
@@ -1377,6 +1378,14 @@ text and a stamped cell's - with face, cell, the box KiCad draws, position,
 height, stroke, angle and mirroring, so a panel can be sized round them and
 another board's marks matched; then its silk graphics (an arrow, a mark),
 each with its kind, face, cell, box and stroke.
+
+`layer` draws one copper layer of a board file as SVG - zone fills
+(translucent) and outlines (dashed), pads, tracks and vias, each net in its
+own colour with a legend - and lists each track that runs inside another
+net's zone outline on that layer: the router routes round a zone's last
+fill, not its outline, so such a track cuts the pour apart while DRC
+passes, KiCad refilling round it. `--json` gives the SVG's path, the zone
+nets and the crossings.
 
 `preview` places the board as a run does - the cached generation, the
 previous run's steps replayed - and draws it, without writing the board,
