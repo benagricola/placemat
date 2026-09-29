@@ -6,8 +6,9 @@ fill of another net is not an obstacle, because KiCad refills a zone and pulls
 it back round a new via, and is reported as giving way instead."""
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import dataclass
+import heapq
 import math
 import re
 
@@ -315,4 +316,286 @@ def spot_lines(spot, tally, tried, net: str, pad_label: str, tail=None) -> list:
         out.append("  tail %.2f mm on %s, judged straight from the pad's centre" % (tail[0], tail[1].value))
     out += ["  %s" % s for s in spot.soft]
     out.append("  nearer spots that failed: %s" % rest)
+    return out
+
+
+# ------------------------------------------------------------------ corridor
+# The clear octilinear paths on one layer between two pads: `judge_via` and
+# `judge_tail` above answer one candidate at a time, which is fine near a
+# pad but too slow over the reach of a corridor query. This builds one
+# occupancy - a bucketed index of what a track of `width` may not come
+# within clearance of, and the board's own edge and cutouts - and searches
+# an octilinear grid over it instead.
+
+GRID_MM = 0.1                      # the router's default grid
+_STEPS = tuple((dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if (dx, dy) != (0, 0))
+_DIAGONAL = math.sqrt(2.0)
+
+
+@dataclass(frozen=True)
+class CorridorPath:
+    points: tuple           # corner points (x, y) mm, A to B, octilinear
+    length: float            # mm, along the corners
+    turns: int
+
+
+@dataclass(frozen=True)
+class CorridorResult:
+    paths: tuple = ()                 # the shortest, then up to two disjoint alternatives
+    blockers: tuple = ()              # named, across the narrowest cut, when paths is empty
+
+
+def _snap(at: Location) -> tuple:
+    return (round(at.x / GRID_MM), round(at.y / GRID_MM))
+
+
+def _grid_point(idx: tuple) -> tuple:
+    return (round(idx[0] * GRID_MM, 4), round(idx[1] * GRID_MM, 4))
+
+
+def _ring_distance(pt: Location, ring) -> float:
+    """The point's distance to the ring's edge, whichever side it is on -
+    `distance_to_boundary` for a single point, which is not itself a
+    polygon `_edges` can walk."""
+    n = len(ring)
+    return min(point_segment_distance((pt.x, pt.y), ring[i], ring[(i + 1) % n]) for i in range(n))
+
+
+def _is_box(ring) -> bool:
+    """Whether `ring` is exactly its own axis-aligned bounding box: a plain
+    rectangular outline, which most boards draw."""
+    return len(ring) == 4 and len({round(p[0], 6) for p in ring}) == 2 and len({round(p[1], 6) for p in ring}) == 2
+
+
+class _CorridorOccupancy:
+    """What a track of `width` on `layer`, net `net`, may not come within
+    clearance of, inside `box`: foreign copper (pads that reach the layer,
+    vias, tracks, polys and - unlike a via, which a pour gives way to -
+    zones), a footprint's own copper graphics, the board edge and cutouts.
+    Bucketed once so a grid node's blockers are a lookup."""
+    BUCKET_MM = 2.0
+
+    def __init__(self, geometry, net: str, width: float, layer, box: Box):
+        half = width / 2.0
+        self.rings = tuple(geometry.board_polygon) or tuple(geometry.outline)
+        self.edge_need = geometry.edge_clearance + half
+        # A rectangular outline with the whole query box, grown by `edge_need`,
+        # well inside it, and no cutout anywhere near: every node is on the
+        # board, so `blocked` need not measure its distance to the outline's
+        # every edge for each one - the cost that dominated a wide query on a
+        # real board (mostly clear copper, so a flood fill visits most nodes).
+        self._edge_always_clear = False
+        if self.rings and _is_box(self.rings[0]):
+            ob = Box.of_points(self.rings[0])
+            if (ob.left <= box.left - self.edge_need and ob.top <= box.top - self.edge_need
+                    and ob.right >= box.right + self.edge_need and ob.bottom >= box.bottom + self.edge_need
+                    and not any(Box.of_points(h).overlaps(box, gap=self.edge_need) for h in self.rings[1:])):
+                self._edge_always_clear = True
+        self._buckets: dict = {}
+        for c in geometry.copper:
+            if c.net == net or layer not in c.layers or c.kind not in _HARD + ("zone",):
+                continue
+            reach = geometry.clearance(net, c.net) if (net in geometry.nets and c.net in geometry.nets) \
+                else geometry.default_clearance
+            gap = reach + half
+            if not c.box.overlaps(box, gap=gap):
+                continue
+            label = "%s %s%s" % (c.kind, c.net or "-", (" (%s)" % c.owner) if c.owner else "")
+            self._index(c.outlines, gap, label)
+        for fp in geometry.footprints:
+            for l, art in fp.copper:
+                if l != layer:
+                    continue
+                gap = geometry.default_clearance + half
+                if not Box.of_points(art).overlaps(box, gap=gap):
+                    continue
+                self._index((art,), gap, "%s's own copper" % fp.ref)
+
+    def _index(self, outlines, gap: float, label: str) -> None:
+        b = Box.of_points([p for o in outlines for p in o])
+        b = Box(b.left - gap, b.top - gap, b.right + gap, b.bottom + gap)
+        entry = (outlines, gap, label)
+        for gx in range(math.floor(b.left / self.BUCKET_MM), math.floor(b.right / self.BUCKET_MM) + 1):
+            for gy in range(math.floor(b.top / self.BUCKET_MM), math.floor(b.bottom / self.BUCKET_MM) + 1):
+                self._buckets.setdefault((gx, gy), []).append(entry)
+
+    def blocked(self, idx: tuple) -> str | None:
+        """None when a track of `width` may run through this grid node; else
+        a short name of what stops it."""
+        pt = Location(*_grid_point(idx))
+        if self.rings and not self._edge_always_clear:
+            outer = self.rings[0]
+            if not point_in_polygon((pt.x, pt.y), outer):
+                return "off the board"
+            if _ring_distance(pt, outer) < self.edge_need - 1e-9:
+                return "the board edge"
+            for hole in self.rings[1:]:
+                if point_in_polygon((pt.x, pt.y), hole) or _ring_distance(pt, hole) < self.edge_need - 1e-9:
+                    return "a cutout"
+        bucket = (math.floor(pt.x / self.BUCKET_MM), math.floor(pt.y / self.BUCKET_MM))
+        for outlines, gap, label in self._buckets.get(bucket, ()):
+            if any(_point_to_polygon(pt, o) < gap - 1e-9 for o in outlines):
+                return label
+        return None
+
+
+def _flood(start: tuple, in_box, blocked) -> tuple:
+    """Clear grid nodes (8-connected) reachable from `start`, bounded to
+    `in_box`, and the reason of every blocked node touching that region."""
+    seen = {start}
+    frontier: dict = {}
+    stack = [start]
+    while stack:
+        cur = stack.pop()
+        for dx, dy in _STEPS:
+            nb = (cur[0] + dx, cur[1] + dy)
+            if nb in seen or not in_box(nb):
+                continue
+            reason = blocked(nb)
+            if reason is None:
+                seen.add(nb)
+                stack.append(nb)
+            else:
+                frontier.setdefault(nb, reason)
+    return seen, frontier
+
+
+def _cut(frontier: dict, reachable_b: set, in_box, blocked) -> list | None:
+    """The shortest chain of blocked nodes (8-connected) from `frontier`
+    (blocked nodes already touching A's reachable region) to one touching
+    `reachable_b`: the narrowest wall separating A from B."""
+    came: dict = {idx: None for idx in frontier}
+    q = deque(frontier)
+    while q:
+        cur = q.popleft()
+        for dx, dy in _STEPS:
+            nb = (cur[0] + dx, cur[1] + dy)
+            if nb in came or not in_box(nb):
+                continue
+            if nb in reachable_b:
+                chain = [cur]
+                while came[chain[-1]] is not None:
+                    chain.append(came[chain[-1]])
+                chain.reverse()
+                return chain
+            reason = blocked(nb)
+            if reason is None:
+                continue
+            came[nb] = cur
+            q.append(nb)
+    return None
+
+
+def _astar(start: tuple, goal: tuple, in_box, blocked, avoid: frozenset) -> list | None:
+    """The shortest octilinear path from `start` to `goal` over clear grid
+    nodes, `avoid` (an earlier path's own cells) refused except at the
+    endpoints, which every path shares."""
+    def h(idx):
+        dx, dy = abs(idx[0] - goal[0]), abs(idx[1] - goal[1])
+        return GRID_MM * (max(dx, dy) + (_DIAGONAL - 1.0) * min(dx, dy))
+    best = {start: 0.0}
+    came: dict = {}
+    open_heap = [(h(start), 0.0, start)]
+    while open_heap:
+        f, g, cur = heapq.heappop(open_heap)
+        if cur == goal:
+            path = [cur]
+            while path[-1] != start:
+                path.append(came[path[-1]])
+            path.reverse()
+            return path
+        if g > best.get(cur, math.inf) + 1e-12:
+            continue
+        for dx, dy in _STEPS:
+            nb = (cur[0] + dx, cur[1] + dy)
+            if not in_box(nb):
+                continue
+            if nb != start and nb != goal:
+                if nb in avoid or blocked(nb) is not None:
+                    continue
+            ng = g + GRID_MM * (_DIAGONAL if dx and dy else 1.0)
+            if ng < best.get(nb, math.inf) - 1e-12:
+                best[nb] = ng
+                came[nb] = cur
+                heapq.heappush(open_heap, (ng + h(nb), ng, nb))
+    return None
+
+
+def _corners(path: list) -> tuple:
+    """`path`'s own corner points: where its direction changes, plus its
+    ends - a straight run collapsed to its two ends, as a drawn track is."""
+    pts = [_grid_point(idx) for idx in path]
+    if len(path) <= 2:
+        return tuple(pts)
+    out = [pts[0]]
+    for i in range(1, len(path) - 1):
+        before = (path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1])
+        after = (path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1])
+        if before != after:
+            out.append(pts[i])
+    out.append(pts[-1])
+    return tuple(out)
+
+
+def _path_length(points: tuple) -> float:
+    return round(sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(points, points[1:])), 4)
+
+
+def corridor(geometry, a: Location, b: Location, net: str, width: float, layer, margin: float = 10.0) -> CorridorResult:
+    """The clear octilinear paths on `layer` from `a` to `b` for a track of
+    `width` on `net`: the shortest, plus up to two more that share no grid
+    cell with it, on a 0.1 mm grid over the box round `a` and `b` grown by
+    `margin`. With none, the blockers across the narrowest cut between them."""
+    a_idx, b_idx = _snap(a), _snap(b)
+    box = Box.of_points([(a.x, a.y), (b.x, b.y)])
+    box = Box(box.left - margin, box.top - margin, box.right + margin, box.bottom + margin)
+    gx0, gy0 = math.floor(box.left / GRID_MM), math.floor(box.top / GRID_MM)
+    gx1, gy1 = math.ceil(box.right / GRID_MM), math.ceil(box.bottom / GRID_MM)
+
+    def in_box(idx):
+        return gx0 <= idx[0] <= gx1 and gy0 <= idx[1] <= gy1
+
+    occ = _CorridorOccupancy(geometry, net, width, layer, box)
+    cache: dict = {}
+
+    def blocked(idx):
+        hit = cache.get(idx, False)
+        if hit is False:
+            hit = cache[idx] = occ.blocked(idx)
+        return hit
+    # A* first, goal-directed: it need not touch most of a wide-open box. The
+    # flood fill below - which does, to prove a negative - only runs when it
+    # finds nothing.
+    paths, avoid = [], frozenset()
+    for _ in range(3):
+        raw = _astar(a_idx, b_idx, in_box, blocked, avoid)
+        if raw is None:
+            break
+        points = _corners(raw)
+        paths.append(CorridorPath(points, _path_length(points), max(0, len(points) - 2)))
+        avoid = avoid | (set(raw) - {a_idx, b_idx})
+    if paths:
+        return CorridorResult(paths=tuple(paths))
+    seen_a, frontier_a = _flood(a_idx, in_box, blocked)
+    seen_b, _ = _flood(b_idx, in_box, blocked)
+    chain = _cut(frontier_a, seen_b, in_box, blocked)
+    if chain is None:
+        return CorridorResult(blockers=("no path within the box; a larger --margin may find one",))
+    labels = []
+    for idx in chain:
+        r = blocked(idx)
+        if r and r not in labels:
+            labels.append(r)
+    return CorridorResult(blockers=tuple(labels))
+
+
+def corridor_lines(result: CorridorResult, a_label: str, b_label: str, net: str, width: float, layer) -> list:
+    out = ["corridor %s -> %s on %s, %.2f mm wide (net %s)" % (a_label, b_label, layer.value, width, net or "-")]
+    if not result.paths:
+        out.append("  no path; the narrowest cut:")
+        out += ["    %s" % b for b in result.blockers]
+        return out
+    for i, p in enumerate(result.paths):
+        out.append("  %s: %.3f mm, %d turn(s)" % ("shortest" if i == 0 else "alternative %d" % i, p.length, p.turns))
+        out += ["    (%.3f, %.3f)" % pt for pt in p.points]
     return out

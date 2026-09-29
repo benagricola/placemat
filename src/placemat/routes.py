@@ -14,8 +14,8 @@ from pathlib import Path
 
 from .board_geometry import added_copper
 from .copper import Track, Via
-from .geometry import point_in_polygon
-from .values import Box, CopperLayer, Location
+from .geometry import point_in_polygon, polys_overlap
+from .values import Box, CopperLayer, Face, Location
 
 FORMAT = 1
 
@@ -370,6 +370,66 @@ def resolve(entry: RouteEntry, occ, tolerance: float, also=()):
               for t in entry.tracks]
     vias = [Via(entry.net, locate(v["at"]), v["drill"], v["size"]) for v in entry.vias]
     return tracks, vias
+
+
+def _kept_shape(op):
+    """`op` (a resolved entry's Track or Via) as the `also` argument
+    `resolve` reads: an entry whose end rests on another kept entry's own
+    copper needs that one drawn first, exactly as `_draw_adopted` draws
+    them onto a generated board."""
+    from .occupancy import Shape
+    if isinstance(op, Via):
+        return Shape("", "through", frozenset((Face.FRONT, Face.BACK)), frozenset(CopperLayer),
+                    op.net, op.polygon, op.box)
+    faces = frozenset([op.layer.face]) if op.layer.face else frozenset()
+    return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.polygon, op.box)
+
+
+def drawn_now(entries, geometry, tolerance: float) -> list:
+    """The tracks and vias `entries` (kept routes) draw on `geometry` right
+    now: the same round-by-round resolution `_draw_adopted` draws them onto
+    a generated board, since an entry whose end rests on another kept
+    entry's copper needs that one resolved first. An entry that no longer
+    holds (see `resolve`) draws nothing."""
+    from .occupancy import Occupancy
+    if not entries:
+        return []
+    occ = Occupancy(geometry)
+    drawn, left, out = [], list(range(len(entries))), []
+    while left:
+        also = [_kept_shape(op) for op in drawn]
+        now = {i: resolve(entries[i], occ, tolerance, also) for i in left}
+        held = [i for i in left if not isinstance(now[i], str)]
+        if not held:
+            break
+        for i in held:
+            ops = list(now[i][0]) + list(now[i][1])
+            drawn += ops
+            out += ops
+        left = [i for i in left if i not in held]
+    return out
+
+
+def without_kept(geometry, entries, tolerance: float):
+    """`geometry` with the copper `entries` currently draw taken out: the
+    room a re-route would have (`occupancy --corridor --ignore-kept`). A
+    board item is one of them when it is the same net and its outline
+    overlaps a drawn op's - not an exact match, since a track written to
+    KiCad and re-read differs from the one Python drew it as by a
+    tessellation error far under a track's own width."""
+    import dataclasses
+    ops = drawn_now(entries, geometry, tolerance)
+    if not ops:
+        return geometry
+    by_net: dict = {}
+    for op in ops:
+        by_net.setdefault(op.net, []).append(op)
+
+    def is_kept(c) -> bool:
+        if c.kind not in ("track", "via") or c.net not in by_net:
+            return False
+        return any(any(polys_overlap(op.polygon, o) for o in c.outlines) for op in by_net[c.net])
+    return dataclasses.replace(geometry, copper=tuple(c for c in geometry.copper if not is_kept(c)))
 
 
 def items_of(entries, board) -> set:
