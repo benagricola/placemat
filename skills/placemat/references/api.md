@@ -31,6 +31,7 @@ and write that form. When nothing here says it, do not compute it: see
 | a part somewhere the netlist cannot say (a thermal neighbour) | `at=Near(PadRef(...))` | Placement |
 | a part turned with another part | `rotation=Turned(part, deg)` | Placement |
 | a part (or cell) beside another item's envelope, a gap off it | `at=Beside(item, Edge.EAST, align=, gap=)` | Placement |
+| a part's pad a lane (or the clearance) past other pads, a track between | `at=Beside(item, Edge.SOUTH, align=(own_pad, Past([PadRef(...)], Edge.WEST, lane=Net(...))))` | Placement |
 | a cell placed by one of its members' pads | `at=Pin(CellPadRef(cell, net=), x, y)` | Placement |
 | a part's rotation that faces a board edge or a bearing | `board.outward_rotation(item, edge)` | Faces |
 | a part and the parts at its pins | `board.block(anchor, satellites=[(item, net), ...])` | Blocks |
@@ -62,8 +63,9 @@ and write that form. When nothing here says it, do not compute it: see
 | a track from a pad to a pad | `board.track(net, [PadRef(a), PadRef(b)], layer=)` | Copper |
 | which end of a track's off-grid leg takes the 45 | `board.track(..., bend=Bend.START/END/BOTH)` | Copper |
 | a track through the gap between two pads | `board.track(net, [..., Between(PadRef(a), PadRef(b)), ...], layer=)` | Copper |
-| a track held the clearance off a pad's side | `board.track(net, [..., Past([PadRef(...), ...], Edge.EAST), ...], layer=)` | Copper |
+| a track held the clearance off pads, vias or tracks | `board.track(net, [..., Past([PadRef(...), via, ...], Edge.EAST, across=), ...], layer=)` | Copper |
 | a via at the nearest legal spot to a pad | `board.via(net, FreeSpot(near=PadRef(...)))` | Copper |
+| a via its clearance past pads, vias or tracks, on a pad's axis | `board.via(net, at=Past([PadRef(...), ...], Edge.SOUTH, across=PadRef(...)))` | Copper |
 | a power or exposed pad filled with vias | `board.vias(net, PadRef(...))` | Copper |
 | vias in a row out from a pad, along its escape axis | `board.vias(net, along=PadRef(...), count=N)` | Copper |
 | stitching vias over a cell, a pour or a keepout | `board.stitch(net, region)` | Copper |
@@ -290,11 +292,28 @@ start, `END` flush with its end, `MID` (default) centred. The pad may be
 capacitor, level with a driver's pin, is `Beside(Part("c_boot"),
 Edge.WEST, align=PadRef(Part("u1"), "SW"))`.
 
+`align=(own_pad, Past(pads, Edge.WEST, lane=None))` stands the own pad's
+facing edge past the pads' `edge` side instead of level with a pad. The
+distance is the worst clearance, by net pair, from the own pad's net to
+the pads'; with `lane=` a net it is room for one track of that net between
+them: the clearance from the pads to the net, its track width, and the
+clearance from the net to the own pad. `Beside`'s side still decides the
+other axis, so the Past's edge is on the axis the side leaves open (`EAST`
+or `WEST` beside a `NORTH` or `SOUTH` side). A placement is decided before
+any copper is planned, so the Past takes pads only - a via or a track is
+refused - and takes no `across=`. The pads' parts are placed firmly first,
+as for any firm placement. The track then takes the same line as a
+waypoint, `Past([PadRef(...)], Edge.WEST)`.
+
 ```python
 board.place(Part("c_bypass"), at=Beside(Part("u1"), Edge.WEST, align=PadRef(Part("u1"), "VDD")))
 board.place(Cell("led_ring"), at=Beside(Part("j_conn"), Edge.SOUTH))          # MID of the connector's south side
 clr = board.keepout(Circle(10.0), "ant", at=PadRef(ANT, "FEED"), allow=(ANT,), why="the matching network")
 board.place(Part("r_series"), at=Beside(clr, Edge.NORTH, align=Along.START, gap=0.3))
+board.place(Part("u2"), at=Beside(Part("c_vdd"), Edge.SOUTH,                # its pad 1 a lane west of c_in's pad 1
+                                  align=(1, Past([PadRef(Part("c_in"), 1)], Edge.WEST, lane=Net("EN")))))
+board.track(Net("EN"), [PadRef(Part("u1"), "EN"), Past([PadRef(Part("c_in"), 1)], Edge.WEST),
+                        PadRef(Part("u2"), 1)], layer=CopperLayer.F)
 ```
 
 **Rows.** Things along one edge, in order, `gap` apart (default 0:
@@ -1025,10 +1044,25 @@ that must return is written as one chain: `..., (band, Y(pin)), pin,
 middle of the gap between two pads - halfway between their facing edges,
 centred across where they face each other - resolved once both are placed: the
 gap must hold the track's own width plus its clearance to each pad's net,
-or the declaration is a finding naming both pads. `Past([PadRef(...), ...],
-Edge.EAST)` is a point the track's own clearance off the given pads'
-`edge` side, centred across their combined box. Both are accepted wherever
-a track point is.
+or the declaration is a finding naming both pads. `Past(items, Edge.EAST,
+across=None)` is a point the clearance off the `edge` side of some copper.
+`items` are pads (`PadRef`/`CellPadRef`), vias (what `board.via()` or
+`board.vias()` returns) and tracks (what `board.track()` returns), in any
+mix. The edge is read off their combined copper box; the offset is half the
+track's width plus the worst clearance, by net pair, from the track to any
+of them. `across=` says where the point lies across the edge: a `PadRef` or
+a via puts it on that pad's or via's centre line, an `Along` at that point
+of the box's side (default `Along.MID`, the middle). The point waits for
+its pads to be placed and its vias and tracks to be planned. A track whose
+`Past` names a via that found no spot, or a track that was not drawn, is
+not drawn, and the finding names both. Both are accepted wherever a track
+point is.
+
+```python
+v = board.via(Net("SIG_N"), FreeSpot(near=PadRef(Part("j1"), 3)))
+board.track(Net("SIG_P"), [PadRef(Part("j1"), 2), Past([v], Edge.SOUTH), PadRef(Part("j1"), 8)],
+            layer=CopperLayer.F)                 # a U-turn a track's clearance under the via
+```
 
 **Who bridges.** Where two tracks of different nets cross on one layer, the
 lower `priority` passes under; at equal priority the shorter one does; a
@@ -1060,6 +1094,7 @@ placement on it says which pad that was. Name the number to pick another.
 board.track(net, [p1, p2, ...], layer=CopperLayer.F, width=None, chamfer=None, bend=None, priority=Priority.DEFAULT, bridge=False)
 board.via(net, point)
 board.via(net, FreeSpot(near=PadRef(...), radius=2.0))               # the nearest legal spot to a pad, joined to it by its tail
+board.via(net, Past([PadRef(...), ...], Edge.SOUTH, across=None))    # its radius plus its clearance off the items' side
 board.vias(net, PadRef(...), pitch=None, size=None, drill=None, inset=0)  # a pad filled with a grid of vias, turned with its part
 board.vias(net, along=PadRef(...), count=N, pitch=None, size=None, drill=None)  # a row out from a pad, along its escape axis
 board.stitch(net, region, pitch=None, size=None, drill=None, edge=False)  # vias in a grid over a cell, a pour or a keepout
@@ -1120,6 +1155,21 @@ and a `board.track()` may end on it - `v = board.via(GND, FreeSpot(...))`,
 then `board.track(GND, [v, PadRef(...)], layer=B)` - so a searched part's
 via is joined on wherever the part lands. A track through a via that found
 no spot is not drawn, and the finding says so.
+
+**A via past copper.** `board.via(net, at=Past(items, Edge.SOUTH,
+across=PadRef(...)))` stands the via off the items' `edge` side by its
+radius plus the worst clearance, by net pair, to any of them: pads, vias
+and tracks, as a track's `Past` takes (Lane waypoints). `across=` a pad
+puts it on that pad's axis. A track may end on it, and a later `Past` may
+name it, so a row of vias under a connector's contact tips and a track's
+U-turn under the vias are said without a coordinate:
+
+```python
+tips = [PadRef(Part("j1"), n) for n in range(1, 13)]
+v = [board.via(Net("SIG_N"), at=Past(tips, Edge.SOUTH, across=PadRef(Part("j1"), n))) for n in (4, 9)]
+board.track(Net("SIG_P"), [PadRef(Part("j1"), 5), Past(v, Edge.SOUTH), PadRef(Part("j1"), 8)],
+            layer=CopperLayer.F)
+```
 
 **A pad filled with vias.** `board.vias(net, PadRef(...))` fills a power or
 exposed pad with a square grid of vias, placed once the pad's part is: in the

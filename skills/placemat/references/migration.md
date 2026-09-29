@@ -36,6 +36,27 @@ reads as a conflict with a track or pad of one of its net-tie pads' nets
 where the two meet inside that pad, as KiCad's DRC allows: a track ending on
 a winding's terminal pad was reported 0.00 mm from the footprint's copper.
 
+`Past(items, Edge.X)` takes vias (what `board.via()` or `board.vias()`
+returns) and tracks (what `board.track()` returns) as well as pads, in any
+mix, each held off by the clearance of its own net. `across=` puts the
+point on a pad's or a via's centre line, or at an `Along` of the items'
+side, in place of the middle. A track waypoint computed by hand from a
+via's centre, its size and the clearance - a track's U-turn under a row of
+vias - is `Past([vias], Edge.SOUTH)`.
+
+`board.via(net, at=Past(items, Edge.X, across=PadRef(...)))` stands a via
+its radius plus its clearance off the items' side, on the pad's axis. A via
+placed at a pad tip's coordinate plus the clearance plus half the via's
+size, computed by hand, can be said this way.
+
+`Beside(item, Edge.X, align=(own_pad, Past(pads, Edge.Y, lane=Net(...))))`
+stands a part's pad a lane past other pads - the clearance to the lane's
+net, its track width, and the clearance to the pad - while `Beside` decides
+the other axis. Without `lane=` the pad stands the clearance off. A part
+placed with its pad offset by hand from another part's pad by half pad
+widths and a lane can be said this way. The Past takes pads only: a
+placement is decided before copper is planned.
+
 ## To 0.54.1
 
 Two `swallow_pads` pours of different nets now keep the netclass clearance

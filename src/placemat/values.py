@@ -182,6 +182,9 @@ class Beside:
     - `(own_pad, their_pad)`: an own pad key and a `PadRef`, for when the
       nets differ;
     either pad may be `item`'s or any other part's placed firmly by then;
+    - `(own_pad, Past(pads, edge, lane=))`: the own pad's facing edge the
+      clearance past the pads' `edge` side, or with `lane=` a net, room for
+      one track of it between them;
     - an `Along` of `item`'s side (default `Along.MID`).
 
     Firm, like `Pin`: the position is decided, not searched. The
@@ -520,21 +523,56 @@ class Between:
     b: object
 
 
+_PAST_COPPER = ("via", "vias", "track")       # the first word of a copper declaration's key Past may name
+
+
 @dataclass(frozen=True)
 class Past:
-    """A track waypoint the track's own clearance off the given pads' `edge`
-    side, centred across them: `Past([PadRef(a), PadRef(b)], Edge.EAST)`.
-    Resolved when every pad is placed, against the track's own width and net
-    class."""
-    pads: tuple
+    """A point the clearance off the `edge` side of some copper:
+    `Past([PadRef(a), PadRef(b)], Edge.EAST)`. `items` are pads
+    (`PadRef`/`CellPadRef`), vias (what `board.via()` or `board.vias()`
+    returns) and tracks (what `board.track()` returns), in any mix; the edge
+    is read off their combined copper box, and the offset is the worst
+    clearance by net pair from what stands at the point.
+
+    `across` sets where the point lies across `edge`: on a pad's or a via's
+    centre line, or at an `Along` of the box's side (default the middle).
+
+    As a track waypoint the point is half the track's width further out; as
+    a via's `at=`, the via's radius. In `Beside`'s align pair, `lane=` a net
+    leaves room for one track of it between the items and the part's pad.
+
+    Resolved when every pad is placed and every via and track planned."""
+    items: tuple
     edge: object
+    across: object = field(default=None, metadata={"omit_default": True})
+    lane: object = field(default=None, metadata={"omit_default": True})
 
     def __post_init__(self):
-        object.__setattr__(self, "pads", tuple(self.pads))
-        if not self.pads:
-            raise ValueError("Past needs at least one pad")
+        from .layout import CopperIntent
+        object.__setattr__(self, "items", tuple(self.items))
+        if not self.items:
+            raise ValueError("Past needs at least one pad, via or track")
         if not isinstance(self.edge, Edge):
             raise TypeError("Past's edge is an Edge, not %r" % (self.edge,))
+        for it in self.items:
+            if isinstance(it, CopperIntent):
+                if it.key.split(" ")[0] not in _PAST_COPPER:
+                    raise TypeError("Past's items are pads, vias and tracks; %s is neither a via nor a track"
+                                    % it.key)
+            elif not isinstance(it, (PadRef, CellPadRef)):
+                raise TypeError("Past's items are pads (PadRef, CellPadRef), vias and tracks, not %r" % (it,))
+        a = self.across
+        if not (a is None or isinstance(a, (PadRef, CellPadRef, Along))
+                or (isinstance(a, CopperIntent) and a.key.split(" ")[0] == "via")):
+            raise TypeError("Past's across is a PadRef, a via or Along.START/MID/END, not %r" % (a,))
+        if self.lane is not None and not isinstance(self.lane, Net):
+            raise TypeError("Past's lane is a Net, not %r" % (self.lane,))
+
+    @property
+    def pads(self) -> tuple:
+        """The pads among `items`."""
+        return tuple(it for it in self.items if isinstance(it, (PadRef, CellPadRef)))
 
 
 class LinkWeight(IntEnum):
