@@ -3,7 +3,7 @@ import pytest
 block is laid out from the anchor's real pads at every candidate, so its
 envelope is exact, and searched as one thing."""
 from placemat.layout import Board
-from placemat.values import Along, Edge, Near, OnEdge, OnRim, Polar, Cell, Location, Part, PadRef
+from placemat.values import Along, Edge, Near, OnEdge, OnRim, Pin, Polar, Cell, Location, Part, PadRef
 from tests.fixtures import board_geometry, footprint, declared_findings
 
 import dataclasses as _dc
@@ -519,3 +519,12 @@ def test_a_block_may_overhang_a_run():
     plan = b.resolve()
     assert declared_findings(plan) == []
     assert plan.box("ldo").top == pytest.approx(part_plan.box("ldo").top, abs=1e-4)
+
+
+def test_a_block_placed_by_a_pin_is_refused_by_name_not_called_a_cell():
+    b = make_board()
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")], gap=0.5)
+    with pytest.raises(TypeError) as exc:
+        b.place(blk, at=Pin(1, 30.0, 40.0))
+    assert "block" in str(exc.value)
+    assert "cell" not in str(exc.value)

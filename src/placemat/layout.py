@@ -1599,7 +1599,9 @@ class Board:
             pass
         elif isinstance(at, Pin):
             if kind != "part":
-                raise TypeError("%s: a Pin places a part by its pad; a cell has no pad of its own" % key)
+                what = "a block is placed by its anchor's position, not a pad" if kind == "block" else \
+                    "a cell has no pad of its own"
+                raise TypeError("%s: a Pin places a part by its pad; %s" % (key, what))
             geom.pad(at.key)                                # a real pad of this part, checked now
             pin, center, at = at.key, (at.x, at.y), None
         elif isinstance(at, OnEdge) and isinstance(at.edge, CutoutEdge):
