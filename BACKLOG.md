@@ -8,7 +8,7 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 ## Open
 
 - **The intent relations layout scripts are missing** (audits 2026-09-29;
-  spec `2026-09-29-missing-intent-relations-design.md`, awaiting approval):
+  spec `2026-09-29-missing-intent-relations-design.md`, approved):
   Beside, a row along a part, Between/Past track waypoints, the 45 end of a
   leg, via rows and stitching, a cell placed by a member's pad, a keepout
   shaped by an item, one-axis fit, a two-pad pour, a finger as wide as a pad.

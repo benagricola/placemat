@@ -1,7 +1,7 @@
 # The intent relations layout scripts are missing
 
 Date: 2026-09-29
-Status: draft (item 2 corrected: the pour over pads exists)
+Status: approved 2026-09-29 (item 2 corrected: the pour over pads exists)
 Replaces: 2026-09-29-pad-references-design.md (withdrawn: it made coordinate
 arithmetic official instead of naming the relations)
 Source: docs/audits/2026-09-29-intent-vocabulary.md (section 3) and
