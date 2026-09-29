@@ -1,7 +1,7 @@
 # Straighter routes: the router's turn cost
 
 Date: 2026-09-29
-Status: draft (replaces the draft "Routes kept smooth" of the same day)
+Status: approved 2026-09-29
 Source: PLACEMAT_GAPS.md (fairing), 2026-09-29 "how jagged the kept routes
 are": 3262 bends over 2279 mm on 71 kept nets; SDA 195 bends in 100 mm.
 The user, 2026-09-29: "we're using it quite naively"

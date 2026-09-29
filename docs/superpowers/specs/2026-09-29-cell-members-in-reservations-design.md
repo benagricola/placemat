@@ -1,7 +1,7 @@
 # A cell judged member by member against a reservation
 
 Date: 2026-09-29
-Status: draft
+Status: approved 2026-09-29
 Source: PLACEMAT_GAPS.md (fairing), 2026-09-29 "a cell whose tall member must
 stay out of a height band": the enclosure's rule that a front part over
 1.5 mm keeps its whole body inside r 19.2, applied to a cell with a 1.8 mm
