@@ -10,9 +10,11 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **The fragment each stamped part came from, in `parts`** (PLACEMAT_GAPS
   2026-09-29 "which fragment a nested module's parts came from"), or
   "ignored: ancestor authoritative".
-- **One land of a multi-land pin** (PLACEMAT_GAPS 2026-09-29): `PadRef`
-  names the first land; a pin drawn as a tab, small pads and an exposed pad
-  needs the largest (or an index), and the union's box.
+- **One land of a multi-land pin** (PLACEMAT_GAPS 2026-09-29): a `PadRef`
+  locates at the centre of all a pin's lands, and a pour over pads
+  (`Cover.HULL`) covers every land, which is the pour the entry needed;
+  naming one land (the largest, or by index) is still open, for a track
+  or a via to end on it.
 - **Reference arithmetic or a 45-degree lane** (PLACEMAT_GAPS 2026-09-29 "a
   position that is a sum of an x and a y"; needs a spec): `X(a) + Y(b) - k`
   or a `Diagonal(ref, clearance)` lane; `X(Part)` is the box centre, not the
