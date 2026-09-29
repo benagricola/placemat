@@ -31,7 +31,33 @@ pad boxes or envelopes can go.
 A pour grown over pads (`swallow_pads=True`) now pulls back from every other
 net's copper on its layer to the netclass clearance, as a zone fill does,
 and keeps only the pieces touching its pads: one that came within clearance
-of a pad beside the pads it covers is clean now.
+of a pad beside the pads it covers is clean now. The pull-back now also
+reaches a pad with no net, or on a net this board's geometry does not know
+(the board's own default clearance for either), reads each pad's real
+shape rather than its bounding box, and reaches copper already on the
+board before this run (a stamped cell's own tracks, vias and pours), not
+only what this run itself plans; a piece the pull-back splits off keeps
+every one now, not just the first, once the board is saved and reloaded.
+Only a same-net pad among a pour's declared
+points is one of its own pads - a corner given as another net's pad shapes
+the outline near it and is never swallowed or checked as joined. The plan
+report does not check a `swallow_pads` pour's clearance to other nets
+either (placemat has no polygon subtract to compute the write-time
+pull-back at plan time, so a finding there would be wrong once the pour is
+written); the pour still occupies the board at its declared shape, so it
+remains an obstacle for copper planned after it.
+
+`board.stitch(net, region, pitch=None, size=None, drill=None, edge=False)`
+now refuses at declaration, rather than planning nothing and saying no via
+fit: a keepout region whose `excludes` forbids vias (the default) and does
+not `allow` the stitching net; a pour region of a different net.
+`edge=True` rows the vias along the region's own outline instead of
+filling its inside.
+
+`Between`/`Past` no longer raise a `KeyError` naming an empty net when the
+gap or the side they measure sits next to a pad with no net; they fall
+back to the board's default clearance for it, as the occupancy's own
+conflict check already did.
 
 A keepout or cutout with `rotation=Turned(part, degrees)` now turns the
 way its part does: an asymmetric one turned the opposite way at 90 and 270

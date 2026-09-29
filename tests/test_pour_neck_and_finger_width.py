@@ -69,6 +69,20 @@ def test_a_pour_neck_and_swallow_still_grows_over_the_pads(monkeypatch):
     assert set(p.named_pads) == {("PA.1", (20.0, 20.0)), ("PB.1", (26.0, 20.0))}
 
 
+def test_a_pours_corner_naming_another_nets_pad_is_not_a_named_pad():
+    """A polygon corner may be given as a PadRef purely to shape the pour
+    close to another part's pad, not to swallow it: only a same-net pad is
+    one of the pads the pull-back must still touch."""
+    pa = _one_pad_part("PA", "pa", "V48", 20.0, 20.0, 2.0, 2.0)
+    foreign = _one_pad_part("PF", "pf", "GND", 26.0, 20.0, 1.0, 1.0)
+    b = Board(board_geometry([pa, foreign], width=60, height=60), edge_margin=1.0)
+    b.pour(Net("V48"), [PadRef(Part("pa"), 1), Location(25.0, 15.0), PadRef(Part("pf"), 1), Location(15.0, 25.0)],
+          layer=CopperLayer.F, swallow_pads=True)
+    plan = b.resolve()
+    p = _points(plan)
+    assert p.named_pads == (("PA.1", (20.0, 20.0)),)
+
+
 def test_a_finger_may_run_as_wide_as_a_named_pad():
     pw = _one_pad_part("PW", "pw", "V48", 20.0, 20.0, 1.0, 3.0)
     b = Board(board_geometry([pw], width=60, height=60), edge_margin=1.0)

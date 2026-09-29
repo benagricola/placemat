@@ -2812,13 +2812,16 @@ class Board:
         return intent
 
     def stitch(self, net, region, *, pitch: float | None = None, size: float | None = None,
-               drill: float | None = None, priority: Priority = Priority.DEFAULT, why: str = ""):
-        """Stitching vias of `net` in a grid over `region` - a `Cell`, the
+               drill: float | None = None, edge: bool = False, priority: Priority = Priority.DEFAULT,
+               why: str = ""):
+        """Stitching vias of `net` over `region` - a `Cell`, the
         `CopperIntent` `board.pour()` returns, or a keepout's name - `pitch`
         apart (by default the via-to-via rule: the larger of the via's own
         size and a drilled hole plus the hole-to-hole rule), each one wholly
         inside the region and clear of every other net's copper, hole,
-        keepout and the board edge. Resolved once the region itself is:
+        keepout and the board edge. A grid over the whole region by default;
+        `edge=True` instead rows them along the region's own outline, a
+        via's clearance in from it. Resolved once the region itself is:
         after the cell is placed, the pour is drawn, or the keepout is
         settled."""
         name = self.geometry.require_net(net)
@@ -2835,36 +2838,52 @@ class Board:
             if not region.key.startswith("pour "):
                 raise TypeError("%s: stitch's region is a Cell, a keepout's name, or the CopperIntent "
                                 "board.pour() returns, not %r" % (name, region.key))
+            if region.net != name:
+                raise ValueError("%s: stitch's region is a pour of net %r; stitching vias join the pour "
+                                 "they sit on, so they must be its own net" % (name, region.net))
             extra_owners, pour_intent = region.owners, region
         elif isinstance(region, Cell):
             refs = (region,)
         elif isinstance(region, str):
             if region not in self._keepouts:
                 raise KeyError("no keepout named %r on this board" % (region,))
+            k = self._keepouts[region]
+            if "vias" in k.excludes and name not in k.allow:
+                raise ValueError("%s: keepout %r excludes vias (excludes=%s), so no via could stand anywhere "
+                                 "in it; add %r to its allow=, or narrow its excludes=" % (
+                                     name, region, list(k.excludes), name))
         else:
             raise TypeError("%s: stitch's region is a Cell, a keepout's name, or the CopperIntent "
                             "board.pour() returns, not %r" % (name, region))
+
+        def candidates(poly):
+            if not edge:
+                box = Box.of_points(poly)
+                y = box.top + step / 2.0
+                while y <= box.bottom - step / 2.0 + 1e-6:
+                    x = box.left + step / 2.0
+                    while x <= box.right - step / 2.0 + 1e-6:
+                        yield x, y
+                        x += step
+                    y += step
+                return
+            inset = s / 2.0 + (nc.clearance if nc else self.geometry.default_clearance)
+            yield from _stitch_edge_points(poly, step, inset)
 
         def plan(ctx):
             poly = _stitch_region(self, ctx, region, pour_intent)
             if poly is None:
                 ctx.notes.append("stitch %s: its region is not drawn, so there is nothing to stitch over" % name)
                 return []
-            box = Box.of_points(poly)
             obstacles = self._via_obstacles(ctx)
             vias = []
-            y = box.top + step / 2.0
-            while y <= box.bottom - step / 2.0 + 1e-6:
-                x = box.left + step / 2.0
-                while x <= box.right - step / 2.0 + 1e-6:
-                    at = Location(round(x, 6), round(y, 6))
-                    if (poly_within(circle_polygon(at, s / 2.0, 24), poly)
-                            and self._via_site_why(ctx, at, name, s, d, obstacles) is None):
-                        via = Via(name, at, d, s)
-                        vias.append(via)
-                        ctx.planned_vias.append(via)
-                    x += step
-                y += step
+            for x, y in candidates(poly):
+                at = Location(round(x, 6), round(y, 6))
+                if (poly_within(circle_polygon(at, s / 2.0, 24), poly)
+                        and self._via_site_why(ctx, at, name, s, d, obstacles) is None):
+                    via = Via(name, at, d, s)
+                    vias.append(via)
+                    ctx.planned_vias.append(via)
             if not vias:
                 ctx.notes.append("stitch %s: no via fits in the region at a %.2f mm pitch" % (name, step))
             return vias
@@ -3025,7 +3044,7 @@ class Board:
             else:
                 pts = tuple((l.x, l.y) for l in (ctx.locate(p) for p in points))
             ctx.pour_at[intent.index] = pts       # a stitch over this pour, once it is drawn
-            named = tuple(_named_pad(self, ctx, p) for p in points)
+            named = tuple(_named_pad(self, ctx, name, p) for p in points)
             named = tuple(n for n in named if n is not None)
             return [Pour(name, layer, pts, stroke, swallow_pads, named)]
         intent = self._copper_intent("pour %s" % name, net, priority, plan, refs, why)
@@ -3966,12 +3985,21 @@ class Board:
             shape = _shape_of(op)
             if shape is None:
                 continue
-            for hit in occ.copper_conflicts(shape):
-                note = "copper %s: %s" % (op.net, hit)
-                if isinstance(op, Track) and op.chamfer_cut:
-                    mx, my = (op.start.x + op.end.x) / 2.0, (op.start.y + op.end.y) / 2.0
-                    note += "; the 45 of its chamfer at (%.2f, %.2f); a smaller chamfer= there keeps clear" % (mx, my)
-                plan.findings.append(Finding("copper", note))
+            # A swallow pour is drawn exactly as declared here, but the writer (kicad/write.py's
+            # _draw_pour) pulls it back from every other net's copper to the netclass clearance
+            # before saving it - and placemat's geometry (geometry.py) and its native module have
+            # no polygon subtract to compute that pull-back here too. A clearance finding measured
+            # against this raw shape would report a problem the written board never has, so it is
+            # left out; the raw shape still goes into the occupancy below, so it stays an obstacle
+            # for copper planned after it, the same as the writer keeps it one.
+            skip_findings = isinstance(op, Pour) and op.swallow_pads
+            if not skip_findings:
+                for hit in occ.copper_conflicts(shape):
+                    note = "copper %s: %s" % (op.net, hit)
+                    if isinstance(op, Track) and op.chamfer_cut:
+                        mx, my = (op.start.x + op.end.x) / 2.0, (op.start.y + op.end.y) / 2.0
+                        note += "; the 45 of its chamfer at (%.2f, %.2f); a smaller chamfer= there keeps clear" % (mx, my)
+                    plan.findings.append(Finding("copper", note))
             shapes.append(shape)
             if isinstance(op, Via):
                 shapes.append(hole_shape("", op.at, op.drill, op.net))     # what is placed after keeps its holes clear
@@ -5058,13 +5086,18 @@ def _escape_axis(occ: Occupancy, owner: str, number: str) -> tuple:
     return (dx / n, dy / n) if n > 1e-9 else (1.0, 0.0)
 
 
-def _named_pad(board: "Board", ctx: "_CopperContext", p) -> tuple | None:
-    """(label, (x, y)) for a point that names a pad, else None: what a
-    `swallow_pads` pour's pull-back checks are still joined to the result
-    once it pulls back from foreign copper."""
+def _named_pad(board: "Board", ctx: "_CopperContext", net: str, p) -> tuple | None:
+    """(label, (x, y)) for a point that names a same-net pad, else None: what
+    a `swallow_pads` pour's pull-back checks are still joined to the result
+    once it pulls back from foreign copper. A point that names another net's
+    pad is a corner reference only - the pour never grows over it and the
+    pull-back cuts it clear like any other foreign pad, so it is not one of
+    the pads the result must still touch."""
     if not isinstance(p, (PadRef, CellPadRef)):
         return None
     owner, number, _, _ = board._pad_ref(p)
+    if _pad_shapes(board, ctx.occ, p)[0].net != net:
+        return None
     at = ctx.locate(p)
     return ("%s.%s" % (owner, number), (at.x, at.y))
 
@@ -5088,6 +5121,16 @@ def _pad_half_across(board: "Board", occ: Occupancy, ref, centre: Location, ux: 
               for sh in _pad_shapes(board, occ, ref) for px, py in sh.poly)
 
 
+def _pad_clearance(board: "Board", net: str, pad_net: str) -> float:
+    """The clearance a track of `net` keeps from a pad of `pad_net`: the
+    board default when the pad has no net (occupancy.py's copper_conflicts
+    falls back the same way) - a corner-reference pad with GetNetCode() <= 0
+    names no netclass to look up."""
+    if pad_net not in board.geometry.nets:
+        return board.geometry.default_clearance
+    return board.geometry.clearance(net, pad_net)
+
+
 def _between_point(board: "Board", ctx: "_CopperContext", net: str, width: float, p: Between) -> Location:
     """Between(a, b)'s point: the midpoint of the gap's centreline, and a
     note when the gap does not fit the track and its clearance to each
@@ -5095,7 +5138,7 @@ def _between_point(board: "Board", ctx: "_CopperContext", net: str, width: float
     from .geometry import poly_distance
     sa, sb = _pad_shapes(board, ctx.occ, p.a), _pad_shapes(board, ctx.occ, p.b)
     gap = min(poly_distance(x.poly, y.poly) for x in sa for y in sb)
-    need = width + board.geometry.clearance(net, sa[0].net) + board.geometry.clearance(net, sb[0].net)
+    need = width + _pad_clearance(board, net, sa[0].net) + _pad_clearance(board, net, sb[0].net)
     if gap < need - 1e-6:
         oa, na, _, _ = board._pad_ref(p.a)
         ob, nb, _, _ = board._pad_ref(p.b)
@@ -5120,7 +5163,7 @@ def _past_point(board: "Board", ctx: "_CopperContext", net: str, width: float, p
     of the pads off their `edge` side, centred across their combined box."""
     shapes = [sh for ref in p.pads for sh in _pad_shapes(board, ctx.occ, ref)]
     box = Box.union([sh.box for sh in shapes])
-    off = width / 2.0 + max(board.geometry.clearance(net, sh.net) for sh in shapes)
+    off = width / 2.0 + max(_pad_clearance(board, net, sh.net) for sh in shapes)
     if p.edge is Edge.EAST:
         return Location(round(box.right + off, 6), round((box.top + box.bottom) / 2.0, 6))
     if p.edge is Edge.WEST:
@@ -5142,6 +5185,32 @@ def _stitch_region(board: "Board", ctx: "_CopperContext", region, pour_intent) -
         return box_polygon(Box.union([ctx.occ.items[fp.ref].body for fp in geom.members]))
     placed = ctx.plan.keepouts.get(region) if ctx.plan else None
     return None if placed is None else placed.poly
+
+
+def _stitch_edge_points(poly, step: float, inset: float):
+    """Via centres in a row along each edge of `poly`, `step` apart, `inset`
+    in from it along the inward normal: `stitch(edge=True)`'s row hugging a
+    region's own outline, not a grid over its whole inside. Marches from
+    each corner rather than centring on the edge, the same way the interior
+    grid marches from the region's box rather than centring on it; the
+    site's own poly_within/`_via_site_why` check in `stitch()` drops
+    whatever does not fit."""
+    for i in range(len(poly)):
+        ax, ay = poly[i]
+        bx, by = poly[(i + 1) % len(poly)]
+        dx, dy = bx - ax, by - ay
+        length = math.hypot(dx, dy)
+        if length < 1e-9:
+            continue
+        ux, uy = dx / length, dy / length
+        nx, ny = uy, -ux                # perpendicular to the edge, one of the two inward/outward normals
+        mx, my = (ax + bx) / 2.0, (ay + by) / 2.0
+        if not point_in_polygon((mx + nx * 1e-6, my + ny * 1e-6), poly):
+            nx, ny = -nx, -ny           # the other side is the inward one
+        t = inset
+        while t <= length - inset + 1e-6:
+            yield (ax + ux * t + nx * inset, ay + uy * t + ny * inset)
+            t += step
 
 
 def _cutout_half_across(cutout, bearing_deg: float) -> float:

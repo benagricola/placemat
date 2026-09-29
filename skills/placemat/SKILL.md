@@ -76,6 +76,9 @@ shrink - the maintainers are building these.
 - A column of parts held a clearance off pad ends. A lane held a clearance
   off another track (`Between`/`Past` hold one off pads; not yet off a
   track).
+- Vias in rows under a pin row - one via per pin, along a whole row of
+  same-net pads (`vias(along=PadRef(...), count=N)` marches out from one
+  named pad; it does not place one via per pad along a row of them).
 - A keepout shaped like an absolute region with no item to anchor it (a
   sector, a band inset from the outline).
 

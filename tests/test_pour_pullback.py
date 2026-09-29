@@ -15,7 +15,7 @@ from placemat.geometry import point_in_polygon, poly_distance
 from placemat.kicad.read import read_board
 from placemat.kicad.write import apply_plan
 from placemat.layout import Board
-from placemat.values import CopperLayer, Location, Net
+from placemat.values import Box, CopperLayer, Location, Net
 from tests.conftest import needs_kicad
 
 pytestmark = needs_kicad
@@ -33,7 +33,8 @@ def _add_pad(fp, number, net, x, y, w=1.0, h=1.0):
     pad.SetPosition(_vec(x, y))
     pad.SetAttribute(pcbnew.PAD_ATTRIB_SMD)
     pad.SetLayerSet(pcbnew.PAD.SMDMask())
-    pad.SetNet(net)
+    if net is not None:            # None: no net at all (GetNetCode() <= 0), same as a fiducial or a locating pad
+        pad.SetNet(net)
     fp.Add(pad)
     return pad
 
@@ -56,6 +57,9 @@ def _board(tmp_path, pads, clearance=0.16):
     fp.SetPosition(_vec(20, 20))
     b.Add(fp)
     for number, net_name, x, y, w, h in pads:
+        if net_name is None:            # a pad with no net at all
+            _add_pad(fp, number, None, x, y, w, h)
+            continue
         if net_name not in nets:
             n = pcbnew.NETINFO_ITEM(b, net_name)
             b.Add(n)
@@ -97,6 +101,39 @@ def test_a_swallow_pour_keeps_the_clearance_from_a_foreign_pad_beside_it(tmp_pat
         assert any(point_in_polygon((c.x, c.y), o) for p in polys for o in p.outlines), number
 
 
+def test_migration_a_pads_pour_over_a_row_keeps_clearance_from_a_foreign_pad(tmp_path):
+    """docs/audits/2026-09-29-layout-scripts.md ("L197 `pour_box` over pins
+    1-3 plus a via's width"): a `pour_box`-style pour, hand-built from the
+    same-net pads' own union grown by a margin, run over a row with another
+    net's pad close beside it. Rewritten as `board.pour(...,
+    swallow_pads=True)`, the written pour must still cover the row and keep
+    the netclass clearance from the foreign pad - measured on the written
+    board, not the declared shape."""
+    pcb = _board(tmp_path, _THREE_AND_A_NEIGHBOUR, clearance=0.16)
+    b = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
+    b.size(width=40.0, height=40.0)
+    # pour_box's own arithmetic: the row's own pads, boxed and grown by a via's width
+    row = Box.union([Box(x - 0.5, y - 0.5, x + 0.5, y + 0.5) for _, net, x, y, _, _ in _THREE_AND_A_NEIGHBOUR
+                     if net == "PROBE_A"])
+    margin = 0.3
+    box = row.inflate(margin)
+    pts = [Location(box.left, box.top), Location(box.right, box.top),
+          Location(box.right, box.bottom), Location(box.left, box.bottom)]
+    b.pour(Net("PROBE_A"), pts, layer=CopperLayer.F, swallow_pads=True)
+    plan = b.resolve()
+    apply_plan(pcb, plan)
+    after = read_board(pcb)
+    u1 = after.footprint("U1")
+    pad4 = u1.pad(4)
+    polys = [c for c in after.copper if c.kind == "poly" and c.net == "PROBE_A"]
+    assert polys
+    gap = min(poly_distance(o, pad4.outlines[0]) for p in polys for o in p.outlines)
+    assert gap >= 0.16 - 1e-6, gap
+    for number in (1, 2, 3):
+        c = u1.pad(number).box.center
+        assert any(point_in_polygon((c.x, c.y), o) for p in polys for o in p.outlines), number
+
+
 def test_a_pour_without_swallow_pads_keeps_its_given_shape_exactly(tmp_path):
     """Documented and unchanged: no pull-back at all without swallow_pads."""
     pcb = _board(tmp_path, _THREE_AND_A_NEIGHBOUR, clearance=0.16)
@@ -111,6 +148,101 @@ def test_a_pour_without_swallow_pads_keeps_its_given_shape_exactly(tmp_path):
     assert len(polys) == 1
     box = polys[0].box
     assert (round(box.left, 2), round(box.top, 2), round(box.right, 2), round(box.bottom, 2)) == (9.0, 9.4, 15.0, 10.6)
+
+
+# pad 1 on PROBE_A; pad 4 a no-net pad (a fiducial, a locating pad, GetNetCode() <= 0) beside it
+_ONE_AND_A_NO_NET_NEIGHBOUR = [
+    ("1", "PROBE_A", 10.0, 10.0, 1.0, 1.0),
+    ("4", None, 10.0, 8.8, 1.0, 1.0),
+]
+
+
+def test_existing_board_copper_is_one_of_the_pull_backs_obstacles(tmp_path):
+    """Board copper not in plan.copper - a stamped cell's own track, carried
+    whole by `_move_cell` rather than planned this run - is still one of
+    the pull-back's obstacles.
+
+    Exercised directly against `_existing_board_copper`/
+    `_foreign_pour_obstacles` rather than through a full `apply_plan`
+    round trip: a floating track with no pad of its own net anywhere near
+    it is connectivity-orphaned, and KiCad's own `board.Save()` reassigns
+    such a track's net when it saves - a pcbnew quirk with nothing to do
+    with the pull-back this test targets."""
+    from placemat.copper import Pour
+    from placemat.kicad import write as W
+    pads = [("1", "PROBE_A", 10.0, 10.0, 1.0, 1.0), ("2", "PROBE_B", 30.0, 30.0, 1.0, 1.0)]
+    pcb = _board(tmp_path, pads, clearance=0.16)
+    raw = pcbnew.LoadBoard(str(pcb))
+    other = raw.FindNet("PROBE_B")
+    t = pcbnew.PCB_TRACK(raw)
+    t.SetLayer(pcbnew.F_Cu)
+    t.SetWidth(pcbnew.FromMM(0.3))
+    t.SetStart(_vec(9.0, 9.3))
+    t.SetEnd(_vec(11.0, 9.3))
+    t.SetNet(other)
+    raw.Add(t)
+    raw.Save(str(pcb))
+
+    geometry = read_board(pcb)
+    board = pcbnew.LoadBoard(str(pcb))
+    existing = W._existing_board_copper(board, geometry)
+    assert any(net == "PROBE_B" for _, net, _, _ in existing), existing
+
+    op = Pour("PROBE_A", CopperLayer.F, ((9.0, 9.4), (11.0, 9.4), (11.0, 10.6), (9.0, 10.6)), stroke=0.2)
+    obstacles = W._foreign_pour_obstacles(board, op, geometry, other_ops=(), existing=existing)
+    # the far PROBE_B pad (near 30, 30) is an obstacle regardless; the track (near 9.0-11.0, 9.3) is
+    # the one this fix adds
+    near_track = [poly for poly, _ in obstacles if any(8.0 <= x <= 12.0 and 9.0 <= y <= 9.6 for x, y in poly)]
+    assert near_track, obstacles
+
+
+def test_a_swallow_pour_keeps_the_clearance_from_a_pad_with_no_net(tmp_path):
+    """A pad with no net is still KiCad copper the pull-back must keep clear
+    of, at the board's own default clearance (it names no netclass to look
+    one up in)."""
+    pcb = _board(tmp_path, _ONE_AND_A_NO_NET_NEIGHBOUR, clearance=0.16)
+    b = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
+    b.size(width=40.0, height=40.0)
+    pts = [Location(9.0, 9.4), Location(11.0, 9.4), Location(11.0, 10.6), Location(9.0, 10.6)]
+    b.pour(Net("PROBE_A"), pts, layer=CopperLayer.F, swallow_pads=True)
+    plan = b.resolve()
+    apply_plan(pcb, plan)
+    after = read_board(pcb)
+    u1 = after.footprint("U1")
+    no_net_pad = u1.pad(4)
+    polys = [c for c in after.copper if c.kind == "poly" and c.net == "PROBE_A"]
+    assert polys
+    gap = min(poly_distance(o, no_net_pad.outlines[0]) for p in polys for o in p.outlines)
+    assert gap >= b.geometry.default_clearance - 1e-6, gap
+
+
+# pad 1, 2 on PROBE_A either side; pad 3 a tall PROBE_B pad between them, splitting the band in two
+_TWO_AND_A_SPLITTER = [
+    ("1", "PROBE_A", 10.0, 10.0, 1.0, 1.0),
+    ("2", "PROBE_A", 16.0, 10.0, 1.0, 1.0),
+    ("3", "PROBE_B", 13.0, 10.0, 1.0, 3.0),
+]
+
+
+def test_a_swallow_pour_keeps_every_piece_the_pull_back_splits_it_into(tmp_path):
+    """A pull-back that cuts a pour into several separate outlines must keep
+    every one once the board is saved and reloaded, not just the first: a
+    `PCB_SHAPE` of kind `gr_poly` writes only one outline, so the writer
+    must draw one `PCB_SHAPE` per surviving piece."""
+    pcb = _board(tmp_path, _TWO_AND_A_SPLITTER, clearance=0.16)
+    b = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
+    b.size(width=40.0, height=40.0)
+    pts = [Location(9.0, 9.4), Location(17.0, 9.4), Location(17.0, 10.6), Location(9.0, 10.6)]
+    b.pour(Net("PROBE_A"), pts, layer=CopperLayer.F, swallow_pads=True)
+    plan = b.resolve()
+    apply_plan(pcb, plan)
+    after = read_board(pcb)
+    u1 = after.footprint("U1")
+    polys = [c for c in after.copper if c.kind == "poly" and c.net == "PROBE_A"]
+    assert len(polys) >= 2, "the pull-back should have split the pour into two pieces"
+    for number in (1, 2):
+        c = u1.pad(number).box.center
+        assert any(point_in_polygon((c.x, c.y), o) for p in polys for o in p.outlines), number
 
 
 def test_a_named_pad_isolated_by_the_pull_back_is_a_finding(tmp_path):
