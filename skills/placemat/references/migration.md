@@ -6,6 +6,12 @@ whether any of it applies.
 
 ## Unreleased
 
+A cell nested in another cell's group (a module sheet's child) is written
+where the plan puts it: placing the parent moved the child group with it,
+after the child had been placed, off its spot with no finding. The parent
+carries only its own parts and copper, as the plan already judged it; a
+child that should travel with its parent is placed relative to it.
+
 A net-tie footprint's own copper (a winding joined to its pads) no longer
 reads as a conflict with a track or pad of one of its net-tie pads' nets
 where the two meet inside that pad, as KiCad's DRC allows: a track ending on

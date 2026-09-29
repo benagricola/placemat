@@ -69,6 +69,8 @@ def _move_cell(board, cell: CellGeom, target: Placement, groups: dict):
     dx, dy = t.apply((ref.location.x, ref.location.y))
     delta = vec(dx - ref.location.x, dy - ref.location.y)
     for it in groups[cell.name].GetItems():
+        if isinstance(it, pcbnew.PCB_GROUP):
+            continue        # a nested cell is its own: the plan's cell holds only its own parts and copper
         if flip:
             it.Flip(pivot, pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
         if target.rotation:

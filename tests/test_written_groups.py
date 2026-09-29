@@ -189,3 +189,19 @@ def test_an_item_named_twice_in_one_group_is_refused(breakout_pcb, tmp_path):
     b = Board(read_board(pcb), edge_margin=0.0, keep_going=True)
     with pytest.raises(ValueError, match="named twice"):
         b.group("dup", [Part(loose[0]), Part(loose[0])])
+
+
+def test_a_nested_cell_placed_apart_from_its_parent_is_written_where_the_plan_put_it(breakout_pcb, tmp_path):
+    """Placing the parent's group must not carry a nested cell the plan
+    placed on its own: the plan's parent holds only its own parts, so the
+    writer moves only those, not the child group inside it."""
+    pcb, loose = _module(breakout_pcb, tmp_path)
+
+    def script(b):
+        b.place(Cell("mod"), at=Location(15, 15))
+        b.place(Cell("power_drop0"), at=Location(35, 25))
+    plan = _write(pcb, script)
+    after = {fp.ref: fp.location for fp in read_board(pcb).footprints}
+    for ref in {m.ref for m in plan.geometry.cells["power_drop0"].members}:
+        want = plan.occupancy.items[ref].reference.location
+        assert (after[ref].x, after[ref].y) == pytest.approx((want.x, want.y), abs=0.01), ref

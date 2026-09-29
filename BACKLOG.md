@@ -7,10 +7,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **A nested cell placed apart from its parent lands off its spot**
-  (PLACEMAT_GAPS 2026-09-29 "which fragment a nested module's parts came
-  from"): the child is moved by the parent's translation, 48 mm off, with
-  no finding. Also: the fragment each stamped part came from in `parts`.
+- **The fragment each stamped part came from, in `parts`** (PLACEMAT_GAPS
+  2026-09-29 "which fragment a nested module's parts came from"), or
+  "ignored: ancestor authoritative".
 - **The segments a run drew, per net** (PLACEMAT_GAPS 2026-09-29 "the legs
   of the tracks a fragment drew", "a fragment's front copper without its
   zones"): `measure --copper [NET ...]` with each segment's layer, width and
