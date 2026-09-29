@@ -305,7 +305,10 @@ def finger_ops(net: str, layer: CopperLayer, a: Location, b: Location, width: fl
         s0, s1 = bounds[i], bounds[i + 1]
         if s1 > s0 + 0.05:
             (x0, y0), (x1, y1) = at(s0), at(s1)
-            ops.append(Pour(net, layer, ((x0 + nx, y0 + ny), (x1 + nx, y1 + ny), (x1 - nx, y1 - ny), (x0 - nx, y0 - ny))))
+            # stroke=0: the points are already width apart: the default pour stroke would
+            # draw the copper that much wider again, past what the script asked for.
+            ops.append(Pour(net, layer, ((x0 + nx, y0 + ny), (x1 + nx, y1 + ny), (x1 - nx, y1 - ny), (x0 - nx, y0 - ny)),
+                            stroke=0.0))
     for c in sorted(set(round(c, 6) for c in cuts)):
         if 0 < c < length:
             p, q = Location(*at(c - notch_half)), Location(*at(c + notch_half))
