@@ -20,6 +20,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   of a height band"; checked 2026-09-29): `occupancy.let_in` admits a cell
   whole when any member is named, and `max_height` judges it by its tallest
   member, so a rigid cell cannot cross a band with only its low members.
+  The fairing core no longer needs it (its 5 V coil is now a 1.2 mm part),
+  but the enclosure's "front parts over 1.5 mm inside r 19.2" rule will
+  meet other cells.
 - **A keep-out or current-path verdict naming the copper it measured**
   (PLACEMAT_GAPS 2026-09-28): the two items and points that set a keep-out
   distance, and whether both are pads of one part; a current-path neck's
