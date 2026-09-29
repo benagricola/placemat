@@ -7,6 +7,14 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+- **More intent relations from the fairing conversion** (fairing
+  PLACEMAT_GAPS 2026-09-29; needs a spec):
+  - `Beside` offset along the side, or a pair at a pitch: two pogo pins
+    2.7 mm apart centred on a driver's pin, north of it.
+  - `Past` off vias and tracks, and a form that places a via or a part
+    (not a track point) a clearance past copper: vias a via's clearance
+    past contact tips, a U-turn a track's clearance past those vias, a
+    resistor or capacitor standing in a lane.
 - **A slid block satellite does not say which pins it now stands in front
   of** (PLACEMAT_GAPS 2026-09-27, checked 2026-09-28): stepping out and
   turning on the pin's axis are already tried before the slide.

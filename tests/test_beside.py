@@ -244,17 +244,20 @@ def test_beside_refuses_an_item_that_is_still_searched():
         b.resolve()
 
 
-def test_beside_align_pad_refuses_a_pad_of_another_part():
-    """align=PadRef(...) names a pad of the item this stands beside, not
-    some other part's: naming both when it is not."""
+def test_beside_align_pad_may_name_a_third_parts_pad():
+    """align=PadRef(...) may name any firmly placed part's pad, not only the
+    item's: west of one part, level with another part's pin on the same net
+    (a coil beside a capacitor, its end level with a driver's pin)."""
     fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B")),
-           footprint("U2", 40, 40, w=4, h=2, inst="u2", nets=("C", "D")),
+           footprint("U2", 40, 40, w=4, h=2, inst="u2", nets=("C", "A")),
            footprint("R1", 0, 0, w=3, h=1.3, inst="r1", nets=("A", "GND"))]
     b = Board(board_geometry(fps, width=80, height=80), edge_margin=1.0)
     b.place(Part("u1"), at=Location(20, 20))
     b.place(Part("u2"), at=Location(40, 40))
-    with pytest.raises(TypeError, match="u1.*u2|u2.*u1"):
-        b.place(Part("r1"), at=Beside(Part("u1"), Edge.EAST, align=PadRef(Part("u2"), "C")))
+    b.place(Part("r1"), at=Beside(Part("u1"), Edge.EAST, align=PadRef(Part("u2"), "A")))
+    plan = b.resolve()
+    assert plan.occupancy.pad_location("R1", "1").y == pytest.approx(plan.occupancy.pad_location("U2", "2").y)
+    assert plan.box("r1").left > plan.box("u1").right            # still east of u1, not of u2
 
 
 def test_beside_align_pad_refuses_for_a_cell():

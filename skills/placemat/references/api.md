@@ -280,12 +280,13 @@ items may be referred to"), the same refusal any firm placement gets for
 referring ahead; it keeps the rotation the script gave, or its default -
 `Beside` does not turn the item to face `item`. `align=` lines it up
 across the side, flush as `OnEdge` and `row(of=)` are, never the placed
-part's body centre left overhanging the corner: a `PadRef` of `item`,
-which must be one of `item`'s own pads (refused by name, both items,
-otherwise) - this item's own pad on the same net lands level with it -
-`(own_pad, their_pad)` when the nets differ, or an `Along` of `item`'s
-side - `START` flush with its start, `END` flush with its end, `MID`
-(default) centred.
+part's body centre left overhanging the corner: a `PadRef` - this item's
+own pad on the same net lands level with it - `(own_pad, their_pad)` when
+the nets differ, or an `Along` of `item`'s side - `START` flush with its
+start, `END` flush with its end, `MID` (default) centred. The pad may be
+`item`'s own or any other part's placed firmly by then: west of a
+capacitor, level with a driver's pin, is `Beside(Part("c_boot"),
+Edge.WEST, align=PadRef(Part("u1"), "SW"))`.
 
 ```python
 board.place(Part("c_bypass"), at=Beside(Part("u1"), Edge.WEST, align=PadRef(Part("u1"), "VDD")))

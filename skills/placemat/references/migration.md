@@ -25,6 +25,10 @@ width from the pad to the farthest via: a via standing just clear of the
 pad's tip was unconnected. A track may end on the value it returns (the
 farthest via); a hand-drawn track joining the row to its pad can go.
 
+`Beside(item, Edge.X, align=PadRef(...))` takes any firmly placed part's
+pad, not only `item`'s: a part beside one part, level with another part's
+pin, no longer needs its position from that pin by hand.
+
 ## To 0.54.0
 
 The `placemat-design` skill is retired. Its placemat part - the `Pm.*`

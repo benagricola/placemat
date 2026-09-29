@@ -1702,11 +1702,10 @@ class Board:
             if kind != "part":
                 raise TypeError("%s: align=PadRef needs the placed item's own pad; a %s has none - give "
                                 "align=(own_pad, their_pad)" % (key, kind))
+            # any firmly placed part's pad: the item's own, or a third part's (a coil beside a
+            # capacitor, level with the driver's pin); a part still searched then is refused when
+            # this is placed, as any firm placement referring to it is
             their = self.geometry.pad(align.part, align.key)
-            item_refs = {fp.ref for fp in item_geom.members} if isinstance(at.item, Cell) else {item_geom.ref}
-            if their.owner not in item_refs:
-                raise TypeError("%s: Beside's align pad %s is not on %s; align=PadRef names a pad of the "
-                                "item this stands beside" % (key, align, at.item))
             if not their.net:
                 raise ValueError("%s: Beside's align pad %s has no net to line up on; give "
                                  "align=(own_pad, %s) naming an own pad" % (key, align, align))

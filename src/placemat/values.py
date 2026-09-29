@@ -178,10 +178,10 @@ class Beside:
     before this waits for it.
 
     `align` lines the part up across `side`:
-    - a `PadRef` of `item`: this part's own pad on the same net lands level
-      with it;
-    - `(own_pad, their_pad)`: an own pad key and a `PadRef` of `item`, for
-      when the nets differ;
+    - a `PadRef`: this part's own pad on the same net lands level with it;
+    - `(own_pad, their_pad)`: an own pad key and a `PadRef`, for when the
+      nets differ;
+    either pad may be `item`'s or any other part's placed firmly by then;
     - an `Along` of `item`'s side (default `Along.MID`).
 
     Firm, like `Pin`: the position is decided, not searched. The
