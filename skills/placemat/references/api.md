@@ -108,7 +108,13 @@ part as the placer claims it, labels, tracks, vias, pours) plus `margin`
 `board.size(fit=Axis.X, height=, margin=None)` or `fit=Axis.Y, width=` - a frame
 fitted in one axis only: the frame fits its content across x (or y) the same
 way `fit=True` does, and the other axis is the declared number, origin at 0
-the same as a sized board's. `Axis` is `X` or `Y`.
+the same as a sized board's - a mechanical fact the content must fit inside,
+not a suggestion; an item whose placed box reaches outside it is a finding
+naming it. `Axis` is `X` or `Y`. Even the declared axis's edges are refused
+(`OnEdge`, a row on the board's own edge, `board.edge()`, `board.centre`)
+until everything is placed, the same as `fit=True`'s - a scope decision, not
+a limit of the number itself, which `board.width`/`board.height` answer from
+declaration on.
 `board.disc(diameter, hole=0.0, holes=(), web=0.0)` - a round board at the origin, bored
 `hole` wide through the middle when it goes round a shaft. Places on it are
 bearings and radii (below); `board.centre`, `board.radius` and `board.bore`
@@ -264,15 +270,22 @@ rotation)`) lands there. A face that must stand proud of the edge says
 **Beside another item.** `at=Beside(item, Edge.EAST, align=None, gap=None)`
 stands the item on that side of `item` - a `Part`, a `Cell` or a keepout
 (what `board.keepout(...)` returns) - its drawn envelope `gap` off
-`item`'s (default: the envelope's own gap, the rule a row's default gap
-keeps too: the widest of the net clearance, the component spacing and the
-silk clearance, or courtyards touching under a courtyard envelope). FIXED
-like `Pin`: it waits for `item` to be placed, and keeps the rotation the
-script gave, or its default - `Beside` does not turn the item to face
-`item`. `align=` lines it up across the side: a `PadRef` of `item` (this
-item's own pad on the same net lands level with it), `(own_pad,
-their_pad)` when the nets differ, or an `Along` of `item`'s side (default
-`Along.MID`).
+`item`'s. `gap` is a floor, not an override, as `row(of=)`'s is: at least
+the envelope's own gap - the rule a row's default gap keeps too: the
+widest of the net clearance, the component spacing and the silk
+clearance, or courtyards touching under a courtyard envelope - whatever
+the script gives. FIXED like `Pin`: `item` must already be placed firmly
+(FIXED or EDGE) by then, refused by name otherwise ("only FIXED and EDGE
+items may be referred to"), the same refusal any firm placement gets for
+referring ahead; it keeps the rotation the script gave, or its default -
+`Beside` does not turn the item to face `item`. `align=` lines it up
+across the side, flush as `OnEdge` and `row(of=)` are, never the placed
+part's body centre left overhanging the corner: a `PadRef` of `item`,
+which must be one of `item`'s own pads (refused by name, both items,
+otherwise) - this item's own pad on the same net lands level with it -
+`(own_pad, their_pad)` when the nets differ, or an `Along` of `item`'s
+side - `START` flush with its start, `END` flush with its end, `MID`
+(default) centred.
 
 ```python
 board.place(Part("c_bypass"), at=Beside(Part("u1"), Edge.WEST, align=PadRef(Part("u1"), "VDD")))
@@ -539,8 +552,12 @@ nothing".
 runs the shape tangentially: a vent on a ring follows the rim, a slot on an
 edge runs along it. Everywhere else the shape is as declared, and a `Circle`
 is never turned. `rotation=Turned(part, degrees)` turns it with a part
-already on the board, the part's own placed rotation plus `degrees`,
-resolved once that part is placed - the same `Turned` a `place()` takes.
+already on the board: the region turns the way the part does (its own
+placed rotation plus `degrees`), resolved once that part is placed - the
+same `Turned` a `place()` takes. A region's own numeric `rotation=` is a
+bearing, clockwise from the top; under `Turned`, `degrees` reads the way a
+part's own `rotation=` does instead - anticlockwise on screen - so it
+matches whatever the script already gave the part, not a bare bearing.
 `at=PadRef(...)` alone follows the part's MOVE; `Turned` is how it follows
 the part's TURN too.
 
@@ -592,11 +609,13 @@ board.keepout(CLEARANCE, "antenna", at=PadRef(Part("ant"), "ANT_FEED"),
 
 **The shape, the place and the rotation** are a cutout's: `Slot`, `Circle`,
 `Path`, `at=` taking `Location`, `Centre`, `Polar`, `OnEdge`, `Near` or a
-`PadRef`, and `rotation=` taking a number or `Turned(part, degrees)` to turn
-with a part already on the board. A freedom left in `at=` settles against
-what is on the board. `anchor=` is the point of the shape that lands on
-`at=`; without one it is the middle of the shape's box, which is right for
-a slot and meaningless for a stepped clearance.
+`PadRef`, and `rotation=` taking a number (a bearing, clockwise from the
+top) or `Turned(part, degrees)` to turn with a part already on the board -
+the region turning the way the part does, `degrees` turning the way a
+part's own rotation does (anticlockwise on screen). A freedom left in `at=`
+settles against what is on the board. `anchor=` is the point of the shape
+that lands on `at=`; without one it is the middle of the shape's box, which
+is right for a slot and meaningless for a stepped clearance.
 
 **A region shaped by an item.** `shape` may be a `Part` or a `Cell` already on
 the board instead: no `at=` or `rotation=`, `margin=` (default 0) in their
@@ -611,9 +630,10 @@ The region is that item's drawn envelope - pads, mask openings, silk and body,
 the same box `envelope.drawn_envelope` reads off a single footprint, and for a
 `Cell` the union of its members' (its own tracks, vias and pours are not a
 member's drawn envelope, so they are left out) - grown by `margin`, and it
-moves and turns with the item: settled once the item is, the same as a
-keepout at its pad. The item must already be FIXED or EDGE (as `at=PadRef(...)`
-already requires): one still searched raises "not placed by then".
+moves, turns and mirrors with the item (face=Face.BACK flips it the same
+way): settled once the item is, the same as a keepout at its pad. The item
+must already be FIXED or EDGE (as `at=PadRef(...)` already requires): one
+still searched raises "not placed by then".
 
 **What it forbids.** `excludes=` defaults to everything and narrows to any of
 the `Forbid` enum: `PARTS`, `FILL`, `TRACKS`, `VIAS`, `PADS` (the strings

@@ -331,19 +331,35 @@ def pad_anchored_placement(occ: Occupancy, item, key, point: Location, rotation:
 
 
 def cell_pad_anchored_placement(occ: Occupancy, cell, owner: str, number: str, dx: float, dy: float,
-                                point: Location, rotation: float = 0.0, face: Face = Face.FRONT) -> Placement:
+                                point: Location, rotation: float = 0.0, face: Face = Face.FRONT,
+                                lx: float = 0.0, ly: float = 0.0) -> Placement:
     """The placement that puts a cell so member `owner`'s pad `number`
-    (offset `dx`, `dy` in board directions) lands on `point`: `Pin` for a
-    cell, whose own pad is one of its members'. `owner`/`number` name a
-    single pad among a cell's shapes, which several members may number
-    alike."""
+    (offset `dx`, `dy` in board directions, `lx`, `ly` in the member's own -
+    turned and, on its back, mirrored, as a part's own `PadRef.local` does)
+    lands on `point`: `Pin` for a cell, whose own pad is one of its members'.
+    `owner`/`number` name a single pad among a cell's shapes, which several
+    members may number alike."""
     probe = Placement(Location(0.0, 0.0), rotation, face)
     geom = occ._geometry(cell)
     t = occ._transform(geom, probe)
     boxes = [transform_box(s.box, t) for s in geom.shapes
              if s.kind in ("pad", "through") and s.owner == owner and s.label == number]
     at = Box.union(boxes).center
-    target = Location(point.x - dx, point.y - dy)
+    vx = vy = 0.0
+    if lx or ly:
+        from .lock import _turn
+        # the member's own place, exactly as a cell's commit() derives it for
+        # the placement it is trying: turned by the cell's rotation less its
+        # own (a cell's own reference rotation is always 0, so this reduces
+        # to the cell's own candidate rotation when the member is not itself
+        # turned within it), mirrored with it when the cell's face flips.
+        m = occ.items[owner].reference
+        flip = probe.face != geom.reference.face
+        turn = (probe.rotation + geom.reference.rotation - m.rotation) % 360.0 if flip \
+            else m.rotation + (probe.rotation - geom.reference.rotation)
+        member_face = (Face.BACK if m.face is Face.FRONT else Face.FRONT) if flip else m.face
+        vx, vy = _turn(-lx if member_face is Face.BACK else lx, ly, turn)
+    target = Location(point.x - dx - vx, point.y - dy - vy)
     return Placement(Location(round(target.x - at.x, 6), round(target.y - at.y, 6)), rotation, face)
 
 

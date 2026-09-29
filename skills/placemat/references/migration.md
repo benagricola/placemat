@@ -61,8 +61,11 @@ conflict check already did.
 
 A keepout or cutout with `rotation=Turned(part, degrees)` now turns the
 way its part does: an asymmetric one turned the opposite way at 90 and 270
-(a symmetric one, a slot or a circle, is unchanged). The stored rotation is
-the region's own bearing, so a quarter turn with the part reads 270.
+(a symmetric one, a slot or a circle, is unchanged). `degrees` turns the
+same way a part's own rotation does - anticlockwise on screen - not as a
+bare bearing would; the region's stored rotation is still its own bearing,
+clockwise from the top, so a quarter turn with the part (`degrees=0`)
+reads 270.
 
 ## To 0.53.0
 

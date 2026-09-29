@@ -56,6 +56,21 @@ def test_row_of_explicit_gap():
     assert r1.left - 22.1 == pytest.approx(1.0 + 0.1)    # u1's envelope east edge, the gap, and r1's own courtyard excess
 
 
+def test_row_of_shares_one_line_across_items_with_different_courtyard_margins():
+    """The line (line=Line.CENTRE, the default) is measured by the same
+    envelope box the row places by - as Beside is - not by reach: two items
+    whose courtyards differ still share it."""
+    fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B")),
+           footprint("R1", 0, 0, w=2, h=1, inst="r1", nets=("A", "GND"), excess=0.1),
+           footprint("R2", 0, 0, w=2, h=1, inst="r2", nets=("B", "GND"), excess=0.5)]
+    b = Board(board_geometry(fps, width=80, height=80), edge_margin=1.0)
+    b.place(Part("u1"), at=Location(20, 20))
+    b.row([Part("r1"), Part("r2")], Edge.EAST, of=Part("u1"), align=Along.START, rotation=0)
+    plan = b.resolve()
+    r1, r2 = plan.box("r1"), plan.box("r2")
+    assert r1.center.x == pytest.approx(r2.center.x)
+
+
 def test_row_of_accepts_a_fit_frame():
     fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B")),
            footprint("R1", 0, 0, w=2, h=1, inst="r1", nets=("A", "GND"))]
@@ -76,6 +91,19 @@ def test_row_of_waits_for_the_part_declared_later():
     u1, r1 = plan.box("u1"), plan.box("r1")
     assert r1.left - u1.right == pytest.approx(0.2)
     assert plan.steps[0].item == "u1"
+
+
+def test_row_of_keeps_the_boards_own_edge_margin():
+    """A row off a part keeps the board's edge margin, as Beside does: its
+    own small item-to-item gap is not an edge standoff, and must not read
+    as one and switch the margin off."""
+    fps = [footprint("U1", 56.5, 30, w=4, h=2, inst="u1", nets=("A", "B")),
+           footprint("R1", 0, 0, w=2, h=1, inst="r1", nets=("A", "GND"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0, keep_going=True)
+    b.place(Part("u1"), at=Location(56.5, 30))
+    b.row([Part("r1")], Edge.EAST, of=Part("u1"))
+    plan = b.resolve()
+    assert [f for f in plan.findings if "r1" in f]
 
 
 def test_row_of_refuses_a_board_anchor_together_with_it():

@@ -245,7 +245,7 @@ class PlaceIntent:
     turned: object = field(default=None, metadata={"omit_default": True})   # a Turned: its part's rotation plus its degrees, settled at placement
     beside: object = field(default=None, metadata={"omit_default": True})   # a _BesideSpec: settled against its item's placed envelope
     row_of: object = field(default=None, metadata={"omit_default": True})   # a row(of=) item: an edge placement measured off its envelope, not the board's
-    cell_pin: object = field(default=None, metadata={"omit_default": True})  # (owner, number, dx, dy): a cell placed by a member's pad
+    cell_pin: object = field(default=None, metadata={"omit_default": True})  # (owner, number, dx, dy[, lx, ly]): a cell placed by a member's pad
     line: int = field(default=0, metadata={"reuse": False})   # the script line that declared it: not what it decides
 
     @property
@@ -712,8 +712,22 @@ class Board:
         self._frame_height = value
 
     def _refuse_on_fit(self, what: str):
-        if self._fit:
-            raise ValueError("%s: a fit frame has no edges or centre until its content is placed" % what)
+        if not self._fit:
+            return
+        # fit=Axis.X/Y's declared axis is a number from board.size() on, but its
+        # edges are refused here too: the row and edge machinery reads the
+        # board's own outline for both axes together, which a fit frame in one
+        # axis does not have until content is placed even on the axis it
+        # declared - a scope decision (docs/superpowers/specs/2026-09-29-
+        # missing-intent-relations-design.md's review), not a limit of the
+        # declared number itself, which board.width/board.height still answer.
+        if self._fit_axis is Axis.X:
+            raise ValueError("%s: a fit frame in one axis has no edges yet - not even north or south, which "
+                             "its declared height fixes - until its content is placed" % what)
+        if self._fit_axis is Axis.Y:
+            raise ValueError("%s: a fit frame in one axis has no edges yet - not even east or west, which "
+                             "its declared width fixes - until its content is placed" % what)
+        raise ValueError("%s: a fit frame has no edges or centre until its content is placed" % what)
 
     def __init__(self, geometry: BoardGeometry, edge_margin: float | None = None, clearance: float | None = None,
                  via_drill: float = 0.3, via_size: float = 0.6, keep_going: bool = False,
@@ -1672,7 +1686,7 @@ class Board:
             item_kind = "keepout"
         elif isinstance(at.item, (Part, Cell)):
             item_kind = "item"
-            self._item(at.item)          # a real part or cell, checked now
+            item_geom = self._item(at.item)[0]          # a real part or cell, checked now
         else:
             raise TypeError("%s: Beside's item is a Part, a Cell or a keepout (what board.keepout(...) "
                             "returns), not %r" % (key, at.item))
@@ -1689,6 +1703,10 @@ class Board:
                 raise TypeError("%s: align=PadRef needs the placed item's own pad; a %s has none - give "
                                 "align=(own_pad, their_pad)" % (key, kind))
             their = self.geometry.pad(align.part, align.key)
+            item_refs = {fp.ref for fp in item_geom.members} if isinstance(at.item, Cell) else {item_geom.ref}
+            if their.owner not in item_refs:
+                raise TypeError("%s: Beside's align pad %s is not on %s; align=PadRef names a pad of the "
+                                "item this stands beside" % (key, align, at.item))
             if not their.net:
                 raise ValueError("%s: Beside's align pad %s has no net to line up on; give "
                                  "align=(own_pad, %s) naming an own pad" % (key, align, align))
@@ -1723,13 +1741,13 @@ class Board:
         return Box.union([s.box for s in g.shapes if s.kind != "npth"])
 
     def _beside_gap(self, spec: "_BesideSpec", new_item) -> float:
-        """Beside's own gap: what the script gave, else the envelope's own
-        - the row's rule (silk clearance, component spacing, the nets'
-        clearance), or courtyards touching under a courtyard envelope."""
-        if spec.gap is not None:
-            return float(spec.gap)
+        """Beside's own gap: what the script gave, or 0.0, floored to the
+        envelope's own - the row's rule (silk clearance, component spacing,
+        the nets' clearance) under a physical envelope, unchanged under a
+        courtyard one - exactly as row(of=)'s gap= is: a spacing is the
+        envelope's own unless a named rule asks for more."""
         items = [new_item] if isinstance(spec.item, KeepoutIntent) else [spec.item, new_item]
-        return self._row_gap(items, 0.0)
+        return self._row_gap(items, 0.0 if spec.gap is None else float(spec.gap))
 
     def _beside_placement(self, occ: Occupancy, plan: "Plan", i: PlaceIntent) -> Placement:
         """Where `Beside(...)` puts the item: its own drawn envelope `gap`
@@ -1756,14 +1774,18 @@ class Board:
             oy = item_box.top - gap - own_box.bottom
         align_kind = b.align[0]
         if align_kind == "along":
+            # flush, as OnEdge and row(of=) are: START puts the part's own
+            # envelope start at the item's side start, END its end, MID
+            # centres - never the part's body centre on the item's corner.
             along = b.align[1]
-            own_body = self.extent(i.item, i.rotation, i.face)
             if b.side in (Edge.EAST, Edge.WEST):
                 lo, hi = item_box.top, item_box.bottom
-                oy = (lo + along.fraction * (hi - lo)) - own_body.center.y
+                start = lo + along.fraction * (hi - lo - (own_box.bottom - own_box.top))
+                oy = start - own_box.top
             else:
                 lo, hi = item_box.left, item_box.right
-                ox = (lo + along.fraction * (hi - lo)) - own_body.center.x
+                start = lo + along.fraction * (hi - lo - (own_box.right - own_box.left))
+                ox = start - own_box.left
         else:
             own_key, their = b.align[1], b.align[2]
             anchored = pad_anchored_placement(self._bare_occupancy(), i.item, own_key, Location(0.0, 0.0),
@@ -1858,7 +1880,9 @@ class Board:
             owner, number, dx, dy = self._pad_ref(at.key)
             if owner not in {fp.ref for fp in geom.members}:
                 raise TypeError("%s: Pin's %r is not a pad of one of cell %s's members" % (key, at.key, key))
-            cell_pin, center, at = (owner, number, dx, dy), (at.x, at.y), None
+            lx, ly = getattr(at.key, "lx", 0.0), getattr(at.key, "ly", 0.0)
+            pin_tuple = (owner, number, dx, dy, lx, ly) if (lx or ly) else (owner, number, dx, dy)
+            cell_pin, center, at = pin_tuple, (at.x, at.y), None
         elif isinstance(at, Pin):
             if kind != "part":
                 what = "a block is placed by its anchor's position, not a pad" if kind == "block" else \
@@ -2075,10 +2099,15 @@ class Board:
         keys, alongs, depths = [], [], []
         for item, r in zip(items, rots):
             geom, key, kind = self._item(item)
-            claim, reach = self.claim(item, r), self.reach(item, r)      # spaced by what they claim, deep as they reach
+            claim = self.claim(item, r)      # spaced by what they claim
+            # of=: placed by the envelope box (_row_of_placement, as Beside is), so the
+            # line must read the same measure, or items with different courtyard
+            # margins would not share it. On the board's own edge the line is still
+            # how far the item physically reaches, not its assembly margin.
+            deep = self.envelope(item, r) if of is not None else self.reach(item, r)
             keys.append(key)
             alongs.append(claim.height if along_axis else claim.width)
-            depths.append(reach.width if along_axis else reach.height)
+            depths.append(deep.width if along_axis else deep.height)
         row = Row(edge, clr, gap, None, keys, alongs, max(depths))
         if of is not None:
             row.anchor = ("of", (of, align))
@@ -3224,13 +3253,30 @@ class Board:
         def settle_keepout(intent):
             """A region takes its place like a hole does, then forbids."""
             k = intent.keepout
+            region_shape = None
             if k.region_of is not None:
+                import dataclasses
                 p = self._item_placement(occ, k.region_of)
+                geom, _, kind = self._item(k.region_of)
+                # the shape was drawn in the item's own GENERATED frame, never
+                # flipped (_item_envelope_shape's own doing) - a part's own
+                # declared face, always Face.FRONT for a cell (occupancy._geometry's
+                # own rule, occ._transform's docstring). occ.items has since
+                # moved to the item's real, placed reference, which is not
+                # what the shape was drawn against, so it is read here, not
+                # from occ. Mirror the shape the same way occupancy._transform
+                # mirrors the item's real shapes - about its own local x=0 -
+                # exactly when its placed face differs from that.
+                ref_face = geom.face if kind == "part" else Face.FRONT
+                if p.face != ref_face:
+                    region_shape = dataclasses.replace(
+                        k.shape, points=tuple((-x, y) for x, y in k.shape.points))
                 # a part's own rotation turns counter-clockwise on screen
                 # (Transform.rotate); a shape's path_at turns a bearing
-                # clockwise from the top (cutouts._turned) - negate so the
-                # region turns the same way the item actually does.
-                centre, turn, why = p.location, -p.rotation, None
+                # clockwise from the top (cutouts._turned) - negate so a
+                # region's stored rotation (its bearing) turns the same way
+                # the item actually does, normalised like any other bearing.
+                centre, turn, why = p.location, (-p.rotation) % 360.0, None
             elif self._cutout_free(k):
                 try:
                     centre, turn = self._slide_cutout(
@@ -3247,7 +3293,7 @@ class Board:
                 plan.findings.append(Finding("fixed", "%s (keepout): %s" % (k.name, why)))
                 step.note = why
             else:
-                path = k.shape.path_at(centre, turn)
+                path = (region_shape or k.shape).path_at(centre, turn)
                 outside, total = self._points_off_board(path)
                 if self._off_board(path):
                     raise ValueError(
@@ -3429,6 +3475,7 @@ class Board:
             content = self._placed_box(occ, plan)
             grown = (content or Box(0.0, 0.0, 0.0, 0.0)).inflate(self._fit_margin)
             frame = self._fit_bound(grown)
+            self._check_fit_content(occ, plan, frame)
             plan.outline = self._outline = occ.board_box = frame
             self._plan_copper(occ, ctx, [c for c in self._copper if c.index in held], plan, progress)
         self._check_keepouts(plan)
@@ -3595,6 +3642,29 @@ class Board:
         if self._fit_axis is Axis.Y:            # height fits; width is declared
             return Box(0.0, box.top, self._frame_width, box.bottom)
         return box
+
+    def _check_fit_content(self, occ: Occupancy, plan: "Plan", frame: Box) -> None:
+        """fit=Axis.X/Y's declared axis is a mechanical fact, not a
+        suggestion: an item whose placed box reaches outside it (the frame
+        clamps to the number regardless, per `_fit_bound`) is a finding
+        naming the item, not a silent clip."""
+        axis = self._fit_axis
+        if axis is None:
+            return
+        lo, hi, which = (frame.top, frame.bottom, "height") if axis is Axis.X else (frame.left, frame.right, "width")
+        for step in plan.steps:
+            if step.placement is None or step.kind not in ("part", "cell"):
+                continue
+            item = plan._items[step.item]
+            boxes = [sh.box for fp in members_of(item) if fp.ref in occ.items for sh in occ.items[fp.ref].shapes]
+            box = Box.union(boxes) if boxes else None
+            if box is None:
+                continue
+            ilo, ihi = (box.top, box.bottom) if axis is Axis.X else (box.left, box.right)
+            if ilo < lo - 1e-6 or ihi > hi + 1e-6:
+                plan.findings.append(Finding(
+                    "setup", "%s: reaches %.2f to %.2f mm, outside the frame's declared %s of %.2f to %.2f mm"
+                    % (step.item, ilo, ihi, which, lo, hi)))
 
     def _fit_room(self, occ: Occupancy, plan: Plan, obj) -> Box:
         """Where a searched item may go on a fit board: round everything placed
@@ -4752,9 +4822,10 @@ class Board:
             if i.at is not None:
                 p = Placement(_locate(self, occ, i.at), i.rotation, i.face)
             elif i.center is not None and i.cell_pin is not None:
-                owner, number, dx, dy = i.cell_pin
+                owner, number, dx, dy, *rest = i.cell_pin
+                lx, ly = rest if rest else (0.0, 0.0)
                 p = cell_pad_anchored_placement(occ, i.item, owner, number, dx, dy,
-                                                _locate(self, occ, i.center), i.rotation, i.face)
+                                                _locate(self, occ, i.center), i.rotation, i.face, lx, ly)
             elif i.center is not None and i.pin is not None:
                 p = pad_anchored_placement(occ, i.item, i.pin, _locate(self, occ, i.center), i.rotation, i.face)
                 # A net names one pad here, the first of however many carry it.
@@ -4796,7 +4867,7 @@ class Board:
                     edge_placement(occ, i.item, i.edge, along, i.rotation, i.clearance, i.face)
             why = occ.legal(i.item, p, clr,
                             past_edge=(i.edge is not None or i.run is not None or i.rim == "rim")
-                            and i.clearance < self.keep_in, by_corners=True)
+                            and i.row_of is None and i.clearance < self.keep_in, by_corners=True)
             if why:
                 plan.findings.append(Finding("fixed", "%s (%s): %s" % (i.key, i.freedom.value, why)))
             return self._step(i, p, 0.0, "; ".join(x for x in (chose, why) if x))
