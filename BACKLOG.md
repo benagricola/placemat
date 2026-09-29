@@ -41,8 +41,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **Placing relative to a searched item** (PLACEMAT_GAPS 2026-09-26, twice):
   a `Pin` or a cutout on a searched item is refused ("only FIXED and EDGE
   items may be referred to"). Needs a spec.
-- **A route report of each net's path, or a preview of the routed copy**
-  (PLACEMAT_GAPS 2026-09-27).
 - **`route.diff_pairs` taking explicit net pairs** (PLACEMAT_GAPS
   2026-09-27; needs a spec): the router pairs nets only by their `_P`/`_N`,
   `P`/`N` or `+`/`-` suffix and takes no explicit pair, so placemat would
@@ -59,7 +57,8 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **Zone fills by net and tracks across a zone outline** (unreleased;
   PLACEMAT_GAPS 2026-09-28, two entries): `placemat layer <board> <LAYER>`;
   the router has kept out of a left-out net's partial inner pour since
-  0.50's pour guards.
+  0.50's pour guards. A routed copy's copper per net is `measure --copper`
+  on it, and its layers `placemat layer`.
 - **Lanes as intent** (0.55.0; fairing PLACEMAT_GAPS 2026-09-29; spec
   `2026-09-29-past-copper-and-row-pitch-design.md`): `Past` over vias and
   tracks with `across=`; a via at a `Past` point; `Beside` aligning a pad a

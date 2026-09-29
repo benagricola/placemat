@@ -1367,6 +1367,8 @@ of that layer's items it is (a pad by number) and its box (`--json`:
 of those nets (all when none is named) - layer, width, both ends and what
 each lands on (a pad as REF.NUMBER, a via, another track, or `-`), length
 and bearing, `off 0/45/90` on a leg at any other angle - then the vias.
+Given the routed copy (`.placemat/route/.../*.kicad_pcb`) it shows where the
+router put each net's copper.
 `--keepouts [NAME ...]` lists, per rule area (all when none is named) and
 what it excludes, each part within `--near` mm (default 1) on a face it
 covers: the gap from its physical box and from its courtyard to the area,
@@ -1395,7 +1397,8 @@ own colour with a legend - and lists each track that runs inside another
 net's zone outline on that layer: the router routes round a zone's last
 fill, not its outline, so such a track cuts the pour apart while DRC
 passes, KiCad refilling round it. `--json` gives the SVG's path, the zone
-nets and the crossings.
+nets and the crossings. It reads any board file: the routed copy's layers
+too.
 
 `preview` places the board as a run does - the cached generation, the
 previous run's steps replayed - and draws it, without writing the board,
