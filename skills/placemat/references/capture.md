@@ -1,9 +1,9 @@
 # Capture for placemat
 
 What a capture carries so placemat can lay the board out and check it: the
-`Pm.*` annotations on parts, how part wrappers forward them, how nets take
-their roles from them, how placemat reads net classes, and what `placemat
-check` reports from all of it.
+`Pm.*` annotations on parts, how part wrappers forward them, how the checks
+find their nets from them, what placemat reads from net classes, and what
+`placemat check` reports.
 
 ## Annotations
 
@@ -12,22 +12,26 @@ fields. The stdlib `Capacitor` and `Resistor` take it; a part wrapper
 (`parts/<Part>.zen`) takes it when it declares
 `annotations = config(dict, default = {}, optional = True)` and merges it into
 its `Component(properties=...)`. KiCad writes a field name title-cased
-(`Pm.TjMax` becomes `Pm.Tjmax`), so placemat reads keys case-insensitively;
-use these:
+(`Pm.TjMax` becomes `Pm.Tjmax`), and the checks read keys
+case-insensitively; use these:
 
 | key | values | read by |
 |---|---|---|
-| `Pm.Role` | `switcher`, `inductor`, `output`, `bypass`, `sense`, `barrier`, `connector` | placement tactics, every check |
-| `Pm.Loop` | `hot` (the fast-current loop: input caps, the switch), a name for any other loop | loop area |
-| `Pm.Aggressor` | `true` | keep-out, parallel-run, crossing-under |
+| `Pm.Loop` | a loop's name: the parts that share one form one loop; `hot` by convention for the fast-current loop (input caps, the switch) | hot-loop |
+| `Pm.Aggressor` | `true` | switch-node, keep-out |
 | `Pm.Sensitive` | the net on the part's pads that must stay clear, by name: `VFB` | keep-out, crossings-under |
-| `Pm.I` | amps at full load per net the part's pads carry: `vin:3A sw:3A`; a bare `3A` means every pad | current path capacity |
-| `Pm.Height` | the part's seated height in mm: `1.1mm` | a keepout's `max_height=` (the room a case leaves over a region) |
+| `Pm.I` | amps at full load per net the part's pads carry: `vin:3A sw:3A`; a bare `3A` means every pad | current-path |
 | `Pm.Pd` | watts at full load, worst case, from the datasheet | heat |
 | `Pm.TjMax` | e.g. `125C` | heat |
 | `Pm.ThetaJb` | junction-to-board, e.g. `15.5C/W`: what a board temperature wants | heat |
 | `Pm.ThetaJa` | junction-to-ambient, the datasheet's JEDEC-board figure, used only without `Pm.ThetaJb` | heat |
-| `Pm.Creepage` | mm across a `barrier` part | isolation (not built) |
+| `Pm.Height` | the part's seated height in mm: `1.1mm` | the layout: a keepout's `max_height=`, `board.height_of()`, `placemat parts` |
+
+`Pm.Height` is read under that exact name. It lets a layout script say the
+room a case leaves over a region once, `board.keepout(shape, name,
+excludes=(Forbid.PARTS,), max_height=4.0, why=...)`, rather than list the
+short parts; a part with no `Pm.Height` counts as too tall there, and the
+refusal names it.
 
 Name the net `Pm.Sensitive` protects as the capture names it; a name no pad
 of the part carries makes placemat take the part's least-connected net and
@@ -41,59 +45,67 @@ at what it draws, not at the load.
 A value is a plain string with its unit, with its source in a comment
 beside it (the datasheet section); a placeholder says so.
 
-Nets take their roles from the pins of annotated parts: the switch node is
-the net on the switcher's `SW` pin and the inductor, the hot loop is the
-copper between the parts marked `Pm.Loop: hot`, the feedback net is what the
-`sense` resistors carry. A net-level fact with no class does not reach the
-board: state a current on the parts that carry it (`Pm.I`) or give the net a
-class.
+## How the checks find their nets
 
-## Net classes, as placemat reads them
+- A hot loop is the parts sharing one `Pm.Loop` name, and the nets two or
+  more of them share.
+- A switch node is a net on two or more parts whose every pad belongs to a
+  `Pm.Aggressor` part: mark the switch and the inductor.
+- A sensitive net is the net `Pm.Sensitive` names on its part: the feedback
+  node on the feedback divider's resistors.
+- A current path is a net some part gives a current in `Pm.I`.
 
-Placemat treats a net class as a group: length spread, layer, corridor,
-crossings under. A differential pair's class (`*_P`/`*_N`, with
-`diff_pair_width` and `diff_pair_gap`) is what placemat's pair primitive and
-the router read.
+A net-level fact with no part to carry it does not reach the board: state a
+current on the parts that carry it (`Pm.I`).
 
-## What placemat checks from these
+## Net classes
+
+placemat reads each net's class from the board's project: its track width is
+a track's and a via tail's default width, its clearance is what placement
+and copper keep from other nets, its via diameter and drill are what
+`board.vias()` drills (a single `board.via()` takes the board's), and a
+differential pair's `diff_pair_width` and `diff_pair_gap` are what
+`board.pair()` and the router use. KiCad pairs nets by name (`_P`/`_N`,
+`P`/`N`, `+`/`-`). A class whose clearance does not fit a part's pad pitch
+is a setup finding on every run, naming the part.
+
+## What placemat checks
 
 `placemat check <board>` reports, per check, a number, the limit it is
 judged against and a verdict; a check whose fact is missing says which
-fact, and a check with no limit reports the number. Built:
+fact, and a check with no limit reports the number. Every `placemat run`
+runs the same checks on the board it wrote.
 
 - `hot-loop`: per `Pm.Loop` name, the area (mm2) of the hull of its parts'
   pads on the nets two or more of them share, and the longest pad-to-pad
   reach on one of those nets; `--limit hot-loop=<mm2>` judges it
-- `switch-node`: a net whose every pad belongs to an aggressor, its copper
-  area (pads, tracks, pours) and extent; `--limit switch-node=<mm2>`
+- `switch-node`: each switch node's copper area (pads, tracks, pours) and
+  extent; `--limit switch-node=<mm2>`
 - `keep-out`: the nearest sensitive-net copper to each switch node,
   against `--keep-out` (default 2 mm), naming the two pieces of copper; a
   part's own pins are its package and are not judged
 - `crossings-under`: other nets' copper on the other face under a
-  sensitive net's tracks; zones do not count, the limit is zero
+  sensitive net's tracks; zones and vias do not count, the limit is zero
 - `current-path`: per net a `Pm.I` names, each two parts carrying on it
   judged at the lesser of their currents by the narrowest point of the
   widest route between them (tracks, vias, pours; a zone fill joins but its
-  own width is not measured) against the
-  IPC-2221 outer-layer width at `--rise` (default 10 C) on `--copper-oz`
-  (default 1 oz), with the neck's point and length; carriers no copper
-  joins yet are reported, not judged
+  own width is not measured) against the IPC-2221 outer-layer width at
+  `--rise` (default 10 C) on `--copper-oz` (default 1 oz), with the neck's
+  point and length; carriers no copper joins yet are reported, not judged
 - `heat`: the board temperature (`--ambient`, default 100 C) plus `Pm.Pd`
   times `Pm.ThetaJb` (or `Pm.ThetaJa` when that is all the part has, which
   is pessimistic), against `Pm.TjMax`
 
-Not built, and the capture may carry facts for them: parallel run length
-beside an aggressor, plane continuity under a sensitive track, IR drop,
-isolation and creepage across a `barrier` part, per-class group checks
-(length spread, same layer, same corridor).
+The defaults are settings (`[check]` in `placemat.toml`); `placemat
+settings` prints them.
 
 ## Annotating a capture
 
-1. Mark every part the datasheet's layout rules name: the switch, its input
-   caps, the inductor, the output caps, the feedback divider (`Pm.Role`,
-   `Pm.Loop`, `Pm.Aggressor`, `Pm.Sensitive`).
+1. Mark every part the datasheet's layout rules name: the switch and its
+   input caps (`Pm.Loop`), the switch and the inductor (`Pm.Aggressor`),
+   the feedback divider (`Pm.Sensitive`).
 2. Give every part that dissipates or carries the load current its numbers
    (`Pm.I`, `Pm.Pd`, `Pm.TjMax`, `Pm.ThetaJb`), with the datasheet section
    cited beside each, and a part whose height matters its `Pm.Height`.
-3. After `pcb build -D warnings` passes, the layout reads the header, the
-   annotations and the classes as its intent.
+3. After `pcb build -D warnings` passes, `placemat check` on the generated
+   board reads the annotations and the classes.

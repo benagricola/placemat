@@ -1,9 +1,9 @@
 # The script surface
 
 ```python
-from placemat import (board, Along, Axis, Bend, Beside, Between, Box, Cell, CellPadRef, Centre, Pin, Polar, OnRim, OnBore, Cutout, Disc, Arc,
-                       Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Inside, Land, Line, LinkWeight,
-                       Location, Mid, Near, Net, OnEdge, PadRef, Part, Past, Priority, Turned, X, Y)
+from placemat import (board, Along, Axis, Bend, Beside, Between, Box, Cell, CellPadRef, Centre, Cover, Pin, Polar, OnRim, OnBore,
+                       Cutout, Disc, Arc, Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Inside, Land, Line,
+                       LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part, Past, Priority, Turned, X, Y)
 ```
 
 `board` is the board being laid out. Questions answer from the generated
@@ -12,74 +12,116 @@ board; declarations are collected and resolved together.
 ## Say it by intent
 
 A script says where a part or a piece of copper goes RELATIVE TO
-something - a board edge, a row, the pin it serves, a keepout, another
-part - and placemat works out the coordinate. Find what you mean below
-and write that form. When nothing here says it, do not compute it: see
-"Known gaps" in SKILL.md and, if the need is new, log it in the board's
-`PLACEMAT_GAPS.md`.
+something - a board edge, a row, the pin it serves, a lane past other pads, a
+keepout, another part - and placemat works out the coordinate. Find what
+you mean below, read the section it names, and write that form. Forms
+compose: `Beside` decides a side and its `align=` the other axis; a via or
+a via row one call returns is a track point in the next, and those or a
+track are `Past` items. When no row fits, grep this file for the words of
+the relation, try a composition, and read the newest sections of
+`migration.md`, which name the hand-computed pattern each new form
+replaces. Only a relation that search cannot say goes in the board's
+`PLACEMAT_GAPS.md` (SKILL.md, "When no form says it").
 
 | you want to say | write | section |
 |---|---|---|
-| a part searched from its links, no position typed | `board.place(item)` | Placement |
-| a part that must place, or the run stops | `board.place(item, required=True)` | Placement |
-| a part on a board edge, wherever there is room | `at=OnEdge(edge)` | Placement |
-| a part at a mechanical point along an edge | `at=OnEdge(edge, along=Along.MID)` | Placement |
-| a part at a mechanical point (an enclosure hole, a datasheet figure) | `at=Location(x, y)`, `x`/`y` named constants | Placement |
-| a part's own pad at the pin it serves | `at=Pin(key, X(pin), Y(pin))` | Placement |
-| a part between two pads | `at=Centre(X(Mid(a, b)), Y(a))` | Placement |
-| a part sliding along one line, the other axis free | `at=Centre(None, y)` / `Location(x, None)` | Placement |
-| a part somewhere the netlist cannot say (a thermal neighbour) | `at=Near(PadRef(...))` | Placement |
-| a part turned with another part | `rotation=Turned(part, deg)` | Placement |
-| a part (or cell) beside another item's envelope, a gap off it | `at=Beside(item, Edge.EAST, align=, gap=)` | Placement |
-| a part's pad a lane (or the clearance) past other pads, a track between | `at=Beside(item, Edge.SOUTH, align=(own_pad, Past([PadRef(...)], Edge.WEST, lane=Net(...))))` | Placement |
+| **a part** | | |
+| searched from its links, no position typed | `board.place(item)` | Placement |
+| one that must place, or the run stops | `board.place(item, required=True)` | Placement |
+| on a board edge, wherever there is room | `at=OnEdge(edge)` | Placement |
+| at a mechanical point along an edge | `at=OnEdge(edge, along=Along.MID)` | Placement |
+| at a mechanical point (an enclosure hole, a datasheet figure) | `at=Location(x, y)`, `x`/`y` named constants | Placement |
+| its own pad on the pin it serves | `at=Pin(key, X(pin), Y(pin))` | Placement |
 | a cell placed by one of its members' pads | `at=Pin(CellPadRef(cell, net=), x, y)` | Placement |
-| a part's rotation that faces a board edge or a bearing | `board.outward_rotation(item, edge)` | Faces |
+| between two pads | `at=Centre(X(Mid(a, b)), Y(a))` | Placement |
+| sliding along one line, the other axis free | `at=Centre(None, y)` / `Location(x, None)` | Placement |
+| somewhere the netlist cannot say (a thermal neighbour) | `at=Near(PadRef(...))` | Placement |
+| beside a part, a cell or a keepout, at the envelope gap | `at=Beside(item, Edge.EAST, align=Along.START, gap=)` | Placement (Beside) |
+| beside one part, level with a pad of it or of any firmly placed part | `at=Beside(item, Edge.SOUTH, align=PadRef(Part(other), n))` | Placement (Beside) |
+| its pad a lane (or the clearance) past other pads | `at=Beside(item, Edge.SOUTH, align=(own_pad, Past([PadRef(...)], Edge.WEST, lane=Net(...))))` | Placement (Beside) |
+| that lane as wide as its current needs | `Past(..., lane=Net(...), width=)` in that align | Placement (Beside) |
+| turned with another part | `rotation=Turned(part, deg)` | Placement |
+| turned to face a board edge or a bearing | `board.outward_rotation(item, edge)` | Faces |
+| its fine-pitch escape kept clear | `board.fanout(part, depth=)` | Placement |
+| **groups of parts** | | |
 | a part and the parts at its pins | `board.block(anchor, satellites=[(item, net), ...])` | Blocks |
 | parts down a board edge, in order | `board.row(items, edge)` | Placement (Rows) |
 | a row inboard of another edge row | `board.row(items, edge, behind=other_row)` | Placement (Rows) |
 | a row starting after a hole or a pad | `board.row(items, edge, start=Y(pad, gap))` | Placement (Rows) |
-| a row or stack measured from a part, not a board edge | `board.row(items, edge, of=Part(...))` | Placement (Rows) |
+| a row along a part's side, not a board edge | `board.row(items, edge, of=Part(...))` | Placement (Rows) |
+| a column held off a part's pad ends: the envelope gap off the side they set (`placemat measure --envelope` names what sets it) | `board.row(items, Edge.EAST, of=Part(...), centre=PadRef(...))` | Placement (Rows) |
 | items at a mechanical pitch along a part's side, centred on a pad | `board.row(items, edge, of=Part(...), centre=PadRef(...), pitch=)` | Placement (Rows) |
 | items round a centre | `board.ring(items, radius=)` | Round boards |
-| a part at a radius and bearing about the board centre | `at=Polar(radius, angle)` | Round boards |
-| a part on a disc's rim, facing out | `at=OnRim(edge)` | Round boards |
-| a part at a bore, facing in | `at=OnBore(edge)` | Round boards |
+| a part at a radius and bearing | `at=Polar(radius, angle, about=)` | Round boards |
+| on a disc's rim facing out, or at its bore facing in | `at=OnRim(edge)` / `at=OnBore(edge)` | Round boards |
+| **what pulls parts together** | | |
 | a connection priced (a bypass capacitor, a series part) | `board.link(a, b, weight=, limit_mm=)` | Links |
 | a net whose off-board run dwarfs the board | `board.free_net(net)` | Links |
-| a fine-pitch part's escape kept clear | `board.fanout(part, depth=)` | Placement |
-| a module's outward/quiet/handoff sides | `board.faces(outward=, quiet=, handoff=)` | Faces |
-| a clearance that differs from the net class, in one place | `board.rule(clearance=, within=/between=/on=)` | Rules |
+| a module's outward, quiet and handoff sides | `board.faces(outward=, quiet=, handoff=)` | Faces |
+| **the board and its regions** | | |
+| a board of any shape | `board.outline(path, holes=)` | Boards of any shape |
+| a stretch of edge chosen by which way it faces | `board.edge(facing=Edge.NORTH)` | Boards of any shape |
+| a round board | `board.disc(diameter, hole=)` | Round boards |
+| a module frame sized to its own content | `board.size(fit=True)` | Setup |
+| a module frame fitted in one axis, the other a declared number | `board.size(fit=Axis.X, height=)` | Setup |
 | a hole in the board | `Cutout(shape, name, at=)` in `holes=` | Cutouts |
 | a hole placed from the connector it serves | `at=Centre(X(Part(j)), Y(Part(j), d))` | Cutouts |
 | a region that forbids parts, fill, tracks, vias or pads | `board.keepout(shape, name, at=)` | Keepouts |
-| a part against a keepout's boundary | `at=Beside(keepout, Edge.SOUTH)` | Placement |
-| a clearance anchored on a pad, in a datasheet's own coordinates | `Path(FIGURE, anchor=...)`, `at=PadRef(...)` | Keepouts |
-| a tall part kept out of a region a case leaves little room over | `board.keepout(..., excludes=("parts",), max_height=)` | Keepouts |
-| a region shaped by a part or cell already on the board, growing and turning with it | `board.keepout(item, name, margin=)` | Keepouts |
+| a region shaped by a part or cell, growing and turning with it | `board.keepout(item, name, margin=)` | Keepouts |
 | a region inside a part's pads (between two pad columns, inside a pad ring) | `board.keepout(Inside(Part(...), margin=), name)` | Keepouts |
-| a board of any shape | `board.outline(path, holes=)` | Boards of any shape |
-| a stretch of edge chosen by which way it faces | `board.edge(facing=Edge.NORTH)` | Boards of any shape |
-| a module frame sized to its own content | `board.size(fit=True)` | Setup |
-| a module frame fitted in one axis, the other a declared number | `board.size(fit=Axis.X, height=)` | Setup |
-| a track from a pad to a pad | `board.track(net, [PadRef(a), PadRef(b)], layer=)` | Copper |
-| which end of a track's off-grid leg takes the 45 | `board.track(..., bend=Bend.START/END/BOTH)` | Copper |
-| a track through the gap between two pads | `board.track(net, [..., Between(PadRef(a), PadRef(b)), ...], layer=)` | Copper |
-| a track held the clearance off pads, vias or tracks | `board.track(net, [..., Past([PadRef(...), via, ...], Edge.EAST, across=), ...], layer=)` | Copper |
-| a via at the nearest legal spot to a pad | `board.via(net, FreeSpot(near=PadRef(...)))` | Copper |
-| a via its clearance past pads, vias or tracks, on a pad's axis | `board.via(net, at=Past([PadRef(...), ...], Edge.SOUTH, across=PadRef(...)))` | Copper |
-| a power or exposed pad filled with vias | `board.vias(net, PadRef(...))` | Copper |
-| a track, via or pour on one land of a pin drawn as several | `PadRef(part, n, land=Land.LARGEST)` or `land=2` | Copper |
-| vias in a row out from a pad, along its escape axis | `board.vias(net, along=PadRef(...), count=N)` | Copper |
-| stitching vias over a cell, a pour or a keepout | `board.stitch(net, region)` | Copper |
-| a pour over a region | `board.pour(net, points, layer=)` | Copper |
-| a pour between two pads (a neck, as wide as the narrower) | `board.pour(net, [PadRef(a), PadRef(b)], layer=, swallow_pads=True)` | Copper |
-| a zone over the whole board, or an outline | `board.plane(net, layers=, outline=)` | Copper |
-| a zone over a group of parts only, wherever they were placed | `board.plane(net, layers=, over=[Part(...), Cell(...)], margin=)` | Copper |
-| a wide pour along a centreline into a pad | `board.finger(net, from_=, to=, width=)` | Copper |
-| a finger as wide as a named pad | `board.finger(net, from_=, to=, width=PadRef(...))` | Copper |
-| a coupled differential pair | `board.pair(p, n, path, layer=)` | Copper |
+| a clearance anchored on a pad, in a datasheet's own coordinates | `Path(FIGURE, anchor=...)`, `at=PadRef(...)`, `rotation=Turned(part, 0)` | Keepouts |
+| a clearance band along a board edge | `board.keepout(shape, name, at=OnEdge(edge, along=Along.MID))` | Cutouts (the shape on an edge) |
+| a region a case leaves little room over | `board.keepout(..., excludes=(Forbid.PARTS,), max_height=)` | Keepouts |
+| a part against a keepout's boundary | `at=Beside(keepout, Edge.SOUTH)` | Placement (Beside) |
+| a clearance that differs from the net class, in one place | `board.rule(clearance=, within=/between=/on=)` | Rules |
+| **copper** | | |
+| a track from a pad to a pad | `board.track(net, [PadRef(a), PadRef(b)], layer=)` | Copper calls |
+| which end of an off-grid leg takes the 45 | `board.track(..., bend=Bend.START/END/BOTH)` | Copper vocabulary |
+| a track through the gap between two pads | `Between(PadRef(a), PadRef(b))` as a track point | Copper vocabulary (Lane waypoints) |
+| a track held the clearance off pads, vias or tracks | `Past([PadRef(...), via, track], Edge.EAST, across=)` as a track point | Copper vocabulary (Lane waypoints) |
+| a via at the nearest legal spot to a pad | `board.via(net, FreeSpot(near=PadRef(...)))` | Copper calls |
+| a via its clearance past pads, vias or tracks, on a pad's axis | `board.via(net, at=Past([...], Edge.SOUTH, across=PadRef(...)))` | Copper calls |
+| a power or exposed pad filled with vias | `board.vias(net, PadRef(...))` | Copper calls |
+| a track, via or pour on one land of a pin drawn as several | `PadRef(part, n, land=Land.LARGEST)` or `land=2` | Copper vocabulary |
+| vias in a row out from a pad, a tail joining them | `board.vias(net, along=PadRef(...), count=N)`; as a track point, its value is the farthest via | Copper calls |
+| a track on to a via or a via row | the value `board.via()`/`board.vias(along=)` returns, as a track point | Copper calls |
+| stitching vias over a cell, a pour or a keepout, or along its outline | `board.stitch(net, region, edge=)` | Copper calls |
+| a pour of exactly the shape given | `board.pour(net, points, layer=)` | Copper calls |
+| a pour over a set of pads, pulled back from other nets | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: the hull of the pads' copper (`cover=Cover.BOX`, the box round it) | Copper calls |
+| a neck between two pads, as wide as the narrower or `width=` | `board.pour(net, [PadRef(a), PadRef(b)], layer=, swallow_pads=True, width=)` | Copper calls |
+| a wide pour along a centreline into a pad | `board.finger(net, from_=, to=, width=)` | Copper calls |
+| a finger as wide as a named pad | `board.finger(net, from_=, to=, width=PadRef(...))` | Copper calls |
+| a zone over the whole board, or an outline | `board.plane(net, layers=, outline=)` | Copper calls |
+| a zone over a group of parts only, wherever they were placed | `board.plane(net, layers=, over=[Part(...), Cell(...)], margin=)` | Copper calls |
+| a coupled differential pair, its centreline found | `board.pair(p, n, [(padP, padN), (padP2, padN2)], layer=)` | Copper calls (Pairs) |
 | silk text on a connector, jumper, switch or LED | `board.label(item, text, side=)` | Labels |
-| a pour over a set of pads | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: the hull of the pads' copper (`cover=Cover.BOX` the box round it), grown over every same-net pad its outline touches, and pulled back from every other net's copper | Copper |
+| a routed net kept, relative to its pads | `placemat route <script> --adopt NET` | Commands (Keeping routed copper) |
+
+## Read the board
+
+The questions a session asks between runs, and the command that answers
+each from the board placemat already holds. Reach for these before grepping
+a `.kicad_mod` or loading pcbnew.
+
+| you want to know | run | section |
+|---|---|---|
+| what the parts are called, where they are, the totals | `placemat parts <board>` | Commands |
+| a pad's copper box, net, centre and pin name | `placemat measure <board> <part> --pads` | Commands |
+| a footprint's pads before it is on a board | `placemat measure <path>.kicad_mod --pads` | Commands |
+| which item sets each side of a part's drawn envelope | `placemat measure <board> <part> --envelope` | Commands |
+| each track segment of a net and what its ends land on | `placemat measure <board> --copper [NET ...]` | Commands |
+| how near each part stands to a keepout | `placemat measure <board> --keepouts [NAME ...]` | Commands |
+| the silk texts and marks on a board | `placemat measure <board> --labels` | Commands |
+| one copper layer by net, and tracks inside another net's zone | `placemat layer <board> <LAYER>` | Commands |
+| which nets matter: span, routed length, detour, vias | `placemat nets <board>` | Commands |
+| what is at a point, where a via fits, a clear path between two pads | `placemat occupancy <board> --at / --via-near / --corridor` | Commands |
+| each DRC violation, with the parts' instance paths | `placemat drc <layout.kicad_pcb>` | Commands |
+| what changed between two runs | `placemat impact <run> <run>` | Commands |
+| the placement drawn, in seconds | `placemat preview <script>` | Commands |
+| a cell on its own, its pads by net and side | `placemat show <board> <cell>` | Faces |
+| the settings in force and where each came from | `placemat settings <board-dir>` | Settings |
+| which datasheet page has the land pattern | `placemat datasheet <pdf>` | Commands |
+| the design checks the `Pm.*` facts drive | `placemat check <board>` | Commands |
 
 ## Questions (answered from the generated board, before anything moves)
 
@@ -90,11 +132,11 @@ and write that form. When nothing here says it, do not compute it: see
 | `board.cell(Cell("mcu"))` | the cell: `.members`, `.box`, `.member("conn")` |
 | `board.pad(Part("j1"), 3)` / `board.pad(Part("j1"), "GND")` | a pad by number (int) or net (str): `.box` (size, centre), `.through`, `.drill_mm`, `.layers` |
 | `board.pitch(Part("j1"), pins=None)` | the part's pin spacing, read from its pads (a pin drawn as several lands is one pin): a connector's pin pitch; `pins=(5, 6)` the distance between two pins |
-| `board.cell_pad(Cell("bd0"), net="CANH", ref_prefix="H")` | one pad inside a cell |
+| `board.cell_pad(Cell("xcvr0"), net="BUS_H", ref_prefix="H")` (or `number=`) | one pad inside a cell |
 | `board.net(Net("V48"))` | the net name, or `KeyError` |
-| `board.netclass(Net("CAN_P"))` | its class: `.track_width`, `.clearance`, `.diff_pair_width`, `.diff_pair_gap` |
+| `board.netclass(Net("BUS_P"))` | its class: `.track_width`, `.clearance`, `.diff_pair_width`, `.diff_pair_gap` |
 | `board.keep_in` | the board's copper-to-edge rule: where an EDGE item's reach lands |
-| `board.reach(item, rotation=)` | the item's body, pads and silk together, as a box at the origin |
+| `board.reach(item, rotation=, face=)` | the item's body, pads and silk together, as a box at the origin |
 | `board.height_of(part)` | the part's height in mm from its `Pm.Height` field; an error naming the field when it has none |
 | `board.parts(net=None)` | every part on the board as a `Part`, or those with a pad on `net`: derive drops and checks from the netlist |
 | `board.envelope(item, rotation=, face=)` | what the placer keeps for the item under `[place] envelope`, as a box at the origin - the number `row()`, `block()` and `Beside` already space by; read it to check a gap's arithmetic, not to build a row or a stack by hand |
@@ -105,8 +147,9 @@ The same answers from the command line, for when no script is running, are
 
 ## Setup
 
-`board.size(width, height, chamfer=0.0, radius=0.0, holes=(), web=0.0)` - the
-outline, origin top-left, y down.
+`board.size(width, height, chamfer=0.0, radius=0.0, holes=(), web=0.0, draw=None)` - the
+outline, origin top-left, y down; `draw=False` gives a fragment a frame that
+is never drawn.
 `board.size(fit=True, margin=None, chamfer=0.0, radius=0.0)` - a fragment's
 frame (never drawn) sized to its content: the box round everything placed (each
 part as the placer claims it, labels, tracks, vias, pours) plus `margin`
@@ -121,7 +164,7 @@ naming it. `Axis` is `X` or `Y`. Even the declared axis's edges are refused
 until everything is placed, the same as `fit=True`'s - a scope decision, not
 a limit of the number itself, which `board.width`/`board.height` answer from
 declaration on.
-`board.disc(diameter, hole=0.0, holes=(), web=0.0)` - a round board at the origin, bored
+`board.disc(diameter, hole=0.0, holes=(), web=0.0, draw=True)` - a round board at the origin, bored
 `hole` wide through the middle when it goes round a shaft. Places on it are
 bearings and radii (below); `board.centre`, `board.radius` and `board.bore`
 answer where it is.
@@ -156,14 +199,15 @@ board.place(item, at=Near(PadRef(u1, 3).local(0.4, -1.2), radius=0), rotation=Tu
 or EDGE item that lands on another is a script error: the run stops
 there with the collisions, before anything is searched (`placemat run
 --keep-going` records them as findings and carries on). A finding names
-a cell member with its cell: `j_mot (edge): J5 courtyard overlaps cell
+a cell member with its cell: `j_out (edge): J5 courtyard overlaps cell
 a1's R2 courtyard`.
 
 **Degrees of freedom.** Each kind of place takes some away. `Location(x, y)`,
 `Centre(x, y)` and `Pin(key, x, y)` fix both coordinates (the origin, the
 body centre, or the item's own pad `key` (a number or a net), each axis a
-number or a reference): a cap whose pad must sit on a pin's axis, a diode
-whose pad faces another's, is a `Pin`. On a cell, which has no pad of its
+number or a reference, and the two axes may name different parts:
+`Pin(1, X(Part("j1")), Y(PadRef(Part("u1"), 14)))`): a cap whose pad must
+sit on a pin's axis, a diode whose pad faces another's, is a `Pin`. On a cell, which has no pad of its
 own, `key` is a `CellPadRef` or a `PadRef` naming one of its members' pads;
 the cell is carried rigidly so that pad lands on the point. `Location(30, None)` or
 `Centre(None, y)` fix one: the item slides along the line, starting across
@@ -175,8 +219,12 @@ keep-in, and `along` the edge a number in mm, a reference, `Along.START`,
 every edge. `OnEdge(edge)` fixes one: it slides along the edge, midpoint
 alone, the k-th of n at (k+1)/(n+1) with its fellows. `Near(location)` and
 nothing fix none. Everything with a freedom left is searched, so it goes
-down with the searched items in rank order, and an edge item's rotation
-defaults to the cell's declared outward side (see Faces). Test points,
+down with the searched items in rank order. With no `rotation=`, an item
+`OnEdge(edge)` with no `along=`, on a run from `board.edge(facing=)`, or on
+a rim is turned so its outward side faces out (a cell's declared
+`faces(outward=)`, a part's local +Y; see Faces); one at
+`OnEdge(Edge.X, along=)` on a named side keeps rotation 0, so give it
+`rotation=` or `board.outward_rotation()`. Test points,
 LEDs, buttons and a connector whose exact spot does not matter are
 `OnEdge(edge)`, never `along=`. Whether a position is decided is
 `Freedom` - `fixed` for a point, `edge` for a distance along an edge,
@@ -189,7 +237,7 @@ at 0, 90, 180 and 270, and the search keeps the turn that puts its pads
 nearest what they connect to. `rotation=` keeps that one rotation;
 `rotations=` the ones listed. An edge, a line or a ring decides its item's
 rotation, and a cell or a block keeps its own. `[place] rotations =
-"declared"` tries only the declared rotation, as before 0.28.
+"declared"` tries only the declared rotation.
 
 **The rank.** Unless the script says, a searched item's place in the queue
 is worked out from what it IS: how much board its courtyard needs and how
@@ -212,7 +260,7 @@ is independent of the rank and of whether the position is decided, and a
 required item is not negotiable even under `--keep-going`. Nothing else
 stops a run by itself.
 
-**A flip to the back** mirrors the item about the VERTICAL axis and then turns
+**A flip to the back** mirrors the item about the vertical axis and then turns
 it by `rotation=`. That is KiCad's own F key (`editing.flip_left_right`, its
 default), and a part and a cell flip the same way. KiCad's orientation field
 will read `rotation + 180` for a back-face part, which is exactly what you get
@@ -235,7 +283,7 @@ board.place(Part("c_bulk"))                                             # seeds 
 The step note reads `seeded on V48` and the achieved link lengths are in
 the run. A pad is named by number (`PadRef(part, 3)`), by net
 (`PadRef(part, "V48")`), or by the pin name its symbol gives it:
-`PadRef(Part("mcu"), pin="VDD3P3_CPU")`. `.offset(dx, dy)` moves the point
+`PadRef(Part("mcu"), pin="VDD_CORE")`. `.offset(dx, dy)` moves the point
 in board directions; `.local(dx, dy)` moves it in the part's own frame, as
 its footprint is drawn, so the move turns with the part (and on the back
 mirrors). A pin drawn as several lands (a side tab, small pads and an
@@ -269,7 +317,7 @@ the nearest legal spot outside, across the band from its pin.
 
 **`Near` is for what the netlist cannot say**: a thermal sensor that must
 sit by the FETs it shares no net with, a test point wanted at the edge.
-A `Location` constant that stands for "the power area" or "the CAN
+A `Location` constant that stands for "the power area" or "the bus
 corner" is a floorplan typed by hand; the placer floorplans from the
 links, and a hint on a part that has a wired, placed neighbour is a
 defect. Many parts hinted at one point compete for the same rectangle and
@@ -288,15 +336,17 @@ stands the item on that side of `item` - a `Part`, a `Cell` or a keepout
 the envelope's own gap - the rule a row's default gap keeps too: the
 widest of the net clearance, the component spacing and the silk
 clearance, or courtyards touching under a courtyard envelope - whatever
-the script gives. FIXED like `Pin`: `item` must already be placed firmly
+the script gives. `side` decides one axis and `align=` the other: beside a
+`NORTH` or `SOUTH` side, `align=` sets x; beside `EAST` or `WEST`, y.
+FIXED like `Pin`: `item` must already be placed firmly
 (FIXED or EDGE) by then, refused by name otherwise ("only FIXED and EDGE
 items may be referred to"), the same refusal any firm placement gets for
 referring ahead; it keeps the rotation the script gave, or its default -
 `Beside` does not turn the item to face `item`. `align=` lines it up
 across the side, flush as `OnEdge` and `row(of=)` are, never the placed
-part's body centre left overhanging the corner: a `PadRef` - this item's
-own pad on the same net lands level with it - `(own_pad, their_pad)` when
-the nets differ, or an `Along` of `item`'s side - `START` flush with its
+part's body centre left overhanging the corner: a `PadRef` - the placed
+part's own pad on the same net lands level with the named pad -
+`(own_pad, their_pad)` when the nets differ, or an `Along` of `item`'s side - `START` flush with its
 start, `END` flush with its end, `MID` (default) centred. The pad may be
 `item`'s own or any other part's placed firmly by then: west of a
 capacitor, level with a driver's pin, is `Beside(Part("c_boot"),
@@ -314,11 +364,14 @@ or `WEST` beside a `NORTH` or `SOUTH` side). A placement is decided before
 any copper is planned, so the Past takes pads only - a via or a track is
 refused - and takes no `across=`. The pads' parts are placed firmly first,
 as for any firm placement. The track then takes the same line as a
-waypoint, `Past([PadRef(...)], Edge.WEST)`.
+waypoint, `Past([PadRef(...)], Edge.WEST)`. A width sized for a current
+is a fact: a named constant citing IPC-2221 at the board's `check.rise_c`
+and `check.copper_oz` (`placemat settings` prints them); the run's
+`current-path` check then judges the copper drawn in the lane.
 
 ```python
 board.place(Part("c_bypass"), at=Beside(Part("u1"), Edge.WEST, align=PadRef(Part("u1"), "VDD")))
-board.place(Cell("led_ring"), at=Beside(Part("j_conn"), Edge.SOUTH))          # MID of the connector's south side
+board.place(Cell("indicators"), at=Beside(Part("j_conn"), Edge.SOUTH))          # MID of the connector's south side
 clr = board.keepout(Circle(10.0), "ant", at=PadRef(ANT, "FEED"), allow=(ANT,), why="the matching network")
 board.place(Part("r_series"), at=Beside(clr, Edge.NORTH, align=Along.START, gap=0.3))
 board.place(Part("u2"), at=Beside(Part("c_vdd"), Edge.SOUTH,                # its pad 1 a lane west of c_in's pad 1
@@ -344,10 +397,11 @@ power = board.row(PD, Edge.WEST, gap=3.0, start=TOP, line=Line.OUTER)           
 trunk = board.row([CN, U13], Edge.NORTH, gap=2.5, align=Along.MID, line=Line.OUTER)
 pair = board.row([RB, RA], Edge.NORTH, gap=1.5, behind=trunk, inboard=2.0, rotation=180, centre=X(Mid(pin_n, pin_p)))
 board.row([JUMPER], Edge.NORTH, gap=1.5, rotation=180, before=pair)   # on the resistors' centre line
-legs = board.row(LEGS, Edge.SOUTH, gap=1.0, behind=mot_aux, start=Y(PadRef(MH3, 1), 4.0))   # after the hole
+legs = board.row(LEGS, Edge.SOUTH, gap=1.0, behind=aux_row, start=Y(PadRef(MH3, 1), 4.0))   # after the hole
 board.size(width=board.keep_in + power.depth + 4 + bus.depth + board.keep_in, height=max(power.end, bus.end) + TOP)
 ```
-Where a row sits along its edge, one of: `start=` a number or a
+`overhang=` stands the row's outward faces that far past the edge, as
+`OnEdge(edge, overhang=)` does. Where a row sits along its edge, one of: `start=` a number or a
 reference; `align=Along.MID` (also "centre"/"center") on the board,
 `Along.END` ("end") flush with the far keep-in; `centre=` or `end=` a
 reference (`X(Mid(pin_n, pin_p))`, `X(pad, -2.0)`); `before=` or `after=`
@@ -366,7 +420,9 @@ and how far its near line stands off `of`, and `line=` still says how the
 row aligns across itself. `align=Along.START/MID/END` is where along
 `of`'s side the row sits (default `START`). `centre=PadRef(...)` instead
 puts the row's middle on that pad's centre line: a pad of `of`, or of any
-part placed firmly by then; it is not given with `align=`. `pitch=` is the
+part placed firmly by then. It takes one `PadRef` or `CellPadRef` (a `Mid`
+or an `X()`/`Y()` is refused, unlike a board-edge row's `centre=`) and is
+not given with `align=`. `pitch=` is the
 distance between neighbouring items' centres, in place of `gap=` between
 their envelopes (not both); with a pitch the row's middle is halfway
 between its first and last items' centres. The row still stands the
@@ -413,21 +469,24 @@ place of its own, not a freedom. A frame edge, `board.centre`,
 `board.width` and `board.height` are refused on a fit board: the plan's
 outline is the frame once it is resolved.
 
-**How a searched item finds its place.** With `Near` it scans around the
-hint. A `Near(PadRef(...))` on another searched item's pad waits for that
-item, block members included, whatever the two items' tiers and ranks, so it
-is searched round where the pad landed. A scored scan over a wide radius is coarse first (four steps apart)
-and fine only around its best spots, so a wide `radius=` costs little;
-a part the script will place later is not an obstacle where the
-generator left it, only once it is placed. Without one it is SEEDED: the hint is the weighted centroid of the
-pads already placed that it connects to (plane nets and free nets do not
-count), and every legal candidate in the scan is scored by its links, the
-lowest kept; it may step at least its own size away from the seed, or
-`radius=` when that is larger. If nothing it connects to is placed yet it
-takes a POCKET: the biggest free rectangle its envelope fits on its face.
-An item that finds no legal spot is left off the board: it pulls nothing
-and blocks nothing, and the finding says what stopped it. The step note
-says which happened.
+**How a searched item finds its place.** An explicit `at=Near(...)` scans
+round its hint; a `Near(PadRef(...))` on another searched item's pad waits
+for that item, block members included, whatever the two items' tiers and
+ranks, so it is searched round where the pad landed. Without a hint the
+item is SEEDED: the hint is the weighted centroid of the placed pads it
+connects to (plane nets and free nets do not count), every legal candidate
+in the scan is scored by its links and the lowest kept, and it may step at
+least its own size away from the seed, or `radius=` when that is larger. An
+item wired to nothing placed yet takes a POCKET: the largest free rectangle
+its envelope fits on its face. A seeded item with no legal spot within
+reach takes the free rectangle nearest where it was centred, and its step
+says "took the pocket" and how far off that is; one with an explicit `Near`
+is left unplaced instead. An unplaced item pulls nothing and blocks
+nothing, and the finding says what stopped it. A scored scan over a wide
+radius is coarse first (`place.coarse_steps` apart) and fine only round its
+best spots, so a wide `radius=` costs little. A part the script places
+later is not an obstacle where the generator left it, only once it is
+placed. The step note says which of these happened.
 
 **Order.** FIXED and EDGE items go down as declared. Searched items are
 ordered by the placer, re-measured after each. A cell, a block and a loose
@@ -538,28 +597,21 @@ unchanged rerun went from 125 s to 7 s, and a change to a part late in the
 order from 118 s to 24 s. A change early in the order - most of the
 fixed tier, the large parts - still re-resolves nearly everything.
 
-**Where each is searched from.** An explicit `at=Near(...)` first. Otherwise
-the item is centred on the placed pads it is wired to, and an item wired to
-nothing placed yet takes the largest free rectangle that fits it. A centred
-item with no legal spot within reach takes the free rectangle nearest where
-it was centred, and its step says "took the pocket" and how far off that is;
-one with an explicit `Near` does not, and is left unplaced. With
-`[solve] enabled = true` a global solve comes between the two: at the first
-searched item it works out where every unplaced searched part and cell would
-sit if the whole netlist pulled at once - placed items as anchors, each pad at
-its offset, plane and free nets pulling only through declared links, then an
-even spread over the board that keeps their relative order - and each item is
-searched from that point instead. A block keeps its own seeding. A solved hint
-with nothing legal within reach is dropped for the path the item had without
-it. It is off by default: on one measured 96-item board it matched the
-sequential seed on items placed and findings and joined seven more
-connections, but cost one more DRC violation and 1.6% more airwire, so the
-best-run gate judged it worse. Try it on a board whose searched items scatter
-or land in pockets with "nothing it connects to is placed", and let the `best`
-line judge. On the module benchmark (`fixtures/bench.py`, 2026-09-22, 32
-modules) the solve was better than the sequential seed on 13 and worse on 15:
-better on 7 of the 11 with fourteen or more parts, worse on 11 of the 21
-smaller ones.
+**The global solve.** With `[solve] enabled = true`, at the first searched
+item placemat works out where every unplaced searched part and cell would
+sit if the whole netlist pulled at once - placed items as anchors, each pad
+at its offset, plane and free nets pulling only through declared links,
+then an even spread over the board that keeps their relative order - and
+each item is searched from that point instead of its seed. A block keeps
+its own seeding. A solved hint with nothing legal within reach is dropped
+for the path the item had without it. It is off by default: on one
+measured 96-item board it matched the sequential seed on items placed and
+findings and joined seven more connections, but cost one more DRC violation
+and 1.6% more airwire, so the best-run gate judged it worse; over 32
+benchmark modules it was better on 13 and worse on 15, better on most of
+those with fourteen or more parts. Try it on a board whose searched items
+scatter or land in pockets with "nothing it connects to is placed", and let
+the `best` line judge.
 
 ## Cutouts
 
@@ -570,13 +622,13 @@ the same way.
 ```python
 from placemat import Cutout, Slot, Circle, Path
 
-FFC = Cutout(Slot(13.0, 3.0), "ffc",
-             at=Centre(X(Part("j_ffc")), Y(Part("j_ffc"), 4.0)),
-             why="the FFC cable passes through to the panel behind")
+CABLE = Cutout(Slot(13.0, 3.0), "cable",
+               at=Centre(X(Part("j_cable")), Y(Part("j_cable"), 4.0)),
+               why="the flat cable passes through to the panel behind")
 VENT = Cutout(Slot(8.0, 2.0), "vent", at=Polar(14.0, Fraction(0.5)), why="airflow past the regulator")
 
-board.disc(diameter=40.0, hole=6.0, web=1.5, holes=[FFC, VENT])
-board.place(J, at=OnEdge(board.cutout("ffc").edge(side=Edge.NORTH), along=Along.MID))
+board.disc(diameter=40.0, hole=6.0, web=1.5, holes=[CABLE, VENT])
+board.place(J, at=OnEdge(board.cutout("cable").edge(side=Edge.NORTH), along=Along.MID))
 ```
 
 **The shape says what, `at=` says where.** `Slot(length, width)` is measured
@@ -587,7 +639,12 @@ where it is placed; `anchor=` on any shape names the point of it that lands on
 the place instead. `at=` takes `Location`, `Centre`, `Polar`, `OnEdge` or
 `Near`, and a freedom left in it is settled against what is on the board: a
 vent with `at=Centre(None, 20.0)` slides along that line to where there is
-room. A raw path in `holes=` still works and means "already absolute, place
+room. On `OnEdge` the shape's centre stands in from the edge by `board.web`
+plus half the declared shape's extent toward the edge (measured before any
+turn), so on a north or south edge a shape `d` deep lies inside the board
+with its outer side on the edge; a keepout band along the north edge is
+`Path` of the board's width by the band's depth at
+`OnEdge(Edge.NORTH, along=Along.MID)`. A raw path in `holes=` still works and means "already absolute, place
 nothing".
 
 **Which way it runs.** With no `rotation=`, a place that carries a direction
@@ -729,7 +786,9 @@ for label 'BOOT' from the debug cell`), so a parent need not declare them again.
 A stamped region larger than its cell costs the parent the difference: the
 cell's step says `its stamped regions keep parts off N mm2 of board beyond
 its own parts`. For a part's escape band, `board.fanout()` follows the pad
-rows and admits the part's own satellites; a rectangle keepout does neither. They are read from the generated board, so a keepout whose name would
+rows and admits the part's own satellites and the parts linked to its pads
+at `LinkWeight.SHORT` or more; a rectangle keepout does neither. A cell's
+regions are read from the generated board, so a keepout whose name would
 collide with one is refused.
 
 **A stamped cell's zones under the board's own plane.** A module fragment's
@@ -870,8 +929,8 @@ edge and it is turned so its outward side follows the local normal, so a row
 along a rounded top fans with the curve. A row along a run takes `gap=`,
 `start=`, `align=Along.MID/END` (also "centre"/"center"/"end"), `rotation=`
 and `overhang=`; the anchors that only mean something on a straight side
-(`line=`, `behind=`, `before=`, `after=`, `centre=`, `end=`) are refused
-for now. Claims on a curve are
+(`line=`, `behind=`, `before=`, `after=`, `centre=`, `end=`) are refused.
+Claims on a curve are
 spaced by how much the edge bends under them - the items sit inboard, where
 the same angle spans less edge - and are left the rounding two courtyards
 may touch by, since round a curve two claims can only ever meet at a point.
@@ -949,7 +1008,7 @@ so KiCad mills the arc and clips every fill to it.
 
 ```python
 board.link(PadRef(Part("c1"), "VIN"), PadRef(Part("u1"), "VIN"), weight=LinkWeight.SHORT, limit_mm=2.0, why="bypass at its pin")
-board.free_net(Net("ENDSTOP"))      # its off-board run dwarfs the board: pulls nothing, seeds nothing
+board.free_net(Net("LIMIT_IN"))      # its off-board run dwarfs the board: pulls nothing, seeds nothing
 ```
 `weight` is `LinkWeight.FREE` (0), `DEFAULT` (1), `PREFER` (2), `SHORT` (8)
 or any integer; 0 means the connection's length does not matter. Every
@@ -981,9 +1040,9 @@ needs the turn given. `board.outward_rotation(item, edge)` reads the
 item's declared `faces(outward=)` (a cell) or the generic rule (a part,
 local +Y) and returns `(rotation, note)`: the rotation that turns that
 side to `edge` - a board `Edge`, or a bearing in degrees on a round
-board's rim - and a note naming when it fell back to the generic rule
-because no `faces()` was declared (read the note; a part or an unfaced
-cell may not be turning the way you meant).
+board's rim - and a note, for a cell with no `faces()` declared, saying
+it fell back to the generic rule (read it: that cell may not turn the way
+you meant). A part always takes the generic rule, with no note.
 `rotation=board.outward_rotation(item, Edge.WEST)[0]` is the computed
 form of a hand-written rotation helper that reads a pad's direction and
 works the turn out itself: it answers a rotation, the same way `extent`
@@ -992,7 +1051,7 @@ and `pitch` answer a size, and is not a coordinate to place by.
 ## Rules
 
 ```python
-board.rule(clearance=0.2, within=Cell("tmc"), why="0.5 mm pitch cannot meet the class between adjacent pads")
+board.rule(clearance=0.2, within=Cell("drv"), why="0.5 mm pitch cannot meet the class between adjacent pads")
 board.rule(clearance=0.6, between=(Net("V48"), Net("GND")), why="48 V to ground")
 board.rule(clearance=0.4, on=Net("V48"), why="the bus")
 ```
@@ -1018,7 +1077,8 @@ satellite already sits at does not. A searched block is first laid out on its ow
 board, at each rotation it may take: when none works, the finding says why
 at once rather than after a scan of the whole board. A net names the anchor's FIRST pad carrying it; when several do (a
 supply, a ground with thermal vias numbered into an exposed pad), name the
-anchor's pad by number instead - `(Part("cdec"), 20)` - and the satellite
+anchor's pad by number instead - `(Part("cdec"), 20)`, 20 being the
+anchor's pad - and the satellite
 sits by its own pad on that pad's net. A satellite with no spot says which
 anchor pad it was aimed at. The block is laid out from the anchor's REAL pads at every
 candidate, so its envelope is exact, and placed as one thing (after cells,
@@ -1095,22 +1155,18 @@ board.track(Net("SIG_P"), [PadRef(Part("j1"), 2), Past([v], Edge.SOUTH), PadRef(
 
 **Who bridges.** Where two tracks of different nets cross on one layer, the
 lower `priority` passes under; at equal priority the shorter one does; a
-`FIXED` track never does. Only a track declared `bridge=True` may pass
+track planned before the search (every endpoint decided) never yields to
+copper planned after it. Only a track declared `bridge=True` may pass
 under; a crossing where the track that should yield may not is a finding,
 and both tracks are drawn as declared. The order of the declarations never
 enters into it. Fingers always yield to tracks.
 
-Not in this API (they were verbs in the previous library): route45 and
-l45 (45-degree legs: give `track` the corner points), spine and plane_serve
-(joining plane drops with planned runs), band_with_notches, reserve,
-and drop_via (via-in-pad drops: `board.via(net, at, ...)` at a pad, or
-`board.vias(net, along=PadRef(...), count=N)` for a row of them), and the
-lane vocabulary (tap, hop, chain, crossing) beyond `Between`/`Past`. They
-return only when a board needs them. A script that
-needs a word of its own (a "corridor", a "spine") defines it where it first
-uses it, in these terms.
+A script that needs a word of its own (a "corridor", a "spine") defines it
+where it first uses it, in these terms.
 
-## Copper (planned after placement, against the placed pads)
+## Copper calls
+
+Copper is planned after placement, against the placed pads.
 
 Points: `Location`, `PadRef(Part, int|net, land=None)`, `CellPadRef(Cell, net=|number=, ref_prefix=)`,
 or `(x, y)` where either may be `X(ref, dx)` / `Y(ref, dy)`. `.offset(dx, dy)` on a ref.
@@ -1121,18 +1177,19 @@ placement on it says which pad that was. Name the number to pick another.
 
 ```python
 board.track(net, [p1, p2, ...], layer=CopperLayer.F, width=None, chamfer=None, bend=None, priority=Priority.DEFAULT, bridge=False)
-board.via(net, point)
-board.via(net, FreeSpot(near=PadRef(...), radius=2.0))               # the nearest legal spot to a pad, joined to it by its tail
-board.via(net, Past([PadRef(...), ...], Edge.SOUTH, across=None))    # its radius plus its clearance off the items' side
-board.vias(net, PadRef(...), pitch=None, size=None, drill=None, inset=0)  # a pad filled with a grid of vias, turned with its part
+board.via(net, at, drill=None, size=None)                              # at= a point; the board's via size unless given
+board.via(net, at=FreeSpot(near=PadRef(...), radius=2.0))            # the nearest legal spot to a pad, joined to it by its tail
+board.via(net, at=Past([PadRef(...), ...], Edge.SOUTH, across=None)) # its radius plus its clearance off the items' side
+board.vias(net, pad=PadRef(...), pitch=None, size=None, drill=None, inset=0)  # a pad filled with a grid of vias, turned with its part
 board.vias(net, along=PadRef(...), count=N, pitch=None, size=None, drill=None)  # a row out from a pad, along its escape axis
 board.stitch(net, region, pitch=None, size=None, drill=None, edge=False)  # vias in a grid over a cell, a pour or a keepout
-board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False)     # filled polygon
+board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False, stroke=None)  # filled polygon; stroke= its outline's width (copper.pour_stroke)
 board.pour(net, [PadRef(a), PadRef(b), PadRef(c)], layer=..., swallow_pads=True, cover=None)  # over the pads' copper
 board.pour(net, [PadRef(a), PadRef(b)], layer=..., swallow_pads=True, width=None)  # the neck between two pads
 board.plane(net, layers=(CopperLayer.IN1,), outline=None, inset=0.4)  # zone(s), whole board or outline
 board.plane(net, layers=(CopperLayer.IN1,), over=[Part(...), Cell(...)], margin=0.0)  # zone(s) over named items
-board.finger(net, layer=, from_=point, to=point, width=)               # pour along a centreline, cut and bridged at tracks; width= a number or a PadRef
+board.plane(..., clearance=None, min_thickness=None, solid_pads=True, chamfer=None)  # the zone's pullback and minimum width (copper.plane_*), pads joined solid or by thermal spokes, the frame outline's corner chamfer
+board.finger(net, layer=, from_=point, to=point, width=, bridge_width=None)  # pour along a centreline, cut and bridged at tracks; width= a number or a PadRef
 ```
 All take `priority=`, which decides only who passes under where two tracks
 of different nets cross. WHEN a piece of copper is planned is derived, not
@@ -1183,7 +1240,7 @@ centre on that layer at the net class's track width, or the pad's narrower
 side when that is less; `tail=False` draws the
 via alone, and a via in the pad has none. `board.via()` returns the via,
 and a `board.track()` may end on it - `v = board.via(GND, FreeSpot(...))`,
-then `board.track(GND, [v, PadRef(...)], layer=B)` - so a searched part's
+then `board.track(GND, [v, PadRef(...)], layer=CopperLayer.B)` - so a searched part's
 via is joined on wherever the part lands. A track through a via that found
 no spot is not drawn, and the finding says so.
 
@@ -1226,8 +1283,9 @@ own size and a drilled hole plus the hole-to-hole rule), the first clear of
 the pad's own copper, and a track at the net's width (as a via's tail)
 from the pad to the farthest via joins them. A via the row cannot fit, or
 whose tail cannot reach it - the edge, another net's copper, a hole - is a
-finding, and the row stops there. A track given the returned value as a
-point ends on the row's farthest via, as on one `board.via()`.
+finding, and the row stops there. A track given the value it returns as
+a point ends on the row's farthest via, as on one `board.via()`; a `Past`
+naming it is held off every via of the row and its tail.
 `pad=`/`along=` are exclusive: one call, a grid over a pad or a row along
 its axis.
 
@@ -1263,7 +1321,8 @@ counts as given under HULL and BOX too.
 
 **A swallowing pour pulls back too.** `swallow_pads` both grows the pour
 over the same-net pads its outline touches and pulls it back, to the
-netclass clearance, from every other net's copper on its layer - every
+netclass clearance (the larger of the two nets' classes; a `board.rule`
+clearance is not applied to it), from every other net's copper on its layer - every
 pad, at its real shape rather than its bounding box; every track, via and
 pour this run plans (two swallow pours settle as KiCad's zone priority
 does: the one the plan draws first - the one declared first, when both
@@ -1279,12 +1338,9 @@ net's pad shapes the outline near it and is never swallowed or checked as
 joined. A pour without `swallow_pads` keeps exactly the shape it is given,
 still.
 
-The plan itself draws the pour's shape exactly as declared - placemat's own
-geometry has no polygon subtract to compute the pull-back before the board
-is written - so a `swallow_pads` pour's clearance to other nets is not
-checked at plan time (the writer's pull-back guarantees it); the declared
-shape still occupies the board, so it is an obstacle for copper planned
-after it, same as the written pour is.
+The pull-back is applied when the board is written, so the plan does not
+report a `swallow_pads` pour's clearance to other nets; the declared shape
+still occupies the board, an obstacle for copper planned after it.
 
 **A finger as wide as a pad.** `board.finger(net, from_=, to=, width=PadRef(...))`
 runs the finger as wide as that pad measured across the run, instead of a
@@ -1294,11 +1350,11 @@ fixed number.
 KiCad's differential tool does:
 
 ```python
-board.pair(CAN_P, CAN_N, [(padP, padN), (x, y), (x, y2), (padP2, padN2)], layer=B)
+board.pair(BUS_P, BUS_N, [(padP, padN), (x, y), (x, y2), (padP2, padN2)], layer=CopperLayer.B)
 ```
 The path starts and ends with a (P pad, N pad) tuple; the points between,
 two or more, are the centreline. Given the two pad pairs alone -
-`board.pair(P, N, [(padP, padN), (padP2, padN2)], layer=B)` - the pair
+`board.pair(P, N, [(padP, padN), (padP2, padN2)], layer=CopperLayer.B)` - the pair
 finds its own: from a pitch (width plus gap) out of the first pair's middle
 to a pitch short of the last's, octilinear as a track's leg; pad pairs too
 close for that are a finding asking for the points. Width and gap come from the P net's class
@@ -1314,10 +1370,10 @@ with the run gets a lead along its line. The pair is one step,
 ## Labels (silkscreen text for what a user touches)
 
 ```python
-board.label(Part("j_mot"), "MOTOR", side=Edge.SOUTH, knockout=True)              # gap= only with a reason (default 0)
+board.label(Part("j_out"), "LOAD", side=Edge.SOUTH, knockout=True)              # gap= only with a reason (default 0)
 board.label(Cell("power"), "POWER", side=Edge.NORTH, align=Along.START, size=1.2)
 board.label(PadRef(Part("jp1"), 1), "1", side=Edge.WEST, gap=0.3, size=0.6)
-board.label(Part("j_bus"), "CAN", side=Edge.EAST, rotation=90, why="reads along the edge it plugs into")
+board.label(Part("j_bus"), "BUS", side=Edge.EAST, rotation=90, why="reads along the edge it plugs into")
 board.label([SW_BOOT, SW_RUN, LED], ["BOOT", "RUN", "MCU"], side=Edge.SOUTH, knockout=True)   # one line for a row
 board.label([PadRef(J, 1), PadRef(J, 2)], ["GND", "CLK"], side=Edge.NORTH, line=J)           # pin labels clear of the part
 ```
@@ -1341,10 +1397,7 @@ every connector, jumper, switch and LED, by what it does, not its refdes.
 
 ## Layers and faces
 
-A flip to `Face.BACK` mirrors about the vertical axis and then applies
-`rotation=`, the same for a part and for a cell; KiCad shows the part's
-orientation as `rotation + 180`.
-
+A flip to `Face.BACK` is described under Placement ("A flip to the back").
 `CopperLayer.F / IN1 .. IN30 / B` (the faces and every inner layer KiCad
 allows; a board uses as many as its stackup has), `Face.FRONT / BACK`,
 `Edge.NORTH / SOUTH / EAST / WEST`.
@@ -1352,11 +1405,11 @@ allows; a board uses as many as its stackup has), `Face.FRONT / BACK`,
 ## Commands
 
 ```
-placemat run <script> [--label L] [--fresh] [--no-render] [--no-drc] [-v] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]]
+placemat run <script> [--label L] [--fresh] [--no-reuse] [--no-render] [--no-drc] [-v | -q] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]]
 placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--islands NET[=WIDTH] ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--json]
                [--adopt NET ... | --adopt-all] [--partial] [--no-lock]
 placemat routes <script> [--release NET ... | --release-all]
-placemat impact <run-dir-or-json> <run-dir-or-json>
+placemat impact <run-dir-or-json> <run-dir-or-json> [--board DIR]
 placemat drc <layout.kicad_pcb> [--json]
 placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part ...] [--pads] [--envelope] [--copper [NET ...]] [--keepouts [NAME ...] [--near MM]] [--labels] [--outline] [--json]
 placemat parts <layout.kicad_pcb | script> [--field NAME ...] [--json]
@@ -1598,8 +1651,9 @@ directory, and `PLACEMAT_SHOW_KICAD=1` prints it all. Anything KiCad says
 that is not one of the known noise patterns is printed regardless.
 
 A run leaves `.placemat/runs/<id>/` beside the board (`<id>` is the hash of
-the script and the modules it imports from beside it, the generated board,
-the tool, the settings and the fab profile; `--label` adds a symlink
+the script and the modules it imports from beside it, its lock and kept
+routes files, the generated board, the tool, the settings and the fab
+profile, so `--accept` or `route --adopt` makes the next run a new id; `--label` adds a symlink
 alias): `run.json`,
 `script.log`, `drc.json`, `generate.log`, `impact.txt`, the written
 `layout.kicad_pcb`, and `route/` (the routed copy, `route.json`,
@@ -1640,8 +1694,7 @@ Two scores tie within `best.airwire_noise` of the airwire plus
 `best.crossing_noise` of the crossings' term, because kicad-cli picks
 different ratsnest edges each run for a byte-identical board. A run made
 with `--no-drc` measured neither, so it is not judged and never becomes a
-best; nor is a best recorded before the score (0.32 and earlier), which the
-next run replaces. The run prints a `score` line (each term, beside the
+best. The run prints a `score` line (each term, beside the
 best's where they differ) and one `best` line - first of its family,
 matches, better than, worse than, or not judged. **A run that comes out
 worse is a finding naming the score and the term that moved it most, and
@@ -1732,7 +1785,9 @@ moved and turned and carries the copper with them; a part is named by its
 instance path. Adopting also locks the searched items the kept nets join
 where the board stands (as `lock --current` does; `--no-lock` leaves the
 lock alone), since kept copper is dropped when they move; a placement the
-next run would not reproduce adopts nothing and says which items. Every
+next run would not reproduce adopts nothing and says which items, so route
+a board the current placemat has just run, or lock it first (`placemat lock
+<script> --current`). Every
 run and preview draws the kept copper as copper of its net, after the script's own, while
 the parts it joins stand as they did relative to each other when it was
 adopted (within `route.adopt_tolerance` at every kept pad); a conflict with
@@ -1775,14 +1830,15 @@ hint - fixed, edge, line and rim items never vary.
 every searched item. A focus with nothing in it says so and searches
 nothing.
 
-**Judging a variant.** More parts placed, then fewer findings, then a less
-congested worst cell (RUDY, in steps of `[explore] congestion_step`), then
-less wire (the cleanup pass's cost). The worst cell leads the wire because
-it is the measure that agreed with the router in the congestion study.
+**Judging a variant.** By the run score (Commands), with the worst congestion
+cell (RUDY) added in steps of `[explore] congestion_step` at
+`score.congestion` each: the measure that agreed with the router in the
+congestion study. Lower wins; it is one weighted sum, not a tiered
+comparison.
 
 **What a run says.** `explore  N variants in S s over K focused items:
-placed, findings, worst cell and wire before -> after; M items would move`,
-then one line per item that would move. `metrics.explore` records it.
+score B -> A mm (term b -> a, ...); M items would move`, the terms of the
+score that changed in brackets, then one line per item that would move. `metrics.explore` records it.
 Without `--accept` nothing persists.
 
 **The lock.** `--accept` writes the best variant's decisions for the
@@ -1797,8 +1853,7 @@ changed or the anchor is gone, turned over or placed later. The cleanup
 pass leaves a held item where it is. Commit the lock with the script; a
 run prints how many items it held, drifted and released. `placemat lock`
 lists entries and releases them. An anchor is named by its part's
-instance path, so a renumbering of the board moves nothing (a lock written
-by 0.46 or earlier still holds).
+instance path, so a renumbering of the board moves nothing.
 
 `placemat lock <script> --current` locks every searched item where the
 board stands: the script is resolved as its last run resolved it, each
@@ -1942,9 +1997,9 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `explore.congestion_step` | 0.05 | variants are ranked by the run score, with the worst congestion cell counted in steps of this at `score.congestion` each (0 leaves it out) |
 | `explore.jobs` | 0 | worker processes for `--explore`; 0 is the CPU count less one |
 | `drc.severities` | none | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
-| `drc.real_kinds` | eight classes | which violations mean the board is not done |
-| `drc.outstanding_kinds` | three classes | which violations are copper not yet joined |
-| `drc.footprint_kinds` | four classes | which violations are defects in the footprints themselves |
+| `drc.real_kinds` | `clearance`, `shorting_items`, `track_width`, `annular_width`, `hole_clearance`, `hole_to_hole`, `courtyards_overlap`, `copper_edge_clearance` | which violations mean the board is not done: the `real` buckets |
+| `drc.outstanding_kinds` | `via_dangling`, `track_dangling`, `isolated_copper` | which violations are copper not yet joined: `outstanding` |
+| `drc.footprint_kinds` | `lib_footprint_issues`, `lib_footprint_mismatch`, `malformed_courtyard`, `padstack` | which violations are defects in the footprints themselves: `footprint issues` |
 | `drc.refill_zones` | true | refill zones for the check |
 | `route.router_dir` | `$KRT_DIR`, else `~/work/KiCadRoutingTools` | the KiCadRoutingTools checkout |
 | `route.quick` | true | one routing round rather than the router's full run |
@@ -2011,7 +2066,8 @@ the worst cell's share of capacity and where it is, the 99th percentile cell
 and the overflow; the run prints the worst cell as `congestion`. On a study
 of the fixture modules the worst cell was the one congestion measure that
 picked the better-routing of two placements more often than chance (about
-three times in four); it is reported, not yet steered by.
+three times in four). The search does not weigh it; explore ranks variants
+by it (`score.congestion`).
 
 Every verb whose default appears here takes an explicit argument that still
 wins: `board.plane(..., inset=1.0)` beats `copper.plane_inset`.

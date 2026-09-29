@@ -2,7 +2,8 @@
 
 Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
-whether any of it applies.
+whether any of it applies. "Patterns in older scripts", at the end, names the
+section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
@@ -21,6 +22,14 @@ differential pair (P first), for nets without a `_P`/`_N`, `P`/`N` or
 and names them back; placement weighs their crossings as a pair's. An
 existing entry with one `/` that is not leading and has no glob character
 now reads as a pair.
+
+The skill no longer keeps a list of relations placemat cannot say. A session
+looks for the form first - api.md's intent index, the relations, a
+composition of forms, the newest sections here - and writes a relation up in
+the board's `PLACEMAT_GAPS.md` only when that search finds none. api.md gains
+a "Read the board" index from a question to the command that answers it.
+`references/capture.md` no longer lists `Pm.Role` or `Pm.Creepage`: no check
+reads them, and a capture that carries them is unaffected.
 
 ## To 0.56.0
 
@@ -148,9 +157,9 @@ fill it excludes stays off a winding drawn as copper past the pads.
 
 ## To 0.54.0
 
-The `placemat-design` skill is retired. Its placemat part - the `Pm.*`
-annotations, how wrappers forward them, what `placemat check` reads - is
-`references/capture.md` in this skill, signposted at the top of SKILL.md.
+The capture material - the `Pm.*` annotations, how wrappers forward them,
+what `placemat check` reads - is `references/capture.md`, signposted at the
+top of SKILL.md.
 
 Nothing to change in a script that works. New intent forms replace the
 coordinates the scripts audit found (see SKILL.md's "Declare by intent" and
@@ -288,7 +297,7 @@ locks the items that stand and lists the rest, where `--current` alone
 writes nothing unless every item stands.
 
 A pour net with pads its pours do not reach (a rail's taps behind a cell)
-can be routed for those: `[route] islands = ["VSHUNT", "VBIKE=0.5"]` in
+can be routed for those: `[route] islands = ["VSENSE", "VRAIL=0.5"]` in
 `placemat.toml`, or `placemat route --islands NET[=WIDTH]`. Hand-drawn
 track legs kept only because 0.50 left such nets unrouted can go.
 
@@ -525,7 +534,7 @@ area, and the run prints a `zones` line per cell. Set
 
 Nothing to change in a script. Placements with a differential pair (nets
 named as KiCad pairs them, among those `route.diff_pairs` selects; name
-only the real pairs there, e.g. `["USB_D*"]`, so a crystal's `XTAL_P`/`XTAL_N`
+only the real pairs there, e.g. `["DATA_*"]`, so a crystal's `XTAL_P`/`XTAL_N`
 is not weighed as one) can change: a crossing between a pair's two
 halves now costs `score.pair_crossing` (100 mm) instead of `score.crossing`,
 so the search and cleanup uncross a pair by a swap or a turn where they
@@ -1075,7 +1084,7 @@ a shelf of 0402s whatever their net fan-out.
 Read the step line before deciding you still need the override:
 
 ```
-usbconverter.l_vbus   part   rank 19/220   at (32.01, 18.37) rot 0 face back
+power.l_in   part   rank 19/220   at (32.01, 18.37) rot 0 face back
 ```
 
 Keep `priority=Priority.HIGH` only if the rank is demonstrably wrong for that
@@ -1156,3 +1165,30 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 
 `placemat settings` prints every resolved value and the file it came from. The
 full table is in `api.md`.
+
+## Patterns in older scripts
+
+What a script written for an earlier placemat may carry, and the section
+that says what replaces it.
+
+| found in the script | section |
+|---|---|
+| `priority=Priority.FIXED` or `EDGE`; `priority=Priority.HIGH` to go first or to make a failure fatal | To 0.6 |
+| a monkeypatch of `Occupancy._transform` | To 0.8 |
+| a `sys.path.insert` to import geometry beside the script | To 0.29, To 0.43 |
+| a `Location` of typed numbers, a `.offset()` copied from a query, a via offset from `occupancy --via-near` | To 0.39 |
+| a frozen `Near(PadRef(...).offset(...), radius=0)` with an absolute rotation | To 0.40 |
+| a fragment frame or main-part position added up from its parts | To 0.40 |
+| a grid of vias typed into a pad | To 0.41 |
+| `board.track()`/`board.via()` calls with board coordinates folded back from a routed board | To 0.43 |
+| a wrapper round the lock API to lock the current placement | To 0.47 |
+| a helper computing a position from pad boxes or envelopes; `X()`/`Y()` with offsets | To 0.53.0, To 0.54.0 |
+| a part's position worked out from a third part's pin | To 0.54.1 |
+| a hand-drawn track from a via row to its pad | To 0.54.1 |
+| a via or a waypoint at a pad tip plus the clearance plus half a via | To 0.55.0 |
+| a pad offset from another part's pad by half pad widths and a lane | To 0.55.0 |
+| a plane outline built from a group's box | To 0.55.0 |
+| two parts' positions worked out from a driver's pin at a mechanical pitch | To 0.55.0 |
+| `tail=False` on a `FreeSpot` via whose track the script draws itself | To 0.55.0 |
+| a pair centreline typed as coordinates | Unreleased |
+| a power pour polygon built from pad edges | Unreleased |

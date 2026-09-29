@@ -1,6 +1,6 @@
 ---
 name: placemat
-description: Lay out a KiCad board from a Python script with placemat - understand the board electrically first, declare placement and copper by intent, run, read the numbers, iterate. Use for any board or module layout, a placement change, or a "why did DRC change" question. Also use for circuit design or capture of a board placemat lays out: the Pm.* annotations a capture carries for placemat's checks are in references/capture.md.
+description: Use when laying out a KiCad board or module with placemat - writing or changing a layout script, placing parts, declaring tracks, vias, pours or planes, reading a run's DRC, findings, score or impact, routing, or bringing an older layout script to the current placemat. Also use for circuit design or capture (.zen, Pm.* annotations) of a board placemat lays out.
 ---
 
 # placemat
@@ -10,583 +10,394 @@ description: Lay out a KiCad board from a Python script with placemat - understa
 wrappers forward them, and what `placemat check` reads from them) and skip
 the rest of this file: it is about writing layout scripts.
 
-`placemat run <script>` generates the board, runs the script, writes the
-KiCad file, runs DRC and renders, and records what happened. One run is
-seconds once the board is cached; the record and the impact against the
-previous run are how a change is judged. The point of the tool is that a
-placement decision can be tried and measured cheaply, so try many.
+placemat lays out a KiCad board from a Python script. `placemat run
+<script>` generates the board, runs the script, writes the KiCad file, runs
+DRC and renders, and records what happened. A run takes seconds once the
+board is cached, and its record and its impact against the previous run are
+how a change is judged, so try placement decisions and measure them.
 
-Read `references/api.md` for the script surface - its "Say it by intent"
-table near the top is the index from what you mean to the form that says
-it. Everything below is how to work, not what to call.
+## References
+
+- `references/api.md` - the script surface and the commands. Start from its
+  two indexes: "Say it by intent" (what you mean -> the form that says it)
+  and "Read the board" (a question -> the command that answers it), then
+  read the section the index names. The file is too long to read whole.
+- `references/migration.md` - what changed for a script, per release,
+  newest first.
+- `references/capture.md` - the `Pm.*` annotations placemat's checks read.
 
 ## Declare by intent
 
-A script says where each part and each piece of copper goes RELATIVE TO
-something it is placed against - a board edge, a row, the pin it serves, a
-keepout, another part - and placemat works out the coordinate, the
-spacing and the alignment. This is the rule, not a preference: a script
-that computes its own positions is not declaring a layout, it is writing a
-coordinate file in Python that placemat happens to read.
+A script says where each part and each piece of copper goes relative to
+what it stands against - a board edge, a row, the pin it serves, a lane
+past other pads, a keepout, another part - and placemat works out the
+coordinate. A script that computes its own positions is a coordinate file
+that placemat happens to read.
 
 A script must not:
 - do arithmetic on a coordinate to decide where a part, a via or a track
-  goes - `X(ref, computed_offset)`, `Y(ref, computed_offset)`, a
-  `Location` or a `Centre` built from a sum or a difference;
-- read a pad's box, a part's envelope or its claim into a number and place
-  against that number. `board.pad(...).box`, `board.envelope(...)` and
-  `board.claim(...)` answer questions - for a check, an `assert`, or a
-  constant that states a mechanical fact - never for computing where
-  something goes;
-- keep a helper function or class whose job is turning a pad position into
-  a placement number (a `beside()`, a `put()`, a frame that tracks where
-  things "will" land). The same arithmetic written twice is a missing
-  intent form, not a function worth extracting.
+  goes: `X(ref, computed_offset)`, `Y(ref, computed_offset)`, a `Location`
+  or a `Centre` built from a sum or a difference;
+- read a pad's box, a part's envelope or its claim (`board.pad(...).box`,
+  `board.envelope(...)`, `board.claim(...)`) into a number and place
+  against it. Those answer questions: a check, an `assert`, a constant that
+  states a mechanical fact;
+- keep a helper whose job is turning a pad position into a placement
+  number (a `beside()`, a `put()`, a frame that tracks where things will
+  land). The same arithmetic written twice means the form has not been
+  found yet.
 
-Use the intent form instead: `place()` with `OnEdge`/`Pin`/`Centre`/`Beside`
-of REFERENCES (not computed numbers), `row()` (on a board edge or `of=` a
-part), `block()`, `ring()`, `Near(PadRef(...))` for a need the netlist
-cannot say, `FreeSpot` for a via, `board.link()` to price a connection.
-api.md's index names the form for what you mean.
+A number from outside the board - an outline dimension, a connector's pin
+pitch, a datasheet clearance - is a fact: name it once as a constant with a
+one-line source. Arithmetic that combines facts into another fact (a total
+width from two datasheet numbers) is fine. A number that says where a part,
+a via or a track goes is a decision typed by hand: nobody can re-check it,
+it goes stale when a part, a footprint or the board changes, and the next
+session copies it.
 
-**When no form says it**, do not hand-compute it. Check "Known gaps"
-below first - the relation may already be logged. If it is genuinely new:
-write it up in the board's `PLACEMAT_GAPS.md` (what was needed, why no
-form says it, what was done instead, what placemat could offer), name the
-gap in a comment beside the declaration, and use the smallest number that
-works there until placemat can say it. A coordinate with no comment naming
-a gap is not a documented exception - it is exactly what this rule forbids.
+### Finding the form
 
-**`placemat freeze` writes coordinates into a script; that does not
-contradict the rule above.** `--explore`/`--accept` and `freeze` record
-what a search already decided - `Near(PadRef(...).local(dx, dy),
-radius=0)`, `rotation=Turned(...)` - in the anchor's own frame, with a
-`why=` naming the run it came from. That is placemat writing down its own
-result, not a position typed by hand. Never copy the SHAPE of a frozen
-line into a new declaration: a `Near(..., radius=0)` you write yourself
-pins a spot you never searched for.
+placemat's forms compose, and the relations a board needs are usually one
+form or two together. Before deciding a relation cannot be said:
 
-## Known gaps
+1. Say it in words: what the item stands against (a board edge, a part's
+   side, a pad, a lane, other copper, a keepout) and what fixes each axis.
+2. Find it in api.md's "Say it by intent" index, then read the section the
+   index names, parameters included. Grep api.md for the words of the
+   relation as well (`lane`, `pitch`, `across`, `over=`, `cover`, `fit`).
+3. Compose: one form for the side, another for the other axis; the value
+   one call returns as a point or an item of the next.
+4. Read the newest sections of `references/migration.md`: each names the
+   hand-computed pattern a new form replaces ("... computed by hand ... can
+   be said this way").
 
-These relations placemat cannot yet express. Do not fall back to
-coordinates for one of them: place what you can by the nearest intent
-form and record the rest as a gap (above). This list is expected to
-shrink - the maintainers are building these.
+The forms that most often answer "placemat can't say this":
 
-- A column of parts held a clearance off pad ends. A lane held a clearance
-  off another track (`Between`/`Past` hold one off pads; not yet off a
-  track).
-- Vias in rows under a pin row - one via per pin, along a whole row of
-  same-net pads (`vias(along=PadRef(...), count=N)` marches out from one
-  named pad; it does not place one via per pad along a row of them).
-- A keepout shaped like an absolute region with no item to anchor it (a
-  sector, a band inset from the outline).
+- `at=Beside(item, side, align=)` stands a part a gap off another part, a
+  cell or a keepout; `align=` fixes the other axis: an `Along`, a pad of
+  any firmly placed part (level with a third part's pin), or
+  `(own_pad, Past(pads, edge, lane=Net(...), width=))` - its pad a lane
+  past other pads, as wide as the lane's current needs.
+- `board.row(items, edge, of=Part(...), centre=PadRef(...), pitch=)`:
+  items along a part's side, at a mechanical pitch, centred on a pad.
+- `Between(pad, pad)` and `Past([pads, vias, tracks], edge, across=)` are
+  track waypoints: through a gap, or the clearance off copper on a pad's or
+  via's centre line. `board.via(net, at=Past(...))` stands a via there.
+  What `board.via()` and `board.vias(net, along=PadRef(...), count=N)`
+  return is a track point (a row's farthest via); those and what
+  `board.track()` returns are `Past` items in later copper.
+- Copper over pads and parts: `board.pour(net, [pads], swallow_pads=True)`
+  covers the hull of their copper (`cover=Cover.BOX`, `Cover.CENTRES`);
+  two pads make a neck (`width=`); `board.finger(..., width=PadRef(...))`;
+  `board.plane(net, layers, over=[parts])`; `board.stitch(net, region,
+  edge=True)`; `board.keepout(Part(...), name, margin=)`.
+- `at=Pin(key, x, y)` (a cell by a member's pad too), `rotation=Turned(part,
+  deg)`, `bend=Bend.START`, `board.size(fit=Axis.X, height=)`,
+  `board.pair(p, n, [(pP, pN), (pP2, pN2)])`.
 
-**Before touching an existing script**, check it against the current API:
+### When no form says it
+
+When that search finds no form and no composition that says the relation,
+do not hand-compute it. Write it up in the board's `PLACEMAT_GAPS.md`: what
+was needed, the forms looked at and why each does not fit, what was done
+instead, and what placemat could offer. Name the gap in a comment beside
+the declaration, and use the smallest number that works there until
+placemat can say it. A coordinate with no comment naming a gap is what this
+section forbids, and a gap entry that names no forms searched is not
+finished.
+
+`placemat freeze` writes coordinates into a script, and that is placemat
+recording its own result: `--explore`/`--accept` and `freeze` write what a
+search decided - `Near(PadRef(...).local(dx, dy), radius=0)`,
+`rotation=Turned(...)` - in the anchor's frame, with a `why=` naming the
+run. Never copy the shape of a frozen line into a new declaration: a
+`Near(..., radius=0)` you write yourself pins a spot nothing searched for.
+
+## An existing script
+
+Check it against the current API before touching it:
 `grep -nE "Priority\.(FIXED|EDGE)|priority=Priority\.(HIGH|LOW)|Occupancy\._transform" <script>`.
-A monkeypatch of `Occupancy._transform` is a 0.7-or-earlier workaround for the
-back-face flip and must come out.
 Any hit, or `AttributeError: type object 'Priority' has no attribute
-'FIXED'` at import, means it was written for
-an earlier placemat: read `references/migration.md`, which has a section per
-release, and fix those lines first. A script with no hits still re-places on a
-newer placemat, which that file also explains - and on 0.11 it will move, because
-a footprint that draws no courtyard now claims its body rather than its pads.
+'FIXED'` at import, means it was written for an earlier placemat: fix those
+lines first. A monkeypatch of `Occupancy._transform` comes out. Read
+`references/migration.md` from the script's version up; its last section,
+"Patterns in older scripts", names the section for each hand-written pattern
+a newer form replaces. A script with no hits still re-places on a newer
+placemat; migration.md says what moves.
 
-**Then count its typed positions**, and read its module-level numeric
+Then count its typed positions, and read its module-level numeric
 constants:
 
 ```
-grep -cP "\.local\(|\.offset\(|radius=0\b|\b[XY]\([^,()]*,\s*[^)]*\)|Location\(\s*[-\d]|Centre\(\s*[-\d]|board\.(claim|extent|envelope|reach|pad)\([^)]*\)[.\w]*\s*[-+*/]" <script>
+grep -cP "\.local\(|\.offset\(|radius=0\b|\b[XY]\((?:[^(),]|\((?:[^()]|\([^()]*\))*\))+,\s*[^)]+\)|Location\(\s*[-\d]|Centre\(\s*[-\d]|board\.(claim|extent|envelope|reach|pad)\((?:[^()]|\([^()]*\))*\)[.\w]*\s*[-+*/]" <script>
 ```
 
-This counts `.local(`/`.offset(`, a frozen `radius=0`, any `X()`/`Y()`
-call carrying a second (offset) argument wherever it sits - including
-nested inside `Location(X(...), ...)` or `Centre(...)`, which a narrower
-grep would miss - a literal-number `Location`/`Centre`, and a measurement
-(`board.claim`, `extent`, `envelope`, `reach`, `pad(...).box`) feeding
-arithmetic on the same line. It is line-based: a measurement assigned to
-a variable and used in arithmetic further down will not show up in the
-count, so still read the file for that pattern by eye.
+It counts `.local(`/`.offset(`, a frozen `radius=0`, an `X()`/`Y()` with an
+offset (`X(Part("u1"), 3.4)`, nested in a `Location` or not), a literal
+`Location`/`Centre`, and a measurement feeding arithmetic on the same line. A measurement assigned to a variable
+and used further down does not show, so read the file for that too.
+Working in such a script:
 
-A number from outside the board - an outline dimension, a connector's pin
-pitch, a datasheet clearance - is a fact: name it once as a constant with
-a one-line source, and arithmetic that combines such facts into another
-fact (a total width from two datasheet numbers) is fine. A number, or an
-expression, that says where a part, a via or a track goes is a decision
-typed by hand: nobody can re-check it, it goes stale the moment a part, a
-footprint or the board changes, and the next agent copies it into the
-next line and the next file. Working in such a script:
-
-- Write every new declaration by intent (see "Declare by intent" above),
-  whatever the lines round it do.
+- Write every new declaration by intent, whatever the lines round it do.
 - Convert the coordinates you touch. A part placed by numbers becomes a
   searched part with its links; `--explore` finds its spot and `--accept`
-  keeps it in the lock, which holds it relative to its anchor and re-checks
-  it every run. Copy nothing from `measure`, `occupancy`, a lock or a routed
-  board into the script.
-- A frozen line or a logged gap you find already there is a record, not a
-  license: convert what you can, and only add to a gap that is still
-  needed.
-
-## The loop
-
-1. **Run** `placemat run boards/<x>/<X>_layout.py`. A run is named by a
-   short hash of the script, the generated board, the tool and the resolved
-   settings, so the same inputs are the same run; `--label <name>` adds an alias you can pass to
-   `impact` later. Read the terminal stream: placed/copper/findings, then
-   one DRC line, then the impact, then a `best` line. `-v` prints every step
-   as it resolves. **A run that exits 1 having placed everything came out
-   worse than the best earlier run of the same parts**: the `best` line and
-   the finding name the metric. Read it before editing again - the best
-   arrangement is still in `.placemat/runs/best.json`, and the edit you just
-   made is the one that lost ground.
-   **Between runs, look with `placemat preview`**: the same placement in
-   seconds when little changed, drawn, without the write, DRC and render.
-   The whole board answers layout questions - free space, where a cluster
-   sits, a red over-limit link, the congestion hot spot, what did not place.
-   A whole board is likely scaled down before you see it - to a few pixels a
-   millimetre, too coarse to judge small passives or their gaps. For those
-   draw the region, `--around <part>` or `--zoom`: the preview reports the
-   resolution you would see if images are scaled to `[preview] model_edge`
-   pixels (set it to what your model does); aim for 20 px/mm or more (40 for
-   0201s). Gaps are numbers - `measure`, `occupancy`, the
-   findings - not pixels. Run `placemat run` to check before calling it done.
-2. **Before reading a board's numbers, run `placemat settings`.** The values
-   it was laid out with may not be the defaults: a `placemat.toml` anywhere
-   from the board's directory up to the filesystem root can set any of them,
-   and the command says which file each one came from.
-3. **Read the numbers before the picture.** `real` DRC buckets and
-   `unconnected` are the gate; `outstanding` (dangling copper) says what has
-   not been drawn yet; `footprint issues` are defects in the fetched
-   footprints themselves, which do not block a board but do mean placemat's
-   extent for those parts cannot be trusted. `airwires` (count, length), `crossings` (ratsnest
-   lines of different nets that cross), `crossings by net` and `congestion`
-   (crossings per square centimetre of free board) say how hard the board
-   will be to route BEFORE any routing is run: a placement change that cuts
-   crossings and congestion is the one to keep, and the nets with the most
-   crossings name the parts to move. Two firm placements that collide stop
-   the run at once with the reason: fix the declaration, do not search
-   around it. Findings name a searched part that had nowhere to go, a link
-   past its limit, and the escapes left crossed at a pin row, closed toward
-   what a pad joins, or walled off. The `score` line weighs all of it in
-   millimetres of wire (the `[score]` settings) against the best run: the
-   term that moved most is where to look. The search and the cleanup pass
-   already weigh crossings and escapes; a crossed or walled escape that
-   remains is a placement to change by hand (a swap, a satellite's pin, a
-   `board.fanout()`). A differential pair whose two halves cross (a
-   `pair_crossed` finding, priced at `score.pair_crossing`) cannot route
-   coupled without exchanging sides: before routing, swap two interchangeable
-   parts on it or turn a part whose pinout is mirrored 180 degrees; the
-   router's crossover is the fallback, not the fix. A net class whose
-   clearance does not fit a part's pad pitch is a setup finding naming the
-   part and the clearance that fits: its pads cannot be escaped, so fix the
-   class (or give those nets their own) before routing.
-4. **Read the `seeded` line.** It says which nets pulled how many items into
-   place. One net seeding most of the board is a missing `board.plane()`, not a
-   placement problem: an undeclared plane net pulls every part that shares it
-   to one centroid, and 155 of 220 parts landing on the board's middle is what
-   that looks like.
-5. **Look** at `layout/<X>/layout.png` (and `layout-bottom.png` on a
-   two-face board) only after the numbers say the change did what you meant.
-6. **Change one thing, run again.** The impact text says what moved and
-   which numbers changed (`placemat impact <run> <run>` compares any two, by
-   id, id prefix, label or path). If it says "nothing moved" and you
-   expected movement, your change was not where you thought.
-7. **Route only when the placement has settled.** Routing is a separate,
-   slow step you ask for: `placemat run ... --route` (after the checks) or
-   `placemat route <board>`. It routes a COPY with every existing track and
-   pour locked and the plane nets excluded, then reports closure: the share
-   of open signal connections it closed under the board's own rules, and the
-   clean closure that counts a net closed through a violation as still
-   open. Differential pairs, named as KiCad pairs them (`_P`/`_N`, `P`/`N`,
-   `+`/`-`), route first as pairs with the router's pair router, at their net
-   class's width and gap unless `route.diff_pair_width`/`route.diff_pair_gap`
-   say otherwise; the rest route around them, and the report's `pairs` says
-   which went coupled, partly, single-ended or failed. `route.diff_pairs = []`
-   routes every net single-ended. Run it when crossings and congestion have
-   stopped falling, never while big parts are still moving; read `still
-   open` for the nets that name the next placement problem. The routed copy is evidence, not the
-   layout: the script does not change because the router found a path.
-   To keep what the router found (a module fragment stamped already
-   routed), `placemat route <script> --adopt NET ...` stores it relative to
-   its pads beside the script, locks the parts it joins where they stand,
-   and every run draws it while those parts stand; with `--partial` a net
-   the router leaves open (a plane net) keeps its closed islands, pass by
-   pass. Route a board the
-   current placemat has just run, or lock it first (`placemat lock <script>
-   --current`). Never paste routed coordinates into a script as
-   `board.track()` calls: they go stale as soon as a part moves.
-6. Full record: `.placemat/runs/<id>/run.json`, `script.log`,
-   `drc.json`, `generate.log`, `layout.kicad_pcb`, and `route/` when routing
-   ran. Logs are files; read the tail, not the whole thing.
-
-Never edit `layout.kicad_pcb` by hand as the fix. The script is the layout;
-a hand edit is a measurement that gets folded back into the script.
+  keeps it in the lock. Copy nothing from `measure`, `occupancy`, a lock or
+  a routed board into the script.
+- A frozen line or a logged gap already there is a record, not a license:
+  convert what you can, and add to a gap only while it is still needed.
 
 ## A fresh board
 
-Do this before writing a line of the script. The script is a translation of
-this model into declarations, and a script written without it is a table of
-coordinates nobody chose.
+Do this before writing a line of the script; the script translates this
+model into declarations.
 
 1. **Read the board `.zen`**: every instance, every net, the net classes,
    which nets are planes, each module's `io()` ports, which parts are
    connectors and which edge or face their mating side needs.
 2. **Read each cell's layout script**: its docstring is the cell's intent
-   (what it is, which side is outward, what continues at board level) and
-   its declarations are the geometry. Read the datasheet layout section of
-   every active part that has one.
+   (what it is, which side is outward, what continues at board level).
+   Read the datasheet layout section of every active part that has one.
 3. **Build the electrical model.** Classify every relationship:
-   - high-current paths: source to consumer (an input connector to the
-     bridge it feeds, switching FETs to the output connector). Short for
-     resistance and heat, wide copper, no vias in the path.
-   - switching loops: the FET, its return and its decoupling. Small area.
-   - sense and Kelvin paths: at the pin, nothing between.
-   - length-sensitive signals: matched or tuned pairs, clocks, fast buses.
-   - isolation boundaries: what may not cross what.
+   - high-current paths, source to consumer: short, wide copper, no vias
+     in the path;
+   - switching loops (the switch, its return, its decoupling): small area;
+   - sense and Kelvin paths: at the pin, nothing between;
+   - length-sensitive signals: matched or tuned pairs, clocks, fast buses;
+   - isolation boundaries: what may not cross what;
    - ordinary signals whose off-board length dwarfs the board: an
-     optoisolated input's connector does NOT need to sit at its optoisolator.
+     isolated input's connector need not sit at its isolator;
    - mechanical facts: mounting patterns, case windows, a sensor whose
      position is its function.
 4. **Write the proposal as the script's opening comment**: which edge each
-   connector takes and why, which positions are mechanical facts (a point,
-   so `fixed`) and which are a distance along an edge (`edge`), which cells
-   cluster with what, which items nothing may move (`required=True`, with the
-   reason), where the corridors are, and which constraint outranks which when
-   they conflict. Do not decide which copper is planned first: that follows
-   from its endpoints. Say which relationships are
-   about current and heat and which about signal integrity: they want
-   different things.
+   connector takes and why, which positions are mechanical points (`fixed`)
+   and which a distance along an edge (`edge`), which cells cluster with
+   what, which items must place (`required=True`, with the reason), where
+   the corridors are, and which constraint outranks which. Say which
+   relationships are about current and heat and which about signal
+   integrity. Copper order follows from its endpoints; do not plan it.
 5. Only then declare.
+
+## The loop
+
+1. **Run** `placemat run boards/<x>/<X>_layout.py`. Read the stream:
+   placed/copper/findings, one DRC line, the impact, a `score` line and a
+   `best` line (`-v` prints every step). **A run that exits 1 having placed
+   everything came out worse than the best earlier run of the same parts**:
+   the `best` line and the finding name the term. The best arrangement is
+   in `.placemat/runs/best.json`; the edit just made is the one that lost
+   ground.
+2. **Between runs, look with `placemat preview`**: the same placement in
+   seconds, drawn, without the write, DRC and render. A whole board
+   answers layout questions (free space, a cluster, a red over-limit link,
+   the congestion hot spot, what did not place) but comes through at a few
+   pixels a millimetre; for small passives draw `--around <part>` or
+   `--zoom` and aim for 20 px/mm (40 for 0201s; set `[preview] model_edge`
+   to what your model sees). Gaps are numbers - `measure`, `occupancy`, the
+   findings - not pixels.
+3. **Before reading a board's numbers, run `placemat settings`**: a
+   `placemat.toml` anywhere from the board's directory up can change any
+   value, and the command says which file each came from.
+4. **Read the numbers before the picture.** `real` DRC buckets and
+   `unconnected` are the gate; `outstanding` is copper not yet drawn;
+   `footprint issues` are defects in the fetched footprints (they do not
+   block a board, but placemat's extent for those parts is then
+   untrusted). `airwires`, `crossings`, `crossings by net` and `congestion`
+   say how hard the board will be to route before any routing: keep the
+   change that cuts crossings and congestion, and move the parts on the
+   nets with most crossings. The `score` line weighs everything in
+   millimetres of wire against the best run; the term that moved most is
+   where to look. Two firm placements that collide stop the run: fix the
+   declaration. A crossed or walled escape left after the search is a
+   placement to change by hand (a swap, a satellite's pin,
+   `board.fanout()`). A `pair_crossed` differential pair must exchange
+   sides to route coupled: swap two interchangeable parts on it, or turn a
+   part whose pinout is mirrored, before routing. A net class whose
+   clearance does not fit a part's pad pitch is a setup finding: fix the
+   class, or give those nets their own, before routing.
+5. **Read the `seeded` line**: which nets pulled how many items into place.
+   One net seeding most of the board is a missing `board.plane()`: an
+   undeclared plane net pulls every part on it to one centroid.
+6. **Look** at `layout/<X>/layout.png` (and `layout-bottom.png`) only after
+   the numbers say the change did what you meant.
+7. **Change one thing, run again.** The impact says what moved and which
+   numbers changed (`placemat impact <run> <run>` compares any two). "Nothing
+   moved" when you expected movement means the change was not where you
+   thought.
+8. **Route only when the placement has settled** - crossings and
+   congestion no longer falling, big parts no longer moving:
+   `placemat run ... --route` or `placemat route <board>`. It routes a copy
+   and reports closure; `still open` names the next placement problem. The
+   routed copy is evidence, not the layout: never paste its coordinates
+   into the script as `board.track()` calls. To keep what the router found,
+   `placemat route <script> --adopt NET ...` stores it relative to its pads
+   (api.md, "Keeping routed copper").
+
+A run's full record is `.placemat/runs/<id>/`: `run.json`, `script.log`,
+`drc.json`, `generate.log`, `layout.kicad_pcb`, and `route/`. Read a log's
+tail, not the whole file. Never edit `layout.kicad_pcb` by hand as the fix:
+the script is the layout, and a hand edit is a measurement to fold back into
+the script.
 
 ## Script standard
 
-- The script is the only intent document: its docstring says what the
+- The script is the only intent document. Its docstring says what the
   board is, which edge carries what and why, what is fixed and what
-  outranks what; requirements live as comments beside the declaration that
-  implements them, and as `assert`s where a number can be checked. There is
-  no separate intent file for a board or a cell.
-- Every design number that is a fact about the world - an outline
-  dimension, a connector's pin pitch, a datasheet clearance - is a named
-  constant at the top of the file with a one-line reason it was chosen.
-  Arithmetic that combines such facts into another fact (a total width
-  from two datasheet numbers) is fine; arithmetic that produces a
-  placement - a gap, a computed x or y, an offset fed to `place()`,
-  `track()`, `X()` or `Y()` - is not. See "Declare by intent" above.
+  outranks what; requirements are comments beside the declaration that
+  implements them, and `assert`s where a number can be checked.
+- Name it `<Board>_layout.py` after the `Board(name=)`, `Project(name=)`
+  or `Layout(name=)` in the `.zen` beside it. A declaration with
+  `layout = False` is not a board.
 - As tight as physically possible, then loosen where a reason says. The
-  fab profile's courtyard excess is the only spacing the assembly needs,
-  and the tool's defaults are that: rows, blocks and labels pack with
-  courtyards touching, tracks are their class width, edge items sit at
-  the keep-in. Every increase to a gap, a clearance or a width must be
-  justified by something the board or the case needs, named beside the
-  number (a pin through a wall, a light pipe, a current, a creepage). A
-  module's run prints its extent and how much of it is empty: a fat cell
-  shows there before it costs a board.
-- A module drops a via only for ground and for a rail it owns, which the
-  board serves from planes. A net the board chooses (a switch's common,
-  a selectable reference) and a signal that leaves the module end at
-  their part; the board routes them, and a via placed for them is either
-  unused or in the way.
-- Do not place a via by coordinate and wait for DRC to say it was wrong. Ask
-  `placemat occupancy <board> --via-near <part>.<pad>`, or write the via as
-  `board.via(net, FreeSpot(near=PadRef(...)))` so it lands at the nearest
-  legal spot once its part is placed, joined to the pad by its tail. A track
-  may end on the via `board.via()` returns; never copy a queried spot into
-  the script as an offset.
-- Fill a power or exposed pad with `board.vias(net, PadRef(...))`; never
-  type a grid of via positions.
-- Keep tall parts out of a region the case leaves little room over with
-  `board.keepout(..., excludes=("parts",), max_height=)` and `Pm.Height` on
-  the parts, never a list of the short parts' names.
-- Every script is for one board: name it `<Board>_layout.py` after the
-  `Board(name=)`, `Project(name=)` or `Layout(name=)` in the `.zen` beside it; a directory
-  with several boards is told apart by that name. A declaration with
-  `layout = False` (a sub-circuit beside the board) is not a board.
-- Measure, do not type, for a check, an `assert` or a frame's size:
-  `board.extent(cell, rotation=)`, `board.pitch(part)`, `board.pad(part,
-  n).box` and the pad references read the generated board's real
-  geometry, so a part swapped in the `.zen` cannot leave a stale number
-  behind. For where something goes, the alternative to a typed number is
-  a REFERENCE (`X(part)`/`Y(pad)`, `Pin`, `row()`, `block()`), not a
-  measurement fed into arithmetic - see "Declare by intent". A board
-  dimension is derived from rows plus named margins.
-- Declarations, not procedures: one `place()` per item, one copper call per
-  net feature. Write each call out where a reader must see what it does:
-  three drops are three lines, not a loop; two ends are two blocks, not a
-  table of dicts. A short function called once per thing is fine when its
-  name says what it lays out. No globals, no helpers defined inside a phase.
-- A module fragment (`Layout(name=, path=)`) is generated, and so laid out,
-  by its own board's rules: without `Board(..., config=)` in its .zen that
-  is the stdlib's defaults (no silk clearance, the default netclass), not
-  the rules of the board that stamps it. Give the fragment the parent's
-  config; a run says so when the silk clearance it reads is 0.
-- Size a fragment's frame with `board.size(fit=True)` unless a
-  row must meet its edge: the frame is what is placed plus the keep-in.
-  Never compute a frame, or where the main part goes in it, by hand.
-- Explore once the declarations are right: `placemat run <script>
-  --explore 60 --focus <the cluster in question>` (or `--focus-after LINE`
-  for what the script places last), read what would move and why it
-  scores better, then `--accept` what is sound. The lock beside the script
-  keeps it, relative to each item's anchor, and every run re-checks it:
-  that is where an explore result lives. Commit the lock with the script.
-  `placemat freeze` moves an entry into the script, in its anchor's own
-  frame and with a `why=` naming the run it came from, once the spot is
-  part of the design; never type a lock's or a query's numbers into a
-  script by hand.
-- Leave a searched part's rotation out unless its turn matters: the
-  search tries all four and keeps the one that puts its pads nearest what
-  they connect to. Say `rotation=` for a part whose orientation is a fact
-  (a polarised part read by assembly, a connector's mouth).
-- Freedom, not order: file order never decides execution. How much a
-  declaration left to find is DERIVED from the place you gave it
-  (`at=Location`/`Centre` is `fixed`, `OnEdge` with `along` is `edge`, the
-  rest is `searched`), and copper is the same question one step on: a track
-  whose every endpoint is decided is planned before the search and becomes
-  an obstacle to it, without a keyword. The runner schedules: setup, fixed,
-  edge, decided copper, everything searched, the rest of the copper.
-- The rank is worked out for you: each searched item is scored on the
-  courtyard area it needs and its pin count, both against the rest of this
-  board, so the big and complex things go down first and the small ones are
-  fitted round them. Every step prints `rank 4/64 (31.5 mm2, 12th of 64;
-  2 pins, 41st)`. Read that before overriding it. `priority=Priority.HIGH`
-  or `LOW` is a tier above the rank, for when the rank is demonstrably
-  wrong, with the reason beside it - never a list of part names.
-- `required=True` is the only thing that stops a run for a placement. Use
-  it on an item that genuinely has nowhere else to go: it fails with the
-  free rectangles on its face and the board written as it stood, so what
-  was free at that moment is what you look at, and nothing else is placed
-  into that space first. It holds even under `--keep-going`. Firm
-  only what is mechanical. Furniture (test points, LEDs, buttons) is
-  `OnEdge(edge)` alone: one degree of freedom, it slides along its edge to the
-  room that is left, so it cannot take an edge before the critical cells
-  have theirs. `along=` (`Along.MID`, `Fraction(0.3)`, a reference, or
-  mm) is for a place along the edge that is a mechanical fact, never for
-  spacing things out.
-- Copper is declared against pads and lanes (`PadRef`, `CellPadRef`, `X()`,
-  `Y()`), never against coordinates that were true before the parts moved.
-- Typed values: `Net`, `Part`, `Cell`, `CopperLayer`, `Edge`, `Face`,
-  `Along`. Where an item goes is a place type (`Pin`, `Near`, `OnEdge`,
-  `Beside`, a row, a ring, a block; the intent index at the top of api.md
-  lists them),
-  and a `Location` only for a mechanical fact named once as a constant.
-  Pad numbers are ints, nets are strings. A pad reference that names a
-  missing net fails when declared, not at write time.
-- Module cells are rigid: place them, never their members. A cell that does
-  not fit is a module question, not a script workaround. A cell's own
-  ground or supply zone under the board's `board.plane()` on that net and
-  layer is merged into the plane when the board is written (the run's
-  `zones` line names each), so a module may keep its planes for its own run.
-- A board of any shape is declared `board.outline(path, holes=)`, a closed
-  path of legs and `Arc(to=, via=)` curves. Its sides are chosen by which
-  way they face, `board.edge(facing=Edge.NORTH)`, never named: that returns
-  a run, `along` it is a length from its start, and an item placed on it is
-  turned to the way the board faces where it sits. Several stretches can
-  face one way (a notch's floor faces north like the top does), so the call
-  raises and the script says which it meant.
-- A round board is declared `board.disc(diameter=, hole=)` and placed in
-  bearings and radii: `OnRim`, `OnBore`, `Polar` and `ring()`. A bearing is
-  degrees clockwise from the top, so `Edge.EAST` is 90. Nothing else
-  changes: links, faces, labels and copper are said in parts and pads, and
-  a disc refuses `Edge` and `row` rather than guessing what they mean.
-- A hole in the board is `Cutout(shape, name, at=, rotation=, why=)` in
-  `holes=`, and **every board takes it**: `size()`, `disc()` and `outline()`
-  all say it the same way. The shape says what the hole is - `Slot(length,
-  width)` measured **tip to tip**, `Circle(diameter)`, `Path(points)` - and
-  `at=` says where, in the same places a part takes: `Location`, `Centre`
-  (with a free axis), `Polar`, `OnEdge`, `Near`. A slot that exists so a
-  cable can reach a connector is placed FROM that connector
-  (`at=Centre(X(Part("j_ffc")), Y(Part("j_ffc"), 4.0))`), never at typed
-  coordinates, so it follows when the connector moves. A hole with a freedom
-  slides to the room that is left. **Never reshape a board to give it a
-  hole**: a slot in a round board is `board.disc(diameter=, hole=, holes=[...])`,
-  still a disc, still answering `OnRim`, `OnBore`, `ring()`, `board.radius`
-  and `board.bore`.
-- A cutout is settled with the firm items - after everything whose position
-  is decided, before anything searched - so every part is placed against a
-  board that already has its holes. It may be placed from any decided item;
-  from a searched one it is refused, naming it.
-- `board.cutout(name).edge(side=)` is the only way to reach a hole's
-  boundary, so `board.edge(facing=)` can never hand you one by accident.
-  **`side=` is the hole's own side and reads the opposite way to the board's
-  `facing=`**: an item against a slot's NORTHERN side sits above the hole and
-  faces SOUTH into it, the same turn `OnBore` makes at a bore. That is why a
-  cutout refuses `facing=` - it would answer with the opposite stretch. You
-  place inside a board and around a hole, which is the whole of the
-  difference. With no `rotation=`, a shape on a ring or an edge runs
-  tangentially: a vent follows the rim, a cable slot runs parallel to the
-  connector it serves.
-- `board.web` is the least material that may remain between a hole and the
-  board edge, or between two holes: material to material, where
-  `board.keep_in` is copper to edge. A hole that would leave less is refused
-  before it is cut, and one that touches the outline is refused as a notch,
-  which belongs in the outline path instead. A cutout is also a real board
-  edge, so route and pour clear of it - KiCad's DRC reports copper-to-edge
-  and silk-to-edge against it like any other edge.
+  defaults are the fab's own spacing: rows, blocks and labels pack with
+  courtyards touching, tracks are their class width, edge items sit at the
+  keep-in. Every larger gap, clearance or width names what needs it (a pin
+  through a wall, a light pipe, a current, a creepage). A module's run
+  prints its extent and how much of it is empty.
+- Declarations, not procedures: one `place()` per item, one copper call
+  per net feature, written out where a reader must see what it does. A
+  short function called once per thing is fine when its name says what it
+  lays out. No globals, no helpers defined inside a phase.
+- Measure, do not type, for a check or an `assert`: `board.extent()`,
+  `board.pitch()`, `board.pad(...).box` read the generated board, so a part
+  swapped in the `.zen` leaves no stale number.
+- Freedom is derived from `at=`, never declared, and file order never
+  decides execution. The placer ranks searched items by courtyard area and
+  pin count (every step prints `rank 4/64 (31.5 mm2, 12th of 64; 2 pins,
+  41st)`): read it before reaching for `priority=Priority.HIGH`/`LOW`, and
+  give a reason beside one.
+- `required=True` is the only thing that stops a run for a placement; use
+  it for an item with nowhere else to go. Firm only what is mechanical.
+  Furniture (test points, LEDs, buttons) is `OnEdge(edge)` alone and
+  slides to the room left; `along=` is a mechanical fact, never spacing.
+- Leave a searched part's rotation out unless its turn is a fact (a
+  polarised part read by assembly, a connector's mouth): the search tries
+  all four.
+- Module cells are rigid: place them, never their members. A cell that
+  does not fit is a module question.
+- A module drops a via only for ground and a rail it owns. A net the board
+  chooses and a signal that leaves the module end at their part; the board
+  routes them.
+- A module fragment is generated by its own board's rules: give its `.zen`
+  the parent's `Board(..., config=)`, or it lays out at the stdlib defaults
+  (a run says so when the silk clearance it reads is 0). Size its frame
+  with `board.size(fit=True)`, or `fit=Axis.X`/`Axis.Y` with the other
+  side a number, unless a row must meet its edge.
+- Explore once the declarations are right: `placemat run <script> --explore
+  60 --focus <cluster>` (or `--focus-after LINE`), read what would move and
+  why, then `--accept`. The lock beside the script keeps it; commit the
+  lock with the script. `placemat freeze` moves an entry into the script
+  once the spot is part of the design.
+- A board of any shape is `board.outline(path, holes=)`, its sides chosen
+  by `board.edge(facing=)`; a round one is `board.disc()` placed in
+  bearings (`OnRim`, `OnBore`, `Polar`, `ring()`). A hole is a `Cutout` in
+  `holes=` on any board, placed from what it serves (a cable slot from its
+  connector); never reshape a board to give it a hole. A region that stays
+  board but forbids is `board.keepout()`.
 
-## Placement tactics
+## Placement and copper practice
 
-- Before grepping a `.kicad_mod` or reaching for pcbnew, run `placemat parts`
-  to see what the parts are called and `placemat measure <part> --pads` to get
-  a pad's real copper box, its net and its position. A footprint that is not on
-  a board yet is `placemat measure <path>.kicad_mod`. Every number those print
-  is one placemat already holds; going to the file by hand is how the wrong one
-  gets used.
-- Before extracting images from a datasheet or grepping its text, run
-  `placemat datasheet <pdf>` to see which page carries the land pattern, the
-  package dimensions, the layout rules or the pin map, then `--show` that page.
-  Deciding for yourself how to get at a datasheet is the habit this replaces.
-  `--read` lists what could be sourced and where from, and `placemat datasheet
-  check <pdf> <part>.kicad_mod --pitch ... --pad WxH --pads N` checks a
-  footprint against it. A number placemat prints carries its provenance; a
-  number it could not source is absent rather than guessed.
-- Say what is a mechanical fact (a point: `fixed`) and what is a distance
-  along an edge (`edge`); leave the rest searched with a bare `place(item)`. The placer orders searched items
-  itself - a cell, a block and a loose part in one queue, by rank, so a
-  connector that dominates the board goes before the cells rather than after
-  them - seeds each from the placed pads it is wired to, and says why in
-  each step. Link pull breaks a tie the rank cannot, which is what orders a
-  shelf of identical passives. Do not hand-order them with hints, and do not
-  reach for `priority=` to fix an order: read the printed rank first. When
-  searched items land in pockets "nothing it connects to is placed", try
-  `[solve] enabled = true` in `placemat.toml`: every searched item is then
-  searched from where the whole netlist would put it. It is off by default
-  because it is not always better - compare the two runs on the `best` line.
-  A step that "took the pocket" had no room by what it connects to: make room
-  there, or give it a `Near`.
-- A run replays the previous run up to the first changed step, so a change
-  to a part placed late costs seconds; a change to a fixed part, an early
-  (large) part or anything board-wide re-runs the board. Batch such changes.
-- A step noting `cleanup:` was moved after its turn, to shorten its wire and
-  links; a part that must stay where the search put it takes a `Near`.
-- When DRC reports `silk_overlap` or `silk_over_copper` between different
-  parts, or the run's `footprints` line names courtyards that understate
-  their parts, try `[place] envelope = "physical"`: parts then claim what they
-  draw, at the board's own gaps. It re-places the whole board, and KiCad will
-  report `courtyards_overlap` where courtyards now meet.
-- A keepout's `layers=` narrows what is checked as well as what is written, so
-  **do not widen `allow=` to silence a complaint about copper on another
-  layer** - that admits the net on the layers that do matter. A region may hang
-  off the board edge; only the on-board part does anything. A stamped cell
-  brings its module's regions with it, so a parent may report parts or copper
-  inside a clearance it never declared: those findings are real. **Do not
-  restate a module's keepout in the parent**, even one on inner layers the
-  two-layer module does not have: the declaration travels in the zone name
-  (`[*.Cu]`) and the parent honours it on its own stackup. Run the module's
-  script once after upgrading so its keepouts carry the marker.
-- A flip to the back mirrors about the vertical axis - KiCad's F key - and
-  `rotation=` is applied after it. A part and a cell flip the same way, and
-  KiCad's own orientation field will read `rotation + 180` for a back-face
-  part, which is what its own flip produces.
-- No floorplan by coordinate: a `Location` constant that means "the power
-  area" is the placer's job typed by hand, and every part hinted at it
-  competes for one rectangle. `Near` is for a requirement the netlist
-  cannot say (a thermal sensor by the FETs it shares no net with); a part
-  with a wired neighbour on the board is linked and left bare.
-- A clearance that must differ in one place (a fine-pitch part inside a
-  wide-clearance class, a high-voltage pair) is `board.rule(clearance=,
-  within=|between=|on=, why=)`, never a hand edit of the project file.
+- Before grepping a `.kicad_mod` or reaching for pcbnew, run
+  `placemat parts` (what the parts are called) and
+  `placemat measure <board> <part> --pads` (a pad's copper box, net and
+  position; a footprint not on a board is `placemat measure
+  <path>.kicad_mod`). Before extracting a datasheet's images or text, run
+  `placemat datasheet <pdf>` to find the page with the land pattern,
+  dimensions, layout rules or pin map, then `--show` it.
+- Say what is a mechanical point and what is a distance along an edge;
+  leave the rest a bare `place(item)`. The placer seeds each searched item
+  from the placed pads it is wired to and says why in its step. When
+  searched items land in pockets ("nothing it connects to is placed"), try
+  `[solve] enabled = true` and let the `best` line judge. A step that "took
+  the pocket" had no room by what it connects to: make room there, or give
+  it a `Near`. A `cleanup:` step was moved after its turn; a part that must
+  stay where the search put it takes a `Near`.
+- A run replays the previous run up to the first changed step: a change to
+  a late part costs seconds, a change to a fixed part, a large early part
+  or anything board-wide re-runs the board. Batch those.
+- No floorplan by coordinate: a `Location` meaning "the power area" is the
+  placer's job typed by hand. `Near` is for a requirement the netlist
+  cannot say (a thermal sensor by FETs it shares no net with); a part with
+  a wired neighbour is linked and left bare.
 - Price the connections, not the parts: a bypass capacitor is a SHORT link
-  with a limit at its pin; a series resistor between two distant parts is
-  PREFER on both links and lands where there is room between them; a net
-  whose off-board cable dwarfs the board is `free_net`, so nothing is
-  dragged toward its connector. Every undeclared connection weighs DEFAULT.
-  A plane's own connections never pull - a net with two hundred pads gives a
-  centroid that means nothing - but a link you DECLARE on a plane net does,
-  because it names two specific pads. That is how to keep together two parts
-  whose only shared net is a plane.
-- A part with satellites at its pins (a regulator and its caps) is a block:
-  declare the satellites by the net each serves; the placer lays the block
-  out from the real pads and searches it as one.
-- A cell faces its partner: its handoff pads toward the cell they connect
-  to, its quiet side away from the aggressor.
-- A high-current path is copper you draw (a pour or a wide track), declared
-  FIXED so no loose part settles on it. A plane serves what it reaches by a
-  via; a bypass capacitor served through a via is a bulk capacitor.
-- Tracks are drawn as KiCad draws them, and the tool enforces it: every
-  leg at 0, 45 or 90 degrees (an odd leg becomes a 45 and a straight,
-  ordered to turn least against the legs either side, the 45 at the pad
-  end on a tie) and every right angle cut into two 45s (`chamfer=0` keeps
-  one). Between two points the tool tries the octilinear routes of up to
-  three legs, drops those that touch another net's pad or copper, and keeps
-  the one with the fewest turns, then the shortest. Every turn costs signal
-  integrity: give a track its ends and only the waypoints that say where it
-  must go, and let the tool find the rest. Draw a daisy chain as a chain: the run bows out at 45 to an
-  apex and one line leaves the apex for the pin; never a bus with stubs.
+  with a limit at its pin; a series part between two distant parts is
+  PREFER on both links; a net whose off-board cable dwarfs the board is
+  `free_net`. A plane's connections never pull, but a link you declare on a
+  plane net does: that keeps together two parts whose only shared net is a
+  plane.
+- A part with satellites at its pins (a regulator and its caps) is a
+  `board.block()`. A cell faces its partner: handoff pads toward the cell
+  they join, its quiet side away from the aggressor. `placemat show <board>
+  <cell>` renders a cell before you choose its turn; a step saying "no
+  faces declared" means the module needs `board.faces()`, not a rotation in
+  the board script.
 - Rows and references before numbers: things along an edge are a `row`
-  (connectors `line="outer"`, small parts on their centre line); a row
-  inboard of an edge row is `behind=` it; a part between two pads sits at
-  `Mid()` of them; a row under a pin pair is `centre=X(Mid(...))`, a row
-  beside another is `before=`/`after=`, a row after a hole starts at
-  `Y(pad, gap)`. A number typed where a reference would do is a defect.
-- The edge is the board's: no script carries an edge standoff. An EDGE
-  item's reach sits at `board.keep_in`; a face that must stand proud of
-  the edge says `overhang=` with a why. Two firm things that must sit
-  beside each other are placed relative to each other (`Beside`, `behind=`,
-  `after=`, a pad reference), never by independent numbers from opposite
-  edges: the first collision is the run stopping, not a finding to tune.
-- Look before you turn: `placemat show <board> <cell>` renders a cell on
-  its own, ISO views first, with its pads by net and side. A module declares its outward
-  side (`board.faces()` in its script, or `placemat faces` on its
-  fragment) and edge placement turns it right by itself; a step saying
-  "no faces declared" means the module needs that fact, not a rotation
-  typed in the board script.
+  (connectors `line=Line.OUTER`); a row inboard of another is `behind=` it;
+  a part between two pads sits at `Mid()` of them. The edge is the
+  board's: no script carries an edge standoff. Two firm things that must
+  sit together are placed relative to each other, never by independent
+  numbers from opposite edges.
+- When DRC reports `silk_overlap` or `silk_over_copper` between parts, or
+  the `footprints` line names courtyards that understate their parts, try
+  `[place] envelope = "physical"`. It re-places the whole board, and KiCad
+  then reports `courtyards_overlap` where courtyards meet.
+- A flip to the back mirrors about the vertical axis (KiCad's F key), then
+  applies `rotation=`; KiCad's orientation field reads `rotation + 180`.
+- A clearance that differs in one place is `board.rule(clearance=,
+  within=|between=|on=, why=)`, never a hand edit of the project file.
+- Keepouts: what a region is for is said in `allow=` - parts that may sit
+  in it, nets that may run through it. A keepout's `layers=` narrows what
+  is checked, so **do not widen `allow=` to silence a complaint about
+  copper on another layer**. A stamped cell brings its module's regions,
+  and findings against them are real: do not restate a module's keepout in
+  the parent. A datasheet clearance is transcribed in the datasheet's
+  coordinates with `anchor=`, placed on the real pad
+  (`at=PadRef(...)`), turned with `rotation=Turned(part, 0)`. Keep tall
+  parts out of a low region with `excludes=(Forbid.PARTS,),
+  max_height=` and `Pm.Height` on the parts, never a list of short parts.
+- Vias: do not place one by coordinate and wait for DRC. Ask `placemat
+  occupancy <board> --via-near <part>.<pad>`, or declare
+  `board.via(net, FreeSpot(near=PadRef(...)))`; a track may end on the via
+  it returns. Fill a power or exposed pad with `board.vias(net,
+  PadRef(...))`, never a typed grid.
+- A high-current path is copper you draw (a pour over its pads, a finger or
+  a wide track). Copper whose every endpoint is decided is planned before
+  the search, so loose parts go round it. A plane serves what it reaches
+  by a via; a bypass capacitor served through a via is a bulk capacitor.
+- Tracks are octilinear and every right angle is chamfered; the tool picks
+  the route with the fewest turns. Give a track its ends and only the
+  waypoints where it must go. A daisy chain is a chain, not a bus with
+  stubs. A bus is one long track per net and a short track per pad into
+  it; where two same-layer nets cross, the lower `priority` passes under
+  if it is `bridge=True`, else it is a finding.
 - Label what a user touches: every connector, jumper, switch and LED gets
-  a `board.label()` on the face it is used from, saying what it does
-  ("MOTOR", "CAN IN", "TERM"), knocked out where the silk is busy; a pin
-  1 mark on every keyed connector. A refdes is not a label. A label
-  reserves its space: declare labels with their items, before the loose
-  parts are searched, so the parts go round them.
-- A bus down a board is one long track per net and a short track per pad
-  into it. Two same-layer nets may cross only where the one that yields is
-  declared `bridge=True`; who yields is decided by `priority`, never by
-  declaration order, and a crossing nobody may bridge is a finding. Give
-  the long runs the higher priority and the short reaches `bridge=True`.
-- Use placemat's words in the script's comments, and define any word of
-  your own (a "corridor", a "column", a "bank") where it first appears, in
-  terms of what is on the board. A comment and the run log must mean the
-  same thing by the same word.
-- A region that forbids is `board.keepout(shape, name, at=, why=)`, taking the
-  same shape and place vocabulary as a cutout. By default nothing may sit,
-  fill, route, via or pad there on any copper layer the board has;
-  `excludes=` narrows what and `layers=` narrows where. A hole in the board is
-  a cutout in `holes=`; a region that stays copper but forbids is a keepout.
-  The line between them is whether the board is still there.
-- What a region is FOR is said in `allow=`: the parts that belong inside it,
-  the nets that may run through it. An antenna's clearance holds its own
-  matching network, and that is said by naming those PARTS - allowing their
-  nets would admit every part that carries GND. A keepout says `why` for the
-  same reason a rule does: a region nobody can justify is one nobody can move.
-- A clearance that comes from a datasheet is transcribed in the datasheet's
-  own coordinates, anchored with `anchor=` at the feature its figure is built
-  around, and placed on the real pad (`at=PadRef(Part("ant"), "ANT_FEED")`).
-  It then follows the part's position; `rotation=Turned(Part("ant"), 0)`
-  follows its turn too. A clearance typed as board coordinates is a stale
-  number the moment the part moves.
-- `board.plane()` needs nothing from a keepout: it is written as a KiCad rule
-  area and the filler keeps the plane out of it. A `pour`, a `track` and a
-  `via` go exactly where they are put, so one crossing a keepout is a
-  finding.
+  a `board.label()` saying what it does, on the face it is used from, a
+  pin 1 mark on every keyed connector. A refdes is not a label. Declare
+  labels with their items, before the loose parts are searched.
+- Use placemat's words in comments, and define any word of your own (a
+  "corridor", a "bank") where it first appears, in terms of what is on the
+  board.
 
 ## When a track or a placement fails
 
-- Read the finding as a claim about the script first. A track that hits
-  a pad may have a waypoint steering it there (the run says so when pad to
-  pad would clear), or its two ends may be placed so that no clean route
-  exists, or the tool may have no candidate that fits. Take those in that
-  order: remove the waypoint, then look at the placement, then at the tool.
-- Never say a route is impossible from one run. Draw the thing the plain
-  way (pad to pad, no waypoints, no offsets), run, and read the numbers.
-  "The geometry forbids it" is a claim to be tested like any other, and it
-  is usually a waypoint or a constant in the script.
-- When a number in the script was chosen to dodge something, it is a
-  workaround for a rule the tool should carry. Say so in the run notes so
-  the rule gets built instead of the number being copied.
+- Read the finding as a claim about the script first. A track that hits a
+  pad may have a waypoint steering it there (the run says so when pad to
+  pad would clear), or its ends may be placed so no clean route exists, or
+  the tool may have no candidate that fits. Take them in that order:
+  remove the waypoint, then look at the placement, then at the tool.
+- Never call a route impossible from one run. Draw it the plain way (pad
+  to pad, no waypoints, no offsets), run, and read the numbers.
+- `placemat layer <board> <LAYER>` draws one copper layer by net and lists
+  tracks inside another net's zone; `placemat measure --copper [NET]` lists
+  each track segment and what its ends land on; `placemat drc` names each
+  violation's parts by instance path. api.md's "Read the board" index has
+  the rest.
+- A number chosen to dodge something is a workaround for a rule the tool
+  should carry: say so in the run notes.
 
 ## Gates, in order
 
-`real` DRC buckets empty; `unconnected` 0 (or only the nets you have not
-drawn yet, by name); no findings; `outstanding` explained (a module's
-frontier stubs are dangling until the board picks them up); the render
-reads as intended. A run that regenerated the board is compared against the
-committed board, not against the previous run.
+`real` DRC buckets empty; `unconnected` 0 (or only the nets not drawn yet,
+by name); no findings; `outstanding` explained (a module's frontier stubs
+dangle until the board picks them up); the render reads as intended. A run
+that regenerated the board is compared against the committed board, not
+against the previous run.
