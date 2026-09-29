@@ -17,8 +17,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 import math
 
-from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
-                     resolve_bridges)
+from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
+                     pair_ops, polyline_tracks, resolve_bridges)
 from .geometry import Transform, box_polygon, circle_polygon, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, transform_box
 from .findings import Finding, Findings
 from .occupancy import Occupancy, Shape, TOUCH, hole_shape, parts_claim
@@ -1599,7 +1599,9 @@ class Board:
             pass
         elif isinstance(at, Pin):
             if kind != "part":
-                raise TypeError("%s: a Pin places a part by its pad; a cell has no pad of its own" % key)
+                what = "a block is placed by its anchor's position, not a pad" if kind == "block" else \
+                    "a cell has no pad of its own"
+                raise TypeError("%s: a Pin places a part by its pad; %s" % (key, what))
             geom.pad(at.key)                                # a real pad of this part, checked now
             pin, center, at = at.key, (at.x, at.y), None
         elif isinstance(at, OnEdge) and isinstance(at.edge, CutoutEdge):
@@ -1815,7 +1817,7 @@ class Board:
         base = row.anchor[1] if row.anchor and row.anchor[0] in ("before", "after") else row
         ref = base.standoff + {"centre": base.depth / 2.0, "outer": 0.0, "inner": base.depth}[line]   # the line, from the edge
         clears = [ref - {"centre": d / 2.0, "outer": 0.0, "inner": d}[line] for d in depths]
-        row.line = line
+        row.line = line.value          # the plain value: what a declaration digest wrote before Line existed
         for n, (item, r, c) in enumerate(zip(items, rots, clears)):
             along = row.centres[n] if row.start is not None else _RowSlot(row, n)
             self.place(item, at=OnEdge(edge, along=along), _standoff=c, rotation=r, why=why)
@@ -2297,16 +2299,16 @@ class Board:
                 return not ctx.occ.copper_conflicts(shape)
             located = [ctx.locate(p) for p in points]
             pts = octilinear(located, pads, clear)
-            cut_pts = chamfered(pts, chamfer)
+            cut_pts, diagonals = chamfer_cuts(pts, chamfer)
             ops = polyline_tracks(name, layer, w, cut_pts)
             if chamfer > 0:
-                # a leg both of whose ends are new points (not among the pre-chamfer legs) is the 45 the
-                # chamfer cut from a right-angle corner, not a leg the script asked for
+                # the 45 a corner's own cut emits, not a straight leg that merely
+                # happens to run between two separate corners' cuts
                 import dataclasses
-                original = {(round(p.x, 6), round(p.y, 6)) for p in pts}
+                diag = {(round(a.x, 6), round(a.y, 6), round(b.x, 6), round(b.y, 6)) for a, b in diagonals}
                 ops = [dataclasses.replace(t, chamfer_cut=(
-                    (round(t.start.x, 6), round(t.start.y, 6)) not in original and
-                    (round(t.end.x, 6), round(t.end.y, 6)) not in original)) for t in ops]
+                    round(t.start.x, 6), round(t.start.y, 6), round(t.end.x, 6), round(t.end.y, 6)) in diag)
+                      for t in ops]
             if len(points) > 2 and any(not clear(t.start, t.end) for t in ops):
                 # the script's waypoints steer this track into a pad: would pad to pad clear?
                 direct = polyline_tracks(name, layer, w, chamfered(octilinear([located[0], located[-1]], [pads[0], pads[-1]], clear), chamfer))
@@ -3601,7 +3603,9 @@ class Board:
         rejected: Counter = Counter()
         reasons: dict = {}
         for along in candidates:
-            members, why = layout_block(occ, spec, anchor_at(along), clr)
+            members, why = layout_block(occ, spec, anchor_at(along), clr,
+                                        past_edge=(i.edge is not None or i.run is not None or i.rim == "rim")
+                                        and i.clearance < self.keep_in)
             if members is not None:
                 moved = abs(along - ideal)
                 note = what
@@ -4093,7 +4097,9 @@ class Board:
                 else:
                     along = _coord(self, occ, i.along, "x" if i.edge in (Edge.NORTH, Edge.SOUTH) else "y")
                 anchor = edge_placement(occ, spec.anchor, i.edge, along, i.rotation, i.clearance, i.face)
-            members, why = layout_block(occ, spec, anchor, clr)
+            members, why = layout_block(occ, spec, anchor, clr,
+                                        past_edge=(i.edge is not None or i.run is not None or i.rim == "rim")
+                                        and i.clearance < self.keep_in)
             if members is None:
                 plan.findings.append(Finding("fixed", "%s (%s): %s" % (i.key, i.freedom.value, why)))
                 members = {spec.anchor.inst: anchor}

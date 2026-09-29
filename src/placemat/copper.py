@@ -340,13 +340,16 @@ def _unit(a: Location, b: Location):
     return (dx / n, dy / n) if n > 1e-12 else (0.0, 0.0)
 
 
-def chamfered(pts: list, c: float) -> list:
-    """Cut every right-angle corner of a polyline back by `c` along both
-    legs, so it becomes two 45s (shorter where a leg is short). Other turns
-    are left: a 45 is already on the grid, and cutting it would not be."""
+def chamfer_cuts(pts: list, c: float):
+    """As `chamfered`, but also the (start, end) point pairs that are
+    themselves one corner's 45 - the two points that single corner's cut
+    emits, not every leg chamfering happened to put between two new points.
+    A straight leg between two separate chamfered corners has a new point
+    at each end too, but it is not a diagonal."""
     if c <= 0 or len(pts) < 3:
-        return list(pts)
+        return list(pts), []
     out = [pts[0]]
+    diagonals = []
     for i in range(1, len(pts) - 1):
         a, v, b = pts[i - 1], pts[i], pts[i + 1]
         u1, u2 = _unit(a, v), _unit(v, b)
@@ -356,10 +359,20 @@ def chamfered(pts: list, c: float) -> list:
             out.append(v)
             continue
         k = min(c, a.distance(v) / 2.0, v.distance(b) / 2.0)
-        out.append(Location(round(v.x - u1[0] * k, 6), round(v.y - u1[1] * k, 6)))
-        out.append(Location(round(v.x + u2[0] * k, 6), round(v.y + u2[1] * k, 6)))
+        cut_in = Location(round(v.x - u1[0] * k, 6), round(v.y - u1[1] * k, 6))
+        cut_out = Location(round(v.x + u2[0] * k, 6), round(v.y + u2[1] * k, 6))
+        out.append(cut_in)
+        out.append(cut_out)
+        diagonals.append((cut_in, cut_out))
     out.append(pts[-1])
-    return out
+    return out, diagonals
+
+
+def chamfered(pts: list, c: float) -> list:
+    """Cut every right-angle corner of a polyline back by `c` along both
+    legs, so it becomes two 45s (shorter where a leg is short). Other turns
+    are left: a 45 is already on the grid, and cutting it would not be."""
+    return chamfer_cuts(pts, c)[0]
 
 
 def _offset(pts: list, d: float) -> list:

@@ -19,7 +19,10 @@ or keepout `at=Near(...)`; `Polar(about=)` and `ring(about=)` a part or a
 pad; a keepout or cutout `rotation=Turned(...)`, one at fixed numbers
 included. `row(align=)` and `label(align=)` take `Along` (the strings still
 work, and `row(align="centre")`/`"end"` now do what they say: they acted as
-"start"); `row(line=)` takes `Line`; `keepout(excludes=)` takes `Forbid`;
+"start"). `row(align=..., centre=/end=/start=<reference>)` now refuses,
+whatever align's spelling: the two say different things about where the row
+starts, and only `"center"` with one of them was refused before. `row(line=)`
+takes `Line`; `keepout(excludes=)` takes `Forbid`;
 `place(face=)` refuses anything but a `Face` or its name. A finger's copper
 is exactly `width` wide (it was 0.2 mm wider): a script that narrowed its
 width to make up for it can use the width it means.

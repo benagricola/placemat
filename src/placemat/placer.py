@@ -522,7 +522,8 @@ GAP_REACH = 2.0
 this the part is not at its pin. `[place] block_gap_reach`."""
 
 
-def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=None, others=None):
+def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=None, others=None,
+                 past_edge: bool = False):
     """Satellite placements for the block with its anchor at `anchor`, or a
     reason the block cannot sit there. Each satellite's pad on its served
     net lands on the anchor pin's axis (the normal of its pad row, see
@@ -531,9 +532,13 @@ def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=N
     legal (a satellite wider than the pitch beside another), it slides along
     the pin's row, up to `block_gap_reach`, unless another satellite already
     sits at that pin. `others`, from `block_obstacles`,
-    is each member's obstacles gathered once for a whole scan."""
+    is each member's obstacles gathered once for a whole scan. `past_edge`
+    lets the ANCHOR alone cross the edge margin, as a lone part on the same
+    declaration would; a satellite is still placed at its pin's normal and
+    keeps clear of the edge, since nothing in the script declared its own
+    reach past it."""
     others = others or {}
-    why = occ.legal(spec.anchor, anchor, clearance, others=others.get(spec.anchor.inst))
+    why = occ.legal(spec.anchor, anchor, clearance, others=others.get(spec.anchor.inst), past_edge=past_edge)
     if why:
         return None, "anchor: " + why
     pads = occ.candidate_pad_locations(spec.anchor, anchor)
