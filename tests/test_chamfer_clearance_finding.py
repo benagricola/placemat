@@ -49,3 +49,20 @@ def test_a_conflict_on_the_chamfers_own_cut_says_so():
               for f in chamfer_hits)
     straight_hits = [f for f in hits if f not in chamfer_hits]
     assert not any("chamfer" in f for f in straight_hits)
+
+
+def test_the_straight_leg_between_two_chamfers_is_not_called_one():
+    """(20, 10) and (20, 20) are both chamfered corners on this dogleg; the
+    long straight leg between their cuts has a new point at each end (the
+    chamfer at either corner), but it is not itself a 45."""
+    u1 = footprint("U1", 10, 10, nets=("A", "A"))
+    near = _small_part("R1", 20.4, 15.0, "B")
+    g = board_geometry([u1, near], width=40, height=40, clearance=0.2)
+    b = Board(g, edge_margin=0.5, keep_going=True)
+    b.place(Part("u1"), at=Location(10, 10))
+    b.track(Net("A"), [PadRef(Part("u1"), 1), (20.0, 10.0), (20.0, 20.0), (30.0, 20.0)],
+           layer=CopperLayer.F, width=0.3)
+    plan = b.resolve()
+    hits = [str(f) for f in plan.findings if f.kind == "copper" and " is " in f and "mm from" in f]
+    assert hits
+    assert not any("chamfer" in f for f in hits)

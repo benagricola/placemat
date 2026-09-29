@@ -17,8 +17,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 import math
 
-from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfered, finger_ops, octilinear, pair_ops, polyline_tracks,
-                     resolve_bridges)
+from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
+                     pair_ops, polyline_tracks, resolve_bridges)
 from .geometry import Transform, box_polygon, circle_polygon, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, transform_box
 from .findings import Finding, Findings
 from .occupancy import Occupancy, Shape, TOUCH, hole_shape, parts_claim
@@ -2297,16 +2297,16 @@ class Board:
                 return not ctx.occ.copper_conflicts(shape)
             located = [ctx.locate(p) for p in points]
             pts = octilinear(located, pads, clear)
-            cut_pts = chamfered(pts, chamfer)
+            cut_pts, diagonals = chamfer_cuts(pts, chamfer)
             ops = polyline_tracks(name, layer, w, cut_pts)
             if chamfer > 0:
-                # a leg both of whose ends are new points (not among the pre-chamfer legs) is the 45 the
-                # chamfer cut from a right-angle corner, not a leg the script asked for
+                # the 45 a corner's own cut emits, not a straight leg that merely
+                # happens to run between two separate corners' cuts
                 import dataclasses
-                original = {(round(p.x, 6), round(p.y, 6)) for p in pts}
+                diag = {(round(a.x, 6), round(a.y, 6), round(b.x, 6), round(b.y, 6)) for a, b in diagonals}
                 ops = [dataclasses.replace(t, chamfer_cut=(
-                    (round(t.start.x, 6), round(t.start.y, 6)) not in original and
-                    (round(t.end.x, 6), round(t.end.y, 6)) not in original)) for t in ops]
+                    round(t.start.x, 6), round(t.start.y, 6), round(t.end.x, 6), round(t.end.y, 6)) in diag)
+                      for t in ops]
             if len(points) > 2 and any(not clear(t.start, t.end) for t in ops):
                 # the script's waypoints steer this track into a pad: would pad to pad clear?
                 direct = polyline_tracks(name, layer, w, chamfered(octilinear([located[0], located[-1]], [pads[0], pads[-1]], clear), chamfer))
