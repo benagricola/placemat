@@ -56,7 +56,7 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **Zone fills by net and tracks across a zone outline** (unreleased;
+- **Zone fills by net and tracks across a zone outline** (0.56.0;
   PLACEMAT_GAPS 2026-09-28, two entries): `placemat layer <board> <LAYER>`;
   the router has kept out of a left-out net's partial inner pour since
   0.50's pour guards. A routed copy's copper per net is `measure --copper`
