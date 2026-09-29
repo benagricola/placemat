@@ -1,7 +1,7 @@
 # The script surface
 
 ```python
-from placemat import (board, Along, Box, Cell, CellPadRef, Centre, Pin, Polar, OnRim, OnBore, Cutout, Disc, Arc,
+from placemat import (board, Along, Axis, Box, Cell, CellPadRef, Centre, Pin, Polar, OnRim, OnBore, Cutout, Disc, Arc,
                        Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Line, LinkWeight,
                        Location, Mid, Near, Net, OnEdge, PadRef, Part, Priority, Turned, X, Y)
 ```
@@ -53,6 +53,7 @@ and write that form. When nothing here says it, do not compute it: see
 | a board of any shape | `board.outline(path, holes=)` | Boards of any shape |
 | a stretch of edge chosen by which way it faces | `board.edge(facing=Edge.NORTH)` | Boards of any shape |
 | a module frame sized to its own content | `board.size(fit=True)` | Setup |
+| a module frame fitted in one axis, the other a declared number | `board.size(fit=Axis.X, height=)` | Setup |
 | a track from a pad to a pad | `board.track(net, [PadRef(a), PadRef(b)], layer=)` | Copper |
 | a via at the nearest legal spot to a pad | `board.via(net, FreeSpot(near=PadRef(...)))` | Copper |
 | a power or exposed pad filled with vias | `board.vias(net, PadRef(...))` | Copper |
@@ -95,6 +96,10 @@ outline, origin top-left, y down.
 frame (never drawn) sized to its content: the box round everything placed (each
 part as the placer claims it, labels, tracks, vias, pours) plus `margin`
 (default the keep-in), set once everything is placed.
+`board.size(fit=Axis.X, height=, margin=None)` or `fit=Axis.Y, width=` - a frame
+fitted in one axis only: the frame fits its content across x (or y) the same
+way `fit=True` does, and the other axis is the declared number, origin at 0
+the same as a sized board's. `Axis` is `X` or `Y`.
 `board.disc(diameter, hole=0.0, holes=(), web=0.0)` - a round board at the origin, bored
 `hole` wide through the middle when it goes round a shaft. Places on it are
 bearings and radii (below); `board.centre`, `board.radius` and `board.bore`

@@ -66,6 +66,13 @@ class Edge(str, Enum):
     WEST = "W"
 
 
+class Axis(str, Enum):
+    """One dimension of a fit frame: `board.size(fit=Axis.X)` fits that one
+    to its content and takes the other's number as declared."""
+    X = "x"
+    Y = "y"
+
+
 class Along(str, Enum):
     """A named distance along an edge, of its usable length (keep-in to keep-in)."""
     START = "start"

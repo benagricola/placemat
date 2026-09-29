@@ -28,7 +28,7 @@ from .placement import Placement
 from .settings import Settings
 from .placer import BlockSpec, _grid, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
-from .values import (Turned, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Turned, Axis, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -671,7 +671,7 @@ class Board:
 
     @property
     def width(self) -> float:
-        if getattr(self, "_fit", False):
+        if getattr(self, "_fit", False) and self._fit_axis is not Axis.Y:
             raise ValueError("a fit frame has no width until its content is placed: the plan's outline has it")
         return self._frame_width
 
@@ -681,7 +681,7 @@ class Board:
 
     @property
     def height(self) -> float:
-        if getattr(self, "_fit", False):
+        if getattr(self, "_fit", False) and self._fit_axis is not Axis.X:
             raise ValueError("a fit frame has no height until its content is placed: the plan's outline has it")
         return self._frame_height
 
@@ -735,6 +735,7 @@ class Board:
         self._sized = False                 # the script has declared the board size
         self._fit = False                   # board.size(fit=True): the frame is the placed content plus a margin
         self._fit_margin = 0.0
+        self._fit_axis: Axis | None = None  # board.size(fit=Axis.X/Y): only that axis fits; the other is declared
         self._frame_planes: set = set()     # planes with no outline of their own: on a fit board, planned once the frame is fitted
         self._draw_outline = True
         self._chamfer = 0.0
@@ -1420,24 +1421,46 @@ class Board:
         return tuple(named_paths) + tuple(raw)
 
     def size(self, width: float | None = None, height: float | None = None, chamfer: float = 0.0, radius: float = 0.0,
-             holes=(), web: float = 0.0, draw: bool | None = None, *, fit: bool = False, margin: float | None = None):
+             holes=(), web: float = 0.0, draw: bool | None = None, *, fit: bool | Axis = False,
+             margin: float | None = None):
         """The board outline: a rectangle at the origin, chamfered or rounded.
         `holes` are cutouts in it - a slot for a cable, a window - each a
         closed path of straight legs and arcs, the same as any other board's.
         `fit=True` (a fragment's frame, draw=False): no numbers - the frame is
-        the box round what is placed, plus `margin` (default the keep-in)."""
+        the box round what is placed, plus `margin` (default the keep-in).
+        `fit=Axis.X` fits that one axis to the content and takes the other's
+        number as declared (`height=` for Axis.X, `width=` for Axis.Y) -
+        origin at 0 on that axis, the same as a sized board's."""
         if fit:
             if draw:
                 raise ValueError("fit=True sizes a fragment's frame, never drawn; a board's outline is a mechanical fact")
             if margin is not None and margin < 0:
                 raise ValueError("a fit frame's margin is 0 or more, not %r" % (margin,))
-            self._fit, self._fit_margin = True, self.keep_in if margin is None else float(margin)
+            axis = fit if isinstance(fit, Axis) else None
+            if axis is Axis.X:
+                if width is not None:
+                    raise ValueError("fit=Axis.X fits the width to the content; give height=, not width=")
+                if height is None or height <= 0:
+                    raise ValueError("fit=Axis.X takes the declared height=, a positive number")
+            elif axis is Axis.Y:
+                if height is not None:
+                    raise ValueError("fit=Axis.Y fits the height to the content; give width=, not height=")
+                if width is None or width <= 0:
+                    raise ValueError("fit=Axis.Y takes the declared width=, a positive number")
+            elif width is not None or height is not None:
+                raise ValueError("fit=True fits both axes to the content; width= and height= have nothing to size")
+            self._fit, self._fit_axis = True, axis
+            self._fit_margin = self.keep_in if margin is None else float(margin)
+            if axis is Axis.X:
+                self.height = float(height)
+            elif axis is Axis.Y:
+                self.width = float(width)
             self._outline, self._shape, self._cached_outline = None, None, None
             self._cutouts = Cutouts()
             self._chamfer, self._radius = chamfer, radius
             self._sized, self._draw_outline = True, False
             return
-        self._fit = False
+        self._fit, self._fit_axis = False, None
         draw = True if draw is None else draw
         if width is None or height is None or width <= 0 or height <= 0:
             raise ValueError("board size must be positive")
@@ -2997,7 +3020,8 @@ class Board:
             # the search's room: round what is decided, or round the origin when nothing is
             decided = self._placed_box(occ, plan)
             room = self.settings.place_fit_room
-            occ.board_box = decided.inflate(room) if decided is not None else Box(-room, -room, room, room)
+            grow = decided.inflate(room) if decided is not None else Box(-room, -room, room, room)
+            occ.board_box = self._fit_bound(grow)
             self._outline = occ.board_box       # the search's fallback hint and its pockets read it
         # Every searched item is one queue, whatever kind it is: a connector can
         # be the most important thing on a board, and it does not wait behind a
@@ -3017,7 +3041,8 @@ class Board:
         if self._fit:
             # the frame, now that everything is placed: the content plus the margin, and the planes that follow it
             content = self._placed_box(occ, plan)
-            frame = (content or Box(0.0, 0.0, 0.0, 0.0)).inflate(self._fit_margin)
+            grown = (content or Box(0.0, 0.0, 0.0, 0.0)).inflate(self._fit_margin)
+            frame = self._fit_bound(grown)
             plan.outline = self._outline = occ.board_box = frame
             self._plan_copper(occ, ctx, [c for c in self._copper if c.index in held], plan, progress)
         self._check_keepouts(plan)
@@ -3174,6 +3199,17 @@ class Board:
             plan._items[key] = self.geometry.cells[name] if kind == "cell" else self.geometry.footprint(name)
         return _reuse.step_from_json(entry["step"])
 
+    def _fit_bound(self, box: Box) -> Box:
+        """`box`, with a fit frame's DECLARED axis (fit=Axis.X or Axis.Y)
+        clamped to its number - origin at 0, the same as a sized board's -
+        and the fitting axis left as `box` gives it. fit=True (both axes
+        fit) leaves it unchanged."""
+        if self._fit_axis is Axis.X:            # width fits; height is declared
+            return Box(box.left, 0.0, box.right, self._frame_height)
+        if self._fit_axis is Axis.Y:            # height fits; width is declared
+            return Box(0.0, box.top, self._frame_width, box.bottom)
+        return box
+
     def _fit_room(self, occ: Occupancy, plan: Plan, obj) -> Box:
         """Where a searched item may go on a fit board: round everything placed
         so far (round the origin when nothing is), by `place.fit_room` and the
@@ -3183,7 +3219,7 @@ class Board:
         span = sum(max(b.width, b.height) for b in
                    (occ.reach_box(fp, Placement(Location(0.0, 0.0), 0.0, Face.FRONT)) for fp in fps))
         content = self._placed_box(occ, plan) or Box(0.0, 0.0, 0.0, 0.0)
-        return content.inflate(self.settings.place_fit_room + span)
+        return self._fit_bound(content.inflate(self.settings.place_fit_room + span))
 
     def _placed_box(self, occ: Occupancy, plan: Plan) -> Box | None:
         """The box round what the plan has placed so far, as the placer
