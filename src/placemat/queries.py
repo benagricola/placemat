@@ -6,6 +6,7 @@ fill of another net is not an obstacle, because KiCad refills a zone and pulls
 it back round a new via, and is reported as giving way instead."""
 from __future__ import annotations
 
+import bisect
 from collections import Counter, deque
 from dataclasses import dataclass
 import heapq
@@ -360,12 +361,58 @@ def _grid_point(idx: tuple) -> tuple:
     return (round(idx[0] * GRID_MM, 4), round(idx[1] * GRID_MM, 4))
 
 
-def _ring_distance(pt: Location, ring) -> float:
-    """The point's distance to the ring's edge, whichever side it is on -
-    `distance_to_boundary` for a single point, which is not itself a
-    polygon `_edges` can walk."""
+def _row_crossings(ring, gy0: int, gy1: int) -> dict:
+    """Every grid row in [gy0, gy1] paired with `ring`'s x-crossings there,
+    sorted: `point_in_polygon`'s own rule (an edge crosses row y when y sits
+    in [min(y1, y2), max(y1, y2)); `x < xin` toggles inside), done once a
+    row instead of once a point - a ring with hundreds of vertices otherwise
+    makes the per-point test the query's own cost."""
+    rows: dict = {}
     n = len(ring)
-    return min(point_segment_distance((pt.x, pt.y), ring[i], ring[(i + 1) % n]) for i in range(n))
+    for i in range(n):
+        x1, y1 = ring[i]
+        x2, y2 = ring[(i + 1) % n]
+        if y1 == y2:
+            continue
+        lo, hi = (y1, y2) if y1 < y2 else (y2, y1)
+        r0 = max(gy0, math.ceil(lo / GRID_MM - 1e-9))
+        r1 = min(gy1, math.ceil(hi / GRID_MM - 1e-9) - 1)
+        for gy in range(r0, r1 + 1):
+            y = gy * GRID_MM
+            rows.setdefault(gy, []).append(x1 + (y - y1) * (x2 - x1) / (y2 - y1))
+    for xs in rows.values():
+        xs.sort()
+    return rows
+
+
+def _ring_inside(rows: dict, gy: int, x: float) -> bool:
+    xs = rows.get(gy)
+    if not xs:
+        return False
+    return (len(xs) - bisect.bisect_right(xs, x)) % 2 == 1
+
+
+def _edge_buckets(ring, reach: float, bucket_mm: float) -> dict:
+    """`ring`'s edges, bucketed by `bucket_mm`: an edge stands in every
+    bucket its box grown by `reach` touches, so a point's own bucket holds
+    every edge that could be nearer than `reach` to it - the same idea as
+    `_CorridorOccupancy._index`, for a ring instead of a copper outline."""
+    buckets: dict = {}
+    n = len(ring)
+    for i in range(n):
+        p1, p2 = ring[i], ring[(i + 1) % n]
+        x0, x1 = sorted((p1[0], p2[0]))
+        y0, y1 = sorted((p1[1], p2[1]))
+        for gx in range(math.floor((x0 - reach) / bucket_mm), math.floor((x1 + reach) / bucket_mm) + 1):
+            for gy in range(math.floor((y0 - reach) / bucket_mm), math.floor((y1 + reach) / bucket_mm) + 1):
+                buckets.setdefault((gx, gy), []).append((p1, p2))
+    return buckets
+
+
+def _edge_near(buckets: dict, pt: Location, reach: float, bucket_mm: float) -> bool:
+    gx, gy = math.floor(pt.x / bucket_mm), math.floor(pt.y / bucket_mm)
+    return any(point_segment_distance((pt.x, pt.y), p1, p2) < reach - 1e-9
+               for p1, p2 in buckets.get((gx, gy), ()))
 
 
 def _is_box(ring) -> bool:
@@ -378,8 +425,9 @@ class _CorridorOccupancy:
     """What a track of `width` on `layer`, net `net`, may not come within
     clearance of, inside `box`: foreign copper (pads that reach the layer,
     vias, tracks, polys and - unlike a via, which a pour gives way to -
-    zones), a footprint's own copper graphics, the board edge and cutouts.
-    Bucketed once so a grid node's blockers are a lookup."""
+    zones), a footprint's own copper graphics, a rule area that forbids
+    tracks on the layer (unless its `allow=` names `net`), the board edge
+    and cutouts. Bucketed once so a grid node's blockers are a lookup."""
     BUCKET_MM = 2.0
 
     def __init__(self, geometry, net: str, width: float, layer, box: Box):
@@ -398,6 +446,17 @@ class _CorridorOccupancy:
                     and ob.right >= box.right + self.edge_need and ob.bottom >= box.bottom + self.edge_need
                     and not any(Box.of_points(h).overlaps(box, gap=self.edge_need) for h in self.rings[1:])):
                 self._edge_always_clear = True
+        # A ring with many vertices (a round board) makes point_in_polygon and
+        # an edge-by-edge distance the query's own cost if run per node, over
+        # every node a flood fill visits to prove no path. Row crossings and a
+        # bucket index of the edges - point_in_polygon's own rule, and
+        # `_index`'s own idea, each done once - turn that into a lookup.
+        self._ring_rows, self._ring_edges = [], []
+        if self.rings and not self._edge_always_clear:
+            gy0, gy1 = math.floor(box.top / GRID_MM), math.ceil(box.bottom / GRID_MM)
+            for ring in self.rings:
+                self._ring_rows.append(_row_crossings(ring, gy0, gy1))
+                self._ring_edges.append(_edge_buckets(ring, self.edge_need, self.BUCKET_MM))
         self._buckets: dict = {}
         for c in geometry.copper:
             if c.net == net or layer not in c.layers or c.kind not in _HARD + ("zone",):
@@ -417,6 +476,12 @@ class _CorridorOccupancy:
                 if not Box.of_points(art).overlaps(box, gap=gap):
                     continue
                 self._index((art,), gap, "%s's own copper" % fp.ref)
+        for ra in geometry.rule_areas:
+            if "tracks" not in ra.excludes or layer not in ra.layers or net in ra.allow:
+                continue
+            if not Box.of_points(ra.polygon).overlaps(box, gap=half):
+                continue
+            self._index((ra.polygon,), half, ra.base)
 
     def _index(self, outlines, gap: float, label: str) -> None:
         b = Box.of_points([p for o in outlines for p in o])
@@ -431,13 +496,12 @@ class _CorridorOccupancy:
         a short name of what stops it."""
         pt = Location(*_grid_point(idx))
         if self.rings and not self._edge_always_clear:
-            outer = self.rings[0]
-            if not point_in_polygon((pt.x, pt.y), outer):
+            if not _ring_inside(self._ring_rows[0], idx[1], pt.x):
                 return "off the board"
-            if _ring_distance(pt, outer) < self.edge_need - 1e-9:
+            if _edge_near(self._ring_edges[0], pt, self.edge_need, self.BUCKET_MM):
                 return "the board edge"
-            for hole in self.rings[1:]:
-                if point_in_polygon((pt.x, pt.y), hole) or _ring_distance(pt, hole) < self.edge_need - 1e-9:
+            for rows, edges in zip(self._ring_rows[1:], self._ring_edges[1:]):
+                if _ring_inside(rows, idx[1], pt.x) or _edge_near(edges, pt, self.edge_need, self.BUCKET_MM):
                     return "a cutout"
         bucket = (math.floor(pt.x / self.BUCKET_MM), math.floor(pt.y / self.BUCKET_MM))
         for outlines, gap, label in self._buckets.get(bucket, ()):
@@ -552,11 +616,47 @@ def _path_length(points: tuple) -> float:
     return round(sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(points, points[1:])), 4)
 
 
+def _dilate(cells, radius: int) -> frozenset:
+    """`cells` grown by `radius` grid steps in every direction (Chebyshev):
+    the room another track needs to keep its own clearance from one drawn
+    along `cells`, so an "alternative" avoiding only this is a genuinely
+    different corridor, not the same one shifted a cell."""
+    if radius <= 0:
+        return frozenset(cells)
+    return frozenset((x + dx, y + dy) for x, y in cells
+                     for dx in range(-radius, radius + 1) for dy in range(-radius, radius + 1))
+
+
+def _far_from_ends(cells, a_idx: tuple, b_idx: tuple, radius: int) -> set:
+    """`cells` further than `radius` (Chebyshev) from both `a_idx` and
+    `b_idx`: what an alternative may be kept off. Growing the path's own
+    cells right at the pads it leaves from would wall each pad in on every
+    side - every path shares that one point, and cannot keep a clearance
+    from itself there."""
+    def far(idx, centre) -> bool:
+        return max(abs(idx[0] - centre[0]), abs(idx[1] - centre[1])) > radius
+    return {c for c in cells if far(c, a_idx) and far(c, b_idx)}
+
+
+def _with_pad_ends(points: tuple, a: Location, b: Location) -> tuple:
+    """`points` with its first and last corner `a` and `b` themselves: the
+    search snaps to the 0.1 mm grid, so without this the reported ends can
+    stand up to half a grid step - about 0.07 mm on the diagonal - off the
+    pads' own centres."""
+    if len(points) <= 1:
+        return ((a.x, a.y),)
+    return ((a.x, a.y),) + points[1:-1] + ((b.x, b.y),)
+
+
 def corridor(geometry, a: Location, b: Location, net: str, width: float, layer, margin: float = 10.0) -> CorridorResult:
     """The clear octilinear paths on `layer` from `a` to `b` for a track of
-    `width` on `net`: the shortest, plus up to two more that share no grid
-    cell with it, on a 0.1 mm grid over the box round `a` and `b` grown by
-    `margin`. With none, the blockers across the narrowest cut between them."""
+    `width` on `net`: the shortest, plus up to two more that keep at least a
+    track-and-clearance gap from it and each other - not the same corridor
+    shifted a cell - on a 0.1 mm grid over the box round `a` and `b` grown by
+    `margin`. Each path's first and last corner is `a` and `b` themselves,
+    not the grid node the search snapped them to. With none, the blockers
+    across the narrowest cut between them - a rule area forbidding tracks on
+    the layer is named among them too, unless its `allow=` names `net`."""
     a_idx, b_idx = _snap(a), _snap(b)
     box = Box.of_points([(a.x, a.y), (b.x, b.y)])
     box = Box(box.left - margin, box.top - margin, box.right + margin, box.bottom + margin)
@@ -577,14 +677,17 @@ def corridor(geometry, a: Location, b: Location, net: str, width: float, layer, 
     # A* first, goal-directed: it need not touch most of a wide-open box. The
     # flood fill below - which does, to prove a negative - only runs when it
     # finds nothing.
+    reach = geometry.clearance(net) if net in geometry.nets else geometry.default_clearance
+    keep_off = math.ceil((width + reach) / GRID_MM)
     paths, avoid = [], frozenset()
     for _ in range(3):
         raw = _astar(a_idx, b_idx, in_box, blocked, avoid)
         if raw is None:
             break
-        points = _corners(raw)
+        points = _with_pad_ends(_corners(raw), a, b)
         paths.append(CorridorPath(points, _path_length(points), max(0, len(points) - 2)))
-        avoid = avoid | (set(raw) - {a_idx, b_idx})
+        grow = _far_from_ends(set(raw) - {a_idx, b_idx}, a_idx, b_idx, keep_off)
+        avoid = avoid | _dilate(grow, keep_off)
     if paths:
         return CorridorResult(paths=tuple(paths))
     seen_a, frontier_a = _flood(a_idx, in_box, blocked)

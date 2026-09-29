@@ -410,13 +410,37 @@ def drawn_now(entries, geometry, tolerance: float) -> list:
     return out
 
 
+def _near(a, b, tolerance: float) -> bool:
+    ax, ay = _xy(a)
+    bx, by = _xy(b)
+    return math.hypot(ax - bx, ay - by) <= tolerance
+
+
+def _same_op(c, op, tolerance: float) -> bool:
+    """`c` (a board item) is the copper `op` (a resolved kept op) drew: its
+    outline overlaps `op`'s - not an exact match, since a track written to
+    KiCad and re-read differs from the one Python drew it as by a
+    tessellation error far under a track's own width - and its anchors sit
+    close to `op`'s too: a track's ends, in either order, and its layer; a
+    via's centre. The anchor match is what tells a track from a different
+    one that merely starts where it ends: two tracks sharing an endpoint
+    overlap at their round caps, so the overlap alone would take out both."""
+    if not any(polys_overlap(op.polygon, o) for o in c.outlines):
+        return False
+    if isinstance(op, Via):
+        return c.kind == "via" and bool(c.anchors) and _near(c.anchors[0], op.at, tolerance)
+    if c.kind != "track" or op.layer not in c.layers or len(c.anchors) < 2:
+        return False
+    start, end = c.anchors[0], c.anchors[-1]
+    return (_near(start, op.start, tolerance) and _near(end, op.end, tolerance)) or \
+           (_near(start, op.end, tolerance) and _near(end, op.start, tolerance))
+
+
 def without_kept(geometry, entries, tolerance: float):
     """`geometry` with the copper `entries` currently draw taken out: the
     room a re-route would have (`occupancy --corridor --ignore-kept`). A
-    board item is one of them when it is the same net and its outline
-    overlaps a drawn op's - not an exact match, since a track written to
-    KiCad and re-read differs from the one Python drew it as by a
-    tessellation error far under a track's own width."""
+    board item is one of them when it is the same net, its anchors match a
+    drawn op's (see `_same_op`) and its outline overlaps that op's."""
     import dataclasses
     ops = drawn_now(entries, geometry, tolerance)
     if not ops:
@@ -428,7 +452,7 @@ def without_kept(geometry, entries, tolerance: float):
     def is_kept(c) -> bool:
         if c.kind not in ("track", "via") or c.net not in by_net:
             return False
-        return any(any(polys_overlap(op.polygon, o) for o in c.outlines) for op in by_net[c.net])
+        return any(_same_op(c, op, tolerance) for op in by_net[c.net])
     return dataclasses.replace(geometry, copper=tuple(c for c in geometry.copper if not is_kept(c)))
 
 

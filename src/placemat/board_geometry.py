@@ -133,6 +133,11 @@ class RuleArea:
     # region holds on the rest; these are reported, never silently dropped.
     missing: tuple = ()
     holes: tuple = ()                    # polygons inside `polygon` the region does not cover (a ring's middle)
+    # Nets its excludes let through (a keepout's own `allow=`, by name). KiCad
+    # writes a rule area with no such list (see api.md's occupancy section),
+    # so one read off a generated board always carries none; a query that
+    # builds its own geometry is the one place this is ever set.
+    allow: frozenset = frozenset()
 
     @property
     def base(self) -> str:
