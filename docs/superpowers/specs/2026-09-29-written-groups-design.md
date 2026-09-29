@@ -1,7 +1,7 @@
 # Groups a hand placement can move
 
 Date: 2026-09-29
-Status: draft
+Status: approved 2026-09-29; item 1 revised the same day (below)
 Source: PLACEMAT_GAPS.md (fairing), 2026-09-29 "groups a hand placement can
 move"; its workaround `boards/core/snapshots/regroup_clusters.py`
 
@@ -30,7 +30,21 @@ geometry from the cached generation (`previewer.resolve_like_last_run`), not
 from the written board, so what the written board's groups say changes no
 later placement.
 
-## The change
+## Revision (2026-09-29, the fairing session relaying Ben's direction)
+
+No part is pulled out of its module; every module gets its own layout;
+sub-modules are their own groups. So the default is "lift": each nested
+group (a stamped cell in its module sheet's) is lifted to the top level,
+whole, and a module keeps its own parts even when the script places them
+one by one. Taking out the parts placed apart (item 1 below) is the
+`"split"` option; `"keep"` writes the groups as generated. A group left
+empty is removed.
+
+Later the same day: groups on the board are one level, never nested (KiCad
+makes a nested group entered before anything in it moves). `board.group`
+takes parts only; a cell stays a group of its own at the top level.
+
+## The change (as first approved)
 
 1. **A group whose members the plan placed apart is dissolved on the written
    board.**

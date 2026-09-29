@@ -105,6 +105,7 @@ class CellGeom:
     courtyard_box: Box          # what the cell claims for assembly
     copper_box: Box | None      # extent of the cell's own tracks/vias/polys, if any
     faces: dict = field(default_factory=dict)   # the module's declared sides: outward, quiet, handoff (N/S/E/W at rotation 0)
+    parent: str | None = None   # the group this cell's group sits in (a module sheet's), if any
 
     def member(self, suffix: str) -> Footprint:
         for fp in self.members:

@@ -528,6 +528,30 @@ on, or reaching past the plane's outline is kept. The search never
 counted a zone in a cell's size, so placements are unchanged. Set
 `copper.cell_zones_under_planes = "keep"` to keep them all.
 
+**Groups on the written board.** The generator writes one KiCad group per
+module sheet, a stamped cell's group nested inside its module's, so
+selecting any part of the module drags its sub-modules with it. Groups on
+the written board are one level: each nested group is lifted to the top
+level, whole, and a module keeps its own parts as a group of their own; the run says `groups  usbpd: cell(s)
+usbpd.controller, usbpd.moisture, usbpd.paths lifted to the top level`. A
+group left empty (a module sheet's that held only its cells) is removed.
+`write.split_groups = "split"` also takes out of a group the parts the
+script places by steps of their own (a group it did not place whole);
+`"keep"` writes every group as generated.
+
+```python
+board.group(name, items, why="")
+```
+
+writes a top-level KiCad group called `name` holding `items`, `Part`s, so a
+hand placement moves the set as one; it places nothing. Groups on the board
+are one level (KiCad makes a nested group entered before anything in it
+moves): a `Cell` is refused, it is a group of its own. A name another group
+or cell has, or a part already in a declared group (or named twice), is
+refused where it is declared; a part of a cell the script places whole is
+refused before the search (group the cell). The run says `groups  <name>
+written: N part(s) (<why>)`.
+
 **Layers a module's board does not have.** A module fragment is a two-layer
 board, and KiCad saves a zone on the layers its board has: a keepout declared
 on every layer, or on In1 and In2, would save as F and B and arrive in a
@@ -1405,6 +1429,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `copper.plane_clearance` | 0.2 | a zone's pullback from foreign copper |
 | `copper.plane_min_thickness` | 0.2 | a zone's minimum filled width |
 | `copper.pour_stroke` | 0.2 | a pour's outline stroke |
+| `write.split_groups` | "lift" | the generator's nested groups: `lift` each cell's group out of its module's to the top level (the module keeps its own parts), `split` also takes out of a group the parts the script places by steps of their own, `keep` writes them as generated; a group left empty is removed |
 | `copper.cell_zones_under_planes` | "drop" | a stamped cell's zone the board's own plane covers on its net and layer: `drop` merges it into the plane, `keep` keeps it |
 | `label.size` | 1.0 | silkscreen text height |
 | `label.thickness` | 0.15 | silkscreen stroke width |

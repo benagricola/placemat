@@ -71,6 +71,8 @@ class Settings:
     copper_plane_min_thickness: float = 0.2
     copper_pour_stroke: float = 0.2
     copper_cell_zones_under_planes: str = "drop"   # a stamped cell's zone the board's own plane covers: merged into it, or kept
+    # [write]
+    write_split_groups: str = "lift"    # each cell's group nested in a module's: lifted to the top level (the module keeps its parts); "split" also takes out the parts placed apart; "keep" as generated
     # [label]
     label_size: float = 1.0
     label_thickness: float = 0.15
@@ -259,7 +261,7 @@ class SettingsError(ValueError):
 
 # Keys with a fixed set of values.
 _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotations": ("all", "declared"),
-            "copper_cell_zones_under_planes": ("drop", "keep")}
+            "copper_cell_zones_under_planes": ("drop", "keep"), "write_split_groups": ("lift", "split", "keep")}
 
 # Keys with a floor. A value at or below it is a setting that cannot work: a
 # zero scan step never moves, a zero timeout never runs. Weights are absent

@@ -414,6 +414,15 @@ class MergedZone:
     note: str = ""
 
 
+@dataclass(frozen=True)
+class DeclaredGroup:
+    """A KiCad group a script declared with board.group(): the parts (by
+    refdes) it holds, at the top level."""
+    name: str
+    parts: tuple
+    why: str = ""
+
+
 @dataclass
 class Plan:
     geometry: BoardGeometry
@@ -444,6 +453,9 @@ class Plan:
     merged_zones: list = field(default_factory=list)              # the cell zones the write merged into a plane (MergedZone)
     kept_zones: list = field(default_factory=list)                # ones a plane covers but that join pads otherwise: kept
     models: dict = field(default_factory=dict)                    # the write's model paths: {"reanchored": n, "missing": [files]}
+    split_groups: str = "lift"                                    # settings: what the write does to the generator's nested groups
+    groups: list = field(default_factory=list)                    # the groups the script declared (DeclaredGroup)
+    group_notes: list = field(default_factory=list)               # what the write did to the board's groups, a line each
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -678,6 +690,7 @@ class Board:
         self._settled_cutouts: dict = {}    # those of them that already have a position
         self._cutout_loop_of: dict = {}     # name -> its loop index in _shaped()
         self._keepouts: dict = {}           # the regions a script declared, by name
+        self._groups: dict = {}             # the KiCad groups a script declared, by name (DeclaredGroup)
         self.web = 0.0                      # least material a hole may leave; 0: unchecked
         self._cached_outline = None         # this board as an outline, for reading runs off
         self._sized = False                 # the script has declared the board size
@@ -2559,6 +2572,7 @@ class Board:
     reuse_extra = ""        # what the runner adds to the reuse context: tool version, board file, settings, fab profile
 
     def resolve(self, progress=None, reuse=None, explore=None, lock=None, routes=None) -> Plan:
+        self._check_groups()                # what a declared group may hold, before the search
         # An explore variant (explore.py): seed 0, or none, is the plain placement.
         self._explore = explore if (explore is not None and explore.seed) else None
         # Accepted decisions (lock.py): tried first at each locked item's turn.
@@ -2582,7 +2596,8 @@ class Board:
         plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius,
                     shape=self._shape, cutouts=self._cutouts,
                     rules=list(self._rules), draw_outline=self._draw_outline,
-                    cell_zones_under_planes=self.settings.copper_cell_zones_under_planes)
+                    cell_zones_under_planes=self.settings.copper_cell_zones_under_planes,
+                    split_groups=self.settings.write_split_groups, groups=list(self._groups.values()))
         ctx = _CopperContext(self, occ)
         ctx.plan = plan
         from . import reuse as _reuse
@@ -2852,6 +2867,54 @@ class Board:
                                     layer="User.Comments"))
             plan.steps.append(Step("faces", "copper", Priority.DEFAULT, None, 0.0, text[len("placemat faces "):], why, 1))
         return plan
+
+    def group(self, name: str, items, why: str = "") -> "DeclaredGroup":
+        """A KiCad group on the written board holding `items` (Parts), at
+        the top level like every group placemat writes, so a hand placement
+        moves them as one. It places nothing: the script places the items as
+        it wants."""
+        if name in self.geometry.cells or name in self._groups:
+            raise ValueError("group %r: the board already has a group or cell called %r; pick another name"
+                             % (name, name))
+        parts = []
+        for it in items:
+            obj, key, kind = self._item(it)
+            if kind == "cell":
+                raise ValueError("group %r: %s is a cell, a group of its own; groups on the board are one level "
+                                 "(KiCad makes a nested group entered before anything in it moves)" % (name, key))
+            if kind != "part":
+                raise TypeError("group %r: takes Parts, not %r" % (name, it))
+            if obj.ref in parts:
+                raise ValueError("group %r: %s is named twice" % (name, key))
+            other = next((g.name for g in self._groups.values() if obj.ref in g.parts), None)
+            if other is not None:
+                raise ValueError("group %r: %s is already in group %r" % (name, key, other))
+            parts.append(obj.ref)
+        g = DeclaredGroup(name, tuple(parts), why)
+        self._groups[name] = g
+        return g
+
+    def _check_groups(self) -> None:
+        """What a declared group may hold, from what the script places,
+        before the search: not a part inside a cell the script places whole
+        (that group is written as it stands; group the cell)."""
+        if not self._groups:
+            return
+        whole = {intent.item.name for intent in self._placements() if intent.kind == "cell"}
+
+        def around(cell):                       # a group and every group it sits in
+            out = []
+            while cell is not None and cell in self.geometry.cells:
+                out.append(cell)
+                cell = self.geometry.cells[cell].parent
+            return out
+        for g in self._groups.values():
+            for ref in g.parts:
+                fp = self.geometry.footprint(ref)
+                inside = [c for c in around(fp.cell) if c in whole]
+                if inside:
+                    raise ValueError("group %r: %s is in cell %r, which the script places whole; group the cell"
+                                     % (g.name, fp.inst, inside[0]))
 
     def _rudy(self, occ: Occupancy, plan: Plan):
         """The placed board's RUDY (congestion.py): its placed pads, the nets

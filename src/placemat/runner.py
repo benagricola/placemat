@@ -420,6 +420,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         except CriticalUnplaced as e:
             (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
             apply_plan(src.pcb, e.plan)                      # the board as it stood when the critical item failed
+            for note in e.plan.group_notes:
+                say("groups", note)
             from .models import models_line
             if models_line(e.plan.models):
                 say("models", models_line(e.plan.models))
@@ -451,6 +453,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             say("zones", "%s: %s merged into the board's plane" % (cell, zones))
         for k in plan.kept_zones:
             say("zones", "%s: its %s zone on %s kept under the board's plane: %s" % (k.cell, k.net, k.layer.value, k.note))
+        for note in plan.group_notes:
+            say("groups", note)
         from .models import models_line
         line = models_line(plan.models)
         if line:

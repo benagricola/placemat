@@ -617,12 +617,65 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     _draw_outline(board, plan)
     _draw_keepouts(board, plan)
     draw_copper(board, plan.copper)
+    plan.group_notes = _write_groups(board, plan)
     out = str(out_path or pcb_path)
     plan.models = _reanchor_models(board, Path(out).parent)
     save(board, out)
     from ..rules import write_rules
     write_rules(out, plan.rules)
     return out
+
+
+def _write_groups(board, plan: Plan) -> list:
+    """The board's KiCad groups as the plan leaves them. "lift" (the
+    default): each group nested in another (a stamped cell in its module
+    sheet's) is lifted to the top level, whole, and a module keeps its own
+    parts. "split": as well, the parts the plan placed by steps of their own
+    are taken out of a group it did not place whole. "keep": as generated.
+    A group left empty is removed. Then each group the script declared is
+    written. A line for each change, for the run to say."""
+    notes = []
+    placed = {s.item for s in plan.steps if s.placement is not None and s.kind != "block"}
+    whole = {k for k in placed if isinstance(plan._items.get(k), CellGeom)}
+    moved_refs = {plan._items[k].ref for k in placed if isinstance(plan._items.get(k), Footprint)}
+    if plan.split_groups in ("lift", "split"):
+        lifted: dict = {}
+        for g in list(board.Groups()):
+            parent = g.GetParentGroup()
+            if parent is not None:
+                lifted.setdefault(parent.GetName(), []).append(g.GetName())
+                parent.RemoveItem(g)
+        for name, cells in sorted(lifted.items()):
+            notes.append("%s: cell(s) %s lifted to the top level" % (name, ", ".join(sorted(cells))))
+    if plan.split_groups == "split":
+        for g in list(board.Groups()):
+            name = g.GetName()
+            if name in whole:
+                continue
+            items = list(g.GetItems())
+            out = [it for it in items if isinstance(it, pcbnew.FOOTPRINT) and it.GetReference() in moved_refs]
+            if not out:
+                continue
+            for it in out:
+                g.RemoveItem(it)
+            notes.append("%s: %d part(s) placed apart, taken out%s" % (
+                name, len(out), "; left empty, removed" if len(out) == len(items) else
+                "; %d item(s) stay in it" % (len(items) - len(out))))
+    by_ref = {fp.GetReference(): fp for fp in board.GetFootprints()}
+    for d in plan.groups:
+        g = pcbnew.PCB_GROUP(board)
+        g.SetName(d.name)
+        for it in [by_ref[r] for r in d.parts]:
+            parent = it.GetParentGroup()
+            if parent is not None:
+                parent.RemoveItem(it)
+            g.AddItem(it)
+        board.Add(g)
+        notes.append("%s written: %d part(s)%s" % (d.name, len(d.parts), " (%s)" % d.why if d.why else ""))
+    for g in list(board.Groups()):                  # a module's group that held only its cells, or what a declared one took
+        if not list(g.GetItems()):
+            board.Remove(g)
+    return notes
 
 
 def _reanchor_models(board, project_dir) -> dict:

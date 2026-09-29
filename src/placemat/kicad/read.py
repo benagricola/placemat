@@ -608,9 +608,11 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
     member_cell = {}
     groups_of = {}
     group_items = {}
+    parent_of = {}
     for g in board.Groups():
         name = g.GetName()
         group_items[name] = list(g.GetItems())
+        parent_of[name] = g.GetParentGroup().GetName() if g.GetParentGroup() is not None else None
         for it in group_items[name]:
             groups_of[_kiid(it)] = name
             if isinstance(it, pcbnew.FOOTPRINT):
@@ -634,7 +636,7 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
                     k, _, v = word.partition("=")
                     if v:
                         faces[k] = v
-        cells[name] = CellGeom(name, members, box, phys, court, copper_box, faces)
+        cells[name] = CellGeom(name, members, box, phys, court, copper_box, faces, parent_of.get(name))
     classes, default_clr = _netclasses(board)
     layers = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
     return BoardGeometry(path=path, footprints=fps, cells=cells, copper=copper, outline=_outline(board),

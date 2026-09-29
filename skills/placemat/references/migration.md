@@ -4,6 +4,17 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## Unreleased
+
+Nothing to change in a script. Each stamped cell's KiCad group is lifted
+out of its module sheet's group to the top level on the written board, so
+moving a sub-module by hand in pcbnew no longer drags its module; a module
+keeps its own parts. `[write] split_groups = "split"` also takes the parts
+a script places one by one out of their module's group; `"keep"` writes the
+groups as generated. `board.group(name,
+items)` writes a group of the parts and cells named: a script that rewrote
+the board's groups with pcbnew afterwards can declare them instead.
+
 ## To 0.52.0
 
 Nothing to change in a script. Every route is laid with the router's turn
