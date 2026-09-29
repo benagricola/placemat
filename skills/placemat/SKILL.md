@@ -70,11 +70,9 @@ shrink - the maintainers are building these.
 
 - A part beside another part's envelope, a gap off it, aligned to a pad.
 - A row or a stack measured from a part, not a board edge.
-- A lane: a track, a via row or a column held a clearance off pad ends, a
-  via or another track.
-- Vias on a pad's axis, in rows under a pin row, or stitched along a
-  region's edge.
-- Which end of a track's leg takes the 45.
+- A column of parts held a clearance off pad ends. A lane held a clearance
+  off another track (`Between`/`Past` hold one off pads; not yet off a
+  track).
 - A keepout from an absolute region (not anchored on a part or a pad).
 - A cell placed by where one of its members must land.
 
