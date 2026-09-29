@@ -189,6 +189,23 @@ def parts_lines(geometry, fields=()) -> list:
     return out
 
 
+def missing_order_number(fp, order_fields) -> bool:
+    """A placed part carries no order number when none of `order_fields` (an
+    order code, a manufacturer part number - `[parts] order_fields`) is
+    present on it and non-empty. A part marked do-not-populate is never
+    missing one: it is never bought."""
+    if fp.dnp:
+        return False
+    return not any((fp.fields.get(f) or "").strip() for f in order_fields)
+
+
+def order_warnings(geometry, order_fields) -> list:
+    """One "no order number: REF (instance)" line per placed part missing
+    one, instance order."""
+    return ["no order number: %s (%s)" % (fp.ref, fp.inst)
+            for fp in sorted(geometry.footprints, key=lambda f: f.inst) if missing_order_number(fp, order_fields)]
+
+
 def pin_centres(pads) -> dict:
     """{pad number: its centre}, a pin drawn as several lands (an L-shaped
     corner pad, a split thermal land) measured as one: the centre of the box

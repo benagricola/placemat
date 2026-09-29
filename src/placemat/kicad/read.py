@@ -326,7 +326,7 @@ def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footpr
                      body_box=body_box(fp, excess_mm), courtyard_box=courtyard_box(fp),
                      phys_box=phys_box(fp), pads=_pads(board, fp, err_nm), npth=_npth(fp),
                      fields={f.GetName(): f.GetText() for f in fp.GetFields()},
-                     lib_id=fp.GetFPIDAsString(),
+                     lib_id=fp.GetFPIDAsString(), dnp=fp.IsDNP(),
                      silk=_silk(fp, err_nm), mask=_mask(fp, err_nm), fab=_fab(fp), copper=_copper_art(fp, err_nm),
                      courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp))
 
@@ -334,7 +334,7 @@ def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footpr
 def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, ...]:
     items = []
 
-    def add(kind, obj, net, owner=None, width=0.0, drill=0.0, anchors=()):
+    def add(kind, obj, net, owner=None, width=0.0, drill=0.0, anchors=(), length=0.0):
         cu = [l for l in obj.GetLayerSet().CuStack() if board.IsLayerEnabled(l)]
         if not cu:
             return                      # nothing on a layer this board has
@@ -343,7 +343,7 @@ def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, .
             return
         items.append(CopperItem(kind, net, _copper_layers(board, obj.GetLayerSet()), outs,
                                 Box.of_points([p for o in outs for p in o]), owner, width, drill,
-                                tuple((mm(v.x), mm(v.y)) for v in anchors)))
+                                tuple((mm(v.x), mm(v.y)) for v in anchors), length))
 
     for fp in board.GetFootprints():
         for pad in fp.Pads():
@@ -356,7 +356,9 @@ def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, .
         if isinstance(t, pcbnew.PCB_VIA):
             add("via", t, t.GetNetname(), owner, drill=mm(t.GetDrillValue()), anchors=(t.GetStart(),))
         else:
-            add("track", t, t.GetNetname(), owner, mm(t.GetWidth()), anchors=(t.GetStart(), t.GetEnd()))
+            # GetLength() is the track's own path - an arc's, not the straight line between its ends
+            add("track", t, t.GetNetname(), owner, mm(t.GetWidth()), anchors=(t.GetStart(), t.GetEnd()),
+                length=mm(t.GetLength()))
     for d in board.GetDrawings():
         if isinstance(d, pcbnew.PCB_SHAPE) and d.GetLayerSet().CuStack():
             add("poly", d, d.GetNetname(), groups_of.get(_kiid(d)), anchors=tuple(d.GetConnectionPoints()))
@@ -594,7 +596,7 @@ def read_footprint(path, courtyard_excess_mm: float = 0.10) -> tuple:
                      body_box=body_box(fp, courtyard_excess_mm), courtyard_box=courtyard_box(fp),
                      phys_box=phys_box(fp), pads=tuple(pads), npth=_npth(fp),
                      fields={f.GetName(): f.GetText() for f in fp.GetFields()},
-                     lib_id=fp.GetFPIDAsString(),
+                     lib_id=fp.GetFPIDAsString(), dnp=fp.IsDNP(),
                      silk=_silk(fp), mask=_mask(fp), fab=_fab(fp), copper=_copper_art(fp), courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp))
     return geom, digest
 

@@ -87,6 +87,8 @@ class Settings:
     check_rise_c: float = 10.0
     check_copper_oz: float = 1.0
     check_limits: dict = field(default_factory=dict)
+    # [parts]
+    parts_order_fields: tuple = ("Lcsc", "LCSC", "Mpn", "MPN")   # a placed part with none of these fields non-empty gets a "no order number" warning
     # [drc]
     drc_real_kinds: tuple = DEFAULT_REAL_KINDS
     drc_outstanding_kinds: tuple = DEFAULT_OUTSTANDING_KINDS

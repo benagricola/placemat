@@ -3,7 +3,7 @@ asserts the behaviour it governs, rather than that the attribute exists."""
 from placemat.layout import Board
 from placemat.occupancy import Occupancy
 from placemat.placement import Placement
-from placemat.settings import Settings
+from placemat.settings import Settings, load
 from placemat.values import Face, Location, Part
 from tests.conftest import needs_breakout, needs_kicad
 from tests.fixtures import board_geometry, footprint
@@ -215,6 +215,20 @@ def test_a_board_with_no_placemat_toml_reads_exactly_as_it_did(breakout_pcb):
         bound = read_board(breakout_pcb)
     assert [fp.ref for fp in plain.footprints] == [fp.ref for fp in bound.footprints]
     assert [fp.courtyard_box for fp in plain.footprints] == [fp.courtyard_box for fp in bound.footprints]
+
+
+def test_the_order_fields_setting_is_wired_to_the_parts_warning(tmp_path):
+    """`[parts] order_fields` loads from a project's placemat.toml and reaches
+    `describe.order_warnings` as `cmd_parts` passes it: change the field a
+    project keeps its order numbers in, and the same part stops warning."""
+    (tmp_path / "placemat.toml").write_text('[parts]\norder_fields = ["Order"]\n')
+    cfg = load(tmp_path)
+    assert cfg.parts_order_fields == ("Order",)
+    g = board_geometry([footprint("U1", 10, 10, inst="mcu.u", nets=("A", "B"), fields={"Order": "X1"})],
+                       width=40, height=40)
+    from placemat import describe
+    assert describe.order_warnings(g, cfg.parts_order_fields) == []
+    assert describe.order_warnings(g, ("Lcsc", "LCSC", "Mpn", "MPN")) == ["no order number: U1 (mcu.u)"]
 
 
 def test_every_setting_is_documented_in_the_api_reference():
