@@ -3,9 +3,7 @@
 What a capture carries so placemat can lay the board out and check it: the
 `Pm.*` annotations on parts, how part wrappers forward them, how nets take
 their roles from them, how placemat reads net classes, and what `placemat
-check` reports from all of it. General capture practice (where a fact
-lives in Zener, net classes and interfaces, sourced numbers, design
-records) is the circuit-capture skill's; this file is placemat's part of it.
+check` reports from all of it.
 
 ## Annotations
 

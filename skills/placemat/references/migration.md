@@ -9,7 +9,7 @@ whether any of it applies.
 The `placemat-design` skill is retired. Its placemat part - the `Pm.*`
 annotations, how wrappers forward them, what `placemat check` reads - is
 `references/capture.md` in this skill, signposted at the top of SKILL.md;
-general capture practice is the separate circuit-capture skill.
+general capture practice is no longer part of placemat.
 
 Nothing to change in a script that works. New intent forms replace the
 coordinates the scripts audit found (see SKILL.md's "Declare by intent" and
