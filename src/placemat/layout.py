@@ -2848,10 +2848,15 @@ class Board:
 
     def via(self, net, at, *, drill: float | None = None, size: float | None = None,
             priority: Priority = Priority.DEFAULT, why: str = ""):
-        """A via of `net`. `at` is a position, or a `FreeSpot` near a pad:
-        the nearest point a via can stand and be reached, found when the pad
-        is placed. A FreeSpot with nowhere to go is a finding and draws none."""
+        """A via of `net`. `at` is a position, a `FreeSpot` near a pad (the
+        nearest point a via can stand and be reached, found when the pad is
+        placed), or a `Past(items, edge)` (the via's radius plus its
+        clearance off those pads', vias' or tracks' `edge` side). A FreeSpot
+        with nowhere to go, or a Past naming a via that found no spot, is a
+        finding and draws none."""
         name = self.geometry.require_net(net)
+        if isinstance(at, Past):
+            self._check_past(at, "%s: a via's at=" % name)
         refs = _refs_in([at])
         d, s = drill or self.via_drill, size or self.via_size
         if isinstance(at, (PadRef, CellPadRef)) and not (at.dx or at.dy):
@@ -2869,6 +2874,12 @@ class Board:
                     tail = Track(name, layer, width, start, where)
                     ctx.planned_tails.append(tail)
                     ops.append(tail)
+            elif isinstance(at, Past):
+                where = _past_point(self, ctx, name, s, at, intent.key, intent.index)     # s: the via's radius out
+                if isinstance(where, str):
+                    ctx.notes.append("%s: its point past %s is not drawn, because %s" % (
+                        intent.key, ", ".join(_past_names(self, at)), where))
+                    return []
             else:
                 where = ctx.locate(at)
             via = Via(name, where, d, s)

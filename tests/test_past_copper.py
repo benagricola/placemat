@@ -167,3 +167,80 @@ def test_a_past_naming_another_boards_via_is_refused():
     with pytest.raises(TypeError, match="another board"):
         b.track(Net("SIG"), [Location(5.0, 20.6), Past([v], Edge.SOUTH), Location(15.0, 20.6)],
                 layer=CopperLayer.F)
+
+
+# ---------------------------------------------------------------- a via at a Past point
+TIP_Y, PAD_H, CLEARANCE, VIA = 20.0, 1.0, 0.2, 0.6      # the fixture's contact row, its clearance and via size
+ROW_NETS = ("GND", "SIG_P", "SIG_N", "SIG_P", "SIG_N", "GND")
+
+
+def _contact_row():
+    """A connector's contact row: six 0.3 x 1.0 mm pads 0.5 mm apart, on
+    y = 20, their tips (south ends) at y = 20.5."""
+    pads = tuple(pad("J1", "j1", i + 1, net, 10.0 + 0.5 * i, TIP_Y, 0.3, PAD_H) for i, net in enumerate(ROW_NETS))
+    body = Box(9.0, 18.0, 13.5, 20.6)
+    return Footprint("J1", "j1", None, "J1", Location(11.25, 19.3), 0.0, Face.FRONT, body, body.inflate(0.1),
+                     body, pads)
+
+
+def _tips():
+    return [PadRef(Part("j1"), i + 1) for i in range(len(ROW_NETS))]
+
+
+def _vias(plan, net):
+    return [op.at for op in plan.copper if isinstance(op, Via) and op.net == net]
+
+
+def test_a_via_stands_its_clearance_past_the_tips_on_a_pads_axis():
+    b = _board([_contact_row()], nets=("SIG_P", "SIG_N", "GND"))
+    b.via(Net("SIG_N"), at=Past(_tips(), Edge.SOUTH, across=PadRef(Part("j1"), 3)))
+    plan = b.resolve()
+    (at,) = _vias(plan, "SIG_N")
+    assert at.x == pytest.approx(11.0)                          # pad 3's axis
+    assert at.y == pytest.approx(20.5 + 0.2 + 0.3)              # the tips, the clearance, the via's radius
+
+
+def test_a_track_ends_on_a_via_at_a_past_and_another_turns_past_the_vias():
+    b = _board([_contact_row()], nets=("SIG_P", "SIG_N", "GND"))
+    v3 = b.via(Net("SIG_N"), at=Past(_tips(), Edge.SOUTH, across=PadRef(Part("j1"), 3)))
+    v5 = b.via(Net("SIG_N"), at=Past(_tips(), Edge.SOUTH, across=PadRef(Part("j1"), 5)))
+    b.track(Net("SIG_N"), [PadRef(Part("j1"), 3), v3], layer=CopperLayer.F, chamfer=0)
+    b.track(Net("SIG_P"), [PadRef(Part("j1"), 2), Past([v3, v5], Edge.SOUTH), PadRef(Part("j1"), 4)],
+            layer=CopperLayer.F, chamfer=0)
+    plan = b.resolve()
+    assert (11.0, 21.0) in _points(plan, "SIG_N")               # the track ends on v3
+    # the vias' copper reaches 21.3: 21.3 + 0.2 + 0.1 = 21.6, centred between them (11.0 and 12.0)
+    assert (11.5, 21.6) in _points(plan, "SIG_P")
+
+
+def test_a_via_at_a_past_naming_a_via_that_found_no_spot_is_a_finding():
+    pa = _one_pad_part("PA", "pa", "V", 10.0, 20.0, 1.0, 1.0)
+    b = _board([pa], nets=("SIG", "V"))
+    lost = b.via(Net("V"), at=FreeSpot(near=PadRef(Part("pa"), 1), radius=0.05))
+    b.via(Net("SIG"), at=Past([lost], Edge.SOUTH))
+    plan = b.resolve()
+    assert not [op for op in plan.copper if isinstance(op, Via)]
+    assert any("via SIG" in f and "via V" in f and "found no spot" in f for f in plan.findings), plan.findings
+
+
+def test_a_via_refuses_lane_on_its_past():
+    b = _board([_contact_row()], nets=("SIG_P", "SIG_N", "GND"))
+    with pytest.raises(TypeError, match="lane"):
+        b.via(Net("SIG_N"), at=Past(_tips(), Edge.SOUTH, lane=Net("GND")))
+
+
+def test_migration_a_via_under_a_contact_row_matches_the_hand_computed_one():
+    """A module's hand arithmetic: a via on a contact's axis, the via's
+    clearance below the row's tips - TIP + clearance + via/2 - against the
+    same via said as a Past. They must agree within 0.01 mm."""
+    tip = TIP_Y + PAD_H / 2.0
+    hand = _board([_contact_row()], nets=("SIG_P", "SIG_N", "GND"))
+    hand.via(Net("SIG_N"), at=Location(11.0, tip + CLEARANCE + VIA / 2.0))
+    hand_plan = hand.resolve()
+
+    intent = _board([_contact_row()], nets=("SIG_P", "SIG_N", "GND"))
+    intent.via(Net("SIG_N"), at=Past(_tips(), Edge.SOUTH, across=PadRef(Part("j1"), 3)))
+    intent_plan = intent.resolve()
+
+    (a,), (b,) = _vias(hand_plan, "SIG_N"), _vias(intent_plan, "SIG_N")
+    assert abs(a.x - b.x) < 0.01 and abs(a.y - b.y) < 0.01

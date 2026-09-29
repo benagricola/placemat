@@ -14,6 +14,11 @@ side, in place of the middle. A track waypoint computed by hand from a
 via's centre, its size and the clearance - a track's U-turn under a row of
 vias - is `Past([vias], Edge.SOUTH)`.
 
+`board.via(net, at=Past(items, Edge.X, across=PadRef(...)))` stands a via
+its radius plus its clearance off the items' side, on the pad's axis. A via
+placed at a pad tip's coordinate plus the clearance plus half the via's
+size, computed by hand, can be said this way.
+
 ## To 0.54.1
 
 Two `swallow_pads` pours of different nets now keep the netclass clearance

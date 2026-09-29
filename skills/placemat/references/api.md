@@ -63,6 +63,7 @@ and write that form. When nothing here says it, do not compute it: see
 | a track through the gap between two pads | `board.track(net, [..., Between(PadRef(a), PadRef(b)), ...], layer=)` | Copper |
 | a track held the clearance off pads, vias or tracks | `board.track(net, [..., Past([PadRef(...), via, ...], Edge.EAST, across=), ...], layer=)` | Copper |
 | a via at the nearest legal spot to a pad | `board.via(net, FreeSpot(near=PadRef(...)))` | Copper |
+| a via its clearance past pads, vias or tracks, on a pad's axis | `board.via(net, at=Past([PadRef(...), ...], Edge.SOUTH, across=PadRef(...)))` | Copper |
 | a power or exposed pad filled with vias | `board.vias(net, PadRef(...))` | Copper |
 | vias in a row out from a pad, along its escape axis | `board.vias(net, along=PadRef(...), count=N)` | Copper |
 | stitching vias over a cell, a pour or a keepout | `board.stitch(net, region)` | Copper |
@@ -1064,6 +1065,7 @@ placement on it says which pad that was. Name the number to pick another.
 board.track(net, [p1, p2, ...], layer=CopperLayer.F, width=None, chamfer=None, bend=None, priority=Priority.DEFAULT, bridge=False)
 board.via(net, point)
 board.via(net, FreeSpot(near=PadRef(...), radius=2.0))               # the nearest legal spot to a pad, joined to it by its tail
+board.via(net, Past([PadRef(...), ...], Edge.SOUTH, across=None))    # its radius plus its clearance off the items' side
 board.vias(net, PadRef(...), pitch=None, size=None, drill=None, inset=0)  # a pad filled with a grid of vias, turned with its part
 board.vias(net, along=PadRef(...), count=N, pitch=None, size=None, drill=None)  # a row out from a pad, along its escape axis
 board.stitch(net, region, pitch=None, size=None, drill=None, edge=False)  # vias in a grid over a cell, a pour or a keepout
@@ -1109,6 +1111,21 @@ and a `board.track()` may end on it - `v = board.via(GND, FreeSpot(...))`,
 then `board.track(GND, [v, PadRef(...)], layer=B)` - so a searched part's
 via is joined on wherever the part lands. A track through a via that found
 no spot is not drawn, and the finding says so.
+
+**A via past copper.** `board.via(net, at=Past(items, Edge.SOUTH,
+across=PadRef(...)))` stands the via off the items' `edge` side by its
+radius plus the worst clearance, by net pair, to any of them: pads, vias
+and tracks, as a track's `Past` takes (Lane waypoints). `across=` a pad
+puts it on that pad's axis. A track may end on it, and a later `Past` may
+name it, so a row of vias under a connector's contact tips and a track's
+U-turn under the vias are said without a coordinate:
+
+```python
+tips = [PadRef(Part("j1"), n) for n in range(1, 13)]
+v = [board.via(Net("SIG_N"), at=Past(tips, Edge.SOUTH, across=PadRef(Part("j1"), n))) for n in (4, 9)]
+board.track(Net("SIG_P"), [PadRef(Part("j1"), 5), Past(v, Edge.SOUTH), PadRef(Part("j1"), 8)],
+            layer=CopperLayer.F)
+```
 
 **A pad filled with vias.** `board.vias(net, PadRef(...))` fills a power or
 exposed pad with a square grid of vias, placed once the pad's part is: in the
