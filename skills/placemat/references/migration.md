@@ -6,6 +6,16 @@ whether any of it applies.
 
 ## Unreleased
 
+A firm placement (`Pin`, `Beside`, `row(of=)`, a point said in pads) whose
+reference is a searched part or cell rides it, where it used to be refused
+with "only FIXED and EDGE items may be referred to". The reference is
+searched with its riders placed at each candidate, and they commit together;
+each rider's step says `rides <key>`. A part fixed only so another could be
+placed off its pads can be searched again. A rider keeps the rotation it
+declares: `rotation=Turned(Part(...))` and a `.local()` offset turn it with
+its reference. A relation to a second searched item, and a keepout or
+cutout at a searched part's pad, are still refused.
+
 `Past(pads, Edge.X, lane=Net(...), width=)` in `Beside`'s align: the lane
 as wide as the copper its current needs, so a part stands clear of a power
 pour's width rather than a track's.

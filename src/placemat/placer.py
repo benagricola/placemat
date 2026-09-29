@@ -69,14 +69,21 @@ NATIVE_SWEEP = True
 
 def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
          rotations=None, clearance: float | None = None, commit: bool = False, score=None,
-         pick=None) -> ScanResult:
+         pick=None, accept=None) -> ScanResult:
     """A legal location within `radius` of `hint`, on a `step` grid, trying
     each rotation at each location. Without `score` it is the nearest legal
     candidate to the hint; with `score(placement) -> float` it is the legal
     candidate with the lowest score, ties broken by distance from the hint,
     then rotation. Rotations are tried in numeric order regardless of how
     they were passed. A scored scan over a wide radius is coarse first,
-    then fine around its best spots."""
+    then fine around its best spots.
+
+    `accept(placement)`, when given, is asked of a candidate the item's own
+    test passed (the items riding the one scanned, layout.py): None counts
+    it, a sentence refuses it, tallied under the sentence's text before its
+    first colon. An unscored scan asks it of each candidate in turn; a
+    scored one of the best candidates first, until one is counted, so the
+    scorer must not prune by a candidate `accept` may refuse."""
     rots = tuple(sorted({(r % 360) for r in (rotations or (hint.rotation,))}))
     rejected: Counter = Counter()
     reasons: dict = {}
@@ -90,6 +97,35 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     seen: set = set()
     native = occ.native_sweeper(item, hint.face, rots, others, clearance) if NATIVE_SWEEP else None
     scoring = score.native(rots, hint.face) if native is not None and hasattr(score, "native") else None
+    asked: dict = {}
+    inline = accept is not None and score is None       # unscored: asked as each candidate is met
+
+    def refused(cand) -> bool:
+        """Whether `accept` refuses a candidate the item's own test passed;
+        tallied the first time it is asked."""
+        if accept is None:
+            return False
+        key = (cand.location.x, cand.location.y, cand.rotation)
+        if key not in asked:
+            why = accept(cand)
+            asked[key] = why is not None
+            if why is not None:
+                bucket = why.split(":")[0]
+                rejected[bucket] += 1
+                reasons.setdefault(bucket, why)
+        return asked[key]
+
+    def counted(ranked, n: int | None) -> list:
+        """The first `n` (all, for None) of `ranked` that `accept` counts."""
+        if accept is None:
+            return ranked if n is None else ranked[:n]
+        out = []
+        for entry in ranked:
+            if not refused(entry[3]):
+                out.append(entry)
+                if n is not None and len(out) == n:
+                    break
+        return out
 
     def sweep(points, stop_at_first: bool) -> list:
         """Evaluate every (x, y) in `points` at every rotation; the legal
@@ -113,6 +149,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 # matters on the native path.
                 hit = occ.legal_bucket(item, cand, clearance, others, blame)
                 if hit is None:
+                    if inline and refused(cand):
+                        continue
                     d = math.hypot(x - hint.location.x, y - hint.location.y)
                     legal.append((score(cand) if score else 0.0, d, rot, cand))
                     if stop_at_first:
@@ -139,11 +177,12 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 triples.append((x, y, k))
         if scoring is not None:
             scoring.floor = score.best[0]
-        found, scores, refused = native.run(triples, stop_at_first, scoring)
+        first_only = stop_at_first and not inline           # else the first `accept` counts
+        found, scores, refusals = native.run(triples, first_only, scoring)
         if scoring is not None:
             score.best[0] = scoring.floor
-        tried += found[0] + 1 if stop_at_first and found else len(triples)
-        for bucket, count, first, reason, blocker in refused:
+        tried += found[0] + 1 if first_only and found else len(triples)
+        for bucket, count, first, reason, blocker in refusals:
             rejected[bucket] += count
             if bucket not in reasons:
                 reasons[bucket] = reason()
@@ -152,9 +191,17 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         for i, sc in zip(found, scores):
             x, y, k = triples[i]
             cand = Placement(Location(x, y), rots[k], hint.face)
+            if inline and refused(cand):
+                continue
             d = math.hypot(x - hint.location.x, y - hint.location.y)
             legal.append(((sc if scoring is not None else score(cand)) if score else 0.0, d, rots[k], cand))
+            if stop_at_first:
+                break
         return legal
+
+    def any_counted(legal) -> bool:
+        """Whether a pass found a candidate that counts: one `accept` takes too."""
+        return bool(legal) if inline or accept is None else bool(counted(sorted(legal, key=lambda k: k[:3]), 1))
 
     cfg = occ.settings
     if score is None or radius / step < cfg.place_coarse_from:
@@ -162,21 +209,23 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     else:
         coarse = step * cfg.place_coarse_steps
         legal = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse)), False)
-        if not legal:
-            legal = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse / 2)), False)
-        if not legal:
+        if not any_counted(legal):
+            legal += sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse / 2)), False)
+        if not any_counted(legal):
             # Nothing on either coarse lattice. The coarse pass is there to
             # save time, not to decide: the fine grid still gets its walk, so
             # a spot narrower than a coarse step is not reported as no room.
-            legal = sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), False)
+            legal += sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), False)
         if legal:
             legal.sort(key=lambda k: k[:3])
-            for _, _, _, cand in legal[:cfg.place_refine_around]:
+            for _, _, _, cand in counted(legal, cfg.place_refine_around):
                 # The fine grid is centred on a coarse candidate, which can sit at
                 # the edge of the radius: keep only what is still inside it, so
                 # "within radius of the hint" is what a script gets.
                 legal += sweep(((x, y) for _, x, y in _grid(cand.location, coarse, step)
                                 if math.hypot(x - hint.location.x, y - hint.location.y) <= radius + 1e-9), False)
+    if accept is not None and not inline:
+        legal = counted(sorted(legal, key=lambda k: k[:3]), 1 if pick is None else None)
     if not legal:
         return ScanResult(None, hint, tried, rejected, reasons, blockers)
     if pick is None:

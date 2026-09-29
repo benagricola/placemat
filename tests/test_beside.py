@@ -234,14 +234,16 @@ def test_beside_refuses_when_the_new_part_carries_no_pad_on_the_aligned_net():
         b.place(Part("r1"), at=Beside(Part("u1"), Edge.EAST, align=PadRef(Part("u1"), "B")))
 
 
-def test_beside_refuses_an_item_that_is_still_searched():
-    """The item must be placed firmly first: the same generic refusal any
-    firm placement gets when what it refers to is not down by then."""
+def test_beside_a_searched_item_rides_it():
+    """Beside an item that is still searched: the part rides it, placed
+    beside it at each candidate and committed with it (test_riders.py)."""
     b = make_board()
     b.place(Part("r1"), at=Beside(Part("u1"), Edge.EAST))
     b.place(Part("u1"))
-    with pytest.raises(ValueError, match="only FIXED and EDGE"):
-        b.resolve()
+    plan = b.resolve()
+    assert plan.placement("u1") is not None
+    assert plan.box("r1").left > plan.box("u1").right
+    assert "rides u1" in plan.step("r1").note
 
 
 def test_beside_align_pad_may_name_a_third_parts_pad():

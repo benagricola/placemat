@@ -181,6 +181,28 @@ LEDs, buttons and a connector whose exact spot does not matter are
 `searched` for anything with a freedom left - and it is DERIVED from
 `at=`, never given.
 
+**Riders.** A firm placement - `Pin`, `Beside`, `row(of=)`, or a point said
+in pads - whose reference is a searched part or cell rides it. At each
+candidate the search tries the reference at, each rider is placed where its
+declaration puts it with the reference there, and the candidate counts only
+if every rider is legal: against the board, as a firm item is judged, and
+against the reference and the other riders. They commit together, and each
+rider's step says `rides u1`. A rider may have riders of its own. A rider
+keeps the rotation it declares; one that turns with its reference says so,
+`rotation=Turned(Part("u1"))` with a `.local()` offset. When no candidate
+suits a rider, the reference is left unplaced and its finding names the
+rider and why (`rider c1: C1 courtyard overlaps U1 courtyard`); a rider that
+meets its reference at every rotation the search may take is refused before
+the scan. Everything else a rider refers to is placed firmly before it or
+rides with it: a `Beside` aligned to a pad of another searched part, or
+beside a fixed part and aligned to a searched part's pad, is still refused
+("only FIXED and EDGE items may be referred to"). A keepout or cutout at a
+searched part's pad is refused too: regions are settled with the firm items,
+before any search. A block is neither ridden nor a rider. The riders are
+asked of the reference's best candidates first, so a rider that fits costs
+a few checks; one that fits nowhere costs one at every candidate the
+reference's own test passes.
+
 **Rotation of a searched part.** A part searched from its links or round a
 `Near()` hint, declared with neither `rotation=` nor `rotations=`, is tried
 at 0, 90, 180 and 270, and the search keeps the turn that puts its pads
@@ -278,10 +300,9 @@ stands the item on that side of `item` - a `Part`, a `Cell` or a keepout
 the envelope's own gap - the rule a row's default gap keeps too: the
 widest of the net clearance, the component spacing and the silk
 clearance, or courtyards touching under a courtyard envelope - whatever
-the script gives. FIXED like `Pin`: `item` must already be placed firmly
-(FIXED or EDGE) by then, refused by name otherwise ("only FIXED and EDGE
-items may be referred to"), the same refusal any firm placement gets for
-referring ahead; it keeps the rotation the script gave, or its default -
+the script gives. FIXED like `Pin`: `item` is placed firmly (FIXED or
+EDGE) before it, or is searched and this item rides it (see Riders); it
+keeps the rotation the script gave, or its default -
 `Beside` does not turn the item to face `item`. `align=` lines it up
 across the side, flush as `OnEdge` and `row(of=)` are, never the placed
 part's body centre left overhanging the corner: a `PadRef` - this item's
