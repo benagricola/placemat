@@ -1143,7 +1143,8 @@ third point.
 over the same-net pads its outline touches and pulls it back, to the
 netclass clearance, from every other net's copper on its layer - every
 pad, at its real shape rather than its bounding box; every track, via and
-pour this run plans; and every track, via and poly already on the board
+pour this run plans (another swallow pour as grown over its own pads, so
+two of them keep the clearance whichever is written first); and every track, via and poly already on the board
 before this run (a stamped cell's own), as a zone fill does. A pad with no
 net, or on a net this board's geometry does not know, keeps the board's
 own default clearance. A piece the pull-back cuts off that no longer

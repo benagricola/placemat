@@ -4,6 +4,14 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## To 0.54.1
+
+Two `swallow_pads` pours of different nets now keep the netclass clearance
+from each other's growth over their own pads, not only from each other's
+declared outline: two pours over the two ends of a small part no longer
+meet. A script that dropped one of two neighbouring pours, or swapped it
+for a plain pour and a track, can declare both again.
+
 ## To 0.54.0
 
 The `placemat-design` skill is retired. Its placemat part - the `Pm.*`

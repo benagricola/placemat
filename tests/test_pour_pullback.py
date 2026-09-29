@@ -260,3 +260,31 @@ def test_a_named_pad_isolated_by_the_pull_back_is_a_finding(tmp_path):
     plan = b.resolve()
     apply_plan(pcb, plan)
     assert any("joined to nothing" in f and "U1.1" in f for f in plan.findings), plan.findings
+
+
+def test_two_swallow_pours_of_different_nets_keep_clearance_from_each_others_growth(tmp_path):
+    """Two swallow pours of different nets, each over one pad of a small
+    two-pad part 0.4 mm apart. Each grows round its own pad; the pull-back
+    must keep the clearance from the other pour as written (grown round its
+    pad), not only from its declared outline. Real case: two pours over the
+    two ends of a small part met, which KiCad reported as shorting items."""
+    pads = [("1", "PROBE_A", 10.0, 10.0, 0.5, 0.5), ("2", "PROBE_B", 10.9, 10.0, 0.5, 0.5)]
+    pcb = _board(tmp_path, pads, clearance=0.2)
+    b = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
+    b.size(width=40.0, height=40.0)
+    b.pour(Net("PROBE_A"), [Location(7.0, 9.7), Location(10.1, 9.7), Location(10.1, 10.3), Location(7.0, 10.3)],
+           layer=CopperLayer.F, swallow_pads=True)
+    b.pour(Net("PROBE_B"), [Location(10.8, 9.7), Location(14.0, 9.7), Location(14.0, 10.3), Location(10.8, 10.3)],
+           layer=CopperLayer.F, swallow_pads=True)
+    plan = b.resolve()
+    apply_plan(pcb, plan)
+    after = read_board(pcb)
+    a = [o for c in after.copper if c.kind == "poly" and c.net == "PROBE_A" for o in c.outlines]
+    bb = [o for c in after.copper if c.kind == "poly" and c.net == "PROBE_B" for o in c.outlines]
+    assert a and bb
+    gap = min(poly_distance(p, q) for p in a for q in bb)
+    assert gap >= 0.2 - 1e-6, gap
+    u1 = after.footprint("U1")
+    for number, outlines in ((1, a), (2, bb)):
+        c = u1.pad(number).box.center
+        assert any(point_in_polygon((c.x, c.y), o) for o in outlines), number

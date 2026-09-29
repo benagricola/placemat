@@ -449,8 +449,15 @@ def _foreign_pour_obstacles(board, op: Pour, geometry, other_ops, existing) -> l
             poly = other.polygon
             extra = 0.0
         elif isinstance(other, Pour) and other.layer is op.layer:
-            poly = other.polygon
-            extra = other.stroke / 2.0            # its own copper reaches that far past its vertices too
+            # its grown shape, which it is written inside whichever pour is drawn first; its own
+            # copper reaches half its stroke past its vertices too
+            grown, _ = _swallow_grown(board, other)
+            clr_nm = nm(clearance_to(other.net) + half_stroke + other.stroke / 2.0 + _PULLBACK_MARGIN)
+            for i in range(grown.OutlineCount()):
+                o = grown.Outline(i)
+                out.append(([(pcbnew.ToMM(o.CPoint(j).x), pcbnew.ToMM(o.CPoint(j).y))
+                             for j in range(o.PointCount())], clr_nm))
+            continue
         else:
             continue
         out.append((poly, nm(clearance_to(other.net) + half_stroke + extra + _PULLBACK_MARGIN)))
@@ -461,34 +468,47 @@ def _foreign_pour_obstacles(board, op: Pour, geometry, other_ops, existing) -> l
     return out
 
 
-def _draw_pour(board, op: Pour, geometry=None, other_ops=(), findings=None, existing=()):
+def _swallow_grown(board, op: Pour):
+    """`op`'s outline as a SHAPE_POLY_SET, grown (when `swallow_pads`) over
+    every same-net pad it reaches, before any pull-back; and the pads it
+    must stay joined to, (label, (x, y) mm). Another pour's pull-back keeps
+    clear of this grown shape, not only of the declared outline: the pour
+    is written somewhere inside it."""
     code = _netcode(board, op.net)
     ps = pcbnew.SHAPE_POLY_SET()
     ps.NewOutline()
     for x, y in op.points:
         ps.Append(nm(x), nm(y))
     joined = list(op.named_pads)          # (label, (x, y)) mm: still meant to be part of the result
+    if not op.swallow_pads:
+        return ps, joined
+    m = nm(0.12)
+    for fp in board.GetFootprints():
+        for p in fp.Pads():
+            if p.GetNetCode() != code:
+                continue
+            bb = p.GetBoundingBox()
+            corners = [pcbnew.VECTOR2I(bb.GetLeft(), bb.GetTop()), pcbnew.VECTOR2I(bb.GetRight(), bb.GetTop()),
+                       pcbnew.VECTOR2I(bb.GetRight(), bb.GetBottom()), pcbnew.VECTOR2I(bb.GetLeft(), bb.GetBottom()),
+                       p.GetPosition()]
+            if any(ps.Contains(c) for c in corners):
+                r = pcbnew.SHAPE_POLY_SET()
+                r.NewOutline()
+                for x, y in ((bb.GetLeft() - m, bb.GetTop() - m), (bb.GetRight() + m, bb.GetTop() - m),
+                             (bb.GetRight() + m, bb.GetBottom() + m), (bb.GetLeft() - m, bb.GetBottom() + m)):
+                    r.Append(x, y)
+                ps.BooleanAdd(r)
+                pos = p.GetPosition()
+                joined.append(("%s.%s" % (fp.GetReference(), p.GetNumber()),
+                              (pcbnew.ToMM(pos.x), pcbnew.ToMM(pos.y))))
+    ps.Simplify()
+    return ps, joined
+
+
+def _draw_pour(board, op: Pour, geometry=None, other_ops=(), findings=None, existing=()):
+    code = _netcode(board, op.net)
+    ps, joined = _swallow_grown(board, op)
     if op.swallow_pads:
-        m = nm(0.12)
-        for fp in board.GetFootprints():
-            for p in fp.Pads():
-                if p.GetNetCode() != code:
-                    continue
-                bb = p.GetBoundingBox()
-                corners = [pcbnew.VECTOR2I(bb.GetLeft(), bb.GetTop()), pcbnew.VECTOR2I(bb.GetRight(), bb.GetTop()),
-                           pcbnew.VECTOR2I(bb.GetRight(), bb.GetBottom()), pcbnew.VECTOR2I(bb.GetLeft(), bb.GetBottom()),
-                           p.GetPosition()]
-                if any(ps.Contains(c) for c in corners):
-                    r = pcbnew.SHAPE_POLY_SET()
-                    r.NewOutline()
-                    for x, y in ((bb.GetLeft() - m, bb.GetTop() - m), (bb.GetRight() + m, bb.GetTop() - m),
-                                 (bb.GetRight() + m, bb.GetBottom() + m), (bb.GetLeft() - m, bb.GetBottom() + m)):
-                        r.Append(x, y)
-                    ps.BooleanAdd(r)
-                    pos = p.GetPosition()
-                    joined.append(("%s.%s" % (fp.GetReference(), p.GetNumber()),
-                                  (pcbnew.ToMM(pos.x), pcbnew.ToMM(pos.y))))
-        ps.Simplify()
         if geometry is not None:
             foreign = pcbnew.SHAPE_POLY_SET()
             has_foreign = False
