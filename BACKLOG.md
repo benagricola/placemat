@@ -48,8 +48,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   items may be referred to"). Needs a spec.
 - **Each part's clearance to each keepout** (PLACEMAT_GAPS 2026-09-26):
   physical, courtyard and maximum-package, as a report.
-- **The run score ranks escape settings the wrong way round** (PLACEMAT_GAPS
-  2026-09-25): it measures escapes at the search's own escape_depth.
 - **A route report of each net's path, or a preview of the routed copy**
   (PLACEMAT_GAPS 2026-09-27).
 - **`board.pair()` finding its own centreline; `route.diff_pairs` taking

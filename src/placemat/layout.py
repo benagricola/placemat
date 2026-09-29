@@ -2583,8 +2583,13 @@ class Board:
     def _report_escapes(self, occ: Occupancy, plan: Plan):
         """Escapes left crossed at a pin row, and pads the path search finds
         closed toward what they join or walled off (escapes.py); and each
-        differential pair whose two halves' airwires cross."""
-        esc = occ.escapes()
+        differential pair whose two halves' airwires cross. Measured at
+        `score.escape_depth`, whatever depth the search used: the run score
+        counts these, and a shallower corridor is crossed less without being
+        any easier to route."""
+        from .escapes import Escapes
+        depth = occ.settings.score_escape_depth
+        esc = occ.escapes() if depth == occ.escapes().depth else Escapes(occ, mirror=False, depth=depth)
         rn = occ.ratsnest()
         from .pairs import pair_key
         for e, f in rn.pair_crossings():

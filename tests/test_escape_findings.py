@@ -63,3 +63,18 @@ def test_the_findings_keep_their_kind_through_reuse():
         b.place(Part(fp.inst), at=fp.location)
     again = b.resolve(reuse=first.reuse)
     assert [(f.kind, str(f)) for f in again.findings] == [(f.kind, str(f)) for f in first.findings]
+
+
+def test_escape_findings_are_measured_at_the_scores_depth_whatever_the_search_used():
+    """The run score counts escape findings, so they are measured at one
+    reference depth (score.escape_depth): a shallow search depth crosses
+    fewer escapes but does not make them easier to route."""
+    fps = [west_row("U2", "mcu", 30, 30, {3: "VDD_RF", 4: "MCU_EN"}),
+           two_pad("C2", "c_en", 26.1, 29.5, ("GND", "MCU_EN")),
+           two_pad("L2", "l_rf", 26.1, 30.75, ("VRF_IN", "VDD_RF"))]
+
+    def crossed(**settings):
+        return [str(f) for f in _fixed(fps, **settings).findings if f.kind == "escape_crossed"]
+    want = ["U2 pins 3/4: L2 VDD_RF crosses C2 MCU_EN"]
+    assert crossed(place_escape_depth=0.05) == crossed(place_escape_depth=3.0) == want
+    assert crossed(score_escape_depth=0.05) == []

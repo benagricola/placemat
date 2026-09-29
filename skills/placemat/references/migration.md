@@ -4,6 +4,13 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## Unreleased
+
+Escape findings, and so the run score, are measured at `score.escape_depth`
+(1.5 mm), not at the search's `place.escape_depth` (still 1.0 mm): a
+shallower search depth no longer scores better by checking less. A best run
+recorded by 0.55.0 or earlier may give way to the next run.
+
 ## To 0.55.0
 
 A block satellite that slid along its anchor's pin row says so in its step:

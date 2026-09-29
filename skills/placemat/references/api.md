@@ -1834,7 +1834,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.refine_around` | 3 | how many of the best coarse spots get a fine pass |
 | `place.block_gap_step` | 0.05 | how finely a block's tightest gap is searched |
 | `place.block_gap_reach` | 2.0 | how far a satellite may stand off its pin |
-| `place.escape_depth` | 1.0 | how far each corridor out of a pad runs: the search and the run score count a candidate that crosses, closes or walls off a pad's corridors (`score.escape_*`) |
+| `place.escape_depth` | 1.0 | how far each corridor out of a pad runs in the search: it weighs a candidate that crosses, closes or walls off a pad's corridors (`score.escape_*`); the run score measures them at `score.escape_depth` |
 | `place.escape_pads` | 1 | a part's pads keep escapes when it has at least this many (3 leaves two-pad parts out) |
 | `place.courtyard_touch` | 0.0 | how far two courtyards may overlap at least; each pair may also overlap by the two parts' margins (how far KiCad's courtyard polygon lies inside the drawn box) less 0.001 mm, which keeps KiCad's courtyards apart - it counts touching as overlapping |
 | `place.courtyard_polygon_share` | 0.98 | a courtyard whose polygon covers less of the box round it than this (a slice of a disc, an L, a rectangle turned off the axes) is claimed as KiCad draws it, with no margin; one that covers more is claimed as its box |
@@ -1910,6 +1910,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.escape_crossed` | 20 | mm two escapes from one part's pins crossing near its pin row cost |
 | `score.escape_closed` | 50 | mm a pad whose last route toward what it connects to is closed costs |
 | `score.escape_walled` | 400 | mm a pad with no route out at all costs |
+| `score.escape_depth` | 1.5 | mm: the corridor length the escape findings, and so the run score, are measured at, whatever `place.escape_depth` the search used, so runs at different search depths compare |
 | `score.congestion` | 10 | explore: mm per `explore.congestion_step` of the worst RUDY cell |
 | `solve.enabled` | false | give the searched tier its hints from a global solve of the whole netlist, before any item is scanned |
 | `solve.iterations` | 200 | the solve's conjugate-gradient cap per axis per round |

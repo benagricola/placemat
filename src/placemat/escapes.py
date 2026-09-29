@@ -160,9 +160,9 @@ class Escapes:
     """The corridors of every placed pad, which are open, and what copper
     closes them; kept as items commit."""
 
-    def __init__(self, occ, mirror: bool = True):
+    def __init__(self, occ, mirror: bool = True, depth: float | None = None):
         self.occ = occ
-        self.depth = occ.settings.place_escape_depth
+        self.depth = occ.settings.place_escape_depth if depth is None else depth
         self._corr: dict = {}           # ref -> [Corridor]
         self._open: dict = {}           # id(corridor) -> bool
         self._cgrid = _Grid()
