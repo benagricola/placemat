@@ -4,7 +4,7 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
-## To 0.56.0
+## Unreleased
 
 `PadRef(part, n, land=Land.LARGEST)` or `land=2`: one land of a pin drawn
 as several. A track or via that had to end at hand-typed coordinates on the
@@ -14,6 +14,15 @@ exposed land can name the land instead.
 part's pads, between its two pad columns or inside its pad ring, moving and
 turning with the part. A region worked out by hand from pad coordinates can
 be declared this way.
+
+`route.diff_pairs` takes an entry `"NET_A/NET_B"` naming two nets as a
+differential pair (P first), for nets without a `_P`/`_N`, `P`/`N` or
+`+`/`-` suffix. The route step routes them under a suffix name in its copy
+and names them back; placement weighs their crossings as a pair's. An
+existing entry with one `/` that is not leading and has no glob character
+now reads as a pair.
+
+## To 0.56.0
 
 `Past(pads, Edge.X, lane=Net(...), width=)` in `Beside`'s align: the lane
 as wide as the copper its current needs, so a part stands clear of a power
@@ -40,13 +49,6 @@ Escape findings, and so the run score, are measured at `score.escape_depth`
 (1.5 mm), not at the search's `place.escape_depth` (still 1.0 mm): a
 shallower search depth no longer scores better by checking less. A best run
 recorded by 0.55.0 or earlier may give way to the next run.
-
-`route.diff_pairs` takes an entry `"NET_A/NET_B"` naming two nets as a
-differential pair (P first), for nets without a `_P`/`_N`, `P`/`N` or
-`+`/`-` suffix. The route step routes them under a suffix name in its copy
-and names them back; placement weighs their crossings as a pair's. An
-existing entry with one `/` that is not leading and has no glob character
-now reads as a pair.
 
 ## To 0.55.0
 
