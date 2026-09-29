@@ -19,6 +19,9 @@ carrying a net it names, no longer admits the rest of its cell, and one tall
 member no longer keeps the low ones out of a height band. A cell that stood
 in a keepout because one member was named may be refused there now (the
 finding names the member); name the others, or `Cell(...)`, to admit it.
+The same goes for a fanout's band, which admits the parts it names: a cell
+with one of them no longer enters it whole. A cell's own tracks have no
+height, so a height band leaves them be.
 
 ## To 0.51.1
 

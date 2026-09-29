@@ -1168,7 +1168,8 @@ Every router pass (the pairs, the island nets, the main pass) is given
 `route.turn_cost` (20000 by default, where the router's own default is
 1000: at that a 45-degree kink costs the router 0.05 mm of path, and its
 routes stair-step along the line to their target) and runs the router's
-own smoothing; `route.router_args` passes more of its flags through. Routes
+own smoothing; `route.router_args` passes more of its flags through
+(`route.pair_router_args` to the pair router). Routes
 already kept stay as they were laid: `placemat routes <script>
 --release-all` drops them, and the next `route --adopt-all` lays them again.
 
@@ -1433,7 +1434,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `route.plane_share` | 0.9 | how much of the board's own outline a zone must cover, to count as a plane that fills its (inner) layer whole for `route.layers`' default |
 | `route.turn_cost` | 20000 | what the router charges a turn, per 90 degrees (a 45 half of it), against 1000 a straight grid step: the router's own default of 1000 makes a kink nearly free and its routes stair-step; 20000 measured best on a dense four-layer board (fewer than half the turns, 10% less copper, closure no worse); 1000 gives the router's own behaviour |
 | `route.smoothing` | true | the router's own octolinear smoothing, as it defaults; false skips it |
-| `route.router_args` | `[]` | more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), appended to every pass; one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`) is refused |
+| `route.router_args` | `[]` | more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`) is refused |
+| `route.pair_router_args` | `[]` | the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's |
 | `route.islands` | `[]` | nets with pours whose pads the pours do not reach (a pour net's small taps), `"NET"` or `"NET=WIDTH"` (mm): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH; `placemat route --islands` adds to them |
 | `route.diff_pairs` | `["*"]` | net patterns naming the differential pairs: the router's pair router (route_diff.py) routes them first, as pairs, and placement prices their own crossings at `score.pair_crossing`; `[]` names none (every net single-ended, no pair weighting) |
 | `route.diff_pair_gap` | 0 | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |

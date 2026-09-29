@@ -624,19 +624,27 @@ class Occupancy:
 
     def judged(self, r: Reservation, geom) -> list:
         """Which of a cell's `parts` a reservation judges: each member not let
-        in by its own name, nets or height, and the cell's own copper (let in
-        only with every member)."""
+        in by its own name, nets or height, and the cell's own copper, which
+        has no height (a height-limited region leaves it be) and is let
+        through by its own net."""
         n = len(geom.part_refs)
-        return [k for k in range(len(geom.parts)) if k >= n or not self._member_let_in(r, geom.part_refs[k])]
+        own = [s for s in geom.shapes if s.owner in geom.owners and s.owner not in geom.part_refs]
+        out = [k for k in range(n) if not self._member_let_in(r, geom.part_refs[k])]
+        if r.admitted is None:
+            out += [n + j for j, s in enumerate(own[:len(geom.parts) - n]) if not (s.net and s.net in r.allow)]
+        return out
 
-    def refusing_member(self, r: Reservation, geom, placement: Placement):
-        """The member of a cell at `placement` that a reservation refuses, or
-        None (a part, or the cell's own copper)."""
+    def reservation_sentence(self, r: Reservation, geom, placement: Placement) -> str:
+        """What `_edge_or_reservation_conflict` says of an item at
+        `placement` that `r` refuses: the member it refuses, or the cell's
+        own copper."""
         if not geom.part_refs:
-            return None
+            return self.refusal(r, geom)
         parts = self._shifted_parts(geom, placement)
         k = next((k for k in self.judged(r, geom) if r.overlaps(parts[k])), None)
-        return geom.part_refs[k] if k is not None and k < len(geom.part_refs) else None
+        if k is not None and k >= len(geom.part_refs):
+            return "its own copper sits in the reservation for %s" % r.why
+        return self.refusal(r, geom, geom.part_refs[k] if k is not None else None)
 
     def refusal(self, r: Reservation, geom, member: str | None = None) -> str:
         """The sentence for an item a reservation keeps out; in a height-
@@ -933,7 +941,11 @@ class Occupancy:
                     hit = next((k for k in self.judged(r, geom) if r.overlaps(parts[k])), None)
                     if hit is None:
                         continue
-                    member = geom.part_refs[hit] if hit < len(geom.part_refs) else None
+                    if hit >= len(geom.part_refs):
+                        if blame is not None:
+                            blame.append(Blocker("reservation", r.why, frozenset()))
+                        return "its own copper sits in the reservation for %s" % r.why
+                    member = geom.part_refs[hit]
                 if blame is not None:
                     blame.append(Blocker("reservation", r.why, frozenset()))
                 return self.refusal(r, geom, member)
@@ -1553,7 +1565,7 @@ class NativeSweeper:
             return hit[0], hit[1], (lambda: edge_sentence(a, box(), occ.edge_margin))
         if kind == 1:
             r = occ.reservations[a]
-            why = occ.refusal(r, self.geom, occ.refusing_member(r, self.geom, cand))
+            why = occ.reservation_sentence(r, self.geom, cand)
             return _reason_key(why), ("reservation", r.why, ""), (lambda why=why: why)
         turn_of, si = a >> 32, a & 0xffffffff
         s, o = self.origin[turn_of][si], self.shapes[b]

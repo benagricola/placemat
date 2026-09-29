@@ -492,7 +492,7 @@ def pair_command(python, script, pcb_in, pcb_out, patterns, layers, gap: float =
         cmd += ["--max-iterations", str(iterations)]
     if probe is not None:
         cmd += ["--max-probe-iterations", str(probe)]
-    return cmd + list(active_settings().route_router_args)
+    return cmd + list(active_settings().route_pair_router_args)
 
 
 def _tuning() -> list:
@@ -690,6 +690,7 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
     script = str(ONE_ROUND) if quick else str(route_py)
     env = dict(os.environ)
     env.pop("KICAD_ROUTE_TRACE", None)
+    env.pop("KICAD_SMOOTH_ROUTE", None)     # it overrides the router's smoothing flag: [route] smoothing decides
     env["KRT_DIR"] = str(router_dir_path)
     t0 = time.time()
     # the differential pairs first, as pairs; the rest route around them

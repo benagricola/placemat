@@ -109,7 +109,8 @@ class Settings:
     # the fairing core: 66.8% closure against 66.0%, 5.8 turns per 10 mm against 12.6, 10% less copper.
     route_turn_cost: int = 20000
     route_smoothing: bool = True        # the router's own octolinear smoothing, as it defaults
-    route_router_args: tuple = ()       # more of the router's own flags, appended to every pass
+    route_router_args: tuple = ()       # more of route.py's own flags, appended to its passes (the island nets, the main pass)
+    route_pair_router_args: tuple = ()  # more of route_diff.py's own flags, for the pair pass (the two take different flags)
     route_islands: tuple = ()           # nets with pours whose pads the pours do not reach, routed first and alone: "NET" or "NET=WIDTH" (mm)
     route_diff_pair_gap: float = 0.0    # mm between a pair's tracks; 0: the net class's
     route_diff_pair_width: float = 0.0  # mm, a pair's track width; 0: the net class's
@@ -246,7 +247,9 @@ def parse_islands(items) -> dict:
 
 
 # The router flags placemat sets on every pass: [route] router_args may not name them.
-_ROUTER_OWNED = frozenset(("--nets", "--layers", "--escalation", "--keep-input-copper", "--turn-cost"))
+_ROUTER_OWNED = frozenset(("--nets", "--layers", "--escalation", "--keep-input-copper", "--turn-cost", "--smoothing",
+                           "--no-smoothing", "--power-nets", "--power-nets-widths", "--max-iterations",
+                           "--max-probe-iterations", "--json-out"))
 
 
 class SettingsError(ValueError):
@@ -272,7 +275,7 @@ _ABOVE_ZERO = frozenset((
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share"))
 _AT_LEAST_ZERO = frozenset((
-    "rank_area", "rank_pins", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge", "copper_chamfer", "best_airwire_noise",
+    "rank_area", "rank_pins", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge", "copper_chamfer", "best_airwire_noise",
     "best_crossing_noise", "score_unplaced", "score_priority_high", "score_priority_default", "score_priority_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_congestion",
@@ -327,11 +330,15 @@ def _validate(name: str, value, path: str):
         if bad:
             k, v = sorted(bad.items())[0]
             raise SettingsError("%s: drc.severities.%s must be error, warning or ignore, not %r" % (path, k, v))
-    if name == "route_router_args":
-        owned = sorted(set(str(v) for v in value) & _ROUTER_OWNED)
+    if name in ("route_router_args", "route_pair_router_args"):
+        if not all(isinstance(v, str) for v in value):
+            raise SettingsError("%s: %s: every entry is a string (a command-line word), not %r" % (
+                path, dotted, next(v for v in value if not isinstance(v, str))))
+        owned = sorted({v.split("=", 1)[0] for v in value if v.startswith("-")
+                        and any(o.startswith(v.split("=", 1)[0]) and len(v.split("=", 1)[0]) > 2 for o in _ROUTER_OWNED)})
         if owned:
-            raise SettingsError("%s: %s: %s is set by placemat itself%s" % (
-                path, dotted, ", ".join(owned), " ([route] turn_cost names it)" if "--turn-cost" in owned else ""))
+            raise SettingsError("%s: %s: %s is set by placemat itself (%s)" % (
+                path, dotted, ", ".join(owned), "[route] turn_cost, smoothing, islands and route --iterations name them"))
     if name == "route_islands":
         try:
             parse_islands(value)

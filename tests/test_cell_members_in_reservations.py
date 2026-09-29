@@ -83,3 +83,33 @@ def test_the_native_sweep_refuses_the_same_spots(region, kw):
     for _, _, first, reason, _ in refused:
         x, y, _ = triples[first]
         assert reason() == occ.legal(cell, Placement(Location(x, y), 0.0, Face.FRONT), others=list(others))
+
+
+def _with_track(net="D"):
+    """The cell with a track of its own between C1 and C2."""
+    from placemat.occupancy import Shape
+    from placemat.values import CopperLayer
+    from tests.fixtures import rect
+    g, occ = _occ()
+    poly = rect(16.0, 10.0, 2.0, 0.3)
+    occ.add_copper([Shape("k", "copper", frozenset([Face.FRONT]), frozenset([CopperLayer.F]), net, poly, Box.of_points(poly))])
+    return g, occ
+
+
+def test_a_cells_own_track_has_no_height():
+    g, occ = _with_track()
+    occ.reserve(Box(12.5, 5, 30, 15), "a height band", admitted=LOW)
+    assert occ.legal(g.cells["k"], AT) is None
+
+
+def test_a_cells_own_track_on_an_allowed_net_is_let_through():
+    g, occ = _with_track("D")
+    occ.reserve(Box(15.2, 5, 16.8, 15), "the feed", allow=("D",))
+    assert occ.legal(g.cells["k"], AT) is None
+
+
+def test_a_cells_own_track_elsewhere_is_named_as_its_copper():
+    g, occ = _with_track("D")
+    occ.reserve(Box(15.2, 5, 16.8, 15), "the gap")
+    why = occ.legal(g.cells["k"], AT)
+    assert why is not None and "its own copper" in why and "L1" not in why, why
