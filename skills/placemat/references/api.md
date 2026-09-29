@@ -988,8 +988,9 @@ knows is there. Every right angle between axis legs is cut back `chamfer`
 that must return is written as one chain: `..., (band, Y(pin)), pin,
 (X(pin, -2), Y(pin, 2)), (band, Y(pin, 2)), ...`.
 
-**Lane waypoints.** `Between(PadRef(a), PadRef(b))` is a point at the
-centreline of the gap between two pads, resolved once both are placed: the
+**Lane waypoints.** `Between(PadRef(a), PadRef(b))` is a point in the
+middle of the gap between two pads - halfway between their facing edges,
+centred across where they face each other - resolved once both are placed: the
 gap must hold the track's own width plus its clearance to each pad's net,
 or the declaration is a finding naming both pads. `Past([PadRef(...), ...],
 Edge.EAST)` is a point the track's own clearance off the given pads'

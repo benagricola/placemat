@@ -5101,8 +5101,18 @@ def _between_point(board: "Board", ctx: "_CopperContext", net: str, width: float
         ob, nb, _, _ = board._pad_ref(p.b)
         ctx.notes.append("track %s: the gap between %s.%s and %s.%s is %.3f mm, not enough for a %.2f mm "
                          "track with clearance to each (%.3f mm needed)" % (net, oa, na, ob, nb, gap, width, need))
-    ca, cb = ctx.locate(p.a), ctx.locate(p.b)
-    return Location((ca.x + cb.x) / 2.0, (ca.y + cb.y) / 2.0)
+    # the middle of the gap, between the pads' facing edges on the axis they stand apart on,
+    # centred across where they face each other on the other
+    ba, bb = Box.union([s.box for s in sa]), Box.union([s.box for s in sb])
+    gx = max(bb.left - ba.right, ba.left - bb.right)
+    gy = max(bb.top - ba.bottom, ba.top - bb.bottom)
+    if gx >= gy:
+        x = (ba.right + bb.left) / 2.0 if ba.right <= bb.left else (bb.right + ba.left) / 2.0
+        y = (max(ba.top, bb.top) + min(ba.bottom, bb.bottom)) / 2.0
+    else:
+        y = (ba.bottom + bb.top) / 2.0 if ba.bottom <= bb.top else (bb.bottom + ba.top) / 2.0
+        x = (max(ba.left, bb.left) + min(ba.right, bb.right)) / 2.0
+    return Location(round(x, 6), round(y, 6))
 
 
 def _past_point(board: "Board", ctx: "_CopperContext", net: str, width: float, p: Past) -> Location:

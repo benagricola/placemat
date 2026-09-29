@@ -114,3 +114,16 @@ def test_migration_a_hand_computed_lane_matches_between():
 
     assert abs(min(intent_xs, key=lambda x: abs(x - hand_lane_x)) - hand_lane_x) < 0.01
     assert hand_xs == intent_xs                     # the same centreline, point for point
+
+
+def test_between_is_the_middle_of_the_gap_not_of_the_pad_centres():
+    """Pads of different widths: the gap's middle lies between their facing
+    edges (10.5 and 13.5: 12.0), not between their centres (10 and 15: 12.5)."""
+    pa = _one_pad_part("PA", "pa", "MID", 10.0, 20.0, 1.0, 1.0)      # east edge 10.5
+    pb = _one_pad_part("PB", "pb", "GND", 15.0, 20.0, 3.0, 1.0)      # west edge 13.5
+    b = Board(board_geometry([pa, pb], width=60, height=60, extra_nets=["SIG"]), edge_margin=1.0)
+    b.track(Net("SIG"), [Location(12.0, 5.0), Between(PadRef(Part("pa"), 1), PadRef(Part("pb"), 1)),
+                         Location(12.0, 35.0)], layer=CopperLayer.F, chamfer=0)
+    plan = b.resolve()
+    xs = {round(t.start.x, 6) for t in _legs(plan)} | {round(t.end.x, 6) for t in _legs(plan)}
+    assert xs == {12.0}, xs
