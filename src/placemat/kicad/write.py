@@ -409,7 +409,7 @@ def _existing_board_copper(board, geometry) -> list:
     return out
 
 
-def _foreign_pour_obstacles(board, op: Pour, geometry, other_ops, existing) -> list:
+def _foreign_pour_obstacles(board, op: Pour, geometry, other_ops, existing, drawn=None) -> list:
     """(polygon in mm, clearance in nm) for every other net's copper on
     `op`'s layer: every other net's pad (its real shape - pcbnew's own
     TransformShapeToPolygon, not its bounding box), every Track, Via and
@@ -449,10 +449,19 @@ def _foreign_pour_obstacles(board, op: Pour, geometry, other_ops, existing) -> l
             poly = other.polygon
             extra = 0.0
         elif isinstance(other, Pour) and other.layer is op.layer:
-            # its grown shape, which it is written inside whichever pour is drawn first; its own
-            # copper reaches half its stroke past its vertices too
-            grown, _ = _swallow_grown(board, other)
-            clr_nm = nm(clearance_to(other.net) + half_stroke + other.stroke / 2.0 + _PULLBACK_MARGIN)
+            # another swallow pour settles as KiCad's zone priority does: one the plan drew before
+            # this keeps its fill and this one keeps clear of it
+            # as written; one drawn after keeps clear of this one instead. A pour without
+            # swallow_pads is fixed copper at its declared shape.
+            if other.swallow_pads:
+                if drawn is None or id(other) not in drawn:
+                    continue
+                grown = drawn[id(other)]
+            else:
+                grown = _swallow_grown(board, other)[0]
+            # a second margin: the other pour is itself a chord-approximated outline under its own
+            # stroke, so both sides of this gap carry the approximation, not one
+            clr_nm = nm(clearance_to(other.net) + half_stroke + other.stroke / 2.0 + 2 * _PULLBACK_MARGIN)
             for i in range(grown.OutlineCount()):
                 o = grown.Outline(i)
                 out.append(([(pcbnew.ToMM(o.CPoint(j).x), pcbnew.ToMM(o.CPoint(j).y))
@@ -505,6 +514,29 @@ def _swallow_grown(board, op: Pour):
     return ps, joined
 
 
+def _pulled_back(ps, obstacles):
+    """`ps` less every obstacle (polygon in mm, clearance in nm) grown by its
+    clearance. A hole the subtraction cuts clean through (an obstacle wholly
+    inside the outline) becomes a slit-joined outline, not a hole no single
+    gr_poly outline can carry - the same reason every kept outline is drawn
+    as its own PCB_SHAPE."""
+    out = pcbnew.SHAPE_POLY_SET(ps)
+    if not obstacles:
+        return out
+    foreign = pcbnew.SHAPE_POLY_SET()
+    for poly, clr_nm in obstacles:
+        r = pcbnew.SHAPE_POLY_SET()
+        r.NewOutline()
+        for x, y in poly:
+            r.Append(nm(x), nm(y))
+        if clr_nm:
+            r.Inflate(clr_nm, pcbnew.CORNER_STRATEGY_ROUND_ALL_CORNERS, nm(0.001))
+        foreign.BooleanAdd(r)
+    out.BooleanSubtract(foreign)
+    out.Fracture()
+    return out
+
+
 def _joined_pad_copper(board, joined, layer) -> dict:
     """label -> SHAPE_POLY_SET of that pad's copper on `layer`, for each
     joined label ("REF.NUMBER") the board has: a piece of a pour is joined
@@ -530,28 +562,14 @@ def _overlaps(a, b) -> bool:
     return c.OutlineCount() > 0
 
 
-def _draw_pour(board, op: Pour, geometry=None, other_ops=(), findings=None, existing=()):
+def _draw_pour(board, op: Pour, geometry=None, other_ops=(), findings=None, existing=(), drawn=None):
     code = _netcode(board, op.net)
     ps, joined = _swallow_grown(board, op)
     if op.swallow_pads:
         if geometry is not None:
-            foreign = pcbnew.SHAPE_POLY_SET()
-            has_foreign = False
-            for poly, clr_nm in _foreign_pour_obstacles(board, op, geometry, other_ops, existing):
-                r = pcbnew.SHAPE_POLY_SET()
-                r.NewOutline()
-                for x, y in poly:
-                    r.Append(nm(x), nm(y))
-                if clr_nm:
-                    r.Inflate(clr_nm, pcbnew.CORNER_STRATEGY_ROUND_ALL_CORNERS, nm(0.001))
-                foreign.BooleanAdd(r)
-                has_foreign = True
-            if has_foreign:
-                ps.BooleanSubtract(foreign)
-                # a hole the subtraction cuts clean through (an obstacle wholly inside the
-                # outline) becomes a slit-joined outline, not a hole no single gr_poly outline
-                # can carry - the same reason every kept outline is drawn as its own PCB_SHAPE below
-                ps.Fracture()
+            obstacles = _foreign_pour_obstacles(board, op, geometry, other_ops, existing, drawn)
+            if obstacles:
+                ps = _pulled_back(ps, obstacles)
                 if joined:
                     kept = pcbnew.SHAPE_POLY_SET()
                     touched = set()
@@ -584,6 +602,8 @@ def _draw_pour(board, op: Pour, geometry=None, other_ops=(), findings=None, exis
                             "copper", "pour %s: pulling back from other nets' copper leaves %s joined to nothing"
                             % (op.net, ", ".join(missing))))
                     ps = kept
+    if drawn is not None:
+        drawn[id(op)] = ps
     _draw_pour_outlines(board, op, ps, code)
 
 
@@ -651,13 +671,14 @@ def draw_copper(board, ops, geometry=None, findings=None):
     # keep clear of too
     existing = _existing_board_copper(board, geometry) if geometry is not None else ()
     zones = []
+    drawn = {}                  # id(swallow pour) -> its outline as written, for the pours drawn after it
     for op in ops:
         if isinstance(op, Track):
             _draw_track(board, op)
         elif isinstance(op, Via):
             _draw_via(board, op)
         elif isinstance(op, Pour):
-            _draw_pour(board, op, geometry, ops, findings, existing)
+            _draw_pour(board, op, geometry, ops, findings, existing, drawn)
         elif isinstance(op, Text):
             _draw_text(board, op)
         elif isinstance(op, Zone):

@@ -7,9 +7,12 @@ whether any of it applies.
 ## To 0.54.1
 
 Two `swallow_pads` pours of different nets now keep the netclass clearance
-from each other's growth over their own pads, not only from each other's
-declared outline: two pours over the two ends of a small part no longer
-meet. A script that dropped one of two neighbouring pours, or swapped it
+from each other as written, not only from each other's declared outline:
+two pours over the two ends of a small part no longer meet. They settle as
+KiCad's zone priority does: the pour the plan draws first (the one declared
+first, when both wait on the same placements) keeps its fill and the later one pulls back
+from it, so pours over neighbouring fine-pitch pins each keep a piece over
+their own pin. A script that dropped one of two neighbouring pours, or swapped it
 for a plain pour and a track, can declare both again.
 
 A swallowed or named pad counts as joined when the pour's copper (its fill

@@ -312,3 +312,35 @@ def test_a_pad_the_pull_back_cuts_short_of_its_centre_is_still_joined(tmp_path):
         outlines = [o for c in after.copper if c.kind == "poly" and c.net == net for o in c.outlines]
         assert outlines, net
         assert min(poly_distance(o, u1.pad(number).outlines[0]) for o in outlines) == 0.0, net
+
+
+def test_two_pours_on_adjacent_fine_pitch_pins_each_stay_joined_to_their_pin(tmp_path):
+    """Two swallow pours of different nets over two neighbouring 0.2 mm pins
+    0.3 mm apart, one pour running north and one south. Each pulls back from
+    the other as KiCad's zone priority settles two fills: the one drawn
+    first keeps its fill, the later one keeps clear of it as written - not
+    both yielding over the same gap - so each keeps a strip over its own pin
+    and runs on to its far end."""
+    pads = [("1", "PROBE_A", 10.0, 10.0, 0.2, 0.6), ("2", "PROBE_B", 10.5, 10.0, 0.2, 0.6)]
+    pcb = _board(tmp_path, pads, clearance=0.16)
+    b = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
+    b.size(width=40.0, height=40.0)
+    # each run as wide as its pin, as a neck over the pins would be
+    b.pour(Net("PROBE_A"), [Location(9.9, 5.0), Location(10.1, 5.0), Location(10.1, 10.1), Location(9.9, 10.1)],
+           layer=CopperLayer.F, stroke=0.25, swallow_pads=True)
+    b.pour(Net("PROBE_B"), [Location(10.4, 9.9), Location(10.6, 9.9), Location(10.6, 15.0), Location(10.4, 15.0)],
+           layer=CopperLayer.F, stroke=0.25, swallow_pads=True)
+    plan = b.resolve()
+    apply_plan(pcb, plan)
+    assert not any("joined to nothing" in f for f in plan.findings), plan.findings
+    after = read_board(pcb)
+    u1 = after.footprint("U1")
+    a = [o for c in after.copper if c.kind == "poly" and c.net == "PROBE_A" for o in c.outlines]
+    bb = [o for c in after.copper if c.kind == "poly" and c.net == "PROBE_B" for o in c.outlines]
+    assert a and bb
+    assert min(poly_distance(p, q) for p in a for q in bb) >= 0.16 - 1e-6
+    assert min(poly_distance(o, u1.pad(1).outlines[0]) for o in a) == 0.0
+    assert min(poly_distance(o, u1.pad(2).outlines[0]) for o in bb) == 0.0
+    # and each still runs out to its far end, one piece with its pin
+    assert any(point_in_polygon((10.0, 6.0), o) for o in a), a
+    assert any(point_in_polygon((10.5, 14.0), o) for o in bb), bb
