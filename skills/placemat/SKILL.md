@@ -470,7 +470,8 @@ coordinates nobody chose.
 - A clearance that comes from a datasheet is transcribed in the datasheet's
   own coordinates, anchored with `anchor=` at the feature its figure is built
   around, and placed on the real pad (`at=PadRef(Part("ant"), "ANT_FEED")`).
-  It then follows the part. A clearance typed as board coordinates is a stale
+  It then follows the part's position; `rotation=Turned(Part("ant"), 0)`
+  follows its turn too. A clearance typed as board coordinates is a stale
   number the moment the part moves.
 - `board.plane()` needs nothing from a keepout: it is written as a KiCad rule
   area and the filler keeps the plane out of it. A `pour`, a `track` and a

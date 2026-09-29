@@ -202,6 +202,31 @@ def test_a_cutout_may_slide_round_a_ring():
     assert got.distance(b.centre) == pytest.approx(14.0, abs=0.1)
 
 
+def test_a_cutout_may_be_placed_near_a_hint():
+    """at=Near(...) is a search round a point, the same hint a part takes,
+    not a fixed point: it is documented (api.md, SKILL.md) but crashed."""
+    from placemat.values import Near
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0, web=1.0,
+           holes=[Cutout(Circle(4.0), "vent", at=Near(Location(20.0, 20.0), radius=6.0, step=0.5), why="airflow")])
+    b.place(Part("u1"), at=Location(20.0, 20.0))
+    plan = b.resolve()
+    got = plan.cutouts_placed["vent"].centre
+    assert not plan.findings, plan.findings
+    assert got.distance(Location(20.0, 20.0)) <= 6.0 + 1e-6
+    assert not plan.box("u1").overlaps(Box(got.x - 2.0, got.y - 2.0, got.x + 2.0, got.y + 2.0))
+
+
+def test_a_cutout_near_a_hint_with_nowhere_legal_says_so():
+    from placemat.values import Near
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0, web=1.0,
+           holes=[Cutout(Circle(9.0), "vent", at=Near(Location(20.0, 20.0), radius=1.0, step=0.5), why="airflow")])
+    b.place(Part("u1"), at=Location(20.0, 20.0))
+    with pytest.raises(PlacementCollision, match="vent"):
+        b.resolve()
+
+
 # ------------------------------------------- a cutout placed by reference
 def test_a_cutout_is_placed_relative_to_the_part_it_serves():
     """Move the connector and the slot moves with it: the script says what

@@ -8,7 +8,7 @@ from placemat.cutouts import Circle, Cutouts, Path, Slot
 from placemat.layout import Board, PlacementCollision
 from placemat.occupancy import Occupancy
 from placemat.placement import Placement
-from placemat.values import (Box, Centre, CopperLayer, Face, Location, Net, OnRim, Part, X, Y)
+from placemat.values import (Box, Centre, CopperLayer, Face, Location, Net, OnRim, PadRef, Part, X, Y)
 from tests.conftest import needs_kicad
 from tests.fixtures import board_geometry, footprint, declared_findings
 
@@ -128,6 +128,41 @@ def test_excludes_refuses_an_unknown_kind():
     with pytest.raises(ValueError):
         b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0),
                   excludes=("aliens",), why="the clearance")
+
+
+def test_a_keepout_may_be_placed_near_a_hint():
+    """at=Near(...) is documented (api.md, SKILL.md) but crashed: a keepout
+    is a region on the same place vocabulary as a cutout."""
+    from placemat.values import Near
+    b = make_board("u1")
+    b.size(width=60.0, height=60.0)
+    b.place(Part("u1"), at=Location(20.0, 20.0))
+    b.keepout(Circle(4.0), "clr", at=Near(Location(30.0, 30.0), radius=6.0, step=0.5), why="probe")
+    plan = b.resolve()
+    got = plan.keepouts["clr"].centre
+    assert not plan.findings, plan.findings
+    assert got.distance(Location(30.0, 30.0)) <= 6.0 + 1e-6
+
+
+def test_a_keepout_at_a_pad_is_not_turned_unless_told():
+    b = make_board("u1")
+    b.place(Part("u1"), at=Location(20.0, 20.0), rotation=90)
+    b.keepout(Slot(8.0, 2.0), "clr", at=PadRef(Part("u1"), 1), excludes=("fill",), why="probe")
+    plan = b.resolve()
+    assert plan.keepouts["clr"].rotation == pytest.approx(0.0)
+
+
+def test_a_keepout_at_a_pad_turns_with_the_part_when_rotation_is_turned():
+    """at=PadRef(...) already follows the part's MOVE; rotation=Turned(part,
+    degrees) is how it follows the part's TURN too - previously a TypeError
+    trying to float() the Turned."""
+    from placemat.values import Turned
+    b = make_board("u1")
+    b.place(Part("u1"), at=Location(20.0, 20.0), rotation=90)
+    b.keepout(Slot(8.0, 2.0), "clr", at=PadRef(Part("u1"), 1), rotation=Turned(Part("u1"), 0),
+              excludes=("fill",), why="probe")
+    plan = b.resolve()
+    assert plan.keepouts["clr"].rotation == pytest.approx(90.0)
 
 
 def test_a_part_may_not_sit_in_a_keepout():

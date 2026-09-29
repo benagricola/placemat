@@ -26,7 +26,7 @@ from .cutouts import Cutouts, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from .placement import Placement
 from .settings import Settings
-from .placer import BlockSpec, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
+from .placer import BlockSpec, _grid, _reason_key, box_centered_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .values import (Turned, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
@@ -983,10 +983,21 @@ class Board:
             return at.x is None or at.y is None
         return isinstance(at, Near)
 
+    def _region_rotation(self, occ, region, centre: Location) -> float:
+        """The rotation a cutout or keepout settles at: what the script gave
+        (a number, or Turned - the part's own placed rotation plus degrees,
+        waited for the same way a place() does), else the implied turn."""
+        rot = region.rotation
+        if isinstance(rot, Turned):
+            ref = self._pad_ref(rot.part)[0]
+            return (occ.items[ref].reference.rotation + rot.degrees) % 360.0
+        return float(rot) if rot is not None else self._implied_rotation(region, centre)
+
     def _cutout_candidates(self, occ, cutout):
         """Every centre its one freedom allows, nearest its ideal first, with
         the rotation each implies. The board's middle is the ideal for a free
-        axis, so a hole takes the room furthest from the edges first."""
+        axis, so a hole takes the room furthest from the edges first. A
+        Near() freedom is a search round a hint, the same as a part's."""
         at, box = cutout.at, self._outline
 
         def out_from(mid, lo, hi, step=0.2):
@@ -996,21 +1007,27 @@ class Board:
                 if lo <= v <= hi:
                     yield v
 
+        if isinstance(at, Near):
+            hint = _locate(self, occ, at.location)
+            radius = at.radius if at.radius is not None else self.settings.place_radius
+            step = at.step if at.step is not None else self.settings.place_step
+            for _, x, y in _grid(hint, radius, step):
+                centre = Location(x, y)
+                yield centre, self._region_rotation(occ, cutout, centre)
+            return
         if isinstance(at, Polar) and at.angle is None:
             r = float(_coord(self, occ, at.radius, "x")) if not isinstance(at.radius, (int, float)) \
                 else float(at.radius)
             for k in range(720):
                 b = ((k + 1) // 2 * (1 if k % 2 else -1)) * 0.5
                 centre = polar_point(self.centre, b % 360.0, r)
-                yield centre, (float(cutout.rotation) if cutout.rotation is not None
-                               else self._implied_rotation(cutout, centre))
+                yield centre, self._region_rotation(occ, cutout, centre)
             return
         if isinstance(at, Polar) and at.radius is None:
             hi = max(box.width, box.height) / 2.0
             for r in out_from(hi / 2.0, 0.0, hi):
                 centre = polar_point(self.centre, bearing(at.angle), r)
-                yield centre, (float(cutout.rotation) if cutout.rotation is not None
-                               else self._implied_rotation(cutout, centre))
+                yield centre, self._region_rotation(occ, cutout, centre)
             return
         axis = at.free_axis if isinstance(at, Centre) else ("x" if at.x is None else "y")
         held = at.y if axis == "x" else at.x
@@ -1018,8 +1035,7 @@ class Board:
         lo, hi = (box.left, box.right) if axis == "x" else (box.top, box.bottom)
         for v in out_from((lo + hi) / 2.0, lo, hi):
             centre = Location(v, fixed) if axis == "x" else Location(fixed, v)
-            yield centre, (float(cutout.rotation) if cutout.rotation is not None
-                           else self._implied_rotation(cutout, centre))
+            yield centre, self._region_rotation(occ, cutout, centre)
 
     def _slide_cutout(self, occ, region, illegal=None):
         """The first place its freedom allows where the region is legal. When
@@ -1226,7 +1242,7 @@ class Board:
         order = list(self._named_cutouts)
         return "cutout %r" % order[n] if 0 <= n < len(order) else "an unnamed cutout"
 
-    def keepout(self, shape, name: str, *, at, rotation: float | None = None,
+    def keepout(self, shape, name: str, *, at, rotation=None,
                 excludes=None, allow=(), layers=None, max_height: float | None = None,
                 why: str = "") -> KeepoutIntent:
         """A region that forbids. By default nothing may sit, fill, route, via
@@ -1236,7 +1252,9 @@ class Board:
         an antenna's clearance holds its own matching network, and naming
         those parts' nets would admit every part that shares one.
         `max_height` (a parts keepout) admits every part no taller, by its
-        `Pm.Height`; a part with none counts as taller."""
+        `Pm.Height`; a part with none counts as taller. `rotation=` is a
+        number, or `Turned(part, degrees)` to turn with a part already on
+        the board, the same as a place() does."""
         if max_height is not None and "parts" not in (excludes if excludes is not None else ("parts",)):
             raise ValueError("keepout %r: max_height admits parts by height, so it is for a keepout that "
                              "excludes parts" % name)
@@ -1260,7 +1278,9 @@ class Board:
                     None if layers is None else tuple(CopperLayer.of(l) for l in layers), why,
                     None if max_height is None else float(max_height))
         self._keepouts[name] = k
-        needs = frozenset(self._pad_ref(r)[0] for r in _refs_in([at]))
+        # rotation=Turned(part, degrees) waits for that part too, the same as a place() does
+        turned_by = [rotation.part] if isinstance(rotation, Turned) else []
+        needs = frozenset(self._pad_ref(r)[0] for r in _refs_in([at] + turned_by))
         settled = not self._cutout_free(k)
         if self._fit and not settled:
             raise ValueError("keepout %r: a fit frame has no room for it to slide in until its content is placed; "
@@ -1320,7 +1340,9 @@ class Board:
                 self._settled_cutouts[h.name] = PlacedCutout(
                     h.name, tuple(named_paths[-1]), h.at, float(h.rotation or 0.0))
             else:
-                needs = frozenset(self._pad_ref(r)[0] for r in _refs_in([h.at]))
+                # rotation=Turned(part, degrees) waits for that part too, the same as a place() does
+                turned_by = [h.rotation.part] if isinstance(h.rotation, Turned) else []
+                needs = frozenset(self._pad_ref(r)[0] for r in _refs_in([h.at] + turned_by))
                 # a decided place goes down in declaration order with the firm items; one with a
                 # freedom waits until every decided thing is down, then takes the room that is left
                 settled = not self._cutout_free(h)
@@ -2685,7 +2707,7 @@ class Board:
                     centre, turn, why = self.centre, 0.0, str(e)
             else:
                 centre = self._cutout_centre(occ, c)
-                turn = float(c.rotation) if c.rotation is not None else self._implied_rotation(c, centre)
+                turn = self._region_rotation(occ, c, centre)
                 why = self._cutout_illegal(occ, c.shape.path_at(centre, turn), c.name)
             path = c.shape.path_at(centre, turn)
             step = Step(intent.key, "cutout", None, why=intent.why)
@@ -2712,7 +2734,7 @@ class Board:
                     centre, turn, why = self.centre, 0.0, str(e)
             else:
                 centre = self._cutout_centre(occ, k)
-                turn = float(k.rotation) if k.rotation is not None else self._implied_rotation(k, centre)
+                turn = self._region_rotation(occ, k, centre)
                 why = None
             step = Step(intent.key, "keepout", None, why=intent.why)
             if why:

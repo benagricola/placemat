@@ -426,7 +426,11 @@ nothing".
 **Which way it runs.** With no `rotation=`, a place that carries a direction
 runs the shape tangentially: a vent on a ring follows the rim, a slot on an
 edge runs along it. Everywhere else the shape is as declared, and a `Circle`
-is never turned.
+is never turned. `rotation=Turned(part, degrees)` turns it with a part
+already on the board, the part's own placed rotation plus `degrees`,
+resolved once that part is placed - the same `Turned` a `place()` takes.
+`at=PadRef(...)` alone follows the part's MOVE; `Turned` is how it follows
+the part's TURN too.
 
 **When it is settled.** A cutout with a decided place goes down with the firm
 items, in dependency order, so a slot placed from a connector waits for that
@@ -474,11 +478,13 @@ board.keepout(CLEARANCE, "antenna", at=PadRef(Part("ant"), "ANT_FEED"),
               why="datasheet p1 Layout: copper-free on every layer")
 ```
 
-**The shape and the place** are a cutout's: `Slot`, `Circle`, `Path`, and `at=`
-taking `Location`, `Centre`, `Polar`, `OnEdge`, `Near` or a `PadRef`. A freedom
-left in `at=` settles against what is on the board. `anchor=` is the point of
-the shape that lands on `at=`; without one it is the middle of the shape's box,
-which is right for a slot and meaningless for a stepped clearance.
+**The shape, the place and the rotation** are a cutout's: `Slot`, `Circle`,
+`Path`, `at=` taking `Location`, `Centre`, `Polar`, `OnEdge`, `Near` or a
+`PadRef`, and `rotation=` taking a number or `Turned(part, degrees)` to turn
+with a part already on the board. A freedom left in `at=` settles against
+what is on the board. `anchor=` is the point of the shape that lands on
+`at=`; without one it is the middle of the shape's box, which is right for
+a slot and meaningless for a stepped clearance.
 
 **What it forbids.** `excludes=` defaults to everything and narrows to any of
 the `Forbid` enum: `PARTS`, `FILL`, `TRACKS`, `VIAS`, `PADS` (the strings
