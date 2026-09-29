@@ -4,7 +4,7 @@ the cell carried rigidly round it. Pure: synthetic boards."""
 import pytest
 
 from placemat.layout import Board
-from placemat.values import Cell, CellPadRef, Freedom, Location, PadRef, Part, Pin, X, Y
+from placemat.values import Cell, CellPadRef, Face, Freedom, Location, PadRef, Part, Pin, X, Y
 from tests.fixtures import board_geometry, footprint
 
 
@@ -48,6 +48,46 @@ def test_a_cell_pin_honours_a_padrefs_offset():
     plan = b.resolve()
     u1_a = plan.occupancy.pad_location("U1", "1")
     assert (u1_a.x + 1.0, u1_a.y - 2.0) == pytest.approx((20.0, 30.0))
+
+
+def test_a_cell_pin_honours_a_padrefs_local_offset():
+    """PadRef(...).local(dx, dy) names a point in the member's own frame, as
+    a part's own Pin honours it: that point, not the bare pad, lands on
+    (x, y), even before any turn is asked for."""
+    b = make_board()
+    b.place(Cell("pd"), at=Pin(PadRef(Part("pd.u1"), "A").local(1.0, -2.0), 20.0, 30.0))
+    plan = b.resolve()
+    u1_a = plan.occupancy.pad_location("U1", "1")
+    assert (u1_a.x + 1.0, u1_a.y - 2.0) == pytest.approx((20.0, 30.0))
+
+
+def test_a_cell_pins_local_offset_turns_with_the_cells_own_rotation():
+    b = make_board()
+    b.place(Cell("pd"), at=Pin(PadRef(Part("pd.u1"), "A").local(1.0, -2.0), 20.0, 30.0), rotation=90)
+    plan = b.resolve()
+    u1_a = plan.occupancy.pad_location("U1", "1")
+    assert (u1_a.x, u1_a.y) == pytest.approx((22.0, 31.0))
+
+
+def test_a_cell_pins_local_offset_mirrors_on_the_back():
+    b = make_board()
+    b.place(Cell("pd"), at=Pin(PadRef(Part("pd.u1"), "A").local(1.0, -2.0), 20.0, 30.0), face=Face.BACK)
+    plan = b.resolve()
+    u1_a = plan.occupancy.pad_location("U1", "1")
+    assert (u1_a.x, u1_a.y) == pytest.approx((21.0, 32.0))
+
+
+def test_a_cell_pins_local_offset_turns_with_the_members_own_generated_rotation():
+    """A member drawn at its own rotation within the cell (independent of
+    the cell's own placement, which is 0 here) still turns .local()'s offset
+    by that own rotation, not just the cell's."""
+    fps = [footprint("U1", 0, 0, w=4, h=2, inst="pd.u1", nets=("A", "B"), cell="pd", rotation=90),
+           footprint("C1", 0, 3, w=2, h=1, inst="pd.c1", nets=("C", "GND"), cell="pd")]
+    b = Board(board_geometry(fps, cells=["pd"], width=80, height=80), edge_margin=1.0)
+    b.place(Cell("pd"), at=Pin(PadRef(Part("pd.u1"), "A").local(1.0, -2.0), 20.0, 30.0))
+    plan = b.resolve()
+    u1_a = plan.occupancy.pad_location("U1", "1")
+    assert (u1_a.x, u1_a.y) == pytest.approx((22.0, 31.0))
 
 
 def test_a_cell_pin_is_a_firm_placement():

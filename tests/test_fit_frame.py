@@ -3,7 +3,7 @@ import pytest
 
 from placemat.layout import Board
 from placemat.values import Axis, Edge, Location, OnEdge, Part, PadRef, Pin, X, Y
-from tests.fixtures import board_geometry, footprint
+from tests.fixtures import board_geometry, declared_findings, footprint
 
 
 def _board(**kw):
@@ -51,8 +51,8 @@ from placemat.copper import Zone
 from placemat.values import CopperLayer, Net
 
 
-def _pinned(b):
-    b.place(Part("u1"), at=Location(0, 0))
+def _pinned(b, origin=Location(0, 0)):
+    b.place(Part("u1"), at=origin)
     b.place(Part("c1"), at=Pin(1, X(PadRef(Part("u1"), 1), -3.0), Y(PadRef(Part("u1"), 1))))
     return b
 
@@ -195,9 +195,10 @@ def test_fit_axis_x_fits_the_width_and_takes_the_declared_height():
     assert b.height == 20.0
     with pytest.raises(ValueError, match="fit"):
         b.width
-    b = _pinned(b)
+    b = _pinned(b, Location(0, 10))       # within the declared 0..20 height
     plan = b.resolve()
     content = b._placed_box(plan.occupancy, plan)
+    assert not declared_findings(plan)
     assert plan.outline.top == 0.0
     assert plan.outline.bottom == 20.0
     assert plan.outline.left == pytest.approx(content.left - 0.5)
@@ -209,13 +210,56 @@ def test_fit_axis_y_fits_the_height_and_takes_the_declared_width():
     assert b.width == 15.0
     with pytest.raises(ValueError, match="fit"):
         b.height
-    b = _pinned(b)
+    b = _pinned(b, Location(7, 0))        # within the declared 0..15 width
     plan = b.resolve()
     content = b._placed_box(plan.occupancy, plan)
+    assert not declared_findings(plan)
     assert plan.outline.left == 0.0
     assert plan.outline.right == 15.0
     assert plan.outline.top == pytest.approx(content.top - 0.5)
     assert plan.outline.bottom == pytest.approx(content.bottom + 0.5)
+
+
+def test_fit_axis_x_content_outside_the_declared_height_is_a_finding():
+    """fit=Axis.X declares the height as a mechanical fact the content must
+    fit, not a suggestion the frame silently grows (or clips) round."""
+    fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=0.5)
+    b.size(fit=Axis.X, height=5.0, draw=False)
+    b.place(Part("u1"), at=Location(0, 20))
+    plan = b.resolve()
+    assert [f for f in plan.findings if "u1" in f]
+
+
+def test_fit_axis_y_content_outside_the_declared_width_is_a_finding():
+    fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=0.5)
+    b.size(fit=Axis.Y, width=5.0, draw=False)
+    b.place(Part("u1"), at=Location(20, 0))
+    plan = b.resolve()
+    assert [f for f in plan.findings if "u1" in f]
+
+
+def test_fit_axis_content_inside_the_declared_axis_is_quiet():
+    b = _axis_board(Axis.X, height=20.0, margin=0.5)
+    b = _pinned(b, Location(0, 10))
+    plan = b.resolve()
+    assert not declared_findings(plan)
+
+
+def test_fit_axis_x_refuses_an_edge_naming_which_ones_are_fixed():
+    """The declared axis's edges are refused too (a scope decision, not a
+    limit of the number itself), and the message says which axis's edges a
+    fit=Axis.X frame does at least fix: north and south."""
+    b = _axis_board(Axis.X, height=20.0)
+    with pytest.raises(ValueError, match="north or south"):
+        b.place(Part("u1"), at=OnEdge(Edge.NORTH))
+
+
+def test_fit_axis_y_refuses_an_edge_naming_which_ones_are_fixed():
+    b = _axis_board(Axis.Y, width=15.0)
+    with pytest.raises(ValueError, match="east or west"):
+        b.place(Part("u1"), at=OnEdge(Edge.EAST))
 
 
 def test_fit_axis_refuses_the_number_for_its_own_dimension():

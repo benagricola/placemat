@@ -1,6 +1,7 @@
 """A region that forbids: what may not sit in it, fill it, route through it
 or via it, and how a script says so."""
 import dataclasses
+import math
 
 import pytest
 
@@ -753,6 +754,35 @@ def test_a_keepout_shaped_by_a_part_turns_with_it():
     assert plan.keepouts["clr"].centre == Location(30.0, 25.0)
 
 
+def test_a_keepout_shaped_by_a_part_on_the_back_mirrors_with_it():
+    """The silk sticks out west in the part's own frame; face=BACK is a
+    mirror, not a turn, so it sticks out east once placed, not still west."""
+    b = Board(board_geometry([_asymmetric_part()], width=60.0, height=60.0), edge_margin=0.5)
+    b.keepout(Part("u1"), "clr", why="the part's own footprint, mirrored")
+    b.place(Part("u1"), at=Location(25.0, 20.0), face=Face.BACK)
+    plan = b.resolve()
+    assert _poly_box(plan.keepouts["clr"].poly) == pytest.approx((23.0, 19.0, 29.0, 21.0), abs=0.01)
+
+
+def test_a_keepout_shaped_by_a_part_stores_its_rotation_normalised():
+    """A region's stored rotation is a bearing in 0..360, not -90."""
+    b = Board(board_geometry([_asymmetric_part()], width=60.0, height=60.0), edge_margin=0.5)
+    b.keepout(Part("u1"), "clr", why="the part's own footprint, turned")
+    b.place(Part("u1"), at=Location(30.0, 25.0), rotation=90)
+    plan = b.resolve()
+    assert plan.keepouts["clr"].rotation == pytest.approx(270.0)
+
+
+def test_a_keepout_shaped_by_a_part_at_rotation_zero_stores_positive_zero():
+    """Not -0.0: it prints and compares oddly, and a bearing has no sign."""
+    b = Board(board_geometry([_asymmetric_part()], width=60.0, height=60.0), edge_margin=0.5)
+    b.keepout(Part("u1"), "clr", why="the part's own footprint")
+    b.place(Part("u1"), at=Location(25.0, 20.0))
+    plan = b.resolve()
+    assert plan.keepouts["clr"].rotation == 0.0
+    assert math.copysign(1.0, plan.keepouts["clr"].rotation) == 1.0
+
+
 def test_a_keepout_shaped_by_a_cell_is_the_union_of_its_members_own_copper_left_out():
     """A cell's own via, far from either member, must not grow or shift the
     region: only what its members draw does."""
@@ -776,6 +806,17 @@ def test_a_keepout_shaped_by_a_cell_is_the_union_of_its_members_own_copper_left_
     expected = members_box.moved(dx, dy)
     got = _poly_box(plan.keepouts["clr"].poly)
     assert got == pytest.approx((expected.left, expected.top, expected.right, expected.bottom), abs=0.01)
+
+
+def test_a_keepout_shaped_by_a_cell_on_the_back_mirrors_with_it():
+    """A back-stamped cell's shaped keepout mirrors with it too."""
+    m = footprint("U1", 20.0, 20.0, w=4.0, h=2.0, inst="mod.u1", cell="mod", nets=("A", "B"),
+                  silk_boxes=[(16.0, 19.0, 22.0, 21.0)])
+    b = Board(board_geometry([m], cells=["mod"], width=60.0, height=60.0), edge_margin=0.5)
+    b.keepout(Cell("mod"), "clr", why="the module's own footprint, mirrored")
+    b.place(Cell("mod"), at=Location(25.0, 20.0), face=Face.BACK)
+    plan = b.resolve()
+    assert _poly_box(plan.keepouts["clr"].poly) == pytest.approx((23.0, 19.0, 29.0, 21.0), abs=0.01)
 
 
 def test_a_keepout_shaped_by_an_item_refuses_at():

@@ -63,7 +63,7 @@ def test_north_and_south_sides():
     assert r1.center.x == pytest.approx(u1.center.x)
 
 
-def test_explicit_gap_replaces_the_envelopes_own():
+def test_explicit_gap_is_at_least_the_envelopes_own():
     b = make_board()
     b.place(Part("u1"), at=Location(20, 20))
     b.place(Part("r1"), at=Beside(Part("u1"), Edge.EAST, gap=1.0))
@@ -72,13 +72,30 @@ def test_explicit_gap_replaces_the_envelopes_own():
     assert r1.left - u1.right == pytest.approx(1.0 + 0.2)   # the gap plus both courtyard excesses
 
 
+def test_explicit_gap_is_a_floor_not_an_override_under_a_physical_envelope():
+    """gap= is a spacing floor, as row(of=)'s is: a rule that asks for more
+    than the script gave still wins."""
+    fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B"), excess=0.0),
+           footprint("R1", 40, 40, w=3, h=1.3, inst="r1", nets=("A", "GND"), excess=0.0)]
+    settings = dataclasses.replace(Settings(), place_envelope="physical")
+    b = Board(board_geometry(fps, width=60, height=60, silk_clearance=0.05),
+             edge_margin=1.0, settings=settings, component_spacing=0.3)
+    b.place(Part("u1"), at=Location(20, 20))
+    b.place(Part("r1"), at=Beside(Part("u1"), Edge.EAST, gap=0.05))   # under the 0.3 mm component-spacing rule
+    plan = b.resolve()
+    u1, r1 = plan.box("u1"), plan.box("r1")
+    assert r1.left - u1.right == pytest.approx(0.3)   # floored to component_spacing, not the 0.05 given
+
+
 def test_align_start_sits_at_the_items_near_end():
+    """Flush, not centred on the corner: r1's own envelope starts where u1's
+    does, half of it not left overhanging past u1's north edge."""
     b = make_board()
     b.place(Part("u1"), at=Location(20, 20))
     b.place(Part("r1"), at=Beside(Part("u1"), Edge.EAST, align=Along.START))
     plan = b.resolve()
     u1, r1 = plan.box("u1"), plan.box("r1")
-    assert r1.center.y == pytest.approx(u1.top - 0.1)   # u1's envelope's near (north) edge
+    assert r1.top == pytest.approx(u1.top)   # both envelopes carry the same 0.1 mm excess
 
 
 def test_align_end_sits_at_the_items_far_end():
@@ -87,7 +104,7 @@ def test_align_end_sits_at_the_items_far_end():
     b.place(Part("r1"), at=Beside(Part("u1"), Edge.EAST, align=Along.END))
     plan = b.resolve()
     u1, r1 = plan.box("u1"), plan.box("r1")
-    assert r1.center.y == pytest.approx(u1.bottom + 0.1)
+    assert r1.bottom == pytest.approx(u1.bottom)
 
 
 def test_align_pad_lines_up_the_own_pad_on_the_same_net():
@@ -215,6 +232,29 @@ def test_beside_refuses_when_the_new_part_carries_no_pad_on_the_aligned_net():
     b.place(Part("u1"), at=Location(20, 20))
     with pytest.raises(ValueError, match="carries no pad"):
         b.place(Part("r1"), at=Beside(Part("u1"), Edge.EAST, align=PadRef(Part("u1"), "B")))
+
+
+def test_beside_refuses_an_item_that_is_still_searched():
+    """The item must be placed firmly first: the same generic refusal any
+    firm placement gets when what it refers to is not down by then."""
+    b = make_board()
+    b.place(Part("r1"), at=Beside(Part("u1"), Edge.EAST))
+    b.place(Part("u1"))
+    with pytest.raises(ValueError, match="only FIXED and EDGE"):
+        b.resolve()
+
+
+def test_beside_align_pad_refuses_a_pad_of_another_part():
+    """align=PadRef(...) names a pad of the item this stands beside, not
+    some other part's: naming both when it is not."""
+    fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B")),
+           footprint("U2", 40, 40, w=4, h=2, inst="u2", nets=("C", "D")),
+           footprint("R1", 0, 0, w=3, h=1.3, inst="r1", nets=("A", "GND"))]
+    b = Board(board_geometry(fps, width=80, height=80), edge_margin=1.0)
+    b.place(Part("u1"), at=Location(20, 20))
+    b.place(Part("u2"), at=Location(40, 40))
+    with pytest.raises(TypeError, match="u1.*u2|u2.*u1"):
+        b.place(Part("r1"), at=Beside(Part("u1"), Edge.EAST, align=PadRef(Part("u2"), "C")))
 
 
 def test_beside_align_pad_refuses_for_a_cell():
