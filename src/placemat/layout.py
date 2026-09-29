@@ -1121,7 +1121,10 @@ class Board:
             run = at.edge if isinstance(at.edge, Run) else self.edge(facing=at.edge)
             along = at.along.fraction * run.length if isinstance(at.along, (Along, Fraction)) else float(at.along or 0.0)
             point, out = run.at(along)
-            depth = max(self.web, 0.0) + _cutout_half_across(cutout, out)
+            # the shape as it will be turned: along the edge (the implied turn), or as given
+            rot = cutout.rotation if isinstance(cutout.rotation, (int, float)) else (
+                out % 360.0 if cutout.rotation is None and getattr(cutout.shape, "turns", True) else 0.0)
+            depth = max(self.web, 0.0) + _cutout_half_across(cutout, out, rot)
             ux, uy = bearing_vector(out)
             return Location(round(point.x - ux * depth, 6), round(point.y - uy * depth, 6))
         return _locate(self, occ, at)
@@ -5768,10 +5771,10 @@ def _stitch_edge_points(poly, step: float, inset: float):
             t += step
 
 
-def _cutout_half_across(cutout, bearing_deg: float) -> float:
-    """How far the shape reaches from its centre along a bearing: what holds
-    a hole placed on an edge back off it."""
-    lo_x, lo_y, hi_x, hi_y = cutout.shape.box_at(Location(0.0, 0.0), 0.0)
+def _cutout_half_across(cutout, bearing_deg: float, rotation: float = 0.0) -> float:
+    """How far the shape, at `rotation`, reaches from its centre along a
+    bearing: what holds a hole placed on an edge back off it."""
+    lo_x, lo_y, hi_x, hi_y = cutout.shape.box_at(Location(0.0, 0.0), rotation)
     return box_support(Box(lo_x, lo_y, hi_x, hi_y), bearing_deg) / 2.0
 
 

@@ -647,3 +647,18 @@ def test_a_part_on_a_cutouts_edge_may_stand_level_with_a_pad():
     plan = b.resolve()
     pad = plan.occupancy.pad_location(plan.geometry.footprint(Part("u1")).ref, "1")
     assert plan.box("d1").center.x == pytest.approx(pad.x, abs=0.05)
+
+
+@pytest.mark.parametrize("edge", [Edge.NORTH, Edge.EAST, Edge.SOUTH, Edge.WEST])
+def test_a_long_region_on_any_edge_stands_flush_with_it(edge):
+    """A slot on an edge runs along it (turned to the edge's bearing), so it
+    is held back by half its turned depth, not half its length: flush with
+    the east and west edges as with the north and south."""
+    b = Board(board_geometry([footprint("U1", 5, 5, inst="u1")], width=60, height=40), edge_margin=1.0,
+              keep_going=True)
+    b.size(width=60, height=40)
+    b.keepout(Slot(10.0, 2.0), "band", at=OnEdge(edge, along=Along.MID), why="a band along the edge")
+    box = Box.of_points(b.resolve().keepouts["band"].poly)
+    want = {Edge.NORTH: box.top, Edge.SOUTH: 40.0 - box.bottom, Edge.WEST: box.left, Edge.EAST: 60.0 - box.right}[edge]
+    assert want == pytest.approx(0.0, abs=1e-6), (edge, box)
+    assert min(box.width, box.height) == pytest.approx(2.0, abs=1e-6)

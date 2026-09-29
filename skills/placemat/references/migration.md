@@ -7,6 +7,11 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+A cutout or keepout `OnEdge` an east or west edge is held back by half its
+depth as turned along the edge, not half its length: a long slot there
+stood off the edge by the difference, and now sits flush as on the north
+and south edges.
+
 `PadRef(part, n, land=Land.LARGEST)` or `land=2`: one land of a pin drawn
 as several. A track or via that had to end at hand-typed coordinates on the
 exposed land can name the land instead.

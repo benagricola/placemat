@@ -640,11 +640,10 @@ the place instead. `at=` takes `Location`, `Centre`, `Polar`, `OnEdge` or
 `Near`, and a freedom left in it is settled against what is on the board: a
 vent with `at=Centre(None, 20.0)` slides along that line to where there is
 room. On `OnEdge` the shape's centre stands in from the edge by `board.web`
-plus half the declared shape's extent toward the edge (measured before any
-turn), so on a north or south edge a shape `d` deep lies inside the board
-with its outer side on the edge; a keepout band along the north edge is
-`Path` of the board's width by the band's depth at
-`OnEdge(Edge.NORTH, along=Along.MID)`. A raw path in `holes=` still works and means "already absolute, place
+plus half the shape's extent toward the edge, as turned there, so a shape
+`d` deep lies inside the board with its outer side on the edge, on any
+side; a keepout band along an edge is a `Slot` or `Path` of the band's
+length by its depth at `OnEdge(edge, along=Along.MID)`. A raw path in `holes=` still works and means "already absolute, place
 nothing".
 
 **Which way it runs.** With no `rotation=`, a place that carries a direction
