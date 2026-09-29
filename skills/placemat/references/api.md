@@ -31,6 +31,7 @@ and write that form. When nothing here says it, do not compute it: see
 | a part somewhere the netlist cannot say (a thermal neighbour) | `at=Near(PadRef(...))` | Placement |
 | a part turned with another part | `rotation=Turned(part, deg)` | Placement |
 | a part (or cell) beside another item's envelope, a gap off it | `at=Beside(item, Edge.EAST, align=, gap=)` | Placement |
+| a part's pad a lane (or the clearance) past other pads, a track between | `at=Beside(item, Edge.SOUTH, align=(own_pad, Past([PadRef(...)], Edge.WEST, lane=Net(...))))` | Placement |
 | a cell placed by one of its members' pads | `at=Pin(CellPadRef(cell, net=), x, y)` | Placement |
 | a part's rotation that faces a board edge or a bearing | `board.outward_rotation(item, edge)` | Faces |
 | a part and the parts at its pins | `board.block(anchor, satellites=[(item, net), ...])` | Blocks |
@@ -289,11 +290,28 @@ start, `END` flush with its end, `MID` (default) centred. The pad may be
 capacitor, level with a driver's pin, is `Beside(Part("c_boot"),
 Edge.WEST, align=PadRef(Part("u1"), "SW"))`.
 
+`align=(own_pad, Past(pads, Edge.WEST, lane=None))` stands the own pad's
+facing edge past the pads' `edge` side instead of level with a pad. The
+distance is the worst clearance, by net pair, from the own pad's net to
+the pads'; with `lane=` a net it is room for one track of that net between
+them: the clearance from the pads to the net, its track width, and the
+clearance from the net to the own pad. `Beside`'s side still decides the
+other axis, so the Past's edge is on the axis the side leaves open (`EAST`
+or `WEST` beside a `NORTH` or `SOUTH` side). A placement is decided before
+any copper is planned, so the Past takes pads only - a via or a track is
+refused - and takes no `across=`. The pads' parts are placed firmly first,
+as for any firm placement. The track then takes the same line as a
+waypoint, `Past([PadRef(...)], Edge.WEST)`.
+
 ```python
 board.place(Part("c_bypass"), at=Beside(Part("u1"), Edge.WEST, align=PadRef(Part("u1"), "VDD")))
 board.place(Cell("led_ring"), at=Beside(Part("j_conn"), Edge.SOUTH))          # MID of the connector's south side
 clr = board.keepout(Circle(10.0), "ant", at=PadRef(ANT, "FEED"), allow=(ANT,), why="the matching network")
 board.place(Part("r_series"), at=Beside(clr, Edge.NORTH, align=Along.START, gap=0.3))
+board.place(Part("u2"), at=Beside(Part("c_vdd"), Edge.SOUTH,                # its pad 1 a lane west of c_in's pad 1
+                                  align=(1, Past([PadRef(Part("c_in"), 1)], Edge.WEST, lane=Net("EN")))))
+board.track(Net("EN"), [PadRef(Part("u1"), "EN"), Past([PadRef(Part("c_in"), 1)], Edge.WEST),
+                        PadRef(Part("u2"), 1)], layer=CopperLayer.F)
 ```
 
 **Rows.** Things along one edge, in order, `gap` apart (default 0:

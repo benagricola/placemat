@@ -19,6 +19,14 @@ its radius plus its clearance off the items' side, on the pad's axis. A via
 placed at a pad tip's coordinate plus the clearance plus half the via's
 size, computed by hand, can be said this way.
 
+`Beside(item, Edge.X, align=(own_pad, Past(pads, Edge.Y, lane=Net(...))))`
+stands a part's pad a lane past other pads - the clearance to the lane's
+net, its track width, and the clearance to the pad - while `Beside` decides
+the other axis. Without `lane=` the pad stands the clearance off. A part
+placed with its pad offset by hand from another part's pad by half pad
+widths and a lane can be said this way. The Past takes pads only: a
+placement is decided before copper is planned.
+
 ## To 0.54.1
 
 Two `swallow_pads` pours of different nets now keep the netclass clearance

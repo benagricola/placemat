@@ -182,6 +182,9 @@ class Beside:
     - `(own_pad, their_pad)`: an own pad key and a `PadRef`, for when the
       nets differ;
     either pad may be `item`'s or any other part's placed firmly by then;
+    - `(own_pad, Past(pads, edge, lane=))`: the own pad's facing edge the
+      clearance past the pads' `edge` side, or with `lane=` a net, room for
+      one track of it between them;
     - an `Along` of `item`'s side (default `Along.MID`).
 
     Firm, like `Pin`: the position is decided, not searched. The

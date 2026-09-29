@@ -310,10 +310,10 @@ class KeepoutIntent:
 class _BesideSpec:
     """A resolved Beside(...): `item` (a Part, a Cell or a KeepoutIntent,
     already placed by the time this settles), `side`, `gap` (None: the
-    envelope's own), and `align` normalised to `("along", Along)` or
+    envelope's own), and `align` normalised to `("along", Along)`,
     `("pads", own_key, PadRef)` - `own_key` a pad of the part being placed,
     the `PadRef` a pad of `item` (its own net when align was a bare
-    PadRef)."""
+    PadRef) - or `("past", own_key, Past)`, a Past over pads."""
     item: object
     side: Edge
     align: tuple
@@ -1719,19 +1719,45 @@ class Board:
             number = owns[0].number
             norm = ("pads", int(number) if number.isdigit() else number, align)
         elif isinstance(align, tuple):
-            if len(align) != 2 or not isinstance(align[1], PadRef):
-                raise TypeError("%s: Beside's align pair is (own_pad, PadRef(item, pad)), not %r" % (key, align))
+            if len(align) != 2 or not isinstance(align[1], (PadRef, Past)):
+                raise TypeError("%s: Beside's align pair is (own_pad, PadRef(item, pad)) or (own_pad, "
+                                "Past(pads, edge)), not %r" % (key, align))
             own_key, their = align
             if kind != "part":
                 raise TypeError("%s: align=(own_pad, their_pad) needs the placed item's own pad; a %s has "
                                 "none - align=Along.START/MID/END instead" % (key, kind))
             geom.pad(own_key)                          # a real pad of this part, checked now
-            self.geometry.pad(their.part, their.key)    # and a real pad of the item named
-            norm = ("pads", own_key, their)
+            if isinstance(their, Past):
+                self._check_beside_past(key, at.side, their)
+                norm = ("past", own_key, their)
+            else:
+                self.geometry.pad(their.part, their.key)    # and a real pad of the item named
+                norm = ("pads", own_key, their)
         else:
             raise TypeError("%s: Beside's align is a PadRef, an (own_pad, their_pad) pair, Along.START/MID/END, "
                             "or nothing (Along.MID), not %r" % (key, align))
         return _BesideSpec(at.item, at.side, norm, at.gap)
+
+    def _check_beside_past(self, key: str, side: Edge, p: Past):
+        """A Past in Beside's align: over pads only, since a placement is
+        decided before any copper is planned; no `across=`, since `side`
+        decides that axis; and an edge on the other axis."""
+        for it in p.items:
+            if isinstance(it, CopperIntent):
+                raise TypeError("%s: a placement is decided before copper is planned; Past in Beside's align "
+                                "takes pads, not %s" % (key, it.key))
+            self._pad_ref(it)                           # a real pad, checked now
+        if p.across is not None:
+            raise TypeError("%s: Beside's side decides where the part stands along the pads; Past in its "
+                            "align takes no across=" % key)
+        upright = side in (Edge.EAST, Edge.WEST)
+        if (p.edge in (Edge.EAST, Edge.WEST)) == upright:
+            raise ValueError("%s: Beside on the %s side decides the part's %s; the Past in its align decides "
+                             "the other axis, so its edge is %s, not %s" % (
+                key, side.name, "x" if upright else "y",
+                "NORTH or SOUTH" if upright else "EAST or WEST", p.edge.name))
+        if p.lane is not None:
+            self.geometry.require_net(p.lane)
 
     def _placed_envelope_box(self, occ: Occupancy, item) -> Box:
         """The envelope (courtyard, physical or their union, whichever
@@ -1788,6 +1814,26 @@ class Board:
                 lo, hi = item_box.left, item_box.right
                 start = lo + along.fraction * (hi - lo - (own_box.right - own_box.left))
                 ox = start - own_box.left
+        elif align_kind == "past":
+            # the own pad's facing edge the clearance, or a lane, past the pads' edge
+            own_key, past = b.align[1], b.align[2]
+            bare = self._bare_occupancy()
+            g = bare._geometry(i.item)
+            t = bare._transform(g, Placement(Location(0.0, 0.0), i.rotation, i.face))
+            own_pad = i.item.pad(own_key)
+            own = Box.union([transform_box(s.box, t) for s in g.shapes
+                             if s.kind in ("pad", "through") and s.label == own_pad.number])
+            shapes = [sh for ref in past.items for sh in _pad_shapes(self, occ, ref)]
+            box = Box.union([sh.box for sh in shapes])
+            off = _lane_distance(self, own_pad.net, [sh.net for sh in shapes], past.lane)
+            if past.edge is Edge.EAST:
+                ox = box.right + off - own.left
+            elif past.edge is Edge.WEST:
+                ox = box.left - off - own.right
+            elif past.edge is Edge.SOUTH:
+                oy = box.bottom + off - own.top
+            else:
+                oy = box.top - off - own.bottom
         else:
             own_key, their = b.align[1], b.align[2]
             anchored = pad_anchored_placement(self._bare_occupancy(), i.item, own_key, Location(0.0, 0.0),
@@ -2016,6 +2062,8 @@ class Board:
                       else self._pad_ref(beside.item)[0])
             if beside.align[0] == "pads":
                 needs.add(self._pad_ref(beside.align[2])[0])
+            elif beside.align[0] == "past":
+                needs |= {self._pad_ref(ref)[0] for ref in beside.align[2].items}
         if _row_of is not None:
             needs.add(self._pad_ref(_row_of)[0])
         standoff = _standoff if _standoff is not None else (-float(overhang) if overhang else self.keep_in)
@@ -5268,6 +5316,27 @@ def _pad_clearance(board: "Board", net: str, pad_net: str) -> float:
     if pad_net not in board.geometry.nets:
         return board.geometry.default_clearance
     return board.geometry.clearance(net, pad_net)
+
+
+def _net_clearance(board: "Board", a: str, b: str) -> float:
+    """KiCad's clearance between copper of two nets; the board default when
+    either has no net (as `_pad_clearance` falls back)."""
+    nets = board.geometry.nets
+    if a not in nets or b not in nets:
+        return board.geometry.default_clearance
+    return board.geometry.clearance(a, b)
+
+
+def _lane_distance(board: "Board", own: str, nets: list, lane) -> float:
+    """How far a pad of net `own` stands past copper of `nets`: the worst
+    clearance between them, or with `lane` a net, room for one track of it
+    between - the clearance from the copper to the lane, the lane's track
+    width and the clearance from the lane to the pad."""
+    if lane is None:
+        return max(_net_clearance(board, own, n) for n in nets)
+    name = board.geometry.require_net(lane)
+    return (max(_net_clearance(board, n, name) for n in nets) + board._width(name, None)
+            + _net_clearance(board, name, own))
 
 
 def _between_point(board: "Board", ctx: "_CopperContext", net: str, width: float, p: Between) -> Location:
