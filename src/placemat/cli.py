@@ -67,7 +67,10 @@ def parser() -> argparse.ArgumentParser:
 
     rs = sub.add_parser("routes", help="the routes a layout script keeps (route --adopt), and releasing them")
     rs.add_argument("script", help="a layout script")
-    rs.add_argument("--release", nargs="+", metavar="NET", help="stop keeping these nets: the router routes them again")
+    rel = rs.add_mutually_exclusive_group()
+    rel.add_argument("--release", nargs="+", metavar="NET", help="stop keeping these nets: the router routes them again")
+    rel.add_argument("--release-all", action="store_true",
+                     help="stop keeping every net: the next route --adopt-all lays them again")
 
     imp = sub.add_parser("impact", help="what changed between two runs (ids, id prefixes, labels, or paths)")
     imp.add_argument("before")
@@ -567,6 +570,10 @@ def _adopt(script: Path, nets, report, lock_items: bool = True, partial: bool = 
 def cmd_routes(args) -> int:
     from . import routes
     script = Path(args.script)
+    if args.release_all:
+        gone = routes.read(routes.path_for(script))
+        routes.release(script, [e.net for e in gone])
+        console.say("routes", "released %d net(s)" % len({e.net for e in gone}))
     if args.release:
         missing = routes.release(script, args.release)
         for net in missing:

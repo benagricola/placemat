@@ -24,6 +24,11 @@ BUILTIN_ROUTER = os.path.expanduser("~/work/KiCadRoutingTools")
 ROUTER_DEFAULT = os.environ.get("KRT_DIR", BUILTIN_ROUTER)   # kept: tests and callers import this name
 
 
+
+def active_settings():
+    from ..settings import active
+    return active()
+
 def router_dir(cfg=None) -> str:
     """Where the router lives: the built-in default, then $KRT_DIR (a machine
     fact), then placemat.toml (a project fact), which wins."""
@@ -478,7 +483,7 @@ def pair_command(python, script, pcb_in, pcb_out, patterns, layers, gap: float =
     """The pair router's command line. Width and gap are the net class's
     unless set (route_diff.py reads them from the board's project)."""
     cmd = [str(python), str(script), str(pcb_in), str(pcb_out), "--nets"] + list(patterns) + \
-          ["--layers"] + list(layers) + ["--escalation", "off", "--keep-input-copper"]
+          ["--layers"] + list(layers) + ["--escalation", "off", "--keep-input-copper"] + _tuning()
     if gap:
         cmd += ["--diff-pair-gap", str(gap)]
     if width:
@@ -487,7 +492,14 @@ def pair_command(python, script, pcb_in, pcb_out, patterns, layers, gap: float =
         cmd += ["--max-iterations", str(iterations)]
     if probe is not None:
         cmd += ["--max-probe-iterations", str(probe)]
-    return cmd
+    return cmd + list(active_settings().route_router_args)
+
+
+def _tuning() -> list:
+    """The router's turn cost, on every pass. Diverges from the router's own
+    default (1000, where a 45-degree kink costs 0.05 mm of path and routes
+    stair-step): see Settings.route_turn_cost."""
+    return ["--turn-cost", str(int(active_settings().route_turn_cost))]
 
 
 def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, patterns, layers, cfg, iterations, probe,
@@ -570,24 +582,24 @@ def router_command(python, script, pcb_in, pcb_out, excluded, layers, summary,
                    nets=None, widths=None) -> list:
     """The router's command line. The search budget is the router's own
     default unless the caller sets one. A quick route is a measurement, so
-    it skips the router's post-route smoothing pass: that pass cannot change
-    what closed in one round and costs most of the run. `nets` routes those
+    it runs one routing round (route_one_round.py). The router's own
+    smoothing runs unless `[route] smoothing` is off. `nets` routes those
     alone rather than every net but the excluded; `widths` ({net: mm}) sets
     their track widths over the netclass's."""
     chosen = sorted(nets) if nets is not None else ["*"] + ["!" + n for n in sorted(excluded)]
     cmd = [str(python), str(script), str(pcb_in), str(pcb_out), "--nets"] + chosen + \
           ["--layers"] + list(layers) + ["--escalation", "off"] + \
-          ["--keep-input-copper"]       # the script's copper is its intent: no cleanup pass removes it
+          ["--keep-input-copper"] + _tuning()      # the script's copper is its intent: no cleanup pass removes it
     if widths:
         named = sorted(widths)
         cmd += ["--power-nets"] + named + ["--power-nets-widths"] + ["%g" % widths[n] for n in named]
-    if quick:
+    if not active_settings().route_smoothing:
         cmd.append("--no-smoothing")
     if iterations is not None:
         cmd += ["--max-iterations", str(iterations)]
     if probe is not None:
         cmd += ["--max-probe-iterations", str(probe)]
-    return cmd + ["--json-out", str(summary)]
+    return cmd + list(active_settings().route_router_args) + ["--json-out", str(summary)]
 
 
 def route_islands(rpy, script, router_dir_path, board: Path, work: Path, islands: dict, layers, iterations, probe,

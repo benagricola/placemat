@@ -104,6 +104,12 @@ class Settings:
     route_layers: tuple | None = None
     route_plane_share: float = 0.9      # a plane's own zone must cover at least this share of the board's outline to count as filling an inner layer whole (route.py's default layer list then leaves it out)
     route_diff_pairs: tuple = ("*",)    # nets the router's pair router routes first, as pairs; (): none
+    # The router prices a straight step at 1000 and a turn at this per 90 degrees (a 45 half of it). Its own
+    # default, 1000, makes a 45-degree kink worth 0.05 mm of path, and its routes stair-step; 20000 measured on
+    # the fairing core: 66.8% closure against 66.0%, 5.8 turns per 10 mm against 12.6, 10% less copper.
+    route_turn_cost: int = 20000
+    route_smoothing: bool = True        # the router's own octolinear smoothing, as it defaults
+    route_router_args: tuple = ()       # more of the router's own flags, appended to every pass
     route_islands: tuple = ()           # nets with pours whose pads the pours do not reach, routed first and alone: "NET" or "NET=WIDTH" (mm)
     route_diff_pair_gap: float = 0.0    # mm between a pair's tracks; 0: the net class's
     route_diff_pair_width: float = 0.0  # mm, a pair's track width; 0: the net class's
@@ -239,6 +245,10 @@ def parse_islands(items) -> dict:
     return out
 
 
+# The router flags placemat sets on every pass: [route] router_args may not name them.
+_ROUTER_OWNED = frozenset(("--nets", "--layers", "--escalation", "--keep-input-copper", "--turn-cost"))
+
+
 class SettingsError(ValueError):
     """A placemat.toml that cannot be obeyed. A setting that quietly does
     nothing reads as though it is in force, so this is never a warning."""
@@ -317,6 +327,11 @@ def _validate(name: str, value, path: str):
         if bad:
             k, v = sorted(bad.items())[0]
             raise SettingsError("%s: drc.severities.%s must be error, warning or ignore, not %r" % (path, k, v))
+    if name == "route_router_args":
+        owned = sorted(set(str(v) for v in value) & _ROUTER_OWNED)
+        if owned:
+            raise SettingsError("%s: %s: %s is set by placemat itself%s" % (
+                path, dotted, ", ".join(owned), " ([route] turn_cost names it)" if "--turn-cost" in owned else ""))
     if name == "route_islands":
         try:
             parse_islands(value)

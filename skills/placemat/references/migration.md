@@ -4,6 +4,16 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## Unreleased
+
+Nothing to change in a script. Every route is laid with the router's turn
+cost at 20000 (`[route] turn_cost`; the router's own default is 1000) and
+its smoothing on: routes come out with fewer than half the kinks and less
+copper, closure no worse on the boards measured. Routes already kept stay as
+they were laid; to lay them again, `placemat routes <script> --release-all`
+then `placemat route <script> --adopt-all` (with `--partial` if wanted).
+`[route] router_args` passes more of the router's own flags through.
+
 ## To 0.51.1
 
 A keepout whose shape has no area (a computed rectangle whose two sides
