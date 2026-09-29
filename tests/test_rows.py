@@ -4,7 +4,7 @@ the gap; the row does the arithmetic and lends its geometry to copper."""
 import pytest
 
 from placemat.layout import Board
-from placemat.values import OnEdge, Cell, CopperLayer, Edge, Location, Net, PadRef, Part, Y
+from placemat.values import OnEdge, Cell, CopperLayer, Edge, Location, Net, PadRef, Part, X, Y
 from tests.fixtures import board_geometry, footprint
 
 
@@ -83,6 +83,17 @@ def test_a_rows_align_refuses_an_unknown_spelling():
     b = make_board()
     with pytest.raises(ValueError):
         b.row([Part("j1")], Edge.NORTH, gap=3.0, align="middle")
+
+
+def test_a_rows_align_and_a_reference_place_refuse_each_other():
+    """align= (searched off a default anchor) and centre=/end=/start=<reference>
+    (a fixed anchor) say two different things about where the row starts; the
+    combination is contradictory whatever align's spelling."""
+    b = make_board()
+    with pytest.raises(ValueError):
+        b.row([Part("j1")], Edge.NORTH, gap=3.0, align="centre", centre=X(PadRef(Part("j1"), 1)))
+    with pytest.raises(ValueError):
+        b.row([Part("j1")], Edge.NORTH, gap=3.0, align="end", start=X(PadRef(Part("j1"), 1)))
 
 
 def test_a_rows_line_takes_the_line_enum_too():
