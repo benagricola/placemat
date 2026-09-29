@@ -11,8 +11,73 @@ seconds once the board is cached; the record and the impact against the
 previous run are how a change is judged. The point of the tool is that a
 placement decision can be tried and measured cheaply, so try many.
 
-Read `references/api.md` for the script surface. Everything below is how to
-work, not what to call.
+Read `references/api.md` for the script surface - its "Say it by intent"
+table near the top is the index from what you mean to the form that says
+it. Everything below is how to work, not what to call.
+
+## Declare by intent
+
+A script says where each part and each piece of copper goes RELATIVE TO
+something it is placed against - a board edge, a row, the pin it serves, a
+keepout, another part - and placemat works out the coordinate, the
+spacing and the alignment. This is the rule, not a preference: a script
+that computes its own positions is not declaring a layout, it is writing a
+coordinate file in Python that placemat happens to read.
+
+A script must not:
+- do arithmetic on a coordinate to decide where a part, a via or a track
+  goes - `X(ref, computed_offset)`, `Y(ref, computed_offset)`, a
+  `Location` or a `Centre` built from a sum or a difference;
+- read a pad's box, a part's envelope or its claim into a number and place
+  against that number. `board.pad(...).box`, `board.envelope(...)` and
+  `board.claim(...)` answer questions - for a check, an `assert`, or a
+  constant that states a mechanical fact - never for computing where
+  something goes;
+- keep a helper function or class whose job is turning a pad position into
+  a placement number (a `beside()`, a `put()`, a frame that tracks where
+  things "will" land). The same arithmetic written twice is a missing
+  intent form, not a function worth extracting.
+
+Use the intent form instead: `place()` with `OnEdge`/`Pin`/`Centre` of
+REFERENCES (not computed numbers), `row()`, `block()`, `ring()`,
+`Near(PadRef(...))` for a need the netlist cannot say, `FreeSpot` for a
+via, `board.link()` to price a connection. api.md's index names the form
+for what you mean.
+
+**When no form says it**, do not hand-compute it. Check "Known gaps"
+below first - the relation may already be logged. If it is genuinely new:
+write it up in the board's `PLACEMAT_GAPS.md` (what was needed, why no
+form says it, what was done instead, what placemat could offer), name the
+gap in a comment beside the declaration, and use the smallest number that
+works there until placemat can say it. A coordinate with no comment naming
+a gap is not a documented exception - it is exactly what this rule forbids.
+
+**`placemat freeze` writes coordinates into a script; that does not
+contradict the rule above.** `--explore`/`--accept` and `freeze` record
+what a search already decided - `Near(PadRef(...).local(dx, dy),
+radius=0)`, `rotation=Turned(...)` - in the anchor's own frame, with a
+`why=` naming the run it came from. That is placemat writing down its own
+result, not a position typed by hand. Never copy the SHAPE of a frozen
+line into a new declaration: a `Near(..., radius=0)` you write yourself
+pins a spot you never searched for.
+
+## Known gaps
+
+These relations placemat cannot yet express. Do not fall back to
+coordinates for one of them: place what you can by the nearest intent
+form and record the rest as a gap (above). This list is expected to
+shrink - the maintainers are building these.
+
+- A part beside another part's envelope, a gap off it, aligned to a pad.
+- A row or a stack measured from a part, not a board edge.
+- A lane: a track, a via row or a column held a clearance off pad ends, a
+  via or another track.
+- A pour over a set of pads.
+- Vias on a pad's axis, in rows under a pin row, or stitched along a
+  region's edge.
+- Which end of a track's leg takes the 45.
+- A keepout from an absolute region (not anchored on a part or a pad).
+- A cell placed by where one of its members must land.
 
 **Before touching an existing script**, check it against the current API:
 `grep -nE "Priority\.(FIXED|EDGE)|priority=Priority\.(HIGH|LOW)|Occupancy\._transform" <script>`.
@@ -25,31 +90,41 @@ release, and fix those lines first. A script with no hits still re-places on a
 newer placemat, which that file also explains - and on 0.11 it will move, because
 a footprint that draws no courtyard now claims its body rather than its pads.
 
-**Then count its typed positions**:
-`grep -cP "Location\((?!\s*X\()|\.offset\(|radius=0\b" <script>`, and read
-its module-level numeric constants. A number from outside the board - an
-enclosure drawing, a datasheet, a mechanical limit - is a fact: it belongs
-in a named constant that cites its source. A number that says where a part,
-a via or a track goes is a decision typed by hand, and a script full of
-those is not a style to follow. Nobody can re-check such a number: it goes
-stale when a part, a footprint or the board changes, and the next agent
-copies it into the next line and the next file. Working in such a script:
+**Then count its typed positions**, and read its module-level numeric
+constants:
 
-- Write every new declaration by intent, whatever the lines round it do:
-  links, blocks, rows, `fanout()`, `Near(PadRef(...))` for a need the
-  netlist cannot say, `FreeSpot` for a via, a track ending on the via
-  `board.via()` returns.
+```
+grep -cP "\.local\(|\.offset\(|radius=0\b|\b[XY]\([^,()]*,\s*[^)]*\)|Location\(\s*[-\d]|Centre\(\s*[-\d]|board\.(claim|extent|envelope|reach|pad)\([^)]*\)[.\w]*\s*[-+*/]" <script>
+```
+
+This counts `.local(`/`.offset(`, a frozen `radius=0`, any `X()`/`Y()`
+call carrying a second (offset) argument wherever it sits - including
+nested inside `Location(X(...), ...)` or `Centre(...)`, which a narrower
+grep would miss - a literal-number `Location`/`Centre`, and a measurement
+(`board.claim`, `extent`, `envelope`, `reach`, `pad(...).box`) feeding
+arithmetic on the same line. It is line-based: a measurement assigned to
+a variable and used in arithmetic further down will not show up in the
+count, so still read the file for that pattern by eye.
+
+A number from outside the board - an outline dimension, a connector's pin
+pitch, a datasheet clearance - is a fact: name it once as a constant with
+a one-line source, and arithmetic that combines such facts into another
+fact (a total width from two datasheet numbers) is fine. A number, or an
+expression, that says where a part, a via or a track goes is a decision
+typed by hand: nobody can re-check it, it goes stale the moment a part, a
+footprint or the board changes, and the next agent copies it into the
+next line and the next file. Working in such a script:
+
+- Write every new declaration by intent (see "Declare by intent" above),
+  whatever the lines round it do.
 - Convert the coordinates you touch. A part placed by numbers becomes a
   searched part with its links; `--explore` finds its spot and `--accept`
   keeps it in the lock, which holds it relative to its anchor and re-checks
   it every run. Copy nothing from `measure`, `occupancy`, a lock or a routed
   board into the script.
-- A coordinate you cannot remove is a placemat gap, not a layout choice:
-  placemat has no way to say what the number says. Write the smallest
-  number that works, with `why=` naming the gap, and record the gap where
-  the project keeps placemat's (what was needed, why placemat could not say
-  it, what was done instead, what placemat could offer). Remove the number
-  when placemat can say it.
+- A frozen line or a logged gap you find already there is a record, not a
+  license: convert what you can, and only add to a gap that is still
+  needed.
 
 ## The loop
 
@@ -189,9 +264,13 @@ coordinates nobody chose.
   outranks what; requirements live as comments beside the declaration that
   implements them, and as `assert`s where a number can be checked. There is
   no separate intent file for a board or a cell.
-- Every design number is a named constant at the top of the file with a
-  one-line reason it was chosen. Arithmetic on named values is fine; a bare
-  scalar inside a `place()`, `track()` or `X()` is not.
+- Every design number that is a fact about the world - an outline
+  dimension, a connector's pin pitch, a datasheet clearance - is a named
+  constant at the top of the file with a one-line reason it was chosen.
+  Arithmetic that combines such facts into another fact (a total width
+  from two datasheet numbers) is fine; arithmetic that produces a
+  placement - a gap, a computed x or y, an offset fed to `place()`,
+  `track()`, `X()` or `Y()` - is not. See "Declare by intent" above.
 - As tight as physically possible, then loosen where a reason says. The
   fab profile's courtyard excess is the only spacing the assembly needs,
   and the tool's defaults are that: rows, blocks and labels pack with
@@ -221,10 +300,14 @@ coordinates nobody chose.
   `Board(name=)`, `Project(name=)` or `Layout(name=)` in the `.zen` beside it; a directory
   with several boards is told apart by that name. A declaration with
   `layout = False` (a sub-circuit beside the board) is not a board.
-- Measure, do not type: `board.extent(cell, rotation=)`, `board.pitch(part)`,
-  `board.pad(part, n).box` and the pad references give the generated board's
-  real geometry, so a part swapped in the `.zen` cannot leave a stale number
-  behind. A board dimension is derived from rows plus named margins.
+- Measure, do not type, for a check, an `assert` or a frame's size:
+  `board.extent(cell, rotation=)`, `board.pitch(part)`, `board.pad(part,
+  n).box` and the pad references read the generated board's real
+  geometry, so a part swapped in the `.zen` cannot leave a stale number
+  behind. For where something goes, the alternative to a typed number is
+  a REFERENCE (`X(part)`/`Y(pad)`, `Pin`, `row()`, `block()`), not a
+  measurement fed into arithmetic - see "Declare by intent". A board
+  dimension is derived from rows plus named margins.
 - Declarations, not procedures: one `place()` per item, one copper call per
   net feature. Write each call out where a reader must see what it does:
   three drops are three lines, not a loop; two ends are two blocks, not a

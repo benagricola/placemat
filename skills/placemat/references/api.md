@@ -1,11 +1,68 @@
 # The script surface
 
 ```python
-from placemat import board, Net, Part, Cell, PadRef, CellPadRef, X, Y, Location, Centre, Pin, OnEdge, Near, Edge, Face, CopperLayer, Priority
+from placemat import (board, Along, Box, Cell, CellPadRef, Centre, Pin, Polar, OnRim, OnBore, Cutout, Disc, Arc,
+                       Circle, Path, Slot, CopperLayer, Edge, Face, Fraction, FreeSpot, LinkWeight, Location, Mid,
+                       Near, Net, OnEdge, PadRef, Part, Priority, Turned, X, Y)
 ```
 
 `board` is the board being laid out. Questions answer from the generated
 board; declarations are collected and resolved together.
+
+## Say it by intent
+
+A script says where a part or a piece of copper goes RELATIVE TO
+something - a board edge, a row, the pin it serves, a keepout, another
+part - and placemat works out the coordinate. Find what you mean below
+and write that form. When nothing here says it, do not compute it: see
+"Known gaps" in SKILL.md and, if the need is new, log it in the board's
+`PLACEMAT_GAPS.md`.
+
+| you want to say | write | section |
+|---|---|---|
+| a part searched from its links, no position typed | `board.place(item)` | Placement |
+| a part that must place, or the run stops | `board.place(item, required=True)` | Placement |
+| a part on a board edge, wherever there is room | `at=OnEdge(edge)` | Placement |
+| a part at a mechanical point along an edge | `at=OnEdge(edge, along=Along.MID)` | Placement |
+| a part at a mechanical point (an enclosure hole, a datasheet figure) | `at=Location(x, y)`, `x`/`y` named constants | Placement |
+| a part's own pad at the pin it serves | `at=Pin(key, X(pin), Y(pin))` | Placement |
+| a part between two pads | `at=Centre(X(Mid(a, b)), Y(a))` | Placement |
+| a part sliding along one line, the other axis free | `at=Centre(None, y)` / `Location(x, None)` | Placement |
+| a part somewhere the netlist cannot say (a thermal neighbour) | `at=Near(PadRef(...))` | Placement |
+| a part turned with another part | `rotation=Turned(part, deg)` | Placement |
+| a part's rotation that faces a board edge or a bearing | `board.outward_rotation(item, edge)` | Faces |
+| a part and the parts at its pins | `board.block(anchor, satellites=[(item, net), ...])` | Blocks |
+| parts down a board edge, in order | `board.row(items, edge)` | Placement (Rows) |
+| a row inboard of another edge row | `board.row(items, edge, behind=other_row)` | Placement (Rows) |
+| a row starting after a hole or a pad | `board.row(items, edge, start=Y(pad, gap))` | Placement (Rows) |
+| items round a centre | `board.ring(items, radius=)` | Round boards |
+| a part at a radius and bearing about the board centre | `at=Polar(radius, angle)` | Round boards |
+| a part on a disc's rim, facing out | `at=OnRim(edge)` | Round boards |
+| a part at a bore, facing in | `at=OnBore(edge)` | Round boards |
+| a connection priced (a bypass capacitor, a series part) | `board.link(a, b, weight=, limit_mm=)` | Links |
+| a net whose off-board run dwarfs the board | `board.free_net(net)` | Links |
+| a fine-pitch part's escape kept clear | `board.fanout(part, depth=)` | Placement |
+| a module's outward/quiet/handoff sides | `board.faces(outward=, quiet=, handoff=)` | Faces |
+| a clearance that differs from the net class, in one place | `board.rule(clearance=, within=/between=/on=)` | Rules |
+| a hole in the board | `Cutout(shape, name, at=)` in `holes=` | Cutouts |
+| a hole placed from the connector it serves | `at=Centre(X(Part(j)), Y(Part(j), d))` | Cutouts |
+| a region that forbids parts, fill, tracks, vias or pads | `board.keepout(shape, name, at=)` | Keepouts |
+| a clearance anchored on a pad, in a datasheet's own coordinates | `Path(FIGURE, anchor=...)`, `at=PadRef(...)` | Keepouts |
+| a tall part kept out of a region a case leaves little room over | `board.keepout(..., excludes=("parts",), max_height=)` | Keepouts |
+| a board of any shape | `board.outline(path, holes=)` | Boards of any shape |
+| a stretch of edge chosen by which way it faces | `board.edge(facing=Edge.NORTH)` | Boards of any shape |
+| a module frame sized to its own content | `board.size(fit=True)` | Setup |
+| a track from a pad to a pad | `board.track(net, [PadRef(a), PadRef(b)], layer=)` | Copper |
+| a via at the nearest legal spot to a pad | `board.via(net, FreeSpot(near=PadRef(...)))` | Copper |
+| a power or exposed pad filled with vias | `board.vias(net, PadRef(...))` | Copper |
+| a pour over a region | `board.pour(net, points, layer=)` | Copper |
+| a zone over the whole board, or an outline | `board.plane(net, layers=, outline=)` | Copper |
+| a wide pour along a centreline into a pad | `board.finger(net, from_=, to=, width=)` | Copper |
+| a coupled differential pair | `board.pair(p, n, path, layer=)` | Copper |
+| silk text on a connector, jumper, switch or LED | `board.label(item, text, side=)` | Labels |
+| a part beside another part, a gap off its envelope | no form yet | SKILL.md, Known gaps |
+| a row or stack measured from a part, not an edge | no form yet | SKILL.md, Known gaps |
+| a pour over a set of pads | no form yet | SKILL.md, Known gaps |
 
 ## Questions (answered from the generated board, before anything moves)
 
@@ -23,7 +80,8 @@ board; declarations are collected and resolved together.
 | `board.reach(item, rotation=)` | the item's body, pads and silk together, as a box at the origin |
 | `board.height_of(part)` | the part's height in mm from its `Pm.Height` field; an error naming the field when it has none |
 | `board.parts(net=None)` | every part on the board as a `Part`, or those with a pad on `net`: derive drops and checks from the netlist |
-| `board.envelope(item, rotation=, face=)` | what the placer keeps for the item under `[place] envelope`, as a box at the origin: what a row or stack built by hand spaces by |
+| `board.envelope(item, rotation=, face=)` | what the placer keeps for the item under `[place] envelope`, as a box at the origin - the number `row()` and `block()` already space by; read it to check a gap's arithmetic, not to build a row or a stack by hand |
+| `board.claim(item, rotation=0, face=Face.FRONT)` | everything the item claims at that rotation, at the origin: its reach (body, pads, silk) and its courtyard together - what `row()`/`ring()` actually space by, so a zero gap is courtyards touching. A question to check a gap's number against, not a coordinate to place from |
 
 The same answers from the command line, for when no script is running, are
 `placemat parts <board>` and `placemat measure <board> <part> --pads`.
@@ -751,6 +809,21 @@ its outward side were local +Y, which the step says. `placemat faces
 `placemat show <board> <cell>` renders the cell alone in ISO from both
 faces and from above and below and lists its pads by net and side: look before choosing a
 rotation.
+
+**A rotation that faces an edge or a bearing.** An edge, a row and a ring
+turn their own items; a part placed by `Location`, `Centre` or `Pin`
+does not, so a fixed part or cell whose face must still point somewhere
+needs the turn given. `board.outward_rotation(item, edge)` reads the
+item's declared `faces(outward=)` (a cell) or the generic rule (a part,
+local +Y) and returns `(rotation, note)`: the rotation that turns that
+side to `edge` - a board `Edge`, or a bearing in degrees on a round
+board's rim - and a note naming when it fell back to the generic rule
+because no `faces()` was declared (read the note; a part or an unfaced
+cell may not be turning the way you meant).
+`rotation=board.outward_rotation(item, Edge.WEST)[0]` is the computed
+form of a hand-written rotation helper that reads a pad's direction and
+works the turn out itself: it answers a rotation, the same way `extent`
+and `pitch` answer a size, and is not a coordinate to place by.
 
 ## Rules
 
