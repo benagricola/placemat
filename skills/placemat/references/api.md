@@ -2,7 +2,7 @@
 
 ```python
 from placemat import (board, Along, Axis, Bend, Beside, Between, Box, Cell, CellPadRef, Centre, Pin, Polar, OnRim, OnBore, Cutout, Disc, Arc,
-                       Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Inside, Line, LinkWeight,
+                       Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Inside, Land, Line, LinkWeight,
                        Location, Mid, Near, Net, OnEdge, PadRef, Part, Past, Priority, Turned, X, Y)
 ```
 
@@ -68,6 +68,7 @@ and write that form. When nothing here says it, do not compute it: see
 | a via at the nearest legal spot to a pad | `board.via(net, FreeSpot(near=PadRef(...)))` | Copper |
 | a via its clearance past pads, vias or tracks, on a pad's axis | `board.via(net, at=Past([PadRef(...), ...], Edge.SOUTH, across=PadRef(...)))` | Copper |
 | a power or exposed pad filled with vias | `board.vias(net, PadRef(...))` | Copper |
+| a track, via or pour on one land of a pin drawn as several | `PadRef(part, n, land=Land.LARGEST)` or `land=2` | Copper |
 | vias in a row out from a pad, along its escape axis | `board.vias(net, along=PadRef(...), count=N)` | Copper |
 | stitching vias over a cell, a pour or a keepout | `board.stitch(net, region)` | Copper |
 | a pour over a region | `board.pour(net, points, layer=)` | Copper |
@@ -237,9 +238,17 @@ the run. A pad is named by number (`PadRef(part, 3)`), by net
 `PadRef(Part("mcu"), pin="VDD3P3_CPU")`. `.offset(dx, dy)` moves the point
 in board directions; `.local(dx, dy)` moves it in the part's own frame, as
 its footprint is drawn, so the move turns with the part (and on the back
-mirrors). `rotation=Turned(Part("u1"), 90)` is that part's placed rotation
-plus 90; the item waits for the part. Pin names are read from the
-symbols the board's .zen files use, through the generator's netlist; a name
+mirrors). A pin drawn as several lands (a side tab, small pads and an
+exposed pad on one number) is one pad whose centre may be bare board
+between them; `land=Land.LARGEST` (most copper area) or `land=2` (the
+footprint's second land of that number, counted from 1) names one land.
+The reference then locates at that land's centre, and a track's end, a via
+grid, a `Past` and a pour's corners read that land's copper only. On a
+number with one land it is the plain pad. A land past the count is a
+ValueError naming it; a link, and a cell's `Pin` key, refuse `land=`.
+`rotation=Turned(Part("u1"), 90)` is that part's placed rotation plus 90;
+the item waits for the part. Pin names are read from the symbols the
+board's .zen files use, through the generator's netlist; a name
 on several pads (a symbol's repeated GND) asks for the number instead, and
 `placemat measure <board> <part> --pads` prints each pad's pin name beside
 its number. A chain of small parts is the same thing repeated: each stage
@@ -1103,7 +1112,7 @@ uses it, in these terms.
 
 ## Copper (planned after placement, against the placed pads)
 
-Points: `Location`, `PadRef(Part, int|net)`, `CellPadRef(Cell, net=|number=, ref_prefix=)`,
+Points: `Location`, `PadRef(Part, int|net, land=None)`, `CellPadRef(Cell, net=|number=, ref_prefix=)`,
 or `(x, y)` where either may be `X(ref, dx)` / `Y(ref, dy)`. `.offset(dx, dy)` on a ref.
 A pad is named by its number (an int) or by the net on it (a str). A net that
 several of the part's pads carry names the first of them in pad order, the

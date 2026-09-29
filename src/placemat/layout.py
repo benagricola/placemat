@@ -21,14 +21,14 @@ from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfer_c
                      pair_ops, polyline_tracks, resolve_bridges)
 from .geometry import Transform, box_polygon, circle_polygon, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
 from .findings import Finding, Findings
-from .occupancy import Occupancy, Shape, TOUCH, hole_shape, parts_claim
+from .occupancy import Occupancy, Shape, TOUCH, _polygon_area, hole_shape, parts_claim
 from .cutouts import Cutouts, Path, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from .placement import Placement
 from .settings import Settings
 from .placer import BlockSpec, _grid, _pin_normal, _reason_key, box_centered_placement, cell_pad_anchored_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
-from .values import (Turned, Axis, Bend, Cover, Beside, Between, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Turned, Axis, Bend, Cover, Beside, Between, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -1019,7 +1019,7 @@ class Board:
                 continue
             g = occ.items[ref]
             try:
-                c = occ.pad_location(ref, number)       # where the planned via will stand, by the same measure
+                c = occ.pad_location(ref, number, self._pad_land(at))   # where the planned via will stand, by the same measure
             except KeyError:
                 continue
             lx, ly = getattr(at, "lx", 0.0), getattr(at, "ly", 0.0)
@@ -1039,11 +1039,32 @@ class Board:
             return ((geom.members[0].ref if kind == "cell" else geom.ref), None, 0.0, 0.0)
         if isinstance(ref, PadRef):
             p = self.geometry.pad(ref.part, ref.key)
+            self._pad_land(ref)                         # a real land, checked now
             return (p.owner, p.number, ref.dx, ref.dy)
         if isinstance(ref, CellPadRef):
             p = self.geometry.cell_pad(ref.cell, net=ref.net, number=ref.number, ref_prefix=ref.ref_prefix)
             return (p.owner, p.number, ref.dx, ref.dy)
         raise TypeError("not a pad reference: %r" % (ref,))
+
+    def _pad_land(self, ref) -> int | None:
+        """The 0-based land a PadRef's `land=` names among its pad number's
+        lands, in the footprint's order: Land.LARGEST the one of most copper
+        area (the first on a tie). None with no `land=`, and for a number of
+        one land, so such a reference is the plain pad's."""
+        land = getattr(ref, "land", None)
+        if land is None:
+            return None
+        p = self.geometry.pad(ref.part, ref.key)
+        lands = [q for q in self.geometry.footprint(p.owner).pads if q.number == p.number]
+        if land is Land.LARGEST:
+            areas = [sum(_polygon_area(o) for o in q.outlines) for q in lands]
+            i = areas.index(max(areas))
+        else:
+            if land > len(lands):
+                raise ValueError("%s pad %s has %d land%s; land=%d is past them"
+                                 % (p.owner, p.number, len(lands), "" if len(lands) == 1 else "s", land))
+            i = land - 1
+        return None if len(lands) == 1 else i
 
     # ------------------------------------------------------------ setup
     def _add_cutout(self, occ, name: str, placed):
@@ -1986,6 +2007,9 @@ class Board:
             owner, number, dx, dy = self._pad_ref(at.key)
             if owner not in {fp.ref for fp in geom.members}:
                 raise TypeError("%s: Pin's %r is not a pad of one of cell %s's members" % (key, at.key, key))
+            if self._pad_land(at.key) is not None:
+                raise ValueError("%s: a cell placed by a member's pad lands that pad's centre; land= names one "
+                                 "land for a point on a placed pad, not for Pin's key" % key)
             lx, ly = getattr(at.key, "lx", 0.0), getattr(at.key, "ly", 0.0)
             pin_tuple = (owner, number, dx, dy, lx, ly) if (lx or ly) else (owner, number, dx, dy)
             cell_pin, center, at = pin_tuple, (at.x, at.y), None
@@ -2432,6 +2456,9 @@ class Board:
         if w < 0:
             raise ValueError("a link weight is 0 or more, not %r" % (weight,))
         ka, kb = self._pad_ref(a), self._pad_ref(b)
+        if self._pad_land(a) is not None or self._pad_land(b) is not None:
+            raise ValueError("a link prices the connection between two pins and measures each at its "
+                             "whole pad; land= names one land for copper or a placement point, not a link")
         link = Link((ka[0], ka[1]), (kb[0], kb[1]), w, limit_mm, why, a, b)
         self._links.append(link)
         return link
@@ -2864,7 +2891,8 @@ class Board:
             out = []
             for r in (rp, rn):
                 owner, number, _, _ = self._pad_ref(r)
-                pad = next(p for p in self.geometry.footprint(owner).pads if p.number == number)
+                lands = [p for p in self.geometry.footprint(owner).pads if p.number == number]
+                pad = lands[self._pad_land(r) or 0]
                 out.append((ctx.locate(r), pad.through, layer if layer in pad.layers else next(iter(pad.layers))))
             (lp, tp, fp), (ln, tn, fn) = out
             return (lp, ln, tp, tn), (fp, fn)
@@ -2948,8 +2976,8 @@ class Board:
 
             def plan(ctx):
                 from . import queries
-                ux, uy = _escape_axis(ctx.occ, owner, number)
-                shapes = [sh for sh in ctx.occ.items[owner].shapes if sh.label == number and sh.kind in ("pad", "through")]
+                shapes = _pad_shapes(self, ctx.occ, along)
+                ux, uy = _escape_axis(ctx.occ, owner, number, Box.union([sh.box for sh in shapes]))
                 c = Box.union([sh.box for sh in shapes]).center
                 half = max(abs((px - c.x) * ux + (py - c.y) * uy) for sh in shapes for px, py in sh.poly)
                 obstacles = self._via_obstacles(ctx)
@@ -2988,7 +3016,7 @@ class Board:
             occ = ctx.occ
             g = occ.items[owner]
             rot = g.reference.rotation
-            lands = [sh.poly for sh in g.shapes if sh.label == number and sh.kind == "pad"]   # a through land has its hole
+            lands = [sh.poly for sh in _pad_shapes(self, occ, pad) if sh.kind == "pad"]   # a through land has its hole
             obstacles = self._via_obstacles(ctx)
             vias = []
             for land in lands:
@@ -3233,8 +3261,10 @@ class Board:
         occ = ctx.occ
         owner, number, _, _ = self._pad_ref(spot.near)
         start = ctx.locate(spot.near)
-        placed = occ.items[owner].shapes if owner in occ.items else ()
-        own = [sh for sh in placed if sh.label == number and sh.kind in ("pad", "through")]
+        try:
+            own = _pad_shapes(self, occ, spot.near) if owner in occ.items else []
+        except KeyError:
+            own = []
         if own and not any(point_in_polygon((start.x, start.y), sh.poly) for sh in own):
             # a pin of several apart lands: the centre of their union can be bare board
             start = min((sh.box.center for sh in own), key=start.distance)
@@ -4285,9 +4315,7 @@ class Board:
             refs = self._label_refs(item)
             if isinstance(item, (PadRef, CellPadRef)):
                 owner, number, _, _ = self._pad_ref(item)
-                g = occ.items[owner]
-                return (Box.union([s.box for s in g.shapes if s.kind in ("pad", "through") and s.label == number]),
-                        g.reference.face)
+                return Box.union([s.box for s in _pad_shapes(self, occ, item)]), occ.items[owner].reference.face
             return Box.union([occ.items[r].reach or occ.items[r].body for r in refs]), occ.items[refs[0]].reference.face
         for entry in self._labels:
             key, item, text, side, gap, align, size, thick, knockout, rotation, why, reserve, group = entry
@@ -5425,7 +5453,7 @@ def _locate(board: "Board", occ: Occupancy, ref) -> Location:
         refs = [fp.ref for fp in (geom.members if kind == "cell" else (geom,))]
         return Box.union([occ.items[r].body for r in refs]).center      # where its body is now
     owner, number, dx, dy = board._pad_ref(ref)
-    at = occ.pad_location(owner, number).offset(dx, dy)
+    at = occ.pad_location(owner, number, board._pad_land(ref)).offset(dx, dy)
     lx, ly = getattr(ref, "lx", 0.0), getattr(ref, "ly", 0.0)
     if lx or ly:
         from .lock import _turn
@@ -5474,19 +5502,20 @@ class _CopperContext:
         return [t for t in self.planned_tracks if t.layer is layer]
 
 
-def _escape_axis(occ: Occupancy, owner: str, number: str) -> tuple:
+def _escape_axis(occ: Occupancy, owner: str, number: str, pin_box: Box | None = None) -> tuple:
     """The way out from a pad, as placed now: `_pin_normal`'s outward normal
     of the pad row it sits in (the same measure a block's satellite escapes
     its anchor's pin by), or, where neither side of the row decides one (a
     lone pad, a square one at a corner), the ray from the part's body
-    centre through it."""
+    centre through it. `pin_box` is the pad's own box (one land's, for a
+    PadRef naming one), else every land's."""
     g = occ.items[owner]
     boxes: dict = {}
     for sh in g.shapes:
         if sh.kind in ("pad", "through"):
             boxes.setdefault(sh.label, []).append(sh.box)
     pads = {(owner, n): Box.union(bs).center for n, bs in boxes.items()}
-    pin_box = Box.union(boxes[number])
+    pin_box = pin_box or Box.union(boxes[number])
     p = pin_box.center
     normal = _pin_normal(pads, owner, p, g.reference.rotation, pin_box)
     if normal is not None:
@@ -5543,12 +5572,10 @@ def _named_pad(board: "Board", ctx: "_CopperContext", net: str, p) -> tuple | No
 
 def _pad_shapes(board: "Board", occ: Occupancy, ref) -> list:
     """The Shape(s) of one pad, as placed now: usually one, but a pin of
-    several apart lands (occupancy.py) carries more than one."""
+    several apart lands (occupancy.py) carries more than one; a PadRef's
+    `land=` names one of them."""
     owner, number, _, _ = board._pad_ref(ref)
-    shapes = [sh for sh in occ.items[owner].shapes if sh.label == number and sh.kind in ("pad", "through")]
-    if not shapes:
-        raise KeyError("%s has no pad %s" % (owner, number))
-    return shapes
+    return occ.pad_shapes(owner, number, board._pad_land(ref))
 
 
 def _pad_half_across(board: "Board", occ: Occupancy, ref, centre: Location, ux: float, uy: float) -> float:

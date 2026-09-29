@@ -113,6 +113,13 @@ class Bend(str, Enum):
     BOTH = "both"
 
 
+class Land(str, Enum):
+    """Which land of a pin drawn as several a `PadRef` names by quality
+    rather than by index: LARGEST, the one of most copper area (the first
+    in the footprint's order on a tie)."""
+    LARGEST = "largest"
+
+
 class Forbid(str, Enum):
     """What a keepout keeps out of its region."""
     PARTS = "parts"
@@ -452,8 +459,16 @@ class PadRef:
     # declaration's digest at 0, so a lock accepted before it existed still holds (reuse.canonical)
     lx: float = field(default=0.0, metadata={"omit_default": True})
     ly: float = field(default=0.0, metadata={"omit_default": True})
+    # one land of a pin drawn as several: Land.LARGEST, or its 1-based index in the footprint's
+    # order for that number. Left out of the digest when unset, as lx/ly are
+    land: object = field(default=None, metadata={"omit_default": True})
 
     def __post_init__(self):
+        if self.land is not None:
+            if isinstance(self.land, bool) or not isinstance(self.land, (int, Land)):
+                raise TypeError("a PadRef's land= is Land.LARGEST or a land's number, not %r" % (self.land,))
+            if not isinstance(self.land, Land) and self.land < 1:
+                raise ValueError("a PadRef's land= counts from 1, in the footprint's order; not %r" % (self.land,))
         if self.pin is not None:
             if self.key is not None:
                 raise TypeError("a PadRef names its pad one way: a key or pin=, not both")
@@ -464,12 +479,12 @@ class PadRef:
 
     def offset(self, dx: float = 0.0, dy: float = 0.0) -> "PadRef":
         """The point moved in board directions."""
-        return PadRef(self.part, self.key, self.dx + dx, self.dy + dy, None, self.lx, self.ly)
+        return PadRef(self.part, self.key, self.dx + dx, self.dy + dy, None, self.lx, self.ly, self.land)
 
     def local(self, dx: float = 0.0, dy: float = 0.0) -> "PadRef":
         """The point moved in the part's own frame, as its footprint is
         drawn: the move turns with the part, and on the back mirrors."""
-        return PadRef(self.part, self.key, self.dx, self.dy, None, self.lx + dx, self.ly + dy)
+        return PadRef(self.part, self.key, self.dx, self.dy, None, self.lx + dx, self.ly + dy, self.land)
 
 
 @dataclass(frozen=True)

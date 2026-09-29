@@ -6,6 +6,10 @@ whether any of it applies.
 
 ## Unreleased
 
+`PadRef(part, n, land=Land.LARGEST)` or `land=2`: one land of a pin drawn
+as several. A track or via that had to end at hand-typed coordinates on the
+exposed land can name the land instead.
+
 `board.keepout(Inside(Part(...), margin=), name, ...)`: the box inside a
 part's pads, between its two pad columns or inside its pad ring, moving and
 turning with the part. A region worked out by hand from pad coordinates can
