@@ -1334,7 +1334,8 @@ class Board:
             if h.name in named:
                 raise ValueError("there is already a cutout named %r on this board" % h.name)
             named[h.name] = h
-            if isinstance(h.at, Location) and isinstance(h.at.x, (int, float)) and isinstance(h.at.y, (int, float)):
+            if isinstance(h.at, Location) and isinstance(h.at.x, (int, float)) and isinstance(h.at.y, (int, float)) \
+                    and not isinstance(h.rotation, Turned):             # a Turned rotation waits for its part
                 named_paths.append(h.shape.path_at(h.at, h.rotation or 0.0))   # absolute: settled now
                 self._cutout_loop_of[h.name] = len(named_paths)                # loop 0 is the board
                 self._settled_cutouts[h.name] = PlacedCutout(
@@ -2818,6 +2819,8 @@ class Board:
                 obj.run = self.cutout(obj.run.name).edge(side=obj.run.side, within=obj.run.within)
                 if isinstance(obj.along, (Along, Fraction)):
                     obj.along = obj.along.fraction * obj.run.length
+                elif obj.along is not None and not isinstance(obj.along, (int, float)):
+                    obj.along = _run_along(self, occ, obj)      # a reference: the place on the edge nearest it
                 if obj.rotation is None:            # turned to the way the board faces where it sits
                     obj.rotation, obj.faces_note = self.outward_rotation(
                         obj.item, obj.run.at(obj.along if obj.along is not None else 0.0)[1])

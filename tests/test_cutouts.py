@@ -619,3 +619,18 @@ def test_asking_the_plan_for_a_cutouts_box_says_where_to_look():
         plan.box("vent")
     with pytest.raises(KeyError, match="nothing placed"):
         plan.box("nope")
+
+
+def test_a_part_on_a_cutouts_edge_may_stand_level_with_a_pad():
+    """along= a reference on a cutout's edge, as on the board's: the place on
+    the edge nearest that point."""
+    b = make_board("u1", "d1")
+    b.size(width=40.0, height=40.0,
+           holes=[Cutout(Slot(17.0, 3.0), "ffc",
+                         at=Centre(X(Part("u1")), Y(Part("u1"), 6.0)), why="the cable")])
+    b.place(Part("u1"), at=Location(20.0, 12.0))
+    from placemat.values import PadRef
+    b.place(Part("d1"), at=OnEdge(b.cutout("ffc").edge(side=Edge.SOUTH), along=X(PadRef(Part("u1"), 1))))
+    plan = b.resolve()
+    pad = plan.occupancy.pad_location(plan.geometry.footprint(Part("u1")).ref, "1")
+    assert plan.box("d1").center.x == pytest.approx(pad.x, abs=0.05)

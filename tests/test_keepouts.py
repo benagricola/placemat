@@ -698,3 +698,15 @@ def test_an_allowed_net_lets_its_copper_through_not_its_parts():
     b.place(Part("u1"), at=Location(20.0, 20.0))
     with pytest.raises(PlacementCollision, match="antenna"):
         b.resolve()
+
+
+def test_a_cutout_at_a_location_turns_with_a_part_when_rotation_is_turned():
+    """A cutout at fixed numbers is settled where it is declared, but a
+    Turned rotation waits for its part like any other."""
+    from placemat.values import Cutout, Turned
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0, holes=[Cutout(Slot(8.0, 2.0), "slot", at=Location(10.0, 30.0),
+                                                  rotation=Turned(Part("u1"), 0))])
+    b.place(Part("u1"), at=Location(20.0, 10.0), rotation=90)
+    plan = b.resolve()
+    assert plan.cutouts_placed["slot"].rotation == pytest.approx(90.0)
