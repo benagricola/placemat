@@ -307,7 +307,7 @@ class Occupancy:
         self.reservations: list[Reservation] = []
         self.copper: list[Shape] = []
         self._cells: dict[str, ItemGeometry] = {}        # a cell's geometry, until something moves
-        self._pad_location_cache: dict[tuple[str, str], Location] = {}   # (ref, number) -> Location, until a commit
+        self._pad_location_cache: dict[tuple, Location] = {}   # (ref, number[, land]) -> Location, until a commit
         self.pending: set[str] = set()                    # owners the script will place: not obstacles where the generator left them
         # A native obstacle index (Rust), one per distinct skip-set (an
         # item's own owners, plus self.pending, at the time it was asked
@@ -505,22 +505,36 @@ class Occupancy:
                 boxes.setdefault((s.owner, s.label), []).append(s.box)
         return {k: t.apply_location(Box.union(v).center) for k, v in boxes.items()}
 
-    def pad_location(self, ref: str, number: str) -> Location:
+    def pad_location(self, ref: str, number: str, land: int | None = None) -> Location:
         """Where a pad is NOW (after every commit so far): its outline's box
-        centre. Cached per (ref, number) until the next commit() - a
-        cleanup pass asks this for every pin of a net to weigh one key's
-        move, and only the moving key's own pins actually change between
-        two such asks."""
-        key = (ref, number)
+        centre, or with `land` (0-based, in the footprint's order for that
+        number) that one land's. Cached per (ref, number, land) until the
+        next commit() - a cleanup pass asks this for every pin of a net to
+        weigh one key's move, and only the moving key's own pins actually
+        change between two such asks."""
+        key = (ref, number) if land is None else (ref, number, land)
         hit = self._pad_location_cache.get(key)
         if hit is not None:
             return hit
-        boxes = [s.box for s in self.items[ref].shapes if s.kind in ("pad", "through") and s.label == number]
-        if not boxes:
-            raise KeyError("%s has no pad %s" % (ref, number))
-        loc = Box.union(boxes).center
+        loc = Box.union([s.box for s in self.pad_shapes(ref, number, land)]).center
         self._pad_location_cache[key] = loc
         return loc
+
+    def pad_shapes(self, ref: str, number: str, land: int | None = None) -> list:
+        """The pad's shapes where it is NOW: every land's, or with `land`
+        (0-based, in the footprint's order for that number) that one land's.
+        A part's shapes keep the order _fp_shapes gave them, each land's
+        outlines together, so a land is its run of them."""
+        shapes = [s for s in self.items[ref].shapes if s.kind in ("pad", "through") and s.label == number]
+        if not shapes:
+            raise KeyError("%s has no pad %s" % (ref, number))
+        if land is None:
+            return shapes
+        counts = [len(p.outlines) for p in self.geometry.footprint(ref).pads if p.number == number]
+        if not 0 <= land < len(counts) or sum(counts) != len(shapes):
+            raise KeyError("%s pad %s has no land %d" % (ref, number, land + 1))
+        start = sum(counts[:land])
+        return shapes[start:start + counts[land]]
 
     def pad_anchor(self, ref: str, number: str) -> Location:
         """Where the airwires to a pad end NOW: its anchor as read

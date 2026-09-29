@@ -21,8 +21,8 @@ def release(version: str) -> str:
 from .context import board
 from .cutouts import Circle, Path, Slot
 from .outline import Arc
-from .values import (Along, Axis, Bend, Cover, Beside, Between, Centre, Cutout, Disc, Forbid, Fraction, FreeSpot, Line, Near, OnBore, OnEdge, OnRim, Past, Pin, Polar, Box, Cell, CellPadRef, CopperLayer, Edge, Face, LinkWeight, Location, Mid, Net, PadRef,
+from .values import (Along, Axis, Bend, Cover, Beside, Between, Centre, Cutout, Disc, Forbid, Fraction, FreeSpot, Inside, Land, Line, Near, OnBore, OnEdge, OnRim, Past, Pin, Polar, Box, Cell, CellPadRef, CopperLayer, Edge, Face, LinkWeight, Location, Mid, Net, PadRef,
                      Part, Priority, Turned, X, Y)
 
 __all__ = ["board", "Along", "Axis", "Bend", "Cover", "Beside", "Between", "Box", "Cell", "CellPadRef", "Centre", "Pin", "Polar", "OnRim", "OnBore", "Cutout", "Disc", "Arc", "Circle", "Path", "Slot", "CopperLayer", "Edge", "Face", "Forbid",
-           "Fraction", "FreeSpot", "Line", "LinkWeight", "Location", "Mid", "Near", "Net", "OnEdge", "PadRef", "Part", "Past", "Priority", "Turned", "X", "Y"]
+           "Fraction", "FreeSpot", "Inside", "Land", "Line", "LinkWeight", "Location", "Mid", "Near", "Net", "OnEdge", "PadRef", "Part", "Past", "Priority", "Turned", "X", "Y"]
