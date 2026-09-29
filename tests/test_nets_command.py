@@ -176,3 +176,11 @@ def test_the_nets_command_filters_sorts_and_gives_json(breakout_pcb, capsys):
     assert main(["nets", str(breakout_pcb), "--sort", "pads"]) == 0
     out = capsys.readouterr().out
     assert "GND" in out and "PERMIT_A" in out
+
+
+def test_sorting_by_name_reads_a_to_z():
+    """Numbers sort largest first; a name reads as a list does, A to Z."""
+    from placemat.nets import sort_rows
+    rows = [{"net": n, "pads": 2, "parts": [], "span": 1.0, "routed": 0.0, "detour": None, "vias": 0,
+             "layers": [], "pour": False} for n in ("B", "C", "A")]
+    assert [r["net"] for r in sort_rows(rows, "net")] == ["A", "B", "C"]

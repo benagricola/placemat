@@ -52,12 +52,14 @@ def nets_rows(geometry, planes=frozenset(), inst: bool = False) -> list:
 
 
 def sort_rows(rows: list, column: str) -> list:
-    """`rows` by `column`, largest (or, for `net`, last alphabetically)
-    first - the default order the span itself is given in. A list-valued
-    column (parts, layers) sorts by how many; an unrouted net's `None`
-    detour sorts last."""
+    """`rows` by `column`, largest first - the default order the span
+    itself is given in - or, for `net`, A to Z. A list-valued column
+    (parts, layers) sorts by how many; an unrouted net's `None` detour
+    sorts last."""
     if column not in COLUMNS:
         raise ValueError("--sort takes one of %s, not %r" % (", ".join(COLUMNS), column))
+    if column == "net":
+        return sorted(rows, key=lambda r: r["net"])
 
     def key(r):
         v = r[column]

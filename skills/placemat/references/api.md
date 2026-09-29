@@ -1051,11 +1051,11 @@ carries no track); its via count and the copper layers its tracks use; and
 whether a pour serves it instead of the router (`plane_nets_of`, as `route`
 leaves a plane net unrouted). Rows are sorted by span, largest first,
 by default; `--sort` takes any column name (`net`, `pads`, `parts`, `span`,
-`routed`, `detour`, `vias`, `layers`, `pour`), largest first there too - a
-list-valued column by how many, an unrouted net's `-` detour last. `--net`
-narrows the rows to the nets named. This is the table a fairing once wrote
-pcbnew scripts to get, to choose which nets to declare as copper rather
-than leave to the router.
+`routed`, `detour`, `vias`, `layers`, `pour`), largest first there too (a
+list-valued column by how many, an unrouted net's `-` detour last), `net`
+A to Z. `--net` narrows the rows to the nets named. It is the table to
+choose from which nets to declare as copper rather than leave to the
+router.
 
 All three take `--json`. Reach for these before grepping a `.kicad_mod` or
 loading pcbnew in a scratch script.
