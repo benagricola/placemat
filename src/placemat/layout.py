@@ -946,22 +946,28 @@ class Board:
         Read with its own occupancy, envelope forced to `physical`: what a
         script's own `[place] envelope` setting claims for search (courtyard
         by default) is a different question from what the item draws."""
+        env = self._drawn_envelope_box(item)
+        if env is None:
+            raise ValueError("keepout %r: %s draws nothing to shape a region from" % (name, self._item(item)[1]))
+        return Path(box_polygon(env.inflate(margin)), anchor=(0.0, 0.0))
+
+    def _drawn_envelope_box(self, item, placement: Placement | None = None) -> Box | None:
+        """The box round what a Part or Cell draws (envelope.drawn_envelope's
+        kinds, and a footprint's own copper graphics; a cell's own tracks
+        left out), at `placement`, or in the item's own frame at rotation 0
+        when None. None when it draws nothing."""
         import dataclasses
         geom, key, kind = self._item(item)
         settings = dataclasses.replace(self.settings, place_envelope="physical")
         occ = Occupancy(self.geometry, self.edge_margin, board_box=None, settings=settings,
                         component_spacing=self.component_spacing)
         g = occ._geometry(geom)
-        t = occ._transform(g, Placement(Location(0.0, 0.0), 0.0, g.reference.face))
+        t = occ._transform(g, placement or Placement(Location(0.0, 0.0), 0.0, g.reference.face))
         own = key if kind == "cell" else None      # a cell's own copper is not a member's drawn envelope
         # a footprint's own copper graphics (a winding) are what it draws too, and what a fill
         # kept off it must stay off
-        boxes = [transform_box(s.box, t) for s in g.shapes
-                if (s.kind in _ENVELOPE_DRAWN_KINDS or s.kind == "copper") and s.owner != own]
-        env = Box.union(boxes)
-        if env is None:
-            raise ValueError("keepout %r: %s draws nothing to shape a region from" % (name, key))
-        return Path(box_polygon(env.inflate(margin)), anchor=(0.0, 0.0))
+        return Box.union([transform_box(s.box, t) for s in g.shapes
+                          if (s.kind in _ENVELOPE_DRAWN_KINDS or s.kind == "copper") and s.owner != own])
 
     def _item_placement(self, occ: Occupancy, item) -> Placement:
         """Where a placed Part or Cell stands, for a region that moves and
@@ -3177,18 +3183,41 @@ class Board:
 
     def plane(self, net, layers, *, outline=None, inset: float | None = None, chamfer: float | None = None,
               clearance: float | None = None, min_thickness: float | None = None, solid_pads: bool = True,
-              priority: Priority = Priority.DEFAULT, why: str = ""):
+              priority: Priority = Priority.DEFAULT, over=None, margin: float = 0.0, why: str = ""):
         """A KiCad zone per layer, filled by KiCad and pulled back round every
-        foreign pad, track and via: the whole board inset from the edge, or
-        the polygon `outline`."""
+        foreign pad, track and via: the whole board inset from the edge, the
+        polygon `outline`, or `over=[Part(...), Cell(...)]` the box round
+        those items' drawn envelopes (the region `keepout(item)` takes),
+        grown by `margin` and clipped to the frame inset by `inset`. A plane
+        over items waits for them to be placed."""
         inset = self.settings.copper_plane_inset if inset is None else inset
         clearance = self.settings.copper_plane_clearance if clearance is None else clearance
         min_thickness = self.settings.copper_plane_min_thickness if min_thickness is None else min_thickness
         name = self.geometry.require_net(net)
         layers = tuple(dict.fromkeys(CopperLayer.of(l) for l in layers))
+        if over is not None:
+            if outline is not None:
+                raise ValueError("plane %s: its outline is over= items or outline= points, not both" % name)
+            over = [over] if isinstance(over, (Part, Cell)) else list(over)
+            if not over or not all(isinstance(it, (Part, Cell)) for it in over):
+                raise TypeError("plane %s: over= names Part(...)/Cell(...) items, not %r" % (name, over))
+            for it in over:
+                self._item(it)                  # a real part or cell, checked now
 
         def plan(ctx):
-            if outline is not None:
+            if over is not None:
+                box = Box.union([self._drawn_envelope_box(it, self._item_placement(ctx.occ, it))
+                                 for it in over]).inflate(float(margin))
+                frame = ctx.occ.board_box
+                if frame is not None:
+                    f = frame.inflate(-inset)
+                    box = Box(max(box.left, f.left), max(box.top, f.top),
+                              min(box.right, f.right), min(box.bottom, f.bottom))
+                if box.width <= 0 or box.height <= 0:
+                    ctx.notes.append("plane %s: its items lie outside the frame, so it is not drawn" % name)
+                    return []
+                pts = box_polygon(box)
+            elif outline is not None:
                 pts = tuple((l.x, l.y) for l in (ctx.locate(p) for p in outline))
             elif self._shape is not None:
                 pts = self._shape.polygon(inset)
@@ -3199,7 +3228,7 @@ class Board:
                 ch = self._chamfer if chamfer is None else chamfer
                 pts = board_zone_outline(self.width, self.height, inset, ch)
             return [Zone(name, l, pts, clearance, min_thickness, solid_pads) for l in layers]
-        refs = [] if outline is None else _refs_in(outline)
+        refs = _refs_in(over) if over is not None else [] if outline is None else _refs_in(outline)
         intent = self._copper_intent("plane %s" % name, net, priority, plan, refs, why)
         if outline is None:
             self._frame_planes.add(intent.index)    # on a fit board, planned once the frame is fitted
