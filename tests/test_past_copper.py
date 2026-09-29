@@ -40,13 +40,14 @@ def _points(plan, net):
 # ---------------------------------------------------------------- Past over vias and tracks
 def test_a_track_passes_a_vias_clearance_below_it():
     b = _board([])
-    v = b.via(Net("V"), at=Location(10.0, 20.0))          # 0.6 mm: its copper reaches y = 20.3
-    # 20.3 + 0.2 clearance + 0.1 (half the 0.2 mm track) = 20.6, centred on the via
-    b.track(Net("SIG"), [Location(5.0, 20.6), Past([v], Edge.SOUTH), Location(15.0, 20.6)],
+    v = b.via(Net("V"), at=Location(10.0, 20.0))          # 0.6 mm: its 16-sided ring reaches y = 20.305878
+    # 20.305878 + 0.2 clearance + 0.1 (half the 0.2 mm track) = 20.605878, centred on the via: the ring
+    # the clearance check measures, 0.005878 past the true circle
+    b.track(Net("SIG"), [Location(5.0, 20.605878), Past([v], Edge.SOUTH), Location(15.0, 20.605878)],
             layer=CopperLayer.F, chamfer=0)
     plan = b.resolve()
     assert not declared_findings(plan), plan.findings
-    assert (10.0, 20.6) in _points(plan, "SIG")
+    assert (10.0, 20.605878) in _points(plan, "SIG")
 
 
 def test_a_track_passes_another_tracks_clearance_east_of_it():
@@ -65,12 +66,12 @@ def test_pads_and_vias_mixed_take_the_worst_clearance_by_net_pair():
     b = _board([pa], nets=("SIG", "V", "HV"), classes={"HV": NetClass("HV", 0.2, 0.5, 0.6, 0.3)})
     v = b.via(Net("V"), at=Location(12.0, 20.0))                     # box (11.7, 19.7)-(12.3, 20.3)
     # the pads' and vias' box bottom 20.5; SIG to HV 0.5, SIG to V 0.2: 20.5 + 0.5 + 0.1 = 21.1,
-    # x the middle of 9.5..12.3
+    # x the middle of 9.5..12.305878 (the via's ring)
     b.track(Net("SIG"), [Location(5.0, 21.1), Past([PadRef(Part("pa"), 1), v], Edge.SOUTH),
                          Location(15.0, 21.1)], layer=CopperLayer.F, chamfer=0)
     plan = b.resolve()
     assert not declared_findings(plan), plan.findings
-    assert (10.9, 21.1) in _points(plan, "SIG")
+    assert (10.902939, 21.1) in _points(plan, "SIG")
 
 
 # ---------------------------------------------------------------- across=
@@ -209,8 +210,8 @@ def test_a_track_ends_on_a_via_at_a_past_and_another_turns_past_the_vias():
             layer=CopperLayer.F, chamfer=0)
     plan = b.resolve()
     assert (11.0, 21.0) in _points(plan, "SIG_N")               # the track ends on v3
-    # the vias' copper reaches 21.3: 21.3 + 0.2 + 0.1 = 21.6, centred between them (11.0 and 12.0)
-    assert (11.5, 21.6) in _points(plan, "SIG_P")
+    # the vias' rings reach 21.305878: + 0.2 + 0.1 = 21.605878, centred between them (11.0 and 12.0)
+    assert (11.5, 21.605878) in _points(plan, "SIG_P")
 
 
 def test_a_via_at_a_past_naming_a_via_that_found_no_spot_is_a_finding():

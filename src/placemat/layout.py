@@ -19,7 +19,7 @@ import math
 
 from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
                      pair_ops, polyline_tracks, resolve_bridges)
-from .geometry import Transform, box_polygon, circle_polygon, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, transform_box
+from .geometry import Transform, box_polygon, circle_polygon, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
 from .findings import Finding, Findings
 from .occupancy import Occupancy, Shape, TOUCH, hole_shape, parts_claim
 from .cutouts import Cutouts, Path, loop_gap, signed_area
@@ -4263,7 +4263,7 @@ class Board:
             by_key.setdefault(c.key, [c.priority, 0, c.why, c.freedom])
             all_ops.append(op)
             by_key[c.key][1] += 1
-        shapes = []
+        shapes, batch = [], []
         for op in all_ops:
             plan.copper.append(op)
             shape = _shape_of(op)
@@ -4278,12 +4278,30 @@ class Board:
             # for copper planned after it, the same as the writer keeps it one.
             skip_findings = isinstance(op, Pour) and op.swallow_pads
             if not skip_findings:
-                for hit in occ.copper_conflicts(shape):
+                hits = occ.copper_conflicts(shape)
+                # and this batch's own copper planned before it, which reaches the occupancy only
+                # once the batch is done: a track of one net through a via of another, both planned
+                # together. Tracks that cross are the bridging's to settle, and a swallow pour's
+                # clearance is the writer's, as above.
+                for earlier, o in batch:
+                    if o.net == shape.net or not shape.box.overlaps(o.box, gap=1.0):
+                        continue
+                    if isinstance(earlier, Pour) and earlier.swallow_pads:
+                        continue
+                    if isinstance(op, Track) and isinstance(earlier, Track) and segments_intersect(
+                            (op.start.x, op.start.y), (op.end.x, op.end.y),
+                            (earlier.start.x, earlier.start.y), (earlier.end.x, earlier.end.y)):
+                        continue
+                    why = occ._conflict(shape, o, None)
+                    if why:
+                        hits.append(why)
+                for hit in hits:
                     note = "copper %s: %s" % (op.net, hit)
                     if isinstance(op, Track) and op.chamfer_cut:
                         mx, my = (op.start.x + op.end.x) / 2.0, (op.start.y + op.end.y) / 2.0
                         note += "; the 45 of its chamfer at (%.2f, %.2f); a smaller chamfer= there keeps clear" % (mx, my)
                     plan.findings.append(Finding("copper", note))
+            batch.append((op, shape))
             shapes.append(shape)
             if isinstance(op, Via):
                 shapes.append(hole_shape("", op.at, op.drill, op.net))     # what is placed after keeps its holes clear
@@ -5487,8 +5505,8 @@ def _past_names(board: "Board", p: Past) -> list:
 def _past_copper(board: "Board", occ: Occupancy, ops_at: dict, p: Past, what: str,
                  current: int | None = None):
     """(net, box) for every piece of copper `p.items` names: each pad's
-    shapes, each via's ring and each track's segments, the round ends
-    measured exactly. A string instead when a via or track has no copper
+    shapes, each via's ring and each track's segments, as the polygons the
+    clearance check measures. A string instead when a via or track has no copper
     (see `_past_unplanned`)."""
     out = []
     for it in p.items:
@@ -5497,12 +5515,10 @@ def _past_copper(board: "Board", occ: Occupancy, ops_at: dict, p: Past, what: st
             if why is not None:
                 return why
             for op in ops_at[it.index]:
-                if isinstance(op, Via):
-                    r = op.size / 2.0
-                    out.append((op.net, Box(op.at.x - r, op.at.y - r, op.at.x + r, op.at.y + r)))
-                elif isinstance(op, Track):
-                    out.append((op.net, Box.of_points([(op.start.x, op.start.y), (op.end.x, op.end.y)])
-                                .inflate(op.width / 2.0)))
+                if isinstance(op, (Via, Track)):
+                    # its polygon's box: the copper the clearance check measures, a via's ring a
+                    # little outside the true circle
+                    out.append((op.net, op.box))
         else:
             out += [(sh.net, sh.box) for sh in _pad_shapes(board, occ, it)]
     return out
@@ -5533,12 +5549,20 @@ def _past_point(board: "Board", ctx: "_CopperContext", net: str, width: float, p
         at = ctx.locate(a)
         across = at.y if upright else at.x
     if p.edge is Edge.EAST:
-        return Location(round(box.right + off, 6), round(across, 6))
+        return Location(_round_away(box.right + off, 1), round(across, 6))
     if p.edge is Edge.WEST:
-        return Location(round(box.left - off, 6), round(across, 6))
+        return Location(_round_away(box.left - off, -1), round(across, 6))
     if p.edge is Edge.NORTH:
-        return Location(round(across, 6), round(box.top - off, 6))
-    return Location(round(across, 6), round(box.bottom + off, 6))         # SOUTH
+        return Location(round(across, 6), _round_away(box.top - off, -1))
+    return Location(round(across, 6), _round_away(box.bottom + off, 1))         # SOUTH
+
+
+def _round_away(v: float, sign: int) -> float:
+    """`v` to 1e-6 mm, rounded away from the items it is held off (up when
+    `sign` is 1, down when -1), so the rounding never eats the clearance;
+    float noise under 1e-9 mm is not rounded up."""
+    q = v * 1e6
+    return (math.ceil(q - 1e-3) if sign > 0 else math.floor(q + 1e-3)) / 1e6
 
 
 def _stitch_region(board: "Board", ctx: "_CopperContext", region, pour_intent) -> tuple | None:

@@ -6,6 +6,11 @@ whether any of it applies.
 
 ## Unreleased
 
+Copper planned in one batch is judged against the rest of that batch too,
+not only against what was on the board before it: a track of one net run
+through a via of another, both with nothing to wait on, is a finding now
+(it was a DRC failure behind a clean report).
+
 `board.row(items, Edge.X, of=Part(...))` takes `centre=PadRef(...)` and
 `pitch=`: the row's middle on a pad's centre line (a pad of `of` or of any
 firmly placed part), its items' centres `pitch` apart. Two parts at a
