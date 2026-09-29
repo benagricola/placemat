@@ -56,15 +56,15 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **Intent first** (unreleased; the owner, 2026-09-29; audits
+- **Intent first** (0.53.0; the owner, 2026-09-29; audits
   `docs/audits/2026-09-29-*.md`): the skill leads with declaring by intent,
   api.md opens with an intent index, the check line counts computed offsets;
   the documented forms that were broken fixed; fixed-set arguments as enums.
-- **Written groups one level; board.group** (unreleased; PLACEMAT_GAPS
+- **Written groups one level; board.group** (0.53.0; PLACEMAT_GAPS
   2026-09-29 "groups a hand placement can move").
-- **A keepout's allowed net admits no part** (unreleased; the docs' rule).
+- **A keepout's allowed net admits no part** (0.53.0; the docs' rule).
 - **placemat nets; parts without an order number; findings naming copper;
-  corridors on one layer** (unreleased; PLACEMAT_GAPS 2026-09-28/29).
+  corridors on one layer** (0.53.0; PLACEMAT_GAPS 2026-09-28/29).
 
 - **Staircase routes** (0.52.0; PLACEMAT_GAPS 2026-09-29 "how jagged the kept
   routes are"; spec `2026-09-29-router-turn-cost-design.md`): the router's
