@@ -62,7 +62,7 @@ and write that form. When nothing here says it, do not compute it: see
 | silk text on a connector, jumper, switch or LED | `board.label(item, text, side=)` | Labels |
 | a part beside another part, a gap off its envelope | no form yet | SKILL.md, Known gaps |
 | a row or stack measured from a part, not an edge | no form yet | SKILL.md, Known gaps |
-| a pour over a set of pads | no form yet | SKILL.md, Known gaps |
+| a pour over a set of pads | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: through the pads, grown over every same-net pad its outline touches | Copper |
 
 ## Questions (answered from the generated board, before anything moves)
 

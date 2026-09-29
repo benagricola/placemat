@@ -1,7 +1,7 @@
 # The intent relations layout scripts are missing
 
 Date: 2026-09-29
-Status: draft
+Status: draft (item 2 corrected: the pour over pads exists)
 Replaces: 2026-09-29-pad-references-design.md (withdrawn: it made coordinate
 arithmetic official instead of naming the relations)
 Source: docs/audits/2026-09-29-intent-vocabulary.md (section 3) and
@@ -41,11 +41,15 @@ Each entry gives its form and how many sites need it today.
      - default MID.
    - The item may be a part, a cell or a keepout.
    - It waits for the item to be placed.
-2. **A pour over a set of pads** (99).
-   - `board.pour_pads(net, [PadRef...])`: one pour over the named same-net
-     pads' copper. Another net's pad inside it is refused, naming the pad.
-   - `board.finger(..., width=PadRef(...))`: a neck as wide as that pad
-     across the run.
+2. **A pour over a set of pads** (99). This already exists:
+   `board.pour(net, [PadRef...], swallow_pads=True)` draws through the pads
+   and grows the pour over every same-net pad its outline touches (since
+   the rewrite, eb0a7a7). The scripts did not use it, and the audits missed
+   it. Two things are left to add:
+   - two pads, where a polygon needs three points (a neck from one pad to
+     another);
+   - `board.finger(..., width=PadRef(...))`: a finger, which already runs
+     pad to pad, as wide as a named pad.
 3. **A row or stack off a part** (51).
    - `board.row(items, Edge.SOUTH, of=Part("u1"), align=Along.START)`: the
      row runs along the part's south side, each item at the envelope gap.

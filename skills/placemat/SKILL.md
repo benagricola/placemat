@@ -72,7 +72,6 @@ shrink - the maintainers are building these.
 - A row or a stack measured from a part, not a board edge.
 - A lane: a track, a via row or a column held a clearance off pad ends, a
   via or another track.
-- A pour over a set of pads.
 - Vias on a pad's axis, in rows under a pin row, or stitched along a
   region's edge.
 - Which end of a track's leg takes the 45.
