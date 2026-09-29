@@ -1,7 +1,7 @@
 """Migration check (docs/superpowers/specs/2026-09-29-missing-intent-relations-design.md,
 "Verification"): a stack of small parts down a part's own east side, as
 docs/audits/2026-09-29-layout-scripts.md section 3 (R2, "rows off a part")
-describes (Monitoring_layout.py:101-110, "a row fanned about the middle of
+describes ("a row fanned about the middle of
 pins 7 and 8"; the general pattern: several small parts stacked off a
 part's envelope, gap apart). Unrolled by hand below as `_hand_placed()`,
 the way a script wrote it before `row(of=)` existed: each item's envelope

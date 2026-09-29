@@ -121,7 +121,7 @@ def test_a_past_with_no_pads_is_refused():
 # ---------------------------------------------------------------- migration
 def test_migration_a_hand_computed_lane_matches_between():
     """The audit's recurring pattern (docs/audits/2026-09-29-layout-scripts.md
-    section 3, R5; PdController_layout.py's LANE_30/31/32): a lane's x
+    section 3, R5; a module's hand-computed lane constants): a lane's x
     hand-computed as the mid-gap between two facing pads, then a track run
     along it. With equal-sized, facing pads the mid-gap and the pad-centre
     midpoint are the same line, so Between(a, b) must draw the same
