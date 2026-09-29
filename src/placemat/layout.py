@@ -3206,8 +3206,17 @@ class Board:
 
         def plan(ctx):
             if over is not None:
-                box = Box.union([self._drawn_envelope_box(it, self._item_placement(ctx.occ, it))
-                                 for it in over]).inflate(float(margin))
+                boxes = []
+                for it in over:
+                    geom, key, kind = self._item(it)
+                    if kind == "cell" and key not in self._cell_placements:
+                        # a cell the script never places stands where the generator put it: its
+                        # members, each where it is
+                        boxes += [self._drawn_envelope_box(Part(fp.inst), ctx.occ.items[fp.ref].reference)
+                                  for fp in geom.members]
+                    else:
+                        boxes.append(self._drawn_envelope_box(it, self._item_placement(ctx.occ, it)))
+                box = Box.union(boxes).inflate(float(margin))
                 frame = ctx.occ.board_box
                 if frame is not None:
                     f = frame.inflate(-inset)

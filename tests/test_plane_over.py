@@ -131,3 +131,15 @@ def test_a_plane_over_a_cell_and_a_part_beside_it_covers_both():
     got = _zone_box(plan)
     assert (got.left, got.top, got.right, got.bottom) == pytest.approx(
         (want.left, want.top, want.right, want.bottom))
+
+
+def test_a_plane_over_a_cell_the_script_never_places_covers_it_where_it_stands():
+    """A cell left where the generator put it: the plane reads its members
+    there, rather than failing for want of a placement the script never made."""
+    fps = [footprint("U1", 10, 10, w=4, h=2, inst="k/u1", cell="k", nets=("A", "GND"), fab=(8, 9, 12, 11)),
+           footprint("R1", 16, 12, w=2, h=1, inst="k/r1", cell="k", nets=("A", "GND"), fab=(15, 11.5, 17, 12.5))]
+    b = Board(board_geometry(fps, cells=("k",), width=60, height=60), edge_margin=1.0, keep_going=True)
+    b.plane(Net("GND"), layers=(CopperLayer.B,), over=[Cell("k")])
+    plan = b.resolve()
+    got = _zone_box(plan)
+    assert (got.left, got.top, got.right, got.bottom) == pytest.approx((8.0, 9.0, 17.0, 12.5))
