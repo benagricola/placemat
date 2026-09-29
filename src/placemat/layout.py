@@ -2216,7 +2216,16 @@ class Board:
                 return not ctx.occ.copper_conflicts(shape)
             located = [ctx.locate(p) for p in points]
             pts = octilinear(located, pads, clear)
-            ops = polyline_tracks(name, layer, w, chamfered(pts, chamfer))
+            cut_pts = chamfered(pts, chamfer)
+            ops = polyline_tracks(name, layer, w, cut_pts)
+            if chamfer > 0:
+                # a leg both of whose ends are new points (not among the pre-chamfer legs) is the 45 the
+                # chamfer cut from a right-angle corner, not a leg the script asked for
+                import dataclasses
+                original = {(round(p.x, 6), round(p.y, 6)) for p in pts}
+                ops = [dataclasses.replace(t, chamfer_cut=(
+                    (round(t.start.x, 6), round(t.start.y, 6)) not in original and
+                    (round(t.end.x, 6), round(t.end.y, 6)) not in original)) for t in ops]
             if len(points) > 2 and any(not clear(t.start, t.end) for t in ops):
                 # the script's waypoints steer this track into a pad: would pad to pad clear?
                 direct = polyline_tracks(name, layer, w, chamfered(octilinear([located[0], located[-1]], [pads[0], pads[-1]], clear), chamfer))
@@ -3396,7 +3405,11 @@ class Board:
             if shape is None:
                 continue
             for hit in occ.copper_conflicts(shape):
-                plan.findings.append(Finding("copper", "copper %s: %s" % (op.net, hit)))
+                note = "copper %s: %s" % (op.net, hit)
+                if isinstance(op, Track) and op.chamfer_cut:
+                    mx, my = (op.start.x + op.end.x) / 2.0, (op.start.y + op.end.y) / 2.0
+                    note += "; the 45 of its chamfer at (%.2f, %.2f); a smaller chamfer= there keeps clear" % (mx, my)
+                plan.findings.append(Finding("copper", note))
             shapes.append(shape)
             if isinstance(op, Via):
                 shapes.append(hole_shape("", op.at, op.drill, op.net))     # what is placed after keeps its holes clear
@@ -4326,7 +4339,8 @@ def _shape_of(op) -> Shape | None:
     both = frozenset([Face.FRONT, Face.BACK])
     if isinstance(op, Track):
         faces = frozenset([op.layer.face]) if op.layer.face else frozenset()
-        return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.polygon, op.box)
+        return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.polygon, op.box,
+                    ends=((op.start.x, op.start.y), (op.end.x, op.end.y)))
     if isinstance(op, Via):
         return Shape("", "through", both, frozenset(CopperLayer), op.net, op.polygon, op.box)
     if isinstance(op, Pour):

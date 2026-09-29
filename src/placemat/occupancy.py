@@ -35,6 +35,7 @@ class Shape:
     poly: Polygon
     box: Box
     label: str = ""                 # pad number for a pad shape
+    ends: tuple = ()                # a track's own two endpoints, for a finding that names the segment
 
 
 # A Shape as a plain tuple, for the optional native accelerator (kind,
@@ -1420,10 +1421,14 @@ class Occupancy:
                     return "via %s at (%.2f, %.2f)%s is %.2f mm from %s copper on %s (needs %.2f)" % (
                         s.net or "-", c.x, c.y, " (%s)" % s.owner[len("via "):] if s.owner.startswith("via at ") else "",
                         gap, o.net or self.who(o.owner), "/".join(sorted(l.value for l in common)), clr)
-                what = "pad" if s.kind in ("pad", "through") else "copper"
-                return "%s %s %s is %.2f mm from %s copper on %s (needs %.2f)" % (
-                    self.who(s.owner), what, s.net or "-", gap, o.net or self.who(o.owner),
-                    "/".join(sorted(l.value for l in common)), clr)
+                if s.kind == "copper" and s.ends:      # a declared track: name the segment, not its owner
+                    who = "track %s (%.2f, %.2f)-(%.2f, %.2f)" % (
+                        s.net or "-", s.ends[0][0], s.ends[0][1], s.ends[1][0], s.ends[1][1])
+                else:
+                    what = "pad" if s.kind in ("pad", "through") else "copper"
+                    who = "%s %s %s" % (self.who(s.owner), what, s.net or "-")
+                return "%s is %.2f mm from %s copper on %s (needs %.2f)" % (
+                    who, gap, o.net or self.who(o.owner), "/".join(sorted(l.value for l in common)), clr)
             return None
         if (ks == "npth" and ko in _COPPERISH) or (ko == "npth" and ks in _COPPERISH):
             hole, metal = (s, o) if ks == "npth" else (o, s)

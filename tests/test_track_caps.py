@@ -31,7 +31,7 @@ def test_a_track_ending_diagonally_off_a_pad_corner_is_no_finding():
     assert not [f for f in plan.findings if "copper" in f], plan.findings
 
 
-def test_a_conflict_names_a_track_as_copper_not_a_pad():
+def test_a_conflict_names_a_track_as_its_segment_not_a_pad():
     fp = footprint("U1", 10.6, 10.0, w=1.2, h=1.0, inst="u1", nets=("Y", "Y"))
     g = board_geometry([fp, footprint("R1", 2, 10, w=2, h=1, inst="r1", nets=("X", "Z"))], width=30, height=30,
                        clearance=0.16)
@@ -40,7 +40,7 @@ def test_a_conflict_names_a_track_as_copper_not_a_pad():
     b.place(Part("r1"), at=Location(2, 10))
     b.track(Net("X"), [Location(4.0, 10.0), Location(10.0, 10.0)], layer=CopperLayer.F, width=0.2)
     hits = [f for f in b.resolve().findings if "copper X" in f]
-    assert hits and all(" copper X is " in f and " pad X " not in f for f in hits), hits
+    assert hits and all("track X (4.00, 10.00)-(10.00, 10.00) is " in f and " pad X " not in f for f in hits), hits
 
 
 def _advice(crossing: bool):

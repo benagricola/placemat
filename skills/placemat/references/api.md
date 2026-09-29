@@ -862,7 +862,12 @@ after the search, once its shape is known. A via at a searched part's pad
 through its search: the part, or the cell or block holding it, carries the
 via's ring on every layer and its hole, so it lands where the via clears the
 other face's copper and holes. A copper finding against a via names it as
-one: "via GND at (x, y) is ...".
+one: "via GND at (x, y) is ...". A finding against a declared `track()`
+names the conflicting segment by its ends and layer, not its net alone:
+"track SW (x, y)-(x, y) is ...". When that segment is the 45 a corner's
+`chamfer` cut, not a leg the script asked for, the finding says so and
+points at the fix: "...; the 45 of its chamfer at (x, y); a smaller
+chamfer= there keeps clear".
 
 **A via where one fits.** `FreeSpot(near=PadRef(...), radius=2.0, step=0.05,
 layer=None, in_pad=False)` is the nearest point to the pad where a via clears
@@ -1113,15 +1118,25 @@ second and a half a page and only runs on pages under 200 characters.
 placemat-design skill says which) and reports hot loop area, switch node
 copper, keep-out distance, crossings under sense tracks, current path
 width against IPC-2221 and junction temperature; exit 1 on a failed
-verdict. The current path is the route the load takes, through tracks,
-vias, pours and zone fills alike - a zone fill's own width is not measured
+verdict. The keep-out verdict names the two pieces of copper that set its
+distance and their points, a pad by its part and number, a track or via by
+its net and ends: "U3 pad 5 (SW) at (x, y) to U3 pad 9 (FB) at (x, y);
+both pads of U3, a distance its footprint sets" when both are pads of one
+part - a distance placement cannot change. `--json` carries the same
+fields, in the verdict's note. The current path is the route the load
+takes, through tracks, vias, pours and zone fills alike - a zone fill's
+own width is not measured
 (as KiCad stores a fill, each hole is slit to its outline), so a route through
 one is judged by its other copper, says so, and a route through a fill alone
 is not judged: each two parts carrying `Pm.I` on the net
 are judged at the lesser of their two currents - what can flow between
 them - by the narrowest point of the widest route from any pad of one to
 any pad of the other; the net's verdict is its worst pair, naming both ends
-and the current. With one carrier, its widest route to another part's pad
+and the current, and its neck: the point along the route the width is
+narrowest, and how far the route stays within 10% of that width, measured
+along the copper the widest route passes - "neck at (x, y), 0.9 mm long".
+Where the neck is a zone fill, whose width is not measured, no neck point
+is given. With one carrier, its widest route to another part's pad
 at its own current. A part carries on a net only at a current above zero:
 a per-net `Pm.I` that leaves a net out, or gives it 0, leaves a sense pin
 out of the load. Two carriers no copper joins yet are said, not judged. A board with no facts reports nothing to check. **Every `placemat
