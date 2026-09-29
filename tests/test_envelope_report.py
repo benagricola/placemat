@@ -66,7 +66,7 @@ def test_measure_json_gives_each_box_by_its_edges():
     f = part_facts(_wide())
     assert f["boxes"]["courtyard"] == pytest.approx([7.9, 8.9, 12.1, 11.1])
     assert f["boxes"]["envelope"] == pytest.approx([7.5, 8.8, 12.0, 11.4])
-    assert set(f["boxes"]) == {"body", "courtyard", "physical", "envelope"}
+    assert set(f["boxes"]) == {"body", "courtyard", "physical", "envelope", "fab"}     # fab: its fab graphics drawn
 
 
 def test_measure_pads_give_each_outline():
@@ -94,3 +94,41 @@ def test_measure_pads_print_the_mask_and_paste_a_pad_opens():
     fp = _wide()
     fp = dc.replace(fp, pads=tuple(dc.replace(p, mask_paste=("F.Mask", "F.Paste")) for p in fp.pads))
     assert any(l.rstrip().endswith("F.Mask/F.Paste") for l in part_lines(fp, pads=True))
+
+
+def test_the_item_that_sets_each_side_is_named_with_its_box():
+    """A footprint drawing several silk items: which one sets a side, and where
+    it is, not only that silk does."""
+    from placemat.envelope import envelope_items
+    fp = footprint("U1", 10, 10, inst="u1", silk_boxes=[(9.0, 10.9, 9.2, 11.1), (7.5, 9.0, 12.0, 9.1)],
+                   fab=(8.5, 8.8, 11.5, 11.4))
+    items = envelope_items(fp)
+    assert items["left"]["layer"] == "silk" and items["left"]["index"] == 2 and items["left"]["of"] == 2
+    assert items["left"]["box"] == pytest.approx([7.5, 9.0, 12.0, 9.1])
+    assert items["bottom"]["layer"] == "body"
+    text = "\n".join(part_lines(fp, envelope=True))
+    assert "left   silk 2 of 2  box 7.50 9.00 12.00 9.10" in text, text
+
+
+def test_measure_reads_each_model_with_its_transform(tmp_path):
+    """A footprint's 3D model: its file, offset, rotation and scale, so a
+    model that lost its turn shows without a render."""
+    pcbnew = pytest.importorskip("pcbnew")
+    from placemat.kicad.read import read_board
+    b = pcbnew.CreateEmptyBoard()
+    fp = pcbnew.FOOTPRINT(b)
+    fp.SetReference("U1")
+    fp.SetPosition(pcbnew.VECTOR2I(pcbnew.FromMM(10), pcbnew.FromMM(10)))
+    m = pcbnew.FP_3DMODEL()
+    m.m_Filename = "${KICAD9_3DMODEL_DIR}/Package.3dshapes/Part.step"
+    m.m_Rotation = pcbnew.VECTOR3D(0, 0, 90)
+    m.m_Offset = pcbnew.VECTOR3D(0.5, 0, 0)
+    fp.Models().push_back(m)
+    b.Add(fp)
+    path = tmp_path / "m.kicad_pcb"
+    b.Save(str(path))
+    got = read_board(path).footprint("U1").models
+    assert got == (("${KICAD9_3DMODEL_DIR}/Package.3dshapes/Part.step", (0.5, 0.0, 0.0), (0.0, 0.0, 90.0),
+                    (1.0, 1.0, 1.0)),)
+    text = "\n".join(part_lines(read_board(path).footprint("U1")))
+    assert "model Part.step  offset 0.50 0.00 0.00  rotate 0 0 90  scale 1 1 1" in text, text

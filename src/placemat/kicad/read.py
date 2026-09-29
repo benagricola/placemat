@@ -317,6 +317,12 @@ def _npth(fp):
     return tuple(out)
 
 
+def _models(fp) -> tuple:
+    def xyz(v):
+        return (round(v.x, 6), round(v.y, 6), round(v.z, 6))
+    return tuple((m.m_Filename, xyz(m.m_Offset), xyz(m.m_Rotation), xyz(m.m_Scale)) for m in fp.Models())
+
+
 def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footprint:
     pos = fp.GetPosition()
     return Footprint(ref=fp.GetReference(), inst=inst_of(fp), cell=cell, value=fp.GetValue(),
@@ -329,6 +335,7 @@ def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footpr
                      lib_id=fp.GetFPIDAsString(), dnp=fp.IsDNP(),
                      bom_excluded=fp.IsExcludedFromBOM(), board_only=fp.IsBoardOnly(),
                      net_tie_pads=frozenset(p.GetNumber() for p in fp.Pads() if fp.IsNetTie() and fp.GetNetTiePads(p)),
+                     models=_models(fp),
                      silk=_silk(fp, err_nm), mask=_mask(fp, err_nm), fab=_fab(fp), copper=_copper_art(fp, err_nm),
                      courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp))
 

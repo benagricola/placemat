@@ -1238,7 +1238,7 @@ placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--islands NET[=W
 placemat routes <script> [--release NET ... | --release-all]
 placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
-placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part ...] [--pads] [--labels] [--outline] [--json]
+placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part ...] [--pads] [--envelope] [--labels] [--outline] [--json]
 placemat parts <layout.kicad_pcb | script> [--field NAME ...] [--json]
 placemat nets <layout.kicad_pcb | script> [--sort COLUMN] [--net NET ...] [--inst] [--json]
 placemat datasheet <pdf> [--show PAGE|TOPIC] [--read] [--no-ocr] [--out DIR] [--dpi N] [--json]
@@ -1262,9 +1262,14 @@ items' descriptions and positions, and every open connection as
 `measure` is the geometry query. Given a board it prints, per part, the
 instance, refdes, value, face, rotation and origin, the `body`, `courtyard` and
 `physical` boxes, its drawn envelope and the layer setting each side, how near
-its courtyard and copper come to the board's edge, and a `footprint:` line
-when its courtyard lies inside its own silk or equals its fab body. `--json`
-gives each box by its edges too, as `boxes` (left, top, right, bottom). `--pads`
+its courtyard and copper come to the board's edge, each 3D model's file,
+offset, rotation and scale, and a `footprint:` line when its courtyard lies
+inside its own silk or equals its fab body. `--json` gives each box by its
+edges too, as `boxes` (left, top, right, bottom; `fab` among them when the
+part draws fab graphics), and the models as `models`. `--envelope` adds, for
+each side of the drawn envelope, the one item that sets it: its layer, which
+of that layer's items it is (a pad by number) and its box (`--json`:
+`envelope_items`). `--pads`
 adds every pad's number, net, layers, drill, centre in the board frame, **the
 box round its copper** - not the anchor size, which for a custom pad is not the
 copper - and the mask and paste layers it opens, and under a custom pad

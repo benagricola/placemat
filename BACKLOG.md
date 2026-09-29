@@ -18,8 +18,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **One land of a multi-land pin** (PLACEMAT_GAPS 2026-09-29): `PadRef`
   names the first land; a pin drawn as a tab, small pads and an exposed pad
   needs the largest (or an index), and the union's box.
-- **Which silk item sets each side of a part's envelope** (PLACEMAT_GAPS
-  2026-09-29): `measure --envelope` naming the item, its layer and box.
 - **Reference arithmetic or a 45-degree lane** (PLACEMAT_GAPS 2026-09-29 "a
   position that is a sum of an x and a y"; needs a spec): `X(a) + Y(b) - k`
   or a `Diagonal(ref, clearance)` lane; `X(Part)` is the box centre, not the
@@ -49,10 +47,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   pour's outline").
 - **A pad and solder-joint count in the run summary; DRC items with each
   part's instance path beside its refdes** (PLACEMAT_GAPS 2026-09-28).
-- **`measure` printing a footprint's model path and transform, and its fab
-  box in `--json`** (PLACEMAT_GAPS 2026-09-27, two entries; 2026-09-29 "a
-  footprint's 3D model transform": a finding when a model's box does not
-  sit over the pads).
+- **A finding when a 3D model's box does not sit over the footprint's pads**
+  (PLACEMAT_GAPS 2026-09-29 "a footprint's 3D model transform"; the path and
+  transform are in `measure` now): needs the model file's own extents.
 - **A zone fill's width along the load's route** (from the current-path
   review, 2026-09-28): `check current-path` does not measure a fill's own
   width (KiCad slits each hole to the outline, so its narrowest neck reads

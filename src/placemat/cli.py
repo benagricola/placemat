@@ -87,6 +87,8 @@ def parser() -> argparse.ArgumentParser:
     m.add_argument("items", nargs="*", help="cell names or part instances (default: every cell)")
     m.add_argument("--pads", action="store_true",
                    help="every pad's number, net, layers, centre and copper box")
+    m.add_argument("--envelope", action="store_true",
+                   help="for each side of a part's drawn envelope, the item that sets it: its layer, which one and its box")
     m.add_argument("--labels", action="store_true",
                    help="the board's silk texts (board.label() and a stamped cell's) with the box KiCad draws")
     m.add_argument("--outline", action="store_true",
@@ -631,7 +633,7 @@ def cmd_measure(args) -> int:
             console.data(json.dumps({"parts": [doc]}, indent=2))
         else:
             console.lines("measure", "\n".join(
-                describe.part_lines(fp, pads=args.pads, digest=digest)))
+                describe.part_lines(fp, pads=args.pads, digest=digest, envelope=args.envelope)))
         return 0
     pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
     if getattr(args, "outline", False):
@@ -692,7 +694,7 @@ def cmd_measure(args) -> int:
             doc["pads"] = [describe.pad_facts(fp, q, snap) for q in fp.pads]
             doc["copper_on_pads"] = describe.copper_on(fp, snap)
         docs.append(doc)
-        lines += describe.part_lines(fp, snap, pads=args.pads)
+        lines += describe.part_lines(fp, snap, pads=args.pads, envelope=args.envelope)
     if args.json:
         console.data(json.dumps({"parts": docs}, indent=2))
     else:

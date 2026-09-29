@@ -79,6 +79,7 @@ class Footprint:
     bom_excluded: bool = field(default=False, compare=False)    # left out of the BOM (FOOTPRINT::IsExcludedFromBOM)
     board_only: bool = field(default=False, compare=False)      # on the board only, not the schematic (FOOTPRINT::IsBoardOnly)
     net_tie_pads: frozenset = field(default=frozenset(), compare=False)   # pad numbers in a net-tie group (FOOTPRINT::GetNetTiePads)
+    models: tuple = field(default=(), compare=False)   # ((file, offset xyz, rotation xyz, scale xyz), ...): its 3D models
 
     @property
     def box(self) -> Box:

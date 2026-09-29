@@ -6,6 +6,10 @@ whether any of it applies.
 
 ## Unreleased
 
+`placemat measure` prints each 3D model's file, offset, rotation and scale,
+and `--envelope` names the item that sets each side of a part's drawn
+envelope; `--json` adds `models`, `envelope_items` and a `fab` box.
+
 A cell nested in another cell's group (a module sheet's child) is written
 where the plan puts it: placing the parent moved the child group with it,
 after the child had been placed, off its spot with no finding. The parent

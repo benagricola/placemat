@@ -29,6 +29,33 @@ def drawn_envelope(fp):
     return box, sides
 
 
+def envelope_items(fp) -> dict:
+    """For each side of the drawn envelope, the one item that sets it: its
+    layer (as `drawn_envelope` names it), which of that layer's items it is
+    (1-based, of how many; a pad by its number) and its box."""
+    items = {"silk": [Box.of_points(p) for _, p in fp.silk],
+             "body": [Box.of_points(p) for _, p in fp.fab],
+             "mask": [Box.of_points(p) for _, p in fp.mask],
+             "copper": [p.box for p in fp.pads]}
+    box, sides = drawn_envelope(fp)
+    if box is None:
+        return {}
+    out = {}
+    for side, pick in (("left", lambda b: -b.left), ("top", lambda b: -b.top),
+                       ("right", lambda b: b.right), ("bottom", lambda b: b.bottom)):
+        layer = sides[side]
+        boxes = items[layer]
+        far = max(pick(b) for b in boxes)
+        i = next(i for i, b in enumerate(boxes) if abs(pick(b) - far) < 1e-9)
+        b = boxes[i]
+        entry = {"layer": layer, "index": i + 1, "of": len(boxes),
+                 "box": [round(b.left, 3), round(b.top, 3), round(b.right, 3), round(b.bottom, 3)]}
+        if layer == "copper":
+            entry["pad"] = fp.pads[i].number
+        out[side] = entry
+    return out
+
+
 def understatement(fp, clearance: float):
     """How far the footprint's silk or pads pass its courtyard, and which,
     when that is more than `clearance`; else None."""

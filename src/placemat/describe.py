@@ -71,9 +71,15 @@ def part_facts(fp, geometry=None) -> dict:
     out["boxes"] = {"body": _ltrb(fp.body_box), "courtyard": _ltrb(fp.courtyard_box),
                     "physical": _ltrb(fp.phys_box), "envelope": _ltrb(env if env is not None else fp.phys_box)}
     if env is not None:
+        from .envelope import envelope_items
         out["envelope"] = _wh(env)
         out["envelope_set_by"] = sides
+        out["envelope_items"] = envelope_items(fp)
     out["footprint_findings"] = courtyard_findings(fp)
+    out["models"] = [{"file": path, "offset": list(off), "rotate": list(rot), "scale": list(scale)}
+                     for path, off, rot, scale in getattr(fp, "models", ())]
+    if fp.fab:
+        out["boxes"]["fab"] = _ltrb(Box.union([Box.of_points(p) for _, p in fp.fab]))
     court = nearest_edge(_box_poly(fp.courtyard_box), geometry) if geometry is not None else None
     if court is not None:
         out["nearest_edge_courtyard"] = court
@@ -102,7 +108,7 @@ def copper_on(fp, geometry) -> dict:
     return hits
 
 
-def part_lines(fp, geometry=None, pads: bool = False, digest: str = "") -> list:
+def part_lines(fp, geometry=None, pads: bool = False, digest: str = "", envelope: bool = False) -> list:
     f = part_facts(fp, geometry)
     lines = ["part  %-24s %-6s %s" % (f["instance"], f["ref"], f["value"])]
     lines.append("  face %-6s rotation %-6g origin (%.2f, %.2f)%s" % (
@@ -115,6 +121,15 @@ def part_lines(fp, geometry=None, pads: bool = False, digest: str = "") -> list:
     if env is not None:
         lines.append("  envelope %.2f x %.2f   set by %s" % (
             env.width, env.height, ", ".join("%s %s" % (k, sides[k]) for k in ("left", "top", "right", "bottom"))))
+        if envelope:
+            from .envelope import envelope_items
+            for side, it in envelope_items(fp).items():
+                lines.append("    %-6s %s %s  box %.2f %.2f %.2f %.2f" % (
+                    side, it["layer"], "pad %s" % it["pad"] if "pad" in it else "%d of %d" % (it["index"], it["of"]),
+                    *it["box"]))
+    for path, off, rot, scale in getattr(fp, "models", ()):
+        lines.append("  model %s  offset %.2f %.2f %.2f  rotate %g %g %g  scale %g %g %g" % (
+            path.replace("\\", "/").rsplit("/", 1)[-1], *off, *rot, *scale))
     for finding in f["footprint_findings"]:
         lines.append("  footprint: %s" % finding)
     if "nearest_edge_courtyard" in f:
