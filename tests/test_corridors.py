@@ -2,10 +2,11 @@
 blockers across the narrowest cut when there is none. Pure: synthetic
 geometry, no KiCad, except the timing check on the breakout board."""
 import dataclasses
+import math
 import time
 
 from placemat import queries, routes
-from placemat.board_geometry import CopperItem
+from placemat.board_geometry import CopperItem, RuleArea
 from placemat.values import Box, CopperLayer, Location
 from tests.conftest import needs_breakout, needs_kicad
 from tests.fixtures import board_geometry, footprint, track
@@ -90,6 +91,38 @@ def test_the_shortest_path_and_up_to_two_disjoint_alternatives():
     assert not (first - ends) & (second - ends)
 
 
+def test_alternatives_keep_a_track_and_clearance_away_from_the_shortest():
+    """An "alternative" a cell over from the shortest still fits a second
+    track against the first's clearance - not a genuinely different
+    corridor. Away from the pads themselves - every path shares that one
+    point, and cannot keep a clearance from itself there - its cells must
+    stand at least width + clearance from every cell of the shortest."""
+    g = _geom()
+    result = queries.corridor(g, Location(5, 25), Location(45, 25), "SIG", 0.3, F)
+    assert len(result.paths) >= 2
+    need = math.ceil((0.3 + g.clearance("SIG")) / queries.GRID_MM)
+    a_idx, b_idx = queries._snap(Location(5, 25)), queries._snap(Location(45, 25))
+
+    def away(cells):
+        return {(x, y) for x, y in cells
+                if max(abs(x - a_idx[0]), abs(y - a_idx[1])) > need
+                and max(abs(x - b_idx[0]), abs(y - b_idx[1])) > need}
+    first, second = away(_cells(result.paths[0].points)), away(_cells(result.paths[1].points))
+    assert first and second
+    gap = min(max(abs(x1 - x2), abs(y1 - y2)) for x1, y1 in first for x2, y2 in second)
+    assert gap >= need
+
+
+def test_a_gap_that_fits_one_track_gives_one_path():
+    """A 1 mm slot leaves 0.3 mm passable once each side's clearance is
+    taken off - less than a second track's own width - so growing the
+    avoided cells round the shortest path swallows what is left."""
+    g = _geom([_zone("GND", 24, 0, 26, 24.5), _zone("GND", 24, 25.5, 26, 50)])
+    result = queries.corridor(g, Location(5, 25), Location(45, 25), "SIG", 0.3, F)
+    assert len(result.paths) == 1
+    assert result.paths[0].turns == 0
+
+
 def test_ignore_kept_opens_a_route_a_kept_track_closes():
     fp = footprint("J1", 20, 25, w=2.0, h=2.0, nets=("X", "X"))
     g = _geom([track("PWR", 20, 0, 20, 50, w=1.0)], fps=[fp])
@@ -109,6 +142,27 @@ def test_ignore_kept_opens_a_route_a_kept_track_closes():
     assert opened.paths
 
 
+def test_ignore_kept_does_not_remove_a_different_track_sharing_an_endpoint():
+    """Two tracks that share an endpoint overlap at their round caps: only
+    the kept op itself - matched by both its anchors, not just the overlap -
+    is taken out, not a different track that happens to start where it
+    ends."""
+    fp = footprint("J1", 20, 25, w=2.0, h=2.0, nets=("X", "X"))
+    other = track("PWR", 20, 25, 40, 25, w=1.0)          # starts at the kept track's own end
+    g = _geom([track("PWR", 20, 0, 20, 25, w=1.0), other], fps=[fp])
+    c = fp.pad(1).box.center
+    entry = routes.RouteEntry(
+        net="PWR",
+        tracks=({"layer": "F.Cu", "width": 1.0,
+                "a": {"anchor": [fp.inst, "1"], "offset": [20.0 - c.x, 0.0 - c.y]},
+                "b": {"anchor": [fp.inst, "1"], "offset": [20.0 - c.x, 25.0 - c.y]}},),
+        vias=(),
+        parts={fp.inst: {"face": fp.face.value, "pads": {"1": [c.x, c.y]}}})
+    filtered = routes.without_kept(g, [entry], tolerance=0.01)
+    kept = [item for item in filtered.copper if item.kind == "track" and item.net == "PWR"]
+    assert len(kept) == 1 and kept[0].box == other.box
+
+
 def test_an_entry_that_no_longer_holds_removes_nothing():
     """A kept entry whose part moved (here: is simply absent) does not draw,
     so there is nothing of its to leave out."""
@@ -120,6 +174,58 @@ def test_an_entry_that_no_longer_holds_removes_nothing():
         vias=(), parts={"gone": {"face": "front", "pads": {"1": [20.0, 0.0]}}})
     filtered = routes.without_kept(g, [entry], tolerance=0.01)
     assert any(item.kind == "track" and item.net == "PWR" for item in filtered.copper)
+
+
+def test_a_track_keepout_blocks_a_path_and_is_named_among_the_blockers():
+    box = ((24.0, 0.0), (26.0, 0.0), (26.0, 50.0), (24.0, 50.0))
+    keepout = RuleArea("keepout no_tracks", None, box, frozenset([F]), frozenset(["tracks"]))
+    g = _geom(rule_areas=(keepout,))
+    result = queries.corridor(g, Location(5, 25), Location(45, 25), "SIG", 0.3, F)
+    assert not result.paths
+    assert any("no_tracks" in b for b in result.blockers)
+
+
+def test_a_keepouts_allowed_net_passes_through_it():
+    box = ((24.0, 0.0), (26.0, 0.0), (26.0, 50.0), (24.0, 50.0))
+    keepout = RuleArea("keepout no_tracks", None, box, frozenset([F]), frozenset(["tracks"]),
+                       allow=frozenset(["SIG"]))
+    g = _geom(rule_areas=(keepout,))
+    result = queries.corridor(g, Location(5, 25), Location(45, 25), "SIG", 0.3, F)
+    assert result.paths and result.paths[0].turns == 0
+
+
+def test_a_via_only_keepout_does_not_block_a_track_corridor():
+    box = ((24.0, 0.0), (26.0, 0.0), (26.0, 50.0), (24.0, 50.0))
+    keepout = RuleArea("keepout no_vias", None, box, frozenset([F]), frozenset(["vias"]))
+    g = _geom(rule_areas=(keepout,))
+    result = queries.corridor(g, Location(5, 25), Location(45, 25), "SIG", 0.3, F)
+    assert result.paths and result.paths[0].turns == 0
+
+
+def test_the_first_and_last_corner_are_the_pads_own_centres():
+    """The search snaps to the 0.1 mm grid; the reported ends must not."""
+    g = _geom()
+    a, b = Location(5.03, 25.04), Location(44.97, 24.96)
+    result = queries.corridor(g, a, b, "SIG", 0.3, F)
+    assert result.paths[0].points[0] == (a.x, a.y)
+    assert result.paths[0].points[-1] == (b.x, b.y)
+
+
+def test_a_round_board_with_no_path_finishes_well_under_the_target():
+    """A many-sided outline used to run the point-in-polygon and
+    edge-distance test against every one of its segments, for every grid
+    node the search visited: a 50 mm-radius, 360-segment round board with
+    a wall and no gap must not turn that into the query's own cost."""
+    ring = tuple((50 + 50 * math.cos(2 * math.pi * k / 360), 50 + 50 * math.sin(2 * math.pi * k / 360))
+                 for k in range(360))
+    g = board_geometry([], copper=[_zone("GND", 49, 0, 51, 100)], width=100, height=100,
+                       extra_nets=("GND", "SIG"), clearance=0.2)
+    g = dataclasses.replace(g, board_polygon=(ring,))
+    t0 = time.time()
+    result = queries.corridor(g, Location(20, 50), Location(80, 50), "SIG", 0.3, F, margin=10)
+    elapsed = time.time() - t0
+    assert elapsed < 10.0, "corridor search took %.2fs" % elapsed
+    assert not result.paths
 
 
 @needs_kicad

@@ -1210,16 +1210,21 @@ via, so the answer names the pour that would give way instead.
 `--layer` from pad A to pad B for a track of `--width` on `--net` (default:
 A's net): every other net's copper that reaches the layer keeps its
 netclass clearance - pads, vias, tracks, foreign zones (unlike a via, a
-zone does not give way to a track) and cutouts. It prints the shortest
-path as its corner points with its length and turn count, and up to two
-more that share no cell with it; with none, the blockers across the
-narrowest cut between A and B, each named (a pad, a via, a track of a net,
-a zone, a cutout). The search is one occupancy built on a 0.1 mm grid -
+zone does not give way to a track) and cutouts - and a rule area forbidding
+tracks on the layer is an obstacle too, unless its `allow=` names the net.
+It prints the shortest path as its corner points - the pads' own centres at
+each end, not the grid node the search snapped them to - with its length
+and turn count, and up to two more that keep at least a track-and-clearance
+gap from it and each other away from the pads themselves (not the same
+corridor shifted a cell); with none, the blockers across the narrowest cut
+between A and B, each named (a pad, a via, a track of a net, a zone, a
+cutout, a keepout). The search is one occupancy built on a 0.1 mm grid -
 the router's default - over the box round A and B grown by `--margin`
 (default 10 mm), built once and searched, not a scan repeated per
 candidate the way `--via-near` is. `--ignore-kept` leaves out the tracks
 and vias of a script's kept routes (`routes.json`; a layout script only,
-not a bare board), to see the room a re-route would have.
+not a bare board), matched by their anchors as well as their outline, to
+see the room a re-route would have.
 
 A page carrying almost no text of its own is read off its render with
 `tesseract` when it is installed; `--no-ocr` turns that off. It costs about a
