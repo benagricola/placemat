@@ -55,15 +55,26 @@ class Run:
         """The point `along` mm from the run's start, and the bearing its
         outward side points along there. On a curve the normal is taken from
         the legs either side, so it turns smoothly instead of stepping at
-        every chord of the flattened arc."""
+        every chord of the flattened arc. The blend into a neighbour reaches
+        only half of whichever leg is shorter, so a long leg's own normal
+        holds through its middle: a straight side swept in with a rounded
+        end's short facets (a run's `within=` need not stop exactly at the
+        tangent) still faces exactly out except right at that corner."""
         legs, lens, norms = self._legs(), self.lengths, self._normals()
         s = max(0.0, min(float(along), sum(lens)))
         for n, (leg, (a, b)) in enumerate(zip(lens, legs)):
             if leg > 0.0 and (s <= leg or n == len(legs) - 1):
-                t = min(1.0, s / leg)
                 v0 = norms[n] if n == 0 else norms[n - 1] + _angle_gap(norms[n], norms[n - 1]) / 2.0
                 v1 = norms[n] if n + 1 >= len(norms) else norms[n] + _angle_gap(norms[n + 1], norms[n]) / 2.0
-                out = (v0 + _angle_gap(v1, v0) * t) % 360.0
+                lo = 0.0 if n == 0 else min(leg, lens[n - 1]) / 2.0
+                hi = 0.0 if n + 1 >= len(lens) else min(leg, lens[n + 1]) / 2.0
+                if s < lo:
+                    out = (v0 + _angle_gap(norms[n], v0) * (s / lo)) % 360.0
+                elif s > leg - hi:
+                    out = (norms[n] + _angle_gap(v1, norms[n]) * ((s - (leg - hi)) / hi)) % 360.0
+                else:
+                    out = norms[n] % 360.0
+                t = min(1.0, s / leg)
                 return Location(round(a[0] + (b[0] - a[0]) * t, 6), round(a[1] + (b[1] - a[1]) * t, 6)), out
             s -= leg
         a, b = legs[-1]

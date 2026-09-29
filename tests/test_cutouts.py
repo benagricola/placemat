@@ -349,6 +349,19 @@ def test_the_two_sides_of_a_slot_are_opposite_stretches():
     assert south.at(south.length / 2.0)[0].y == pytest.approx(29.5, abs=0.02)
 
 
+def test_a_slots_straight_side_faces_exactly_out_off_centre_too():
+    """A run's default within=45 sweeps a sliver of the rounded end caps in
+    alongside the straight run between them; a point away from the middle
+    of the straight run must still face exactly out, not drift toward
+    those caps' curvature the way the long straight leg's whole length
+    once got smoothed toward its short curved neighbours."""
+    b = _with_slot()
+    run = b.cutout("ffc").edge(side=Edge.NORTH)          # straight runs x = 13.0 .. 27.0 (radius 1.5 caps either side)
+    for x in (14.0, 17.0, 20.0, 24.0, 26.0):
+        _, out = run.at(run.project(Location(x, 26.5)))
+        assert out == pytest.approx(180.0, abs=1e-6), (x, out)
+
+
 def test_a_cutout_takes_side_and_refuses_facing():
     b = _with_slot()
     with pytest.raises(TypeError, match="side="):
