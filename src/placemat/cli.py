@@ -100,6 +100,15 @@ def parser() -> argparse.ArgumentParser:
                     help="a footprint field to list for each part (an order code, a manufacturer part number); repeatable")
     pl.add_argument("--json", action="store_true")
 
+    nt = sub.add_parser("nets", help="every net with two or more pads: pad count, parts, span (the minimum "
+                                     "spanning tree over pad centres), routed length, detour, vias, layers, pour")
+    nt.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
+    nt.add_argument("--sort", metavar="COLUMN", default=None,
+                    help="sort by this column (default: span, largest first)")
+    nt.add_argument("--net", nargs="*", default=[], metavar="NET", help="only these nets (default: every one with two or more pads)")
+    nt.add_argument("--inst", action="store_true", help="parts as instance paths rather than refdes")
+    nt.add_argument("--json", action="store_true")
+
     oc = sub.add_parser("occupancy", help="what copper is at a point or in a box, and where a via "
                                           "can stand near a pad")
     oc.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
@@ -685,13 +694,44 @@ def cmd_parts(args) -> int:
     from . import describe
     from .kicad.read import read_board
     from .project import find_board
+    from .settings import load
+    p = Path(args.pcb)
+    src = None if p.suffix == ".kicad_pcb" else find_board(p)
+    pcb = p if src is None else src.pcb
+    snap = read_board(pcb)
+    cfg = load(src.board_dir if src is not None else pcb.parent)
+    warnings = describe.order_warnings(snap, cfg.parts_order_fields)
+    if args.json:
+        console.data(json.dumps({"parts": describe.parts_rows(snap, getattr(args, "field", ())),
+                                 "warnings": warnings}, indent=2))
+        return 0
+    console.lines("parts", "\n".join(describe.parts_lines(snap, getattr(args, "field", ()))))
+    for w in warnings:
+        console.say("parts", w, level="finding")
+    return 0
+
+
+def cmd_nets(args) -> int:
+    from . import nets
+    from .kicad.read import read_board
+    from .kicad.route import plane_nets_of
+    from .project import find_board
     p = Path(args.pcb)
     pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
     snap = read_board(pcb)
+    rows = nets.nets_rows(snap, plane_nets_of(pcb), inst=args.inst)
+    if args.net:
+        wanted = set(args.net)
+        rows = [r for r in rows if r["net"] in wanted]
+    try:
+        rows = nets.sort_rows(rows, args.sort or "span")
+    except ValueError as e:
+        console.say("nets", str(e), level="fail")
+        return 2
     if args.json:
-        console.data(json.dumps({"parts": describe.parts_rows(snap, getattr(args, "field", ()))}, indent=2))
+        console.data(json.dumps({"nets": rows}, indent=2))
         return 0
-    console.lines("parts", "\n".join(describe.parts_lines(snap, getattr(args, "field", ()))))
+    console.lines("nets", "\n".join(nets.nets_lines(rows)))
     return 0
 
 
@@ -1056,7 +1096,7 @@ def main(argv=None) -> int:
 def _dispatch(args) -> int:
     return {"run": cmd_run, "lock": cmd_lock, "freeze": cmd_freeze, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
             "route": cmd_route, "routes": cmd_routes, "check": cmd_check, "show": cmd_show, "faces": cmd_faces,
-            "settings": cmd_settings, "parts": cmd_parts,
+            "settings": cmd_settings, "parts": cmd_parts, "nets": cmd_nets,
             "datasheet": cmd_datasheet, "occupancy": cmd_occupancy, "preview": cmd_preview}[args.command](args)
 
 

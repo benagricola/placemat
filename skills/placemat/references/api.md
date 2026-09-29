@@ -941,6 +941,7 @@ placemat impact <run-dir-or-json> <run-dir-or-json>
 placemat drc <layout.kicad_pcb> [--json]
 placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part ...] [--pads] [--labels] [--outline] [--json]
 placemat parts <layout.kicad_pcb | script> [--field NAME ...] [--json]
+placemat nets <layout.kicad_pcb | script> [--sort COLUMN] [--net NET ...] [--inst] [--json]
 placemat datasheet <pdf> [--show PAGE|TOPIC] [--read] [--no-ocr] [--out DIR] [--dpi N] [--json]
 placemat datasheet check <pdf> <footprint.kicad_mod> [--pitch F] [--pad WxH] [--pads N] [--span F] [--tol F] [--json]
 placemat occupancy <layout.kicad_pcb | script> (--at X,Y | --box X0,Y0,X1,Y1 | --via-near PART.PAD)
@@ -1010,9 +1011,30 @@ whole board comes through at a few pixels a millimetre.
 footprint with its cell, origin (x, y), rotation, courtyard area, pin count and
 value (`--json` adds the body centre and the nets). The area and the pin count are what
 the placement rank is worked out from, so the listing also explains the order
-things went down in.
+things went down in. It also warns for a placed part carrying none of
+`[parts] order_fields` (default `Lcsc`, `LCSC`, `Mpn`, `MPN`) present and
+non-empty - "no order number: R40 (usbpd.r_wet)" - so a board is not sent
+for assembly with a part nobody can buy; a part marked do-not-populate is
+never warned about. `--json` gives the same lines as `warnings`.
 
-Both take `--json`. Reach for these before grepping a `.kicad_mod`.
+`nets` answers "which nets matter": one row per net with at least two pads -
+its pad count and the parts it joins (refs, or instance paths with `--inst`);
+its span, the minimum spanning tree over its pads' centres in mm - how far
+the net has to reach, whatever is routed; its routed length, the sum of its
+tracks' and arcs' own lengths (pcbnew's `GetLength()`, an arc's real path,
+not its chord); its detour, routed length over span (`-` when the net
+carries no track); its via count and the copper layers its tracks use; and
+whether a pour serves it instead of the router (`plane_nets_of`, as `route`
+leaves a plane net unrouted). Rows are sorted by span, largest first,
+by default; `--sort` takes any column name (`net`, `pads`, `parts`, `span`,
+`routed`, `detour`, `vias`, `layers`, `pour`), largest first there too - a
+list-valued column by how many, an unrouted net's `-` detour last. `--net`
+narrows the rows to the nets named. This is the table a fairing once wrote
+pcbnew scripts to get, to choose which nets to declare as copper rather
+than leave to the router.
+
+All three take `--json`. Reach for these before grepping a `.kicad_mod` or
+loading pcbnew in a scratch script.
 
 `datasheet` ranks a PDF's pages against four topics - land pattern, package
 dimensions, layout rules and pin map - and prints the evidence behind each
@@ -1417,6 +1439,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `check.rise_c` | 10.0 | the rise a current path is sized for (`--rise`) |
 | `check.copper_oz` | 1.0 | outer copper weight the widths are sized for (`--copper-oz`) |
 | `check.limits` | none | a bound per check, e.g. `"hot-loop" = 20.0` (`--limit`) |
+| `parts.order_fields` | `["Lcsc", "LCSC", "Mpn", "MPN"]` | a footprint field naming an order code (an LCSC number, an MPN); `parts` warns when a placed part (not `dnp`) has none of them present and non-empty |
 | `explore.slack` | 0.25 | an explored item draws among spots scoring within this fraction of its best |
 | `explore.swap` | 0.2 | the chance two focused items next in the placement order trade turns |
 | `explore.rank_power` | 1.0 | an explored item's spot at rank r among its candidates is drawn with weight 1 / r to this power: higher keeps it nearer its best |

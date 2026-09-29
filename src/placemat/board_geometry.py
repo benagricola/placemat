@@ -75,6 +75,7 @@ class Footprint:
     courtyard_poly: tuple = ()      # KiCad's courtyard polygon on the part's face, board frame; () when it draws none
     fields: dict = field(default_factory=dict, compare=False)   # the footprint's text fields (the capture's Pm.* facts)
     lib_id: str = field(default="", compare=False)              # the footprint it was drawn from, library:name
+    dnp: bool = field(default=False, compare=False)             # "do not populate" (KiCad's own attribute, FOOTPRINT::IsDNP)
 
     @property
     def box(self) -> Box:
@@ -198,6 +199,7 @@ class CopperItem:
     width_mm: float = 0.0       # tracks
     drill_mm: float = 0.0       # vias: the hole, for the hole-to-hole rule
     anchors: tuple = ()         # KiCad's connection points: a track's ends, a via's centre (the ratsnest's nodes)
+    length_mm: float = 0.0      # tracks and arcs: pcbnew's own GetLength(), the path itself, not its chord
 
 
 @dataclass(frozen=True)

@@ -190,6 +190,43 @@ def test_the_docs_cover_read_and_check():
     assert "0.13" in mig
 
 
+def test_a_part_with_neither_order_field_is_missing_one():
+    fps = [footprint("U1", 10.0, 10.0, inst="mcu.u", nets=("A", "GND"))]
+    g = board_geometry(fps, width=60, height=60)
+    order_fields = ["Lcsc", "LCSC", "Mpn", "MPN"]
+    assert describe.missing_order_number(g.footprint("U1"), order_fields) is True
+    assert describe.order_warnings(g, order_fields) == ["no order number: U1 (mcu.u)"]
+
+
+def test_a_part_with_either_order_field_is_not_missing_one():
+    fps = [footprint("U1", 10.0, 10.0, inst="mcu.u", nets=("A", "GND"), fields={"Lcsc": "C12345"}),
+          footprint("U2", 30.0, 30.0, inst="r1", nets=("GND", "C"), fields={"Mpn": "PN-1"})]
+    g = board_geometry(fps, width=60, height=60)
+    assert describe.order_warnings(g, ["Lcsc", "LCSC", "Mpn", "MPN"]) == []
+
+
+def test_a_blank_order_field_still_counts_as_missing():
+    fps = [footprint("U1", 10.0, 10.0, inst="mcu.u", nets=("A", "GND"), fields={"Lcsc": "  "})]
+    g = board_geometry(fps, width=60, height=60)
+    assert describe.order_warnings(g, ["Lcsc", "LCSC", "Mpn", "MPN"]) == ["no order number: U1 (mcu.u)"]
+
+
+def test_a_dnp_part_is_never_missing_an_order_number():
+    fps = [footprint("U1", 10.0, 10.0, inst="mcu.u", nets=("A", "GND"), dnp=True)]
+    g = board_geometry(fps, width=60, height=60)
+    assert describe.order_warnings(g, ["Lcsc", "LCSC", "Mpn", "MPN"]) == []
+
+
+def test_the_order_fields_checked_come_from_the_setting():
+    """A project that keeps its order numbers in a field of its own names it
+    in `[parts] order_fields`; the default fields are not special to
+    `order_warnings` itself."""
+    fps = [footprint("U1", 10.0, 10.0, inst="mcu.u", nets=("A", "GND"), fields={"Order": "X1"})]
+    g = board_geometry(fps, width=60, height=60)
+    assert describe.order_warnings(g, ["Lcsc", "LCSC", "Mpn", "MPN"]) == ["no order number: U1 (mcu.u)"]
+    assert describe.order_warnings(g, ["Order"]) == []
+
+
 def test_the_listing_says_where_each_part_is():
     """The origin, the rotation and the body centre, as the board holds them:
     a session listing positions reached for pcbnew before this."""

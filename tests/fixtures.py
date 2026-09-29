@@ -1,5 +1,6 @@
 """Synthetic BoardGeometry builders so the geometry, occupancy and placer tests run
 without KiCad. A footprint here is a rectangle of pads on a body box."""
+import math
 from pathlib import Path
 import subprocess
 
@@ -26,7 +27,7 @@ def _box_poly(b):
 
 def footprint(ref, cx, cy, w=4.0, h=2.0, nets=("A", "B"), through=False, face=Face.FRONT,
               rotation=0.0, cell=None, inst=None, excess=0.1, fields=None, silk=(0.0, 0.0, 0.0, 0.0),
-              silk_boxes=(), fab=None, mask_grow=None, courtyard_margin=0.0):
+              silk_boxes=(), fab=None, mask_grow=None, courtyard_margin=0.0, dnp=False):
     """A two-pad part: pad 1 at the west end, pad 2 at the east end (rotation 0).
     `silk` is how far drawn graphics reach past the body: (west, north, east, south)."""
     inst = inst or ref.lower()
@@ -47,7 +48,7 @@ def footprint(ref, cx, cy, w=4.0, h=2.0, nets=("A", "B"), through=False, face=Fa
         phys = Box.union([phys] + extra)
     return Footprint(ref, inst, cell, ref, Location(cx, cy), rotation, face,
                      body, body.inflate(excess), phys, pads, fields=dict(fields or {}),
-                     silk=silk_polys, mask=mask_polys, fab=fab_polys, courtyard_margin=courtyard_margin)
+                     silk=silk_polys, mask=mask_polys, fab=fab_polys, courtyard_margin=courtyard_margin, dnp=dnp)
 
 
 def board_geometry(footprints, cells=(), copper=(), width=50.0, height=50.0, clearance=0.2, extra_nets=(),
@@ -71,12 +72,17 @@ def board_geometry(footprints, cells=(), copper=(), width=50.0, height=50.0, cle
                     silk_clearance=silk_clearance)
 
 
-def track(net, x1, y1, x2, y2, w=0.3, layer=CopperLayer.F, owner=None):
+def track(net, x1, y1, x2, y2, w=0.3, layer=CopperLayer.F, owner=None, length=None):
+    """A straight track's length is its endpoints' distance; a curved one
+    (an arc, still kind "track" - read.py does not split them) can give its
+    own `length`, longer than the chord between the same two points."""
     if x1 == x2:
         outline = rect((x1 + x2) / 2, (y1 + y2) / 2, w, abs(y2 - y1) + w)
     else:
         outline = rect((x1 + x2) / 2, (y1 + y2) / 2, abs(x2 - x1) + w, w)
-    return CopperItem("track", net, frozenset([layer]), (outline,), Box.of_points(outline), owner, w)
+    length_mm = math.hypot(x2 - x1, y2 - y1) if length is None else length
+    return CopperItem("track", net, frozenset([layer]), (outline,), Box.of_points(outline), owner, w,
+                      length_mm=length_mm)
 
 
 def make_pdf(path, body: str):
