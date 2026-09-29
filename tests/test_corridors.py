@@ -143,3 +143,15 @@ def test_a_corridor_search_on_the_breakout_finishes_well_under_the_target(breako
     elapsed = time.time() - t0
     assert elapsed < 5.0, "corridor search took %.2fs" % elapsed
     assert result.paths or result.blockers
+
+
+def test_a_path_does_not_cut_a_corner_between_two_blocked_cells():
+    """Two blocked cells meeting at a corner are a wall: a diagonal step
+    between them would pass within clearance of both."""
+    from placemat.queries import _astar, _flood
+    walls = {(1, 0), (0, 1)}
+    in_box = lambda n: 0 <= n[0] <= 1 and 0 <= n[1] <= 1
+    blocked = lambda n: "wall" if n in walls else None
+    assert _astar((0, 0), (1, 1), in_box, blocked, frozenset()) is None
+    seen, _ = _flood((0, 0), in_box, blocked)
+    assert (1, 1) not in seen

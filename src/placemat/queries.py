@@ -332,6 +332,13 @@ _STEPS = tuple((dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if (dx, dy) !=
 _DIAGONAL = math.sqrt(2.0)
 
 
+def _squeezes(cur: tuple, dx: int, dy: int, blocked) -> bool:
+    """Whether a diagonal step passes between two blocked cells meeting at
+    a corner: a wall, which the step would cross within their clearance."""
+    return bool(dx and dy) and blocked((cur[0] + dx, cur[1])) is not None \
+        and blocked((cur[0], cur[1] + dy)) is not None
+
+
 @dataclass(frozen=True)
 class CorridorPath:
     points: tuple           # corner points (x, y) mm, A to B, octilinear
@@ -453,6 +460,8 @@ def _flood(start: tuple, in_box, blocked) -> tuple:
                 continue
             reason = blocked(nb)
             if reason is None:
+                if _squeezes(cur, dx, dy, blocked):
+                    continue
                 seen.add(nb)
                 stack.append(nb)
             else:
@@ -513,6 +522,8 @@ def _astar(start: tuple, goal: tuple, in_box, blocked, avoid: frozenset) -> list
             if nb != start and nb != goal:
                 if nb in avoid or blocked(nb) is not None:
                     continue
+            if _squeezes(cur, dx, dy, blocked):
+                continue
             ng = g + GRID_MM * (_DIAGONAL if dx and dy else 1.0)
             if ng < best.get(nb, math.inf) - 1e-12:
                 best[nb] = ng
