@@ -551,13 +551,16 @@ class Past:
 
     As a track waypoint the point is half the track's width further out; as
     a via's `at=`, the via's radius. In `Beside`'s align pair, `lane=` a net
-    leaves room for one track of it between the items and the part's pad.
+    leaves room for one track of it between the items and the part's pad,
+    `width=` wide (default the net's track width): the copper its current
+    needs.
 
     Resolved when every pad is placed and every via and track planned."""
     items: tuple
     edge: object
     across: object = field(default=None, metadata={"omit_default": True})
     lane: object = field(default=None, metadata={"omit_default": True})
+    width: float | None = field(default=None, metadata={"omit_default": True})
 
     def __post_init__(self):
         from .layout import CopperIntent
@@ -579,6 +582,8 @@ class Past:
             raise TypeError("Past's across is a PadRef, a via or Along.START/MID/END, not %r" % (a,))
         if self.lane is not None and not isinstance(self.lane, Net):
             raise TypeError("Past's lane is a Net, not %r" % (self.lane,))
+        if self.width is not None and self.lane is None:
+            raise TypeError("Past's width= is a lane's width: give it with lane=Net(...)")
 
     @property
     def pads(self) -> tuple:

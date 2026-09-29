@@ -6,6 +6,10 @@ whether any of it applies.
 
 ## Unreleased
 
+`Past(pads, Edge.X, lane=Net(...), width=)` in `Beside`'s align: the lane
+as wide as the copper its current needs, so a part stands clear of a power
+pour's width rather than a track's.
+
 A `swallow_pads` pour whose corners are all pads (three or more) covers the
 convex hull of the pads' copper, not the polygon through their centres,
 which over pads in a row was as thin as its stroke and failed a

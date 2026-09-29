@@ -130,3 +130,18 @@ def test_migration_a_pad_a_lane_past_matches_the_hand_computed_offset():
     for a, b in ((hand_box.left, intent_box.left), (hand_box.top, intent_box.top),
                  (hand_box.right, intent_box.right), (hand_box.bottom, intent_box.bottom)):
         assert abs(a - b) < 0.01
+
+
+def test_a_lane_may_be_as_wide_as_its_current_needs():
+    """width= replaces the lane net's track width: a part stands clear of
+    the copper its current needs, a pour's width rather than a track's."""
+    b = _board()
+    b.place(Part("q"), at=Beside(Part("c_vdd"), Edge.SOUTH,
+                                 align=(1, Past([PadRef(Part("c_in"), 1)], Edge.WEST, lane=Net("L"), width=1.13))))
+    plan = b.resolve()
+    assert _pad_box(plan, "Q", 1).right == pytest.approx(25.5 - (max(VIN_C, LANE_C) + 1.13 + max(LANE_C, G_C)))
+
+
+def test_a_width_without_a_lane_is_refused():
+    with pytest.raises(TypeError, match="lane"):
+        Past([PadRef(Part("c_in"), 1)], Edge.WEST, width=1.0)

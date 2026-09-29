@@ -1854,7 +1854,7 @@ class Board:
                              if s.kind in ("pad", "through") and s.label == own_pad.number])
             shapes = [sh for ref in past.items for sh in _pad_shapes(self, occ, ref)]
             box = Box.union([sh.box for sh in shapes])
-            off = _lane_distance(self, own_pad.net, [sh.net for sh in shapes], past.lane)
+            off = _lane_distance(self, own_pad.net, [sh.net for sh in shapes], past.lane, past.width)
             if past.edge is Edge.EAST:
                 ox = box.right + off - own.left
             elif past.edge is Edge.WEST:
@@ -5522,15 +5522,16 @@ def _net_clearance(board: "Board", a: str, b: str) -> float:
     return board.geometry.clearance(a, b)
 
 
-def _lane_distance(board: "Board", own: str, nets: list, lane) -> float:
+def _lane_distance(board: "Board", own: str, nets: list, lane, width=None) -> float:
     """How far a pad of net `own` stands past copper of `nets`: the worst
     clearance between them, or with `lane` a net, room for one track of it
-    between - the clearance from the copper to the lane, the lane's track
-    width and the clearance from the lane to the pad."""
+    between - the clearance from the copper to the lane, the lane's width
+    (`width`, else its track width) and the clearance from the lane to the
+    pad."""
     if lane is None:
         return max(_net_clearance(board, own, n) for n in nets)
     name = board.geometry.require_net(lane)
-    return (max(_net_clearance(board, n, name) for n in nets) + board._width(name, None)
+    return (max(_net_clearance(board, n, name) for n in nets) + board._width(name, width)
             + _net_clearance(board, name, own))
 
 

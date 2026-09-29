@@ -296,8 +296,9 @@ Edge.WEST, align=PadRef(Part("u1"), "SW"))`.
 facing edge past the pads' `edge` side instead of level with a pad. The
 distance is the worst clearance, by net pair, from the own pad's net to
 the pads'; with `lane=` a net it is room for one track of that net between
-them: the clearance from the pads to the net, its track width, and the
-clearance from the net to the own pad. `Beside`'s side still decides the
+them: the clearance from the pads to the net, its track width (or
+`width=`, the copper its current needs: a pour's width past a switch pin),
+and the clearance from the net to the own pad. `Beside`'s side still decides the
 other axis, so the Past's edge is on the axis the side leaves open (`EAST`
 or `WEST` beside a `NORTH` or `SOUTH` side). A placement is decided before
 any copper is planned, so the Past takes pads only - a via or a track is
