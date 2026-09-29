@@ -7,22 +7,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **Routes adopted from a quick route keep its unsmoothed copper**
-  (PLACEMAT_GAPS 2026-09-29 "how jagged the kept routes are"; checked
-  2026-09-29): a quick route passes the router `--no-smoothing`
-  (`route.py:585`) and `route --adopt` keeps what it laid, so kept routes
-  zigzag (SDA 195 bends in 100 mm). Smooth what is adopted, or refuse to
-  adopt from a quick route; a way to re-smooth routes already kept; a
-  per-net shape report; pass-through for the router's turn and direction
-  costs.
-- **A cell against a height-limited or allow-listed keepout, member by
-  member** (PLACEMAT_GAPS 2026-09-29 "a cell whose tall member must stay out
-  of a height band"; checked 2026-09-29): `occupancy.let_in` admits a cell
-  whole when any member is named, and `max_height` judges it by its tallest
-  member, so a rigid cell cannot cross a band with only its low members.
-  The fairing core no longer needs it (its 5 V coil is now a 1.2 mm part),
-  but the enclosure's "front parts over 1.5 mm inside r 19.2" rule will
-  meet other cells.
 - **A keep-out or current-path verdict naming the copper it measured**
   (PLACEMAT_GAPS 2026-09-28): the two items and points that set a keep-out
   distance, and whether both are pads of one part; a current-path neck's
@@ -82,6 +66,15 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Staircase routes** (0.52.0; PLACEMAT_GAPS 2026-09-29 "how jagged the kept
+  routes are"; spec `2026-09-29-router-turn-cost-design.md`): the router's
+  turn cost at 20000 on every pass (the core: turns per 10 mm 12.6 -> 5.8,
+  copper -10%, closure 66.0% -> 66.8%); its smoothing on; router_args;
+  routes --release-all.
+- **A cell against a keepout, member by member** (0.52.0; PLACEMAT_GAPS
+  2026-09-29 "a cell whose tall member must stay out of a height band"; spec
+  `2026-09-29-cell-members-in-reservations-design.md`).
 
 - **Routing a pour net's taps the pours do not reach** (0.51.0; the
   fairing board's session, 2026-09-28; spec
