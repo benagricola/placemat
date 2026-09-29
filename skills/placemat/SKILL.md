@@ -38,11 +38,11 @@ A script must not:
   things "will" land). The same arithmetic written twice is a missing
   intent form, not a function worth extracting.
 
-Use the intent form instead: `place()` with `OnEdge`/`Pin`/`Centre` of
-REFERENCES (not computed numbers), `row()`, `block()`, `ring()`,
-`Near(PadRef(...))` for a need the netlist cannot say, `FreeSpot` for a
-via, `board.link()` to price a connection. api.md's index names the form
-for what you mean.
+Use the intent form instead: `place()` with `OnEdge`/`Pin`/`Centre`/`Beside`
+of REFERENCES (not computed numbers), `row()` (on a board edge or `of=` a
+part), `block()`, `ring()`, `Near(PadRef(...))` for a need the netlist
+cannot say, `FreeSpot` for a via, `board.link()` to price a connection.
+api.md's index names the form for what you mean.
 
 **When no form says it**, do not hand-compute it. Check "Known gaps"
 below first - the relation may already be logged. If it is genuinely new:
@@ -68,15 +68,12 @@ coordinates for one of them: place what you can by the nearest intent
 form and record the rest as a gap (above). This list is expected to
 shrink - the maintainers are building these.
 
-- A part beside another part's envelope, a gap off it, aligned to a pad.
-- A row or a stack measured from a part, not a board edge.
 - A lane: a track, a via row or a column held a clearance off pad ends, a
   via or another track.
 - Vias on a pad's axis, in rows under a pin row, or stitched along a
   region's edge.
 - Which end of a track's leg takes the 45.
 - A keepout from an absolute region (not anchored on a part or a pad).
-- A cell placed by where one of its members must land.
 
 **Before touching an existing script**, check it against the current API:
 `grep -nE "Priority\.(FIXED|EDGE)|priority=Priority\.(HIGH|LOW)|Occupancy\._transform" <script>`.
@@ -362,8 +359,9 @@ coordinates nobody chose.
 - Copper is declared against pads and lanes (`PadRef`, `CellPadRef`, `X()`,
   `Y()`), never against coordinates that were true before the parts moved.
 - Typed values: `Net`, `Part`, `Cell`, `CopperLayer`, `Edge`, `Face`,
-  `Along`. Where an item goes is a place type (`Pin`, `Near`, `OnEdge`, a
-  row, a ring, a block; the intent index at the top of api.md lists them),
+  `Along`. Where an item goes is a place type (`Pin`, `Near`, `OnEdge`,
+  `Beside`, a row, a ring, a block; the intent index at the top of api.md
+  lists them),
   and a `Location` only for a mechanical fact named once as a constant.
   Pad numbers are ints, nets are strings. A pad reference that names a
   missing net fails when declared, not at write time.
@@ -517,7 +515,7 @@ coordinates nobody chose.
 - The edge is the board's: no script carries an edge standoff. An EDGE
   item's reach sits at `board.keep_in`; a face that must stand proud of
   the edge says `overhang=` with a why. Two firm things that must sit
-  beside each other are placed relative to each other (`behind=`,
+  beside each other are placed relative to each other (`Beside`, `behind=`,
   `after=`, a pad reference), never by independent numbers from opposite
   edges: the first collision is the run stopping, not a finding to tune.
 - Look before you turn: `placemat show <board> <cell>` renders a cell on
