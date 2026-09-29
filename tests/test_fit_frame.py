@@ -2,7 +2,7 @@
 import pytest
 
 from placemat.layout import Board
-from placemat.values import Edge, Location, OnEdge, Part, PadRef, Pin, X, Y
+from placemat.values import Axis, Edge, Location, OnEdge, Part, PadRef, Pin, X, Y
 from tests.fixtures import board_geometry, footprint
 
 
@@ -177,3 +177,64 @@ def test_edges_and_centroid_name_fit_on_a_fit_board():
     for ask in (lambda: b.edges(Edge.NORTH), lambda: b.centroid):
         with pytest.raises(ValueError, match="fit"):
             ask()
+
+
+# ------------------------------------------------------------ a fit frame in one axis
+
+def _axis_board(axis, **kw):
+    fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B")),
+           footprint("C1", 30, 30, w=2, h=1, inst="c1", nets=("A", "GND")),
+           footprint("R1", 34, 34, w=2, h=1, inst="r1", nets=("B", "GND"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=0.5)
+    b.size(fit=axis, draw=False, **kw)
+    return b
+
+
+def test_fit_axis_x_fits_the_width_and_takes_the_declared_height():
+    b = _axis_board(Axis.X, height=20.0, margin=0.5)
+    assert b.height == 20.0
+    with pytest.raises(ValueError, match="fit"):
+        b.width
+    b = _pinned(b)
+    plan = b.resolve()
+    content = b._placed_box(plan.occupancy, plan)
+    assert plan.outline.top == 0.0
+    assert plan.outline.bottom == 20.0
+    assert plan.outline.left == pytest.approx(content.left - 0.5)
+    assert plan.outline.right == pytest.approx(content.right + 0.5)
+
+
+def test_fit_axis_y_fits_the_height_and_takes_the_declared_width():
+    b = _axis_board(Axis.Y, width=15.0, margin=0.5)
+    assert b.width == 15.0
+    with pytest.raises(ValueError, match="fit"):
+        b.height
+    b = _pinned(b)
+    plan = b.resolve()
+    content = b._placed_box(plan.occupancy, plan)
+    assert plan.outline.left == 0.0
+    assert plan.outline.right == 15.0
+    assert plan.outline.top == pytest.approx(content.top - 0.5)
+    assert plan.outline.bottom == pytest.approx(content.bottom + 0.5)
+
+
+def test_fit_axis_refuses_the_number_for_its_own_dimension():
+    fps = [footprint("U1", 20, 20, inst="u1")]
+    with pytest.raises(ValueError, match="give height="):
+        Board(board_geometry(fps, width=60, height=60)).size(fit=Axis.X, width=10.0, height=20.0)
+    with pytest.raises(ValueError, match="give width="):
+        Board(board_geometry(fps, width=60, height=60)).size(fit=Axis.Y, width=10.0, height=20.0)
+
+
+def test_fit_axis_needs_a_positive_declared_number():
+    fps = [footprint("U1", 20, 20, inst="u1")]
+    with pytest.raises(ValueError, match="declared height"):
+        Board(board_geometry(fps, width=60, height=60)).size(fit=Axis.X)
+    with pytest.raises(ValueError, match="declared width"):
+        Board(board_geometry(fps, width=60, height=60)).size(fit=Axis.Y)
+
+
+def test_fit_true_has_nothing_to_size_with_width_or_height():
+    fps = [footprint("U1", 20, 20, inst="u1")]
+    with pytest.raises(ValueError, match="nothing to size"):
+        Board(board_geometry(fps, width=60, height=60)).size(fit=True, width=10.0)

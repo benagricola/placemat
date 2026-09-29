@@ -1,7 +1,7 @@
 # The script surface
 
 ```python
-from placemat import (board, Along, Beside, Box, Cell, CellPadRef, Centre, Pin, Polar, OnRim, OnBore, Cutout, Disc, Arc,
+from placemat import (board, Along, Axis, Beside, Box, Cell, CellPadRef, Centre, Pin, Polar, OnRim, OnBore, Cutout, Disc, Arc,
                        Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Line, LinkWeight,
                        Location, Mid, Near, Net, OnEdge, PadRef, Part, Priority, Turned, X, Y)
 ```
@@ -53,9 +53,11 @@ and write that form. When nothing here says it, do not compute it: see
 | a part against a keepout's boundary | `at=Beside(keepout, Edge.SOUTH)` | Placement |
 | a clearance anchored on a pad, in a datasheet's own coordinates | `Path(FIGURE, anchor=...)`, `at=PadRef(...)` | Keepouts |
 | a tall part kept out of a region a case leaves little room over | `board.keepout(..., excludes=("parts",), max_height=)` | Keepouts |
+| a region shaped by a part or cell already on the board, growing and turning with it | `board.keepout(item, name, margin=)` | Keepouts |
 | a board of any shape | `board.outline(path, holes=)` | Boards of any shape |
 | a stretch of edge chosen by which way it faces | `board.edge(facing=Edge.NORTH)` | Boards of any shape |
 | a module frame sized to its own content | `board.size(fit=True)` | Setup |
+| a module frame fitted in one axis, the other a declared number | `board.size(fit=Axis.X, height=)` | Setup |
 | a track from a pad to a pad | `board.track(net, [PadRef(a), PadRef(b)], layer=)` | Copper |
 | a via at the nearest legal spot to a pad | `board.via(net, FreeSpot(near=PadRef(...)))` | Copper |
 | a power or exposed pad filled with vias | `board.vias(net, PadRef(...))` | Copper |
@@ -96,6 +98,10 @@ outline, origin top-left, y down.
 frame (never drawn) sized to its content: the box round everything placed (each
 part as the placer claims it, labels, tracks, vias, pours) plus `margin`
 (default the keep-in), set once everything is placed.
+`board.size(fit=Axis.X, height=, margin=None)` or `fit=Axis.Y, width=` - a frame
+fitted in one axis only: the frame fits its content across x (or y) the same
+way `fit=True` does, and the other axis is the declared number, origin at 0
+the same as a sized board's. `Axis` is `X` or `Y`.
 `board.disc(diameter, hole=0.0, holes=(), web=0.0)` - a round board at the origin, bored
 `hole` wide through the middle when it goes round a shaft. Places on it are
 bearings and radii (below); `board.centre`, `board.radius` and `board.bore`
@@ -565,7 +571,7 @@ outline path instead. The default is 0.0, which means unchecked.
 A region that forbids, as against a cutout, which removes board.
 
 ```python
-board.keepout(shape, name, *, at, rotation=None, excludes=None,
+board.keepout(shape, name, *, at=None, rotation=None, margin=None, excludes=None,
               allow=(), layers=None, max_height=None, why="")
 ```
 
@@ -584,6 +590,23 @@ with a part already on the board. A freedom left in `at=` settles against
 what is on the board. `anchor=` is the point of the shape that lands on
 `at=`; without one it is the middle of the shape's box, which is right for
 a slot and meaningless for a stepped clearance.
+
+**A region shaped by an item.** `shape` may be a `Part` or a `Cell` already on
+the board instead: no `at=` or `rotation=`, `margin=` (default 0) in their
+place.
+
+```python
+board.keepout(Part("ant"), "antenna_body", margin=0.3,
+              why="clearance round the antenna's own footprint")
+```
+
+The region is that item's drawn envelope - pads, mask openings, silk and body,
+the same box `envelope.drawn_envelope` reads off a single footprint, and for a
+`Cell` the union of its members' (its own tracks, vias and pours are not a
+member's drawn envelope, so they are left out) - grown by `margin`, and it
+moves and turns with the item: settled once the item is, the same as a
+keepout at its pad. The item must already be FIXED or EDGE (as `at=PadRef(...)`
+already requires): one still searched raises "not placed by then".
 
 **What it forbids.** `excludes=` defaults to everything and narrows to any of
 the `Forbid` enum: `PARTS`, `FILL`, `TRACKS`, `VIAS`, `PADS` (the strings

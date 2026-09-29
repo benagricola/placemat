@@ -66,6 +66,13 @@ class Edge(str, Enum):
     WEST = "W"
 
 
+class Axis(str, Enum):
+    """One dimension of a fit frame: `board.size(fit=Axis.X)` fits that one
+    to its content and takes the other's number as declared."""
+    X = "x"
+    Y = "y"
+
+
 class Along(str, Enum):
     """A named distance along an edge, of its usable length (keep-in to keep-in)."""
     START = "start"
@@ -657,7 +664,12 @@ class Keepout:
     A cutout removes board; a keepout leaves it and says what may not be put
     there. The line between them is whether the board is still there.
     `rotation` is a number, or `Turned(part, degrees)` to turn with a part
-    already on the board."""
+    already on the board.
+
+    `region_of` is set instead of `at`/`rotation` for a region shaped by an
+    item: the shape is already the item's own drawn envelope, grown by a
+    margin, and this just names the item so the region is settled from its
+    placement rather than a declared place."""
     shape: object
     name: str
     at: object = None
@@ -667,11 +679,12 @@ class Keepout:
     layers: tuple | None = None          # None: every copper layer the board has
     why: str = ""
     max_height: float | None = field(default=None, metadata={"omit_default": True})   # a parts keepout: admit parts no taller (Pm.Height)
+    region_of: object = field(default=None, metadata={"omit_default": True})   # a Part or Cell this region is shaped from
 
     def __post_init__(self):
         if not self.name or not str(self.name).strip():
             raise ValueError("a keepout needs a name: it is how a finding names the region")
-        if self.at is None:
+        if self.at is None and self.region_of is None:
             raise ValueError("keepout %r needs at=: where a region goes is not a guess" % (self.name,))
         if not self.why:
             raise ValueError("keepout %r says why: a region nobody can justify is one nobody can move"

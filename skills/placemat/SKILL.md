@@ -73,7 +73,8 @@ shrink - the maintainers are building these.
 - Vias on a pad's axis, in rows under a pin row, or stitched along a
   region's edge.
 - Which end of a track's leg takes the 45.
-- A keepout from an absolute region (not anchored on a part or a pad).
+- A keepout shaped like an absolute region with no item to anchor it (a
+  sector, a band inset from the outline).
 
 **Before touching an existing script**, check it against the current API:
 `grep -nE "Priority\.(FIXED|EDGE)|priority=Priority\.(HIGH|LOW)|Occupancy\._transform" <script>`.
