@@ -102,13 +102,17 @@ def test_rotation_is_applied_to_the_candidate():
     assert occ.legal(r2, Placement(Location(13.5, 10), 90, Face.FRONT)) is None
 
 
-def test_a_reservation_blocks_parts_but_lets_its_own_nets_through():
+def test_a_reservation_blocks_parts_its_nets_do_not_admit_and_lets_a_named_one_in():
+    """An allowed net lets its copper through, not the parts that carry it:
+    a part is let in by name."""
     occ = occ_with(footprint("R1", 10, 10))
-    occ.reserve(Box(20, 20, 30, 30), why="the V48 bar", allow=("A",), layer=None)
+    occ.reserve(Box(20, 20, 30, 30), why="the bar", allow=("A",), owners=("R4",), layer=None)
     r2 = footprint("R2", 30, 30, nets=("C", "D"))
-    assert "V48 bar" in occ.legal(r2, Placement(Location(25, 25), 0, Face.FRONT))
+    assert "bar" in occ.legal(r2, Placement(Location(25, 25), 0, Face.FRONT))
     r3 = footprint("R3", 30, 30, nets=("A", "GND"))
-    assert occ.legal(r3, Placement(Location(25, 25), 0, Face.FRONT)) is None
+    assert "bar" in occ.legal(r3, Placement(Location(25, 25), 0, Face.FRONT))
+    r4 = footprint("R4", 30, 30, nets=("A", "GND"))
+    assert occ.legal(r4, Placement(Location(25, 25), 0, Face.FRONT)) is None
 
 
 from placemat.values import Box  # noqa: E402  (used by the reservation test)
