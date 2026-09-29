@@ -151,3 +151,20 @@ def test_a_link_to_one_land_is_refused():
     b = _placed()
     with pytest.raises(ValueError, match="land="):
         b.link(PadRef(Part("u1"), 1, land=Land.LARGEST), PadRef(Part("r1"), 1))
+
+
+def test_a_rider_can_stand_off_one_land_of_its_searched_parts_pin():
+    """A part fixed off one land of a searched part's pin rides the search,
+    and lands off that land wherever the part is placed."""
+    from placemat.values import Land, Pin, X, Y
+    g = board_geometry([_part(), footprint("R1", 5, 5, w=2, h=1, inst="r1", nets=("GND", "SIG"))],
+                       width=50, height=50)
+    b = Board(dataclasses.replace(g, hole_to_hole=0.25), edge_margin=0.5)
+    b.place(Part("u1"))                                                  # searched
+    big = PadRef(Part("u1"), 1, land=Land.LARGEST)
+    b.place(Part("r1"), at=Pin(1, X(big, 0.0), Y(big, 3.0)), rotation=0, why="a part off the large land")
+    plan = b.resolve()
+    lands = plan.occupancy.pad_shapes("U1", "1", 1)                      # the 2 mm land, 0-based index 1
+    at = Box.union([s.box for s in lands]).center
+    r = plan.occupancy.pad_location("R1", "1")
+    assert (r.x, r.y) == pytest.approx((at.x, at.y + 3.0), abs=1e-6)

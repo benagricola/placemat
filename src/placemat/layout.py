@@ -11,7 +11,9 @@ from its record (reuse.py) instead of resolved. Plan holds the resolved
 placements, copper ops and findings for the writer and the run record."""
 from __future__ import annotations
 
+import collections
 import contextlib
+import dataclasses
 
 from collections import Counter
 from dataclasses import dataclass, field
@@ -21,7 +23,7 @@ from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfer_c
                      pair_ops, polyline_tracks, resolve_bridges)
 from .geometry import Transform, box_polygon, circle_polygon, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
 from .findings import Finding, Findings
-from .occupancy import Occupancy, Shape, TOUCH, _polygon_area, hole_shape, parts_claim
+from .occupancy import Occupancy, Shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
 from .cutouts import Cutouts, Path, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from .placement import Placement
@@ -768,6 +770,8 @@ class Board:
         self.keep_going = keep_going            # carry on past colliding decided items, as findings;
                                                 # required=True overrides it
         self._intents: list = []            # placements and cutouts: one queue, ordered by needs
+        self._rider_of: dict = {}           # rider key -> the key of the item it rides (resolve's _find_riders)
+        self._ride_groups: dict = {}        # searched item key -> the riders settled with it, in order
         self._rank_score: dict = {}
         self._rank_of: dict = {}
         self._rank_note: dict = {}
@@ -1009,8 +1013,9 @@ class Board:
         from .board_geometry import members_of
         from .lock import _turn
         from .occupancy import _BOTH, hole_shape
-        # a decided item's vias are planned before the search, where it stands: only a searched one carries them
-        searched = {fp.ref for i in self._placements() if not i.freedom.decided
+        # a decided item's vias are planned before the search, where it stands: only a searched one, or a
+        # rider of one, carries them
+        searched = {fp.ref for i in self._placements() if not i.freedom.decided or i.key in self._rider_of
                     for fp in (members_of(i.item) if hasattr(i, "item") and i.kind != "block" else
                                [i.item.anchor] + [sat for sat, _ in i.item.satellites] if i.kind == "block" else [])}
         for at, net, drill, size in self._pad_vias:
@@ -3502,7 +3507,7 @@ class Board:
         remember."""
         searched = set()
         for i in self._placements():
-            if i.freedom.decided:
+            if i.freedom.decided and i.key not in self._rider_of:      # a rider lands with what it rides
                 continue
             if i.kind == "cell":
                 fps = list(i.item.members)
@@ -3518,6 +3523,7 @@ class Board:
 
     def resolve(self, progress=None, reuse=None, explore=None, lock=None, routes=None) -> Plan:
         self._check_groups()                # what a declared group may hold, before the search
+        self._find_riders()                 # before anything asks what is searched
         # An explore variant (explore.py): seed 0, or none, is the plain placement.
         self._explore = explore if (explore is not None and explore.seed) else None
         # Accepted decisions (lock.py): tried first at each locked item's turn.
@@ -3752,6 +3758,18 @@ class Board:
                             "its stamped regions keep parts off %.1f mm2 of board beyond its own parts" % taken
             if progress:
                 progress(_fmt(step))
+            for r in self._ride_groups.get(obj.key, ()):        # committed with it, in its settle
+                rs = next(s for s in reversed(plan.steps) if s.item == r.key)
+                if rs.placement is None and r.required and not self.keep_going:
+                    raise CriticalUnplaced(r.key, self._no_place_report(occ, r, rs), plan)
+                if rs.placement is not None:
+                    placed.update(fp.ref for fp in members_of(r.item))
+                    if r.turned is not None:
+                        r.rotation = rs.placement.rotation      # as a firm Turned item's is set when it is placed
+                    if r.kind == "cell":
+                        self._cell_placements[r.key] = rs.placement
+                if progress:
+                    progress(_fmt(rs))
             self._place_fanouts(occ, plan, placed, progress)
             self._place_labels(occ, plan, placed, progress)
 
@@ -3759,7 +3777,8 @@ class Board:
             """FIXED and EDGE go down in declaration order: nothing yields to
             them, so their order changes nothing. Searched items are ordered
             by the placer, one choice at a time, re-measured after each."""
-            firm = [obj for obj in placements if lo <= obj.rank[0] <= hi and obj.freedom.decided]
+            firm = [obj for obj in placements if lo <= obj.rank[0] <= hi and obj.freedom.decided
+                    and getattr(obj, "key", None) not in self._rider_of]      # a rider goes with its item
             while firm:                     # declaration order, except that a position said in terms of a pad waits for it
                 ready = [obj for obj in firm if obj.needs <= placed]
                 if not ready:
@@ -3929,8 +3948,20 @@ class Board:
         from . import reuse as _reuse
         n_steps, n_findings, n_pocketed = len(plan.steps), len(plan.findings), len(plan.pocketed)
         seeded, solve, items = dict(plan.seeded_by_net), dict(plan.solve), set(plan._items)
-        with _recording_commits(occ) as commits:
-            step = self._settle(occ, obj, plan, placed)
+        riders = isinstance(obj, PlaceIntent) and obj.key in self._ride_groups
+        self._riding = (obj.key, self._rider_check(occ, plan, obj)) if riders else None
+        try:
+            with _recording_commits(occ) as commits:
+                alone = self._riders_alone(occ, plan, obj) if riders else None
+                if alone:
+                    plan.findings.append(Finding("unplaced", "%s: %s" % (obj.key, alone)))
+                    step = self._step(obj, None, 0.0, "UNPLACED: " + alone)
+                else:
+                    step = self._settle(occ, obj, plan, placed)
+                if riders:
+                    self._settle_riders(occ, obj, plan, step)
+        finally:
+            self._riding = None
         entry = {"step": _reuse.step_to_json(step), "commits": commits,
                  "steps": [_reuse.step_to_json(s) for s in plan.steps[n_steps:]],
                  "findings": [_reuse.finding_to_json(f) for f in plan.findings[n_findings:]], "pocketed": plan.pocketed[n_pocketed:],
@@ -4158,11 +4189,16 @@ class Board:
         else:
             rots = list(self._turns(i))
         tried = []
+        riders = {}             # a rider's refusal, the first each time it refused a candidate
         for rot in rots:
             env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, i.face))
             for pocket in pockets(occ, env.width, env.height, i.face, step=max(i.step, 0.5)):
                 hint = box_centered_placement(occ, i.item, pocket.box.center, rot, i.face)
-                result = scan(occ, i.item, hint, max(pocket.box.width, pocket.box.height) / 2, i.step, (rot,), clr)
+                result = scan(occ, i.item, hint, max(pocket.box.width, pocket.box.height) / 2, i.step, (rot,), clr,
+                              accept=self._accept(i))
+                for k, why in result.reasons.items():
+                    if k.startswith("rider "):
+                        riders.setdefault(k, why)
                 if result.chosen is not None:
                     note = "pocket %.1f x %.1f at (%.1f, %.1f): nothing it connects to is placed" % (
                         pocket.box.width, pocket.box.height, pocket.box.center.x, pocket.box.center.y)
@@ -4171,8 +4207,8 @@ class Board:
         plan.findings.append(Finding("unplaced", "%s: no pocket fits its %s envelope on the %s face (%d pocket(s) tried)" % (
             i.key, "%.1f x %.1f" % (occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).width,
                                     occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).height),
-            i.face.value, len(tried))))
-        return self._step(i, None, 0.0, "UNPLACED: no pocket fits")
+            i.face.value, len(tried)) + "".join("; %s" % why for why in riders.values())))
+        return self._step(i, None, 0.0, "UNPLACED: no pocket fits" + "".join("; %s" % why for why in riders.values()))
 
     def _seeded_pocket(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, hint: Placement, score,
                        rotations, why: str):
@@ -4195,7 +4231,7 @@ class Board:
             pocket, rot = seen[k]
             start = box_centered_placement(occ, i.item, pocket.box.center, rot, i.face)
             result = scan(occ, i.item, start, max(pocket.box.width, pocket.box.height) / 2, i.step,
-                          tuple(rotations), clr, score=score)
+                          tuple(rotations), clr, score=score, accept=self._accept(i))
             if result.chosen is not None:
                 plan.pocketed.append(i.key)
                 note = "%s; took the pocket %.1f x %.1f at (%.1f, %.1f), %.1f mm from the seed" % (
@@ -4515,11 +4551,19 @@ class Board:
                             key=lambda a: (abs(a - ideal), a))
         rejected: Counter = Counter()
         reasons: dict = {}
+        accept = self._accept(i)
         for along in candidates:
             p = placement_at(along)
             why = occ.legal(i.item, p, clr, others=others,
                             past_edge=(i.edge is not None or i.run is not None or i.rim == "rim")
                             and i.clearance < self.keep_in)
+            if why is None and accept is not None:
+                why = accept(p)
+                if why is not None:
+                    key = why.split(":")[0]         # a rider, named: scan() counts it the same way
+                    rejected[key] += 1
+                    reasons.setdefault(key, why)
+                    continue
             if why is None:
                 moved = abs(along - ideal)
                 note = what
@@ -4529,8 +4573,9 @@ class Board:
             key = _reason_key(why)
             rejected[key] += 1
             reasons.setdefault(key, why)
-        plan.findings.append(Finding("unplaced", "%s: no room anywhere %s (%s)" % (
-            i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3)))))
+        plan.findings.append(Finding("unplaced", "%s: no room anywhere %s (%s)%s" % (
+            i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3)),
+            "".join("; %s" % why for k, why in reasons.items() if k.startswith("rider ")))))
         return self._step(i, None, 0.0, "UNPLACED: " + "; ".join(reasons.values()))
 
     def _slide_block(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, spec, ideal: float, lo: float, hi: float,
@@ -4775,12 +4820,17 @@ class Board:
     def _step_extra(self, obj) -> str:
         """What else decides a step, for its reuse key: an explore variant's
         seed for a focused item, a lock entry for a locked one."""
+        from . import reuse as _reuse
         key = getattr(obj, "key", None)
         ex = self._explore
+        riders = self.__dict__.get("_ride_groups", {}).get(key)
+        # the items riding it are settled in its step: their declarations and links decide it too
+        rides = "" if not riders else "riders:" + _reuse.canonical(
+            [[r, _reuse.links_on(self, r)] for r in riders])
         if ex is not None and key in ex.focus:
-            return "explore:%d" % ex.seed
+            return "explore:%d" % ex.seed + rides
         entry = self._lock.get(key)
-        return "lock:%r" % (entry,) if entry is not None else ""
+        return ("lock:%r" % (entry,) if entry is not None else "") + rides
 
     def _locked(self, i):
         """The item's lock entry, unless an explore variant is varying it."""
@@ -4852,13 +4902,13 @@ class Board:
         spot, _ = self._lock_spot(occ, i, plan)
         if spot is None:
             return None
-        held = scan(occ, i.item, spot, 0.0, i.step, (spot.rotation,), clr)
+        held = scan(occ, i.item, spot, 0.0, i.step, (spot.rotation,), clr, accept=self._accept(i))
         self._lock_held.add(i.key)
         if held.chosen is not None:
             return self._step(i, held.chosen, 0.0, "held by lock")
         body = occ._geometry(i.item).body
         radius = max(i.radius, body.width, body.height)
-        drift = scan(occ, i.item, spot, radius, i.step, (spot.rotation,), clr)
+        drift = scan(occ, i.item, spot, radius, i.step, (spot.rotation,), clr, accept=self._accept(i))
         if drift.chosen is None:
             self._lock_held.discard(i.key)
             self._lock_notes[i.key] = "lock: released - no legal spot within %.1f mm of its locked spot" % radius
@@ -4943,6 +4993,7 @@ class Board:
         # the pad lands, not where the generator parked it. A cycle waits for
         # nothing rather than for ever.
         holds = {o.key: {fp.ref for fp in (o.item.members if o.kind == "block" else members_of(o.item))}
+                 | {fp.ref for r in self._ride_groups.get(o.key, ()) for fp in members_of(r.item)}
                  for o in pending}
         ready = [o for o in pending
                  if not any(o.needs & refs for k, refs in holds.items() if k != o.key)] or pending
@@ -5182,62 +5233,255 @@ class Board:
             cache[key] = None if why is None else "; ".join(why)
         return cache[key]
 
+    def _firm_past_edge(self, i: PlaceIntent) -> bool:
+        """Whether a firm item's body may cross the edge margin: one declared
+        on an edge, a run or the rim closer than the keep-in."""
+        return ((i.edge is not None or i.run is not None or i.rim == "rim")
+                and i.row_of is None and i.clearance < self.keep_in)
+
+    def _firm_placement(self, occ: Occupancy, plan: Plan, i: PlaceIntent) -> tuple:
+        """(placement, note) where a firm declaration puts its item, read
+        against `occ` as it stands: the item is neither judged nor committed."""
+        chose = ""
+        if i.at is not None:
+            p = Placement(_locate(self, occ, i.at), i.rotation, i.face)
+        elif i.center is not None and i.cell_pin is not None:
+            owner, number, dx, dy, *rest = i.cell_pin
+            lx, ly = rest if rest else (0.0, 0.0)
+            p = cell_pad_anchored_placement(occ, i.item, owner, number, dx, dy,
+                                            _locate(self, occ, i.center), i.rotation, i.face, lx, ly)
+        elif i.center is not None and i.pin is not None:
+            p = pad_anchored_placement(occ, i.item, i.pin, _locate(self, occ, i.center), i.rotation, i.face)
+            # A net names one pad here, the first of however many carry it.
+            # Say which, because an offset the script measured has to come
+            # off the same pad, and from outside nothing shows which it was.
+            kind, value = pad_key(i.pin)
+            if kind == "net":
+                same = i.item.pads_on(value)
+                if len(same) > 1:
+                    chose = "%s is %d pads on %s: pad %s is the one on the point" % (
+                        value, len(same), i.item.ref, i.item.pad(i.pin).number)
+        elif i.center is not None:
+            p = box_centered_placement(occ, i.item, _locate(self, occ, i.center), i.rotation, i.face)
+        elif i.run is not None:
+            along = _run_along(self, occ, i)
+            # a numeric along= turns the item at declaration; a reference's length along
+            # the run is not known until now, so its outward turn waits for it too
+            rot = self.outward_rotation(i.item, i.run.at(along)[1])[0] if i.rotation is None else i.rotation
+            p = run_placement(occ, i.item, occ.board_shape or self._shaped(), i.run,
+                              along, i.clearance, rot, i.face)
+        elif i.rim is not None:
+            p = disc_placement(occ, i.item, self._disc("the same place is "
+                                                      "OnEdge(board.edge(facing=...))"),
+                               i.angle, i.clearance, i.rotation, i.face, bore=i.rim == "bore")
+        elif i.beside is not None:
+            p = self._beside_placement(occ, plan, i)
+        else:
+            if isinstance(i.along, _RowSlot):
+                along = i.along.resolve(self, occ)
+            elif isinstance(i.along, _EdgeFraction):
+                along = self._edge_fraction(i.edge, occ, i.along.fraction)
+                if i.along.anchor in ("start", "end"):
+                    reach = occ.reach_box(i.item, Placement(Location(0.0, 0.0), i.rotation, i.face))
+                    half = (reach.width if i.edge in (Edge.NORTH, Edge.SOUTH) else reach.height) / 2.0
+                    along += half if i.along.anchor == "start" else -half
+            else:
+                along = _coord(self, occ, i.along, "x" if i.edge in (Edge.NORTH, Edge.SOUTH) else "y")
+            p = self._row_of_placement(occ, i, along) if i.row_of is not None else \
+                edge_placement(occ, i.item, i.edge, along, i.rotation, i.clearance, i.face)
+        return p, chose
+
+    # ------------------------------------------------------------ riders
+    def _primary_refs(self, i: PlaceIntent) -> set:
+        """The refdes a firm item's place is said relative to: Beside's item,
+        a row's `of` (and what the row is centred on), else every reference
+        in its point."""
+        if i.beside is not None:
+            return set() if isinstance(i.beside.item, KeepoutIntent) else {self._pad_ref(i.beside.item)[0]}
+        refs = {self._pad_ref(ref)[0] for ref in _refs_in([i.at, i.center, i.along, i.pin_x, i.pin_y, i.near,
+                                                             i.about])}
+        if i.row_of is not None:
+            refs.add(self._pad_ref(i.row_of)[0])
+        if isinstance(i.along, _RowSlot):
+            refs |= set(i.along.row.needs)
+        return refs
+
+    def _find_riders(self) -> None:
+        """Which firm placements ride a searched item. A firm part or cell
+        whose place is said relative to a searched part or cell, or to a
+        rider of one, rides it: it is placed with it at each candidate and
+        commits with it. Every other item it refers to is placed firmly
+        before, or rides with it. One that refers to some other searched item
+        stays in the firm queue, which refuses it."""
+        intents = self._placements()
+        owner = {fp.ref: i for i in intents
+                 for fp in (i.item.members if i.kind == "block" else members_of(i.item))}
+        root = {i.key: i.key for i in intents if not i.freedom.decided and i.kind in ("part", "cell")}
+        order = {k: 0 for k in root}            # a rider settles after everything it refers to in its group
+        self._rider_of, self._ride_groups = {}, {}
+        changed = True
+        while changed:
+            changed = False
+            for i in intents:
+                if (not i.freedom.decided or i.key in self._rider_of or i.kind == "block"
+                        or isinstance(i.run, CutoutEdge)
+                        or not all(r in owner or r.startswith("cutout:") for r in i.needs)):
+                    continue
+                moving = {owner[r].key for r in i.needs
+                          if r in owner and (not owner[r].freedom.decided or owner[r].key in self._rider_of)}
+                primary = {owner[r].key for r in self._primary_refs(i) if r in owner} & moving
+                if not primary or not moving <= set(root) or len({root[k] for k in moving}) != 1:
+                    continue
+                ref = max(sorted(primary), key=lambda k: order[k])
+                self._rider_of[i.key] = ref
+                root[i.key] = root[ref]
+                order[i.key] = max(order[k] for k in moving) + 1
+                self._ride_groups.setdefault(root[ref], []).append(i)
+                changed = True
+        for group in self._ride_groups.values():
+            group.sort(key=lambda r: (order[r.key], r.index))
+
+    def _reset_rows(self, row) -> None:
+        """Let a row said relative to a riding item find its start again at
+        the next candidate: what it is anchored on moves with it."""
+        if row.anchor is None or row.start is None:
+            return
+        row.start = row.end = None
+        row.centres = []
+        if row.anchor[0] in ("before", "after"):
+            self._reset_rows(row.anchor[1])
+
+    def _ride(self, occ: Occupancy, plan: Plan, i: PlaceIntent, at: Placement, obstacles: dict | None,
+              stop: bool = True, board: bool = True) -> list:
+        """[(rider, placement, note, why the board refuses it, why the group
+        does)] for `i`'s riders with `i` at `at`, in the order they settle:
+        each where its declaration puts it with `i` and the riders before it
+        there, judged against `i` and those riders, then against the board as
+        a firm item is (not with `board=False`). With `stop`, the list ends at
+        the first rider that is not legal."""
+        view = _Riding(occ)
+        group = view.move(i.item, at)
+        out = []
+        for r in self._ride_groups[i.key]:
+            if isinstance(r.along, _RowSlot):
+                self._reset_rows(r.along.row)
+            if r.turned is not None:
+                turned = view.items[self._pad_ref(r.turned.part)[0]].reference.rotation
+                r = dataclasses.replace(r, rotation=(turned + r.turned.degrees) % 360.0)
+            p, chose = self._firm_placement(view, plan, r)
+            others = obstacles.get(r.key) if obstacles is not None else None
+            in_group = occ.legal(r.item, p, self.clearance, others=ShapeIndex(group), board=False)
+            on_board = occ.legal(r.item, p, self.clearance, others=others, past_edge=self._firm_past_edge(r),
+                                 by_corners=True) if board and not in_group else None
+            out.append((r, p, chose, on_board, in_group))
+            if (on_board or in_group) and stop:
+                break
+            group += view.move(r.item, p)
+        return out
+
+    def _ride_turn(self, occ: Occupancy, plan: Plan, i: PlaceIntent, at: Placement):
+        """The riders of `i` at one turn and face of it, laid once: (where
+        `i` was, [(rider, placement, why the group refuses it)]) when every
+        rider moves exactly as `i` does at that turn - its declaration is
+        said wholly relative to what moves with it - else None, and each
+        candidate lays them afresh."""
+        shifted = Placement(Location(at.location.x + _RIDE_PROBE[0], at.location.y + _RIDE_PROBE[1]),
+                            at.rotation, at.face)
+        a = self._ride(occ, plan, i, at, None, board=False)
+        b = self._ride(occ, plan, i, shifted, None, board=False)
+        if len(a) != len(b):
+            return None
+        for (_, pa, _, _, ga), (_, pb, _, _, gb) in zip(a, b):
+            if (pa.rotation, pa.face, bool(ga)) != (pb.rotation, pb.face, bool(gb)) or \
+                    abs(pb.location.x - pa.location.x - _RIDE_PROBE[0]) > 1e-6 or \
+                    abs(pb.location.y - pa.location.y - _RIDE_PROBE[1]) > 1e-6:
+                return None
+        return at, [(r, p, g) for r, p, _, _, g in a]
+
+    def _riders_alone(self, occ: Occupancy, plan: Plan, i: PlaceIntent) -> str | None:
+        """None when `i`'s riders may fit round it at some turn its search
+        may take, else why not, at each: a rider that meets `i` or another
+        rider wherever `i` goes fails here in a moment rather than after a
+        scan of the whole board, as a block's satellites do. Only for an item
+        searched at a known set of turns whose riders move exactly as it
+        does; else None, and the search finds out."""
+        if i.outward or self._locked(i) is not None:
+            return None             # turned by where it lands, or by its lock: any turn at all
+        turns = set(self._turns(i)) | {i.rotation, (i.rotation + 90) % 360}      # a pocket's two as well
+        at = occ.board_box.center if occ.board_box is not None else Location(0.0, 0.0)
+        why = []
+        for rot in sorted(turns):
+            laid = self._ride_turn(occ, plan, i, Placement(at, rot, i.face))
+            bad = None if laid is None else next(((r, g) for r, _, g in laid[1] if g), None)
+            if bad is None:
+                return None
+            why.append("%g: rider %s: %s" % (rot, bad[0].key, bad[1]))
+        return "cannot be laid out with its riders at any rotation it may take, whatever room the board has " \
+               "(%s)" % "; ".join(why)
+
+    def _rider_check(self, occ: Occupancy, plan: Plan, i: PlaceIntent):
+        """What a search asks of each candidate of an item that has riders:
+        None when every rider is legal with the item there, else "rider
+        <key>: why". The board as the search sees it is gathered once, and
+        the riders are laid once per turn of the item wherever they move
+        exactly as it does: a candidate then shifts them and asks the board."""
+        obstacles = {r.key: occ.obstacles(occ._geometry(r.item)) for r in self._ride_groups[i.key]}
+        turns = {}
+
+        def accept(at: Placement):
+            turn = (at.rotation, at.face)
+            if turn not in turns:
+                turns[turn] = self._ride_turn(occ, plan, i, at)
+            laid = turns[turn]
+            if laid is None:
+                r, _, _, on_board, in_group = self._ride(occ, plan, i, at, obstacles)[-1]
+                why = on_board or in_group
+                return "rider %s: %s" % (r.key, why) if why else None
+            base, riders = laid
+            dx, dy = at.location.x - base.location.x, at.location.y - base.location.y
+            for r, p, in_group in riders:
+                p = Placement(Location(round(p.location.x + dx, 6), round(p.location.y + dy, 6)), p.rotation, p.face)
+                why = in_group or occ.legal(r.item, p, self.clearance, others=obstacles[r.key],
+                                            past_edge=self._firm_past_edge(r), by_corners=True)
+                if why:
+                    return "rider %s: %s" % (r.key, why)
+            return None
+        return accept
+
+    def _accept(self, i: PlaceIntent):
+        """The rider check for the item being settled now, else None."""
+        riding = self.__dict__.get("_riding")
+        return riding[1] if riding is not None and riding[0] == i.key else None
+
+    def _settle_riders(self, occ: Occupancy, i: PlaceIntent, plan: Plan, step: Step) -> None:
+        """Commit `i`'s riders where they go with `i` at its step's placement,
+        a step each; or, with `i` unplaced, an unplaced step and a finding
+        each."""
+        for r in self._ride_groups[i.key]:
+            plan._items[r.key] = r.item
+        if step.placement is None:
+            for r in self._ride_groups[i.key]:
+                why = "rides %s, which found no place" % self._rider_of[r.key]
+                plan.findings.append(Finding("unplaced", "%s: %s" % (r.key, why)))
+                plan.steps.append(self._step(r, None, 0.0, "UNPLACED: " + why))
+            return
+        for r, p, chose, on_board, in_group in self._ride(occ, plan, i, step.placement, None, stop=False):
+            why = on_board or in_group
+            if why:
+                plan.findings.append(Finding("fixed", "%s (%s): %s" % (r.key, r.freedom.value, why)))
+            tags = ["rides %s" % self._rider_of[r.key]] + (["required"] if r.required else [])
+            note = "; ".join(x for x in tags + [chose, why, r.faces_note] if x)
+            plan.steps.append(self._step(r, p, 0.0, note))
+            occ.commit(r.item, p)
+
     def _settle(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set = frozenset(),
                 solve: bool = True) -> Step:
         if i.kind == "block":
             return self._settle_block(occ, i, plan, placed)
         clr = self.clearance
-        chose = ""
         if i.freedom.decided:
-            if i.at is not None:
-                p = Placement(_locate(self, occ, i.at), i.rotation, i.face)
-            elif i.center is not None and i.cell_pin is not None:
-                owner, number, dx, dy, *rest = i.cell_pin
-                lx, ly = rest if rest else (0.0, 0.0)
-                p = cell_pad_anchored_placement(occ, i.item, owner, number, dx, dy,
-                                                _locate(self, occ, i.center), i.rotation, i.face, lx, ly)
-            elif i.center is not None and i.pin is not None:
-                p = pad_anchored_placement(occ, i.item, i.pin, _locate(self, occ, i.center), i.rotation, i.face)
-                # A net names one pad here, the first of however many carry it.
-                # Say which, because an offset the script measured has to come
-                # off the same pad, and from outside nothing shows which it was.
-                kind, value = pad_key(i.pin)
-                if kind == "net":
-                    same = i.item.pads_on(value)
-                    if len(same) > 1:
-                        chose = "%s is %d pads on %s: pad %s is the one on the point" % (
-                            value, len(same), i.item.ref, i.item.pad(i.pin).number)
-            elif i.center is not None:
-                p = box_centered_placement(occ, i.item, _locate(self, occ, i.center), i.rotation, i.face)
-            elif i.run is not None:
-                along = _run_along(self, occ, i)
-                # a numeric along= turns the item at declaration; a reference's length along
-                # the run is not known until now, so its outward turn waits for it too
-                rot = self.outward_rotation(i.item, i.run.at(along)[1])[0] if i.rotation is None else i.rotation
-                p = run_placement(occ, i.item, occ.board_shape or self._shaped(), i.run,
-                                  along, i.clearance, rot, i.face)
-            elif i.rim is not None:
-                p = disc_placement(occ, i.item, self._disc("the same place is "
-                                                          "OnEdge(board.edge(facing=...))"),
-                                   i.angle, i.clearance, i.rotation, i.face, bore=i.rim == "bore")
-            elif i.beside is not None:
-                p = self._beside_placement(occ, plan, i)
-            else:
-                if isinstance(i.along, _RowSlot):
-                    along = i.along.resolve(self, occ)
-                elif isinstance(i.along, _EdgeFraction):
-                    along = self._edge_fraction(i.edge, occ, i.along.fraction)
-                    if i.along.anchor in ("start", "end"):
-                        reach = occ.reach_box(i.item, Placement(Location(0.0, 0.0), i.rotation, i.face))
-                        half = (reach.width if i.edge in (Edge.NORTH, Edge.SOUTH) else reach.height) / 2.0
-                        along += half if i.along.anchor == "start" else -half
-                else:
-                    along = _coord(self, occ, i.along, "x" if i.edge in (Edge.NORTH, Edge.SOUTH) else "y")
-                p = self._row_of_placement(occ, i, along) if i.row_of is not None else \
-                    edge_placement(occ, i.item, i.edge, along, i.rotation, i.clearance, i.face)
-            why = occ.legal(i.item, p, clr,
-                            past_edge=(i.edge is not None or i.run is not None or i.rim == "rim")
-                            and i.row_of is None and i.clearance < self.keep_in, by_corners=True)
+            p, chose = self._firm_placement(occ, plan, i)
+            why = occ.legal(i.item, p, clr, past_edge=self._firm_past_edge(i), by_corners=True)
             if why:
                 plan.findings.append(Finding("fixed", "%s (%s): %s" % (i.key, i.freedom.value, why)))
             return self._step(i, p, 0.0, "; ".join(x for x in (chose, why) if x))
@@ -5281,7 +5525,9 @@ class Board:
                 plan.seeded_by_net[n] += 1
         else:
             return self._settle_in_pocket(occ, i, plan, clr)
-        score = self._scorer(i.item, occ, targets, prune=self._pick(i) is None) if targets else None
+        # riders refuse candidates after they are scored: a refused one must not prune the rest
+        score = self._scorer(i.item, occ, targets, prune=self._pick(i) is None and self._accept(i) is None) \
+            if targets else None
         # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
         body = occ._geometry(i.item).body
         radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)
@@ -5289,7 +5535,8 @@ class Board:
         if hopeless:
             plan.findings.append(Finding("unplaced", "%s: %s" % (i.key, hopeless)))
             return self._step(i, None, 0.0, "UNPLACED: " + hopeless)
-        result = scan(occ, i.item, hint, radius, i.step, self._turns(i), clr, score=score, pick=self._pick(i))
+        result = scan(occ, i.item, hint, radius, i.step, self._turns(i), clr, score=score, pick=self._pick(i),
+                      accept=self._accept(i))
         if result.chosen is None and solved is not None:
             # The solve spreads items without seeing what is already placed, so
             # its hint can land where nothing is legal. That must not cost a
@@ -5479,6 +5726,54 @@ def _coord(board: "Board", occ: Occupancy, v, axis: str) -> float:
     if isinstance(v, RowCoord):
         return v.row.resolve(v.what, occ.board_box)
     return float(v)
+
+
+_RIDE_PROBE = (1.37, -0.73)
+"""How far _ride_turn moves an item to see whether its riders move with it:
+off any grid a search walks, on both axes."""
+
+
+class _Riding:
+    """An Occupancy as it would stand with some items moved to candidate
+    placements, none of them committed: what a rider's declaration reads
+    while the item it rides is searched. Everything else is the Occupancy's."""
+
+    def __init__(self, occ: Occupancy):
+        self._occ = occ
+        self._moved: dict = {}
+        self._cells: dict = {}
+        self.items = collections.ChainMap(self._moved, occ.items)
+
+    def __getattr__(self, name):
+        return getattr(self._occ, name)
+
+    def move(self, item, placement: Placement) -> list:
+        """Put `item` at `placement`; what it is there to another item's
+        legality, as if committed: its shapes, and its yards."""
+        placed, own = self._occ.placed_geometries(item, placement)
+        self._moved.update(placed)
+        if isinstance(item, CellGeom):
+            self._cells[item.name] = self._occ.cell_geometry(item, placed, own)
+            shapes = self._cells[item.name].shapes
+        else:
+            shapes = placed[item.ref].shapes
+        return list(shapes) + self._occ.shifted_yards(item, placement)
+
+    def _geometry(self, item):
+        if isinstance(item, Footprint) and item.ref in self._moved:
+            return self._moved[item.ref]
+        if isinstance(item, CellGeom) and item.name in self._cells:
+            return self._cells[item.name]
+        return self._occ._geometry(item)
+
+    def pad_shapes(self, ref: str, number: str, land: int | None = None) -> list:
+        # the Occupancy's own reading, over the moved items where they now stand
+        return Occupancy.pad_shapes(self, ref, number, land)
+
+    def pad_location(self, ref: str, number: str, land: int | None = None) -> Location:
+        if ref not in self._moved:
+            return self._occ.pad_location(ref, number, land)
+        return Box.union([s.box for s in self.pad_shapes(ref, number, land)]).center
 
 
 class _CopperContext:
@@ -5845,7 +6140,13 @@ def _blame_text(result) -> str:
     refuses and were being thrown away; three owners, because a crowded board
     has forty and a reader needs one."""
     parts = []
-    for kind, n in result.rejected.most_common(3):
+    shown = result.rejected.most_common(3)
+    # a rider that refused candidates is named with its reason, however few it refused
+    shown += [kv for kv in result.rejected.most_common() if kv[0].startswith("rider ") and kv not in shown]
+    for kind, n in shown:
+        if kind.startswith("rider "):
+            parts.append("%s x%d" % (result.reasons[kind], n))
+            continue
         if kind == "body":
             kind = "edge"       # "body box ... is past the rim's keep-in / outside the board / inside a cutout"
         # a drawn envelope's refusal (silk, a mask opening, a body) is counted under its sentence's first

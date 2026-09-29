@@ -382,19 +382,8 @@ class Occupancy:
         if isinstance(item, CellGeom):
             if item.name in self._cells:
                 return self._cells[item.name]
-            members = [self.items[fp.ref] for fp in item.members]
-            shapes = tuple(s for m in members for s in m.shapes)
-            for c in self.copper:
-                if c.owner == item.name:
-                    shapes += (c,)
-            own = [s.box for s in shapes if s.owner == item.name]
-            body = Box.union([m.body for m in members] + own)
-            reach = Box.union([m.reach or m.body for m in members] + own)
-            self._cells[item.name] = ItemGeometry(frozenset(m for mg in members for m in mg.owners) | {item.name},
-                                                  Placement(body.center, 0.0, Face.FRONT), shapes, body,
-                                                  frozenset(n for m in members for n in m.nets), reach,
-                                                  tuple(m.body for m in members) + tuple(own),
-                                                  tuple(fp.ref for fp in item.members))
+            self._cells[item.name] = self.cell_geometry(item, {fp.ref: self.items[fp.ref] for fp in item.members},
+                                                        [c for c in self.copper if c.owner == item.name])
             return self._cells[item.name]
         raise TypeError("cannot place a %s" % type(item).__name__)
 
@@ -792,22 +781,20 @@ class Occupancy:
         dx, dy = placement.location.x, placement.location.y
         return [(net, x + dx, y + dy) for net, x, y in hit[1]]
 
-    def _commit(self, item, placement: Placement):
+    def placed_geometries(self, item, placement: Placement) -> tuple[dict, list]:
+        """What commit() records for `item` at `placement`, without recording
+        it: {refdes: ItemGeometry} for its footprints, and a cell's own
+        copper there."""
         geom, shapes = self.candidate_shapes(item, placement)
-        self._cells.clear()
-        self._pad_location_cache.clear()
-        self._invalidate_native()
-        self.pending -= geom.owners
         if isinstance(item, Footprint):
-            self.items[item.ref] = ItemGeometry(geom.owners, placement, tuple(shapes),
-                                                self.body_box(item, placement), geom.nets,
-                                                self.reach_box(item, placement))
-            return
+            return {item.ref: ItemGeometry(geom.owners, placement, tuple(shapes), self.body_box(item, placement),
+                                           geom.nets, self.reach_box(item, placement))}, []
         t = self._transform(geom, placement)
         by_owner: dict[str, list[Shape]] = {}
         carried = self.__dict__.get("_carried", {})
         for s in shapes:
             by_owner.setdefault(carried.get(s.owner, s.owner), []).append(s)
+        out = {}
         for fp in item.members:
             m = self.items[fp.ref]
             # the member's placement is where its own shapes went: _transform from it must move them so.
@@ -818,8 +805,34 @@ class Occupancy:
             new_ref = Placement(t.apply_location(m.reference.location), turn,
                                 (Face.BACK if m.reference.face is Face.FRONT else Face.FRONT)
                                 if flip else m.reference.face)
-            self.items[fp.ref] = ItemGeometry(m.owners, new_ref, tuple(by_owner.get(fp.ref, ())),
-                                              transform_box(m.body, t), m.nets, transform_box(m.reach or m.body, t))
+            out[fp.ref] = ItemGeometry(m.owners, new_ref, tuple(by_owner.get(fp.ref, ())),
+                                       transform_box(m.body, t), m.nets, transform_box(m.reach or m.body, t))
+        return out, by_owner.get(item.name, [])
+
+    def cell_geometry(self, item, members: dict, own: list) -> ItemGeometry:
+        """A cell's geometry from its members' ({refdes: ItemGeometry}) and
+        its own copper, as _geometry builds it from what is committed."""
+        shapes = tuple(s for fp in item.members for s in members[fp.ref].shapes) + tuple(own)
+        mine = [s.box for s in shapes if s.owner == item.name]
+        body = Box.union([members[fp.ref].body for fp in item.members] + mine)
+        reach = Box.union([members[fp.ref].reach or members[fp.ref].body for fp in item.members] + mine)
+        return ItemGeometry(frozenset(m for fp in item.members for m in members[fp.ref].owners) | {item.name},
+                            Placement(body.center, 0.0, Face.FRONT), shapes, body,
+                            frozenset(n for fp in item.members for n in members[fp.ref].nets), reach,
+                            tuple(members[fp.ref].body for fp in item.members) + tuple(mine),
+                            tuple(fp.ref for fp in item.members))
+
+    def _commit(self, item, placement: Placement):
+        geom = self._geometry(item)
+        placed, own = self.placed_geometries(item, placement)
+        self._cells.clear()
+        self._pad_location_cache.clear()
+        self._invalidate_native()
+        self.pending -= geom.owners
+        self.items.update(placed)
+        if isinstance(item, Footprint):
+            return
+        t = self._transform(geom, placement)
         tag = "cell:%s" % item.name
         self.reservations = [r for r in self.reservations if r.source != tag]
         for pair in self._cell_rule_areas.get(item.name, ()):
@@ -830,7 +843,6 @@ class Occupancy:
             if claims:
                 what = ("label %r" % ra.name[len("label "):]) if ra.name.startswith("label ") else "rule area %r" % ra.name
                 self.reserve(poly, "%s from the %s cell" % (what, ra.cell), source=tag, layer=layer)
-        own = by_owner.get(item.name, [])
         self.copper = [c for c in self.copper if c.owner != item.name] + own
 
     # ------------------------------------------------------------ measures
@@ -1014,7 +1026,8 @@ class Occupancy:
                 for b in self.origin_parts(geom, placement.rotation, placement.face)]
 
     def legal(self, item, placement: Placement, clearance: float | None = None, others=None,
-              past_edge: bool = False, blame: list | None = None, by_corners: bool = False) -> str | None:
+              past_edge: bool = False, blame: list | None = None, by_corners: bool = False,
+              board: bool = True) -> str | None:
         """None when `item` may sit at `placement`, else one sentence saying
         what stops it. The first failure found is reported. `others` is a
         prefiltered obstacle list from `obstacles()`; without one every
@@ -1022,10 +1035,12 @@ class Occupancy:
         body over the edge margin: a connector face declared to overhang.
         `blame`, when a list is passed, collects a `Blocker` for the conflict
         found: the same refusal in parts rather than prose, so a scan can
-        count who was in the way rather than only how often."""
+        count who was in the way rather than only how often. `board=False`
+        judges `others` alone: not the edge, not the reservations."""
         geom = self._geometry(item)
         body = self.shifted_body_box(item, placement)
-        why = self._edge_or_reservation_conflict(geom, body, placement, past_edge, blame, by_corners)
+        why = self._edge_or_reservation_conflict(geom, body, placement, past_edge, blame, by_corners) \
+            if board else None
         if why is not None:
             return why
         if others is None:
