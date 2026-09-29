@@ -17,7 +17,7 @@ moving a sub-module by hand in pcbnew no longer drags its module; a module
 keeps its own parts. `[write] split_groups = "split"` also takes the parts
 a script places one by one out of their module's group; `"keep"` writes the
 groups as generated. `board.group(name,
-items)` writes a group of the parts and cells named: a script that rewrote
+items)` writes a group of the parts named: a script that rewrote
 the board's groups with pcbnew afterwards can declare them instead.
 
 ## To 0.52.0
