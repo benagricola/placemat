@@ -9,6 +9,8 @@ whether any of it applies.
 `placemat measure` prints each 3D model's file, offset, rotation and scale,
 and `--envelope` names the item that sets each side of a part's drawn
 envelope; `--json` adds `models`, `envelope_items` and a `fab` box.
+`measure --copper [NET ...]` lists the track segments a board carries, what
+each end lands on and any leg off 0/45/90.
 
 A cell nested in another cell's group (a module sheet's child) is written
 where the plan puts it: placing the parent moved the child group with it,

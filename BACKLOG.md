@@ -10,11 +10,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **The fragment each stamped part came from, in `parts`** (PLACEMAT_GAPS
   2026-09-29 "which fragment a nested module's parts came from"), or
   "ignored: ancestor authoritative".
-- **The segments a run drew, per net** (PLACEMAT_GAPS 2026-09-29 "the legs
-  of the tracks a fragment drew", "a fragment's front copper without its
-  zones"): `measure --copper [NET ...]` with each segment's layer, width and
-  what each end lands on, a leg off 0/45/90 flagged; a FreeSpot tail drawn
-  octilinear; a render with the zones left out.
+- **A FreeSpot tail drawn octilinear; a render with the zones left out**
+  (PLACEMAT_GAPS 2026-09-29 "the legs of the tracks a fragment drew", "a
+  fragment's front copper without its zones"; the segment listing is
+  `measure --copper` now).
 - **One land of a multi-land pin** (PLACEMAT_GAPS 2026-09-29): `PadRef`
   names the first land; a pin drawn as a tab, small pads and an exposed pad
   needs the largest (or an index), and the union's box.

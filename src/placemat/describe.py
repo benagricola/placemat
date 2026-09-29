@@ -256,3 +256,61 @@ def span_of(pads):
     """How far the copper reaches across every pad."""
     box = Box.union([p.box for p in pads]) if pads else None
     return round(box.width, 6) if box is not None else None
+
+
+def _lands_on(pt, net, layers, geometry, own) -> str:
+    """What a track's end lands on: a pad of its net (REF.NUMBER), a via, or
+    another track of its net; '-' when nothing."""
+    from .geometry import point_in_polygon
+    for fp in geometry.footprints:
+        for p in fp.pads:
+            if p.net == net and p.layers & layers and any(point_in_polygon(pt, o) for o in p.outlines):
+                return "%s.%s" % (fp.ref, p.number)
+    for c in geometry.copper:
+        if c.kind == "via" and c.net == net and any(point_in_polygon(pt, o) for o in c.outlines):
+            return "via"
+    for c in geometry.copper:
+        if c is own or c.kind != "track" or c.net != net or not (c.layers & layers):
+            continue
+        if any(abs(pt[0] - a[0]) < 1e-3 and abs(pt[1] - a[1]) < 1e-3 for a in c.anchors):
+            return "track"
+    return "-"
+
+
+def copper_segments(geometry, nets) -> list:
+    """Every track segment on the board, of `nets` (every net when empty): its
+    layer, width, ends, length, bearing (0-180 degrees from east, screen y
+    down) and what each end lands on; `octilinear` when it runs at 0, 45 or
+    90 degrees."""
+    import math
+    want = set(nets)
+    out = []
+    for c in geometry.copper:
+        if c.kind != "track" or len(c.anchors) != 2 or (want and c.net not in want):
+            continue
+        (x1, y1), (x2, y2) = c.anchors
+        chord = math.hypot(x2 - x1, y2 - y1)
+        angle = round(math.degrees(math.atan2(-(y2 - y1), x2 - x1)) % 180.0, 2) if chord else 0.0
+        arc = c.length_mm > chord + 1e-3
+        out.append({"net": c.net, "layer": "/".join(sorted(l.value for l in c.layers)), "width": c.width_mm,
+                    "start": [round(x1, 3), round(y1, 3)], "end": [round(x2, 3), round(y2, 3)],
+                    "length": round(c.length_mm or chord, 3), "angle": angle, "arc": arc,
+                    "octilinear": arc or min(abs(angle - a) for a in (0.0, 45.0, 90.0, 135.0, 180.0)) < 0.05,
+                    "start_on": _lands_on((x1, y1), c.net, c.layers, geometry, c),
+                    "end_on": _lands_on((x2, y2), c.net, c.layers, geometry, c)})
+    out.sort(key=lambda s: (s["net"], s["layer"]))
+    return out
+
+
+def copper_lines(geometry, nets) -> list:
+    lines = []
+    for s in copper_segments(geometry, nets):
+        lines.append("%s  %s  %.2f  (%.3f, %.3f) %s -> (%.3f, %.3f) %s  %.3f mm  %s%s" % (
+            s["net"], s["layer"], s["width"], *s["start"], s["start_on"], *s["end"], s["end_on"], s["length"],
+            "arc" if s["arc"] else "%.1f deg" % s["angle"], "" if s["octilinear"] else "  off 0/45/90"))
+    want = set(nets)
+    for c in geometry.copper:
+        if c.kind == "via" and (not want or c.net in want):
+            lines.append("%s  via  (%.3f, %.3f)  size %.2f drill %.2f" % (
+                c.net, c.box.center.x, c.box.center.y, c.box.width, c.drill_mm))
+    return lines or ["no tracks or vias%s" % (" on " + " ".join(nets) if nets else "")]

@@ -87,6 +87,9 @@ def parser() -> argparse.ArgumentParser:
     m.add_argument("items", nargs="*", help="cell names or part instances (default: every cell)")
     m.add_argument("--pads", action="store_true",
                    help="every pad's number, net, layers, centre and copper box")
+    m.add_argument("--copper", nargs="*", default=None, metavar="NET",
+                   help="every track segment of these nets (default: all) with its layer, width, ends, bearing and "
+                        "what each end lands on, a leg off 0/45/90 flagged; and the vias")
     m.add_argument("--envelope", action="store_true",
                    help="for each side of a part's drawn envelope, the item that sets it: its layer, which one and its box")
     m.add_argument("--labels", action="store_true",
@@ -667,6 +670,12 @@ def cmd_measure(args) -> int:
             console.lines("measure", "\n".join(lines))
         return 0
     snap = read_board(pcb)
+    if args.copper is not None:
+        if args.json:
+            console.data(json.dumps({"segments": describe.copper_segments(snap, args.copper)}, indent=2))
+        else:
+            console.lines("measure", "\n".join(describe.copper_lines(snap, args.copper)))
+        return 0
     try:                                            # pin names, when the board's source is beside it
         import dataclasses as _dc
         from .pins import board_pin_names
