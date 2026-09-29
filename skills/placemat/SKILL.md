@@ -362,7 +362,10 @@ coordinates nobody chose.
   spacing things out.
 - Copper is declared against pads and lanes (`PadRef`, `CellPadRef`, `X()`,
   `Y()`), never against coordinates that were true before the parts moved.
-- Typed values: `Net`, `Part`, `Cell`, `CopperLayer`, `Edge`, `Location`.
+- Typed values: `Net`, `Part`, `Cell`, `CopperLayer`, `Edge`, `Face`,
+  `Along`. Where an item goes is a place type (`Pin`, `Near`, `OnEdge`, a
+  row, a ring, a block; the intent index at the top of api.md lists them),
+  and a `Location` only for a mechanical fact named once as a constant.
   Pad numbers are ints, nets are strings. A pad reference that names a
   missing net fails when declared, not at write time.
 - Module cells are rigid: place them, never their members. A cell that does
