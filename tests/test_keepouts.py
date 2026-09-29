@@ -162,7 +162,7 @@ def test_a_keepout_at_a_pad_turns_with_the_part_when_rotation_is_turned():
     b.keepout(Slot(8.0, 2.0), "clr", at=PadRef(Part("u1"), 1), rotation=Turned(Part("u1"), 0),
               excludes=("fill",), why="probe")
     plan = b.resolve()
-    assert plan.keepouts["clr"].rotation == pytest.approx(90.0)
+    assert plan.keepouts["clr"].rotation == pytest.approx(270.0)   # a region's bearing: a quarter turn anticlockwise
 
 
 def test_a_part_may_not_sit_in_a_keepout():
@@ -709,7 +709,7 @@ def test_a_cutout_at_a_location_turns_with_a_part_when_rotation_is_turned():
                                                   rotation=Turned(Part("u1"), 0))])
     b.place(Part("u1"), at=Location(20.0, 10.0), rotation=90)
     plan = b.resolve()
-    assert plan.cutouts_placed["slot"].rotation == pytest.approx(90.0)
+    assert plan.cutouts_placed["slot"].rotation == pytest.approx(270.0)   # a region's bearing: as the part turns
 
 
 # ------------------------------------------------------------ a region shaped by an item (no at=)
@@ -809,3 +809,23 @@ def test_a_keepout_shaped_by_a_searched_item_is_refused():
     b.place(Part("u1"))
     with pytest.raises(ValueError, match="only FIXED and EDGE"):
         b.resolve()
+
+
+def test_a_turned_keepout_turns_the_way_its_part_does():
+    """An arrow pointing east in its part's frame, turned with a part placed
+    at 90: the part's east turns to screen north (y up the page, smaller),
+    and so does the arrow."""
+    from placemat.values import Turned
+    b = make_board("u1")
+    b.size(width=60.0, height=60.0)
+    b.place(Part("u1"), at=Location(30.0, 30.0), rotation=90)
+    arrow = Path([(0.0, -1.0), (4.0, 0.0), (0.0, 1.0)])
+    b.keepout(arrow, "arrow", at=PadRef(Part("u1"), 1), rotation=Turned(Part("u1"), 0), excludes=("fill",), why="p")
+    plan = b.resolve()
+    pts = list(dict.fromkeys(plan.keepouts["arrow"].poly))      # the triangle's three corners
+
+    def far(i):                   # a corner's distance from the midpoint of the other two
+        a, b = [p for j, p in enumerate(pts) if j != i]
+        return (pts[i][0] - (a[0] + b[0]) / 2.0, pts[i][1] - (a[1] + b[1]) / 2.0)
+    dx, dy = max((far(i) for i in range(3)), key=lambda v: v[0] ** 2 + v[1] ** 2)
+    assert dy < -3.0 and abs(dx) < 0.5, (dx, dy)          # the tip points north, up the page

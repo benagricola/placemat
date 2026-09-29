@@ -1056,8 +1056,11 @@ class Board:
         waited for the same way a place() does), else the implied turn."""
         rot = region.rotation
         if isinstance(rot, Turned):
+            # a part turns counter-clockwise on screen (Transform.rotate); a region's
+            # rotation is a bearing, clockwise from the top (cutouts._turned): the
+            # region turns the way its part does, so the part's turn is negated
             ref = self._pad_ref(rot.part)[0]
-            return (occ.items[ref].reference.rotation + rot.degrees) % 360.0
+            return -(occ.items[ref].reference.rotation + rot.degrees) % 360.0
         return float(rot) if rot is not None else self._implied_rotation(region, centre)
 
     def _cutout_candidates(self, occ, cutout):
