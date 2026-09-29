@@ -24,9 +24,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **A keepout inside a part's pad ring** (PLACEMAT_GAPS 2026-09-29 "a plane
   bounded to a group of parts"): the region between a receiver's two pad
   columns.
-- **Keep the router out of another net's zone outline** (PLACEMAT_GAPS
-  2026-09-28 "which routed tracks cross a pour's outline"; `placemat layer`
-  lists the crossings now).
 - **A finding when a 3D model's box does not sit over the footprint's pads**
   (PLACEMAT_GAPS 2026-09-29 "a footprint's 3D model transform"; the path and
   transform are in `measure` now): needs the model file's own extents.
@@ -59,6 +56,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **Zone fills by net and tracks across a zone outline** (unreleased;
+  PLACEMAT_GAPS 2026-09-28, two entries): `placemat layer <board> <LAYER>`;
+  the router has kept out of a left-out net's partial inner pour since
+  0.50's pour guards.
 - **Lanes as intent** (0.55.0; fairing PLACEMAT_GAPS 2026-09-29; spec
   `2026-09-29-past-copper-and-row-pitch-design.md`): `Past` over vias and
   tracks with `across=`; a via at a `Past` point; `Beside` aligning a pad a
