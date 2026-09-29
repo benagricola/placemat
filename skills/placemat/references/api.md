@@ -38,6 +38,7 @@ and write that form. When nothing here says it, do not compute it: see
 | a row inboard of another edge row | `board.row(items, edge, behind=other_row)` | Placement (Rows) |
 | a row starting after a hole or a pad | `board.row(items, edge, start=Y(pad, gap))` | Placement (Rows) |
 | a row or stack measured from a part, not a board edge | `board.row(items, edge, of=Part(...))` | Placement (Rows) |
+| items at a mechanical pitch along a part's side, centred on a pad | `board.row(items, edge, of=Part(...), centre=PadRef(...), pitch=)` | Placement (Rows) |
 | items round a centre | `board.ring(items, radius=)` | Round boards |
 | a part at a radius and bearing about the board centre | `at=Polar(radius, angle)` | Round boards |
 | a part on a disc's rim, facing out | `at=OnRim(edge)` | Round boards |
@@ -332,14 +333,23 @@ of=Part("u1"), align=Along.START)` runs the row along that side of
 (default the envelope's own, as `Beside` keeps) is both the row's own gap
 and how far its near line stands off `of`, and `line=` still says how the
 row aligns across itself. `align=Along.START/MID/END` is where along
-`of`'s side the row sits (default `START`); `start=`, `centre=`, `end=`,
-`before=`, `after=`, `behind=` and `inboard=` are said relative to the
-board's edge, so they are refused together with `of=`. It waits for `of`
-to be placed, and - unlike a row on the board's own edge - accepts a fit
-frame:
+`of`'s side the row sits (default `START`). `centre=PadRef(...)` instead
+puts the row's middle on that pad's centre line: a pad of `of`, or of any
+part placed firmly by then; it is not given with `align=`. `pitch=` is the
+distance between neighbouring items' centres, in place of `gap=` between
+their envelopes (not both); with a pitch the row's middle is halfway
+between its first and last items' centres. The row still stands the
+envelope gap off `of`, and a pitch that brings two envelopes closer than
+that gap is refused, naming both items and the pitch they need. `start=`,
+`end=`, `before=`, `after=`, `behind=` and `inboard=` are said relative to
+the board's edge, so they are refused together with `of=`. It waits for
+`of` (and `centre=`'s part) to be placed, and - unlike a row on the
+board's own edge - accepts a fit frame:
 
 ```python
 board.row([R_SDA, R_SCL], Edge.EAST, of=Part("u1"), align=Along.START)   # a lane east of U1, top-flush
+board.row([Part("p_a"), Part("p_b")], Edge.NORTH, of=Part("u1"),
+          centre=PadRef(Part("u1"), 8), pitch=2.7)                         # two pins at a mechanical pitch, over U1's pin 8
 ```
 
 **Positions said in terms of pads and parts.** `Centre` (and a point of

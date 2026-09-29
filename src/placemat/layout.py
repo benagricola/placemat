@@ -61,13 +61,23 @@ class Row:
     each item) are known at declaration when the row starts at a number, and
     when its items are placed if it starts at a reference; the inboard
     boundary (`inner`) and the edge line (`outer`) are references resolved
-    against the outline."""
+    against the outline. With `pitch`, neighbouring items' centres are
+    `pitch` apart instead of their claims `gap` apart."""
 
-    def __init__(self, edge: Edge, standoff: float, gap: float, start: float | None, keys, alongs, depth: float):
+    # A declaration's digest names every attribute a Row holds, so a pitch is
+    # set on the instance only when given: a row without one digests as before.
+    pitch: float | None = None
+
+    def __init__(self, edge: Edge, standoff: float, gap: float, start: float | None, keys, alongs, depth: float,
+                 pitch: float | None = None):
         self.edge, self.standoff, self.gap = edge, standoff, gap     # standoff: the outer line, in from the edge
         self.keys, self.alongs, self.depth = list(keys), list(alongs), depth
         self.items: list = []
-        self.length = sum(alongs) + gap * (len(alongs) - 1)
+        if pitch is not None:
+            self.pitch = float(pitch)
+            self.length = alongs[0] / 2.0 + self.pitch * (len(alongs) - 1) + alongs[-1] / 2.0
+        else:
+            self.length = sum(alongs) + gap * (len(alongs) - 1)
         self.start = self.end = None
         self.centres = []
         self.anchor = None            # ("centre"|"end"|"before"|"after"|"outline", value): how a deferred row finds its start
@@ -93,7 +103,10 @@ class Row:
         elif kind == "start":
             self.begin(_coord(board, occ, value, axis))
         elif kind == "of":
-            of, align = value
+            of, align, *centre = value
+            if centre:
+                self.begin(_coord(board, occ, centre[0], axis) - self.middle())
+                return
             box = board._placed_envelope_box(occ, of)
             lo, hi = (box.top, box.bottom) if axis == "y" else (box.left, box.right)
             self.begin(lo + align.fraction * (hi - lo - self.length))
@@ -108,11 +121,21 @@ class Row:
         """Fix where the row starts along its edge (a centred row learns this
         from the outline at resolve)."""
         self.start, self.end = start, start + self.length
+        if self.pitch is not None:
+            self.centres = [start + self.alongs[0] / 2.0 + n * self.pitch for n in range(len(self.alongs))]
+            return
         self.centres = []
         cursor = start
         for a in self.alongs:
             self.centres.append(cursor + a / 2.0)
             cursor += a + self.gap
+
+    def middle(self) -> float:
+        """How far past its start the row's middle lies: halfway between the
+        first and last items' centres at a pitch, else half its length."""
+        if self.pitch is not None:
+            return self.alongs[0] / 2.0 + self.pitch * (len(self.alongs) - 1) / 2.0
+        return self.length / 2.0
 
     def centre_of(self, outline: Box) -> float:
         total = outline.height if self.edge in (Edge.EAST, Edge.WEST) else outline.width
@@ -2028,9 +2051,9 @@ class Board:
         self._intents.append(intent)
         return intent
 
-    def row(self, items, edge: Edge, *, of=None, gap: float = 0.0, start=None, align=Along.START,
+    def row(self, items, edge: Edge, *, of=None, gap: float | None = None, start=None, align=Along.START,
             rotation: float | None = None, line=Line.CENTRE, behind: Row | None = None, inboard: float | None = None,
-            overhang: float = 0.0,
+            overhang: float = 0.0, pitch: float | None = None,
             centre=None, end=None, before: Row | None = None, after: Row | None = None, why: str = "") -> Row:
         """Items down `edge` in order, `gap` apart (default: courtyards
         touching), with their outward sides
@@ -2054,14 +2077,27 @@ class Board:
         drawn envelope instead of the board's: `gap` (default the envelope's
         own) is both the row's own gap and how far its near line stands off
         `of`, and `align=Along.START/MID/END` is where along `of`'s side the
-        row sits (default START). It waits for `of` to be placed, and
-        accepts a fit frame, unlike a row on the board's own edge; `start=`,
-        `centre=`, `end=`, `before=`, `after=`, `behind=` and `inboard=`
-        are not said relative to a part, so they are refused together with
-        it. Returns the Row."""
+        row sits (default START). `centre=PadRef(...)` instead puts the
+        row's middle on that pad's centre line (a pad of `of` or of any part
+        placed firmly by then). `pitch=` spaces neighbouring items' centres
+        that far apart, in place of `gap=` between their envelopes; the row
+        still stands the envelope gap off `of`, and a pitch that brings two
+        envelopes closer than that gap is refused. It waits for `of` to be
+        placed, and accepts a fit frame, unlike a row on the board's own
+        edge; `start=`, `end=`, `before=`, `after=`, `behind=` and
+        `inboard=` are not said relative to a part, so they are refused
+        together with it. Returns the Row."""
         align = _as_align(align, "a row's align")
+        if pitch is not None:
+            if of is None:
+                raise ValueError("pitch= spaces a row of= a part; a row on the board's edge is spaced by gap=")
+            if gap is not None:
+                raise ValueError("a row is spaced one way: pitch= between centres or gap= between envelopes, "
+                                 "not both")
+            if float(pitch) <= 0:
+                raise ValueError("a row's pitch is a distance, more than 0, not %r" % (pitch,))
         if of is not None:
-            given = [n for n, v in (("start", start), ("centre", centre), ("end", end),
+            given = [n for n, v in (("start", start), ("end", end),
                                     ("before", before), ("after", after), ("behind", behind),
                                     ("inboard", inboard)) if v is not None]
             if given:
@@ -2069,10 +2105,16 @@ class Board:
                                  % (of, " and ".join(given)))
             if not isinstance(edge, Edge):
                 raise TypeError("a row of= a part is on one of its Edge.N/S/E/W sides, not %r" % (edge,))
+            if centre is not None:
+                if not isinstance(centre, (PadRef, CellPadRef)):
+                    raise TypeError("a row of=%r is centred on a pad: centre= takes a PadRef, not %r" % (of, centre))
+                if align is not Along.START:
+                    raise ValueError("a row of=%r is placed one way: centre= a pad or align=Along.START/MID/END"
+                                     % (of,))
             self._item(of)                        # a real part or cell, checked now
         elif isinstance(edge, Edge):
             self._refuse_on_fit("a row on the frame's %s edge" % edge.value)
-        gap = self._row_gap(list(items) + ([of] if of is not None else []), gap)
+        gap = self._row_gap(list(items) + ([of] if of is not None else []), 0.0 if gap is None else gap)
         if isinstance(edge, Run):
             return self._row_on_run(items, edge, gap=gap, start=start, align=align, rotation=rotation,
                                     overhang=overhang, why=why, unsupported=[
@@ -2110,10 +2152,12 @@ class Board:
             keys.append(key)
             alongs.append(claim.height if along_axis else claim.width)
             depths.append(deep.width if along_axis else deep.height)
-        row = Row(edge, clr, gap, None, keys, alongs, max(depths))
+        if pitch is not None:
+            self._check_row_pitch(items, keys, rots, along_axis, float(pitch), gap)
+        row = Row(edge, clr, gap, None, keys, alongs, max(depths), pitch=pitch)
         if of is not None:
-            row.anchor = ("of", (of, align))
-            row.needs = frozenset([self._pad_ref(of)[0]])
+            row.anchor = ("of", (of, align)) if centre is None else ("of", (of, align, centre))
+            row.needs = frozenset([self._pad_ref(of)[0]] + ([self._pad_ref(centre)[0]] if centre is not None else []))
         else:
             by_ref = start is not None and not isinstance(start, (int, float))
             anchors = [("centre", centre), ("end", end), ("before", before), ("after", after), ("start", start if by_ref else None)]
@@ -2153,6 +2197,23 @@ class Board:
             along = row.centres[n] if row.start is not None else _RowSlot(row, n)
             self.place(item, at=OnEdge(edge, along=along), _standoff=c, rotation=r, why=why, _row_of=of)
         return row
+
+    def _check_row_pitch(self, items, keys, rots, along_axis: bool, pitch: float, gap: float) -> None:
+        """Refuse a row(of=) pitch that brings two neighbours' envelopes
+        closer than `gap`. A row of= puts each item's body centre on its
+        along position, so the pitch is between body centres."""
+        spans = []
+        for item, r in zip(items, rots):
+            env, body = self.envelope(item, r), self.extent(item, r)
+            c = body.center.y if along_axis else body.center.x
+            lo, hi = (env.top, env.bottom) if along_axis else (env.left, env.right)
+            spans.append((c - lo, hi - c))          # how far the envelope reaches back and on from the centre
+        for n in range(len(spans) - 1):
+            need = spans[n][1] + gap + spans[n + 1][0]
+            if pitch < need - 1e-9:
+                raise ValueError("a row at pitch=%g puts %s and %s's envelopes closer than the envelope gap "
+                                 "(%.3f mm); they need a pitch of at least %.3f"
+                                 % (pitch, keys[n], keys[n + 1], gap, need))
 
     def ring(self, items, *, radius=None, start=Edge.NORTH, gap: float = 0.0, spread: bool = False,
              rotation=None, about=None, why: str = "") -> "Ring":

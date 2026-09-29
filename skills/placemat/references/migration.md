@@ -4,6 +4,14 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## Unreleased
+
+`board.row(items, Edge.X, of=Part(...))` takes `centre=PadRef(...)` and
+`pitch=`: the row's middle on a pad's centre line (a pad of `of` or of any
+firmly placed part), its items' centres `pitch` apart. Two parts at a
+mechanical pitch centred on a driver's pin no longer need their positions
+worked out from the pin by hand.
+
 ## To 0.54.1
 
 Two `swallow_pads` pours of different nets now keep the netclass clearance
