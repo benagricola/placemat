@@ -238,3 +238,13 @@ def test_the_listing_says_where_each_part_is():
     assert r["centre"] == [round(fp.body_box.center.x, 3), round(fp.body_box.center.y, 3)]
     line = [l for l in describe.parts_lines(g) if "r1" in l][0]
     assert ("%.2f" % fp.location.x) in line and ("%.2f" % fp.location.y) in line
+
+
+@pytest.mark.parametrize("attr", ["bom_excluded", "board_only"])
+def test_a_part_outside_the_bom_is_never_missing_an_order_number(attr):
+    """A mounting hole, a fiducial, a logo, a test point: KiCad leaves them
+    out of the BOM (exclude-from-BOM, or board-only), so nothing orders
+    them."""
+    from placemat.describe import missing_order_number
+    fp = footprint("H1", 10.0, 10.0, inst="mh", nets=("A", "GND"), **{attr: True})
+    assert not missing_order_number(fp, ("Lcsc", "Mpn"))

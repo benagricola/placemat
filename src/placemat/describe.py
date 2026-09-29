@@ -192,9 +192,10 @@ def parts_lines(geometry, fields=()) -> list:
 def missing_order_number(fp, order_fields) -> bool:
     """A placed part carries no order number when none of `order_fields` (an
     order code, a manufacturer part number - `[parts] order_fields`) is
-    present on it and non-empty. A part marked do-not-populate is never
-    missing one: it is never bought."""
-    if fp.dnp:
+    present on it and non-empty. A part marked do-not-populate, left out of
+    the BOM or on the board only (a mounting hole, a fiducial, a logo) is
+    never missing one: it is never bought."""
+    if fp.dnp or fp.bom_excluded or fp.board_only:
         return False
     return not any((fp.fields.get(f) or "").strip() for f in order_fields)
 

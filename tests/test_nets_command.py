@@ -184,3 +184,18 @@ def test_sorting_by_name_reads_a_to_z():
     rows = [{"net": n, "pads": 2, "parts": [], "span": 1.0, "routed": 0.0, "detour": None, "vias": 0,
              "layers": [], "pour": False} for n in ("B", "C", "A")]
     assert [r["net"] for r in sort_rows(rows, "net")] == ["A", "B", "C"]
+
+
+def test_a_pin_drawn_as_several_lands_counts_once():
+    """A pin drawn as two lands (a split thermal land) is one pad of its
+    net, at the centre of the box round its lands."""
+    import dataclasses
+    from placemat import nets
+    from tests.fixtures import board_geometry, footprint, pad
+    u = footprint("U1", 10, 10, inst="u1", nets=("A", "B"))
+    u = dataclasses.replace(u, pads=(pad("U1", "u1", 1, "A", 9.0, 10.0), pad("U1", "u1", 1, "A", 11.0, 10.0),
+                                     pad("U1", "u1", 2, "B", 14.0, 10.0)))
+    r = footprint("R1", 30, 10, inst="r1", nets=("A", "C"))
+    (row,) = [x for x in nets.nets_rows(board_geometry([u, r], width=60, height=60)) if x["net"] == "A"]
+    assert row["pads"] == 2
+    assert row["span"] == pytest.approx(abs(r.pads[0].location.x - 10.0) + 0.0, abs=0.01)

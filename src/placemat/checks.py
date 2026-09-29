@@ -417,7 +417,7 @@ def _net_graph(geometry: BoardGeometry, net: str):
     for fp in geometry.footprints:
         for p in fp.pads:
             if p.net == net and p.outlines:
-                nodes.append(("%s.%s" % (fp.ref, p.number), math.inf, p.outlines, p.box, p.layers, ()))
+                nodes.append(("%s.%s" % (fp.ref, p.number), math.inf, p.outlines, p.box, p.layers, (), 0.0))
     for c in geometry.copper:
         if c.net != net or not c.outlines:
             continue
@@ -425,13 +425,16 @@ def _net_graph(geometry: BoardGeometry, net: str):
             # a fill passes any width here: as KiCad stores it each hole is slit to the outline, and its
             # narrowest neck is a slit, or a thermal spoke to another part - not what the load passes through
             for o in c.outlines:
-                nodes.append(("zone", math.inf, (o,), Box.of_points(o), c.layers, ()))
+                nodes.append(("zone", math.inf, (o,), Box.of_points(o), c.layers, (), 0.0))
             continue
         if c.kind not in ("track", "via", "poly"):
             continue
         cap = c.width_mm if c.kind == "track" else (min(neck_mm(o) for o in c.outlines) if c.kind == "poly" else math.inf)
         ends = c.anchors if c.kind == "track" and len(c.anchors) >= 2 else ()
-        nodes.append((c.kind, cap, c.outlines, c.box, c.layers, ends))
+        # a track's own length (an arc's along the arc, not its chord), for the neck's
+        run = (c.length_mm or (math.hypot(ends[1][0] - ends[0][0], ends[1][1] - ends[0][1]) if ends else 0.0)) \
+            if c.kind == "track" else 0.0
+        nodes.append((c.kind, cap, c.outlines, c.box, c.layers, ends, run))
     near = {i: [] for i in range(len(nodes))}
     for i in range(len(nodes)):
         for j in range(i + 1, len(nodes)):
@@ -467,9 +470,11 @@ def _widest_from(nodes, near, sources) -> dict:
 
 
 def _neck(nodes, best, end_i: int, w: float) -> tuple:
-    """The bottleneck's point and how far the route stays within 10% of it:
+    """The bottleneck's point, how far the route stays within 10% of it -
     the run of consecutive track nodes around the bottleneck this narrow,
-    stopped each way by a pad, via, pour or wider track."""
+    stopped each way by a pad, via, pour or wider track - and whether the
+    bottleneck is a drawn pour's narrowest point (which has no length along
+    the route)."""
     path, i = [], end_i
     while i is not None:
         path.append(i)
@@ -479,8 +484,7 @@ def _neck(nodes, best, end_i: int, w: float) -> tuple:
     neck_i = path[pos]
 
     def length(idx):
-        ends = nodes[idx][5]
-        return math.hypot(ends[1][0] - ends[0][0], ends[1][1] - ends[0][1]) if ends else 0.0
+        return nodes[idx][6]
 
     def narrow(idx):
         return nodes[idx][0] == "track" and nodes[idx][1] <= w * 1.1 + 1e-9
@@ -496,7 +500,7 @@ def _neck(nodes, best, end_i: int, w: float) -> tuple:
     ends = nodes[neck_i][5]
     point = ((ends[0][0] + ends[1][0]) / 2.0, (ends[0][1] + ends[1][1]) / 2.0) if ends \
         else (nodes[neck_i][3].center.x, nodes[neck_i][3].center.y)
-    return point, total
+    return point, total, nodes[neck_i][0] == "poly"
 
 
 def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, copper_oz: float):
@@ -505,7 +509,8 @@ def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, cop
     other, at the lesser current - what can flow between them; with one
     carrier, its widest route to any other part's pad at its own current.
     Returns (judged: [(width, need, amps, from, to, through a zone, the
-    neck's point, how far the route stays that narrow)], unmeasured: [(from,
+    neck's point, how far the route stays that narrow, None for a pour's
+    narrowest point)], unmeasured: [(from,
     to, why)] - a route through a zone fill or pads and vias alone, which
     has no copper width to judge - and apart: the pairs no copper joins
     yet)."""
@@ -536,8 +541,9 @@ def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, cop
                                else "joined only through pads and vias"))
             continue
         amps = carriers[a] if b is None else min(carriers[a], carriers[b])
-        point, length = _neck(nodes, best, end_i, w)
-        judged.append((w, ipc2221_width_mm(amps, rise_c, copper_oz), amps, start, to, zoned, point, length))
+        point, length, in_pour = _neck(nodes, best, end_i, w)
+        judged.append((w, ipc2221_width_mm(amps, rise_c, copper_oz), amps, start, to, zoned, point,
+                       None if in_pour else length))
     return judged, unmeasured, apart
 
 
@@ -568,7 +574,8 @@ def current_paths(geometry: BoardGeometry, rise_c: float = TRACK_RISE_C, copper_
         if zoned:
             note += " (through a zone fill, whose width is not measured)"
         else:
-            note += "; neck at (%.2f, %.2f), %.2f mm long" % (point[0], point[1], length)
+            note += "; neck at (%.2f, %.2f), %s" % (point[0], point[1], "the pour's narrowest point" if length is None
+                                                    else "%.2f mm long" % length)
         out.append(Verdict("current-path", net, w, "mm", need, w >= need, note + ("; " + "; ".join(said) if said else "")))
     return out
 

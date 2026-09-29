@@ -327,6 +327,7 @@ def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footpr
                      phys_box=phys_box(fp), pads=_pads(board, fp, err_nm), npth=_npth(fp),
                      fields={f.GetName(): f.GetText() for f in fp.GetFields()},
                      lib_id=fp.GetFPIDAsString(), dnp=fp.IsDNP(),
+                     bom_excluded=fp.IsExcludedFromBOM(), board_only=fp.IsBoardOnly(),
                      silk=_silk(fp, err_nm), mask=_mask(fp, err_nm), fab=_fab(fp), copper=_copper_art(fp, err_nm),
                      courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp))
 
@@ -597,6 +598,7 @@ def read_footprint(path, courtyard_excess_mm: float = 0.10) -> tuple:
                      phys_box=phys_box(fp), pads=tuple(pads), npth=_npth(fp),
                      fields={f.GetName(): f.GetText() for f in fp.GetFields()},
                      lib_id=fp.GetFPIDAsString(), dnp=fp.IsDNP(),
+                     bom_excluded=fp.IsExcludedFromBOM(), board_only=fp.IsBoardOnly(),
                      silk=_silk(fp), mask=_mask(fp), fab=_fab(fp), copper=_copper_art(fp), courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp))
     return geom, digest
 

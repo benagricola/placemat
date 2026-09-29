@@ -52,3 +52,24 @@ def test_a_route_through_a_zone_fill_gives_no_neck_point():
     zone = CopperItem("zone", "VIN", frozenset([F]), (poly,), Box.of_points(poly))
     v = _vin(_parts(), [zone])
     assert v.ok is None and "not measured" in v.note and "neck at" not in v.note
+
+
+def test_an_arc_neck_is_measured_along_the_arc():
+    """An arc's length is its own, not the chord between its ends."""
+    wide1 = track("VIN", 8.6, 10, 15, 10, w=0.6)
+    neck = track("VIN", 15, 10, 17, 10, w=0.3, length=2.5)      # an arc: 2.5 mm along, 2 mm across
+    wide2 = track("VIN", 17, 10, 28.6, 10, w=0.6)
+    v = _vin(_parts(), [wide1, neck, wide2])
+    assert "2.50 mm long" in v.note
+
+
+def test_a_pour_neck_is_named_as_the_pours_not_given_a_length():
+    """A drawn pour's narrowest point has no length along the route: the
+    note says it is the pour's, not "0.00 mm long"."""
+    from placemat.board_geometry import CopperItem
+    from placemat.values import Box, CopperLayer
+    dumbbell = ((8, 8), (13, 8), (13, 9.5), (26, 9.5), (26, 8), (31, 8), (31, 12), (26, 12), (26, 10.5),
+                (13, 10.5), (13, 12), (8, 12))
+    pour = CopperItem("poly", "VIN", frozenset([CopperLayer.F]), (dumbbell,), Box.of_points(dumbbell))
+    v = _vin(_parts(), [pour])
+    assert "mm long" not in v.note and "the pour's narrowest" in v.note, v.note

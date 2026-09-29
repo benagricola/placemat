@@ -13,6 +13,7 @@ import math
 
 from .board_geometry import stackup_order
 from .ratsnest import Anchor, mst
+from .values import Box
 
 COLUMNS = ("net", "pads", "parts", "span", "routed", "detour", "vias", "layers", "pour")
 
@@ -27,15 +28,22 @@ def nets_rows(geometry, planes=frozenset(), inst: bool = False) -> list:
     (`kicad.route.plane_nets_of`); `inst` gives each net's parts as instance
     paths rather than refs."""
     by_net: dict = {}
+    lands: dict = {}                     # a pin drawn as several lands is one pin, at the centre of their box
     for fp in geometry.footprints:
         for p in fp.pads:
             if p.net:
-                by_net.setdefault(p.net, []).append((fp, p))
+                key = (fp.ref, p.number)
+                if key not in lands:
+                    by_net.setdefault(p.net, []).append((fp, p))
+                lands.setdefault(key, []).append(p.box)
     rows = []
     for net, items in sorted(by_net.items()):
         if len(items) < 2:
             continue
-        anchors = [Anchor(fp.ref, p.number, p.location.x, p.location.y) for fp, p in items]
+        anchors = []
+        for fp, p in items:
+            c = Box.union(lands[(fp.ref, p.number)]).center
+            anchors.append(Anchor(fp.ref, p.number, c.x, c.y))
         span = _span(net, anchors)
         tracks = [c for c in geometry.copper if c.kind == "track" and c.net == net]
         routed = round(sum(c.length_mm for c in tracks), 6)

@@ -600,8 +600,8 @@ counted a zone in a cell's size, so placements are unchanged. Set
 module sheet, a stamped cell's group nested inside its module's, so
 selecting any part of the module drags its sub-modules with it. Groups on
 the written board are one level: each nested group is lifted to the top
-level, whole, and a module keeps its own parts as a group of their own; the run says `groups  usbpd: cell(s)
-usbpd.controller, usbpd.moisture, usbpd.paths lifted to the top level`. A
+level, whole, and a module keeps its own parts as a group of their own; the run says `groups  power: cell(s)
+power.buck, power.ldo lifted to the top level`. A
 group left empty (a module sheet's that held only its cells) is removed.
 `write.split_groups = "split"` also takes out of a group the parts the
 script places by steps of their own (a group it did not place whole);
@@ -1138,7 +1138,7 @@ value (`--json` adds the body centre and the nets). The area and the pin count a
 the placement rank is worked out from, so the listing also explains the order
 things went down in. It also warns for a placed part carrying none of
 `[parts] order_fields` (default `Lcsc`, `LCSC`, `Mpn`, `MPN`) present and
-non-empty - "no order number: R40 (usbpd.r_wet)" - so a board is not sent
+non-empty - "no order number: R40 (power.r_fb)" - so a board is not sent
 for assembly with a part nobody can buy; a part marked do-not-populate is
 never warned about. `--json` gives the same lines as `warnings`.
 

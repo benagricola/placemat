@@ -76,6 +76,8 @@ class Footprint:
     fields: dict = field(default_factory=dict, compare=False)   # the footprint's text fields (the capture's Pm.* facts)
     lib_id: str = field(default="", compare=False)              # the footprint it was drawn from, library:name
     dnp: bool = field(default=False, compare=False)             # "do not populate" (KiCad's own attribute, FOOTPRINT::IsDNP)
+    bom_excluded: bool = field(default=False, compare=False)    # left out of the BOM (FOOTPRINT::IsExcludedFromBOM)
+    board_only: bool = field(default=False, compare=False)      # on the board only, not the schematic (FOOTPRINT::IsBoardOnly)
 
     @property
     def box(self) -> Box:
