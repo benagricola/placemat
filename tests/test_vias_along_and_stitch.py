@@ -7,7 +7,7 @@ import pytest
 from placemat.copper import Via
 from placemat.cutouts import Circle
 from placemat.layout import Board
-from placemat.values import Cell, Centre, CopperLayer, Location, Net, PadRef, Part
+from placemat.values import Box, Cell, Centre, CopperLayer, Location, Net, PadRef, Part
 from tests.fixtures import board_geometry, footprint
 
 
@@ -116,3 +116,46 @@ def test_stitch_refuses_a_pitch_under_the_hole_to_hole_rule():
     b.keepout(Circle(6.0), "shield", at=Location(30, 30), excludes=["parts"], why="probe")
     with pytest.raises(ValueError, match="hole-to-hole"):
         b.stitch(Net("GND"), "shield", size=0.4, drill=0.3, pitch=0.4)
+
+
+def test_stitch_refuses_a_keepouts_default_excludes_that_forbid_vias():
+    """The default excludes forbid vias: planning would find nowhere for one
+    to stand and just say "no via fits ... at a pitch". Refused up front,
+    naming the keepout's own exclusion, is a clearer message."""
+    b = Board(board_geometry([], width=60, height=60, extra_nets=["GND"]), edge_margin=1.0, keep_going=True)
+    b.keepout(Circle(6.0), "shield", at=Location(30, 30), why="probe")     # default excludes: vias forbidden
+    with pytest.raises(ValueError, match="vias"):
+        b.stitch(Net("GND"), "shield")
+
+
+def test_stitch_refuses_a_pours_region_of_another_net():
+    b = Board(board_geometry([], width=60, height=60, extra_nets=["GND", "OTHER"]), edge_margin=1.0, keep_going=True)
+    p = b.pour(Net("OTHER"), [Location(10, 10), Location(20, 10), Location(20, 16), Location(10, 16)],
+              layer=CopperLayer.F)
+    with pytest.raises(ValueError, match="OTHER"):
+        b.stitch(Net("GND"), p)
+
+
+def test_stitch_edge_rows_vias_along_a_regions_outline():
+    """stitch(..., edge=True): a row of vias along the region's own outline
+    at the pitch, a via's clearance inside it - not a grid over the whole
+    interior (the audit's real case: GnssAntenna_layout.py's stitching vias,
+    "at most 2 mm apart and 0.35 mm from the ground's edge, along two sides
+    of the clearance")."""
+    b = Board(board_geometry([], width=60, height=60, extra_nets=["GND"]), edge_margin=1.0, keep_going=True)
+    p = b.pour(Net("GND"), [Location(10, 10), Location(30, 10), Location(30, 26), Location(10, 26)],
+              layer=CopperLayer.F)
+    b.stitch(Net("GND"), p, size=0.6, drill=0.3, pitch=2.0, edge=True)
+    plan = b.resolve()
+    vias = _vias(plan)
+    assert vias
+    inset = 0.6 / 2.0 + 0.2                     # via radius + the board's own netclass clearance
+    box = Box(10.0, 10.0, 30.0, 26.0)
+    sides = set()
+    for v in vias:
+        dists = {"left": v.at.x - box.left, "right": box.right - v.at.x,
+                "top": v.at.y - box.top, "bottom": box.bottom - v.at.y}
+        nearest, dist = min(dists.items(), key=lambda kv: kv[1])
+        assert abs(dist - inset) < 1e-6, (v.at, dists)          # sits the inset in from its own side, not scattered
+        sides.add(nearest)
+    assert len(sides) >= 2                                      # it goes around the outline, not just one side

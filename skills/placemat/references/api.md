@@ -964,7 +964,7 @@ Every copper call is named for the shape it leaves on the board:
 | plane | a zone covering the whole board (or an outline) on one or more layers, for a net that everything reaches by a via |
 | bridge | a via, a short track on the opposite face passing under one or more tracks, and a via back: how a track gets past copper on its own layer without touching it |
 | finger | a rectangular pour of a width along a centreline (a wide reach from a big pour to a pad), cut and bridged where a track crosses it |
-| stitch | vias in a grid over a region (a cell, a pour or a keepout), at the via-to-via rule, clear of every other net's copper |
+| stitch | vias in a grid over a region (a cell, a pour or a keepout), at the via-to-via rule, clear of every other net's copper; `edge=True` rows them along the region's own outline instead |
 
 A bus down a board is written as it looks: one vertical (or horizontal)
 track per net between the first and last pad it serves, `(x, Y(pad))` to
@@ -1029,7 +1029,7 @@ board.via(net, point)
 board.via(net, FreeSpot(near=PadRef(...), radius=2.0))               # the nearest legal spot to a pad, joined to it by its tail
 board.vias(net, PadRef(...), pitch=None, size=None, drill=None, inset=0)  # a pad filled with a grid of vias, turned with its part
 board.vias(net, along=PadRef(...), count=N, pitch=None, size=None, drill=None)  # a row out from a pad, along its escape axis
-board.stitch(net, region, pitch=None, size=None, drill=None)         # vias in a grid over a cell, a pour or a keepout
+board.stitch(net, region, pitch=None, size=None, drill=None, edge=False)  # vias in a grid over a cell, a pour or a keepout
 board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False)     # filled polygon
 board.pour(net, [PadRef(a), PadRef(b)], layer=..., swallow_pads=True, width=None)  # the neck between two pads
 board.plane(net, layers=(CopperLayer.IN1,), outline=None, inset=0.4)  # zone(s), whole board or outline
@@ -1103,7 +1103,15 @@ exclusive: one call, a grid over a pad or a row along its axis.
 in a grid at `pitch` (by default the via-to-via rule), each one wholly
 inside the region and clear of every other net's copper, hole, keepout and
 the board edge. Resolved once the region itself is: after the cell is
-placed, the pour is drawn, or the keepout is settled.
+placed, the pour is drawn, or the keepout is settled. A pour region must be
+`net`'s own net; a keepout whose `excludes` forbids vias (the default) and
+does not `allow` this net is refused when declared, naming the exclusion,
+rather than planning nothing and saying no via fit.
+
+`edge=True` rows the vias along `region`'s own outline instead of filling
+its inside: `pitch` apart along each side, a via's own radius plus its
+netclass clearance in from the edge, going all the way round. For stitching
+a ground pour's or a shield keepout's border, not its middle.
 
 **A pour between two pads.** `board.pour(net, [PadRef(a), PadRef(b)],
 swallow_pads=True)` with exactly two pads draws the neck between them - a
@@ -1112,12 +1120,26 @@ across the run, unless `width=` says otherwise - instead of needing a
 third point.
 
 **A swallowing pour pulls back too.** `swallow_pads` both grows the pour
-over the same-net pads its outline touches and pulls it back from every
-other net's copper on its layer (pads, tracks, vias, other pours) to the
-netclass clearance, as a zone fill does. A piece the pull-back cuts off
-that no longer touches a named or swallowed pad is dropped; if that leaves
-a named pad joined to nothing, it is a finding naming the pad. A pour
-without `swallow_pads` keeps exactly the shape it is given, still.
+over the same-net pads its outline touches and pulls it back, to the
+netclass clearance, from every other net's copper on its layer - every
+pad, at its real shape rather than its bounding box; every track, via and
+pour this run plans; and every track, via and poly already on the board
+before this run (a stamped cell's own), as a zone fill does. A pad with no
+net, or on a net this board's geometry does not know, keeps the board's
+own default clearance. A piece the pull-back cuts off that no longer
+touches a named or swallowed pad is dropped; if that leaves a named pad
+joined to nothing, it is a finding naming the pad. Only a same-net pad
+counts as one of the pour's own pads: a polygon corner that names another
+net's pad shapes the outline near it and is never swallowed or checked as
+joined. A pour without `swallow_pads` keeps exactly the shape it is given,
+still.
+
+The plan itself draws the pour's shape exactly as declared - placemat's own
+geometry has no polygon subtract to compute the pull-back before the board
+is written - so a `swallow_pads` pour's clearance to other nets is not
+checked at plan time (the writer's pull-back guarantees it); the declared
+shape still occupies the board, so it is an obstacle for copper planned
+after it, same as the written pour is.
 
 **A finger as wide as a pad.** `board.finger(net, from_=, to=, width=PadRef(...))`
 runs the finger as wide as that pad measured across the run, instead of a

@@ -1,6 +1,8 @@
 """Track waypoints Between(a, b) (the centreline of the gap between two
 pads) and Past(pads, edge) (the clearance off those pads' side): resolved
 once the pads are placed, accepted wherever a track point is. Pure."""
+import dataclasses
+
 import pytest
 
 from placemat.board_geometry import Footprint
@@ -14,6 +16,15 @@ def _one_pad_part(ref, inst, net, cx, cy, w, h):
     p = pad(ref, inst, 1, net, cx, cy, w, h)
     body = Box(cx - w / 2 - 0.5, cy - h / 2 - 0.5, cx + w / 2 + 0.5, cy + h / 2 + 0.5)
     return Footprint(ref, inst, None, ref, Location(cx, cy), 0.0, Face.FRONT, body, body.inflate(0.1), body, (p,))
+
+
+def _geometry_with_a_no_net_pad(footprints, **kw):
+    """As board_geometry(), but a pad's own "" net is not a real net on the
+    board - the real reader never adds one either (kicad/read.py's
+    _netclasses skips a net with no name), so a no-net pad's net is not in
+    geometry.nets, same as on a real board."""
+    geom = board_geometry(footprints, **kw)
+    return dataclasses.replace(geom, nets=geom.nets - {""})
 
 
 def _legs(plan):
@@ -72,6 +83,29 @@ def test_past_edges_are_read_off_the_pads_combined_box():
     assert not declared_findings(plan)
     legs = _legs(plan)
     assert any(t.start == Location(10.0, 19.2) or t.end == Location(10.0, 19.2) for t in legs)
+
+
+def test_between_uses_the_default_clearance_next_to_a_pad_with_no_net():
+    """A corner-reference pad with no net (GetNetCode() <= 0 on a real
+    board) sits next to the gap: Between must fall back to the default
+    clearance for it, not raise looking up a netclass for ''."""
+    pa = _one_pad_part("PA", "pa", "", 9.0, 20.0, 2.0, 1.0)         # no net: right edge at 10.0
+    pb = _one_pad_part("PB", "pb", "GND", 11.7, 20.0, 2.0, 1.0)     # left edge at 11.7: a 0.7 mm gap
+    b = Board(_geometry_with_a_no_net_pad([pa, pb], width=60, height=60, extra_nets=["SIG"]), edge_margin=1.0)
+    mid_x = (9.0 + 11.7) / 2.0
+    b.track(Net("SIG"), [Location(mid_x, 5.0), Between(PadRef(Part("pa"), 1), PadRef(Part("pb"), 1)),
+                         Location(mid_x, 35.0)], layer=CopperLayer.F, chamfer=0)
+    plan = b.resolve()             # used to raise KeyError: no net named ''
+    assert not declared_findings(plan)
+
+
+def test_past_uses_the_default_clearance_next_to_a_pad_with_no_net():
+    pa = _one_pad_part("PA", "pa", "", 10.0, 20.0, 1.0, 1.0)        # no net
+    b = Board(_geometry_with_a_no_net_pad([pa], width=60, height=60, extra_nets=["SIG"]), edge_margin=1.0)
+    past = Past([PadRef(Part("pa"), 1)], Edge.NORTH)
+    b.track(Net("SIG"), [Location(10.0, 5.0), past, Location(20.0, 30.0)], layer=CopperLayer.F, chamfer=0)
+    plan = b.resolve()             # used to raise KeyError: no net named ''
+    assert not declared_findings(plan)
 
 
 def test_a_past_with_no_edge_enum_is_refused():
