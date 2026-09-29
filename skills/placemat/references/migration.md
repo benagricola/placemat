@@ -4,6 +4,36 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## Unreleased
+
+Nothing to change in a script that works. New intent forms replace the
+coordinates the scripts audit found (see SKILL.md's "Declare by intent" and
+the intent index): `at=Beside(item, Edge.X, align=...)` for a part beside
+another part, a cell or a keepout at the envelope's own gap;
+`board.row(items, Edge.X, of=Part(...))` for a row along a part's side
+(also in a fit frame); `Pin` with a cell's member pad; `board.keepout(item,
+name, margin=)` for a region shaped by a part's or a cell's drawn envelope,
+moving and turning with it; `board.size(fit=Axis.X, height=...)` (or
+`Axis.Y`) for a frame fitted in one axis. For copper: `Between(pad, pad)`
+and `Past([pads], Edge.X)` as track waypoints (a lane through the gap
+between two pads, or held off their side); `board.track(..., bend=Bend.START
+| Bend.END | Bend.BOTH)` for the end of a leg that takes its 45;
+`board.pour(net, [pad, pad], swallow_pads=True)` for a neck between two
+pads; `board.finger(..., width=PadRef(...))` as wide as a pad;
+`board.vias(net, along=PadRef(...), count=N)` for a row of vias out from a
+pad; `board.stitch(net, region)`. A helper that computed any of these from
+pad boxes or envelopes can go.
+
+A pour grown over pads (`swallow_pads=True`) now pulls back from every other
+net's copper on its layer to the netclass clearance, as a zone fill does,
+and keeps only the pieces touching its pads: one that came within clearance
+of a pad beside the pads it covers is clean now.
+
+A keepout or cutout with `rotation=Turned(part, degrees)` now turns the
+way its part does: an asymmetric one turned the opposite way at 90 and 270
+(a symmetric one, a slot or a circle, is unchanged). The stored rotation is
+the region's own bearing, so a quarter turn with the part reads 270.
+
 ## To 0.53.0
 
 Read `SKILL.md`'s "Declare by intent" section first: a script says where a
