@@ -565,9 +565,12 @@ fn pymax3(a: f64, b: f64, c: f64) -> f64 {
 /// a = its code, 1 a reservation with a = its index, 2 a conflict with
 /// a = the turn << 32 | the candidate's shape in that turn's list, and
 /// b = the obstacle). With `stop_at_first`
-/// it stops at the first legal candidate.
+/// it stops at the first legal candidate. `judged`, beside `parts`: for
+/// each reservation in `reservations` order, the indexes of the parts it
+/// judges (a cell's members it does not let in, and its own copper, as
+/// `Occupancy.judged` gives them); without it every part is judged.
 #[pyfunction]
-#[pyo3(signature = (board, reservations, obstacles, origins, bodies, points, clearance, stop_at_first, scoring=None, parts=None))]
+#[pyo3(signature = (board, reservations, obstacles, origins, bodies, points, clearance, stop_at_first, scoring=None, parts=None, judged=None))]
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn sweep(
     py: Python<'_>,
@@ -581,6 +584,7 @@ fn sweep(
     stop_at_first: bool,
     scoring: Option<Bound<'_, PyAny>>,
     parts: Option<Vec<Vec<PyBox>>>,
+    judged: Option<Vec<Vec<usize>>>,
 ) -> PyResult<(Vec<usize>, Vec<f64>, Vec<(u8, i64, i64, usize, usize)>)> {
     let parts = parts.unwrap_or_default();
     let mut search: Option<PyRefMut<'_, NativeScoring>> = None;
@@ -648,9 +652,15 @@ fn sweep(
                 continue;
             }
         }
-        if let Some(&ri) = reservations.iter().find(|&&ri| {
-            let r = &board.reservations[ri];
-            r.overlaps(&body) && (members.is_empty() || members.iter().any(|m| r.overlaps(m)))
+        if let Some(&ri) = reservations.iter().enumerate().find_map(|(pos, ri)| {
+            let r = &board.reservations[*ri];
+            let hit = r.overlaps(&body)
+                && (members.is_empty()
+                    || match judged.as_ref() {
+                        Some(j) => j[pos].iter().any(|&k| k < members.len() && r.overlaps(&members[k])),
+                        None => members.iter().any(|m| r.overlaps(m)),
+                    });
+            if hit { Some(ri) } else { None }
         }) {
             refuse((1, ri as i64, 0), idx, &mut refused);
             continue;

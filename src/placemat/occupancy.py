@@ -176,6 +176,7 @@ class ItemGeometry:
     nets: frozenset[str]
     reach: Box | None = None            # everything the item physically is: pads and drawn graphics (silk), not the courtyard
     parts: tuple = ()                   # a cell's members' bodies (and its own copper): what the edge and keepouts judge
+    part_refs: tuple = ()               # the members whose bodies lead `parts`, in its order; its own copper follows
 
 
 _BOTH = frozenset([Face.FRONT, Face.BACK])
@@ -389,7 +390,8 @@ class Occupancy:
             self._cells[item.name] = ItemGeometry(frozenset(m for mg in members for m in mg.owners) | {item.name},
                                                   Placement(body.center, 0.0, Face.FRONT), shapes, body,
                                                   frozenset(n for m in members for n in m.nets), reach,
-                                                  tuple(m.body for m in members) + tuple(own))
+                                                  tuple(m.body for m in members) + tuple(own),
+                                                  tuple(fp.ref for fp in item.members))
             return self._cells[item.name]
         raise TypeError("cannot place a %s" % type(item).__name__)
 
@@ -605,20 +607,51 @@ class Occupancy:
         return {o for o in geom.owners if o in self._footprint_refs}
 
     def let_in(self, r: Reservation, geom) -> bool:
-        """Whether a reservation lets the item in: named, carrying a net let
-        through, or - in a height-limited region - every part of it short
-        enough. A cell with one tall member is judged whole."""
+        """Whether a reservation lets the whole item in: a part named,
+        carrying a net let through, or - in a height-limited region - short
+        enough; a cell, when every member is (see `judged`)."""
+        if geom.part_refs:
+            return all(self._member_let_in(r, ref) for ref in geom.part_refs)
         if (geom.owners & r.owners) or (geom.nets & r.allow):
             return True
         return r.admitted is not None and bool(self._parts_of(geom)) and self._parts_of(geom) <= r.admitted
 
-    def refusal(self, r: Reservation, geom) -> str:
+    def _member_let_in(self, r: Reservation, ref: str) -> bool:
+        """A cell's member, as a part of its own: named, carrying a net let
+        through, or short enough."""
+        return ref in r.owners or bool(self.items[ref].nets & r.allow) or \
+            (r.admitted is not None and ref in r.admitted)
+
+    def judged(self, r: Reservation, geom) -> list:
+        """Which of a cell's `parts` a reservation judges: each member not let
+        in by its own name, nets or height, and the cell's own copper (let in
+        only with every member)."""
+        n = len(geom.part_refs)
+        return [k for k in range(len(geom.parts)) if k >= n or not self._member_let_in(r, geom.part_refs[k])]
+
+    def refusing_member(self, r: Reservation, geom, placement: Placement):
+        """The member of a cell at `placement` that a reservation refuses, or
+        None (a part, or the cell's own copper)."""
+        if not geom.part_refs:
+            return None
+        parts = self._shifted_parts(geom, placement)
+        k = next((k for k in self.judged(r, geom) if r.overlaps(parts[k])), None)
+        return geom.part_refs[k] if k is not None and k < len(geom.part_refs) else None
+
+    def refusal(self, r: Reservation, geom, member: str | None = None) -> str:
         """The sentence for an item a reservation keeps out; in a height-
-        limited region it names each part that is too tall or has no height."""
+        limited region it names each part that is too tall or has no height.
+        `member`: the cell's member that is refused, named."""
+        from .board_geometry import part_height
+        if member is not None:
+            why = "its member %s sits in the reservation for %s" % (member, r.why)
+            if r.admitted is None or member in r.admitted:
+                return why
+            h = part_height(self.geometry.footprint(member))
+            return why + (": %s has no Pm.Height" % member if h is None else ": %s is %g mm" % (member, h))
         why = "sits in the reservation for %s" % r.why
         if r.admitted is None:
             return why
-        from .board_geometry import part_height
         said = []
         for ref in sorted(self._parts_of(geom) - r.admitted):
             h = part_height(self.geometry.footprint(ref))
@@ -894,13 +927,16 @@ class Occupancy:
                 continue                                   # named, carrying a net let through, or short enough
             # the box first because it is cheap, and the placer asks this tens of thousands of times
             if r.overlaps(body):
+                member = None
                 if geom.parts:
                     parts = self._shifted_parts(geom, placement) if parts is None else parts
-                    if not any(r.overlaps(p) for p in parts):
+                    hit = next((k for k in self.judged(r, geom) if r.overlaps(parts[k])), None)
+                    if hit is None:
                         continue
+                    member = geom.part_refs[hit] if hit < len(geom.part_refs) else None
                 if blame is not None:
                     blame.append(Blocker("reservation", r.why, frozenset()))
-                return self.refusal(r, geom)
+                return self.refusal(r, geom, member)
         return None
 
     def standing_faces(self, geom: ItemGeometry, face) -> set:
@@ -1479,6 +1515,8 @@ class NativeSweeper:
         self.reservations = [i for i, r in enumerate(occ.reservations)
                              if not (r.layer is not None and r.layer.face not in faces)
                              and not occ.let_in(r, geom)]
+        # a cell's parts each reservation judges: its members not let in by their own name, nets or height
+        self.judged = [occ.judged(occ.reservations[i], geom) for i in self.reservations] if geom.parts else None
         self._decoded = {}
 
     def run(self, triples, stop_at_first: bool, scoring=None):
@@ -1490,7 +1528,8 @@ class NativeSweeper:
         from . import geometry as _g
         legal, scores, refused = _g._native.sweep(self.board, self.reservations, self.index, self.handles,
                                                   self.bodies, triples, self.clearance, stop_at_first, scoring,
-                                                  self.parts if self.geom.parts else None)
+                                                  self.parts if self.geom.parts else None,
+                                                  self.judged if self.geom.parts else None)
         out = []
         for kind, a, b, count, first in refused:
             bucket, blocker, reason = self._decode(kind, a, b, triples[first])
@@ -1514,7 +1553,7 @@ class NativeSweeper:
             return hit[0], hit[1], (lambda: edge_sentence(a, box(), occ.edge_margin))
         if kind == 1:
             r = occ.reservations[a]
-            why = occ.refusal(r, self.geom)
+            why = occ.refusal(r, self.geom, occ.refusing_member(r, self.geom, cand))
             return _reason_key(why), ("reservation", r.why, ""), (lambda why=why: why)
         turn_of, si = a >> 32, a & 0xffffffff
         s, o = self.origin[turn_of][si], self.shapes[b]

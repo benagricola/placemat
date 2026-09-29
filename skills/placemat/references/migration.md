@@ -14,6 +14,12 @@ they were laid; to lay them again, `placemat routes <script> --release-all`
 then `placemat route <script> --adopt-all` (with `--partial` if wanted).
 `[route] router_args` passes more of the router's own flags through.
 
+A cell meets a keepout member by member: a member named in `allow=`, or
+carrying a net it names, no longer admits the rest of its cell, and one tall
+member no longer keeps the low ones out of a height band. A cell that stood
+in a keepout because one member was named may be refused there now (the
+finding names the member); name the others, or `Cell(...)`, to admit it.
+
 ## To 0.51.1
 
 A keepout whose shape has no area (a computed rectangle whose two sides

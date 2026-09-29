@@ -17,14 +17,13 @@ def test_an_iteration_cap_is_passed_through():
     assert "!GND" in cmd
 
 
-def test_a_quick_route_skips_the_smoothing_pass():
-    """One round is a measurement: the octolinear smoothing the router runs
-    after routing cannot change what closed, and on the Breakout it cost two
-    of the run's two and a half minutes."""
+def test_a_quick_route_smooths_as_the_router_does():
+    """The router's smoothing now costs a quick route about an eighth of its
+    time (the Breakout, 2026-09-29: 42 s against 37 s), not most of it, so a
+    quick route runs it; [route] smoothing = false skips it
+    (tests/test_router_tuning.py)."""
     cmd = router_command("py", "route.py", "in.kicad_pcb", "out.kicad_pcb", set(), ["F.Cu"], "s.json", quick=True)
-    assert "--no-smoothing" in cmd
-    full = router_command("py", "route.py", "in.kicad_pcb", "out.kicad_pcb", set(), ["F.Cu"], "s.json", quick=False)
-    assert "--no-smoothing" not in full
+    assert "--no-smoothing" not in cmd
 
 
 def test_the_router_keeps_the_scripts_own_copper():
