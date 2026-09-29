@@ -153,6 +153,27 @@ def test_a_row_runs_along_a_curved_edge_turning_with_it():
     assert middle.x == pytest.approx(20.0, abs=0.3)             # centred on the run
 
 
+def test_a_row_along_a_run_may_align_flush_with_its_far_end():
+    """align=Along.END on a run is the mirror of the default (START): the
+    row's far end lands at the run's own end, not centred."""
+    b = make_board("d1")
+    b.outline(ROUNDED_TOP)
+    top = b.edge(facing=Edge.NORTH)
+    row = b.row([Part("d1")], top, align=Along.END)
+    plan = b.resolve()
+    assert placement_findings(plan) == []
+    b2 = make_board("d1")
+    b2.outline(ROUNDED_TOP)
+    top2 = b2.edge(facing=Edge.NORTH)
+    row2 = b2.row([Part("d1")], top2)                                  # default: START, flush with the near end
+    plan2 = b2.resolve()
+    assert placement_findings(plan2) == []
+    # symmetric: as far past the run's own end as START sits short of its start
+    # (abs=0.1: the run's own arithmetic is done on a flattened copy of the curve)
+    assert row.alongs[0] == pytest.approx(top.length - row2.alongs[0], abs=0.1)
+    assert plan.box("d1").center.x > plan2.box("d1").center.x          # END sits further along than START
+
+
 def test_a_free_item_slides_along_a_run():
     b = make_board("j1", "u1")
     b.outline(ROUNDED_TOP)
