@@ -4,7 +4,7 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
-## Unreleased
+## To 0.54.0
 
 The `placemat-design` skill is retired. Its placemat part - the `Pm.*`
 annotations, how wrappers forward them, what `placemat check` reads - is

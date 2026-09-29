@@ -7,12 +7,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **The intent relations layout scripts are missing** (audits 2026-09-29;
-  spec `2026-09-29-missing-intent-relations-design.md`, approved):
-  Beside, a row along a part, Between/Past track waypoints, the 45 end of a
-  leg, via rows and stitching, a cell placed by a member's pad, a keepout
-  shaped by an item, one-axis fit, a two-pad pour, a finger as wide as a pad.
-
 - **A slid block satellite does not say which pins it now stands in front
   of** (PLACEMAT_GAPS 2026-09-27, checked 2026-09-28): stepping out and
   turning on the pin's axis are already tried before the slide.
@@ -56,6 +50,14 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **The intent relations** (0.54.0; audits 2026-09-29, spec
+  `2026-09-29-missing-intent-relations-design.md`): Beside, a row along a
+  part, Between/Past track waypoints, the 45 end of a leg, via rows and
+  stitching, a cell placed by a member's pad, a keepout shaped by an item,
+  one-axis fit, a two-pad pour, a finger as wide as a pad; a pour grown over
+  pads pulls back from other nets' copper when written; Turned regions turn
+  with their part; the placemat-design skill folded into
+  `references/capture.md`.
 - **Intent first** (0.53.0; the owner, 2026-09-29; audits
   `docs/audits/2026-09-29-*.md`): the skill leads with declaring by intent,
   api.md opens with an intent index, the check line counts computed offsets;
