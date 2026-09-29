@@ -643,7 +643,7 @@ def cmd_measure(args) -> int:
             console.data(json.dumps({"parts": [doc]}, indent=2))
         else:
             console.lines("measure", "\n".join(
-                describe.part_lines(fp, pads=args.pads, digest=digest, envelope=args.envelope)))
+                describe.part_lines(fp, pads=args.pads, digest=digest, envelope=getattr(args, "envelope", False))))
         return 0
     pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
     if getattr(args, "outline", False):
@@ -677,7 +677,7 @@ def cmd_measure(args) -> int:
             console.lines("measure", "\n".join(lines))
         return 0
     snap = read_board(pcb)
-    if args.copper is not None:
+    if getattr(args, "copper", None) is not None:
         if args.json:
             console.data(json.dumps({"segments": describe.copper_segments(snap, args.copper)}, indent=2))
         else:
@@ -710,7 +710,7 @@ def cmd_measure(args) -> int:
             doc["pads"] = [describe.pad_facts(fp, q, snap) for q in fp.pads]
             doc["copper_on_pads"] = describe.copper_on(fp, snap)
         docs.append(doc)
-        lines += describe.part_lines(fp, snap, pads=args.pads, envelope=args.envelope)
+        lines += describe.part_lines(fp, snap, pads=args.pads, envelope=getattr(args, "envelope", False))
     if args.json:
         console.data(json.dumps({"parts": docs}, indent=2))
     else:
