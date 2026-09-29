@@ -187,6 +187,15 @@ def parts_rows(geometry, fields=()) -> list:
             for fp in sorted(geometry.footprints, key=lambda f: f.inst)]
 
 
+def board_totals(geometry) -> dict:
+    """The board's part and pad counts, and the solder joints an assembler
+    places: the pads of every part it populates - a do-not-populate part and
+    one on the board only (a fiducial, a mounting hole) left out."""
+    fps = geometry.footprints
+    return {"parts": len(fps), "pads": sum(len(fp.pads) for fp in fps),
+            "joints": sum(len(fp.pads) for fp in fps if not fp.dnp and not fp.board_only)}
+
+
 def parts_lines(geometry, fields=()) -> list:
     rows = parts_rows(geometry, fields)
     if not rows:
@@ -201,6 +210,9 @@ def parts_lines(geometry, fields=()) -> list:
             r["x"], r["y"], r["rotation"], r["mm2"], r["pins"],
             "-" if r["height"] is None else ("%.2f" % r["height"] if isinstance(r["height"], float) else "?"),
             r["value"][:28], "  ".join(extra)))
+    t = board_totals(geometry)
+    out.append("%d parts, %d pads, %d solder joints to assemble (do-not-populate and board-only parts left out)"
+               % (t["parts"], t["pads"], t["joints"]))
     return out
 
 

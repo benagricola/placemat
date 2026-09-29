@@ -10,10 +10,9 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **The fragment each stamped part came from, in `parts`** (PLACEMAT_GAPS
   2026-09-29 "which fragment a nested module's parts came from"), or
   "ignored: ancestor authoritative".
-- **A FreeSpot tail drawn octilinear; a render with the zones left out**
-  (PLACEMAT_GAPS 2026-09-29 "the legs of the tracks a fragment drew", "a
-  fragment's front copper without its zones"; the segment listing is
-  `measure --copper` now).
+- **A FreeSpot tail drawn octilinear** (PLACEMAT_GAPS 2026-09-29 "the legs
+  of the tracks a fragment drew"; the segment listing is `measure --copper`
+  now, and `preview` draws zones as outlines, not over the tracks).
 - **One land of a multi-land pin** (PLACEMAT_GAPS 2026-09-29): `PadRef`
   names the first land; a pin drawn as a tab, small pads and an exposed pad
   needs the largest (or an index), and the union's box.
@@ -44,8 +43,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   to"); with the routed copy's tracks, and a finding for a track that
   crosses another net's zone outline (same day, "which routed tracks cross a
   pour's outline").
-- **A pad and solder-joint count in the run summary; DRC items with each
-  part's instance path beside its refdes** (PLACEMAT_GAPS 2026-09-28).
 - **A finding when a 3D model's box does not sit over the footprint's pads**
   (PLACEMAT_GAPS 2026-09-29 "a footprint's 3D model transform"; the path and
   transform are in `measure` now): needs the model file's own extents.

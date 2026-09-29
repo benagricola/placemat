@@ -248,3 +248,15 @@ def test_a_part_outside_the_bom_is_never_missing_an_order_number(attr):
     from placemat.describe import missing_order_number
     fp = footprint("H1", 10.0, 10.0, inst="mh", nets=("A", "GND"), **{attr: True})
     assert not missing_order_number(fp, ("Lcsc", "Mpn"))
+
+
+def test_the_board_totals_count_pads_and_the_joints_to_assemble():
+    """Every pad on the board, and the solder joints an assembler charges for:
+    the pads of parts it places, not a part marked do-not-populate or one on
+    the board only (a fiducial, a mounting hole)."""
+    from placemat.describe import board_totals, parts_lines
+    fps = [footprint("U1", 10, 10, inst="u1"), footprint("C1", 20, 10, inst="c1", dnp=True),
+           footprint("FID1", 30, 10, inst="fid1", board_only=True), footprint("R1", 40, 10, inst="r1")]
+    g = board_geometry(fps, width=60, height=30)
+    assert board_totals(g) == {"parts": 4, "pads": 8, "joints": 4}
+    assert "4 parts, 8 pads, 4 solder joints to assemble" in "\n".join(parts_lines(g))

@@ -1283,7 +1283,8 @@ airwires, and each violation that fails the board with where it is and the
 items it is between (the first twenty; `--json` gives them all as
 `violations`, each with its kind, severity, KiCad's description and its
 items' descriptions and positions, and every open connection as
-`unconnected_items`, by net).
+`unconnected_items`, by net). An item on a part carries the part's instance
+path beside KiCad's refdes (`instance`; in the text, in brackets).
 
 `measure` is the geometry query. Given a board it prints, per part, the
 instance, refdes, value, face, rotation and origin, the `body`, `courtyard` and
@@ -1350,7 +1351,10 @@ things went down in. It also warns for a placed part carrying none of
 `[parts] order_fields` (default `Lcsc`, `LCSC`, `Mpn`, `MPN`) present and
 non-empty - "no order number: R40 (power.r_fb)" - so a board is not sent
 for assembly with a part nobody can buy; a part marked do-not-populate is
-never warned about. `--json` gives the same lines as `warnings`.
+never warned about. `--json` gives the same lines as `warnings`. The last
+line counts the parts, the pads and the solder joints an assembler places -
+the pads of every part it populates, do-not-populate and board-only parts
+left out (`--json`: `totals`).
 
 `nets` answers "which nets matter": one row per net with at least two pads -
 its pad count and the parts it joins (refs, or instance paths with `--inst`);

@@ -474,11 +474,16 @@ def cmd_drc(args) -> int:
     report = run_drc(pcb, out)
     data = json.loads(out.read_text())
     aw = airwires_from_drc(data)
-    items = violation_items(data, {})
+    try:
+        from .kicad.read import read_board
+        insts = {fp.ref: fp.inst for fp in read_board(pcb).footprints}
+    except Exception:                               # a board pcbnew cannot read has no instances to name
+        insts = {}
+    items = violation_items(data, {}, insts)
     if args.json:
         console.data(json.dumps({"by_type": report.by_type, "real": report.real, "outstanding": report.outstanding,
                                  "unconnected": report.unconnected, "open_nets": dict(report.open_nets),
-                                 "airwires": aw, "violations": items, "unconnected_items": unconnected_items(data)},
+                                 "airwires": aw, "violations": items, "unconnected_items": unconnected_items(data, insts)},
                                 indent=2))
     else:
         console.say("drc", report.summary())
@@ -486,7 +491,9 @@ def cmd_drc(args) -> int:
         for v in real[:20]:                     # the ones that fail the board, each where it is
             at = next((i["at"] for i in v["items"] if i["at"]), None)
             console.say("drc", "%s%s: %s; %s" % (v["kind"], " at (%.2f, %.2f)" % tuple(at) if at else "",
-                                                 v["description"], "; ".join(i["description"] for i in v["items"])))
+                                                 v["description"], "; ".join(
+                                                     i["description"] + (" (%s)" % i["instance"] if "instance" in i else "")
+                                                     for i in v["items"])))
         if len(real) > 20:
             console.say("drc", "... %d more with --json" % (len(real) - 20))
         console.say("drc", "airwires %d, %.1f mm, %d crossings" % (aw["count"], aw["total_mm"], aw["crossings"]))
@@ -724,7 +731,7 @@ def cmd_parts(args) -> int:
     warnings = describe.order_warnings(snap, cfg.parts_order_fields)
     if args.json:
         console.data(json.dumps({"parts": describe.parts_rows(snap, getattr(args, "field", ())),
-                                 "warnings": warnings}, indent=2))
+                                 "totals": describe.board_totals(snap), "warnings": warnings}, indent=2))
         return 0
     console.lines("parts", "\n".join(describe.parts_lines(snap, getattr(args, "field", ()))))
     for w in warnings:

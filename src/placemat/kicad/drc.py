@@ -135,20 +135,30 @@ def _permitted(v: dict, allow: dict) -> bool:
     return bool(items) and all(ok(i) for i in items)
 
 
-def _items(v: dict) -> list:
-    return [{"description": i.get("description", ""),
-             "at": [i["pos"]["x"], i["pos"]["y"]] if isinstance(i.get("pos"), dict) else None}
-            for i in v.get("items", [])]
+_PART_RE = re.compile(r"(?:\bof|^Footprint)\s+(\S+)")
 
 
-def violation_items(data: dict, allow: dict) -> list:
+def _items(v: dict, insts: dict | None = None) -> list:
+    out = []
+    for i in v.get("items", []):
+        d = i.get("description", "")
+        item = {"description": d, "at": [i["pos"]["x"], i["pos"]["y"]] if isinstance(i.get("pos"), dict) else None}
+        m = _PART_RE.search(d) if insts else None
+        if m and m.group(1) in insts:
+            item["instance"] = insts[m.group(1)]       # the run's name for the part KiCad names by refdes
+        out.append(item)
+    return out
+
+
+def violation_items(data: dict, allow: dict, insts: dict | None = None) -> list:
     """Each violation that counts, as KiCad describes it: its kind, severity,
-    description and the items it is between, each with where it is (mm)."""
+    description and the items it is between, each with where it is (mm) and,
+    given `insts` (refdes -> instance path), the instance of the part it is on."""
     return [{"kind": v.get("type", ""), "severity": v.get("severity", ""), "description": v.get("description", ""),
-             "items": _items(v)} for v in data.get("violations", []) if not _permitted(v, allow)]
+             "items": _items(v, insts)} for v in data.get("violations", []) if not _permitted(v, allow)]
 
 
-def unconnected_items(data: dict) -> list:
+def unconnected_items(data: dict, insts: dict | None = None) -> list:
     """Each open connection: its net and the two items it is between."""
     out = []
     for x in data.get("unconnected_items", []):
@@ -158,7 +168,7 @@ def unconnected_items(data: dict) -> list:
             if m:
                 net = m.group(1)
                 break
-        out.append({"net": net, "items": _items(x)})
+        out.append({"net": net, "items": _items(x, insts)})
     return out
 
 

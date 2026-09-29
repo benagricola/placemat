@@ -44,3 +44,20 @@ def test_the_drc_command_lists_the_items(breakout_pcb, tmp_path, capsys):
     assert "violations" in data and "unconnected_items" in data
     assert all({"kind", "severity", "description", "items"} <= set(v) for v in data["violations"])
     assert sum(1 for v in data["violations"]) == sum(data["by_type"].values())
+
+
+def test_each_item_names_its_parts_instance_beside_its_reference():
+    """The DRC report names a part by refdes; a run's parts go by instance
+    path. Given the board's refdes -> instance map, each item carries both."""
+    from placemat.kicad.drc import unconnected_items
+    data = {"violations": [
+        {"type": "clearance", "severity": "error", "description": "Clearance violation",
+         "items": [{"description": "Pad 1 [GND] of U12 on F.Cu", "pos": {"x": 1, "y": 2}},
+                   {"description": "Track [SDA] on F.Cu, length 3.0000 mm", "pos": {"x": 1, "y": 2}}]},
+        {"type": "courtyards_overlap", "severity": "error", "description": "Courtyards overlap",
+         "items": [{"description": "Footprint C3", "pos": {"x": 1, "y": 2}}]}],
+        "unconnected_items": [{"items": [{"description": "Pad 2 [VBUS] of C3 on F.Cu", "pos": {"x": 8, "y": 6}}]}]}
+    insts = {"U12": "idle.u1", "C3": "idle.c1"}
+    items = violation_items(data, {}, insts)
+    assert [i.get("instance") for v in items for i in v["items"]] == ["idle.u1", None, "idle.c1"]
+    assert unconnected_items(data, insts)[0]["items"][0]["instance"] == "idle.c1"
