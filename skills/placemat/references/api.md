@@ -1114,9 +1114,13 @@ vias out from a pad along its escape axis (the outward normal of the pad
 row it sits in, or the ray from the part's body centre when the row does
 not decide one) at the via-to-via rule (by default the larger of the via's
 own size and a drilled hole plus the hole-to-hole rule), the first clear of
-the pad's own copper. A via the row cannot fit - the edge, another net's
-copper, a hole - is a finding, and the row stops there. `pad=`/`along=` are
-exclusive: one call, a grid over a pad or a row along its axis.
+the pad's own copper, and a track at the net's width (as a via's tail)
+from the pad to the farthest via joins them. A via the row cannot fit, or
+whose tail cannot reach it - the edge, another net's copper, a hole - is a
+finding, and the row stops there. A track given the returned value as a
+point ends on the row's farthest via, as on one `board.via()`.
+`pad=`/`along=` are exclusive: one call, a grid over a pad or a row along
+its axis.
 
 **Stitching.** `board.stitch(net, region, pitch=None)` fills `region` - a
 `Cell`, the value `board.pour()` returns, or a keepout's name - with vias

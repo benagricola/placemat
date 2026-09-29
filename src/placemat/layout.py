@@ -2722,9 +2722,11 @@ class Board:
         sits in, or the ray from the part's body centre when the row does
         not decide one), `pitch` apart (by default the via-to-via rule: the
         larger of the via's own size and a drilled hole plus the
-        hole-to-hole rule), the first clear of the pad's own copper. A via
-        the row cannot fit - the board edge, another net's copper, a hole -
-        is a finding, and the row stops there.
+        hole-to-hole rule), the first clear of the pad's own copper, joined
+        to the pad by a tail at the net's width out to the farthest via. A
+        via the row cannot fit, or its tail cannot reach - the board edge,
+        another net's copper, a hole - is a finding, and the row stops
+        there. A track may end on the returned intent: the farthest via.
 
         Either way, resolved when the pad's part is placed."""
         if (pad is None) == (along is None):
@@ -2751,16 +2753,24 @@ class Board:
             owner, number, _, _ = self._pad_ref(along)
 
             def plan(ctx):
+                from . import queries
                 ux, uy = _escape_axis(ctx.occ, owner, number)
                 shapes = [sh for sh in ctx.occ.items[owner].shapes if sh.label == number and sh.kind in ("pad", "through")]
                 c = Box.union([sh.box for sh in shapes]).center
                 half = max(abs((px - c.x) * ux + (py - c.y) * uy) for sh in shapes for px, py in sh.poly)
                 obstacles = self._via_obstacles(ctx)
+                # a via clear of the pad's tip touches it at one point at most, which KiCad counts
+                # as unconnected: a tail at the net's width joins the pad to the farthest via
+                layer = sorted((l for sh in shapes for l in sh.layers), key=stackup_order)[0]
+                width = queries.tail_width(nc.track_width if nc else 0.2, [sh.poly for sh in shapes])
+                start = Location(round(c.x, 6), round(c.y, 6))
                 vias = []
                 for i in range(n):
                     r = half + s / 2.0 + i * step
                     at = Location(round(c.x + ux * r, 6), round(c.y + uy * r, 6))
                     why_not = self._via_site_why(ctx, at, name, s, d, obstacles)
+                    if why_not is None:
+                        why_not = self._tail_why(ctx, Track(name, layer, width, start, at))
                     if why_not is not None:
                         ctx.notes.append("vias %s: %d of %d along %s.%s's axis, the next stands %s" % (
                             name, len(vias), n, owner, number, why_not))
@@ -2768,8 +2778,15 @@ class Board:
                     via = Via(name, at, d, s)
                     vias.append(via)
                     ctx.planned_vias.append(via)
-                return vias
-            return self._copper_intent("vias %s" % name, net, priority, plan, _refs_in([along]), why)
+                if not vias:
+                    return []
+                tail = Track(name, layer, width, start, vias[-1].at)
+                ctx.planned_tails.append(tail)
+                ctx.via_at[intent.index] = vias[-1].at      # a track may end on the row's farthest via
+                return vias + [tail]
+            # "via row": a track may end on it, as on one via()
+            intent = self._copper_intent("via row %s" % name, net, priority, plan, _refs_in([along]), why)
+            return intent
         owner, number, _, _ = self._pad_ref(pad)
 
         def plan(ctx):
@@ -2986,6 +3003,22 @@ class Board:
             if polys_overlap(ring, poly):
                 return "inside a keepout, which forbids vias"
         return None
+
+    def _tail_why(self, ctx, tail) -> str | None:
+        """Why `tail` cannot be drawn - within clearance of another net's via
+        or track planned before it, or of copper already on the board - or
+        None."""
+        net, layer = tail.net, tail.layer
+        for v in ctx.planned_vias:
+            if v.net != net and poly_distance(tail.polygon, v.polygon) < self.geometry.clearance(net, v.net) - 1e-9:
+                return "tail %.2f mm from the %s via" % (poly_distance(tail.polygon, v.polygon), v.net)
+        for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
+            if (t.net != net and t.layer is layer
+                    and poly_distance(tail.polygon, t.polygon) < self.geometry.clearance(net, t.net) - 1e-9):
+                return "tail crosses a %s track planned before it" % t.net
+        hits = ctx.occ.copper_conflicts(Shape("via", "copper", frozenset(), frozenset([layer]),
+                                              net, tail.polygon, Box.of_points(tail.polygon)))
+        return "tail " + hits[0] if hits else None
 
     def _free_spot(self, ctx, spot, net: str, drill: float, size: float):
         """Run the search from the pad against the board as it stands: placed

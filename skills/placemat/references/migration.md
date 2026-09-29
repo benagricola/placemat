@@ -17,6 +17,11 @@ and half its stroke) overlaps the pad, not only when the fill covers the
 pad's centre: a pull-back that cut a pour short of a pad's centre reported
 "joined to nothing" for a pad KiCad's connectivity saw joined.
 
+`board.vias(net, along=PadRef(...), count=N)` now draws a tail at the net's
+width from the pad to the farthest via: a via standing just clear of the
+pad's tip was unconnected. A track may end on the value it returns (the
+farthest via); a hand-drawn track joining the row to its pad can go.
+
 ## To 0.54.0
 
 The `placemat-design` skill is retired. Its placemat part - the `Pm.*`

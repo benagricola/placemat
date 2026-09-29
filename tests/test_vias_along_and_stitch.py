@@ -31,6 +31,38 @@ def test_vias_along_a_pads_axis_march_out_at_the_via_to_via_rule():
     assert all(v.drill == 0.3 and v.size == 0.6 for v in vias)
 
 
+def test_vias_along_are_joined_to_their_pad_by_a_tail():
+    """A via standing just clear of the pad's tip touches it at one point at
+    most, which KiCad counts as unconnected: the row is joined to its pad by a
+    track at the net's width, from the pad out to the farthest via."""
+    from placemat.copper import Track
+    b = Board(board_geometry([_u1()], width=60, height=60), edge_margin=1.0)
+    b.place(Part("u1"), at=Location(20, 20))
+    b.vias(Net("A"), along=PadRef(Part("u1"), "A"), count=1, size=0.6, drill=0.3)
+    plan = b.resolve()
+    (via,) = _vias(plan)
+    tails = [o for o in plan.copper if isinstance(o, Track) and o.net == "A"]
+    assert len(tails) == 1, tails
+    t = tails[0]
+    pad = plan.occupancy.pad_location("U1", "1")
+    assert {(round(t.start.x, 6), round(t.start.y, 6)), (round(t.end.x, 6), round(t.end.y, 6))} == {
+        (round(pad.x, 6), round(pad.y, 6)), (round(via.at.x, 6), round(via.at.y, 6))}
+
+
+def test_a_track_can_end_on_a_row_of_vias_along_a_pad():
+    """The intent vias(along=) returns stands for the row's farthest via, as
+    one via() does for its own: a track given it as a point ends there."""
+    from placemat.copper import Track
+    b = Board(board_geometry([_u1()], width=60, height=60), edge_margin=1.0)
+    b.place(Part("u1"), at=Location(20, 20))
+    row = b.vias(Net("A"), along=PadRef(Part("u1"), "A"), count=2, size=0.6, drill=0.3)
+    b.track(Net("A"), [row, Location(17.2, 30.0)], layer=CopperLayer.B, chamfer=0)
+    plan = b.resolve()
+    assert not any("lost" in f or "no via" in f for f in plan.findings), plan.findings
+    legs = [o for o in plan.copper if isinstance(o, Track) and o.layer is CopperLayer.B]
+    assert legs and legs[0].start == Location(17.2, 20.0), legs
+
+
 def test_vias_along_stops_and_notes_when_the_row_runs_off_the_board():
     # pad A (the west pad) at x=4.6; vias march west from it (3.8, 3.2, ..., 0.8):
     # the 1.0 mm keep-in stops the last of 6 short (0.8 - 0.3 < 1.0)
