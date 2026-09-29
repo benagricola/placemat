@@ -77,7 +77,7 @@ and write that form. When nothing here says it, do not compute it: see
 | a finger as wide as a named pad | `board.finger(net, from_=, to=, width=PadRef(...))` | Copper |
 | a coupled differential pair | `board.pair(p, n, path, layer=)` | Copper |
 | silk text on a connector, jumper, switch or LED | `board.label(item, text, side=)` | Labels |
-| a pour over a set of pads | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: through the pads, grown over every same-net pad its outline touches, and pulled back from every other net's copper | Copper |
+| a pour over a set of pads | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: the hull of the pads' copper (`cover=Cover.BOX` the box round it), grown over every same-net pad its outline touches, and pulled back from every other net's copper | Copper |
 
 ## Questions (answered from the generated board, before anything moves)
 
@@ -1100,6 +1100,7 @@ board.vias(net, PadRef(...), pitch=None, size=None, drill=None, inset=0)  # a pa
 board.vias(net, along=PadRef(...), count=N, pitch=None, size=None, drill=None)  # a row out from a pad, along its escape axis
 board.stitch(net, region, pitch=None, size=None, drill=None, edge=False)  # vias in a grid over a cell, a pour or a keepout
 board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False)     # filled polygon
+board.pour(net, [PadRef(a), PadRef(b), PadRef(c)], layer=..., swallow_pads=True, cover=None)  # over the pads' copper
 board.pour(net, [PadRef(a), PadRef(b)], layer=..., swallow_pads=True, width=None)  # the neck between two pads
 board.plane(net, layers=(CopperLayer.IN1,), outline=None, inset=0.4)  # zone(s), whole board or outline
 board.plane(net, layers=(CopperLayer.IN1,), over=[Part(...), Cell(...)], margin=0.0)  # zone(s) over named items
@@ -1222,6 +1223,15 @@ swallow_pads=True)` with exactly two pads draws the neck between them - a
 rectangle along their centreline, as wide as the narrower pad measured
 across the run, unless `width=` says otherwise - instead of needing a
 third point.
+
+**What a pour over pads covers.** `cover=` (`Cover`) says what corners
+that name pads cover. `Cover.HULL`, the default for a `swallow_pads` pour
+whose corners are all pads (three or more), is the convex hull of those
+pads' copper, every land's corners; `Cover.BOX` is the box round it;
+`Cover.CENTRES`, the default otherwise, is the polygon through the points
+as given, a pad at its centre - over three pads in a row that is a line,
+and the pour is as thin as its stroke. A plain point among the corners
+counts as given under HULL and BOX too.
 
 **A swallowing pour pulls back too.** `swallow_pads` both grows the pour
 over the same-net pads its outline touches and pulls it back, to the

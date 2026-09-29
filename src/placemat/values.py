@@ -91,6 +91,17 @@ class Line(str, Enum):
     INNER = "inner"
 
 
+class Cover(str, Enum):
+    """What a pour whose corners name pads covers: HULL, the convex hull of
+    those pads' copper (and any plain points); BOX, the box round it;
+    CENTRES, the polygon through the points as given, a pad at its centre.
+    A pour over pads (`swallow_pads=True`) whose corners are all pads takes
+    HULL; any other pour, CENTRES."""
+    HULL = "hull"
+    BOX = "box"
+    CENTRES = "centres"
+
+
 class Bend(str, Enum):
     """Which end of an off-grid track leg takes its 45: the diagonal touches
     that pad end, a straight run carries the rest of the leg; BOTH puts a

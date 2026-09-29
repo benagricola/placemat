@@ -28,7 +28,7 @@ from .placement import Placement
 from .settings import Settings
 from .placer import BlockSpec, _grid, _pin_normal, _reason_key, box_centered_placement, cell_pad_anchored_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
-from .values import (Turned, Axis, Bend, Beside, Between, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Turned, Axis, Bend, Cover, Beside, Between, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -3273,17 +3273,26 @@ class Board:
         return found.at, layer, width, start, tail_path(found.at)
 
     def pour(self, net, points, *, layer: CopperLayer, stroke: float | None = None, swallow_pads: bool = False,
-             width: float | None = None, priority: Priority = Priority.DEFAULT, why: str = ""):
-        """A filled copper polygon of exactly this shape on one layer. It does
-        not pull back from foreign copper; `swallow_pads` grows it over the
-        same-net pads its outline touches. Exactly two pads (`[PadRef(a),
+             width: float | None = None, cover: Cover | None = None, priority: Priority = Priority.DEFAULT,
+             why: str = ""):
+        """A filled copper polygon on one layer. It does not pull back from
+        foreign copper; `swallow_pads` grows it over the same-net pads its
+        outline touches and pulls it back from other nets when written.
+        `cover` says what corners that name pads cover (`Cover`): a pour over
+        pads whose corners are all pads covers the hull of their copper, any
+        other the polygon through its points. Exactly two pads (`[PadRef(a),
         PadRef(b)]`) draws the neck between them instead - a rectangle along
         their centreline, as wide as the narrower pad measured across it,
         unless `width=` says otherwise."""
         stroke = self.settings.copper_pour_stroke if stroke is None else stroke
         layer = CopperLayer.of(layer)
         name = self.geometry.require_net(net)
-        neck = len(points) == 2 and all(isinstance(p, (PadRef, CellPadRef)) for p in points)
+        if cover is not None and not isinstance(cover, Cover):
+            raise TypeError("%s: a pour's cover is Cover.HULL, Cover.BOX or Cover.CENTRES, not %r" % (name, cover))
+        all_pads = all(isinstance(p, (PadRef, CellPadRef)) for p in points)
+        if cover is None:
+            cover = Cover.HULL if swallow_pads and all_pads and len(points) >= 3 else Cover.CENTRES
+        neck = len(points) == 2 and all_pads
         if len(points) < 3 and not neck:
             raise ValueError("%s: a pour needs 3 or more points, or exactly two pads for the neck between "
                              "them (%d given)" % (name, len(points)))
@@ -3302,8 +3311,22 @@ class Board:
                     _pad_half_across(self, ctx.occ, points[1], cb, ux, uy))
                 nx, ny = -uy * w / 2.0, ux * w / 2.0
                 pts = ((ca.x + nx, ca.y + ny), (cb.x + nx, cb.y + ny), (cb.x - nx, cb.y - ny), (ca.x - nx, ca.y - ny))
-            else:
+            elif cover is Cover.CENTRES:
                 pts = tuple((l.x, l.y) for l in (ctx.locate(p) for p in points))
+            else:
+                # the pads' copper, every land's corners, and any plain point as given
+                corners = []
+                for p in points:
+                    if isinstance(p, (PadRef, CellPadRef)):
+                        corners += [q for sh in _pad_shapes(self, ctx.occ, p) for q in sh.poly]
+                    else:
+                        l = ctx.locate(p)
+                        corners.append((l.x, l.y))
+                if cover is Cover.BOX:
+                    pts = box_polygon(Box.of_points(corners))
+                else:
+                    from .checks import _hull
+                    pts = tuple(_hull([(round(x, 6), round(y, 6)) for x, y in corners]))
             ctx.pour_at[intent.index] = pts       # a stitch over this pour, once it is drawn
             named = tuple(_named_pad(self, ctx, name, p) for p in points)
             named = tuple(n for n in named if n is not None)

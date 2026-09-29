@@ -6,6 +6,13 @@ whether any of it applies.
 
 ## Unreleased
 
+A `swallow_pads` pour whose corners are all pads (three or more) covers the
+convex hull of the pads' copper, not the polygon through their centres,
+which over pads in a row was as thin as its stroke and failed a
+current-path check. `cover=Cover.BOX` takes the box round the pads' copper;
+`cover=Cover.CENTRES` keeps the old shape. A power pour drawn by hand from
+pad edges can be declared over its pads.
+
 `placemat layer <board> <LAYER>` draws one copper layer by net and lists
 tracks inside another net's zone outline.
 
