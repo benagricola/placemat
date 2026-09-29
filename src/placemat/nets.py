@@ -3,8 +3,7 @@ which parts it joins, how far it has to reach (span, the minimum spanning
 tree over its pads' centres), how much copper is already down for it
 (routed) and how that compares to its span (detour), its via count, the
 copper layers its tracks use, and whether a pour serves it instead of the
-router. This is the table a fairing used to write pcbnew scripts to get, one
-net at a time. Pure: no KiCad, so the formatting is pinned by tests that run
+router. Pure: no KiCad, so the formatting is pinned by tests that run
 without it; `cli.py` asks `kicad.route.plane_nets_of` (which does need
 KiCad) for the pour nets and passes them in.
 """
