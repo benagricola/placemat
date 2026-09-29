@@ -100,21 +100,31 @@ def parser() -> argparse.ArgumentParser:
                     help="a footprint field to list for each part (an order code, a manufacturer part number); repeatable")
     pl.add_argument("--json", action="store_true")
 
-    oc = sub.add_parser("occupancy", help="what copper is at a point or in a box, and where a via "
-                                          "can stand near a pad")
+    oc = sub.add_parser("occupancy", help="what copper is at a point or in a box, where a via "
+                                          "can stand near a pad, and the clear corridors between two")
     oc.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
     what = oc.add_mutually_exclusive_group(required=True)
     what.add_argument("--at", metavar="X,Y", help="the copper under a point, per layer, and whether a via fits")
     what.add_argument("--box", metavar="X0,Y0,X1,Y1", help="the copper inside a box, by net and kind")
     what.add_argument("--via-near", metavar="PART.PAD", help="the nearest spot a via can stand and be reached")
-    oc.add_argument("--net", default=None, help="the via's net (default: the pad's, or what is at the point)")
+    what.add_argument("--corridor", nargs=2, metavar=("A", "B"),
+                      help="the clear octilinear paths on --layer from pad A to pad B (each PART.PAD), or the "
+                           "blockers across the narrowest cut when there is none; needs --layer and --width")
+    oc.add_argument("--net", default=None, help="the via's or corridor's net (default: the pad's, or what is at "
+                                                 "the point)")
     oc.add_argument("--size", type=float, default=None, help="via diameter, mm (default: the net's class)")
     oc.add_argument("--drill", type=float, default=None, help="via drill, mm (default: the net's class)")
-    oc.add_argument("--layer", default=None, help="the tail's layer (default: the pad's)")
+    oc.add_argument("--layer", default=None, help="the tail's layer (default: the pad's); --corridor's layer")
     oc.add_argument("--radius", type=float, default=2.0, help="how far from the pad to look, mm")
     oc.add_argument("--step", type=float, default=0.05, help="the search's grid, mm")
     oc.add_argument("--in-pad", action="store_true",
                     help="allow the via to sit in its own pad (it then needs plugging)")
+    oc.add_argument("--width", type=float, default=None, help="--corridor's track width, mm")
+    oc.add_argument("--margin", type=float, default=10.0,
+                    help="--corridor: how far past A and B the search reaches, mm")
+    oc.add_argument("--ignore-kept", action="store_true",
+                    help="--corridor: leave out the tracks and vias of kept routes (routes.json), to see the "
+                         "room a re-route would have (a layout script only)")
     oc.add_argument("--json", action="store_true")
 
     dsp = sub.add_parser("datasheet", help="what is in a datasheet and where: the page for each "
@@ -876,13 +886,14 @@ def cmd_occupancy(args) -> int:
     from . import queries
     from .kicad.read import read_board
     from .project import find_board
-    from .settings import bind, load
+    from .settings import active, bind, load
     from .values import Box, CopperLayer, Location
     p = Path(args.pcb)
     src = None if p.suffix == ".kicad_pcb" else find_board(p)
     pcb = p if src is None else src.pcb
     with bind(load(src.board_dir if src is not None else pcb.parent)):
         g = read_board(pcb)
+        adopt_tolerance = active().route_adopt_tolerance
 
     def via_rules(net):
         nc = g.netclasses.get(net)
@@ -890,6 +901,16 @@ def cmd_occupancy(args) -> int:
         drill = args.drill or (nc.via_drill if nc else 0.3)
         width = nc.track_width if nc else 0.2
         return size, drill, width
+
+    def find_pad(spec):
+        part, _, number = spec.rpartition(".")
+        fp = g.footprint(part)
+        pads = [q for q in fp.pads if q.number == number]
+        if not pads:
+            console.say("occupancy", "%s has no pad %r; its pads are %s" % (
+                fp.inst, number, ", ".join(sorted({q.number for q in fp.pads}))))
+            return None
+        return fp, pads[0]
 
     if args.at:
         x, y = _numbers(args.at, 2)
@@ -915,19 +936,48 @@ def cmd_occupancy(args) -> int:
         else:
             console.lines("occupancy", "\n".join(queries.box_lines(g, box)))
         return 0
-    part, _, number = args.via_near.rpartition(".")
-    fp = g.footprint(part)
-    pads = [q for q in fp.pads if q.number == number]
-    if not pads:
-        console.say("occupancy", "%s has no pad %r; its pads are %s" % (
-            fp.inst, number, ", ".join(sorted({q.number for q in fp.pads}))))
+    if args.corridor:
+        if not args.layer or not args.width:
+            console.say("occupancy", "--corridor needs --layer and --width", level="fail")
+            return 2
+        if args.ignore_kept and p.suffix == ".kicad_pcb":
+            console.say("occupancy", "--ignore-kept reads a script's kept routes: give the script, not the board",
+                        level="fail")
+            return 2
+        found_a, found_b = find_pad(args.corridor[0]), find_pad(args.corridor[1])
+        if found_a is None or found_b is None:
+            return 1
+        (fp_a, pad_a), (fp_b, pad_b) = found_a, found_b
+        net = args.net if args.net is not None else pad_a.net
+        layer = CopperLayer.of(args.layer)
+        geometry = g
+        if args.ignore_kept:
+            from . import routes
+            geometry = routes.without_kept(g, routes.read(routes.path_for(p)), adopt_tolerance)
+        result = queries.corridor(geometry, pad_a.box.center, pad_b.box.center, net, args.width, layer,
+                                  margin=args.margin)
+        if args.json:
+            console.data(json.dumps({
+                "a": "%s.%s" % (fp_a.inst, pad_a.number), "b": "%s.%s" % (fp_b.inst, pad_b.number),
+                "layer": layer.value, "width": args.width, "net": net,
+                "paths": [{"points": [list(pt) for pt in cp.points], "length": cp.length, "turns": cp.turns}
+                         for cp in result.paths],
+                "blockers": list(result.blockers)}, indent=2))
+        else:
+            console.lines("occupancy", "\n".join(queries.corridor_lines(
+                result, "%s.%s" % (fp_a.inst, pad_a.number), "%s.%s" % (fp_b.inst, pad_b.number),
+                net, args.width, layer)))
+        return 0 if result.paths else 1
+    found = find_pad(args.via_near)
+    if found is None:
         return 1
-    pad = pads[0]
+    fp, pad = found
+    pads = [q for q in fp.pads if q.number == pad.number]
     net = args.net if args.net is not None else pad.net
     size, drill, width = via_rules(net)
     width = queries.tail_width(width, [o for q in pads for o in q.outlines])
     layer = CopperLayer.of(args.layer) if args.layer else queries._ordered(pad.layers or g.layers)[0]
-    source = () if args.in_pad else queries.pad_copper(fp, number)
+    source = () if args.in_pad else queries.pad_copper(fp, pad.number)
     spot, tally, tried = queries.free_spot(pad.box.center, queries.via_judge(g, pad.box.center, net, size, drill,
                                                                               width, layer, source),
                                            args.radius, args.step)

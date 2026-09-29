@@ -943,8 +943,9 @@ placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part
 placemat parts <layout.kicad_pcb | script> [--field NAME ...] [--json]
 placemat datasheet <pdf> [--show PAGE|TOPIC] [--read] [--no-ocr] [--out DIR] [--dpi N] [--json]
 placemat datasheet check <pdf> <footprint.kicad_mod> [--pitch F] [--pad WxH] [--pads N] [--span F] [--tol F] [--json]
-placemat occupancy <layout.kicad_pcb | script> (--at X,Y | --box X0,Y0,X1,Y1 | --via-near PART.PAD)
+placemat occupancy <layout.kicad_pcb | script> (--at X,Y | --box X0,Y0,X1,Y1 | --via-near PART.PAD | --corridor A B)
                    [--net N] [--size D] [--drill H] [--layer L] [--radius R] [--step S] [--in-pad] [--json]
+                   [--width W] [--margin MM] [--ignore-kept]
 placemat show <layout.kicad_pcb | script> <cell | part> [--out DIR]
 placemat faces <module layout.kicad_pcb> outward=N [quiet=S] [handoff=E]
 placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise C] [--copper-oz OZ] [--limit CHECK=VALUE ...] [--json]
@@ -1058,6 +1059,21 @@ keepout forbidding vias and the edge, and can be reached by a straight tail;
 it prints the spot and why every nearer spot failed, and exits 1 when there is
 nowhere. Another net's pour is not an obstacle: KiCad refills it round the new
 via, so the answer names the pour that would give way instead.
+
+`--corridor A B` (each `PART.PAD`) finds the clear octilinear paths on
+`--layer` from pad A to pad B for a track of `--width` on `--net` (default:
+A's net): every other net's copper that reaches the layer keeps its
+netclass clearance - pads, vias, tracks, foreign zones (unlike a via, a
+zone does not give way to a track) and cutouts. It prints the shortest
+path as its corner points with its length and turn count, and up to two
+more that share no cell with it; with none, the blockers across the
+narrowest cut between A and B, each named (a pad, a via, a track of a net,
+a zone, a cutout). The search is one occupancy built on a 0.1 mm grid -
+the router's default - over the box round A and B grown by `--margin`
+(default 10 mm), built once and searched, not a scan repeated per
+candidate the way `--via-near` is. `--ignore-kept` leaves out the tracks
+and vias of a script's kept routes (`routes.json`; a layout script only,
+not a bare board), to see the room a re-route would have.
 
 A page carrying almost no text of its own is read off its render with
 `tesseract` when it is installed; `--no-ocr` turns that off. It costs about a
