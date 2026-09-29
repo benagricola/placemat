@@ -30,8 +30,9 @@ height. The rule the enclosure states is about each part.
 1. **A cell meets a reservation member by member.** Each member is let in
    by its own ref in `allow`, its own nets in `allow`, or its own height
    under `max_height`. The cell is refused when a member that is not let in
-   has its body box over the region (the cell's own box first, as now). The
-   cell's name in `allow` still admits it whole.
+   has its body box over the region (the cell's own box first, as now).
+   `Cell(...)` in `allow` names every member (`layout.py:2670`), so it
+   still admits the cell whole.
 2. **A cell's own copper** (tracks and pours among its parts' boxes) is let
    in when the cell is named or every member is let in, and judged
    otherwise. That is today's rule, less the any-member shortcut.
@@ -54,7 +55,7 @@ Pure tests, each with the native sweep and the Python path agreeing:
 - **Allow by part:** a keepout allowing one member by name. That member may
   sit in it; another member over it is refused.
 - **Allow by net:** as above, by one member's net.
-- **Cell named:** the cell's name in `allow` admits every member.
+- **Cell named:** `Cell(...)` in `allow` admits every member.
 - **Bench:** a change on a board whose cells meet a keepout is named in the
   commit.
 
