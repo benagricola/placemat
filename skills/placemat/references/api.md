@@ -61,7 +61,7 @@ and write that form. When nothing here says it, do not compute it: see
 | a track from a pad to a pad | `board.track(net, [PadRef(a), PadRef(b)], layer=)` | Copper |
 | which end of a track's off-grid leg takes the 45 | `board.track(..., bend=Bend.START/END/BOTH)` | Copper |
 | a track through the gap between two pads | `board.track(net, [..., Between(PadRef(a), PadRef(b)), ...], layer=)` | Copper |
-| a track held the clearance off a pad's side | `board.track(net, [..., Past([PadRef(...), ...], Edge.EAST), ...], layer=)` | Copper |
+| a track held the clearance off pads, vias or tracks | `board.track(net, [..., Past([PadRef(...), via, ...], Edge.EAST, across=), ...], layer=)` | Copper |
 | a via at the nearest legal spot to a pad | `board.via(net, FreeSpot(near=PadRef(...)))` | Copper |
 | a power or exposed pad filled with vias | `board.vias(net, PadRef(...))` | Copper |
 | vias in a row out from a pad, along its escape axis | `board.vias(net, along=PadRef(...), count=N)` | Copper |
@@ -1014,10 +1014,25 @@ that must return is written as one chain: `..., (band, Y(pin)), pin,
 middle of the gap between two pads - halfway between their facing edges,
 centred across where they face each other - resolved once both are placed: the
 gap must hold the track's own width plus its clearance to each pad's net,
-or the declaration is a finding naming both pads. `Past([PadRef(...), ...],
-Edge.EAST)` is a point the track's own clearance off the given pads'
-`edge` side, centred across their combined box. Both are accepted wherever
-a track point is.
+or the declaration is a finding naming both pads. `Past(items, Edge.EAST,
+across=None)` is a point the clearance off the `edge` side of some copper.
+`items` are pads (`PadRef`/`CellPadRef`), vias (what `board.via()` or
+`board.vias()` returns) and tracks (what `board.track()` returns), in any
+mix. The edge is read off their combined copper box; the offset is half the
+track's width plus the worst clearance, by net pair, from the track to any
+of them. `across=` says where the point lies across the edge: a `PadRef` or
+a via puts it on that pad's or via's centre line, an `Along` at that point
+of the box's side (default `Along.MID`, the middle). The point waits for
+its pads to be placed and its vias and tracks to be planned. A track whose
+`Past` names a via that found no spot, or a track that was not drawn, is
+not drawn, and the finding names both. Both are accepted wherever a track
+point is.
+
+```python
+v = board.via(Net("SIG_N"), FreeSpot(near=PadRef(Part("j1"), 3)))
+board.track(Net("SIG_P"), [PadRef(Part("j1"), 2), Past([v], Edge.SOUTH), PadRef(Part("j1"), 8)],
+            layer=CopperLayer.F)                 # a U-turn a track's clearance under the via
+```
 
 **Who bridges.** Where two tracks of different nets cross on one layer, the
 lower `priority` passes under; at equal priority the shorter one does; a

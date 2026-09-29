@@ -4,6 +4,16 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## Unreleased
+
+`Past(items, Edge.X)` takes vias (what `board.via()` or `board.vias()`
+returns) and tracks (what `board.track()` returns) as well as pads, in any
+mix, each held off by the clearance of its own net. `across=` puts the
+point on a pad's or a via's centre line, or at an `Along` of the items'
+side, in place of the middle. A track waypoint computed by hand from a
+via's centre, its size and the clearance - a track's U-turn under a row of
+vias - is `Past([vias], Edge.SOUTH)`.
+
 ## To 0.54.1
 
 Two `swallow_pads` pours of different nets now keep the netclass clearance

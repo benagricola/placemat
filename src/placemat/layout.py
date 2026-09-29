@@ -2600,8 +2600,8 @@ class Board:
               priority: Priority = Priority.DEFAULT, bridge: bool = False, why: str = ""):
         """Track segments through `points` in order, on one layer. A point is
         a Location, a pad reference, a Mid, a `Between(PadRef(a), PadRef(b))`
-        (the centreline of the gap between two pads), a `Past(pads, edge)`
-        (the clearance off those pads' `edge` side), or an (x, y) pair whose
+        (the centreline of the gap between two pads), a `Past(items, edge)`
+        (the clearance off those pads', vias' or tracks' `edge` side), or an (x, y) pair whose
         members may be numbers or X()/Y() of a reference. Legs run at 0, 45 or 90
         degrees only: a leg at another angle is a 45 and a straight, the 45
         at the pad end - or, with `bend=Bend.START`/`Bend.END`/`Bend.BOTH`,
@@ -2621,6 +2621,8 @@ class Board:
                 raise TypeError("%s: a track may end on a via, and %r is not a via" % (net, p.key))
             if isinstance(p, CopperIntent) and not any(p is c for c in self._copper):
                 raise TypeError("%s: %s is a via of another board" % (net, p.key))
+            if isinstance(p, Past):
+                self._check_past(p, "%s: a track point" % net)
         refs = _refs_in(points, via_ends=True)
         name = self.geometry.require_net(net)
         w = self._width(name, width)
@@ -2631,19 +2633,25 @@ class Board:
                 ctx.notes.append("track %s: its end on %s is not drawn, because that via found no spot" % (
                     name, ", ".join(p.key for p in lost)))
                 return []
+            located = []
+            for p in points:
+                if isinstance(p, Between):
+                    at = _between_point(self, ctx, name, w, p)
+                elif isinstance(p, Past):
+                    at = _past_point(self, ctx, name, w, p, intent.key, intent.index)
+                    if isinstance(at, str):
+                        ctx.notes.append("%s: its point past %s is not drawn, because %s" % (
+                            intent.key, ", ".join(_past_names(self, p)), at))
+                        return []
+                else:
+                    at = ctx.locate(p)
+                located.append(at)
             pads = [isinstance(p, (PadRef, CellPadRef)) for p in points]
 
             def clear(a, b):          # a leg that touches no pad of another net
                 shape = _shape_of(Track(name, layer, w, a, b))
                 return not ctx.occ.copper_conflicts(shape)
 
-            def resolve_point(p):
-                if isinstance(p, Between):
-                    return _between_point(self, ctx, name, w, p)
-                if isinstance(p, Past):
-                    return _past_point(self, ctx, name, w, p)
-                return ctx.locate(p)
-            located = [resolve_point(p) for p in points]
             pts = octilinear(located, pads, clear, bend)
             cut_pts, diagonals = chamfer_cuts(pts, chamfer)
             ops = polyline_tracks(name, layer, w, cut_pts)
@@ -2668,7 +2676,18 @@ class Board:
                     ctx.notes.append("track %s: a waypoint steers it into another net's pad; drawn pad to pad it clears, "
                                      "so drop the waypoint(s) unless the route must go there" % name)
             return ops
-        return self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge)
+        intent = self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge)
+        return intent
+
+    def _check_past(self, p: Past, what: str, lane: bool = False):
+        """A Past's vias and tracks are this board's; `lane=` only where
+        `lane` says it means something (Beside's align)."""
+        for it in p.items + (p.across,):
+            if isinstance(it, CopperIntent) and not any(it is c for c in self._copper):
+                raise TypeError("%s: %s is copper of another board" % (what, it.key))
+        if p.lane is not None and not lane:
+            raise TypeError("%s: Past's lane= is for Beside's align, where it leaves room for a track "
+                            "between a part's pad and the items; a Past here keeps its own clearance" % what)
 
     def pair(self, net_p, net_n, path, *, layer: CopperLayer, width: float | None = None, gap: float | None = None,
              chamfer: float | None = None, via_step: float | None = None, priority: Priority = Priority.DEFAULT,
@@ -4056,7 +4075,8 @@ class Board:
             if c.key.startswith("finger"):
                 deferred.append(c)          # a finger is cut by the tracks planned in this batch
                 continue
-            for op in c.plan(ctx):
+            ctx.ops_at[c.index] = c.plan(ctx)
+            for op in ctx.ops_at[c.index]:
                 (tracks if isinstance(op, Track) else others).append((c, op))
                 if isinstance(op, Track):
                     ctx.batch_tracks.append(op)     # a later FreeSpot in this batch judges against it
@@ -4067,7 +4087,8 @@ class Board:
         ctx.notes = []
         ctx.planned_tracks += [op for op in ops if isinstance(op, Track)]
         for c in deferred:
-            for op in c.plan(ctx):
+            ctx.ops_at[c.index] = c.plan(ctx)
+            for op in ctx.ops_at[c.index]:
                 others.append((c, op))
         by_key = {}
         for c, _ in tracks:
@@ -5157,6 +5178,7 @@ class _CopperContext:
         self.batch_tracks: list = []       # tracks planned so far in the batch being planned: not in the occupancy yet
         self.via_at: dict = {}             # via intent index -> where it landed, for a track ending on it
         self.pour_at: dict = {}            # pour intent index -> its drawn points, for a stitch over it
+        self.ops_at: dict = {}             # copper intent index -> the ops its plan gave, for a Past over it
         self.plan = None                   # the plan being built: its keepouts, for a FreeSpot
 
     def locate(self, ref) -> Location:
@@ -5264,19 +5286,80 @@ def _between_point(board: "Board", ctx: "_CopperContext", net: str, width: float
     return Location(round(x, 6), round(y, 6))
 
 
-def _past_point(board: "Board", ctx: "_CopperContext", net: str, width: float, p: Past) -> Location:
-    """Past(pads, edge)'s point: `width`/2 plus the clearance to the worst
-    of the pads off their `edge` side, centred across their combined box."""
-    shapes = [sh for ref in p.pads for sh in _pad_shapes(board, ctx.occ, ref)]
-    box = Box.union([sh.box for sh in shapes])
-    off = width / 2.0 + max(_pad_clearance(board, net, sh.net) for sh in shapes)
+def _past_unplanned(ops_at: dict, it, what: str, current: int | None) -> str | None:
+    """Why the via or track `it`, named by `what`'s Past, has no copper to
+    stand off: declared after `what`, or planned and drawing nothing. None
+    when it has copper."""
+    if it.index not in ops_at:
+        if current is not None and it.index > current:
+            return "%s is declared after %s; declare it first" % (it.key, what)
+        return "%s is not planned by then" % it.key
+    if not any(isinstance(op, (Via, Track)) for op in ops_at[it.index]):
+        return "that via found no spot" if it.key.startswith("via") else "that track is not drawn"
+    return None
+
+
+def _past_names(board: "Board", p: Past) -> list:
+    """What a Past's items are called in a finding: a via's or track's key,
+    a pad's refdes and number."""
+    return [it.key if isinstance(it, CopperIntent) else "%s.%s" % board._pad_ref(it)[:2] for it in p.items]
+
+
+def _past_copper(board: "Board", occ: Occupancy, ops_at: dict, p: Past, what: str,
+                 current: int | None = None):
+    """(net, box) for every piece of copper `p.items` names: each pad's
+    shapes, each via's ring and each track's segments, the round ends
+    measured exactly. A string instead when a via or track has no copper
+    (see `_past_unplanned`)."""
+    out = []
+    for it in p.items:
+        if isinstance(it, CopperIntent):
+            why = _past_unplanned(ops_at, it, what, current)
+            if why is not None:
+                return why
+            for op in ops_at[it.index]:
+                if isinstance(op, Via):
+                    r = op.size / 2.0
+                    out.append((op.net, Box(op.at.x - r, op.at.y - r, op.at.x + r, op.at.y + r)))
+                elif isinstance(op, Track):
+                    out.append((op.net, Box.of_points([(op.start.x, op.start.y), (op.end.x, op.end.y)])
+                                .inflate(op.width / 2.0)))
+        else:
+            out += [(sh.net, sh.box) for sh in _pad_shapes(board, occ, it)]
+    return out
+
+
+def _past_point(board: "Board", ctx: "_CopperContext", net: str, width: float, p: Past, what: str,
+                current: int | None = None):
+    """Past(items, edge)'s point for copper of `net`: `width`/2 plus the
+    worst clearance by net pair off the items' combined box on `edge`,
+    across it where `across` says (default the middle of the box's side).
+    A string instead, the reason, when a via or track it names has no
+    copper."""
+    copper = _past_copper(board, ctx.occ, ctx.ops_at, p, what, current)
+    if isinstance(copper, str):
+        return copper
+    box = Box.union([b for _, b in copper])
+    off = width / 2.0 + max(_pad_clearance(board, net, n) for n, _ in copper)
+    upright = p.edge in (Edge.EAST, Edge.WEST)          # the side runs north-south: across is y
+    lo, hi = (box.top, box.bottom) if upright else (box.left, box.right)
+    a = p.across
+    if a is None or isinstance(a, Along):
+        across = lo + (Along.MID if a is None else a).fraction * (hi - lo)
+    else:
+        if isinstance(a, CopperIntent):
+            why = _past_unplanned(ctx.ops_at, a, what, current)
+            if why is not None:
+                return why
+        at = ctx.locate(a)
+        across = at.y if upright else at.x
     if p.edge is Edge.EAST:
-        return Location(round(box.right + off, 6), round((box.top + box.bottom) / 2.0, 6))
+        return Location(round(box.right + off, 6), round(across, 6))
     if p.edge is Edge.WEST:
-        return Location(round(box.left - off, 6), round((box.top + box.bottom) / 2.0, 6))
+        return Location(round(box.left - off, 6), round(across, 6))
     if p.edge is Edge.NORTH:
-        return Location(round((box.left + box.right) / 2.0, 6), round(box.top - off, 6))
-    return Location(round((box.left + box.right) / 2.0, 6), round(box.bottom + off, 6))         # SOUTH
+        return Location(round(across, 6), round(box.top - off, 6))
+    return Location(round(across, 6), round(box.bottom + off, 6))         # SOUTH
 
 
 def _stitch_region(board: "Board", ctx: "_CopperContext", region, pour_intent) -> tuple | None:
@@ -5334,7 +5417,8 @@ def _refs_in(points, via_ends: bool = False) -> list:
     for p in points:
         if isinstance(p, CopperIntent):
             if not via_ends:
-                raise TypeError("%s: a via may be a track's end point, and only that" % p.key)
+                raise TypeError("%s: a via may be a track's end point or one of a Past's items, and only that"
+                                % p.key)
             out += list(p.refs)             # a via's pads: the track waits for them as the via does
         elif isinstance(p, (PadRef, CellPadRef, Part, Cell)):
             out.append(p)
@@ -5347,7 +5431,11 @@ def _refs_in(points, via_ends: bool = False) -> list:
         elif isinstance(p, Between):
             out += _refs_in([p.a, p.b])
         elif isinstance(p, Past):
-            out += _refs_in(list(p.pads))
+            for it in p.items + ((p.across,) if p.across is not None else ()):
+                if isinstance(it, CopperIntent):
+                    out += list(it.refs)    # a via's or track's pads: the point waits for them as it does
+                elif not isinstance(it, Along):
+                    out += _refs_in([it])
         elif isinstance(p, tuple):
             out += _refs_in(p)
         elif isinstance(p, (Centre, Location)):
