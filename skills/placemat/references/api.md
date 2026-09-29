@@ -984,8 +984,9 @@ outward. The axis is the outward normal of the pin's pad row, so a
 satellite at a pin near a corner stays in front of that pin. Where no spot
 on the axis is legal (satellites wider than the pitch on neighbouring pins),
 the satellite slides along the pin row, the least that clears, up to
-`place.block_gap_reach`; one aimed at a pin another satellite already sits
-at does not. A searched block is first laid out on its own, on an empty
+`place.block_gap_reach`, and its step says how far it slid and which of the
+anchor's pins it now stands in front of; one aimed at a pin another
+satellite already sits at does not. A searched block is first laid out on its own, on an empty
 board, at each rotation it may take: when none works, the finding says why
 at once rather than after a scan of the whole board. A net names the anchor's FIRST pad carrying it; when several do (a
 supply, a ground with thermal vias numbered into an exposed pad), name the
@@ -1139,15 +1140,16 @@ board.plane(Net("GND"), layers=(CopperLayer.IN1,), over=[Cell("driver"), Part("c
 **A via where one fits.** `FreeSpot(near=PadRef(...), radius=2.0, step=0.05,
 layer=None, in_pad=False)` is the nearest point to the pad where a via clears
 every other net's copper, every drilled hole, every keepout that forbids vias
-and the board edge, and where a straight tail on `layer` (the pad's own by
-default) reaches it. It is found when the pad's part is placed, against the
+and the board edge, and where a tail on `layer` (the pad's own by default)
+reaches it at 0, 45 or 90 degrees - a 45 from the pad, then straight, as
+`board.track()` draws a leg. It is found when the pad's part is placed, against the
 copper planned before it, so a second via near the same pad lands clear of the
 first. The via stays out of its own pad unless `in_pad=True`: an SMD pad's
 centre passes every other rule, and a via in a pad needs plugging. A search
 with nowhere to go is a finding carrying why every nearer spot failed, and no
 via is drawn.
 
-The via is drawn with the straight tail it was judged by, from the pad's
+The via is drawn with the tail it was judged by, from the pad's
 centre on that layer at the net class's track width, or the pad's narrower
 side when that is less; `tail=False` draws the
 via alone, and a via in the pad has none. `board.via()` returns the via,

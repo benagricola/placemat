@@ -695,6 +695,44 @@ def _extent(occ: Occupancy, item) -> float:
                for x in (sh.box.left, sh.box.right) for y in (sh.box.top, sh.box.bottom))
 
 
+def slide_note(occ: Occupancy, spec: BlockSpec, members: dict, k: int) -> str | None:
+    """How far the k-th satellite, as placed in `members`, stands along the
+    pin row off its pin's axis, and which of the anchor's pins in that row its
+    body is in front of; None when it is on the axis."""
+    sat, net = spec.satellites[k]
+    anchor_at, sat_at = members.get(spec.anchor.inst), members.get(sat.inst)
+    if anchor_at is None or sat_at is None:
+        return None
+    pads = occ.candidate_pad_locations(spec.anchor, anchor_at)
+    pin = _aimed_at(spec, k, net)
+    p = pads[(spec.anchor.ref, pin.number)]
+    _, ashapes = occ.candidate_shapes(spec.anchor, anchor_at)
+    boxes = [sh.box for sh in ashapes if sh.kind in ("pad", "through") and sh.label == pin.number]
+    pin_box = Box.union(boxes) if boxes else pin.box
+    normal = _pin_normal(pads, spec.anchor.ref, p, anchor_at.rotation, pin_box)
+    if normal is None:
+        return None
+    ux, uy = normal
+    rx, ry = -uy, ux                                    # along the pin row
+    s = occ.candidate_pad_locations(sat, sat_at)[(sat.ref, sat.pad(net).number)]
+    slide = (s.x - p.x) * rx + (s.y - p.y) * ry
+    if abs(slide) < 1e-3:
+        return None
+    body = occ.shifted_body_box(sat, sat_at)
+    ts = [(x - p.x) * rx + (y - p.y) * ry for x in (body.left, body.right) for y in (body.top, body.bottom)]
+    lo, hi = min(ts), max(ts)
+    depth = _half_extent(pin_box, ux, uy)
+    row = sorted((number for (ref, number), q in pads.items()
+                  if ref == spec.anchor.ref and number != pin.number
+                  and abs((q.x - p.x) * ux + (q.y - p.y) * uy) <= depth + 1e-6
+                  and lo - 1e-6 <= (q.x - p.x) * rx + (q.y - p.y) * ry <= hi + 1e-6),
+                 key=lambda n: (len(n), n))
+    note = "slid %.2f mm along the pin row from %s pin %s's axis" % (abs(slide), spec.anchor.ref, pin.number)
+    if row:
+        note += "; in front of %s pin%s %s" % (spec.anchor.ref, "s" if len(row) > 1 else "", ", ".join(row))
+    return note
+
+
 def block_obstacles(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float) -> dict:
     """Each member's obstacles within reach of any layout of the block whose
     anchor is within `radius` of the hint: the anchor spans its own extent

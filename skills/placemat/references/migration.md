@@ -6,6 +6,15 @@ whether any of it applies.
 
 ## Unreleased
 
+A block satellite that slid along its anchor's pin row says so in its step:
+how far off its pin's axis, and which of the anchor's pins its body now
+stands in front of.
+
+A `FreeSpot` via's tail runs at 0, 45 or 90 degrees - a 45 from the pad,
+then straight - not as one leg at whatever angle the spot lay; a spot that
+tail cannot reach is passed over for the next. A script that drew its own
+track to a `FreeSpot` via with `tail=False` for that reason can drop it.
+
 Copper planned in one batch is judged against the rest of that batch too,
 not only against what was on the board before it: a track of one net run
 through a via of another, both with nothing to wait on, is a finding now

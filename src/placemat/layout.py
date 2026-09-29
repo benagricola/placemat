@@ -2984,11 +2984,11 @@ class Board:
                 found = self._free_spot(ctx, at, name, d, s)
                 if found is None:
                     return []
-                where, layer, width, start = found
+                where, layer, width, start, path = found
                 if at.tail and not at.in_pad and where.distance(start) > 1e-9:
-                    tail = Track(name, layer, width, start, where)
-                    ctx.planned_tails.append(tail)
-                    ops.append(tail)
+                    for tail in polyline_tracks(name, layer, width, path):
+                        ctx.planned_tails.append(tail)
+                        ops.append(tail)
             elif isinstance(at, Past):
                 where = _past_point(self, ctx, name, s, at, intent.key, intent.index)     # s: the via's radius out
                 if isinstance(where, str):
@@ -3190,6 +3190,36 @@ class Board:
         width = queries.tail_width(nc.track_width if nc else 0.2, [sh.poly for sh in own])
         obstacles = self._via_obstacles(ctx)
 
+        judged = {}
+
+        def leg_why(a, b):
+            """Why one leg of the tail cannot be drawn: within clearance of another
+            net's via or track planned before it, or of the board's copper. Asked of
+            the same leg by the routing and by the judge, so kept for this search."""
+            key = (a.x, a.y, b.x, b.y)
+            if key not in judged:
+                judged[key] = _leg_why(a, b)
+            return judged[key]
+
+        def _leg_why(a, b):
+            tail = queries._segment(a, b, width)
+            for v in ctx.planned_vias:
+                if v.net != net and poly_distance(tail, v.polygon) < self.geometry.clearance(net, v.net) - 1e-9:
+                    return "tail %.2f mm from the %s via" % (poly_distance(tail, v.polygon), v.net)
+            for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
+                if (t.net != net and t.layer is layer
+                        and poly_distance(tail, t.polygon) < self.geometry.clearance(net, t.net) - 1e-9):
+                    return "tail crosses a %s track planned before it" % t.net
+            tail_hits = occ.copper_conflicts(Shape("via", "copper", frozenset(), frozenset([layer]),
+                                                   net, tail, Box.of_points(tail)))
+            return "tail " + tail_hits[0] if tail_hits else None
+
+        def tail_path(c):
+            # drawn as board.track() draws a leg: at 0, 45 or 90 degrees, the 45 at the pad. A
+            # spot whose tail is not clear that way is passed over for the next spot the search
+            # tries, rather than routed round: the search is already dense
+            return octilinear([start, c], [True, False])
+
         def judge(c):
             ring = via_ring(c, size)
             if not spot.in_pad and any(polys_overlap(ring, sh.poly) for sh in own):
@@ -3198,18 +3228,11 @@ class Board:
             if why:
                 return why, ()
             if c.distance(start) > 1e-9:            # the tail it will draw: clear of other nets' vias and tracks
-                tail = queries._segment(start, c, width)
-                for v in ctx.planned_vias:
-                    if v.net != net and poly_distance(tail, v.polygon) < self.geometry.clearance(net, v.net) - 1e-9:
-                        return "tail %.2f mm from the %s via" % (poly_distance(tail, v.polygon), v.net), ()
-                for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
-                    if (t.net != net and t.layer is layer
-                            and poly_distance(tail, t.polygon) < self.geometry.clearance(net, t.net) - 1e-9):
-                        return "tail crosses a %s track planned before it" % t.net, ()
-                tail_hits = occ.copper_conflicts(Shape("via", "copper", frozenset(), frozenset([layer]),
-                                                       net, tail, Box.of_points(tail)))
-                if tail_hits:
-                    return "tail " + tail_hits[0], ()
+                path = tail_path(c)
+                for a, b in zip(path, path[1:]):
+                    why = leg_why(a, b)
+                    if why:
+                        return why, ()
             return None, ()
 
         found, tally, tried = queries.free_spot(start, judge, spot.radius, spot.step)
@@ -3218,7 +3241,7 @@ class Board:
                 net, spot.radius, owner, number, tried,
                 ", ".join("%s x%d" % kv for kv in tally.most_common())))
             return None
-        return found.at, layer, width, start
+        return found.at, layer, width, start, tail_path(found.at)
 
     def pour(self, net, points, *, layer: CopperLayer, stroke: float | None = None, swallow_pads: bool = False,
              width: float | None = None, priority: Priority = Priority.DEFAULT, why: str = ""):
@@ -4860,10 +4883,13 @@ class Board:
         """A block's members once `members` is known (possibly {}: nothing
         legal). The satellites commit here; the anchor commits in the outer
         resolve loop, from the step this returns, the same as any item's."""
+        from .placer import slide_note
+        slid = {sat.inst: slide_note(occ, spec, members, k) for k, (sat, _) in enumerate(spec.satellites)}
         for fp in spec.members:
             if fp.inst in members and fp is not spec.anchor:
                 plan._items[fp.inst] = fp
-                plan.steps.append(Step(fp.inst, "part", i.priority, members[fp.inst], 0.0, "in %s" % i.key))
+                note = "in %s" % i.key + ("; %s" % slid[fp.inst] if slid.get(fp.inst) else "")
+                plan.steps.append(Step(fp.inst, "part", i.priority, members[fp.inst], 0.0, note))
                 occ.commit(fp, members[fp.inst])
         plan._items[spec.anchor.inst] = spec.anchor
         anchor_at = members.get(spec.anchor.inst)

@@ -10,9 +10,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **The fragment each stamped part came from, in `parts`** (PLACEMAT_GAPS
   2026-09-29 "which fragment a nested module's parts came from"), or
   "ignored: ancestor authoritative".
-- **A FreeSpot tail drawn octilinear** (PLACEMAT_GAPS 2026-09-29 "the legs
-  of the tracks a fragment drew"; the segment listing is `measure --copper`
-  now, and `preview` draws zones as outlines, not over the tracks).
 - **One land of a multi-land pin** (PLACEMAT_GAPS 2026-09-29): `PadRef`
   names the first land; a pin drawn as a tab, small pads and an exposed pad
   needs the largest (or an index), and the union's box.
@@ -27,17 +24,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **A keepout inside a part's pad ring** (PLACEMAT_GAPS 2026-09-29 "a plane
   bounded to a group of parts"): the region between a receiver's two pad
   columns.
-- **More intent relations from the fairing conversion** (fairing
-  PLACEMAT_GAPS 2026-09-29; needs a spec):
-  - `Beside` offset along the side, or a pair at a pitch: two pogo pins
-    2.7 mm apart centred on a driver's pin, north of it.
-  - `Past` off vias and tracks, and a form that places a via or a part
-    (not a track point) a clearance past copper: vias a via's clearance
-    past contact tips, a U-turn a track's clearance past those vias, a
-    resistor or capacitor standing in a lane.
-- **A slid block satellite does not say which pins it now stands in front
-  of** (PLACEMAT_GAPS 2026-09-27, checked 2026-09-28): stepping out and
-  turning on the pin's axis are already tried before the slide.
 - **`placemat preview --layer L` with zone fills coloured by net**
   (PLACEMAT_GAPS 2026-09-28 "which net each inner-layer zone fill belongs
   to"); with the routed copy's tracks, and a finding for a track that
@@ -77,6 +63,14 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **Lanes as intent** (unreleased; fairing PLACEMAT_GAPS 2026-09-29; spec
+  `2026-09-29-past-copper-and-row-pitch-design.md`): `Past` over vias and
+  tracks with `across=`; a via at a `Past` point; `Beside` aligning a pad a
+  lane past other pads; `row(of=, centre=PadRef, pitch=)`; `plane(over=)`.
+  Also: copper in one batch judged against the rest of the batch; net-tie
+  footprint copper per KiCad's exclusion; a nested cell written where the
+  plan put it; `measure --copper`, `--envelope`, models; `parts` joint
+  counts; `drc` instance paths.
 - **Fixes from the fairing's 0.54 conversion** (0.54.1; fairing reports
   2026-09-29): swallow pours settle by draw order as KiCad's zone priority
   does; a pad is joined when the pour's copper overlaps it; `vias(along=)`

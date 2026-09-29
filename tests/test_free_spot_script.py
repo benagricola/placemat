@@ -120,9 +120,9 @@ def test_a_via_keeps_clear_of_a_tail_planned_before_it_in_the_batch():
         ctx.plan = plan
         ctx.planned_tails = list(tails)
         return b._free_spot(ctx, spot, "SIG", 0.3, 0.6)
-    alone, _, _, _ = search([])
+    alone, _, _, _, _ = search([])
     across = Track("GND", CopperLayer.F, 0.2, Location(alone.x, alone.y - 2), Location(alone.x, alone.y + 2))
-    moved, _, _, _ = search([across])
+    moved, _, _, _, _ = search([across])
     ring = Via("SIG", moved, 0.3, 0.6).polygon
     assert moved.distance(alone) > 1e-6
     assert poly_distance(ring, across.polygon) >= 0.2 - 1e-6
@@ -238,11 +238,12 @@ def test_a_via_keeps_clear_of_an_earlier_tail_alone():
         ctx.plan = plan
         ctx.planned_tails = list(tails)
         return b._free_spot(ctx, spot, "SIG", 0.3, 0.6)
-    alone, layer, width, start = search([])
+    alone, layer, width, start, _ = search([])
     tail = Track("GND", CopperLayer.F, 0.2, Location(alone.x - 0.1, alone.y - 1.5), Location(alone.x - 0.1, alone.y + 1.5))
-    moved, _, _, _ = search([tail])
+    moved, _, _, _, path = search([tail])
     assert poly_distance(Via("SIG", moved, 0.3, 0.6).polygon, tail.polygon) >= 0.2 - 1e-6
-    assert poly_distance(Track("SIG", layer, width, start, moved).polygon, tail.polygon) >= 0.2 - 1e-6
+    for a, c in zip(path, path[1:]):                  # every leg of its own tail
+        assert poly_distance(Track("SIG", layer, width, a, c).polygon, tail.polygon) >= 0.2 - 1e-6
 
 
 def test_a_via_keeps_clear_of_an_unplated_hole():
@@ -268,3 +269,21 @@ def test_a_via_keeps_clear_of_an_unplated_hole():
     gap = via.at.distance(alone.at) - 1.0 / 2.0
     assert gap - via.drill / 2.0 >= g.hole_to_hole - 1e-6
     assert gap - via.size / 2.0 >= 0.25 - 1e-6
+
+
+def test_a_free_spot_tail_runs_at_0_45_or_90_degrees():
+    """The tail from a pad to its via is drawn the way board.track() draws a
+    leg: at 0, 45 or 90 degrees, a 45 and a straight where the spot is off
+    both, not one leg at whatever angle the spot lies."""
+    import math
+    for pitch, width in ((0.4, 0.2), (0.5, 0.25), (0.65, 0.3)):
+        b = Board(_pin_row(pitch, width), edge_margin=0.5)
+        b.place(Part("u1"), at=Location(20, 21.5))
+        for i in (5, 6, 7):
+            b.via(Net("N%d" % i), at=FreeSpot(near=PadRef(Part("u1"), i + 1)))
+        plan = b.resolve()
+        tails = [c for c in plan.copper if isinstance(c, Track)]
+        assert tails
+        for t in tails:
+            a = math.degrees(math.atan2(t.end.y - t.start.y, t.end.x - t.start.x)) % 45.0
+            assert min(a, 45.0 - a) < 0.01, (pitch, t)

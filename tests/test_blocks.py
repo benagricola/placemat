@@ -528,3 +528,31 @@ def test_a_block_placed_by_a_pin_is_refused_by_name_not_called_a_cell():
         b.place(blk, at=Pin(1, 30.0, 40.0))
     assert "block" in str(exc.value)
     assert "cell" not in str(exc.value)
+
+
+def test_a_slid_satellite_says_how_far_and_which_pins_it_stands_in_front_of():
+    """A satellite slid along the pin row may stand in front of other pins:
+    its step says so, and one on its own pin's axis says nothing of it."""
+    fps = [_quad("U1", "q", 30, 30, {3: "VA", 4: "VB"}, pitch=1.3, body=12.0),
+           footprint("C1", 50, 50, w=2.4, h=1.25, inst="ca", nets=("VA", "GND")),
+           footprint("C2", 50, 55, w=2.4, h=1.25, inst="cb", nets=("VB", "GND"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0, settings=NO_CLEANUP)
+    b.place(b.block(Part("q"), satellites=[(Part("ca"), 3), (Part("cb"), 4)], gap=0.3),
+            at=Location(30, 30), rotation=0)
+    plan = b.resolve()
+    first = next(s for s in plan.steps if s.item == "ca")
+    second = next(s for s in plan.steps if s.item == "cb")
+    assert "slid" not in first.note
+    assert "slid" in second.note and "from U1 pin 4's axis" in second.note, second.note
+    # moved a whole pitch further along the row, it stands in front of the next pin
+    import dataclasses
+    from placemat.placer import slide_note
+    occ = plan.occupancy
+    spec = next(i for i in b._placements() if getattr(i, "kind", "") == "block").item
+    members = {fp.inst: plan.placement(fp.inst) for fp in spec.members}
+    p3, p4 = occ.pad_location("U1", "3"), occ.pad_location("U1", "4")
+    dx, dy = p4.x - p3.x, p4.y - p3.y                          # one pitch along the row, away from pin 3
+    at = members["cb"]
+    members["cb"] = dataclasses.replace(at, location=Location(at.location.x + dx, at.location.y + dy))
+    note = slide_note(occ, spec, members, 1)
+    assert "in front of U1 pin 5" in note, note
