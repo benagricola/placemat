@@ -173,18 +173,17 @@ def test_a_net_carried_by_a_pour_is_judged_by_the_pour_not_its_pin_leads():
     assert v.ok and v.value == pytest.approx(6.0) and "U1." in v.note and "C1." in v.note
 
 
-def test_keep_out_reports_the_true_nearest_pair_even_a_parts_own_pins():
-    """The switcher's FB pin sits 1.8 mm from its own SW pin: nearer than
-    L1's SW pad (5.0 mm) or a track between them (2.15 mm). The nearest
-    pair decides regardless, named and said to be footprint-set (see
-    tests/test_keep_out_naming.py)."""
+def test_keep_out_ignores_a_parts_own_adjacent_pins():
+    """The switcher's FB pin sits next to its own SW pin: package geometry,
+    not layout. Only copper of another part, or a track or pour, is judged;
+    the nearer own-pin distance is said in the note, as the footprint's."""
     u = footprint("U1", 14, 13, nets=("FB", "SW"), fields={"Pm.Aggressor": "true", "Pm.Sensitive": "FB"})
     l = footprint("L1", 20, 13, nets=("SW", "VOUT"), fields={"Pm.Aggressor": "true"})
     (v,) = keep_out(board_geometry([u, l]), limit_mm=2.0)
-    assert v.value == pytest.approx(1.8) and v.ok is False and "both pads of U1" in v.note
+    assert v.value == pytest.approx(5.0) and v.ok                      # L1's SW pad, not U1's own SW pad next door
     sw = track("SW", 15.4, 13, 18.6, 13, w=0.3)
     (v,) = keep_out(board_geometry([u, l], copper=[sw]), limit_mm=2.0)
-    assert v.value == pytest.approx(1.8)                     # the track is farther still; U1's own pins remain nearest
+    assert v.value == pytest.approx(15.4 - 0.15 - (12.6 + 0.5))       # the track's end to U1's FB pad edge
 
 
 def test_a_pours_narrowest_neck_is_the_current_paths_width():

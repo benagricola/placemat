@@ -358,19 +358,26 @@ def keep_out(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list[Ver
         sense_items = [c for net in sensitive for c in _keep_out_copper(geometry, net)]
         if not node_items or not sense_items:
             continue
-        best = None
+        # a part's own pins are package, not layout: judged apart, and said when nearer
+        best, own = None, None
         for a in node_items:
             for b in sense_items:
+                same = a.kind == "pad" and b.kind == "pad" and a.owner == b.owner
                 for oa in a.outlines:
                     for ob in b.outlines:
                         d = poly_distance(oa, ob)
-                        if best is None or d < best[0]:
+                        if same:
+                            if own is None or d < own[0]:
+                                own = (d, a)
+                        elif best is None or d < best[0]:
                             best = (d, a, b, oa, ob)
+        if best is None:
+            continue
         d, a, b, oa, ob = best
         pa, pb, _ = _nearest_points(oa, ob)
         note = "%s to %s" % (_keep_out_text(a, pa), _keep_out_text(b, pb))
-        if a.kind == "pad" and b.kind == "pad" and a.owner == b.owner:
-            note += "; both pads of %s, a distance its footprint sets" % a.owner
+        if own is not None and own[0] < d:
+            note += "; %s's own pads are %.2f mm apart, a distance its footprint sets" % (own[1].owner, own[0])
         out.append(Verdict("keep-out", node.net, d, "mm", limit_mm, d >= limit_mm, note))
     return out
 

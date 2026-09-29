@@ -1118,12 +1118,13 @@ second and a half a page and only runs on pages under 200 characters.
 placemat-design skill says which) and reports hot loop area, switch node
 copper, keep-out distance, crossings under sense tracks, current path
 width against IPC-2221 and junction temperature; exit 1 on a failed
-verdict. The keep-out verdict names the two pieces of copper that set its
-distance and their points, a pad by its part and number, a track or via by
-its net and ends: "U3 pad 5 (SW) at (x, y) to U3 pad 9 (FB) at (x, y);
-both pads of U3, a distance its footprint sets" when both are pads of one
-part - a distance placement cannot change. `--json` carries the same
-fields, in the verdict's note. The current path is the route the load
+verdict. The keep-out verdict judges what layout can change - a part's own
+pins are its package, left out - and names the two pieces of copper that
+set its distance and their points, a pad by its part and number, a track
+or via by its net and ends: "L1 pad 1 (SW) at (x, y) to U3 pad 9 (FB) at
+(x, y)"; a nearer pair inside one part is said after it: "U3's own pads are
+1.27 mm apart, a distance its footprint sets". `--json` carries the same,
+in the verdict's note. The current path is the route the load
 takes, through tracks, vias, pours and zone fills alike - a zone fill's
 own width is not measured
 (as KiCad stores a fill, each hole is slit to its outline), so a route through

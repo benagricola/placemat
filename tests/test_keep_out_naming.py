@@ -8,16 +8,17 @@ from placemat.checks import keep_out
 from tests.fixtures import board_geometry, footprint, track
 
 
-def test_keep_out_names_a_switch_and_sense_pad_of_one_part_as_footprint_set():
+def test_keep_out_judges_layout_and_names_a_nearer_pair_its_footprint_sets():
     """U1 is both the switcher (aggressor on SW) and the sensor (Pm.Sensitive
     FB): its own FB pad sits 1.8 mm from its own SW pad, closer than L1's SW
-    pad (5.0 mm away) - the footprint, not the layout, sets this distance."""
+    pad (5.0 mm). The footprint sets that distance and no placement changes
+    it, so the verdict judges L1's pad and names both pairs."""
     u = footprint("U1", 14, 13, nets=("FB", "SW"), fields={"Pm.Aggressor": "true", "Pm.Sensitive": "FB"})
     l = footprint("L1", 20, 13, nets=("SW", "VOUT"), fields={"Pm.Aggressor": "true"})
     (v,) = keep_out(board_geometry([u, l]), limit_mm=2.0)
-    assert v.value == pytest.approx(1.8) and v.ok is False
-    assert "U1 pad 1 (FB)" in v.note and "U1 pad 2 (SW)" in v.note
-    assert "both pads of U1" in v.note and "footprint sets" in v.note
+    assert v.value == pytest.approx(5.0) and v.ok
+    assert "L1 pad 1 (SW)" in v.note and "U1 pad 1 (FB)" in v.note
+    assert "U1's own pads are 1.80 mm apart" in v.note and "its footprint sets" in v.note, v.note
 
 
 def test_keep_out_names_a_track_when_it_is_the_nearest_copper():
