@@ -75,10 +75,11 @@ class Blocker:
 
 @dataclass(frozen=True)
 class Reservation:
-    """A region nothing may sit in. `allow` are nets whose parts may, and
-    `owners` are refdes that may by name - an antenna's clearance holds its
-    own matching network, and naming the nets would admit every part that
-    shares one."""
+    """A region nothing may sit in. `owners` are refdes that may sit in it by
+    name; `allow` are nets whose copper may run through it (a cell's own
+    tracks), not the parts that carry them - an antenna's clearance holds its
+    own matching network, and admitting a net's parts would admit every part
+    that shares one."""
     poly: tuple
     why: str
     allow: frozenset[str]
@@ -607,24 +608,23 @@ class Occupancy:
         return {o for o in geom.owners if o in self._footprint_refs}
 
     def let_in(self, r: Reservation, geom) -> bool:
-        """Whether a reservation lets the whole item in: a part named,
-        carrying a net let through, or - in a height-limited region - short
-        enough; a cell, when every member is (see `judged`)."""
+        """Whether a reservation lets the whole item in: a part named, or -
+        in a height-limited region - short enough; a cell, when every member
+        is (see `judged`). An allowed net lets copper through, not the parts
+        that carry it."""
         if geom.part_refs:
             return all(self._member_let_in(r, ref) for ref in geom.part_refs)
-        if (geom.owners & r.owners) or (geom.nets & r.allow):
+        if geom.owners & r.owners:
             return True
         return r.admitted is not None and bool(self._parts_of(geom)) and self._parts_of(geom) <= r.admitted
 
     def _member_let_in(self, r: Reservation, ref: str) -> bool:
-        """A cell's member, as a part of its own: named, carrying a net let
-        through, or short enough."""
-        return ref in r.owners or bool(self.items[ref].nets & r.allow) or \
-            (r.admitted is not None and ref in r.admitted)
+        """A cell's member, as a part of its own: named, or short enough."""
+        return ref in r.owners or (r.admitted is not None and ref in r.admitted)
 
     def judged(self, r: Reservation, geom) -> list:
         """Which of a cell's `parts` a reservation judges: each member not let
-        in by its own name, nets or height, and the cell's own copper, which
+        in by its own name or height, and the cell's own copper, which
         has no height (a height-limited region leaves it be) and is let
         through by its own net."""
         n = len(geom.part_refs)
@@ -1523,7 +1523,7 @@ class NativeSweeper:
         self.reservations = [i for i, r in enumerate(occ.reservations)
                              if not (r.layer is not None and r.layer.face not in faces)
                              and not occ.let_in(r, geom)]
-        # a cell's parts each reservation judges: its members not let in by their own name, nets or height
+        # a cell's parts each reservation judges: its members not let in by their own name or height
         self.judged = [occ.judged(occ.reservations[i], geom) for i in self.reservations] if geom.parts else None
         self._decoded = {}
 

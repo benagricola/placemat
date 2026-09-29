@@ -6,6 +6,11 @@ whether any of it applies.
 
 ## Unreleased
 
+A keepout's `allow=Net(...)` lets that net's copper through and no longer
+admits the parts that carry it, as the docs always said: a part that stood
+in a keepout only because it carried an allowed net is refused there now
+(the finding names the keepout); name it with `Part(...)` or `Cell(...)`.
+
 Nothing to change in a script. Each stamped cell's KiCad group is lifted
 out of its module sheet's group to the top level on the written board, so
 moving a sub-module by hand in pcbnew no longer drags its module; a module

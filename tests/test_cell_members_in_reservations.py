@@ -47,11 +47,12 @@ def test_a_named_member_does_not_admit_the_others():
     assert why is not None and "C2" in why, why
 
 
-def test_a_members_net_does_not_admit_the_others():
+def test_a_members_net_admits_no_member():
+    """An allowed net lets copper through, not the parts that carry it."""
     g, occ = _occ()
     occ.reserve(Box(12.5, 5, 30, 15), "the feed", allow=("C",))
     why = occ.legal(g.cells["k"], AT)
-    assert why is not None and "C2" in why, why
+    assert why is not None and "C1" in why, why
 
 
 def test_every_member_named_admits_the_cell():

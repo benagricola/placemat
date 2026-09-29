@@ -576,8 +576,8 @@ by its `Pm.Height` field (`1.1mm`): the room a case leaves over a region,
 said once, where naming the short parts in `allow=` goes stale when a part is
 added or swapped. A part with no `Pm.Height` counts as taller; the refusal
 names each part too tall or with no height. A cell meets a keepout member by
-member: each member is let in by its own name in `allow=`, its own nets or its
-own height, and the cell is refused only when a member that is not let in
+member: each member is let in by its own name in `allow=` or its own height,
+and the cell is refused only when a member that is not let in
 sits over the region (the refusal names it: `its member L1 sits in the
 reservation for ...: L1 is 1.8 mm`), so a rigid cell may cross a height band
 with its low members. `Cell(...)` in `allow=` names every member. The cell's

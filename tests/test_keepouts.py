@@ -629,3 +629,16 @@ def test_a_keepout_with_no_area_is_refused():
     with pytest.raises(ValueError, match="keepout 'gap'.*no area"):
         b.keepout(Path([(0.0, 5.0), (2.0, 5.0), (2.0, 5.0), (0.0, 5.0)]), "gap", at=Location(20.0, 20.0),
                   why="the feed gap")
+
+
+def test_an_allowed_net_lets_its_copper_through_not_its_parts():
+    """allow= names parts that may sit inside and nets that may run
+    through: a part carrying an allowed net still needs naming, or an
+    antenna clearance allowing its feed would admit every part on it."""
+    b = make_board("u1")
+    b.size(width=40.0, height=40.0)
+    net = b.part(Part("u1")).pads[0].net
+    b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), allow=(Net(net),), why="the feed crosses")
+    b.place(Part("u1"), at=Location(20.0, 20.0))
+    with pytest.raises(PlacementCollision, match="antenna"):
+        b.resolve()
