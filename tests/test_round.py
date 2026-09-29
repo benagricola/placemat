@@ -8,7 +8,7 @@ import pytest
 from placemat.copper import Zone
 from placemat.layout import Board
 from placemat.values import (Freedom, CopperLayer, Disc, Edge, Fraction, Location, Net, OnBore, OnEdge, OnRim,
-                             Part, Polar, Priority)
+                             PadRef, Part, Polar, Priority)
 from tests.fixtures import placement_findings, board_geometry, footprint
 
 SHAPES = {"j1": ("J1", 6.0, 4.0), "r1": ("R1", 2.0, 1.2), "u1": ("U1", 4.0, 4.0),
@@ -258,6 +258,56 @@ def test_a_ring_may_sit_about_a_point_on_a_square_board():
     b.size(40.0, 40.0)
     ring = b.ring([Part("d1"), Part("d2"), Part("d3"), Part("d4")], radius=8.0,
                   about=Location(12.0, 12.0), spread=True)
+    plan = b.resolve()
+    assert ring.angles == pytest.approx([0.0, 90.0, 180.0, 270.0])
+    assert plan.box("d1").center == Location(12.0, 4.0)
+    assert plan.box("d2").center == Location(20.0, 12.0)
+    assert placement_findings(plan) == []
+
+
+def test_polar_about_a_part_is_resolved_when_the_polar_item_is_placed():
+    """about= may be a reference: declared before the part it names is
+    placed, and settled once the Polar-placed item is, the same as any
+    other reference."""
+    b = make_board("d1", "u1")
+    b.size(40.0, 40.0)
+    b.place(Part("d1"), at=Polar(5.0, Edge.NORTH, about=Part("u1")))     # declared before u1
+    b.place(Part("u1"), at=Location(10.0, 30.0))
+    plan = b.resolve()
+    assert plan.box("d1").center == Location(10.0, 25.0)
+    assert placement_findings(plan) == []
+
+
+def test_polar_about_a_pad():
+    b = make_board("d1", "u1")
+    b.size(40.0, 40.0)
+    b.place(Part("u1"), at=Location(10.0, 30.0))
+    b.place(Part("d1"), at=Polar(5.0, Edge.NORTH, about=PadRef(Part("u1"), 1)))
+    plan = b.resolve()
+    pad = plan.occupancy.pad_location("U1", "1")
+    assert plan.box("d1").center.x == pytest.approx(pad.x)
+    assert plan.box("d1").center.y == pytest.approx(pad.y - 5.0)
+    assert placement_findings(plan) == []
+
+
+def test_a_polar_radius_with_a_freedom_may_be_about_a_reference():
+    """Polar(radius) with no angle: one freedom left (slides round the
+    ring), and the ring's own centre is still a reference."""
+    b = make_board("u1", "r1")
+    b.size(40.0, 40.0)
+    b.place(Part("u1"), at=Location(10.0, 30.0))
+    b.place(Part("r1"), at=Polar(12.0, about=Part("u1")))
+    plan = b.resolve()
+    assert plan.box("r1").center.distance(Location(10.0, 30.0)) == pytest.approx(12.0, abs=0.2)
+    assert placement_findings(plan) == []
+
+
+def test_a_ring_may_sit_about_a_part():
+    b = make_board("u1", "d1", "d2", "d3", "d4")
+    b.size(40.0, 40.0)
+    b.place(Part("u1"), at=Location(12.0, 12.0))
+    ring = b.ring([Part("d1"), Part("d2"), Part("d3"), Part("d4")], radius=8.0,
+                  about=Part("u1"), spread=True)
     plan = b.resolve()
     assert ring.angles == pytest.approx([0.0, 90.0, 180.0, 270.0])
     assert plan.box("d1").center == Location(12.0, 4.0)

@@ -135,6 +135,21 @@ def test_a_finger_band_may_be_placed_around_a_pads_y():
     assert ys == [27.0, 33.0] and xs == [33.4, 60.0]
 
 
+def test_a_fingers_copper_is_exactly_width_wide():
+    """The pour's points are already width apart (the test above); its
+    stroke must not widen the copper KiCad draws past that, or the finger
+    is wider than the script asked for."""
+    from placemat.copper import Pour
+    from placemat.values import X, Y
+    b = make_board()
+    b.place(Part("r1"), at=Location(30, 30))
+    pad = PadRef(Part("r1"), "MID")
+    b.finger(Net("V48"), layer=CopperLayer.F, from_=(60.0, Y(pad)), to=(X(pad, 2.0), Y(pad)), width=6.0)
+    plan = b.resolve()
+    for p in (o for o in plan.copper if isinstance(o, Pour)):
+        assert p.stroke == 0.0
+
+
 def test_a_tracks_right_angle_corner_is_chamfered_at_45_unless_told_not():
     """Two 45s survive vibration better than one 90: every right-angle
     corner of a track becomes a chamfer, `chamfer=0` keeps the corner."""

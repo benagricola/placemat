@@ -3,7 +3,7 @@ import pytest
 block is laid out from the anchor's real pads at every candidate, so its
 envelope is exact, and searched as one thing."""
 from placemat.layout import Board
-from placemat.values import Near, Cell, Location, Part, PadRef
+from placemat.values import Along, Edge, Near, OnEdge, OnRim, Polar, Cell, Location, Part, PadRef
 from tests.fixtures import board_geometry, footprint, declared_findings
 
 import dataclasses as _dc
@@ -383,3 +383,82 @@ def test_satellites_on_adjacent_pins_slide_along_the_row_when_their_normals_are_
     slide = along(s) - along(p)
     assert 1e-6 < abs(slide) <= reach + 1e-6                     # the second slid, within reach
     assert slide * (along(p) - along(a)) > 0                     # away from the first
+
+
+# ---------------------------------------------------------- every at= form
+# _settle_block used to read only at=/center=: OnEdge, a line, OnRim/OnBore
+# and a Polar with a freedom were accepted at declaration (a real Freedom)
+# and then silently ignored, landing the block wherever the free search
+# would have put it. A block now honours the same at= forms a part does.
+
+def test_a_block_may_be_placed_on_an_edge_at_a_distance():
+    b = make_board()
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN"), (Part("cout"), "VOUT")], gap=0.5)
+    i = b.place(blk, at=OnEdge(Edge.SOUTH, along=Along.MID))
+    plan = b.resolve()
+    assert declared_findings(plan) == []
+    assert i.freedom.value == "edge"
+    box = plan.box("ldo")
+    assert box.bottom == pytest.approx(59.0, abs=0.05)      # the edge_margin=1.0 keep-in
+    assert box.center.x == pytest.approx(30.0, abs=0.5)     # MID of the 60 mm edge
+
+
+def test_a_block_on_an_edge_with_no_along_slides_to_the_room_left():
+    b = make_board()
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN"), (Part("cout"), "VOUT")], gap=0.5)
+    b.place(blk, at=OnEdge(Edge.SOUTH))
+    plan = b.resolve()
+    assert declared_findings(plan) == []
+    assert plan.box("ldo").bottom == pytest.approx(59.0, abs=0.05)
+
+
+def test_a_block_may_be_placed_on_a_line():
+    """Location(x, None): the anchor's own ORIGIN pins on the line, the
+    same as a part's does, and the block slides along it. x=15 is off the
+    board's own centre (30), so a free search landing there by coincidence
+    is ruled out."""
+    b = make_board()
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN"), (Part("cout"), "VOUT")], gap=0.5)
+    b.place(blk, at=Location(15, None))
+    plan = b.resolve()
+    assert declared_findings(plan) == []
+    assert plan.placement("ldo").location.x == pytest.approx(15.0)
+
+
+def test_a_block_may_be_placed_on_a_rim():
+    fps = [footprint("U1", 20, 20, w=6, h=3, inst="ldo", nets=("VIN", "VOUT")),
+           footprint("C1", 20, 20, inst="cin", nets=("VIN", "GND"))]
+    b = Board(board_geometry(fps, width=40, height=40), edge_margin=1.0, settings=NO_CLEANUP)
+    b.disc(diameter=40.0)
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")], gap=0.5)
+    b.place(blk, at=OnRim(Edge.EAST))
+    plan = b.resolve()
+    assert declared_findings(plan) == []
+    assert plan.box("ldo").center.x > b.centre.x             # due east of the centre
+    box = plan.box("ldo")
+    far = max(b.centre.distance(Location(x, y)) for x in (box.left, box.right) for y in (box.top, box.bottom))
+    assert far == pytest.approx(19.0, abs=0.3)                # its reach at the board's keep-in
+
+
+def test_a_block_may_be_placed_on_a_polar_ring():
+    fps = [footprint("U1", 20, 20, w=6, h=3, inst="ldo", nets=("VIN", "VOUT")),
+           footprint("C1", 20, 20, inst="cin", nets=("VIN", "GND"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0, settings=NO_CLEANUP)
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")], gap=0.5)
+    b.place(blk, at=Polar(15.0))          # radius given, angle free: slides round the ring
+    plan = b.resolve()
+    assert declared_findings(plan) == []
+    assert plan.box("ldo").center.distance(b.centre) == pytest.approx(15.0, abs=0.5)
+
+
+def test_a_block_may_be_placed_on_a_run():
+    fps = [footprint("U1", 30, 40, w=6, h=3, inst="ldo", nets=("VIN", "VOUT")),
+           footprint("C1", 30, 40, inst="cin", nets=("VIN", "GND"))]
+    b = Board(board_geometry(fps, width=80, height=60), edge_margin=1.0, settings=NO_CLEANUP)
+    b.outline([(0.0, 0.0), (80.0, 0.0), (80.0, 60.0), (0.0, 60.0)])
+    top = b.edge(facing=Edge.NORTH)
+    blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")], gap=0.5)
+    b.place(blk, at=OnEdge(top, along=Along.MID))
+    plan = b.resolve()
+    assert declared_findings(plan) == []
+    assert plan.box("ldo").top == pytest.approx(1.0, abs=0.1)

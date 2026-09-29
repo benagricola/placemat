@@ -77,6 +77,22 @@ class Along(str, Enum):
         return {"start": 0.0, "mid": 0.5, "end": 1.0}[self.value]
 
 
+class Line(str, Enum):
+    """How a row's items align across the row, from the edge inward."""
+    CENTRE = "centre"
+    OUTER = "outer"
+    INNER = "inner"
+
+
+class Forbid(str, Enum):
+    """What a keepout keeps out of its region."""
+    PARTS = "parts"
+    FILL = "fill"
+    TRACKS = "tracks"
+    VIAS = "vias"
+    PADS = "pads"
+
+
 @dataclass(frozen=True)
 class Centre:
     """A place for an item's body centre. Each axis is a number, a reference
@@ -584,11 +600,13 @@ class Cutout:
     same places a part takes), and which way it runs.
 
     `name` is how a script refers to it later, to put something against its
-    edge. A shape carries no position, so the same slot can be cut twice."""
+    edge. A shape carries no position, so the same slot can be cut twice.
+    `rotation` is a number, or `Turned(part, degrees)` to turn with a part
+    already on the board."""
     shape: object
     name: str
     at: object = None
-    rotation: float | None = None
+    rotation: object = None
     why: str = ""
 
     def __post_init__(self):
@@ -605,11 +623,13 @@ class Keepout:
     same places a part takes), what may not happen there and what may.
 
     A cutout removes board; a keepout leaves it and says what may not be put
-    there. The line between them is whether the board is still there."""
+    there. The line between them is whether the board is still there.
+    `rotation` is a number, or `Turned(part, degrees)` to turn with a part
+    already on the board."""
     shape: object
     name: str
     at: object = None
-    rotation: float | None = None
+    rotation: object = None
     excludes: tuple = ("parts", "fill", "tracks", "vias", "pads")
     allow: tuple = ()
     layers: tuple | None = None          # None: every copper layer the board has

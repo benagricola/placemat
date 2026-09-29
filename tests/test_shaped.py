@@ -98,6 +98,41 @@ def test_a_part_may_sit_a_length_along_a_run_or_a_fraction_of_it():
     assert plan.placement("d1").rotation == pytest.approx((180.0 - facing) % 360.0, abs=1.0)
 
 
+@pytest.mark.parametrize("rotation", [None, 0.0])
+def test_along_a_run_may_be_a_pad_reference(rotation):
+    """along= on OnEdge(run, ...) may be a reference - X()/Y() of a pad, or
+    a bare Mid/PadRef - which lands at the nearest place on the run, with
+    or without an explicit rotation=; api.md documents this, but a
+    reference crashed (at declaration with no rotation=, at resolve with
+    one) because the run's own along= is a length, not a coordinate."""
+    from placemat.values import PadRef, X
+    b = make_board("r1", "d1")
+    b.outline([(0.0, 0.0), (80.0, 0.0), (80.0, 60.0), (0.0, 60.0)])
+    b.place(Part("r1"), at=Location(40.0, 40.0))
+    top = b.edge(facing=Edge.NORTH)
+    b.place(Part("d1"), at=OnEdge(top, along=X(PadRef(Part("r1"), 1))), rotation=rotation)
+    plan = b.resolve()
+    assert placement_findings(plan) == []
+    assert plan.step("d1").freedom is Freedom.EDGE
+    pad = plan.occupancy.pad_location("R1", "1")
+    assert plan.box("d1").center.x == pytest.approx(pad.x, abs=0.05)
+    assert plan.placement("d1").rotation == pytest.approx(180.0 if rotation is None else 0.0)
+
+
+@pytest.mark.parametrize("rotation", [None, 0.0])
+def test_along_a_run_may_be_the_mid_of_two_pads(rotation):
+    from placemat.values import Mid, PadRef
+    b = make_board("r1", "d1")
+    b.outline([(0.0, 0.0), (80.0, 0.0), (80.0, 60.0), (0.0, 60.0)])
+    b.place(Part("r1"), at=Location(40.0, 40.0))
+    top = b.edge(facing=Edge.NORTH)
+    b.place(Part("d1"), at=OnEdge(top, along=Mid(PadRef(Part("r1"), 1), PadRef(Part("r1"), 2))), rotation=rotation)
+    plan = b.resolve()
+    assert placement_findings(plan) == []
+    assert plan.box("d1").center.x == pytest.approx(40.0, abs=0.05)
+    assert plan.placement("d1").rotation == pytest.approx(180.0 if rotation is None else 0.0)
+
+
 def test_a_row_runs_along_a_curved_edge_turning_with_it():
     b = make_board("d1", "d2", "d3")
     b.outline(ROUNDED_TOP)
@@ -116,6 +151,27 @@ def test_a_row_runs_along_a_curved_edge_turning_with_it():
         assert far == pytest.approx(19.5, abs=AT_KEEP_IN) and far <= 19.5
     middle = plan.box("d2").center
     assert middle.x == pytest.approx(20.0, abs=0.3)             # centred on the run
+
+
+def test_a_row_along_a_run_may_align_flush_with_its_far_end():
+    """align=Along.END on a run is the mirror of the default (START): the
+    row's far end lands at the run's own end, not centred."""
+    b = make_board("d1")
+    b.outline(ROUNDED_TOP)
+    top = b.edge(facing=Edge.NORTH)
+    row = b.row([Part("d1")], top, align=Along.END)
+    plan = b.resolve()
+    assert placement_findings(plan) == []
+    b2 = make_board("d1")
+    b2.outline(ROUNDED_TOP)
+    top2 = b2.edge(facing=Edge.NORTH)
+    row2 = b2.row([Part("d1")], top2)                                  # default: START, flush with the near end
+    plan2 = b2.resolve()
+    assert placement_findings(plan2) == []
+    # symmetric: as far past the run's own end as START sits short of its start
+    # (abs=0.1: the run's own arithmetic is done on a flattened copy of the curve)
+    assert row.alongs[0] == pytest.approx(top.length - row2.alongs[0], abs=0.1)
+    assert plan.box("d1").center.x > plan2.box("d1").center.x          # END sits further along than START
 
 
 def test_a_free_item_slides_along_a_run():
