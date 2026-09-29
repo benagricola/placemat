@@ -789,6 +789,23 @@ class Keepout:
 
 
 @dataclass(frozen=True)
+class Inside:
+    """A keepout's region inside a part's pads: `board.keepout(Inside(Part(
+    "u1"), margin=0.0), name, ...)`. The box bounded, on each side that has a
+    row of pads, by those pads' inner edge, and on a side with none by the
+    pads' outer extent on that axis; grown by `margin` (negative shrinks it).
+    It moves, turns and mirrors with the part, as keepout(Part) does."""
+    part: Part
+    margin: float = 0.0
+
+    def __post_init__(self):
+        if not isinstance(self.part, Part):
+            raise TypeError("Inside takes a Part, not %r" % (self.part,))
+        if isinstance(self.margin, bool) or not isinstance(self.margin, (int, float)):
+            raise TypeError("Inside's margin is a number of mm, not %r" % (self.margin,))
+
+
+@dataclass(frozen=True)
 class Polar:
     """A place said as a radius and a bearing: the item's body centre
     `radius` from `about` (the board's centre unless another point is given)

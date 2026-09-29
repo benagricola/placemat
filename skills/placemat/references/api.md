@@ -2,7 +2,7 @@
 
 ```python
 from placemat import (board, Along, Axis, Bend, Beside, Between, Box, Cell, CellPadRef, Centre, Pin, Polar, OnRim, OnBore, Cutout, Disc, Arc,
-                       Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Line, LinkWeight,
+                       Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Inside, Line, LinkWeight,
                        Location, Mid, Near, Net, OnEdge, PadRef, Part, Past, Priority, Turned, X, Y)
 ```
 
@@ -56,6 +56,7 @@ and write that form. When nothing here says it, do not compute it: see
 | a clearance anchored on a pad, in a datasheet's own coordinates | `Path(FIGURE, anchor=...)`, `at=PadRef(...)` | Keepouts |
 | a tall part kept out of a region a case leaves little room over | `board.keepout(..., excludes=("parts",), max_height=)` | Keepouts |
 | a region shaped by a part or cell already on the board, growing and turning with it | `board.keepout(item, name, margin=)` | Keepouts |
+| a region inside a part's pads (between two pad columns, inside a pad ring) | `board.keepout(Inside(Part(...), margin=), name)` | Keepouts |
 | a board of any shape | `board.outline(path, holes=)` | Boards of any shape |
 | a stretch of edge chosen by which way it faces | `board.edge(facing=Edge.NORTH)` | Boards of any shape |
 | a module frame sized to its own content | `board.size(fit=True)` | Setup |
@@ -667,6 +668,23 @@ moves, turns and mirrors with the item (face=Face.BACK flips it the same
 way): settled once the item is, the same as a keepout at its pad. The item
 must already be FIXED or EDGE (as `at=PadRef(...)` already requires): one
 still searched raises "not placed by then".
+
+**A region inside a part's pads.** `Inside(Part(...), margin=0.0)` in place
+of the shape is the box bounded by the inner edges of the part's pads,
+settled and turned as a region shaped by the item is.
+
+```python
+board.keepout(Inside(Part("u1"), margin=-0.1), "under_u1", excludes=(Forbid.VIAS, Forbid.TRACKS),
+              why="nothing between the two pad columns")
+```
+
+Each pad belongs to the row of the side of the pad field it is
+proportionally nearest (a tie goes by the pad's long side), and counts when
+it lies wholly on that side of the body centre, so a centre pad counts for
+no side. A side with a row takes that row's inner edge; a side with none
+(two columns and no rows) takes the pads' outer extent on that axis. The
+box is grown by `margin`, which may be negative. A part whose box has no
+area is a ValueError naming it.
 
 **What it forbids.** `excludes=` defaults to everything and narrows to any of
 the `Forbid` enum: `PARTS`, `FILL`, `TRACKS`, `VIAS`, `PADS` (the strings

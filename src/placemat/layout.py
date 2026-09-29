@@ -28,7 +28,7 @@ from .placement import Placement
 from .settings import Settings
 from .placer import BlockSpec, _grid, _pin_normal, _reason_key, box_centered_placement, cell_pad_anchored_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
-from .values import (Turned, Axis, Bend, Cover, Beside, Between, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Turned, Axis, Bend, Cover, Beside, Between, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -951,6 +951,26 @@ class Board:
             raise ValueError("keepout %r: %s draws nothing to shape a region from" % (name, self._item(item)[1]))
         return Path(box_polygon(env.inflate(margin)), anchor=(0.0, 0.0))
 
+    def _inside_shape(self, inside: Inside, name: str) -> Path:
+        """The region `Inside(part, margin)` takes, in the frame
+        `_item_envelope_shape` draws in (the part's own, at rotation 0, on its
+        generated face) so it settles the same way: `_inner_box` of its pads,
+        grown by the margin. A box with no area is refused."""
+        from .geometry import transform_polygon
+        geom, _, _ = self._item(inside.part)
+        occ = self._bare_occupancy()
+        g = occ._geometry(geom)
+        t = occ._transform(g, Placement(Location(0.0, 0.0), 0.0, g.reference.face))
+        pads = [Box.of_points(transform_polygon(s.poly, t)) for s in g.shapes
+                if s.kind in ("pad", "through") and s.owner == geom.ref]
+        if not pads:
+            raise ValueError("keepout %r: %s has no pads to be inside" % (name, geom.ref))
+        box = _inner_box(pads, transform_box(g.body, t).center).inflate(float(inside.margin))
+        if box.width <= 1e-9 or box.height <= 1e-9:
+            raise ValueError("keepout %r: the box inside %s's pads, grown by %g, is %.3f x %.3f mm: no area"
+                             % (name, geom.ref, inside.margin, box.width, box.height))
+        return Path(box_polygon(box), anchor=(0.0, 0.0))
+
     def _drawn_envelope_box(self, item, placement: Placement | None = None) -> Box | None:
         """The box round what a Part or Cell draws (envelope.drawn_envelope's
         kinds, and a footprint's own copper graphics; a cell's own tracks
@@ -1376,13 +1396,22 @@ class Board:
         `at=` or `rotation=`, so `margin=` in their place): the region is
         that item's own drawn envelope grown by `margin` (default 0), and it
         moves and turns with the item, settled once the item is - a shape
-        from an item, not a hand-built polygon."""
-        region_of = shape if isinstance(shape, (Part, Cell)) else None
+        from an item, not a hand-built polygon.
+
+        `shape` may be `Inside(Part(...), margin)`: the box inside that
+        part's pads (`Inside`), settled the same way."""
+        inside = shape if isinstance(shape, Inside) else None
+        region_of = inside.part if inside is not None else shape if isinstance(shape, (Part, Cell)) else None
         if region_of is not None:
             if at is not None:
                 raise ValueError("keepout %r: an item shapes its own region; give margin=, not at=" % name)
             if rotation is not None:
                 raise ValueError("keepout %r: an item's region turns with it; give no rotation=" % name)
+        if inside is not None:
+            if margin is not None:
+                raise ValueError("keepout %r: Inside carries its own margin; give Inside(part, margin=)" % name)
+            shape = self._inside_shape(inside, name)
+        elif region_of is not None:
             m = 0.0 if margin is None else float(margin)
             if m < 0:
                 raise ValueError("keepout %r: margin is 0 or more, not %r" % (name, margin))
@@ -5466,6 +5495,34 @@ def _escape_axis(occ: Occupancy, owner: str, number: str) -> tuple:
     dx, dy = p.x - c.x, p.y - c.y
     n = math.hypot(dx, dy)
     return (dx / n, dy / n) if n > 1e-9 else (1.0, 0.0)
+
+
+def _inner_box(pads: list, centre: Location) -> Box:
+    """The box inside a part's pads (`Inside`), in the part's own frame at
+    rotation 0: `pads` each land's box, `centre` the body's. Each land joins
+    the row `_pin_normal` puts it in (the side of the pads' centres it is
+    proportionally nearest, a tie settled by its long side), and counts
+    only when it lies wholly on that side of `centre`. A side's edge is the
+    innermost edge of its row; a side with no row takes the pads' outer
+    extent on that axis."""
+    centres = {("", i): b.center for i, b in enumerate(pads)}
+    outer = Box.union(pads)
+    west, east, north, south = [], [], [], []
+    for i, b in enumerate(pads):
+        n = _pin_normal(centres, "", b.center, 0.0, b)
+        if n is None:
+            continue
+        ux, uy = n
+        if ux < -0.5 and b.right <= centre.x:
+            west.append(b.right)
+        elif ux > 0.5 and b.left >= centre.x:
+            east.append(b.left)
+        elif uy < -0.5 and b.bottom <= centre.y:
+            north.append(b.bottom)
+        elif uy > 0.5 and b.top >= centre.y:
+            south.append(b.top)
+    return Box(max(west) if west else outer.left, max(north) if north else outer.top,
+               min(east) if east else outer.right, min(south) if south else outer.bottom)
 
 
 def _named_pad(board: "Board", ctx: "_CopperContext", net: str, p) -> tuple | None:

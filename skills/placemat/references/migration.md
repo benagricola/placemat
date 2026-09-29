@@ -6,6 +6,11 @@ whether any of it applies.
 
 ## Unreleased
 
+`board.keepout(Inside(Part(...), margin=), name, ...)`: the box inside a
+part's pads, between its two pad columns or inside its pad ring, moving and
+turning with the part. A region worked out by hand from pad coordinates can
+be declared this way.
+
 `Past(pads, Edge.X, lane=Net(...), width=)` in `Beside`'s align: the lane
 as wide as the copper its current needs, so a part stands clear of a power
 pour's width rather than a track's.
