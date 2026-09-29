@@ -3573,6 +3573,115 @@ class Board:
             i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3)))))
         return self._step(i, None, 0.0, "UNPLACED: " + "; ".join(reasons.values()))
 
+    def _slide_block(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, spec, ideal: float, lo: float, hi: float,
+                     anchor_at, what: str, step: float | None = None, units: str = "mm") -> Step:
+        """_slide, for a block: a candidate is legal only once the whole
+        block lays out from the anchor `anchor_at(along)` gives, so each is
+        checked with layout_block rather than occ.legal on one item."""
+        step = step if step is not None else max(i.step, 0.2)
+        n = int((hi - lo) / step) + 1
+        candidates = sorted({min(max(ideal + d * step * sgn, lo), hi) for d in range(n) for sgn in (1, -1)},
+                            key=lambda a: (abs(a - ideal), a))
+        rejected: Counter = Counter()
+        reasons: dict = {}
+        for along in candidates:
+            members, why = layout_block(occ, spec, anchor_at(along), clr)
+            if members is not None:
+                moved = abs(along - ideal)
+                note = what
+                if moved > 1e-9:
+                    note += "; slid %.2f %s from its slot" % (moved, units)
+                return self._commit_block(occ, spec, members, i, plan, note)
+            key = _reason_key(why)
+            rejected[key] += 1
+            reasons.setdefault(key, why)
+        plan.findings.append(Finding("unplaced", "%s: no room anywhere %s (%s)" % (
+            i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3)))))
+        return self._commit_block(occ, spec, {}, i, plan, "UNPLACED: " + "; ".join(reasons.values()))
+
+    def _settle_block_along_edge(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, spec) -> Step:
+        ideal = self._edge_slot(i, occ)
+        box = occ.board_box
+        lo, hi = (box.left, box.right) if i.edge in (Edge.NORTH, Edge.SOUTH) else (box.top, box.bottom)
+        return self._slide_block(occ, i, plan, clr, spec, ideal, lo, hi,
+                                 lambda along: edge_placement(occ, spec.anchor, i.edge, along, i.rotation, i.clearance, i.face),
+                                 "along the %s edge" % i.edge.name.lower())
+
+    def _settle_block_along_run(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, spec) -> Step:
+        run = i.run
+        fellows = [x for x in self._placements() if x.run is i.run and x.along is None
+                   and not x.freedom.decided]
+        k, n = fellows.index(i), max(len(fellows), 1)
+        ideal = run.length * (k + 1) / (n + 1)
+        shape = occ.board_shape or self._shaped()
+
+        def at(along):
+            rot = self.outward_rotation(spec.anchor, run.at(along)[1])[0] if i.outward else i.rotation
+            return run_placement(occ, spec.anchor, shape, run, along, i.clearance, rot, i.face)
+        return self._slide_block(occ, i, plan, clr, spec, ideal, 0.0, run.length, at,
+                                 "along the run facing %.0f degrees" % run.facing)
+
+    def _settle_block_round_rim(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, spec) -> Step:
+        disc = self._disc("the same place is OnEdge(board.edge(facing=...))")
+        bore = i.rim == "bore"
+        ideal = self._round_slot(i)
+        r = max(disc.bore if bore else disc.radius, 1e-6)
+
+        def at(angle):
+            rot = self.outward_rotation(spec.anchor, angle + (180.0 if bore else 0.0))[0] if i.outward else i.rotation
+            return disc_placement(occ, spec.anchor, disc, angle, i.clearance, rot, i.face, bore=bore)
+        return self._slide_block(occ, i, plan, clr, spec, ideal, ideal - 180.0, ideal + 180.0, at,
+                                 "round the %s" % ("bore" if bore else "rim"),
+                                 step=math.degrees(max(i.step, 0.2) / r), units="deg")
+
+    def _settle_block_round_ring(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, spec) -> Step:
+        centre = self.centre if i.about is None else _locate(self, occ, i.about)
+        ideal = self._round_slot(i)
+        r = max(float(i.radius_at), 1e-6)
+
+        def at(angle):
+            return box_centered_placement(occ, spec.anchor, polar_point(centre, angle, r), i.rotation, i.face)
+        return self._slide_block(occ, i, plan, clr, spec, ideal, ideal - 180.0, ideal + 180.0, at,
+                                 "round the %.2f mm ring" % r, step=math.degrees(max(i.step, 0.2) / r), units="deg")
+
+    def _settle_block_along_spoke(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, spec) -> Step:
+        centre = self.centre if i.about is None else _locate(self, occ, i.about)
+        if isinstance(self._shape, Disc) and centre == self._shape.centre:
+            lo, hi = self._shape.bore + self.keep_in, self._shape.radius - self.keep_in
+        else:
+            box = occ.board_box
+            lo, hi = 0.0, max(box.width, box.height)
+        ideal = (lo + hi) / 2.0
+
+        def at(r):
+            return box_centered_placement(occ, spec.anchor, polar_point(centre, i.angle, r), i.rotation, i.face)
+        return self._slide_block(occ, i, plan, clr, spec, ideal, lo, hi, at, "out along the %.0f degree spoke" % i.angle)
+
+    def _settle_block_along_line(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, spec, placed: set) -> Step:
+        axis = "x" if i.pin_x is not None else "y"
+        pinned = _coord(self, occ, i.pin_x if axis == "x" else i.pin_y, axis)
+        fellows = [o for o in self._placements() if (o.pin_x if axis == "x" else o.pin_y) is not None
+                   and (o.pin_x if axis == "x" else o.pin_y) == (i.pin_x if axis == "x" else i.pin_y)]
+        k, n = fellows.index(i), len(fellows)
+        box = occ.board_box
+        lo, hi = (box.top, box.bottom) if axis == "x" else (box.left, box.right)
+        lo, hi = lo + self.keep_in, hi - self.keep_in
+        ideal = lo + (hi - lo) * (k + 1) / (n + 1)
+        targets = self._targets(spec.anchor, occ, placed)
+        seeded = ""
+        if targets:
+            hint = self._seed_hint(spec.anchor, occ, targets, i.rotation, i.face)
+            anchor = hint.location if i.pinned_by == "at" else occ.body_box(spec.anchor, hint).center
+            ideal = min(max(anchor.y if axis == "x" else anchor.x, lo), hi)
+            seeded = "; across from what it connects to"
+
+        def at(along):
+            point = Location(pinned, along) if axis == "x" else Location(along, pinned)
+            if i.pinned_by == "at":
+                return Placement(point, i.rotation, i.face)
+            return box_centered_placement(occ, spec.anchor, point, i.rotation, i.face)
+        return self._slide_block(occ, i, plan, clr, spec, ideal, lo, hi, at, "on the line %s = %.2f%s" % (axis, pinned, seeded))
+
     def _settle_along_line(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, placed: set = frozenset()) -> Step:
         """x or y pinned, the other free: the item's body centre sits on the
         pinned line and slides along it to the nearest legal spot, from the
@@ -3920,79 +4029,10 @@ class Board:
                 waits.setdefault(slow.key, fast.key)
         return waits
 
-    def _settle_block(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set) -> Step:
-        spec = i.item
-        clr = self.clearance
-        if i.at is not None or i.center is not None:
-            # Said in pads or in numbers, the point is resolved here, the same way
-            # a part's is: a block declared against a reference waits for it.
-            anchor = Placement(_locate(self, occ, i.at), i.rotation, i.face) if i.at is not None else \
-                box_centered_placement(occ, spec.anchor, _locate(self, occ, i.center), i.rotation, i.face)
-            members, why = layout_block(occ, spec, anchor, clr)
-            if members is None:
-                plan.findings.append(Finding("fixed", "%s (fixed): %s" % (i.key, why)))
-                members = {spec.anchor.inst: anchor}
-            note = why or ""
-        else:
-            spot, _ = self._lock_spot(occ, i, plan)
-            locked = None
-            if spot is not None:
-                locked = scan_block(occ, spec, spot, 0.0, i.step, (spot.rotation,), clr)[0]
-                if locked is None:
-                    body = occ._geometry(spec.anchor).body
-                    locked = scan_block(occ, spec, spot, max(i.radius, body.width, body.height), i.step,
-                                        (spot.rotation,), clr)[0]
-                    if locked is None:
-                        self._lock_notes[i.key] = "lock: released - no legal spot round its locked spot"
-            targets = self._targets(spec.anchor, occ, placed)
-            current = occ._geometry(spec.anchor).reference
-            if locked is not None:
-                self._lock_held.add(i.key)
-                _, anchor, members = locked
-                d = anchor.location.distance(spot.location)
-                note = "block of %d laid out from the anchor's pads; %s" % (
-                    len(members), "held by lock" if d < 1e-9 else "lock: drifted %.2f mm from its locked spot" % d)
-            else:
-                if i.near is not None:
-                    hint = Placement(_locate(self, occ, i.near), i.rotation, i.face)
-                elif targets:
-                    hint = self._seed_hint(spec.anchor, occ, targets, i.rotation, i.face)
-                elif self._outline is not None:  # nothing placed pulls it: search from the board, not from where the generator dropped it
-                    hint = Placement(self._outline.center, i.rotation, i.face)
-                else:
-                    hint = Placement(current.location, i.rotation, i.face)
-                score = None
-                if targets:
-                    anchor_score = self._scorer(spec.anchor, occ, targets, prune=self._pick(i) is None)
-
-                    def score(members):
-                        return anchor_score(members[spec.anchor.inst])
-                body = occ._geometry(spec.anchor).body
-                radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)
-                alone = self._block_alone(spec, i.rotations or (i.rotation,), i.face, clr)
-                if alone is not None:           # no board position can help: say so now, not after the scan
-                    best, rejected = None, Counter()
-                else:
-                    best, tried, rejected, reasons = scan_block(occ, spec, hint, radius, i.step, i.rotations or (i.rotation,),
-                                                                clr, score, pick=self._pick(i))
-                if best is None and alone is not None:
-                    plan.findings.append(Finding("unplaced", "%s: cannot be laid out on its own at any rotation it may "
-                                                 "take, whatever room the board has (%s)" % (i.key, alone)))
-                    members = {}
-                    note = "UNPLACED: " + alone
-                elif best is None:
-                    plan.findings.append(Finding("unplaced", "%s: no legal spot within %.1f mm of %s (%s)" % (
-                        i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in rejected.most_common(3)))))
-                    members = {}
-                    note = "UNPLACED"
-                else:
-                    _, anchor, members = best
-                    moved = anchor.location.distance(hint.location)
-                    note = "block of %d laid out from the anchor's pads" % len(members)
-                    if moved > 0:
-                        note += "; moved %.2f mm off the hint" % moved
-                        first = next(iter(reasons.values()), "")
-                        note += (": " + first) if first else ""
+    def _commit_block(self, occ: Occupancy, spec, members: dict, i: PlaceIntent, plan: Plan, note: str) -> Step:
+        """A block's members once `members` is known (possibly {}: nothing
+        legal). The satellites commit here; the anchor commits in the outer
+        resolve loop, from the step this returns, the same as any item's."""
         for fp in spec.members:
             if fp.inst in members and fp is not spec.anchor:
                 plan._items[fp.inst] = fp
@@ -4002,6 +4042,119 @@ class Board:
         anchor_at = members.get(spec.anchor.inst)
         plan.steps.append(Step(spec.anchor.inst, "part", i.priority, anchor_at, 0.0, "anchor of %s" % i.key))
         return self._step(i, anchor_at, 0.0, note)
+
+    def _settle_block(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set) -> Step:
+        """A block honours every at= form a part does: the anchor's point is
+        worked out the same way _settle works out a part's (ported below,
+        against spec.anchor for the measurements), and the whole block is
+        then laid out from it with layout_block - once for a decided place,
+        or at each candidate of a search with one freedom left."""
+        spec = i.item
+        clr = self.clearance
+        if i.freedom.decided:
+            if i.at is not None:
+                anchor = Placement(_locate(self, occ, i.at), i.rotation, i.face)
+            elif i.center is not None:
+                anchor = box_centered_placement(occ, spec.anchor, _locate(self, occ, i.center), i.rotation, i.face)
+            elif i.run is not None:
+                along = _run_along(self, occ, i)
+                rot = self.outward_rotation(spec.anchor, i.run.at(along)[1])[0] if i.rotation is None else i.rotation
+                anchor = run_placement(occ, spec.anchor, occ.board_shape or self._shaped(), i.run,
+                                       along, i.clearance, rot, i.face)
+            elif i.rim is not None:
+                anchor = disc_placement(occ, spec.anchor, self._disc("the same place is "
+                                                                     "OnEdge(board.edge(facing=...))"),
+                                        i.angle, i.clearance, i.rotation, i.face, bore=i.rim == "bore")
+            else:
+                if isinstance(i.along, _RowSlot):
+                    along = i.along.resolve(self, occ)
+                elif isinstance(i.along, _EdgeFraction):
+                    along = self._edge_fraction(i.edge, occ, i.along.fraction)
+                    if i.along.anchor in ("start", "end"):
+                        reach = occ.reach_box(spec.anchor, Placement(Location(0.0, 0.0), i.rotation, i.face))
+                        half = (reach.width if i.edge in (Edge.NORTH, Edge.SOUTH) else reach.height) / 2.0
+                        along += half if i.along.anchor == "start" else -half
+                else:
+                    along = _coord(self, occ, i.along, "x" if i.edge in (Edge.NORTH, Edge.SOUTH) else "y")
+                anchor = edge_placement(occ, spec.anchor, i.edge, along, i.rotation, i.clearance, i.face)
+            members, why = layout_block(occ, spec, anchor, clr)
+            if members is None:
+                plan.findings.append(Finding("fixed", "%s (%s): %s" % (i.key, i.freedom.value, why)))
+                members = {spec.anchor.inst: anchor}
+            return self._commit_block(occ, spec, members, i, plan, why or "")
+        if i.run is not None:
+            return self._settle_block_along_run(occ, i, plan, clr, spec)
+        if i.rim is not None:
+            return self._settle_block_round_rim(occ, i, plan, clr, spec)
+        if i.radius_at is not None:
+            return self._settle_block_round_ring(occ, i, plan, clr, spec)
+        if i.angle is not None:
+            return self._settle_block_along_spoke(occ, i, plan, clr, spec)
+        if i.edge is not None:
+            return self._settle_block_along_edge(occ, i, plan, clr, spec)
+        if i.pin_x is not None or i.pin_y is not None:
+            return self._settle_block_along_line(occ, i, plan, clr, spec, placed)
+        # No place left at all: searched from a lock, a hint, what it connects to, or the board's own middle.
+        spot, _ = self._lock_spot(occ, i, plan)
+        locked = None
+        if spot is not None:
+            locked = scan_block(occ, spec, spot, 0.0, i.step, (spot.rotation,), clr)[0]
+            if locked is None:
+                body = occ._geometry(spec.anchor).body
+                locked = scan_block(occ, spec, spot, max(i.radius, body.width, body.height), i.step,
+                                    (spot.rotation,), clr)[0]
+                if locked is None:
+                    self._lock_notes[i.key] = "lock: released - no legal spot round its locked spot"
+        targets = self._targets(spec.anchor, occ, placed)
+        current = occ._geometry(spec.anchor).reference
+        if locked is not None:
+            self._lock_held.add(i.key)
+            _, anchor, members = locked
+            d = anchor.location.distance(spot.location)
+            note = "block of %d laid out from the anchor's pads; %s" % (
+                len(members), "held by lock" if d < 1e-9 else "lock: drifted %.2f mm from its locked spot" % d)
+        else:
+            if i.near is not None:
+                hint = Placement(_locate(self, occ, i.near), i.rotation, i.face)
+            elif targets:
+                hint = self._seed_hint(spec.anchor, occ, targets, i.rotation, i.face)
+            elif self._outline is not None:  # nothing placed pulls it: search from the board, not from where the generator dropped it
+                hint = Placement(self._outline.center, i.rotation, i.face)
+            else:
+                hint = Placement(current.location, i.rotation, i.face)
+            score = None
+            if targets:
+                anchor_score = self._scorer(spec.anchor, occ, targets, prune=self._pick(i) is None)
+
+                def score(members):
+                    return anchor_score(members[spec.anchor.inst])
+            body = occ._geometry(spec.anchor).body
+            radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)
+            alone = self._block_alone(spec, i.rotations or (i.rotation,), i.face, clr)
+            if alone is not None:           # no board position can help: say so now, not after the scan
+                best, rejected = None, Counter()
+            else:
+                best, tried, rejected, reasons = scan_block(occ, spec, hint, radius, i.step, i.rotations or (i.rotation,),
+                                                            clr, score, pick=self._pick(i))
+            if best is None and alone is not None:
+                plan.findings.append(Finding("unplaced", "%s: cannot be laid out on its own at any rotation it may "
+                                             "take, whatever room the board has (%s)" % (i.key, alone)))
+                members = {}
+                note = "UNPLACED: " + alone
+            elif best is None:
+                plan.findings.append(Finding("unplaced", "%s: no legal spot within %.1f mm of %s (%s)" % (
+                    i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in rejected.most_common(3)))))
+                members = {}
+                note = "UNPLACED"
+            else:
+                _, anchor, members = best
+                moved = anchor.location.distance(hint.location)
+                note = "block of %d laid out from the anchor's pads" % len(members)
+                if moved > 0:
+                    note += "; moved %.2f mm off the hint" % moved
+                    first = next(iter(reasons.values()), "")
+                    note += (": " + first) if first else ""
+        return self._commit_block(occ, spec, members, i, plan, note)
 
     def _draw_adopted(self, occ, ctx, plan: Plan, entries, progress):
         """Routed copper kept beside the script (routes.py): each net drawn

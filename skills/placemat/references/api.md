@@ -799,6 +799,14 @@ anchor pad it was aimed at. The block is laid out from the anchor's REAL pads at
 candidate, so its envelope is exact, and placed as one thing (after cells,
 before loose parts). Its members appear as their own steps and placements.
 
+**`board.place(block, at=...)`** takes every place a part does - `Location`,
+`Centre`, a line (one axis free), `OnEdge` (with `along=` or without),
+`OnRim`, `OnBore`, `Polar` (fixed, or with a freedom) - against the
+ANCHOR: `at=OnEdge(Edge.WEST, along=Along.MID)` reaches the anchor at the
+west keep-in with the whole block laid out from there. Only `Pin` is
+refused: a block is placed by its anchor's body or edge, not by one of its
+own pads.
+
 ## Copper vocabulary
 
 Every copper call is named for the shape it leaves on the board:
