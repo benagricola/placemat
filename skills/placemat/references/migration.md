@@ -4,7 +4,7 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
-## Unreleased
+## To 0.52.0
 
 Nothing to change in a script. Every route is laid with the router's turn
 cost at 20000 (`[route] turn_cost`; the router's own default is 1000) and
