@@ -627,8 +627,9 @@ board.keepout(Part("ant"), "antenna_body", margin=0.3,
               why="clearance round the antenna's own footprint")
 ```
 
-The region is that item's drawn envelope - pads, mask openings, silk and body,
-the same box `envelope.drawn_envelope` reads off a single footprint, and for a
+The region is that item's drawn envelope - pads, the footprint's own copper
+graphics (a winding drawn as copper, on any layer), mask openings, silk and
+body, and for a
 `Cell` the union of its members' (its own tracks, vias and pours are not a
 member's drawn envelope, so they are left out) - grown by `margin`, and it
 moves, turns and mirrors with the item (face=Face.BACK flips it the same

@@ -735,6 +735,24 @@ def test_a_keepout_shaped_by_a_part_is_its_drawn_envelope():
     assert _poly_box(plan.keepouts["clr"].poly) == pytest.approx((21.0, 19.0, 27.0, 21.0), abs=0.01)
 
 
+def test_a_keepout_shaped_by_a_part_covers_its_own_copper_graphics():
+    """A part whose footprint draws copper past its pads and body (a
+    winding drawn as copper graphics, on inner layers too): a keepout shaped
+    by it covers that copper, so a fill it excludes stays off the winding."""
+    import dataclasses
+    from placemat.values import CopperLayer
+    winding = (CopperLayer.IN1, ((12.0, 17.0), (19.0, 17.0), (19.0, 23.0), (12.0, 23.0)))
+    part = dataclasses.replace(footprint("U1", 20.0, 20.0, w=4.0, h=2.0, inst="u1", nets=("A", "B")),
+                               copper=(winding,))
+    b = Board(board_geometry([part], width=60.0, height=60.0), edge_margin=0.5)
+    b.keepout(Part("u1"), "clr", excludes=("fill",), why="no plane under the winding")
+    b.place(Part("u1"), at=Location(25.0, 20.0))
+    plan = b.resolve()
+    # the winding reaches 8 mm west of the part's centre and 3 mm north and south of
+    # it; the east edge is pad 2's
+    assert _poly_box(plan.keepouts["clr"].poly) == pytest.approx((17.0, 17.0, 26.9, 23.0), abs=0.01)
+
+
 def test_a_keepout_shaped_by_a_part_grows_by_margin():
     b = Board(board_geometry([_asymmetric_part()], width=60.0, height=60.0), edge_margin=0.5)
     b.keepout(Part("u1"), "clr", margin=0.5, why="clearance round the part")

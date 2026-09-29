@@ -913,8 +913,9 @@ class Board:
 
     def _item_envelope_shape(self, item, margin: float, name: str) -> Path:
         """The region a keepout shaped by an item takes: envelope.drawn_envelope's
-        box - pads, mask, silk and body, a cell's own union of its members',
-        its own copper left out - grown by `margin`, in the item's own frame
+        box - pads, a footprint's own copper graphics, mask, silk and body, a
+        cell's own union of its members', the cell's own tracks left out -
+        grown by `margin`, in the item's own frame
         at rotation 0 (whatever face it currently has, so no face carries a
         spurious flip into the local shape): an anchor at the origin, so
         `path_at` lands it exactly where the item settles and turns with it.
@@ -930,8 +931,10 @@ class Board:
         g = occ._geometry(geom)
         t = occ._transform(g, Placement(Location(0.0, 0.0), 0.0, g.reference.face))
         own = key if kind == "cell" else None      # a cell's own copper is not a member's drawn envelope
+        # a footprint's own copper graphics (a winding) are what it draws too, and what a fill
+        # kept off it must stay off
         boxes = [transform_box(s.box, t) for s in g.shapes
-                if s.kind in _ENVELOPE_DRAWN_KINDS and s.owner != own]
+                if (s.kind in _ENVELOPE_DRAWN_KINDS or s.kind == "copper") and s.owner != own]
         env = Box.union(boxes)
         if env is None:
             raise ValueError("keepout %r: %s draws nothing to shape a region from" % (name, key))

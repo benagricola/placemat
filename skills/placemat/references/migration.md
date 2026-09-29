@@ -29,6 +29,10 @@ farthest via); a hand-drawn track joining the row to its pad can go.
 pad, not only `item`'s: a part beside one part, level with another part's
 pin, no longer needs its position from that pin by hand.
 
+A keepout shaped by a part (`board.keepout(Part(...), name)`) now covers the
+part's own copper graphics too, not only its pads, mask, silk and body: a
+fill it excludes stays off a winding drawn as copper past the pads.
+
 ## To 0.54.0
 
 The `placemat-design` skill is retired. Its placemat part - the `Pm.*`
