@@ -58,6 +58,12 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **Fixes from the fairing's 0.54 conversion** (0.54.1; fairing reports
+  2026-09-29): swallow pours settle by draw order as KiCad's zone priority
+  does; a pad is joined when the pour's copper overlaps it; `vias(along=)`
+  joined to its pad by a tail and a track may end on it; `Beside` aligns to
+  any firmly placed part's pad; a keepout shaped by a part covers its own
+  copper graphics.
 - **The intent relations** (0.54.0; audits 2026-09-29, spec
   `2026-09-29-missing-intent-relations-design.md`): Beside, a row along a
   part, Between/Past track waypoints, the 45 end of a leg, via rows and
