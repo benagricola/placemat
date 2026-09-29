@@ -63,7 +63,7 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
-- **Lanes as intent** (unreleased; fairing PLACEMAT_GAPS 2026-09-29; spec
+- **Lanes as intent** (0.55.0; fairing PLACEMAT_GAPS 2026-09-29; spec
   `2026-09-29-past-copper-and-row-pitch-design.md`): `Past` over vias and
   tracks with `across=`; a via at a `Past` point; `Beside` aligning a pad a
   lane past other pads; `row(of=, centre=PadRef, pitch=)`; `plane(over=)`.

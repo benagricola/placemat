@@ -4,7 +4,7 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
-## Unreleased
+## To 0.55.0
 
 A block satellite that slid along its anchor's pin row says so in its step:
 how far off its pin's axis, and which of the anchor's pins its body now
