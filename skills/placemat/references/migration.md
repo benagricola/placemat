@@ -4,6 +4,13 @@ Sections are per release, newest first. Read the ones between the version a
 script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies.
 
+## Unreleased
+
+A net-tie footprint's own copper (a winding joined to its pads) no longer
+reads as a conflict with a track or pad of one of its net-tie pads' nets
+where the two meet inside that pad, as KiCad's DRC allows: a track ending on
+a winding's terminal pad was reported 0.00 mm from the footprint's copper.
+
 ## To 0.54.1
 
 Two `swallow_pads` pours of different nets now keep the netclass clearance

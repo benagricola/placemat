@@ -7,6 +7,31 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+- **A nested cell placed apart from its parent lands off its spot**
+  (PLACEMAT_GAPS 2026-09-29 "which fragment a nested module's parts came
+  from"): the child is moved by the parent's translation, 48 mm off, with
+  no finding. Also: the fragment each stamped part came from in `parts`.
+- **The segments a run drew, per net** (PLACEMAT_GAPS 2026-09-29 "the legs
+  of the tracks a fragment drew", "a fragment's front copper without its
+  zones"): `measure --copper [NET ...]` with each segment's layer, width and
+  what each end lands on, a leg off 0/45/90 flagged; a FreeSpot tail drawn
+  octilinear; a render with the zones left out.
+- **One land of a multi-land pin** (PLACEMAT_GAPS 2026-09-29): `PadRef`
+  names the first land; a pin drawn as a tab, small pads and an exposed pad
+  needs the largest (or an index), and the union's box.
+- **Which silk item sets each side of a part's envelope** (PLACEMAT_GAPS
+  2026-09-29): `measure --envelope` naming the item, its layer and box.
+- **Reference arithmetic or a 45-degree lane** (PLACEMAT_GAPS 2026-09-29 "a
+  position that is a sum of an x and a y"; needs a spec): `X(a) + Y(b) - k`
+  or a `Diagonal(ref, clearance)` lane; `X(Part)` is the box centre, not the
+  footprint origin, and nothing says so.
+- **The current-path check following the load path** (PLACEMAT_GAPS
+  2026-09-29 "measures a branch, not the load path"; needs a spec): source
+  to load between the parts that carry the current, or a path the script
+  names.
+- **A keepout inside a part's pad ring** (PLACEMAT_GAPS 2026-09-29 "a plane
+  bounded to a group of parts"): the region between a receiver's two pad
+  columns.
 - **More intent relations from the fairing conversion** (fairing
   PLACEMAT_GAPS 2026-09-29; needs a spec):
   - `Beside` offset along the side, or a pair at a pitch: two pogo pins
@@ -25,8 +50,10 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   pour's outline").
 - **A pad and solder-joint count in the run summary; DRC items with each
   part's instance path beside its refdes** (PLACEMAT_GAPS 2026-09-28).
-- **`measure` printing a footprint's model path, and its fab box in
-  `--json`** (PLACEMAT_GAPS 2026-09-27, two entries).
+- **`measure` printing a footprint's model path and transform, and its fab
+  box in `--json`** (PLACEMAT_GAPS 2026-09-27, two entries; 2026-09-29 "a
+  footprint's 3D model transform": a finding when a model's box does not
+  sit over the pads).
 - **A zone fill's width along the load's route** (from the current-path
   review, 2026-09-28): `check current-path` does not measure a fill's own
   width (KiCad slits each hole to the outline, so its narrowest neck reads

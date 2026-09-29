@@ -16,7 +16,8 @@ from dataclasses import dataclass
 
 from . import geometry as _geometry_module
 from .geometry import (_clean, PolyRaster, Polygon, Transform, box_polygon, circle_polygon, poly_distance,
-                       polys_overlap, transform_box, transform_polygon)
+                       point_in_polygon, point_segment_distance, polys_overlap, transform_box,
+                       transform_polygon)
 from .placement import Placement
 from .settings import Settings
 from .board_geometry import CellGeom, Footprint, BoardGeometry
@@ -1415,6 +1416,8 @@ class Occupancy:
             if _box_gap(s.box, o.box) >= clr - 1e-9:
                 return None
             gap = poly_distance(s.poly, o.poly)
+            if gap < clr - 1e-9 and self._net_tie_exclusion(s, o):
+                return None
             if gap < clr - 1e-9:
                 if s.kind == "through" and not self.geometry.has_footprint(s.owner):
                     c = s.box.center            # a via: the script's, planned, or one a part carries at its pad
@@ -1441,6 +1444,74 @@ class Occupancy:
                     return "%s copper %.2f mm from %s's unplated hole (needs %.2f)" % (
                         metal.net or self.who(metal.owner), gap, self.who(hole.owner), need)
         return None
+
+    def _net_tie_exclusion(self, s, o) -> bool:
+        """KiCad's DRC_ENGINE::IsNetTieExclusion, either way round: copper of
+        a net-tie footprint colliding with another item of the net of one of
+        its net-tie pads is allowed where they collide inside that pad - a
+        track entering the pad a winding leaves."""
+        for item, other in ((s, o), (o, s)):
+            if not item.net or item.owner == other.owner or not self.geometry.has_footprint(other.owner):
+                continue
+            fp = self.geometry.footprint(other.owner)
+            if not fp.net_tie_pads or other.owner not in self.items:
+                continue
+            pads = [sh.poly for sh in self.items[other.owner].shapes
+                    if sh.kind in ("pad", "through") and sh.label in fp.net_tie_pads and sh.net == item.net
+                    and sh.layers & item.layers & other.layers]
+            if not pads:
+                continue
+            at = _contact_point(item.poly, other.poly)
+            if any(point_in_polygon(at, pad) or _point_poly_distance(at, pad) <= _NET_TIE_EPSILON for pad in pads):
+                return True
+        return False
+
+
+# KiCad's DRC epsilon (BOARD_DESIGN_SETTINGS::GetDRCEpsilon, 0.0005 mm by default): how far a
+# collision may lie outside a net-tie pad and still be inside it
+_NET_TIE_EPSILON = 0.0005
+
+
+def _point_poly_distance(p, poly) -> float:
+    return min(point_segment_distance(p, poly[i], poly[(i + 1) % len(poly)]) for i in range(len(poly)))
+
+
+def _contact_point(a, b):
+    """Where polygon `a` meets polygon `b`: a point where their outlines
+    cross, else a vertex of one inside the other, else the point of `a`
+    nearest `b` - the one collision position KiCad's own check reads."""
+    for i in range(len(a)):
+        p1, p2 = a[i], a[(i + 1) % len(a)]
+        for j in range(len(b)):
+            q1, q2 = b[j], b[(j + 1) % len(b)]
+            d = (p2[0] - p1[0]) * (q2[1] - q1[1]) - (p2[1] - p1[1]) * (q2[0] - q1[0])
+            if abs(d) < 1e-15:
+                continue
+            t = ((q1[0] - p1[0]) * (q2[1] - q1[1]) - (q1[1] - p1[1]) * (q2[0] - q1[0])) / d
+            u = ((q1[0] - p1[0]) * (p2[1] - p1[1]) - (q1[1] - p1[1]) * (p2[0] - p1[0])) / d
+            if 0.0 <= t <= 1.0 and 0.0 <= u <= 1.0:
+                return (p1[0] + t * (p2[0] - p1[0]), p1[1] + t * (p2[1] - p1[1]))
+    for p in a:
+        if point_in_polygon(p, b):
+            return p
+    for p in b:
+        if point_in_polygon(p, a):
+            return p
+    best, at = None, a[0]
+    for p in a:
+        d = _point_poly_distance(p, b)
+        if best is None or d < best:
+            best, at = d, p
+    for q in b:
+        for i in range(len(a)):
+            p1, p2 = a[i], a[(i + 1) % len(a)]
+            d = point_segment_distance(q, p1, p2)
+            if d < best:
+                dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+                L = dx * dx + dy * dy
+                t = 0.0 if L == 0 else max(0.0, min(1.0, ((q[0] - p1[0]) * dx + (q[1] - p1[1]) * dy) / L))
+                best, at = d, (p1[0] + t * dx, p1[1] + t * dy)
+    return at
 
 
 _DRAWN = frozenset(("silk", "mask", "body"))

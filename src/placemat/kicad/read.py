@@ -328,6 +328,7 @@ def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footpr
                      fields={f.GetName(): f.GetText() for f in fp.GetFields()},
                      lib_id=fp.GetFPIDAsString(), dnp=fp.IsDNP(),
                      bom_excluded=fp.IsExcludedFromBOM(), board_only=fp.IsBoardOnly(),
+                     net_tie_pads=frozenset(p.GetNumber() for p in fp.Pads() if fp.IsNetTie() and fp.GetNetTiePads(p)),
                      silk=_silk(fp, err_nm), mask=_mask(fp, err_nm), fab=_fab(fp), copper=_copper_art(fp, err_nm),
                      courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp))
 
