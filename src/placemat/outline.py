@@ -68,9 +68,10 @@ class Run:
                 v1 = norms[n] if n + 1 >= len(norms) else norms[n] + _angle_gap(norms[n + 1], norms[n]) / 2.0
                 lo = 0.0 if n == 0 else min(leg, lens[n - 1]) / 2.0
                 hi = 0.0 if n + 1 >= len(lens) else min(leg, lens[n + 1]) / 2.0
+                s = min(s, leg)                 # the last leg takes any rounding past its end
                 if s < lo:
                     out = (v0 + _angle_gap(norms[n], v0) * (s / lo)) % 360.0
-                elif s > leg - hi:
+                elif hi > 0.0 and s > leg - hi:
                     out = (norms[n] + _angle_gap(v1, norms[n]) * ((s - (leg - hi)) / hi)) % 360.0
                 else:
                     out = norms[n] % 360.0

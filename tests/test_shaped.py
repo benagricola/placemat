@@ -251,3 +251,14 @@ def test_a_part_on_a_run_overhangs_it_by_exactly_the_overhang(overhang):
     b.place(Part("j1"), at=OnEdge(tip, along=Along.MID, overhang=overhang))
     plan = b.resolve()
     assert reach_of(plan, "J1").bottom == pytest.approx(40.0 + overhang, abs=0.01)
+
+
+def test_a_runs_point_at_its_own_end_on_two_equal_legs():
+    """A run's last leg has no neighbour to blend into: rounding that leaves
+    the distance a hair past its length reads its end, not a division by
+    zero (a short facet of a curved outline, two legs of equal length)."""
+    from placemat.outline import Run
+    run = Run(((47.46264822049164, 11.218150078851625), (46.90912218037337, 11.135773730683077),
+               (46.352720161215345, 11.195721482129333)), facing=1.157633, _sign=-1.0)
+    point, _ = run.at(run.length)
+    assert (point.x, point.y) == pytest.approx((46.352720, 11.195721), abs=1e-6)
