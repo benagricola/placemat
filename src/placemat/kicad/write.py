@@ -347,9 +347,29 @@ def _draw_track(board, op: Track):
     board.Add(t)
 
 
+def _via_type(span) -> int:
+    """KiCad's via type for a span of layers in stackup order: a micro via
+    for an outer face and the layer next to it, blind for a span from an
+    outer face, buried for one between inner layers. KiCad 9 has one type
+    for blind and buried, KiCad 10 one each."""
+    if len(span) == 2 and any(l.face is not None for l in span):
+        return pcbnew.VIATYPE_MICROVIA
+    blind = any(l.face is not None for l in span)
+    name = "VIATYPE_BLIND" if blind else "VIATYPE_BURIED"
+    return getattr(pcbnew, name, None) if hasattr(pcbnew, name) else pcbnew.VIATYPE_BLIND_BURIED
+
+
 def _draw_via(board, op: Via):
     v = pcbnew.PCB_VIA(board)
     v.SetPosition(vec(op.at.x, op.at.y))
+    if op.layers:
+        # a KiCad 9 board allows the type in its design settings; KiCad 10 has no such switch
+        ds = board.GetDesignSettings()
+        for allow in ("m_MicroViasAllowed", "m_BlindBuriedViaAllowed"):
+            if hasattr(ds, allow):
+                setattr(ds, allow, True)
+        v.SetViaType(_via_type(op.layers))
+        v.SetLayerPair(_layer_id(board, op.layers[0]), _layer_id(board, op.layers[-1]))
     v.SetDrill(nm(op.drill))
     v.SetWidth(nm(op.size))
     v.SetNetCode(_netcode(board, op.net))
@@ -458,7 +478,7 @@ def _foreign_pour_obstacles(board, op: Pour, geometry, other_ops, existing, draw
         if isinstance(other, Track) and other.layer is op.layer:
             poly = other.polygon
             extra = 0.0
-        elif isinstance(other, Via):
+        elif isinstance(other, Via) and (not other.layers or op.layer in other.layers):
             poly = other.polygon
             extra = 0.0
         elif isinstance(other, Pour) and other.layer is op.layer:

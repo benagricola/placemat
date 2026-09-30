@@ -779,7 +779,7 @@ class Board:
         self._rank_note: dict = {}
         self._waited: dict = {}                # item key -> the linked partner it waited for
         self._copper: list[CopperIntent] = []
-        self._pad_vias: list = []          # (pad ref, net, drill, size) of each via declared at a pad: its part carries it
+        self._pad_vias: list = []          # (pad ref, net, drill, size, span) of each via declared at a pad: its part carries it
         self._labels: list = []
         self._fanouts: list = []           # (key, footprint, depth, sides or None, why)
         self._faces: tuple | None = None
@@ -1020,7 +1020,13 @@ class Board:
         searched = {fp.ref for i in self._placements() if not i.freedom.decided or i.key in self._rider_of
                     for fp in (members_of(i.item) if hasattr(i, "item") and i.kind != "block" else
                                [i.item.anchor] + [sat for sat, _ in i.item.satellites] if i.kind == "block" else [])}
-        for at, net, drill, size in self._pad_vias:
+        # a span is said on the board as placed: a part the search will flip carries it flipped back, so
+        # the flip lands it where it was declared (a cell flips when it is placed on the back)
+        flipped = {fp.ref for i in self._placements() if hasattr(i, "item")
+                   for fp in (members_of(i.item) if i.kind != "block" else
+                              [i.item.anchor] + [sat for sat, _ in i.item.satellites])
+                   if i.face is not (Face.FRONT if i.kind == "cell" else fp.face)}
+        for at, net, drill, size, span in self._pad_vias:
             ref, number, _, _ = self._pad_ref(at)
             if ref not in occ.items or ref not in searched:
                 continue
@@ -1034,8 +1040,10 @@ class Board:
             c = Location(c.x + vx, c.y + vy)
             owner = "via at %s.%s" % (ref, number)       # not the part's: its pad lookups must not take it
             ring = via_ring(c, size)
-            occ.carry(ref, [Shape(owner, "through", _BOTH, frozenset(self.geometry.layers), net, ring,
-                                  Box.of_points(ring)), hole_shape(owner, c, drill, net)])
+            layers = frozenset(span) if ref not in flipped else occ._flip_layers(frozenset(span))
+            faces = frozenset(l.face for l in layers if l.face is not None) if span else _BOTH
+            occ.carry(ref, [Shape(owner, "through", faces, layers or frozenset(self.geometry.layers), net, ring,
+                                  Box.of_points(ring)), hole_shape(owner, c, drill, net, layers=layers)])
 
     def _thin_drops(self, occ) -> dict:
         """Each cell placed with `drops=HALF` or `MIN` loses the vias of its
@@ -2994,7 +3002,7 @@ class Board:
 
     def vias(self, net, pad=None, *, along=None, count: int | None = None, pitch: float | None = None,
              size: float | None = None, drill: float | None = None,
-             inset: float = 0.0, priority: Priority = Priority.DEFAULT, why: str = ""):
+             inset: float = 0.0, layers=None, priority: Priority = Priority.DEFAULT, why: str = ""):
         """Vias of `net` at a pad, one of two ways.
 
         `pad` (a `PadRef`/`CellPadRef`): the pad filled with a square grid
@@ -3014,14 +3022,17 @@ class Board:
         another net's copper, a hole - is a finding, and the row stops
         there. A track may end on the returned intent: the farthest via.
 
-        Either way, resolved when the pad's part is placed."""
+        Either way, resolved when the pad's part is placed. `layers=` spans
+        some layers only, as on `via()`; a via whose span misses the layer
+        of the pad it joins is not drawn."""
         if (pad is None) == (along is None):
             raise TypeError("%s: vias needs exactly one of a pad (a grid over it) or along= (a row along "
                             "its axis)" % net)
         name = self.geometry.require_net(net)
+        span = self._via_span(name, layers)
         nc = self.geometry.netclasses.get(name)
         s = float(size) if size is not None else (nc.via_diameter if nc else self.via_size)
-        d = float(drill) if drill is not None else (nc.via_drill if nc else self.via_drill)
+        d = float(drill) if drill is not None else self._span_drill(span, nc.via_drill if nc else self.via_drill)
         floor = d + self.geometry.hole_to_hole
         step = max(s, floor) if pitch is None else float(pitch)
         if inset < 0:
@@ -3048,20 +3059,24 @@ class Board:
                 # a via clear of the pad's tip touches it at one point at most, which KiCad counts
                 # as unconnected: a tail at the net's width joins the pad to the farthest via
                 layer = sorted((l for sh in shapes for l in sh.layers), key=stackup_order)[0]
+                if span and layer not in span:
+                    ctx.notes.append("vias %s: a span of %s does not reach %s.%s on %s" % (
+                        name, _span_text(span), owner, number, layer.value))
+                    return []
                 width = queries.tail_width(nc.track_width if nc else 0.2, [sh.poly for sh in shapes])
                 start = Location(round(c.x, 6), round(c.y, 6))
                 vias = []
                 for i in range(n):
                     r = half + s / 2.0 + i * step
                     at = Location(round(c.x + ux * r, 6), round(c.y + uy * r, 6))
-                    why_not = self._via_site_why(ctx, at, name, s, d, obstacles)
+                    why_not = self._via_site_why(ctx, at, name, s, d, obstacles, span)
                     if why_not is None:
                         why_not = self._tail_why(ctx, Track(name, layer, width, start, at))
                     if why_not is not None:
                         ctx.notes.append("vias %s: %d of %d along %s.%s's axis, the next stands %s" % (
                             name, len(vias), n, owner, number, why_not))
                         break
-                    via = Via(name, at, d, s)
+                    via = Via(name, at, d, s, span)
                     vias.append(via)
                     ctx.planned_vias.append(via)
                 if not vias:
@@ -3080,7 +3095,13 @@ class Board:
             occ = ctx.occ
             g = occ.items[owner]
             rot = g.reference.rotation
-            lands = [sh.poly for sh in _pad_shapes(self, occ, pad) if sh.kind == "pad"]   # a through land has its hole
+            shapes = [sh for sh in _pad_shapes(self, occ, pad) if sh.kind == "pad"]   # a through land has its hole
+            lands = [sh.poly for sh in shapes if not span or sh.layers & set(span)]
+            if shapes and not lands:
+                ctx.notes.append("vias %s: a span of %s does not reach %s.%s on %s" % (
+                    name, _span_text(span), owner, number,
+                    "/".join(sorted({l.value for sh in shapes for l in sh.layers}))))
+                return []
             obstacles = self._via_obstacles(ctx)
             vias = []
             for land in lands:
@@ -3099,8 +3120,8 @@ class Board:
                         at = Location(round(c.x + ox, 6), round(c.y + oy, 6))
                         # 10 nm short of the copper: a via reaching the land's edge is inside it
                         if (poly_within(circle_polygon(at, s / 2.0 + inset - 1e-5, 24), land)
-                                and self._via_site_why(ctx, at, name, s, d, obstacles) is None):
-                            via = Via(name, at, d, s)
+                                and self._via_site_why(ctx, at, name, s, d, obstacles, span) is None):
+                            via = Via(name, at, d, s, span)
                             vias.append(via)
                             ctx.planned_vias.append(via)    # the next via, and a later FreeSpot, keep the rule from it
             if not vias:
@@ -3111,27 +3132,29 @@ class Board:
             return vias
         return self._copper_intent("vias %s" % name, net, priority, plan, _refs_in([pad]), why)
 
-    def via(self, net, at, *, drill: float | None = None, size: float | None = None,
+    def via(self, net, at, *, drill: float | None = None, size: float | None = None, layers=None,
             priority: Priority = Priority.DEFAULT, why: str = ""):
         """A via of `net`. `at` is a position, a `FreeSpot` near a pad (the
         nearest point a via can stand and be reached, found when the pad is
         placed), or a `Past(items, edge)` (the via's radius plus its
         clearance off those pads', vias' or tracks' `edge` side). A FreeSpot
         with nowhere to go, or a Past naming a via that found no spot, is a
-        finding and draws none."""
+        finding and draws none. `layers=(CopperLayer.B, CopperLayer.IN4)`
+        spans those layers and the ones between them only (see `_via_span`)."""
         name = self.geometry.require_net(net)
+        span = self._via_span(name, layers)
         if isinstance(at, Past):
             self._check_past(at, "%s: a via's at=" % name)
         refs = _refs_in([at])
-        d, s = drill or self.via_drill, size or self.via_size
+        d, s = drill or self._span_drill(span, self.via_drill), size or self.via_size
         if isinstance(at, (PadRef, CellPadRef)) and not (at.dx or at.dy):
             # at the pad, or off it in the part's frame: it turns with the part, so the part carries it
-            self._pad_vias.append((at, name, d, s))
+            self._pad_vias.append((at, name, d, s, span))
 
         def plan(ctx):
             ops = []
             if isinstance(at, FreeSpot):
-                found = self._free_spot(ctx, at, name, d, s)
+                found = self._free_spot(ctx, at, name, d, s, span)
                 if found is None:
                     return []
                 where, layer, width, start, path = found
@@ -3147,7 +3170,7 @@ class Board:
                     return []
             else:
                 where = ctx.locate(at)
-            via = Via(name, where, d, s)
+            via = Via(name, where, d, s, span)
             ctx.planned_vias.append(via)        # a later FreeSpot in this batch sees it
             ctx.via_at[intent.index] = where    # a track may end on it
             return [via] + ops
@@ -3155,7 +3178,7 @@ class Board:
         return intent
 
     def stitch(self, net, region, *, pitch: float | None = None, size: float | None = None,
-               drill: float | None = None, edge: bool = False, priority: Priority = Priority.DEFAULT,
+               drill: float | None = None, edge: bool = False, layers=None, priority: Priority = Priority.DEFAULT,
                why: str = ""):
         """Stitching vias of `net` over `region` - a `Cell`, the
         `CopperIntent` `board.pour()` returns, or a keepout's name - `pitch`
@@ -3166,11 +3189,12 @@ class Board:
         `edge=True` instead rows them along the region's own outline, a
         via's clearance in from it. Resolved once the region itself is:
         after the cell is placed, the pour is drawn, or the keepout is
-        settled."""
+        settled. `layers=` spans some layers only, as on `via()`."""
         name = self.geometry.require_net(net)
+        span = self._via_span(name, layers)
         nc = self.geometry.netclasses.get(name)
         s = float(size) if size is not None else (nc.via_diameter if nc else self.via_size)
-        d = float(drill) if drill is not None else (nc.via_drill if nc else self.via_drill)
+        d = float(drill) if drill is not None else self._span_drill(span, nc.via_drill if nc else self.via_drill)
         floor = d + self.geometry.hole_to_hole
         step = max(s, floor) if pitch is None else float(pitch)
         if step < floor - 1e-9:
@@ -3223,14 +3247,40 @@ class Board:
             for x, y in candidates(poly):
                 at = Location(round(x, 6), round(y, 6))
                 if (poly_within(circle_polygon(at, s / 2.0, 24), poly)
-                        and self._via_site_why(ctx, at, name, s, d, obstacles) is None):
-                    via = Via(name, at, d, s)
+                        and self._via_site_why(ctx, at, name, s, d, obstacles, span) is None):
+                    via = Via(name, at, d, s, span)
                     vias.append(via)
                     ctx.planned_vias.append(via)
             if not vias:
                 ctx.notes.append("stitch %s: no via fits in the region at a %.2f mm pitch" % (name, step))
             return vias
         return self._copper_intent("stitch %s" % name, net, priority, plan, refs, why, extra_owners=extra_owners)
+
+    def _via_span(self, name: str, layers) -> tuple:
+        """The board's layers a via declared with `layers=` spans, in stackup
+        order: its two ends and every layer between them. None, or a span of
+        every layer the board has, is the through via: (). A layer the board
+        does not have is refused, and so is a span of one layer."""
+        if layers is None:
+            return ()
+        named = [CopperLayer.of(l) for l in ((layers,) if isinstance(layers, str) else layers)]
+        board = sorted(self.geometry.layers, key=stackup_order)
+        lacking = [l.value for l in named if l not in board]
+        if lacking:
+            raise ValueError("%s: a via's layers= names %s, which this board does not have; it has %s"
+                             % (name, ", ".join(lacking), ", ".join(l.value for l in board)))
+        if len(set(named)) < 2:
+            raise ValueError("%s: a via joins two layers or more; layers= names its two ends, as "
+                             "(CopperLayer.B, CopperLayer.IN4)" % name)
+        lo, hi = min(map(stackup_order, named)), max(map(stackup_order, named))
+        span = tuple(l for l in board if lo <= stackup_order(l) <= hi)
+        return () if len(span) == len(board) else span
+
+    def _span_drill(self, span: tuple, drill: float) -> float:
+        """A via's drill when the script gives none: `copper.microvia_drill`
+        for a micro via (a span of one layer from an outer face), else
+        `drill`."""
+        return self.settings.copper_microvia_drill if _is_micro(span) else drill
 
     def _via_obstacles(self, ctx):
         """What a via's site is judged against beyond the occupancy's copper:
@@ -3241,7 +3291,7 @@ class Board:
         occ = ctx.occ
         def hole(sh):                    # the circle the polygon was drawn from: its box is short of it when turned
             c = sh.box.center
-            return c, 2 * max(math.dist((c.x, c.y), p) for p in sh.poly)
+            return c, 2 * max(math.dist((c.x, c.y), p) for p in sh.poly), sh.layers
         holes = [hole(sh) for o, g in occ.items.items() if o not in occ.pending for sh in g.shapes if sh.kind == "hole"]
         holes += [hole(sh) for sh in occ.copper if sh.kind == "hole" and sh.owner not in occ.pending]
         # unplated holes (a connector's locating pegs): no copper, so the via's copper keeps the board's hole
@@ -3256,14 +3306,20 @@ class Board:
                        if ra.cell is None and "vias" in ra.excludes]
         return holes, bare, forbidding
 
-    def _via_site_why(self, ctx, c: Location, net: str, size: float, drill: float, obstacles) -> str | None:
+    def _via_site_why(self, ctx, c: Location, net: str, size: float, drill: float, obstacles,
+                      span: tuple = ()) -> str | None:
         """Why a via of `net` may not stand at `c`, or None. A via goes
-        through every layer: the board's edge, every other net's copper
-        (placed, and planned so far in this batch: tracks, tails and vias),
-        the hole-to-hole rule from every hole, the hole clearance from an
-        unplated one, and keepouts that forbid vias."""
+        through every layer, or the layers of its `span`: the board's edge,
+        every other net's copper there (placed, and planned so far in this
+        batch: tracks, tails and vias), the hole-to-hole rule from every hole
+        on a layer it shares, the hole clearance from an unplated one, and
+        keepouts that forbid vias there."""
         occ = ctx.occ
         holes, bare, forbidding = obstacles
+        own = set(span)
+
+        def apart(layers):              # a span that shares no layer with these: nothing between them
+            return bool(own) and bool(layers) and not (own & set(layers))
         ring = via_ring(c, size)
         box = Box.of_points(ring)
         if occ.board_shape is not None:
@@ -3271,10 +3327,13 @@ class Board:
                 return "off the board, or within %.2f mm of the board edge" % self.keep_in
         elif occ.board_box is not None and not occ.board_box.inflate(-self.keep_in).contains(box):
             return "within %.2f mm of the board edge" % self.keep_in
-        hits = occ.copper_conflicts(Shape("via", "copper", frozenset(), frozenset(self.geometry.layers), net, ring, box))
+        hits = occ.copper_conflicts(Shape("via", "copper", frozenset(), frozenset(span or self.geometry.layers),
+                                          net, ring, box))
         if hits:
             return "copper " + hits[0]
         for v in ctx.planned_vias:
+            if apart(v.layers):
+                continue
             gap = c.distance(v.at) - (drill + v.drill) / 2.0
             if gap < self.geometry.hole_to_hole - 1e-9:
                 return "hole %.2f mm from the %s via's hole" % (max(gap, 0.0), v.net)
@@ -3283,9 +3342,13 @@ class Board:
                 if c.distance(v.at) - (size + v.size) / 2.0 < clr - 1e-9:
                     return "copper %.2f mm from the %s via" % (c.distance(v.at) - (size + v.size) / 2.0, v.net)
         for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
+            if own and t.layer not in own:
+                continue
             if t.net != net and poly_distance(ring, t.polygon) < self.geometry.clearance(net, t.net) - 1e-9:
                 return "copper %.2f mm from a %s track planned before it" % (poly_distance(ring, t.polygon), t.net)
-        for at, dia in holes:
+        for at, dia, layers in holes:
+            if apart(layers):
+                continue
             gap = c.distance(at) - (drill + dia) / 2.0
             if gap < self.geometry.hole_to_hole - 1e-9:
                 return "hole %.2f mm from a pad's hole" % max(gap, 0.0)
@@ -3297,7 +3360,7 @@ class Board:
             if edge < self.geometry.hole_clearance - 1e-9:
                 return "copper %.2f mm from an unplated hole (needs %.2f)" % (max(edge, 0.0), self.geometry.hole_clearance)
         for poly, layers in forbidding:
-            if polys_overlap(ring, poly):
+            if polys_overlap(ring, poly) and not apart(layers):
                 return "inside a keepout, which forbids vias"
         return None
 
@@ -3307,6 +3370,8 @@ class Board:
         None."""
         net, layer = tail.net, tail.layer
         for v in ctx.planned_vias:
+            if v.layers and layer not in v.layers:
+                continue
             if v.net != net and poly_distance(tail.polygon, v.polygon) < self.geometry.clearance(net, v.net) - 1e-9:
                 return "tail %.2f mm from the %s via" % (poly_distance(tail.polygon, v.polygon), v.net)
         for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
@@ -3317,7 +3382,7 @@ class Board:
                                               net, tail.polygon, Box.of_points(tail.polygon)))
         return "tail " + hits[0] if hits else None
 
-    def _free_spot(self, ctx, spot, net: str, drill: float, size: float):
+    def _free_spot(self, ctx, spot, net: str, drill: float, size: float, span: tuple = ()):
         """Run the search from the pad against the board as it stands: placed
         pads and planned copper through the occupancy, the vias planned so far,
         drilled holes, keepouts and the edge."""
@@ -3338,6 +3403,9 @@ class Board:
             ctx.notes.append("via %s: its tail on %s would not join %s.%s, which is not on that layer" % (
                 net, layer.value, owner, number))
             return None
+        if span and layer not in span:
+            ctx.notes.append("via %s: a span of %s does not reach its tail on %s" % (net, _span_text(span), layer.value))
+            return None
         nc = self.geometry.netclasses.get(net)
         width = queries.tail_width(nc.track_width if nc else 0.2, [sh.poly for sh in own])
         obstacles = self._via_obstacles(ctx)
@@ -3356,6 +3424,8 @@ class Board:
         def _leg_why(a, b):
             tail = queries._segment(a, b, width)
             for v in ctx.planned_vias:
+                if v.layers and layer not in v.layers:
+                    continue
                 if v.net != net and poly_distance(tail, v.polygon) < self.geometry.clearance(net, v.net) - 1e-9:
                     return "tail %.2f mm from the %s via" % (poly_distance(tail, v.polygon), v.net)
             for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
@@ -3376,7 +3446,7 @@ class Board:
             ring = via_ring(c, size)
             if not spot.in_pad and any(polys_overlap(ring, sh.poly) for sh in own):
                 return "in the source pad", ()
-            why = self._via_site_why(ctx, c, net, size, drill, obstacles)
+            why = self._via_site_why(ctx, c, net, size, drill, obstacles, span)
             if why:
                 return why, ()
             if c.distance(start) > 1e-9:            # the tail it will draw: clear of other nets' vias and tracks
@@ -4536,7 +4606,7 @@ class Board:
             batch.append((op, shape))
             shapes.append(shape)
             if isinstance(op, Via):
-                shapes.append(hole_shape("", op.at, op.drill, op.net))     # what is placed after keeps its holes clear
+                shapes.append(hole_shape("", op.at, op.drill, op.net, layers=frozenset(op.layers)))   # what is placed after keeps its holes clear
         occ.add_copper(shapes)
         if any(c.freedom.decided for c in intents):
             ctx.fixed_tracks += [op for op in ops]
@@ -6168,6 +6238,16 @@ def _refs_in(points, via_ends: bool = False) -> list:
     return out
 
 
+def _is_micro(span: tuple) -> bool:
+    """Whether a via's span is a micro via's: an outer face and the layer
+    next to it."""
+    return len(span) == 2 and any(l.face is not None for l in span)
+
+
+def _span_text(span: tuple) -> str:
+    return "%s-%s" % (span[0].value, span[-1].value)
+
+
 def _checkerboard(points) -> set:
     """The indices of `points` (a via field in its part's frame) that one
     colour of a checkerboard over its grid keeps: a via's column and row are
@@ -6197,10 +6277,11 @@ def _spread(points, n: int) -> set:
 
 
 def _op_layers(op) -> frozenset:
-    """The copper layers a drawn op occupies. A via joins the whole stack, so
-    a region covering any one layer contains it."""
+    """The copper layers a drawn op occupies. A through via joins the whole
+    stack, so a region covering any one layer contains it; a via of a span,
+    the layers it spans."""
     if isinstance(op, Via):
-        return frozenset(CopperLayer)
+        return frozenset(op.layers) or frozenset(CopperLayer)
     return frozenset([op.layer])
 
 
@@ -6211,7 +6292,8 @@ def _shape_of(op) -> Shape | None:
         return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.polygon, op.box,
                     ends=((op.start.x, op.start.y), (op.end.x, op.end.y)))
     if isinstance(op, Via):
-        return Shape("", "through", both, frozenset(CopperLayer), op.net, op.polygon, op.box,
+        faces = frozenset(l.face for l in op.layers if l.face is not None) if op.layers else both
+        return Shape("", "through", faces, _op_layers(op), op.net, op.polygon, op.box,
                      circle=(op.at.x, op.at.y, op.size / 2.0))
     if isinstance(op, Pour):
         faces = frozenset([op.layer.face]) if op.layer.face else frozenset()

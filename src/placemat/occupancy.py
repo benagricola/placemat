@@ -20,7 +20,7 @@ from .geometry import (_clean, PolyRaster, Polygon, Transform, box_polygon, circ
                        transform_polygon)
 from .placement import Placement
 from .settings import Settings
-from .board_geometry import CellGeom, Footprint, BoardGeometry
+from .board_geometry import CellGeom, Footprint, BoardGeometry, stackup_order
 from .values import Box, CopperLayer, Face, Location
 
 
@@ -246,11 +246,15 @@ def _fp_shapes(fp: Footprint, envelope: str = "courtyard", polygon_share: float 
     return shapes
 
 
-def hole_shape(owner: str, centre: Location, drill: float, net: str = "", label: str = "") -> Shape:
+def hole_shape(owner: str, centre: Location, drill: float, net: str = "", label: str = "",
+               layers: frozenset = frozenset()) -> Shape:
     """A plated hole's drill: net-blind, it keeps the board's hole-to-hole
-    rule from another owner's holes; its pad or via ring is its copper."""
+    rule from another owner's holes; its pad or via ring is its copper.
+    `layers` are the layers a micro, blind or buried via's hole spans; none,
+    a hole through the board."""
     poly = circle_polygon(centre, drill / 2.0)
-    return Shape(owner, "hole", _BOTH, frozenset(), net, poly, Box.of_points(poly), label)
+    faces = frozenset(l.face for l in layers if l.face is not None) if layers else _BOTH
+    return Shape(owner, "hole", faces, frozenset(layers), net, poly, Box.of_points(poly), label)
 
 
 def _is_lead(fp, pad) -> bool:
@@ -333,7 +337,9 @@ class Occupancy:
             if c.kind == "zone":
                 continue          # a fill pulls back round whatever is placed; it never blocks anything
             faces = frozenset(l.face for l in c.layers if l.face is not None)
-            if c.kind == "via":
+            # a via of fewer layers than the board's (a fragment built with spans) is copper and a hole there alone
+            span = c.layers if c.kind == "via" and c.layers < frozenset(geometry.layers) else frozenset()
+            if c.kind == "via" and not span:
                 faces = _BOTH
             circle = ()
             if c.kind == "via" and c.width_mm:
@@ -344,7 +350,7 @@ class Occupancy:
                                          faces, c.layers, c.net, poly, Box.of_points(poly), circle=circle))
             if c.kind == "via" and c.drill_mm:
                 at = Location(*c.anchors[0]) if c.anchors else c.box.center
-                self.copper.append(hole_shape(c.owner or "", at, c.drill_mm, c.net))
+                self.copper.append(hole_shape(c.owner or "", at, c.drill_mm, c.net, layers=span))
         # Rule areas the generated board already carries: a stamped cell brings
         # its module's with it. One that belongs to the board is reserved now;
         # one a cell owns has no position until that cell lands, so it waits
@@ -415,9 +421,17 @@ class Occupancy:
         return t.then(Transform.translate(placement.location.x, placement.location.y))
 
     def _flip_layers(self, layers: frozenset[CopperLayer]) -> frozenset[CopperLayer]:
+        """The layers an item's copper stands on once it is flipped: F and B
+        swap, and the board's inner layers mirror through the stack (In1 and
+        the last inner layer swap), as KiCad's own flip moves a blind via's
+        span. A layer the board lacks stays as it is."""
+        mirror = self.__dict__.get("_inner_mirror")
+        if mirror is None:
+            inner = sorted((l for l in self.geometry.layers if l.face is None), key=stackup_order)
+            mirror = self._inner_mirror = dict(zip(inner, reversed(inner)))
         out = set()
         for l in layers:
-            out.add(l.other_face if l in (CopperLayer.F, CopperLayer.B) else l)
+            out.add(l.other_face if l in (CopperLayer.F, CopperLayer.B) else mirror.get(l, l))
         return frozenset(out)
 
     def _flip_faces(self, faces: frozenset[Face]) -> frozenset[Face]:
@@ -1406,7 +1420,11 @@ class Occupancy:
         if ks in _DRAWN or ko in _DRAWN:
             return self._drawn_conflict(s, o)
         if ks in _HOLES and ko in _HOLES:
-            # hole to hole is net-blind: two holes of one net drilled too close still break the bit
+            # hole to hole is net-blind: two holes of one net drilled too close still break the bit.
+            # Two via holes that span no common layer (a micro or blind via each side) never meet:
+            # KiCad's DRC checks none between them.
+            if s.layers and o.layers and not (s.layers & o.layers):
+                return None
             need = self.geometry.hole_to_hole
             if _box_gap(s.box, o.box) >= need + _HOLE_SLACK * (s.box.width + o.box.width) - 1e-9:
                 return None

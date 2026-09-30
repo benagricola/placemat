@@ -7,6 +7,18 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+`layers=(CopperLayer.B, CopperLayer.IN4)` on `board.via()`, `board.vias()`
+and `board.stitch()`: a via of that span only, judged on its layers alone
+and written as KiCad's micro via (one layer from an outer face, drill
+`copper.microvia_drill`) or a blind or buried one. Without `layers=` a via
+is a through via, as before.
+
+A cell flipped to the other face is judged with its inner-layer copper
+mirrored through the stack, In1 with the last inner layer, which is where
+KiCad's flip writes it: a track on In1 of a six-layer cell placed on the
+back is judged on In4. It was judged on In1. Copper on every layer (a
+through via, a plated pad) is unchanged.
+
 `board.place(Cell(...), drops=Drops.HALF)` or `Drops.MIN` thins the
 cell's via fields where it is placed: the vias of a `plane()` net inside
 one of its members' pads. HALF keeps a checkerboard of each field; MIN

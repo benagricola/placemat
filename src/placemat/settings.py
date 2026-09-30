@@ -72,6 +72,7 @@ class Settings:
     copper_plane_min_thickness: float = 0.2
     copper_pour_stroke: float = 0.2
     copper_cell_zones_under_planes: str = "drop"   # a stamped cell's zone the board's own plane covers: merged into it, or kept
+    copper_microvia_drill: float = 0.1  # a micro via's (laser) drill, when the script gives none
     # [write]
     write_split_groups: str = "lift"    # each cell's group nested in a module's: lifted to the top level (the module keeps its parts); "split" also takes out the parts placed apart; "keep" as generated
     # [label]
@@ -274,7 +275,7 @@ _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_coarse_from", "place_coarse_steps",
     "place_refine_around", "place_block_gap_step", "place_block_gap_reach", "place_escape_depth", "score_escape_depth",
     "place_conflict_gap", "place_fit_room", "copper_bridge_half", "copper_finger_bridge_width",
-    "copper_plane_min_thickness", "copper_pour_stroke", "label_size",
+    "copper_plane_min_thickness", "copper_pour_stroke", "copper_microvia_drill", "label_size",
     "label_thickness", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_copper_oz",
     "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
