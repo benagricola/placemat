@@ -140,8 +140,10 @@ Fix a `split` finding, or a refused cell, in the capture: split the
 module, or move a part into another one. A layout script cannot fix a
 module the capture drew wrong; it only places what the capture gives it.
 
-A part the finding does not group carries no net local to its cell. A
-bypass capacitor is one: it always belongs in the module of the IC it
+A part the finding does not group has no net inside the cell that joins
+it to another member - whether it carries no local net at all, or a
+local net of its own that nothing else in the cell shares. A bypass
+capacitor is one: it always belongs in the module of the IC it
 serves, and a bypass capacitor between a board-level supply and a plane
 has no net inside its own cell, so the grouping shows it apart from that
 IC - it is never a split candidate, whatever the grouping shows. A part

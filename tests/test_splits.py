@@ -89,6 +89,27 @@ def test_split_min_group_three_drops_a_finding_whose_groups_are_pairs():
     assert splits.cell_text(g, cell, plane_nets={"GND"}, min_group=3) is None
 
 
+def test_a_group_below_the_threshold_is_left_out_of_the_message_entirely():
+    # With min_group=3, U1/R1/C1 and U2/R2/C2 count (3 each); Q1/R3 share
+    # a local net too but only pair up - too small to count, and (unlike
+    # a true unjoined part) genuinely joined to each other, so the
+    # unjoined clause must not claim otherwise: Q1/R3 are left out of the
+    # message altogether, not mislabelled as unjoined.
+    u1 = footprint("U1", 10, 10, nets=("L1", "GND"))
+    r1 = footprint("R1", 10, 20, nets=("L1", "GND"))
+    c1 = footprint("C1", 10, 30, nets=("L1", "GND"))
+    u2 = footprint("U2", 30, 10, nets=("L2", "GND"))
+    r2 = footprint("R2", 30, 20, nets=("L2", "GND"))
+    c2 = footprint("C2", 30, 30, nets=("L2", "GND"))
+    q1 = footprint("Q1", 50, 10, nets=("L3", "GND"))
+    r3 = footprint("R3", 50, 20, nets=("L3", "GND"))
+    g, cell = _cell(u1, r1, c1, u2, r2, c2, q1, r3, width=100.0, height=100.0)
+    text = splits.cell_text(g, cell, plane_nets={"GND"}, min_group=3)
+    assert text == (
+        "its parts form 2 groups joined only by board-level nets: U1, R1, C1; U2, R2, C2. "
+        "Parts with no close placement requirement in common may be split into modules of their own.")
+
+
 def test_the_message_names_groups_in_cell_order_and_the_unjoined_parts():
     # Three groups (3, 2, 2 members): L1 joins U3/C7/R2, L2 joins U5/R4, L3
     # joins Q2/R9. C1, C2, C3, R1 carry only GND, on both pads, like a

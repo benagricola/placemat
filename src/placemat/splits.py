@@ -85,8 +85,13 @@ def cell_text(geometry: BoardGeometry, cell: CellGeom, plane_nets, min_group: in
     counted = [g for g in groups if len(g) >= min_group]
     if len(counted) < 2:
         return None
-    counted_refs = {fp.ref for g in counted for fp in g}
-    unjoined = [fp for fp in cell.members if fp.ref not in counted_refs]
+    # A member of a real group (two members or more) that only falls short
+    # of `min_group` is not unjoined - a local net does join it to another
+    # member, just not enough of them to count. Saying otherwise would be
+    # false, so such a group is left out of the message altogether rather
+    # than folded into the unjoined clause.
+    paired_refs = {fp.ref for g in groups if len(g) >= 2 for fp in g}
+    unjoined = [fp for fp in cell.members if fp.ref not in paired_refs]
     tail = ""
     if unjoined:
         tail = (" (and %d part%s no net inside the cell joins to the others: %s, each placed by the pin it "
