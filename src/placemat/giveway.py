@@ -16,7 +16,8 @@ copper, on either face, at a candidate, it tries in turn to
 3. be dropped, a plane net's drop only, while its pad keeps
    `place.drops_keep` of its drops (rounded up, at least one).
 
-The search judges the item less its carried vias natively, as it judges
+A via already placed does the same for a later item whose own copper meets
+it. The search judges the item less its carried vias natively, as it judges
 any item; what the vias do is judged here, in Python, after that, and priced
 at `score.via_share`, `score.via_move` and `score.via_drop` each.
 
@@ -405,10 +406,38 @@ def _pads(occ, shapes) -> list:
             if s.kind in ("pad", "through") and not s.carried and s.owner in occ._footprint_refs]
 
 
+def _home_owner(occ, home: str) -> _Owner:
+    """What an item already placed says about its vias: the part's or the
+    cell's pads where they stand, its face, the drops it had and has given.
+    Kept until the board changes."""
+    cache = occ.__dict__.setdefault("_placed_groups_owners", {})
+    if home not in cache:
+        cache[home] = _placed_owner(occ, home)
+    return cache[home]
+
+
+def _placed_owner(occ, home: str) -> _Owner:
+    cell = occ.geometry.cells.get(home)
+    refs = [m.ref for m in cell.members] if cell is not None else [home]
+    pads = [p for ref in refs if ref in occ.items for p in _pads(occ, occ.items[ref].shapes)]
+    face = occ.items[refs[0]].reference.face if refs and refs[0] in occ.items else Face.FRONT
+    if cell is not None:
+        pristine = occ._pristine_copper.get(home) or [c for c in occ.copper if c.owner == home]
+        pristine = list(pristine) + [s for ref in refs for s in occ.geometry_of(ref).shapes]
+    else:
+        pristine = occ.geometry_of(home).shapes
+    dropped: dict = {}
+    for a in occ.given_way.values():
+        if a.home in refs + [home] and a.kind == "drop" and a.pad is not None:
+            dropped[a.pad] = dropped.get(a.pad, 0) + 1
+    return _Owner(occ, pads, face, groups(occ, pristine), dropped)
+
+
 def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
-    """What `item` at `placement` makes its carried vias that meet the board
-    do, or why one of them cannot give way. The item less its carried vias
-    is taken to be legal there."""
+    """What `item` at `placement` makes the carried vias do - those of items
+    already placed that its own copper meets, then its own that meet the
+    board - or why one of them cannot give way. The item less its carried
+    vias is taken to be legal there."""
     s = occ.settings
     res = Resolution()
     if not enabled(s):
@@ -420,7 +449,42 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
         extent = Box.union([x.box for x in mine])
         others = occ.obstacles(geom, extent.inflate(reach(s)))
     judge = _Judge(occ, others, clearance)
+    # what a via may not sit on: copper and holes, and a courtyard where the board's house rule says so
+    kinds = _COPPER_AND_HOLES | ({"courtyard"} if occ.vias_block_courtyards else frozenset())
+    fixed = [x for x in mine if not x.carried and x.kind in kinds]
     own = groups(occ, mine)
+    # 1. the vias already placed that the item's own copper meets
+    skip = geom.owners | occ.pending
+    if fixed:
+        extent = Box.union([x.box for x in fixed])
+        owners: dict = {}
+        drops_placed: dict = {}
+        for g in occ.placed_groups().values():
+            if g.home in skip or g.owner in skip or not g.ring.box.overlaps(extent, gap=occ._gap):
+                continue
+            hit = None
+            for x in fixed:
+                for o in g.shapes:
+                    if x.box.overlaps(o.box, gap=occ.gap_for(x)):
+                        why = occ._conflict(x, o, clearance)
+                        if why:
+                            hit = (why, x)
+                            break
+                if hit:
+                    break
+            if hit is None:
+                continue
+            who = owners.get(g.home) or owners.setdefault(g.home, _home_owner(occ, g.home))
+            judge.hidden.add(g.id)
+            action, why_not = _give(occ, g, judge, [x for x in mine if x.kind in kinds],
+                                    who, occ.who(hit[1].owner), drops_placed.setdefault(g.home, {}), hit[1])
+            if action is None:
+                return _refused(occ, res, "%s; the via %s at (%.2f, %.2f) (%s) cannot give way: %s" % (
+                    hit[0], g.net, g.centre[0], g.centre[1], _owner_name(occ, g), why_not), g.ring)
+            judge.extra += list(action.shapes)
+            res.actions.append(action)
+            res.cost += action.cost
+    # 2. its own vias that meet the board
     if own:
         mine_face = placement.face
         who = _Owner(occ, _pads(occ, mine), mine_face, own)
@@ -447,21 +511,27 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
 
 
 def near_carried(occ, item, region: Box) -> bool:
-    """Whether a via may give way to `item` within `region`: it carries one."""
-    return occ.carries(item)
+    """Whether a via may give way to `item` within `region`: it carries one,
+    or an item already placed has one there."""
+    if occ.carries(item):
+        return True
+    skip = occ._geometry(item).owners | occ.pending
+    return any(g.home not in skip and g.owner not in skip and g.ring.box.overlaps(region, gap=occ._gap)
+               for g in occ.placed_groups().values())
 
 
 class ScanGiveWay:
     """What a scan needs to let vias give way to its item: the item less
-    its carried vias, judged natively where the scan is, and the board its
-    vias are judged against."""
+    its carried vias and the obstacles it is judged against (the board less
+    the placed items' carried vias), natively where the scan is, and the
+    whole board for the vias themselves."""
 
     def __init__(self, occ, item, face, rots, region: Box, clearance, native: bool):
         from .occupancy import WithoutCarried
         self.occ, self.of, self.clearance = occ, item, clearance
         self.item = WithoutCarried(item)
         geom = occ._geometry(item)
-        self.others = occ.obstacles(geom, region)
+        self.others = occ.obstacles(geom, region, carried=False)
         self.full = occ.obstacles(geom, region.inflate(reach(occ.settings)))
         self.native = occ.native_sweeper(self.item, face, rots, self.others, clearance) if native else None
 
@@ -477,6 +547,12 @@ def for_scan(occ, item, face, rots, region: Box, clearance, native: bool):
     return ScanGiveWay(occ, item, face, rots, region, clearance, native)
 
 
+def _owner_name(occ, g: Group) -> str:
+    if g.owner.startswith("via at "):
+        return g.owner[len("via at "):]
+    return "cell %s" % g.owner if g.owner in occ.geometry.cells else g.owner
+
+
 def _refused(occ, res: Resolution, why: str, o) -> Resolution:
     from .occupancy import Blocker, _blocker_kind
     res.why = why
@@ -485,10 +561,10 @@ def _refused(occ, res: Resolution, why: str, o) -> Resolution:
     return res
 
 
-def apply(occ, res: Resolution) -> None:
-    """Leave on the board what `res` decided: each via that gave way taken
-    out of its item, and what it left in its place put in; the item as drawn
-    is kept to put back if it is placed again."""
+def apply(occ, res: Resolution, by: str) -> None:
+    """Leave on the board what `res` decided, `by` the item placed: each via
+    that gave way taken out of its item, and what it left in its place put
+    in; the item as drawn is kept to put back if it is placed again."""
     for a in res.actions:
         if a.home in occ.items and occ.geometry.has_footprint(a.home):
             occ._pristine.setdefault(a.home, occ.items[a.home])
@@ -501,5 +577,51 @@ def apply(occ, res: Resolution) -> None:
         if before is not None:
             a = replace(a, at=before.at, old_tail=before.old_tail if before.old_tail is not None else a.old_tail)
         occ.given_way[a.via] = a
+        occ._given_by.setdefault(a.via, []).append(by)
     if res.actions:
         occ._changed()
+
+
+def undo(occ, via: str) -> None:
+    """Put a via that gave way back as its item drew it."""
+    a = occ.given_way.pop(via, None)
+    occ._given_by.pop(via, None)
+    if a is None:
+        return
+    if a.home in occ._pristine:
+        drawn = [x for x in occ._pristine[a.home].shapes if x.carried == via]
+        g = occ.items[a.home]
+        occ.items[a.home] = replace(g, shapes=tuple(x for x in g.shapes if x.carried != via and x.given != via)
+                                    + tuple(drawn))
+    elif a.home in occ._pristine_copper:
+        drawn = [x for x in occ._pristine_copper[a.home] if x.carried == via]
+        occ.copper = [c for c in occ.copper if c.carried != via and c.given != via] + drawn
+    occ._changed()
+
+
+def report(occ) -> list:
+    """(home, sentence) per item whose carried vias gave way, a clause per
+    net: "6 GND vias shared, 2 moved up to 0.25 mm, 1 dropped under U3"."""
+    by: dict = {}
+    for a in occ.given_way.values():
+        by.setdefault(a.home, {}).setdefault(a.net, []).append(a)
+    out = []
+    for home in sorted(by):
+        said = []
+        for net in sorted(by[home]):
+            acts = by[home][net]
+            parts = []
+            for kind, verb in (("share", "shared"), ("move", "moved"), ("drop", "dropped")):
+                done = [a for a in acts if a.kind == kind]
+                if not done:
+                    continue
+                if kind == "move":
+                    far = max(a.moved_mm for a in done)
+                    verb += (" %.2f mm" if len(done) == 1 else " up to %.2f mm") % far
+                n = len(done)
+                parts.append(("%d %s via%s %s" % (n, net, "" if n == 1 else "s", verb)) if not parts else
+                             "%d %s" % (n, verb))
+            under = sorted({a.under for a in acts if a.under})
+            said.append(", ".join(parts) + (" under %s" % ", ".join(under) if under else ""))
+        out.append((home, "; ".join(said)))
+    return out

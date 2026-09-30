@@ -1260,13 +1260,17 @@ no spot within 0.50 mm is clear, GND is not a plane net, so it is no drop".
 Each way has a cost the search adds to the spot's score -
 `score.via_share` (1), `score.via_move` (2), `score.via_drop` (10) - so it
 prefers spots where the vias stay as drawn; a nearest-first search takes a
-spot where they give way only when no spot has them as drawn. A
+spot where they give way only when no spot has them as drawn. A via
+already placed does the same for an item placed later whose own copper
+meets it, its owner otherwise untouched and its keep share still held. A
 firm item's carried vias, and a rider's, give way where it is put. An item
 searched along an edge, a run or a rim takes the nearest slot where its
 vias stay as drawn, and only when there is none the nearest where they
 give way. A block's members are judged as drawn. The write moves or
 removes a cell's via on the board and draws the tails; a via declared at a
-pad is drawn where it went.
+pad is drawn where it went. What gave way is a note on the owner's step
+and a finding of kind `vias`, per owner and net: "m: 6 GND vias shared, 2
+moved up to 0.25 mm, 1 dropped under R9".
 
 **A plane over named parts.** `board.plane(net, layers, over=[Part(...),
 Cell(...)], margin=0.0)` draws the zone over the box round those items'

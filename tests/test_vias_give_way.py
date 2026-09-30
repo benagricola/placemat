@@ -315,3 +315,143 @@ def test_dropping_costs_score_via_drop_in_the_search():
     hint = Placement(Location(centre.x - 20, centre.y - 20), 0.0, Face.FRONT)
     r = scan(occ, b.geometry.cells["m"], hint, 0.0, 0.2, (0.0,), score=lambda p: 0.0)
     assert r.chosen is not None and r.score == 10.0
+
+
+# ------------------------------------------------------------------ items already placed, and the report
+def _later_board(copper, r9_at, net="GND", planes=(), settings=None, m_searched=False):
+    """Cell m (U1 with its `net` pad at (39.1, 40), and `copper` of the
+    cell's) placed first, 20 mm up and left - firmly, or searched there
+    with no room to move - then R9, searched on the back with no room to
+    move, at `r9_at`."""
+    fps = [footprint("U1", 40, 40, w=3, h=1, inst="m.u1", nets=(net, "X"), cell="m"),
+           footprint("R9", 5, 5, w=2, h=1, inst="r9", nets=("S", "T"), face=Face.BACK)]
+    g = board_geometry(fps, cells=["m"], copper=copper, width=50, height=50, extra_nets=(net,))
+    centre = Occupancy(g)._geometry(g.cells["m"]).reference.location
+    b = Board(g, edge_margin=0.5, keep_going=True, **({"settings": settings} if settings else {}))
+    for n in planes:
+        b.plane(Net(n), [CopperLayer.B])
+    at = Location(centre.x - 20, centre.y - 20)
+    if m_searched:
+        from placemat.values import Priority
+        b.place(Cell("m"), at=Near(at, radius=0, rotations=(0,)), priority=Priority.HIGH)
+    else:
+        b.place(Cell("m"), at=at)
+    b.place(Part("r9"), at=Near(Location(*r9_at), radius=0, rotations=(0,)), face=Face.BACK)
+    return b
+
+
+def _shared_later(**kw):
+    """The cell's GND via at (19.1, 21.9) once placed, R9's pad S on it, and
+    a GND via of the board's 0.95 mm off."""
+    return _later_board([_via("GND", 39.1, 41.9, owner="m"), track("GND", 39.1, 40.0, 39.1, 41.9, w=0.2, owner="m"),
+                         _via("GND", 19.1, 22.85)], (19.5, 21.9), **kw)
+
+
+def test_a_placed_cells_via_shares_for_a_later_back_part():
+    plan = _shared_later().resolve()
+    assert plan.step("r9").placement is not None, plan.step("r9").note
+    [a] = plan.occupancy.given_way.values()
+    assert (a.kind, a.via, a.home, a.under) == ("share", "m via 0", "m", "R9")
+    assert a.tail in _tracks(plan) and a.tail.layer is F          # on the via's own face, not R9's
+    assert not [f for f in plan.findings if f.kind in ("copper", "unplaced", "fixed")], list(plan.findings)
+
+
+def test_a_placed_cells_via_moves_for_a_later_back_part():
+    """R9's pad S lands 0.07 mm off the cell's via: the via moves 0.15 mm."""
+    plan = _later_board([_via("SIG", 39.1, 42.2, owner="m"), track("SIG", 39.1, 40.0, 39.1, 42.2, w=0.2, owner="m")],
+                        (19.5, 23.0), net="SIG").resolve()
+    assert plan.step("r9").placement is not None, plan.step("r9").note
+    [a] = plan.occupancy.given_way.values()
+    assert (a.kind, a.to, a.under) == ("move", (19.1, 22.05), "R9")
+    assert [c.points for c in plan.occupancy.copper if c.owner == "m" and c.kind == "through"] == [((19.1, 22.05),)]
+
+
+def test_a_placed_owner_keeps_its_keep_share():
+    """Both of the cell's drops in U1's pad lie under R9's pad S: one may go
+    for it, the pad keeps the other, so R9 is refused there."""
+    plan = _later_board([_via("GND", 38.85, 40.0, owner="m"), _via("GND", 39.35, 40.0, owner="m")], (19.8, 20.0),
+                        planes=("GND",), settings=_settings(**_DROP_ONLY)).resolve()
+    step = plan.step("r9")
+    assert step.placement is None
+    assert "cannot give way" in step.note and "U1 pad 1 keeps 1 of its 2 drops, and must keep 1" in step.note, \
+        step.note
+    assert not plan.occupancy.given_way
+
+
+def test_what_gave_way_is_reported_on_the_owners_step_and_as_a_finding():
+    plan = _shared_later().resolve()
+    [f] = [f for f in plan.findings if f.kind == "vias"]
+    assert f == "m: 1 GND via shared under R9"
+    assert "vias: 1 GND via shared under R9" in plan.step("m").note
+
+
+def test_giving_way_for_a_later_item_leaves_the_owners_lock_entry_alone():
+    """The owner's decision is its place and its declaration: what its via
+    did for a later item is the plan's."""
+    from placemat import lock
+    alone = _later_board([_via("GND", 39.1, 41.9, owner="m"), track("GND", 39.1, 40.0, 39.1, 41.9, w=0.2, owner="m"),
+                          _via("GND", 19.1, 22.85)], (5.0, 40.0), m_searched=True)
+    shared = _shared_later(m_searched=True)
+    plans = [alone.resolve(), shared.resolve()]
+    assert [a.kind for a in plans[1].occupancy.given_way.values()] == ["share"]
+    assert not plans[0].occupancy.given_way
+    got = [lock.entries(b, p, ["m"])[0] for b, p in zip((alone, shared), plans)]
+    assert got[0] == got[1]
+
+
+# ------------------------------------------------------------------ the native sweep and the Python one agree
+def _field_board():
+    """A front cell whose parts each carry four GND drops in a pad and a
+    signal via with a tail, over most of a small board; then a back cell,
+    linked to it (scored) or not (nearest first), that fits only where some
+    of those vias give way."""
+    copper, fps = [], []
+    k = 0
+    for i in range(6):
+        for j in range(6):
+            x, y = 4 + 5 * i, 4 + 4.3 * j
+            fps.append(footprint("U%d" % k, x, y, w=3, h=1.4, inst="m.u%d" % k, nets=("GND", "S%d" % k), cell="m"))
+            px = x - 0.9
+            copper += [_via("GND", px + dx, y + dy, owner="m") for dx, dy in ((-0.25, -0.25), (0.25, -0.25),
+                                                                                (-0.25, 0.25), (0.25, 0.25))]
+            copper += [_via("S%d" % k, x + 0.9, y + 1.6, owner="m"), track("S%d" % k, x + 0.9, y, x + 0.9, y + 1.6,
+                                                                           w=0.2, owner="m")]
+            k += 1
+    for q in range(6):
+        fps.append(footprint("Q%d" % q, 60 + 4 * (q % 3), 60 + 3 * (q // 3), w=3, h=1.4, inst="p.q%d" % q,
+                             nets=("S%d" % q, "A%d" % q), cell="p"))
+    return board_geometry(fps, cells=["m", "p"], copper=copper, width=34, height=30, extra_nets=("GND",))
+
+
+def test_a_sweep_whose_vias_give_way_is_the_same_native_or_not(monkeypatch):
+    import pytest
+    from placemat import geometry, placer
+    from placemat.values import LinkWeight
+    if geometry._native is None:
+        pytest.skip("no native module")
+    seen = []
+
+    class Recorded(placer.ScanResult):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            seen.append(self)
+    monkeypatch.setattr(placer, "ScanResult", Recorded)
+    g = _field_board()
+    runs = {}
+    for linked in (False, True):
+        for on in (False, True):
+            monkeypatch.setattr(placer, "NATIVE_SWEEP", on)
+            del seen[:]
+            b = Board(g, edge_margin=0.5, keep_going=True)
+            b.plane(Net("GND"), [CopperLayer.B])
+            b.place(Cell("m"), at=Location(17, 15))
+            b.place(Cell("p"), at=Near(Location(17, 15), radius=10), face=Face.BACK)
+            if linked:
+                b.link(PadRef(Part("p.q0"), 1), PadRef(Part("m.u0"), 2), weight=LinkWeight.SHORT)
+            plan = b.resolve()
+            runs[(linked, on)] = ([(r.chosen, r.tried, list(r.rejected.items()), list(r.reasons.items()),
+                                    list(r.blockers.items()), r.score) for r in seen],
+                                  [(s.item, s.placement, s.note) for s in plan.steps], list(plan.findings))
+        assert runs[(linked, True)] == runs[(linked, False)]
+        assert runs[(linked, True)][1][-1][1] is not None           # the back cell placed
+        assert any(f.kind == "vias" for f in plan.findings)

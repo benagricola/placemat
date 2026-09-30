@@ -12,9 +12,11 @@ meets another net's copper no longer refuses the spot outright: it shares a
 same-net via within `place.via_share`, moves up to `place.via_move`, or, a
 plane drop, is dropped while its pad keeps `place.drops_keep` of its drops
 (api.md, "Carried vias give way"). The search prices each at
-`score.via_share`, `score.via_move` and `score.via_drop`. A cell whose own
-vias met the other face's pads everywhere may now place. `place.via_share
-= 0`, `place.via_move = 0` and `place.drops_keep = 1` turn each off.
+`score.via_share`, `score.via_move` and `score.via_drop`. A via already
+placed gives way to a later item on the other face the same way. A cell
+that found no spot on a face under another's vias may now place; what gave
+way is a `vias` finding and a note on the owner's step. `place.via_share =
+0`, `place.via_move = 0` and `place.drops_keep = 1` turn each off.
 
 A copper finding measures a via as the circle it is, as KiCad's DRC does:
 a via just over the clearance from a track read as just under it ("0.16 mm

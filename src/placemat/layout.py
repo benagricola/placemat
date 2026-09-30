@@ -3883,10 +3883,26 @@ class Board:
         """What the carried vias did as items were placed (giveway.py): a
         stamped cell's kept on the plan for the write, which moves or
         removes each on the board, and the tails they need drawn with the
-        plan's copper. A via declared at a pad draws its own when it is
-        planned."""
+        plan's copper (a via declared at a pad draws its own when it is
+        planned); and, per item whose vias gave way, a note on its step and
+        a finding."""
+        from .giveway import report
         plan.given_way = [a for _, a in sorted(occ.given_way.items()) if a.home in self.geometry.cells]
         plan.copper += [a.tail for a in plan.given_way if a.tail is not None]
+        step_of = {}
+        for key, it in plan._items.items():
+            if isinstance(it, CellGeom):
+                step_of[it.name] = key
+                for fp in it.members:
+                    step_of.setdefault(fp.ref, key)
+            elif isinstance(it, Footprint):
+                step_of[it.ref] = key
+        for home, text in report(occ):
+            key = step_of.get(home, home)
+            plan.findings.append(Finding("vias", "%s: %s" % (key, text)))
+            step = next((s for s in plan.steps if s.item == key), None)
+            if step is not None:
+                step.note = (step.note + "; " if step.note else "") + "vias: " + text
 
     def group(self, name: str, items, why: str = "") -> "DeclaredGroup":
         """A KiCad group on the written board holding `items` (Parts), at

@@ -382,10 +382,11 @@ class Occupancy:
         # docs/superpowers/specs/2026-09-24-native-core-design.md
         # ("Phase 3: a persistent native obstacle index").
         self._native_obstacle_cache: dict[frozenset, tuple] = {}
-        # Carried vias that gave way (giveway.py): what each did, by its id; each item a via was
-        # taken from, as it stood before, to put back when it is placed again (a part's
-        # ItemGeometry, a cell's own copper).
+        # Carried vias that gave way (giveway.py): what each did, by its id, and which items it
+        # gave way to; each item a via was taken from, as it stood before, to put back when it is
+        # placed again (a part's ItemGeometry, a cell's own copper).
         self.given_way: dict = {}
+        self._given_by: dict = {}
         self._pristine: dict = {}
         self._pristine_copper: dict = {}
         for fp in geometry.footprints:
@@ -447,6 +448,8 @@ class Occupancy:
         from them is stale. Called from commit(), add_copper() and the
         (rare, post-init) lazy path in _register()."""
         self._native_obstacle_cache.clear()
+        self.__dict__.pop("_placed_groups", None)
+        self.__dict__.pop("_placed_groups_owners", None)
 
     def _changed(self) -> None:
         """Items or copper changed outside a commit (a via gave way): drop
@@ -497,6 +500,19 @@ class Occupancy:
     def carries(self, item) -> bool:
         """Whether the item has a carried via that may give way."""
         return any(s.carried for s in self._geometry(item).shapes)
+
+    def placed_groups(self) -> dict:
+        """{id: giveway.Group} of every carried via on the board, where it
+        stands: the parts' and the placed cells' (a pending item's are
+        nowhere)."""
+        hit = self.__dict__.get("_placed_groups")
+        if hit is None:
+            from .giveway import groups
+            shapes = [s for owner, g in self.items.items() if owner not in self.pending for s in g.shapes if s.carried]
+            shapes += [c for c in self.copper if c.carried and c.owner not in self.pending]
+            hit = groups(self, shapes)
+            self.__dict__["_placed_groups"] = hit
+        return hit
 
     @staticmethod
     def _transform(geom: ItemGeometry, placement: Placement) -> Transform:
@@ -949,10 +965,11 @@ class Occupancy:
 
     def _commit(self, item, placement: Placement):
         from . import giveway
-        self._put_back(item)
+        name = item.name if isinstance(item, CellGeom) else item.ref
+        self._put_back(item, name)
         geom = self._geometry(item)
         gave = None
-        if giveway.enabled(self.settings) and self.carries(item):
+        if giveway.enabled(self.settings) and (self.carries(item) or self.placed_groups()):
             gave = giveway.resolve(self, item, placement)
         placed, own = self.placed_geometries(item, placement)
         self._cells.clear()
@@ -965,19 +982,24 @@ class Occupancy:
         for ref in placed:
             self._pristine.pop(ref, None)
         if gave is not None and gave.why is None and gave.actions:
-            giveway.apply(self, gave)
+            giveway.apply(self, gave, name)
 
-    def _put_back(self, item) -> None:
-        """Before an item is placed again: its carried vias as it drew them."""
+    def _put_back(self, item, name: str) -> None:
+        """Before an item is placed again: its own carried vias as it drew
+        them, and those of other items that gave way to it alone."""
+        from . import giveway
         refs = [fp.ref for fp in item.members] if isinstance(item, CellGeom) else [item.ref]
         homes = set(refs) | ({item.name} if isinstance(item, CellGeom) else set())
         for via in [v for v, a in self.given_way.items() if a.home in homes]:
             del self.given_way[via]
+            self._given_by.pop(via, None)
         for ref in refs:
             if ref in self._pristine:
                 self.items[ref] = self._pristine.pop(ref)
         if isinstance(item, CellGeom) and item.name in self._pristine_copper:
             self.copper = [c for c in self.copper if c.owner != item.name] + self._pristine_copper.pop(item.name)
+        for via in [v for v, by in self._given_by.items() if set(by) == {name}]:
+            giveway.undo(self, via)
         self._changed()
 
     def _commit_cell(self, item, placement: Placement, geom, own) -> None:
@@ -1018,7 +1040,7 @@ class Occupancy:
         return total
 
     # ------------------------------------------------------------ legality
-    def obstacles(self, geom: ItemGeometry, region: Box | None = None) -> list:
+    def obstacles(self, geom: ItemGeometry, region: Box | None = None, carried: bool = True) -> list:
         """Every shape not owned by `geom`, within `region` (plus the
         conflict gap) when one is given: gathered once for a whole scan.
 
@@ -1029,18 +1051,27 @@ class Occupancy:
         a cleanup hint and a freedom's several _slide() calls for the same
         item, between commits, share one native registration instead of
         rebuilding and re-marshalling it every call. See
-        _native_obstacle_index and the Phase 3 spec note."""
+        _native_obstacle_index and the Phase 3 spec note.
+
+        `carried=False` leaves out the carried vias of the items already
+        placed: what the search judges an item against before they give
+        way to it (giveway.py)."""
         skip = geom.owners | self.pending
-        out = [s for owner, g in self.items.items() if owner not in skip for s in g.shapes]
-        out += [c for c in self.copper if c.owner not in skip]
-        out += self._yards_of(o for o in self.items if o not in skip)
+        out = self._obstacle_shapes(skip, carried)
         if region is not None:
             out = [o for o in out if o.box.overlaps(region, gap=self._gap)]
         idx = ShapeIndex(out)
-        idx._native = self._native_obstacle_index(skip)
+        idx._native = self._native_obstacle_index(skip, carried)
         return idx
 
-    def _native_obstacle_index(self, skip: frozenset):
+    def _obstacle_shapes(self, skip, carried: bool = True) -> list:
+        out = [s for owner, g in self.items.items() if owner not in skip for s in g.shapes]
+        out += [c for c in self.copper if c.owner not in skip]
+        if not carried:
+            out = [s for s in out if not s.carried]
+        return out + self._yards_of(o for o in self.items if o not in skip)
+
+    def _native_obstacle_index(self, skip: frozenset, carried: bool = True):
         """The cached (NativeObstacles, backing shape list) for this
         skip-set, building it - over every shape in self.items/self.copper
         not owned by `skip`, NOT region-filtered - on a cache miss. `None`
@@ -1049,17 +1080,16 @@ class Occupancy:
         native = _geometry_module._native
         if native is None:
             return None
-        hit = self._native_obstacle_cache.get(skip)
+        key = skip if carried else (skip, "without carried vias")
+        hit = self._native_obstacle_cache.get(key)
         if hit is not None:
             return hit
-        shapes = [s for owner, g in self.items.items() if owner not in skip for s in g.shapes]
-        shapes += [c for c in self.copper if c.owner not in skip]
-        shapes += self._yards_of(o for o in self.items if o not in skip)
+        shapes = self._obstacle_shapes(skip, carried)
         index = native.NativeObstacles(
             [_to_native_shape(s, self._footprint_refs, self._leads, self._margins) for s in shapes],
             **self._native_conflict_kwargs())
         entry = (index, shapes)
-        self._native_obstacle_cache[skip] = entry
+        self._native_obstacle_cache[key] = entry
         return entry
 
     def _native_conflict_kwargs(self) -> dict:
@@ -1257,8 +1287,8 @@ class Occupancy:
     def legal_giving_way(self, item, placement: Placement, clearance: float | None = None, others=None,
                          past_edge: bool = False, blame: list | None = None, by_corners: bool = False) -> tuple:
         """(why, resolution): `legal()`, except that where it refuses the
-        item, the item less its carried vias is judged, and the vias may give
-        way (giveway.py).
+        item, the item less its carried vias is judged, and the vias - its
+        own and those of items already placed - may give way (giveway.py).
         `resolution` is what they would do, None when nothing need; `why`
         is `legal()`'s sentence when the item less its vias is refused too,
         else why a via cannot give way."""
@@ -1272,7 +1302,7 @@ class Occupancy:
             giveway.reach(self.settings))
         if not giveway.near_carried(self, item, region):
             return why, None
-        less = self.obstacles(geom, region)
+        less = self.obstacles(geom, region, carried=False)
         if self.legal(WithoutCarried(item), placement, clearance, others=less, past_edge=past_edge,
                       by_corners=by_corners) is not None:
             return why, None
