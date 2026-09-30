@@ -6140,7 +6140,8 @@ def _shape_of(op) -> Shape | None:
     return None            # a zone pulls back round everything; it is never an obstacle
 
 
-_BLOCKED_BY = {"hole-to-hole": ("hole", "npth")}      # a bucket named for its rule: the obstacle kinds behind it
+_BLOCKED_BY = {"hole-to-hole": ("hole", "npth"),    # a bucket named for its rule: the obstacle kinds behind it
+               "copper": ("pad", "through")}        # another part's pads and vias are copper refusals too
 _KNOWN_BUCKETS = frozenset(("courtyard", "edge", "reservation", "copper", "through", "npth", "hole-to-hole"))
 _DRAWN_KINDS = frozenset(("silk", "mask", "body"))
 
@@ -6152,8 +6153,10 @@ def _blame_text(result) -> str:
     has forty and a reader needs one."""
     parts = []
     shown = result.rejected.most_common(3)
-    # a rider that refused candidates is named with its reason, however few it refused
-    shown += [kv for kv in result.rejected.most_common() if kv[0].startswith("rider ") and kv not in shown]
+    # a rider that refused candidates is named with its reason, however few it refused, and so is
+    # copper: whose copper a via field met is what a far-face refusal needs to say
+    shown += [kv for kv in result.rejected.most_common()
+              if (kv[0].startswith("rider ") or kv[0] == "copper") and kv not in shown]
     for kind, n in shown:
         if kind.startswith("rider "):
             parts.append("%s x%d" % (result.reasons[kind], n))

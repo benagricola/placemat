@@ -84,3 +84,28 @@ def test_a_via_just_under_the_clearance_from_a_track_is_still_a_finding():
     b.track(Net("P"), [Location(10.0, y), Location(30.0, y)], layer=CopperLayer.F, width=0.25, chamfer=0)
     plan = b.resolve()
     assert [f for f in plan.findings if f.startswith("copper")], plan.findings
+
+
+def test_a_refusal_by_another_parts_pads_names_that_part():
+    """A copper refusal whose blockers are another part's pads (a cell's via
+    field meeting the far face's pads) names that part: its pads are filed
+    as pads, and they count under copper."""
+    from collections import Counter
+    from types import SimpleNamespace
+    from placemat.layout import _blame_text
+    result = SimpleNamespace(rejected=Counter({"copper": 471, "reservation": 163}), reasons={},
+                             blockers=Counter({("pad", "cell debug's J4 GND", "back"): 300,
+                                               ("through", "via GND", "back/front"): 171,
+                                               ("reservation", "C49 in keepout 'seal_rim'", ""): 163}))
+    text = _blame_text(result)
+    assert "copper x471: cell debug's J4 GND back face x300" in text, text
+
+
+def test_copper_is_named_even_when_other_kinds_refused_more():
+    from collections import Counter
+    from types import SimpleNamespace
+    from placemat.layout import _blame_text
+    result = SimpleNamespace(rejected=Counter({"edge": 797980, "reservation": 69551, "body": 14376, "copper": 2210}),
+                             reasons={}, blockers=Counter({("pad", "U7 GND", "front"): 2210}))
+    text = _blame_text(result)
+    assert "copper x2210: U7 GND front face x2210" in text, text
