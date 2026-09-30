@@ -66,6 +66,21 @@ class Edge(str, Enum):
     WEST = "W"
 
 
+class Corner(str, Enum):
+    """A corner of a box, for `Past(items, Corner.NE)`: the point off it on
+    its outward diagonal."""
+    NE = "NE"
+    NW = "NW"
+    SE = "SE"
+    SW = "SW"
+
+    @property
+    def signs(self) -> tuple:
+        """(x, y) of the outward diagonal, each 1 or -1; y grows downward, so
+        north is -1."""
+        return {"NE": (1, -1), "NW": (-1, -1), "SE": (1, 1), "SW": (-1, 1)}[self.value]
+
+
 class Axis(str, Enum):
     """One dimension of a fit frame: `board.size(fit=Axis.X)` fits that one
     to its content and takes the other's number as declared."""
@@ -564,6 +579,11 @@ class Past:
     `across` sets where the point lies across `edge`: on a pad's or a via's
     centre line, or at an `Along` of the box's side (default the middle).
 
+    `edge` may be a `Corner` instead: the point is on the outward diagonal
+    from that corner of the box, the clearance off it, so a 45 through it
+    across the diagonal passes the corner at the clearance. A corner fixes
+    the point on both axes, so it takes no `across`.
+
     As a track waypoint the point is half the track's width further out; as
     a via's `at=`, the via's radius. In `Beside`'s align pair, `lane=` a net
     leaves room for one track of it between the items and the part's pad,
@@ -582,8 +602,10 @@ class Past:
         object.__setattr__(self, "items", tuple(self.items))
         if not self.items:
             raise ValueError("Past needs at least one pad, via or track")
-        if not isinstance(self.edge, Edge):
-            raise TypeError("Past's edge is an Edge, not %r" % (self.edge,))
+        if not isinstance(self.edge, (Edge, Corner)):
+            raise TypeError("Past's edge is an Edge or a Corner, not %r" % (self.edge,))
+        if isinstance(self.edge, Corner) and self.across is not None:
+            raise TypeError("Past at a corner is fixed on both axes by it; it takes no across=")
         for it in self.items:
             if isinstance(it, CopperIntent):
                 if it.key.split(" ")[0] not in _PAST_COPPER:

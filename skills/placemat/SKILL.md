@@ -82,7 +82,8 @@ The forms that most often answer "placemat can't say this":
   items along a part's side, at a mechanical pitch, centred on a pad.
 - `Between(pad, pad)` and `Past([pads, vias, tracks], edge, across=)` are
   track waypoints: through a gap, or the clearance off copper on a pad's or
-  via's centre line. `board.via(net, at=Past(...))` stands a via there.
+  via's centre line; `Past(items, Corner.NE)` holds a 45 the clearance off
+  a corner. `board.via(net, at=Past(...))` stands a via there.
   What `board.via()` and `board.vias(net, along=PadRef(...), count=N)`
   return is a track point (a row's farthest via); those and what
   `board.track()` returns are `Past` items in later copper.

@@ -17,6 +17,13 @@ judged the route to the widest-joined other pad at the full current, often
 a capacitor carrying ripple, and failed it. Give the part that takes the
 load its own `Pm.I` and the route between the two is judged.
 
+`Past(items, Corner.NE)` is a waypoint for a 45 held the clearance off a
+corner of the items' copper box, and `(own_pad, Past(pads, Corner.NE,
+lane=Net(...)))` in `Beside`'s align stands a pad off that 45. A waypoint
+on a 45 worked out by hand - a constant x - y (or x + y) from the pad's
+corner plus the clearance and half the width times root 2 - can be said
+this way; the drawn 45 lies on the same line.
+
 ## To 0.56.2
 
 A copper finding measures a via as the circle it is, as KiCad's DRC does:
@@ -1234,3 +1241,4 @@ that says what replaces it.
 | `tail=False` on a `FreeSpot` via whose track the script draws itself | To 0.55.0 |
 | a pair centreline typed as coordinates | Unreleased |
 | a power pour polygon built from pad edges | Unreleased |
+| a waypoint on a 45 worked out as x - y or x + y off a pad's corner | Unreleased |

@@ -1,7 +1,7 @@
 # The script surface
 
 ```python
-from placemat import (board, Along, Axis, Bend, Beside, Between, Box, Cell, CellPadRef, Centre, Cover, Pin, Polar, OnRim, OnBore,
+from placemat import (board, Along, Axis, Bend, Beside, Between, Box, Cell, CellPadRef, Centre, Corner, Cover, Pin, Polar, OnRim, OnBore,
                        Cutout, Disc, Arc, Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Inside, Land, Line,
                        LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part, Past, Priority, Turned, X, Y)
 ```
@@ -41,6 +41,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | beside one part, level with a pad of it or of any firmly placed part | `at=Beside(item, Edge.SOUTH, align=PadRef(Part(other), n))` | Placement (Beside) |
 | its pad a lane (or the clearance) past other pads | `at=Beside(item, Edge.SOUTH, align=(own_pad, Past([PadRef(...)], Edge.WEST, lane=Net(...))))` | Placement (Beside) |
 | that lane as wide as its current needs | `Past(..., lane=Net(...), width=)` in that align | Placement (Beside) |
+| its pad a lane (or the clearance) off a 45 past a pad's corner | `at=Beside(item, Edge.SOUTH, align=(own_pad, Past([PadRef(...)], Corner.NE, lane=Net(...))))` | Placement (Beside) |
 | fixed off a part that is itself searched (a bypass at a searched part's pad end) | any firm `at=` (`Pin`, `Beside`, `row(of=)`) on the searched part: it rides the search | Placement (Riders) |
 | turned with another part | `rotation=Turned(part, deg)` | Placement |
 | turned to face a board edge or a bearing | `board.outward_rotation(item, edge)` | Faces |
@@ -81,6 +82,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | which end of an off-grid leg takes the 45 | `board.track(..., bend=Bend.START/END/BOTH)` | Copper vocabulary |
 | a track through the gap between two pads | `Between(PadRef(a), PadRef(b))` as a track point | Copper vocabulary (Lane waypoints) |
 | a track held the clearance off pads, vias or tracks | `Past([PadRef(...), via, track], Edge.EAST, across=)` as a track point | Copper vocabulary (Lane waypoints) |
+| a track's 45 held the clearance off a pad's corner | `Past([PadRef(...)], Corner.NE)` as a track point | Copper vocabulary (Lane waypoints) |
 | a via at the nearest legal spot to a pad | `board.via(net, FreeSpot(near=PadRef(...)))` | Copper calls |
 | a via its clearance past pads, vias or tracks, on a pad's axis | `board.via(net, at=Past([...], Edge.SOUTH, across=PadRef(...)))` | Copper calls |
 | a power or exposed pad filled with vias | `board.vias(net, PadRef(...))` | Copper calls |
@@ -390,7 +392,15 @@ or `WEST` beside a `NORTH` or `SOUTH` side). A placement is decided before
 any copper is planned, so the Past takes pads only - a via or a track is
 refused - and takes no `across=`. The pads' parts are placed firmly first,
 as for any firm placement. The track then takes the same line as a
-waypoint, `Past([PadRef(...)], Edge.WEST)`. A width sized for a current
+waypoint, `Past([PadRef(...)], Edge.WEST)`.
+
+With a `Corner` in place of the edge, `(own_pad, Past(pads, Corner.NE,
+lane=Net(...)))` stands the own pad off the 45 that passes the pads' NE
+corner: the own pad's corner facing the 45 (its SW corner) stands the same
+distance out along the diagonal from the pads' corner, measured across it.
+`Beside`'s side decides one axis and the corner the other, so any side
+goes with any corner. The track takes the 45 as a waypoint,
+`Past([PadRef(...)], Corner.NE)`. A width sized for a current
 is a fact: a named constant citing IPC-2221 at the board's `check.rise_c`
 and `check.copper_oz` (`placemat settings` prints them); the run's
 `current-path` check then judges the copper drawn in the lane.
@@ -1172,10 +1182,22 @@ its pads to be placed and its vias and tracks to be planned. A track whose
 not drawn, and the finding names both. Both are accepted wherever a track
 point is.
 
+`Past(items, Corner.NE)` holds a 45 off a corner of the same box (`Corner`
+is `NE`, `NW`, `SE` or `SW`). The point is on the outward diagonal from
+that corner, half the track's width plus the clearance from it, rounded
+away from the items; a 45 through it across the diagonal (NW to SE for an
+NE corner) passes the corner at the clearance. A corner fixes both axes, so
+it takes no `across=`. The track's legs either side of the point take that
+45 through it wherever the points either side allow one, ahead of `bend=`;
+where they do not and the track passes the corner nearer than the
+clearance, the finding names the corner.
+
 ```python
 v = board.via(Net("SIG_N"), FreeSpot(near=PadRef(Part("j1"), 3)))
 board.track(Net("SIG_P"), [PadRef(Part("j1"), 2), Past([v], Edge.SOUTH), PadRef(Part("j1"), 8)],
             layer=CopperLayer.F)                 # a U-turn a track's clearance under the via
+board.track(Net("S_A"), [PadRef(Part("r_a"), 2), Past([PadRef(Part("r_b"), 2)], Corner.NE),
+                         PadRef(Part("j1"), 1)], layer=CopperLayer.F)   # its 45 a clearance off r_b's pad corner
 ```
 
 **Who bridges.** Where two tracks of different nets cross on one layer, the
