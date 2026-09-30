@@ -340,6 +340,14 @@ def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footpr
                      courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp))
 
 
+def _via_size(via) -> float:
+    """A via's diameter: its ring on its first layer (a padstack's, KiCad 9 on)."""
+    try:
+        return mm(via.GetWidth(via.TopLayer()))
+    except TypeError:
+        return mm(via.GetWidth())
+
+
 def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, ...]:
     items = []
 
@@ -363,7 +371,8 @@ def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, .
         owner = groups_of.get(_kiid(t))
         # anchors as KiCad's connectivity takes them (CN_LIST::Add): a via's centre, a track's or arc's ends
         if isinstance(t, pcbnew.PCB_VIA):
-            add("via", t, t.GetNetname(), owner, drill=mm(t.GetDrillValue()), anchors=(t.GetStart(),))
+            add("via", t, t.GetNetname(), owner, width=_via_size(t), drill=mm(t.GetDrillValue()),
+                anchors=(t.GetStart(),))
         else:
             # GetLength() is the track's own path - an arc's, not the straight line between its ends
             add("track", t, t.GetNetname(), owner, mm(t.GetWidth()), anchors=(t.GetStart(), t.GetEnd()),

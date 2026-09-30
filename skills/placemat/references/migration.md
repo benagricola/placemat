@@ -7,6 +7,11 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+A copper finding measures a via as the circle it is, as KiCad's DRC does:
+a via just over the clearance from a track read as just under it ("0.16 mm
+... needs 0.16") from its polygon, a few microns outside the circle. The
+placement search still judges the polygon.
+
 A refusal's copper count names whose copper it met and its net ("copper
 x363: cell logic's U3 GND front face x120, via GND ..."); a copper finding
 names only the layers the board has.

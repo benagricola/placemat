@@ -37,6 +37,7 @@ class Shape:
     box: Box
     label: str = ""                 # pad number for a pad shape
     ends: tuple = ()                # a track's own two endpoints, for a finding that names the segment
+    circle: tuple = ()              # a via's (x, y, radius): its copper as the circle it is, for a finding
 
 
 # A Shape as a plain tuple, for the optional native accelerator (kind,
@@ -334,9 +335,13 @@ class Occupancy:
             faces = frozenset(l.face for l in c.layers if l.face is not None)
             if c.kind == "via":
                 faces = _BOTH
+            circle = ()
+            if c.kind == "via" and c.width_mm:
+                at = Location(*c.anchors[0]) if c.anchors else c.box.center
+                circle = (at.x, at.y, c.width_mm / 2.0)
             for poly in c.outlines:
                 self.copper.append(Shape(c.owner or "", "through" if c.kind == "via" else "copper",
-                                         faces, c.layers, c.net, poly, Box.of_points(poly)))
+                                         faces, c.layers, c.net, poly, Box.of_points(poly), circle=circle))
             if c.kind == "via" and c.drill_mm:
                 at = Location(*c.anchors[0]) if c.anchors else c.box.center
                 self.copper.append(hole_shape(c.owner or "", at, c.drill_mm, c.net))
@@ -567,13 +572,13 @@ class Occupancy:
             for o in g.shapes:                  # its pads, and its own copper graphics (a net-tie's winding)
                 if o.kind not in ("pad", "through", "copper") or not shape.box.overlaps(o.box, gap=1.0):
                     continue
-                why = self._conflict(shape, o, None)
+                why = self._conflict(shape, o, None, exact=True)
                 if why:
                     out.append(why)
         for o in self.copper:
             if o is shape or not shape.box.overlaps(o.box, gap=1.0):
                 continue
-            why = self._conflict(shape, o, None)
+            why = self._conflict(shape, o, None, exact=True)
             if why:
                 out.append(why)
         return out
@@ -1387,7 +1392,7 @@ class Occupancy:
             cache[key] = hit
         return hit[1]
 
-    def _conflict(self, s: Shape, o: Shape, clearance: float | None) -> str | None:
+    def _conflict(self, s: Shape, o: Shape, clearance: float | None, exact: bool = False) -> str | None:
         """The DRC rules, in occupancy terms. A via under a body is legal to
         DRC and is only refused when `vias_block_courtyards` is set (a house
         rule for boards that pair through-feature cells with via-free parts)."""
@@ -1453,7 +1458,9 @@ class Occupancy:
             # when the boxes themselves are close enough to fail.
             if _box_gap(s.box, o.box) >= clr - 1e-9:
                 return None
-            gap = poly_distance(s.poly, o.poly)
+            # a finding (exact) measures a via as its circle; placement keeps the polygons the
+            # native judge reads, so the two agree on what is legal
+            gap = _copper_gap(s, o) if exact else poly_distance(s.poly, o.poly)
             if gap < clr - 1e-9 and self._net_tie_exclusion(s, o):
                 return None
             if gap < clr - 1e-9:
@@ -1557,6 +1564,23 @@ def _contact_point(a, b):
                 t = 0.0 if L == 0 else max(0.0, min(1.0, ((q[0] - p1[0]) * dx + (q[1] - p1[1]) * dy) / L))
                 best, at = d, (p1[0] + t * dx, p1[1] + t * dy)
     return at
+
+
+
+def _copper_gap(s, o) -> float:
+    """The gap between two pieces of copper, a via measured as the circle it
+    is: its polygon lies a few microns outside the circle (a 16-gon's vertices,
+    or a read outline's arc error), so a gap just over a clearance read as just
+    under it, where KiCad's DRC, measuring the circle, passes."""
+    if s.circle and o.circle:
+        (ax, ay, ar), (bx, by, br) = s.circle, o.circle
+        return max(0.0, math.hypot(ax - bx, ay - by) - ar - br)
+    if s.circle or o.circle:
+        (cx, cy, r), other = (s.circle, o) if s.circle else (o.circle, s)
+        if point_in_polygon((cx, cy), other.poly):
+            return 0.0
+        return max(0.0, _point_poly_distance((cx, cy), other.poly) - r)
+    return poly_distance(s.poly, o.poly)
 
 
 _DRAWN = frozenset(("silk", "mask", "body"))

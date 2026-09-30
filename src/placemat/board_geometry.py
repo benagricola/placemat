@@ -206,7 +206,7 @@ class CopperItem:
     outlines: tuple[Polygon, ...]
     box: Box
     owner: str | None = None    # refdes for a pad, cell name for cell copper
-    width_mm: float = 0.0       # tracks
+    width_mm: float = 0.0       # tracks; a via's diameter
     drill_mm: float = 0.0       # vias: the hole, for the hole-to-hole rule
     anchors: tuple = ()         # KiCad's connection points: a track's ends, a via's centre (the ratsnest's nodes)
     length_mm: float = 0.0      # tracks and arcs: pcbnew's own GetLength(), the path itself, not its chord

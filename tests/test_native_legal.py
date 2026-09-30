@@ -84,7 +84,7 @@ def _native_legal(occ: Occupancy, item, placement: Placement, clearance=None):
         # native found a pair Python's own _conflict disagrees is a
         # conflict: a mismatch the test below must catch, not paper over.
         return "NATIVE_FALSE_POSITIVE:%s vs %s" % (candidates[si].kind, others[oi].kind), []
-    return why, [Blocker(others[oi].kind, occ.who(others[oi].owner), frozenset(others[oi].faces))]
+    return why, [Blocker(others[oi].kind, occ.blame_owner(others[oi]), frozenset(others[oi].faces))]
 
 
 def _fmt(b):

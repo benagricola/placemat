@@ -4463,7 +4463,7 @@ class Board:
                             (op.start.x, op.start.y), (op.end.x, op.end.y),
                             (earlier.start.x, earlier.start.y), (earlier.end.x, earlier.end.y)):
                         continue
-                    why = occ._conflict(shape, o, None)
+                    why = occ._conflict(shape, o, None, exact=True)
                     if why:
                         hits.append(why)
                 for hit in hits:
@@ -6122,7 +6122,8 @@ def _shape_of(op) -> Shape | None:
         return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.polygon, op.box,
                     ends=((op.start.x, op.start.y), (op.end.x, op.end.y)))
     if isinstance(op, Via):
-        return Shape("", "through", both, frozenset(CopperLayer), op.net, op.polygon, op.box)
+        return Shape("", "through", both, frozenset(CopperLayer), op.net, op.polygon, op.box,
+                     circle=(op.at.x, op.at.y, op.size / 2.0))
     if isinstance(op, Pour):
         faces = frozenset([op.layer.face]) if op.layer.face else frozenset()
         return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.polygon, op.box)
