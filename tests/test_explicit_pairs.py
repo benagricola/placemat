@@ -59,8 +59,8 @@ def test_an_explicit_pair_counts_its_own_crossings_in_the_run_score():
         return {"items": [{"description": "Pad [%s]" % net, "pos": {"x": a[0], "y": a[1]}},
                           {"description": "Pad [%s]" % net, "pos": {"x": b[0], "y": b[1]}}]}
     drc = {"unconnected_items": [edge("LEAD_A", (0, 0), (10, 10)), edge("LEAD_B", (0, 10), (10, 0))]}
-    assert airwires_from_drc(drc, (), ("*",))["crossings_pair"] == 0
-    assert airwires_from_drc(drc, (), ("LEAD_A/LEAD_B",))["crossings_pair"] == 1
+    assert airwires_from_drc(drc, ())["crossings_pair"] == 0
+    assert airwires_from_drc(drc, (), {"LEAD_A": "LEAD_B", "LEAD_B": "LEAD_A"})["crossings_pair"] == 1
 
 
 # ---------------------------------------------------------------- the routing copy
@@ -163,7 +163,7 @@ class _PairRouter:
         return subprocess.CompletedProcess(cmd, 0)
 
 
-def _route_pairs(tmp_path, monkeypatch, patterns, nets=NETS):
+def _route_pairs(tmp_path, monkeypatch, pairs, nets=NETS):
     import placemat.kicad.route as route_mod
     from placemat.settings import Settings
     router = tmp_path / "router"
@@ -174,14 +174,14 @@ def _route_pairs(tmp_path, monkeypatch, patterns, nets=NETS):
     pcb = _board(work, nets)
     stand_in = _PairRouter()
     monkeypatch.setattr(route_mod.subprocess, "run", stand_in)
-    board, pairs = route_mod.route_pairs("py", str(router), pcb, work, patterns, ["F.Cu", "B.Cu"], Settings(),
-                                         None, None, 60, {})
-    return board, pairs, stand_in.calls
+    board, result_pairs = route_mod.route_pairs("py", str(router), pcb, work, pairs, ["F.Cu", "B.Cu"], Settings(),
+                                                 None, None, 60, {})
+    return board, result_pairs, stand_in.calls
 
 
 @needs_kicad
 def test_an_explicit_pair_is_routed_under_its_alias_and_comes_back_under_its_own_names(tmp_path, monkeypatch):
-    board, pairs, calls = _route_pairs(tmp_path, monkeypatch, ("LEAD_A/LEAD_B",))
+    board, pairs, calls = _route_pairs(tmp_path, monkeypatch, [("LEAD_A", "LEAD_B")])
     [(patterns, given)] = calls
     assert patterns == ["PMPAIR0"]
     assert {"PMPAIR0_P", "PMPAIR0_N"} <= given and not {"LEAD_A", "LEAD_B"} & given
@@ -196,15 +196,14 @@ def test_an_explicit_pair_is_routed_under_its_alias_and_comes_back_under_its_own
 @needs_kicad
 def test_an_explicit_pair_the_board_does_not_have_is_refused_before_routing(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="NO_SUCH_NET"):
-        _route_pairs(tmp_path, monkeypatch, ("*", "LEAD_A/NO_SUCH_NET"))
+        _route_pairs(tmp_path, monkeypatch, [("LEAD_A", "NO_SUCH_NET")])
     assert not (tmp_path / "work" / "pairs.log").exists()
 
 
 @needs_kicad
-def test_a_suffix_pair_named_explicitly_is_routed_once(tmp_path, monkeypatch):
-    board, pairs, calls = _route_pairs(tmp_path, monkeypatch, ("*", "D_P/D_N"))
+def test_a_pair_is_routed_once_under_its_alias(tmp_path, monkeypatch):
+    board, pairs, calls = _route_pairs(tmp_path, monkeypatch, [("D_P", "D_N")])
     [(patterns, given)] = calls
-    assert patterns == ["*", "PMPAIR0"]
-    assert not {"D_P", "D_N"} & given          # under "*" the router finds the alias alone
+    assert patterns == ["PMPAIR0"]
+    assert not {"D_P", "D_N"} & given          # the router sees the alias alone, not the real names
     assert pairs.coupled == ["D_P/D_N"] and pairs.routed_nets == {"D_P", "D_N"}
-    assert pairs_of(_nets(board)[0], ("*", "D_P/D_N")) == {"D_P": "D_N", "D_N": "D_P"}

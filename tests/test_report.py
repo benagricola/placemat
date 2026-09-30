@@ -208,5 +208,5 @@ def test_a_differential_pairs_own_crossing_is_counted_apart():
         {"items": [{"description": "Pad 1 [USB_N] of R2", "pos": {"x": 0, "y": 10}}, {"description": "x", "pos": {"x": 10, "y": 0}}]},
         {"items": [{"description": "Pad 1 [C] of R3", "pos": {"x": 5, "y": -5}}, {"description": "x", "pos": {"x": 5, "y": 15}}]},
     ]}
-    aw = airwires_from_drc(drc)
+    aw = airwires_from_drc(drc, partners={"USB_P": "USB_N", "USB_N": "USB_P"})
     assert aw["crossings"] == 3 and aw["crossings_pair"] == 1       # USB_P x USB_N; the two with C are ordinary

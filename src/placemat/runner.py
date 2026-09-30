@@ -506,8 +506,9 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             allow = {"keepout %s" % k.name: (set(k.owners), set(k.allow)) for k in plan.keepouts.values()}
             report = run_drc(src.pcb, run_dir / "drc.json", allow=allow)
             quiet = set(board._plane_nets()) | set(board._free_nets)
+            from .pairs import board_pairs
             aw = airwires_from_drc(json.loads((run_dir / "drc.json").read_text()), quiet,
-                                   tuple(board.settings.route_diff_pairs))
+                                   board_pairs(board.geometry.netclasses))
             free = plan.occupancy.free_area()
             metrics.update(drc_metrics(report, aw, free))
             # KiCad's own ratsnest and DRC replace the plan's estimates in the score

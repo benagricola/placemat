@@ -1,5 +1,6 @@
-"""placemat route reads the board's own settings: its placemat.toml's
-[route] layers, not the defaults."""
+"""placemat route: [route] layers is retired (route layers are a board
+fact, from each layer's role); `placemat route --layers` still overrides
+for one run."""
 from pathlib import Path
 
 import pytest
@@ -7,11 +8,16 @@ import pytest
 from tests.conftest import needs_breakout, needs_kicad
 
 
-def test_the_route_command_routes_with_the_boards_own_settings(tmp_path, monkeypatch):
+def test_route_layers_in_placemat_toml_is_refused(tmp_path):
+    from placemat.settings import SettingsError, load
+    (tmp_path / "placemat.toml").write_text('[route]\nlayers = ["F.Cu", "B.Cu"]\n')
+    with pytest.raises(SettingsError, match="route.layers"):
+        load(tmp_path)
+
+
+def test_the_route_command_s_layers_flag_overrides_for_one_run(tmp_path, monkeypatch):
     from placemat import cli
     import placemat.kicad.route as route_mod
-    from placemat.settings import active
-    (tmp_path / "placemat.toml").write_text('[route]\nlayers = ["F.Cu", "B.Cu"]\n')
     pcb = tmp_path / "layout.kicad_pcb"
     pcb.write_text("")
     seen = {}
@@ -25,11 +31,11 @@ def test_the_route_command_routes_with_the_boards_own_settings(tmp_path, monkeyp
         def as_dict(self):
             return {}
 
-    def stand_in(pcb, work, **kw):
-        seen["layers"] = active().route_layers
+    def stand_in(pcb, work, layers=None, **kw):
+        seen["layers"] = layers
         return Report()
     monkeypatch.setattr(route_mod, "route_board", stand_in)
-    assert cli.main(["route", str(pcb)]) == 0
+    assert cli.main(["route", str(pcb), "--layers", "F.Cu", "B.Cu"]) == 0
     assert tuple(seen["layers"]) == ("F.Cu", "B.Cu")
 
 

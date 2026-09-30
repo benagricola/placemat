@@ -952,8 +952,8 @@ def kwargs_from(settings) -> dict:
     """The arguments `run_checks` takes, from the resolved settings. One home,
     so `placemat check` and `placemat run` judge a board by the same numbers."""
     return {"ambient_c": settings.check_ambient_c, "keep_out_mm": settings.check_keep_out_mm,
-            "rise_c": settings.check_rise_c, "copper_oz": settings.check_copper_oz,
-            "limits": dict(settings.check_limits), "zone_step": settings.check_zone_step}
+            "rise_c": settings.check_rise_c, "limits": dict(settings.check_limits),
+            "zone_step": settings.check_zone_step}
 
 
 def record(rec, verdicts) -> list:

@@ -385,6 +385,17 @@ def layer_types(board) -> dict:
             for l in board.GetEnabledLayers().CuStack()}
 
 
+def read_layer_types(path) -> dict:
+    """Each enabled copper layer's role (signal, power, mixed, jumper), by
+    its KiCad name - a light read for a caller that wants only the roles,
+    not the whole board geometry (the route step's default layer list)."""
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(str(path))
+    if board is None:
+        return {}
+    return {layer.value: role for layer, role in layer_types(board).items()}
+
+
 def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, ...]:
     items = []
 

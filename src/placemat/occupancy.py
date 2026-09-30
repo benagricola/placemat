@@ -902,13 +902,12 @@ class Occupancy:
         A quiet net (a plane's, a free net's) weighs `score.crossing_plane`."""
         rn = self.__dict__.get("_ratsnest")
         if rn is None:
-            from .pairs import pairs_of
+            from .pairs import board_pairs
             from .ratsnest import Ratsnest
             weights = {n: self.settings.score_crossing_plane for n in self.quiet_nets}
             # a pair crossing itself weighs score.pair_crossing; the search
             # prices the ratsnest's weighted count at score.crossing
-            nets = {s.net for g in self.items.values() for s in g.shapes if s.net}
-            partners = {n: m for n, m in pairs_of(nets, tuple(self.settings.route_diff_pairs)).items()
+            partners = {n: m for n, m in board_pairs(self.geometry.netclasses).items()
                         if n not in self.quiet_nets and m not in self.quiet_nets}
             s = self.settings
             pair_weight = s.score_pair_crossing / s.score_crossing if s.score_crossing > 0 else 1.0

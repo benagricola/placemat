@@ -166,3 +166,47 @@ def pairs_of(nets, patterns=("*",)) -> dict:
                 out.pop(out.pop(net, None), None)
             out[p], out[n] = n, p
     return out
+
+
+def board_pairs(netclasses: dict) -> dict:
+    """{net: its partner} from the board's own net classes: a class other
+    than "Default" that sets diff_pair_width and diff_pair_gap groups its
+    nets into pairs - exactly two nets pair whatever they are named; more
+    than two pair within the class by pair_key, the same rule a suffix pair
+    uses elsewhere. A board whose classes declare no pair class has none.
+
+    A net class's diff_pair_width/gap are not reliably null for a class
+    that was never meant as a pair (KiCad's own default netclass and an
+    untouched one both report the project's default diff-pair figure, not
+    None) - only the class name "Default" is excluded here, per the design
+    this ports."""
+    by_class: dict = {}
+    for net, nc in netclasses.items():
+        if nc.name == "Default" or nc.diff_pair_width is None or nc.diff_pair_gap is None:
+            continue
+        by_class.setdefault(nc.name, []).append(net)
+    out = {}
+    for nets in by_class.values():
+        if len(nets) == 2:
+            a, b = sorted(nets)
+            out[a], out[b] = b, a
+        elif len(nets) > 2:
+            out.update(pairs_of(nets))
+    return out
+
+
+def board_pair_list(netclasses: dict) -> list:
+    """[(p_net, n_net), ...] from board_pairs(), each pair once: P first
+    when pair_key says which half is positive, else the alphabetically
+    first net (a two-net class with no suffix meaning has no real P/N)."""
+    d = board_pairs(netclasses)
+    seen, out = set(), []
+    for net in sorted(d):
+        if net in seen:
+            continue
+        other = d[net]
+        seen.add(net)
+        seen.add(other)
+        k = pair_key(net)
+        out.append((net, other) if k is None or k[1] else (other, net))
+    return out
