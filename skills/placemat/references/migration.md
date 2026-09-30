@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.56.2
 
 A copper finding measures a via as the circle it is, as KiCad's DRC does:
 a via just over the clearance from a track read as just under it ("0.16 mm

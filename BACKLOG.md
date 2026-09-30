@@ -7,12 +7,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **Bugs from the fairing core on 0.56.1** (fairing 2026-09-30): `OnEdge(run,
-  overhang=)` on a shaped board's run puts the centre on the edge whatever
-  the overhang; `run.at(run.length)` raises ZeroDivisionError on a short
-  curved run; in-batch copper findings at exactly the clearance ("0.16 ...
-  needs 0.16"); vias listed on In1..In30 in some reports; a refusal's copper
-  kind reads only "copper x363" with no items named.
 - **A cell placed by a member's footprint origin** (fairing 2026-09-30): a
   winding's arc centre on the disc centre; `Pin` needs a pad and a cell's
   Location is its box centre.
