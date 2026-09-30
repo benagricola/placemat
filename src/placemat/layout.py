@@ -2912,12 +2912,10 @@ class Board:
             src = ann.sources[ref]
             at = src.at
             key = (ref, at[1]) if at is not None and at[0] == "pad" else None
-            here, slack = None, 0.0
-            if key is None:
-                g = occ.geometry_of(ref).reference
-                x, y = (at[1], at[2]) if at is not None else (0.0, 0.0)
-                here = exposure.local_to_board(g.location, g.rotation, g.face, x, y)
-                slack = self._reach_from(occ, i.item, here)
+            here = self._emission_point(occ, ref)
+            slack = self._reach_from(occ, i.item, here)
+            if key is not None:
+                here = None
             for e in src.emissions:
                 for sens in sorted(placed & ann.sensitives.keys()):
                     for kind, limit, unit in ann.sensitives[sens].limits:

@@ -279,6 +279,76 @@ def test_board_push_on_an_annotated_item_adds_to_the_annotated_pushes():
     assert 3.2 * (2.0 / d1) ** 3 <= 0.3 + 1e-6      # and the annotated one's
 
 
+def _cell_source(emits_at, sensitive_first, **cell_place):
+    """A cell holding a source, placed turned (and flipped) by the cell, and a
+    sensitive part outside it, placed either side of it."""
+    m1 = footprint("M1", 30, 20, w=4, h=2, inst="conv.m1", nets=("A", "GND"), cell="conv",
+                   fields={"Pm.Emits": "magnetic:3.2mT@2mm^3", "Pm.EmitsAt": emits_at})
+    r1 = footprint("R1", 36, 20, w=2, h=2, inst="conv.r1", nets=("A", "B"), cell="conv")
+    u2 = footprint("U2", 10, 40, w=2, h=2, inst="u2", nets=("SIG", "GND"), fields={"Pm.Limit": LIMIT})
+    j1 = footprint("J1", 14, 40, w=2, h=2, inst="j1", nets=("SIG", "B"))
+    b = Board(board_geometry([m1, r1, u2, j1], cells=["conv"], width=60, height=60), edge_margin=1.0, keep_going=True)
+    b.place(Part("j1"), at=Location(14, 40))
+    b.link(PadRef(Part("u2"), "SIG"), PadRef(Part("j1"), "SIG"), weight=1)
+    if sensitive_first:
+        b.place(Part("u2"), at=Location(10, 40))
+        b.place(Cell("conv"), radius=40.0, step=1.0, **cell_place)
+    else:
+        b.place(Cell("conv"), at=Location(30, 20), **cell_place)
+        b.place(Part("u2"), radius=40.0, step=1.0)
+    return b.resolve()
+
+
+def test_a_source_in_a_cell_emits_from_where_the_cell_carries_it():
+    for sensitive_first in (True, False):
+        for cell_place in ({}, {"rotation": 90.0}, {"rotation": 270.0, "face": Face.BACK}):
+            by_pad = _cell_source("pad:2", sensitive_first, **cell_place)
+            by_xy = _cell_source("1.4,0", sensitive_first, **cell_place)
+            key = (sensitive_first, cell_place)
+            assert by_xy.step("u2").placement == by_pad.step("u2").placement, key
+            assert by_xy.step("conv").placement == by_pad.step("conv").placement, key
+            pad = by_pad.occupancy.pad_location("M1", "2")
+            sense = by_pad.box("u2").center
+            assert 3.2 * (2.0 / pad.distance(sense)) ** 3 <= 0.3 + 1e-6, (key, pad.distance(sense))
+
+
+def test_a_sensitive_part_in_a_cell_is_measured_at_that_member():
+    m1 = footprint("M1", 10, 10, w=2, h=2, inst="m1", nets=("A", "GND"), fields={"Pm.Emits": "magnetic:3.2mT@2mm^3"})
+    u2 = footprint("U2", 1, 1, w=2, h=2, inst="sensor.u2", nets=("SIG", "GND"), cell="sensor", fields={"Pm.Limit": LIMIT})
+    u3 = footprint("U3", 15, 1, w=2, h=2, inst="sensor.u3", nets=("SIG2", "GND"), cell="sensor")
+    b = Board(board_geometry([m1, u2, u3], cells=["sensor"], width=80, height=80), edge_margin=1.0)
+    b.place(Part("m1"), at=Location(10, 10))
+    b.place(Cell("sensor"), radius=30.0, step=1.0)
+    plan = b.resolve()
+    d = plan.occupancy.geometry_of("U2").body.center.distance(Location(10, 10))
+    assert 3.2 * (2.0 / d) ** 3 <= 0.3 + 1e-6
+    assert "magnetic at U2: " in plan.step("sensor").note
+
+
+def _replay_board(r5_radius=3.0):
+    fps = [footprint("M1", 10, 30, w=4, h=4, inst="m1", nets=("A", "GND"),
+                     fields={"Pm.Emits": "magnetic:3.2mT@2mm^1"}),
+           footprint("U2", 15, 30, w=2, h=2, inst="u2", nets=("SIG", "GND"), fields={"Pm.Limit": "magnetic:0.9mT"}),
+           footprint("J1", 16, 30, w=2, h=2, inst="j1", nets=("SIG", "PWR")),
+           footprint("R5", 50, 5, w=2, h=2, inst="r5", nets=("X", "Y"))]
+    b = _board(fps)
+    b.place(Part("m1"), at=Location(10, 30))
+    b.place(Part("j1"), at=Location(16, 30))
+    b.link(PadRef(Part("u2"), "SIG"), PadRef(Part("j1"), "SIG"), weight=1)
+    b.place(Part("u2"), radius=20.0, step=0.25)
+    b.place(Part("r5"), radius=r5_radius)
+    return b
+
+
+def test_a_replayed_run_reserves_the_annotated_disc_again():
+    first = _replay_board().resolve()
+    d_first = first.box("u2").center.distance(Location(10, 30))
+    reused = _replay_board(r5_radius=6.0).resolve(reuse=first.reuse)
+    assert reused.reuse["reused"] > 0 and reused.reuse["first_change"] == "r5"
+    assert reused.box("u2").center.distance(Location(10, 30)) == pytest.approx(d_first, abs=1e-6)
+    assert 3.2 * (2.0 / d_first) <= 0.9 + 1e-6
+
+
 def test_members_of_one_cell_do_not_pair():
     fps = [footprint("M1", 10, 10, w=2, h=2, inst="sensor.m1", nets=("A", "GND"), cell="sensor",
                      fields={"Pm.Emits": EMITS}),
