@@ -3289,11 +3289,14 @@ class Board:
                         box, off = _past_reach(self, ctx, name, w, p, intent.key, intent.index)
                         corners.append((p, _box_corner(box, p.edge), off))
                         lane = _lane_dirs(p.edge)
+                elif isinstance(p, PadRef) and p.edge is not None:
+                    at = _edge_point(self, ctx.occ, w, p)
                 else:
                     at = ctx.locate(p)
                 located.append(at)
                 lanes.append(lane)
-            pads = [isinstance(p, (PadRef, CellPadRef)) for p in points]
+            # a tap is a point beside its pad, not a pad end a track may leave at any angle
+            pads = [isinstance(p, (PadRef, CellPadRef)) and getattr(p, "edge", None) is None for p in points]
 
             def clear(a, b):          # a leg that touches no pad of another net
                 shape = _shape_of(Track(name, layer, w, a, b))
@@ -3339,6 +3342,10 @@ class Board:
         for it in p.items + (p.across,):
             if isinstance(it, CopperIntent) and not any(it is c for c in self._copper):
                 raise TypeError("%s: %s is copper of another board" % (what, it.key))
+        for it in p.items:
+            if getattr(it, "edge", None) is not None:
+                raise TypeError("%s: Past's items are the copper it is held off; a PadRef's edge= is a track "
+                                "point on that edge, so name the pad without it" % what)
         if p.lane is not None and not lane:
             raise TypeError("%s: Past's lane= is for Beside's align, where it leaves room for a track "
                             "between a part's pad and the items; a Past here keeps its own clearance" % what)
@@ -6535,6 +6542,9 @@ def _locate(board: "Board", occ: Occupancy, ref) -> Location:
         geom, key, kind = board._item(ref)
         refs = [fp.ref for fp in (geom.members if kind == "cell" else (geom,))]
         return Box.union([occ.items[r].body for r in refs]).center      # where its body is now
+    if getattr(ref, "edge", None) is not None:
+        raise ValueError("%s pad %s: a PadRef's edge= is a track's point on that edge of the pad, or a Past's "
+                         "across=; here it has no track width to stand off by" % (board._pad_ref(ref)[0], ref.key))
     owner, number, dx, dy = board._pad_ref(ref)
     at = occ.pad_location(owner, number, board._pad_land(ref)).offset(dx, dy)
     lx, ly = getattr(ref, "lx", 0.0), getattr(ref, "ly", 0.0)
@@ -6709,6 +6719,46 @@ def _pad_shapes(board: "Board", occ: Occupancy, ref) -> list:
     return occ.pad_shapes(owner, number, board._pad_land(ref))
 
 
+_EDGE_OVERLAP = 0.005
+"""How far a tap's copper reaches over its pad's edge: copper that only
+meets the pad along a line may not read as joined to KiCad's connectivity."""
+
+
+def _edge_point(board: "Board", occ: Occupancy, width: float, ref: PadRef) -> Location:
+    """A track point on `ref.edge` of its pad (the side of the pad's copper
+    box, board frame), for a track `width` wide: half the width outside the
+    edge, less `_EDGE_OVERLAP`, so the track's copper lies against it. Along
+    the edge, `ref.along`: MID the middle, START the west or north end, END
+    the other, a half width in from the corner so the copper ends flush with
+    the pad's side. The track's copper there must meet the pad's along the
+    edge: an end of a round pad's edge, or of one turned off the right
+    angle, has none, and is refused."""
+    owner, number, _, _ = board._pad_ref(ref)
+    polys = [sh.poly for sh in _pad_shapes(board, occ, ref)]
+    box = Box.union([Box.of_points(p) for p in polys])
+    upright = ref.edge in (Edge.EAST, Edge.WEST)            # the edge runs north-south: along is y
+    line = {Edge.NORTH: box.top, Edge.SOUTH: box.bottom, Edge.WEST: box.left, Edge.EAST: box.right}[ref.edge]
+    on = [(y if upright else x) for p in polys for x, y in p if abs((x if upright else y) - line) <= 1e-3]
+    lo, hi = (box.top, box.bottom) if upright else (box.left, box.right)
+    along = ref.along or Along.MID
+    half = width / 2.0
+    at = {Along.START: lo + half, Along.MID: (lo + hi) / 2.0, Along.END: hi - half}[along]
+    reach = (at, at) if along is Along.MID else (at - half, at + half)
+    if not on or min(on) > reach[1] + 1e-6 or max(on) < reach[0] - 1e-6 or \
+            (along is not Along.MID and min(hi, max(on)) - max(lo, min(on)) < 1e-3):
+        raise ValueError("%s pad %s: its %s edge has no copper at its %s (a round pad, or one turned off the "
+                         "right angle); tap it at Along.MID" % (occ.who(owner), number, ref.edge.name.lower(),
+                                                                along.name.lower()))
+    out = half - _EDGE_OVERLAP
+    if ref.edge is Edge.EAST:
+        return Location(round(line + out, 6), round(at, 6))
+    if ref.edge is Edge.WEST:
+        return Location(round(line - out, 6), round(at, 6))
+    if ref.edge is Edge.NORTH:
+        return Location(round(at, 6), round(line - out, 6))
+    return Location(round(at, 6), round(line + out, 6))                  # SOUTH
+
+
 def _pad_half_across(board: "Board", occ: Occupancy, ref, centre: Location, ux: float, uy: float) -> float:
     """How far the pad reaches from `centre` along the unit normal
     (-uy, ux): half the pad's own width measured across a run whose
@@ -6868,7 +6918,7 @@ def _past_point(board: "Board", ctx: "_CopperContext", net: str, width: float, p
             why = _past_unplanned(ctx.ops_at, a, what, current)
             if why is not None:
                 return why
-        at = ctx.locate(a)
+        at = _edge_point(board, ctx.occ, width, a) if getattr(a, "edge", None) is not None else ctx.locate(a)
         across = at.y if upright else at.x
     if p.edge is Edge.EAST:
         return Location(_round_away(box.right + off, 1), round(across, 6))
