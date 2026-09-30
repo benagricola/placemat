@@ -37,6 +37,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | a cell placed by a member's footprint origin (not a pad) | `at=Pin(Part(member), x, y)` | Placement |
 | between two pads | `at=Centre(X(Mid(a, b)), Y(a))` | Placement |
 | sliding along one line, the other axis free | `at=Centre(None, y)` / `Location(x, None)` | Placement |
+| as far toward one end of a line as it is legal | `at=Centre(x, None, toward=Edge.SOUTH)` | Placement |
 | somewhere the netlist cannot say (a thermal neighbour) | `at=Near(PadRef(...))` | Placement |
 | beside a part, a cell or a keepout, at the envelope gap | `at=Beside(item, Edge.EAST, align=Along.START, gap=)` | Placement (Beside) |
 | beside one part, level with a pad of it or of any firmly placed part | `at=Beside(item, Edge.SOUTH, align=PadRef(Part(other), n))` | Placement (Beside) |
@@ -240,7 +241,11 @@ origin, lands on the point. `Location(30, None)` or
 `Centre(None, y)` fix one: the item slides along the line, starting across
 from what it connects to when any of that is placed, else at its middle alone or
 sharing it evenly with the items pinned to the same value, aside from what
-is there. `OnEdge(edge, along=)` fixes both: the reach at the
+is there. `Centre(x, None, toward=Edge.SOUTH)` starts at that end instead,
+and takes the legal spot farthest toward it; a cell is judged member by
+member, so a height band stops its tall members while its low ones may
+stand in the band, and the step names what stopped it. `toward` must name
+an end of the free axis. `OnEdge(edge, along=)` fixes both: the reach at the
 keep-in, and `along` the edge a number in mm, a reference, `Along.START`,
 `MID` or `END`, or `Fraction(0.3)` of the usable length, the same on
 every edge. `OnEdge(edge)` fixes one: it slides along the edge, midpoint

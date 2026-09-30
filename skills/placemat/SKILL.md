@@ -99,13 +99,28 @@ The forms that most often answer "placemat can't say this":
 ### When no form says it
 
 When that search finds no form and no composition that says the relation,
-do not hand-compute it. Write it up in the board's `PLACEMAT_GAPS.md`: what
-was needed, the forms looked at and why each does not fit, what was done
-instead, and what placemat could offer. Name the gap in a comment beside
-the declaration, and use the smallest number that works there until
-placemat can say it. A coordinate with no comment naming a gap is what this
-section forbids, and a gap entry that names no forms searched is not
-finished.
+do not hand-compute it. Write it up in the board's `PLACEMAT_GAPS.md`:
+- what was needed;
+- the forms looked at, and why each does not fit;
+- what placemat could offer.
+
+A gap entry that names no forms searched is not finished.
+
+A coordinate is an escape hatch, and only the user opens it. Before writing
+one, ask with AskUserQuestion:
+- name the gap entry and the forms searched;
+- give the number you would write and what it pins;
+- offer the alternatives: leave the item searched as declared, or leave it
+  unplaced until placemat can say it.
+
+Write the coordinate only on the user's explicit yes. That yes covers that
+one declaration, not the next one, and not the same gap on another item.
+Then name the gap in a comment beside it, and use the smallest number that
+works.
+
+A coordinate with no comment naming a gap, or with no approval behind it,
+is what this section forbids. Being unable to say a relation is not
+approval, and neither is an earlier approval for something else.
 
 `placemat freeze` writes coordinates into a script, and that is placemat
 recording its own result: `--explore`/`--accept` and `freeze` write what a
@@ -146,6 +161,14 @@ Working in such a script:
   a routed board into the script.
 - A frozen line or a logged gap already there is a record, not a license:
   convert what you can, and add to a gap only while it is still needed.
+- Migrate the escape hatches:
+  - For every coordinate that carries a gap comment, read the gap's entry
+    and the sections of `references/migration.md` newer than the entry.
+  - Where a form now says the relation, replace the coordinate with it,
+    and mark the gap entry resolved with the placemat version.
+  - A coordinate whose gap is still open stays only with the approval it
+    was written under; one with no approval behind it goes back to the
+    user as a question.
 
 ## A fresh board
 

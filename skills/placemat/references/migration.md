@@ -5,6 +5,19 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+`Centre(x, None, toward=Edge.SOUTH)` puts an item on a line as far toward
+that end as it is legal, instead of across from what it connects to. A cell
+is judged member by member, so a height band stops its tall members while
+its low ones may cross into it; the step names what stopped it. A cell
+placed by offsets worked out from its members' own frame, so that its
+tall members stop at a band's edge, can be said this way.
+
+The skill now asks the user before any coordinate escape hatch, and its
+"An existing script" section migrates each gap-commented coordinate to the
+form that now says it.
+
 ## To 0.62.0
 
 A cell's members are read in reference order. KiCad returns a group's
@@ -1459,3 +1472,4 @@ that says what replaces it.
 | a pair centreline typed as coordinates | Unreleased |
 | a power pour polygon built from pad edges | Unreleased |
 | a waypoint on a 45 worked out as x - y or x + y off a pad's corner | Unreleased |
+| a cell stood as far toward an end as its tall members allow, by offsets worked out from its members' frame | Unreleased |

@@ -159,13 +159,21 @@ class Forbid(str, Enum):
 class Centre:
     """A place for an item's body centre. Each axis is a number, a reference
     (X()/Y() of a pad, or a Mid inside X()/Y()), or None to leave that axis
-    free: Centre(30, None) pins x and lets the item slide in y."""
+    free: Centre(30, None) pins x and lets the item slide in y. `toward=`
+    an Edge at one end of the free axis takes the legal spot farthest that
+    way, instead of the one nearest what the item connects to."""
     x: object
     y: object
+    toward: object = field(default=None, metadata={"omit_default": True})
 
     def __post_init__(self):
         if self.x is None and self.y is None:
             raise ValueError("a Centre needs at least one axis")
+        if self.toward is not None:
+            ends = {"x": (Edge.EAST, Edge.WEST), "y": (Edge.NORTH, Edge.SOUTH)}.get(self.free_axis)
+            if ends is None or self.toward not in ends:
+                raise ValueError("Centre(toward=%r): toward names an end of the free axis (%s)" % (
+                    self.toward, " or ".join(e.name for e in ends) if ends else "this Centre has none"))
 
     @property
     def free_axis(self) -> str | None:

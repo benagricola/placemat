@@ -276,6 +276,7 @@ class PlaceIntent:
     drops: Drops = field(default=Drops.ALL, metadata={"omit_default": True})   # a cell's via fields as stamped, or thinned when it is placed
     pushes: tuple = field(default=(), metadata={"omit_default": True})   # Push declarations on this item, from board.push()
     line: int = field(default=0, metadata={"reuse": False})   # the script line that declared it: not what it decides
+    toward: object = field(default=None, metadata={"omit_default": True})   # Centre(toward=): an end of the free line
 
     @property
     def rank(self):
@@ -2143,6 +2144,7 @@ class Board:
         outward = False
         overhang = 0.0
         pin_x = pin_y = None
+        _centre_toward = None
         pinned = ""
         pin = None
         beside = None
@@ -2234,6 +2236,7 @@ class Board:
             rotations = at.rotations if at.rotations is not None else rotations
             at = None
         elif isinstance(at, (Location, Centre, tuple)):
+            _centre_toward = at if isinstance(at, Centre) else None
             free = _free_axis(at)
             if free is not None:
                 pinned = "center" if isinstance(at, Centre) else "at"
@@ -2309,7 +2312,8 @@ class Board:
                              standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs),
                              pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward, about, run,
                              freedom, required, rotation_given, turned=turned, beside=beside, row_of=_row_of,
-                             cell_pin=cell_pin, drops=drops, line=_script_line())
+                             cell_pin=cell_pin, drops=drops, line=_script_line(),
+                             toward=getattr(_centre_toward, "toward", None))
         self._intents.append(intent)
         return intent
 
@@ -5233,6 +5237,7 @@ class Board:
         for giving in (False, True) if giveway_enabled(self.settings) else (False,):
             rejected: Counter = Counter()
             reasons: dict = {}
+            last_why = ""
             for along in candidates:
                 p = placement_at(along)
                 why = occ.legal_giving_way(i.item, p, clr, others=others, past_edge=past)[0] if giving else \
@@ -5247,9 +5252,13 @@ class Board:
                 if why is None:
                     moved = abs(along - ideal)
                     note = what
-                    if moved > 1e-9:
+                    if moved > 1e-9 and getattr(i, "toward", None) is not None:
+                        note += "; stopped %.2f %s short of the %s end by: %s" % (moved, units, i.toward.name.lower(),
+                                                                               last_why)
+                    elif moved > 1e-9:
                         note += "; slid %.2f %s from its slot: %s" % (moved, units, next(iter(reasons.values()), ""))
                     return self._step(i, p, moved, note)
+                last_why = why
                 key = _reason_key(why)
                 rejected[key] += 1
                 reasons.setdefault(key, why)
@@ -5354,9 +5363,12 @@ class Board:
         lo, hi = (box.top, box.bottom) if axis == "x" else (box.left, box.right)
         lo, hi = lo + self.keep_in, hi - self.keep_in
         ideal = lo + (hi - lo) * (k + 1) / (n + 1)
-        targets = self._targets(spec.anchor, occ, placed)
+        targets = self._targets(spec.anchor, occ, placed) if i.toward is None else None
         seeded = ""
-        if targets:
+        if i.toward is not None:
+            ideal = hi if i.toward in (Edge.SOUTH, Edge.EAST) else lo
+            seeded = "; as far %s as it is legal" % i.toward.name.lower()
+        elif targets:
             hint = self._seed_hint(spec.anchor, occ, targets, i.rotation, i.face)
             anchor = hint.location if i.pinned_by == "at" else occ.body_box(spec.anchor, hint).center
             ideal = min(max(anchor.y if axis == "x" else anchor.x, lo), hi)
@@ -5384,9 +5396,12 @@ class Board:
         lo, hi = (box.top, box.bottom) if axis == "x" else (box.left, box.right)
         lo, hi = lo + self.keep_in, hi - self.keep_in
         ideal = lo + (hi - lo) * (k + 1) / (n + 1)
-        targets = self._targets(i.item, occ, placed)
+        targets = self._targets(i.item, occ, placed) if i.toward is None else None
         seeded = ""
-        if targets:
+        if i.toward is not None:
+            ideal = hi if i.toward in (Edge.SOUTH, Edge.EAST) else lo
+            seeded = "; as far %s as it is legal" % i.toward.name.lower()
+        elif targets:
             hint = self._seed_hint(i.item, occ, targets, i.rotation, i.face)
             anchor = hint.location if (i.pinned_by == "at" and i.kind != "cell") else occ.body_box(i.item, hint).center
             ideal = min(max(anchor.y if axis == "x" else anchor.x, lo), hi)
