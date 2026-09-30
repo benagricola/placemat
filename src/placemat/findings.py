@@ -18,6 +18,9 @@ KINDS = (
     "setup",            # the same every run of the script: an undeclared part, a layer the board lacks
     "route",            # an adopted route dropped because a part it joins moved: the router routes it again
     "vias",             # carried vias that gave way: shared, moved or dropped (giveway.py)
+    "fab",              # a board rule (a net class's track, clearance or via) below the fab profile's minimum
+    "facts",            # the board's facts do not match what `placemat facts --confirm` last confirmed
+    "needs",            # a spot placemat would have used an if-needed fab option for, and did not
 )
 
 
