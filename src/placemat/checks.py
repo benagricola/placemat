@@ -17,7 +17,7 @@ import math
 import re
 
 from .board_geometry import BoardGeometry, CopperItem, Footprint
-from .geometry import point_in_polygon, point_segment_distance, poly_distance, polys_overlap
+from .geometry import poly_distance, polys_overlap
 from .values import Box
 
 AMBIENT_C = 100.0
@@ -513,6 +513,24 @@ def _edt_line(f: list) -> list:
     return d
 
 
+def _distance_transform(inside, nx: int, ny: int) -> list:
+    """The squared-distance-in-cells transform of a 0/1 raster (`inside`
+    truthy = in), a two-pass exact Euclidean transform (Felzenszwalb and
+    Huttenlocher): column-wise then row-wise. The same transform `_Fill`
+    takes of its own polygon (its `self.sq`), reused for an arbitrary
+    raster - the copper `touching` is asked about, on the fill's own
+    grid."""
+    cols = [0.0] * (nx * ny)
+    for q in range(nx):
+        d = _edt_line([math.inf if inside[r * nx + q] else 0.0 for r in range(ny)])
+        for r in range(ny):
+            cols[r * nx + q] = d[r]
+    sq = [0.0] * (nx * ny)
+    for r in range(ny):
+        sq[r * nx:(r + 1) * nx] = _edt_line(cols[r * nx:(r + 1) * nx])
+    return sq
+
+
 class _Fill:
     """One zone fill polygon rasterised at `step`: which cells are copper
     and, for each, its squared distance in cells to the nearest cell that is
@@ -527,19 +545,59 @@ class _Fill:
         self.nx = int(math.ceil(box.width / step)) + 2
         self.ny = int(math.ceil(box.height / step)) + 2
         self.inside = _raster([poly], self.x0, self.y0, self.nx, self.ny, step)
-        nx, ny, inside = self.nx, self.ny, self.inside
-        cols = [0.0] * (nx * ny)
-        for q in range(nx):
-            d = _edt_line([math.inf if inside[r * nx + q] else 0.0 for r in range(ny)])
-            for r in range(ny):
-                cols[r * nx + q] = d[r]
-        self.sq = [0.0] * (nx * ny)
-        for r in range(ny):
-            self.sq[r * nx:(r + 1) * nx] = _edt_line(cols[r * nx:(r + 1) * nx])
+        self.sq = _distance_transform(self.inside, self.nx, self.ny)
+        inside = self.inside
         # the fill's cells deepest first, so the cells at least some distance in are a prefix
-        self.deep = sorted((c for c in range(nx * ny) if inside[c]), key=lambda c: -self.sq[c])
+        self.deep = sorted((c for c in range(self.nx * self.ny) if inside[c]), key=lambda c: -self.sq[c])
         self.depths = [-self.sq[c] for c in self.deep]
         self.levels = sorted(set(self.sq[c] for c in self.deep))
+        self._copper_sq: dict = {}
+
+    def _copper_distance(self, polys) -> list:
+        """The squared-distance-in-cells transform of `polys`, read back at
+        this fill's own cells, cached by `polys`'s identity: `width`'s
+        binary search over levels calls `touching` with the SAME
+        `entry`/`exit_` tuple at every level, so one raster and one
+        transform per copper item serves the whole search, replacing a
+        per-cell edge scan at every level (docs/superpowers/specs/
+        2026-09-30-performance-zone-width-give-way-sweep-design.md
+        section 1).
+
+        Rasterised on a grid grown, cell-aligned, past the fill's own
+        wherever `polys` reaches further than it: copper the fill only
+        touches at a distance (a thermal spoke's pad short of a wide pour's
+        real edge) can lie outside the fill's own bounding box by more than
+        its one-step margin, and a transform clipped to the fill's grid
+        would then understate the distance - reading as not touching where
+        the edge-exact test would still call it touching, past what a
+        single `check.zone_step` excuses."""
+        key = id(polys)
+        hit = self._copper_sq.get(key)
+        if hit is not None and hit[0] is polys:
+            return hit[1]
+        s, x0, y0, nx, ny = self.s, self.x0, self.y0, self.nx, self.ny
+        cbox = Box.union([Box.of_points(p) for p in polys])
+        dq = max(0, int(math.ceil((x0 - (cbox.left - s)) / s - 1e-9)))
+        dr = max(0, int(math.ceil((y0 - (cbox.top - s)) / s - 1e-9)))
+        gx0, gy0 = x0 - dq * s, y0 - dr * s
+        extra_c = max(0, int(math.ceil(((cbox.right + s) - (x0 + nx * s)) / s - 1e-9)))
+        extra_r = max(0, int(math.ceil(((cbox.bottom + s) - (y0 + ny * s)) / s - 1e-9)))
+        gnx, gny = nx + dq + extra_c, ny + dr + extra_r
+        # `_distance_transform`'s seeds (distance 0) are where its raster is
+        # FALSE - right for the fill's own `self.sq` (seeded from outside
+        # the fill), backwards here: a query cell needs its distance TO the
+        # copper, so the copper cells are the seeds, and the raster is
+        # inverted before the transform.
+        if dq == 0 and dr == 0 and extra_c == 0 and extra_r == 0:
+            inside = _raster(polys, x0, y0, nx, ny, s)
+            sq = _distance_transform([not b for b in inside], nx, ny)
+        else:
+            inside = _raster(polys, gx0, gy0, gnx, gny, s)
+            grid = _distance_transform([not b for b in inside], gnx, gny)
+            sq = [grid[(r + dr) * gnx + (q + dq)] for r in range(ny) for q in range(nx)]
+        hit = (polys, sq)
+        self._copper_sq[key] = hit
+        return hit[1]
 
     def centre(self, c: int) -> tuple:
         r, q = divmod(c, self.nx)
@@ -556,7 +614,14 @@ class _Fill:
         radius (`radius(tau)`) reaches `polys`, within half a step: where a
         path that wide can start from copper the fill meets, whether the
         copper overlaps the fill or only touches it (a thermal spoke's end
-        at a pad)."""
+        at a pad).
+
+        `polys` is rasterised and distance-transformed on the fill's own
+        grid (cached per copper item, `_copper_distance`), not walked edge
+        by edge: exact to half a cell rather than to the edge. A width may
+        differ from the edge-exact answer by at most one `check.zone_step`
+        (docs/superpowers/specs/2026-09-30-performance-zone-width-give-way-
+        sweep-design.md section 1)."""
         s, nx, ny, sq, inside = self.s, self.nx, self.ny, self.sq, self.inside
         box = Box.union([Box.of_points(p) for p in polys])
         far = self.radius(tau) + s / 2.0
@@ -570,23 +635,9 @@ class _Fill:
         else:
             cells = [r * nx + q for r in range(r0, r1) for q in range(q0, q1)
                      if inside[r * nx + q] and sq[r * nx + q] >= tau]
-        diag = math.hypot(box.width, box.height)
-        edges = [(poly[k], poly[(k + 1) % len(poly)]) for poly in polys for k in range(len(poly))]
-        out = set()
-        for c in cells:
-            x, y = self.centre(c)
-            dx = max(box.left - x, 0.0, x - box.right)
-            dy = max(box.top - y, 0.0, y - box.bottom)
-            d = math.hypot(dx, dy)                  # to the box: the copper is no nearer, nor more than diag further
-            if d > far:
-                continue
-            if d + diag > far:
-                p = (x, y)
-                if not any(point_in_polygon(p, poly) for poly in polys) and \
-                        all(point_segment_distance(p, a, b) > far for a, b in edges):
-                    continue
-            out.add(c)
-        return out
+        copper_sq = self._copper_distance(polys)
+        limit = (far / s) ** 2
+        return {c for c in cells if copper_sq[c] <= limit + 1e-9}
 
     def _reach(self, start: set, goal: set, tau: float):
         """A path of fill cells from `start` to `goal`, 8-connected, every
