@@ -13,6 +13,14 @@ Fab layer of its face or `User.Comments`, in its own group `keepout
 drawings`. `write.keepout_drawings = "none"` turns it off; `"all"` draws
 every keepout, admitting or not.
 
+`board.push(item, from_=, falloff=, reference=(r_ref, v_ref), limit=)`
+holds an item back from a source by a physical falloff model: illegal
+inside a disc round the source, priced by how close it stands within
+that. Where a script used `Near` on a hand-picked far point for a
+requirement the netlist cannot say, and the real requirement is a
+distance a field or a temperature falls off over, `push` replaces the
+hand-picked point with the physics.
+
 ## To 0.57.2
 
 A keepout that excludes parts only no longer judges a cell's own tracks

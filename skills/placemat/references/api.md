@@ -60,6 +60,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | on a disc's rim facing out, or at its bore facing in | `at=OnRim(edge)` / `at=OnBore(edge)` | Round boards |
 | **what pulls parts together** | | |
 | a connection priced (a bypass capacitor, a series part) | `board.link(a, b, weight=, limit_mm=)` | Links |
+| a part held back from a source by physics, not a hand-picked point (a field sensor from a magnet, a heat-sensitive part from a heat source) | `board.push(item, from_=, falloff=, reference=(r_ref, v_ref), limit=)` | Push |
 | a net whose off-board run dwarfs the board | `board.free_net(net)` | Links |
 | a module's outward, quiet and handoff sides | `board.faces(outward=, quiet=, handoff=)` | Faces |
 | **the board and its regions** | | |
@@ -1102,6 +1103,50 @@ or any integer; 0 means the connection's length does not matter. Every
 connection not declared weighs DEFAULT. A `limit_mm` is a bound: the run
 reports each link's achieved length, and one over its limit is a finding
 quoting `why`.
+
+## Push
+
+```python
+board.push(Part("u2"), from_=Part("m1"), falloff=3, reference=(13.5, 3.2),
+           limit=0.3, why="field at the sensor")
+```
+
+Prices how far an item must stand from a source: `value(r) = v_ref *
+(r_ref / r) ** falloff`, `reference=(r_ref, v_ref)` in the script's own
+units - a dipole's field falls off as the cube (`falloff=3`), heat
+spreading through a plane roughly linearly (`falloff=1`). `r` runs from
+`from_` to `item`.
+
+`item` is a `Part`, or a `PadRef` on one for where the sensing element is
+on the part. `from_` is a `Part` or a `Cell` (its body centre), a `PadRef`,
+a keepout by name, or a `Location`. `item` must already have a
+`board.place()` declaration of its own; `push()` adds to it, the same as
+`board.link()` adds a pull.
+
+**Hard limit.** Where `value(r)` would exceed `limit`, the item may not
+stand: a disc round the source of radius `r_ref * (v_ref / limit) ** (1 /
+falloff)`, reserved against the item alone (Reservation.owners /
+occupancy.let_in) - every other part is still let in, so nothing else is
+fenced by it. Refused like any reservation, naming the push: `sits in the
+reservation for push from m1 (limit 0.3 at 29.9 mm)`.
+
+**Soft price.** Within what is legal, each candidate is priced
+`score.push` (default 10) times `value(r) / limit`, in the search's own
+cost alongside its links and crossings - so the item moves as far out as
+its other terms allow, not to a hand-picked point. Several pushes on one
+item add their prices.
+
+**Order.** The source is placed first: pushing from an item that is
+itself searched waits for it, the same order dependency a position said
+in terms of a pad already carries.
+
+**No position hint.** A pushed item with no `at=` and nothing pulling it
+is searched over the whole board, not near a small default radius: that
+is what "as far as the board allows" needs.
+
+**The report.** The item's step names each push's modelled value and
+distance where it landed: `push from m1: 0.21 at 15.9 mm (limit 0.3)`.
+`placemat check` does not re-judge it - the model is the script's own.
 
 ## Faces (a module's sides, declared once)
 

@@ -317,8 +317,11 @@ the script.
   or anything board-wide re-runs the board. Batch those.
 - No floorplan by coordinate: a `Location` meaning "the power area" is the
   placer's job typed by hand. `Near` is for a requirement the netlist
-  cannot say (a thermal sensor by FETs it shares no net with); a part with
-  a wired neighbour is linked and left bare.
+  cannot say (a thermal sensor by FETs it shares no net with) when a
+  point, not a distance, is what is known; when the requirement IS a
+  distance a field or a temperature falls off over, `board.push()` prices
+  it instead of a hand-picked point. A part with a wired neighbour is
+  linked and left bare.
 - Price the connections, not the parts: a bypass capacitor is a SHORT link
   with a limit at its pin; a series part between two distant parts is
   PREFER on both links; a net whose off-board cable dwarfs the board is
