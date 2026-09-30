@@ -5,6 +5,15 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+`board.outward_rotation(item, edge, face=Face.BACK)` answers for an item on
+the back. A flip mirrors the item before it turns, so the front's answer
+turned a cell's declared east or west side the wrong way. An edge, a run,
+a rim and a block now turn a back-face cell from its mirrored side on
+their own. A script that negated the turn for the back by hand passes
+`face=` instead.
+
 ## To 0.59.1
 
 `placemat facts` reads the board as generated, as `run` does. It failed on

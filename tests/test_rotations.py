@@ -4,7 +4,7 @@ import pytest
 
 from placemat.layout import Board
 from placemat.settings import Settings, SettingsError
-from placemat.values import Cell, Centre, Edge, Location, Near, OnEdge, Part
+from placemat.values import Cell, Centre, Edge, Face, Location, Near, OnEdge, Part
 from tests.fixtures import board_geometry, footprint
 
 
@@ -93,3 +93,41 @@ def test_an_unknown_rotations_setting_is_a_settings_error(tmp_path):
     (tmp_path / "placemat.toml").write_text('[place]\nrotations = "some"\n')
     with pytest.raises(SettingsError, match="all or declared"):
         settings.load(tmp_path)
+
+
+def _east_facing_cell():
+    """Cell c, its outward side declared east: U2 at its east end, U1 at its
+    west end."""
+    import dataclasses
+    fps = [footprint("U1", 40, 30, cell="c", inst="c.u1", nets=("A", "B")),
+           footprint("U2", 48, 30, cell="c", inst="c.u2", nets=("C", "D"))]
+    g = board_geometry(fps, cells=["c"], width=80, height=80)
+    cells = dict(g.cells)
+    cells["c"] = dataclasses.replace(cells["c"], faces={"outward": Edge.EAST.value})
+    return dataclasses.replace(g, cells=cells)
+
+
+@pytest.mark.parametrize("face", [Face.FRONT, Face.BACK])
+@pytest.mark.parametrize("edge", [Edge.NORTH, Edge.EAST, Edge.SOUTH, Edge.WEST])
+def test_outward_rotation_turns_the_declared_side_to_the_edge_on_either_face(face, edge):
+    """On the back a cell is mirrored before it turns, so its east side is
+    its west until turned: the rotation for the back is the one that takes
+    the mirrored side to the edge."""
+    b = Board(_east_facing_cell(), edge_margin=1.0)
+    turn, _ = b.outward_rotation(Cell("c"), edge, face=face)
+    b.place(Cell("c"), at=Location(40, 40), rotation=turn, face=face)
+    occ = b.resolve().occupancy
+    east_end, west_end = occ.items["U2"].reference.location, occ.items["U1"].reference.location
+    dx, dy = east_end.x - west_end.x, east_end.y - west_end.y
+    want = {Edge.NORTH: (0, -1), Edge.SOUTH: (0, 1), Edge.EAST: (1, 0), Edge.WEST: (-1, 0)}[edge]
+    assert (round(dx / 8.0), round(dy / 8.0)) == want, (face, edge, turn, dx, dy)
+
+
+def test_a_cell_on_an_edge_on_the_back_turns_its_declared_side_outward():
+    """place() turns a cell to the edge on its own: on the back, from the
+    mirrored side."""
+    b = Board(_east_facing_cell(), edge_margin=1.0)
+    b.place(Cell("c"), at=OnEdge(Edge.NORTH), face=Face.BACK)
+    occ = b.resolve().occupancy
+    east_end, west_end = occ.items["U2"].reference.location, occ.items["U1"].reference.location
+    assert east_end.y < west_end.y - 4.0, (east_end, west_end)

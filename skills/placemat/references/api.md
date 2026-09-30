@@ -45,7 +45,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | its pad a lane (or the clearance) off a 45 past a pad's corner | `at=Beside(item, Edge.SOUTH, align=(own_pad, Past([PadRef(...)], Corner.NE, lane=Net(...))))` | Placement (Beside) |
 | fixed off a part that is itself searched (a bypass at a searched part's pad end) | any firm `at=` (`Pin`, `Beside`, `row(of=)`) on the searched part: it rides the search | Placement (Riders) |
 | turned with another part | `rotation=Turned(part, deg)` | Placement |
-| turned to face a board edge or a bearing | `board.outward_rotation(item, edge)` | Faces |
+| turned to face a board edge or a bearing | `board.outward_rotation(item, edge, face=)` | Faces |
 | its fine-pitch escape kept clear | `board.fanout(part, depth=)` | Placement |
 | **groups of parts** | | |
 | a part and the parts at its pins | `board.block(anchor, satellites=[(item, net), ...])` | Blocks |
@@ -1118,8 +1118,12 @@ local +Y) and returns `(rotation, note)`: the rotation that turns that
 side to `edge` - a board `Edge`, or a bearing in degrees on a round
 board's rim - and a note, for a cell with no `faces()` declared, saying
 it fell back to the generic rule (read it: that cell may not turn the way
-you meant). A part always takes the generic rule, with no note.
-`rotation=board.outward_rotation(item, Edge.WEST)[0]` is the computed
+you meant). A part always takes the generic rule, with no note. For an
+item placed with `face=Face.BACK`, pass the same face,
+`board.outward_rotation(item, edge, face=Face.BACK)`: a flip mirrors the
+item before it turns, so a side declared east is its west until turned.
+An edge, a run, a rim and a block turn a back-face item this way on their
+own. `rotation=board.outward_rotation(item, Edge.WEST)[0]` is the computed
 form of a hand-written rotation helper that reads a pad's direction and
 works the turn out itself: it answers a rotation, the same way `extent`
 and `pitch` answer a size, and is not a coordinate to place by.

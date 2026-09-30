@@ -2231,13 +2231,13 @@ class Board:
             if isinstance(run, CutoutEdge):
                 rotation, faces_note = None, ""      # the stretch is not known yet: turned when it is
             elif run is not None and isinstance(along, (int, float)):
-                rotation, faces_note = self.outward_rotation(item, run.at(along)[1])
+                rotation, faces_note = self.outward_rotation(item, run.at(along)[1], face)
             elif run is not None and along is not None:
                 rotation, faces_note = None, ""      # along is a reference: not known until it is placed
             elif rim is not None and angle is not None:
-                rotation, faces_note = self.outward_rotation(item, angle + (180.0 if rim == "bore" else 0.0))
+                rotation, faces_note = self.outward_rotation(item, angle + (180.0 if rim == "bore" else 0.0), face)
             elif edge is not None and along is None:
-                rotation, faces_note = self.outward_rotation(item, edge)
+                rotation, faces_note = self.outward_rotation(item, edge, face)
             else:
                 rotation, faces_note = 0.0, ""
         if kind == "cell" and at is not None and center is None:
@@ -2814,20 +2814,27 @@ class Board:
             raise ValueError("faces() names at least one side")
         self._faces = ("placemat faces " + " ".join(words), why)
 
-    def outward_rotation(self, item, edge) -> tuple[float, str]:
+    def outward_rotation(self, item, edge, face: Face = Face.FRONT) -> tuple[float, str]:
         """The rotation that turns the item's outward side to `edge` - a board
-        edge, or a bearing on a round board's rim - and a note when the item
-        declared none (the generic rule: local +Y out)."""
+        edge, or a bearing on a round board's rim - when it is placed on
+        `face`, and a note when the item declared none (the generic rule:
+        local +Y out). A flip to the back mirrors the item about the vertical
+        axis before it turns, so on the back a side declared east is its
+        west until turned; north and south are unchanged."""
+        face = Face.FRONT if face is None else face if isinstance(face, Face) else Face(face)   # "front"/"back", as place() takes
         geom, key, kind = self._item(item)
         declared = geom.faces.get("outward") if kind == "cell" else None
         note = "" if kind != "cell" else "no faces declared: turned as if its outward side were local +Y"
+        side = Edge(declared) if declared else None
+        if side is not None and face is Face.BACK:
+            side = {Edge.EAST: Edge.WEST, Edge.WEST: Edge.EAST}.get(side, side)
         if isinstance(edge, Edge):
-            if not declared:
+            if side is None:
                 return _OUTWARD_ROTATION[edge], note
-            return _rotation_taking(Edge(declared), edge), ""
+            return _rotation_taking(side, edge), ""
         # A bearing: turning by r takes a side pointing along bearing b to b - r,
         # so the rotation is the side's own bearing less the one wanted.
-        local = _EDGE_BEARING[Edge(declared)] if declared else _EDGE_BEARING[Edge.SOUTH]
+        local = _EDGE_BEARING[side] if side is not None else _EDGE_BEARING[Edge.SOUTH]
         # to a millionth of a degree: a bearing read off a curve carries float noise (359.99999999999994 for
         # 0), and a part turned by it has pads a hair off the axes, which the router reads as off the board
         return round(local - bearing(edge), 6) % 360.0, "" if declared else note
@@ -4003,7 +4010,7 @@ class Board:
                     obj.along = _run_along(self, occ, obj)      # a reference: the place on the edge nearest it
                 if obj.rotation is None:            # turned to the way the board faces where it sits
                     obj.rotation, obj.faces_note = self.outward_rotation(
-                        obj.item, obj.run.at(obj.along if obj.along is not None else 0.0)[1])
+                        obj.item, obj.run.at(obj.along if obj.along is not None else 0.0)[1], getattr(obj, "face", None))
             plan._items[obj.key] = obj.item
             if self._fit and not obj.freedom.decided:
                 occ.board_box = self._outline = self._fit_room(occ, plan, obj)
@@ -4960,7 +4967,7 @@ class Board:
         shape = occ.board_shape or self._shaped()
 
         def at(along):
-            rot = self.outward_rotation(spec.anchor, run.at(along)[1])[0] if i.outward else i.rotation
+            rot = self.outward_rotation(spec.anchor, run.at(along)[1], i.face)[0] if i.outward else i.rotation
             return run_placement(occ, spec.anchor, shape, run, along, i.clearance, rot, i.face)
         return self._slide_block(occ, i, plan, clr, spec, ideal, 0.0, run.length, at,
                                  "along the run facing %.0f degrees" % run.facing)
@@ -4972,7 +4979,7 @@ class Board:
         r = max(disc.bore if bore else disc.radius, 1e-6)
 
         def at(angle):
-            rot = self.outward_rotation(spec.anchor, angle + (180.0 if bore else 0.0))[0] if i.outward else i.rotation
+            rot = self.outward_rotation(spec.anchor, angle + (180.0 if bore else 0.0), i.face)[0] if i.outward else i.rotation
             return disc_placement(occ, spec.anchor, disc, angle, i.clearance, rot, i.face, bore=bore)
         return self._slide_block(occ, i, plan, clr, spec, ideal, ideal - 180.0, ideal + 180.0, at,
                                  "round the %s" % ("bore" if bore else "rim"),
@@ -5098,7 +5105,7 @@ class Board:
         shape = occ.board_shape or self._shaped()
 
         def at(along):
-            rot = self.outward_rotation(i.item, run.at(along)[1])[0] if i.outward else i.rotation
+            rot = self.outward_rotation(i.item, run.at(along)[1], i.face)[0] if i.outward else i.rotation
             return run_placement(occ, i.item, shape, run, along, i.clearance, rot, i.face)
         return self._slide(occ, i, plan, clr, ideal, 0.0, run.length, at,
                            "along the run facing %.0f degrees" % run.facing)
@@ -5122,7 +5129,7 @@ class Board:
         r = max(disc.bore if bore else disc.radius, 1e-6)
 
         def at(angle):
-            rot = self.outward_rotation(i.item, angle + (180.0 if bore else 0.0))[0] if i.outward else i.rotation
+            rot = self.outward_rotation(i.item, angle + (180.0 if bore else 0.0), i.face)[0] if i.outward else i.rotation
             return disc_placement(occ, i.item, disc, angle, i.clearance, rot, i.face, bore=bore)
         return self._slide(occ, i, plan, clr, ideal, ideal - 180.0, ideal + 180.0, at,
                            "round the %s" % ("bore" if bore else "rim"),
@@ -5410,7 +5417,7 @@ class Board:
                 anchor = box_centered_placement(occ, spec.anchor, _locate(self, occ, i.center), i.rotation, i.face)
             elif i.run is not None:
                 along = _run_along(self, occ, i)
-                rot = self.outward_rotation(spec.anchor, i.run.at(along)[1])[0] if i.rotation is None else i.rotation
+                rot = self.outward_rotation(spec.anchor, i.run.at(along)[1], i.face)[0] if i.rotation is None else i.rotation
                 anchor = run_placement(occ, spec.anchor, occ.board_shape or self._shaped(), i.run,
                                        along, i.clearance, rot, i.face)
             elif i.rim is not None:
@@ -5607,7 +5614,7 @@ class Board:
             along = _run_along(self, occ, i)
             # a numeric along= turns the item at declaration; a reference's length along
             # the run is not known until now, so its outward turn waits for it too
-            rot = self.outward_rotation(i.item, i.run.at(along)[1])[0] if i.rotation is None else i.rotation
+            rot = self.outward_rotation(i.item, i.run.at(along)[1], i.face)[0] if i.rotation is None else i.rotation
             p = run_placement(occ, i.item, occ.board_shape or self._shaped(), i.run,
                               along, i.clearance, rot, i.face)
         elif i.rim is not None:
