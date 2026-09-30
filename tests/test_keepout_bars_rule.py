@@ -1,6 +1,6 @@
 """A keepout that names what it bars is written as a KiCad rule area that
 allows footprints, and a .kicad_dru rule that forbids exactly the barred
-references. Its drawn label says what it bars, briefly."""
+references. Its drawn label is its name, never what it bars."""
 from placemat.cutouts import Circle
 from placemat.layout import Board
 from placemat.values import CopperLayer, Location, Part
@@ -99,22 +99,9 @@ def _label(bars, **kw):
 
 
 @needs_kicad
-def test_a_label_says_what_a_keepout_bars_when_it_is_three_refs_or_fewer():
-    assert _label(("m1",)) == "cup: bars M1"
-    assert _label(("m1", "j1", "j2")) == "cup: bars J1, J2, M1"
-
-
-@needs_kicad
-def test_a_label_for_more_than_three_barred_refs_is_just_the_name():
+def test_a_label_names_the_keepout_and_never_what_it_bars():
+    """The .kicad_dru rule names the barred parts; the label is the
+    keepout's name, and its height limit when it has one."""
+    assert _label(("m1",)) == "cup"
     assert _label(("m1", "j1", "j2", "n1")) == "cup"
-
-
-@needs_kicad
-def test_a_label_with_a_height_limit_says_both():
-    assert _label(("m1",), max_height=2.0) == "cup: bars M1; parts <= 2.00 mm"
-
-
-def test_the_label_limit_is_a_setting():
-    from placemat.settings import Settings
-    assert Settings().write_keepout_label_refs == 3
-    assert Settings(write_keepout_label_refs=1).write_keepout_label_refs == 1
+    assert _label(("m1",), max_height=2.0) == "cup: parts <= 2.00 mm"

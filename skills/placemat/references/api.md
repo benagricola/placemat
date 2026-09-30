@@ -889,11 +889,9 @@ admits parts has a rule area that allows footprints and a `.kicad_dru`
 rule, so its limit shows nowhere while placing by hand. By default such a
 keepout is also drawn: its outline and its name on the Fab layer of its
 face, or `User.Comments` for one on both faces or on inner layers only,
-with its height limit when it has one (`ring: parts <= 1.90 mm`). A
-`bars=` keepout's label also says `bars M1, J1` when it bars
-`write.keepout_label_refs` references or fewer, else it is just the name.
-The parts and nets it admits by name are never written as text: the rule
-says them. `write.keepout_drawings` chooses: `admitting` (the default), `all`,
+with its height limit when it has one (`ring: parts <= 1.90 mm`). The
+parts and nets it admits or bars by name are never written as text: the
+rule says them. `write.keepout_drawings` chooses: `admitting` (the default), `all`,
 or `none`. These drawings are placemat's own, in one group, `keepout
 drawings`, replaced whole on every write.
 
@@ -2392,7 +2390,6 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `write.keepout_drawings` | "admitting" | draw a keepout's outline and name (and its height limit) on its Fab layer, or `User.Comments` for one on both faces or on inner layers only: `admitting` (default) those that admit something, `all` every keepout, `none` |
 | `write.keepout_line` | 0.1 | a drawn keepout's outline stroke |
 | `write.keepout_text` | 0.8 | a drawn keepout's label height |
-| `write.keepout_label_refs` | 3 | a `bars=` keepout's label lists what it bars up to this many references, else just its name |
 | `copper.microvia_drill` | 0.1 | a micro via's drill (`layers=` one layer from an outer face) when the script gives none |
 | `copper.cell_zones_under_planes` | "drop" | a stamped cell's zone the board's own plane covers on its net and layer: `drop` merges it into the plane, `keep` keeps it |
 | `label.size` | 1.0 | silkscreen text height |

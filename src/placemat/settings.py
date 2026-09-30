@@ -83,7 +83,6 @@ class Settings:
     write_keepout_drawings: str = "admitting"   # draw a keepout's outline and name (and height limit) on its Fab layer (or User.Comments): "admitting" (default) those that admit something, "all" every keepout, "none"
     write_keepout_line: float = 0.1    # a drawn keepout's outline stroke
     write_keepout_text: float = 0.8    # a drawn keepout's label height
-    write_keepout_label_refs: int = 3  # a bars= keepout's label lists what it bars up to this many references, else just its name
     # [label]
     label_size: float = 1.0
     label_thickness: float = 0.15
@@ -302,7 +301,6 @@ _ABOVE_ZERO = frozenset((
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line", "write_keepout_text"))
 _AT_LEAST_ZERO = frozenset((
-    "write_keepout_label_refs",
     "rank_area", "rank_pins", "place_drops_keep", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge", "copper_chamfer", "best_airwire_noise",
     "best_crossing_noise", "score_unplaced", "score_priority_high", "score_priority_default", "score_priority_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
