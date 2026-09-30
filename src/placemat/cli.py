@@ -1223,20 +1223,19 @@ def cmd_check(args) -> int:
 
 def cmd_facts(args) -> int:
     from . import facts as facts_mod
-    from .context import run_script
-    from .kicad.read import read_board
-    from .layout import Board
     from .project import fab_profile, find_board
+    from .runner import cached_generation, scripted_board
     from .settings import bind, load
     script = Path(args.script).resolve()
     src = find_board(script)
     cfg = load(src.board_dir)
     fab = fab_profile(src.board_dir)
+    # the board as generated, as `run` reads it: the written layout carries the last run's own rule areas
+    generated = cached_generation(src) / src.pcb.name
     with bind(cfg):
-        geometry = read_board(src.pcb, courtyard_excess_mm=fab.courtyard_excess)
-        board = Board(geometry, settings=cfg, fab_via_tiers=fab.via_tiers,
-                      fab_source=str(fab.path) if fab.path else "")
-        run_script(script, board)
+        board = scripted_board(script, src, cfg, fab, keep_going=True,
+                               pcb=generated if generated.exists() else None)
+    geometry = board.geometry
     plane_layers = frozenset(l for l, _nets in board._plane_layers().items())
     doc = facts_mod.facts_of(geometry, fab, cfg.check_rise_c, plane_layers)
     reasons = facts_mod.unconfirmed_reasons(doc, cfg.facts_confirmed)
