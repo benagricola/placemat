@@ -242,6 +242,7 @@ class BoardGeometry:
     silk_clearance: float = 0.0           # silk to silk and to a mask opening, from the board's rules
     pin_names: dict = field(default_factory=dict, compare=False)   # refdes -> {pad number: pin name}, from the symbols
     layer_types: dict = field(default_factory=dict, compare=False)  # CopperLayer -> KiCad's type: signal, power, mixed, jumper
+    copper_mm: dict = field(default_factory=dict, compare=False)   # CopperLayer -> thickness mm, from the board's stackup; {}: no stackup declared
     _by_ref: dict = field(default_factory=dict, repr=False, compare=False)
     _by_inst: dict = field(default_factory=dict, repr=False, compare=False)
 
