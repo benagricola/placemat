@@ -27,6 +27,10 @@ A net class makes pairs only when it sets its own `diff_pair_width` and
 its default pair figures on every class: a two-net class of control lines
 at their own width was paired and routed coupled.
 
+`placemat facts` reads a `via` section naming every type `"no"` as decided
+(through vias only), where 0.58 read it as missing. A section that leaves a
+type out stays unconfirmed, and the reason names the types.
+
 ## To 0.59.1
 
 `placemat facts` reads the board as generated, as `run` does. It failed on
