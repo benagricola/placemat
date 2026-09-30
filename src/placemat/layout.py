@@ -314,6 +314,8 @@ class PlacedKeepout:
     allow: frozenset
     owners: frozenset
     why: str
+    max_height: float | None = None     # the keepout's own max_height=, for its drawn label
+    admitted: frozenset = frozenset()   # the parts owners admits by height alone, a subset of owners
 
 
 @dataclass
@@ -3950,7 +3952,8 @@ class Board:
                                 layer=layer, admitted=admitted,
                                 copper=bool({"tracks", "fill", "vias", "pads"} & set(k.excludes)))
                 plan.keepouts[k.name] = PlacedKeepout(k.name, poly, centre, turn, k.excludes,
-                                                      k.layers, nets, owners | (admitted or frozenset()), k.why)
+                                                      k.layers, nets, owners | (admitted or frozenset()), k.why,
+                                                      k.max_height, admitted or frozenset())
                 step.note = "kept clear at %.2f, %.2f" % (centre.x, centre.y)
                 if outside:
                     step.note += "; %d of its %d points are off the board" % (outside, total)

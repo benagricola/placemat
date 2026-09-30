@@ -40,6 +40,21 @@ def test_allow_still_admits_a_tall_part_by_name():
     assert not [f for f in plan.findings if "ring" in f]
 
 
+def test_the_placed_keepout_carries_its_height_admission_separately():
+    b, plan = _board("1.1mm")
+    k = plan.keepouts["ring"]
+    assert k.max_height == 1.9
+    assert k.admitted == {"C1"}
+    assert k.owners == {"C1"}                      # unchanged: still the union, for runner.py
+
+
+def test_a_part_named_in_allow_is_not_counted_as_height_admitted():
+    b, plan = _board("2.5", allow=(Part("c1"),))
+    k = plan.keepouts["ring"]
+    assert k.admitted == frozenset()
+    assert k.owners == {"C1"}
+
+
 def test_the_board_answers_a_parts_height_and_the_listing_shows_it():
     b, plan = _board("1.1mm")
     assert b.height_of(Part("c1")) == pytest.approx(1.1)
