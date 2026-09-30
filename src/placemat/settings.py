@@ -83,6 +83,7 @@ class Settings:
     write_keepout_drawings: str = "admitting"   # a keepout that admits something drawn on its Fab layer (or User.Comments): "admitting" (default) those that admit something, "all" every keepout, "none"
     write_keepout_line: float = 0.1    # a drawn keepout's outline stroke
     write_keepout_text: float = 0.8    # a drawn keepout's label height
+    write_keepout_label_refs: int = 6  # a keepout label names up to this many parts (or nets), else a count
     # [label]
     label_size: float = 1.0
     label_thickness: float = 0.15
@@ -299,7 +300,7 @@ _ABOVE_ZERO = frozenset((
     "geometry_arc_error_nm", "check_rise_c", "check_zone_step",
     "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm",
-    "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line", "write_keepout_text"))
+    "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line", "write_keepout_text", "write_keepout_label_refs"))
 _AT_LEAST_ZERO = frozenset((
     "rank_area", "rank_pins", "place_drops_keep", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge", "copper_chamfer", "best_airwire_noise",
     "best_crossing_noise", "score_unplaced", "score_priority_high", "score_priority_default", "score_priority_low",
