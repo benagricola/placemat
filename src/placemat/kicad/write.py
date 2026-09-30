@@ -380,28 +380,18 @@ def _keepout_drawing_layer(layers):
     return pcbnew.F_Fab if next(iter(faces)) is Face.FRONT else pcbnew.B_Fab
 
 
-def _keepout_admits_text(k, refs=(), limit: int = 6) -> str:
-    """`<name>: parts <= H mm` for a height, the parts named by allow=, and
-    `<name>: GND copper` for nets, joined with '; '. A label is text KiCad
-    hit-tests glyph by glyph, so the parts clause stays short: up to
-    `limit` references are named (`U3, U4`); an allow list naming most of
-    the board's parts (`refs`) names what it bars instead (`all parts but
-    M1, J1`); past `limit` either way it gives a count."""
+def _keepout_admits_text(k) -> str:
+    """`<name>: parts <= H mm` for a height, `<name>: U3, U4` for parts
+    named by allow=, `<name>: GND copper` for nets, joined with '; ' when
+    a keepout admits more than one kind."""
     clauses = []
     if k.max_height is not None:
         clauses.append("parts <= %.2f mm" % k.max_height)
     named = sorted(k.owners - k.admitted)
     if named:
-        barred = sorted(set(refs) - set(k.owners)) if refs else None
-        if barred is not None and len(barred) < len(named) and len(named) > limit:
-            clauses.append("all parts" if not barred else
-                           "all parts but " + ", ".join(barred) if len(barred) <= limit else
-                           "all but %d parts" % len(barred))
-        else:
-            clauses.append(", ".join(named) if len(named) <= limit else "%d parts by name" % len(named))
+        clauses.append(", ".join(named))
     if k.allow:
-        nets = sorted(k.allow)
-        clauses.append((", ".join(nets) if len(nets) <= limit else "%d nets'" % len(nets)) + " copper")
+        clauses.append(", ".join(sorted(k.allow)) + " copper")
     return "%s: %s" % (k.name, "; ".join(clauses))
 
 
@@ -470,8 +460,7 @@ def _draw_keepout_drawings(board, plan):
         drawn.append(sh)
         centre = Box.of_points(k.poly).center
         t = pcbnew.PCB_TEXT(board)
-        t.SetText(_keepout_admits_text(k, [fp.ref for fp in plan.geometry.footprints],
-                                       plan.occupancy.settings.write_keepout_label_refs))
+        t.SetText(_keepout_admits_text(k))
         t.SetLayer(layer)
         t.SetTextSize(pcbnew.VECTOR2I(nm(size), nm(size)))
         t.SetTextThickness(nm(line))

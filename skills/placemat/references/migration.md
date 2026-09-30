@@ -7,11 +7,6 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
-A keepout's drawn label names at most `write.keepout_label_refs` (6)
-parts: an allow list naming most of the board names what it bars ("all
-parts but M1, J1, J2"), and a longer list is a count. A label listing
-every admitted part ran half a metre across and made KiCad slow to click.
-
 Under `[place] envelope = "physical"`, a part whose fab layer holds one
 closed shape (a circle, a polygon, a rectangle) claims that shape, stroke
 included, as its body; several graphics (four lines round a body) still

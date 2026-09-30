@@ -141,38 +141,3 @@ def test_a_stamped_fragments_own_nested_group_is_left_alone():
     still_nested = [g for g in board.Groups()
                     if g.GetParentGroup() is not None and g.GetParentGroup().GetName() == "m"]
     assert len(still_nested) == 1 and still_nested[0].GetName() == "keepout drawings"
-
-
-def _named_keepout(allowed, total):
-    """A keepout admitting `allowed` of `total` parts by name, as a
-    PlacedKeepout the label reads."""
-    import types
-    refs = ["R%d" % i for i in range(1, total + 1)]
-    return types.SimpleNamespace(name="k", max_height=None, owners=frozenset(refs[:allowed]),
-                                 admitted=frozenset(), allow=frozenset()), refs
-
-
-def test_a_label_naming_most_of_the_board_names_what_it_bars():
-    from placemat.kicad.write import _keepout_admits_text
-    k, refs = _named_keepout(297, 300)
-    assert _keepout_admits_text(k, refs, 6) == "k: all parts but R298, R299, R300"
-
-
-def test_a_label_past_the_limit_gives_a_count():
-    from placemat.kicad.write import _keepout_admits_text
-    k, refs = _named_keepout(40, 300)
-    assert _keepout_admits_text(k, refs, 6) == "k: 40 parts by name"
-    k, refs = _named_keepout(260, 300)
-    assert _keepout_admits_text(k, refs, 6) == "k: all but 40 parts"
-
-
-def test_a_short_list_is_still_named():
-    from placemat.kicad.write import _keepout_admits_text
-    k, refs = _named_keepout(2, 300)
-    assert _keepout_admits_text(k, refs, 6) == "k: R1, R2"
-
-
-def test_a_label_admitting_every_part_by_name_says_all_parts():
-    from placemat.kicad.write import _keepout_admits_text
-    k, refs = _named_keepout(300, 300)
-    assert _keepout_admits_text(k, refs, 6) == "k: all parts"

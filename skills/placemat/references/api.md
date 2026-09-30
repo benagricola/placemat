@@ -2371,7 +2371,6 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `write.keepout_drawings` | "admitting" | draw a keepout's outline and what it admits, on its Fab layer (or `User.Comments` for one on both faces or on inner layers only): `admitting` (default) those that admit something (`allow=` or `max_height=`), `all` every keepout, `none` |
 | `write.keepout_line` | 0.1 | a drawn keepout's outline stroke |
 | `write.keepout_text` | 0.8 | a drawn keepout's label height |
-| `write.keepout_label_refs` | 6 | how many parts (or nets) a keepout's drawn label names; an allow list naming most of the board names what it bars instead ("all parts but M1, J1"), and past this either way the label gives a count, so KiCad is not slowed by a long label |
 | `copper.microvia_drill` | 0.1 | a micro via's drill (`layers=` one layer from an outer face) when the script gives none |
 | `copper.cell_zones_under_planes` | "drop" | a stamped cell's zone the board's own plane covers on its net and layer: `drop` merges it into the plane, `keep` keeps it |
 | `label.size` | 1.0 | silkscreen text height |
