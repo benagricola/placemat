@@ -96,7 +96,7 @@ def test_a_fixed_part_on_a_reserved_label_is_a_collision_that_stops_the_run():
     assert "label j1 MOTOR" in str(e.value) and "r1" in str(e.value)
 
 
-def test_a_label_on_an_undeclared_part_uses_where_the_board_has_it_but_an_unplaced_one_is_an_error():
+def test_a_label_on_an_undeclared_part_uses_where_the_board_has_it_but_an_unplaced_ones_is_a_finding():
     b = make_board()
     b.label(Part("j1"), "MOTOR")                            # j1 stays where the board has it
     (t,) = labels(b.resolve())
@@ -105,8 +105,9 @@ def test_a_label_on_an_undeclared_part_uses_where_the_board_has_it_but_an_unplac
     b.place(Part("j1"), at=Near(Location(30, 30), radius=0.2))
     b.place(Part("j2"), at=Location(30, 30), face=Face.FRONT)  # j1 has nowhere to go
     b.label(Part("j1"), "MOTOR")
-    with pytest.raises(ValueError):
-        b.resolve()
+    plan = b.resolve()                                       # the run goes on, as j1's own refusal does
+    assert not labels(plan)
+    assert [f for f in plan.findings if f.kind == "label" and "MOTOR" in f and "no place" in f], list(plan.findings)
 
 
 def test_a_label_reserves_its_space_so_nothing_is_placed_over_it():

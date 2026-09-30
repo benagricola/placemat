@@ -5,6 +5,12 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+A label on an item that found no place is a `label` finding ("not drawn:
+U8 found no place"), and the run goes on. It stopped the run, even under
+`--keep-going`.
+
 ## To 0.63.0
 
 Under `[place] envelope = "physical"`, a footprint that draws neither silk

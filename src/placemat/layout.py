@@ -5021,7 +5021,7 @@ class Board:
         """Every label whose item is down and not yet labelled: its text op,
         its reservation, and a finding when it sits on something already
         placed. Called after each placement and once more at the end, when
-        an item that was declared but found no place is an error."""
+        a label whose item was declared but found no place is a finding."""
         declared = self._declared_refs()
         done = plan.__dict__.setdefault("_labelled", {})
         if final:                       # what landed on a label after it was worked out
@@ -5045,8 +5045,10 @@ class Board:
             group_refs = [r for one in (group or ()) for r in self._label_refs(one)]
             waiting = [r for r in refs + group_refs if r in declared and r not in placed]
             if waiting:
-                if final:
-                    raise ValueError("%s: %s was declared but found no place" % (key, waiting[0]))
+                if final:               # its item found no place: the label is not drawn, as the item is not
+                    said = "%s: not drawn: %s found no place" % (key, occ.who(waiting[0]))
+                    if said not in plan.findings:
+                        plan.findings.append(Finding("label", said))
                 continue
             box, face = box_of(item)
             line = Box.union([box_of(one)[0] for one in group]) if group else None
