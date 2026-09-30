@@ -61,6 +61,8 @@ class Settings:
     place_conflict_gap: float = 1.0
     place_fit_room: float = 10.0        # a fit frame's provisional room: how far round the decided content a searched item may go
     place_via_share: float = 1.0        # a carried via meeting another net's copper may share a same-net via this close (giveway.py); 0: never
+    place_via_move: float = 0.5         # or move this far to clear it; 0: never
+    place_via_move_step: float = 0.05   # the grid a via's move is searched on
     # [copper]
     copper_chamfer: float = 1.0
     copper_pair_chamfer: float = 0.5
@@ -150,6 +152,7 @@ class Settings:
     score_escape_walled: float = 400.0  # a pad with no route out at all
     score_congestion: float = 10.0      # explore: a step (explore.congestion_step) of the worst RUDY cell
     score_via_share: float = 1.0        # the search: a carried via that shares a same-net via
+    score_via_move: float = 2.0         # a carried via that moves
     # [solve] - the global pre-solve for the searched tier's hints
     solve_enabled: bool = False
     solve_iterations: int = 200
@@ -273,7 +276,7 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 # from this table because weighting a dimension at nothing is a real choice.
 _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_coarse_from", "place_coarse_steps",
-    "place_refine_around", "place_block_gap_step", "place_block_gap_reach", "place_escape_depth", "score_escape_depth",
+    "place_refine_around", "place_block_gap_step", "place_block_gap_reach", "place_escape_depth", "score_escape_depth", "place_via_move_step",
     "place_conflict_gap", "place_fit_room", "copper_bridge_half", "copper_finger_bridge_width",
     "copper_plane_min_thickness", "copper_pour_stroke", "label_size",
     "label_thickness", "geometry_arc_sag", "geometry_index_cells",
@@ -288,7 +291,8 @@ _AT_LEAST_ZERO = frozenset((
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_congestion",
     "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
-    "score_pair_crossing", "place_via_share", "score_via_share"))
+    "score_pair_crossing", "place_via_share", "place_via_move", "score_via_share",
+    "score_via_move"))
 
 
 def _declared(name: str) -> str:

@@ -1237,19 +1237,24 @@ cell's own. Its tail is the one track of the same owner and net that ends
 at its centre; a via that two of the cell's tracks meet, or whose track
 runs on to another of its vias, is part of a route and stays as drawn.
 Where a carried via meets another net's copper, on either face, the search
-does not refuse the spot at once. The via tries:
+does not refuse the spot at once. The via tries, in turn:
 
 - to share a via of its net from any other item, on either face, within
   `place.via_share` (1.0 mm): the via is taken out and a straight tail at
   the net's width joins its pad (its old tail's far end, or where it stood)
   to that via on the via's own face. The tail must clear every other net's
-  copper. A via of the net already on its spot needs no tail.
+  copper. A via of the net already on its spot needs no tail;
+- to move up to `place.via_move` (0.5 mm), searched on a
+  `place.via_move_step` (0.05 mm) grid nearest first, to a spot clear of
+  every other net's copper on every layer and of every hole, its tail
+  redrawn from its pad. A via inside its pad moves only within that pad.
 
 If none works the spot is refused, and the refusal names the via and why
 each way failed: "via GND at (19.10, 21.90) is 0.00 mm from S copper on
-B.Cu (needs 0.20); it cannot give way: no GND via within 1.00 mm to share".
-Sharing has a cost the search adds to the spot's score,
-`score.via_share` (1), so it
+B.Cu (needs 0.20); it cannot give way: no GND via within 1.00 mm to share,
+no spot within 0.50 mm is clear".
+Each way has a cost the search adds to the spot's score -
+`score.via_share` (1), `score.via_move` (2) - so it
 prefers spots where the vias stay as drawn; a nearest-first search takes a
 spot where they give way only when no spot has them as drawn. A
 firm item's carried vias, and a rider's, give way where it is put. An item
@@ -2019,6 +2024,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.conflict_gap` | 1.0 | how far outside a box a conflict can still reach |
 | `place.fit_room` | 10.0 | on a fit frame, how far round the decided content a searched item may go |
 | `place.via_share` | 1.0 | how near a via of its net a carried via that meets another net's copper may be to share it instead; 0 never shares |
+| `place.via_move` | 0.5 | how far such a via may move to clear it; 0 never moves |
+| `place.via_move_step` | 0.05 | the grid a via's move is searched on |
 | `copper.chamfer` | 1.0 | how far a right angle is cut back into two 45s |
 | `copper.pair_chamfer` | 0.5 | the same, for a differential pair |
 | `copper.pair_via_step` | 0.4 | how far clear of its partner a pair's lead vias |
@@ -2092,6 +2099,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.escape_depth` | 1.5 | mm: the corridor length the escape findings, and so the run score, are measured at, whatever `place.escape_depth` the search used, so runs at different search depths compare |
 | `score.congestion` | 10 | explore: mm per `explore.congestion_step` of the worst RUDY cell |
 | `score.via_share` | 1 | mm the search adds to a spot for each carried via that shares a via of its net there |
+| `score.via_move` | 2 | mm for each carried via that moves there |
 | `solve.enabled` | false | give the searched tier its hints from a global solve of the whole netlist, before any item is scanned |
 | `solve.iterations` | 200 | the solve's conjugate-gradient cap per axis per round |
 | `solve.tolerance` | 1e-06 | the residual the solve stops at |

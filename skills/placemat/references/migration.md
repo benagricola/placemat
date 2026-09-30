@@ -9,10 +9,11 @@ section for each hand-written pattern a newer form replaces.
 
 A carried via - one at a searched part's pad, or a stamped cell's own - that
 meets another net's copper no longer refuses the spot outright: it shares a
-same-net via within `place.via_share` (api.md, "Carried vias give way"),
-priced in the search at `score.via_share`. A cell whose own vias met the
-other face's pads everywhere may now place. `place.via_share = 0` turns it
-off.
+same-net via within `place.via_share`, or moves up to `place.via_move`
+(api.md, "Carried vias give way"). The search prices each at
+`score.via_share` and `score.via_move`. A cell whose own vias met the other
+face's pads everywhere may now place. `place.via_share = 0` and
+`place.via_move = 0` turn each off.
 
 A copper finding measures a via as the circle it is, as KiCad's DRC does:
 a via just over the clearance from a track read as just under it ("0.16 mm

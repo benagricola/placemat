@@ -9,17 +9,21 @@ copper, on either face, at a candidate, it tries in turn to
 
 1. share a same-net via of another item within `place.via_share`: the via is
    removed and a straight tail at the net's width joins its pad (its old
-   tail's far end, or where it stood) to that via, on its own face.
+   tail's far end, or where it stood) to that via, on its own face;
+2. move up to `place.via_move`, searched on a `place.via_move_step` grid,
+   nearest first, to a spot clear of every other net's copper and every
+   hole, its tail redrawn from its pad; a via inside its pad stays inside it.
 
 The search judges the item less its carried vias natively, as it judges
 any item; what the vias do is judged here, in Python, after that, and priced
-at `score.via_share` each.
+at `score.via_share` and `score.via_move` each.
 
 What is decided is recomputed at each commit from the board as it stands, so
 a replayed commit, or a part the cleanup pass moves, gives way the same."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import functools
 import math
 
 from .copper import Track
@@ -36,18 +40,19 @@ def pad_via_id(k: int) -> str:
 
 def enabled(settings) -> bool:
     """Whether a carried via may give way at all under these settings."""
-    return settings.place_via_share > 0
+    return settings.place_via_share > 0 or settings.place_via_move > 0
 
 
 def reach(settings) -> float:
     """How far past an item's copper what its vias do can reach."""
-    return settings.place_via_share
+    return settings.place_via_share + settings.place_via_move
 
 
 def least_cost(settings) -> float:
     """The least a spot where a via must give way costs beyond its score:
     the cheapest way these settings allow."""
-    ways = [cost for on, cost in ((settings.place_via_share > 0, settings.score_via_share),) if on]
+    ways = [cost for on, cost in ((settings.place_via_share > 0, settings.score_via_share),
+                                  (settings.place_via_move > 0, settings.score_via_move)) if on]
     return min(ways) if ways else 0.0
 
 
@@ -145,6 +150,35 @@ def _width(tail) -> float:
     return round(2.0 * min(point_segment_distance(mid, tail.poly[i], tail.poly[(i + 1) % n]) for i in range(n)), 6)
 
 
+def _radius(g: Group) -> float:
+    """The via's copper radius: from its centre to its ring's nearest side."""
+    n = len(g.ring.poly)
+    return min(point_segment_distance(g.centre, g.ring.poly[i], g.ring.poly[(i + 1) % n]) for i in range(n))
+
+
+def _disc_inside(poly, c: tuple, r: float) -> bool:
+    """Whether the disc of radius `r` round `c` lies inside `poly`: its
+    centre inside, and every side at least `r` from it."""
+    if not point_in_polygon(c, poly):
+        return False
+    n = len(poly)
+    return all(point_segment_distance(c, poly[i], poly[(i + 1) % n]) >= r for i in range(n))
+
+
+@functools.lru_cache(maxsize=16)
+def _offsets(reach: float, step: float) -> tuple:
+    """(dx, dy) within `reach` on a `step` grid, nearest first, the centre left out."""
+    n = int(math.floor(reach / step + 1e-9))
+    pts = []
+    for i in range(-n, n + 1):
+        for j in range(-n, n + 1):
+            d = math.hypot(i * step, j * step)
+            if 1e-12 < d <= reach + 1e-9:
+                pts.append((round(d, 9), round(i * step, 9), round(j * step, 9)))
+    pts.sort()
+    return tuple((dx, dy) for _, dx, dy in pts)
+
+
 class _Judge:
     """The board a give-way is judged against: `others` (the obstacles of the
     item being placed) less the vias hidden because they gave way, plus the
@@ -231,6 +265,31 @@ class _Owner:
         return self.face.copper
 
 
+def _still_meets(occ, g: Group, first, clearance, r: float):
+    """A quick test that a via moved to a spot still meets `first`, the
+    copper it met where it stood, or None where there is none: its centre
+    in that copper, or nearer it than its clearance plus the via's radius
+    (the ring's copper reaches at least that far). Only a spot this passes
+    is judged in full."""
+    if first is None or first.kind not in ("pad", "through", "copper") or not (first.layers & g.ring.layers) \
+            or (first.net and first.net == g.net):
+        return None
+    if occ.geometry.has_footprint(first.owner) and occ.geometry.footprint(first.owner).net_tie_pads:
+        return None
+    geo = occ.geometry
+    clr = clearance if clearance is not None else (
+        geo.clearance(g.net, first.net) if (g.net in geo.nets and first.net in geo.nets) else geo.default_clearance)
+    poly = first.poly
+    n = len(poly)
+
+    def still(c) -> bool:
+        if point_in_polygon(c, poly):
+            return True
+        d = min(point_segment_distance(c, poly[i], poly[(i + 1) % n]) for i in range(n))
+        return d - r < clr - 1e-9
+    return still
+
+
 def _tail_shape(owner, net, layer, width, start, end, carried="", given=""):
     from .occupancy import Shape
     t = Track(net, layer, width, Location(*start), Location(*end))
@@ -239,9 +298,10 @@ def _tail_shape(owner, net, layer, width, start, end, carried="", given=""):
                     points=(tuple(end), tuple(start)) if carried else (), given=given)
 
 
-def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str):
+def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, first=None):
     """(Action, None) for the first way `g` can give way, else (None, why
-    not), judged against `judge` and the item's own copper `own`."""
+    not), judged against `judge` and the item's own copper `own`. `first`:
+    the copper it met, which a move is judged against before the rest."""
     s = occ.settings
     geo = occ.geometry
     pad_key, pad, inside = who.pad_of(g)
@@ -270,6 +330,45 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str):
         said.append("no %s via within %.2f mm to share" % (g.net, s.place_via_share) if not targets else
                     "no tail to the %s via%s within %.2f mm is clear" % (g.net, "s" if len(targets) > 1 else "",
                                                                          s.place_via_share))
+    if s.place_via_move > 0:
+        limit = s.place_via_move
+        r = _radius(g)
+        width = _width(g.tail) if g.tail is not None else 0.0
+        span = g.ring.box.inflate(limit)
+        if g.tail is not None:
+            span = Box.union([span, g.tail.box.inflate(limit)])
+        pool = judge.near(span, occ._gap)
+        mine = [o for o in own if o.box.overlaps(span, gap=occ._gap)]
+        still = _still_meets(occ, g, first, judge.clearance, r)
+        found = None
+        for dx, dy in _offsets(limit, s.place_via_move_step):
+            to = (round(g.centre[0] + dx, 9), round(g.centre[1] + dy, 9))
+            if inside and not _disc_inside(pad.poly, to, r - 1e-5):
+                continue
+            if still is not None and still(to):
+                continue
+            ring = _shift(g.ring, dx, dy)
+            if first is not None and first.box.overlaps(ring.box, gap=occ._gap) \
+                    and occ._conflict(ring, first, judge.clearance, say=False):
+                continue                    # still on what it met: most spots near it are
+            moved = [replace(ring, given=g.id)]
+            if g.hole is not None:
+                moved.append(replace(_shift(g.hole, dx, dy), given=g.id))
+            if judge.hit(moved, pool, mine, say=False):
+                continue
+            track = None
+            if g.tail is not None:
+                track, shape = _tail_shape(g.owner, g.net, next(iter(g.tail.layers)), width, g.far, to,
+                                           carried=g.id, given=g.id)
+                if judge.hit([shape], pool, mine, say=False):
+                    continue
+                moved.append(shape)
+            found = Action("move", g.id, g.owner, g.home, g.net, g.centre, to, track, old, pad_key, met,
+                           s.score_via_move, tuple(moved))
+            break
+        if found is not None:
+            return found, None
+        said.append("no spot within %.2f mm%s is clear" % (limit, " inside its pad" if inside else ""))
     return None, ", ".join(said)
 
 
@@ -309,7 +408,7 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
             for g, (why, o) in meeting:
                 met = "the edge" if o is None else occ.who(o.owner) if o.owner else \
                     ("a via" if o.kind == "through" else "a track")
-                action, why_not = _give(occ, g, judge, keep, who, met)
+                action, why_not = _give(occ, g, judge, keep, who, met, o)
                 if action is None:
                     return _refused(occ, res, "%s; it cannot give way: %s" % (why, why_not), o)
                 keep += list(action.shapes)

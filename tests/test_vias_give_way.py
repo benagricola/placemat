@@ -167,3 +167,99 @@ def test_an_item_searched_along_an_edge_slides_to_where_its_vias_give_way():
     assert plan.placement("u1") is not None, plan.step("u1").note
     assert plan.box("u1").center.x == 2.5
     assert [(a.kind, a.via) for a in plan.occupancy.given_way.values()] == [("share", "pad via 0")]
+
+
+# ------------------------------------------------------------------ moving
+def _settings(**kw):
+    from placemat.settings import Settings
+    return Settings(**kw)
+
+
+def _moving_board(via_at, tail, r9_at, r9_w=2.0, r9_nets=("S", "T"), net="SIG", settings=None, planes=()):
+    """Cell m: U1 (front) with its `net` pad at (39.1, 40) and a via of the
+    cell's at `via_at`, joined to the pad by a tail when `tail`. It lands
+    20 mm up and left, R9 on the back at `r9_at` (where it stands then)."""
+    vias = [via_at] if isinstance(via_at[0], (int, float)) else list(via_at)
+    copper = [_via(net, vx, vy, owner="m") for vx, vy in vias]
+    if tail:
+        copper += [track(net, 39.1, 40.0, vx, vy, w=0.2, owner="m") for vx, vy in vias]
+    fps = [footprint("U1", 40, 40, w=3, h=1, inst="m.u1", nets=(net, "X"), cell="m"),
+           footprint("R9", r9_at[0], r9_at[1], w=r9_w, h=1, inst="r9", nets=r9_nets, face=Face.BACK)]
+    g = board_geometry(fps, cells=["m"], copper=copper, width=50, height=50, extra_nets=(net,))
+    centre = Occupancy(g)._geometry(g.cells["m"]).reference.location
+    kw = {"settings": settings} if settings is not None else {}
+    b = Board(g, edge_margin=0.5, keep_going=True, **kw)
+    for n in planes:
+        b.plane(Net(n), [CopperLayer.B])
+    b.place(Part("r9"), at=Location(*r9_at), face=Face.BACK)
+    b.place(Cell("m"), at=Near(Location(centre.x - 20, centre.y - 20), radius=0, rotations=(0,)))
+    return b
+
+
+def test_a_signal_via_moves_to_the_nearest_clear_spot_and_its_tail_is_redrawn():
+    """The via lands at (19.1, 22.2), its ring 0.07 mm from R9's pad S (top
+    edge 22.5) on the back; 0.15 mm up, on the 0.05 mm grid, it clears it."""
+    plan = _moving_board((39.1, 42.2), True, (19.5, 23.0)).resolve()
+    assert plan.step("m").placement is not None, plan.step("m").note
+    [a] = plan.occupancy.given_way.values()
+    assert (a.kind, a.via) == ("move", "m via 0")
+    assert a.to == (19.1, 22.05) and round(a.moved_mm, 6) == 0.15
+    t = a.tail
+    assert (t.layer, t.width) == (F, 0.2)
+    assert (round(t.start.x, 6), round(t.start.y, 6), round(t.end.x, 6), round(t.end.y, 6)) == (19.1, 20.0, 19.1, 22.05)
+    assert t in _tracks(plan)
+    [ring] = [c for c in plan.occupancy.copper if c.owner == "m" and c.kind == "through"]
+    assert ring.points == ((19.1, 22.05),)
+    assert not [f for f in plan.findings if f.kind in ("copper", "unplaced")], list(plan.findings)
+
+
+def test_a_via_inside_its_pad_moves_only_within_the_pad():
+    """A via at the middle of U1's pad, R9's pad 2 on the back 0.02 mm off
+    its ring to the left: it moves 0.2 mm right, still inside its pad."""
+    plan = _moving_board((39.1, 40.0), False, (17.45, 20.0), r9_w=3.0).resolve()
+    assert plan.step("m").placement is not None, plan.step("m").note
+    [a] = plan.occupancy.given_way.values()
+    assert (a.kind, a.to, a.tail) == ("move", (19.3, 20.0), None)
+
+
+def test_a_via_inside_its_pad_with_room_only_outside_it_is_refused():
+    """R9's pad S on the back covers the right of U1's pad: clear spots are
+    to the left, 0.35 mm off, where the via would leave its pad."""
+    plan = _moving_board((39.1, 40.0), False, (20.1, 20.0)).resolve()
+    step = plan.step("m")
+    assert step.placement is None
+    assert "no spot within 0.50 mm inside its pad is clear" in step.note, step.note
+
+
+def test_a_via_with_no_clear_spot_within_via_move_is_refused_and_named():
+    plan = _moving_board((39.1, 42.2), True, (19.5, 23.0), settings=_settings(place_via_move=0.1)).resolve()
+    step = plan.step("m")
+    assert step.placement is None
+    assert "via SIG at (19.10, 22.20)" in step.note and "no spot within 0.10 mm is clear" in step.note, step.note
+
+
+def test_moving_costs_score_via_move_in_the_search():
+    from placemat.placement import Placement
+    from placemat.placer import scan
+    b = _moving_board((39.1, 42.2), True, (19.5, 23.0))
+    occ = Occupancy(b.geometry, 0.5, settings=b.settings)
+    centre = occ._geometry(b.geometry.cells["m"]).reference.location
+    hint = Placement(Location(centre.x - 20, centre.y - 20), 0.0, Face.FRONT)
+    r = scan(occ, b.geometry.cells["m"], hint, 0.0, 0.2, (0.0,), score=lambda p: 0.0)
+    assert r.chosen is not None and r.score == 2.0
+
+
+def test_a_via_that_could_share_or_move_shares():
+    """The cell's via could move 0.15 mm off R9's pad S, and a SIG via of the
+    board is 0.9 mm off: sharing costs less, so it shares."""
+    first = _moving_board((39.1, 42.2), True, (19.5, 23.0)).geometry
+    fps = list(first.footprints)
+    copper = [c for c in first.copper if c.kind != "pad"] + [_via("SIG", 18.2, 22.2)]
+    g = board_geometry(fps, cells=["m"], copper=copper, width=50, height=50, extra_nets=("SIG",))
+    centre = Occupancy(g)._geometry(g.cells["m"]).reference.location
+    b = Board(g, edge_margin=0.5, keep_going=True)
+    b.place(Part("r9"), at=Location(19.5, 23.0), face=Face.BACK)
+    b.place(Cell("m"), at=Near(Location(centre.x - 20, centre.y - 20), radius=0, rotations=(0,)))
+    plan = b.resolve()
+    [a] = plan.occupancy.given_way.values()
+    assert (a.kind, a.to) == ("share", (18.2, 22.2))
