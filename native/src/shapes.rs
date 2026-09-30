@@ -213,7 +213,11 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
     }
     if s.kind.is_hole() && o.kind.is_hole() {
         // hole to hole is net-blind, measured between the circles the
-        // polygons were drawn from (Occupancy._conflict, _circle)
+        // polygons were drawn from (Occupancy._conflict, _circle). Two via
+        // holes that span no common layer never meet.
+        if s.layers != 0 && o.layers != 0 && s.layers & o.layers == 0 {
+            return false;
+        }
         let need = cfg.hole_to_hole;
         let slack = HOLE_SLACK * ((s.bbox.2 - s.bbox.0) + (o.bbox.2 - o.bbox.0));
         if box_gap(s.bbox, o.bbox) >= need + slack - 1e-9 {
@@ -522,6 +526,17 @@ mod tests {
         let a = shape(Kind::Pad, "U1", rect(0.0, 0.0, 1.0, 1.0), 1, 1, "A", true); // layer bit 0
         let b = shape(Kind::Pad, "U2", rect(0.3, 0.0, 1.0, 1.0), 1, 2, "B", true); // layer bit 1
         assert!(!conflict(&a, &b, None, &cfg()));
+    }
+
+    #[test]
+    fn via_holes_on_no_common_layer_never_meet() {
+        let back = shape(Kind::Hole, "", rect(0.0, 0.0, 0.3, 0.3), 2, 0b0110, "A", false);
+        let front = shape(Kind::Hole, "", rect(0.35, 0.0, 0.3, 0.3), 1, 0b1001, "A", false);
+        let deep = shape(Kind::Hole, "", rect(0.35, 0.0, 0.3, 0.3), 2, 0b1110, "A", false);
+        let through = shape(Kind::Hole, "", rect(0.35, 0.0, 0.3, 0.3), 3, 0, "A", false);
+        assert!(!conflict(&back, &front, None, &cfg()));
+        assert!(conflict(&back, &deep, None, &cfg()));
+        assert!(conflict(&back, &through, None, &cfg()));
     }
 
     #[test]

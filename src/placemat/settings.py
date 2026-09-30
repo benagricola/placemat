@@ -60,6 +60,7 @@ class Settings:
     place_courtyard_polygon_share: float = 0.98   # a courtyard polygon covering less of its box than this is claimed as drawn, not as its box
     place_conflict_gap: float = 1.0
     place_fit_room: float = 10.0        # a fit frame's provisional room: how far round the decided content a searched item may go
+    place_drops_keep: float = 0.5       # the share of a pad's drops it keeps, rounded up, never fewer than one (Drops.MIN)
     # [copper]
     copper_chamfer: float = 1.0
     copper_pair_chamfer: float = 0.5
@@ -71,6 +72,7 @@ class Settings:
     copper_plane_min_thickness: float = 0.2
     copper_pour_stroke: float = 0.2
     copper_cell_zones_under_planes: str = "drop"   # a stamped cell's zone the board's own plane covers: merged into it, or kept
+    copper_microvia_drill: float = 0.1  # a micro via's (laser) drill, when the script gives none
     # [write]
     write_split_groups: str = "lift"    # each cell's group nested in a module's: lifted to the top level (the module keeps its parts); "split" also takes out the parts placed apart; "keep" as generated
     # [label]
@@ -273,14 +275,14 @@ _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_coarse_from", "place_coarse_steps",
     "place_refine_around", "place_block_gap_step", "place_block_gap_reach", "place_escape_depth", "score_escape_depth",
     "place_conflict_gap", "place_fit_room", "copper_bridge_half", "copper_finger_bridge_width",
-    "copper_plane_min_thickness", "copper_pour_stroke", "label_size",
+    "copper_plane_min_thickness", "copper_pour_stroke", "copper_microvia_drill", "label_size",
     "label_thickness", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_copper_oz",
     "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share"))
 _AT_LEAST_ZERO = frozenset((
-    "rank_area", "rank_pins", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge", "copper_chamfer", "best_airwire_noise",
+    "rank_area", "rank_pins", "place_drops_keep", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge", "copper_chamfer", "best_airwire_noise",
     "best_crossing_noise", "score_unplaced", "score_priority_high", "score_priority_default", "score_priority_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_congestion",

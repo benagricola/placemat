@@ -4,7 +4,7 @@ the pair drawn at a gap along one centreline, the finger pour that steps
 round tracks, and the board-sized zone outline."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 
 from .findings import Finding
@@ -39,11 +39,14 @@ class Track:
 
 @dataclass(frozen=True)
 class Via:
-    """A plated through hole joining every copper layer at one point."""
+    """A plated hole joining copper layers at one point: every layer (a
+    through via), or the `layers` it spans, in stackup order (a micro, blind
+    or buried via)."""
     net: str
     at: Location
     drill: float
     size: float
+    layers: tuple = field(default=(), metadata={"omit_default": True})
 
     @property
     def polygon(self) -> Polygon:

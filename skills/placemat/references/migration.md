@@ -24,6 +24,25 @@ load its own `Pm.I` and the route between the two is judged.
 
 ## To 0.56.2
 
+`layers=(CopperLayer.B, CopperLayer.IN4)` on `board.via()`, `board.vias()`
+and `board.stitch()`: a via of that span only, judged on its layers alone
+and written as KiCad's micro via (one layer from an outer face, drill
+`copper.microvia_drill`) or a blind or buried one. Without `layers=` a via
+is a through via, as before.
+
+A cell flipped to the other face is judged with its inner-layer copper
+mirrored through the stack, In1 with the last inner layer, which is where
+KiCad's flip writes it: a track on In1 of a six-layer cell placed on the
+back is judged on In4. It was judged on In1. Copper on every layer (a
+through via, a plated pad) is unchanged.
+
+`board.place(Cell(...), drops=Drops.HALF)` or `Drops.MIN` thins the
+cell's via fields where it is placed: the vias of a `plane()` net inside
+one of its members' pads. HALF keeps a checkerboard of each field; MIN
+keeps `place.drops_keep` of it (0.5, rounded up, at least one). The
+default, `Drops.ALL`, keeps them as stamped, and a script that does not
+say `drops=` digests as before.
+
 A copper finding measures a via as the circle it is, as KiCad's DRC does:
 a via just over the clearance from a track read as just under it ("0.16 mm
 ... needs 0.16") from its polygon, a few microns outside the circle. The

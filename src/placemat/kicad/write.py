@@ -78,6 +78,17 @@ def _move_cell(board, cell: CellGeom, target: Placement, groups: dict):
         it.Move(delta)
 
 
+def _thin_cell(board, group, gone) -> None:
+    """Delete the cell's vias at `gone` ((x, y) where the generated board
+    has them): the ones its `drops=` did not keep. Each is found before any
+    is deleted, and deleted, not only removed, as a zone is."""
+    near = lambda v: any(abs(pcbnew.ToMM(v.GetPosition().x) - x) < 1e-6 and abs(pcbnew.ToMM(v.GetPosition().y) - y) < 1e-6
+                         for x, y in gone)
+    for v in [it for it in group.GetItems() if isinstance(it, pcbnew.PCB_VIA) and near(it)]:
+        group.RemoveItem(v)
+        board.Delete(v)
+
+
 def _merge_cell_zones(board, plan: Plan) -> list:
     """Leave out a stamped cell's zone on each layer where the board's own
     plane has the same net and wholly covers it: the plane fills that area
@@ -336,9 +347,29 @@ def _draw_track(board, op: Track):
     board.Add(t)
 
 
+def _via_type(span) -> int:
+    """KiCad's via type for a span of layers in stackup order: a micro via
+    for an outer face and the layer next to it, blind for a span from an
+    outer face, buried for one between inner layers. KiCad 9 has one type
+    for blind and buried, KiCad 10 one each."""
+    if len(span) == 2 and any(l.face is not None for l in span):
+        return pcbnew.VIATYPE_MICROVIA
+    blind = any(l.face is not None for l in span)
+    name = "VIATYPE_BLIND" if blind else "VIATYPE_BURIED"
+    return getattr(pcbnew, name, None) if hasattr(pcbnew, name) else pcbnew.VIATYPE_BLIND_BURIED
+
+
 def _draw_via(board, op: Via):
     v = pcbnew.PCB_VIA(board)
     v.SetPosition(vec(op.at.x, op.at.y))
+    if op.layers:
+        # a KiCad 9 board allows the type in its design settings; KiCad 10 has no such switch
+        ds = board.GetDesignSettings()
+        for allow in ("m_MicroViasAllowed", "m_BlindBuriedViaAllowed"):
+            if hasattr(ds, allow):
+                setattr(ds, allow, True)
+        v.SetViaType(_via_type(op.layers))
+        v.SetLayerPair(_layer_id(board, op.layers[0]), _layer_id(board, op.layers[-1]))
     v.SetDrill(nm(op.drill))
     v.SetWidth(nm(op.size))
     v.SetNetCode(_netcode(board, op.net))
@@ -447,7 +478,7 @@ def _foreign_pour_obstacles(board, op: Pour, geometry, other_ops, existing, draw
         if isinstance(other, Track) and other.layer is op.layer:
             poly = other.polygon
             extra = 0.0
-        elif isinstance(other, Via):
+        elif isinstance(other, Via) and (not other.layers or op.layer in other.layers):
             poly = other.polygon
             extra = 0.0
         elif isinstance(other, Pour) and other.layer is op.layer:
@@ -831,6 +862,8 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     seed_uuids()
     groups = {g.GetName(): g for g in board.Groups()}
     by_ref = {fp.GetReference(): fp for fp in board.GetFootprints()}
+    for name, gone in sorted(plan.thinned.items()):
+        _thin_cell(board, groups[name], gone)
     for step in plan.steps:
         if step.placement is None or step.kind == "block":
             continue                     # copper is drawn below; a block's members have their own steps

@@ -2,7 +2,7 @@
 
 ```python
 from placemat import (board, Along, Axis, Bend, Beside, Between, Box, Cell, CellPadRef, Centre, Cover, Pin, Polar, OnRim, OnBore,
-                       Cutout, Disc, Arc, Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Inside, Land, Line,
+                       Cutout, Disc, Drops, Arc, Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Inside, Land, Line,
                        LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part, Past, Priority, Turned, X, Y)
 ```
 
@@ -28,6 +28,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | **a part** | | |
 | searched from its links, no position typed | `board.place(item)` | Placement |
 | one that must place, or the run stops | `board.place(item, required=True)` | Placement |
+| a cell with its pads' via fields thinned | `board.place(Cell(...), drops=Drops.HALF)` | Placement |
 | on a board edge, wherever there is room | `at=OnEdge(edge)` | Placement |
 | at a mechanical point along an edge | `at=OnEdge(edge, along=Along.MID)` | Placement |
 | at a mechanical point (an enclosure hole, a datasheet figure) | `at=Location(x, y)`, `x`/`y` named constants | Placement |
@@ -88,6 +89,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | vias in a row out from a pad, a tail joining them | `board.vias(net, along=PadRef(...), count=N)`; as a track point, its value is the farthest via | Copper calls |
 | a track on to a via or a via row | the value `board.via()`/`board.vias(along=)` returns, as a track point | Copper calls |
 | stitching vias over a cell, a pour or a keepout, or along its outline | `board.stitch(net, region, edge=)` | Copper calls |
+| a micro, blind or buried via, for a fab that makes them | `layers=(CopperLayer.B, CopperLayer.IN4)` on `via()`, `vias()` or `stitch()` | Copper calls (A via's layer span) |
 | a pour of exactly the shape given | `board.pour(net, points, layer=)` | Copper calls |
 | a pour over a set of pads, pulled back from other nets | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: the hull of the pads' copper (`cover=Cover.BOX`, the box round it) | Copper calls |
 | a neck between two pads, as wide as the narrower or `width=` | `board.pour(net, [PadRef(a), PadRef(b)], layer=, swallow_pads=True, width=)` | Copper calls |
@@ -286,6 +288,23 @@ with the board as it stood and the biggest free rectangles on its face. It
 is independent of the rank and of whether the position is decided, and a
 required item is not negotiable even under `--keep-going`. Nothing else
 stops a run by itself.
+
+**A cell's via fields.** `board.place(Cell(...), drops=Drops.HALF)` thins
+the cell's via fields where it is placed. A field is the drops inside one
+of its members' pads: vias of a net the board declares a `board.plane()`
+for, on that pad's net. `Drops.ALL`, the default, keeps them as stamped;
+`Drops.HALF` keeps every other via of each field, a checkerboard over its
+grid in its part's frame (5 of a 3x3 field); `Drops.MIN` keeps
+`place.drops_keep` of each field (0.5), rounded up and never fewer than
+one, spread from the via nearest the field's centre. Other vias of the
+cell, and the fragment itself, are untouched. The cell's step says what
+each field kept: "drops half: 5 of 9 in U3.17". `drops=` takes the word
+too, `"half"`, and is refused on anything but a cell.
+
+```python
+board.plane(Net("GND"), layers=(CopperLayer.B,))
+board.place(Cell("m1"), face=Face.BACK, drops=Drops.HALF)
+```
 
 **A flip to the back** mirrors the item about the vertical axis and then turns
 it by `rotation=`. That is KiCad's own F key (`editing.flip_left_right`, its
@@ -1202,12 +1221,12 @@ placement on it says which pad that was. Name the number to pick another.
 
 ```python
 board.track(net, [p1, p2, ...], layer=CopperLayer.F, width=None, chamfer=None, bend=None, priority=Priority.DEFAULT, bridge=False)
-board.via(net, at, drill=None, size=None)                              # at= a point; the board's via size unless given
+board.via(net, at, drill=None, size=None, layers=None)                # at= a point; the board's via size unless given; layers= a span
 board.via(net, at=FreeSpot(near=PadRef(...), radius=2.0))            # the nearest legal spot to a pad, joined to it by its tail
 board.via(net, at=Past([PadRef(...), ...], Edge.SOUTH, across=None)) # its radius plus its clearance off the items' side
-board.vias(net, pad=PadRef(...), pitch=None, size=None, drill=None, inset=0)  # a pad filled with a grid of vias, turned with its part
-board.vias(net, along=PadRef(...), count=N, pitch=None, size=None, drill=None)  # a row out from a pad, along its escape axis
-board.stitch(net, region, pitch=None, size=None, drill=None, edge=False)  # vias in a grid over a cell, a pour or a keepout
+board.vias(net, pad=PadRef(...), pitch=None, size=None, drill=None, inset=0, layers=None)  # a pad filled with a grid of vias, turned with its part
+board.vias(net, along=PadRef(...), count=N, pitch=None, size=None, drill=None, layers=None)  # a row out from a pad, along its escape axis
+board.stitch(net, region, pitch=None, size=None, drill=None, edge=False, layers=None)  # vias in a grid over a cell, a pour or a keepout
 board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False, stroke=None)  # filled polygon; stroke= its outline's width (copper.pour_stroke)
 board.pour(net, [PadRef(a), PadRef(b), PadRef(c)], layer=..., swallow_pads=True, cover=None)  # over the pads' copper
 board.pour(net, [PadRef(a), PadRef(b)], layer=..., swallow_pads=True, width=None)  # the neck between two pads
@@ -1328,6 +1347,29 @@ rather than planning nothing and saying no via fit.
 its inside: `pitch` apart along each side, a via's own radius plus its
 netclass clearance in from the edge, going all the way round. For stitching
 a ground pour's or a shield keepout's border, not its middle.
+
+**A via's layer span.** For a fab that makes blind or micro vias,
+`layers=(CopperLayer.B, CopperLayer.IN4)` on `board.via()`, `board.vias()`
+(both forms) or `board.stitch()` names the two ends of the via's span. The
+via is copper, and a hole, on those layers and the ones between them only,
+and is judged there alone: a far-face pad of another net over a B-In4 via
+is no conflict, and two vias whose spans share no layer keep no
+hole-to-hole rule between them (KiCad's DRC checks none). It is written as
+KiCad's micro via when the span is an outer face and the layer next to it,
+and as a blind (from an outer face) or buried via otherwise. A micro via's
+drill is `copper.microvia_drill` (0.1) unless `drill=` says. The default is
+every layer, the through via; a span of every layer the board has is one
+too. A layer the board does not have, or a span of one layer, is refused
+when declared. A via whose span misses the layer of what it joins - a
+grid's pad, a row's or a `FreeSpot`'s tail - is not drawn, and the finding
+says so. A cell flipped to the other face takes its vias' spans with it,
+mirrored through the stack as KiCad flips them (B-In4 becomes F-In1); a via
+declared at a pad is spanned where the part lands. A fragment built with
+spans carries them into the parent, which reads each via's layers.
+
+```python
+board.vias(Net("GND"), PadRef(Part("u3"), 17), layers=(CopperLayer.B, CopperLayer.IN4))
+```
 
 **A pour between two pads.** `board.pour(net, [PadRef(a), PadRef(b)],
 swallow_pads=True)` with exactly two pads draws the neck between them - a
@@ -2003,6 +2045,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.courtyard_polygon_share` | 0.98 | a courtyard whose polygon covers less of the box round it than this (a slice of a disc, an L, a rectangle turned off the axes) is claimed as KiCad draws it, with no margin; one that covers more is claimed as its box |
 | `place.conflict_gap` | 1.0 | how far outside a box a conflict can still reach |
 | `place.fit_room` | 10.0 | on a fit frame, how far round the decided content a searched item may go |
+| `place.drops_keep` | 0.5 | the share of a pad's drops (vias of a `plane()` net in it) the pad keeps, rounded up and never fewer than one: what `drops=Drops.MIN` keeps of each field |
 | `copper.chamfer` | 1.0 | how far a right angle is cut back into two 45s |
 | `copper.pair_chamfer` | 0.5 | the same, for a differential pair |
 | `copper.pair_via_step` | 0.4 | how far clear of its partner a pair's lead vias |
@@ -2013,6 +2056,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `copper.plane_min_thickness` | 0.2 | a zone's minimum filled width |
 | `copper.pour_stroke` | 0.2 | a pour's outline stroke |
 | `write.split_groups` | "lift" | the generator's nested groups: `lift` each cell's group out of its module's to the top level (the module keeps its own parts), `split` also takes out of a group the parts the script places by steps of their own, `keep` writes them as generated; a group left empty is removed |
+| `copper.microvia_drill` | 0.1 | a micro via's drill (`layers=` one layer from an outer face) when the script gives none |
 | `copper.cell_zones_under_planes` | "drop" | a stamped cell's zone the board's own plane covers on its net and layer: `drop` merges it into the plane, `keep` keeps it |
 | `label.size` | 1.0 | silkscreen text height |
 | `label.thickness` | 0.15 | silkscreen stroke width |
