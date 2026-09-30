@@ -489,13 +489,43 @@ def _bend_matches(cand: list, bend) -> bool:
     return len(dirs) == 3 and diag == [0, 2]                    # BOTH
 
 
+def _detours(a: Location, b: Location) -> list:
+    """Other octilinear ways from a to b, for when none of `_leg_candidates`
+    clears: a straight along the minor axis before the 45 or after it (out
+    along a pin's row and off the pad beside it, where every way that starts
+    along the major axis crosses that pad), a quarter, half or three
+    quarters of the diagonal's reach; and for a leg already one 45, which
+    has no other candidate, the two L shapes and the same straights along
+    either axis."""
+    dx, dy = b.x - a.x, b.y - a.y
+    m = min(abs(dx), abs(dy))
+    if m < 1e-9:
+        return []
+    sx, sy = math.copysign(1, dx), math.copysign(1, dy)
+    one_45 = abs(abs(dx) - abs(dy)) < 1e-9
+    out = [[a, Location(b.x, a.y), b], [a, Location(a.x, b.y), b]] if one_45 else []
+    minors = ("x", "y") if one_45 else (("y",) if abs(dx) >= abs(dy) else ("x",))
+    for axis in minors:
+        ux, uy = (sx, 0.0) if axis == "x" else (0.0, sy)
+        for f in (0.25, 0.5, 0.75):
+            s = m * f
+            p1 = Location(round(a.x + ux * s, 6), round(a.y + uy * s, 6))                       # out, then the 45
+            p2 = Location(round(p1.x + sx * (m - s), 6), round(p1.y + sy * (m - s), 6))
+            out.append([a, p1, p2, b] if (p2.x, p2.y) != (b.x, b.y) else [a, p1, b])
+            q2 = Location(round(b.x - ux * s, 6), round(b.y - uy * s, 6))                       # the 45, then in
+            q1 = Location(round(q2.x - sx * (m - s), 6), round(q2.y - sy * (m - s), 6))
+            out.append([a, q1, q2, b] if (q1.x, q1.y) != (a.x, a.y) else [a, q2, b])
+    return out
+
+
 def route_leg(a: Location, b: Location, pad_a: bool, pad_b: bool, prev, nxt, clear, bend=None,
               lane_a=None, lane_b=None) -> list:
     """The best octilinear way from a to b: among the candidates whose legs
     all `clear`, the fewest direction changes against the legs either side
     (a chamfered right angle counting two), then the shortest, then the 45
     at the pad end. If none clears, the fewest-turn candidate is returned
-    and the conflict is left for the run to report.
+    and the conflict is left for the run to report. When none clears,
+    `_detours` are tried too.
 
     `lane_a`/`lane_b` (sets of directions) narrow the candidates first to
     those that leave a, and reach b, on one of them: a 45 held off a
@@ -504,6 +534,8 @@ def route_leg(a: Location, b: Location, pad_a: bool, pad_b: bool, prev, nxt, cle
     meets is dropped; a leg with no room to choose (already on the grid,
     or already a single 45) is unaffected."""
     cands = _leg_candidates(a, b)
+    if clear is not None and not any(all(clear(p, q) for p, q in zip(c, c[1:])) for c in cands):
+        cands += _detours(a, b)
     if lane_a or lane_b:
         on = [c for c in cands if (not lane_a or _dir(c[0], c[1]) in lane_a)
               and (not lane_b or _dir(c[-2], c[-1]) in lane_b)]

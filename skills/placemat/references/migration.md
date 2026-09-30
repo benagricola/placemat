@@ -11,6 +11,13 @@ A track declared `bridge=True` that passed under another among the copper
 planned before the search no longer stops the run ("'Via' object has no
 attribute 'layer'") when copper is planned after it.
 
+A track leg whose every way conflicts (a pin at a fine pitch whose leg
+crosses the pin beside it) now also tries a short straight along the other
+axis before or after its 45, and a leg already one 45 tries the L shapes
+too; it had no other way to go and was drawn across what stood on it.
+Where none of those clears either, the leg is drawn as before and the
+finding stands.
+
 ## To 0.64.0
 
 A carried via's move, and a share's tail, are judged by one native call

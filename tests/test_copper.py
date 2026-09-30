@@ -351,3 +351,39 @@ def test_naming_a_searched_part_no_longer_raises():
     b.place(Part("r1"))
     b.track(Net("GND"), [PadRef(Part("r1"), "GND"), Location(40, 40)], layer=CopperLayer.F)
     b.resolve()          # no ValueError
+
+
+def test_a_45_leg_that_does_not_clear_goes_another_octilinear_way():
+    """A leg already at 45 had no other way to go: drawn across whatever
+    stood on it. When it does not clear, the others are tried - an L, or a
+    straight out, the 45, and a straight in."""
+    from placemat.copper import route_leg
+    from placemat.values import Location
+    a, b = Location(0, 0), Location(-2, -2)
+    blocked = lambda p, q: not (abs(p.x - q.x) > 1e-9 and abs(p.y - q.y) > 1e-9 and max(p.x, q.x) > -0.5)   # a 45 near a
+    path = route_leg(a, b, True, False, None, None, blocked)
+    assert path[0] == a and path[-1] == b and len(path) > 2
+    assert all(blocked(p, q) for p, q in zip(path, path[1:]))
+
+
+def test_a_45_leg_that_clears_is_left_as_it_is():
+    from placemat.copper import route_leg
+    from placemat.values import Location
+    a, b = Location(0, 0), Location(-2, -2)
+    assert route_leg(a, b, True, False, None, None, lambda p, q: True) == [a, b]
+
+
+def test_a_leg_whose_every_way_crosses_the_pad_beside_it_leaves_along_the_minor_axis_first():
+    """A pin in a column at a fine pitch, its leg to a point further along
+    the column than out from it: every candidate that starts along the
+    column, or on the 45, crosses the neighbouring pin. The leg goes out a
+    short straight across the column, then the 45, then along."""
+    from placemat.copper import route_leg
+    from placemat.values import Location
+    a, b = Location(-3.41, 1.4), Location(-5.2575, -1.34)
+
+    def clear(p, q):                  # from the pin: only a short straight out west clears
+        return p != a or (abs(p.y - q.y) < 1e-9 and q.x < p.x and p.x - q.x <= 1.0)
+    path = route_leg(a, b, True, False, None, None, clear)
+    assert all(clear(p, q) for p, q in zip(path, path[1:])), path
+    assert path[1].y == a.y and path[1].x < a.x
