@@ -415,6 +415,7 @@ class Push:
     v_ref: float
     limit: float
     target_pad_key: tuple | None = None   # (refdes, pad number): where on the item to measure from; None: its body centre
+    target_member_ref: str = ""           # the item's own refdes: which cell member to measure, when the item is a cell
     why: str = field(default="", metadata={"reuse": False})
     achieved_value: float | None = field(default=None, metadata={"reuse": False})   # measured by a resolve, not declared
     achieved_mm: float | None = field(default=None, metadata={"reuse": False})
@@ -698,16 +699,17 @@ class Scorer:
         pads = occ.candidate_pad_locations(self.item, placement)
         cost = sum(w * pads[key].distance(target) for key, target, w in self.targets if key in pads)
         if self.pushes:
-            body_centre = None
+            points = {}
             for source_point, push in self.pushes:
                 if push.target_pad_key is not None:
                     point = pads.get(push.target_pad_key)
                     if point is None:
                         continue
                 else:
-                    if body_centre is None:
-                        body_centre = occ.body_box(self.item, placement).center
-                    point = body_centre
+                    point = points.get(push.target_member_ref)
+                    if point is None:
+                        point = _target_point(occ, self.item, placement, push.target_member_ref)
+                        points[push.target_member_ref] = point
                 value, _ = _push_value(source_point, point, push)
                 cost += s.score_push * value / push.limit
         if self.prune and cost >= self.best[0]:
@@ -2632,6 +2634,9 @@ class Board:
                       None)
         if intent is None:
             raise ValueError("%s: push needs a place() declaration for this item before board.push()" % owner)
+        if intent.kind == "block":
+            raise TypeError("%s: push does not reach a block's member - it is searched as the block, "
+                            "which never asks a member's own push" % owner)
         if isinstance(falloff, bool) or not isinstance(falloff, (int, float)) or not falloff > 0:
             raise ValueError("push: falloff is more than 0, not %r" % (falloff,))
         if not (isinstance(reference, tuple) and len(reference) == 2):
@@ -2645,9 +2650,22 @@ class Board:
             raise ValueError("push: limit is more than 0, not %r" % (limit,))
         if isinstance(from_, str) and from_ not in self._keepouts:
             raise ValueError("push: %r is not a keepout on this board" % (from_,))
-        p = Push(from_, float(falloff), float(r_ref), float(v_ref), float(limit), target_pad_key, why)
+        if isinstance(from_, (Part, PadRef)) and self._pad_ref(from_)[0] == owner:
+            raise ValueError("push: %s cannot push itself; from_= is a different item" % owner)
+        try:
+            radius = r_ref * (v_ref / limit) ** (1.0 / falloff)
+        except OverflowError:
+            raise ValueError("push: falloff=%r is too small for reference=(%r, %r) and limit=%r - the "
+                             "disc that formula asks for has no finite radius" % (falloff, r_ref, v_ref, limit)) from None
+        if not radius < float("inf"):
+            raise ValueError("push: falloff=%r is too small for reference=(%r, %r) and limit=%r - the "
+                             "disc that formula asks for has no finite radius" % (falloff, r_ref, v_ref, limit))
+        p = Push(from_, float(falloff), float(r_ref), float(v_ref), float(limit), target_pad_key, owner, why)
         intent.pushes = intent.pushes + (p,)
-        intent.needs = intent.needs | {self._pad_ref(r)[0] for r in _refs_in([from_])}
+        needs = {self._pad_ref(r)[0] for r in _refs_in([from_])}
+        if isinstance(from_, str):
+            needs.add(cutout_token(from_))   # a keepout settles like a hole: waited for the same way
+        intent.needs = intent.needs | needs
         return p
 
     def free_net(self, net):
@@ -4098,7 +4116,7 @@ class Board:
             if self._fit and not obj.freedom.decided:
                 occ.board_box = self._outline = self._fit_room(occ, plan, obj)
             if chain["replaying"]:
-                step = self._replay_settle(occ, plan, previous[position])
+                step = self._replay_settle(occ, plan, previous[position], obj)
                 record["steps"].append(previous[position])
                 record["reused"] += 1
             else:
@@ -4414,9 +4432,16 @@ class Board:
             plan.steps[k].note = note
         plan.cleanup = dict(entry["cleanup"])
 
-    def _replay_settle(self, occ: Occupancy, plan: Plan, entry: dict):
-        """What _recorded_settle recorded, done again without the search."""
+    def _replay_settle(self, occ: Occupancy, plan: Plan, entry: dict, obj=None):
+        """What _recorded_settle recorded, done again without the search.
+        A push's hard-limit disc is a reservation, not a commit: replaying
+        the recorded commits alone never re-adds it, so a later step (or
+        the cleanup pass, which is not replayed whenever anything after
+        this item changed) could stand inside it unrefused. Reserve it
+        again here, the same as a fresh _settle does at its own start."""
         from . import reuse as _reuse
+        if getattr(obj, "pushes", ()):
+            self._reserve_pushes(occ, plan, obj)
         self._apply_commits(occ, entry["commits"])
         plan.steps.extend(_reuse.step_from_json(s) for s in entry["steps"])
         plan.findings.extend(_reuse.finding_from_json(f) for f in entry["findings"])
@@ -5951,10 +5976,16 @@ class Board:
             seeded = "seeded on %s" % ", ".join(nets)
             for n in nets:
                 plan.seeded_by_net[n] += 1
-        elif push_sources:
+        else:
+            hint = None
+        # A board still finding its own frame (board.size(fit=True), before anything is placed)
+        # has no centre or outline to search wide against yet: a push there falls back to a pocket,
+        # the same as an unpushed item with nothing else to seed it.
+        wide_push = bool(push_sources) and not self._fit and self._outline is not None
+        if hint is None and wide_push:
             hint = Placement(self.centre, i.rotation, i.face)
             seeded = "searched wide for its push" if len(push_sources) == 1 else "searched wide for its pushes"
-        else:
+        elif hint is None:
             return self._settle_in_pocket(occ, i, plan, clr)
         # riders refuse candidates after they are scored: a refused one must not prune the rest
         score = self._scorer(i.item, occ, targets, prune=self._pick(i) is None and self._accept(i) is None,
@@ -5963,7 +5994,9 @@ class Board:
         body = occ._geometry(i.item).body
         if i.near is not None:
             radius = i.radius
-        elif push_sources and not targets and solved is None and self._outline is not None:
+        elif wide_push:
+            # A push's own disc can swallow whatever a link or the global solve seeded, so the
+            # widening applies whatever else set the hint - not only when a push seeded it too.
             radius = math.hypot(self._outline.width, self._outline.height)
         else:
             radius = max(i.radius, body.width, body.height)
@@ -6002,16 +6035,17 @@ class Board:
                 moved += " for a better link score"
             note = (note + "; " if note else "") + moved
         if push_sources:
-            body_centre = None
+            points = {}
             bits = []
             for source_point, p in push_sources:
                 if p.target_pad_key is not None:
                     at = occ.candidate_pad_locations(i.item, result.chosen).get(
                         p.target_pad_key, result.chosen.location)
                 else:
-                    if body_centre is None:
-                        body_centre = occ.body_box(i.item, result.chosen).center
-                    at = body_centre
+                    at = points.get(p.target_member_ref)
+                    if at is None:
+                        at = _target_point(occ, i.item, result.chosen, p.target_member_ref)
+                        points[p.target_member_ref] = at
                 value, r = _push_value(source_point, at, p)
                 p.achieved_value, p.achieved_mm = round(value, 4), round(r, 3)
                 bits.append("push from %s: %.2g at %.1f mm (limit %.2g)" % (
@@ -6132,6 +6166,21 @@ def _push_value(source_point: Location, point: Location, push: "Push") -> tuple:
     """(value, r) for a push at distance r from its source to `point`."""
     r = max(source_point.distance(point), 1e-6)
     return push.v_ref * (push.r_ref / r) ** push.falloff, r
+
+
+def _target_point(occ: Occupancy, item, placement: Placement, member_ref: str) -> Location:
+    """Where a push's own item stands at a candidate placement: when
+    `item` is a cell, the NAMED MEMBER's body centre, carried by the
+    cell's transform (a push measures the part it named, not the cell's
+    aggregate box - a cell moves as one rigid body, but its members sit
+    at different points within it). The item's own body centre otherwise
+    (item already IS the one part)."""
+    geom = occ._geometry(item)
+    if geom.part_refs and member_ref in geom.part_refs:
+        idx = geom.part_refs.index(member_ref)
+        t = occ._transform(geom, placement)
+        return t.apply_location(geom.parts[idx].center)
+    return occ.body_box(item, placement).center
 
 
 def _as_point(value) -> Location:

@@ -855,8 +855,8 @@ layer of its face (`F.Fab` for a keepout on `F.Cu`), or `User.Comments`
 for one on both faces or on inner layers only. `write.keepout_drawings`
 chooses which: `admitting` (the default), `all`, or `none`. These
 drawings are placemat's own, in one group, `keepout drawings`, replaced
-whole on every write; a stamped fragment's own belong to its cell's group
-and move with it, as its rule areas do.
+whole on every write; a rerun leaves a stamped fragment's own untouched,
+the way a fragment's rule areas already are.
 
 **The board edge.** A region may hang off it. Only the on-board part does
 anything - a part is refused for crossing the keep-in before any reservation is
@@ -1118,9 +1118,15 @@ spreading through a plane roughly linearly (`falloff=1`). `r` runs from
 `from_` to `item`.
 
 `item` is a `Part`, or a `PadRef` on one for where the sensing element is
-on the part. `from_` is a `Part` or a `Cell` (its body centre), a `PadRef`,
-a keepout by name, or a `Location`. `item` must already have a
-`board.place()` declaration of its own; `push()` adds to it, the same as
+on the part - not a member of a block, which a push never reaches (it is
+searched as the block, and a member's own push would never be asked).
+`item` may be a member of a stamped cell: the cell moves as one rigid
+body, so the push still measures that member's own point as the cell's
+candidate placement carries it, not the cell's aggregate box. `from_` is
+a `Part` or a `Cell` (its body centre), a `PadRef`, a keepout by name, or
+a `Location`, and may not be `item` itself. `item` must already have a
+`board.place()` declaration of its own (a stamped cell's `board.place(
+Cell(...))`, for a member); `push()` adds to it, the same as
 `board.link()` adds a pull.
 
 **Hard limit.** Where `value(r)` would exceed `limit`, the item may not
@@ -1128,21 +1134,34 @@ stand: a disc round the source of radius `r_ref * (v_ref / limit) ** (1 /
 falloff)`, reserved against the item alone (Reservation.owners /
 occupancy.let_in) - every other part is still let in, so nothing else is
 fenced by it. Refused like any reservation, naming the push: `sits in the
-reservation for push from m1 (limit 0.3 at 29.9 mm)`.
+reservation for push from m1 (limit 0.3 at 29.7 mm)`. `falloff`, `r_ref`,
+`v_ref` and `limit` are each more than 0; a `falloff` too small for its
+`reference` and `limit` (the disc that formula asks for has no finite
+radius) is refused at the declaration, not left to fail inside `resolve`.
 
 **Soft price.** Within what is legal, each candidate is priced
 `score.push` (default 10) times `value(r) / limit`, in the search's own
 cost alongside its links and crossings - so the item moves as far out as
 its other terms allow, not to a hand-picked point. Several pushes on one
-item add their prices.
+item add their prices. The cleanup pass that follows the search (`cleanup.
+enabled`) does not weigh a push: it may move a pushed item to shorten
+wire, inside what the hard limit still forbids, but never past it - the
+reported value and distance are the search's, not necessarily the
+item's final, cleaned-up position.
 
 **Order.** The source is placed first: pushing from an item that is
 itself searched waits for it, the same order dependency a position said
-in terms of a pad already carries.
+in terms of a pad already carries. A push naming a keepout by name waits
+for it the same way; a firm (fixed-position) item can never wait for a
+keepout that is itself searched, since every keepout settles after every
+firm item - that combination is refused at `resolve()`.
 
-**No position hint.** A pushed item with no `at=` and nothing pulling it
-is searched over the whole board, not near a small default radius: that
-is what "as far as the board allows" needs.
+**No position hint.** A pushed item with no `at=` is searched over the
+whole board, not near a small default radius, whatever else seeds its
+hint (a link, the global solve): a push's own disc can be far larger than
+a hint's usual few millimetres, and "as far as the board allows" needs
+the whole board to search, not just the neighbourhood of what else pulls
+it.
 
 **The report.** The item's step names each push's modelled value and
 distance where it landed: `push from m1: 0.21 at 15.9 mm (limit 0.3)`.
