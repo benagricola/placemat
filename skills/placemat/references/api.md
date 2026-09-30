@@ -1306,7 +1306,10 @@ does not refuse the spot at once. The via tries, in turn:
   `place.via_share` (1.0 mm): the via is taken out and a straight tail at
   the net's width joins its pad (its old tail's far end, or where it stood)
   to that via on the via's own face. The tail must clear every other net's
-  copper. A via of the net already on its spot needs no tail;
+  copper. A via of the net already on its spot needs no tail. The via
+  shared then stays: where a later item meets it, it does not give way,
+  and the refusal says which via shares it. When its own item is placed
+  again, the vias that shared it go back as drawn;
 - to move up to `place.via_move` (0.5 mm), searched on a
   `place.via_move_step` (0.05 mm) grid nearest first, to a spot clear of
   every other net's copper on every layer and of every hole, its tail

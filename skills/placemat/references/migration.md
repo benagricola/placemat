@@ -5,6 +5,16 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+A carried via shares only another item's via, and a via another shares
+no longer gives way itself: in 0.57.0 a cell's vias could share one
+another in a chain until none was left where the tails ended. A spot where
+a later item meets a shared via is refused, naming the via that shares it.
+
+The write no longer fails with "'SwigPyObject' object has no attribute
+'Cast'" (or "... no attribute 'x'") where a cell's vias gave way.
+
 ## To 0.57.0
 
 A cell flipped to the other face keeps its own inner copper on the layer

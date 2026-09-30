@@ -133,6 +133,8 @@ def _given_way(board, plan: Plan, groups: dict) -> None:
     copper carries the tails drawn in their place."""
     def on(v, at):
         return abs(v.x / 1e6 - at[0]) <= _ON_MM and abs(v.y / 1e6 - at[1]) <= _ON_MM
+    # Delete, not Remove: an item Remove hands to its Python wrapper is freed when the wrapper
+    # goes, and on a large board that left pcbnew's bindings returning unwrapped objects
     for a in plan.given_way:
         g = groups.get(a.home)
         if g is None:
@@ -150,12 +152,12 @@ def _given_way(board, plan: Plan, groups: dict) -> None:
                 (p, q) = a.old_tail
                 if (on(s, p) and on(e, q)) or (on(s, q) and on(e, p)):
                     g.RemoveItem(it)
-                    board.Remove(it)
+                    board.Delete(it)
         if a.kind == "move":
             via.SetPosition(vec(*a.to))
         else:
             g.RemoveItem(via)
-            board.Remove(via)
+            board.Delete(via)
 
 
 def _merge_cell_zones(board, plan: Plan) -> list:
@@ -1005,7 +1007,7 @@ def _write_groups(board, plan: Plan) -> list:
         notes.append("%s written: %d part(s)%s" % (d.name, len(d.parts), " (%s)" % d.why if d.why else ""))
     for g in list(board.Groups()):                  # a module's group that held only its cells, or what a declared one took
         if not list(g.GetItems()):
-            board.Remove(g)
+            board.Delete(g)
     return notes
 
 

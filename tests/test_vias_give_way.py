@@ -455,3 +455,47 @@ def test_a_sweep_whose_vias_give_way_is_the_same_native_or_not(monkeypatch):
         assert runs[(linked, True)] == runs[(linked, False)]
         assert runs[(linked, True)][1][-1][1] is not None           # the back cell placed
         assert any(f.kind == "vias" for f in plan.findings)
+
+
+# ------------------------------------------------------------------ what a via shares stays
+def test_a_via_does_not_share_another_via_of_its_own_item():
+    """The cell's two GND vias are 0.9 mm apart; R9's pad S lands on the
+    first. Sharing the second - its own - would leave it the only via there,
+    and free to give way in turn: the first moves or is refused instead."""
+    plan = _later_board([_via("GND", 39.1, 41.9, owner="m"), track("GND", 39.1, 40.0, 39.1, 41.9, w=0.2, owner="m"),
+                         _via("GND", 39.1, 42.8, owner="m")], (19.5, 21.9)).resolve()
+    shares = [a for a in plan.occupancy.given_way.values() if a.kind == "share"]
+    assert not shares, shares
+
+
+def _anchored_board():
+    """Cell n (N1, with a GND via of its own at (19.1, 23.5)) and R9 on the
+    back placed firmly; then cell m, whose GND via lands on R9's pad S and
+    shares n's via (`place.via_share` 2 mm); then R2, searched on the back
+    with no room to move, its pad S2 on n's via."""
+    from placemat.settings import Settings
+    fps = [footprint("U1", 40, 40, w=3, h=1, inst="m.u1", nets=("GND", "X"), cell="m"),
+           footprint("N1", 10, 23.5, w=2, h=1, inst="n.n1", nets=("GND", "Z"), cell="n"),
+           footprint("R9", 19.5, 21.9, w=2, h=1, inst="r9", nets=("S", "T"), face=Face.BACK),
+           footprint("R2", 5, 5, w=2, h=1, inst="r2", nets=("S2", "T2"), face=Face.BACK)]
+    copper = [_via("GND", 39.1, 41.9, owner="m"), track("GND", 39.1, 40.0, 39.1, 41.9, w=0.2, owner="m"),
+              _via("GND", 19.1, 23.5, owner="n")]
+    g = board_geometry(fps, cells=["m", "n"], copper=copper, width=50, height=50, extra_nets=("GND",))
+    occ = Occupancy(g)
+    m_centre = occ._geometry(g.cells["m"]).reference.location
+    n_centre = occ._geometry(g.cells["n"]).reference.location
+    b = Board(g, edge_margin=0.5, keep_going=True, settings=Settings(place_via_share=2.0))
+    b.place(Cell("n"), at=n_centre)
+    b.place(Part("r9"), at=Location(19.5, 21.9), face=Face.BACK)
+    b.place(Cell("m"), at=Location(m_centre.x - 20, m_centre.y - 20))
+    b.place(Part("r2"), at=Near(Location(19.5, 23.5), radius=0, rotations=(0,)), face=Face.BACK)
+    return b
+
+
+def test_a_via_another_shares_does_not_give_way():
+    plan = _anchored_board().resolve()
+    [a] = plan.occupancy.given_way.values()
+    assert (a.kind, a.via, a.to) == ("share", "m via 0", (19.1, 23.5))
+    step = plan.step("r2")
+    assert step.placement is None
+    assert "cannot give way" in step.note and "shares it" in step.note, step.note

@@ -1032,6 +1032,11 @@ class Occupancy:
         from . import giveway
         refs = [fp.ref for fp in item.members] if isinstance(item, CellGeom) else [item.ref]
         homes = set(refs) | ({item.name} if isinstance(item, CellGeom) else set())
+        # the vias that share one of its own: it moves, so they go back as they were drawn
+        mine = {g.id for g in self.placed_groups().values() if g.home in homes} | \
+            {v for v, a in self.given_way.items() if a.home in homes}
+        for via in [v for v, a in self.given_way.items() if a.kind == "share" and a.target in mine]:
+            giveway.undo(self, via)
         for via in [v for v, a in self.given_way.items() if a.home in homes]:
             del self.given_way[via]
             self._given_by.pop(via, None)

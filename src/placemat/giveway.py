@@ -94,6 +94,7 @@ class Action:
     under: str = ""             # whose copper it met
     cost: float = 0.0
     shapes: tuple = field(default=(), compare=False)    # what it leaves on the board in its place
+    target: str = ""            # shared: the id of the carried via it joins, which may not give way while it does
 
     @property
     def moved_mm(self) -> float:
@@ -225,18 +226,22 @@ class _Judge:
                     return "via %s at (%.2f, %.2f): its ring %s" % (s.net or "-", c[0], c[1], why), None
         return None
 
-    def vias(self, net: str, centre: tuple, reach: float, exclude: str) -> list:
-        """(distance, centre, radius) of each via of `net` within `reach` of
-        `centre`, nearest first: any item's, not a part's plated pad."""
+    def vias(self, net: str, centre: tuple, reach: float, home: str) -> list:
+        """(distance, centre, radius, carried id) of each via of `net` within
+        `reach` of `centre`, nearest first: another item's than `home`, not a
+        part's plated pad."""
         box = Box(centre[0] - reach, centre[1] - reach, centre[0] + reach, centre[1] + reach)
+        carried_by = self.occ.__dict__.get("_carried", {})
         out = []
         for o in self.near(box, 0.0):
-            if o.kind != "through" or o.net != net or o.owner in self.occ._footprint_refs or o.carried == exclude:
+            if o.kind != "through" or o.net != net or o.owner in self.occ._footprint_refs:
                 continue
+            if carried_by.get(o.owner, o.owner) == home:
+                continue                    # its own item's: that via may give way in turn
             c = _centre(o)
             d = math.dist(c, centre)
             if d <= reach + 1e-9:
-                out.append((round(d, 9), c, o.box.width / 2.0))
+                out.append((round(d, 9), c, o.box.width / 2.0, o.carried))
         out.sort()
         return out
 
@@ -325,10 +330,10 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
     old = (g.centre, g.far) if g.tail is not None else None
     said = []
     if s.place_via_share > 0:
-        targets = judge.vias(g.net, g.centre, s.place_via_share, g.id)
+        targets = judge.vias(g.net, g.centre, s.place_via_share, g.home)
         width = geo.netclass(g.net).track_width if g.net in geo.nets else 0.2
         start = g.far if g.far is not None else g.centre
-        for d, c, r in targets:
+        for d, c, r, target in targets:
             if d <= r:                          # on its spot: nothing to draw, its tail joins that via as it is
                 left = () if g.tail is None else (replace(g.tail, carried="", points=(), given=g.id),)
                 if left and judge.hit(left, judge.near(left[0].box, occ.gap_for(left[0])), own, say=False):
@@ -337,12 +342,12 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
                 kept = Track(g.net, next(iter(g.tail.layers)), _width(g.tail), Location(*g.far),
                              Location(*g.centre)) if g.tail is not None and g.tail.given else None
                 return Action("share", g.id, g.owner, g.home, g.net, g.centre, c, kept, None, pad_key, met,
-                              s.score_via_share, left), None
+                              s.score_via_share, left, target), None
             track, shape = _tail_shape(g.owner, g.net, layer, width, start, c, given=g.id)
             if judge.hit([shape], judge.near(shape.box, occ.gap_for(shape)), own, say=False):
                 continue
             return Action("share", g.id, g.owner, g.home, g.net, g.centre, c, track, old, pad_key, met,
-                          s.score_via_share, (shape,)), None
+                          s.score_via_share, (shape,), target), None
         said.append("no %s via within %.2f mm to share" % (g.net, s.place_via_share) if not targets else
                     "no tail to the %s via%s within %.2f mm is clear" % (g.net, "s" if len(targets) > 1 else "",
                                                                          s.place_via_share))
@@ -459,6 +464,7 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
         extent = Box.union([x.box for x in fixed])
         owners: dict = {}
         drops_placed: dict = {}
+        met = []
         for g in occ.placed_groups().values():
             if g.home in skip or g.owner in skip or not g.ring.box.overlaps(extent, gap=occ._gap):
                 continue
@@ -472,10 +478,19 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
                             break
                 if hit:
                     break
-            if hit is None:
-                continue
+            if hit is not None:
+                met.append((g, hit))
+        judge.hidden |= {g.id for g, _ in met}          # none of them is there for another to share
+        for g, hit in met:
+            sharer = next((a for a in occ.given_way.values() if a.kind == "share" and a.target == g.id), None)
+            if sharer is not None:
+                return _refused(occ, res, "%s; the via %s at (%.2f, %.2f) (%s) cannot give way: the via at "
+                                "(%.2f, %.2f) of %s shares it" % (hit[0], g.net, g.centre[0], g.centre[1],
+                                                                 _owner_name(occ, g), sharer.at[0], sharer.at[1],
+                                                                 _owner_name(occ, Group(sharer.via, sharer.owner,
+                                                                                        sharer.home, sharer.net))),
+                                g.ring)
             who = owners.get(g.home) or owners.setdefault(g.home, _home_owner(occ, g.home))
-            judge.hidden.add(g.id)
             action, why_not = _give(occ, g, judge, [x for x in mine if x.kind in kinds],
                                     who, occ.who(hit[1].owner), drops_placed.setdefault(g.home, {}), hit[1])
             if action is None:
@@ -582,8 +597,16 @@ def apply(occ, res: Resolution, by: str) -> None:
         occ._changed()
 
 
+def sharers(occ, via: str) -> list:
+    """The ids of the vias that gave way by sharing `via`."""
+    return [v for v, a in occ.given_way.items() if a.kind == "share" and a.target == via]
+
+
 def undo(occ, via: str) -> None:
-    """Put a via that gave way back as its item drew it."""
+    """Put a via that gave way back as its item drew it, and those that
+    share it, since it may no longer be where they joined it."""
+    for v in sharers(occ, via):
+        undo(occ, v)
     a = occ.given_way.pop(via, None)
     occ._given_by.pop(via, None)
     if a is None:
