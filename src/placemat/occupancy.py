@@ -391,6 +391,7 @@ class Occupancy:
         # gave way to; each item a via was taken from, as it stood before, to put back when it is
         # placed again (a part's ItemGeometry, a cell's own copper).
         self.given_way: dict = {}
+        self.needs: dict = {}               # frozenset of an item's owners -> the if-needed fab option that would have cleared its last refused spot
         self._given_by: dict = {}
         self._pristine: dict = {}
         self._pristine_copper: dict = {}
@@ -902,13 +903,12 @@ class Occupancy:
         A quiet net (a plane's, a free net's) weighs `score.crossing_plane`."""
         rn = self.__dict__.get("_ratsnest")
         if rn is None:
-            from .pairs import pairs_of
+            from .pairs import board_pairs
             from .ratsnest import Ratsnest
             weights = {n: self.settings.score_crossing_plane for n in self.quiet_nets}
             # a pair crossing itself weighs score.pair_crossing; the search
             # prices the ratsnest's weighted count at score.crossing
-            nets = {s.net for g in self.items.values() for s in g.shapes if s.net}
-            partners = {n: m for n, m in pairs_of(nets, tuple(self.settings.route_diff_pairs)).items()
+            partners = {n: m for n, m in board_pairs(self.geometry.netclasses).items()
                         if n not in self.quiet_nets and m not in self.quiet_nets}
             s = self.settings
             pair_weight = s.score_pair_crossing / s.score_crossing if s.score_crossing > 0 else 1.0
@@ -1925,6 +1925,16 @@ class NativeSweeper:
         # a cell's parts each reservation judges: its members not let in by their own name or height
         self.judged = [occ.judged(occ.reservations[i], geom) for i in self.reservations] if geom.parts else None
         self._decoded = {}
+        self._seen = _geometry_module._native.NativeSweepSeen()
+
+    def expand(self, points, n_rots: int) -> list:
+        """(x, y, turn) triples for `points` at each of `n_rots` turns not
+        already produced by an earlier call on this scan: the seen-set
+        `placer.native_sweep` used to keep as a Python set, moved to Rust
+        (`NativeSweepSeen`) so the whole points-x-rotations loop and its
+        membership test run once per pass in Rust, not once per
+        (point, rotation) pair in Python."""
+        return self._seen.expand(points, n_rots)
 
     def run(self, triples, stop_at_first: bool, scoring=None):
         """(indexes of the legal candidates, their scores, refusals) for
@@ -1964,17 +1974,25 @@ class NativeSweeper:
             return _reason_key(why), ("reservation", owner, ""), (lambda why=why: why)
         turn_of, si = a >> 32, a & 0xffffffff
         s, o = self.origin[turn_of][si], self.shapes[b]
-        moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net, tuple((px + x, py + y) for px, py in s.poly),
-                      s.box.moved(x, y), s.label)
+        # The bucket and blocker are decided from `s.kind`/`s.owner` alone
+        # (see `_native_bucket`'s own doc: it never reads `.poly`/`.box`),
+        # which a shift by (x, y) never changes - so the cache is looked up
+        # from the UNMOVED origin shape `s`, and the moved shape (its
+        # polygon actually shifted) is only ever built inside `reason()`,
+        # which runs only when a sentence is actually wanted (the first
+        # candidate in a bucket - see `placer.tally`'s own `if key not in
+        # reasons` guard).
         key = ("conflict", a, b)
         hit = self._decoded.get(key)
         if hit is None:
-            hit = (occ._native_bucket(moved, o), (_blocker_kind(o.kind), occ.blame_owner(o),
-                                                  "/".join(sorted(f.value for f in o.faces))))
+            hit = (occ._native_bucket(s, o), (_blocker_kind(o.kind), occ.blame_owner(o),
+                                              "/".join(sorted(f.value for f in o.faces))))
             self._decoded[key] = hit
         clearance = self.clearance
 
-        def reason(moved=moved, o=o):
+        def reason(s=s, o=o, x=x, y=y, clearance=clearance):
+            moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net, tuple((px + x, py + y) for px, py in s.poly),
+                          s.box.moved(x, y), s.label)
             why = occ._conflict(moved, o, clearance)
             if why is None:
                 raise AssertionError("native found a conflict between a %s and a %s that _conflict disagrees with; "

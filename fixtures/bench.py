@@ -95,6 +95,10 @@ def load(text: str) -> dict:
 
 ROOT = pathlib.Path(__file__).resolve().parent
 BASELINE = ROOT / "bench.json"
+BOARD_FIXTURE = ROOT / "fairing" / "core"
+"""The whole-board fixture: a six-layer test board of cells and loose parts,
+with via fields and zone fills, timed apart from the module tally
+(`--board`, `--checks`) since neither shows in a module's own numbers."""
 MARGIN = 0.10          # a hand module's board: its courtyard extent plus this much a side
 FILL = 3.0             # an unplaced module's board: this many times its courtyard area, square
 PLANE_SHARE = 0.5      # a net touching this share of a module's parts is a plane...
@@ -199,6 +203,49 @@ def bench_module(path: str, configs: dict):
     return _name(path), row, seconds
 
 
+def bench_board() -> tuple[float, dict]:
+    """The whole-board fixture's generated board, every cell and loose part
+    released to a bare place() (as `ModuleBoard` does for a module) and
+    resolved. Returns (seconds, {placed, findings}).
+
+    The generated board carries no outline yet (that comes from the write),
+    so this borrows the written board's real one: the fixture's own size
+    and shape, not an auto-sized square, since how densely items pack
+    against a real edge and each other is what drives how often a
+    candidate meets another's copper - the whole point of timing this."""
+    from placemat.kicad.read import read_board
+    from placemat.layout import Board
+    from placemat.values import Cell, Part
+    g = read_board(BOARD_FIXTURE / "generated" / "layout.kicad_pcb")
+    written = read_board(BOARD_FIXTURE / "layout" / "layout.kicad_pcb")
+    b = Board(g, keep_going=True)
+    b.outline(written.board_polygon[0], holes=written.board_polygon[1:])
+    for name, cell in sorted(g.cells.items()):
+        if cell.members:               # a pure parent grouping (all its members in nested cells) has nothing to place
+            b.place(Cell(name))
+    for fp in sorted(g.footprints, key=lambda f: f.inst):
+        if fp.cell is None:
+            b.place(Part(fp.inst))
+    t0 = time.perf_counter()
+    plan = b.resolve()
+    dt = time.perf_counter() - t0
+    placed = sum(1 for s in plan.steps if s.placement is not None and s.kind in ("part", "cell"))
+    return dt, {"placed": placed, "findings": len(plan.findings)}
+
+
+def bench_checks() -> tuple[float, dict]:
+    """The whole-board fixture's written, placed board (with its zone
+    fills), `run_checks` timed alone."""
+    from placemat.checks import kwargs_from, run_checks
+    from placemat.kicad.read import read_board
+    from placemat.settings import Settings
+    g = read_board(BOARD_FIXTURE / "layout" / "layout.kicad_pcb")
+    t0 = time.perf_counter()
+    verdicts = run_checks(g, **kwargs_from(Settings()))
+    dt = time.perf_counter() - t0
+    return dt, {"verdicts": len(verdicts), "failing": sum(1 for v in verdicts if v.ok is False)}
+
+
 def _line(c, m, new, old) -> str:
     def pair(key, fmt):
         a, b = old[key], new[key]
@@ -280,7 +327,17 @@ def main(argv) -> int:
     ap.add_argument("--set", action="append", default=[], metavar="NAME=VALUE",
                     help="a setting for every configuration, e.g. score_crossing=1 (a measurement, never --update)")
     ap.add_argument("--out", help="write this run's results here, as bench.json is written")
+    ap.add_argument("--board", action="store_true", help="the whole-board fixture's placement, timed alone")
+    ap.add_argument("--checks", action="store_true", help="the whole-board fixture's checks, timed alone")
     a = ap.parse_args(argv)
+    if a.board or a.checks:
+        if a.board:
+            dt, row = bench_board()
+            print("board: %.1f s, placed %d, findings %d" % (dt, row["placed"], row["findings"]))
+        if a.checks:
+            dt, row = bench_checks()
+            print("checks: %.1f s, %d verdicts, %d failing" % (dt, row["verdicts"], row["failing"]))
+        return 0
     if a.update and (a.names or a.config or a.set):
         print("--update needs the whole corpus, every configuration and the settings as they are", file=sys.stderr)
         return 2

@@ -168,7 +168,15 @@ model into declarations.
    - ordinary signals whose off-board length dwarfs the board: an
      isolated input's connector need not sit at its isolator;
    - mechanical facts: mounting patterns, case windows, a sensor whose
-     position is its function.
+     position is its function;
+   - a cell is placed as one rigid piece; when its parts want different
+     places, the capture's module boundary is wrong for this board - a
+     job joined to the rest only through board-level nets, or a cell too
+     large or the wrong shape for the room its tightest part needs. Say
+     so, and propose the split, or the move of parts between modules, as
+     a change to the capture; do not work round it in the script. The
+     `split` finding lists cells whose parts form separate groups; a
+     refused cell is the other signal.
 4. **Write the proposal as the script's opening comment**: which edge each
    connector takes and why, which positions are mechanical points (`fixed`)
    and which a distance along an edge (`edge`), which cells cluster with
@@ -180,14 +188,23 @@ model into declarations.
 
 ## The loop
 
-1. **Run** `placemat run boards/<x>/<X>_layout.py`. Read the stream:
+1. **Before any placement on a board, establish the facts.** Run
+   `placemat facts <script>`. For each fact it marks unconfirmed or
+   flags, ask the user with AskUserQuestion: layer roles and copper
+   weights, pair nets, via types and their tier, fab minimums, the rise.
+   Write each answer in its home (see "Where a change goes" below): the
+   stackup and pair classes in the .zen, fab facts in fab-profile.json,
+   the rise in placemat.toml. Regenerate, then run `placemat facts
+   --confirm`. Never proceed on a default, and never write a fact the
+   user did not give.
+2. **Run** `placemat run boards/<x>/<X>_layout.py`. Read the stream:
    placed/copper/findings, one DRC line, the impact, a `score` line and a
    `best` line (`-v` prints every step). **A run that exits 1 having placed
    everything came out worse than the best earlier run of the same parts**:
    the `best` line and the finding name the term. The best arrangement is
    in `.placemat/runs/best.json`; the edit just made is the one that lost
    ground.
-2. **Between runs, look with `placemat preview`**: the same placement in
+3. **Between runs, look with `placemat preview`**: the same placement in
    seconds, drawn, without the write, DRC and render. A whole board
    answers layout questions (free space, a cluster, a red over-limit link,
    the congestion hot spot, what did not place) but comes through at a few
@@ -195,10 +212,10 @@ model into declarations.
    `--zoom` and aim for 20 px/mm (40 for 0201s; set `[preview] model_edge`
    to what your model sees). Gaps are numbers - `measure`, `occupancy`, the
    findings - not pixels.
-3. **Before reading a board's numbers, run `placemat settings`**: a
+4. **Before reading a board's numbers, run `placemat settings`**: a
    `placemat.toml` anywhere from the board's directory up can change any
    value, and the command says which file each came from.
-4. **Read the numbers before the picture.** `real` DRC buckets and
+5. **Read the numbers before the picture.** `real` DRC buckets and
    `unconnected` are the gate; `outstanding` is copper not yet drawn;
    `footprint issues` are defects in the fetched footprints (they do not
    block a board, but placemat's extent for those parts is then
@@ -214,17 +231,19 @@ model into declarations.
    sides to route coupled: swap two interchangeable parts on it, or turn a
    part whose pinout is mirrored, before routing. A net class whose
    clearance does not fit a part's pad pitch is a setup finding: fix the
-   class, or give those nets their own, before routing.
-5. **Read the `seeded` line**: which nets pulled how many items into place.
+   class, or give those nets their own, before routing. A `facts:
+   unconfirmed` line and a `facts` finding mean step 1 was skipped or the
+   board changed since: go back to it.
+6. **Read the `seeded` line**: which nets pulled how many items into place.
    One net seeding most of the board is a missing `board.plane()`: an
    undeclared plane net pulls every part on it to one centroid.
-6. **Look** at `layout/<X>/layout.png` (and `layout-bottom.png`) only after
+7. **Look** at `layout/<X>/layout.png` (and `layout-bottom.png`) only after
    the numbers say the change did what you meant.
-7. **Change one thing, run again.** The impact says what moved and which
+8. **Change one thing, run again.** The impact says what moved and which
    numbers changed (`placemat impact <run> <run>` compares any two). "Nothing
    moved" when you expected movement means the change was not where you
    thought.
-8. **Route only when the placement has settled** - crossings and
+9. **Route only when the placement has settled** - crossings and
    congestion no longer falling, big parts no longer moving:
    `placemat run ... --route` or `placemat route <board>`. It routes a copy
    and reports closure; `still open` names the next placement problem. The
@@ -232,6 +251,15 @@ model into declarations.
    into the script as `board.track()` calls. To keep what the router found,
    `placemat route <script> --adopt NET ...` stores it relative to its pads
    (api.md, "Keeping routed copper").
+
+**Where a change goes:**
+
+| To change | Edit |
+|---|---|
+| A fact about the board (stackup, layer roles and weights, net classes, pair nets, design rules) | The .zen (`BoardConfig`) |
+| What the fab can make, and what the price allows (via types, fab minimums, courtyard excess) | fab-profile.json |
+| How placemat searches, scores, cleans up, grades DRC or tunes the router | placemat.toml |
+| What the layout intends (placement, copper, planes) | The layout script |
 
 A run's full record is `.placemat/runs/<id>/`: `run.json`, `script.log`,
 `drc.json`, `generate.log`, `layout.kicad_pcb`, and `route/`. Read a log's

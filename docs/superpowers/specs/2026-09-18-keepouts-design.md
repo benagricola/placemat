@@ -20,7 +20,7 @@ one KiCad primitive that does this job is switched off.
 > Keep a corridor open by not placing in it; reservations are for copper the
 > script has not drawn yet, not for space you like.
 
-The cost is visible on a real board. `fairing-instrument-pcb`'s front board
+The cost is visible on a real board. a board repository's front board
 carries `plane_outline()`: twenty-five lines of trigonometry that walk a disc
 rim at two degrees per chord to bite an antenna clearance out of the ground
 plane, with a docstring explaining it has to be a notch rather than a hole
@@ -290,7 +290,7 @@ Test-first, each slice independently demonstrable.
 7. **Layers.** The default writes a rule area on every copper layer of a
    2-layer and of a 6-layer board. `layers=[CopperLayer.F]` writes one layer.
    A layer the board does not have is refused.
-8. **The whole thing.** The fairing front board's antenna: clearance placed
+8. **The whole thing.** A test board's antenna: clearance placed
    from the antenna's feed pad, the matching network allowed inside, planes
    clipped on every layer, DRC clean, and `plane_outline()` deleted.
 

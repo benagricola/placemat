@@ -138,6 +138,22 @@ def test_a_value_under_its_floor_is_an_error(tmp_path):
     assert "place.step" in str(e.value) and "greater than 0" in str(e.value)
 
 
+def test_split_min_group_defaults_to_two():
+    assert S.Settings().place_split_min_group == 2
+
+
+def test_a_split_min_group_under_two_is_an_error(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[place]\nsplit_min_group = 1\n")
+    with pytest.raises(S.SettingsError) as e:
+        S.load(tmp_path)
+    assert "place.split_min_group" in str(e.value) and "at least 2" in str(e.value)
+
+
+def test_a_split_min_group_of_two_is_allowed(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[place]\nsplit_min_group = 2\n")
+    assert S.load(tmp_path).place_split_min_group == 2
+
+
 def test_a_negative_weight_is_an_error(tmp_path):
     _toml(tmp_path / "placemat.toml", "[rank]\narea = -1.0\n")
     with pytest.raises(S.SettingsError):
@@ -226,3 +242,39 @@ def test_score_push_may_be_zero_but_not_negative(tmp_path):
     _toml(tmp_path / "placemat.toml", "[score]\npush = -1.0\n")
     with pytest.raises(S.SettingsError):
         S.load(tmp_path)
+
+
+def test_check_copper_oz_is_retired_naming_the_stackup(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[check]\ncopper_oz = 1.0\n")
+    with pytest.raises(S.SettingsError) as e:
+        S.load(tmp_path)
+    assert "check.copper_oz" in str(e.value) and "stackup" in str(e.value)
+
+
+def test_route_layers_is_retired_naming_layer_roles(tmp_path):
+    _toml(tmp_path / "placemat.toml", '[route]\nlayers = ["F.Cu", "B.Cu"]\n')
+    with pytest.raises(S.SettingsError) as e:
+        S.load(tmp_path)
+    assert "route.layers" in str(e.value) and "role" in str(e.value)
+
+
+def test_route_diff_pairs_is_retired_naming_net_classes(tmp_path):
+    _toml(tmp_path / "placemat.toml", '[route]\ndiff_pairs = ["*"]\n')
+    with pytest.raises(S.SettingsError) as e:
+        S.load(tmp_path)
+    assert "route.diff_pairs" in str(e.value) and "net class" in str(e.value)
+
+
+def test_score_via_shorten_has_a_default_and_is_settable(tmp_path):
+    assert S.Settings().score_via_shorten == 5.0
+    _toml(tmp_path / "placemat.toml", "[score]\nvia_shorten = 8.0\n")
+    assert S.load(tmp_path).score_via_shorten == 8.0
+
+
+def test_facts_confirmed_does_not_feed_the_digest(tmp_path):
+    plain = S.Settings()
+    _toml(tmp_path / "placemat.toml", '[facts]\nconfirmed = "abc123"\n')
+    confirmed = S.load(tmp_path)
+    assert confirmed.facts_confirmed == "abc123"
+    assert confirmed.json() == plain.json()
+    assert "facts_confirmed" not in json.loads(confirmed.json())

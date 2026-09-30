@@ -139,7 +139,7 @@ from tests.conftest import needs_breakout, needs_kicad
 
 pytestmark = [needs_kicad]
 
-FAIRING = "/home/ben/Documents/Hardware/fairing-instrument/electronics/boards/main/kicad/layout.kicad_pcb"
+BOARD = "a board project's `boards/main/kicad/layout.kicad_pcb`"
 
 
 @needs_breakout
@@ -160,12 +160,12 @@ def test_the_outline_box_agrees_with_the_polygon(breakout_pcb):
     assert poly_box.height == pytest.approx(g.outline_box.height, abs=0.2)
 
 
-@pytest.mark.skipif(not __import__("pathlib").Path(FAIRING).exists(),
-                    reason="the fairing main board is not here")
+@pytest.mark.skipif(not __import__("pathlib").Path(BOARD).exists(),
+                    reason="the test board is not here")
 def test_a_disc_with_a_bore_reads_as_a_curve_and_a_hole():
     """The case outline gets wrong: it holds one bounding box per Edge.Cuts
     drawing, so a disc reads as a square."""
-    g = read_board(FAIRING)
+    g = read_board(BOARD)
     assert len(g.board_polygon) >= 2                 # the rim, and at least one hole
     assert len(g.board_polygon[0]) > 100             # a flattened curve, not a rectangle
 ```
@@ -244,8 +244,8 @@ import glob
 import hashlib
 import os
 
-PARTS = "/home/ben/Documents/Hardware/fairing-instrument/electronics/parts"
-needs_parts = pytest.mark.skipif(not os.path.isdir(PARTS), reason="the fairing parts are not here")
+PARTS = "a board project's `parts`"
+needs_parts = pytest.mark.skipif(not os.path.isdir(PARTS), reason="a board project's parts are not here")
 
 
 def _one(pattern):

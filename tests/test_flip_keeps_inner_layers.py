@@ -27,7 +27,7 @@ TYPES = {F: "mixed", IN1: "power", IN2: "power", IN3: "mixed", IN4: "power", B: 
 
 @pytest.fixture(autouse=True)
 def _fab_makes_every_via(monkeypatch):
-    monkeypatch.setattr(Board, "fab_vias", frozenset({"micro", "blind", "buried"}))
+    monkeypatch.setattr(Board, "fab_via_tiers", {"micro": "yes", "blind": "yes", "buried": "yes"})
 
 
 def _pour(layer, net, cx=10):

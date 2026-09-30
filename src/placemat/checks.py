@@ -16,8 +16,9 @@ import bisect
 import math
 import re
 
+from . import geometry as _geometry_module
 from .board_geometry import BoardGeometry, CopperItem, Footprint
-from .geometry import point_in_polygon, point_segment_distance, poly_distance, polys_overlap
+from .geometry import poly_distance, polys_overlap
 from .values import Box
 
 AMBIENT_C = 100.0
@@ -46,8 +47,10 @@ load's route: a width reads within one step of the copper's own.
 The default for `[check] zone_step`."""
 
 _IPC_K_OUTER = 0.048            # IPC-2221 external layer constant
+_IPC_K_INNER = 0.024            # IPC-2221 internal layer constant
 _MIL_PER_OZ = 1.378             # copper thickness per ounce, in mil
 _MM_PER_MIL = 0.0254
+_MM_PER_OZ = _MIL_PER_OZ * _MM_PER_MIL   # ~0.035001 mm per copper ounce
 
 _PREFIX = {"": 1.0, "m": 1e-3, "u": 1e-6, "k": 1e3}
 
@@ -407,10 +410,27 @@ def crossings_under(geometry: BoardGeometry) -> list[Verdict]:
 
 # --------------------------------------------------------- current paths
 
-def ipc2221_width_mm(current_a: float, rise_c: float = TRACK_RISE_C, copper_oz: float = COPPER_OZ) -> float:
-    """IPC-2221 external-layer width for a current at a temperature rise."""
-    area_milsq = (current_a / (_IPC_K_OUTER * rise_c ** 0.44)) ** (1 / 0.725)
+def ipc2221_width_mm(current_a: float, rise_c: float = TRACK_RISE_C, copper_oz: float = COPPER_OZ,
+                     k: float = _IPC_K_OUTER) -> float:
+    """IPC-2221 width for a current at a temperature rise, on a layer of
+    this weight: k is 0.048 for an outer layer, 0.024 for an inner one."""
+    area_milsq = (current_a / (k * rise_c ** 0.44)) ** (1 / 0.725)
     return area_milsq / (_MIL_PER_OZ * copper_oz) * _MM_PER_MIL
+
+
+def _layer_oz(layer, copper_mm: dict, fallback_oz: float) -> float:
+    mm_thickness = copper_mm.get(layer) if layer is not None else None
+    return mm_thickness / _MM_PER_OZ if mm_thickness is not None else fallback_oz
+
+
+def _layer_k(layer) -> float:
+    from .values import CopperLayer
+    return _IPC_K_OUTER if layer is None or layer in (CopperLayer.F, CopperLayer.B) else _IPC_K_INNER
+
+
+def _need_mm(amps: float, rise_c: float, copper_oz: float, copper_mm: dict, layers) -> float:
+    layer = next(iter(layers), None)
+    return ipc2221_width_mm(amps, rise_c, _layer_oz(layer, copper_mm, copper_oz), _layer_k(layer))
 
 
 def _net_graph(geometry: BoardGeometry, net: str):
@@ -513,33 +533,116 @@ def _edt_line(f: list) -> list:
     return d
 
 
+def _distance_transform(inside, nx: int, ny: int) -> list:
+    """The squared-distance-in-cells transform of a 0/1 raster (`inside`
+    truthy = in), a two-pass exact Euclidean transform (Felzenszwalb and
+    Huttenlocher): column-wise then row-wise. The same transform `_Fill`
+    takes of its own polygon (its `self.sq`), reused for an arbitrary
+    raster - the copper `touching` is asked about, on the fill's own
+    grid."""
+    cols = [0.0] * (nx * ny)
+    for q in range(nx):
+        d = _edt_line([math.inf if inside[r * nx + q] else 0.0 for r in range(ny)])
+        for r in range(ny):
+            cols[r * nx + q] = d[r]
+    sq = [0.0] * (nx * ny)
+    for r in range(ny):
+        sq[r * nx:(r + 1) * nx] = _edt_line(cols[r * nx:(r + 1) * nx])
+    return sq
+
+
+_NATIVE_FILL = True
+"""Whether a zone fill's width search uses NativeFill when it can: switched
+off to compare against the pure-Python `_Fill` (tests/test_native_fill.py)."""
+
+
 class _Fill:
     """One zone fill polygon rasterised at `step`: which cells are copper
     and, for each, its squared distance in cells to the nearest cell that is
     not (an exact Euclidean transform over the grid). A slit KiCad draws to
     a hole has no width, so it is no edge. The grid has a cell of margin
-    round the polygon, so every edge has cells outside it."""
+    round the polygon, so every edge has cells outside it.
+
+    `touching`, `_reach` and the level search `width` drives are native
+    (NativeFill, native/src/fill.rs) when the module has it and
+    `_NATIVE_FILL` allows it; `width` itself is unchanged either way - it
+    reads `self.sq`/`self.levels` and calls `touching`/`_reach`/`centre`/
+    `radius`, whichever `_Fill` this is. Python always keeps the neck
+    point and the "one step or less" sentence (docs/superpowers/specs/
+    2026-09-30-performance-zone-width-give-way-sweep-design.md
+    section 1)."""
 
     def __init__(self, poly, step: float):
+        native = _geometry_module._native
+        if _NATIVE_FILL and native is not None and hasattr(native, "NativeFill"):
+            self._native = native.NativeFill(poly, step)
+            self.s = self._native.s
+            self.x0, self.y0 = self._native.x0, self._native.y0
+            self.nx, self.ny = self._native.nx, self._native.ny
+            self.sq = self._native.sq
+            self.levels = self._native.levels
+            self._native_polys: dict = {}          # id(polys) -> polys, keeping it alive so id() cannot be reused
+            return
+        self._native = None
         box = Box.of_points(poly)
         self.s = step
         self.x0, self.y0 = box.left - step, box.top - step
         self.nx = int(math.ceil(box.width / step)) + 2
         self.ny = int(math.ceil(box.height / step)) + 2
         self.inside = _raster([poly], self.x0, self.y0, self.nx, self.ny, step)
-        nx, ny, inside = self.nx, self.ny, self.inside
-        cols = [0.0] * (nx * ny)
-        for q in range(nx):
-            d = _edt_line([math.inf if inside[r * nx + q] else 0.0 for r in range(ny)])
-            for r in range(ny):
-                cols[r * nx + q] = d[r]
-        self.sq = [0.0] * (nx * ny)
-        for r in range(ny):
-            self.sq[r * nx:(r + 1) * nx] = _edt_line(cols[r * nx:(r + 1) * nx])
+        self.sq = _distance_transform(self.inside, self.nx, self.ny)
+        inside = self.inside
         # the fill's cells deepest first, so the cells at least some distance in are a prefix
-        self.deep = sorted((c for c in range(nx * ny) if inside[c]), key=lambda c: -self.sq[c])
+        self.deep = sorted((c for c in range(self.nx * self.ny) if inside[c]), key=lambda c: -self.sq[c])
         self.depths = [-self.sq[c] for c in self.deep]
         self.levels = sorted(set(self.sq[c] for c in self.deep))
+        self._copper_sq: dict = {}
+
+    def _copper_distance(self, polys) -> list:
+        """The squared-distance-in-cells transform of `polys`, read back at
+        this fill's own cells, cached by `polys`'s identity: `width`'s
+        binary search over levels calls `touching` with the SAME
+        `entry`/`exit_` tuple at every level, so one raster and one
+        transform per copper item serves the whole search, replacing a
+        per-cell edge scan at every level (docs/superpowers/specs/
+        2026-09-30-performance-zone-width-give-way-sweep-design.md
+        section 1).
+
+        Rasterised on a grid grown, cell-aligned, past the fill's own
+        wherever `polys` reaches further than it: copper the fill only
+        touches at a distance (a thermal spoke's pad short of a wide pour's
+        real edge) can lie outside the fill's own bounding box by more than
+        its one-step margin, and a transform clipped to the fill's grid
+        would then understate the distance - reading as not touching where
+        the edge-exact test would still call it touching, past what a
+        single `check.zone_step` excuses."""
+        key = id(polys)
+        hit = self._copper_sq.get(key)
+        if hit is not None and hit[0] is polys:
+            return hit[1]
+        s, x0, y0, nx, ny = self.s, self.x0, self.y0, self.nx, self.ny
+        cbox = Box.union([Box.of_points(p) for p in polys])
+        dq = max(0, int(math.ceil((x0 - (cbox.left - s)) / s - 1e-9)))
+        dr = max(0, int(math.ceil((y0 - (cbox.top - s)) / s - 1e-9)))
+        gx0, gy0 = x0 - dq * s, y0 - dr * s
+        extra_c = max(0, int(math.ceil(((cbox.right + s) - (x0 + nx * s)) / s - 1e-9)))
+        extra_r = max(0, int(math.ceil(((cbox.bottom + s) - (y0 + ny * s)) / s - 1e-9)))
+        gnx, gny = nx + dq + extra_c, ny + dr + extra_r
+        # `_distance_transform`'s seeds (distance 0) are where its raster is
+        # FALSE - right for the fill's own `self.sq` (seeded from outside
+        # the fill), backwards here: a query cell needs its distance TO the
+        # copper, so the copper cells are the seeds, and the raster is
+        # inverted before the transform.
+        if dq == 0 and dr == 0 and extra_c == 0 and extra_r == 0:
+            inside = _raster(polys, x0, y0, nx, ny, s)
+            sq = _distance_transform([not b for b in inside], nx, ny)
+        else:
+            inside = _raster(polys, gx0, gy0, gnx, gny, s)
+            grid = _distance_transform([not b for b in inside], gnx, gny)
+            sq = [grid[(r + dr) * gnx + (q + dq)] for r in range(ny) for q in range(nx)]
+        hit = (polys, sq)
+        self._copper_sq[key] = hit
+        return hit[1]
 
     def centre(self, c: int) -> tuple:
         r, q = divmod(c, self.nx)
@@ -556,7 +659,20 @@ class _Fill:
         radius (`radius(tau)`) reaches `polys`, within half a step: where a
         path that wide can start from copper the fill meets, whether the
         copper overlaps the fill or only touches it (a thermal spoke's end
-        at a pad)."""
+        at a pad).
+
+        `polys` is rasterised and distance-transformed on the fill's own
+        grid (cached per copper item, `_copper_distance`), not walked edge
+        by edge: exact to half a cell rather than to the edge. A width may
+        differ from the edge-exact answer by at most one `check.zone_step`
+        (docs/superpowers/specs/2026-09-30-performance-zone-width-give-way-
+        sweep-design.md section 1)."""
+        if self._native is not None:
+            key = id(polys)
+            new = key not in self._native_polys
+            if new:
+                self._native_polys[key] = polys          # keeps polys alive: id() cannot be reused while cached
+            return set(self._native.touching(key, polys if new else None, tau))
         s, nx, ny, sq, inside = self.s, self.nx, self.ny, self.sq, self.inside
         box = Box.union([Box.of_points(p) for p in polys])
         far = self.radius(tau) + s / 2.0
@@ -570,23 +686,9 @@ class _Fill:
         else:
             cells = [r * nx + q for r in range(r0, r1) for q in range(q0, q1)
                      if inside[r * nx + q] and sq[r * nx + q] >= tau]
-        diag = math.hypot(box.width, box.height)
-        edges = [(poly[k], poly[(k + 1) % len(poly)]) for poly in polys for k in range(len(poly))]
-        out = set()
-        for c in cells:
-            x, y = self.centre(c)
-            dx = max(box.left - x, 0.0, x - box.right)
-            dy = max(box.top - y, 0.0, y - box.bottom)
-            d = math.hypot(dx, dy)                  # to the box: the copper is no nearer, nor more than diag further
-            if d > far:
-                continue
-            if d + diag > far:
-                p = (x, y)
-                if not any(point_in_polygon(p, poly) for poly in polys) and \
-                        all(point_segment_distance(p, a, b) > far for a, b in edges):
-                    continue
-            out.add(c)
-        return out
+        copper_sq = self._copper_distance(polys)
+        limit = (far / s) ** 2
+        return {c for c in cells if copper_sq[c] <= limit + 1e-9}
 
     def _reach(self, start: set, goal: set, tau: float):
         """A path of fill cells from `start` to `goal`, 8-connected, every
@@ -594,6 +696,9 @@ class _Fill:
         fill's edge: (the goal cell it reached, or None, and each cell
         reached's parent). Breadth first, so it stops as soon as it
         arrives."""
+        if self._native is not None:
+            hit, parent = self._native.reach(list(start), list(goal), tau)
+            return hit, parent
         nx, ny, inside, sq = self.nx, self.ny, self.inside, self.sq
         parent = {c: None for c in start}
         todo = deque(start)
@@ -707,9 +812,10 @@ def _widest_from(nodes, near, sources) -> dict:
 def _neck(nodes, best, end_i: int, w: float) -> tuple:
     """The bottleneck's point, how far the route stays within 10% of it -
     the run of consecutive track nodes around the bottleneck this narrow,
-    stopped each way by a pad, via, pour or wider track - and whether the
+    stopped each way by a pad, via, pour or wider track - whether the
     bottleneck is a drawn pour's narrowest point (which has no length along
-    the route)."""
+    the route), and the bottleneck node's own layers (for the current-path
+    check's per-layer weight)."""
     path, i = [], end_i
     while i is not None:
         path.append(i)
@@ -735,7 +841,7 @@ def _neck(nodes, best, end_i: int, w: float) -> tuple:
     ends = nodes[neck_i][5]
     point = ((ends[0][0] + ends[1][0]) / 2.0, (ends[0][1] + ends[1][1]) / 2.0) if ends \
         else (nodes[neck_i][3].center.x, nodes[neck_i][3].center.y)
-    return point, total, nodes[neck_i][0] == "poly"
+    return point, total, nodes[neck_i][0] == "poly", nodes[neck_i][4]
 
 
 def _route(best, end_i: int) -> list:
@@ -750,7 +856,8 @@ def _route(best, end_i: int) -> list:
 def _fill_on(nodes, path: list, fills: dict, measured: dict, step: float):
     """The narrowest zone fill along a route, each measured between the
     copper the route enters and leaves it by: (width, point, one step or
-    less), or None when the route passes no fill that narrows it."""
+    less, the zone node's own layers), or None when the route passes no
+    fill that narrows it."""
     worst = None
     for k in range(1, len(path) - 1):
         z = path[k]
@@ -760,7 +867,8 @@ def _fill_on(nodes, path: list, fills: dict, measured: dict, step: float):
         if key not in measured:
             if z not in fills:
                 fills[z] = _Fill(nodes[z][2][0], step)
-            measured[key] = fills[z].width(nodes[path[k - 1]][2], nodes[path[k + 1]][2])
+            got = fills[z].width(nodes[path[k - 1]][2], nodes[path[k + 1]][2])
+            measured[key] = None if got is None else got + (nodes[z][4],)
         got = measured[key]
         if got is not None and (worst is None or got[0] < worst[0]):
             worst = got
@@ -817,11 +925,12 @@ def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, cop
                                else "joined only through pads, vias and a zone fill where their copper meets"))
             continue
         amps = carriers[a] if b is None else min(carriers[a], carriers[b])
-        need = ipc2221_width_mm(amps, rise_c, copper_oz)
         if narrows:
+            need = _need_mm(amps, rise_c, copper_oz, geometry.copper_mm, fill[3])
             judged.append((width, need, amps, start, to, (fill[0], fill[2], True), fill[1], None))
             continue
-        point, length, in_pour = _neck(nodes, best, end_i, w)
+        point, length, in_pour, neck_layers = _neck(nodes, best, end_i, w)
+        need = _need_mm(amps, rise_c, copper_oz, geometry.copper_mm, neck_layers)
         judged.append((w, need, amps, start, to, None if fill is None else (fill[0], fill[2], False), point,
                        None if in_pour else length))
     return judged, unmeasured, apart
@@ -929,8 +1038,8 @@ def kwargs_from(settings) -> dict:
     """The arguments `run_checks` takes, from the resolved settings. One home,
     so `placemat check` and `placemat run` judge a board by the same numbers."""
     return {"ambient_c": settings.check_ambient_c, "keep_out_mm": settings.check_keep_out_mm,
-            "rise_c": settings.check_rise_c, "copper_oz": settings.check_copper_oz,
-            "limits": dict(settings.check_limits), "zone_step": settings.check_zone_step}
+            "rise_c": settings.check_rise_c, "limits": dict(settings.check_limits),
+            "zone_step": settings.check_zone_step}
 
 
 def record(rec, verdicts) -> list:

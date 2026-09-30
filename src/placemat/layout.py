@@ -760,7 +760,7 @@ class Board:
     off the generated .kicad_pcb; declarations are collected and resolved
     together."""
 
-    fab_vias: frozenset = frozenset()       # none unless the fab profile allows them: through vias only
+    fab_via_tiers: dict = {}       # "micro"/"blind"/"buried" -> "yes"/"no"/"if-needed"; a type not named is "no"
 
     @property
     def width(self) -> float:
@@ -803,10 +803,10 @@ class Board:
     def __init__(self, geometry: BoardGeometry, edge_margin: float | None = None, clearance: float | None = None,
                  via_drill: float = 0.3, via_size: float = 0.6, keep_going: bool = False,
                  courtyard_excess: float = 0.1, settings: Settings | None = None,
-                 component_spacing: float | None = None, fab_vias=None, fab_source: str = ""):
+                 component_spacing: float | None = None, fab_via_tiers=None, fab_source: str = ""):
         self.settings = settings if settings is not None else Settings()
-        # the via types beyond through the fab profile allows (micro, blind, buried), and where it says so
-        self.fab_vias = frozenset(fab_vias) if fab_vias is not None else type(self).fab_vias
+        # the via types beyond through: "micro"/"blind"/"buried" -> "yes"/"no"/"if-needed", and where it says so
+        self.fab_via_tiers = dict(fab_via_tiers) if fab_via_tiers is not None else type(self).fab_via_tiers
         self.fab_source = fab_source
         self._planes_declared: list = []    # (net, layers) of each board.plane()
         self._solve_hints = None
@@ -2271,13 +2271,13 @@ class Board:
             if isinstance(run, CutoutEdge):
                 rotation, faces_note = None, ""      # the stretch is not known yet: turned when it is
             elif run is not None and isinstance(along, (int, float)):
-                rotation, faces_note = self.outward_rotation(item, run.at(along)[1])
+                rotation, faces_note = self.outward_rotation(item, run.at(along)[1], face)
             elif run is not None and along is not None:
                 rotation, faces_note = None, ""      # along is a reference: not known until it is placed
             elif rim is not None and angle is not None:
-                rotation, faces_note = self.outward_rotation(item, angle + (180.0 if rim == "bore" else 0.0))
+                rotation, faces_note = self.outward_rotation(item, angle + (180.0 if rim == "bore" else 0.0), face)
             elif edge is not None and along is None:
-                rotation, faces_note = self.outward_rotation(item, edge)
+                rotation, faces_note = self.outward_rotation(item, edge, face)
             else:
                 rotation, faces_note = 0.0, ""
         if kind == "cell" and at is not None and center is None:
@@ -2868,6 +2868,20 @@ class Board:
                 plan.findings.append(Finding("setup", "%s (%s): no declaration places it, so it stays where the generator put it"
                                      % (fp.inst, fp.ref)))
 
+    def _report_splits(self, plan: Plan) -> None:
+        """A cell whose members form two or more groups of
+        `place.split_min_group` members or more, joined only by nets not
+        local to the cell (splits.py): a finding, and a note on the cell's
+        step."""
+        from . import splits
+        cells = [it for it in plan._items.values() if isinstance(it, CellGeom)]
+        plane_nets = {net for net, _ in self._planes_declared}
+        for name, text in splits.report(self.geometry, cells, plane_nets, self.settings.place_split_min_group):
+            plan.findings.append(Finding("split", "%s: %s" % (name, text)))
+            step = next((s for s in plan.steps if s.item == name), None)
+            if step is not None:
+                step.note = (step.note + "; " if step.note else "") + "split: " + text
+
     def _report_escapes(self, occ: Occupancy, plan: Plan):
         """Escapes left crossed at a pin row, and pads the path search finds
         closed toward what they join or walled off (escapes.py); and each
@@ -2936,20 +2950,27 @@ class Board:
             raise ValueError("faces() names at least one side")
         self._faces = ("placemat faces " + " ".join(words), why)
 
-    def outward_rotation(self, item, edge) -> tuple[float, str]:
+    def outward_rotation(self, item, edge, face: Face = Face.FRONT) -> tuple[float, str]:
         """The rotation that turns the item's outward side to `edge` - a board
-        edge, or a bearing on a round board's rim - and a note when the item
-        declared none (the generic rule: local +Y out)."""
+        edge, or a bearing on a round board's rim - when it is placed on
+        `face`, and a note when the item declared none (the generic rule:
+        local +Y out). A flip to the back mirrors the item about the vertical
+        axis before it turns, so on the back a side declared east is its
+        west until turned; north and south are unchanged."""
+        face = Face.FRONT if face is None else face if isinstance(face, Face) else Face(face)   # "front"/"back", as place() takes
         geom, key, kind = self._item(item)
         declared = geom.faces.get("outward") if kind == "cell" else None
         note = "" if kind != "cell" else "no faces declared: turned as if its outward side were local +Y"
+        side = Edge(declared) if declared else None
+        if side is not None and face is Face.BACK:
+            side = {Edge.EAST: Edge.WEST, Edge.WEST: Edge.EAST}.get(side, side)
         if isinstance(edge, Edge):
-            if not declared:
+            if side is None:
                 return _OUTWARD_ROTATION[edge], note
-            return _rotation_taking(Edge(declared), edge), ""
+            return _rotation_taking(side, edge), ""
         # A bearing: turning by r takes a side pointing along bearing b to b - r,
         # so the rotation is the side's own bearing less the one wanted.
-        local = _EDGE_BEARING[Edge(declared)] if declared else _EDGE_BEARING[Edge.SOUTH]
+        local = _EDGE_BEARING[side] if side is not None else _EDGE_BEARING[Edge.SOUTH]
         # to a millionth of a degree: a bearing read off a curve carries float noise (359.99999999999994 for
         # 0), and a part turned by it has pads a hair off the axes, which the router reads as off the board
         return round(local - bearing(edge), 6) % 360.0, "" if declared else note
@@ -3465,14 +3486,13 @@ class Board:
         self._allow_via_type(name, span)
         return span
 
-    def _flip_notes(self, occ) -> dict:
-        """{cell: note} for each cell with a via that reaches a face and whose
-        inner end, once the cell is flipped, may no longer join its net. A
-        flip keeps a cell's inner copper on its layer but mirrors such a via
-        (F-In1 becomes B-In4), so its inner end moves. It still joins when
-        both layers are of one KiCad layer type and hold the via net's own
-        plane. Noted on the cell's step when it lands on the back."""
-        types = self.geometry.layer_types
+    def _plane_layers(self) -> dict:
+        """{layer: {net, ...}} of every plane this board carries on that
+        layer: each board.plane() call, from the moment it is declared (no
+        copper drawn yet), plus any zone the generated board already
+        carries that belongs to no cell (a board-wide plane a fragment does
+        not own). A stamped cell's own local zone is not a board-wide
+        plane and is left out, the same as `_flip_notes` always judged it."""
         planes: dict = {}
         for net, layers in self._planes_declared:
             for l in layers:
@@ -3481,6 +3501,17 @@ class Board:
             if c.kind == "zone" and not c.owner:
                 for l in c.layers:
                     planes.setdefault(l, set()).add(c.net)
+        return planes
+
+    def _flip_notes(self, occ) -> dict:
+        """{cell: note} for each cell with a via that reaches a face and whose
+        inner end, once the cell is flipped, may no longer join its net. A
+        flip keeps a cell's inner copper on its layer but mirrors such a via
+        (F-In1 becomes B-In4), so its inner end moves. It still joins when
+        both layers are of one KiCad layer type and hold the via net's own
+        plane. Noted on the cell's step when it lands on the back."""
+        types = self.geometry.layer_types
+        planes = self._plane_layers()
 
         def standing(layer, net):
             nets = planes.get(layer, set())
@@ -3534,16 +3565,19 @@ class Board:
                                                                    c.box.center.y), span)
 
     def _allow_via_type(self, name: str, span: tuple) -> None:
-        """Refuse a via type the fab profile does not allow: a micro, blind or
-        buried via costs more, and is kept off unless the profile says the
-        fab makes it and the cost is accepted."""
+        """Refuse a via type the fab profile does not allow outright: a
+        micro, blind or buried via costs more, and a preferred-off type
+        ("if-needed") is never drawn by a script even where it would clear."""
         kind = _via_kind(span)
-        if kind not in self.fab_vias:
-            raise ValueError(
-                "%s: a %s via (%s) is not allowed by the fab profile%s; they cost more, so a board keeps to "
-                "through vias unless fab-profile.json says \"via\": {\"allow_%s\": true} for a fab that makes "
-                "them" % (name, kind, _span_text(span), " (%s)" % self.fab_source if self.fab_source else "",
-                          kind))
+        tier = self.fab_via_tiers.get(kind, "no")
+        if tier == "yes":
+            return
+        why = "is not allowed by the fab profile" if tier == "no" else \
+              "is preferred off by the fab profile (\"if-needed\")"
+        raise ValueError(
+            "%s: a %s via (%s) %s%s; they cost more, so a board keeps to through vias unless "
+            "fab-profile.json says \"via\": {\"%s\": \"yes\"} for a fab that makes them" % (
+                name, kind, _span_text(span), why, " (%s)" % self.fab_source if self.fab_source else "", kind))
 
     def _span_drill(self, span: tuple, drill: float) -> float:
         """A via's drill when the script gives none: `copper.microvia_drill`
@@ -3938,6 +3972,8 @@ class Board:
         thinned = self._thin_drops(occ)    # likewise: a cell's geometry takes its fields as thinned
         occ.quiet_nets = frozenset(self._plane_nets() | set(self._free_nets))
         occ.plane_nets = frozenset(c.net for c in self._copper if c.key.split(" ")[0] == "plane")   # drops' nets
+        occ.plane_layers = self._plane_layers()      # {layer: {net, ...}}: give way's shorten reads this
+        occ.fab_via_tiers = self.fab_via_tiers        # "micro"/"blind"/"buried" -> "yes"/"no"/"if-needed"
         if self._fit:
             occ.board_box = None                # no frame yet: the decided items have no edge to be judged by
         for intent in self._placements():
@@ -4111,7 +4147,7 @@ class Board:
                     obj.along = _run_along(self, occ, obj)      # a reference: the place on the edge nearest it
                 if obj.rotation is None:            # turned to the way the board faces where it sits
                     obj.rotation, obj.faces_note = self.outward_rotation(
-                        obj.item, obj.run.at(obj.along if obj.along is not None else 0.0)[1])
+                        obj.item, obj.run.at(obj.along if obj.along is not None else 0.0)[1], getattr(obj, "face", None))
             plan._items[obj.key] = obj.item
             if self._fit and not obj.freedom.decided:
                 occ.board_box = self._outline = self._fit_room(occ, plan, obj)
@@ -4255,6 +4291,7 @@ class Board:
         self._report_links(occ, plan, placed)
         self._report_escapes(occ, plan)
         self._report_undeclared(plan)
+        self._report_splits(plan)
         self._place_labels(occ, plan, placed, progress, final=True)
         if self._faces is not None:
             text, why = self._faces
@@ -4284,6 +4321,13 @@ class Board:
                     step_of.setdefault(fp.ref, key)
             elif isinstance(it, Footprint):
                 step_of[it.ref] = key
+        for key, it in plan._items.items() if occ.needs else ():    # a spot an if-needed fab option would have cleared
+            if not isinstance(it, (Footprint, CellGeom)):
+                continue
+            step = next((s for s in plan.steps if s.item == key), None)
+            said = occ.needs.get(occ._geometry(it).owners) if step is not None and step.placement is None else None
+            if said:
+                plan.findings.append(Finding("needs", "%s: no spot; one would clear with %s" % (key, said)))
         for home, text in report(occ):
             key = step_of.get(home, home)
             plan.findings.append(Finding("vias", "%s: %s" % (key, text)))
@@ -5068,7 +5112,7 @@ class Board:
         shape = occ.board_shape or self._shaped()
 
         def at(along):
-            rot = self.outward_rotation(spec.anchor, run.at(along)[1])[0] if i.outward else i.rotation
+            rot = self.outward_rotation(spec.anchor, run.at(along)[1], i.face)[0] if i.outward else i.rotation
             return run_placement(occ, spec.anchor, shape, run, along, i.clearance, rot, i.face)
         return self._slide_block(occ, i, plan, clr, spec, ideal, 0.0, run.length, at,
                                  "along the run facing %.0f degrees" % run.facing)
@@ -5080,7 +5124,7 @@ class Board:
         r = max(disc.bore if bore else disc.radius, 1e-6)
 
         def at(angle):
-            rot = self.outward_rotation(spec.anchor, angle + (180.0 if bore else 0.0))[0] if i.outward else i.rotation
+            rot = self.outward_rotation(spec.anchor, angle + (180.0 if bore else 0.0), i.face)[0] if i.outward else i.rotation
             return disc_placement(occ, spec.anchor, disc, angle, i.clearance, rot, i.face, bore=bore)
         return self._slide_block(occ, i, plan, clr, spec, ideal, ideal - 180.0, ideal + 180.0, at,
                                  "round the %s" % ("bore" if bore else "rim"),
@@ -5206,7 +5250,7 @@ class Board:
         shape = occ.board_shape or self._shaped()
 
         def at(along):
-            rot = self.outward_rotation(i.item, run.at(along)[1])[0] if i.outward else i.rotation
+            rot = self.outward_rotation(i.item, run.at(along)[1], i.face)[0] if i.outward else i.rotation
             return run_placement(occ, i.item, shape, run, along, i.clearance, rot, i.face)
         return self._slide(occ, i, plan, clr, ideal, 0.0, run.length, at,
                            "along the run facing %.0f degrees" % run.facing)
@@ -5230,7 +5274,7 @@ class Board:
         r = max(disc.bore if bore else disc.radius, 1e-6)
 
         def at(angle):
-            rot = self.outward_rotation(i.item, angle + (180.0 if bore else 0.0))[0] if i.outward else i.rotation
+            rot = self.outward_rotation(i.item, angle + (180.0 if bore else 0.0), i.face)[0] if i.outward else i.rotation
             return disc_placement(occ, i.item, disc, angle, i.clearance, rot, i.face, bore=bore)
         return self._slide(occ, i, plan, clr, ideal, ideal - 180.0, ideal + 180.0, at,
                            "round the %s" % ("bore" if bore else "rim"),
@@ -5518,7 +5562,7 @@ class Board:
                 anchor = box_centered_placement(occ, spec.anchor, _locate(self, occ, i.center), i.rotation, i.face)
             elif i.run is not None:
                 along = _run_along(self, occ, i)
-                rot = self.outward_rotation(spec.anchor, i.run.at(along)[1])[0] if i.rotation is None else i.rotation
+                rot = self.outward_rotation(spec.anchor, i.run.at(along)[1], i.face)[0] if i.rotation is None else i.rotation
                 anchor = run_placement(occ, spec.anchor, occ.board_shape or self._shaped(), i.run,
                                        along, i.clearance, rot, i.face)
             elif i.rim is not None:
@@ -5715,7 +5759,7 @@ class Board:
             along = _run_along(self, occ, i)
             # a numeric along= turns the item at declaration; a reference's length along
             # the run is not known until now, so its outward turn waits for it too
-            rot = self.outward_rotation(i.item, i.run.at(along)[1])[0] if i.rotation is None else i.rotation
+            rot = self.outward_rotation(i.item, i.run.at(along)[1], i.face)[0] if i.rotation is None else i.rotation
             p = run_placement(occ, i.item, occ.board_shape or self._shaped(), i.run,
                               along, i.clearance, rot, i.face)
         elif i.rim is not None:

@@ -22,7 +22,7 @@ def _fab_makes_every_via(monkeypatch):
     """These tests are about how a span is judged and written: the fab
     profile allows every via type here (test_via_types_allowed covers its
     refusals)."""
-    monkeypatch.setattr(Board, "fab_vias", frozenset({"micro", "blind", "buried"}))
+    monkeypatch.setattr(Board, "fab_via_tiers", {"micro": "yes", "blind": "yes", "buried": "yes"})
 
 
 F, B = CopperLayer.F, CopperLayer.B

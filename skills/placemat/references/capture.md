@@ -90,11 +90,13 @@ runs the same checks on the board it wrote.
   judged at the lesser of their currents by the narrowest point of the
   widest route between them (tracks, vias, pours, and zone fills, each
   measured along the route at `check.zone_step`) against the IPC-2221
-  outer-layer width at
-  `--rise` (default 10 C) on `--copper-oz` (default 1 oz), with the neck's
-  point and length; carriers no copper joins yet are reported, not judged,
-  and so is a net only one part carries: give the part that takes the load
-  (an input connector's load, a switch's inductor, a supply's output) its
+  width at `--rise` (default 10 C), on the copper weight the board's own
+  stackup gives that layer (the IPC-2221 inner-layer constant on an inner
+  layer, outer on F.Cu/B.Cu; a layer the stackup does not weigh falls back
+  to 1 oz), with the neck's point and length; carriers no copper joins yet
+  are reported, not judged, and so is a net only one part carries: give
+  the part that takes the load (an input connector's load, a switch's
+  inductor, a supply's output) its
   own `Pm.I` so the route between them is judged
 - `heat`: the board temperature (`--ambient`, default 100 C) plus `Pm.Pd`
   times `Pm.ThetaJb` (or `Pm.ThetaJa` when that is all the part has, which
@@ -113,3 +115,42 @@ settings` prints them.
    cited beside each, and a part whose height matters its `Pm.Height`.
 3. After `pcb build -D warnings` passes, `placemat check` on the generated
    board reads the annotations and the classes.
+
+## Modules for placement
+
+A cell is placed by placemat as one rigid piece: every member goes
+together, wherever the cell's tightest job needs to sit. A cell that
+holds two or more jobs joined only through board-level nets - a shared
+bus, status lines, pull-ups, a plane - carries every other job's part to
+wherever the tightest one goes.
+
+`placemat run` reports this back as a `split` finding, naming the groups
+it found among a cell's parts:
+
+    m: its parts form 3 groups joined only by board-level nets: U3, C7,
+    R2; U5, R4; Q2, R9 (and 4 parts no net inside the cell joins to the
+    others: C1, C2, C3, R1; judge each by what places it: a bypass
+    capacitor stays with the IC it serves, a sensing part at what it
+    senses). Parts with no close placement
+    requirement in common may be split into modules of their own.
+
+A cell the search refuses to place at all is the other signal that its
+module does not fit the board.
+
+Fix a `split` finding, or a refused cell, in the capture: split the
+module, or move a part into another one. A layout script cannot fix a
+module the capture drew wrong; it only places what the capture gives it.
+
+A part the finding does not group has no net inside the cell that joins
+it to another member - whether it carries no local net at all, or a
+local net of its own that nothing else in the cell shares. A bypass
+capacitor is one: it always belongs in the module of the IC it
+serves, and a bypass capacitor between a board-level supply and a plane
+has no net inside its own cell, so the grouping shows it apart from that
+IC - it is never a split candidate, whatever the grouping shows. A part
+placed by what it senses or shields is the same: a thermistor sits at the
+part whose temperature it measures, even though all its nets run
+elsewhere. Neither is a split candidate; each is placed by that physical
+need, not by a group. A part with no such need (a pull-up on a shared
+bus, a status-line resistor) may belong with the rest of its job, in
+another module.

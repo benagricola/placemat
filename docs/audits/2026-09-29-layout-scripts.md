@@ -1,8 +1,8 @@
-# Coordinate placement in the fairing instrument's layout scripts
+# Coordinate placement in the a board's layout scripts
 
 Read-only audit. Nothing was run and nothing in either repository was modified.
 
-- Scripts: /home/ben/Documents/Hardware/fairing-instrument/electronics/boards (every `*_layout.py`, plus
+- Scripts: a board project's `boards` (every `*_layout.py`, plus
   `core/fragment_frame.py`, `core/core_geometry.py`, `core/core_clusters.py`, `ring-test/ring_geometry.py`).
   `core/snapshots/regroup_clusters.py` is a pcbnew script, not a layout helper, and is left out.
 - placemat: /home/ben/work/placemat at 8d8a9da (main). `api.md` below is

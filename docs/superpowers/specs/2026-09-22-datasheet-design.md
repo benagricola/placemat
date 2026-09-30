@@ -13,7 +13,7 @@ This is the command that removes the decision.
 
 ## What the corpus actually contains
 
-Measured over the 67 datasheets in `fairing-instrument/electronics/datasheets`,
+Measured over the 67 datasheets in a board project's datasheets,
 because the design turns on what is really in these files rather than what a
 PDF can hold in principle.
 
@@ -28,7 +28,7 @@ PDF can hold in principle.
 | `tesseract` on this machine | installed (apt `tesseract-ocr` 5.3.4) |
 
 **The 7 text-poor files are the connectors and the inductors.** The TYPE-C
-receptacles used on the fairing board carry 0 to 55 characters of text between
+receptacles used on a test board carry 0 to 55 characters of text between
 them: every dimension is an outlined curve. These are exactly the parts whose
 land pattern is most worth checking, so any design that depends on text
 extraction fails where it is needed most.

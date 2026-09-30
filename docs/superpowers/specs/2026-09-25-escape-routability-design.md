@@ -8,7 +8,7 @@ Status: approved 2026-09-25; the lab runs cases 1, 2 and 5 first
 `place.escape_depth` is meant to say whether a pin can be routed out of its
 part. Three findings say it does not:
 
-- The MCU session's tuning (fairing, 0.33, full routes): the run score ranks
+- The MCU session's tuning (a test board, 0.33, full routes): the run score ranks
   the depth variants in the opposite order to the router. Depth 0.3-0.4
   scores best and routes worst; 1.5 routes best (100% on the MCU cell) and
   scores worse; 2.0 routes worse again.
@@ -40,7 +40,7 @@ Two sources, both independent of placemat's own measures:
   tool (`qfn_fanout.py`, stub and under-pad via-drop methods) shows what a
   fan-out generator can and cannot escape, and `blocking_analysis.py` names
   what blocked a failed net.
-- **A hand-routed layout.** `mnb-ecosystem/modules/MCU_RP2350B`
+- **A hand-routed layout.** a downstream project's modules/MCU_RP2350B`
   (QFN-80, 0.4 mm pitch; 123 tracks and 59 vias round the chip). Its
   `LAYOUT-INTENT.md` records rules found by routing it, which a model has to
   reproduce:
@@ -91,7 +91,7 @@ Cases, all to scale and drawn as SVG/PNG from the board itself:
    layout has them, then placemat's own placement of the same parts.
 5. **The hand layout itself.** The module's placement with its tracks
    removed, routed; and placemat's measures on the hand-routed board.
-6. **Board cases.** The MCU session's fairing variants (their `t-<variant>`
+6. **Board cases.** The MCU session's board variants (their `t-<variant>`
    runs), per pin where the router reports it.
 
 A case takes seconds to route quick; the grid in case 2 is some 200
@@ -147,7 +147,7 @@ made scores comparable across depths and would be superseded.
 
 ## Layers
 
-Every case runs twice: F.Cu signal with B.Cu ground (as the fairing boards
+Every case runs twice: F.Cu signal with B.Cu ground (as the test boards
 are, where a via only serves a plane pin), and both layers signal (as the
 RP2350 module is, where relief vias carry signals on B.Cu). That shows
 whether the model has to know the stack-up.

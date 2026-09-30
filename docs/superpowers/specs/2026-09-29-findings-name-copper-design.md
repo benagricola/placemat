@@ -2,7 +2,7 @@
 
 Date: 2026-09-29
 Status: approved 2026-09-29 (Ben: implement unless a decision is needed)
-Source: PLACEMAT_GAPS.md (fairing), 2026-09-28 "which copper a keep-out or
+Source: a board's PLACEMAT_GAPS.md, 2026-09-28 "which copper a keep-out or
 current-path check measured" and "the usb5v cell's copper by net, and where a
 chamfer cut" (part 2)
 

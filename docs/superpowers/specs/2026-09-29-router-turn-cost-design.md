@@ -2,13 +2,13 @@
 
 Date: 2026-09-29
 Status: approved 2026-09-29
-Source: PLACEMAT_GAPS.md (fairing), 2026-09-29 "how jagged the kept routes
+Source: a board's PLACEMAT_GAPS.md, 2026-09-29 "how jagged the kept routes
 are": 3262 bends over 2279 mm on 71 kept nets; SDA 195 bends in 100 mm.
 The user, 2026-09-29: "we're using it quite naively"
 
 ## The problem
 
-The fairing core's SDA is 231 segments over 133 mm, joined almost entirely
+a whole test board's SDA is 231 segments over 133 mm, joined almost entirely
 by 45-degree kinks: a staircase along the line between its pads, where a
 person would draw a straight run, one 45 and another straight run.
 
@@ -26,7 +26,7 @@ out identical with and without it.
 
 ## Measured
 
-A copy of the fairing core with every route stripped, routed whole as
+A copy of a whole test board with every route stripped, routed whole as
 placemat's quick route does (F.Cu, In2.Cu, B.Cu; pour nets excluded;
 smoothing on in every row but the first):
 

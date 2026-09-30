@@ -13,13 +13,19 @@ copper, on either face, at a candidate, it tries in turn to
 2. move up to `place.via_move`, searched on a `place.via_move_step` grid,
    nearest first, to a spot clear of every other net's copper and every
    hole, its tail redrawn from its pad; a via inside its pad stays inside it;
-3. be dropped, a plane net's drop only, while its pad keeps
+3. shorten to a via from its own face to the nearest layer of its own
+   plane between it and the far face - a plane net's carried drop only,
+   and only when the fab profile's tier for the resulting via type
+   (micro, blind or buried) is "yes"; "if-needed" is judged (its span
+   named, would it clear) but never applied, and "no" is not tried at all;
+4. be dropped, a plane net's drop only, while its pad keeps
    `place.drops_keep` of its drops (rounded up, at least one).
 
 A via already placed does the same for a later item whose own copper meets
 it. The search judges the item less its carried vias natively, as it judges
 any item; what the vias do is judged here, in Python, after that, and priced
-at `score.via_share`, `score.via_move` and `score.via_drop` each.
+at `score.via_share`, `score.via_move`, `score.via_shorten` and
+`score.via_drop` each.
 
 What is decided is recomputed at each commit from the board as it stands, so
 a replayed commit, or a part the cleanup pass moves, gives way the same."""
@@ -34,6 +40,11 @@ from .geometry import point_in_polygon, point_segment_distance
 from .values import Box, CopperLayer, Face, Location
 
 _COPPER_AND_HOLES = frozenset(("pad", "through", "copper", "hole", "npth"))
+
+_NATIVE_MOVE_SEARCH = True
+"""Whether a via's move search uses the native offset search when it can:
+switched off to compare against the pure-Python per-offset loop
+(tests/test_vias_give_way.py)."""
 
 
 def pad_via_id(k: int) -> str:
@@ -51,11 +62,14 @@ def reach(settings) -> float:
     return settings.place_via_share + settings.place_via_move
 
 
-def least_cost(settings) -> float:
+def least_cost(settings, tiers=None) -> float:
     """The least a spot where a via must give way costs beyond its score:
-    the cheapest way these settings allow."""
+    the cheapest way these settings allow, and shorten when a via type it
+    could use is "yes" in `tiers` (the fab profile's)."""
+    shorten = any(t == "yes" for t in (tiers or {}).values())
     ways = [cost for on, cost in ((settings.place_via_share > 0, settings.score_via_share),
                                   (settings.place_via_move > 0, settings.score_via_move),
+                                  (shorten, settings.score_via_shorten),
                                   (settings.place_drops_keep < 1.0, settings.score_via_drop)) if on]
     return min(ways) if ways else 0.0
 
@@ -81,7 +95,7 @@ class Group:
 @dataclass(frozen=True)
 class Action:
     """What one carried via did."""
-    kind: str                   # share | move | drop
+    kind: str                   # share | move | shorten | drop
     via: str                    # its id
     owner: str
     home: str
@@ -109,6 +123,10 @@ class Resolution:
     cost: float = 0.0
     why: str | None = None
     blocker: object = None
+    # A sentence naming the if-needed fab option that would have cleared this
+    # spot, judged but never applied - set only when that is why the give
+    # way that refused this candidate could not go through for real.
+    needs: str | None = None
 
 
 def _shift(s, dx: float, dy: float):
@@ -182,6 +200,46 @@ def _offsets(reach: float, step: float) -> tuple:
                 pts.append((round(d, 9), round(i * step, 9), round(j * step, 9)))
     pts.sort()
     return tuple((dx, dy) for _, dx, dy in pts)
+
+
+def _native_move_offsets(judge: "_Judge", ring, hole, offsets: tuple) -> list | None:
+    """The `offsets` (as `_offsets` gives them) at which `ring` and `hole`
+    (a via's own, at dx=dy=0 - the offsets are relative to their current
+    position), shifted, meet nothing on the board `judge` was built against
+    - every one, nearest first - or None when no native index is
+    registered on `judge.others` (no native module, or this `resolve()`
+    was not given a native-backed obstacle list). Python still judges each
+    candidate's own copper (`mine`) and the tail separately (a tail is not
+    a rigid translation of the via - see `_give`'s own doc on this); this
+    replaces only the per-offset scan of the board itself, which is what
+    `judge.hit(moved, pool, ...)` cost before: one native call per via
+    instead of one Python conflict test per offset per obstacle
+    (docs/superpowers/specs/2026-09-30-performance-zone-width-give-way-
+    sweep-design.md section 2).
+
+    `judge.others`'s native index is the WHOLE board within reach,
+    including the via's own current ring and hole (and any other via also
+    giving way to the same candidate) - real registered obstacles from
+    every other item's point of view. `_Judge.near` excludes these
+    (`judge.hidden`) before testing a via's move, since a via naturally
+    sits near its own former position and a hole's clearance rule is
+    net-blind (two holes of the SAME via, one shifted, would otherwise
+    read as a hole-to-hole conflict with itself). The native call is given
+    the same exclusion, by obstacle index into `judge.others`'s own
+    backing shape list."""
+    if not _NATIVE_MOVE_SEARCH or not offsets:
+        return None
+    entry = getattr(judge.others, "_native", None)
+    if entry is None:
+        return None
+    index, shapes = entry
+    from .occupancy import _to_native_shape
+    occ = judge.occ
+    py_shapes = [_to_native_shape(x, occ._footprint_refs, occ._leads, occ._margins)
+                for x in ((ring,) if hole is None else (ring, hole))]
+    skip = [i for i, s in enumerate(shapes) if s.carried and s.carried in judge.hidden] if judge.hidden else []
+    clear = index.first_clear_offset(py_shapes, list(offsets), judge.clearance, False, skip)
+    return [offsets[i] for i in clear]
 
 
 class _Judge:
@@ -319,10 +377,62 @@ def _tail_shape(owner, net, layer, width, start, end, carried="", given=""):
                     points=(tuple(end), tuple(start)) if carried else (), given=given)
 
 
+def _shorten_kind(span: tuple) -> str:
+    """micro (exactly two adjacent layers with an outer face), buried
+    (neither end an outer face) or blind, for a via's board-layer span -
+    the same convention layout.py's own via-kind classifier uses."""
+    from .board_geometry import stackup_order
+    ordered = sorted(span, key=stackup_order)
+    outer = {ordered[0], ordered[-1]} & {CopperLayer.F, CopperLayer.B}
+    if len(ordered) == 2 and outer:
+        return "micro"
+    return "blind" if outer else "buried"
+
+
+def _shorten(occ, g: Group, judge: "_Judge", own, layer, met: str):
+    """(Action, note) for a drop reshaped to its own face and the nearest
+    layer of its own plane, when the fab profile allows drawing it for
+    real; (None, note) when it is only judged (if-needed) or not possible
+    at all - `note` names the span an if-needed tier would have used, else
+    None."""
+    from .board_geometry import stackup_order
+    s, geo = occ.settings, occ.geometry
+    board = sorted(geo.layers, key=stackup_order)
+    if layer not in board:
+        return None, None
+    plane_layers = getattr(occ, "plane_layers", {})
+    own_i = board.index(layer)
+    reach_layers = sorted((l for l, nets in plane_layers.items() if g.net in nets and l != layer and l in board),
+                          key=lambda l: abs(board.index(l) - own_i))
+    if not reach_layers:
+        return None, None
+    nearest = reach_layers[0]
+    lo, hi = sorted((own_i, board.index(nearest)))
+    span = tuple(board[lo:hi + 1])
+    if len(span) < 2 or len(span) == len(board):
+        return None, None                  # already this short, or no shorter than a through via
+    kind = _shorten_kind(span)
+    tier = getattr(occ, "fab_via_tiers", {}).get(kind, "no")
+    if tier == "no":
+        return None, None
+    layers = frozenset(span)
+    ring = replace(g.ring, layers=layers, given=g.id)
+    shapes = (ring,) if g.hole is None else (ring, replace(g.hole, layers=layers, given=g.id))
+    pool = judge.near(Box.union([x.box for x in shapes]), occ._gap)
+    would_clear = judge.hit(shapes, pool, own, say=False) is None
+    note = "a %s via shortened to %s-%s (via.%s is if-needed in fab-profile.json)" % (
+        kind, span[0].value[:-3], span[-1].value[:-3], kind) if would_clear else None
+    if tier == "yes" and would_clear:
+        return Action("shorten", g.id, g.owner, g.home, g.net, g.centre, g.centre, None, None, None, met,
+                      s.score_via_shorten, shapes), None
+    return None, note
+
+
 def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: dict, first=None):
-    """(Action, None) for the first way `g` can give way, else (None, why
-    not), judged against `judge` and the item's own copper `own`. `first`:
-    the copper it met, which a move is judged against before the rest."""
+    """(Action, why not, needs) for the first way `g` can give way, else
+    (None, why not, an if-needed note or None), judged against `judge` and
+    the item's own copper `own`. `first`: the copper it met, which a move is
+    judged against before the rest."""
     s = occ.settings
     geo = occ.geometry
     pad_key, pad, inside = who.pad_of(g)
@@ -342,12 +452,12 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
                 kept = Track(g.net, next(iter(g.tail.layers)), _width(g.tail), Location(*g.far),
                              Location(*g.centre)) if g.tail is not None and g.tail.given else None
                 return Action("share", g.id, g.owner, g.home, g.net, g.centre, c, kept, None, pad_key, met,
-                              s.score_via_share, left, target), None
+                              s.score_via_share, left, target), None, None
             track, shape = _tail_shape(g.owner, g.net, layer, width, start, c, given=g.id)
             if judge.hit([shape], judge.near(shape.box, occ.gap_for(shape)), own, say=False):
                 continue
             return Action("share", g.id, g.owner, g.home, g.net, g.centre, c, track, old, pad_key, met,
-                          s.score_via_share, (shape,), target), None
+                          s.score_via_share, (shape,), target), None, None
         said.append("no %s via within %.2f mm to share" % (g.net, s.place_via_share) if not targets else
                     "no tail to the %s via%s within %.2f mm is clear" % (g.net, "s" if len(targets) > 1 else "",
                                                                          s.place_via_share))
@@ -361,17 +471,30 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
         pool = judge.near(span, occ._gap)
         mine = [o for o in own if o.box.overlaps(span, gap=occ._gap)]
         still = _still_meets(occ, g, first, judge.clearance, r)
+        all_offsets = _offsets(limit, s.place_via_move_step)
+        # The native search only knows the STATIC board (judge.others'
+        # persistent index): it cannot see `judge.hidden` (another via also
+        # giving way to this same candidate, excluded from `pool` while it
+        # is decided) or `judge.extra` (copper an earlier give-way in this
+        # same resolve() call already left behind) - both candidate-scoped,
+        # not board state. So it is used only to narrow the search order,
+        # nearest first; `judge.hit(moved, pool, mine, ...)` below still
+        # runs, unconditionally, as the one decision that matters - native
+        # just means it is asked of far fewer doomed offsets before the
+        # first surviving one.
+        native_clear = _native_move_offsets(judge, g.ring, g.hole, all_offsets)
+        candidates = native_clear if native_clear is not None else all_offsets
         found = None
-        for dx, dy in _offsets(limit, s.place_via_move_step):
+        for dx, dy in candidates:
             to = (round(g.centre[0] + dx, 9), round(g.centre[1] + dy, 9))
             if inside and not _disc_inside(pad.poly, to, r - 1e-5):
                 continue
             if still is not None and still(to):
                 continue
             ring = _shift(g.ring, dx, dy)
-            if first is not None and first.box.overlaps(ring.box, gap=occ._gap) \
+            if native_clear is None and first is not None and first.box.overlaps(ring.box, gap=occ._gap) \
                     and occ._conflict(ring, first, judge.clearance, say=False):
-                continue                    # still on what it met: most spots near it are
+                continue                    # still on what it met: most spots near it are (no-native path only)
             moved = [replace(ring, given=g.id)]
             if g.hole is not None:
                 moved.append(replace(_shift(g.hole, dx, dy), given=g.id))
@@ -388,8 +511,16 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
                            s.score_via_move, tuple(moved))
             break
         if found is not None:
-            return found, None
+            return found, None, None
         said.append("no spot within %.2f mm%s is clear" % (limit, " inside its pad" if inside else ""))
+    needs = None
+    if g.net in occ.plane_nets:
+        action, note = _shorten(occ, g, judge, own, layer, met)
+        if action is not None:
+            return action, None, None
+        if note is not None:
+            needs = note
+            said.append("no spot; it places with %s" % note)
     if g.net not in occ.plane_nets:
         said.append("%s is not a plane net, so it is no drop" % g.net)
     elif pad_key is None:
@@ -400,10 +531,10 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
         if n - gone - 1 >= keep:
             drops_now[pad_key] = drops_now.get(pad_key, 0) + 1
             return Action("drop", g.id, g.owner, g.home, g.net, g.centre, None, None, old, pad_key, met,
-                          s.score_via_drop, ()), None
+                          s.score_via_drop, ()), None, None
         said.append("%s pad %s keeps %d of its %d drops, and must keep %d" % (pad_key[0], pad_key[1], n - gone,
                                                                               n, keep))
-    return None, ", ".join(said)
+    return None, ", ".join(said), needs
 
 
 def _pads(occ, shapes) -> list:
@@ -491,9 +622,12 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
                                                                                         sharer.home, sharer.net))),
                                 g.ring)
             who = owners.get(g.home) or owners.setdefault(g.home, _home_owner(occ, g.home))
-            action, why_not = _give(occ, g, judge, [x for x in mine if x.kind in kinds],
-                                    who, occ.who(hit[1].owner), drops_placed.setdefault(g.home, {}), hit[1])
+            action, why_not, needs = _give(occ, g, judge, [x for x in mine if x.kind in kinds],
+                                           who, occ.who(hit[1].owner), drops_placed.setdefault(g.home, {}), hit[1])
             if action is None:
+                res.needs = needs
+                if needs:
+                    occ.needs[geom.owners] = needs
                 return _refused(occ, res, "%s; the via %s at (%.2f, %.2f) (%s) cannot give way: %s" % (
                     hit[0], g.net, g.centre[0], g.centre[1], _owner_name(occ, g), why_not), g.ring)
             judge.extra += list(action.shapes)
@@ -516,8 +650,11 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
             for g, (why, o) in meeting:
                 met = "the edge" if o is None else occ.who(o.owner) if o.owner else \
                     ("a via" if o.kind == "through" else "a track")
-                action, why_not = _give(occ, g, judge, keep, who, met, drops_now, o)
+                action, why_not, needs = _give(occ, g, judge, keep, who, met, drops_now, o)
                 if action is None:
+                    res.needs = needs
+                    if needs:
+                        occ.needs[geom.owners] = needs
                     return _refused(occ, res, "%s; it cannot give way: %s" % (why, why_not), o)
                 keep += list(action.shapes)
                 res.actions.append(action)
@@ -634,7 +771,7 @@ def report(occ) -> list:
         for net in sorted(by[home]):
             acts = by[home][net]
             parts = []
-            for kind, verb in (("share", "shared"), ("move", "moved"), ("drop", "dropped")):
+            for kind, verb in (("share", "shared"), ("move", "moved"), ("shorten", "shortened"), ("drop", "dropped")):
                 done = [a for a in acts if a.kind == kind]
                 if not done:
                     continue

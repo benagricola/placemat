@@ -1,6 +1,6 @@
 # Performance: zone width, give way, the sweep's Python
 
-Status: draft, for approval.
+Status: approved (2026-09-30).
 
 Source: Ben asked what could move into the native module (2026-09-30).
 Profiles, all under cProfile, which roughly doubles pure-Python time:

@@ -1,6 +1,6 @@
 # Keepouts drawn for hand placement, and a push
 
-Status: draft, for approval.
+Status: approved (2026-09-30).
 
 Source: Ben, through a board's session (2026-09-30).
 
@@ -40,6 +40,57 @@ These drawings are placemat's own:
   `board.Delete`.
 - A stamped fragment's own keepout drawings belong to its cell's group and
   move with it, as its rule areas do.
+
+## 1b. A keepout that admits parts is not a footprint keepout in KiCad
+
+Amendment, approved (2026-09-30). Source: Ben, through a board's session
+(2026-09-30), from placing parts by hand in KiCad.
+
+**Problem.** A keepout that admits parts by name (`allow=` parts or cells)
+or by height (`max_height=`) is written as a rule area that forbids every
+footprint. KiCad cannot express the allow list or a height. So every part
+dragged into such a region is a KiCad DRC violation, even a part the
+keepout admits. placemat's own DRC grading counts those as permitted, but
+someone placing by hand in KiCad sees a wall of errors. Height keepouts can
+cover most of a face.
+
+**Design.** For a keepout that excludes parts and admits some:
+- **The rule area.** It is still written, named `keepout <name>` as today,
+  on its layers, with KiCad's flags for what else it excludes (fill,
+  tracks, vias, pads). Footprints are allowed. A keepout that excludes
+  parts only is written as a rule area with no flags set: it is there to
+  be named by the rule below, and it is drawn (section 1).
+- **The rule.** placemat writes a rule into the board's `.kicad_dru` that
+  forbids only the parts the keepout does not admit:
+
+  ```
+  (rule "keepout <name>"
+    (constraint disallow footprint)
+    (condition "A.intersectsArea('keepout <name>') && A.Layer == 'F.Cu' && (A.Reference == 'U8' || A.Reference == 'J2')"))
+  ```
+
+  - The references are the board's footprints the keepout does not admit
+    when the board is written: too tall, with no `Pm.Height`, or not
+    named in `allow=`.
+  - `A.Layer` is the keepout's face, when it has one.
+  - `intersectsArea` is KiCad's own area test; `insideArea` is its older
+    name.
+  - A keepout that admits every footprint on the board writes no rule.
+- **DRC grading.** placemat reads a violation of that rule as the
+  keepout's own: a part in it that the keepout does not admit is a real
+  violation. Admitted parts are no longer reported at all.
+
+A keepout that excludes parts outright (no `allow=` of parts, no
+`max_height=`) is unchanged: a rule area forbidding footprints.
+
+**Verification.**
+- A height keepout writes a rule area that allows footprints, and a rule
+  naming exactly the board's parts too tall for it or with no height.
+- KiCad's DRC on the written board reports a tall part inside it, and not
+  a short one.
+- A keepout admitting every part writes no rule.
+- A keepout excluding parts outright still forbids footprints.
+- `placemat drc`'s grading counts the tall part as real.
 
 ## 2. A push
 

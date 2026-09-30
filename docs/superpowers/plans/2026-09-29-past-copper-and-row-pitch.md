@@ -31,7 +31,7 @@ coordinates.
   side of a migration comparison.
 - Generic wording in source, tests, docstrings, skill docs and commit
   messages: no real module, part, board or component-type names (no USB,
-  FET, pogo, TPS..., fairing). Use "a connector's contact row", "a
+  FET, pogo, TPS..., the project). Use "a connector's contact row", "a
   driver's pin", "two pins at a mechanical pitch".
 - Tunables are settings, never literals.
 - Plain ASCII only.

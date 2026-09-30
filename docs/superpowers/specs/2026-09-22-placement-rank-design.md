@@ -17,7 +17,7 @@ auto  = Priority.HIGH if (score >= 0.5 and share >= _CRITICAL_SHARE) else \
 
 `_CRITICAL_SHARE` is 0.02 (`layout.py:34`): a fraction of the whole board's
 area. Three things are wrong with this, and all three are measurable on the
-`fairing-instrument` modular core board (220 footprints, 51 x 70 mm).
+a board project modular core board (220 footprints, 51 x 70 mm).
 
 **HIGH is unreachable on a board of small parts.** The board's largest
 courtyard is 115.71 mm2 against a board area of about 3570 mm2, so 3.2%; every
@@ -390,13 +390,13 @@ Every existing script re-places. Specifically:
   `would be` / `(script` note strings are re-read.
 - `test_runner_breakout.py` and the Breakout end-to-end expectations are
   re-measured.
-- In `fairing-instrument`, all 32 `Priority.FIXED` uses are copper
+- In a board project, all 32 `Priority.FIXED` uses are copper
   (12 `board.track`, 14 `board.via`, 6 continuation lines) and none are
   placements: `priority=Priority.FIXED` is deleted from each, and the
   derivation gives the same answer wherever the endpoints were already decided.
   The four `priority=Priority.HIGH` placement overrides in `Core_layout.py`
   come out too - they exist to work around exactly this.
-- `mnb-ecosystem` uses `Priority.HIGH` three times and no `Priority.FIXED`, so
+- A downstream project uses `Priority.HIGH` three times and no `Priority.FIXED`, so
   the Breakout needs only its re-measurement.
 
 A track whose endpoints are literal coordinates changes batch: it is now an

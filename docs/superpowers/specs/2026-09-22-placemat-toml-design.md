@@ -14,8 +14,8 @@ Two config mechanisms, neither able to hold a behavioural setting.
 directory and holds what the fabricator can make: via drill and size, courtyard
 excess, track-width presets. It takes the first file found, whole. It is the
 right home for manufacturing facts and the wrong one for how the placer orders
-parts. None of `fairing-instrument`'s boards has one; all three copies live in
-`mnb-ecosystem`.
+parts. None of a board project's boards has one; all three copies live in
+a downstream project.
 
 CLI flags with module-constant defaults: `placemat check` exposes `--ambient`,
 `--keep-out`, `--rise` and `--copper-oz` over `AMBIENT_C`, `KEEP_OUT_MM`,
@@ -325,7 +325,7 @@ for byte against its current record.
 
 - Making `fab_profile` merge, or folding `fab-profile.json` into
   `placemat.toml`. Both are defensible; neither is needed for this, and the fab
-  file is consumed by three `mnb-ecosystem` projects.
+  file is consumed by three downstream projects.
 - Per-board sections inside one file (`[board.Main.copper]`). The walk-up merge
   already gives per-board override with no new syntax.
 - A `placemat settings --set` writer. Editing TOML by hand is the point.

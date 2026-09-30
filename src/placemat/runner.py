@@ -299,7 +299,7 @@ def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None, geometry=N
         geometry = _dc.replace(geometry, pin_names=board_pin_names(src, Path(pcb or src.pcb).parent))
     board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size, keep_going=keep_going,
                   courtyard_excess=fab.courtyard_excess, settings=cfg, component_spacing=fab.component_spacing,
-                  fab_vias=fab.via_types, fab_source=str(fab.path) if fab.path else "")
+                  fab_via_tiers=fab.via_tiers, fab_source=str(fab.path) if fab.path else "")
     try:
         run_script(script, board)
     except Exception as e:
@@ -386,6 +386,13 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         from .kicad.write import apply_plan, finish_board, render_board
         from .kicad.drc import run_drc
 
+        from . import facts as facts_mod
+        facts_geometry = read_board(src.pcb, courtyard_excess_mm=fab.courtyard_excess)
+        facts_doc = facts_mod.facts_of(facts_geometry, fab, cfg.check_rise_c)
+        facts_reasons = facts_mod.unconfirmed_reasons(facts_doc, cfg.facts_confirmed)
+        if facts_reasons:
+            say("facts", facts_mod.unconfirmed_line(facts_reasons))
+
         t0 = time.time()
         board = scripted_board(script, src, cfg, fab, keep_going)
         for note in rule_notes(board.geometry):
@@ -433,6 +440,11 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             raise RunFailure("placement", str(e), {"item": e.key, "tail": "board written as it stood: %s" % src.pcb})
         (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
         rec.timing_s["resolve"] = round(time.time() - t0, 1)
+        from .project import fab_min_findings
+        plan.findings += fab_min_findings(board.geometry.netclasses, fab)
+        if facts_reasons:
+            from .findings import Finding
+            plan.findings.append(Finding("facts", "; ".join(facts_reasons)))
         n_place = sum(1 for s in plan.steps if s.placement is not None)
         n_copper = sum(s.ops for s in plan.steps)
         say("script", "%d placed, %d copper op(s), %d finding(s)  (%.1fs)" % (
@@ -506,8 +518,9 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             allow = {"keepout %s" % k.name: (set(k.owners), set(k.allow)) for k in plan.keepouts.values()}
             report = run_drc(src.pcb, run_dir / "drc.json", allow=allow)
             quiet = set(board._plane_nets()) | set(board._free_nets)
+            from .pairs import board_pairs
             aw = airwires_from_drc(json.loads((run_dir / "drc.json").read_text()), quiet,
-                                   tuple(board.settings.route_diff_pairs))
+                                   board_pairs(board.geometry.netclasses))
             free = plan.occupancy.free_area()
             metrics.update(drc_metrics(report, aw, free))
             # KiCad's own ratsnest and DRC replace the plan's estimates in the score

@@ -1,9 +1,9 @@
 # Vias that give way: sharing, moving, dropping, and a layer span
 
-Status: draft, for approval.
+Status: approved (2026-09-30).
 
 Source:
-- The fairing's `PLACEMAT_GAPS.md` 2026-09-29, "plane drops that share the
+- A board's `PLACEMAT_GAPS.md` 2026-09-29, "plane drops that share the
   far face".
 - The owner, 2026-09-30:
   - "reusing vias ... will help a lot";

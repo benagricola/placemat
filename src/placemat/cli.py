@@ -244,10 +244,17 @@ def parser() -> argparse.ArgumentParser:
     ck.add_argument("--ambient", type=float, default=None, help="board temperature in C (default: %g)" % 100.0)
     ck.add_argument("--keep-out", type=float, default=None, help="sense copper's distance from a switch node, mm")
     ck.add_argument("--rise", type=float, default=None, help="track temperature rise the widths are sized for, C")
-    ck.add_argument("--copper-oz", type=float, default=None, help="outer copper weight the widths are sized for")
     ck.add_argument("--limit", action="append", default=[], metavar="CHECK=VALUE",
                     help="a bound for a reporting check, e.g. hot-loop=20 (mm2) or switch-node=15 (mm2)")
     ck.add_argument("--json", action="store_true")
+
+    fa = sub.add_parser("facts", help="the board's facts (stackup weight and roles, pair classes, via tiers, "
+                                      "fab minimums) and whether they match the last confirmation")
+    fa.add_argument("script", help="the board's layout script")
+    fa.add_argument("--confirm", action="store_true",
+                    help="record the printed facts' digest in placemat.toml's [facts] confirmed")
+    fa.add_argument("--json", action="store_true")
+
     # One way to ask for the report's form and place, whatever the command.
     for sp in sub.choices.values():
         sp.add_argument("--format", choices=("text", "json"), default=None,
@@ -264,7 +271,7 @@ def overrides_from(args) -> dict:
     falls to placemat.toml, and a key absent from that falls to the default."""
     out = {}
     for flag, name in (("ambient", "check_ambient_c"), ("keep_out", "check_keep_out_mm"),
-                       ("rise", "check_rise_c"), ("copper_oz", "check_copper_oz")):
+                       ("rise", "check_rise_c")):
         value = getattr(args, flag, None)
         if value is not None:
             out[name] = value
@@ -486,16 +493,19 @@ def _record(ref, board=None) -> Path:
 def cmd_drc(args) -> int:
     from .kicad.drc import run_drc, unconnected_items, violation_items
     from .report import airwires_from_drc
+    from .pairs import board_pairs
     pcb = Path(args.pcb)
     out = pcb.parent / "drc.json"
     report = run_drc(pcb, out)
     data = json.loads(out.read_text())
-    aw = airwires_from_drc(data)
     try:
         from .kicad.read import read_board
-        insts = {fp.ref: fp.inst for fp in read_board(pcb).footprints}
-    except Exception:                               # a board pcbnew cannot read has no instances to name
-        insts = {}
+        snap = read_board(pcb)
+        insts = {fp.ref: fp.inst for fp in snap.footprints}
+        partners = board_pairs(snap.netclasses)
+    except Exception:                               # a board pcbnew cannot read has no instances or classes
+        insts, partners = {}, {}
+    aw = airwires_from_drc(data, partners=partners)
     items = violation_items(data, {}, insts)
     if args.json:
         console.data(json.dumps({"by_type": report.by_type, "real": report.real, "outstanding": report.outstanding,
@@ -1211,6 +1221,38 @@ def cmd_check(args) -> int:
     return 1 if any(v.ok is False for v in verdicts) else 0
 
 
+def cmd_facts(args) -> int:
+    from . import facts as facts_mod
+    from .project import fab_profile, find_board
+    from .runner import cached_generation, scripted_board
+    from .settings import bind, load
+    script = Path(args.script).resolve()
+    src = find_board(script)
+    cfg = load(src.board_dir)
+    fab = fab_profile(src.board_dir)
+    # the board as generated, as `run` reads it: the written layout carries the last run's own rule areas
+    generated = cached_generation(src) / src.pcb.name
+    with bind(cfg):
+        board = scripted_board(script, src, cfg, fab, keep_going=True,
+                               pcb=generated if generated.exists() else None)
+    geometry = board.geometry
+    plane_layers = frozenset(l for l, _nets in board._plane_layers().items())
+    doc = facts_mod.facts_of(geometry, fab, cfg.check_rise_c, plane_layers)
+    reasons = facts_mod.unconfirmed_reasons(doc, cfg.facts_confirmed)
+    if args.confirm:
+        facts_mod.write_confirmed(src.board_dir / "placemat.toml", doc.digest())
+        console.say("facts", "confirmed: %s" % doc.digest())
+        return 0
+    if args.json:
+        console.data(json.dumps({"layers": doc.layers, "pairs": doc.pairs, "via_types": doc.via_types,
+                                 "fab_min": doc.fab_min, "rise_c": doc.rise_c,
+                                 "plane_mismatches": list(doc.plane_mismatches), "unconfirmed": reasons}, indent=2))
+        return 0
+    for line in facts_mod.render(doc, reasons):
+        console.say("facts", line)
+    return 1 if reasons else 0
+
+
 def main(argv=None) -> int:
     args = parser().parse_args(argv)
     if args.format == "json":
@@ -1229,7 +1271,7 @@ def main(argv=None) -> int:
 def _dispatch(args) -> int:
     return {"run": cmd_run, "lock": cmd_lock, "freeze": cmd_freeze, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
             "route": cmd_route, "routes": cmd_routes, "check": cmd_check, "show": cmd_show, "layer": cmd_layer, "faces": cmd_faces,
-            "settings": cmd_settings, "parts": cmd_parts, "nets": cmd_nets,
+            "settings": cmd_settings, "parts": cmd_parts, "nets": cmd_nets, "facts": cmd_facts,
             "datasheet": cmd_datasheet, "occupancy": cmd_occupancy, "preview": cmd_preview}[args.command](args)
 
 

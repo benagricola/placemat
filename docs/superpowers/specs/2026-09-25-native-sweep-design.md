@@ -243,7 +243,7 @@ then the v0.33.0 tag with its native module:
 - `bench.py --explore 64`: 0.06 s per variant against 0.33's 0.30 (5x;
   target 2x); pure Python 0.52-0.81 s.
 - fairing/SlotControl, the slowest module: 9.7 s at 0.33, 2.1 s now.
-- The fairing MCU cell's script (it declares blocks): 2.3 s at 0.33,
+- a test board's MCU cell's script (it declares blocks): 2.3 s at 0.33,
   1.0 s now, the same placement. The core board's script stops on one of
   its own assertions with the fragments now checked out, at 0.33 and now
   alike, so it was not timed.

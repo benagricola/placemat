@@ -45,7 +45,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | its pad a lane (or the clearance) off a 45 past a pad's corner | `at=Beside(item, Edge.SOUTH, align=(own_pad, Past([PadRef(...)], Corner.NE, lane=Net(...))))` | Placement (Beside) |
 | fixed off a part that is itself searched (a bypass at a searched part's pad end) | any firm `at=` (`Pin`, `Beside`, `row(of=)`) on the searched part: it rides the search | Placement (Riders) |
 | turned with another part | `rotation=Turned(part, deg)` | Placement |
-| turned to face a board edge or a bearing | `board.outward_rotation(item, edge)` | Faces |
+| turned to face a board edge or a bearing | `board.outward_rotation(item, edge, face=)` | Faces |
 | its fine-pitch escape kept clear | `board.fanout(part, depth=)` | Placement |
 | **groups of parts** | | |
 | a part and the parts at its pins | `board.block(anchor, satellites=[(item, net), ...])` | Blocks |
@@ -101,7 +101,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | a zone over the whole board, or an outline | `board.plane(net, layers=, outline=)` | Copper calls |
 | a zone over a group of parts only, wherever they were placed | `board.plane(net, layers=, over=[Part(...), Cell(...)], margin=)` | Copper calls |
 | a coupled differential pair, its centreline found | `board.pair(p, n, [(padP, padN), (padP2, padN2)], layer=)` | Copper calls (Pairs) |
-| the router pairing two nets whose names carry no `_P`/`_N` | `route.diff_pairs = ["*", "NET_A/NET_B"]` in placemat.toml | Settings (route) |
+| two nets pairing whatever they are called | a net class of exactly two nets with `diff_pair_width`/`diff_pair_gap` set, in the board's .zen | Copper calls (Pairs) |
 | silk text on a connector, jumper, switch or LED | `board.label(item, text, side=)` | Labels |
 | a routed net kept, relative to its pads | `placemat route <script> --adopt NET` | Commands (Keeping routed copper) |
 
@@ -209,6 +209,22 @@ there with the collisions, before anything is searched (`placemat run
 --keep-going` records them as findings and carries on). A finding names
 a cell member with its cell: `j_out (edge): J5 courtyard overlaps cell
 a1's R2 courtyard`.
+
+**A cell of several jobs.** At each run, placemat groups a cell's members
+by the nets local to it: a net every one of whose pads, board-wide, sits
+on this cell's own members; a `board.plane()` net is never local,
+whatever its pads. Two members are in one group when a local net joins
+them, directly or through others; `place.split_min_group` (2) is the
+least members a group needs to count. A cell with two or more such groups
+is a finding of kind `split`, naming each group and the parts no net
+inside the cell joins to another: "m: its parts form 3 groups joined only
+by board-level nets: U3, C7, R2; U5, R4; Q2, R9 (and 4 parts no net
+inside the cell joins to the others: C1, C2, C3, R1; judge each by what
+places it: a bypass capacitor stays with the IC it serves, a sensing part
+at what it senses). Parts with
+no close placement requirement in common may be split into modules of
+their own." It carries no run-score weight (score.py), and the same text
+is a note on the cell's step.
 
 **Degrees of freedom.** Each kind of place takes some away. `Location(x, y)`,
 `Centre(x, y)` and `Pin(key, x, y)` fix both coordinates (the origin, the
@@ -439,8 +455,9 @@ distance out along the diagonal from the pads' corner, measured across it.
 goes with any corner. The track takes the 45 as a waypoint,
 `Past([PadRef(...)], Corner.NE)`. A width sized for a current
 is a fact: a named constant citing IPC-2221 at the board's `check.rise_c`
-and `check.copper_oz` (`placemat settings` prints them); the run's
-`current-path` check then judges the copper drawn in the lane.
+(`placemat settings` prints it) and the layer's own copper weight, from the
+board's stackup; the run's `current-path` check then judges the copper
+drawn in the lane.
 
 ```python
 board.place(Part("c_bypass"), at=Beside(Part("u1"), Edge.WEST, align=PadRef(Part("u1"), "VDD")))
@@ -1193,8 +1210,12 @@ local +Y) and returns `(rotation, note)`: the rotation that turns that
 side to `edge` - a board `Edge`, or a bearing in degrees on a round
 board's rim - and a note, for a cell with no `faces()` declared, saying
 it fell back to the generic rule (read it: that cell may not turn the way
-you meant). A part always takes the generic rule, with no note.
-`rotation=board.outward_rotation(item, Edge.WEST)[0]` is the computed
+you meant). A part always takes the generic rule, with no note. For an
+item placed with `face=Face.BACK`, pass the same face,
+`board.outward_rotation(item, edge, face=Face.BACK)`: a flip mirrors the
+item before it turns, so a side declared east is its west until turned.
+An edge, a run, a rim and a block turn a back-face item this way on their
+own. `rotation=board.outward_rotation(item, Edge.WEST)[0]` is the computed
 form of a hand-written rotation helper that reads a pad's direction and
 works the turn out itself: it answers a rotation, the same way `extent`
 and `pitch` answer a size, and is not a coordinate to place by.
@@ -1392,6 +1413,17 @@ does not refuse the spot at once. The via tries, in turn:
   `place.via_move_step` (0.05 mm) grid nearest first, to a spot clear of
   every other net's copper on every layer and of every hole, its tail
   redrawn from its pad. A via inside its pad moves only within that pad;
+- a plane net's carried drop only: to shorten, from its own face to the
+  nearest layer of that plane between it and the far face (F-In1 for a
+  GND drop from the front with GND on In1 and In4), when the fab profile's
+  tier for the resulting via type (micro, blind or buried, by the span) is
+  `"yes"`. With `"if-needed"` it is judged but never drawn: the refusal
+  names the span it would have used and the fab-profile key, and never
+  applies it whatever the spot. An item left with no spot that such a span
+  would have cleared is a finding of kind `needs` ("m: no spot; one would
+  clear with a micro via shortened to F-In1 (via.micro is if-needed in
+  fab-profile.json)"): setting that type to `"yes"` is the user's call.
+  With `"no"` it is not tried at all;
 - a drop only (a via of a net the board declares a `plane()` for): to be
   dropped, while each of the item's pads keeps at least `place.drops_keep`
   (0.5) of its drops, rounded up and never fewer than one. A shared drop
@@ -1401,10 +1433,10 @@ If none works the spot is refused, and the refusal names the via and why
 each way failed: "via GND at (19.10, 21.90) is 0.00 mm from S copper on
 B.Cu (needs 0.20); it cannot give way: no GND via within 1.00 mm to share,
 no spot within 0.50 mm is clear, GND is not a plane net, so it is no drop".
-Each way has a cost the search adds to the spot's score -
-`score.via_share` (1), `score.via_move` (2), `score.via_drop` (10) - so it
-prefers spots where the vias stay as drawn; a nearest-first search takes a
-spot where they give way only when no spot has them as drawn. A via
+Each way has a cost the search adds to the spot's score - `score.via_share`
+(1), `score.via_move` (2), `score.via_shorten` (5), `score.via_drop` (10) -
+so it prefers spots where the vias stay as drawn; a nearest-first search
+takes a spot where they give way only when no spot has them as drawn. A via
 already placed does the same for an item placed later whose own copper
 meets it, its owner otherwise untouched and its keep share still held. A
 firm item's carried vias, and a rider's, give way where it is put. An item
@@ -1531,14 +1563,25 @@ keeps its inner layers", under Placement); a via declared at a pad is
 spanned where the part lands. A fragment built with
 spans carries them into the parent, which reads each via's layers.
 
-These vias cost more, so each type is refused unless the fab profile
-allows it: `"via": {"allow_micro": true, "allow_blind": true,
-"allow_buried": true}` in `fab-profile.json`, each only when the fab makes
-it and its cost is accepted. With none allowed (the default) a span is
-refused when declared, naming the type and the key that allows it, and a
-stamped fragment carrying such a via fails the run, naming its cell. Look
-for another way first: a through via moved, shared or dropped (the give-way
-above), or a field thinned with `drops=`.
+These vias cost more, so each type takes a tier in `fab-profile.json`:
+`"via": {"micro": "yes", "blind": "if-needed", "buried": "no"}`. `"yes"`:
+the fab makes it and its cost is accepted, so a script may draw one
+outright. `"no"` (a type the file does not name defaults to this): refused
+when declared, naming the type and the key that allows it, and a stamped
+fragment carrying such a via fails the run, naming its cell. `"if-needed"`:
+preferred off - a script may not draw one either, refused the same way as
+`"no"`, naming that the type is preferred off - but give way's shorten way
+(below) may still use it where nothing else places an item, judged and
+reported, never drawn without the user raising the tier to `"yes"`. The
+0.57 keys `allow_micro`/`allow_blind`/`allow_buried` still read: `true` ->
+`"yes"`, `false` or absent -> `"no"`. Look for another way first: a through
+via moved, shared, shortened or dropped (the give-way above), or a field
+thinned with `drops=`.
+
+A `min` section in `fab-profile.json` (`track_mm`, `clearance_mm`,
+`drill_mm`, `annular_mm`, `via_size_mm`) is checked against the board's net
+classes at the start of every run; a class below one is a `fab` finding
+naming the rule and both values.
 
 ```python
 board.vias(Net("GND"), PadRef(Part("u3"), 17), layers=(CopperLayer.B, CopperLayer.IN4))
@@ -1662,9 +1705,23 @@ placemat occupancy <layout.kicad_pcb | script> (--at X,Y | --box X0,Y0,X1,Y1 | -
 placemat show <layout.kicad_pcb | script> <cell | part> [--out DIR]
 placemat layer <layout.kicad_pcb | script> <LAYER> [--out FILE] [--json]
 placemat faces <module layout.kicad_pcb> outward=N [quiet=S] [handoff=E]
-placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise C] [--copper-oz OZ] [--limit CHECK=VALUE ...] [--json]
+placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise C] [--limit CHECK=VALUE ...] [--json]
+placemat facts <script> [--confirm] [--json]
 placemat settings [<script-or-board-dir>] [--json]
 ```
+
+`facts` prints the board's own facts - each copper layer's role and
+weight, the pair classes and their nets, each via type's tier, the fab
+minimums and the rise - and whether they match the last confirmation. It
+flags a `signal` layer carrying a `plane()` and a `power` (ground) layer
+carrying none. `--confirm` records a digest of the printed facts in
+placemat.toml's `[facts] confirmed`; this is placemat's own record, never
+part of a run's id, so confirming never re-plans a board. A run whose
+facts do not match says so on its own line
+("facts: unconfirmed - placemat facts") and records a `facts` finding, but
+still runs. A via type fab-profile.json's `via` does not name, or a missing
+`min`, stays unconfirmed even after `--confirm`: name each type, `"no"`
+included, since `"no"` for every type (through vias only) is a decision.
 
 `drc` runs kicad-cli's DRC on a board and prints the counts by kind, the
 airwires, and each violation that fails the board with where it is and the
@@ -1959,12 +2016,13 @@ KiCadRoutingTools at `$KRT_DIR` (default `~/work/KiCadRoutingTools`) with
 its own venv; quick mode is one routing round with the router's post-route
 smoothing off (a measurement: a small two-layer board routes in about 10 s), `--full`
 is the router's whole run. The search budget per net is the router's own
-unless `--iterations` caps it. Left to itself (no `--layers` and no
-`route.layers`), the router gets every copper layer except an inner one whose
-own outline a `board.plane()` zone covers at least `route.plane_share` of (a
-stamped cell's zone never counts, and F.Cu/B.Cu never drop) - the route step
-prints which layers it left out and why, and the report's `plane_layers`
-names them too. A net with a zone or a filled copper pour on the board is
+unless `--iterations` caps it. Left to itself (no `--layers`), the router
+gets every layer whose role in the board's stackup is `signal` or `mixed`,
+F.Cu and B.Cu always among them - the route step prints which layers it
+left out and their role, and the report's `plane_layers` names them too.
+`placemat route --layers` overrides for one run; the board's own roles are
+a .zen fact, not a placemat.toml setting. A net with a zone or a filled
+copper pour on the board is
 left to its pour and not routed, as `run --route` leaves the plan's plane
 nets; `--exclude` adds to them. The router does not see copper zones when it routes other nets: it lays
 tracks through a board-wide fill, and the refill carves round them, so a fill
@@ -1984,19 +2042,18 @@ own smoothing; `route.router_args` passes more of its flags through
 already kept stay as they were laid: `placemat routes <script>
 --release-all` drops them, and the next `route --adopt-all` lays them again.
 
-The pair router finds a pair by its nets' suffix (`_P`/`_N`, `P`/`N`,
-`+`/`-`) among the nets `route.diff_pairs` selects. Two nets named
-otherwise, such as a tank's two leads, are named as a pair with an entry
-`"NET_A/NET_B"` (the first is P): the route step renames the two in its own
-copy to `PMPAIR<i>_P`/`PMPAIR<i>_N`, a name no board net has, routes that
-pair, and names them back in the routed copy before its copper is read or
-kept. The renamed nets keep their net classes. The entry is a pair when it
-has one `/`, not leading, and no glob character; a hierarchical name
-(`/sheet/NET`) cannot be named this way. A named net the board does not
-have stops the route before the router runs; a net in two named pairs is
-refused when the settings load. Placement weighs a named pair's crossings
-as it does a suffix pair's, and a named pair takes its nets from any suffix
-pair they were in.
+Which nets pair comes from the board's own net classes, not a setting: a
+class other than Default that sets `diff_pair_width` and `diff_pair_gap`
+groups its nets into pairs. Exactly two nets in the class pair outright,
+whatever they are called; more than two pair by the router's own suffix
+convention (`_P`/`_N`, `P`/`N`, `+`/`-`) within the class. The Default
+class never makes pairs - KiCad gives it its own diff pair figures even
+when nobody declared one. A class of two nets named otherwise, such as a
+tank's two leads, is routed the same way a named pair used to be: the route
+step renames the two in its own copy to `PMPAIR<i>_P`/`PMPAIR<i>_N`, a name
+no board net has, routes that pair, and names them back in the routed copy
+before its copper is read or kept. The renamed nets keep their net classes.
+Placement weighs every pair's crossings the same way, by its net class.
 
 A pour net whose pours do not reach every pad of it (a rail's small taps on
 the far side of a cell) is named in `[route] islands` (or `--islands
@@ -2181,6 +2238,10 @@ from the board's directory, and every file on that path contributes: the
 NEAREST file wins per key, so a project root sets the house style and one
 board overrides one number without restating the rest.
 
+placemat.toml is tuning only: it holds no fact about the board. A board fact
+belongs in the .zen or fab-profile.json; placemat.toml refuses one that
+strays in, naming where it moved.
+
 ```
 built-in default  <  placemat.toml (nearest wins per key)  <  CLI flag
 ```
@@ -2227,6 +2288,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.via_move` | 0.5 | how far such a via may move to clear it; 0 never moves |
 | `place.via_move_step` | 0.05 | the grid a via's move is searched on |
 | `place.drops_keep` | 0.5 | the share of a pad's drops (vias of a `plane()` net in it) the pad keeps, rounded up and never fewer than one: what `drops=Drops.MIN` keeps of each field, and what a pad keeps when a carried drop is dropped to clear another net's copper (1 drops none there) |
+| `place.split_min_group` | 2 | the least members a group needs to count as one, in a cell's `split` finding |
 | `copper.chamfer` | 1.0 | how far a right angle is cut back into two 45s |
 | `copper.pair_chamfer` | 0.5 | the same, for a differential pair |
 | `copper.pair_via_step` | 0.4 | how far clear of its partner a pair's lead vias |
@@ -2251,7 +2313,6 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `check.ambient_c` | 100.0 | board temperature the junction estimate starts from (`--ambient`) |
 | `check.keep_out_mm` | 2.0 | how far sense copper stays from a switch node (`--keep-out`) |
 | `check.rise_c` | 10.0 | the rise a current path is sized for (`--rise`) |
-| `check.copper_oz` | 1.0 | outer copper weight the widths are sized for (`--copper-oz`) |
 | `check.zone_step` | 0.05 | the cell a zone fill is rasterised at to measure its width along a load's route; the width reads within one step |
 | `check.limits` | none | a bound per check, e.g. `"hot-loop" = 20.0` (`--limit`) |
 | `parts.order_fields` | `["Lcsc", "LCSC", "Mpn", "MPN"]` | a footprint field naming an order code (an LCSC number, an MPN); `parts` warns when a placed part (not `dnp`) has none of them present and non-empty |
@@ -2268,14 +2329,12 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `route.router_dir` | `$KRT_DIR`, else `~/work/KiCadRoutingTools` | the KiCadRoutingTools checkout |
 | `route.quick` | true | one routing round rather than the router's full run |
 | `route.iterations` | the router's own | cap on the router's search per net |
-| `route.layers` | every copper layer, minus an inner one the board's own plane fills whole | which layers the router may use |
-| `route.plane_share` | 0.9 | how much of the board's own outline a zone must cover, to count as a plane that fills its (inner) layer whole for `route.layers`' default |
+| `route.plane_share` | 0.9 | how much of the board's own outline a pour must cover to be guarded whole from other nets' tracks while routing (the router's default layers come from each layer's declared role, not this) |
 | `route.turn_cost` | 20000 | what the router charges a turn, per 90 degrees (a 45 half of it), against 1000 a straight grid step: the router's own default of 1000 makes a kink nearly free and its routes stair-step; 20000 measured best on a dense four-layer board (fewer than half the turns, 10% less copper, closure no worse); 1000 gives the router's own behaviour |
 | `route.smoothing` | true | the router's own octolinear smoothing, as it defaults; false skips it |
 | `route.router_args` | `[]` | more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`) is refused |
 | `route.pair_router_args` | `[]` | the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's |
 | `route.islands` | `[]` | nets with pours whose pads the pours do not reach (a pour net's small taps), `"NET"` or `"NET=WIDTH"` (mm): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH; `placemat route --islands` adds to them |
-| `route.diff_pairs` | `["*"]` | net patterns naming the differential pairs: the router's pair router (route_diff.py) routes them first, as pairs, and placement prices their own crossings at `score.pair_crossing`; an entry `"NET_A/NET_B"` names one pair outright, P first (see `placemat route` under Commands); `[]` names none (every net single-ended, no pair weighting) |
 | `route.diff_pair_gap` | 0 | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
 | `route.diff_pair_width` | 0 | mm, a pair's track width; 0 is the net class's diff pair width |
 | `route.adopt_tolerance` | 0.001 | mm any kept pad may lie from where the parts' common motion puts it before the kept routes joining them are dropped |
@@ -2298,7 +2357,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.setup` | 0 | mm a setup finding costs: the same every run of a script (an undeclared part, a layer the board lacks) |
 | `score.crossing` | 4.0 | mm a ratsnest crossing costs, in the run score and in the search |
 | `score.crossing_plane` | 0 | a crossing with a plane's or free net's airwire, as a share of `score.crossing`: each of its pads drops to the plane by a via |
-| `score.pair_crossing` | 100 | mm a differential pair (as `route.diff_pairs` names them) crossing itself costs, in place of `score.crossing`: such a pair has to exchange sides to route coupled, so a swap of two identical parts or a turned part is worth wire |
+| `score.pair_crossing` | 100 | mm a differential pair (a net class's own, board_pairs) crossing itself costs, in place of `score.crossing`: such a pair has to exchange sides to route coupled, so a swap of two identical parts or a turned part is worth wire |
 | `score.escape_crossed` | 20 | mm two escapes from one part's pins crossing near its pin row cost |
 | `score.escape_closed` | 50 | mm a pad whose last route toward what it connects to is closed costs |
 | `score.escape_walled` | 400 | mm a pad with no route out at all costs |
@@ -2308,6 +2367,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.via_move` | 2 | mm for each carried via that moves there |
 | `score.via_drop` | 10 | mm for each plane drop dropped there |
 | `score.push` | 10 | mm-equivalent: `score.push` times a push's modelled value over its limit, at the search |
+| `score.via_shorten` | 5 | mm for each carried plane drop shortened to the plane's nearest layer instead of dropped, between move and drop |
 | `solve.enabled` | false | give the searched tier its hints from a global solve of the whole netlist, before any item is scanned |
 | `solve.iterations` | 200 | the solve's conjugate-gradient cap per axis per round |
 | `solve.tolerance` | 1e-06 | the residual the solve stops at |
@@ -2321,6 +2381,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `cleanup.step` | 0.5 | that search's step |
 | `cleanup.swap_neighbours` | 4 | each part is offered a swap with this many of its nearest movable neighbours: both lifted, each searched round the other's old spot |
 | `cleanup.swap_radius` | 1.0 | how far round the other's old spot each part of a swap is searched |
+| `facts.confirmed` | none | a digest of the last `placemat facts --confirm`; placemat's own record, not part of a run's id |
 
 A run also records `metrics.seeded_by_net`: how many searched items each net
 seeded. One net seeding most of the board is a missing `board.plane()`. And

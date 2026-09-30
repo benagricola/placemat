@@ -1,6 +1,8 @@
 """A carried via that meets another net's copper gives way instead of
 refusing the placement: it shares a same-net via close by, moves a little,
 or - a plane's drop - is dropped while its pad keeps its share."""
+import pytest
+
 from placemat.board_geometry import CopperItem
 from placemat.copper import Track, Via
 from placemat.geometry import circle_polygon
@@ -12,9 +14,10 @@ from tests.fixtures import board_geometry, footprint, track
 F, B = CopperLayer.F, CopperLayer.B
 
 
-def _via(net, x, y, owner=None, size=0.45, drill=0.2):
+def _via(net, x, y, owner=None, size=0.45, drill=0.2, layers=None):
     ring = circle_polygon(Location(x, y), size / 2)
-    return CopperItem("via", net, frozenset([F, B]), (ring,), Box.of_points(ring), owner, size, drill, ((x, y),))
+    return CopperItem("via", net, layers or frozenset([F, B]), (ring,), Box.of_points(ring), owner, size, drill,
+                      ((x, y),))
 
 
 def _cell_board(other=None, extra=(), via_at=(39.1, 41.9), tail=True, keep_going=True, **kw):
@@ -317,6 +320,62 @@ def test_dropping_costs_score_via_drop_in_the_search():
     assert r.chosen is not None and r.score == 10.0
 
 
+# ---------------------------------------------------------------- shortening
+IN1 = CopperLayer.IN1
+_SHORTEN_ONLY = dict(place_via_share=0.0, place_via_move=0.0)
+
+
+def _shorten_board(via_at, r9_at, plane_layer=IN1, tiers=None, settings=None):
+    """Cell m: U1 (front) with its GND pad at (39.1, 40) and a through GND
+    via of the cell's at `via_at`, on a 3-layer board (F, plane_layer, B)
+    whose plane_layer carries a GND plane. R9 on the back at `r9_at`, where
+    it stands once the cell lands 20 mm up and left."""
+    import dataclasses
+    net = "GND"
+    copper = [_via(net, *via_at, owner="m", layers=frozenset([F, plane_layer, B])),
+             track(net, 39.1, 40.0, via_at[0], via_at[1], w=0.2, owner="m")]
+    fps = [footprint("U1", 40, 40, w=3, h=1, inst="m.u1", nets=(net, "X"), cell="m"),
+           footprint("R9", r9_at[0], r9_at[1], w=2.0, h=1, inst="r9", nets=("S", "T"), face=Face.BACK)]
+    g = board_geometry(fps, cells=["m"], copper=copper, width=50, height=50, extra_nets=(net,))
+    g = dataclasses.replace(g, layers=(F, plane_layer, B))
+    centre = Occupancy(g)._geometry(g.cells["m"]).reference.location
+    kw = {"settings": settings} if settings is not None else {}
+    b = Board(g, edge_margin=0.5, keep_going=True, fab_via_tiers=(tiers or {}), **kw)
+    b.plane(Net(net), [plane_layer])
+    b.place(Part("r9"), at=Location(*r9_at), face=Face.BACK)
+    b.place(Cell("m"), at=Near(Location(centre.x - 20, centre.y - 20), radius=0, rotations=(0,)))
+    return b
+
+
+def test_a_drop_shortens_to_the_nearest_plane_layer_when_the_tier_is_yes():
+    b = _shorten_board((39.1, 41.9), (19.5, 21.9), tiers={"micro": "yes"}, settings=_settings(**_SHORTEN_ONLY))
+    plan = b.resolve()
+    assert plan.step("m").placement is not None, plan.step("m").note
+    [a] = plan.occupancy.given_way.values()
+    assert a.kind == "shorten" and a.net == "GND"
+    assert a.cost == pytest.approx(b.settings.score_via_shorten)
+    [ring] = [c for c in plan.occupancy.copper if c.owner == "m" and c.kind == "through"]
+    assert ring.layers == frozenset([F, IN1])
+    assert not [f for f in plan.findings if f.kind in ("copper", "unplaced")], list(plan.findings)
+
+
+def test_an_if_needed_tier_is_judged_but_never_applied():
+    b = _shorten_board((39.1, 41.9), (19.5, 21.9), tiers={"micro": "if-needed"}, settings=_settings(**_SHORTEN_ONLY))
+    plan = b.resolve()
+    step = plan.step("m")
+    assert step.placement is None
+    assert "if-needed" in step.note and "micro" in step.note and "F-In1" in step.note, step.note
+    assert not plan.occupancy.given_way
+
+
+def test_no_tier_refuses_without_mentioning_shorten():
+    b = _shorten_board((39.1, 41.9), (19.5, 21.9), settings=_settings(**_SHORTEN_ONLY))
+    plan = b.resolve()
+    step = plan.step("m")
+    assert step.placement is None
+    assert "if-needed" not in step.note and "shorten" not in step.note.lower(), step.note
+
+
 # ------------------------------------------------------------------ items already placed, and the report
 def _later_board(copper, r9_at, net="GND", planes=(), settings=None, m_searched=False):
     """Cell m (U1 with its `net` pad at (39.1, 40), and `copper` of the
@@ -364,6 +423,28 @@ def test_a_placed_cells_via_moves_for_a_later_back_part():
     [a] = plan.occupancy.given_way.values()
     assert (a.kind, a.to, a.under) == ("move", (19.1, 22.05), "R9")
     assert [c.points for c in plan.occupancy.copper if c.owner == "m" and c.kind == "through"] == [((19.1, 22.05),)]
+
+
+def test_a_via_move_is_the_same_native_or_not(monkeypatch):
+    """The native offset search (giveway._native_move_offsets) picks the
+    same spot the pure-Python per-offset loop would - on a placed via
+    that must move for a later part (the scenario where a native search
+    naturally sees its own via as a registered obstacle, and must exclude
+    it - giveway.py's own `_native_move_offsets` doc)."""
+    import pytest
+    from placemat import geometry, giveway
+    if geometry._native is None:
+        pytest.skip("no native module")
+    runs = {}
+    for native_on in (False, True):
+        monkeypatch.setattr(giveway, "_NATIVE_MOVE_SEARCH", native_on)
+        plan = _later_board(
+            [_via("SIG", 39.1, 42.2, owner="m"), track("SIG", 39.1, 40.0, 39.1, 42.2, w=0.2, owner="m")],
+            (19.5, 23.0), net="SIG").resolve()
+        runs[native_on] = ([(a.kind, a.via, a.to, round(a.moved_mm, 6)) for a in plan.occupancy.given_way.values()],
+                           plan.step("r9").placement, plan.step("r9").note)
+    assert runs[True] == runs[False]
+    assert runs[True][0] and runs[True][0][0][0] == "move"       # a move actually happened, on both paths
 
 
 def test_a_placed_owner_keeps_its_keep_share():
@@ -499,3 +580,26 @@ def test_a_via_another_shares_does_not_give_way():
     step = plan.step("r2")
     assert step.placement is None
     assert "cannot give way" in step.note and "shares it" in step.note, step.note
+
+
+def test_an_if_needed_tier_that_would_have_placed_is_a_needs_finding():
+    b = _shorten_board((39.1, 41.9), (19.5, 21.9), tiers={"micro": "if-needed"}, settings=_settings(**_SHORTEN_ONLY))
+    plan = b.resolve()
+    [f] = [f for f in plan.findings if f.kind == "needs"]
+    assert f.startswith("m: ") and "if-needed" in f and "micro" in f and "F-In1" in f, f
+
+
+def test_no_needs_finding_without_an_if_needed_tier():
+    b = _shorten_board((39.1, 41.9), (19.5, 21.9), settings=_settings(**_SHORTEN_ONLY))
+    plan = b.resolve()
+    assert not [f for f in plan.findings if f.kind == "needs"], list(plan.findings)
+
+
+def test_the_least_give_way_cost_counts_shorten_when_a_tier_allows_it():
+    """A scored scan skips a candidate that cannot beat the best at the
+    cheapest way; shorten is that way when it is the cheapest allowed."""
+    from placemat.giveway import least_cost
+    s = _settings(**_SHORTEN_ONLY)
+    assert least_cost(s) == s.score_via_drop
+    assert least_cost(s, {"micro": "yes"}) == s.score_via_shorten
+    assert least_cost(s, {"micro": "if-needed"}) == s.score_via_drop

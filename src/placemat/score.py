@@ -123,8 +123,8 @@ def plan_measures(board, plan, congestion_step: float | None = None) -> dict:
     edges = [e for net in sorted(by_net) for e in mst(net, list(by_net[net].values()))]
     every = crossings(edges)[0]
     signal = crossings(edges, weights={n: 0.0 for n in quiet})[0]
-    from .pairs import pairs_of
-    partners = {n: m for n, m in pairs_of(by_net, tuple(board.settings.route_diff_pairs)).items()
+    from .pairs import board_pairs
+    partners = {n: m for n, m in board_pairs(board.geometry.netclasses).items()
                 if n not in quiet and m not in quiet}
     # only a pair's own crossings count here: every other crossing weighs 0
     pair = crossings(edges, weights={n: 0.0 for n in by_net}, partners=partners, pair_weight=1.0)[0]

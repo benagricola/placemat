@@ -21,6 +21,105 @@ requirement the netlist cannot say, and the real requirement is a
 distance a field or a temperature falls off over, `push` replaces the
 hand-picked point with the physics.
 
+## To 0.60.0
+
+`board.outward_rotation(item, edge, face=Face.BACK)` answers for an item on
+the back. A flip mirrors the item before it turns, so the front's answer
+turned a cell's declared east or west side the wrong way. An edge, a run,
+a rim and a block now turn a back-face cell from its mirrored side on
+their own. A script that negated the turn for the back by hand passes
+`face=` instead.
+
+**A cell of several jobs.** `placemat run` now reports a `split` finding
+for a cell whose members form two or more groups
+(`place.split_min_group`, default 2) joined only by nets that are not
+local to it - a board-level net, or any `board.plane()` net whatever its
+pads - and names the parts no net inside the cell joins to another, to be
+judged each by what places it: a bypass capacitor stays with the IC it
+serves, a sensing part at what it senses. It carries no run-score weight.
+
+A net class makes pairs only when it sets its own `diff_pair_width` and
+`diff_pair_gap`. In 0.58 every class but Default did, because KiCad reports
+its default pair figures on every class: a two-net class of control lines
+at their own width was paired and routed coupled.
+
+`placemat facts` reads a `via` section naming every type `"no"` as decided
+(through vias only), where 0.58 read it as missing. A section that leaves a
+type out stays unconfirmed, and the reason names the types.
+
+## To 0.59.1
+
+`placemat facts` reads the board as generated, as `run` does. It failed on
+a board run before whose script names a keepout, reading the last run's
+written layout and its rule areas.
+
+## To 0.59.0
+
+Faster, with the same results:
+- `check current-path` measures a zone fill's width from rasters in the
+  native module. It is about six times faster on a whole six-layer board.
+- The search's own bookkeeping round the native sweep is lighter.
+- A carried via's move is searched natively.
+
+No verdict, placement or refusal sentence changes. Nothing to do in a
+script.
+
+## To 0.58.0
+
+Board facts come from the board, not placemat.toml. Three keys are
+retired: `[check] copper_oz`, `[route] layers`, `[route] diff_pairs`. A
+placemat.toml still setting one is refused, naming its replacement.
+
+**The stackup.** Give the board's `BoardConfig` a `stackup`, with a
+`CopperLayer` for each copper layer, top to bottom, and a `DielectricLayer`
+between each pair:
+
+```python
+load("@stdlib/board_config.zen", "BoardConfig", "CopperLayer", "DielectricLayer",
+     "Material", "Stackup")
+
+STACKUP = Stackup(
+    thickness = <board mm>,
+    materials = [<the fab's prepreg and core, as Material(...)>],
+    layers = [
+        CopperLayer(thickness = <mm>, role = "<signal|mixed|power|ground>"),   # F.Cu
+        DielectricLayer(thickness = <mm>, material = "<name>", form = "<prepreg|core>"),
+        # ... each inner copper layer, with a dielectric after it ...
+        CopperLayer(thickness = <mm>, role = "<signal|mixed|power|ground>"),   # B.Cu
+    ],
+)
+CONFIG = BoardConfig(stackup = STACKUP, design_rules = ...)
+```
+
+A layer's role is what it carries: `signal` tracks, `ground` or `power` a
+plane, `mixed` both. The route step now routes on `signal` and `mixed`
+layers (was: every layer minus one a plane happened to fill whole);
+inner-layer current paths are now judged by the inner IPC-2221 constant
+and the layer's own weight (was: every layer as outer copper of `[check]
+copper_oz`). A board's route and current-path verdicts can change on this
+release.
+
+**Pair classes.** A differential pair class takes `nets = ["<NET>_P",
+"<NET>_N"]` (names or KiCad wildcard patterns), with its `diff_pair_width`
+and `diff_pair_gap`. A class of exactly two nets pairs them whatever they
+are called; more than two pair by the router's own suffix convention
+within the class. The Default class never makes pairs. Pairs now come
+from net classes (was: `[route] diff_pairs`, default every net named like
+a pair).
+
+**fab-profile.json.** `via`'s types take `"yes"`, `"no"` or `"if-needed"`
+(the 0.57 `allow_*` booleans still read: `true` -> `"yes"`, `false` or
+absent -> `"no"`). An `"if-needed"` type is never drawn for a script's own
+`layers=`; give way's new "shorten" way may still use it, judged but never
+applied, and an item it would have placed is a `needs` finding. A `min` section (`track_mm`, `clearance_mm`, `drill_mm`,
+`annular_mm`, `via_size_mm`) is checked against the board's net classes at
+the start of every run.
+
+**`placemat facts`.** Run it, then `placemat facts --confirm` once the
+printed facts are right. A run whose facts do not match the last
+confirmation says so on its own line and records a finding, but still
+runs.
+
 ## To 0.57.2
 
 A keepout that excludes parts only no longer judges a cell's own tracks

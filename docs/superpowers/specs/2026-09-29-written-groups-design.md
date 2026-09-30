@@ -2,7 +2,7 @@
 
 Date: 2026-09-29
 Status: approved 2026-09-29; item 1 revised the same day (below)
-Source: PLACEMAT_GAPS.md (fairing), 2026-09-29 "groups a hand placement can
+Source: a board's PLACEMAT_GAPS.md, 2026-09-29 "groups a hand placement can
 move"; its workaround `boards/core/snapshots/regroup_clusters.py`
 
 ## The problem
@@ -30,7 +30,7 @@ geometry from the cached generation (`previewer.resolve_like_last_run`), not
 from the written board, so what the written board's groups say changes no
 later placement.
 
-## Revision (2026-09-29, the fairing session relaying Ben's direction)
+## Revision (2026-09-29, a board session relaying Ben's direction)
 
 No part is pulled out of its module; every module gets its own layout;
 sub-modules are their own groups. So the default is "lift": each nested

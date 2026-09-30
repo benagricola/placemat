@@ -64,6 +64,7 @@ class Settings:
     place_via_move: float = 0.5         # or move this far to clear it; 0: never
     place_via_move_step: float = 0.05   # the grid a via's move is searched on
     place_drops_keep: float = 0.5       # the share of a pad's drops it keeps, rounded up, never fewer than one (Drops.MIN); a carried drop is dropped only while its pad keeps this share; 1: never
+    place_split_min_group: int = 2      # the least members a group needs to count, in a cell's split finding (splits.py)
     # [copper]
     copper_chamfer: float = 1.0
     copper_pair_chamfer: float = 0.5
@@ -93,7 +94,6 @@ class Settings:
     check_ambient_c: float = 100.0
     check_keep_out_mm: float = 2.0
     check_rise_c: float = 10.0
-    check_copper_oz: float = 1.0
     check_zone_step: float = 0.05     # the cell a zone fill is rasterised at to measure its width on a load's route
     check_limits: dict = field(default_factory=dict)
     # [parts]
@@ -114,9 +114,7 @@ class Settings:
     route_router_dir: str = ""          # "": fall back to $KRT_DIR, then the built-in
     route_quick: bool = True
     route_iterations: int | None = None
-    route_layers: tuple | None = None
-    route_plane_share: float = 0.9      # a plane's own zone must cover at least this share of the board's outline to count as filling an inner layer whole (route.py's default layer list then leaves it out)
-    route_diff_pairs: tuple = ("*",)    # nets the router's pair router routes first, as pairs; "NET_A/NET_B" names one pair (P first); (): none
+    route_plane_share: float = 0.9      # how much of the board's own outline a pour must cover to be guarded whole from other nets' tracks while routing
     # The router prices a straight step at 1000 and a turn at this per 90 degrees (a 45 half of it). Its own
     # default, 1000, makes a 45-degree kink worth 0.05 mm of path, and its routes stair-step; 20000 measured on
     # one measured six-layer board: 66.8% closure against 66.0%, 5.8 turns per 10 mm against 12.6, 10% less copper.
@@ -161,6 +159,7 @@ class Settings:
     score_via_move: float = 2.0         # a carried via that moves
     score_via_drop: float = 10.0        # a plane drop dropped
     score_push: float = 10.0            # a push: score.push times the modelled value over its limit, at the search
+    score_via_shorten: float = 5.0      # a carried drop shortened to the plane's nearest layer instead of dropped: between move and drop
     # [solve] - the global pre-solve for the searched tier's hints
     solve_enabled: bool = False
     solve_iterations: int = 200
@@ -177,6 +176,9 @@ class Settings:
     cleanup_swap_neighbours: int = 4    # each part is offered a swap with this many of its nearest movable neighbours
     cleanup_swap_radius: float = 1.0    # how far round the other's old spot each part of a swap is searched
 
+    # [facts] - placemat's own record, not a board fact: never part of a run's id
+    facts_confirmed: str = ""           # a digest of the facts last confirmed with `placemat facts --confirm`
+
     # Where each value came from: a file path, "flag", or "default". Never
     # part of equality or of the run id: it says where, not what.
     sources: dict = field(default_factory=dict, compare=False)
@@ -190,9 +192,13 @@ class Settings:
 
     def json(self) -> str:
         """Canonical, for the run id: the values only, sorted, stable across
-        dict ordering."""
+        dict ordering. facts_confirmed is left out: it is placemat's own
+        record of a user's confirmation, not a fact that changes a run, so
+        confirming never gives a script a new run id."""
         out = {}
         for name in self.keys():
+            if name == "facts_confirmed":
+                continue
             v = getattr(self, name)
             out[name] = sorted(v.items()) if isinstance(v, dict) else (
                 list(v) if isinstance(v, tuple) else v)
@@ -289,7 +295,7 @@ _ABOVE_ZERO = frozenset((
     "place_conflict_gap", "place_fit_room", "copper_bridge_half", "copper_finger_bridge_width",
     "copper_plane_min_thickness", "copper_pour_stroke", "copper_microvia_drill", "label_size",
     "label_thickness", "geometry_arc_sag", "geometry_index_cells",
-    "geometry_arc_error_nm", "check_rise_c", "check_copper_oz", "check_zone_step",
+    "geometry_arc_error_nm", "check_rise_c", "check_zone_step",
     "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line", "write_keepout_text"))
@@ -301,7 +307,10 @@ _AT_LEAST_ZERO = frozenset((
     "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
     "score_pair_crossing", "place_via_share", "place_via_move", "score_via_share",
-    "score_via_move", "score_via_drop", "score_push"))
+    "score_via_move", "score_via_drop", "score_via_shorten", "score_push"))
+# A floor of 2: below it a "group" can never be more than one part, which
+# is not a group at all.
+_AT_LEAST_TWO = frozenset(("place_split_min_group",))
 
 
 def _declared(name: str) -> str:
@@ -364,12 +373,6 @@ def _validate(name: str, value, path: str):
             parse_islands(value)
         except ValueError as e:
             raise SettingsError("%s: %s: %s" % (path, dotted, e)) from None
-    if name == "route_diff_pairs":
-        from .pairs import explicit_pairs
-        try:
-            explicit_pairs(value)
-        except ValueError as e:
-            raise SettingsError("%s: %s: %s" % (path, dotted, e)) from None
     if name in _CHOICES and value not in _CHOICES[name]:
         raise SettingsError("%s: %s must be %s, not %r" % (
             path, dotted, ", ".join(_CHOICES[name][:-1]) + " or " + _CHOICES[name][-1], value))
@@ -377,6 +380,17 @@ def _validate(name: str, value, path: str):
         raise SettingsError("%s: %s must be greater than 0, not %r" % (path, dotted, value))
     if name in _AT_LEAST_ZERO and value < 0:
         raise SettingsError("%s: %s may not be negative, not %r" % (path, dotted, value))
+    if name in _AT_LEAST_TWO and value < 2:
+        raise SettingsError("%s: %s must be at least 2, not %r" % (path, dotted, value))
+
+
+# Keys retired because they named a board fact: placemat.toml holds no
+# board fact, and a project that still sets one is told where it moved.
+_RETIRED = {
+    "check_copper_oz": "the board's own copper weight, read per layer from its stackup",
+    "route_layers": "each layer's role in the board's stackup (signal/mixed routes, F.Cu and B.Cu always)",
+    "route_diff_pairs": "a net class's diff_pair_width/diff_pair_gap in the board's .zen",
+}
 
 
 def _flatten(data: dict, path) -> dict:
@@ -400,6 +414,9 @@ def _flatten(data: dict, path) -> dict:
                 out[join_key(full, "")] = dict(value)
                 continue
             name = join_key(section, key)
+            if name in _RETIRED:
+                raise SettingsError("%s: %s is retired; it named a board fact, now read from %s"
+                                    % (path, full, _RETIRED[name]))
             if name not in known:
                 hint = _nearest(full)
                 raise SettingsError("%s: %s is not a setting placemat has%s"

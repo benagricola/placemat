@@ -5,8 +5,7 @@ Status: design
 
 Bypass satellites sit at their pins, but a pull-up, strap or series resistor
 linked to a GPIO lands in front of the neighbouring pins too, and nothing
-keeps the band the GPIO must escape through. Source: fairing-instrument
-`electronics/PLACEMAT_GAPS.md`, "passive orientation and the MCU's fanout",
+keeps the band the GPIO must escape through. Source: a board's `PLACEMAT_GAPS.md`, "passive orientation and the MCU's fanout",
 items 2 and 5.
 
 ## Declaration

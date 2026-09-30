@@ -34,7 +34,7 @@ and `plan.keepouts`. No reservation, no rule area, and the script still reads as
 though the rule is in force. Reproduced: `plan.keepouts` empty,
 `occupancy.reservations` empty, one soft finding.
 
-On `fairing-instrument` this silently dropped `coated_zone`, a sealing
+On a board project this silently dropped `coated_zone`, a sealing
 requirement, and placed 27 parts in coated territory. The cause was geometric
 and tiny: the fence's outer boundary was the board outline sampled into chords,
 and a chord across an arc bulges a fraction outside the true curve.
@@ -203,7 +203,7 @@ logic.l_rf_supply: no legal location within 6.0 mm of (24.1, 30.5)
   face x410, cell display's U4 front face x228; edge x310)
 ```
 
-Three owners, because the fairing case needed exactly one name to point at the
+Three owners, because one board's case needed exactly one name to point at the
 MCU's via field and a list of forty is unreadable. The owner string is
 `Occupancy.who()`, which already names a cell member with its cell.
 
@@ -314,5 +314,5 @@ A board that worked round the layer bug by widening `allow=` keeps working; the
 on the layers that DO matter. `boards/main/Main_layout.py` is the known case.
 
 A board whose stamped cell keepouts were being deleted will newly report parts
-and copper inside them. On the fairing main board that is the antenna
+and copper inside them. On one test board that is the antenna
 clearance, and those findings are the point.

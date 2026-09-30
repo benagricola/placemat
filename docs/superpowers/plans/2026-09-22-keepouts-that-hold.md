@@ -155,7 +155,7 @@ import pytest
 
 
 def test_a_region_partly_off_the_board_is_still_enforced():
-    """The fairing case: a fence whose outer boundary IS the board outline,
+    """one board's case: a fence whose outer boundary IS the board outline,
     sampled into chords, and a chord across an arc bulges past the true curve.
     The region must still fence the parts it was written to fence."""
     b = make_board("u1", keep_going=True)

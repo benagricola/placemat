@@ -135,7 +135,7 @@ def test_the_pass_is_the_same_twice():
 - [ ] **Step 2: Run to verify they fail.**
 - [ ] **Step 3: Implement.** `_cleanup_movable`: steps of kind `part`, placed, `Freedom.SEARCHED`, whose intent passes `_solvable`, minus every ref named by a label, by a placement reference (`near`, `at`, `center`, `FreeSpot.near`) of another intent, by a row or ring, or by a keepout's anchor. Pins: placed refs only, nets not in `_plane_nets() | _free_nets`, at least two pins. Call between the searched tier and `other_copper`; for each move, set the step's `placement` and `moved_mm` stays the search's; append the note. Also re-run `_report_links` after (it already runs later) - no change needed.
 - [ ] **Step 4: Run the tests and the suite; run `fixtures/bench.py`.** Expect `default` better on most modules and worse on none; explain any worse row before going on.
-- [ ] **Step 5: Measure the core board** (the scratch copy of the fairing core, cached generation) - HPWL, link length, links over limit, findings, resolve time - with the pass on and off, and put the numbers in the commit.
+- [ ] **Step 5: Measure the core board** (the scratch copy of a whole test board, cached generation) - HPWL, link length, links over limit, findings, resolve time - with the pass on and off, and put the numbers in the commit.
 - [ ] **Step 6: Commit** with the tally and the core numbers; `fixtures/bench.json` updated.
 
 ---

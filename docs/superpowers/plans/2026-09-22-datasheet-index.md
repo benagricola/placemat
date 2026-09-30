@@ -970,7 +970,7 @@ import pytest
 from placemat import datasheet as ds
 from placemat.pdf import read
 
-CORPUS = pathlib.Path("/home/ben/Documents/Hardware/fairing-instrument/electronics/datasheets")
+CORPUS = pathlib.Path("a board project's `datasheets`")
 pytestmark = [pytest.mark.skipif(shutil.which("mutool") is None, reason="mutool is not here"),
               pytest.mark.skipif(not CORPUS.is_dir(), reason="the datasheet corpus is not here")]
 

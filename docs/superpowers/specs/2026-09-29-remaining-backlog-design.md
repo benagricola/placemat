@@ -1,6 +1,6 @@
 # Riders on a searched item, a keepout inside a pad ring, one land of a pin, explicit router pairs
 
-Status: draft, for approval.
+Status: approved (2026-09-29).
 
 These four are the backlog items that change an interface. The rest of the
 open backlog is listed at the end, with why each waits.
@@ -9,7 +9,7 @@ open backlog is listed at the end, with why each waits.
 
 **Problem.** A `Pin`, `Beside`, `row(of=)`, or a cutout or keepout at a
 `PadRef`, whose reference is a searched part is refused: "only FIXED and
-EDGE items may be referred to". The fairing's bypasses at the ends of an
+EDGE items may be referred to". One board's bypasses at the ends of an
 eFuse's long power lands needed their eFuse fixed first, which turned an
 electrical relation into fixed cell spacing (PLACEMAT_GAPS 2026-09-26).
 
