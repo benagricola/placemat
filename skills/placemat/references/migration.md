@@ -5,6 +5,17 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## To 0.59.0
+
+Faster, with the same results:
+- `check current-path` measures a zone fill's width from rasters in the
+  native module. It is about six times faster on a whole six-layer board.
+- The search's own bookkeeping round the native sweep is lighter.
+- A carried via's move is searched natively.
+
+No verdict, placement or refusal sentence changes. Nothing to do in a
+script.
+
 ## To 0.58.0
 
 Board facts come from the board, not placemat.toml. Three keys are
