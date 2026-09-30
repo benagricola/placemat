@@ -88,8 +88,11 @@ def test_a_route_through_a_fill_and_a_narrower_track_is_judged_by_the_track():
     assert "mm long" in v.note and "zone fill" in v.note
 
 
-def test_copper_distance_reads_the_real_distance_not_zero_everywhere():
-    """A regression for `_Fill._copper_distance`: a fill cell many
+def test_copper_distance_reads_the_real_distance_not_zero_everywhere(monkeypatch):
+    """A regression for the pure-Python `_Fill._copper_distance` (forced
+    here with NativeFill off - NativeFill's own `Fill::build_copper_distance`
+    has the same regression pinned in native/src/fill.rs,
+    touching_reads_the_real_distance_not_zero_everywhere): a fill cell many
     millimetres from any copper must not read as distance 0 from it. A
     seed/target mix-up in the copper distance transform (the copper cells
     must be the transform's distance-0 seeds, not the other way round)
@@ -99,6 +102,8 @@ def test_copper_distance_reads_the_real_distance_not_zero_everywhere():
     mask this for a small search radius (it never looks far enough to
     notice), so this checks `_copper_distance` directly, at a cell chosen
     far from the copper on both axes."""
+    import placemat.checks as checks_module
+    monkeypatch.setattr(checks_module, "_NATIVE_FILL", False)
     lane = rect(15, 10, 20, 1.2)                     # x 5..25, y 9.4..10.6
     f = _Fill(lane, STEP)
     far_right = [rect(24.5, 10, 1.0, 1.0)]           # touches the lane's own right edge

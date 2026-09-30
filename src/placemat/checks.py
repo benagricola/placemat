@@ -16,6 +16,7 @@ import bisect
 import math
 import re
 
+from . import geometry as _geometry_module
 from .board_geometry import BoardGeometry, CopperItem, Footprint
 from .geometry import poly_distance, polys_overlap
 from .values import Box
@@ -531,14 +532,39 @@ def _distance_transform(inside, nx: int, ny: int) -> list:
     return sq
 
 
+_NATIVE_FILL = True
+"""Whether a zone fill's width search uses NativeFill when it can: switched
+off to compare against the pure-Python `_Fill` (tests/test_native_fill.py)."""
+
+
 class _Fill:
     """One zone fill polygon rasterised at `step`: which cells are copper
     and, for each, its squared distance in cells to the nearest cell that is
     not (an exact Euclidean transform over the grid). A slit KiCad draws to
     a hole has no width, so it is no edge. The grid has a cell of margin
-    round the polygon, so every edge has cells outside it."""
+    round the polygon, so every edge has cells outside it.
+
+    `touching`, `_reach` and the level search `width` drives are native
+    (NativeFill, native/src/fill.rs) when the module has it and
+    `_NATIVE_FILL` allows it; `width` itself is unchanged either way - it
+    reads `self.sq`/`self.levels` and calls `touching`/`_reach`/`centre`/
+    `radius`, whichever `_Fill` this is. Python always keeps the neck
+    point and the "one step or less" sentence (docs/superpowers/specs/
+    2026-09-30-performance-zone-width-give-way-sweep-design.md
+    section 1)."""
 
     def __init__(self, poly, step: float):
+        native = _geometry_module._native
+        if _NATIVE_FILL and native is not None and hasattr(native, "NativeFill"):
+            self._native = native.NativeFill(poly, step)
+            self.s = self._native.s
+            self.x0, self.y0 = self._native.x0, self._native.y0
+            self.nx, self.ny = self._native.nx, self._native.ny
+            self.sq = self._native.sq
+            self.levels = self._native.levels
+            self._native_polys: dict = {}          # id(polys) -> polys, keeping it alive so id() cannot be reused
+            return
+        self._native = None
         box = Box.of_points(poly)
         self.s = step
         self.x0, self.y0 = box.left - step, box.top - step
@@ -622,6 +648,12 @@ class _Fill:
         differ from the edge-exact answer by at most one `check.zone_step`
         (docs/superpowers/specs/2026-09-30-performance-zone-width-give-way-
         sweep-design.md section 1)."""
+        if self._native is not None:
+            key = id(polys)
+            new = key not in self._native_polys
+            if new:
+                self._native_polys[key] = polys          # keeps polys alive: id() cannot be reused while cached
+            return set(self._native.touching(key, polys if new else None, tau))
         s, nx, ny, sq, inside = self.s, self.nx, self.ny, self.sq, self.inside
         box = Box.union([Box.of_points(p) for p in polys])
         far = self.radius(tau) + s / 2.0
@@ -645,6 +677,9 @@ class _Fill:
         fill's edge: (the goal cell it reached, or None, and each cell
         reached's parent). Breadth first, so it stops as soon as it
         arrives."""
+        if self._native is not None:
+            hit, parent = self._native.reach(list(start), list(goal), tau)
+            return hit, parent
         nx, ny, inside, sq = self.nx, self.ny, self.inside, self.sq
         parent = {c: None for c in start}
         todo = deque(start)
