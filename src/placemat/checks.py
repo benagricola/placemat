@@ -16,6 +16,7 @@ import bisect
 import math
 import re
 
+from . import exposure as _exposure
 from . import geometry as _geometry_module
 from .board_geometry import BoardGeometry, CopperItem, Footprint
 from .geometry import poly_distance, polys_overlap
@@ -1007,6 +1008,51 @@ def heat(geometry: BoardGeometry, ambient_c: float = AMBIENT_C) -> list[Verdict]
     return out
 
 
+# -------------------------------------------------------------- exposure
+
+def _pad_centre(fp: Footprint, number: str):
+    return next(p.box.center for p in fp.pads if p.number == number)
+
+
+def exposures(geometry: BoardGeometry) -> list[Verdict]:
+    """Each sensitive part's modelled value per kind at its final place
+    against its `Pm.Limit`, naming the sources that contribute (`Pm.Emits`,
+    value(r) = v_ref * (r_ref / r) ** falloff; sources of a kind add). A
+    part is not exposed to itself. A part whose annotations do not read is
+    reported once, not judged."""
+    try:
+        ann = _exposure.read(geometry)
+    except ValueError as e:
+        return [Verdict("exposure", "annotations", 0.0, "", None, None, "not judged: %s" % e)]
+    out = []
+    for ref, sens in sorted(ann.sensitives.items()):
+        fp = geometry.footprint(ref)
+        at = _pad_centre(fp, sens.senses) if sens.senses is not None else fp.body_box.center
+        for kind, limit, unit in sens.limits:
+            total, parts = 0.0, []
+            for src_ref, src in sorted(ann.sources.items()):
+                if src_ref == ref:
+                    continue
+                sfp = geometry.footprint(src_ref)
+                if src.at is not None and src.at[0] == "pad":
+                    point = _pad_centre(sfp, src.at[1])
+                else:
+                    x, y = (src.at[1], src.at[2]) if src.at is not None else (0.0, 0.0)
+                    point = _exposure.local_to_board(sfp.location, sfp.rotation, sfp.face, x, y)
+                r = point.distance(at)
+                value = sum(e.at(r) for e in src.emissions if e.kind == kind)
+                if any(e.kind == kind for e in src.emissions):
+                    total += value
+                    parts.append((value, src_ref, r))
+            if parts:
+                said = ", ".join("%s %.3g %s at %.1f mm" % (n, v, unit, r) for v, n, r in sorted(parts, reverse=True))
+                note = "%s at %s: %s" % (kind, "pad %s" % sens.senses if sens.senses is not None else "the body centre", said)
+            else:
+                note = "no source of %s on the board" % kind
+            out.append(Verdict("exposure", "%s %s" % (ref, kind), total, unit, limit, total <= limit + 1e-9, note))
+    return out
+
+
 # ------------------------------------------------------------------- all
 
 def run_checks(geometry: BoardGeometry, ambient_c: float = AMBIENT_C, keep_out_mm: float = KEEP_OUT_MM,
@@ -1031,6 +1077,7 @@ def run_checks(geometry: BoardGeometry, ambient_c: float = AMBIENT_C, keep_out_m
     out += crossings_under(geometry)
     out += current_paths(geometry, rise_c, copper_oz, zone_step)
     out += heat(geometry, ambient_c)
+    out += exposures(geometry)
     return out
 
 

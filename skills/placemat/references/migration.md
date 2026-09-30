@@ -5,6 +5,20 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+A `board.push` between two footprints, where the capture could say what the
+source emits and what the other tolerates, is now said on the parts instead:
+`Pm.Emits` (`magnetic:3.2mT@13.5mm^3 heat:15C@5mm^1`) and `Pm.EmitsAt` on the
+source, `Pm.Limit` (`magnetic:0.5mT heat:5C`) and `Pm.SensesAt` on the part
+that is sensitive to it (`references/capture.md`). Every pair of a kind acts
+as a push, judged by whichever part is placed second, so no order dependency
+is added; a source that is a footprint moves its push with it. `board.push`
+stays for a source no footprint carries, and adds to annotated pushes on the
+same item. `placemat check` gains an `exposure` check.
+
+A board whose parts carry none of the four keys places as before.
+
 ## To 0.61.0
 
 A keepout that admits something (`allow=` or `max_height=`) is now also
