@@ -589,6 +589,15 @@ class Occupancy:
         geom = self._geometry(item)
         return transform_box(geom.reach or geom.body, self._transform(geom, placement))
 
+    def blame_owner(self, o) -> str:
+        """What a refusal's tally names a blocking shape by: its owner, and for
+        copper its net too - "cell logic's U3 GND", or "via GND" for a via no
+        part owns - so a count of copper refusals says whose copper it was."""
+        if o.kind not in ("pad", "through", "copper"):
+            return self.who(o.owner)
+        base = self.who(o.owner) if o.owner else ("via" if o.kind == "through" else "track")
+        return "%s %s" % (base, o.net) if o.net else base
+
     def who(self, owner: str) -> str:
         """A refdes as a finding names it: with its cell when it has one."""
         if self.geometry.has_footprint(owner):
@@ -1077,7 +1086,7 @@ class Occupancy:
                     "native found a conflict between a %s and a %s that _conflict disagrees with; "
                     "this is a native/Python mismatch, not a placement question" % (moved.kind, o.kind))
             if blame is not None:
-                blame.append(Blocker(_blocker_kind(o.kind), self.who(o.owner), frozenset(o.faces)))
+                blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
             return why
         # What a conflict can reach from: the body, or in a drawn envelope every
         # shape the part claims - silk can stand well past the body.
@@ -1101,7 +1110,7 @@ class Occupancy:
                 why = self._conflict(moved, o, clearance)
                 if why:
                     if blame is not None:
-                        blame.append(Blocker(_blocker_kind(o.kind), self.who(o.owner), frozenset(o.faces)))
+                        blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
                     return why
         return None
 
@@ -1153,7 +1162,7 @@ class Occupancy:
         moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
                      tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label)
         if blame is not None:
-            blame.append(Blocker(_blocker_kind(o.kind), self.who(o.owner), frozenset(o.faces)))
+            blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
 
         def get_reason(moved=moved, o=o, clearance=clearance):
             why = self._conflict(moved, o, clearance)
@@ -1682,7 +1691,7 @@ class NativeSweeper:
         key = ("conflict", a, b)
         hit = self._decoded.get(key)
         if hit is None:
-            hit = (occ._native_bucket(moved, o), (_blocker_kind(o.kind), occ.who(o.owner),
+            hit = (occ._native_bucket(moved, o), (_blocker_kind(o.kind), occ.blame_owner(o),
                                                   "/".join(sorted(f.value for f in o.faces))))
             self._decoded[key] = hit
         clearance = self.clearance

@@ -7,6 +7,10 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+A refusal's copper count names whose copper it met and its net ("copper
+x363: cell logic's U3 GND front face x120, via GND ..."); a copper finding
+names only the layers the board has.
+
 An item `OnEdge(run, overhang=)` on a stretch of a shaped board's edge
 overhangs it by exactly `overhang`, as on a named edge; it stood with its
 centre on the edge whatever the overhang.

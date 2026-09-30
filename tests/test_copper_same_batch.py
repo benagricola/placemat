@@ -46,3 +46,18 @@ def test_a_vias_finding_names_only_the_boards_own_layers():
     hits = [f for f in plan.findings if f.startswith("copper") and "via" in f]
     assert hits and all("In1" not in f and "In30" not in f for f in hits), hits
     assert all("B.Cu" in f and "F.Cu" in f for f in hits), hits
+
+
+def test_a_refusal_by_copper_names_the_copper():
+    """A part refused round its hint by copper already on the board (no part
+    owns it): the refusal's copper count names the net and kind of what was
+    in the way, not only a number."""
+    from placemat.values import Near, Part
+    from tests.fixtures import footprint, track
+    fps = [footprint("U1", 5, 5, w=3, h=2, inst="u1", nets=("A", "B"))]
+    lines = [track("GND", 0.2, 0.5 + k, 29.8, 0.5 + k) for k in range(30)]    # tracks every 1 mm
+    b = Board(board_geometry(fps, copper=lines, width=30, height=30), edge_margin=0.5, keep_going=True)
+    b.place(Part("u1"), at=Near(Location(15.0, 15.0), radius=2.0))
+    plan = b.resolve()
+    refused = [f for f in plan.findings if "u1" in f and "copper x" in f]
+    assert refused and all("GND" in f for f in refused), plan.findings
