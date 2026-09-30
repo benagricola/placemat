@@ -2875,7 +2875,7 @@ class Board:
             cut_pts, diagonals = chamfer_cuts(pts, chamfer)
             ops = polyline_tracks(name, layer, w, cut_pts)
             for p, c, off in corners:
-                near = min(_point_seg(c, t.start, t.end)[0] for t in ops)
+                near = min((_point_seg(c, t.start, t.end)[0] for t in ops), default=math.inf)
                 if near < off - 1e-6:
                     ctx.notes.append("track %s: the points either side of its 45 past the %s corner of %s allow "
                                      "no 45 through it; the track passes that corner at %.3f mm, under the "

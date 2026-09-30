@@ -11,7 +11,7 @@ import pytest
 
 from placemat.board_geometry import Footprint, NetClass
 from placemat.copper import Track
-from placemat.geometry import poly_distance
+from placemat.geometry import poly_distance, via_ring
 from placemat.layout import Board
 from placemat.values import (Along, Bend, Beside, Box, CopperLayer, Corner, Edge, Face, Location, Net, PadRef, Part,
                              Past, X, Y)
@@ -233,3 +233,19 @@ def test_migration_a_hand_computed_45_lane_matches_past_with_a_corner():
         gap = min(poly_distance(t.polygon, _pad_poly(intent_plan, "R%s" % nxt.upper(), 2))
                   for t in _legs(intent_plan) if t.net == net)
         assert C - 1e-6 <= gap <= C + 0.01
+
+
+def test_a_corner_of_a_via_is_its_rings_box_corner():
+    """Past measures copper by the polygons the clearance check measures: a
+    via's 16-sided ring, whose box reaches 0.305878 from the centre of a
+    0.6 mm via, not its true circle."""
+    b = Board(board_geometry([], width=60, height=60, extra_nets=["SIG", "V"]), edge_margin=1.0)
+    v = b.via(Net("V"), at=Location(10.0, 20.0))
+    ring = Box.of_points(via_ring(Location(10.0, 20.0), 0.6))
+    assert ring.right == pytest.approx(10.305878, abs=1e-6)
+    px, py = _up(ring.right + D), _down(ring.top - D)
+    b.track(Net("SIG"), [Location(round(px - 5, 3), round(py - 5 + 0.4, 3)), Past([v], Corner.NE),
+                         Location(round(px + 5, 3), round(py + 5 + 0.4, 3))], layer=CopperLayer.F, chamfer=0)
+    plan = b.resolve()
+    assert not declared_findings(plan), declared_findings(plan)
+    assert Location(px, py) in {t.start for t in _legs(plan)} | {t.end for t in _legs(plan)}
