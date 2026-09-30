@@ -89,6 +89,41 @@ def _thin_cell(board, group, gone) -> None:
         board.Delete(v)
 
 
+_ON_MM = 0.001      # a via or a track end the plan names, found on the board within this
+
+
+def _given_way(board, plan: Plan, groups: dict) -> None:
+    """What a stamped cell's own vias did as it was placed (giveway.py),
+    done to the moved cell: each via moved or removed, and the tail it was
+    drawn with removed where the plan draws another or none. The plan's
+    copper carries the tails drawn in their place."""
+    def on(v, at):
+        return abs(v.x / 1e6 - at[0]) <= _ON_MM and abs(v.y / 1e6 - at[1]) <= _ON_MM
+    for a in plan.given_way:
+        g = groups.get(a.home)
+        if g is None:
+            continue
+        items = list(g.GetItems())
+        via = next((it for it in items if isinstance(it, pcbnew.PCB_VIA) and it.GetNetname() == a.net
+                    and on(it.GetPosition(), a.at)), None)
+        if via is None:
+            continue
+        if a.old_tail is not None:
+            for it in items:
+                if not isinstance(it, pcbnew.PCB_TRACK) or isinstance(it, pcbnew.PCB_VIA) or it.GetNetname() != a.net:
+                    continue
+                s, e = it.GetStart(), it.GetEnd()
+                (p, q) = a.old_tail
+                if (on(s, p) and on(e, q)) or (on(s, q) and on(e, p)):
+                    g.RemoveItem(it)
+                    board.Remove(it)
+        if a.kind == "move":
+            via.SetPosition(vec(*a.to))
+        else:
+            g.RemoveItem(via)
+            board.Remove(via)
+
+
 def _merge_cell_zones(board, plan: Plan) -> list:
     """Leave out a stamped cell's zone on each layer where the board's own
     plane has the same net and wholly covers it: the plane fills that area
@@ -873,6 +908,7 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
             _place_footprint(fp, Placement(item.location, item.rotation, item.face), step.placement)
         elif isinstance(item, CellGeom):
             _move_cell(board, item, step.placement, groups)
+    _given_way(board, plan, groups)
     if plan.cell_zones_under_planes == "drop":
         plan.merged_zones = _merge_cell_zones(board, plan)
     _draw_outline(board, plan)

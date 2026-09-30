@@ -49,6 +49,17 @@ it waited for its partner and its step said its priority was set aside for
 the link. Between items of one tier the wait is unchanged. Placements where
 such a link crossed tiers can move.
 
+A carried via - one at a searched part's pad, or a stamped cell's own - that
+meets another net's copper no longer refuses the spot outright: it shares a
+same-net via within `place.via_share`, moves up to `place.via_move`, or, a
+plane drop, is dropped while its pad keeps `place.drops_keep` of its drops
+(api.md, "Carried vias give way"). The search prices each at
+`score.via_share`, `score.via_move` and `score.via_drop`. A via already
+placed gives way to a later item on the other face the same way. A cell
+that found no spot on a face under another's vias may now place; what gave
+way is a `vias` finding and a note on the owner's step. `place.via_share =
+0`, `place.via_move = 0` and `place.drops_keep = 1` turn each off.
+
 ## To 0.56.2
 
 `layers=(CopperLayer.B, CopperLayer.IN4)` on `board.via()`, `board.vias()`
