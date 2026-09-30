@@ -342,6 +342,9 @@ the script.
   then reports `courtyards_overlap` where courtyards meet.
 - A flip to the back mirrors about the vertical axis (KiCad's F key), then
   applies `rotation=`; KiCad's orientation field reads `rotation + 180`.
+  Unlike KiCad's flip, a flipped cell keeps its inner copper on its layers
+  (F and B swap, In1..In4 stay), so a module keeps its layer roles; a via
+  reaching a face and a footprint's own copper mirror as KiCad does.
 - A clearance that differs in one place is `board.rule(clearance=,
   within=|between=|on=, why=)`, never a hand edit of the project file.
 - Keepouts: what a region is for is said in `allow=` - parts that may sit

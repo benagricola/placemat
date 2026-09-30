@@ -314,17 +314,22 @@ by drawing that part upright on the front and pressing F. `face=` takes
 `Face.FRONT`/`Face.BACK` or the string it prints, `"front"`/`"back"`; anything
 else is refused at declaration.
 
-A flip also mirrors the item's inner copper through the stack, as KiCad
-does: on six layers In1 and In4 swap, and In2 and In3. On a stackup that is
-not symmetric that lands copper on a layer of another role, so a flip is
-refused when it moves a piece of inner copper between layers of different
-KiCad types (signal, power, mixed, from the board's setup), or when its
-net's standing changes - its own plane on one layer and another net's, or
-none, on the other (planes from `board.plane()` and the board's own zones).
-The refusal names the item, the copper and both layers; keep the item on
-its own face, or lay it out for the other one. A flip of like onto like
-(In1 GND and In4 GND) is placed; pads and through vias span every layer
-and are not judged.
+**A cell's flip keeps its inner layers, which KiCad's does not.** A cell
+flipped to the back swaps its own F and B copper and keeps its inner copper
+(tracks, pours, zones, rule areas, buried vias) on the layer it was drawn
+on, so the module keeps the layer roles it was laid out for: a pour on the
+In2 power layer stays on In2. KiCad's own flip mirrors inner layers through
+the stack (on six layers In1 and In4 swap, and In2 and In3); placemat judges
+the cell with its inner copper where it was drawn, and the writer puts it
+back there after KiCad's flip. Two things still mirror as KiCad flips them:
+- A via that reaches a face (micro or blind) mirrors, so its face end moves
+  with the face: F-In1 becomes B-In4. When its inner end then may no longer
+  join its net - the two layers differ in KiCad type, or either lacks the
+  via net's own plane (from `board.plane()` or the board's own zones) - the
+  cell's step says so, naming the via and both layers.
+- A footprint's own copper, a cell member's included, mirrors its whole
+  stack: a footprint is one part drawn for a face, such as a coil wound on
+  every layer.
 
 **The default is a bare `place()`.** A part with a wired neighbour already
 on the board needs no position: price the connection and leave it to seed.
@@ -1374,9 +1379,10 @@ every layer, the through via; a span of every layer the board has is one
 too. A layer the board does not have, or a span of one layer, is refused
 when declared. A via whose span misses the layer of what it joins - a
 grid's pad, a row's or a `FreeSpot`'s tail - is not drawn, and the finding
-says so. A cell flipped to the other face takes its vias' spans with it,
-mirrored through the stack as KiCad flips them (B-In4 becomes F-In1); a via
-declared at a pad is spanned where the part lands. A fragment built with
+says so. A cell flipped to the other face mirrors a via that reaches a face
+(B-In4 becomes F-In1) and keeps a buried one on its layers ("A cell's flip
+keeps its inner layers", under Placement); a via declared at a pad is
+spanned where the part lands. A fragment built with
 spans carries them into the parent, which reads each via's layers.
 
 These vias cost more, so each type is refused unless the fab profile

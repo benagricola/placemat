@@ -7,9 +7,13 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
-A flip that lands an item's inner copper on a layer of another role (a
-different KiCad layer type, or a change between its own plane, another
-net's and none) is refused, naming the copper and both layers.
+A cell flipped to the other face keeps its own inner copper on the layer
+it was drawn on: F and B swap, In1..In4 stay, where 0.56.2 mirrored them
+through the stack as KiCad does. The writer puts them back after KiCad's
+flip. A via that reaches a face still mirrors (F-In1 becomes B-In4), and the
+cell's step says when its inner end may no longer join its net. A
+footprint's own copper mirrors as before. A script that kept a cell on its
+own face to hold its inner layers' roles may flip it.
 
 A micro, blind or buried via (`layers=` on a via) is refused unless
 `fab-profile.json` allows its type (`"via": {"allow_micro": true}` and
