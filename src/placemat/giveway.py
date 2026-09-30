@@ -133,7 +133,7 @@ def _shift(s, dx: float, dy: float):
     from .occupancy import Shape
     return Shape(s.owner, s.kind, s.faces, s.layers, s.net, tuple((x + dx, y + dy) for x, y in s.poly),
                  s.box.moved(dx, dy), s.label, carried=s.carried,
-                 points=tuple((x + dx, y + dy) for x, y in s.points), given=s.given)
+                 points=tuple((x + dx, y + dy) for x, y in s.points), given=s.given, claims=s.claims)
 
 
 def groups(occ, shapes) -> dict:

@@ -606,7 +606,11 @@ with another. `courtyard` (the default) is its courtyard and its pads.
 each pad's mask opening (the pad grown by its expansion), every silk graphic
 as stroked (the footprint's text fields excluded - `board.label()` text stays
 a reservation) and its body, the box of its fab graphics. A footprint that
-draws neither silk nor fab keeps its courtyard. `union` is both. In
+draws neither silk nor fab claims its courtyard as the part itself: another
+part's body or pads may not stand in it (its silk may), and it touches
+another courtyard as courtyards do. So a keep-clear drawn only as a
+courtyard (a no-parts radius round something mounted off the board) keeps
+parts out. `union` is both. In
 `physical` a part's courtyard still keeps off another part's plated lead, and
 its plated leads out from under another part's courtyard, as KiCad's DRC
 judges them (`pth_inside_courtyard`); the refusal names the pad: `C1 courtyard

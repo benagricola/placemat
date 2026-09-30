@@ -36,6 +36,9 @@ pub enum Kind {
     Silk,
     Body,
     Yard,
+    // a courtyard claimed as the part itself (Shape.claims): a courtyard that also keeps
+    // another footprint's drawn shapes and pads out
+    Keepclear,
 }
 
 impl Kind {
@@ -51,6 +54,7 @@ impl Kind {
             "silk" => Some(Kind::Silk),
             "body" => Some(Kind::Body),
             "yard" => Some(Kind::Yard),
+            "keepclear" => Some(Kind::Keepclear),
             _ => None,
         }
     }
@@ -208,6 +212,21 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
         return other.kind == Kind::Through && other.owner != yard.owner && other.is_lead
             && polys_overlap(&yard.poly, &other.poly);
     }
+    if s.kind == Kind::Keepclear || o.kind == Kind::Keepclear {
+        // Occupancy._conflict's claim rule: a courtyard claimed as the part itself keeps
+        // another footprint's drawn shapes and pads out
+        let (claim, other) = if s.kind == Kind::Keepclear { (s, o) } else { (o, s) };
+        if matches!(other.kind, Kind::Body | Kind::Pad | Kind::Through) {
+            if other.owner != claim.owner && other.owner_is_footprint && (claim.faces & other.faces) != 0
+                && polys_overlap(&claim.poly, &other.poly)
+            {
+                return true;
+            }
+            if other.kind != Kind::Through {
+                return false;
+            }
+        }
+    }
     if s.kind.is_drawn() || o.kind.is_drawn() {
         return drawn_conflict(s, o, cfg);
     }
@@ -230,7 +249,8 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
     if s.kind == Kind::Hole || o.kind == Kind::Hole {
         return false; // its pad or via ring answers for everything else
     }
-    if s.kind == Kind::Courtyard && o.kind == Kind::Courtyard {
+    let court = |k: Kind| matches!(k, Kind::Courtyard | Kind::Keepclear);
+    if court(s.kind) && court(o.kind) {
         let depth = (s.bbox.2.min(o.bbox.2) - s.bbox.0.max(o.bbox.0))
             .min(s.bbox.3.min(o.bbox.3) - s.bbox.1.max(o.bbox.1));
         let has_width = (s.bbox.2 - s.bbox.0) > 0.0 && (o.bbox.2 - o.bbox.0) > 0.0;
@@ -249,8 +269,8 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
         }
         return (s.faces & o.faces) != 0 && polys_overlap(&s.poly, &o.poly);
     }
-    if s.kind == Kind::Courtyard || o.kind == Kind::Courtyard {
-        let (court, other) = if s.kind == Kind::Courtyard { (s, o) } else { (o, s) };
+    if court(s.kind) || court(o.kind) {
+        let (court, other) = if court(s.kind) { (s, o) } else { (o, s) };
         // A courtyard over another footprint's own through-hole lead (a pin
         // standing proud of the far face) is always a mechanical collision,
         // whatever vias_block_courtyards says - that setting is about

@@ -7,6 +7,11 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+Under `[place] envelope = "physical"`, a footprint that draws neither silk
+nor fab claims its courtyard as the part itself: another part's body or
+pads standing in it is now refused. It kept only other courtyards out,
+which that envelope never claims, so such a courtyard blocked nothing.
+
 `Centre(x, None, toward=Edge.SOUTH)` puts an item on a line as far toward
 that end as it is legal, instead of across from what it connects to. A cell
 is judged member by member, so a height band stops its tall members while

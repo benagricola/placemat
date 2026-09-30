@@ -26,7 +26,8 @@ from tests.test_native_conflict import _cfg_kwargs, _encode_faces, _encode_layer
 
 
 def _py_shape_tuple(occ, s):
-    return (s.kind, _encode_faces(s.faces), _encode_layers(s.layers), s.net or "", tuple(s.poly), s.owner,
+    kind = "keepclear" if (s.kind == "courtyard" and s.claims) else s.kind      # as _to_native_shape encodes it
+    return (kind, _encode_faces(s.faces), _encode_layers(s.layers), s.net or "", tuple(s.poly), s.owner,
             s.owner in occ._footprint_refs, (s.owner, s.label) in occ._leads, occ._margins.get(s.owner, 0.0))
 
 
@@ -74,7 +75,7 @@ def _native_legal(occ: Occupancy, item, placement: Placement, clearance=None):
         sb = s.box.moved(dx, dy)
         poly = tuple((x + dx, y + dy) for x, y in s.poly)
         from placemat.occupancy import Shape
-        candidates.append(Shape(s.owner, s.kind, s.faces, s.layers, s.net, poly, sb, s.label))
+        candidates.append(Shape(s.owner, s.kind, s.faces, s.layers, s.net, poly, sb, s.label, claims=s.claims))
     hit = index.first_conflict([_py_shape_tuple(occ, c) for c in candidates], clearance)
     if hit is None:
         return None, []

@@ -45,6 +45,9 @@ class Shape:
     carried: str = ""
     points: tuple = ()
     given: str = ""
+    # a courtyard claimed as the part itself: under the physical envelope, a footprint that
+    # draws neither silk nor fab claims its courtyard, which keeps other parts' drawn shapes out
+    claims: bool = False
 
 
 # A Shape as a plain tuple, for the optional native accelerator (kind,
@@ -69,7 +72,8 @@ def _native_layers(layers: frozenset) -> int:
 
 
 def _to_native_shape(s: Shape, footprint_refs: frozenset, leads: frozenset, margins: dict) -> tuple:
-    return (s.kind, _native_faces(s.faces), _native_layers(s.layers), s.net or "", tuple(s.poly), s.owner,
+    kind = "keepclear" if (s.kind == "courtyard" and s.claims) else s.kind
+    return (kind, _native_faces(s.faces), _native_layers(s.layers), s.net or "", tuple(s.poly), s.owner,
             s.owner in footprint_refs, (s.owner, s.label) in leads, margins.get(s.owner, 0.0))
 
 
@@ -232,12 +236,13 @@ def _fp_shapes(fp: Footprint, envelope: str = "courtyard", polygon_share: float 
     faces = frozenset([fp.face])
     drawn = bool(fp.silk or fp.fab)
     if envelope != "physical" or not drawn:
+        claims = envelope == "physical"         # the part claims its courtyard in place of what it would draw
         if courtyard_drawn(fp, polygon_share):
             ct = tuple(fp.courtyard_poly)
-            shapes.append(Shape(fp.ref, "courtyard", faces, frozenset(), "", ct, Box.of_points(ct)))
+            shapes.append(Shape(fp.ref, "courtyard", faces, frozenset(), "", ct, Box.of_points(ct), claims=claims))
         else:
             ct = box_polygon(fp.courtyard_box)
-            shapes.append(Shape(fp.ref, "courtyard", faces, frozenset(), "", ct, fp.courtyard_box))
+            shapes.append(Shape(fp.ref, "courtyard", faces, frozenset(), "", ct, fp.courtyard_box, claims=claims))
     if envelope != "courtyard":
         for face, poly in fp.mask:
             shapes.append(Shape(fp.ref, "mask", frozenset([face]), frozenset(), "", poly, Box.of_points(poly)))
@@ -594,9 +599,11 @@ class Occupancy:
             layers = self._flipped_layers(s) if flip else s.layers
             if s.carried or s.given:
                 out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label,
-                                 carried=s.carried, points=tuple(t.apply(p) for p in s.points), given=s.given))
+                                 carried=s.carried, points=tuple(t.apply(p) for p in s.points), given=s.given,
+                                 claims=s.claims))
             else:
-                out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label))
+                out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label,
+                                 claims=s.claims))
         return out
 
     def _flipped_layers(self, s: Shape) -> frozenset[CopperLayer]:
@@ -1298,7 +1305,7 @@ class Occupancy:
             o = native_shapes[oi]
             s = origin_shapes[si]
             moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
-                         tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label)
+                         tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label, claims=s.claims)
             why = self._conflict(moved, o, clearance)
             if why is None:
                 raise AssertionError(
@@ -1324,7 +1331,7 @@ class Occupancy:
             if not close:
                 continue
             moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
-                          tuple((x + dx, y + dy) for x, y in s.poly), sb, s.label)
+                          tuple((x + dx, y + dy) for x, y in s.poly), sb, s.label, claims=s.claims)
             for o in close:
                 why = self._conflict(moved, o, clearance)
                 if why:
@@ -1408,7 +1415,7 @@ class Occupancy:
         o = native_shapes[oi]
         s = origin_shapes[si]
         moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
-                     tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label)
+                     tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label, claims=s.claims)
         if blame is not None:
             blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
 
@@ -1607,7 +1614,7 @@ class Occupancy:
         """The item's shapes at `placement`, from the turned shapes at the origin."""
         dx, dy = placement.location.x, placement.location.y
         return [Shape(s.owner, s.kind, s.faces, s.layers, s.net, tuple((x + dx, y + dy) for x, y in s.poly),
-                      s.box.moved(dx, dy), s.label)
+                      s.box.moved(dx, dy), s.label, claims=s.claims)
                 for s in self._origin_shapes(item, self._geometry(item), placement)]
 
     def shifted_yards(self, item, placement: Placement) -> list:
@@ -1649,6 +1656,17 @@ class Occupancy:
                     and polys_overlap(yard.poly, other.poly):
                 return self._lead_sentence(yard, other)
             return None
+        claim = s if (ks == "courtyard" and s.claims) else o if (ko == "courtyard" and o.claims) else None
+        if claim is not None:
+            # a courtyard claimed as the part itself keeps another part's body and pads out (not its silk: ink may lie over it)
+            other = o if claim is s else s
+            if other.kind in ("body", "pad", "through"):
+                if other.owner != claim.owner and other.owner in self._footprint_refs \
+                        and claim.faces & other.faces and polys_overlap(claim.poly, other.poly):
+                    return "%s %s sits in %s courtyard, which it claims as it draws nothing else" % (
+                        self.who(other.owner), _NAMES.get(other.kind, other.kind), self.who(claim.owner))
+                if other.kind != "through":
+                    return None                 # a through pad clear of it still meets the lead and via rules
         if ks in _DRAWN or ko in _DRAWN:
             return self._drawn_conflict(s, o)
         if ks in _HOLES and ko in _HOLES:
@@ -1992,7 +2010,7 @@ class NativeSweeper:
 
         def reason(s=s, o=o, x=x, y=y, clearance=clearance):
             moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net, tuple((px + x, py + y) for px, py in s.poly),
-                          s.box.moved(x, y), s.label)
+                          s.box.moved(x, y), s.label, claims=s.claims)
             why = occ._conflict(moved, o, clearance)
             if why is None:
                 raise AssertionError("native found a conflict between a %s and a %s that _conflict disagrees with; "

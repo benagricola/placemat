@@ -40,7 +40,8 @@ def _encode_layers(layers) -> int:
 
 
 def _py_shape(s: Shape, owner_is_footprint: bool, is_lead: bool = False, margin: float = 0.0):
-    return (s.kind, _encode_faces(s.faces), _encode_layers(s.layers), s.net or "", tuple(s.poly), s.owner,
+    kind = "keepclear" if (s.kind == "courtyard" and s.claims) else s.kind      # as _to_native_shape encodes it
+    return (kind, _encode_faces(s.faces), _encode_layers(s.layers), s.net or "", tuple(s.poly), s.owner,
             owner_is_footprint, is_lead, margin)
 
 
