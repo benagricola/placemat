@@ -163,3 +163,44 @@ def test_report_lists_only_the_cells_that_are_findings():
     out = splits.report(g, [split_cell], plane_nets={"GND"}, min_group=2)
     assert [name for name, _ in out] == ["m"]
     assert splits.report(g2, [g2.cells["k"]], plane_nets=set(), min_group=2) == []
+
+
+def test_board_resolve_reports_a_split_finding_and_notes_the_cells_step():
+    """Without the plane() declaration, GND's pads all sit on this cell (the
+    only cell on this small board) and would wrongly count as local,
+    joining every member into one group - board.plane() is what keeps a
+    board-level net from ever counting as local, whatever its pads."""
+    from placemat.layout import Board
+    from placemat.values import CopperLayer, Location, Net, Cell
+
+    u1 = footprint("U1", 0.0, 0.0, w=2.0, h=1.0, nets=("L1", "GND"))
+    r1 = footprint("R1", 0.0, 3.0, w=2.0, h=1.0, nets=("L1", "GND"))
+    u2 = footprint("U2", 5.0, 0.0, w=2.0, h=1.0, nets=("L2", "GND"))
+    r2 = footprint("R2", 5.0, 3.0, w=2.0, h=1.0, nets=("L2", "GND"))
+    named = [dataclasses.replace(fp, cell="m") for fp in (u1, r1, u2, r2)]
+    g = board_geometry(named, cells=["m"], width=60.0, height=60.0)
+    b = Board(g, edge_margin=1.0)
+    b.plane(Net("GND"), [CopperLayer.F])
+    b.place(Cell("m"), at=Location(30, 30))
+    plan = b.resolve()
+    found = [f for f in plan.findings if f.kind == "split"]
+    assert len(found) == 1
+    assert found[0] == ("m: its parts form 2 groups joined only by board-level nets: U1, R1; U2, R2. "
+                        "Parts with no close placement requirement in common may be split into modules "
+                        "of their own.")
+    step = next(s for s in plan.steps if s.item == "m")
+    assert "split: its parts form 2 groups" in step.note
+
+
+def test_board_resolve_reports_no_split_finding_for_one_group():
+    from placemat.layout import Board
+    from placemat.values import Location, Cell
+
+    u1 = footprint("U1", 0.0, 0.0, w=2.0, h=1.0, nets=("L1", "L2"))
+    r1 = footprint("R1", 0.0, 3.0, w=2.0, h=1.0, nets=("L1", "L2"))
+    named = [dataclasses.replace(fp, cell="m") for fp in (u1, r1)]
+    g = board_geometry(named, cells=["m"], width=60.0, height=60.0)
+    b = Board(g, edge_margin=1.0)
+    b.place(Cell("m"), at=Location(30, 30))
+    plan = b.resolve()
+    assert [f for f in plan.findings if f.kind == "split"] == []

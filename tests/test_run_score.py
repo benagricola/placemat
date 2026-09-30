@@ -106,3 +106,12 @@ def test_an_old_record_without_the_measures_is_no_best():
     old = RunRecord.of({"run_id": "x", "board": "b", "status": "ok", "metrics": {"placed": 3, "drc_real": {}, "findings": 0,
                                                                    "airwire_mm": 10.0}})
     assert not comparable(old)
+
+
+def test_the_split_finding_carries_no_run_score_weight():
+    """Like vias, a split finding is not one of score.py's weighted finding
+    kinds: it never appears as a term, whatever the weights are."""
+    heavier = dataclasses.replace(CFG, score_setup=1000.0, score_label=1000.0)
+    plain = score.terms(M(findings={}), heavier)
+    with_split = score.terms(M(findings={"split": 5}), heavier)
+    assert plain == with_split
