@@ -766,6 +766,7 @@ class Board:
         # the via types beyond through the fab profile allows (micro, blind, buried), and where it says so
         self.fab_vias = frozenset(fab_vias) if fab_vias is not None else type(self).fab_vias
         self.fab_source = fab_source
+        self._planes_declared: list = []    # (net, layers) of each board.plane()
         self._solve_hints = None
         self.geometry = geometry
         self.courtyard_excess = courtyard_excess    # the fab's assembly margin round a part: the only spacing that comes free
@@ -3290,6 +3291,56 @@ class Board:
         self._allow_via_type(name, span)
         return span
 
+    def _check_flips(self, occ) -> None:
+        """Refuse a flip that lands an item's inner copper on a layer of
+        another role. A flip mirrors inner layers through the stack, as KiCad
+        flips them; on a stackup that is not symmetric a power pour on In2
+        lands on In3. A piece of net N moving from layer S to D is refused
+        when S and D differ in KiCad's layer type, or when N's standing
+        differs between them: its own plane there, another net's, or none."""
+        types = self.geometry.layer_types
+        planes: dict = {}
+        for net, layers in self._planes_declared:
+            for l in layers:
+                planes.setdefault(l, set()).add(net)
+        for c in self.geometry.copper:
+            if c.kind == "zone" and not c.owner:
+                for l in c.layers:
+                    planes.setdefault(l, set()).add(c.net)
+
+        def standing(layer, net):
+            nets = planes.get(layer, set())
+            return "its own plane" if net in nets else ("another net's plane" if nets else "no plane")
+
+        stack = set(self.geometry.layers)
+        for i in self._placements():
+            face = getattr(i, "face", None)
+            if face is None or getattr(i, "kind", "") == "block":
+                continue
+            geom, key, kind = self._item(i.item)
+            if occ._geometry(geom).reference.face is face:
+                continue
+            if kind == "cell":
+                pieces = [(c.net, l) for c in self.geometry.copper if c.owner == key and c.kind != "pad"
+                          and not stack <= set(c.layers) for l in c.layers if l.face is None]
+            else:
+                pieces = [(("", l)) for l, _ in getattr(geom, "copper", ()) if l.face is None]
+            for net, s_layer in sorted(set(pieces), key=lambda p: (p[0], p[1].value)):
+                (d_layer,) = occ._flip_layers(frozenset([s_layer]))
+                if d_layer is s_layer:
+                    continue
+                ts, td = types.get(s_layer), types.get(d_layer)
+                if ts and td and ts != td:
+                    why = "a %s layer onto a %s one" % (ts, td)
+                elif standing(s_layer, net) != standing(d_layer, net):
+                    why = "%s onto %s" % (standing(s_layer, net), standing(d_layer, net))
+                else:
+                    continue
+                raise ValueError(
+                    "%s: flipping it to the %s face mirrors its %s copper on %s to %s (%s): this stackup is "
+                    "not symmetric there. Keep it on its own face, or lay it out for that face"
+                    % (key, face.value, net or "graphic", s_layer.value, d_layer.value, why))
+
     def _check_stamped_via_types(self) -> None:
         """A via a stamped cell brings (or one already on the board) that
         spans only some of the board's layers is a micro, blind or buried
@@ -3582,6 +3633,7 @@ class Board:
         min_thickness = self.settings.copper_plane_min_thickness if min_thickness is None else min_thickness
         name = self.geometry.require_net(net)
         layers = tuple(dict.fromkeys(CopperLayer.of(l) for l in layers))
+        self._planes_declared.append((name, layers))    # a flip is judged against the layers' planes
         if over is not None:
             if outline is not None:
                 raise ValueError("plane %s: its outline is over= items or outline= points, not both" % name)
@@ -3704,6 +3756,7 @@ class Board:
                         board_cutouts=self._cutouts, settings=self.settings,
                         component_spacing=self.component_spacing)
         self._check_stamped_via_types()     # a fragment's vias the fab profile does not allow fail the run
+        self._check_flips(occ)              # a flip that lands inner copper on a layer of another role
         self._carry_pad_vias(occ)          # before any cell's geometry is built from its members'
         thinned = self._thin_drops(occ)    # likewise: a cell's geometry takes its fields as thinned
         occ.quiet_nets = frozenset(self._plane_nets() | set(self._free_nets))

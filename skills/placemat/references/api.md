@@ -314,6 +314,18 @@ by drawing that part upright on the front and pressing F. `face=` takes
 `Face.FRONT`/`Face.BACK` or the string it prints, `"front"`/`"back"`; anything
 else is refused at declaration.
 
+A flip also mirrors the item's inner copper through the stack, as KiCad
+does: on six layers In1 and In4 swap, and In2 and In3. On a stackup that is
+not symmetric that lands copper on a layer of another role, so a flip is
+refused when it moves a piece of inner copper between layers of different
+KiCad types (signal, power, mixed, from the board's setup), or when its
+net's standing changes - its own plane on one layer and another net's, or
+none, on the other (planes from `board.plane()` and the board's own zones).
+The refusal names the item, the copper and both layers; keep the item on
+its own face, or lay it out for the other one. A flip of like onto like
+(In1 GND and In4 GND) is placed; pads and through vias span every layer
+and are not judged.
+
 **The default is a bare `place()`.** A part with a wired neighbour already
 on the board needs no position: price the connection and leave it to seed.
 

@@ -241,6 +241,7 @@ class BoardGeometry:
     hole_clearance: float = 0.0           # a hole's clearance to copper of another net
     silk_clearance: float = 0.0           # silk to silk and to a mask opening, from the board's rules
     pin_names: dict = field(default_factory=dict, compare=False)   # refdes -> {pad number: pin name}, from the symbols
+    layer_types: dict = field(default_factory=dict, compare=False)  # CopperLayer -> KiCad's type: signal, power, mixed, jumper
     _by_ref: dict = field(default_factory=dict, repr=False, compare=False)
     _by_inst: dict = field(default_factory=dict, repr=False, compare=False)
 

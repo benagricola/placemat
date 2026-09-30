@@ -7,6 +7,10 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+A flip that lands an item's inner copper on a layer of another role (a
+different KiCad layer type, or a change between its own plane, another
+net's and none) is refused, naming the copper and both layers.
+
 A micro, blind or buried via (`layers=` on a via) is refused unless
 `fab-profile.json` allows its type (`"via": {"allow_micro": true}` and
 so on); a stamped fragment carrying one fails the run the same way.

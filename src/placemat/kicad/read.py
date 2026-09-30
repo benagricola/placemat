@@ -348,6 +348,14 @@ def _via_size(via) -> float:
         return mm(via.GetWidth())
 
 
+def _layer_types(board) -> dict:
+    """Each copper layer's type as the board's setup gives it."""
+    names = {pcbnew.LT_SIGNAL: "signal", pcbnew.LT_POWER: "power", pcbnew.LT_MIXED: "mixed",
+             pcbnew.LT_JUMPER: "jumper"}
+    return {CopperLayer.of(board.GetLayerName(l)): names.get(board.GetLayerType(l), "signal")
+            for l in board.GetEnabledLayers().CuStack()}
+
+
 def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, ...]:
     items = []
 
@@ -667,4 +675,4 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
                     silk_clearance=mm(board.GetDesignSettings().m_SilkClearance),
                     hole_clearance=mm(board.GetDesignSettings().m_HoleClearance),
                     rule_areas=_rule_areas(board, groups_of),
-                    board_polygon=_board_polygon(board))
+                    board_polygon=_board_polygon(board), layer_types=_layer_types(board))
