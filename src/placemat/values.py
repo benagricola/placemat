@@ -830,6 +830,7 @@ class Keepout:
     why: str = ""
     max_height: float | None = field(default=None, metadata={"omit_default": True})   # a parts keepout: admit parts no taller (Pm.Height)
     region_of: object = field(default=None, metadata={"omit_default": True})   # a Part or Cell this region is shaped from
+    bars: tuple = field(default=(), metadata={"omit_default": True})   # the Parts and Cells it keeps out: every other part is let in
 
     def __post_init__(self):
         if not self.name or not str(self.name).strip():
