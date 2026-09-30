@@ -273,6 +273,7 @@ class PlaceIntent:
     row_of: object = field(default=None, metadata={"omit_default": True})   # a row(of=) item: an edge placement measured off its envelope, not the board's
     cell_pin: object = field(default=None, metadata={"omit_default": True})  # (owner, number, dx, dy[, lx, ly]): a cell placed by a member's pad
     drops: Drops = field(default=Drops.ALL, metadata={"omit_default": True})   # a cell's via fields as stamped, or thinned when it is placed
+    pushes: tuple = field(default=(), metadata={"omit_default": True})   # Push declarations on this item, from board.push()
     line: int = field(default=0, metadata={"reuse": False})   # the script line that declared it: not what it decides
 
     @property
@@ -403,6 +404,23 @@ class Link:
 
 
 @dataclass
+class Push:
+    """One physical effect holding an item back from a source: value(r) =
+    v_ref * (r_ref / r) ** falloff, in the script's own units. Illegal
+    where value(r) exceeds limit; within that, the search prices each
+    candidate score.push * value(r) / limit."""
+    source: object                        # Part, Cell, PadRef, a keepout's name (str), or a Location
+    falloff: float
+    r_ref: float
+    v_ref: float
+    limit: float
+    target_pad_key: tuple | None = None   # (refdes, pad number): where on the item to measure from; None: its body centre
+    why: str = field(default="", metadata={"reuse": False})
+    achieved_value: float | None = field(default=None, metadata={"reuse": False})   # measured by a resolve, not declared
+    achieved_mm: float | None = field(default=None, metadata={"reuse": False})
+
+
+@dataclass
 class Step:
     item: str
     kind: str
@@ -520,6 +538,7 @@ class Plan:
     findings: Findings = field(default_factory=Findings)
     copper: list = field(default_factory=list)
     links: list = field(default_factory=list)
+    pushes: list = field(default_factory=list)                    # every push, once its item has a place (Push)
     rules: list = field(default_factory=list)
     outline: Box | None = None
     draw_outline: bool = True           # False: the outline is a placement frame only (a module fragment)
@@ -2574,6 +2593,45 @@ class Board:
         link = Link((ka[0], ka[1]), (kb[0], kb[1]), w, limit_mm, why, a, b)
         self._links.append(link)
         return link
+
+    def push(self, item, *, from_, falloff: float, reference: tuple, limit: float, why: str = "") -> Push:
+        """Price how far `item` must stand from `from_`: value(r) = v_ref *
+        (r_ref / r) ** falloff, `reference=(r_ref, v_ref)` in the script's
+        own units. Illegal where value(r) exceeds `limit`; within that,
+        each candidate is priced `score.push * value(r) / limit`, so the
+        search moves the item as far out as its other terms allow.
+
+        `item` is a `Part`, or a `PadRef` on one for where the sensing
+        element is. `from_` is a `Part` or a `Cell` (its body centre), a
+        `PadRef`, a keepout's name, or a `Location`. The source is placed
+        first, the same order dependency a position said in terms of a pad
+        already carries."""
+        if not isinstance(item, (Part, PadRef)):
+            raise TypeError("push: item is a Part or a PadRef on one, not %r" % (item,))
+        owner, number, _, _ = self._pad_ref(item)     # the refdes: pads and needs speak refdes, not instance names
+        target_pad_key = (owner, number) if isinstance(item, PadRef) else None
+        intent = next((i for i in self._intents
+                       if getattr(i, "item", None) is not None and owner in {fp.ref for fp in members_of(i.item)}),
+                      None)
+        if intent is None:
+            raise ValueError("%s: push needs a place() declaration for this item before board.push()" % owner)
+        if isinstance(falloff, bool) or not isinstance(falloff, (int, float)) or not falloff > 0:
+            raise ValueError("push: falloff is more than 0, not %r" % (falloff,))
+        if not (isinstance(reference, tuple) and len(reference) == 2):
+            raise TypeError("push: reference is (r_ref, v_ref), not %r" % (reference,))
+        r_ref, v_ref = reference
+        if isinstance(r_ref, bool) or not isinstance(r_ref, (int, float)) or not r_ref > 0:
+            raise ValueError("push: reference's radius (r_ref) is more than 0, not %r" % (r_ref,))
+        if isinstance(v_ref, bool) or not isinstance(v_ref, (int, float)) or not v_ref > 0:
+            raise ValueError("push: reference's value (v_ref) is more than 0, not %r" % (v_ref,))
+        if isinstance(limit, bool) or not isinstance(limit, (int, float)) or not limit > 0:
+            raise ValueError("push: limit is more than 0, not %r" % (limit,))
+        if isinstance(from_, str) and from_ not in self._keepouts:
+            raise ValueError("push: %r is not a keepout on this board" % (from_,))
+        p = Push(from_, float(falloff), float(r_ref), float(v_ref), float(limit), target_pad_key, why)
+        intent.pushes = intent.pushes + (p,)
+        intent.needs = intent.needs | {self._pad_ref(r)[0] for r in _refs_in([from_])}
+        return p
 
     def free_net(self, net):
         """A net whose length on this board does not matter (its off-board
