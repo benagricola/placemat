@@ -61,6 +61,14 @@ printed facts are right. A run whose facts do not match the last
 confirmation says so on its own line and records a finding, but still
 runs.
 
+**A cell of several jobs.** `placemat run` now reports a `split` finding
+for a cell whose members form two or more groups
+(`place.split_min_group`, default 2) joined only by nets that are not
+local to it - a board-level net, or any `board.plane()` net whatever its
+pads - and names the parts no net inside the cell joins to another (each
+already placed by the pin it serves or the part it senses, never a split
+candidate). It carries no run-score weight.
+
 ## To 0.57.2
 
 A keepout that excludes parts only no longer judges a cell's own tracks

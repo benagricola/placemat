@@ -209,6 +209,21 @@ there with the collisions, before anything is searched (`placemat run
 a cell member with its cell: `j_out (edge): J5 courtyard overlaps cell
 a1's R2 courtyard`.
 
+**A cell of several jobs.** At each run, placemat groups a cell's members
+by the nets local to it: a net every one of whose pads, board-wide, sits
+on this cell's own members; a `board.plane()` net is never local,
+whatever its pads. Two members are in one group when a local net joins
+them, directly or through others; `place.split_min_group` (2) is the
+least members a group needs to count. A cell with two or more such groups
+is a finding of kind `split`, naming each group and the parts no net
+inside the cell joins to another: "m: its parts form 3 groups joined only
+by board-level nets: U3, C7, R2; U5, R4; Q2, R9 (and 4 parts no net
+inside the cell joins to the others: C1, C2, C3, R1, each placed by the
+pin it serves or the part it senses, not a split candidate). Parts with
+no close placement requirement in common may be split into modules of
+their own." It carries no run-score weight (score.py), and the same text
+is a note on the cell's step.
+
 **Degrees of freedom.** Each kind of place takes some away. `Location(x, y)`,
 `Centre(x, y)` and `Pin(key, x, y)` fix both coordinates (the origin, the
 body centre, or the item's own pad `key` (a number or a net), each axis a
