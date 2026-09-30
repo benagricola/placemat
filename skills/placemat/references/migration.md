@@ -5,6 +5,13 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+`check current-path` no longer judges a net only one part carries: it
+judged the route to the widest-joined other pad at the full current, often
+a capacitor carrying ripple, and failed it. Give the part that takes the
+load its own `Pm.I` and the route between the two is judged.
+
 ## To 0.56.2
 
 A copper finding measures a via as the circle it is, as KiCad's DRC does:

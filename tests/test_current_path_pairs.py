@@ -86,3 +86,16 @@ def test_a_carrier_not_joined_yet_is_said_beside_the_pair_that_is_judged():
     far = footprint("Q2", 40, 30, nets=("SW", "GND"), fields={"Pm.I": "2A"})
     v = _sw(parts + [far], copper)
     assert v.ok is not False and "no copper joins" in v.note and "Q2" in v.note and "Q1." in v.note
+
+
+def test_one_carrying_part_is_not_judged_and_says_what_would_let_it_be():
+    """A net with one part carrying current (a sense resistor, a connector's
+    tab) cannot say where the load goes: the widest-joined other pad is often
+    a capacitor, which carries ripple. The check says so rather than failing
+    that branch at the full current."""
+    r = footprint("R1", 10, 10, nets=("IN", "SENSE"), fields={"Pm.I": "3A"})
+    c = footprint("C1", 20, 10, nets=("SENSE", "GND"))
+    v = {v.subject: v for v in current_paths(board_geometry([r, c], copper=[track("SENSE", 10.6, 10, 19.4, 10, w=0.2)]))}
+    s = v["SENSE"]
+    assert s.ok is None, s
+    assert "only R1 carries current on SENSE" in s.note and "Pm.I" in s.note, s.note

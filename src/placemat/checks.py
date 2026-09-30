@@ -559,6 +559,14 @@ def current_paths(geometry: BoardGeometry, rise_c: float = TRACK_RISE_C, copper_
                 on[fp.ref] = max(on.get(fp.ref, 0.0), amps)
     out = []
     for net, on in sorted(carriers.items()):
+        if len(on) == 1:
+            # one carrier cannot say where its load goes: the widest-joined other pad is as
+            # often a capacitor carrying ripple as the load, so no route is judged at its current
+            (ref, amps), = on.items()
+            out.append(Verdict("current-path", net, 0.0, "mm", ipc2221_width_mm(amps, rise_c, copper_oz), None,
+                               "not judged (%g A): only %s carries current on %s, so where its load goes is "
+                               "not known; give the part that takes the load its Pm.I" % (amps, ref, net)))
+            continue
         judged, unmeasured, apart = _pairs(geometry, net, on, rise_c, copper_oz)
         said = ["no copper joins %s %s on %s yet" % (a, "and %s" % b if b else "to another part", net)
                 for a, b in apart]

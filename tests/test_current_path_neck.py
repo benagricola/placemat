@@ -13,7 +13,7 @@ def _vin(parts, copper):
 
 def _parts():
     u = footprint("U1", 10, 10, nets=("VIN", "X"), fields={"Pm.I": "vin:3A"})
-    c = footprint("C1", 30, 10, nets=("VIN", "GND"))
+    c = footprint("C1", 30, 10, nets=("VIN", "GND"), fields={"Pm.I": "vin:3A"})
     return [u, c]
 
 

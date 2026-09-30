@@ -1653,8 +1653,10 @@ and the current, and its neck: the point along the route the width is
 narrowest, and how far the route stays within 10% of that width, measured
 along the copper the widest route passes - "neck at (x, y), 0.9 mm long".
 Where the neck is a zone fill, whose width is not measured, no neck point
-is given. With one carrier, its widest route to another part's pad
-at its own current. A part carries on a net only at a current above zero:
+is given. A net only one part carries is not judged: one carrier cannot
+say where its load goes (the widest-joined other pad is as often a
+capacitor carrying ripple), and the verdict asks for a `Pm.I` on the part
+that takes the load. A part carries on a net only at a current above zero:
 a per-net `Pm.I` that leaves a net out, or gives it 0, leaves a sense pin
 out of the load. Two carriers no copper joins yet are said, not judged. A board with no facts reports nothing to check. **Every `placemat
 run` runs the same checks on the board it wrote**, prints one `checks` line -
