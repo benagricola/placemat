@@ -356,7 +356,10 @@ def keepout_rules(plan, refs, stack) -> list:
     for k in plan.keepouts.values():
         if not _admits_parts(k):
             continue
-        forbid = tuple(sorted(r for r in set(refs) if r not in k.owners))
+        if k.barred and k.max_height is None:       # bars=: exactly the parts it names, whatever else the board holds
+            forbid = tuple(sorted(r for r in set(refs) if r in k.barred))
+        else:
+            forbid = tuple(sorted(r for r in set(refs) if r not in k.owners))
         if not forbid:
             continue
         faces = {l for l in (k.layers or ()) if l in (CopperLayer.F, CopperLayer.B)}
