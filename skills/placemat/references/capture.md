@@ -90,11 +90,13 @@ runs the same checks on the board it wrote.
   judged at the lesser of their currents by the narrowest point of the
   widest route between them (tracks, vias, pours, and zone fills, each
   measured along the route at `check.zone_step`) against the IPC-2221
-  outer-layer width at
-  `--rise` (default 10 C) on `--copper-oz` (default 1 oz), with the neck's
-  point and length; carriers no copper joins yet are reported, not judged,
-  and so is a net only one part carries: give the part that takes the load
-  (an input connector's load, a switch's inductor, a supply's output) its
+  width at `--rise` (default 10 C), on the copper weight the board's own
+  stackup gives that layer (the IPC-2221 inner-layer constant on an inner
+  layer, outer on F.Cu/B.Cu; a layer the stackup does not weigh falls back
+  to 1 oz), with the neck's point and length; carriers no copper joins yet
+  are reported, not judged, and so is a net only one part carries: give
+  the part that takes the load (an input connector's load, a switch's
+  inductor, a supply's output) its
   own `Pm.I` so the route between them is judged
 - `heat`: the board temperature (`--ambient`, default 100 C) plus `Pm.Pd`
   times `Pm.ThetaJb` (or `Pm.ThetaJa` when that is all the part has, which
