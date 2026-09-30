@@ -134,6 +134,31 @@ def test_sharing_costs_score_via_share_in_the_search():
     assert r.chosen is not None and r.score == 1.0
 
 
+def test_a_nearest_first_scan_stops_at_the_first_spot_where_its_vias_give_way(monkeypatch):
+    """Unscored, a scan takes the nearest spot that is legal: where the item is legal only as its
+    vias give way, the first spot they do ends it, and no further spot is resolved."""
+    from placemat import giveway
+    from placemat.placement import Placement
+    from placemat.placer import scan
+    b = _cell_board(other=(19.1, 23.4))
+    occ = Occupancy(b.geometry, 0.5, settings=b.settings)
+    occ.commit(b.geometry.footprint("R9"), Placement(Location(19.5, 21.9), 0.0, Face.BACK))
+    centre = occ._geometry(b.geometry.cells["m"]).reference.location
+    hint = Placement(Location(centre.x - 20, centre.y - 20), 0.0, Face.FRONT)
+    asked = []
+    real = giveway.resolve
+
+    def recording(*a, **k):
+        res = real(*a, **k)
+        asked.append((a[2].location.x, a[2].location.y, res.why))
+        return res
+    monkeypatch.setattr(giveway, "resolve", recording)
+    r = scan(occ, b.geometry.cells["m"], hint, 0.5, 0.25, (0.0,), score=None)
+    assert r.chosen is not None
+    assert asked and asked[-1][2] is None and all(why is not None for _, _, why in asked[:-1]), asked
+    assert (r.chosen.location.x, r.chosen.location.y) == asked[-1][:2]
+
+
 def test_a_riders_via_gives_way_as_its_item_is_placed():
     """c1 rides u1, its GND pad 2.5 mm north of u1's pad 1, where R9's pad S
     lies on the back; a GND via 0.93 mm off takes its pad's via."""
