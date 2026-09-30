@@ -447,6 +447,87 @@ def test_a_via_move_is_the_same_native_or_not(monkeypatch):
     assert runs[True][0] and runs[True][0][0][0] == "move"       # a move actually happened, on both paths
 
 
+def _first_move_runs(monkeypatch, make):
+    """`make()` resolved with a via's whole move judged natively and by the Python loop: what each
+    gave way to (and the steps' notes), and how many moves the native call judged."""
+    from placemat import geometry, giveway
+    if geometry._native is None:
+        pytest.skip("no native module")
+    used = []
+    real = giveway._native_first_move
+
+    def counting(*a, **k):
+        out = real(*a, **k)
+        used.append(out[0])
+        return out
+    monkeypatch.setattr(giveway, "_native_first_move", counting)
+    runs = {}
+    for native_on in (False, True):
+        monkeypatch.setattr(giveway, "_NATIVE_FIRST_MOVE", native_on)
+        used.clear()
+        plan = make().resolve()
+        runs[native_on] = ([(a.kind, a.via, a.at, a.to, a.tail, a.old_tail, a.cost, round(a.moved_mm, 6))
+                            for a in plan.occupancy.given_way.values()],
+                           [(st.item, st.placement, st.note) for st in plan.steps], sum(used))
+    return runs
+
+
+_MOVES = {
+    "a tail redrawn": lambda: _moving_board((39.1, 42.2), True, (19.5, 23.0)),
+    "inside its pad": lambda: _moving_board((39.1, 40.0), False, (17.45, 20.0), r9_w=3.0),
+    "refused inside its pad": lambda: _moving_board((39.1, 40.0), False, (20.1, 20.0)),
+    "refused within via_move": lambda: _moving_board((39.1, 42.2), True, (19.5, 23.0),
+                                                     settings=_settings(place_via_move=0.1)),
+    "a placed via": lambda: _later_board([_via("SIG", 39.1, 42.2, owner="m"),
+                                          track("SIG", 39.1, 40.0, 39.1, 42.2, w=0.2, owner="m")],
+                                         (19.5, 23.0), net="SIG"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_MOVES))
+def test_a_via_move_is_the_same_with_one_native_call_as_with_the_loop(monkeypatch, name):
+    runs = _first_move_runs(monkeypatch, _MOVES[name])
+    assert runs[True][:2] == runs[False][:2]
+    assert runs[False][2] == 0
+    if name != "refused within via_move":            # no spot is clear of the board: nothing left to judge
+        assert runs[True][2] >= 1, "the native first_move judged no move"
+
+
+def test_a_via_move_past_the_board_edge_takes_the_next_spot(monkeypatch):
+    """The board's edge is judged in Python, per spot: where it refuses the nearest clear spot
+    the native call is asked again from the next offset, and the same spot is taken as by the loop."""
+    real = Occupancy._edge_why
+
+    def edge(self, body):
+        if body.width < 0.6 and 21.75 < body.top < 21.9:     # a via's ring, in a band the nearest spot lies in
+            return "too near the edge"
+        return real(self, body)
+    free = _first_move_runs(monkeypatch, _MOVES["a tail redrawn"])
+    monkeypatch.setattr(Occupancy, "_edge_why", edge)
+    runs = _first_move_runs(monkeypatch, _MOVES["a tail redrawn"])
+    assert runs[True][:2] == runs[False][:2]
+    assert runs[True][2] >= 1
+    assert runs[True][0][0][3] != free[True][0][0][3]       # the edge moved the choice
+
+
+def test_first_move_is_not_used_on_a_board_with_a_net_tie(monkeypatch):
+    from placemat import giveway
+    monkeypatch.setattr(giveway, "_has_net_ties", lambda occ: True)
+    runs = _first_move_runs(monkeypatch, _MOVES["a tail redrawn"])
+    assert runs[True][:2] == runs[False][:2]
+    assert runs[True][2] == 0
+
+
+def test_a_net_tie_footprint_is_seen_on_the_board():
+    import dataclasses
+    from placemat import giveway
+    g = _moving_board((39.1, 42.2), True, (19.5, 23.0)).geometry
+    assert not giveway._has_net_ties(Occupancy(g))
+    tied = tuple(dataclasses.replace(fp, net_tie_pads=frozenset(["1"])) if fp.ref == "R9" else fp
+                 for fp in g.footprints)
+    assert giveway._has_net_ties(Occupancy(dataclasses.replace(g, footprints=tied)))
+
+
 def test_a_placed_owner_keeps_its_keep_share():
     """Both of the cell's drops in U1's pad lie under R9's pad S: one may go
     for it, the pad keeps the other, so R9 is refused there."""
