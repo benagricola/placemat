@@ -130,8 +130,10 @@ def test_give_way_decides_the_same_with_the_native_calls_as_with_the_python_loop
     for n in range(_CASES):
         occ, grp, judge, own, who, first = _scene(rnd)
         monkeypatch.setattr(giveway, "_NATIVE_FIRST_MOVE", False)
+        monkeypatch.setattr(giveway, "_NATIVE_TAIL_CLEAR", False)
         ref = _gave(giveway._give(occ, grp, judge, own, who, "met", {}, first))
         monkeypatch.setattr(giveway, "_NATIVE_FIRST_MOVE", True)
+        monkeypatch.setattr(giveway, "_NATIVE_TAIL_CLEAR", True)
         used.clear()
         got = _gave(giveway._give(occ, grp, judge, own, who, "met", {}, first))
         assert got == ref, "case %d" % n
@@ -140,3 +142,20 @@ def test_give_way_decides_the_same_with_the_native_calls_as_with_the_python_loop
         judged_native += any(used)
     assert kinds.get("move", 0) >= 100 and kinds.get("refused", 0) >= 50, kinds
     assert judged_native >= 100, judged_native
+
+
+def test_a_share_tail_is_judged_the_same_by_tail_clear_as_by_hit(monkeypatch):
+    rnd = random.Random(20260931)
+    clear = blocked = 0
+    for n in range(_CASES):
+        occ, grp, judge, own, who, first = _scene(rnd)
+        end = (grp.centre[0] + rnd.uniform(-1.2, 1.2), grp.centre[1] + rnd.uniform(-1.2, 1.2))
+        _, shape = giveway._tail_shape(grp.owner, grp.net, rnd.choice([_F, _B]), 0.2, grp.far or grp.centre, end,
+                                       given=grp.id)
+        monkeypatch.setattr(giveway, "_NATIVE_TAIL_CLEAR", False)
+        ref = giveway._tail_hit(judge, shape, own)
+        monkeypatch.setattr(giveway, "_NATIVE_TAIL_CLEAR", True)
+        assert giveway._native_tail_clear(judge, shape, own) is not None
+        assert giveway._tail_hit(judge, shape, own) == ref, "case %d" % n
+        clear, blocked = clear + (not ref), blocked + ref
+    assert clear >= 100 and blocked >= 100, (clear, blocked)

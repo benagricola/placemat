@@ -46,6 +46,9 @@ _NATIVE_MOVE_SEARCH = True
 switched off to compare against the pure-Python per-offset loop
 (tests/test_vias_give_way.py)."""
 
+_NATIVE_TAIL_CLEAR = True
+"""Whether a share's tail is judged by a native call (`tail_clear`) when it can be."""
+
 _NATIVE_FIRST_MOVE = True
 """Whether a via's whole move is judged by one native call (`first_move`) when the offset search
 is native: switched off to compare against the per-offset Python loop."""
@@ -281,6 +284,29 @@ def _native_shape(judge: "_Judge", s):
         occ = judge.occ
         hit = cache[id(s)] = (s, _to_native_shape(s, occ._footprint_refs, occ._leads, occ._margins))
     return hit[1]
+
+
+def _native_tail_clear(judge: "_Judge", shape, own):
+    """Whether `shape` (a share's tail) is clear of the board, `own` and what earlier actions left,
+    judged natively; None where Python must judge it (as `_native_first_move`'s `used`)."""
+    occ = judge.occ
+    entry = getattr(judge.others, "_native", None)
+    if not _NATIVE_TAIL_CLEAR or entry is None or _has_net_ties(occ):
+        return None
+    index, shapes = entry
+    gap = occ.gap_for(shape)
+    near = [o for o in list(own) + judge.extra if o.box.overlaps(shape.box, gap=gap)]
+    from .occupancy import _to_native_shape
+    return index.tail_clear([_to_native_shape(shape, occ._footprint_refs, occ._leads, occ._margins)],
+                            [_native_shape(judge, o) for o in near], judge.clearance, _hidden_skip(judge, shapes))
+
+
+def _tail_hit(judge: "_Judge", shape, own) -> bool:
+    """Whether `shape` meets the board less the vias set aside, `own` or what earlier actions left."""
+    clear = _native_tail_clear(judge, shape, own)
+    if clear is not None:
+        return not clear
+    return judge.hit([shape], judge.near(shape.box, judge.occ.gap_for(shape)), own, say=False) is not None
 
 
 def _native_first_move(judge: "_Judge", g: "Group", mine: list, span: Box, offsets: list, first, pad, r: float,
@@ -534,7 +560,7 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
         for d, c, r, target in targets:
             if d <= r:                          # on its spot: nothing to draw, its tail joins that via as it is
                 left = () if g.tail is None else (replace(g.tail, carried="", points=(), given=g.id),)
-                if left and judge.hit(left, judge.near(left[0].box, occ.gap_for(left[0])), own, say=False):
+                if left and _tail_hit(judge, left[0], own):
                     continue
                 # a tail an earlier giving way drew is the plan's to draw; the one its item drew is on the board
                 kept = Track(g.net, next(iter(g.tail.layers)), _width(g.tail), Location(*g.far),
@@ -542,7 +568,7 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
                 return Action("share", g.id, g.owner, g.home, g.net, g.centre, c, kept, None, pad_key, met,
                               s.score_via_share, left, target), None, None
             track, shape = _tail_shape(g.owner, g.net, layer, width, start, c, given=g.id)
-            if judge.hit([shape], judge.near(shape.box, occ.gap_for(shape)), own, say=False):
+            if _tail_hit(judge, shape, own):
                 continue
             return Action("share", g.id, g.owner, g.home, g.net, g.centre, c, track, old, pad_key, met,
                           s.score_via_share, (shape,), target), None, None

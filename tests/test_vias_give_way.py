@@ -447,23 +447,24 @@ def test_a_via_move_is_the_same_native_or_not(monkeypatch):
     assert runs[True][0] and runs[True][0][0][0] == "move"       # a move actually happened, on both paths
 
 
-def _first_move_runs(monkeypatch, make):
-    """`make()` resolved with a via's whole move judged natively and by the Python loop: what each
-    gave way to (and the steps' notes), and how many moves the native call judged."""
+def _first_move_runs(monkeypatch, make, flag="_NATIVE_FIRST_MOVE", call="_native_first_move"):
+    """`make()` resolved with a via's whole move (or a share's tail: `flag`, `call`) judged natively
+    and by the Python loop: what each gave way to (and the steps' notes), and how many the native
+    call judged."""
     from placemat import geometry, giveway
     if geometry._native is None:
         pytest.skip("no native module")
     used = []
-    real = giveway._native_first_move
+    real = getattr(giveway, call)
 
     def counting(*a, **k):
         out = real(*a, **k)
-        used.append(out[0])
+        used.append(out[0] if isinstance(out, tuple) else out is not None)
         return out
-    monkeypatch.setattr(giveway, "_native_first_move", counting)
+    monkeypatch.setattr(giveway, call, counting)
     runs = {}
     for native_on in (False, True):
-        monkeypatch.setattr(giveway, "_NATIVE_FIRST_MOVE", native_on)
+        monkeypatch.setattr(giveway, flag, native_on)
         used.clear()
         plan = make().resolve()
         runs[native_on] = ([(a.kind, a.via, a.at, a.to, a.tail, a.old_tail, a.cost, round(a.moved_mm, 6))
@@ -491,6 +492,22 @@ def test_a_via_move_is_the_same_with_one_native_call_as_with_the_loop(monkeypatc
     assert runs[False][2] == 0
     if name != "refused within via_move":            # no spot is clear of the board: nothing left to judge
         assert runs[True][2] >= 1, "the native first_move judged no move"
+
+
+_SHARES = {
+    "a tail drawn": lambda: _cell_board(other=(19.1, 22.85)),
+    "a crossing tail refused": lambda: _cell_board(other=(19.1, 22.85),
+                                                   extra=[track("Y", 18.6, 21.0, 19.6, 21.0, w=0.2)]),
+    "a placed via shares": lambda: _shared_later(),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_SHARES))
+def test_a_share_tail_is_the_same_judged_natively_as_by_the_loop(monkeypatch, name):
+    runs = _first_move_runs(monkeypatch, _SHARES[name], "_NATIVE_TAIL_CLEAR", "_native_tail_clear")
+    assert runs[True][:2] == runs[False][:2]
+    assert runs[False][2] == 0
+    assert runs[True][2] >= 1, "no share tail was judged natively"
 
 
 def test_a_via_move_past_the_board_edge_takes_the_next_spot(monkeypatch):
