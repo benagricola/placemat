@@ -121,3 +121,82 @@ def test_a_tap_anywhere_but_a_track_point_or_pasts_across_is_refused():
     with pytest.raises(TypeError, match="edge="):
         b.track(Net("A"), [PadRef(Part("r1"), 1), Past([PadRef(Part("r1"), 1, edge=Edge.EAST)], Edge.EAST),
                            Location(25, 25)], layer=F)
+
+
+def _shunt_board():
+    """An upright shunt RS at (30, 30): VSHUNT pad north, VPROT pad south,
+    each 1.2 x 1.57, a 0.76 gap between them; a sense pad of each net, R5's
+    north-east and U1's south-east. Each tap leaves the middle of its pad's
+    inner edge, runs east in the gap, and turns to its sense pad."""
+    from placemat.board_geometry import Footprint
+    from placemat.values import Face
+    from tests.fixtures import pad
+
+    def part(ref, pads, cx, cy):
+        body = Box.union([p.box for p in pads]).inflate(0.2)
+        return Footprint(ref, ref.lower(), None, ref, Location(cx, cy), 0.0, Face.FRONT, body, body.inflate(0.1),
+                         body, tuple(pads))
+    rs = part("RS", [pad("RS", "rs", 1, "VSHUNT", 30, 28.835, 1.2, 1.57),
+                     pad("RS", "rs", 2, "VPROT", 30, 31.165, 1.2, 1.57)], 30, 30)
+    r5 = part("R5", [pad("R5", "r5", 1, "VSHUNT", 34, 26, 1.0, 1.0)], 34, 26)
+    u1 = part("U1", [pad("U1", "u1", 1, "VPROT", 34, 34, 1.0, 1.0)], 34, 34)
+    b = Board(board_geometry([rs, r5, u1], width=60, height=60), edge_margin=1.0)
+    vs = PadRef(Part("rs"), 1, edge=Edge.SOUTH)
+    vp = PadRef(Part("rs"), 2, edge=Edge.NORTH)
+    lane = 30.6 + 0.2 + W / 2
+    b.track(Net("VSHUNT"), [vs, Past([PadRef(Part("rs"), 1)], Edge.EAST, across=vs), Location(lane, 26),
+                            PadRef(Part("r5"), 1)], layer=F, chamfer=0)
+    b.track(Net("VPROT"), [vp, Past([PadRef(Part("rs"), 2)], Edge.EAST, across=vp), Location(lane, 34),
+                           PadRef(Part("u1"), 1)], layer=F, chamfer=0)
+    return b.resolve()
+
+
+def test_a_shunts_taps_pass_kicads_drc_and_are_connected(tmp_path):
+    """Both taps in the 0.76 mm gap: KiCad finds no clearance violation, no
+    short, and nothing unconnected on either sense net."""
+    import json
+    import subprocess
+    pcbnew = pytest.importorskip("pcbnew")
+    plan = _shunt_board()
+    board = pcbnew.CreateEmptyBoard()
+    v = lambda x, y: pcbnew.VECTOR2I(pcbnew.FromMM(x), pcbnew.FromMM(y))
+    nets = {}
+    for name in ("VSHUNT", "VPROT"):
+        nets[name] = pcbnew.NETINFO_ITEM(board, name)
+        board.Add(nets[name])
+    for ref, pads in (("RS", ((1, "VSHUNT", 30, 28.835, 1.2, 1.57), (2, "VPROT", 30, 31.165, 1.2, 1.57))),
+                      ("R5", ((1, "VSHUNT", 34, 26, 1.0, 1.0),)), ("U1", ((1, "VPROT", 34, 34, 1.0, 1.0),))):
+        fp = pcbnew.FOOTPRINT(board)
+        fp.SetReference(ref)
+        fp.SetPosition(v(pads[0][2], pads[0][3]))
+        board.Add(fp)
+        for number, net, x, y, w, h in pads:
+            p = pcbnew.PAD(fp)
+            p.SetNumber(str(number))
+            p.SetShape(pcbnew.PAD_SHAPE_RECT)
+            p.SetAttribute(pcbnew.PAD_ATTRIB_SMD)
+            ls = pcbnew.LSET()
+            ls.AddLayer(pcbnew.F_Cu)
+            p.SetLayerSet(ls)
+            p.SetSize(v(w, h))
+            p.SetPosition(v(x, y))
+            fp.Add(p)
+            p.SetNet(nets[net])
+    for t in (op for op in plan.copper if isinstance(op, Track)):
+        tr = pcbnew.PCB_TRACK(board)
+        tr.SetStart(v(t.start.x, t.start.y))
+        tr.SetEnd(v(t.end.x, t.end.y))
+        tr.SetWidth(pcbnew.FromMM(t.width))
+        tr.SetLayer(pcbnew.F_Cu)
+        tr.SetNet(nets[t.net])
+        board.Add(tr)
+    pcb = tmp_path / "shunt.kicad_pcb"
+    board.Save(str(pcb))
+    report = tmp_path / "drc.json"
+    subprocess.run(["kicad-cli", "pcb", "drc", "--format", "json", "--output", str(report), str(pcb)],
+                   capture_output=True, timeout=120)
+    data = json.loads(report.read_text())
+    bad = [x for x in data.get("violations", []) if x.get("type") in ("clearance", "shorting_items", "tracks_crossing")]
+    assert not bad, bad
+    assert not data.get("unconnected_items"), data.get("unconnected_items")
+    assert len([op for op in plan.copper if isinstance(op, Track)]) >= 6

@@ -88,6 +88,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | a track through the gap between two pads | `Between(PadRef(a), PadRef(b))` as a track point | Copper vocabulary (Lane waypoints) |
 | a track held the clearance off pads, vias or tracks | `Past([PadRef(...), via, track], Edge.EAST, across=)` as a track point | Copper vocabulary (Lane waypoints) |
 | a track's 45 held the clearance off a pad's corner | `Past([PadRef(...)], Corner.NE)` as a track point | Copper vocabulary (Lane waypoints) |
+| a track meeting its pad at one edge only (a Kelvin tap) | `PadRef(part, n, edge=Edge.SOUTH, along=Along.END)` as a track point | Copper vocabulary (Lane waypoints) |
 | a via at the nearest legal spot to a pad | `board.via(net, FreeSpot(near=PadRef(...)))` | Copper calls |
 | a via its clearance past pads, vias or tracks, on a pad's axis | `board.via(net, at=Past([...], Edge.SOUTH, across=PadRef(...)))` | Copper calls |
 | a power or exposed pad filled with vias | `board.vias(net, PadRef(...))` | Copper calls |
@@ -1417,6 +1418,27 @@ board.track(Net("SIG_P"), [PadRef(Part("j1"), 2), Past([v], Edge.SOUTH), PadRef(
             layer=CopperLayer.F)                 # a U-turn a track's clearance under the via
 board.track(Net("S_A"), [PadRef(Part("r_a"), 2), Past([PadRef(Part("r_b"), 2)], Corner.NE),
                          PadRef(Part("j1"), 1)], layer=CopperLayer.F)   # its 45 a clearance off r_b's pad corner
+```
+
+`PadRef(part, pad, edge=Edge.SOUTH, along=Along.END)` is a track point on
+that side of the pad's copper box (board frame), touching it: half the
+track's width outside the edge, less 0.005 mm, so the track's copper lies
+against the edge and KiCad reads it as joined. `along=` says where on the
+side: `Along.MID` (the default) the middle, `START` the west or north end,
+`END` the other, a half width in from the corner so the copper ends flush
+with the pad's side. It is for a sense track that must meet its pad at one
+edge and nowhere else: a current shunt's Kelvin taps leave each pad's inner
+edge, the one facing the other pad, away from the copper the load current
+flows through. `Past(..., across=tap)` lies on the tap's line, so a lane
+picks it up without a jog. An edge whose copper does not reach the point
+(the end of a round pad's edge, or of one turned off the right angle) is
+refused, naming the pad; so is `edge=` anywhere but a track point or a
+`Past`'s `across=`.
+
+```python
+tap = PadRef(Part("r_shunt"), "VSHUNT", edge=Edge.SOUTH, along=Along.END)
+board.track(Net("VSHUNT"), [tap, Past([PadRef(Part("r_shunt"), "VSHUNT")], Edge.EAST, across=tap),
+                            PadRef(Part("r_sense"), "VSHUNT")], layer=CopperLayer.F)   # out of the gap, then away
 ```
 
 **Who bridges.** Where two tracks of different nets cross on one layer, the

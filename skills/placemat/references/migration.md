@@ -34,6 +34,12 @@ when it overlaps one of the part's shapes (its body, pads, mask, silk, or
 the courtyard an undrawn part claims), not the box round them: a label in
 the corner of a round part's box no longer sits on it.
 
+`PadRef(part, pad, edge=Edge.SOUTH, along=Along.END)` is a track point on
+that edge of the pad, touching it: a Kelvin tap. A script that placed a
+sense track's first point from `placed_size()` coordinates, half a track
+off a pad's inner edge, can name the edge instead, and give the lane that
+follows as `Past([pad], Edge.EAST, across=tap)`.
+
 ## To 0.63.1
 
 A keepout's drawn label is its name and its height limit, never a list
