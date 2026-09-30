@@ -3020,12 +3020,15 @@ class Board:
         `needs` sees to that), and its hard-limit disc reserved against
         this item alone: every OTHER part is named in owners, so nothing
         else is fenced by it (Reservation.owners / let_in, occupancy.py)."""
-        own = {fp.ref for fp in members_of(i.item)}
-        others = frozenset(fp.ref for fp in self.geometry.footprints) - own
+        pushes = tuple(i.pushes) + tuple(self._annotated_pushes(occ, i))
         tag_prefix = "push:%s:" % i.key
         occ.reservations = [r for r in occ.reservations if not r.source.startswith(tag_prefix)]
+        if not pushes:
+            return []
+        own = {fp.ref for fp in members_of(i.item)}
+        others = frozenset(fp.ref for fp in self.geometry.footprints) - own
         resolved = []
-        for n, p in enumerate(tuple(i.pushes) + tuple(self._annotated_pushes(occ, i))):
+        for n, p in enumerate(pushes):
             point = self._push_source_point(occ, plan, p.source)
             limit = p.limit if p.hard_limit is None else p.hard_limit
             resolved.append((point, p))
