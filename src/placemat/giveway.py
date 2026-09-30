@@ -262,7 +262,16 @@ def _native_move_offsets(judge: "_Judge", ring, hole, offsets: tuple) -> list | 
 
 def _hidden_skip(judge: "_Judge", shapes: list) -> list:
     """The indices in a native index's backing `shapes` of the vias `judge` has set aside."""
-    return [i for i, s in enumerate(shapes) if s.carried and s.carried in judge.hidden] if judge.hidden else []
+    if not judge.hidden:
+        return []
+    cache = judge.others.__dict__.get("_carried_index")
+    if cache is None or cache[0] is not shapes:
+        by: dict = {}
+        for i, s in enumerate(shapes):
+            if s.carried:
+                by.setdefault(s.carried, []).append(i)
+        cache = judge.others.__dict__["_carried_index"] = (shapes, by)
+    return sorted(i for h in judge.hidden for i in cache[1].get(h, ()))
 
 
 def _net_tie_owners(occ) -> frozenset:
@@ -612,11 +621,12 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
         # giving way to this same candidate, excluded from `pool` while it
         # is decided) or `judge.extra` (copper an earlier give-way in this
         # same resolve() call already left behind) - both candidate-scoped,
-        # not board state. It is given the first as the vias to set aside
-        # and the second with `mine`; it then finds the board-clear offsets
-        # once per scan (`_native_move_offsets`) and judges each candidate's
-        # move whole (`_native_first_move`). Where either is not available
-        # the loop below judges each offset in Python, the reference.
+        # not board state. The first is given to it as the vias to set
+        # aside, the second as shapes beside `mine`. It finds the
+        # board-clear offsets once per scan (`_native_move_offsets`) and
+        # judges each candidate's move whole (`_native_first_move`). Where
+        # either is not available the loop below judges each offset in
+        # Python, as the reference.
         native_clear = _native_move_offsets(judge, g.ring, g.hole, all_offsets)
         candidates = native_clear if native_clear is not None else all_offsets
         found = None
@@ -756,9 +766,11 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
             if g.home in skip or g.owner in skip or not g.ring.box.overlaps(extent, gap=occ._gap):
                 continue
             hit = None
+            parts = g.shapes
             for x in fixed:
-                for o in g.shapes:
-                    if x.box.overlaps(o.box, gap=occ.gap_for(x)):
+                gap = occ.gap_for(x)
+                for o in parts:
+                    if x.box.overlaps(o.box, gap=gap):
                         why = occ._conflict(x, o, clearance)
                         if why:
                             hit = (why, x)

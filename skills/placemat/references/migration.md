@@ -5,6 +5,13 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+A carried via's move, and a share's tail, are judged by one native call
+each instead of offset by offset in Python: the same placements, steps and
+findings, faster where vias give way. Near a net tie the move is still
+judged in Python, as before.
+
 ## To 0.63.0
 
 Under `[place] envelope = "physical"`, a footprint that draws neither silk
