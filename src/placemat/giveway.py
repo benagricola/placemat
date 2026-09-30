@@ -35,6 +35,11 @@ from .values import Box, CopperLayer, Face, Location
 
 _COPPER_AND_HOLES = frozenset(("pad", "through", "copper", "hole", "npth"))
 
+_NATIVE_MOVE_SEARCH = True
+"""Whether a via's move search uses the native offset search when it can:
+switched off to compare against the pure-Python per-offset loop
+(tests/test_vias_give_way.py)."""
+
 
 def pad_via_id(k: int) -> str:
     """The id of the k-th via the script declared at a pad."""
@@ -182,6 +187,46 @@ def _offsets(reach: float, step: float) -> tuple:
                 pts.append((round(d, 9), round(i * step, 9), round(j * step, 9)))
     pts.sort()
     return tuple((dx, dy) for _, dx, dy in pts)
+
+
+def _native_move_offsets(judge: "_Judge", ring, hole, offsets: tuple) -> list | None:
+    """The `offsets` (as `_offsets` gives them) at which `ring` and `hole`
+    (a via's own, at dx=dy=0 - the offsets are relative to their current
+    position), shifted, meet nothing on the board `judge` was built against
+    - every one, nearest first - or None when no native index is
+    registered on `judge.others` (no native module, or this `resolve()`
+    was not given a native-backed obstacle list). Python still judges each
+    candidate's own copper (`mine`) and the tail separately (a tail is not
+    a rigid translation of the via - see `_give`'s own doc on this); this
+    replaces only the per-offset scan of the board itself, which is what
+    `judge.hit(moved, pool, ...)` cost before: one native call per via
+    instead of one Python conflict test per offset per obstacle
+    (docs/superpowers/specs/2026-09-30-performance-zone-width-give-way-
+    sweep-design.md section 2).
+
+    `judge.others`'s native index is the WHOLE board within reach,
+    including the via's own current ring and hole (and any other via also
+    giving way to the same candidate) - real registered obstacles from
+    every other item's point of view. `_Judge.near` excludes these
+    (`judge.hidden`) before testing a via's move, since a via naturally
+    sits near its own former position and a hole's clearance rule is
+    net-blind (two holes of the SAME via, one shifted, would otherwise
+    read as a hole-to-hole conflict with itself). The native call is given
+    the same exclusion, by obstacle index into `judge.others`'s own
+    backing shape list."""
+    if not _NATIVE_MOVE_SEARCH or not offsets:
+        return None
+    entry = getattr(judge.others, "_native", None)
+    if entry is None:
+        return None
+    index, shapes = entry
+    from .occupancy import _to_native_shape
+    occ = judge.occ
+    py_shapes = [_to_native_shape(x, occ._footprint_refs, occ._leads, occ._margins)
+                for x in ((ring,) if hole is None else (ring, hole))]
+    skip = [i for i, s in enumerate(shapes) if s.carried and s.carried in judge.hidden] if judge.hidden else []
+    clear = index.first_clear_offset(py_shapes, list(offsets), judge.clearance, False, skip)
+    return [offsets[i] for i in clear]
 
 
 class _Judge:
@@ -361,17 +406,30 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
         pool = judge.near(span, occ._gap)
         mine = [o for o in own if o.box.overlaps(span, gap=occ._gap)]
         still = _still_meets(occ, g, first, judge.clearance, r)
+        all_offsets = _offsets(limit, s.place_via_move_step)
+        # The native search only knows the STATIC board (judge.others'
+        # persistent index): it cannot see `judge.hidden` (another via also
+        # giving way to this same candidate, excluded from `pool` while it
+        # is decided) or `judge.extra` (copper an earlier give-way in this
+        # same resolve() call already left behind) - both candidate-scoped,
+        # not board state. So it is used only to narrow the search order,
+        # nearest first; `judge.hit(moved, pool, mine, ...)` below still
+        # runs, unconditionally, as the one decision that matters - native
+        # just means it is asked of far fewer doomed offsets before the
+        # first surviving one.
+        native_clear = _native_move_offsets(judge, g.ring, g.hole, all_offsets)
+        candidates = native_clear if native_clear is not None else all_offsets
         found = None
-        for dx, dy in _offsets(limit, s.place_via_move_step):
+        for dx, dy in candidates:
             to = (round(g.centre[0] + dx, 9), round(g.centre[1] + dy, 9))
             if inside and not _disc_inside(pad.poly, to, r - 1e-5):
                 continue
             if still is not None and still(to):
                 continue
             ring = _shift(g.ring, dx, dy)
-            if first is not None and first.box.overlaps(ring.box, gap=occ._gap) \
+            if native_clear is None and first is not None and first.box.overlaps(ring.box, gap=occ._gap) \
                     and occ._conflict(ring, first, judge.clearance, say=False):
-                continue                    # still on what it met: most spots near it are
+                continue                    # still on what it met: most spots near it are (no-native path only)
             moved = [replace(ring, given=g.id)]
             if g.hole is not None:
                 moved.append(replace(_shift(g.hole, dx, dy), given=g.id))

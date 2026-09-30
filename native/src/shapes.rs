@@ -405,6 +405,44 @@ impl ShapeGrid {
         }
         None
     }
+
+    /// As `first_conflict_shifted`, but an obstacle index in `skip` is
+    /// never reported as a conflict - `give_way`'s own move search
+    /// (`giveway.py` `_give`, via `NativeObstacles::first_clear_offset`):
+    /// the via's own current-position shapes (and any other via's, also
+    /// giving way to the same candidate) are registered obstacles like any
+    /// other, but a via naturally sits near its own former position while
+    /// searching, and a plated hole's own clearance rule
+    /// (`conflict`'s hole-to-hole branch) is net-blind - so without this,
+    /// a via would spuriously "conflict" with its own unmoved hole at
+    /// every nearby offset. Python's `_Judge.near` excludes these same
+    /// shapes from `pool` for the identical reason (`judge.hidden`); this
+    /// mirrors that exclusion here.
+    pub fn first_conflict_shifted_excluding(
+        &self,
+        origin_shapes: &[Shape],
+        dx: f64,
+        dy: f64,
+        explicit_clearance: Option<f64>,
+        cfg: &ConflictConfig,
+        skip: &std::collections::HashSet<usize>,
+    ) -> Option<(usize, usize)> {
+        for (si, s0) in origin_shapes.iter().enumerate() {
+            let bbox = (s0.bbox.0 + dx, s0.bbox.1 + dy, s0.bbox.2 + dx, s0.bbox.3 + dy);
+            let gap = cfg.gap_for(s0);
+            for oi in self.near(bbox, gap) {
+                if skip.contains(&oi) || !may_meet(s0.kind, self.shapes[oi].kind) {
+                    continue;
+                }
+                let poly: Vec<Point> = s0.poly.iter().map(|p| (p.0 + dx, p.1 + dy)).collect();
+                let s = Shape { poly, bbox, ..s0.clone() };
+                if conflict(&s, &self.shapes[oi], explicit_clearance, cfg) {
+                    return Some((si, oi));
+                }
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]
@@ -644,6 +682,45 @@ mod tests {
             }
         }
         assert_eq!(got, want);
+    }
+
+    #[test]
+    fn first_conflict_shifted_excluding_ignores_a_skipped_obstacle() {
+        // A via's own hole (net-blind, so it always reads as a hole-to-hole
+        // conflict with a shifted copy of itself unless excluded) - see
+        // first_conflict_shifted_excluding's own doc.
+        let own_hole = shape(Kind::Hole, "", rect(0.0, 0.0, 0.3, 0.3), 3, 0, "GND", false);
+        let grid = ShapeGrid::new(vec![own_hole]);
+        let moved_hole = vec![shape(Kind::Hole, "", rect(0.0, 0.0, 0.3, 0.3), 3, 0, "GND", false)];
+        let c = cfg();
+        // unskipped: the moved hole still conflicts with its own static copy
+        assert_eq!(grid.first_conflict_shifted(&moved_hole, 0.05, 0.0, None, &c), Some((0, 0)));
+        // skipped: no obstacle is left to conflict with
+        let mut skip = std::collections::HashSet::new();
+        skip.insert(0usize);
+        assert_eq!(grid.first_conflict_shifted_excluding(&moved_hole, 0.05, 0.0, None, &c, &skip), None);
+    }
+
+    #[test]
+    fn first_clear_offset_style_loop_finds_the_first_unblocked_shift() {
+        // give_way's own move search (giveway.py _give): NativeObstacles::
+        // first_clear_offset is a thin loop over first_conflict_shifted,
+        // tried here directly since the pyclass itself has no logic beyond
+        // that loop.
+        let blocker = shape(Kind::Pad, "U1", rect(0.0, 0.0, 1.0, 1.0), 1, 1, "NET", true);
+        let grid = ShapeGrid::new(vec![blocker]);
+        let via = shape(Kind::Pad, "V1", rect(0.0, 0.0, 0.4, 0.4), 1, 1, "OTHER", true);
+        let origin = vec![via];
+        let c = cfg();
+        let offsets = [(0.0, 0.0), (0.3, 0.0), (1.0, 0.0)];
+        let mut found = None;
+        for (i, &(dx, dy)) in offsets.iter().enumerate() {
+            if grid.first_conflict_shifted(&origin, dx, dy, None, &c).is_none() {
+                found = Some(i);
+                break;
+            }
+        }
+        assert_eq!(found, Some(2)); // 1.0 mm clears a 1.0 mm pad's clearance from a 0.4 mm via
     }
 
     #[test]

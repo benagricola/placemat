@@ -170,6 +170,44 @@ impl NativeObstacles {
     ) -> Option<(usize, usize)> {
         self.grid.first_conflict_shifted(&origin.shapes, dx, dy, clearance, &self.cfg)
     }
+
+    /// give_way's own move search (`giveway.py` `_give`): every offset of
+    /// `offsets`, nearest first, at which `shapes` (registered once, at
+    /// their CURRENT position - the offsets are relative to it, dx = dy = 0
+    /// meaning "stay put") meet nothing in the grid when shifted by it,
+    /// ignoring any registered obstacle whose index is in `skip` (the
+    /// via's own current shapes, and any other via also giving way to the
+    /// same candidate - `giveway._native_move_offsets` builds this from
+    /// `judge.hidden`; see `first_conflict_shifted_excluding`'s own doc for
+    /// why it must be excluded, not just deprioritised). With
+    /// `stop_at_first`, the search stops at the first clear offset (a via's
+    /// own vias, whose ring position moves with the candidate being
+    /// placed, so nothing here is worth caching); without it, every clear
+    /// offset is found in one call (a placed via's move search, whose ring
+    /// position is fixed for the whole scan - the Python side caches this
+    /// list per via and reuses it across every candidate the scan tries
+    /// against it).
+    fn first_clear_offset(
+        &self,
+        shapes: Vec<PyShape>,
+        offsets: Vec<(f64, f64)>,
+        clearance: Option<f64>,
+        stop_at_first: bool,
+        skip: Vec<usize>,
+    ) -> PyResult<Vec<usize>> {
+        let built: Vec<shapes::Shape> = shapes.iter().map(build_shape).collect::<PyResult<_>>()?;
+        let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
+        let mut out = Vec::new();
+        for (i, &(dx, dy)) in offsets.iter().enumerate() {
+            if self.grid.first_conflict_shifted_excluding(&built, dx, dy, clearance, &self.cfg, &skip).is_none() {
+                out.push(i);
+                if stop_at_first {
+                    break;
+                }
+            }
+        }
+        Ok(out)
+    }
 }
 
 /// A candidate item's own shapes, turned for one (rotation, face) and left
