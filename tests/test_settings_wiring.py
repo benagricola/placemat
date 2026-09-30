@@ -199,7 +199,7 @@ def test_the_check_constants_come_from_the_settings():
     from placemat import cli
     s = Settings(check_ambient_c=42.0)
     assert cli.check_kwargs(s) == {"ambient_c": 42.0, "keep_out_mm": 2.0,
-                                   "rise_c": 10.0, "copper_oz": 1.0, "limits": {}}
+                                   "rise_c": 10.0, "copper_oz": 1.0, "limits": {}, "zone_step": 0.05}
 
 
 @needs_kicad

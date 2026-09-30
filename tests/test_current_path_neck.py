@@ -41,9 +41,9 @@ def test_the_length_sums_a_run_of_similarly_narrow_segments():
     assert "2.00 mm long" in v.note
 
 
-def test_a_route_through_a_zone_fill_gives_no_neck_point():
-    """The existing zone behaviour is unchanged: a route through a fill says
-    the fill's width is not measured, and gives no neck point."""
+def test_a_route_through_a_zone_fill_names_the_fills_narrowest_point():
+    """A route through a fill alone is judged by the fill's width along it
+    (3 mm across, within one 0.05 mm step), its neck a point in the fill."""
     from placemat.board_geometry import CopperItem
     from placemat.values import Box, CopperLayer
     from tests.fixtures import rect
@@ -51,7 +51,8 @@ def test_a_route_through_a_zone_fill_gives_no_neck_point():
     poly = rect(18.6, 10, 22, 3)          # spans U1's and C1's VIN pads
     zone = CopperItem("zone", "VIN", frozenset([F]), (poly,), Box.of_points(poly))
     v = _vin(_parts(), [zone])
-    assert v.ok is None and "not measured" in v.note and "neck at" not in v.note
+    assert v.ok is True and 3.0 - 0.05 - 1e-6 <= v.value <= 3.0 + 1e-6, v.note
+    assert "the fill's narrowest point" in v.note and "not measured" not in v.note
 
 
 def test_an_arc_neck_is_measured_along_the_arc():

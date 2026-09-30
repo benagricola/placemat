@@ -24,6 +24,12 @@ on a 45 worked out by hand - a constant x - y (or x + y) from the pad's
 corner plus the clearance and half the width times root 2 - can be said
 this way; the drawn 45 lies on the same line.
 
+`check current-path` measures a zone fill's width along the load's route,
+at `check.zone_step` (default 0.05 mm): two carriers only a fill joins are
+judged, where they read "not judged", and a route through a fill names the
+fill's narrowest point when that is its neck. A verdict can newly fail on
+a fill lane that is narrower than the current needs.
+
 ## To 0.56.2
 
 A copper finding measures a via as the circle it is, as KiCad's DRC does:

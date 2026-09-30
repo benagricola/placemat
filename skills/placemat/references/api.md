@@ -1666,19 +1666,24 @@ or via by its net and ends: "L1 pad 1 (SW) at (x, y) to U3 pad 9 (FB) at
 (x, y)"; a nearer pair inside one part is said after it: "U3's own pads are
 1.27 mm apart, a distance its footprint sets". `--json` carries the same,
 in the verdict's note. The current path is the route the load
-takes, through tracks, vias, pours and zone fills alike - a zone fill's
-own width is not measured
-(as KiCad stores a fill, each hole is slit to its outline), so a route through
-one is judged by its other copper, says so, and a route through a fill alone
-is not judged: each two parts carrying `Pm.I` on the net
+takes, through tracks, vias, pours and zone fills alike. A zone fill on
+the route is measured along it: the fill is rasterised at `check.zone_step`
+(default 0.05 mm), each cell's distance to the fill's edge taken (the slit
+KiCad draws from each hole to the outline has no width, so it is no edge),
+and the widest path found between the copper the route enters and leaves
+the fill by - the widest disc that can travel from touching the one to
+touching the other. Its width reads within about one step of the copper's;
+a neck no cell falls in reads as one step and says so. The fill's
+width is the route's there when it is narrower than the rest of the route
+by more than a step. Each two parts carrying `Pm.I` on the net
 are judged at the lesser of their two currents - what can flow between
 them - by the narrowest point of the widest route from any pad of one to
 any pad of the other; the net's verdict is its worst pair, naming both ends
 and the current, and its neck: the point along the route the width is
 narrowest, and how far the route stays within 10% of that width, measured
 along the copper the widest route passes - "neck at (x, y), 0.9 mm long".
-Where the neck is a zone fill, whose width is not measured, no neck point
-is given. A net only one part carries is not judged: one carrier cannot
+Where the neck is in a zone fill, the point is the fill's narrowest
+point, with no length. A net only one part carries is not judged: one carrier cannot
 say where its load goes (the widest-joined other pad is as often a
 capacitor carrying ripple), and the verdict asks for a `Pm.I` on the part
 that takes the load. A part carries on a net only at a current above zero:
@@ -2038,6 +2043,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `check.keep_out_mm` | 2.0 | how far sense copper stays from a switch node (`--keep-out`) |
 | `check.rise_c` | 10.0 | the rise a current path is sized for (`--rise`) |
 | `check.copper_oz` | 1.0 | outer copper weight the widths are sized for (`--copper-oz`) |
+| `check.zone_step` | 0.05 | the cell a zone fill is rasterised at to measure its width along a load's route; the width reads within one step |
 | `check.limits` | none | a bound per check, e.g. `"hot-loop" = 20.0` (`--limit`) |
 | `parts.order_fields` | `["Lcsc", "LCSC", "Mpn", "MPN"]` | a footprint field naming an order code (an LCSC number, an MPN); `parts` warns when a placed part (not `dnp`) has none of them present and non-empty |
 | `explore.slack` | 0.25 | an explored item draws among spots scoring within this fraction of its best |

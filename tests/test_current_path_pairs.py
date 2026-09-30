@@ -28,14 +28,15 @@ def _sw(parts, copper):
     return {v.subject: v for v in current_paths(board_geometry(parts, copper=copper))}["SW"]
 
 
-def test_a_load_running_in_a_zone_is_not_judged_by_a_boot_track_and_the_zone_is_said():
-    """A zone fill's own width is not measured (its outline, as KiCad stores
-    it, is slit to each hole): a route through a fill alone is not judged,
-    and says so."""
+def test_a_load_running_in_a_zone_is_judged_by_the_fill_not_by_a_boot_track():
+    """A route through a fill alone is judged by the fill's width along it
+    (the 3 mm lane, within one 0.05 mm step), not by a thin boot track on
+    the same net."""
     parts, copper = _power()
     boot = footprint("C1", 11.4, 14.6, w=1.6, h=0.8, nets=("SW", "BST"))
     v = _sw(parts + [boot], copper + [track("SW", 11.4, 10, 11.4, 14.4, w=0.16)])
-    assert v.ok is None and "zone" in v.note and "not measured" in v.note and "Q1." in v.note
+    assert v.ok is True and 3.0 - 0.05 - 1e-6 <= v.value <= 3.0 + 1e-6, v.note
+    assert "the fill's narrowest point" in v.note and "Q1." in v.note
 
 
 def test_a_route_through_a_zone_and_a_track_is_judged_by_the_track():
