@@ -4,7 +4,7 @@ hard limit, the soft price and the step note are later tasks."""
 import pytest
 
 from placemat.layout import Board
-from placemat.values import Location, PadRef, Part, Priority
+from placemat.values import Face, Location, PadRef, Part, Priority
 from tests.fixtures import board_geometry, footprint
 
 
@@ -111,6 +111,85 @@ def test_falloff_changes_the_disc_radius():
     r1 = next(f for f in plan1.findings if "u2" in f)
     r3 = next(f for f in plan3.findings if "u2" in f)
     assert r1 != r3    # different formula, different radius, different sentence
+
+
+def test_a_pushed_item_lands_at_or_under_the_limit_and_farther_than_unpushed():
+    fps = [footprint("M1", 10, 30, w=4, h=4, inst="m1", nets=("A", "GND")),
+           footprint("U2", 15, 30, w=2, h=2, inst="u2", nets=("SIG", "GND")),
+           footprint("J1", 55, 30, w=2, h=2, inst="j1", nets=("SIG", "PWR"))]
+    without = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    without.place(Part("m1"), at=Location(10, 30))
+    without.place(Part("j1"), at=Location(55, 30))
+    without.link(PadRef(Part("u2"), "SIG"), PadRef(Part("j1"), "SIG"))
+    without.place(Part("u2"), radius=25.0, step=1.0)
+    plan_without = without.resolve()
+    d_without = plan_without.box("u2").center.distance(Location(10, 30))
+
+    pushed = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    pushed.place(Part("m1"), at=Location(10, 30))
+    pushed.place(Part("j1"), at=Location(55, 30))
+    pushed.link(PadRef(Part("u2"), "SIG"), PadRef(Part("j1"), "SIG"))
+    pushed.place(Part("u2"), radius=25.0, step=1.0)
+    pushed.push(Part("u2"), from_=Part("m1"), falloff=3, reference=(2.0, 3.2), limit=0.3, why="field at the sensor")
+    plan_pushed = pushed.resolve()
+    d_pushed = plan_pushed.box("u2").center.distance(Location(10, 30))
+
+    value = 3.2 * (2.0 / d_pushed) ** 3
+    assert value <= 0.3 + 1e-6
+    assert d_pushed > d_without
+
+
+def test_two_pushes_add_and_push_the_item_farther_than_one():
+    """j1 sits right beside m1, so the link pulling u2 toward j1 and the
+    push holding it back from m1 oppose each other at nearly the same
+    point: a genuine interior tug of war, not a race to the board edge.
+    With weight=1 mm/mm and falloff=1, the equilibrium is where
+    d(push)/dr = weight, at r = sqrt(n * score_push * v_ref * r_ref /
+    (limit * weight)) - about 8.4 mm for one push, 11.9 mm for two."""
+    def _run(n_pushes):
+        fps = [footprint("M1", 10, 30, w=4, h=4, inst="m1", nets=("A", "GND")),
+               footprint("U2", 30, 30, w=2, h=2, inst="u2", nets=("SIG", "GND")),
+               footprint("J1", 16, 30, w=2, h=2, inst="j1", nets=("SIG", "PWR"))]
+        b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+        b.place(Part("m1"), at=Location(10, 30))
+        b.place(Part("j1"), at=Location(16, 30))
+        b.link(PadRef(Part("u2"), "SIG"), PadRef(Part("j1"), "SIG"), weight=1)
+        b.place(Part("u2"), radius=20.0, step=0.25)
+        for _ in range(n_pushes):
+            b.push(Part("u2"), from_=Part("m1"), falloff=1, reference=(2.0, 3.2), limit=0.9,
+                   why="field at the sensor")
+        plan = b.resolve()
+        return plan.box("u2").center.distance(Location(10, 30))
+
+    assert _run(2) > _run(1)
+
+
+def test_native_scoring_is_bypassed_for_a_pushed_item():
+    from placemat.layout import Push, Scorer
+    from placemat.occupancy import Occupancy
+    fps = [footprint("M1", 10, 30, w=4, h=4, inst="m1", nets=("A", "GND")),
+           footprint("U2", 15, 30, w=2, h=2, inst="u2", nets=("SIG", "GND"))]
+    g = board_geometry(fps, width=60, height=60)
+    occ = Occupancy(g, edge_margin=1.0)
+    u2 = g.footprint("U2")
+    push = Push(Location(10, 30), 3.0, 2.0, 3.2, 0.3)
+    scorer = Scorer(occ.settings, u2, occ, [], False, pushes=[(Location(10, 30), push)])
+    assert scorer.native((0.0,), Face.FRONT) is None
+
+
+def test_a_pushed_item_with_nowhere_legal_is_unplaced_not_a_crash():
+    """Every candidate anywhere on this tiny board is inside the hard-limit
+    disc (a huge v_ref against a tiny limit): the wide scan finds nothing,
+    and that is an ordinary unplaced finding, not an exception."""
+    fps = [footprint("M1", 5, 5, w=2, h=2, inst="m1", nets=("A", "GND")),
+           footprint("U2", 15, 15, w=2, h=2, inst="u2", nets=("SIG", "GND"))]
+    b = Board(board_geometry(fps, width=20, height=20), edge_margin=0.5)
+    b.place(Part("m1"), at=Location(5, 5))
+    b.place(Part("u2"))
+    b.push(Part("u2"), from_=Part("m1"), falloff=3, reference=(1.0, 1000.0), limit=0.01)
+    plan = b.resolve()
+    assert plan.step("u2").placement is None
+    assert any("u2" in f for f in plan.findings)
 
 
 def test_every_other_part_is_still_let_in():

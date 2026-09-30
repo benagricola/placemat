@@ -680,9 +680,10 @@ class Scorer:
     the same cost, worked out in the native sweep (placemat_native.NativeScoring),
     sharing `best` with it."""
 
-    def __init__(self, settings, item, occ: Occupancy, targets: list, prune: bool):
+    def __init__(self, settings, item, occ: Occupancy, targets: list, prune: bool, pushes=()):
         s = settings
         self.s, self.item, self.occ, self.targets, self.prune = s, item, occ, targets, prune
+        self.pushes = tuple(pushes)
         self.crossing = s.score_crossing
         self.rn = occ.ratsnest() if self.crossing > 0 else None
         self.escaping = s.score_escape_crossed > 0 or s.score_escape_closed > 0 or s.score_escape_walled > 0
@@ -696,6 +697,19 @@ class Scorer:
         occ, s = self.occ, self.s
         pads = occ.candidate_pad_locations(self.item, placement)
         cost = sum(w * pads[key].distance(target) for key, target, w in self.targets if key in pads)
+        if self.pushes:
+            body_centre = None
+            for source_point, push in self.pushes:
+                if push.target_pad_key is not None:
+                    point = pads.get(push.target_pad_key)
+                    if point is None:
+                        continue
+                else:
+                    if body_centre is None:
+                        body_centre = occ.body_box(self.item, placement).center
+                    point = body_centre
+                value, _ = _push_value(source_point, point, push)
+                cost += s.score_push * value / push.limit
         if self.prune and cost >= self.best[0]:
             return cost + PRUNED        # its crossings and escapes can only add: it cannot be the best
         crossed = None
@@ -710,7 +724,10 @@ class Scorer:
 
     def native(self, rots, face):
         """The same cost for the native sweep over these turns, or None when
-        the native mirrors it needs are not there."""
+        the native mirrors it needs are not there, or the item carries a
+        push (the Rust NativeScoring module has no formula for one)."""
+        if self.pushes:
+            return None
         occ, s = self.occ, self.s
         rn = occ.ratsnest()
         mirror = rn.mirror
@@ -2786,12 +2803,12 @@ class Board:
         oy = sum(p.y for p in own) / len(own) - current.location.y if own else 0.0
         return Placement(Location(round(cx - ox, 3), round(cy - oy, 3)), rotation, face)
 
-    def _scorer(self, item, occ: Occupancy, targets: list, prune: bool = True):
+    def _scorer(self, item, occ: Occupancy, targets: list, prune: bool = True, pushes=()):
         """A candidate's cost: each connection's weight times its length,
         `score.crossing` for each ratsnest crossing its airwires would add,
-        and the escape weights for each escape it would cross, close or wall
-        off (escapes.py). See `Scorer`."""
-        return Scorer(self.settings, item, occ, targets, prune)
+        the escape weights, and score.push times each push's modelled
+        value over its limit. See `Scorer`."""
+        return Scorer(self.settings, item, occ, targets, prune, pushes)
 
     def _push_source_point(self, occ: Occupancy, plan: Plan, source) -> Location:
         """Where a push's source sits, once it is placed: a keepout's own
@@ -5934,14 +5951,22 @@ class Board:
             seeded = "seeded on %s" % ", ".join(nets)
             for n in nets:
                 plan.seeded_by_net[n] += 1
+        elif push_sources:
+            hint = Placement(self.centre, i.rotation, i.face)
+            seeded = "searched wide for its push" if len(push_sources) == 1 else "searched wide for its pushes"
         else:
             return self._settle_in_pocket(occ, i, plan, clr)
         # riders refuse candidates after they are scored: a refused one must not prune the rest
-        score = self._scorer(i.item, occ, targets, prune=self._pick(i) is None and self._accept(i) is None) \
-            if targets else None
+        score = self._scorer(i.item, occ, targets, prune=self._pick(i) is None and self._accept(i) is None,
+                             pushes=push_sources) if targets or push_sources else None
         # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
         body = occ._geometry(i.item).body
-        radius = i.radius if i.near is not None else max(i.radius, body.width, body.height)
+        if i.near is not None:
+            radius = i.radius
+        elif push_sources and not targets and solved is None and self._outline is not None:
+            radius = math.hypot(self._outline.width, self._outline.height)
+        else:
+            radius = max(i.radius, body.width, body.height)
         hopeless = self._no_pocket_note(occ, i)
         if hopeless:
             plan.findings.append(Finding("unplaced", "%s: %s" % (i.key, hopeless)))
