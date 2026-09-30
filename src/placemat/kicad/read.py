@@ -521,16 +521,24 @@ def _outline(board) -> tuple:
 
 
 def _netclasses(board) -> tuple[dict[str, NetClass], float]:
+    """{net: its NetClass}. A net's class carries a diff-pair width and gap
+    only when one of its named classes sets them itself: the effective class
+    KiCad resolves reports the project's default pair figures on every
+    class, so a class that sets none would read as a pair class."""
     classes = {}
+    named = board.GetDesignSettings().m_NetSettings.GetNetclasses()
+    paired = {str(n) for n in named.keys() if named[n].HasDiffPairWidth() and named[n].HasDiffPairGap()}
     for ni in board.GetNetInfo().NetsByName().values():
         name = ni.GetNetname()
         if not name:
             continue
         nc = ni.GetNetClassSlow()
         parts = [p for p in str(nc.GetName()).split(",") if p and p != "Default"]
+        pair = any(p in paired for p in parts)
         classes[name] = NetClass(",".join(parts) or "Default", mm(nc.GetTrackWidth()),
                                  mm(nc.GetClearance()), mm(nc.GetViaDiameter()), mm(nc.GetViaDrill()),
-                                 mm(nc.GetDiffPairWidth()) or None, mm(nc.GetDiffPairGap()) or None)
+                                 (mm(nc.GetDiffPairWidth()) or None) if pair else None,
+                                 (mm(nc.GetDiffPairGap()) or None) if pair else None)
     default = mm(board.GetDesignSettings().m_NetSettings.GetDefaultNetclass().GetClearance())
     return classes, default
 

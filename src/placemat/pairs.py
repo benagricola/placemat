@@ -175,11 +175,9 @@ def board_pairs(netclasses: dict) -> dict:
     than two pair within the class by pair_key, the same rule a suffix pair
     uses elsewhere. A board whose classes declare no pair class has none.
 
-    A net class's diff_pair_width/gap are not reliably null for a class
-    that was never meant as a pair (KiCad's own default netclass and an
-    untouched one both report the project's default diff-pair figure, not
-    None) - only the class name "Default" is excluded here, per the design
-    this ports."""
+    The reader (`kicad.read._netclasses`) leaves diff_pair_width and gap
+    None for a class that does not set them itself, so a class of two
+    nets that sets no pair figures is not a pair."""
     by_class: dict = {}
     for net, nc in netclasses.items():
         if nc.name == "Default" or nc.diff_pair_width is None or nc.diff_pair_gap is None:

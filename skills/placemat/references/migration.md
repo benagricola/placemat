@@ -14,6 +14,19 @@ a rim and a block now turn a back-face cell from its mirrored side on
 their own. A script that negated the turn for the back by hand passes
 `face=` instead.
 
+**A cell of several jobs.** `placemat run` now reports a `split` finding
+for a cell whose members form two or more groups
+(`place.split_min_group`, default 2) joined only by nets that are not
+local to it - a board-level net, or any `board.plane()` net whatever its
+pads - and names the parts no net inside the cell joins to another, to be
+judged each by what places it: a bypass capacitor stays with the IC it
+serves, a sensing part at what it senses. It carries no run-score weight.
+
+A net class makes pairs only when it sets its own `diff_pair_width` and
+`diff_pair_gap`. In 0.58 every class but Default did, because KiCad reports
+its default pair figures on every class: a two-net class of control lines
+at their own width was paired and routed coupled.
+
 ## To 0.59.1
 
 `placemat facts` reads the board as generated, as `run` does. It failed on
@@ -86,14 +99,6 @@ the start of every run.
 printed facts are right. A run whose facts do not match the last
 confirmation says so on its own line and records a finding, but still
 runs.
-
-**A cell of several jobs.** `placemat run` now reports a `split` finding
-for a cell whose members form two or more groups
-(`place.split_min_group`, default 2) joined only by nets that are not
-local to it - a board-level net, or any `board.plane()` net whatever its
-pads - and names the parts no net inside the cell joins to another (each
-already placed by the pin it serves or the part it senses, never a split
-candidate). It carries no run-score weight.
 
 ## To 0.57.2
 
