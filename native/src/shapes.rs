@@ -193,7 +193,7 @@ fn circle_distance(hole: &Shape, poly: &[Point]) -> f64 {
 }
 
 /// Whether two kinds can meet at all: a plated hole meets only another hole.
-fn may_meet(a: Kind, b: Kind) -> bool {
+pub(crate) fn may_meet(a: Kind, b: Kind) -> bool {
     if a == Kind::Hole {
         return b.is_hole();
     }
@@ -317,7 +317,7 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
 /// candidate shape at that shape's own box and gap - see the module doc for
 /// why this one query replaces `near()` + the per-shape `close` filter.
 pub struct ShapeGrid {
-    shapes: Vec<Shape>,
+    pub(crate) shapes: Vec<Shape>,
     cell: f64,
     grid: HashMap<(i64, i64), Vec<usize>>,
 }
@@ -346,7 +346,7 @@ impl ShapeGrid {
     /// `gap`, in registration order (matching `ShapeIndex.near`'s own
     /// `sorted(hits)` - insertion order - so a "first conflict" search over
     /// this order matches Python's).
-    fn near(&self, query: Bounds, gap: f64) -> Vec<usize> {
+    pub(crate) fn near(&self, query: Bounds, gap: f64) -> Vec<usize> {
         let (x0, y0, x1, y1) = (query.0 - gap, query.1 - gap, query.2 + gap, query.3 + gap);
         let mut hits: Vec<usize> = Vec::new();
         let mut seen = vec![false; self.shapes.len()];
