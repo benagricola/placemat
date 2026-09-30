@@ -496,8 +496,19 @@ class PadRef:
     # one land of a pin drawn as several: Land.LARGEST, or its 1-based index in the footprint's
     # order for that number. Left out of the digest when unset, as lx/ly are
     land: object = field(default=None, metadata={"omit_default": True})
+    # a track point on that side of the pad (board frame), touching it: see `_edge_point` in layout.py.
+    # `along` sets where on the side: START the west or north end, END the other, MID (default) the middle
+    edge: object = field(default=None, metadata={"omit_default": True})
+    along: object = field(default=None, metadata={"omit_default": True})
 
     def __post_init__(self):
+        if self.edge is not None and not isinstance(self.edge, Edge):
+            raise TypeError("a PadRef's edge= is an Edge, not %r" % (self.edge,))
+        if self.along is not None:
+            if self.edge is None:
+                raise TypeError("a PadRef's along= says where on its edge=; give the edge")
+            if not isinstance(self.along, Along):
+                raise TypeError("a PadRef's along= is Along.START, MID or END, not %r" % (self.along,))
         if self.land is not None:
             if isinstance(self.land, bool) or not isinstance(self.land, (int, Land)):
                 raise TypeError("a PadRef's land= is Land.LARGEST or a land's number, not %r" % (self.land,))
@@ -513,12 +524,14 @@ class PadRef:
 
     def offset(self, dx: float = 0.0, dy: float = 0.0) -> "PadRef":
         """The point moved in board directions."""
-        return PadRef(self.part, self.key, self.dx + dx, self.dy + dy, None, self.lx, self.ly, self.land)
+        return PadRef(self.part, self.key, self.dx + dx, self.dy + dy, None, self.lx, self.ly, self.land,
+                      self.edge, self.along)
 
     def local(self, dx: float = 0.0, dy: float = 0.0) -> "PadRef":
         """The point moved in the part's own frame, as its footprint is
         drawn: the move turns with the part, and on the back mirrors."""
-        return PadRef(self.part, self.key, self.dx, self.dy, None, self.lx + dx, self.ly + dy, self.land)
+        return PadRef(self.part, self.key, self.dx, self.dy, None, self.lx + dx, self.ly + dy, self.land,
+                      self.edge, self.along)
 
 
 @dataclass(frozen=True)

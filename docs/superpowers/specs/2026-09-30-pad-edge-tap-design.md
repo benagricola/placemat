@@ -1,6 +1,6 @@
 # A track point on a pad's edge
 
-Status: draft, for approval.
+Status: approved (2026-09-30).
 
 Source: a board's session (2026-09-30), a shunt's Kelvin sense taps.
 
