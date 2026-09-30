@@ -427,6 +427,8 @@ class Push:
     target_point: object = field(default=None, metadata={"omit_default": True})       # where the item's own emission point stands now (a Location); moves with the item
     kind: str = field(default="", metadata={"omit_default": True})   # the annotated kind this push carries
     unit: str = field(default="", metadata={"omit_default": True})
+    sens: str = field(default="", metadata={"omit_default": True})   # the sensitive part whose limit this is, for the sum over its sources
+    slack: float = field(default=0.0, metadata={"omit_default": True})   # how far the item reaches from its own emission point: the disc is drawn that much smaller
 
 
 @dataclass
@@ -2855,6 +2857,32 @@ class Board:
         pad = self._annotations.sensitives[ref].senses
         return occ.pad_location(ref, pad) if pad is not None else occ.geometry_of(ref).body.center
 
+    def _paired_refs(self) -> set:
+        """The parts the cleanup pass leaves where the search put them: a
+        source with a sensitive part of one of its kinds (a disc from a point
+        inside the moving part is not exact), and a sensitive part with more
+        than one source of a kind (a disc per source does not keep their sum).
+        The pass judges a move by links and discs alone."""
+        ann = self._annotations
+        out = set()
+        for ref, src in ann.sources.items():
+            kinds = {e.kind for e in src.emissions}
+            if any(sens != ref and kinds & {k for k, _, _ in s.limits} for sens, s in ann.sensitives.items()):
+                out.add(ref)
+        for sens, s in ann.sensitives.items():
+            for kind, _, _ in s.limits:
+                if sum(1 for ref, src in ann.sources.items() if ref != sens and any(e.kind == kind for e in src.emissions)) > 1:
+                    out.add(sens)
+        return out
+
+    @staticmethod
+    def _reach_from(occ: Occupancy, item, point: Location) -> float:
+        """How far any part of `item`, turned any way, can lie from `point` (a
+        point of the item where it stands): the distance to its box centre
+        plus the box's half width and half height."""
+        box = occ._geometry(item).reach or occ._geometry(item).body
+        return point.distance(box.center) + (box.width + box.height) / 2.0
+
     def _annotated_pushes(self, occ: Occupancy, i: PlaceIntent) -> list:
         """The pushes `i` is in through the parts' own annotations: each
         sensitive part of `i` against every source of a kind already placed,
@@ -2879,16 +2907,17 @@ class Board:
                     for e in ann.sources[src].emissions:
                         if e.kind == kind:
                             out.append(Push(self._emission_point(occ, src), e.falloff, e.r_ref, e.value, limit, key, ref,
-                                            label="%s %s" % (src, kind), kind=kind, unit=unit))
+                                            label="%s %s" % (src, kind), kind=kind, unit=unit, sens=ref))
         for ref in sorted(own & ann.sources.keys()):
             src = ann.sources[ref]
             at = src.at
             key = (ref, at[1]) if at is not None and at[0] == "pad" else None
-            here = None
+            here, slack = None, 0.0
             if key is None:
                 g = occ.geometry_of(ref).reference
                 x, y = (at[1], at[2]) if at is not None else (0.0, 0.0)
                 here = exposure.local_to_board(g.location, g.rotation, g.face, x, y)
+                slack = self._reach_from(occ, i.item, here)
             for e in src.emissions:
                 for sens in sorted(placed & ann.sensitives.keys()):
                     for kind, limit, unit in ann.sensitives[sens].limits:
@@ -2903,8 +2932,90 @@ class Board:
                                           for o in ann.sources[other].emissions if o.kind == kind)
                         out.append(Push(point, e.falloff, e.r_ref, e.value, limit, key, ref,
                                         label="%s (limit on %s)" % (sens, kind), kind=kind, unit=unit,
-                                        hard_limit=limit - others, target_point=here))
+                                        hard_limit=limit - others, target_point=here, sens=sens, slack=slack))
         return out
+
+    def _exposure_notes(self, occ: Occupancy, i: PlaceIntent, placement: Placement, pushes: list) -> list:
+        """For each sensitive part and kind `i` pushes on, where `i` stands at
+        `placement`: the summed value there of every placed source (`i`'s
+        own included), the part's limit and the nearest source."""
+        ann = self._annotations
+        own = {fp.ref for fp in members_of(i.item)}
+        pads = occ.candidate_pad_locations(i.item, placement)
+        t = occ._transform(occ._geometry(i.item), placement)
+        points: dict = {}
+
+        def emission(ref):
+            if ref not in own:
+                return self._emission_point(occ, ref)
+            at = ann.sources[ref].at
+            if at is not None and at[0] == "pad":
+                return pads[(ref, at[1])]
+            g = occ.geometry_of(ref).reference
+            x, y = (at[1], at[2]) if at is not None else (0.0, 0.0)
+            return t.apply_location(exposure.local_to_board(g.location, g.rotation, g.face, x, y))
+
+        def sense(ref):
+            if ref not in own:
+                return self._sense_point(occ, ref)
+            pad = ann.sensitives[ref].senses
+            if pad is not None:
+                return pads[(ref, pad)]
+            point = points.get(ref)
+            if point is None:
+                point = points[ref] = _target_point(occ, i.item, placement, ref)
+            return point
+
+        bits = []
+        for sens, kind in sorted({(p.sens, p.kind) for _, p in pushes if p.sens}):
+            at = sense(sens)
+            limit = next(l for k, l, _ in ann.sensitives[sens].limits if k == kind)
+            unit = next(u for k, _, u in ann.sensitives[sens].limits if k == kind)
+            total, nearest = 0.0, None
+            for ref, src in sorted(ann.sources.items()):
+                if ref == sens or (ref not in own and ref in occ.pending):
+                    continue
+                r = emission(ref).distance(at)
+                for e in src.emissions:
+                    if e.kind == kind:
+                        total += e.at(r)
+                        if nearest is None or r < nearest[1]:
+                            nearest = (ref, r)
+            if nearest is not None:
+                bits.append("%s at %s: %.2g %s of %.3g %s limit, nearest source %s at %.1f mm" % (
+                    kind, sens, total, unit, limit, unit, nearest[0], nearest[1]))
+        return bits
+
+    def _exposure_accept(self, occ: Occupancy, i: PlaceIntent, pushes: list):
+        """A candidate refusal for the sensitive parts' summed limits, or None
+        when the pushes do not need one: a disc is exact for one source on
+        the moving item, so only a limit shared by several pushes, or one
+        measured from a point inside the moving item, is asked. A limit the
+        sources placed before already exceed is not asked (no place helps)."""
+        groups: dict = {}
+        for point, p in pushes:
+            if p.sens:
+                groups.setdefault((p.sens, p.kind), []).append((point, p))
+        groups = {k: g for k, g in groups.items() if (len(g) > 1 or g[0][1].slack > 0)
+                  and (g[0][1].limit if g[0][1].hard_limit is None else g[0][1].hard_limit) > 0}
+        if not groups:
+            return None
+
+        def accept(placement: Placement):
+            pads = occ.candidate_pad_locations(i.item, placement)
+            points: dict = {}
+            for (sens, kind), group in groups.items():
+                bound = group[0][1].limit if group[0][1].hard_limit is None else group[0][1].hard_limit
+                total = 0.0
+                for source_point, p in group:
+                    at = _push_at(occ, i.item, placement, p, pads, points)
+                    if at is not None:
+                        total += _push_value(source_point, at, p)[0]
+                if total > bound + 1e-9:
+                    return "%s's %s limit: the sources add to %.3g%s here, over the %.3g left" % (
+                        sens, kind, total, group[0][1].unit, bound)
+            return None
+        return accept
 
     def _reserve_pushes(self, occ: Occupancy, plan: Plan, i: PlaceIntent) -> list:
         """Each push's source point, resolved now (it is placed by then,
@@ -2923,8 +3034,10 @@ class Board:
             if not limit > 0:
                 continue        # the sources placed before already use the sensitive part's whole limit: no distance helps
             try:
-                radius = p.r_ref * (p.v_ref / limit) ** (1.0 / p.falloff)
+                radius = p.r_ref * (p.v_ref / limit) ** (1.0 / p.falloff) - p.slack
             except OverflowError:
+                continue
+            if not radius > 0:
                 continue
             why = "push from %s (limit %.3g at %.3g mm)%s" % (
                 _push_source_label(p), limit, radius, (": %s" % p.why) if p.why else "")
@@ -4645,7 +4758,7 @@ class Board:
         positioned against - no label, and no other declaration whose place
         refers to it."""
         intents = {i.key: i for i in self._placements()}
-        held = set()
+        held = self._paired_refs()
         for i in self._intents:
             held |= set(getattr(i, "needs", ()) or ())
         for entry in self._labels:
@@ -6109,7 +6222,11 @@ class Board:
         elif hint is None:
             return self._settle_in_pocket(occ, i, plan, clr)
         # riders refuse candidates after they are scored: a refused one must not prune the rest
-        score = self._scorer(i.item, occ, targets, prune=self._pick(i) is None and self._accept(i) is None,
+        accept = self._accept(i)
+        exposed = self._exposure_accept(occ, i, push_sources)
+        if exposed is not None:
+            accept = exposed if accept is None else (lambda c, a=accept, b=exposed: a(c) or b(c))
+        score = self._scorer(i.item, occ, targets, prune=self._pick(i) is None and accept is None,
                              pushes=push_sources) if targets or push_sources else None
         # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
         body = occ._geometry(i.item).body
@@ -6126,7 +6243,7 @@ class Board:
             plan.findings.append(Finding("unplaced", "%s: %s" % (i.key, hopeless)))
             return self._step(i, None, 0.0, "UNPLACED: " + hopeless)
         result = scan(occ, i.item, hint, radius, i.step, self._turns(i), clr, score=score, pick=self._pick(i),
-                      accept=self._accept(i))
+                      accept=accept)
         if result.chosen is None and solved is not None:
             # The solve spreads items without seeing what is already placed, so
             # its hint can land where nothing is legal. That must not cost a
@@ -6165,9 +6282,11 @@ class Board:
                     at = result.chosen.location
                 value, r = _push_value(source_point, at, p)
                 p.achieved_value, p.achieved_mm = round(value, 4), round(r, 3)
-                bits.append("push from %s: %.2g at %.1f mm (limit %.2g)" % (
-                    _push_source_label(p), value, r, p.limit))
+                if not p.sens:
+                    bits.append("push from %s: %.2g at %.1f mm (limit %.2g)" % (
+                        _push_source_label(p), value, r, p.limit))
                 plan.pushes.append(p)
+            bits += self._exposure_notes(occ, i, result.chosen, push_sources)
             note = (note + "; " if note else "") + "; ".join(bits)
         return self._step(i, result.chosen, result.moved_mm, note)
 
