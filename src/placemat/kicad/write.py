@@ -383,17 +383,21 @@ def _keepout_drawing_layer(layers):
     return pcbnew.F_Fab if next(iter(faces)) is Face.FRONT else pcbnew.B_Fab
 
 
-def _keepout_admits_text(k) -> str:
-    """The keepout's name, and its height limit when it has one: `<name>:
+def _keepout_admits_text(k, label_refs: int) -> str:
+    """The keepout's name, what it bars when that is `label_refs` references
+    or fewer, and its height limit when it has one: `<name>: bars M1, J1;
     parts <= H mm`. The parts and nets it admits by name are the rule's to
     say (its rule area and .kicad_dru rule), not board text's."""
+    said = []
+    if k.barred and len(k.barred) <= label_refs:
+        said.append("bars " + ", ".join(sorted(k.barred)))
     if k.max_height is not None:
-        return "%s: parts <= %.2f mm" % (k.name, k.max_height)
-    return k.name
+        said.append("parts <= %.2f mm" % k.max_height)
+    return "%s: %s" % (k.name, "; ".join(said)) if said else k.name
 
 
 def _keepout_admits(k) -> bool:
-    return k.max_height is not None or bool(k.owners - k.admitted) or bool(k.allow)
+    return k.max_height is not None or bool(k.owners - k.admitted) or bool(k.allow) or bool(k.barred)
 
 
 def _unique_uuid(board, it) -> None:
@@ -457,7 +461,7 @@ def _draw_keepout_drawings(board, plan):
         drawn.append(sh)
         centre = Box.of_points(k.poly).center
         t = pcbnew.PCB_TEXT(board)
-        t.SetText(_keepout_admits_text(k))
+        t.SetText(_keepout_admits_text(k, plan.occupancy.settings.write_keepout_label_refs))
         t.SetLayer(layer)
         t.SetTextSize(pcbnew.VECTOR2I(nm(size), nm(size)))
         t.SetTextThickness(nm(line))

@@ -87,3 +87,34 @@ def test_kicads_own_drc_reports_the_barred_part_and_not_the_other(tmp_path):
     named = [i.get("description", "") for v in ruled for i in v.get("items", [])]
     assert any("C1" in d for d in named), ruled
     assert not any("T1" in d for d in named), ruled
+
+
+def _label(bars, **kw):
+    import pcbnew
+    from placemat.kicad.write import _draw_keepout_drawings
+    board = pcbnew.CreateEmptyBoard()
+    _draw_keepout_drawings(board, _plan(bars=bars, **kw))
+    [t] = [d for d in board.GetDrawings() if isinstance(d, pcbnew.PCB_TEXT)]
+    return t.GetText()
+
+
+@needs_kicad
+def test_a_label_says_what_a_keepout_bars_when_it_is_three_refs_or_fewer():
+    assert _label(("m1",)) == "cup: bars M1"
+    assert _label(("m1", "j1", "j2")) == "cup: bars J1, J2, M1"
+
+
+@needs_kicad
+def test_a_label_for_more_than_three_barred_refs_is_just_the_name():
+    assert _label(("m1", "j1", "j2", "n1")) == "cup"
+
+
+@needs_kicad
+def test_a_label_with_a_height_limit_says_both():
+    assert _label(("m1",), max_height=2.0) == "cup: bars M1; parts <= 2.00 mm"
+
+
+def test_the_label_limit_is_a_setting():
+    from placemat.settings import Settings
+    assert Settings().write_keepout_label_refs == 3
+    assert Settings(write_keepout_label_refs=1).write_keepout_label_refs == 1
