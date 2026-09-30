@@ -21,6 +21,7 @@ KINDS = (
     "fab",              # a board rule (a net class's track, clearance or via) below the fab profile's minimum
     "facts",            # the board's facts do not match what `placemat facts --confirm` last confirmed
     "needs",            # a spot placemat would have used an if-needed fab option for, and did not
+    "split",            # a cell whose members form two or more groups joined only by board-level nets
 )
 
 

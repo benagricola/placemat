@@ -2746,6 +2746,20 @@ class Board:
                 plan.findings.append(Finding("setup", "%s (%s): no declaration places it, so it stays where the generator put it"
                                      % (fp.inst, fp.ref)))
 
+    def _report_splits(self, plan: Plan) -> None:
+        """A cell whose members form two or more groups of
+        `place.split_min_group` members or more, joined only by nets not
+        local to the cell (splits.py): a finding, and a note on the cell's
+        step."""
+        from . import splits
+        cells = [it for it in plan._items.values() if isinstance(it, CellGeom)]
+        plane_nets = {net for net, _ in self._planes_declared}
+        for name, text in splits.report(self.geometry, cells, plane_nets, self.settings.place_split_min_group):
+            plan.findings.append(Finding("split", "%s: %s" % (name, text)))
+            step = next((s for s in plan.steps if s.item == name), None)
+            if step is not None:
+                step.note = (step.note + "; " if step.note else "") + "split: " + text
+
     def _report_escapes(self, occ: Occupancy, plan: Plan):
         """Escapes left crossed at a pin row, and pads the path search finds
         closed toward what they join or walled off (escapes.py); and each
@@ -4154,6 +4168,7 @@ class Board:
         self._report_links(occ, plan, placed)
         self._report_escapes(occ, plan)
         self._report_undeclared(plan)
+        self._report_splits(plan)
         self._place_labels(occ, plan, placed, progress, final=True)
         if self._faces is not None:
             text, why = self._faces

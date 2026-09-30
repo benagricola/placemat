@@ -168,7 +168,15 @@ model into declarations.
    - ordinary signals whose off-board length dwarfs the board: an
      isolated input's connector need not sit at its isolator;
    - mechanical facts: mounting patterns, case windows, a sensor whose
-     position is its function.
+     position is its function;
+   - a cell is placed as one rigid piece; when its parts want different
+     places, the capture's module boundary is wrong for this board - a
+     job joined to the rest only through board-level nets, or a cell too
+     large or the wrong shape for the room its tightest part needs. Say
+     so, and propose the split, or the move of parts between modules, as
+     a change to the capture; do not work round it in the script. The
+     `split` finding lists cells whose parts form separate groups; a
+     refused cell is the other signal.
 4. **Write the proposal as the script's opening comment**: which edge each
    connector takes and why, which positions are mechanical points (`fixed`)
    and which a distance along an edge (`edge`), which cells cluster with
