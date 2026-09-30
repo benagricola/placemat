@@ -80,7 +80,7 @@ class Settings:
     copper_microvia_drill: float = 0.1  # a micro via's (laser) drill, when the script gives none
     # [write]
     write_split_groups: str = "lift"    # each cell's group nested in a module's: lifted to the top level (the module keeps its parts); "split" also takes out the parts placed apart; "keep" as generated
-    write_keepout_drawings: str = "admitting"   # a keepout that admits something drawn on its Fab layer (or User.Comments): "admitting" (default) those that admit something, "all" every keepout, "none"
+    write_keepout_drawings: str = "none"   # draw a keepout's outline and name (and height limit) on its Fab layer (or User.Comments): "none" (default), "admitting" those that admit something, "all" every keepout
     write_keepout_line: float = 0.1    # a drawn keepout's outline stroke
     write_keepout_text: float = 0.8    # a drawn keepout's label height
     # [label]

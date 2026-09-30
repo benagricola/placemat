@@ -10,6 +10,7 @@ from tests.fixtures import board_geometry, footprint
 
 
 def _height_board(**kw):
+    kw.setdefault("settings", Settings(write_keepout_drawings="admitting"))
     fps = [footprint("C1", 20, 20, w=2, h=1, inst="c1", nets=("A", "GND"), fields={"Pm.Height": "1.1mm"})]
     b = Board(board_geometry(fps, width=40, height=40), edge_margin=0.5, **kw)
     b.keepout(Circle(8.0), "ring", at=Location(20, 20), excludes=("parts",), max_height=1.9,
@@ -40,11 +41,12 @@ def test_an_admitting_keepout_draws_an_outline_and_a_label():
 
 
 @needs_kicad
-def test_a_keepout_admitting_by_name_and_by_height_shows_both_clauses():
+def test_a_label_names_the_keepout_and_its_height_and_no_parts():
     import pcbnew
     fps = [footprint("C1", 20, 20, w=2, h=1, inst="c1", nets=("A", "GND"), fields={"Pm.Height": "1.1mm"}),
            footprint("C2", 25, 20, w=2, h=1, inst="c2", nets=("A", "GND"))]
-    b = Board(board_geometry(fps, width=40, height=40), edge_margin=0.5)
+    b = Board(board_geometry(fps, width=40, height=40), edge_margin=0.5,
+              settings=Settings(write_keepout_drawings="admitting"))
     b.keepout(Circle(10.0), "ring", at=Location(21, 20), excludes=("parts",), max_height=1.9,
               layers=[CopperLayer.F], allow=(Part("c2"),), why="the case, and c2 is bolted through it")
     b.place(Part("c1"), at=Location(20, 20))
@@ -52,7 +54,7 @@ def test_a_keepout_admitting_by_name_and_by_height_shows_both_clauses():
     plan = b.resolve()
     board = _drawn(plan)
     text = next(d for d in board.GetDrawings() if isinstance(d, pcbnew.PCB_TEXT))
-    assert text.GetText() == "ring: parts <= 1.90 mm; C2"
+    assert text.GetText() == "ring: parts <= 1.90 mm"          # the parts it names are the rule's, not text's
 
 
 @needs_kicad
@@ -100,7 +102,8 @@ def test_write_keepout_drawings_none_draws_nothing():
 def test_both_face_keepouts_go_on_user_comments():
     import pcbnew
     fps = [footprint("C1", 20, 20, w=2, h=1, inst="c1", nets=("A", "GND"), fields={"Pm.Height": "1.1mm"})]
-    b = Board(board_geometry(fps, width=40, height=40), edge_margin=0.5)
+    b = Board(board_geometry(fps, width=40, height=40), edge_margin=0.5,
+              settings=Settings(write_keepout_drawings="admitting"))
     b.keepout(Circle(8.0), "ring", at=Location(20, 20), excludes=("parts",), max_height=1.9, why="x")
     plan = b.resolve()
     board = _drawn(plan, copper_layers=2)          # layers=None: every copper layer the board has -> both faces
@@ -141,3 +144,13 @@ def test_a_stamped_fragments_own_nested_group_is_left_alone():
     still_nested = [g for g in board.Groups()
                     if g.GetParentGroup() is not None and g.GetParentGroup().GetName() == "m"]
     assert len(still_nested) == 1 and still_nested[0].GetName() == "keepout drawings"
+
+
+@needs_kicad
+def test_by_default_no_keepout_is_drawn():
+    """A keepout is a KiCad rule area, and its .kicad_dru rule says what it
+    admits: by default nothing restates it as board text."""
+    import pcbnew
+    plan = _height_board(settings=Settings()).resolve()
+    board = _drawn(plan)
+    assert not [d for d in board.GetDrawings() if isinstance(d, (pcbnew.PCB_TEXT, pcbnew.PCB_SHAPE))]

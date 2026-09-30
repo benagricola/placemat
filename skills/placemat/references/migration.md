@@ -7,6 +7,13 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+Keepouts are no longer drawn on the board by default
+(`write.keepout_drawings` is `"none"`). The rule area and its `.kicad_dru`
+rule already say what a keepout admits. Where drawings are turned on, a
+label is the keepout's name and its height limit, never a list of parts or
+nets. A board that set `keepout_drawings = "none"` to avoid the long labels
+can drop that line.
+
 Under `[place] envelope = "physical"`, a part whose fab layer holds one
 closed shape (a circle, a polygon, a rectangle) claims that shape, stroke
 included, as its body; several graphics (four lines round a body) still

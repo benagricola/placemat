@@ -216,7 +216,7 @@ def test_the_settings_command_prints_every_key_and_its_source(tmp_path, capsys):
 
 def test_keepout_drawing_and_push_defaults():
     s = S.Settings()
-    assert s.write_keepout_drawings == "admitting"
+    assert s.write_keepout_drawings == "none"
     assert s.write_keepout_line == 0.1
     assert s.write_keepout_text == 0.8
     assert s.score_push == 10.0

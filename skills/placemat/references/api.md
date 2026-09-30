@@ -882,17 +882,15 @@ the keepout allows is still listed as `items_not_allowed`; the run sets
 those aside, counted as `permitted` (`metrics.permitted`, and the DRC
 line's "permitted by their keepout"), not as violations.
 
-**Drawn on the board.** A rule area is a hatch on a copper layer with
-nothing saying what it admits, so alongside it, a keepout that admits
-something (`allow=` or `max_height=`) is drawn as its own outline and a
-label naming what it admits - `ring: parts <= 1.90 mm`, `antenna: R_ANT
-copper`, joined with `; ` when it admits more than one kind - on the Fab
-layer of its face (`F.Fab` for a keepout on `F.Cu`), or `User.Comments`
-for one on both faces or on inner layers only. `write.keepout_drawings`
-chooses which: `admitting` (the default), `all`, or `none`. These
-drawings are placemat's own, in one group, `keepout drawings`, replaced
-whole on every write; a rerun leaves a stamped fragment's own untouched,
-the way a fragment's rule areas already are.
+**Drawn on the board.** A keepout is a KiCad rule area, and a keepout that
+admits parts carries its `.kicad_dru` rule, so nothing more is drawn by
+default. `write.keepout_drawings = "admitting"` (or `"all"`) also draws a
+keepout's outline and its name on the Fab layer of its face, or
+`User.Comments` for one on both faces or on inner layers only, with its
+height limit when it has one (`ring: parts <= 1.90 mm`). The parts and
+nets it admits by name are never written as text: the rule says them.
+These drawings are placemat's own, in one group, `keepout drawings`,
+replaced whole on every write.
 
 **The board edge.** A region may hang off it. Only the on-board part does
 anything - a part is refused for crossing the keep-in before any reservation is
@@ -2368,7 +2366,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `copper.plane_min_thickness` | 0.2 | a zone's minimum filled width |
 | `copper.pour_stroke` | 0.2 | a pour's outline stroke |
 | `write.split_groups` | "lift" | the generator's nested groups: `lift` each cell's group out of its module's to the top level (the module keeps its own parts), `split` also takes out of a group the parts the script places by steps of their own, `keep` writes them as generated; a group left empty is removed |
-| `write.keepout_drawings` | "admitting" | draw a keepout's outline and what it admits, on its Fab layer (or `User.Comments` for one on both faces or on inner layers only): `admitting` (default) those that admit something (`allow=` or `max_height=`), `all` every keepout, `none` |
+| `write.keepout_drawings` | "none" | whether to draw a keepout's outline and name (and its height limit) on its Fab layer, or `User.Comments` for one on both faces or on inner layers only: `none` (default), `admitting` those that admit something, `all` every keepout |
 | `write.keepout_line` | 0.1 | a drawn keepout's outline stroke |
 | `write.keepout_text` | 0.8 | a drawn keepout's label height |
 | `copper.microvia_drill` | 0.1 | a micro via's drill (`layers=` one layer from an outer face) when the script gives none |

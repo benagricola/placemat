@@ -381,18 +381,12 @@ def _keepout_drawing_layer(layers):
 
 
 def _keepout_admits_text(k) -> str:
-    """`<name>: parts <= H mm` for a height, `<name>: U3, U4` for parts
-    named by allow=, `<name>: GND copper` for nets, joined with '; ' when
-    a keepout admits more than one kind."""
-    clauses = []
+    """The keepout's name, and its height limit when it has one: `<name>:
+    parts <= H mm`. The parts and nets it admits by name are the rule's to
+    say (its rule area and .kicad_dru rule), not board text's."""
     if k.max_height is not None:
-        clauses.append("parts <= %.2f mm" % k.max_height)
-    named = sorted(k.owners - k.admitted)
-    if named:
-        clauses.append(", ".join(named))
-    if k.allow:
-        clauses.append(", ".join(sorted(k.allow)) + " copper")
-    return "%s: %s" % (k.name, "; ".join(clauses))
+        return "%s: parts <= %.2f mm" % (k.name, k.max_height)
+    return k.name
 
 
 def _keepout_admits(k) -> bool:
