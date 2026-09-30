@@ -6001,6 +6001,23 @@ class Board:
             elif score:
                 moved += " for a better link score"
             note = (note + "; " if note else "") + moved
+        if push_sources:
+            body_centre = None
+            bits = []
+            for source_point, p in push_sources:
+                if p.target_pad_key is not None:
+                    at = occ.candidate_pad_locations(i.item, result.chosen).get(
+                        p.target_pad_key, result.chosen.location)
+                else:
+                    if body_centre is None:
+                        body_centre = occ.body_box(i.item, result.chosen).center
+                    at = body_centre
+                value, r = _push_value(source_point, at, p)
+                p.achieved_value, p.achieved_mm = round(value, 4), round(r, 3)
+                bits.append("push from %s: %.2g at %.1f mm (limit %.2g)" % (
+                    _push_source_label(p.source), value, r, p.limit))
+                plan.pushes.append(p)
+            note = (note + "; " if note else "") + "; ".join(bits)
         return self._step(i, result.chosen, result.moved_mm, note)
 
 @contextlib.contextmanager

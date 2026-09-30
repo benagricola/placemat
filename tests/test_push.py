@@ -192,6 +192,25 @@ def test_a_pushed_item_with_nowhere_legal_is_unplaced_not_a_crash():
     assert any("u2" in f for f in plan.findings)
 
 
+def test_the_step_note_gives_the_value_and_the_distance():
+    fps = [footprint("M1", 10, 30, w=4, h=4, inst="m1", nets=("A", "GND")),
+           footprint("U2", 15, 30, w=2, h=2, inst="u2", nets=("SIG", "GND")),
+           footprint("J1", 55, 30, w=2, h=2, inst="j1", nets=("SIG", "PWR"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.place(Part("m1"), at=Location(10, 30))
+    b.place(Part("j1"), at=Location(55, 30))
+    b.link(PadRef(Part("u2"), "SIG"), PadRef(Part("j1"), "SIG"))
+    b.place(Part("u2"), radius=25.0, step=1.0)
+    b.push(Part("u2"), from_=Part("m1"), falloff=3, reference=(2.0, 3.2), limit=0.3, why="field at the sensor")
+    plan = b.resolve()
+    note = plan.step("u2").note
+    assert "push from m1:" in note and "limit 0.3" in note and "mm" in note
+    assert len(plan.pushes) == 1
+    p = plan.pushes[0]
+    assert p.achieved_value is not None and p.achieved_value <= 0.3 + 1e-6
+    assert p.achieved_mm is not None and p.achieved_mm > 0
+
+
 def test_every_other_part_is_still_let_in():
     """The disc is reserved against the pushed item alone: a different part
     may stand inside it, right beside the source."""
