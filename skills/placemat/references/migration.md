@@ -7,6 +7,13 @@ section for each hand-written pattern a newer form replaces.
 
 ## To 0.63.1
 
+`board.keepout(..., bars=(Part(...), Cell(...)))` names the parts a region
+keeps out and lets every other part in. A script that lists every other
+part in `allow=` to bar a few (hundreds of references, stale when a part
+is added) can give `bars=` the few instead. `bars=` and `allow=` of parts
+or cells are refused together; `allow=` of nets is unchanged, and
+`max_height=` still judges the parts `bars=` does not name.
+
 A keepout's drawn label is its name and its height limit, never a list
 of parts or nets: the rule area and its `.kicad_dru` rule say what it
 admits. A label listing every admitted part made KiCad slow to click. A

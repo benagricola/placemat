@@ -356,7 +356,10 @@ def keepout_rules(plan, refs, stack) -> list:
     for k in plan.keepouts.values():
         if not _admits_parts(k):
             continue
-        forbid = tuple(sorted(r for r in set(refs) if r not in k.owners))
+        if k.barred and k.max_height is None:       # bars=: exactly the parts it names, whatever else the board holds
+            forbid = tuple(sorted(r for r in set(refs) if r in k.barred))
+        else:
+            forbid = tuple(sorted(r for r in set(refs) if r not in k.owners))
         if not forbid:
             continue
         faces = {l for l in (k.layers or ()) if l in (CopperLayer.F, CopperLayer.B)}
@@ -382,15 +385,15 @@ def _keepout_drawing_layer(layers):
 
 def _keepout_admits_text(k) -> str:
     """The keepout's name, and its height limit when it has one: `<name>:
-    parts <= H mm`. The parts and nets it admits by name are the rule's to
-    say (its rule area and .kicad_dru rule), not board text's."""
+    parts <= H mm`. What it admits or bars by name is the rule's to say (its
+    rule area and .kicad_dru rule), not board text's."""
     if k.max_height is not None:
         return "%s: parts <= %.2f mm" % (k.name, k.max_height)
     return k.name
 
 
 def _keepout_admits(k) -> bool:
-    return k.max_height is not None or bool(k.owners - k.admitted) or bool(k.allow)
+    return k.max_height is not None or bool(k.owners - k.admitted) or bool(k.allow) or bool(k.barred)
 
 
 def _unique_uuid(board, it) -> None:

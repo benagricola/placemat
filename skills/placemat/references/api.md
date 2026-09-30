@@ -79,6 +79,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | a clearance anchored on a pad, in a datasheet's own coordinates | `Path(FIGURE, anchor=...)`, `at=PadRef(...)`, `rotation=Turned(part, 0)` | Keepouts |
 | a clearance band along a board edge | `board.keepout(shape, name, at=OnEdge(edge, along=Along.MID))` | Cutouts (the shape on an edge) |
 | a region a case leaves little room over | `board.keepout(..., excludes=(Forbid.PARTS,), max_height=)` | Keepouts |
+| a region that keeps a few parts out and lets every other part in | `board.keepout(..., bars=(Part(...), Cell(...)))` | Keepouts |
 | a part against a keepout's boundary | `at=Beside(keepout, Edge.SOUTH)` | Placement (Beside) |
 | a clearance that differs from the net class, in one place | `board.rule(clearance=, within=/between=/on=)` | Rules |
 | **copper** | | |
@@ -796,7 +797,7 @@ A region that forbids, as against a cutout, which removes board.
 
 ```python
 board.keepout(shape, name, *, at=None, rotation=None, margin=None, excludes=None,
-              allow=(), layers=None, max_height=None, why="")
+              allow=(), layers=None, max_height=None, bars=(), why="")
 ```
 
 ```python
@@ -870,7 +871,8 @@ no part out. A region a cell brings follows the cell to the other face.
 **What KiCad reports.** A rule area as KiCad saves it has no allow list or
 height. So a keepout that admits parts (`allow=` parts or cells, or
 `max_height=`) is written as a rule area that allows footprints, and a rule
-in the board's `.kicad_dru` forbids the parts it does not admit:
+in the board's `.kicad_dru` forbids the parts it does not admit (for
+`bars=`, exactly the barred ones):
 `(rule "keepout ring" (constraint disallow footprint) (condition
 "A.intersectsArea('keepout ring') && A.Layer == 'F.Cu' && (A.Reference ==
 'T1' || ...)"))`, naming the board's parts that are too tall, have no
@@ -888,8 +890,8 @@ rule, so its limit shows nowhere while placing by hand. By default such a
 keepout is also drawn: its outline and its name on the Fab layer of its
 face, or `User.Comments` for one on both faces or on inner layers only,
 with its height limit when it has one (`ring: parts <= 1.90 mm`). The
-parts and nets it admits by name are never written as text: the rule says
-them. `write.keepout_drawings` chooses: `admitting` (the default), `all`,
+parts and nets it admits or bars by name are never written as text: the
+rule says them. `write.keepout_drawings` chooses: `admitting` (the default), `all`,
 or `none`. These drawings are placemat's own, in one group, `keepout
 drawings`, replaced whole on every write.
 
@@ -974,7 +976,25 @@ GND.
 by its `Pm.Height` field (`1.1mm`): the room a case leaves over a region,
 said once, where naming the short parts in `allow=` goes stale when a part is
 added or swapped. A part with no `Pm.Height` counts as taller; the refusal
-names each part too tall or with no height. A cell meets a keepout member by
+names each part too tall or with no height.
+
+`bars=` (Parts and Cells, in a keepout that excludes parts) is the other
+way round: it names the parts the region keeps out, and every other part
+is let in. A region that must bar only a few parts does not list every
+other part in `allow=`, and a part added to the board later is let in
+without an edit. A `Cell` in `bars=` bars every member. `bars=` and
+`allow=` of parts or cells do not go together (a keepout says one side:
+declaring both is refused); `allow=` of nets still lets copper through.
+With `max_height=`, the parts named are barred whatever their height and
+every other part is judged by the height; the refusal says `M1 is barred`.
+
+```python
+board.keepout(Circle(9.0), "cup", at=PadRef(Part("j1"), "1"),
+              excludes=(Forbid.PARTS,), bars=(Part("m1"),),
+              why="a part mounted off the board sits over it")
+```
+
+A cell meets a keepout member by
 member: each member is let in by its own name in `allow=` or its own height,
 and the cell is refused only when a member that is not let in
 sits over the region (the refusal names it: `its member L1 sits in the

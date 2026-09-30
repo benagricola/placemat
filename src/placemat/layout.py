@@ -319,6 +319,7 @@ class PlacedKeepout:
     why: str
     max_height: float | None = None     # the keepout's own max_height=, for its drawn label
     admitted: frozenset = frozenset()   # the parts owners admits by height alone, a subset of owners
+    barred: frozenset = frozenset()     # the parts a bars= keepout keeps out; every other part is in owners
 
 
 @dataclass
@@ -1520,7 +1521,7 @@ class Board:
 
     def keepout(self, shape, name: str, *, at=None, rotation=None, margin: float | None = None,
                 excludes=None, allow=(), layers=None, max_height: float | None = None,
-                why: str = "") -> KeepoutIntent:
+                bars=(), why: str = "") -> KeepoutIntent:
         """A region that forbids. By default nothing may sit, fill, route, via
         or pad there on any copper layer the board has; `excludes` narrows
         what and `layers` narrows where. `allow` names the parts that may sit
@@ -1528,7 +1529,11 @@ class Board:
         an antenna's clearance holds its own matching network, and naming
         those parts' nets would admit every part that shares one.
         `max_height` (a parts keepout) admits every part no taller, by its
-        `Pm.Height`; a part with none counts as taller. `rotation=` is a
+        `Pm.Height`; a part with none counts as taller. `bars` (Parts and
+        Cells) is the other way round: it keeps those out and lets every
+        other part in, including one added to the board later; it does not
+        go with `allow=` of parts or cells, and with `max_height` the parts
+        it names are barred whatever their height. `rotation=` is a
         number, or `Turned(part, degrees)` to turn with a part already on
         the board, the same as a place() does.
 
@@ -1562,6 +1567,17 @@ class Board:
         if max_height is not None and "parts" not in (excludes if excludes is not None else ("parts",)):
             raise ValueError("keepout %r: max_height admits parts by height, so it is for a keepout that "
                              "excludes parts" % name)
+        bars = tuple(bars)
+        if bars:
+            if any(not isinstance(a, (Part, Cell)) for a in bars):
+                raise TypeError("keepout %r: bars= names parts or cells, not %r"
+                                % (name, next(a for a in bars if not isinstance(a, (Part, Cell)))))
+            if any(isinstance(a, (Part, Cell)) for a in allow):
+                raise ValueError("keepout %r: a keepout says one side. bars= names what it keeps out, allow= of "
+                                 "parts or cells what it lets in; give one (allow= of nets goes with either)"
+                                 % name)
+            if "parts" not in (excludes if excludes is not None else ("parts",)):
+                raise ValueError("keepout %r: bars= names parts, so it is for a keepout that excludes parts" % name)
         if name in self._keepouts:
             raise ValueError("there is already a keepout named %r on this board" % name)
         area = getattr(shape, "area", None)
@@ -1580,7 +1596,7 @@ class Board:
                     else ("parts", "fill", "tracks", "vias", "pads"),
                     tuple(allow),
                     None if layers is None else tuple(CopperLayer.of(l) for l in layers), why,
-                    None if max_height is None else float(max_height), region_of)
+                    None if max_height is None else float(max_height), region_of, bars)
         self._keepouts[name] = k
         if region_of is not None:
             needs = frozenset([self._pad_ref(region_of)[0]])   # waits for the item, like a keepout at its pad
@@ -4291,20 +4307,23 @@ class Board:
                 nets = frozenset(self.geometry.require_net(a) for a in k.allow if isinstance(a, Net))
                 owners = frozenset(fp.ref for a in k.allow if isinstance(a, (Part, Cell))
                                    for fp in members_of(self._item(a)[0]))      # every member: KiCad names each
+                barred = frozenset(fp.ref for a in k.bars for fp in members_of(self._item(a)[0]))
                 admitted = None
-                if k.max_height is not None:                    # admitted by height, as allow= admits by name
+                if k.max_height is not None or barred:          # admitted by height, as allow= admits by name
+                    # bars= admits every part on the board, read now, but the barred ones
                     admitted = frozenset(fp.ref for fp in self.geometry.footprints
-                                         if (part_height(fp) is not None and part_height(fp) <= k.max_height + 1e-9))
+                                         if fp.ref not in barred and (k.max_height is None or (
+                                             part_height(fp) is not None and part_height(fp) <= k.max_height + 1e-9)))
                 claims, layer = parts_claim(k.layers)
                 if "parts" in k.excludes and claims:
                     tall = ("; parts up to %g mm tall may sit here, and a part with no Pm.Height counts as taller"
                             % k.max_height) if k.max_height is not None else ""
                     occ.reserve(poly, "keepout %r (%s%s)" % (k.name, k.why, tall), allow=nets, owners=owners,
-                                layer=layer, admitted=admitted,
+                                layer=layer, admitted=admitted, barred=barred,
                                 copper=bool({"tracks", "fill", "vias", "pads"} & set(k.excludes)))
                 plan.keepouts[k.name] = PlacedKeepout(k.name, poly, centre, turn, k.excludes,
                                                       k.layers, nets, owners | (admitted or frozenset()), k.why,
-                                                      k.max_height, admitted or frozenset())
+                                                      k.max_height, admitted or frozenset(), barred)
                 step.note = "kept clear at %.2f, %.2f" % (centre.x, centre.y)
                 if outside:
                     step.note += "; %d of its %d points are off the board" % (outside, total)
