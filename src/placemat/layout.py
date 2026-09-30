@@ -4176,6 +4176,11 @@ class Board:
                     step_of.setdefault(fp.ref, key)
             elif isinstance(it, Footprint):
                 step_of[it.ref] = key
+        for key, it in plan._items.items():            # a spot an if-needed fab option would have cleared
+            step = next((s for s in plan.steps if s.item == key), None)
+            said = occ.needs.get(occ._geometry(it).owners) if step is not None and step.placement is None else None
+            if said:
+                plan.findings.append(Finding("needs", "%s: no spot; one would clear with %s" % (key, said)))
         for home, text in report(occ):
             key = step_of.get(home, home)
             plan.findings.append(Finding("vias", "%s: %s" % (key, text)))

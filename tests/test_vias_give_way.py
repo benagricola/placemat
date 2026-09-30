@@ -558,3 +558,26 @@ def test_a_via_another_shares_does_not_give_way():
     step = plan.step("r2")
     assert step.placement is None
     assert "cannot give way" in step.note and "shares it" in step.note, step.note
+
+
+def test_an_if_needed_tier_that_would_have_placed_is_a_needs_finding():
+    b = _shorten_board((39.1, 41.9), (19.5, 21.9), tiers={"micro": "if-needed"}, settings=_settings(**_SHORTEN_ONLY))
+    plan = b.resolve()
+    [f] = [f for f in plan.findings if f.kind == "needs"]
+    assert f.startswith("m: ") and "if-needed" in f and "micro" in f and "F-In1" in f, f
+
+
+def test_no_needs_finding_without_an_if_needed_tier():
+    b = _shorten_board((39.1, 41.9), (19.5, 21.9), settings=_settings(**_SHORTEN_ONLY))
+    plan = b.resolve()
+    assert not [f for f in plan.findings if f.kind == "needs"], list(plan.findings)
+
+
+def test_the_least_give_way_cost_counts_shorten_when_a_tier_allows_it():
+    """A scored scan skips a candidate that cannot beat the best at the
+    cheapest way; shorten is that way when it is the cheapest allowed."""
+    from placemat.giveway import least_cost
+    s = _settings(**_SHORTEN_ONLY)
+    assert least_cost(s) == s.score_via_drop
+    assert least_cost(s, {"micro": "yes"}) == s.score_via_shorten
+    assert least_cost(s, {"micro": "if-needed"}) == s.score_via_drop

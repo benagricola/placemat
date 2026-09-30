@@ -142,7 +142,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         for b in blame_keys:
             blockers[b] += count
 
-    least = giveway.least_cost(occ.settings)
+    least = giveway.least_cost(occ.settings, getattr(occ, "fab_via_tiers", None))
     best = score.best if score and hasattr(score, "best") else None
     bounded = best is not None and pick is None and accept is None     # a spot that cannot be the best is not asked
 

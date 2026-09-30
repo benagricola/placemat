@@ -391,6 +391,7 @@ class Occupancy:
         # gave way to; each item a via was taken from, as it stood before, to put back when it is
         # placed again (a part's ItemGeometry, a cell's own copper).
         self.given_way: dict = {}
+        self.needs: dict = {}               # frozenset of an item's owners -> the if-needed fab option that would have cleared its last refused spot
         self._given_by: dict = {}
         self._pristine: dict = {}
         self._pristine_copper: dict = {}

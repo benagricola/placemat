@@ -52,7 +52,7 @@ a pair).
 (the 0.57 `allow_*` booleans still read: `true` -> `"yes"`, `false` or
 absent -> `"no"`). An `"if-needed"` type is never drawn for a script's own
 `layers=`; give way's new "shorten" way may still use it, judged but never
-applied. A `min` section (`track_mm`, `clearance_mm`, `drill_mm`,
+applied, and an item it would have placed is a `needs` finding. A `min` section (`track_mm`, `clearance_mm`, `drill_mm`,
 `annular_mm`, `via_size_mm`) is checked against the board's net classes at
 the start of every run.
 

@@ -1323,7 +1323,11 @@ does not refuse the spot at once. The via tries, in turn:
   tier for the resulting via type (micro, blind or buried, by the span) is
   `"yes"`. With `"if-needed"` it is judged but never drawn: the refusal
   names the span it would have used and the fab-profile key, and never
-  applies it whatever the spot; with `"no"` it is not tried at all;
+  applies it whatever the spot. An item left with no spot that such a span
+  would have cleared is a finding of kind `needs` ("m: no spot; one would
+  clear with a micro via shortened to F-In1 (via.micro is if-needed in
+  fab-profile.json)"): setting that type to `"yes"` is the user's call.
+  With `"no"` it is not tried at all;
 - a drop only (a via of a net the board declares a `plane()` for): to be
   dropped, while each of the item's pads keeps at least `place.drops_keep`
   (0.5) of its drops, rounded up and never fewer than one. A shared drop

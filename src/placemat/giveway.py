@@ -57,11 +57,14 @@ def reach(settings) -> float:
     return settings.place_via_share + settings.place_via_move
 
 
-def least_cost(settings) -> float:
+def least_cost(settings, tiers=None) -> float:
     """The least a spot where a via must give way costs beyond its score:
-    the cheapest way these settings allow."""
+    the cheapest way these settings allow, and shorten when a via type it
+    could use is "yes" in `tiers` (the fab profile's)."""
+    shorten = any(t == "yes" for t in (tiers or {}).values())
     ways = [cost for on, cost in ((settings.place_via_share > 0, settings.score_via_share),
                                   (settings.place_via_move > 0, settings.score_via_move),
+                                  (shorten, settings.score_via_shorten),
                                   (settings.place_drops_keep < 1.0, settings.score_via_drop)) if on]
     return min(ways) if ways else 0.0
 
@@ -565,6 +568,8 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
                                            who, occ.who(hit[1].owner), drops_placed.setdefault(g.home, {}), hit[1])
             if action is None:
                 res.needs = needs
+                if needs:
+                    occ.needs[geom.owners] = needs
                 return _refused(occ, res, "%s; the via %s at (%.2f, %.2f) (%s) cannot give way: %s" % (
                     hit[0], g.net, g.centre[0], g.centre[1], _owner_name(occ, g), why_not), g.ring)
             judge.extra += list(action.shapes)
@@ -590,6 +595,8 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
                 action, why_not, needs = _give(occ, g, judge, keep, who, met, drops_now, o)
                 if action is None:
                     res.needs = needs
+                    if needs:
+                        occ.needs[geom.owners] = needs
                     return _refused(occ, res, "%s; it cannot give way: %s" % (why, why_not), o)
                 keep += list(action.shapes)
                 res.actions.append(action)
