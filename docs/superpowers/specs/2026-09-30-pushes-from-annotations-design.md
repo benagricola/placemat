@@ -20,14 +20,12 @@ parts, in the capture.
 
 ## Design
 
-**The source as a footprint.** A source that is physically present but
-not an electrical part, such as a case-mounted magnet, is drawn as a
-footprint:
-- its outline (the magnet's disc on a fab or user layer);
-- the pads it lands on, if any;
-- its source point in its own frame (below).
-
-It is placed like any part. The push follows it as it moves or turns.
+**The source as a footprint.** placemat reads a source from any footprint
+that carries `Pm.Emits`, wherever the footprint came from. A source that is
+not an electrical part (a case-mounted magnet) is drawn by the board's own
+project as a footprint: its outline, the pads it lands on, and its source
+point in its own frame. Drawing it is the project's work, not placemat's.
+Placed like any part, it carries its push as it moves or turns.
 
 **Annotations.** Two new `Pm.*` keys, forwarded into footprint fields like
 the others (capture.md):
