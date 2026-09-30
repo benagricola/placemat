@@ -5,6 +5,12 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+A keepout that excludes parts only no longer judges a cell's own tracks
+and pours: a cell whose members are let in or stand outside it, with its
+own copper inside, is placed where it was refused.
+
 ## To 0.57.1
 
 A carried via shares only another item's via, and a via another shares

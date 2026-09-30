@@ -932,7 +932,9 @@ and the cell is refused only when a member that is not let in
 sits over the region (the refusal names it: `its member L1 sits in the
 reservation for ...: L1 is 1.8 mm`), so a rigid cell may cross a height band
 with its low members. `Cell(...)` in `allow=` names every member. The cell's
-own tracks and pours are let in only with every member. `board.height_of(part)` and
+own tracks and pours are judged only by a keepout that excludes copper
+(`"tracks"`, `"fill"`, `"vias"` or `"pads"`), and there are let in only with
+every member; a parts-only keepout leaves them be. `board.height_of(part)` and
 `placemat parts` give a part's height.
 
 **When it is settled.** With the firm items, in dependency order, so a

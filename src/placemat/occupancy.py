@@ -97,6 +97,7 @@ class Reservation:
     owners: frozenset[str] = frozenset()
     source: str = ""                # what put it here, so a re-commit can replace its own
     admitted: frozenset | None = None   # a height-limited region: the parts short enough to sit in it
+    copper: bool = True             # whether it keeps copper out too: a parts-only keepout leaves a cell's own be
 
     @functools.cached_property
     def box(self) -> Box:
@@ -781,14 +782,14 @@ class Occupancy:
 
     # ------------------------------------------------------------ mutation
     def reserve(self, region, why: str, allow=(), layer: CopperLayer | None = None, owners=(),
-                source: str = "", admitted=None):
+                source: str = "", admitted=None, copper: bool = True):
         """Keep a region clear. `region` is a Box or a polygon. `source` names
         what put it there, so committing that thing again replaces its own
         regions instead of leaving the old ones behind."""
         poly = box_polygon(region) if isinstance(region, Box) else tuple(tuple(p) for p in region)
         self.reservations.append(Reservation(poly, why, frozenset(str(n) for n in allow),
                                              layer, frozenset(str(o) for o in owners), source,
-                                             None if admitted is None else frozenset(admitted)))
+                                             None if admitted is None else frozenset(admitted), copper))
 
     def _parts_of(self, geom) -> set:
         """The parts an item is: its own refdes, or a cell's members'."""
@@ -812,12 +813,13 @@ class Occupancy:
     def judged(self, r: Reservation, geom) -> list:
         """Which of a cell's `parts` a reservation judges: each member not let
         in by its own name or height, and the cell's own copper, which
-        has no height (a height-limited region leaves it be) and is let
-        through by its own net."""
+        has no height (a height-limited region leaves it be), is let
+        through by its own net, and is not judged by a region that keeps
+        out parts only."""
         n = len(geom.part_refs)
         own = [s for s in geom.shapes if s.owner in geom.owners and s.owner not in geom.part_refs]
         out = [k for k in range(n) if not self._member_let_in(r, geom.part_refs[k])]
-        if r.admitted is None:
+        if r.admitted is None and r.copper:
             out += [n + j for j, s in enumerate(own[:len(geom.parts) - n]) if not (s.net and s.net in r.allow)]
         return out
 

@@ -3947,7 +3947,8 @@ class Board:
                     tall = ("; parts up to %g mm tall may sit here, and a part with no Pm.Height counts as taller"
                             % k.max_height) if k.max_height is not None else ""
                     occ.reserve(poly, "keepout %r (%s%s)" % (k.name, k.why, tall), allow=nets, owners=owners,
-                                layer=layer, admitted=admitted)
+                                layer=layer, admitted=admitted,
+                                copper=bool({"tracks", "fill", "vias", "pads"} & set(k.excludes)))
                 plan.keepouts[k.name] = PlacedKeepout(k.name, poly, centre, turn, k.excludes,
                                                       k.layers, nets, owners | (admitted or frozenset()), k.why)
                 step.note = "kept clear at %.2f, %.2f" % (centre.x, centre.y)

@@ -136,3 +136,35 @@ def test_the_sweep_counts_each_refused_member_as_its_own():
         blame = []
         assert reason() == occ.legal(cell, Placement(Location(x, y), 0.0, Face.FRONT), others=list(others), blame=blame)
         assert blame[0].owner == blocker[1]
+
+
+def _keepout_over_own_track(excludes):
+    """Cell k: U1, which the keepout allows by name, and S1, which it does
+    not, both outside it, and a track of the cell's own on F.Cu inside it."""
+    from placemat.board_geometry import CopperItem
+    from placemat.cutouts import Circle
+    from placemat.layout import Board
+    from placemat.values import Cell, CopperLayer, Part
+    from tests.fixtures import rect
+    poly = rect(26.0, 20.0, 3.0, 0.3)
+    track = CopperItem("track", "B", frozenset([CopperLayer.F]), (poly,), Box.of_points(poly), "k", 0.3)
+    fps = [footprint("U1", 20, 20, w=2, h=1, inst="k.u1", cell="k", nets=("A", "B")),
+           footprint("S1", 20, 24, w=2, h=1, inst="k.s1", cell="k", nets=("C", "D"))]
+    b = Board(board_geometry(fps, cells=["k"], copper=[track], width=50, height=50), edge_margin=0.5,
+              keep_going=True)
+    b.keepout(Circle(2.0), "roof", at=Location(26, 20), excludes=excludes, layers=(CopperLayer.F,),
+              allow=(Part("k.u1"),), why="low parts only")
+    centre = b.geometry.cells["k"].box.center
+    b.place(Cell("k"), at=Location(centre.x, centre.y))
+    return b.resolve()
+
+
+def test_a_parts_only_keepout_leaves_a_cells_own_copper_be():
+    """It keeps parts out; copper is not what it excludes."""
+    plan = _keepout_over_own_track(("parts",))
+    assert not [f for f in plan.findings if "own copper" in f], list(plan.findings)
+
+
+def test_a_keepout_of_tracks_still_judges_a_cells_own_copper():
+    plan = _keepout_over_own_track(("parts", "tracks"))
+    assert [f for f in plan.findings if "own copper" in f], list(plan.findings)
