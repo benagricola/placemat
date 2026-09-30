@@ -233,13 +233,24 @@ def _native_move_offsets(judge: "_Judge", ring, hole, offsets: tuple) -> list | 
     if entry is None:
         return None
     index, shapes = entry
+    # The same via against the same scan's board, with the same vias set aside, has the same clear
+    # offsets: a via already placed meets many candidates in one scan, so the search runs once for it.
+    # A via that moves with the candidate is at a new spot each time, so its key never repeats.
+    key = (ring.poly, None if hole is None else hole.poly, frozenset(judge.hidden), judge.clearance, offsets)
+    cache = judge.others.__dict__.setdefault("_clear_offsets", {})
+    hit = cache.get(key)
+    if hit is not None:
+        return list(hit)
     from .occupancy import _to_native_shape
     occ = judge.occ
     py_shapes = [_to_native_shape(x, occ._footprint_refs, occ._leads, occ._margins)
                 for x in ((ring,) if hole is None else (ring, hole))]
     skip = [i for i, s in enumerate(shapes) if s.carried and s.carried in judge.hidden] if judge.hidden else []
     clear = index.first_clear_offset(py_shapes, list(offsets), judge.clearance, False, skip)
-    return [offsets[i] for i in clear]
+    found = tuple(offsets[i] for i in clear)
+    if len(cache) < occ.settings.place_via_clear_cache:
+        cache[key] = found
+    return list(found)
 
 
 class _Judge:

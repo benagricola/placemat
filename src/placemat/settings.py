@@ -63,6 +63,7 @@ class Settings:
     place_via_share: float = 1.0        # a carried via meeting another net's copper may share a same-net via this close (giveway.py); 0: never
     place_via_move: float = 0.5         # or move this far to clear it; 0: never
     place_via_move_step: float = 0.05   # the grid a via's move is searched on
+    place_via_clear_cache: int = 4096   # a scan keeps this many placed vias' clear moves, each searched once
     place_drops_keep: float = 0.5       # the share of a pad's drops it keeps, rounded up, never fewer than one (Drops.MIN); a carried drop is dropped only while its pad keeps this share; 1: never
     place_split_min_group: int = 2      # the least members a group needs to count, in a cell's split finding (splits.py)
     # [copper]
@@ -291,7 +292,7 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 # from this table because weighting a dimension at nothing is a real choice.
 _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_coarse_from", "place_coarse_steps",
-    "place_refine_around", "place_block_gap_step", "place_block_gap_reach", "place_escape_depth", "score_escape_depth", "place_via_move_step",
+    "place_refine_around", "place_block_gap_step", "place_block_gap_reach", "place_escape_depth", "score_escape_depth", "place_via_move_step", "place_via_clear_cache",
     "place_conflict_gap", "place_fit_room", "copper_bridge_half", "copper_finger_bridge_width",
     "copper_plane_min_thickness", "copper_pour_stroke", "copper_microvia_drill", "label_size",
     "label_thickness", "geometry_arc_sag", "geometry_index_cells",

@@ -603,3 +603,38 @@ def test_the_least_give_way_cost_counts_shorten_when_a_tier_allows_it():
     assert least_cost(s) == s.score_via_drop
     assert least_cost(s, {"micro": "yes"}) == s.score_via_shorten
     assert least_cost(s, {"micro": "if-needed"}) == s.score_via_drop
+
+
+def test_a_placed_vias_clear_moves_are_searched_once_per_scan():
+    """The same via, against the same scan's board with the same vias set
+    aside, is asked once: a second candidate that meets it reuses the
+    answer."""
+    import types
+    from placemat import giveway
+    from placemat.occupancy import ShapeIndex
+    from placemat.settings import Settings
+
+    calls = []
+
+    class Index:
+        def first_clear_offset(self, shapes, offsets, clearance, say, skip):
+            calls.append(1)
+            return [0, 2]
+
+    others = ShapeIndex([])
+    others._native = (Index(), [])
+    occ = types.SimpleNamespace(_footprint_refs=frozenset(), _leads=frozenset(), _margins={},
+                                settings=Settings())
+    judge = types.SimpleNamespace(occ=occ, others=others, hidden={"m via 0"}, clearance=0.2)
+    from placemat.occupancy import Shape
+    poly = circle_polygon(Location(10, 10), 0.225)
+    ring = Shape("m", "through", frozenset([Face.FRONT, Face.BACK]), frozenset([F, B]), "GND", poly,
+                 Box.of_points(poly), carried="m via 0", points=((10.0, 10.0),))
+    offsets = ((0.05, 0.0), (0.0, 0.05), (-0.05, 0.0))
+    first = giveway._native_move_offsets(judge, ring, None, offsets)
+    again = giveway._native_move_offsets(judge, ring, None, offsets)
+    assert first == again == [(0.05, 0.0), (-0.05, 0.0)]
+    assert len(calls) == 1
+    judge.hidden = {"m via 0", "n via 1"}                 # another via set aside: a different board
+    giveway._native_move_offsets(judge, ring, None, offsets)
+    assert len(calls) == 2
