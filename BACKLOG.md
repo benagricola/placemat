@@ -5,14 +5,16 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## In progress
 
+- **Vias that give way** (spec `2026-09-30-plane-drops-and-the-far-face-design.md`,
+  approved 2026-09-30; plan `2026-09-30-vias-that-give-way.md`): share,
+  move, drop; `drops=` on place(); a via's layer span.
+- **The current-path check with one carrier** (owner: say it can't judge,
+  2026-09-30): a lone carrier was judged to the widest-joined capacitor.
 ## Open
 
 - **A cell placed by a member's footprint origin** (fairing 2026-09-30): a
   winding's arc centre on the disc centre; `Pin` needs a pad and a cell's
   Location is its box centre.
-- **Plane drops and the far face** (fairing 2026-09-30; needs a spec): a via
-  layer span for one-deep laser blind vias carried by a cell's drops, and a
-  drop landing on a same-net far-face pad or via scored as shared.
 - **A linked chain waits link by link past its priority** (fairing
   2026-09-30, observed): each cell of a chain waits for the previous and is
   searched after smaller cells took the room, its priority set aside.
@@ -21,10 +23,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **The fragment each stamped part came from, in `parts`** (PLACEMAT_GAPS
   2026-09-29 "which fragment a nested module's parts came from"), or
   "ignored: ancestor authoritative".
-- **The current-path check following the load path** (PLACEMAT_GAPS
-  2026-09-29 "measures a branch, not the load path"; needs a spec): source
-  to load between the parts that carry the current, or a path the script
-  names.
 - **A finding when a 3D model's box does not sit over the footprint's pads**
   (PLACEMAT_GAPS 2026-09-29 "a footprint's 3D model transform"; the path and
   transform are in `measure` now): needs the model file's own extents.
@@ -36,6 +34,18 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   a load running in a zone lane be judged.
 - **A plug on another board against a receptacle here** (owner: spec later,
   2026-09-30; PLACEMAT_GAPS 2026-09-27, twice): pad-to-pad nets across two board files and a turn.
+## Housekeeping (left for Ben: outside this repository)
+
+- `mnb-ecosystem/pyproject.toml` points placemat at the stale
+  `~/work/placemat-greenfield`; the `placemat-check` and
+  `placemat-greenfield` worktrees are stale.
+
+## Done
+
+- **The fairing core's 0.56.1 bugs** (0.56.2): an overhang on a shaped
+  board's run; a run's point at its own end; a copper finding measuring a
+  via as its circle; findings naming the board's own layers; a refusal's
+  copper count naming whose copper and which net.
 - **Riders, Inside, one land, explicit router pairs; the skill rewritten**
   (0.56.1; spec `2026-09-29-remaining-backlog-design.md`): a firm placement
   on a searched item rides its search; `keepout(Inside(Part))`;
