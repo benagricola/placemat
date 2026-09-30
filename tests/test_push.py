@@ -11,7 +11,7 @@ from tests.fixtures import board_geometry, footprint
 def _board():
     fps = [footprint("M1", 10, 10, w=4, h=4, inst="m1", nets=("A", "GND")),
            footprint("U2", 30, 30, w=2, h=2, inst="u2", nets=("SIG", "GND"))]
-    return Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    return Board(board_geometry(fps, width=60, height=60), edge_margin=1.0, keep_going=True)
 
 
 def test_push_needs_a_place_declaration_first():
@@ -71,3 +71,58 @@ def test_a_pushed_item_waits_for_its_source_when_both_are_searched():
     assert m1_intent.needs == frozenset()
     u2_intent = next(i for i in b._intents if i.key == "u2")
     assert u2_intent.needs == frozenset({"M1"})
+
+
+def test_a_firm_spot_inside_the_hard_limit_is_refused():
+    b = _board()
+    b.place(Part("m1"), at=Location(10, 10))
+    # the disc's radius: 13.5 * (3.2 / 0.3) ** (1/3) ~= 29.7 mm - anywhere on this 60x60 board
+    # is inside it, so a firm spot a few mm from m1 is refused
+    b.place(Part("u2"), at=Location(14, 10))
+    b.push(Part("u2"), from_=Part("m1"), falloff=3, reference=(13.5, 3.2), limit=0.3)
+    plan = b.resolve()
+    findings = [f for f in plan.findings if "u2" in f]
+    assert any("push from m1" in f and "limit 0.3" in f for f in findings), findings
+
+
+def test_the_disc_radius_follows_the_formula():
+    b = _board()
+    b.place(Part("m1"), at=Location(10, 10))
+    b.place(Part("u2"), at=Location(15, 10))     # 5 mm from m1, clear of its courtyard, inside any sane disc
+    b.push(Part("u2"), from_=Part("m1"), falloff=3, reference=(13.5, 3.2), limit=0.3)
+    plan = b.resolve()
+    radius = 13.5 * (3.2 / 0.3) ** (1.0 / 3.0)
+    assert radius == pytest.approx(29.71, rel=0.01)
+    findings = [f for f in plan.findings if "u2" in f]
+    assert any(("%.3g" % radius) in f for f in findings), findings
+
+
+def test_falloff_changes_the_disc_radius():
+    b3 = _board()
+    b3.place(Part("m1"), at=Location(10, 10))
+    b3.place(Part("u2"), at=Location(15, 10))
+    b3.push(Part("u2"), from_=Part("m1"), falloff=3, reference=(13.5, 3.2), limit=0.3)
+    plan3 = b3.resolve()
+    b1 = _board()
+    b1.place(Part("m1"), at=Location(10, 10))
+    b1.place(Part("u2"), at=Location(15, 10))
+    b1.push(Part("u2"), from_=Part("m1"), falloff=1, reference=(13.5, 3.2), limit=0.3)
+    plan1 = b1.resolve()
+    r1 = next(f for f in plan1.findings if "u2" in f)
+    r3 = next(f for f in plan3.findings if "u2" in f)
+    assert r1 != r3    # different formula, different radius, different sentence
+
+
+def test_every_other_part_is_still_let_in():
+    """The disc is reserved against the pushed item alone: a different part
+    may stand inside it, right beside the source."""
+    fps = [footprint("M1", 10, 10, w=4, h=4, inst="m1", nets=("A", "GND")),
+           footprint("U2", 30, 30, w=2, h=2, inst="u2", nets=("SIG", "GND")),
+           footprint("R1", 18, 10, w=1, h=1, inst="r1", nets=("A", "B"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.place(Part("m1"), at=Location(10, 10))
+    b.place(Part("u2"))
+    b.push(Part("u2"), from_=Part("m1"), falloff=3, reference=(13.5, 3.2), limit=0.3)
+    b.place(Part("r1"), at=Location(18, 10))     # clear of m1's own courtyard, well inside u2's disc
+    plan = b.resolve()
+    assert not any("r1" in f for f in plan.findings), plan.findings

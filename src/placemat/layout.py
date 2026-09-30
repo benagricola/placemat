@@ -2793,6 +2793,33 @@ class Board:
         off (escapes.py). See `Scorer`."""
         return Scorer(self.settings, item, occ, targets, prune)
 
+    def _push_source_point(self, occ: Occupancy, plan: Plan, source) -> Location:
+        """Where a push's source sits, once it is placed: a keepout's own
+        centre for a name, else wherever _locate finds a Part, Cell, PadRef
+        or Location."""
+        if isinstance(source, str):
+            return plan.keepouts[source].centre
+        return _locate(self, occ, source)
+
+    def _reserve_pushes(self, occ: Occupancy, plan: Plan, i: PlaceIntent) -> list:
+        """Each push's source point, resolved now (it is placed by then,
+        `needs` sees to that), and its hard-limit disc reserved against
+        this item alone: every OTHER part is named in owners, so nothing
+        else is fenced by it (Reservation.owners / let_in, occupancy.py)."""
+        own = {fp.ref for fp in members_of(i.item)}
+        others = frozenset(fp.ref for fp in self.geometry.footprints) - own
+        tag_prefix = "push:%s:" % i.key
+        occ.reservations = [r for r in occ.reservations if not r.source.startswith(tag_prefix)]
+        resolved = []
+        for n, p in enumerate(i.pushes):
+            point = self._push_source_point(occ, plan, p.source)
+            radius = p.r_ref * (p.v_ref / p.limit) ** (1.0 / p.falloff)
+            why = "push from %s (limit %.3g at %.3g mm)%s" % (
+                _push_source_label(p.source), p.limit, radius, (": %s" % p.why) if p.why else "")
+            occ.reserve(_circle(point, radius), why, owners=others, copper=False, source=tag_prefix + str(n))
+            resolved.append((point, p))
+        return resolved
+
     def _report_undeclared(self, plan: Plan):
         """A footprint no declaration places - itself, or as a cell's or a
         block's member - stays where the generator put it: say which."""
@@ -5860,6 +5887,7 @@ class Board:
         if i.kind == "block":
             return self._settle_block(occ, i, plan, placed)
         clr = self.clearance
+        push_sources = self._reserve_pushes(occ, plan, i) if i.pushes else []
         if i.freedom.decided:
             p, chose = self._firm_placement(occ, plan, i)
             # its carried vias, and those of the items placed before it, may give way (giveway.py):
@@ -6046,6 +6074,22 @@ def _circle(centre: Location, radius: float, segments: int = 72) -> tuple:
     return tuple((round(centre.x + bearing_vector(360.0 * n / segments)[0] * radius, 6),
                   round(centre.y + bearing_vector(360.0 * n / segments)[1] * radius, 6))
                  for n in range(segments))
+
+
+def _push_source_label(source) -> str:
+    if isinstance(source, str):
+        return "keepout %r" % source
+    if isinstance(source, PadRef):
+        return "%s pad %s" % (source.part, source.key)
+    if isinstance(source, Location):
+        return _loc(source)
+    return str(source)          # Part or Cell: their own __str__ is their key
+
+
+def _push_value(source_point: Location, point: Location, push: "Push") -> tuple:
+    """(value, r) for a push at distance r from its source to `point`."""
+    r = max(source_point.distance(point), 1e-6)
+    return push.v_ref * (push.r_ref / r) ** push.falloff, r
 
 
 def _as_point(value) -> Location:
