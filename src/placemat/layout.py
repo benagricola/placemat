@@ -3343,13 +3343,13 @@ class Board:
         self._allow_via_type(name, span)
         return span
 
-    def _check_flips(self, occ) -> None:
-        """Refuse a flip that lands an item's inner copper on a layer of
-        another role. A flip mirrors inner layers through the stack, as KiCad
-        flips them; on a stackup that is not symmetric a power pour on In2
-        lands on In3. A piece of net N moving from layer S to D is refused
-        when S and D differ in KiCad's layer type, or when N's standing
-        differs between them: its own plane there, another net's, or none."""
+    def _flip_notes(self, occ) -> dict:
+        """{cell: note} for each cell with a via that reaches a face and whose
+        inner end, once the cell is flipped, may no longer join its net. A
+        flip keeps a cell's inner copper on its layer but mirrors such a via
+        (F-In1 becomes B-In4), so its inner end moves. It still joins when
+        both layers are of one KiCad layer type and hold the via net's own
+        plane. Noted on the cell's step when it lands on the back."""
         types = self.geometry.layer_types
         planes: dict = {}
         for net, layers in self._planes_declared:
@@ -3364,34 +3364,37 @@ class Board:
             nets = planes.get(layer, set())
             return "its own plane" if net in nets else ("another net's plane" if nets else "no plane")
 
-        stack = set(self.geometry.layers)
-        for i in self._placements():
-            face = getattr(i, "face", None)
-            if face is None or getattr(i, "kind", "") == "block":
+        def inner_end(span):
+            inner = sorted((l for l in span if l.face is None), key=stackup_order)
+            return inner[-1] if CopperLayer.F in span else inner[0]
+
+        def ends(span):
+            ordered = sorted(span, key=stackup_order)
+            return "%s-%s" % (ordered[0].value, ordered[-1].value)
+
+        stack = frozenset(self.geometry.layers)
+        out: dict = {}
+        for c in self.geometry.copper:
+            if c.kind != "via" or c.owner not in self.geometry.cells or not c.layers or stack <= c.layers:
                 continue
-            geom, key, kind = self._item(i.item)
-            if occ._geometry(geom).reference.face is face:
+            if not c.layers & {CopperLayer.F, CopperLayer.B} or not any(l.face is None for l in c.layers):
                 continue
-            if kind == "cell":
-                pieces = [(c.net, l) for c in self.geometry.copper if c.owner == key and c.kind != "pad"
-                          and not stack <= set(c.layers) for l in c.layers if l.face is None]
+            flipped = occ._flip_span(c.layers)
+            s_layer, d_layer = inner_end(c.layers), inner_end(flipped)
+            ts, td = types.get(s_layer), types.get(d_layer)
+            if ts and td and ts != td:
+                why = "a %s layer onto a %s one" % (ts, td)
+            elif standing(s_layer, c.net) != "its own plane" or standing(d_layer, c.net) != "its own plane":
+                why = "%s onto %s" % (standing(s_layer, c.net), standing(d_layer, c.net))
             else:
-                pieces = [(("", l)) for l, _ in getattr(geom, "copper", ()) if l.face is None]
-            for net, s_layer in sorted(set(pieces), key=lambda p: (p[0], p[1].value)):
-                (d_layer,) = occ._flip_layers(frozenset([s_layer]))
-                if d_layer is s_layer:
-                    continue
-                ts, td = types.get(s_layer), types.get(d_layer)
-                if ts and td and ts != td:
-                    why = "a %s layer onto a %s one" % (ts, td)
-                elif standing(s_layer, net) != standing(d_layer, net):
-                    why = "%s onto %s" % (standing(s_layer, net), standing(d_layer, net))
-                else:
-                    continue
-                raise ValueError(
-                    "%s: flipping it to the %s face mirrors its %s copper on %s to %s (%s): this stackup is "
-                    "not symmetric there. Keep it on its own face, or lay it out for that face"
-                    % (key, face.value, net or "graphic", s_layer.value, d_layer.value, why))
+                continue
+            said = ("flipped, its %s via %s becomes %s: its inner end moves from %s to %s (%s), while the "
+                    "cell's own copper there stays" % (c.net, ends(c.layers), ends(flipped), s_layer.value,
+                                                       d_layer.value, why))
+            notes = out.setdefault(c.owner, [])
+            if said not in notes:
+                notes.append(said)
+        return {k: "; ".join(v) for k, v in out.items()}
 
     def _check_stamped_via_types(self) -> None:
         """A via a stamped cell brings (or one already on the board) that
@@ -3808,7 +3811,7 @@ class Board:
                         board_cutouts=self._cutouts, settings=self.settings,
                         component_spacing=self.component_spacing)
         self._check_stamped_via_types()     # a fragment's vias the fab profile does not allow fail the run
-        self._check_flips(occ)              # a flip that lands inner copper on a layer of another role
+        self._flip_said = self._flip_notes(occ)     # a flipped cell's via whose inner end changes role
         self._carry_pad_vias(occ)          # before any cell's geometry is built from its members'
         thinned = self._thin_drops(occ)    # likewise: a cell's geometry takes its fields as thinned
         occ.quiet_nets = frozenset(self._plane_nets() | set(self._free_nets))
@@ -4242,6 +4245,9 @@ class Board:
         drops = self.__dict__.get("_drops_notes", {}).get(i.key)
         if drops:
             note = "%s; %s" % (note, drops) if note else drops
+        flip = self.__dict__.get("_flip_said", {}).get(i.key)
+        if flip and getattr(placement, "face", None) is Face.BACK:
+            note = "%s; %s" % (note, flip) if note else flip
         return Step(i.key, i.kind, None if i.freedom.decided else i.priority, placement, moved_mm, note, i.why,
                     freedom=i.freedom, rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
 

@@ -72,10 +72,44 @@ def _move_cell(board, cell: CellGeom, target: Placement, groups: dict):
         if isinstance(it, pcbnew.PCB_GROUP):
             continue        # a nested cell is its own: the plan's cell holds only its own parts and copper
         if flip:
-            it.Flip(pivot, pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
+            _flip_keeping_inner(it, pivot)
         if target.rotation:
             it.Rotate(pivot, angle)
         it.Move(delta)
+
+
+def _flip_keeping_inner(it, pivot) -> None:
+    """KiCad's flip of one of a cell's own items, with its inner copper put
+    back on the layer it was drawn on: F and B swap, In1..In4 stay, so the
+    module keeps the layer roles it was laid out for. This diverges from
+    KiCad, whose flip mirrors inner layers through the stack. A via that
+    reaches a face keeps KiCad's mirror (F-In1 becomes B-In4); a buried one
+    keeps its layers. A footprint flips as KiCad flips it: it is one part
+    drawn for a face, so its whole stack mirrors."""
+    if isinstance(it, pcbnew.FOOTPRINT):
+        it.Flip(pivot, pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
+        return
+    inner = pcbnew.IsInnerCopperLayer
+    if isinstance(it, pcbnew.PCB_VIA):
+        pair = (it.TopLayer(), it.BottomLayer())
+        it.Flip(pivot, pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
+        if all(inner(l) for l in pair):
+            it.SetLayerPair(*pair)
+        return
+    if isinstance(it, pcbnew.ZONE):
+        kept = [l for l in it.GetLayerSet().CuStack() if inner(l)]
+        it.Flip(pivot, pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
+        if kept:
+            ls = pcbnew.LSET(it.GetLayerSet())
+            ls.RemoveLayerSet(pcbnew.LSET.InternalCuMask())
+            for l in kept:
+                ls.AddLayer(l)
+            it.SetLayerSet(ls)
+        return
+    layer = it.GetLayer()
+    it.Flip(pivot, pcbnew.FLIP_DIRECTION_LEFT_RIGHT)
+    if inner(layer):
+        it.SetLayer(layer)
 
 
 def _thin_cell(board, group, gone) -> None:

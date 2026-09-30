@@ -121,14 +121,14 @@ def test_the_native_judge_agrees_on_the_hole_rule_between_spans():
         assert placemat_native.conflict(_py_shape(back, False), _py_shape(other, False), None, **cfg) == py
 
 
-def test_a_flip_mirrors_a_span_through_the_stack_as_kicad_does():
-    """KiCad's own flip of a via: B-In4 to F-In1, B-In2 to F-In3, In1-In2
-    to In3-In4 on six layers."""
+def test_a_flip_mirrors_a_span_that_reaches_a_face_as_kicad_does():
+    """KiCad's own flip of a via: B-In4 to F-In1, B-In2 to F-In3. A buried
+    via (In1-In2) keeps its layers, as a cell's inner copper does."""
     occ = Occupancy(_six([], width=30, height=30), edge_margin=0.5)
-    assert occ._flip_layers(frozenset((B, IN4))) == frozenset((F, IN1))
-    assert occ._flip_layers(frozenset((B, IN4, IN3, IN2))) == frozenset((F, IN1, IN2, IN3))
-    assert occ._flip_layers(frozenset((IN1, IN2))) == frozenset((IN3, IN4))
-    assert occ._flip_layers(frozenset(CopperLayer)) == frozenset(CopperLayer)
+    assert occ._flip_span(frozenset((B, IN4))) == frozenset((F, IN1))
+    assert occ._flip_span(frozenset((B, IN4, IN3, IN2))) == frozenset((F, IN1, IN2, IN3))
+    assert occ._flip_span(frozenset((IN1, IN2))) == frozenset((IN1, IN2))
+    assert occ._flip_span(frozenset(CopperLayer)) == frozenset(CopperLayer)
 
 
 def test_a_carried_via_keeps_its_declared_span_on_a_flipped_part():

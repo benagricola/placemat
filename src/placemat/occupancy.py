@@ -543,18 +543,36 @@ class Occupancy:
         return t.then(Transform.translate(placement.location.x, placement.location.y))
 
     def _flip_layers(self, layers: frozenset[CopperLayer]) -> frozenset[CopperLayer]:
-        """The layers an item's copper stands on once it is flipped: F and B
-        swap, and the board's inner layers mirror through the stack (In1 and
-        the last inner layer swap), as KiCad's own flip moves a blind via's
-        span. A layer the board lacks stays as it is."""
+        """The layers a cell's own copper stands on once the cell is flipped:
+        F and B swap, and inner copper keeps its layer, so a module keeps the
+        layer roles it was laid out for. This diverges from KiCad's own flip,
+        which mirrors inner layers through the stack; the writer puts them
+        back."""
+        return frozenset(l.other_face if l in (CopperLayer.F, CopperLayer.B) else l for l in layers)
+
+    @property
+    def _all_layers(self) -> frozenset[CopperLayer]:
+        return frozenset(self.geometry.layers)
+
+    def _mirror_layers(self, layers: frozenset[CopperLayer]) -> frozenset[CopperLayer]:
+        """KiCad's own flip: F and B swap, and the board's inner layers mirror
+        through the stack (In1 and the last inner layer swap). A footprint's
+        copper flips so, being one part drawn for a face. A layer the board
+        lacks stays as it is."""
         mirror = self.__dict__.get("_inner_mirror")
         if mirror is None:
             inner = sorted((l for l in self.geometry.layers if l.face is None), key=stackup_order)
             mirror = self._inner_mirror = dict(zip(inner, reversed(inner)))
-        out = set()
-        for l in layers:
-            out.add(l.other_face if l in (CopperLayer.F, CopperLayer.B) else mirror.get(l, l))
-        return frozenset(out)
+        return frozenset(l.other_face if l in (CopperLayer.F, CopperLayer.B) else mirror.get(l, l) for l in layers)
+
+    def _flip_span(self, layers: frozenset[CopperLayer]) -> frozenset[CopperLayer]:
+        """The layers a via spans once its item is flipped. A via that reaches
+        a face mirrors through the stack, as KiCad flips it, so its face end
+        moves with the face (F-In1 becomes B-In4). A buried via keeps its
+        layers, as a cell's inner copper does."""
+        if not any(l in (CopperLayer.F, CopperLayer.B) for l in layers):
+            return layers
+        return self._mirror_layers(layers)
 
     def _flip_faces(self, faces: frozenset[Face]) -> frozenset[Face]:
         return frozenset(Face.BACK if f is Face.FRONT else Face.FRONT for f in faces)
@@ -571,13 +589,23 @@ class Occupancy:
         for s in shapes:
             poly = transform_polygon(s.poly, t)
             faces = self._flip_faces(s.faces) if (flip and len(s.faces) == 1) else s.faces
-            layers = self._flip_layers(s.layers) if flip else s.layers
+            layers = self._flipped_layers(s) if flip else s.layers
             if s.carried or s.given:
                 out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label,
                                  carried=s.carried, points=tuple(t.apply(p) for p in s.points), given=s.given))
             else:
                 out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label))
         return out
+
+    def _flipped_layers(self, s: Shape) -> frozenset[CopperLayer]:
+        """A shape's layers once its item is flipped: a footprint's mirror as
+        KiCad flips them, a via that spans some layers by `_flip_span`, a
+        cell's own copper by `_flip_layers`."""
+        if self.geometry.has_footprint(s.owner):
+            return self._mirror_layers(s.layers)
+        if s.kind in ("through", "hole") and s.layers and not self._all_layers <= s.layers:
+            return self._flip_span(s.layers)
+        return self._flip_layers(s.layers)
 
     def _yard(self, ref: str) -> Shape:
         """A part's courtyard where it stands now, as the courtyard envelope
