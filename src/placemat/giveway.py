@@ -265,13 +265,32 @@ def _hidden_skip(judge: "_Judge", shapes: list) -> list:
     return [i for i, s in enumerate(shapes) if s.carried and s.carried in judge.hidden] if judge.hidden else []
 
 
-def _has_net_ties(occ) -> bool:
-    """Whether any footprint is a net tie: KiCad lets its pads' nets meet other copper inside them,
-    which the native conflict rules do not model."""
-    hit = occ.__dict__.get("_net_ties")
+def _net_tie_owners(occ) -> frozenset:
+    """The refs of the footprints that are net ties: KiCad lets another net's copper meet their pads
+    inside them (`Occupancy._net_tie_exclusion`), which the native conflict rules do not model."""
+    hit = occ.__dict__.get("_net_tie_owner_set")
     if hit is None:
-        hit = occ.__dict__["_net_ties"] = any(fp.net_tie_pads for fp in occ.geometry.footprints)
+        hit = occ.__dict__["_net_tie_owner_set"] = frozenset(
+            name for fp in occ.geometry.footprints if fp.net_tie_pads for name in (fp.ref, fp.inst))
     return hit
+
+
+def _meets_net_tie(judge: "_Judge", shapes: list, box: Box, near: list) -> bool:
+    """Whether a net tie's copper lies within a conflict's reach of `box`, on the board (`shapes`,
+    a native index's backing list) or among `near` (the item's own copper and what earlier actions
+    left): where it does the native rules and `_conflict` can disagree, and Python judges."""
+    occ = judge.occ
+    tied = _net_tie_owners(occ)
+    if not tied:
+        return False
+    boxes = judge.others.__dict__.get("_net_tie_boxes")
+    if boxes is None:
+        boxes = judge.others.__dict__["_net_tie_boxes"] = [
+            x.box for x in shapes if x.owner in tied and x.kind in ("pad", "through", "copper")]
+    gap = occ._gap
+    return any(b.overlaps(box, gap=gap) for b in boxes) or \
+        any(o.owner in tied and o.kind in ("pad", "through", "copper") and o.box.overlaps(box, gap=gap)
+            for o in near)
 
 
 def _native_shape(judge: "_Judge", s):
@@ -291,11 +310,13 @@ def _native_tail_clear(judge: "_Judge", shape, own):
     judged natively; None where Python must judge it (as `_native_first_move`'s `used`)."""
     occ = judge.occ
     entry = getattr(judge.others, "_native", None)
-    if not _NATIVE_TAIL_CLEAR or entry is None or _has_net_ties(occ):
+    if not _NATIVE_TAIL_CLEAR or entry is None:
         return None
     index, shapes = entry
     gap = occ.gap_for(shape)
     near = [o for o in list(own) + judge.extra if o.box.overlaps(shape.box, gap=gap)]
+    if _meets_net_tie(judge, shapes, shape.box, near):
+        return None
     from .occupancy import _to_native_shape
     return index.tail_clear([_to_native_shape(shape, occ._footprint_refs, occ._leads, occ._margins)],
                             [_native_shape(judge, o) for o in near], judge.clearance, _hidden_skip(judge, shapes))
@@ -315,15 +336,17 @@ def _native_first_move(judge: "_Judge", g: "Group", mine: list, span: Box, offse
     of the board) at which `g`'s ring, hole and tail, moved, also clear `mine` (the item's own copper)
     and what earlier actions left, and keep the tests `_give`'s loop applies - one native call in
     place of judging each offset in Python. `used` is False where the loop must run instead: no
-    native index, the switch off, or a board whose net ties the native rules do not model.
+    native index, the switch off, or a net tie near the move, whose rules the native ones do not model.
     `first`: the copper the via first met; `pad`: the pad it must stay inside, or None; `r` its radius."""
     occ = judge.occ
     entry = getattr(judge.others, "_native", None)
-    if not _NATIVE_FIRST_MOVE or entry is None or _has_net_ties(occ) or not offsets:
+    if not _NATIVE_FIRST_MOVE or entry is None or not offsets:
         return False, None
     index, shapes = entry
-    met = _first_met(occ, g, first, judge.clearance)
     near = list(mine) + [o for o in judge.extra if o.box.overlaps(span, gap=occ._gap)]
+    if _meets_net_tie(judge, shapes, span, near):
+        return False, None
+    met = _first_met(occ, g, first, judge.clearance)
     native_mine = [_native_shape(judge, o) for o in near]
     via = [_native_shape(judge, x) for x in ((g.ring,) if g.hole is None else (g.ring, g.hole))]
     skip = _hidden_skip(judge, shapes)

@@ -535,6 +535,19 @@ def test_a_share_tail_is_the_same_judged_natively_as_by_the_loop(monkeypatch, na
     assert runs[True][2] >= 1, "no share tail was judged natively"
 
 
+def test_a_clear_offset_cache_of_no_size_gives_the_same_answers(monkeypatch):
+    from placemat import geometry
+    if geometry._native is None:
+        pytest.skip("no native module")
+    def run(cache):
+        plan = _later_board([_via("SIG", 39.1, 42.2, owner="m"),
+                             track("SIG", 39.1, 40.0, 39.1, 42.2, w=0.2, owner="m")], (19.5, 23.0), net="SIG",
+                            settings=_settings(place_via_clear_cache=cache)).resolve()
+        return [(a.kind, a.via, a.to) for a in plan.occupancy.given_way.values()], plan.step("r9").placement
+    assert run(0) == run(4096)
+    assert run(0)[0]
+
+
 def test_a_via_move_past_the_board_edge_takes_the_next_spot(monkeypatch):
     """The board's edge is judged in Python, per spot: where it refuses the nearest clear spot
     the native call is asked again from the next offset, and the same spot is taken as by the loop."""
@@ -552,22 +565,35 @@ def test_a_via_move_past_the_board_edge_takes_the_next_spot(monkeypatch):
     assert runs[True][0][0][3] != free[True][0][0][3]       # the edge moved the choice
 
 
-def test_first_move_is_not_used_on_a_board_with_a_net_tie(monkeypatch):
+def test_the_native_calls_are_not_used_where_a_net_tie_lies_near_the_move(monkeypatch):
+    """R9's pad lies beside the via: were R9 a net tie, `_conflict` could let the via meet it, which
+    the native rules do not know, so Python judges both the move and a share's tail."""
     from placemat import giveway
-    monkeypatch.setattr(giveway, "_has_net_ties", lambda occ: True)
+    monkeypatch.setattr(giveway, "_net_tie_owners", lambda occ: frozenset(["R9"]))
     runs = _first_move_runs(monkeypatch, _MOVES["a tail redrawn"])
     assert runs[True][:2] == runs[False][:2]
     assert runs[True][2] == 0
+    runs = _first_move_runs(monkeypatch, _SHARES["a tail drawn"], "_NATIVE_TAIL_CLEAR", "_native_tail_clear")
+    assert runs[True][:2] == runs[False][:2]
+    assert runs[True][2] == 0
+
+
+def test_a_net_tie_far_from_the_move_leaves_it_native(monkeypatch):
+    from placemat import giveway
+    monkeypatch.setattr(giveway, "_net_tie_owners", lambda occ: frozenset(["U9"]))
+    runs = _first_move_runs(monkeypatch, _MOVES["a tail redrawn"])
+    assert runs[True][:2] == runs[False][:2]
+    assert runs[True][2] >= 1
 
 
 def test_a_net_tie_footprint_is_seen_on_the_board():
     import dataclasses
     from placemat import giveway
     g = _moving_board((39.1, 42.2), True, (19.5, 23.0)).geometry
-    assert not giveway._has_net_ties(Occupancy(g))
+    assert giveway._net_tie_owners(Occupancy(g)) == frozenset()
     tied = tuple(dataclasses.replace(fp, net_tie_pads=frozenset(["1"])) if fp.ref == "R9" else fp
                  for fp in g.footprints)
-    assert giveway._has_net_ties(Occupancy(dataclasses.replace(g, footprints=tied)))
+    assert giveway._net_tie_owners(Occupancy(dataclasses.replace(g, footprints=tied))) == frozenset(["R9", "r9"])
 
 
 def test_a_placed_owner_keeps_its_keep_share():

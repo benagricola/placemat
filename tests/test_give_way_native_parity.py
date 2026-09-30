@@ -44,8 +44,13 @@ def _scene(rnd):
     def at(spread):
         return ox + rnd.uniform(-spread, spread), oy + rnd.uniform(-spread, spread)
     nets = ("A", "B", "C")
+    cx, cy = at(1.0)
     fps = [footprint("U1", 40, 40, w=3, h=1, inst="u1", nets=("B", "C")),
            footprint("U2", 10, 10, w=3, h=1, inst="u2", nets=("A", "B"))]
+    if rnd.random() < 0.3:                                     # a net tie by the via: its pad may be met inside it
+        tie = footprint("U3", cx + rnd.uniform(-1.5, 1.5), cy + rnd.uniform(-1.5, 1.5), w=rnd.choice([1.6, 2.4]),
+                        h=1, inst="u3", nets=("A", rnd.choice(("B", "C"))))
+        fps.append(replace(tie, net_tie_pads=frozenset(["1"])))
     g = board_geometry(fps, width=50, height=50, extra_nets=nets)
     occ = Occupancy(g, 0.5)
     board = []
@@ -63,7 +68,6 @@ def _scene(rnd):
         else:
             board.append(_pad("", x, y, rnd.uniform(0.4, 1.4), rnd.uniform(0.4, 1.4), net,
                               rnd.choice([(_F,), (_B,), (_F, _B)])))
-    cx, cy = at(1.0)
     net = "A"
     size = rnd.choice([0.45, 0.6])
     far = at(2.0) if rnd.random() < 0.7 else None
@@ -146,7 +150,7 @@ def test_give_way_decides_the_same_with_the_native_calls_as_with_the_python_loop
 
 def test_a_share_tail_is_judged_the_same_by_tail_clear_as_by_hit(monkeypatch):
     rnd = random.Random(20260931)
-    clear = blocked = 0
+    clear = blocked = native = 0
     for n in range(_CASES):
         occ, grp, judge, own, who, first = _scene(rnd)
         end = (grp.centre[0] + rnd.uniform(-1.2, 1.2), grp.centre[1] + rnd.uniform(-1.2, 1.2))
@@ -155,7 +159,74 @@ def test_a_share_tail_is_judged_the_same_by_tail_clear_as_by_hit(monkeypatch):
         monkeypatch.setattr(giveway, "_NATIVE_TAIL_CLEAR", False)
         ref = giveway._tail_hit(judge, shape, own)
         monkeypatch.setattr(giveway, "_NATIVE_TAIL_CLEAR", True)
-        assert giveway._native_tail_clear(judge, shape, own) is not None
+        native += giveway._native_tail_clear(judge, shape, own) is not None
         assert giveway._tail_hit(judge, shape, own) == ref, "case %d" % n
         clear, blocked = clear + (not ref), blocked + ref
-    assert clear >= 100 and blocked >= 100, (clear, blocked)
+    assert clear >= 100 and blocked >= 100 and native >= 500, (clear, blocked, native)
+
+
+# ------------------------------------------------------------------ the whole-board fixture
+def _placed_fixture():
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "fixtures"))
+    import bench
+    from placemat.kicad.read import read_board
+    from placemat.layout import Board
+    from placemat.values import Cell, Part
+    g = read_board(bench.BOARD_FIXTURE / "generated" / "layout.kicad_pcb")
+    written = read_board(bench.BOARD_FIXTURE / "layout" / "layout.kicad_pcb")
+    b = Board(g, keep_going=True)
+    b.outline(written.board_polygon[0], holes=written.board_polygon[1:])
+    for name, cell in sorted(g.cells.items()):
+        if cell.members:
+            b.place(Cell(name))
+    for fp in sorted(g.footprints, key=lambda f: f.inst):
+        if fp.cell is None:
+            b.place(Part(fp.inst))
+    return b.resolve()
+
+
+def _resolution(res):
+    return ([(a.kind, a.via, a.at, a.to, a.tail, a.old_tail, a.cost, a.target, a.pad) for a in res.actions],
+            res.cost, res.why, res.needs)
+
+
+def test_resolutions_at_random_spots_on_the_whole_board_fixture_match(monkeypatch):
+    from tests.conftest import _has_pcbnew
+    if not _has_pcbnew():
+        pytest.skip("pcbnew not importable")
+    from placemat.placement import Placement
+    plan = _placed_fixture()
+    occ = plan.occupancy
+    groups = list(occ.placed_groups().values())
+    placed = [s for s in plan.steps if s.placement is not None and s.kind in ("part", "cell")]
+    assert groups and placed
+    used = []
+    real = giveway._native_first_move
+
+    def counting(*a, **k):
+        out = real(*a, **k)
+        used.append(out[0])
+        return out
+    monkeypatch.setattr(giveway, "_native_first_move", counting)
+    rnd = random.Random(20260930)
+    kinds = {}
+    judged = 0
+    for n in range(_CASES):
+        grp, step = rnd.choice(groups), rnd.choice(placed)
+        item = occ.geometry.cells[step.item] if step.kind == "cell" else occ.geometry.footprint(step.item)
+        at = Location(grp.centre[0] + rnd.uniform(-4, 4), grp.centre[1] + rnd.uniform(-4, 4))
+        cand = Placement(at, rnd.choice((0.0, 90.0, 180.0, 270.0)), step.placement.face)
+        for on in (False, True):
+            monkeypatch.setattr(giveway, "_NATIVE_FIRST_MOVE", on)
+            monkeypatch.setattr(giveway, "_NATIVE_TAIL_CLEAR", on)
+            used.clear()
+            out = _resolution(giveway.resolve(occ, item, cand))
+            if not on:
+                ref = out
+        assert out == ref, "case %d" % n
+        kind = "gave way" if out[0] else "refused" if out[2] else "untouched"
+        kinds[kind] = kinds.get(kind, 0) + 1
+        judged += any(used)
+    assert kinds.get("gave way", 0) >= 50 and judged >= 100, (kinds, judged)
