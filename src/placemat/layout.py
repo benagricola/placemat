@@ -319,6 +319,7 @@ class PlacedKeepout:
     why: str
     max_height: float | None = None     # the keepout's own max_height=, for its drawn label
     admitted: frozenset = frozenset()   # the parts owners admits by height alone, a subset of owners
+    barred: frozenset = frozenset()     # the parts a bars= keepout keeps out; every other part is in owners
 
 
 @dataclass
@@ -4306,20 +4307,23 @@ class Board:
                 nets = frozenset(self.geometry.require_net(a) for a in k.allow if isinstance(a, Net))
                 owners = frozenset(fp.ref for a in k.allow if isinstance(a, (Part, Cell))
                                    for fp in members_of(self._item(a)[0]))      # every member: KiCad names each
+                barred = frozenset(fp.ref for a in k.bars for fp in members_of(self._item(a)[0]))
                 admitted = None
-                if k.max_height is not None:                    # admitted by height, as allow= admits by name
+                if k.max_height is not None or barred:          # admitted by height, as allow= admits by name
+                    # bars= admits every part on the board, read now, but the barred ones
                     admitted = frozenset(fp.ref for fp in self.geometry.footprints
-                                         if (part_height(fp) is not None and part_height(fp) <= k.max_height + 1e-9))
+                                         if fp.ref not in barred and (k.max_height is None or (
+                                             part_height(fp) is not None and part_height(fp) <= k.max_height + 1e-9)))
                 claims, layer = parts_claim(k.layers)
                 if "parts" in k.excludes and claims:
                     tall = ("; parts up to %g mm tall may sit here, and a part with no Pm.Height counts as taller"
                             % k.max_height) if k.max_height is not None else ""
                     occ.reserve(poly, "keepout %r (%s%s)" % (k.name, k.why, tall), allow=nets, owners=owners,
-                                layer=layer, admitted=admitted,
+                                layer=layer, admitted=admitted, barred=barred,
                                 copper=bool({"tracks", "fill", "vias", "pads"} & set(k.excludes)))
                 plan.keepouts[k.name] = PlacedKeepout(k.name, poly, centre, turn, k.excludes,
                                                       k.layers, nets, owners | (admitted or frozenset()), k.why,
-                                                      k.max_height, admitted or frozenset())
+                                                      k.max_height, admitted or frozenset(), barred)
                 step.note = "kept clear at %.2f, %.2f" % (centre.x, centre.y)
                 if outside:
                     step.note += "; %d of its %d points are off the board" % (outside, total)

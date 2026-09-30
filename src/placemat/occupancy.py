@@ -102,6 +102,7 @@ class Reservation:
     source: str = ""                # what put it here, so a re-commit can replace its own
     admitted: frozenset | None = None   # a height-limited region: the parts short enough to sit in it
     copper: bool = True             # whether it keeps copper out too: a parts-only keepout leaves a cell's own be
+    barred: frozenset = frozenset() # the parts a `bars=` keepout names: refused whatever their height, and said so
 
     @functools.cached_property
     def box(self) -> Box:
@@ -790,14 +791,15 @@ class Occupancy:
 
     # ------------------------------------------------------------ mutation
     def reserve(self, region, why: str, allow=(), layer: CopperLayer | None = None, owners=(),
-                source: str = "", admitted=None, copper: bool = True):
+                source: str = "", admitted=None, copper: bool = True, barred=()):
         """Keep a region clear. `region` is a Box or a polygon. `source` names
         what put it there, so committing that thing again replaces its own
         regions instead of leaving the old ones behind."""
         poly = box_polygon(region) if isinstance(region, Box) else tuple(tuple(p) for p in region)
         self.reservations.append(Reservation(poly, why, frozenset(str(n) for n in allow),
                                              layer, frozenset(str(o) for o in owners), source,
-                                             None if admitted is None else frozenset(admitted), copper))
+                                             None if admitted is None else frozenset(admitted), copper,
+                                             frozenset(barred)))
 
     def _parts_of(self, geom) -> set:
         """The parts an item is: its own refdes, or a cell's members'."""
@@ -850,6 +852,8 @@ class Occupancy:
         from .board_geometry import part_height
         if member is not None:
             why = "its member %s sits in the reservation for %s" % (member, r.why)
+            if member in r.barred:
+                return why + ": %s is barred" % member
             if r.admitted is None or member in r.admitted:
                 return why
             h = part_height(self.geometry.footprint(member))
@@ -859,6 +863,9 @@ class Occupancy:
             return why
         said = []
         for ref in sorted(self._parts_of(geom) - r.admitted):
+            if ref in r.barred:
+                said.append("%s is barred" % ref)
+                continue
             h = part_height(self.geometry.footprint(ref))
             said.append("%s has no Pm.Height" % ref if h is None else "%s is %g mm" % (ref, h))
         return why + (": " + ", ".join(said) if said else "")
