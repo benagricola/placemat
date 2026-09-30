@@ -137,3 +137,12 @@ def test_bars_with_a_height_limit_bars_the_named_whatever_their_height(inst, ref
             b.resolve()
     else:
         assert b.resolve().box(inst).center == Location(30.0, 30.0)
+
+
+def test_a_keepout_without_bars_digests_as_before_and_bars_changes_it():
+    from placemat.reuse import canonical
+    b = _board(("m1", None))
+    plain = canonical(_cup(b).keepout)
+    assert "bars" not in plain
+    b2 = _board(("m1", None))
+    assert canonical(_cup(b2, bars=(Part("m1"),)).keepout) != plain
