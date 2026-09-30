@@ -34,3 +34,15 @@ def test_same_net_copper_in_the_same_batch_is_no_finding():
     b.track(Net("P"), [Location(10.0, 20.0), Location(30.0, 20.0)], layer=CopperLayer.F, chamfer=0)
     plan = b.resolve()
     assert not [f for f in plan.findings if f.startswith("copper")], plan.findings
+
+
+def test_a_vias_finding_names_only_the_boards_own_layers():
+    """A via is copper through the whole stack, which on this board is two
+    layers: its finding names those, not every inner layer placemat knows."""
+    b = _board()
+    b.via(Net("N"), at=Location(20.0, 20.0))
+    b.via(Net("P"), at=Location(20.3, 20.0))               # two vias meet on every layer they share
+    plan = b.resolve()
+    hits = [f for f in plan.findings if f.startswith("copper") and "via" in f]
+    assert hits and all("In1" not in f and "In30" not in f for f in hits), hits
+    assert all("B.Cu" in f and "F.Cu" in f for f in hits), hits

@@ -1452,7 +1452,7 @@ class Occupancy:
                     c = s.box.center            # a via: the script's, planned, or one a part carries at its pad
                     return "via %s at (%.2f, %.2f)%s is %.2f mm from %s copper on %s (needs %.2f)" % (
                         s.net or "-", c.x, c.y, " (%s)" % s.owner[len("via "):] if s.owner.startswith("via at ") else "",
-                        gap, o.net or self.who(o.owner), "/".join(sorted(l.value for l in common)), clr)
+                        gap, o.net or self.who(o.owner), self._layers_text(common), clr)
                 if s.kind == "copper" and s.ends:      # a declared track: name the segment, not its owner
                     who = "track %s (%.2f, %.2f)-(%.2f, %.2f)" % (
                         s.net or "-", s.ends[0][0], s.ends[0][1], s.ends[1][0], s.ends[1][1])
@@ -1460,7 +1460,7 @@ class Occupancy:
                     what = "pad" if s.kind in ("pad", "through") else "copper"
                     who = "%s %s %s" % (self.who(s.owner), what, s.net or "-")
                 return "%s is %.2f mm from %s copper on %s (needs %.2f)" % (
-                    who, gap, o.net or self.who(o.owner), "/".join(sorted(l.value for l in common)), clr)
+                    who, gap, o.net or self.who(o.owner), self._layers_text(common), clr)
             return None
         if (ks == "npth" and ko in _COPPERISH) or (ko == "npth" and ks in _COPPERISH):
             hole, metal = (s, o) if ks == "npth" else (o, s)
@@ -1473,6 +1473,13 @@ class Occupancy:
                     return "%s copper %.2f mm from %s's unplated hole (needs %.2f)" % (
                         metal.net or self.who(metal.owner), gap, self.who(hole.owner), need)
         return None
+
+    def _layers_text(self, layers) -> str:
+        """The layers two pieces of copper share, as the board has them, in
+        stackup order: a via is copper on every layer placemat knows, and a
+        board has only its own."""
+        own = [l for l in self.geometry.layers if l in layers]
+        return "/".join(l.value for l in (own or sorted(layers, key=lambda l: l.value)))
 
     def _net_tie_exclusion(self, s, o) -> bool:
         """KiCad's DRC_ENGINE::IsNetTieExclusion, either way round: copper of
