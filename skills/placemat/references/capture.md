@@ -129,8 +129,9 @@ it found among a cell's parts:
 
     m: its parts form 3 groups joined only by board-level nets: U3, C7,
     R2; U5, R4; Q2, R9 (and 4 parts no net inside the cell joins to the
-    others: C1, C2, C3, R1, each placed by the pin it serves or the part
-    it senses, not a split candidate). Parts with no close placement
+    others: C1, C2, C3, R1; judge each by what places it: a bypass
+    capacitor stays with the IC it serves, a sensing part at what it
+    senses). Parts with no close placement
     requirement in common may be split into modules of their own.
 
 A cell the search refuses to place at all is the other signal that its
@@ -150,4 +151,6 @@ IC - it is never a split candidate, whatever the grouping shows. A part
 placed by what it senses or shields is the same: a thermistor sits at the
 part whose temperature it measures, even though all its nets run
 elsewhere. Neither is a split candidate; each is placed by that physical
-need, not by a group.
+need, not by a group. A part with no such need (a pull-up on a shared
+bus, a status-line resistor) may belong with the rest of its job, in
+another module.

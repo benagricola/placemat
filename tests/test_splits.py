@@ -130,8 +130,8 @@ def test_the_message_names_groups_in_cell_order_and_the_unjoined_parts():
     text = splits.cell_text(g, cell, plane_nets={"GND"}, min_group=2)
     assert text == (
         "its parts form 3 groups joined only by board-level nets: U3, C7, R2; U5, R4; Q2, R9 "
-        "(and 4 parts no net inside the cell joins to the others: C1, C2, C3, R1, "
-        "each placed by the pin it serves or the part it senses, not a split candidate). "
+        "(and 4 parts no net inside the cell joins to the others: C1, C2, C3, R1; "
+        "judge each by what places it: a bypass capacitor stays with the IC it serves, a sensing part at what it senses). "
         "Parts with no close placement requirement in common may be split into modules of their own.")
 
 
@@ -168,8 +168,8 @@ def test_a_member_whose_only_local_net_touches_nobody_else_is_listed_with_the_un
     text = splits.cell_text(g, cell, plane_nets={"GND"}, min_group=2)
     assert text == (
         "its parts form 2 groups joined only by board-level nets: U1, R1; U2, R2 "
-        "(and 1 part no net inside the cell joins to the others: Q1, "
-        "each placed by the pin it serves or the part it senses, not a split candidate). "
+        "(and 1 part no net inside the cell joins to the others: Q1; "
+        "judge each by what places it: a bypass capacitor stays with the IC it serves, a sensing part at what it senses). "
         "Parts with no close placement requirement in common may be split into modules of their own.")
 
 

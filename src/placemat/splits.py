@@ -12,11 +12,11 @@ A net is local to a cell when every pad the whole board has on it sits on
 the cell's own members; a `board.plane()` net is never local, whatever its
 pads. Two members are in one group when a local net joins them, directly or
 through other members. A member no local net joins to another is
-unjoined: it is placed by the pin it serves or the part it senses, not by
-a group, and takes no part in any group. A bypass capacitor between a
-board-level supply and a plane is unjoined this way even though it
-already sits at the pin it serves; it is never a split candidate, whatever
-the grouping shows."""
+unjoined, and takes no part in any group: it is judged by what places it.
+A bypass capacitor between a board-level supply and a plane is unjoined
+this way, yet it always belongs with the IC it serves; a sensing part
+belongs at what it senses. A part with no such need (a pull-up on a
+shared bus) may belong with the rest of its job elsewhere."""
 from __future__ import annotations
 
 from .board_geometry import BoardGeometry, CellGeom
@@ -94,8 +94,8 @@ def cell_text(geometry: BoardGeometry, cell: CellGeom, plane_nets, min_group: in
     unjoined = [fp for fp in cell.members if fp.ref not in paired_refs]
     tail = ""
     if unjoined:
-        tail = (" (and %d part%s no net inside the cell joins to the others: %s, each placed by the pin it "
-                "serves or the part it senses, not a split candidate)" % (
+        tail = (" (and %d part%s no net inside the cell joins to the others: %s; judge each by what places "
+                "it: a bypass capacitor stays with the IC it serves, a sensing part at what it senses)" % (
                     len(unjoined), "" if len(unjoined) == 1 else "s", ", ".join(fp.ref for fp in unjoined)))
     return ("its parts form %d groups joined only by board-level nets: %s%s. Parts with no close placement "
             "requirement in common may be split into modules of their own." % (
