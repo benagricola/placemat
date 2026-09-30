@@ -27,6 +27,7 @@ from .giveway import enabled as giveway_enabled, pad_via_id
 from .occupancy import Occupancy, Shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
 from .cutouts import Cutouts, Path, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
+from . import exposure
 from .placement import Placement
 from .settings import Settings
 from .placer import BlockSpec, _grid, _pin_normal, _reason_key, box_centered_placement, cell_pad_anchored_placement, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
@@ -419,6 +420,13 @@ class Push:
     why: str = field(default="", metadata={"reuse": False})
     achieved_value: float | None = field(default=None, metadata={"reuse": False})   # measured by a resolve, not declared
     achieved_mm: float | None = field(default=None, metadata={"reuse": False})
+    # The rest are set only by a push that comes from part annotations (Pm.Emits / Pm.Limit), which is
+    # worked out at each settle and never declared: none of it is in a declaration's digest.
+    label: str = field(default="", metadata={"reuse": False})    # what the reservation and the note call the far end
+    hard_limit: float | None = field(default=None, metadata={"omit_default": True})   # the disc's own limit, when the sources placed before leave less than `limit`
+    target_point: object = field(default=None, metadata={"omit_default": True})       # where the item's own emission point stands now (a Location); moves with the item
+    kind: str = field(default="", metadata={"omit_default": True})   # the annotated kind this push carries
+    unit: str = field(default="", metadata={"omit_default": True})
 
 
 @dataclass
@@ -701,15 +709,9 @@ class Scorer:
         if self.pushes:
             points = {}
             for source_point, push in self.pushes:
-                if push.target_pad_key is not None:
-                    point = pads.get(push.target_pad_key)
-                    if point is None:
-                        continue
-                else:
-                    point = points.get(push.target_member_ref)
-                    if point is None:
-                        point = _target_point(occ, self.item, placement, push.target_member_ref)
-                        points[push.target_member_ref] = point
+                point = _push_at(occ, self.item, placement, push, pads, points)
+                if point is None:
+                    continue
                 value, _ = _push_value(source_point, point, push)
                 cost += s.score_push * value / push.limit
         if self.prune and cost >= self.best[0]:
@@ -841,6 +843,7 @@ class Board:
         self._settled_cutouts: dict = {}    # those of them that already have a position
         self._cutout_loop_of: dict = {}     # name -> its loop index in _shaped()
         self._keepouts: dict = {}           # the regions a script declared, by name
+        self._annotations = exposure.Annotations()   # the parts' Pm.Emits / Pm.Limit, read when the run starts
         self._cell_placements: dict = {}    # cell name -> its settled Placement, for a region shaped by it
         self._groups: dict = {}             # the KiCad groups a script declared, by name (DeclaredGroup)
         self.web = 0.0                      # least material a hole may leave; 0: unchecked
@@ -2836,6 +2839,73 @@ class Board:
             return plan.keepouts[source].centre
         return _locate(self, occ, source)
 
+    def _emission_point(self, occ: Occupancy, ref: str) -> Location:
+        """Where a placed source emits from, as things stand: its `Pm.EmitsAt`
+        pad, or the point given in its own frame (turned and flipped with the
+        footprint), or its origin."""
+        at = self._annotations.sources[ref].at
+        if at is not None and at[0] == "pad":
+            return occ.pad_location(ref, at[1])
+        here = occ.geometry_of(ref).reference
+        x, y = (at[1], at[2]) if at is not None else (0.0, 0.0)
+        return exposure.local_to_board(here.location, here.rotation, here.face, x, y)
+
+    def _sense_point(self, occ: Occupancy, ref: str) -> Location:
+        """Where a placed sensitive part senses: its `Pm.SensesAt` pad, else its body centre."""
+        pad = self._annotations.sensitives[ref].senses
+        return occ.pad_location(ref, pad) if pad is not None else occ.geometry_of(ref).body.center
+
+    def _annotated_pushes(self, occ: Occupancy, i: PlaceIntent) -> list:
+        """The pushes `i` is in through the parts' own annotations: each
+        sensitive part of `i` against every source of a kind already placed,
+        and each source of `i` against every sensitive part of that kind
+        already placed. The pair is judged by whichever of the two is placed
+        second, so nothing waits for anything. A sensitive part placed second
+        is board.push with the source's emission point as its source; a
+        source placed second is the same push with the sensitive part's sense
+        point as its source, measured from where `i` emits, and its hard
+        limit is what the sources placed before it leave the part."""
+        ann = self._annotations
+        if not ann or i.kind == "block":
+            return []
+        own = {fp.ref for fp in members_of(i.item)}
+        placed = {r for r in ann.sources.keys() | ann.sensitives.keys() if r not in own and r not in occ.pending}
+        out = []
+        for ref in sorted(own & ann.sensitives.keys()):
+            s = ann.sensitives[ref]
+            key = (ref, s.senses) if s.senses is not None else None
+            for kind, limit, unit in s.limits:
+                for src in sorted(placed & ann.sources.keys()):
+                    for e in ann.sources[src].emissions:
+                        if e.kind == kind:
+                            out.append(Push(self._emission_point(occ, src), e.falloff, e.r_ref, e.value, limit, key, ref,
+                                            label="%s %s" % (src, kind), kind=kind, unit=unit))
+        for ref in sorted(own & ann.sources.keys()):
+            src = ann.sources[ref]
+            at = src.at
+            key = (ref, at[1]) if at is not None and at[0] == "pad" else None
+            here = None
+            if key is None:
+                g = occ.geometry_of(ref).reference
+                x, y = (at[1], at[2]) if at is not None else (0.0, 0.0)
+                here = exposure.local_to_board(g.location, g.rotation, g.face, x, y)
+            for e in src.emissions:
+                for sens in sorted(placed & ann.sensitives.keys()):
+                    for kind, limit, unit in ann.sensitives[sens].limits:
+                        if kind != e.kind:
+                            continue
+                        point = self._sense_point(occ, sens)
+                        others = 0.0
+                        for other in sorted(placed & ann.sources.keys()):
+                            if other == sens:
+                                continue
+                            others += sum(o.at(self._emission_point(occ, other).distance(point))
+                                          for o in ann.sources[other].emissions if o.kind == kind)
+                        out.append(Push(point, e.falloff, e.r_ref, e.value, limit, key, ref,
+                                        label="%s (limit on %s)" % (sens, kind), kind=kind, unit=unit,
+                                        hard_limit=limit - others, target_point=here))
+        return out
+
     def _reserve_pushes(self, occ: Occupancy, plan: Plan, i: PlaceIntent) -> list:
         """Each push's source point, resolved now (it is placed by then,
         `needs` sees to that), and its hard-limit disc reserved against
@@ -2846,13 +2916,19 @@ class Board:
         tag_prefix = "push:%s:" % i.key
         occ.reservations = [r for r in occ.reservations if not r.source.startswith(tag_prefix)]
         resolved = []
-        for n, p in enumerate(i.pushes):
+        for n, p in enumerate(tuple(i.pushes) + tuple(self._annotated_pushes(occ, i))):
             point = self._push_source_point(occ, plan, p.source)
-            radius = p.r_ref * (p.v_ref / p.limit) ** (1.0 / p.falloff)
-            why = "push from %s (limit %.3g at %.3g mm)%s" % (
-                _push_source_label(p.source), p.limit, radius, (": %s" % p.why) if p.why else "")
-            occ.reserve(_circle(point, radius), why, owners=others, copper=False, source=tag_prefix + str(n))
+            limit = p.limit if p.hard_limit is None else p.hard_limit
             resolved.append((point, p))
+            if not limit > 0:
+                continue        # the sources placed before already use the sensitive part's whole limit: no distance helps
+            try:
+                radius = p.r_ref * (p.v_ref / limit) ** (1.0 / p.falloff)
+            except OverflowError:
+                continue
+            why = "push from %s (limit %.3g at %.3g mm)%s" % (
+                _push_source_label(p), limit, radius, (": %s" % p.why) if p.why else "")
+            occ.reserve(_circle(point, radius), why, owners=others, copper=False, source=tag_prefix + str(n))
         return resolved
 
     def _report_undeclared(self, plan: Plan):
@@ -3953,6 +4029,7 @@ class Board:
 
     def resolve(self, progress=None, reuse=None, explore=None, lock=None, routes=None) -> Plan:
         self._check_groups()                # what a declared group may hold, before the search
+        self._annotations = exposure.read(self.geometry)    # sources and sensitive parts (Pm.Emits, Pm.Limit); refuses a unit mismatch
         self._find_riders()                 # before anything asks what is searched
         # An explore variant (explore.py): seed 0, or none, is the plain placement.
         self._explore = explore if (explore is not None and explore.seed) else None
@@ -4484,7 +4561,7 @@ class Board:
         this item changed) could stand inside it unrefused. Reserve it
         again here, the same as a fresh _settle does at its own start."""
         from . import reuse as _reuse
-        if getattr(obj, "pushes", ()):
+        if isinstance(obj, PlaceIntent) and obj.kind != "block":
             self._reserve_pushes(occ, plan, obj)
         self._apply_commits(occ, entry["commits"])
         plan.steps.extend(_reuse.step_from_json(s) for s in entry["steps"])
@@ -5973,7 +6050,7 @@ class Board:
         if i.kind == "block":
             return self._settle_block(occ, i, plan, placed)
         clr = self.clearance
-        push_sources = self._reserve_pushes(occ, plan, i) if i.pushes else []
+        push_sources = self._reserve_pushes(occ, plan, i)
         if i.freedom.decided:
             p, chose = self._firm_placement(occ, plan, i)
             # its carried vias, and those of the items placed before it, may give way (giveway.py):
@@ -6081,19 +6158,15 @@ class Board:
         if push_sources:
             points = {}
             bits = []
+            pads = occ.candidate_pad_locations(i.item, result.chosen)
             for source_point, p in push_sources:
-                if p.target_pad_key is not None:
-                    at = occ.candidate_pad_locations(i.item, result.chosen).get(
-                        p.target_pad_key, result.chosen.location)
-                else:
-                    at = points.get(p.target_member_ref)
-                    if at is None:
-                        at = _target_point(occ, i.item, result.chosen, p.target_member_ref)
-                        points[p.target_member_ref] = at
+                at = _push_at(occ, i.item, result.chosen, p, pads, points)
+                if at is None:
+                    at = result.chosen.location
                 value, r = _push_value(source_point, at, p)
                 p.achieved_value, p.achieved_mm = round(value, 4), round(r, 3)
                 bits.append("push from %s: %.2g at %.1f mm (limit %.2g)" % (
-                    _push_source_label(p.source), value, r, p.limit))
+                    _push_source_label(p), value, r, p.limit))
                 plan.pushes.append(p)
             note = (note + "; " if note else "") + "; ".join(bits)
         return self._step(i, result.chosen, result.moved_mm, note)
@@ -6196,7 +6269,10 @@ def _circle(centre: Location, radius: float, segments: int = 72) -> tuple:
                  for n in range(segments))
 
 
-def _push_source_label(source) -> str:
+def _push_source_label(push) -> str:
+    if push.label:
+        return push.label
+    source = push.source
     if isinstance(source, str):
         return "keepout %r" % source
     if isinstance(source, PadRef):
@@ -6210,6 +6286,22 @@ def _push_value(source_point: Location, point: Location, push: "Push") -> tuple:
     """(value, r) for a push at distance r from its source to `point`."""
     r = max(source_point.distance(point), 1e-6)
     return push.v_ref * (push.r_ref / r) ** push.falloff, r
+
+
+def _push_at(occ: Occupancy, item, placement: Placement, push: "Push", pads: dict, points: dict):
+    """Where a push measures its item at a candidate placement: the named
+    pad, the annotated emission point carried with the item, or the
+    member's body centre (`points` keeps those, per member, for one
+    candidate). None when the named pad is not the item's."""
+    if push.target_pad_key is not None:
+        return pads.get(push.target_pad_key)
+    if push.target_point is not None:
+        return occ._transform(occ._geometry(item), placement).apply_location(push.target_point)
+    point = points.get(push.target_member_ref)
+    if point is None:
+        point = _target_point(occ, item, placement, push.target_member_ref)
+        points[push.target_member_ref] = point
+    return point
 
 
 def _target_point(occ: Occupancy, item, placement: Placement, member_ref: str) -> Location:
