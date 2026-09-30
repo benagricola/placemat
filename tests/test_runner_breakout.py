@@ -92,6 +92,39 @@ def test_a_run_records_itself_as_the_best_of_its_family(scratch_ecosystem):
     assert best is not None and best.run_id == rec.run_id
 
 
+def test_a_net_class_below_the_fab_minimum_is_a_run_finding(tmp_path_factory):
+    """A separate scratch copy (not the shared scratch_ecosystem, whose
+    fab-profile.json other tests in this module depend on staying
+    permissive): its fab-profile.json gets a min.track_mm no net class on
+    a generated board could meet, so the run records a fab finding."""
+    root = tmp_path_factory.mktemp("eco_fab_min")
+    for name in ("pcb.toml",):
+        shutil.copy(ECOSYSTEM / name, root / name)
+    fab = json.loads((ECOSYSTEM / "fab-profile.json").read_text())
+    fab["min"] = {"track_mm": 10.0}      # wider than any real net class: guaranteed to fire
+    (root / "fab-profile.json").write_text(json.dumps(fab))
+
+    def link_or_copy(src, dst, *, follow_symlinks=True):
+        try:
+            os.link(src, dst)
+        except OSError:
+            shutil.copy2(src, dst)
+    shutil.copytree(ECOSYSTEM / "parts", root / "parts", copy_function=link_or_copy)
+    shutil.copytree(ECOSYSTEM / "modules", root / "modules", copy_function=link_or_copy,
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    def skip(d, names):
+        out = {n for n in names if n in ("__pycache__", ".placemat", "Breakout_layout.py")}
+        if d == str(ECOSYSTEM / "breakout"):
+            out.add("layout")
+        return out
+    shutil.copytree(ECOSYSTEM / "breakout", root / "breakout", ignore=skip)
+    (root / "breakout" / "Breakout_layout.py").write_text(SCRIPT)
+
+    rec = run(root / "breakout" / "Breakout_layout.py", label="fabmin", render=False)
+    findings = rec.record.findings
+    assert any(f.startswith("net class") and "fab-profile.json min.track_mm" in f for f in findings), findings
+
+
 def test_a_second_run_reuses_the_generation_and_reports_no_movement(scratch_ecosystem):
     script = scratch_ecosystem / "breakout" / "Breakout_layout.py"
     rec = run(script, label="second", render=False)
