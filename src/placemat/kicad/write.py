@@ -78,6 +78,17 @@ def _move_cell(board, cell: CellGeom, target: Placement, groups: dict):
         it.Move(delta)
 
 
+def _thin_cell(board, group, gone) -> None:
+    """Delete the cell's vias at `gone` ((x, y) where the generated board
+    has them): the ones its `drops=` did not keep. Each is found before any
+    is deleted, and deleted, not only removed, as a zone is."""
+    near = lambda v: any(abs(pcbnew.ToMM(v.GetPosition().x) - x) < 1e-6 and abs(pcbnew.ToMM(v.GetPosition().y) - y) < 1e-6
+                         for x, y in gone)
+    for v in [it for it in group.GetItems() if isinstance(it, pcbnew.PCB_VIA) and near(it)]:
+        group.RemoveItem(v)
+        board.Delete(v)
+
+
 def _merge_cell_zones(board, plan: Plan) -> list:
     """Leave out a stamped cell's zone on each layer where the board's own
     plane has the same net and wholly covers it: the plane fills that area
@@ -831,6 +842,8 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     seed_uuids()
     groups = {g.GetName(): g for g in board.Groups()}
     by_ref = {fp.GetReference(): fp for fp in board.GetFootprints()}
+    for name, gone in sorted(plan.thinned.items()):
+        _thin_cell(board, groups[name], gone)
     for step in plan.steps:
         if step.placement is None or step.kind == "block":
             continue                     # copper is drawn below; a block's members have their own steps

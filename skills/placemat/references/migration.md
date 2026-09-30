@@ -7,6 +7,13 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+`board.place(Cell(...), drops=Drops.HALF)` or `Drops.MIN` thins the
+cell's via fields where it is placed: the vias of a `plane()` net inside
+one of its members' pads. HALF keeps a checkerboard of each field; MIN
+keeps `place.drops_keep` of it (0.5, rounded up, at least one). The
+default, `Drops.ALL`, keeps them as stamped, and a script that does not
+say `drops=` digests as before.
+
 A copper finding measures a via as the circle it is, as KiCad's DRC does:
 a via just over the clearance from a track read as just under it ("0.16 mm
 ... needs 0.16") from its polygon, a few microns outside the circle. The

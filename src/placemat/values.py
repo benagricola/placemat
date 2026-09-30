@@ -120,6 +120,17 @@ class Land(str, Enum):
     LARGEST = "largest"
 
 
+class Drops(str, Enum):
+    """How much of a placed cell's via fields it keeps. A field is the
+    drops (vias of a net the board declares a `plane()` for) inside one of
+    its members' pads. ALL keeps them as stamped; HALF every other via of
+    each field, a checkerboard over its grid; MIN each field at the
+    `place.drops_keep` share, rounded up and never fewer than one."""
+    ALL = "all"
+    HALF = "half"
+    MIN = "min"
+
+
 class Forbid(str, Enum):
     """What a keepout keeps out of its region."""
     PARTS = "parts"

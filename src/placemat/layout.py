@@ -30,7 +30,7 @@ from .placement import Placement
 from .settings import Settings
 from .placer import BlockSpec, _grid, _pin_normal, _reason_key, box_centered_placement, cell_pad_anchored_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
-from .values import (Turned, Axis, Bend, Cover, Beside, Between, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Turned, Axis, Bend, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -271,6 +271,7 @@ class PlaceIntent:
     beside: object = field(default=None, metadata={"omit_default": True})   # a _BesideSpec: settled against its item's placed envelope
     row_of: object = field(default=None, metadata={"omit_default": True})   # a row(of=) item: an edge placement measured off its envelope, not the board's
     cell_pin: object = field(default=None, metadata={"omit_default": True})  # (owner, number, dx, dy[, lx, ly]): a cell placed by a member's pad
+    drops: Drops = field(default=Drops.ALL, metadata={"omit_default": True})   # a cell's via fields as stamped, or thinned when it is placed
     line: int = field(default=0, metadata={"reuse": False})   # the script line that declared it: not what it decides
 
     @property
@@ -541,6 +542,7 @@ class Plan:
     split_groups: str = "lift"                                    # settings: what the write does to the generator's nested groups
     groups: list = field(default_factory=list)                    # the groups the script declared (DeclaredGroup)
     group_notes: list = field(default_factory=list)               # what the write did to the board's groups, a line each
+    thinned: dict = field(default_factory=dict)                   # cell -> [(x, y)]: the vias drops= took out of its fields, as generated
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -1034,6 +1036,50 @@ class Board:
             ring = via_ring(c, size)
             occ.carry(ref, [Shape(owner, "through", _BOTH, frozenset(self.geometry.layers), net, ring,
                                   Box.of_points(ring)), hole_shape(owner, c, drill, net)])
+
+    def _thin_drops(self, occ) -> dict:
+        """Each cell placed with `drops=HALF` or `MIN` loses the vias of its
+        fields it does not keep, from the occupancy (its ring and its hole)
+        before its geometry is built. A field is the vias of a plane() net
+        inside one of the cell's members' pads of that net. Returns {cell:
+        [(x, y) of each via taken out, where the generated board has it]},
+        for the writer, and notes each cell's step."""
+        from .lock import _turn
+        planes = {c.net for c in self._copper if c.key.split(" ")[0] == "plane"}
+        keep_share = self.settings.place_drops_keep
+        out, self._drops_notes = {}, {}
+        for i in self._placements():
+            if getattr(i, "drops", Drops.ALL) is Drops.ALL or i.kind != "cell":
+                continue
+            cell = i.item.name
+            vias = [s for s in occ.copper if s.owner == cell and s.kind == "through" and s.net in planes]
+            fields, gone, said = {}, [], []
+            for v in vias:
+                c = v.box.center
+                for fp in i.item.members:
+                    p = next((p for p in fp.pads if p.net == v.net and any(point_in_polygon((c.x, c.y), o)
+                                                                           for o in p.outlines)), None)
+                    if p is not None:
+                        fields.setdefault((fp.ref, p.number, p.box.center, fp.rotation), []).append(c)
+                        break
+            for (ref, number, centre, rot), pts in sorted(fields.items(), key=lambda kv: (kv[0][0], kv[0][1])):
+                # the field's grid in its part's own frame, where vias() laid it
+                local = [_turn(p.x - centre.x, p.y - centre.y, -rot) for p in pts]
+                kept = _checkerboard(local) if i.drops is Drops.HALF else \
+                    _spread(local, max(1, math.ceil(keep_share * len(pts) - 1e-9)))
+                gone += [pts[k] for k in range(len(pts)) if k not in kept]
+                said.append("%d of %d in %s.%s" % (len(kept), len(pts), ref, number))
+            self._drops_notes[i.key] = ("drops %s: %s" % (i.drops.value, ", ".join(said)) if said else
+                                        "drops %s: no via field of a plane net" % i.drops.value)
+            if not gone:
+                continue
+            def at(s):
+                return any(abs(s.box.center.x - g.x) < 1e-6 and abs(s.box.center.y - g.y) < 1e-6 for g in gone)
+            occ.copper = [s for s in occ.copper if not (s.owner == cell and s.kind in ("through", "hole") and at(s))]
+            occ._cells.pop(cell, None)
+            occ._invalidate_native()
+            out[cell] = [(g.x, g.y) for g in gone]
+        return out
 
     def _pad_ref(self, ref):
         """Validate a pad reference now; return (refdes, pad number, dx, dy).
@@ -1960,7 +2006,7 @@ class Board:
     def place(self, item, at=None, *, rotation: float | None = None, face: Face = Face.FRONT,
               radius: float | None = None, step: float | None = None, rotations=(),
               priority: Priority | None = None, required: bool = False, why: str = "",
-              _standoff: float | None = None, _row_of: object = None) -> PlaceIntent:
+              drops: Drops = Drops.ALL, _standoff: float | None = None, _row_of: object = None) -> PlaceIntent:
         """Declare where an item goes: `at=` a place, whose kind says how
         much freedom is left.
 
@@ -1987,6 +2033,9 @@ class Board:
         face. It is independent of the rank and of whether the position is
         decided, and a required item is not negotiable even under
         `--keep-going`. Nothing else stops a run by itself.
+
+        `drops=Drops.HALF` or `Drops.MIN` thins a cell's via fields where
+        it is placed (see `Drops`); the fragment itself is untouched.
         """
         radius = self.settings.place_radius if radius is None else radius
         step = self.settings.place_step if step is None else step
@@ -1995,6 +2044,13 @@ class Board:
             face = Face(face)
         except ValueError:
             raise TypeError("%s: face is Face.FRONT/BACK or \"front\"/\"back\", not %r" % (key, face)) from None
+        try:
+            drops = Drops(drops)
+        except ValueError:
+            raise TypeError("%s: drops is Drops.ALL/HALF/MIN or \"all\"/\"half\"/\"min\", not %r"
+                            % (key, drops)) from None
+        if drops is not Drops.ALL and kind != "cell":
+            raise TypeError("%s: drops= thins a cell's via fields; a %s carries none of its own" % (key, kind))
         if any(i.key == key for i in self._intents):
             raise ValueError("%s is already placed; one declaration per item" % key)
         center = edge = along = near = about = run = None
@@ -2162,7 +2218,7 @@ class Board:
                              standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs),
                              pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward, about, run,
                              freedom, required, rotation_given, turned=turned, beside=beside, row_of=_row_of,
-                             cell_pin=cell_pin, line=_script_line())
+                             cell_pin=cell_pin, drops=drops, line=_script_line())
         self._intents.append(intent)
         return intent
 
@@ -3537,6 +3593,7 @@ class Board:
                         board_cutouts=self._cutouts, settings=self.settings,
                         component_spacing=self.component_spacing)
         self._carry_pad_vias(occ)          # before any cell's geometry is built from its members'
+        thinned = self._thin_drops(occ)    # likewise: a cell's geometry takes its fields as thinned
         occ.quiet_nets = frozenset(self._plane_nets() | set(self._free_nets))
         if self._fit:
             occ.board_box = None                # no frame yet: the decided items have no edge to be judged by
@@ -3548,7 +3605,8 @@ class Board:
                     shape=self._shape, cutouts=self._cutouts,
                     rules=list(self._rules), draw_outline=self._draw_outline,
                     cell_zones_under_planes=self.settings.copper_cell_zones_under_planes,
-                    split_groups=self.settings.write_split_groups, groups=list(self._groups.values()))
+                    split_groups=self.settings.write_split_groups, groups=list(self._groups.values()),
+                    thinned=thinned)
         ctx = _CopperContext(self, occ)
         ctx.plan = plan
         from . import reuse as _reuse
@@ -3937,6 +3995,9 @@ class Board:
 
     def _step(self, i: PlaceIntent, placement, moved_mm: float, note: str) -> Step:
         """A searched or decided item's step, with its priority, freedom and rank."""
+        drops = self.__dict__.get("_drops_notes", {}).get(i.key)
+        if drops:
+            note = "%s; %s" % (note, drops) if note else drops
         return Step(i.key, i.kind, None if i.freedom.decided else i.priority, placement, moved_mm, note, i.why,
                     freedom=i.freedom, rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None)
 
@@ -6105,6 +6166,34 @@ def _refs_in(points, via_ends: bool = False) -> list:
         elif isinstance(p, (Centre, Location)):
             out += _refs_in([p.x, p.y])
     return out
+
+
+def _checkerboard(points) -> set:
+    """The indices of `points` (a via field in its part's frame) that one
+    colour of a checkerboard over its grid keeps: a via's column and row are
+    the ranks of its x and y among the field's, to a micron, and the vias
+    whose two ranks add to an even number stay."""
+    xs = sorted({round(x, 3) for x, _ in points})
+    ys = sorted({round(y, 3) for _, y in points})
+    return {k for k, (x, y) in enumerate(points) if (xs.index(round(x, 3)) + ys.index(round(y, 3))) % 2 == 0}
+
+
+def _spread(points, n: int) -> set:
+    """The indices of `n` of `points` spread over the field: the one nearest
+    its centre first, then each time the one farthest from those kept (on a
+    tie, the one farther from them all together, then the first by row)."""
+    if n >= len(points):
+        return set(range(len(points)))
+    cx = sum(x for x, _ in points) / len(points)
+    cy = sum(y for _, y in points) / len(points)
+    order = sorted(range(len(points)), key=lambda k: (round(points[k][1], 6), round(points[k][0], 6)))
+    kept = [min(order, key=lambda k: round(math.hypot(points[k][0] - cx, points[k][1] - cy), 6))]
+    while len(kept) < n:
+        def far(k):
+            d = [math.hypot(points[k][0] - points[j][0], points[k][1] - points[j][1]) for j in kept]
+            return (round(min(d), 6), round(sum(d), 6))
+        kept.append(max((k for k in order if k not in kept), key=far))
+    return set(kept)
 
 
 def _op_layers(op) -> frozenset:

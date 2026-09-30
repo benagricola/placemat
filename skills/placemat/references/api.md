@@ -2,7 +2,7 @@
 
 ```python
 from placemat import (board, Along, Axis, Bend, Beside, Between, Box, Cell, CellPadRef, Centre, Cover, Pin, Polar, OnRim, OnBore,
-                       Cutout, Disc, Arc, Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Inside, Land, Line,
+                       Cutout, Disc, Drops, Arc, Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Inside, Land, Line,
                        LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part, Past, Priority, Turned, X, Y)
 ```
 
@@ -28,6 +28,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | **a part** | | |
 | searched from its links, no position typed | `board.place(item)` | Placement |
 | one that must place, or the run stops | `board.place(item, required=True)` | Placement |
+| a cell with its pads' via fields thinned | `board.place(Cell(...), drops=Drops.HALF)` | Placement |
 | on a board edge, wherever there is room | `at=OnEdge(edge)` | Placement |
 | at a mechanical point along an edge | `at=OnEdge(edge, along=Along.MID)` | Placement |
 | at a mechanical point (an enclosure hole, a datasheet figure) | `at=Location(x, y)`, `x`/`y` named constants | Placement |
@@ -283,6 +284,23 @@ with the board as it stood and the biggest free rectangles on its face. It
 is independent of the rank and of whether the position is decided, and a
 required item is not negotiable even under `--keep-going`. Nothing else
 stops a run by itself.
+
+**A cell's via fields.** `board.place(Cell(...), drops=Drops.HALF)` thins
+the cell's via fields where it is placed. A field is the drops inside one
+of its members' pads: vias of a net the board declares a `board.plane()`
+for, on that pad's net. `Drops.ALL`, the default, keeps them as stamped;
+`Drops.HALF` keeps every other via of each field, a checkerboard over its
+grid in its part's frame (5 of a 3x3 field); `Drops.MIN` keeps
+`place.drops_keep` of each field (0.5), rounded up and never fewer than
+one, spread from the via nearest the field's centre. Other vias of the
+cell, and the fragment itself, are untouched. The cell's step says what
+each field kept: "drops half: 5 of 9 in U3.17". `drops=` takes the word
+too, `"half"`, and is refused on anything but a cell.
+
+```python
+board.plane(Net("GND"), layers=(CopperLayer.B,))
+board.place(Cell("m1"), face=Face.BACK, drops=Drops.HALF)
+```
 
 **A flip to the back** mirrors the item about the vertical axis and then turns
 it by `rotation=`. That is KiCad's own F key (`editing.flip_left_right`, its
@@ -1990,6 +2008,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.courtyard_polygon_share` | 0.98 | a courtyard whose polygon covers less of the box round it than this (a slice of a disc, an L, a rectangle turned off the axes) is claimed as KiCad draws it, with no margin; one that covers more is claimed as its box |
 | `place.conflict_gap` | 1.0 | how far outside a box a conflict can still reach |
 | `place.fit_room` | 10.0 | on a fit frame, how far round the decided content a searched item may go |
+| `place.drops_keep` | 0.5 | the share of a pad's drops (vias of a `plane()` net in it) the pad keeps, rounded up and never fewer than one: what `drops=Drops.MIN` keeps of each field |
 | `copper.chamfer` | 1.0 | how far a right angle is cut back into two 45s |
 | `copper.pair_chamfer` | 0.5 | the same, for a differential pair |
 | `copper.pair_via_step` | 0.4 | how far clear of its partner a pair's lead vias |
