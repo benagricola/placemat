@@ -386,6 +386,13 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         from .kicad.write import apply_plan, finish_board, render_board
         from .kicad.drc import run_drc
 
+        from . import facts as facts_mod
+        facts_geometry = read_board(src.pcb, courtyard_excess_mm=fab.courtyard_excess)
+        facts_doc = facts_mod.facts_of(facts_geometry, fab, cfg.check_rise_c)
+        facts_reasons = facts_mod.unconfirmed_reasons(facts_doc, cfg.facts_confirmed)
+        if facts_reasons:
+            say("facts", facts_mod.unconfirmed_line(facts_reasons))
+
         t0 = time.time()
         board = scripted_board(script, src, cfg, fab, keep_going)
         for note in rule_notes(board.geometry):
@@ -435,6 +442,9 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         rec.timing_s["resolve"] = round(time.time() - t0, 1)
         from .project import fab_min_findings
         plan.findings += fab_min_findings(board.geometry.netclasses, fab)
+        if facts_reasons:
+            from .findings import Finding
+            plan.findings.append(Finding("facts", "; ".join(facts_reasons)))
         n_place = sum(1 for s in plan.steps if s.placement is not None)
         n_copper = sum(s.ops for s in plan.steps)
         say("script", "%d placed, %d copper op(s), %d finding(s)  (%.1fs)" % (

@@ -247,6 +247,14 @@ def parser() -> argparse.ArgumentParser:
     ck.add_argument("--limit", action="append", default=[], metavar="CHECK=VALUE",
                     help="a bound for a reporting check, e.g. hot-loop=20 (mm2) or switch-node=15 (mm2)")
     ck.add_argument("--json", action="store_true")
+
+    fa = sub.add_parser("facts", help="the board's facts (stackup weight and roles, pair classes, via tiers, "
+                                      "fab minimums) and whether they match the last confirmation")
+    fa.add_argument("script", help="the board's layout script")
+    fa.add_argument("--confirm", action="store_true",
+                    help="record the printed facts' digest in placemat.toml's [facts] confirmed")
+    fa.add_argument("--json", action="store_true")
+
     # One way to ask for the report's form and place, whatever the command.
     for sp in sub.choices.values():
         sp.add_argument("--format", choices=("text", "json"), default=None,
@@ -1213,6 +1221,39 @@ def cmd_check(args) -> int:
     return 1 if any(v.ok is False for v in verdicts) else 0
 
 
+def cmd_facts(args) -> int:
+    from . import facts as facts_mod
+    from .context import run_script
+    from .kicad.read import read_board
+    from .layout import Board
+    from .project import fab_profile, find_board
+    from .settings import bind, load
+    script = Path(args.script).resolve()
+    src = find_board(script)
+    cfg = load(src.board_dir)
+    fab = fab_profile(src.board_dir)
+    with bind(cfg):
+        geometry = read_board(src.pcb, courtyard_excess_mm=fab.courtyard_excess)
+        board = Board(geometry, settings=cfg, fab_via_tiers=fab.via_tiers,
+                      fab_source=str(fab.path) if fab.path else "")
+        run_script(script, board)
+    plane_layers = frozenset(l for l, _nets in board._plane_layers().items())
+    doc = facts_mod.facts_of(geometry, fab, cfg.check_rise_c, plane_layers)
+    reasons = facts_mod.unconfirmed_reasons(doc, cfg.facts_confirmed)
+    if args.confirm:
+        facts_mod.write_confirmed(src.board_dir / "placemat.toml", doc.digest())
+        console.say("facts", "confirmed: %s" % doc.digest())
+        return 0
+    if args.json:
+        console.data(json.dumps({"layers": doc.layers, "pairs": doc.pairs, "via_types": doc.via_types,
+                                 "fab_min": doc.fab_min, "rise_c": doc.rise_c,
+                                 "plane_mismatches": list(doc.plane_mismatches), "unconfirmed": reasons}, indent=2))
+        return 0
+    for line in facts_mod.render(doc, reasons):
+        console.say("facts", line)
+    return 1 if reasons else 0
+
+
 def main(argv=None) -> int:
     args = parser().parse_args(argv)
     if args.format == "json":
@@ -1231,7 +1272,7 @@ def main(argv=None) -> int:
 def _dispatch(args) -> int:
     return {"run": cmd_run, "lock": cmd_lock, "freeze": cmd_freeze, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
             "route": cmd_route, "routes": cmd_routes, "check": cmd_check, "show": cmd_show, "layer": cmd_layer, "faces": cmd_faces,
-            "settings": cmd_settings, "parts": cmd_parts, "nets": cmd_nets,
+            "settings": cmd_settings, "parts": cmd_parts, "nets": cmd_nets, "facts": cmd_facts,
             "datasheet": cmd_datasheet, "occupancy": cmd_occupancy, "preview": cmd_preview}[args.command](args)
 
 
