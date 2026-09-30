@@ -19,7 +19,7 @@ def _board_and_script(tmp_path, fab_profile: bool = False):
     script.write_text("")            # no board.plane() calls: nothing declared
     if fab_profile:
         (tmp_path / "fab-profile.json").write_text(json.dumps(
-            {"via": {"blind": "yes"}, "min": {"track_mm": 0.09}}))
+            {"via": {"micro": "no", "blind": "yes", "buried": "no"}, "min": {"track_mm": 0.09}}))
     return script
 
 

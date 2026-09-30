@@ -22,6 +22,9 @@ def _geometry():
                                           "CLK_N": NetClass("Fast", 0.2, 0.15, 0.45, 0.2, 0.1, 0.1)})
 
 
+_ALL_NAMED = {"micro": "no", "blind": "yes", "buried": "no"}
+
+
 def test_layers_carry_role_and_weight():
     doc = facts_of(_geometry(), FabProfile(), rise_c=10.0)
     assert doc.layers["F.Cu"] == {"role": "signal", "copper_mm": 0.035}
@@ -53,17 +56,30 @@ def test_the_digest_changes_when_a_copper_weight_changes():
 
 
 def test_a_board_never_confirmed_is_unconfirmed():
-    doc = facts_of(_geometry(), FabProfile(via_tiers={"blind": "yes"}, min={"track_mm": 0.09}), rise_c=10.0)
+    doc = facts_of(_geometry(), FabProfile(via_tiers=_ALL_NAMED, min={"track_mm": 0.09}), rise_c=10.0)
     assert unconfirmed_reasons(doc, "") == ["no confirmation record yet"]
 
 
 def test_a_matching_digest_with_via_and_min_set_is_confirmed():
-    doc = facts_of(_geometry(), FabProfile(via_tiers={"blind": "yes"}, min={"track_mm": 0.09}), rise_c=10.0)
+    doc = facts_of(_geometry(), FabProfile(via_tiers=_ALL_NAMED, min={"track_mm": 0.09}), rise_c=10.0)
     assert unconfirmed_reasons(doc, doc.digest()) == []
 
 
-def test_a_changed_digest_is_unconfirmed():
+def test_a_via_section_deciding_no_for_every_type_is_confirmed():
+    """Through vias only is a decision: every type named "no" is not a
+    missing section."""
+    fab = FabProfile(via_tiers={"micro": "no", "blind": "no", "buried": "no"}, min={"track_mm": 0.09})
+    doc = facts_of(_geometry(), fab, rise_c=10.0)
+    assert unconfirmed_reasons(doc, doc.digest()) == []
+
+
+def test_a_via_type_the_section_does_not_name_is_unconfirmed():
     doc = facts_of(_geometry(), FabProfile(via_tiers={"blind": "yes"}, min={"track_mm": 0.09}), rise_c=10.0)
+    assert unconfirmed_reasons(doc, doc.digest()) == ["fab-profile.json's via names no tier for micro, buried"]
+
+
+def test_a_changed_digest_is_unconfirmed():
+    doc = facts_of(_geometry(), FabProfile(via_tiers=_ALL_NAMED, min={"track_mm": 0.09}), rise_c=10.0)
     assert unconfirmed_reasons(doc, "not" + doc.digest()) == ["the facts have changed since they were last confirmed"]
 
 
@@ -90,7 +106,7 @@ def test_a_power_layer_with_no_plane_is_flagged():
 
 
 def test_render_lists_every_fact_and_says_unconfirmed():
-    doc = facts_of(_geometry(), FabProfile(via_tiers={"blind": "yes"}, min={"track_mm": 0.09}), rise_c=10.0)
+    doc = facts_of(_geometry(), FabProfile(via_tiers=_ALL_NAMED, min={"track_mm": 0.09}), rise_c=10.0)
     lines = render(doc, unconfirmed_reasons(doc, ""))
     assert any(l.startswith("layer      F.Cu") for l in lines)
     assert any(l.startswith("pair class Fast") for l in lines)
@@ -99,7 +115,7 @@ def test_render_lists_every_fact_and_says_unconfirmed():
 
 
 def test_render_says_confirmed_when_the_digest_matches():
-    doc = facts_of(_geometry(), FabProfile(via_tiers={"blind": "yes"}, min={"track_mm": 0.09}), rise_c=10.0)
+    doc = facts_of(_geometry(), FabProfile(via_tiers=_ALL_NAMED, min={"track_mm": 0.09}), rise_c=10.0)
     lines = render(doc, unconfirmed_reasons(doc, doc.digest()))
     assert lines[-1] == "confirmed"
 

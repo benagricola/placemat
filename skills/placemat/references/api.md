@@ -1643,7 +1643,9 @@ placemat.toml's `[facts] confirmed`; this is placemat's own record, never
 part of a run's id, so confirming never re-plans a board. A run whose
 facts do not match says so on its own line
 ("facts: unconfirmed - placemat facts") and records a `facts` finding, but
-still runs.
+still runs. A via type fab-profile.json's `via` does not name, or a missing
+`min`, stays unconfirmed even after `--confirm`: name each type, `"no"`
+included, since `"no"` for every type (through vias only) is a decision.
 
 `drc` runs kicad-cli's DRC on a board and prints the counts by kind, the
 airwires, and each violation that fails the board with where it is and the

@@ -25,6 +25,7 @@ class FactsDocument:
     fab_min: dict                    # fab.min, as given
     rise_c: float
     plane_mismatches: tuple = ()     # sentences: a signal layer with a plane, or a power layer without one
+    via_named: tuple = ()            # the via types fab-profile.json names a tier for; the rest default to "no"
 
     def _digest_doc(self) -> dict:
         return {"layers": self.layers, "pairs": self.pairs, "via_types": self.via_types,
@@ -59,21 +60,25 @@ def facts_of(geometry: BoardGeometry, fab: FabProfile, rise_c: float,
             mismatches.append("%s is signal but carries a plane()" % l.value)
         elif role == "power" and not has_plane:
             mismatches.append("%s is power (ground) but carries no plane()" % l.value)
-    return FactsDocument(layers, pairs, via_types, dict(fab.min), rise_c, tuple(mismatches))
+    named = tuple(k for k in _VIA_KINDS if k in fab.via_tiers)
+    return FactsDocument(layers, pairs, via_types, dict(fab.min), rise_c, tuple(mismatches), named)
 
 
 def unconfirmed_reasons(doc: FactsDocument, confirmed_digest: str) -> list:
     """Why `doc` is unconfirmed, or [] when it matches the last `placemat
     facts --confirm`. A board with no confirmation record yet is
-    unconfirmed outright (nothing else is worth checking); fab-profile.json
-    naming no via tier at all, or no min, is unconfirmed even when the rest
-    of the digest matches - a default "no"/"" for every via type was never
-    actually decided by anyone."""
+    unconfirmed outright (nothing else is worth checking); a via type
+    fab-profile.json names no tier for, or no min, is unconfirmed even when
+    the rest of the digest matches: its default was never decided by
+    anyone. A type named "no" is a decision, and is confirmed."""
     if not confirmed_digest:
         return ["no confirmation record yet"]
     out = []
-    if all(t == "no" for t in doc.via_types.values()):
+    missing = [k for k in _VIA_KINDS if k not in doc.via_named]
+    if len(missing) == len(_VIA_KINDS):
         out.append("fab-profile.json has no via section")
+    elif missing:
+        out.append("fab-profile.json's via names no tier for %s" % ", ".join(missing))
     if not doc.fab_min:
         out.append("fab-profile.json has no min section")
     if doc.digest() != confirmed_digest:
