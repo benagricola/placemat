@@ -28,7 +28,7 @@ from .cutouts import Cutouts, Path, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from .placement import Placement
 from .settings import Settings
-from .placer import BlockSpec, _grid, _pin_normal, _reason_key, box_centered_placement, cell_pad_anchored_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
+from .placer import BlockSpec, _grid, _pin_normal, _reason_key, box_centered_placement, cell_pad_anchored_placement, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .values import (Turned, Axis, Bend, Cover, Beside, Between, Cutout, CutoutEdge, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
@@ -2006,12 +2006,18 @@ class Board:
         pin = None
         beside = None
         cell_pin = None
+        if isinstance(at, Pin) and kind == "cell" and isinstance(at.key, Part):
+            # a member's footprint origin, not a pad (a winding's arc centre): number None
+            member = next((fp for fp in geom.members if fp.inst == at.key.inst), None)
+            if member is None:
+                raise TypeError("%s: Pin's %r is not one of cell %s's members" % (key, at.key, key))
+            cell_pin, center, at = (member.ref, None, 0.0, 0.0), (at.x, at.y), None
+        elif isinstance(at, Pin) and kind == "cell" and not isinstance(at.key, (CellPadRef, PadRef)):
+            raise TypeError("%s: a cell has no pad of its own; Pin's key is a CellPadRef, a PadRef on "
+                            "one of its members, or a member Part (its footprint origin), not %r" % (key, at.key))
         if at is None:
             pass
-        elif isinstance(at, Pin) and kind == "cell":
-            if not isinstance(at.key, (CellPadRef, PadRef)):
-                raise TypeError("%s: a cell has no pad of its own; Pin's key is a CellPadRef, or a PadRef on "
-                                "one of its members, not %r" % (key, at.key))
+        elif kind == "cell" and isinstance(at, Pin):
             owner, number, dx, dy = self._pad_ref(at.key)
             if owner not in {fp.ref for fp in geom.members}:
                 raise TypeError("%s: Pin's %r is not a pad of one of cell %s's members" % (key, at.key, key))
@@ -5248,8 +5254,12 @@ class Board:
         elif i.center is not None and i.cell_pin is not None:
             owner, number, dx, dy, *rest = i.cell_pin
             lx, ly = rest if rest else (0.0, 0.0)
-            p = cell_pad_anchored_placement(occ, i.item, owner, number, dx, dy,
-                                            _locate(self, occ, i.center), i.rotation, i.face, lx, ly)
+            if number is None:              # the member's footprint origin, not a pad
+                p = cell_origin_anchored_placement(occ, i.item, owner, _locate(self, occ, i.center),
+                                                   i.rotation, i.face)
+            else:
+                p = cell_pad_anchored_placement(occ, i.item, owner, number, dx, dy,
+                                                _locate(self, occ, i.center), i.rotation, i.face, lx, ly)
         elif i.center is not None and i.pin is not None:
             p = pad_anchored_placement(occ, i.item, i.pin, _locate(self, occ, i.center), i.rotation, i.face)
             # A net names one pad here, the first of however many carry it.

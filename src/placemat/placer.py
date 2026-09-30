@@ -418,6 +418,17 @@ def cell_pad_anchored_placement(occ: Occupancy, cell, owner: str, number: str, d
     return Placement(Location(round(target.x - at.x, 6), round(target.y - at.y, 6)), rotation, face)
 
 
+def cell_origin_anchored_placement(occ: Occupancy, cell, owner: str, point: Location, rotation: float = 0.0,
+                                   face: Face = Face.FRONT) -> Placement:
+    """The placement that puts a cell so member `owner`'s footprint origin
+    (its own anchor, a pad or not: a winding's arc centre) lands on
+    `point`, at the cell's `rotation` and `face`."""
+    probe = Placement(Location(0.0, 0.0), rotation, face)
+    geom = occ._geometry(cell)
+    at = occ._transform(geom, probe).apply_location(occ.geometry.footprint(owner).location)
+    return Placement(Location(round(point.x - at.x, 6), round(point.y - at.y, 6)), rotation, face)
+
+
 @dataclass(frozen=True)
 class Pocket:
     """A free rectangle on one face, found by scanning the board."""

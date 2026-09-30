@@ -7,6 +7,11 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+`board.place(Cell(...), at=Pin(Part(member), x, y))` puts a member's
+footprint origin on the point: a cell placed by a point that is no pad (a
+winding's arc centre on a disc's centre), not by an offset worked out in
+its own frame.
+
 `check current-path` no longer judges a net only one part carries: it
 judged the route to the widest-joined other pad at the full current, often
 a capacitor carrying ripple, and failed it. Give the part that takes the

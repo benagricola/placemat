@@ -12,9 +12,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   2026-09-30): a lone carrier was judged to the widest-joined capacitor.
 ## Open
 
-- **A cell placed by a member's footprint origin** (fairing 2026-09-30): a
-  winding's arc centre on the disc centre; `Pin` needs a pad and a cell's
-  Location is its box centre.
 - **A linked chain waits link by link past its priority** (fairing
   2026-09-30, observed): each cell of a chain waits for the previous and is
   searched after smaller cells took the room, its priority set aside.

@@ -33,6 +33,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | at a mechanical point (an enclosure hole, a datasheet figure) | `at=Location(x, y)`, `x`/`y` named constants | Placement |
 | its own pad on the pin it serves | `at=Pin(key, X(pin), Y(pin))` | Placement |
 | a cell placed by one of its members' pads | `at=Pin(CellPadRef(cell, net=), x, y)` | Placement |
+| a cell placed by a member's footprint origin (not a pad) | `at=Pin(Part(member), x, y)` | Placement |
 | between two pads | `at=Centre(X(Mid(a, b)), Y(a))` | Placement |
 | sliding along one line, the other axis free | `at=Centre(None, y)` / `Location(x, None)` | Placement |
 | somewhere the netlist cannot say (a thermal neighbour) | `at=Near(PadRef(...))` | Placement |
@@ -210,8 +211,10 @@ body centre, or the item's own pad `key` (a number or a net), each axis a
 number or a reference, and the two axes may name different parts:
 `Pin(1, X(Part("j1")), Y(PadRef(Part("u1"), 14)))`): a cap whose pad must
 sit on a pin's axis, a diode whose pad faces another's, is a `Pin`. On a cell, which has no pad of its
-own, `key` is a `CellPadRef` or a `PadRef` naming one of its members' pads;
-the cell is carried rigidly so that pad lands on the point. `Location(30, None)` or
+own, `key` is a `CellPadRef` or a `PadRef` naming one of its members' pads,
+or a member `Part` for that member's footprint origin (a winding's arc
+centre, which is no pad); the cell is carried rigidly so that pad, or
+origin, lands on the point. `Location(30, None)` or
 `Centre(None, y)` fix one: the item slides along the line, starting across
 from what it connects to when any of that is placed, else at its middle alone or
 sharing it evenly with the items pinned to the same value, aside from what

@@ -123,3 +123,21 @@ def test_a_pin_still_places_a_part_by_its_own_pad():
     b.place(Part("r1"), at=Pin("A", 20.0, 30.0))
     plan = b.resolve()
     assert plan.occupancy.pad_location("R1", "1") == Location(20.0, 30.0)
+
+
+@pytest.mark.parametrize("rotation", [0, 90])
+def test_a_cell_placed_by_a_members_footprint_origin(rotation):
+    """A member's footprint origin that is not a pad (a winding's arc
+    centre): Pin(Part(member), x, y) puts that origin on the point, at the
+    cell's rotation."""
+    b = make_board()
+    b.place(Cell("pd"), at=Pin(Part("pd.c1"), 30.0, 40.0), rotation=rotation)
+    plan = b.resolve()
+    at = plan.occupancy.items["C1"].reference.location
+    assert (at.x, at.y) == pytest.approx((30.0, 40.0), abs=1e-6)
+
+
+def test_a_cell_pin_by_a_part_that_is_not_its_member_is_refused():
+    b = make_board()
+    with pytest.raises(TypeError, match="member"):
+        b.place(Cell("pd"), at=Pin(Part("r1"), 30.0, 40.0))
