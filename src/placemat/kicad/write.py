@@ -331,13 +331,38 @@ def _draw_keepouts(board, plan):
         z.SetLayerSet(pcbnew.LSET.AllCuMask(board.GetCopperLayerCount()) if k.layers is None
                       else _layer_set(board, k.layers))
         for name, setter in _KEEPOUT_FLAGS.items():
-            getattr(z, setter)(name in k.excludes)
+            # one that admits parts allows footprints: a .kicad_dru rule forbids the rest (keepout_rules)
+            getattr(z, setter)(name in k.excludes and not (name == "parts" and _admits_parts(k)))
         o = z.Outline()
         o.NewOutline()
         for x, y in k.poly:
             o.Append(nm(x), nm(y))
         z.SetZoneName("keepout %s%s" % (k.name, layer_marker(k.layers, stack)))
         board.Add(z)
+
+
+def _admits_parts(k) -> bool:
+    """Whether a keepout that excludes parts lets some in: by name
+    (`allow=` parts or cells) or by height (`max_height=`)."""
+    return "parts" in k.excludes and (bool(k.owners) or k.max_height is not None)
+
+
+def keepout_rules(plan, refs, stack) -> list:
+    """A KeepoutRule for each keepout that admits parts: the footprints of
+    `refs` (the board's references) it does not admit, forbidden in its
+    rule area. None for a keepout that admits every one of them."""
+    from ..rules import KeepoutRule
+    out = []
+    for k in plan.keepouts.values():
+        if not _admits_parts(k):
+            continue
+        forbid = tuple(sorted(r for r in set(refs) if r not in k.owners))
+        if not forbid:
+            continue
+        faces = {l for l in (k.layers or ()) if l in (CopperLayer.F, CopperLayer.B)}
+        layer = next(iter(faces)).value if k.layers and len(faces) == 1 and len(k.layers) == 1 else None
+        out.append(KeepoutRule("keepout %s%s" % (k.name, layer_marker(k.layers, stack)), forbid, layer))
+    return out
 
 
 _KEEPOUT_DRAWINGS_GROUP = "keepout drawings"
@@ -1070,7 +1095,9 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     plan.models = _reanchor_models(board, Path(out).parent)
     save(board, out)
     from ..rules import write_rules
-    write_rules(out, plan.rules)
+    stack = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
+    write_rules(out, list(plan.rules) + keepout_rules(plan, [fp.GetReference() for fp in board.GetFootprints()],
+                                                      stack))
     return out
 
 

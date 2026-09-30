@@ -857,11 +857,20 @@ part sits on a face, so `"parts"` keeps parts off the faces among its
 layers: `layers=["F.Cu"]` leaves the back free, and inner layers alone keep
 no part out. A region a cell brings follows the cell to the other face.
 
-**What KiCad reports.** A rule area as KiCad saves it has no allow list, so
-KiCad's DRC lists a part (or a track of a net) the keepout allows as
-`items_not_allowed`. The run sets those aside: they are counted as
-`permitted` (`metrics.permitted`, and the DRC line's "permitted by their
-keepout"), not as violations.
+**What KiCad reports.** A rule area as KiCad saves it has no allow list or
+height. So a keepout that admits parts (`allow=` parts or cells, or
+`max_height=`) is written as a rule area that allows footprints, and a rule
+in the board's `.kicad_dru` forbids the parts it does not admit:
+`(rule "keepout ring" (constraint disallow footprint) (condition
+"A.intersectsArea('keepout ring') && A.Layer == 'F.Cu' && (A.Reference ==
+'T1' || ...)"))`, naming the board's parts that are too tall, have no
+`Pm.Height`, or are not named. A part placed by hand in KiCad inside the
+region is then an error only when placemat would refuse it too. A keepout
+that admits every part on the board writes no rule; one that excludes parts
+outright forbids footprints in its rule area, as before. A track of a net
+the keepout allows is still listed as `items_not_allowed`; the run sets
+those aside, counted as `permitted` (`metrics.permitted`, and the DRC
+line's "permitted by their keepout"), not as violations.
 
 **Drawn on the board.** A rule area is a hatch on a copper layer with
 nothing saying what it admits, so alongside it, a keepout that admits

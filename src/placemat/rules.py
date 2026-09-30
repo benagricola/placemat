@@ -30,6 +30,25 @@ class Rule:
         return '(rule "%s"\n  (condition "%s")\n  (constraint %s (min %gmm)))' % (name, self.condition(), self.kind, self.min_mm)
 
 
+@dataclass(frozen=True)
+class KeepoutRule:
+    """A keepout that admits parts by name or height, said to KiCad: its
+    rule area allows footprints, and this rule forbids the parts it does not
+    admit. KiCad's own area test is `intersectsArea` (`insideArea` is its
+    older name)."""
+    area: str                   # the rule area's zone name, as written
+    refs: tuple                 # the footprints it forbids
+    layer: str | None = None    # "F.Cu" or "B.Cu" for a keepout on one face
+
+    def text(self) -> str:
+        cond = ["A.intersectsArea('%s')" % self.area]
+        if self.layer:
+            cond.append("A.Layer == '%s'" % self.layer)
+        cond.append("(%s)" % " || ".join("A.Reference == '%s'" % r for r in self.refs))
+        return '(rule "%s"\n  (constraint disallow footprint)\n  (condition "%s"))' % (
+            self.area.replace('"', "'"), " && ".join(cond))
+
+
 def rules_text(rules) -> str:
     return "(version 1)\n" + "\n".join(r.text() for r in rules) + ("\n" if rules else "")
 

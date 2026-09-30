@@ -13,6 +13,11 @@ Fab layer of its face or `User.Comments`, in its own group `keepout
 drawings`. `write.keepout_drawings = "none"` turns it off; `"all"` draws
 every keepout, admitting or not.
 
+A keepout that admits parts (`allow=` parts or cells, or `max_height=`) is
+written as a KiCad rule area that allows footprints, with a `.kicad_dru`
+rule forbidding the parts it does not admit. Parts it admits are no longer
+KiCad DRC errors when placed by hand; a part it would refuse still is.
+
 `board.push(item, from_=, falloff=, reference=(r_ref, v_ref), limit=)`
 holds an item back from a source by a physical falloff model: illegal
 inside a disc round the source, priced by how close it stands within
