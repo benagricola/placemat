@@ -2161,6 +2161,9 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `copper.plane_min_thickness` | 0.2 | a zone's minimum filled width |
 | `copper.pour_stroke` | 0.2 | a pour's outline stroke |
 | `write.split_groups` | "lift" | the generator's nested groups: `lift` each cell's group out of its module's to the top level (the module keeps its own parts), `split` also takes out of a group the parts the script places by steps of their own, `keep` writes them as generated; a group left empty is removed |
+| `write.keepout_drawings` | "admitting" | draw a keepout's outline and what it admits, on its Fab layer (or `User.Comments` for one on both faces or on inner layers only): `admitting` (default) those that admit something (`allow=` or `max_height=`), `all` every keepout, `none` |
+| `write.keepout_line` | 0.1 | a drawn keepout's outline stroke |
+| `write.keepout_text` | 0.8 | a drawn keepout's label height |
 | `copper.microvia_drill` | 0.1 | a micro via's drill (`layers=` one layer from an outer face) when the script gives none |
 | `copper.cell_zones_under_planes` | "drop" | a stamped cell's zone the board's own plane covers on its net and layer: `drop` merges it into the plane, `keep` keeps it |
 | `label.size` | 1.0 | silkscreen text height |
@@ -2228,6 +2231,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.via_share` | 1 | mm the search adds to a spot for each carried via that shares a via of its net there |
 | `score.via_move` | 2 | mm for each carried via that moves there |
 | `score.via_drop` | 10 | mm for each plane drop dropped there |
+| `score.push` | 10 | mm-equivalent: `score.push` times a push's modelled value over its limit, at the search |
 | `solve.enabled` | false | give the searched tier its hints from a global solve of the whole netlist, before any item is scanned |
 | `solve.iterations` | 200 | the solve's conjugate-gradient cap per axis per round |
 | `solve.tolerance` | 1e-06 | the residual the solve stops at |

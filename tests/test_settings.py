@@ -196,3 +196,33 @@ def test_the_settings_command_prints_every_key_and_its_source(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "place.step" in out and "0.05" in out and "placemat.toml" in out
     assert "rank.area" in out and "default" in out
+
+
+def test_keepout_drawing_and_push_defaults():
+    s = S.Settings()
+    assert s.write_keepout_drawings == "admitting"
+    assert s.write_keepout_line == 0.1
+    assert s.write_keepout_text == 0.8
+    assert s.score_push == 10.0
+
+
+def test_keepout_drawings_is_a_validated_choice(tmp_path):
+    _toml(tmp_path / "placemat.toml", '[write]\nkeepout_drawings = "sometimes"\n')
+    with pytest.raises(S.SettingsError) as e:
+        S.load(tmp_path)
+    assert "write.keepout_drawings" in str(e.value) and "admitting" in str(e.value)
+
+
+def test_keepout_line_and_text_have_a_floor(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[write]\nkeepout_line = 0.0\n")
+    with pytest.raises(S.SettingsError) as e:
+        S.load(tmp_path)
+    assert "write.keepout_line" in str(e.value) and "greater than 0" in str(e.value)
+
+
+def test_score_push_may_be_zero_but_not_negative(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[score]\npush = 0.0\n")
+    assert S.load(tmp_path).score_push == 0.0
+    _toml(tmp_path / "placemat.toml", "[score]\npush = -1.0\n")
+    with pytest.raises(S.SettingsError):
+        S.load(tmp_path)

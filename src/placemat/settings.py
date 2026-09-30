@@ -78,6 +78,9 @@ class Settings:
     copper_microvia_drill: float = 0.1  # a micro via's (laser) drill, when the script gives none
     # [write]
     write_split_groups: str = "lift"    # each cell's group nested in a module's: lifted to the top level (the module keeps its parts); "split" also takes out the parts placed apart; "keep" as generated
+    write_keepout_drawings: str = "admitting"   # a keepout that admits something drawn on its Fab layer (or User.Comments): "admitting" (default) those that admit something, "all" every keepout, "none"
+    write_keepout_line: float = 0.1    # a drawn keepout's outline stroke
+    write_keepout_text: float = 0.8    # a drawn keepout's label height
     # [label]
     label_size: float = 1.0
     label_thickness: float = 0.15
@@ -157,6 +160,7 @@ class Settings:
     score_via_share: float = 1.0        # the search: a carried via that shares a same-net via
     score_via_move: float = 2.0         # a carried via that moves
     score_via_drop: float = 10.0        # a plane drop dropped
+    score_push: float = 10.0            # a push: score.push times the modelled value over its limit, at the search
     # [solve] - the global pre-solve for the searched tier's hints
     solve_enabled: bool = False
     solve_iterations: int = 200
@@ -273,7 +277,8 @@ class SettingsError(ValueError):
 
 # Keys with a fixed set of values.
 _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotations": ("all", "declared"),
-            "copper_cell_zones_under_planes": ("drop", "keep"), "write_split_groups": ("lift", "split", "keep")}
+            "copper_cell_zones_under_planes": ("drop", "keep"), "write_split_groups": ("lift", "split", "keep"),
+            "write_keepout_drawings": ("admitting", "all", "none")}
 
 # Keys with a floor. A value at or below it is a setting that cannot work: a
 # zero scan step never moves, a zero timeout never runs. Weights are absent
@@ -287,7 +292,7 @@ _ABOVE_ZERO = frozenset((
     "geometry_arc_error_nm", "check_rise_c", "check_copper_oz", "check_zone_step",
     "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm",
-    "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share"))
+    "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line", "write_keepout_text"))
 _AT_LEAST_ZERO = frozenset((
     "rank_area", "rank_pins", "place_drops_keep", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge", "copper_chamfer", "best_airwire_noise",
     "best_crossing_noise", "score_unplaced", "score_priority_high", "score_priority_default", "score_priority_low",
@@ -296,7 +301,7 @@ _AT_LEAST_ZERO = frozenset((
     "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
     "score_pair_crossing", "place_via_share", "place_via_move", "score_via_share",
-    "score_via_move", "score_via_drop"))
+    "score_via_move", "score_via_drop", "score_push"))
 
 
 def _declared(name: str) -> str:
