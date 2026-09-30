@@ -5,19 +5,11 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## In progress
 
-- **A 45 off a pad's corner, a zone fill's width, a link wait under
-  priority** (spec `2026-09-30-diagonal-lane-zone-width-link-priority-design.md`,
-  approved 2026-09-30).
-- **Vias that give way** (spec `2026-09-30-plane-drops-and-the-far-face-design.md`,
-  approved 2026-09-30; plan `2026-09-30-vias-that-give-way.md`): share,
-  move, drop; `drops=` on place(); a via's layer span.
-- **The current-path check with one carrier** (owner: say it can't judge,
-  2026-09-30): a lone carrier was judged to the widest-joined capacitor.
-
 ## Open
 
 - **A plug on another board against a receptacle here** (owner: spec later,
   2026-09-30; PLACEMAT_GAPS 2026-09-27, twice): pad-to-pad nets across two board files and a turn.
+
 ## Housekeeping (left for Ben: outside this repository)
 
 - `mnb-ecosystem/pyproject.toml` points placemat at the stale
@@ -26,6 +18,16 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Done
 
+- **Vias, flips and lanes** (0.57.0): a carried via shares, moves or is
+  dropped to clear a far-face part, and a placed item's vias give way to a
+  later one (spec `2026-09-30-plane-drops-and-the-far-face-design.md`); a
+  via's layer span, `drops=` on place(), and micro, blind and buried vias
+  refused unless the fab profile allows them; a flipped cell keeps its
+  inner copper on its layers; `Past(items, Corner.X)`; a zone fill's width
+  in `check current-path`, which no longer judges a lone carrier; a link
+  wait never outranks priority (spec
+  `2026-09-30-diagonal-lane-zone-width-link-priority-design.md`); `Pin` on
+  a member's origin; `measure --models`; `parts --fragments`.
 - **The fairing core's 0.56.1 bugs** (0.56.2): an overhang on a shaped
   board's run; a run's point at its own end; a copper finding measuring a
   via as its circle; findings naming the board's own layers; a refusal's
