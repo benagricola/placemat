@@ -425,6 +425,28 @@ def test_a_placed_cells_via_moves_for_a_later_back_part():
     assert [c.points for c in plan.occupancy.copper if c.owner == "m" and c.kind == "through"] == [((19.1, 22.05),)]
 
 
+def test_a_via_move_is_the_same_native_or_not(monkeypatch):
+    """The native offset search (giveway._native_move_offsets) picks the
+    same spot the pure-Python per-offset loop would - on a placed via
+    that must move for a later part (the scenario where a native search
+    naturally sees its own via as a registered obstacle, and must exclude
+    it - giveway.py's own `_native_move_offsets` doc)."""
+    import pytest
+    from placemat import geometry, giveway
+    if geometry._native is None:
+        pytest.skip("no native module")
+    runs = {}
+    for native_on in (False, True):
+        monkeypatch.setattr(giveway, "_NATIVE_MOVE_SEARCH", native_on)
+        plan = _later_board(
+            [_via("SIG", 39.1, 42.2, owner="m"), track("SIG", 39.1, 40.0, 39.1, 42.2, w=0.2, owner="m")],
+            (19.5, 23.0), net="SIG").resolve()
+        runs[native_on] = ([(a.kind, a.via, a.to, round(a.moved_mm, 6)) for a in plan.occupancy.given_way.values()],
+                           plan.step("r9").placement, plan.step("r9").note)
+    assert runs[True] == runs[False]
+    assert runs[True][0] and runs[True][0][0][0] == "move"       # a move actually happened, on both paths
+
+
 def test_a_placed_owner_keeps_its_keep_share():
     """Both of the cell's drops in U1's pad lie under R9's pad S: one may go
     for it, the pad keeps the other, so R9 is refused there."""

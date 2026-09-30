@@ -7,7 +7,7 @@ import re
 import pytest
 
 from placemat.board_geometry import CopperItem
-from placemat.checks import current_paths, ipc2221_width_mm, kwargs_from, run_checks
+from placemat.checks import _Fill, current_paths, ipc2221_width_mm, kwargs_from, run_checks
 from placemat.settings import Settings
 from placemat.values import Box, CopperLayer
 from tests.fixtures import board_geometry, footprint, rect, track
@@ -86,6 +86,32 @@ def test_a_route_through_a_fill_and_a_narrower_track_is_judged_by_the_track():
     v = _sw(_parts("3.6A"), copper)
     assert v.ok is False and v.value == pytest.approx(0.5), v.note
     assert "mm long" in v.note and "zone fill" in v.note
+
+
+def test_copper_distance_reads_the_real_distance_not_zero_everywhere(monkeypatch):
+    """A regression for the pure-Python `_Fill._copper_distance` (forced
+    here with NativeFill off - NativeFill's own `Fill::build_copper_distance`
+    has the same regression pinned in native/src/fill.rs,
+    touching_reads_the_real_distance_not_zero_everywhere): a fill cell many
+    millimetres from any copper must not read as distance 0 from it. A
+    seed/target mix-up in the copper distance transform (the copper cells
+    must be the transform's distance-0 seeds, not the other way round)
+    would make every NON-copper cell - almost every query cell - read as
+    distance 0 from copper however far it actually sits, since a query
+    cell is itself not copper. `touching`'s own copper-box window would
+    mask this for a small search radius (it never looks far enough to
+    notice), so this checks `_copper_distance` directly, at a cell chosen
+    far from the copper on both axes."""
+    import placemat.checks as checks_module
+    monkeypatch.setattr(checks_module, "_NATIVE_FILL", False)
+    lane = rect(15, 10, 20, 1.2)                     # x 5..25, y 9.4..10.6
+    f = _Fill(lane, STEP)
+    far_right = [rect(24.5, 10, 1.0, 1.0)]           # touches the lane's own right edge
+    copper_sq = f._copper_distance(far_right)
+    near_left = min((c for c in range(f.nx * f.ny) if f.inside[c]), key=lambda c: f.centre(c)[0])
+    assert f.centre(near_left)[0] < 6.0              # about 19 mm from far_right
+    # in cells, at least (19 mm - a fill cell's own margin) / step
+    assert copper_sq[near_left] > ((19.0 - 2 * STEP) / STEP) ** 2
 
 
 def test_the_step_is_the_setting():

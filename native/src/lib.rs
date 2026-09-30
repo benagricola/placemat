@@ -6,6 +6,7 @@
 mod board;
 mod escapes;
 mod exact;
+mod fill;
 mod geometry;
 mod pockets;
 mod ratsnest;
@@ -170,6 +171,44 @@ impl NativeObstacles {
     ) -> Option<(usize, usize)> {
         self.grid.first_conflict_shifted(&origin.shapes, dx, dy, clearance, &self.cfg)
     }
+
+    /// give_way's own move search (`giveway.py` `_give`): every offset of
+    /// `offsets`, nearest first, at which `shapes` (registered once, at
+    /// their CURRENT position - the offsets are relative to it, dx = dy = 0
+    /// meaning "stay put") meet nothing in the grid when shifted by it,
+    /// ignoring any registered obstacle whose index is in `skip` (the
+    /// via's own current shapes, and any other via also giving way to the
+    /// same candidate - `giveway._native_move_offsets` builds this from
+    /// `judge.hidden`; see `first_conflict_shifted_excluding`'s own doc for
+    /// why it must be excluded, not just deprioritised). With
+    /// `stop_at_first`, the search stops at the first clear offset (a via's
+    /// own vias, whose ring position moves with the candidate being
+    /// placed, so nothing here is worth caching); without it, every clear
+    /// offset is found in one call (a placed via's move search, whose ring
+    /// position is fixed for the whole scan - the Python side caches this
+    /// list per via and reuses it across every candidate the scan tries
+    /// against it).
+    fn first_clear_offset(
+        &self,
+        shapes: Vec<PyShape>,
+        offsets: Vec<(f64, f64)>,
+        clearance: Option<f64>,
+        stop_at_first: bool,
+        skip: Vec<usize>,
+    ) -> PyResult<Vec<usize>> {
+        let built: Vec<shapes::Shape> = shapes.iter().map(build_shape).collect::<PyResult<_>>()?;
+        let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
+        let mut out = Vec::new();
+        for (i, &(dx, dy)) in offsets.iter().enumerate() {
+            if self.grid.first_conflict_shifted_excluding(&built, dx, dy, clearance, &self.cfg, &skip).is_none() {
+                out.push(i);
+                if stop_at_first {
+                    break;
+                }
+            }
+        }
+        Ok(out)
+    }
 }
 
 /// A candidate item's own shapes, turned for one (rotation, face) and left
@@ -189,6 +228,62 @@ impl NativeOriginShapes {
     #[new]
     fn new(shapes: Vec<PyShape>) -> PyResult<Self> {
         Ok(NativeOriginShapes { shapes: shapes.iter().map(build_shape).collect::<PyResult<_>>()? })
+    }
+}
+
+/// The (x, y, turn) triples `placer.scan`'s own `seen` Python set used to
+/// dedupe across a scan's several passes (coarse, half-coarse, fine round
+/// each refined candidate) - kept here instead, one instance per scan
+/// (`Occupancy.native_sweeper` builds one `NativeSweeper` per `scan()`
+/// call, which owns one of these), so the loop that builds triples from
+/// `points x rots` runs in Rust once per pass instead of once per
+/// (point, rotation) pair in Python. Coordinates are compared by exact bit
+/// pattern (`f64::to_bits`), matching Python's own `(x, y, rot) in seen`
+/// set-membership exactly: `placer._grid`'s `round(v, 6)` is deterministic,
+/// so the same conceptual point always produces the same bits, from
+/// whichever pass reaches it first.
+#[pyclass]
+#[derive(Default)]
+struct NativeSweepSeen {
+    seen: std::collections::HashSet<(u64, u64, usize)>,
+}
+
+#[pymethods]
+impl NativeSweepSeen {
+    #[new]
+    fn new() -> Self {
+        NativeSweepSeen::default()
+    }
+
+    /// (x, y, turn) triples for every (x, y) in `points` at every turn in
+    /// 0..n_rots not already returned by an earlier call on this instance.
+    fn expand(&mut self, points: Vec<(f64, f64)>, n_rots: usize) -> Vec<(f64, f64, usize)> {
+        let mut out = Vec::new();
+        for (x, y) in points {
+            let kx = x.to_bits();
+            let ky = y.to_bits();
+            for turn in 0..n_rots {
+                if self.seen.insert((kx, ky, turn)) {
+                    out.push((x, y, turn));
+                }
+            }
+        }
+        out
+    }
+}
+
+#[cfg(test)]
+mod sweep_seen_tests {
+    use super::NativeSweepSeen;
+
+    #[test]
+    fn expand_skips_what_was_already_returned() {
+        let mut s = NativeSweepSeen::default();
+        let first = s.expand(vec![(1.0, 2.0), (3.0, 4.0)], 2);
+        assert_eq!(first, vec![(1.0, 2.0, 0), (1.0, 2.0, 1), (3.0, 4.0, 0), (3.0, 4.0, 1)]);
+        let second = s.expand(vec![(1.0, 2.0), (5.0, 6.0)], 2);
+        // (1.0, 2.0) at both turns already seen; (5.0, 6.0) is new.
+        assert_eq!(second, vec![(5.0, 6.0, 0), (5.0, 6.0, 1)]);
     }
 }
 
@@ -215,6 +310,148 @@ fn clean9_many(values: Vec<f64>) -> Vec<f64> {
 #[pyfunction]
 fn hypot_many(xs: Vec<f64>, ys: Vec<f64>) -> Vec<f64> {
     xs.into_iter().zip(ys).map(|(a, b)| exact::hypot(a, b)).collect()
+}
+
+/// `checks.py`'s `_Fill`, in Rust - see `fill` module doc. `_Fill` keeps
+/// `x0`/`y0`/`s`/`nx`/`ny`/`sq`/`levels` in Python (read once, at
+/// construction) for its own neck-selection code in `width()`, which
+/// stays Python; `touching`/`reach`/`centre`/`radius` are asked of this
+/// object each time.
+#[pyclass]
+struct NativeFill {
+    inner: fill::Fill,
+}
+
+#[pymethods]
+impl NativeFill {
+    #[new]
+    fn new(poly: Vec<Point>, step: f64) -> Self {
+        NativeFill { inner: fill::Fill::new(&poly, step) }
+    }
+
+    #[getter]
+    fn x0(&self) -> f64 {
+        self.inner.x0
+    }
+
+    #[getter]
+    fn y0(&self) -> f64 {
+        self.inner.y0
+    }
+
+    #[getter]
+    fn s(&self) -> f64 {
+        self.inner.s
+    }
+
+    #[getter]
+    fn nx(&self) -> usize {
+        self.inner.nx
+    }
+
+    #[getter]
+    fn ny(&self) -> usize {
+        self.inner.ny
+    }
+
+    #[getter]
+    fn sq(&self) -> Vec<f64> {
+        self.inner.sq.clone()
+    }
+
+    #[getter]
+    fn levels(&self) -> Vec<f64> {
+        self.inner.levels.clone()
+    }
+
+    fn centre(&self, c: usize) -> Point {
+        self.inner.centre(c)
+    }
+
+    fn radius(&self, tau: f64) -> f64 {
+        self.inner.radius(tau)
+    }
+
+    /// `polys_id`: an integer the Python `_Fill` assigns per distinct
+    /// `entry`/`exit_` tuple it calls `touching` with (their `id()`, same
+    /// as `checks.py`'s own `_Fill._copper_distance` cache key, kept alive
+    /// by a Python-side reference so an id can never be reused within one
+    /// `_Fill`'s lifetime) - `polys` is only needed (and only rasterised)
+    /// the FIRST time a given id is seen by this `NativeFill` instance.
+    fn touching(&mut self, polys_id: usize, polys: Option<Vec<Vec<Point>>>, tau: f64) -> Vec<usize> {
+        self.inner.touching(polys_id, polys.as_deref(), tau)
+    }
+
+    /// `checks._Fill._reach`'s own contract: (the goal cell reached, or
+    /// None, the BFS's parent map). The parent map comes back as a
+    /// `NativeReach`, not a plain dict: `width()`'s own code only ever
+    /// asks it `c in parent`, `parent[c]` (walking a short chain back from
+    /// the hit) or iterates its keys (the "no path at all" branch) - never
+    /// its values in bulk - and a fill with a wide, mostly-open pour can
+    /// have a BFS visit hundreds of thousands of cells before reaching a
+    /// distant goal (or none, when `goal` is empty - `width()`'s own
+    /// `from_entry`/`from_exit` calls, which want reachability alone).
+    /// Marshalling that whole map into a Python dict, one key and value
+    /// each crossing the FFI boundary as their own object, cost far more
+    /// than the search itself; `NativeReach` keeps it in Rust and answers
+    /// those three operations directly.
+    fn reach(&self, start: Vec<usize>, goal: Vec<usize>, tau: f64) -> (Option<usize>, NativeReach) {
+        let (hit, parent, order) = self.inner.reach(&start, &goal, tau);
+        (hit, NativeReach { parent, order })
+    }
+}
+
+/// The parent map `NativeFill::reach` hands back - see that method's own
+/// doc for why it is not a plain Python dict. `order` is the cells in the
+/// order the BFS gained them (`start` first, in `start`'s own order, then
+/// discovery order) - a Rust `HashMap`'s own iteration order is
+/// unrelated to insertion order (and, with Rust's default hasher,
+/// randomised per process), where a Python dict's is always insertion
+/// order; `__iter__` must answer with the latter, since `width()`'s "no
+/// path at all" branch breaks a tie in `min(seen, key=...)` by picking
+/// whichever `seen` iterates first.
+#[pyclass]
+struct NativeReach {
+    parent: HashMap<usize, Option<usize>>,
+    order: Vec<usize>,
+}
+
+#[pymethods]
+impl NativeReach {
+    fn __contains__(&self, key: usize) -> bool {
+        self.parent.contains_key(&key)
+    }
+
+    fn __getitem__(&self, key: usize) -> PyResult<Option<usize>> {
+        self.parent.get(&key).copied().ok_or_else(|| pyo3::exceptions::PyKeyError::new_err(key))
+    }
+
+    fn __len__(&self) -> usize {
+        self.parent.len()
+    }
+
+    fn __iter__(&self) -> NativeReachKeys {
+        NativeReachKeys { keys: self.order.clone().into_iter() }
+    }
+}
+
+/// `iter(a NativeReach)`: its keys, one Rust `Vec` built once rather than
+/// a Python object per key up front - `width()`'s own "no path at all"
+/// branch only ever walks this once, with `min(seen, key=...)`.
+#[pyclass]
+struct NativeReachKeys {
+    keys: std::vec::IntoIter<usize>,
+}
+
+#[pymethods]
+impl NativeReachKeys {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<usize> {
+        slf.keys.next()
+    }
 }
 
 /// The board's keep-in and its reservations, mirrored from an Occupancy
@@ -823,8 +1060,12 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(mst, m)?)?;
     m.add_function(wrap_pyfunction!(clean9_many, m)?)?;
     m.add_function(wrap_pyfunction!(hypot_many, m)?)?;
+    m.add_class::<NativeFill>()?;
+    m.add_class::<NativeReach>()?;
+    m.add_class::<NativeReachKeys>()?;
     m.add_class::<NativeObstacles>()?;
     m.add_class::<NativeOriginShapes>()?;
+    m.add_class::<NativeSweepSeen>()?;
     m.add_class::<NativeBoard>()?;
     m.add_class::<NativeRatsnest>()?;
     m.add_class::<NativeEscTurn>()?;
