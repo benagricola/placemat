@@ -2,12 +2,12 @@
 
 Date: 2026-09-29
 Status: approved 2026-09-29 (Ben: implement unless a decision is needed)
-Source: PLACEMAT_GAPS.md (fairing), 2026-09-29 "a clear column on one inner
+Source: a board's PLACEMAT_GAPS.md, 2026-09-29 "a clear column on one inner
 layer"
 
 ## The problem
 
-To find where one PD_LDO_3V3 run could cross the core on In3, the fairing
+To find where one PD_LDO_3V3 run could cross the core on In3, a board session
 listed, for each 0.5 mm column, every In3-facing pad, via, track, cutout and
 foreign zone, using pcbnew.
 - `placemat occupancy` answers one point or box at a time, about 2 s each.
@@ -33,7 +33,7 @@ foreign zone, using pcbnew.
 2. The search is one grid pass on the query's own clearance map, at the
    router's default grid of 0.1 mm, bounded to the box round A and B grown
    by `--margin` (default 10 mm). The occupancy is built once per query.
-   The target is under 10 s on the fairing core.
+   The target is under 10 s on a whole test board.
 3. **Docs**: api.md's `occupancy` section.
 
 ## Verification

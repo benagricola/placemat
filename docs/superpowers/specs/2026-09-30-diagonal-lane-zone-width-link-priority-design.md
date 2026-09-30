@@ -5,7 +5,7 @@ Status: draft, for approval.
 Three open items, each small enough to specify together:
 - the owner's choice of a diagonal lane (2026-09-30);
 - "spec it" for a zone fill's width (2026-09-30);
-- the fairing core's observation of a linked chain waiting past its
+- a whole test board's observation of a linked chain waiting past its
   priority (2026-09-30).
 
 ## 1. A 45 held off a pad's corner
@@ -61,7 +61,7 @@ fill, the width it has inside the fill is measured:
 ## 3. A link wait under priority
 
 **Problem.** Of two linked items not yet placed, the one with less pull
-waits for the other, whatever their priorities. On the fairing core a chain
+waits for the other, whatever their priorities. On a whole test board a chain
 of linked cells waited link by link. Each was searched after smaller cells
 had taken the room, and one cell's `priority=HIGH` was set aside for a link
 to a `DEFAULT` cell.

@@ -6,12 +6,12 @@ Status: design
 A script linking a bypass capacitor to a supply pin names the pad by number,
 read from an exported netlist, and an IC with several pads on one rail (a
 strap pin beside a supply pin) cannot be told apart by net. Source:
-fairing-instrument `electronics/PLACEMAT_GAPS.md`, "2026-09-22: which pad is
+a board's `PLACEMAT_GAPS.md`, "2026-09-22: which pad is
 the supply pin", and "the power cells" item 4.
 
 ## Where the names are
 
-Measured on the fairing core's generated board: no pad carries a pin
+Measured on a whole test board's generated board: no pad carries a pin
 function (0 of 864), and the generator's netlist (`layout/default.net`)
 gives each node a pad number and no name. The netlist does name each
 component's symbol (`libsource part`), and the symbol libraries the board's

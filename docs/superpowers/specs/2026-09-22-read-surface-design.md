@@ -119,7 +119,7 @@ placed board the layer list comes from that board's own stackup and is printed.
 
 `BoardGeometry` gains `board_polygon: tuple[Polygon, ...]` - the outline first,
 then its holes - read with `GetBoardPolygonOutlines(ps, False)`. Measured: 8
-points for the Breakout, 191 points and one hole for the fairing disc.
+points for the Breakout, 191 points and one hole for a round test board.
 
 `BoardGeometry.outline` is **left exactly as it is**. It holds one bounding box
 per Edge.Cuts drawing, which is wrong for a disc but is what `outline_box` and

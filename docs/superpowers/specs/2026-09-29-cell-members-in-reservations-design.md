@@ -2,7 +2,7 @@
 
 Date: 2026-09-29
 Status: approved 2026-09-29
-Source: PLACEMAT_GAPS.md (fairing), 2026-09-29 "a cell whose tall member must
+Source: a board's PLACEMAT_GAPS.md, 2026-09-29 "a cell whose tall member must
 stay out of a height band": the enclosure's rule that a front part over
 1.5 mm keeps its whole body inside r 19.2, applied to a cell with a 1.8 mm
 coil and low parts that may cross the band
@@ -16,7 +16,7 @@ lets an item in by `Occupancy.let_in` (`occupancy.py:607`):
 - by height: every part of it no taller than `max_height`.
 
 For a cell each of these is decided for the cell whole:
-- **One member named in `allow` admits every member.** The fairing's coil was
+- **One member named in `allow` admits every member.** One board's coil was
   let in with the cell's low parts named, its corner at r 20.2.
 - **One member's net in `allow` admits every member.**
 - **One member too tall keeps every member out.** Without the names, the

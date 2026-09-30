@@ -2,13 +2,13 @@
 
 Date: 2026-09-28
 Status: approved 2026-09-28
-Source: the fairing board's session, 2026-09-28 (on 0.50.0): "several power
+Source: a board's session, 2026-09-28 (on 0.50.0): "several power
 nets have small taps no pour can reach"
 
 ## The problem
 
 `placemat route` and `run --route` leave every net with a board-level zone
-or pour out of the route (0.50). On the fairing core, VSHUNT (In2 pours)
+or pour out of the route (0.50). On a whole test board, VSHUNT (In2 pours)
 also feeds a load switch's output, a resistor behind a panel and a
 converter's input track, and VBIKE (an In2 pour, 4.6 A) feeds a
 supervisor's sense divider and enable pull-up. No pour reaches those pads.

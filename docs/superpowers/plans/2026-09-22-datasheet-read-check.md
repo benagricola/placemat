@@ -829,11 +829,11 @@ BT /Helv 10 Tf 20 100 Td (Ordering) Tj ET
 import pathlib
 from tests.conftest import needs_kicad
 
-PARTS = pathlib.Path("/home/ben/Documents/Hardware/fairing-instrument/electronics/parts")
+PARTS = pathlib.Path("a board project's `parts`")
 
 
 @needs_kicad
-@pytest.mark.skipif(not PARTS.is_dir(), reason="the fairing parts are not here")
+@pytest.mark.skipif(not PARTS.is_dir(), reason="a board project's parts are not here")
 def test_check_names_a_disagreement_and_exits_one(tmp_path, capsys):
     mods = sorted(PARTS.glob("*/*.kicad_mod"))
     assert mods, "no footprints to check"
@@ -844,7 +844,7 @@ def test_check_names_a_disagreement_and_exits_one(tmp_path, capsys):
 
 
 @needs_kicad
-@pytest.mark.skipif(not PARTS.is_dir(), reason="the fairing parts are not here")
+@pytest.mark.skipif(not PARTS.is_dir(), reason="a board project's parts are not here")
 def test_check_with_nothing_supplied_still_reports_every_measurement(tmp_path, capsys):
     mods = sorted(PARTS.glob("*/*.kicad_mod"))
     p = make_pdf(tmp_path / "land.pdf", LAND)

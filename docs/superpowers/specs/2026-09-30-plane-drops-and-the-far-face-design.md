@@ -3,7 +3,7 @@
 Status: draft, for approval.
 
 Source:
-- The fairing's `PLACEMAT_GAPS.md` 2026-09-29, "plane drops that share the
+- A board's `PLACEMAT_GAPS.md` 2026-09-29, "plane drops that share the
   far face".
 - The owner, 2026-09-30:
   - "reusing vias ... will help a lot";

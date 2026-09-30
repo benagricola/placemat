@@ -94,7 +94,7 @@ Result: every fixture board whose airwires end at pads (20 of 34; the 14 routed 
   - the bench verdict moves only beyond noise;
   - old best tables and run records (0.32 metrics) are read, with the measures they lack taken as zero, as `comparable()` does today.
 - [x] Implement. The crossing weight is `place_crossing_cost`, which task 4 measures. Until then its default is a placeholder of 2 mm, stated in the commit and replaced in task 4.
-- [x] Replay: the fairing core's recorded runs (`.placemat/runs/*/run.json`) and the bench corpus. Tabulate the run each gives as best under the old order and under the default weights, and where they differ, why. Show Ben; adjust the defaults if he asks; record the table in the spec.
+- [x] Replay: a whole test board's recorded runs (`.placemat/runs/*/run.json`) and the bench corpus. Tabulate the run each gives as best under the old order and under the default weights, and where they differ, why. Show Ben; adjust the defaults if he asks; record the table in the spec.
 - [x] Bench: new baseline (score column); tally; commit.
 
 Replay and chosen defaults: see the spec's run score section (unplaced 2000, link 20 x weight). A best stored by 0.32 reads as absent (no measures) rather than with its missing measures as zero, so it is never judged against numbers it did not take.
@@ -173,9 +173,9 @@ Result: a resolve reports `escape_crossed` ("U2 pins 3/4: L2 VDD_RF crosses C2 M
 - [x] Failing test: `--no-tags` output has no tag elements, and the notes are still printed.
 - [x] Implement; commit.
 
-### Task 9: measure on the fairing core, docs, release
+### Task 9: measure on a whole test board, docs, release
 
-- [x] Work in a scratch copy of fairing-instrument electronics (`--no-reuse`). Check against the spec's "Done when":
+- [x] Work in a scratch copy of a board project's electronics (`--no-reuse`). Check against the spec's "Done when":
   - MCU cell crossings, crossed escapes, walled-off pads, satellite offsets and link limits;
   - core crossings and findings against run 985825a5.
 

@@ -7,8 +7,7 @@ A searched part is scanned only at its `rotation` (0 unless the script says
 otherwise) unless the script lists `rotations=`. The scorer already sums each
 pad's distance to what it connects to, so it would turn a two-pad part to put
 the right pad toward its pin, but it is never offered the turn. The cleanup
-pass keeps every rotation. Source: fairing-instrument
-`electronics/PLACEMAT_GAPS.md`, "passive orientation and the MCU's fanout",
+pass keeps every rotation. Source: a board's `PLACEMAT_GAPS.md`, "passive orientation and the MCU's fanout",
 items 1 and 5. On their core board, `rotations=(0, 90, 180, 270)` on every
 searched part took ratsnest crossings from 1,318 to 1,124.
 

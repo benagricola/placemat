@@ -2,13 +2,13 @@
 
 Status: draft, for approval.
 
-Source: the fairing's `PLACEMAT_GAPS.md` 2026-09-29 entries:
+Source: A board's `PLACEMAT_GAPS.md` 2026-09-29 entries:
 
 - "a lane held off a via, and a via held off pad ends";
 - "beside a part, offset along its side by a pitch";
 - "a plane bounded to a group of parts".
 
-Also the fairing session's report on the ten modules still built from
+Also a board session's report on the ten modules still built from
 lanes. Its rough count of lane relations per module:
 
 | module | lanes |

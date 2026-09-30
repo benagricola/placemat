@@ -2,9 +2,9 @@
 
 Date: 2026-09-29
 Status: withdrawn 2026-09-29 (replaced by 2026-09-29-missing-intent-relations-design.md: intent forms, not coordinate arithmetic)
-Source: PLACEMAT_GAPS.md (fairing), 2026-09-29 "a position that is a sum of an
+Source: a board's PLACEMAT_GAPS.md, 2026-09-29 "a position that is a sum of an
 x and a y" and "pad edges and drawn envelopes as placement and copper
-references". The fairing's workaround helpers are the reference behaviour:
+references". A board's workaround helpers are the reference behaviour:
 `boards/core/fragment_frame.py` (`beside`, `drawn_from_pad`, `pour`,
 `pour_box`, `placed_size`) and `modules/usb5v/Usb5v_layout.py` (`edge_at`,
 `edge`, `pads_pour`, the SW lane at 228-236).

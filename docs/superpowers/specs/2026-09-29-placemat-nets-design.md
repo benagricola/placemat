@@ -2,15 +2,15 @@
 
 Date: 2026-09-29
 Status: approved 2026-09-29 (Ben: implement unless a decision is needed)
-Source: PLACEMAT_GAPS.md (fairing), 2026-09-29 "which nets span the core
+Source: a board's PLACEMAT_GAPS.md, 2026-09-29 "which nets span the core
 furthest" and "which footprints carry an LCSC number"
 
 ## The problem
 
 To choose which nets to declare as copper rather than leave to the router,
-the fairing needed a table of every net. Placemat reports airwires,
+a board needed a table of every net. Placemat reports airwires,
 crossings and congestion for the whole board, and closure for a route, but
-nothing per net. The fairing wrote pcbnew scripts to get it.
+nothing per net. A board session wrote pcbnew scripts to get it.
 
 `placemat parts --field Lcsc --field Mpn` lists order numbers, but nothing
 flags a placed part that has neither.

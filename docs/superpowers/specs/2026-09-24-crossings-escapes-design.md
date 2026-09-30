@@ -2,7 +2,7 @@
 
 Date: 2026-09-24
 Status: design
-Source: the brief from the fairing-instrument MCU session (PLACEMAT_GAPS.md,
+Source: the brief from the a test board's MCU session (PLACEMAT_GAPS.md,
 "2026-09-24: placemat 0.32", entry 4), and the decisions taken with Ben on
 2026-09-24.
 
@@ -20,7 +20,7 @@ that chooses a placement looks at them:
   (`report.objective`).
 
 Placemat also has no rule that a part must not wall off another part's pad
-from what that pad connects to. In the MCU cell of the fairing core, the EN
+from what that pad connects to. In the MCU cell of a whole test board, the EN
 capacitor sits under pins 3-4 and the RF supply inductor under pin 6, so
 VDD_RF from pins 2-3 crosses MCU_EN from pin 4. Swapping the two removes the
 crossing, but cleanup never tries it: it skips satellites, swaps only
@@ -135,7 +135,7 @@ weight, in millimetres of wire, and lower is better:
 | worst RUDY cell (explore only) | steps of `explore_congestion_step` | `score_congestion` | from measurement |
 
 The defaults were checked by task 3's replay (`fixtures/rank_replay.py`)
-against the fairing core's recorded runs, 45 families of two or more runs,
+against a whole test board's recorded runs, 45 families of two or more runs,
 walked in order and the best kept as best.json keeps it:
 
 | Weights | Families keeping a different run than 0.32's order | Of those, a run with fewer parts placed |
@@ -254,7 +254,7 @@ about +1%, default resolve 87 s against 0.32.2's 65 s. The depth stays
 1 mm without a sweep: the confirmed count is measured within that window,
 so counts at different depths do not compare.
 
-The router, quick mode, on the fairing MCU cell: escapes off 93.6% closure
+The router, quick mode, on a test board's MCU cell: escapes off 93.6% closure
 with 5 nets open, on 94.9% with 4 (crossings 42 and 48); with the first
 design, the core went from 75.3% (55 open) to 76.6% raw (52 open).
 
@@ -317,7 +317,7 @@ The bench, against task 5 (walled, crossings, crossed escapes, HPWL, s):
 | + swap radius, first look, pruning | 0, 172, 56, 1672, 78 | 4, 154, 55, 1833, 63 | 8, 124, 43, 1451, 60 |
 
 HPWL rises 8-17% as the pass trades wire for crossings and escapes at the
-chosen weights. The router, quick mode, on the fairing core (scratch copy):
+chosen weights. The router, quick mode, on a whole test board (scratch copy):
 the MCU cell 94.9% closure and 4 nets open at task 5, 97.4% and 2 open now,
 with 48 -> 37 crossings; the core 76.1% raw (53 open) against 75.2% (55
 open), crossings 1,120 -> 1,083, within what one quick route varies.
@@ -342,8 +342,8 @@ open), crossings 1,120 -> 1,083, within what one quick route varies.
 
 ## Where it stands (task 9)
 
-The fairing core at 1492f4d, a fresh scratch copy of each run, 0.32.2 (the
-fairing's own install) against this code, quick routing:
+a whole test board at 1492f4d, a fresh scratch copy of each run, 0.32.2 (the
+board project's own install) against this code, quick routing:
 
 | | 0.32.2 | now |
 |---|---|---|
@@ -366,7 +366,7 @@ difference is within it; the core's ten nets are likely not.
 
 The brief's own targets:
 
-- MCU cell of the fairing core:
+- MCU cell of a whole test board:
   - no pad walled off;
   - no crossed escape at its pin rows;
   - cell crossings 34 or fewer (43 at 0.32.2, run 1e7c2133; 41 after
