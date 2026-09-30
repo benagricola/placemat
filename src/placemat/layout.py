@@ -23,6 +23,7 @@ from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfer_c
                      pair_ops, polyline_tracks, resolve_bridges)
 from .geometry import Transform, box_polygon, circle_polygon, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
 from .findings import Finding, Findings
+from .giveway import enabled as giveway_enabled, pad_via_id
 from .occupancy import Occupancy, Shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
 from .cutouts import Cutouts, Path, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
@@ -541,6 +542,7 @@ class Plan:
     split_groups: str = "lift"                                    # settings: what the write does to the generator's nested groups
     groups: list = field(default_factory=list)                    # the groups the script declared (DeclaredGroup)
     group_notes: list = field(default_factory=list)               # what the write did to the board's groups, a line each
+    given_way: list = field(default_factory=list)                 # what a stamped cell's own vias did as it was placed (giveway.Action)
     _items: dict = field(default_factory=dict, repr=False)
 
     def step(self, key: str) -> Step:
@@ -1018,7 +1020,7 @@ class Board:
         searched = {fp.ref for i in self._placements() if not i.freedom.decided or i.key in self._rider_of
                     for fp in (members_of(i.item) if hasattr(i, "item") and i.kind != "block" else
                                [i.item.anchor] + [sat for sat, _ in i.item.satellites] if i.kind == "block" else [])}
-        for at, net, drill, size in self._pad_vias:
+        for k, (at, net, drill, size) in enumerate(self._pad_vias):
             ref, number, _, _ = self._pad_ref(at)
             if ref not in occ.items or ref not in searched:
                 continue
@@ -1032,8 +1034,10 @@ class Board:
             c = Location(c.x + vx, c.y + vy)
             owner = "via at %s.%s" % (ref, number)       # not the part's: its pad lookups must not take it
             ring = via_ring(c, size)
+            tag, points = pad_via_id(k), ((c.x, c.y),)  # a carried via: it may give way (giveway.py)
             occ.carry(ref, [Shape(owner, "through", _BOTH, frozenset(self.geometry.layers), net, ring,
-                                  Box.of_points(ring)), hole_shape(owner, c, drill, net)])
+                                  Box.of_points(ring), carried=tag, points=points),
+                            dataclasses.replace(hole_shape(owner, c, drill, net), carried=tag, points=points)])
 
     def _pad_ref(self, ref):
         """Validate a pad reference now; return (refdes, pad number, dx, dy).
@@ -3068,8 +3072,10 @@ class Board:
             self._check_past(at, "%s: a via's at=" % name)
         refs = _refs_in([at])
         d, s = drill or self.via_drill, size or self.via_size
+        carried = None
         if isinstance(at, (PadRef, CellPadRef)) and not (at.dx or at.dy):
             # at the pad, or off it in the part's frame: it turns with the part, so the part carries it
+            carried = pad_via_id(len(self._pad_vias))
             self._pad_vias.append((at, name, d, s))
 
         def plan(ctx):
@@ -3091,6 +3097,15 @@ class Board:
                     return []
             else:
                 where = ctx.locate(at)
+                gave = ctx.occ.given_way.get(carried) if carried is not None else None
+                if gave is not None and gave.kind == "move":
+                    where = Location(*gave.to)
+                elif gave is not None:              # shared or dropped as its part was placed (giveway.py)
+                    ctx.via_at[intent.index] = Location(*gave.to) if gave.kind == "share" else where
+                    if gave.tail is None:
+                        return []
+                    ctx.planned_tails.append(gave.tail)
+                    return [gave.tail]
             via = Via(name, where, d, s)
             ctx.planned_vias.append(via)        # a later FreeSpot in this batch sees it
             ctx.via_at[intent.index] = where    # a track may end on it
@@ -3835,6 +3850,7 @@ class Board:
             else:
                 record["cleanup"] = self._recorded_cleanup(occ, plan)
                 record["cleanup"]["key"] = chain["key"]
+        self._give_way_copper(occ, plan)
         self._plan_copper(occ, ctx, other_copper, plan, progress)
         if routes:
             self._draw_adopted(occ, ctx, plan, routes, progress)
@@ -3861,6 +3877,15 @@ class Board:
                                     layer="User.Comments"))
             plan.steps.append(Step("faces", "copper", Priority.DEFAULT, None, 0.0, text[len("placemat faces "):], why, 1))
         return plan
+
+    def _give_way_copper(self, occ: Occupancy, plan: Plan) -> None:
+        """What the carried vias did as items were placed (giveway.py): a
+        stamped cell's kept on the plan for the write, which moves or
+        removes each on the board, and the tails they need drawn with the
+        plan's copper. A via declared at a pad draws its own when it is
+        planned."""
+        plan.given_way = [a for _, a in sorted(occ.given_way.items()) if a.home in self.geometry.cells]
+        plan.copper += [a.tail for a in plan.given_way if a.tail is not None]
 
     def group(self, name: str, items, why: str = "") -> "DeclaredGroup":
         """A KiCad group on the written board holding `items` (Parts), at
@@ -4549,30 +4574,33 @@ class Board:
         n = int((hi - lo) / step) + 1
         candidates = sorted({min(max(ideal + d * step * sgn, lo), hi) for d in range(n) for sgn in (1, -1)},
                             key=lambda a: (abs(a - ideal), a))
-        rejected: Counter = Counter()
-        reasons: dict = {}
         accept = self._accept(i)
-        for along in candidates:
-            p = placement_at(along)
-            why = occ.legal(i.item, p, clr, others=others,
-                            past_edge=(i.edge is not None or i.run is not None or i.rim == "rim")
-                            and i.clearance < self.keep_in)
-            if why is None and accept is not None:
-                why = accept(p)
-                if why is not None:
-                    key = why.split(":")[0]         # a rider, named: scan() counts it the same way
-                    rejected[key] += 1
-                    reasons.setdefault(key, why)
-                    continue
-            if why is None:
-                moved = abs(along - ideal)
-                note = what
-                if moved > 1e-9:
-                    note += "; slid %.2f %s from its slot: %s" % (moved, units, next(iter(reasons.values()), ""))
-                return self._step(i, p, moved, note)
-            key = _reason_key(why)
-            rejected[key] += 1
-            reasons.setdefault(key, why)
+        past = (i.edge is not None or i.run is not None or i.rim == "rim") and i.clearance < self.keep_in
+        # as drawn first; only where no slot takes the item so, again with its carried vias, and those
+        # placed before it, giving way (giveway.py): the nearest slot where they do
+        for giving in (False, True) if giveway_enabled(self.settings) else (False,):
+            rejected: Counter = Counter()
+            reasons: dict = {}
+            for along in candidates:
+                p = placement_at(along)
+                why = occ.legal_giving_way(i.item, p, clr, others=others, past_edge=past)[0] if giving else \
+                    occ.legal(i.item, p, clr, others=others, past_edge=past)
+                if why is None and accept is not None:
+                    why = accept(p)
+                    if why is not None:
+                        key = why.split(":")[0]         # a rider, named: scan() counts it the same way
+                        rejected[key] += 1
+                        reasons.setdefault(key, why)
+                        continue
+                if why is None:
+                    moved = abs(along - ideal)
+                    note = what
+                    if moved > 1e-9:
+                        note += "; slid %.2f %s from its slot: %s" % (moved, units, next(iter(reasons.values()), ""))
+                    return self._step(i, p, moved, note)
+                key = _reason_key(why)
+                rejected[key] += 1
+                reasons.setdefault(key, why)
         plan.findings.append(Finding("unplaced", "%s: no room anywhere %s (%s)%s" % (
             i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3)),
             "".join("; %s" % why for k, why in reasons.items() if k.startswith("rider ")))))
@@ -5371,8 +5399,10 @@ class Board:
             p, chose = self._firm_placement(view, plan, r)
             others = obstacles.get(r.key) if obstacles is not None else None
             in_group = occ.legal(r.item, p, self.clearance, others=ShapeIndex(group), board=False)
-            on_board = occ.legal(r.item, p, self.clearance, others=others, past_edge=self._firm_past_edge(r),
-                                 by_corners=True) if board and not in_group else None
+            # on the board its carried vias, and those placed before it, may give way (giveway.py)
+            on_board = occ.legal_giving_way(r.item, p, self.clearance, others=others,
+                                            past_edge=self._firm_past_edge(r), by_corners=True)[0] \
+                if board and not in_group else None
             out.append((r, p, chose, on_board, in_group))
             if (on_board or in_group) and stop:
                 break
@@ -5441,8 +5471,8 @@ class Board:
             dx, dy = at.location.x - base.location.x, at.location.y - base.location.y
             for r, p, in_group in riders:
                 p = Placement(Location(round(p.location.x + dx, 6), round(p.location.y + dy, 6)), p.rotation, p.face)
-                why = in_group or occ.legal(r.item, p, self.clearance, others=obstacles[r.key],
-                                            past_edge=self._firm_past_edge(r), by_corners=True)
+                why = in_group or occ.legal_giving_way(r.item, p, self.clearance, others=obstacles[r.key],
+                                                       past_edge=self._firm_past_edge(r), by_corners=True)[0]
                 if why:
                     return "rider %s: %s" % (r.key, why)
             return None
@@ -5481,7 +5511,9 @@ class Board:
         clr = self.clearance
         if i.freedom.decided:
             p, chose = self._firm_placement(occ, plan, i)
-            why = occ.legal(i.item, p, clr, past_edge=self._firm_past_edge(i), by_corners=True)
+            # its carried vias, and those of the items placed before it, may give way (giveway.py):
+            # its commit does what this found
+            why = occ.legal_giving_way(i.item, p, clr, past_edge=self._firm_past_edge(i), by_corners=True)[0]
             if why:
                 plan.findings.append(Finding("fixed", "%s (%s): %s" % (i.key, i.freedom.value, why)))
             return self._step(i, p, 0.0, "; ".join(x for x in (chose, why) if x))

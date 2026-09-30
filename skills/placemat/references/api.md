@@ -1231,6 +1231,34 @@ names the conflicting segment by its ends and layer, not its net alone:
 points at the fix: "...; the 45 of its chamfer at (x, y); a smaller
 chamfer= there keeps clear".
 
+**Carried vias give way.** A carried via is one a part or a cell brings
+with it: a via at a searched part's pad, as above, or one of a stamped
+cell's own. Its tail is the one track of the same owner and net that ends
+at its centre; a via that two of the cell's tracks meet, or whose track
+runs on to another of its vias, is part of a route and stays as drawn.
+Where a carried via meets another net's copper, on either face, the search
+does not refuse the spot at once. The via tries:
+
+- to share a via of its net from any other item, on either face, within
+  `place.via_share` (1.0 mm): the via is taken out and a straight tail at
+  the net's width joins its pad (its old tail's far end, or where it stood)
+  to that via on the via's own face. The tail must clear every other net's
+  copper. A via of the net already on its spot needs no tail.
+
+If none works the spot is refused, and the refusal names the via and why
+each way failed: "via GND at (19.10, 21.90) is 0.00 mm from S copper on
+B.Cu (needs 0.20); it cannot give way: no GND via within 1.00 mm to share".
+Sharing has a cost the search adds to the spot's score,
+`score.via_share` (1), so it
+prefers spots where the vias stay as drawn; a nearest-first search takes a
+spot where they give way only when no spot has them as drawn. A
+firm item's carried vias, and a rider's, give way where it is put. An item
+searched along an edge, a run or a rim takes the nearest slot where its
+vias stay as drawn, and only when there is none the nearest where they
+give way. A block's members are judged as drawn. The write moves or
+removes a cell's via on the board and draws the tails; a via declared at a
+pad is drawn where it went.
+
 **A plane over named parts.** `board.plane(net, layers, over=[Part(...),
 Cell(...)], margin=0.0)` draws the zone over the box round those items'
 drawn envelopes - the region `board.keepout(item)` takes, a footprint's
@@ -1990,6 +2018,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.courtyard_polygon_share` | 0.98 | a courtyard whose polygon covers less of the box round it than this (a slice of a disc, an L, a rectangle turned off the axes) is claimed as KiCad draws it, with no margin; one that covers more is claimed as its box |
 | `place.conflict_gap` | 1.0 | how far outside a box a conflict can still reach |
 | `place.fit_room` | 10.0 | on a fit frame, how far round the decided content a searched item may go |
+| `place.via_share` | 1.0 | how near a via of its net a carried via that meets another net's copper may be to share it instead; 0 never shares |
 | `copper.chamfer` | 1.0 | how far a right angle is cut back into two 45s |
 | `copper.pair_chamfer` | 0.5 | the same, for a differential pair |
 | `copper.pair_via_step` | 0.4 | how far clear of its partner a pair's lead vias |
@@ -2062,6 +2091,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.escape_walled` | 400 | mm a pad with no route out at all costs |
 | `score.escape_depth` | 1.5 | mm: the corridor length the escape findings, and so the run score, are measured at, whatever `place.escape_depth` the search used, so runs at different search depths compare |
 | `score.congestion` | 10 | explore: mm per `explore.congestion_step` of the worst RUDY cell |
+| `score.via_share` | 1 | mm the search adds to a spot for each carried via that shares a via of its net there |
 | `solve.enabled` | false | give the searched tier its hints from a global solve of the whole netlist, before any item is scanned |
 | `solve.iterations` | 200 | the solve's conjugate-gradient cap per axis per round |
 | `solve.tolerance` | 1e-06 | the residual the solve stops at |

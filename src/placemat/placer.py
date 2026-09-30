@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 import math
 
 from . import geometry as _geometry_module
+from . import giveway
 from .geometry import Transform, _rect_of, point_in_polygon, polys_overlap, transform_box
 from .occupancy import Occupancy, ShapeIndex, _reason_key
 from .placement import Placement
@@ -97,6 +98,10 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     seen: set = set()
     native = occ.native_sweeper(item, hint.face, rots, others, clearance) if NATIVE_SWEEP else None
     scoring = score.native(rots, hint.face) if native is not None and hasattr(score, "native") else None
+    # Carried vias that may give way (giveway.py): a pass judges the item as it is first; the
+    # candidates that refuses are judged again less its carried vias, and against the board less
+    # the placed items' carried vias, and the vias then share, move or drop at a cost
+    gw = giveway.for_scan(occ, item, hint.face, rots, region, clearance, native is not None)
     asked: dict = {}
     inline = accept is not None and score is None       # unscored: asked as each candidate is met
 
@@ -127,13 +132,62 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                     break
         return out
 
+    def blocker_key(b) -> tuple:
+        return (b.kind, b.owner, "/".join(sorted(f.value for f in b.faces)))
+
+    def tally(key, get_reason, blame_keys, count: int = 1) -> None:
+        rejected[key] += count
+        if key not in reasons:
+            reasons[key] = get_reason()
+        for b in blame_keys:
+            blockers[b] += count
+
+    least = giveway.least_cost(occ.settings)
+    best = score.best if score and hasattr(score, "best") else None
+    bounded = best is not None and pick is None and accept is None     # a spot that cannot be the best is not asked
+
+    def gave_way(cand, legal: list):
+        """Phase B for one candidate the item as it is was refused at: None
+        when it is legal less its carried vias and they give way (added to
+        `legal` at its score plus what they cost), or when, scored, it could
+        not beat the best spot found even at the least a via's giving way
+        costs; else (bucket, reason, blocker keys). The scorer's best stays
+        what a spot truly costs, so none is pruned against a cost it did not
+        reach."""
+        blame = []
+        hit = occ.legal_bucket(gw.item, cand, clearance, gw.others, blame)
+        if hit is not None:
+            return hit[0], hit[1], [blocker_key(b) for b in blame]
+        sc, before = 0.0, None
+        if score:
+            before = best[0] if best is not None else None
+            sc = score(cand)
+            if best is not None:
+                best[0] = before
+            if bounded and sc + least > before:
+                return None
+        res = gw.resolve(cand)
+        if res.why is not None:
+            return _reason_key(res.why), (lambda why=res.why: why), [blocker_key(res.blocker)]
+        if not (inline and refused(cand)):
+            if best is not None:
+                best[0] = min(before, sc + res.cost)
+            d = math.hypot(cand.location.x - hint.location.x, cand.location.y - hint.location.y)
+            legal.append((sc + res.cost, d, cand.rotation, cand))
+        return None
+
     def sweep(points, stop_at_first: bool) -> list:
         """Evaluate every (x, y) in `points` at every rotation; the legal
-        ones as (score, distance from the hint, rotation, placement)."""
+        ones as (score, distance from the hint, rotation, placement). With
+        vias that may give way, the candidates refused are judged again, as
+        `gave_way` does, when the pass found none it keeps (a nearest-first
+        pass) or always (a scored one): a refused candidate then counts
+        under why it was refused the second time."""
         nonlocal tried
         if native is not None:
             return native_sweep(points, stop_at_first)
         legal = []
+        held = []
         for x, y in points:
             for rot in rots:
                 if (x, y, rot) in seen:
@@ -154,14 +208,20 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                     d = math.hypot(x - hint.location.x, y - hint.location.y)
                     legal.append((score(cand) if score else 0.0, d, rot, cand))
                     if stop_at_first:
+                        for c, h, bl in held:
+                            tally(h[0], h[1], [blocker_key(b) for b in bl])
                         return legal
                     continue
-                key, get_reason = hit
-                rejected[key] += 1
-                if key not in reasons:
-                    reasons[key] = get_reason()
-                for b in blame:
-                    blockers[(b.kind, b.owner, "/".join(sorted(f.value for f in b.faces)))] += 1
+                if gw is None:
+                    tally(hit[0], hit[1], [blocker_key(b) for b in blame])
+                else:
+                    held.append((cand, hit, blame))
+        for cand, _, _ in held:
+            refusal = gave_way(cand, legal)
+            if refusal is not None:
+                tally(*refusal)
+            elif legal and stop_at_first:
+                break
         return legal
 
     def native_sweep(points, stop_at_first: bool) -> list:
@@ -182,11 +242,6 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         if scoring is not None:
             score.best[0] = scoring.floor
         tried += found[0] + 1 if first_only and found else len(triples)
-        for bucket, count, first, reason, blocker in refusals:
-            rejected[bucket] += count
-            if bucket not in reasons:
-                reasons[bucket] = reason()
-            blockers[blocker] += count
         legal = []
         for i, sc in zip(found, scores):
             x, y, k = triples[i]
@@ -196,6 +251,51 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             d = math.hypot(x - hint.location.x, y - hint.location.y)
             legal.append(((sc if scoring is not None else score(cand)) if score else 0.0, d, rots[k], cand))
             if stop_at_first:
+                break
+        if gw is None or (stop_at_first and legal):
+            for bucket, count, first, reason, blocker in refusals:
+                tally(bucket, reason, [blocker], count)
+            return legal
+        taken = set(found)
+        sub = [triples[i] for i in range(len(triples)) if i not in taken]
+
+        def at(t):
+            return Placement(Location(t[0], t[1]), rots[t[2]], hint.face)
+        if gw.native is None:
+            for t in sub:
+                refusal = gave_way(at(t), legal)
+                if refusal is not None:
+                    tally(*refusal)
+                elif legal and stop_at_first:
+                    break
+            return legal
+        if first_only:
+            # nearest first: the next candidate legal less its vias, until its vias give way
+            start = 0
+            while start < len(sub):
+                found_b, _, refusals_b = gw.native.run(sub[start:], True, None)
+                for bucket, count, first, reason, blocker in refusals_b:
+                    tally(bucket, reason, [blocker], count)
+                if not found_b:
+                    break
+                j = start + found_b[0]
+                refusal = gave_way(at(sub[j]), legal)
+                if refusal is None:
+                    break
+                tally(*refusal)
+                start = j + 1
+            return legal
+        found_b, _, refusals_b = gw.native.run(sub, False, None)
+        events = [(first, 0, (bucket, reason, [blocker], count)) for bucket, count, first, reason, blocker in refusals_b]
+        events += [(j, 1, None) for j in found_b]
+        for j, kind, what in sorted(events, key=lambda e: e[0]):
+            if kind == 0:
+                tally(*what)
+                continue
+            refusal = gave_way(at(sub[j]), legal)
+            if refusal is not None:
+                tally(*refusal)
+            elif legal and stop_at_first:
                 break
         return legal
 

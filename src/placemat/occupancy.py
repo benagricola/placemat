@@ -10,6 +10,7 @@ at the board's own gaps in the physical one, both in union; through features
 block both faces; pads keep net-class clearance from foreign copper."""
 from __future__ import annotations
 
+import dataclasses
 import functools
 import math
 from dataclasses import dataclass
@@ -38,6 +39,12 @@ class Shape:
     label: str = ""                 # pad number for a pad shape
     ends: tuple = ()                # a track's own two endpoints, for a finding that names the segment
     circle: tuple = ()              # a via's (x, y, radius): its copper as the circle it is, for a finding
+    # A carried via (giveway.py): its ring, its hole and its tail carry its id, and `points`
+    # its centre (and a tail's far end after it), moved as the shape moves. `given` names the
+    # via whose giving way drew this shape.
+    carried: str = ""
+    points: tuple = ()
+    given: str = ""
 
 
 # A Shape as a plain tuple, for the optional native accelerator (kind,
@@ -183,6 +190,13 @@ class ItemGeometry:
     part_refs: tuple = ()               # the members whose bodies lead `parts`, in its order; its own copper follows
 
 
+@dataclass(frozen=True, eq=False)
+class WithoutCarried:
+    """An item less its carried vias (giveway.py): judged as the item is,
+    before its vias give way."""
+    item: object
+
+
 _BOTH = frozenset([Face.FRONT, Face.BACK])
 # The defaults; a board's own come from `[place] conflict_gap` and
 # `[place] courtyard_touch` and are carried on the Occupancy.
@@ -251,6 +265,49 @@ def hole_shape(owner: str, centre: Location, drill: float, net: str = "", label:
     rule from another owner's holes; its pad or via ring is its copper."""
     poly = circle_polygon(centre, drill / 2.0)
     return Shape(owner, "hole", _BOTH, frozenset(), net, poly, Box.of_points(poly), label)
+
+
+_TOUCH_MM = 1e-4     # a track's end on a via's centre: KiCad writes both to the nanometre
+
+
+def _cell_vias(geometry) -> dict:
+    """{id(copper item): (carried id, points)} for each via a stamped cell
+    carries that may give way (giveway.py), and its tail: the one track of
+    the cell's, on the via's net, that ends at the via's centre. A via that
+    two of the cell's tracks meet, or whose one track runs on to another of
+    the cell's vias, is part of a route and stays as drawn."""
+    tracks: dict = {}
+    for c in geometry.copper:
+        if c.kind == "track" and c.owner in geometry.cells and len(c.anchors) == 2 and c.net:
+            tracks.setdefault((c.owner, c.net), []).append(c)
+    at_via: dict = {}
+    for c in geometry.copper:
+        if c.kind == "via" and c.owner in geometry.cells and c.anchors and c.net:
+            at_via.setdefault((c.owner, c.net), []).append(c.anchors[0])
+
+    def on(p, q):
+        return abs(p[0] - q[0]) <= _TOUCH_MM and abs(p[1] - q[1]) <= _TOUCH_MM
+
+    out: dict = {}
+    count: dict = {}
+    for c in geometry.copper:
+        if not (c.kind == "via" and c.owner in geometry.cells and c.anchors and c.net):
+            continue
+        n = count.get(c.owner, 0)
+        count[c.owner] = n + 1
+        at = c.anchors[0]
+        touching = [t for t in tracks.get((c.owner, c.net), ()) if on(t.anchors[0], at) or on(t.anchors[1], at)]
+        if len(touching) > 1:
+            continue
+        tag = "%s via %d" % (c.owner, n)
+        if touching:
+            t = touching[0]
+            far = t.anchors[1] if on(t.anchors[0], at) else t.anchors[0]
+            if any(on(far, v) for v in at_via[(c.owner, c.net)]):
+                continue
+            out[id(t)] = (tag, (tuple(at), tuple(far)))
+        out[id(c)] = (tag, (tuple(at),))
+    return out
 
 
 def _is_lead(fp, pad) -> bool:
@@ -325,8 +382,15 @@ class Occupancy:
         # docs/superpowers/specs/2026-09-24-native-core-design.md
         # ("Phase 3: a persistent native obstacle index").
         self._native_obstacle_cache: dict[frozenset, tuple] = {}
+        # Carried vias that gave way (giveway.py): what each did, by its id; each item a via was
+        # taken from, as it stood before, to put back when it is placed again (a part's
+        # ItemGeometry, a cell's own copper).
+        self.given_way: dict = {}
+        self._pristine: dict = {}
+        self._pristine_copper: dict = {}
         for fp in geometry.footprints:
             self._register(fp)
+        carried = _cell_vias(geometry)
         for c in geometry.copper:
             if c.kind == "pad":
                 continue          # pads travel with their footprint
@@ -339,12 +403,15 @@ class Occupancy:
             if c.kind == "via" and c.width_mm:
                 at = Location(*c.anchors[0]) if c.anchors else c.box.center
                 circle = (at.x, at.y, c.width_mm / 2.0)
+            tag, points = carried.get(id(c), ("", ()))
             for poly in c.outlines:
                 self.copper.append(Shape(c.owner or "", "through" if c.kind == "via" else "copper",
-                                         faces, c.layers, c.net, poly, Box.of_points(poly), circle=circle))
+                                         faces, c.layers, c.net, poly, Box.of_points(poly), circle=circle,
+                                         carried=tag, points=points))
             if c.kind == "via" and c.drill_mm:
                 at = Location(*c.anchors[0]) if c.anchors else c.box.center
-                self.copper.append(hole_shape(c.owner or "", at, c.drill_mm, c.net))
+                hole = hole_shape(c.owner or "", at, c.drill_mm, c.net)
+                self.copper.append(dataclasses.replace(hole, carried=tag, points=points) if tag else hole)
         # Rule areas the generated board already carries: a stamped cell brings
         # its module's with it. One that belongs to the board is reserved now;
         # one a cell owns has no position until that cell lands, so it waits
@@ -381,16 +448,55 @@ class Occupancy:
         (rare, post-init) lazy path in _register()."""
         self._native_obstacle_cache.clear()
 
+    def _changed(self) -> None:
+        """Items or copper changed outside a commit (a via gave way): drop
+        what was worked out from them."""
+        self._cells.clear()
+        self._pad_location_cache.clear()
+        self._invalidate_native()
+
+    def geometry_of(self, ref: str) -> ItemGeometry:
+        """A placed part's geometry as it was drawn: before any via it
+        carries gave way."""
+        return self._pristine.get(ref) or self.items[ref]
+
     def _geometry(self, item) -> ItemGeometry:
         if isinstance(item, Footprint):
-            return self.items.get(item.ref) or self._register(item)
+            return self._pristine.get(item.ref) or self.items.get(item.ref) or self._register(item)
         if isinstance(item, CellGeom):
             if item.name in self._cells:
                 return self._cells[item.name]
-            self._cells[item.name] = self.cell_geometry(item, {fp.ref: self.items[fp.ref] for fp in item.members},
-                                                        [c for c in self.copper if c.owner == item.name])
+            own = self._pristine_copper.get(item.name)
+            if own is None:
+                own = [c for c in self.copper if c.owner == item.name]
+            self._cells[item.name] = self.cell_geometry(item, {fp.ref: self.geometry_of(fp.ref) for fp in item.members},
+                                                        own)
             return self._cells[item.name]
+        if isinstance(item, WithoutCarried):
+            return self._without_carried(item.item)
         raise TypeError("cannot place a %s" % type(item).__name__)
+
+    def _without_carried(self, item) -> ItemGeometry:
+        """The item's geometry less its carried vias: what the search judges
+        natively before the vias give way (giveway.py)."""
+        geom = self._geometry(item)
+        cache = self.__dict__.setdefault("_without_cache", {})
+        hit = cache.get(id(item))
+        if hit is not None and hit[0] is geom:
+            return hit[1]
+        shapes = tuple(s for s in geom.shapes if not s.carried)
+        parts = geom.parts
+        if geom.part_refs:
+            n = len(geom.part_refs)
+            name = next(o for o in geom.owners if o not in geom.part_refs and o not in self._footprint_refs)
+            parts = tuple(geom.parts[:n]) + tuple(s.box for s in shapes if s.owner == name)
+        less = dataclasses.replace(geom, shapes=shapes, parts=parts)
+        cache[id(item)] = (geom, less)
+        return less
+
+    def carries(self, item) -> bool:
+        """Whether the item has a carried via that may give way."""
+        return any(s.carried for s in self._geometry(item).shapes)
 
     @staticmethod
     def _transform(geom: ItemGeometry, placement: Placement) -> Transform:
@@ -436,7 +542,11 @@ class Occupancy:
             poly = transform_polygon(s.poly, t)
             faces = self._flip_faces(s.faces) if (flip and len(s.faces) == 1) else s.faces
             layers = self._flip_layers(s.layers) if flip else s.layers
-            out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label))
+            if s.carried or s.given:
+                out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label,
+                                 carried=s.carried, points=tuple(t.apply(p) for p in s.points), given=s.given))
+            else:
+                out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label))
         return out
 
     def _yard(self, ref: str) -> Shape:
@@ -837,15 +947,39 @@ class Occupancy:
                             tuple(fp.ref for fp in item.members))
 
     def _commit(self, item, placement: Placement):
+        from . import giveway
+        self._put_back(item)
         geom = self._geometry(item)
+        gave = None
+        if giveway.enabled(self.settings) and self.carries(item):
+            gave = giveway.resolve(self, item, placement)
         placed, own = self.placed_geometries(item, placement)
         self._cells.clear()
         self._pad_location_cache.clear()
         self._invalidate_native()
         self.pending -= geom.owners
         self.items.update(placed)
-        if isinstance(item, Footprint):
-            return
+        if isinstance(item, CellGeom):
+            self._commit_cell(item, placement, geom, own)
+        for ref in placed:
+            self._pristine.pop(ref, None)
+        if gave is not None and gave.why is None and gave.actions:
+            giveway.apply(self, gave)
+
+    def _put_back(self, item) -> None:
+        """Before an item is placed again: its carried vias as it drew them."""
+        refs = [fp.ref for fp in item.members] if isinstance(item, CellGeom) else [item.ref]
+        homes = set(refs) | ({item.name} if isinstance(item, CellGeom) else set())
+        for via in [v for v, a in self.given_way.items() if a.home in homes]:
+            del self.given_way[via]
+        for ref in refs:
+            if ref in self._pristine:
+                self.items[ref] = self._pristine.pop(ref)
+        if isinstance(item, CellGeom) and item.name in self._pristine_copper:
+            self.copper = [c for c in self.copper if c.owner != item.name] + self._pristine_copper.pop(item.name)
+        self._changed()
+
+    def _commit_cell(self, item, placement: Placement, geom, own) -> None:
         t = self._transform(geom, placement)
         tag = "cell:%s" % item.name
         self.reservations = [r for r in self.reservations if r.source != tag]
@@ -1118,6 +1252,35 @@ class Occupancy:
                         blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
                     return why
         return None
+
+    def legal_giving_way(self, item, placement: Placement, clearance: float | None = None, others=None,
+                         past_edge: bool = False, blame: list | None = None, by_corners: bool = False) -> tuple:
+        """(why, resolution): `legal()`, except that where it refuses the
+        item, the item less its carried vias is judged, and the vias may give
+        way (giveway.py).
+        `resolution` is what they would do, None when nothing need; `why`
+        is `legal()`'s sentence when the item less its vias is refused too,
+        else why a via cannot give way."""
+        from . import giveway
+        why = self.legal(item, placement, clearance, others=others, past_edge=past_edge, blame=blame,
+                         by_corners=by_corners)
+        if why is None or not giveway.enabled(self.settings):
+            return why, None
+        geom = self._geometry(item)
+        region = transform_box(self._extent(geom), self._transform(geom, placement)).inflate(
+            giveway.reach(self.settings))
+        if not giveway.near_carried(self, item, region):
+            return why, None
+        less = self.obstacles(geom, region)
+        if self.legal(WithoutCarried(item), placement, clearance, others=less, past_edge=past_edge,
+                      by_corners=by_corners) is not None:
+            return why, None
+        res = giveway.resolve(self, item, placement, clearance, self.obstacles(geom, region))
+        if blame is not None:
+            del blame[:]
+            if res.why is not None:
+                blame.append(res.blocker)
+        return (res.why, None) if res.why is not None else (None, res)
 
     def legal_bucket(self, item, placement: Placement, clearance: float | None = None, others=None,
                      blame: list | None = None):
@@ -1392,10 +1555,13 @@ class Occupancy:
             cache[key] = hit
         return hit[1]
 
-    def _conflict(self, s: Shape, o: Shape, clearance: float | None, exact: bool = False) -> str | None:
+    def _conflict(self, s: Shape, o: Shape, clearance: float | None, exact: bool = False,
+                  say: bool = True) -> str | None:
         """The DRC rules, in occupancy terms. A via under a body is legal to
         DRC and is only refused when `vias_block_courtyards` is set (a house
-        rule for boards that pair through-feature cells with via-free parts)."""
+        rule for boards that pair through-feature cells with via-free parts).
+        `say=False` answers a copper or hole conflict with its kind alone,
+        not the sentence: for a search that only asks whether."""
         ks, ko = s.kind, o.kind
         if ks == "yard" or ko == "yard":
             yard, other = (s, o) if ks == "yard" else (o, s)
@@ -1413,6 +1579,8 @@ class Occupancy:
             (cs, rs), (co, ro) = _circle(s), _circle(o)
             gap = math.dist(cs, co) - rs - ro
             if gap < need - 1e-9:
+                if not say:
+                    return "hole-to-hole"
                 return "%s %.2f mm from %s (hole-to-hole needs %.2f)" % (
                     self._hole_name(s), max(gap, 0.0), self._hole_name(o), need)
             return None
@@ -1463,6 +1631,8 @@ class Occupancy:
             gap = _copper_gap(s, o) if exact else poly_distance(s.poly, o.poly)
             if gap < clr - 1e-9 and self._net_tie_exclusion(s, o):
                 return None
+            if gap < clr - 1e-9 and not say:
+                return "copper"
             if gap < clr - 1e-9:
                 if s.kind == "through" and not self.geometry.has_footprint(s.owner):
                     c = s.box.center            # a via: the script's, planned, or one a part carries at its pad
