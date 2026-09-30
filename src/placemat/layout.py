@@ -4176,7 +4176,9 @@ class Board:
                     step_of.setdefault(fp.ref, key)
             elif isinstance(it, Footprint):
                 step_of[it.ref] = key
-        for key, it in plan._items.items():            # a spot an if-needed fab option would have cleared
+        for key, it in plan._items.items() if occ.needs else ():    # a spot an if-needed fab option would have cleared
+            if not isinstance(it, (Footprint, CellGeom)):
+                continue
             step = next((s for s in plan.steps if s.item == key), None)
             said = occ.needs.get(occ._geometry(it).owners) if step is not None and step.placement is None else None
             if said:
