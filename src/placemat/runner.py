@@ -299,7 +299,7 @@ def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None, geometry=N
         geometry = _dc.replace(geometry, pin_names=board_pin_names(src, Path(pcb or src.pcb).parent))
     board = Board(geometry, via_drill=fab.via_drill, via_size=fab.via_size, keep_going=keep_going,
                   courtyard_excess=fab.courtyard_excess, settings=cfg, component_spacing=fab.component_spacing,
-                  fab_vias=fab.via_types, fab_source=str(fab.path) if fab.path else "")
+                  fab_via_tiers=fab.via_tiers, fab_source=str(fab.path) if fab.path else "")
     try:
         run_script(script, board)
     except Exception as e:

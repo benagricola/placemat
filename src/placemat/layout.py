@@ -720,7 +720,7 @@ class Board:
     off the generated .kicad_pcb; declarations are collected and resolved
     together."""
 
-    fab_vias: frozenset = frozenset()       # none unless the fab profile allows them: through vias only
+    fab_via_tiers: dict = {}       # "micro"/"blind"/"buried" -> "yes"/"no"/"if-needed"; a type not named is "no"
 
     @property
     def width(self) -> float:
@@ -763,10 +763,10 @@ class Board:
     def __init__(self, geometry: BoardGeometry, edge_margin: float | None = None, clearance: float | None = None,
                  via_drill: float = 0.3, via_size: float = 0.6, keep_going: bool = False,
                  courtyard_excess: float = 0.1, settings: Settings | None = None,
-                 component_spacing: float | None = None, fab_vias=None, fab_source: str = ""):
+                 component_spacing: float | None = None, fab_via_tiers=None, fab_source: str = ""):
         self.settings = settings if settings is not None else Settings()
-        # the via types beyond through the fab profile allows (micro, blind, buried), and where it says so
-        self.fab_vias = frozenset(fab_vias) if fab_vias is not None else type(self).fab_vias
+        # the via types beyond through: "micro"/"blind"/"buried" -> "yes"/"no"/"if-needed", and where it says so
+        self.fab_via_tiers = dict(fab_via_tiers) if fab_via_tiers is not None else type(self).fab_via_tiers
         self.fab_source = fab_source
         self._planes_declared: list = []    # (net, layers) of each board.plane()
         self._solve_hints = None
@@ -3412,16 +3412,19 @@ class Board:
                                                                    c.box.center.y), span)
 
     def _allow_via_type(self, name: str, span: tuple) -> None:
-        """Refuse a via type the fab profile does not allow: a micro, blind or
-        buried via costs more, and is kept off unless the profile says the
-        fab makes it and the cost is accepted."""
+        """Refuse a via type the fab profile does not allow outright: a
+        micro, blind or buried via costs more, and a preferred-off type
+        ("if-needed") is never drawn by a script even where it would clear."""
         kind = _via_kind(span)
-        if kind not in self.fab_vias:
-            raise ValueError(
-                "%s: a %s via (%s) is not allowed by the fab profile%s; they cost more, so a board keeps to "
-                "through vias unless fab-profile.json says \"via\": {\"allow_%s\": true} for a fab that makes "
-                "them" % (name, kind, _span_text(span), " (%s)" % self.fab_source if self.fab_source else "",
-                          kind))
+        tier = self.fab_via_tiers.get(kind, "no")
+        if tier == "yes":
+            return
+        why = "is not allowed by the fab profile" if tier == "no" else \
+              "is preferred off by the fab profile (\"if-needed\")"
+        raise ValueError(
+            "%s: a %s via (%s) %s%s; they cost more, so a board keeps to through vias unless "
+            "fab-profile.json says \"via\": {\"%s\": \"yes\"} for a fab that makes them" % (
+                name, kind, _span_text(span), why, " (%s)" % self.fab_source if self.fab_source else "", kind))
 
     def _span_drill(self, span: tuple, drill: float) -> float:
         """A via's drill when the script gives none: `copper.microvia_drill`

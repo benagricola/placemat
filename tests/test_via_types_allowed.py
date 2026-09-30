@@ -23,17 +23,23 @@ def _board(**kw):
 
 
 def test_a_micro_via_is_refused_when_the_fab_profile_does_not_allow_it():
-    with pytest.raises(ValueError, match="allow_micro"):
+    with pytest.raises(ValueError, match='"micro"'):
         _board().via(Net("GND"), Location(10, 10), layers=(B, IN4))
 
 
 def test_each_type_needs_its_own_allowance():
-    b = _board(fab_vias=frozenset({"micro"}))
+    b = _board(fab_via_tiers={"micro": "yes"})
     b.via(Net("GND"), Location(10, 10), layers=(B, IN4))                      # micro: allowed
-    with pytest.raises(ValueError, match="allow_blind"):
+    with pytest.raises(ValueError, match='"blind"'):
         b.via(Net("GND"), Location(12, 10), layers=(B, IN2))                  # blind
-    with pytest.raises(ValueError, match="allow_buried"):
+    with pytest.raises(ValueError, match='"buried"'):
         b.via(Net("GND"), Location(14, 10), layers=(IN1, IN3))                # buried
+
+
+def test_an_if_needed_via_is_refused_like_no_but_says_it_is_preferred_off():
+    b = _board(fab_via_tiers={"micro": "if-needed"})
+    with pytest.raises(ValueError, match="if-needed"):
+        b.via(Net("GND"), Location(10, 10), layers=(B, IN4))
 
 
 def test_a_through_via_needs_no_allowance():
@@ -59,4 +65,4 @@ def test_a_stamped_cell_carrying_a_blind_via_fails_the_run_unless_allowed():
     g = dataclasses.replace(board_geometry([fp], cells=("k",), copper=[via], width=30, height=30), layers=SIX)
     with pytest.raises(ValueError, match="cell k.*blind"):
         Board(g, edge_margin=0.5, keep_going=True).resolve()
-    Board(g, edge_margin=0.5, keep_going=True, fab_vias=frozenset({"blind"})).resolve()
+    Board(g, edge_margin=0.5, keep_going=True, fab_via_tiers={"blind": "yes"}).resolve()
