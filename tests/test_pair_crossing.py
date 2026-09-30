@@ -4,15 +4,27 @@ cleanup uncross it by a swap or a turn, and the score carries it."""
 import dataclasses
 
 from placemat import score
+from placemat.board_geometry import NetClass
 from placemat.layout import Board
 from placemat.settings import Settings
 from placemat.values import Location, Near, Part
 from tests.fixtures import board_geometry, footprint
 
 
-def _board(parts, **settings):
+def _board(parts, pair_nets=(), **settings):
+    """A board whose D_P/D_N (when `pair_nets` names them) share a net class
+    with a diff pair width and gap set - as a board's .zen would declare a
+    pair class - so the pair-crossing weight actually engages."""
     cfg = dataclasses.replace(Settings(), **settings)
-    return Board(board_geometry(parts, width=60, height=60), edge_margin=1.0, settings=cfg)
+    g = board_geometry(parts, width=60, height=60)
+    if pair_nets:
+        a, b = pair_nets
+        classes = dict(g.netclasses)
+        for n in (a, b):
+            old = classes[n]
+            classes[n] = NetClass("Pair", old.track_width, old.clearance, old.via_diameter, old.via_drill, 0.1, 0.1)
+        g = dataclasses.replace(g, netclasses=classes)
+    return Board(g, edge_margin=1.0, settings=cfg)
 
 
 def _chip():
@@ -24,7 +36,7 @@ def test_the_score_prices_a_pairs_own_crossing_at_the_pair_weight():
     # R1 carries D_P south of R2's D_N: the two airwires from the chip cross
     parts = [_chip(), footprint("R1", 25, 32, inst="r1", nets=("D_P", "E_P")),
              footprint("R2", 25, 28, inst="r2", nets=("D_N", "E_N"))]
-    b = _board(parts)
+    b = _board(parts, pair_nets=("D_P", "D_N"))
     for ref, at in (("u1", (10, 30)), ("r1", (25, 32)), ("r2", (25, 28))):
         b.place(Part(ref), at=Location(*at))
     plan = b.resolve()
@@ -45,7 +57,7 @@ def _forced(**settings):
              footprint("J2", 40, 34, inst="j2", nets=("EA", "Z4")),
              footprint("R1", 5, 5, inst="r1", nets=("D_P", "EA")),
              footprint("R2", 5, 10, inst="r2", nets=("D_N", "EB"))]
-    b = _board(parts, **settings)
+    b = _board(parts, pair_nets=("D_P", "D_N"), **settings)
     for ref, at in (("a1", (10, 26)), ("a2", (10, 34)), ("j1", (40, 26)), ("j2", (40, 34))):
         b.place(Part(ref), at=Location(*at))
     # held at rotation 0 (pad 1 west): turned, a two-pad part is itself a
@@ -66,7 +78,7 @@ def test_the_search_turns_a_part_to_uncross_a_pair():
     # a two-pad part carrying the pair's far ends: turned 90 its D_P pad faces
     # south and the pair crosses; turned 270 it does not
     parts = [_chip(), footprint("J1", 30, 30, inst="j1", nets=("D_P", "D_N"), rotation=90.0)]
-    b = _board(parts)
+    b = _board(parts, pair_nets=("D_P", "D_N"))
     b.place(Part("u1"), at=Location(10, 30))
     b.place(Part("j1"), at=Near(Location(30, 30), radius=0.5), rotations=(90, 270))
     plan = b.resolve()
@@ -76,7 +88,7 @@ def test_the_search_turns_a_part_to_uncross_a_pair():
 def test_a_crossed_pair_on_decided_parts_is_reported_with_its_parts():
     parts = [_chip(), footprint("R1", 25, 32, inst="r1", nets=("D_P", "E_P")),
              footprint("R2", 25, 28, inst="r2", nets=("D_N", "E_N"))]
-    b = _board(parts)
+    b = _board(parts, pair_nets=("D_P", "D_N"))
     for ref, at in (("u1", (10, 30)), ("r1", (25, 32)), ("r2", (25, 28))):
         b.place(Part(ref), at=Location(*at))
     plan = b.resolve()
@@ -89,12 +101,14 @@ def test_a_crossed_pair_on_decided_parts_is_reported_with_its_parts():
     assert "pair_crossed" not in t
 
 
-def test_route_diff_pairs_names_which_pairs_are_weighed():
+def test_a_board_with_no_pair_class_weighs_no_pair_crossing():
+    """D_P/D_N sit on the Default class (no pair class names them): the
+    board's own net classes decide which pairs are weighed, not a setting."""
     parts = [_chip(), footprint("R1", 25, 32, inst="r1", nets=("D_P", "E_P")),
              footprint("R2", 25, 28, inst="r2", nets=("D_N", "E_N"))]
-    b = _board(parts, route_diff_pairs=("OTHER*",))
+    b = _board(parts)          # no pair_nets: D_P/D_N stay on Default
     for ref, at in (("u1", (10, 30)), ("r1", (25, 32)), ("r2", (25, 28))):
         b.place(Part(ref), at=Location(*at))
     plan = b.resolve()
-    assert score.plan_measures(b, plan)["crossings"]["pair"] == 0     # D is not named a pair
+    assert score.plan_measures(b, plan)["crossings"]["pair"] == 0
     assert not [f for f in plan.findings if f.kind == "pair_crossed"]

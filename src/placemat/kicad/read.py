@@ -8,6 +8,7 @@ excluded."""
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 from .quiet import import_pcbnew, quiet_stderr
 
@@ -27,6 +28,34 @@ _COURTYARD_LAYERS = {pcbnew.F_CrtYd, pcbnew.B_CrtYd}
 
 def mm(v) -> float:
     return pcbnew.ToMM(int(v))
+
+
+_STACKUP_LAYER_RE = re.compile(r'\(layer\s+"([^"]+\.Cu)"\s*\(type\s+"copper"\)\s*\(thickness\s+([-\d.eE]+)\)')
+
+
+def stackup_copper_mm(path) -> dict:
+    """Each copper layer's thickness in mm, read from the board's own
+    (stackup ...) block. pcbnew's BOARD_STACKUP class is not wrapped for
+    Python on the installed build (GetStackupDescriptor() and
+    GetStackupOrDefault() come back as opaque SwigPyObjects with no
+    methods), so this reads the board's own text instead - the same file
+    pcbnew itself wrote. {} when the board declares no stackup (KiCad
+    omits the block entirely; the board's .zen gave it none)."""
+    text = Path(path).read_text(errors="replace")
+    start = text.find("(stackup")
+    if start < 0:
+        return {}
+    depth, end = 0, len(text)
+    for i in range(start, len(text)):
+        if text[i] == "(":
+            depth += 1
+        elif text[i] == ")":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    block = text[start:end]
+    return {CopperLayer.of(name): float(thickness) for name, thickness in _STACKUP_LAYER_RE.findall(block)}
 
 
 def _box_of(bb) -> Box:
@@ -348,12 +377,23 @@ def _via_size(via) -> float:
         return mm(via.GetWidth())
 
 
-def _layer_types(board) -> dict:
+def layer_types(board) -> dict:
     """Each copper layer's type as the board's setup gives it."""
     names = {pcbnew.LT_SIGNAL: "signal", pcbnew.LT_POWER: "power", pcbnew.LT_MIXED: "mixed",
              pcbnew.LT_JUMPER: "jumper"}
     return {CopperLayer.of(board.GetLayerName(l)): names.get(board.GetLayerType(l), "signal")
             for l in board.GetEnabledLayers().CuStack()}
+
+
+def read_layer_types(path) -> dict:
+    """Each enabled copper layer's role (signal, power, mixed, jumper), by
+    its KiCad name - a light read for a caller that wants only the roles,
+    not the whole board geometry (the route step's default layer list)."""
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(str(path))
+    if board is None:
+        return {}
+    return {layer.value: role for layer, role in layer_types(board).items()}
 
 
 def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, ...]:
@@ -675,4 +715,5 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
                     silk_clearance=mm(board.GetDesignSettings().m_SilkClearance),
                     hole_clearance=mm(board.GetDesignSettings().m_HoleClearance),
                     rule_areas=_rule_areas(board, groups_of),
-                    board_polygon=_board_polygon(board), layer_types=_layer_types(board))
+                    board_polygon=_board_polygon(board), layer_types=layer_types(board),
+                    copper_mm=stackup_copper_mm(path))

@@ -4,7 +4,7 @@ as Project(schematic=False), and a board that wants a generated schematic
 declares Project() itself. Also reads the nearest fab-profile.json."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import os
@@ -86,6 +86,10 @@ def find_board(script_or_dir) -> BoardSource:
         board_dir, len(found), ", ".join(s.name for s in found)))
 
 
+_VIA_KINDS = ("micro", "blind", "buried")
+_TIERS = ("yes", "no", "if-needed")
+
+
 @dataclass(frozen=True)
 class FabProfile:
     via_drill: float = 0.3
@@ -94,18 +98,37 @@ class FabProfile:
     track_widths: tuple = tuple(round(0.15 + 0.05 * i, 2) for i in range(18))
     path: Path | None = None
     component_spacing: float = 0.2     # body to body, and body to another part's pad: twice the excess unless the fab says
-    # the via types beyond a through via the fab makes and their cost is accepted for: "micro", "blind",
-    # "buried"; none unless fab-profile.json's "via" says allow_micro / allow_blind / allow_buried
-    via_types: frozenset = frozenset()
+    # "micro" / "blind" / "buried" -> "yes" (fixed on), "no" (fixed off) or "if-needed" (preferred off); a type
+    # the file does not name is "no". The 0.57 keys allow_micro/allow_blind/allow_buried read as "yes"/"no".
+    via_tiers: dict = field(default_factory=dict)
+    # The fab's minimums, checked against the board's net classes at run start: track_mm, clearance_mm, drill_mm,
+    # annular_mm, via_size_mm. {} when the file declares none.
+    min: dict = field(default_factory=dict)
+
+    def tier(self, kind: str) -> str:
+        return self.via_tiers.get(kind, "no")
+
+    @property
+    def via_types(self) -> frozenset:
+        """The types at "yes": what a script may draw outright, and what
+        give way may use as a real way."""
+        return frozenset(k for k in _VIA_KINDS if self.tier(k) == "yes")
 
     def json(self) -> str:
-        """The values that decide a run, not the file they came from."""
+        """The values that decide a run, not the file they came from. A
+        profile with no "yes" via, no if-needed via and no min digests
+        exactly as one with none of these keys at all."""
         import json as _json
         doc = {"via_drill": self.via_drill, "via_size": self.via_size,
                "courtyard_excess": self.courtyard_excess, "track_widths": list(self.track_widths),
                "component_spacing": self.component_spacing}
         if self.via_types:                  # only when allowed, so a profile allowing none digests as before
             doc["allow_vias"] = sorted(self.via_types)
+        needed = sorted(k for k in _VIA_KINDS if self.tier(k) == "if-needed")
+        if needed:
+            doc["if_needed_vias"] = needed
+        if self.min:
+            doc["min"] = dict(sorted(self.min.items()))
         return _json.dumps(doc, sort_keys=True)
 
 
@@ -126,10 +149,42 @@ def fab_profile(start) -> FabProfile:
                 widths = tuple(round(tw["min"] + i * tw["step"], 2) for i in range(n))
             court = data.get("courtyard", {})
             excess = court.get("excess_mm", 0.10)
-            types = frozenset(t for t in ("micro", "blind", "buried") if via.get("allow_" + t))
+            tiers = {}
+            for kind in _VIA_KINDS:
+                if kind in via and via[kind] in _TIERS:
+                    tiers[kind] = via[kind]
+                elif ("allow_" + kind) in via:
+                    tiers[kind] = "yes" if via["allow_" + kind] else "no"
             return FabProfile(via.get("default_drill_mm", 0.3), via.get("default_size_mm", 0.6),
-                              excess, widths, f, court.get("component_spacing_mm", 2 * excess), types)
+                              excess, widths, f, court.get("component_spacing_mm", 2 * excess),
+                              tiers, dict(data.get("min", {})))
     return FabProfile()
+
+
+def fab_min_findings(netclasses: dict, fab: FabProfile) -> list:
+    """A `fab` Finding for each of the board's net classes with a track
+    width, clearance, via diameter, via drill or annular ring (diameter
+    less drill, halved) below fab-profile.json's `min`. Each class checked
+    once, by name, not once per net on it."""
+    from .findings import Finding
+    mn = fab.min
+    if not mn:
+        return []
+    out, seen = [], set()
+    for nc in netclasses.values():
+        if nc.name in seen:
+            continue
+        seen.add(nc.name)
+        checks = [("track_mm", nc.track_width, "track width"), ("clearance_mm", nc.clearance, "clearance"),
+                 ("via_size_mm", nc.via_diameter, "via diameter"), ("drill_mm", nc.via_drill, "via drill")]
+        if nc.via_diameter and nc.via_drill:
+            checks.append(("annular_mm", (nc.via_diameter - nc.via_drill) / 2.0, "annular ring"))
+        for key, value, label in checks:
+            floor = mn.get(key)
+            if floor is not None and value < floor - 1e-9:
+                out.append(Finding("fab", "net class %s: %s %.3g mm is below the fab's minimum %.3g mm "
+                                   "(fab-profile.json min.%s)" % (nc.name, label, value, floor, key)))
+    return out
 
 
 # ------------------------------------------------------------ what a run is made from

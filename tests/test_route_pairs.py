@@ -99,11 +99,26 @@ def _segments(pcb: Path, net: str) -> list:
             for t in board.GetTracks() if t.GetNetname() == net and not isinstance(t, p.PCB_VIA)]
 
 
-def _route(tmp_path, **settings):
-    from placemat.kicad.route import route_board
-    from placemat.settings import Settings, bind
+def _write_board(tmp_path, with_pair_class: bool = True) -> Path:
+    """The board's text, plus - when `with_pair_class` - a project giving
+    D_P/D_N a net class with a diff pair width and gap set, as a board's
+    .zen would declare a pair class."""
     pcb = tmp_path / "board.kicad_pcb"
     pcb.write_text(_board())
+    if with_pair_class:
+        pro = {"meta": {"filename": "board.kicad_pro", "version": 3},
+              "net_settings": {"classes": [{"name": "Default", "clearance": 0.2, "track_width": 0.2},
+                                           {"name": "Diff", "clearance": 0.2, "track_width": 0.2,
+                                            "diff_pair_gap": 0.3, "diff_pair_width": 0.5}],
+                               "netclass_assignments": {"D_P": ["Diff"], "D_N": ["Diff"]}}}
+        pcb.with_suffix(".kicad_pro").write_text(json.dumps(pro))
+    return pcb
+
+
+def _route(tmp_path, with_pair_class: bool = True, **settings):
+    from placemat.kicad.route import route_board
+    from placemat.settings import Settings, bind
+    pcb = _write_board(tmp_path, with_pair_class)
     with bind(Settings(**settings)):
         return route_board(pcb, tmp_path / "route", layers=["F.Cu", "B.Cu"], quick=False)
 
@@ -112,7 +127,7 @@ def _route(tmp_path, **settings):
 @needs_router
 def test_a_named_pair_routes_coupled_at_its_gap_and_the_rest_single_ended(tmp_path):
     report = _route(tmp_path, route_diff_pair_gap=0.2, route_diff_pair_width=0.2)
-    assert report.pairs["coupled"] == ["D"], report.pairs
+    assert report.pairs["coupled"] == ["D_P/D_N"], report.pairs
     assert report.open_after == 0, report.open_nets
     p, n = _segments(report.routed_pcb, "D_P"), _segments(report.routed_pcb, "D_N")
     assert p and n and _segments(report.routed_pcb, "SIG")
@@ -131,8 +146,8 @@ def test_a_named_pair_routes_coupled_at_its_gap_and_the_rest_single_ended(tmp_pa
 
 @needs_kicad
 @needs_router
-def test_with_no_pair_patterns_the_pair_router_is_not_run(tmp_path):
-    report = _route(tmp_path, route_diff_pairs=())
+def test_a_board_with_no_pair_class_has_no_pairs_to_route(tmp_path):
+    report = _route(tmp_path, with_pair_class=False)
     assert report.pairs == {"coupled": [], "partial": [], "failed": [], "single_ended": []}
     assert not (report.work / "pairs.log").exists()
     assert report.open_after == 0, report.open_nets

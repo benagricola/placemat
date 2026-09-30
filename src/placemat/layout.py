@@ -720,7 +720,7 @@ class Board:
     off the generated .kicad_pcb; declarations are collected and resolved
     together."""
 
-    fab_vias: frozenset = frozenset()       # none unless the fab profile allows them: through vias only
+    fab_via_tiers: dict = {}       # "micro"/"blind"/"buried" -> "yes"/"no"/"if-needed"; a type not named is "no"
 
     @property
     def width(self) -> float:
@@ -763,10 +763,10 @@ class Board:
     def __init__(self, geometry: BoardGeometry, edge_margin: float | None = None, clearance: float | None = None,
                  via_drill: float = 0.3, via_size: float = 0.6, keep_going: bool = False,
                  courtyard_excess: float = 0.1, settings: Settings | None = None,
-                 component_spacing: float | None = None, fab_vias=None, fab_source: str = ""):
+                 component_spacing: float | None = None, fab_via_tiers=None, fab_source: str = ""):
         self.settings = settings if settings is not None else Settings()
-        # the via types beyond through the fab profile allows (micro, blind, buried), and where it says so
-        self.fab_vias = frozenset(fab_vias) if fab_vias is not None else type(self).fab_vias
+        # the via types beyond through: "micro"/"blind"/"buried" -> "yes"/"no"/"if-needed", and where it says so
+        self.fab_via_tiers = dict(fab_via_tiers) if fab_via_tiers is not None else type(self).fab_via_tiers
         self.fab_source = fab_source
         self._planes_declared: list = []    # (net, layers) of each board.plane()
         self._solve_hints = None
@@ -3343,14 +3343,13 @@ class Board:
         self._allow_via_type(name, span)
         return span
 
-    def _flip_notes(self, occ) -> dict:
-        """{cell: note} for each cell with a via that reaches a face and whose
-        inner end, once the cell is flipped, may no longer join its net. A
-        flip keeps a cell's inner copper on its layer but mirrors such a via
-        (F-In1 becomes B-In4), so its inner end moves. It still joins when
-        both layers are of one KiCad layer type and hold the via net's own
-        plane. Noted on the cell's step when it lands on the back."""
-        types = self.geometry.layer_types
+    def _plane_layers(self) -> dict:
+        """{layer: {net, ...}} of every plane this board carries on that
+        layer: each board.plane() call, from the moment it is declared (no
+        copper drawn yet), plus any zone the generated board already
+        carries that belongs to no cell (a board-wide plane a fragment does
+        not own). A stamped cell's own local zone is not a board-wide
+        plane and is left out, the same as `_flip_notes` always judged it."""
         planes: dict = {}
         for net, layers in self._planes_declared:
             for l in layers:
@@ -3359,6 +3358,17 @@ class Board:
             if c.kind == "zone" and not c.owner:
                 for l in c.layers:
                     planes.setdefault(l, set()).add(c.net)
+        return planes
+
+    def _flip_notes(self, occ) -> dict:
+        """{cell: note} for each cell with a via that reaches a face and whose
+        inner end, once the cell is flipped, may no longer join its net. A
+        flip keeps a cell's inner copper on its layer but mirrors such a via
+        (F-In1 becomes B-In4), so its inner end moves. It still joins when
+        both layers are of one KiCad layer type and hold the via net's own
+        plane. Noted on the cell's step when it lands on the back."""
+        types = self.geometry.layer_types
+        planes = self._plane_layers()
 
         def standing(layer, net):
             nets = planes.get(layer, set())
@@ -3412,16 +3422,19 @@ class Board:
                                                                    c.box.center.y), span)
 
     def _allow_via_type(self, name: str, span: tuple) -> None:
-        """Refuse a via type the fab profile does not allow: a micro, blind or
-        buried via costs more, and is kept off unless the profile says the
-        fab makes it and the cost is accepted."""
+        """Refuse a via type the fab profile does not allow outright: a
+        micro, blind or buried via costs more, and a preferred-off type
+        ("if-needed") is never drawn by a script even where it would clear."""
         kind = _via_kind(span)
-        if kind not in self.fab_vias:
-            raise ValueError(
-                "%s: a %s via (%s) is not allowed by the fab profile%s; they cost more, so a board keeps to "
-                "through vias unless fab-profile.json says \"via\": {\"allow_%s\": true} for a fab that makes "
-                "them" % (name, kind, _span_text(span), " (%s)" % self.fab_source if self.fab_source else "",
-                          kind))
+        tier = self.fab_via_tiers.get(kind, "no")
+        if tier == "yes":
+            return
+        why = "is not allowed by the fab profile" if tier == "no" else \
+              "is preferred off by the fab profile (\"if-needed\")"
+        raise ValueError(
+            "%s: a %s via (%s) %s%s; they cost more, so a board keeps to through vias unless "
+            "fab-profile.json says \"via\": {\"%s\": \"yes\"} for a fab that makes them" % (
+                name, kind, _span_text(span), why, " (%s)" % self.fab_source if self.fab_source else "", kind))
 
     def _span_drill(self, span: tuple, drill: float) -> float:
         """A via's drill when the script gives none: `copper.microvia_drill`
@@ -3816,6 +3829,8 @@ class Board:
         thinned = self._thin_drops(occ)    # likewise: a cell's geometry takes its fields as thinned
         occ.quiet_nets = frozenset(self._plane_nets() | set(self._free_nets))
         occ.plane_nets = frozenset(c.net for c in self._copper if c.key.split(" ")[0] == "plane")   # drops' nets
+        occ.plane_layers = self._plane_layers()      # {layer: {net, ...}}: give way's shorten reads this
+        occ.fab_via_tiers = self.fab_via_tiers        # "micro"/"blind"/"buried" -> "yes"/"no"/"if-needed"
         if self._fit:
             occ.board_box = None                # no frame yet: the decided items have no edge to be judged by
         for intent in self._placements():

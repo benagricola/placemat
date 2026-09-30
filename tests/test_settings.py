@@ -196,3 +196,39 @@ def test_the_settings_command_prints_every_key_and_its_source(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "place.step" in out and "0.05" in out and "placemat.toml" in out
     assert "rank.area" in out and "default" in out
+
+
+def test_check_copper_oz_is_retired_naming_the_stackup(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[check]\ncopper_oz = 1.0\n")
+    with pytest.raises(S.SettingsError) as e:
+        S.load(tmp_path)
+    assert "check.copper_oz" in str(e.value) and "stackup" in str(e.value)
+
+
+def test_route_layers_is_retired_naming_layer_roles(tmp_path):
+    _toml(tmp_path / "placemat.toml", '[route]\nlayers = ["F.Cu", "B.Cu"]\n')
+    with pytest.raises(S.SettingsError) as e:
+        S.load(tmp_path)
+    assert "route.layers" in str(e.value) and "role" in str(e.value)
+
+
+def test_route_diff_pairs_is_retired_naming_net_classes(tmp_path):
+    _toml(tmp_path / "placemat.toml", '[route]\ndiff_pairs = ["*"]\n')
+    with pytest.raises(S.SettingsError) as e:
+        S.load(tmp_path)
+    assert "route.diff_pairs" in str(e.value) and "net class" in str(e.value)
+
+
+def test_score_via_shorten_has_a_default_and_is_settable(tmp_path):
+    assert S.Settings().score_via_shorten == 5.0
+    _toml(tmp_path / "placemat.toml", "[score]\nvia_shorten = 8.0\n")
+    assert S.load(tmp_path).score_via_shorten == 8.0
+
+
+def test_facts_confirmed_does_not_feed_the_digest(tmp_path):
+    plain = S.Settings()
+    _toml(tmp_path / "placemat.toml", '[facts]\nconfirmed = "abc123"\n')
+    confirmed = S.load(tmp_path)
+    assert confirmed.facts_confirmed == "abc123"
+    assert confirmed.json() == plain.json()
+    assert "facts_confirmed" not in json.loads(confirmed.json())

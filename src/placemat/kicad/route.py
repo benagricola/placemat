@@ -392,35 +392,37 @@ def plane_layers(zones, board_area: float, share: float) -> list:
     return sorted(found)
 
 
-def resolved_layers(explicit, all_layers, zones, board_area: float, share: float) -> tuple:
-    """The layers to route on, and what a plane took out of the default, as
-    (layers, {layer: net}). An explicit list (an argument or [route] layers)
-    is used as given; left to itself, every copper layer minus what
-    plane_layers finds, F.Cu and B.Cu always among them - a real board's
-    floor of two layers, so this never routes on fewer than that either."""
+def resolved_layers(explicit, board_layers, layer_types) -> tuple:
+    """The layers to route on, and what the default left out and why
+    ({layer: role}). An explicit list (an argument only - [route] layers is
+    retired; `placemat route --layers` is the sole override) is used as
+    given. Left to itself, every layer whose role is signal or mixed, F.Cu
+    and B.Cu always among them - a real board's floor of two layers, so
+    this never routes on fewer than that either."""
     if explicit:
         return list(explicit), {}
-    dropped = plane_layers(zones, board_area, share)
-    kept = [l for l in all_layers if l not in dropped]
-    reasons = {z["layer"]: z["net"] for z in zones if z["layer"] in dropped}
-    return kept, reasons
+    kept, dropped = [], {}
+    for l in board_layers:
+        role = layer_types.get(l, "signal")
+        if l in ("F.Cu", "B.Cu") or role in ("signal", "mixed"):
+            kept.append(l)
+        else:
+            dropped[l] = role
+    return kept, dropped
 
 
 def plane_note(dropped: dict) -> str:
-    """The route step's line for what a board's own plane took off the
-    default layer list, and how to override it. `dropped` groups by the net
-    that filled each layer, so one plane naming several layers reads as one
-    clause."""
+    """The route step's line for what the default layer list left out and
+    why (its role), and how to override it."""
     if not dropped:
         return ""
     groups: dict = {}
     for layer in sorted(dropped):
         groups.setdefault(dropped[layer], []).append(layer)
     parts = []
-    for net, layers in groups.items():
-        pronoun = "it" if len(layers) == 1 else "them"
-        parts.append("%s left out, the %s plane fills %s" % (", ".join(layers), net, pronoun))
-    return "route layers: " + "; ".join(parts) + "; [route] layers to override"
+    for role, layers in sorted(groups.items()):
+        parts.append("%s left out, role %s" % (", ".join(layers), role))
+    return "route layers: " + "; ".join(parts) + "; placemat route --layers to override"
 
 
 def _nets_in_violations(drc: dict) -> set:
@@ -554,43 +556,38 @@ def rename_nets(pcb_path: str, names: dict) -> None:
     pro.write_text(json.dumps(data, indent=2) + "\n")
 
 
-def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, patterns, layers, cfg, iterations, probe,
+def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, pairs, layers, cfg, iterations, probe,
                 timeout, env) -> tuple:
-    """Route the differential pairs with the router's pair router: returns
-    (the board to route the rest on, Pairs). A board with no pair matching
-    the patterns comes back as it went in.
+    """Route the differential pairs `pairs` ([(p_net, n_net), ...], from
+    pairs.board_pair_list): returns (the board to route the rest on,
+    Pairs). No pairs comes back as it went in.
 
-    The router pairs nets by their suffix alone, so a pair `patterns` names
-    outright ("NET_A/NET_B") is routed in a copy where its nets are renamed
-    to a suffix pair (pairs.pair_aliases), and renamed back in the routed
-    board before anything reads it. A named net the board does not have is
-    a ValueError, before the router runs."""
-    from ..pairs import explicit_pairs, globs, pair_aliases
-    if not patterns:
+    The router pairs nets by their suffix alone, so every pair is routed in
+    a copy where its nets are renamed to a suffix pair (pairs.pair_aliases),
+    whatever they were called, and renamed back in the routed board before
+    anything reads it. A net the board does not have is a ValueError,
+    before the router runs."""
+    from ..pairs import pair_aliases
+    if not pairs:
         return pcb_in, Pairs()
-    named = explicit_pairs(patterns)
-    aliases = []
-    if named:
-        names = _net_names(pcb_in)
-        missing = [n for pair in named for n in pair if n not in names]
-        if missing:
-            raise ValueError("route.diff_pairs names %s, which the board has no net called" % ", ".join(missing))
-        aliases = pair_aliases(named, names)
+    names = _net_names(pcb_in)
+    missing = [n for pair in pairs for n in pair if n not in names]
+    if missing:
+        raise ValueError("the board's net classes name %s for a differential pair, which it has no net called"
+                         % ", ".join(missing))
+    aliases = pair_aliases(pairs, names)
     script = Path(router_dir_path) / "py_router/route_diff.py"
     if not script.exists():
         return pcb_in, Pairs()
-    router_in = pcb_in
-    renames = {}
-    if aliases:
-        renames = {old: base + suffix for base, p, n in aliases for old, suffix in ((p, "_P"), (n, "_N"))}
-        router_in = work / "pairs_in.kicad_pcb"
-        shutil.copy(pcb_in, router_in)
-        _copy_project(pcb_in, router_in)
-        rename_nets(str(router_in), renames)
+    renames = {old: base + suffix for base, p, n in aliases for old, suffix in ((p, "_P"), (n, "_N"))}
+    router_in = work / "pairs_in.kicad_pcb"
+    shutil.copy(pcb_in, router_in)
+    _copy_project(pcb_in, router_in)
+    rename_nets(str(router_in), renames)
     back = {new: old for old, new in renames.items()}
     back.update({base: "%s/%s" % (p, n) for base, p, n in aliases})
     pcb_out = work / "pairs.kicad_pcb"
-    cmd = pair_command(rpy, script, router_in, pcb_out, globs(patterns) + tuple(a[0] for a in aliases), layers,
+    cmd = pair_command(rpy, script, router_in, pcb_out, tuple(a[0] for a in aliases), layers,
                        cfg.route_diff_pair_gap, cfg.route_diff_pair_width, iterations, probe)
     log = work / "pairs.log"
     with open(log, "w") as f:
@@ -599,19 +596,18 @@ def route_pairs(rpy, router_dir_path, pcb_in: Path, work: Path, patterns, layers
         rc = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, cwd=str(router_dir_path), env=env,
                             timeout=timeout).returncode
     text = log.read_text(errors="replace")
-    pairs = read_pairs(text).renamed(back)
+    result_pairs = read_pairs(text).renamed(back)
     if rc != 0 or not pcb_out.exists():
         if "matched no differential pair" in text or "No differential pairs" in text:
             return pcb_in, Pairs()
         tail = "\n".join(text.splitlines()[-8:])
         raise RuntimeError("the pair router exited %d without a routed board; log %s\n%s" % (rc, log, tail))
-    if renames:
-        rename_nets(str(pcb_out), {new: old for old, new in renames.items()})
+    rename_nets(str(pcb_out), {new: old for old, new in renames.items()})
     for ext in (".kicad_pro", ".kicad_dru"):
         if (work / ("in" + ext)).exists():
             shutil.copy(work / ("in" + ext), work / ("pairs" + ext))
     lock_copper(str(pcb_out))
-    return pcb_out, pairs
+    return pcb_out, result_pairs
 
 
 def router_version(router_dir: str) -> str:
@@ -735,7 +731,6 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
     router_dir_path = router_dir_override or router_dir(cfg)
     timeout = cfg.timeout_route if timeout is None else timeout
     iterations = cfg.route_iterations if iterations is None else iterations
-    layers = layers if layers is not None else (list(cfg.route_layers) if cfg.route_layers else None)
     pcb, work = Path(pcb), Path(work)
     rpy = Path(router_dir_path) / ".venv/bin/python"
     route_py = Path(router_dir_path) / "py_router/route.py"
@@ -752,11 +747,12 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
             shutil.copy(src, work / ("in" + ext))
     lock_copper(str(pcb_in))
     if layers:
-        all_layers, zones, board_area = [], (), 0.0
+        all_layers, layer_types_ = [], {}
     else:
         all_layers = _copper_layers(str(pcb_in))
-        zones, board_area = _plane_zones(str(pcb_in))
-    layers, plane_dropped = resolved_layers(layers, all_layers, zones, board_area, cfg.route_plane_share)
+        from .read import read_layer_types
+        layer_types_ = read_layer_types(str(pcb_in))
+    layers, plane_dropped = resolved_layers(layers, all_layers, layer_types_)
     excluded = set(exclude_nets) | set(islands)      # the main pass leaves the island nets to their pours
     counted = excluded - set(islands)                  # what the closure leaves out: the island nets are routed
 
@@ -775,7 +771,10 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
     env["KRT_DIR"] = str(router_dir_path)
     t0 = time.time()
     # the differential pairs first, as pairs; the rest route around them
-    board, pairs = route_pairs(rpy, router_dir_path, pcb_in, work, tuple(cfg.route_diff_pairs), layers, cfg,
+    from .read import read_board
+    from ..pairs import board_pair_list
+    pair_list = board_pair_list(read_board(str(pcb_in)).netclasses)
+    board, pairs = route_pairs(rpy, router_dir_path, pcb_in, work, pair_list, layers, cfg,
                                iterations, probe, timeout, env)
     island_breaches = []
     if islands:
