@@ -46,8 +46,10 @@ load's route: a width reads within one step of the copper's own.
 The default for `[check] zone_step`."""
 
 _IPC_K_OUTER = 0.048            # IPC-2221 external layer constant
+_IPC_K_INNER = 0.024            # IPC-2221 internal layer constant
 _MIL_PER_OZ = 1.378             # copper thickness per ounce, in mil
 _MM_PER_MIL = 0.0254
+_MM_PER_OZ = _MIL_PER_OZ * _MM_PER_MIL   # ~0.035001 mm per copper ounce
 
 _PREFIX = {"": 1.0, "m": 1e-3, "u": 1e-6, "k": 1e3}
 
@@ -407,10 +409,27 @@ def crossings_under(geometry: BoardGeometry) -> list[Verdict]:
 
 # --------------------------------------------------------- current paths
 
-def ipc2221_width_mm(current_a: float, rise_c: float = TRACK_RISE_C, copper_oz: float = COPPER_OZ) -> float:
-    """IPC-2221 external-layer width for a current at a temperature rise."""
-    area_milsq = (current_a / (_IPC_K_OUTER * rise_c ** 0.44)) ** (1 / 0.725)
+def ipc2221_width_mm(current_a: float, rise_c: float = TRACK_RISE_C, copper_oz: float = COPPER_OZ,
+                     k: float = _IPC_K_OUTER) -> float:
+    """IPC-2221 width for a current at a temperature rise, on a layer of
+    this weight: k is 0.048 for an outer layer, 0.024 for an inner one."""
+    area_milsq = (current_a / (k * rise_c ** 0.44)) ** (1 / 0.725)
     return area_milsq / (_MIL_PER_OZ * copper_oz) * _MM_PER_MIL
+
+
+def _layer_oz(layer, copper_mm: dict, fallback_oz: float) -> float:
+    mm_thickness = copper_mm.get(layer) if layer is not None else None
+    return mm_thickness / _MM_PER_OZ if mm_thickness is not None else fallback_oz
+
+
+def _layer_k(layer) -> float:
+    from .values import CopperLayer
+    return _IPC_K_OUTER if layer is None or layer in (CopperLayer.F, CopperLayer.B) else _IPC_K_INNER
+
+
+def _need_mm(amps: float, rise_c: float, copper_oz: float, copper_mm: dict, layers) -> float:
+    layer = next(iter(layers), None)
+    return ipc2221_width_mm(amps, rise_c, _layer_oz(layer, copper_mm, copper_oz), _layer_k(layer))
 
 
 def _net_graph(geometry: BoardGeometry, net: str):
@@ -707,9 +726,10 @@ def _widest_from(nodes, near, sources) -> dict:
 def _neck(nodes, best, end_i: int, w: float) -> tuple:
     """The bottleneck's point, how far the route stays within 10% of it -
     the run of consecutive track nodes around the bottleneck this narrow,
-    stopped each way by a pad, via, pour or wider track - and whether the
+    stopped each way by a pad, via, pour or wider track - whether the
     bottleneck is a drawn pour's narrowest point (which has no length along
-    the route)."""
+    the route), and the bottleneck node's own layers (for the current-path
+    check's per-layer weight)."""
     path, i = [], end_i
     while i is not None:
         path.append(i)
@@ -735,7 +755,7 @@ def _neck(nodes, best, end_i: int, w: float) -> tuple:
     ends = nodes[neck_i][5]
     point = ((ends[0][0] + ends[1][0]) / 2.0, (ends[0][1] + ends[1][1]) / 2.0) if ends \
         else (nodes[neck_i][3].center.x, nodes[neck_i][3].center.y)
-    return point, total, nodes[neck_i][0] == "poly"
+    return point, total, nodes[neck_i][0] == "poly", nodes[neck_i][4]
 
 
 def _route(best, end_i: int) -> list:
@@ -750,7 +770,8 @@ def _route(best, end_i: int) -> list:
 def _fill_on(nodes, path: list, fills: dict, measured: dict, step: float):
     """The narrowest zone fill along a route, each measured between the
     copper the route enters and leaves it by: (width, point, one step or
-    less), or None when the route passes no fill that narrows it."""
+    less, the zone node's own layers), or None when the route passes no
+    fill that narrows it."""
     worst = None
     for k in range(1, len(path) - 1):
         z = path[k]
@@ -760,7 +781,8 @@ def _fill_on(nodes, path: list, fills: dict, measured: dict, step: float):
         if key not in measured:
             if z not in fills:
                 fills[z] = _Fill(nodes[z][2][0], step)
-            measured[key] = fills[z].width(nodes[path[k - 1]][2], nodes[path[k + 1]][2])
+            got = fills[z].width(nodes[path[k - 1]][2], nodes[path[k + 1]][2])
+            measured[key] = None if got is None else got + (nodes[z][4],)
         got = measured[key]
         if got is not None and (worst is None or got[0] < worst[0]):
             worst = got
@@ -817,11 +839,12 @@ def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, cop
                                else "joined only through pads, vias and a zone fill where their copper meets"))
             continue
         amps = carriers[a] if b is None else min(carriers[a], carriers[b])
-        need = ipc2221_width_mm(amps, rise_c, copper_oz)
         if narrows:
+            need = _need_mm(amps, rise_c, copper_oz, geometry.copper_mm, fill[3])
             judged.append((width, need, amps, start, to, (fill[0], fill[2], True), fill[1], None))
             continue
-        point, length, in_pour = _neck(nodes, best, end_i, w)
+        point, length, in_pour, neck_layers = _neck(nodes, best, end_i, w)
+        need = _need_mm(amps, rise_c, copper_oz, geometry.copper_mm, neck_layers)
         judged.append((w, need, amps, start, to, None if fill is None else (fill[0], fill[2], False), point,
                        None if in_pour else length))
     return judged, unmeasured, apart
