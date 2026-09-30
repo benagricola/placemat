@@ -882,15 +882,16 @@ the keepout allows is still listed as `items_not_allowed`; the run sets
 those aside, counted as `permitted` (`metrics.permitted`, and the DRC
 line's "permitted by their keepout"), not as violations.
 
-**Drawn on the board.** A keepout is a KiCad rule area, and a keepout that
-admits parts carries its `.kicad_dru` rule, so nothing more is drawn by
-default. `write.keepout_drawings = "admitting"` (or `"all"`) also draws a
-keepout's outline and its name on the Fab layer of its face, or
-`User.Comments` for one on both faces or on inner layers only, with its
-height limit when it has one (`ring: parts <= 1.90 mm`). The parts and
-nets it admits by name are never written as text: the rule says them.
-These drawings are placemat's own, in one group, `keepout drawings`,
-replaced whole on every write.
+**Drawn on the board.** A keepout is a KiCad rule area, and one that
+admits parts has a rule area that allows footprints and a `.kicad_dru`
+rule, so its limit shows nowhere while placing by hand. By default such a
+keepout is also drawn: its outline and its name on the Fab layer of its
+face, or `User.Comments` for one on both faces or on inner layers only,
+with its height limit when it has one (`ring: parts <= 1.90 mm`). The
+parts and nets it admits by name are never written as text: the rule says
+them. `write.keepout_drawings` chooses: `admitting` (the default), `all`,
+or `none`. These drawings are placemat's own, in one group, `keepout
+drawings`, replaced whole on every write.
 
 **The board edge.** A region may hang off it. Only the on-board part does
 anything - a part is refused for crossing the keep-in before any reservation is
@@ -2366,7 +2367,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `copper.plane_min_thickness` | 0.2 | a zone's minimum filled width |
 | `copper.pour_stroke` | 0.2 | a pour's outline stroke |
 | `write.split_groups` | "lift" | the generator's nested groups: `lift` each cell's group out of its module's to the top level (the module keeps its own parts), `split` also takes out of a group the parts the script places by steps of their own, `keep` writes them as generated; a group left empty is removed |
-| `write.keepout_drawings` | "none" | whether to draw a keepout's outline and name (and its height limit) on its Fab layer, or `User.Comments` for one on both faces or on inner layers only: `none` (default), `admitting` those that admit something, `all` every keepout |
+| `write.keepout_drawings` | "admitting" | draw a keepout's outline and name (and its height limit) on its Fab layer, or `User.Comments` for one on both faces or on inner layers only: `admitting` (default) those that admit something, `all` every keepout, `none` |
 | `write.keepout_line` | 0.1 | a drawn keepout's outline stroke |
 | `write.keepout_text` | 0.8 | a drawn keepout's label height |
 | `copper.microvia_drill` | 0.1 | a micro via's drill (`layers=` one layer from an outer face) when the script gives none |

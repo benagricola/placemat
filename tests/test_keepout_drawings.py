@@ -147,10 +147,12 @@ def test_a_stamped_fragments_own_nested_group_is_left_alone():
 
 
 @needs_kicad
-def test_by_default_no_keepout_is_drawn():
-    """A keepout is a KiCad rule area, and its .kicad_dru rule says what it
-    admits: by default nothing restates it as board text."""
+def test_by_default_an_admitting_keepout_draws_its_outline_and_name():
+    """By default a keepout that admits parts draws its outline and its name
+    with its height limit: its rule area allows footprints, so the limit
+    shows nowhere else while placing by hand. Never a list of parts."""
     import pcbnew
     plan = _height_board(settings=Settings()).resolve()
     board = _drawn(plan)
-    assert not [d for d in board.GetDrawings() if isinstance(d, (pcbnew.PCB_TEXT, pcbnew.PCB_SHAPE))]
+    texts = [d.GetText() for d in board.GetDrawings() if isinstance(d, pcbnew.PCB_TEXT)]
+    assert texts == ["ring: parts <= 1.90 mm"]
