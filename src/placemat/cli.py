@@ -244,7 +244,6 @@ def parser() -> argparse.ArgumentParser:
     ck.add_argument("--ambient", type=float, default=None, help="board temperature in C (default: %g)" % 100.0)
     ck.add_argument("--keep-out", type=float, default=None, help="sense copper's distance from a switch node, mm")
     ck.add_argument("--rise", type=float, default=None, help="track temperature rise the widths are sized for, C")
-    ck.add_argument("--copper-oz", type=float, default=None, help="outer copper weight the widths are sized for")
     ck.add_argument("--limit", action="append", default=[], metavar="CHECK=VALUE",
                     help="a bound for a reporting check, e.g. hot-loop=20 (mm2) or switch-node=15 (mm2)")
     ck.add_argument("--json", action="store_true")
@@ -264,7 +263,7 @@ def overrides_from(args) -> dict:
     falls to placemat.toml, and a key absent from that falls to the default."""
     out = {}
     for flag, name in (("ambient", "check_ambient_c"), ("keep_out", "check_keep_out_mm"),
-                       ("rise", "check_rise_c"), ("copper_oz", "check_copper_oz")):
+                       ("rise", "check_rise_c")):
         value = getattr(args, flag, None)
         if value is not None:
             out[name] = value
@@ -486,16 +485,19 @@ def _record(ref, board=None) -> Path:
 def cmd_drc(args) -> int:
     from .kicad.drc import run_drc, unconnected_items, violation_items
     from .report import airwires_from_drc
+    from .pairs import board_pairs
     pcb = Path(args.pcb)
     out = pcb.parent / "drc.json"
     report = run_drc(pcb, out)
     data = json.loads(out.read_text())
-    aw = airwires_from_drc(data)
     try:
         from .kicad.read import read_board
-        insts = {fp.ref: fp.inst for fp in read_board(pcb).footprints}
-    except Exception:                               # a board pcbnew cannot read has no instances to name
-        insts = {}
+        snap = read_board(pcb)
+        insts = {fp.ref: fp.inst for fp in snap.footprints}
+        partners = board_pairs(snap.netclasses)
+    except Exception:                               # a board pcbnew cannot read has no instances or classes
+        insts, partners = {}, {}
+    aw = airwires_from_drc(data, partners=partners)
     items = violation_items(data, {}, insts)
     if args.json:
         console.data(json.dumps({"by_type": report.by_type, "real": report.real, "outstanding": report.outstanding,

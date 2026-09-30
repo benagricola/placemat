@@ -2228,6 +2228,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.via_share` | 1 | mm the search adds to a spot for each carried via that shares a via of its net there |
 | `score.via_move` | 2 | mm for each carried via that moves there |
 | `score.via_drop` | 10 | mm for each plane drop dropped there |
+| `score.via_shorten` | 5 | mm for each carried plane drop shortened to the plane's nearest layer instead of dropped, between move and drop |
 | `solve.enabled` | false | give the searched tier its hints from a global solve of the whole netlist, before any item is scanned |
 | `solve.iterations` | 200 | the solve's conjugate-gradient cap per axis per round |
 | `solve.tolerance` | 1e-06 | the residual the solve stops at |
@@ -2241,6 +2242,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `cleanup.step` | 0.5 | that search's step |
 | `cleanup.swap_neighbours` | 4 | each part is offered a swap with this many of its nearest movable neighbours: both lifted, each searched round the other's old spot |
 | `cleanup.swap_radius` | 1.0 | how far round the other's old spot each part of a swap is searched |
+| `facts.confirmed` | none | a digest of the last `placemat facts --confirm`; placemat's own record, not part of a run's id |
 
 A run also records `metrics.seeded_by_net`: how many searched items each net
 seeded. One net seeding most of the board is a missing `board.plane()`. And
