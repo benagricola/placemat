@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.62.0
 
 A cell's members are read in reference order. KiCad returns a group's
 items in no fixed order, so the refusal tallies and a `split` finding's
