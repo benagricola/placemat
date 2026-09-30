@@ -1,6 +1,6 @@
 # Board facts: where each lives, asking for them, fixed against preferred
 
-Status: draft, for approval.
+Status: approved (2026-09-30).
 
 Source: Ben (2026-09-30). Today a board's facts are split across files:
 - placemat.toml holds `[check] copper_oz` and `rise_c`, and `[route] layers`

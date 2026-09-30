@@ -1,6 +1,6 @@
 # Riders on a searched item, a keepout inside a pad ring, one land of a pin, explicit router pairs
 
-Status: draft, for approval.
+Status: approved (2026-09-29).
 
 These four are the backlog items that change an interface. The rest of the
 open backlog is listed at the end, with why each waits.

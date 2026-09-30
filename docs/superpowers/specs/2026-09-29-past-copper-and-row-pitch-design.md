@@ -1,6 +1,6 @@
 # Past over copper, a row at a pitch, a part off a lane, a plane over parts
 
-Status: draft, for approval.
+Status: approved (2026-09-29).
 
 Source: A board's `PLACEMAT_GAPS.md` 2026-09-29 entries:
 

@@ -1,6 +1,6 @@
 # Keepouts drawn for hand placement, and a push
 
-Status: draft, for approval.
+Status: approved (2026-09-30).
 
 Source: Ben, through a board's session (2026-09-30).
 

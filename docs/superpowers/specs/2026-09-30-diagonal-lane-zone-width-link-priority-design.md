@@ -1,6 +1,6 @@
 # A 45 off a pad's corner, a zone fill's width, and a link wait under priority
 
-Status: draft, for approval.
+Status: approved (2026-09-30).
 
 Three open items, each small enough to specify together:
 - the owner's choice of a diagonal lane (2026-09-30);
