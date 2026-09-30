@@ -127,3 +127,14 @@
 - [ ] **Step 3:** targeted tests: `tests/test_vias_give_way.py tests/test_vias_give_way_kicad.py tests/test_native_sweep.py tests/test_native_legal.py tests/test_native_conflict.py tests/test_copper_digest_parity.py tests/test_enum_digest_parity.py tests/test_native_give_way_move.py`.
 - [ ] **Step 4:** `fixtures/bench.py --jobs 2`: "same 32" on every config.
 - [ ] **Step 5:** final commit with the bench tally and the `--board` timings in the message; run the attribution grep on every commit.
+
+## As executed
+
+Where the plan was silent or wrong, and what was done:
+- Task 1's Python tests check the native call's marshalling only; the 1,000-case parity is at the level `_give` decides (tests/test_give_way_native_parity.py), which covers `first_move` and `tail_clear` together, plus a separate 1,000-case test of share tails.
+- Net ties: the plan's whole-board fallback disabled the native calls on the whole-board fixture, which has net ties. The fallback is instead local: Python judges where a net tie's copper lies within a conflict's reach of the move (`_meets_net_tie`).
+- `first_move` takes a `start` index; the board edge is judged in Python per spot and the native call is asked again from the next offset.
+- `tail_clear` takes the tail's native shape list, not a track.
+- `_still_meets` is a speed-up only: dropping it changes no result, so parity tests cannot see it; it is covered by Rust unit tests.
+- The refusal cache (task 6) is left out: no exact key with a useful hit rate exists.
+- The per-scan set-aside-via index and a hoisted group-shape list in `resolve` were added after profiling.
