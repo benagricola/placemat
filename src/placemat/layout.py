@@ -718,6 +718,8 @@ class Board:
     off the generated .kicad_pcb; declarations are collected and resolved
     together."""
 
+    fab_vias: frozenset = frozenset()       # none unless the fab profile allows them: through vias only
+
     @property
     def width(self) -> float:
         if getattr(self, "_fit", False) and self._fit_axis is not Axis.Y:
@@ -759,8 +761,11 @@ class Board:
     def __init__(self, geometry: BoardGeometry, edge_margin: float | None = None, clearance: float | None = None,
                  via_drill: float = 0.3, via_size: float = 0.6, keep_going: bool = False,
                  courtyard_excess: float = 0.1, settings: Settings | None = None,
-                 component_spacing: float | None = None):
+                 component_spacing: float | None = None, fab_vias=None, fab_source: str = ""):
         self.settings = settings if settings is not None else Settings()
+        # the via types beyond through the fab profile allows (micro, blind, buried), and where it says so
+        self.fab_vias = frozenset(fab_vias) if fab_vias is not None else type(self).fab_vias
+        self.fab_source = fab_source
         self._solve_hints = None
         self.geometry = geometry
         self.courtyard_excess = courtyard_excess    # the fab's assembly margin round a part: the only spacing that comes free
@@ -3280,7 +3285,37 @@ class Board:
                              "(CopperLayer.B, CopperLayer.IN4)" % name)
         lo, hi = min(map(stackup_order, named)), max(map(stackup_order, named))
         span = tuple(l for l in board if lo <= stackup_order(l) <= hi)
-        return () if len(span) == len(board) else span
+        if len(span) == len(board):
+            return ()
+        self._allow_via_type(name, span)
+        return span
+
+    def _check_stamped_via_types(self) -> None:
+        """A via a stamped cell brings (or one already on the board) that
+        spans only some of the board's layers is a micro, blind or buried
+        via: refused, naming its cell, unless the fab profile allows its type."""
+        board = tuple(sorted(self.geometry.layers, key=stackup_order))
+        for c in self.geometry.copper:
+            if c.kind != "via" or not c.layers or set(board) <= set(c.layers):
+                continue
+            span = tuple(l for l in board if l in c.layers)
+            if len(span) < 2:
+                continue
+            where = "cell %s's" % c.owner if c.owner else "the board's"
+            self._allow_via_type("%s %s via at (%.2f, %.2f)" % (where, c.net or "-", c.box.center.x,
+                                                                   c.box.center.y), span)
+
+    def _allow_via_type(self, name: str, span: tuple) -> None:
+        """Refuse a via type the fab profile does not allow: a micro, blind or
+        buried via costs more, and is kept off unless the profile says the
+        fab makes it and the cost is accepted."""
+        kind = _via_kind(span)
+        if kind not in self.fab_vias:
+            raise ValueError(
+                "%s: a %s via (%s) is not allowed by the fab profile%s; they cost more, so a board keeps to "
+                "through vias unless fab-profile.json says \"via\": {\"allow_%s\": true} for a fab that makes "
+                "them" % (name, kind, _span_text(span), " (%s)" % self.fab_source if self.fab_source else "",
+                          kind))
 
     def _span_drill(self, span: tuple, drill: float) -> float:
         """A via's drill when the script gives none: `copper.microvia_drill`
@@ -3668,6 +3703,7 @@ class Board:
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
                         board_cutouts=self._cutouts, settings=self.settings,
                         component_spacing=self.component_spacing)
+        self._check_stamped_via_types()     # a fragment's vias the fab profile does not allow fail the run
         self._carry_pad_vias(occ)          # before any cell's geometry is built from its members'
         thinned = self._thin_drops(occ)    # likewise: a cell's geometry takes its fields as thinned
         occ.quiet_nets = frozenset(self._plane_nets() | set(self._free_nets))
@@ -6246,6 +6282,15 @@ def _refs_in(points, via_ends: bool = False) -> list:
         elif isinstance(p, (Centre, Location)):
             out += _refs_in([p.x, p.y])
     return out
+
+
+def _via_kind(span: tuple) -> str:
+    """A via's type from its span of the board's layers: micro (an outer face
+    and the layer next to it), blind (from an outer face, deeper), or buried
+    (inner layers only)."""
+    if _is_micro(span):
+        return "micro"
+    return "blind" if any(l.face is not None for l in span) else "buried"
 
 
 def _is_micro(span: tuple) -> bool:

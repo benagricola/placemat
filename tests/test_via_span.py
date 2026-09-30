@@ -17,6 +17,14 @@ from placemat.values import Box, CopperLayer, Face, Location, Near, Net, PadRef,
 from tests.conftest import needs_kicad, needs_native
 from tests.fixtures import board_geometry, footprint
 
+@pytest.fixture(autouse=True)
+def _fab_makes_every_via(monkeypatch):
+    """These tests are about how a span is judged and written: the fab
+    profile allows every via type here (test_via_types_allowed covers its
+    refusals)."""
+    monkeypatch.setattr(Board, "fab_vias", frozenset({"micro", "blind", "buried"}))
+
+
 F, B = CopperLayer.F, CopperLayer.B
 IN1, IN2, IN3, IN4 = CopperLayer.IN1, CopperLayer.IN2, CopperLayer.IN3, CopperLayer.IN4
 SIX = (F, IN1, IN2, IN3, IN4, B)

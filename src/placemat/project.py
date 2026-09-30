@@ -94,13 +94,19 @@ class FabProfile:
     track_widths: tuple = tuple(round(0.15 + 0.05 * i, 2) for i in range(18))
     path: Path | None = None
     component_spacing: float = 0.2     # body to body, and body to another part's pad: twice the excess unless the fab says
+    # the via types beyond a through via the fab makes and their cost is accepted for: "micro", "blind",
+    # "buried"; none unless fab-profile.json's "via" says allow_micro / allow_blind / allow_buried
+    via_types: frozenset = frozenset()
 
     def json(self) -> str:
         """The values that decide a run, not the file they came from."""
         import json as _json
-        return _json.dumps({"via_drill": self.via_drill, "via_size": self.via_size,
-                            "courtyard_excess": self.courtyard_excess, "track_widths": list(self.track_widths),
-                            "component_spacing": self.component_spacing}, sort_keys=True)
+        doc = {"via_drill": self.via_drill, "via_size": self.via_size,
+               "courtyard_excess": self.courtyard_excess, "track_widths": list(self.track_widths),
+               "component_spacing": self.component_spacing}
+        if self.via_types:                  # only when allowed, so a profile allowing none digests as before
+            doc["allow_vias"] = sorted(self.via_types)
+        return _json.dumps(doc, sort_keys=True)
 
 
 def fab_profile(start) -> FabProfile:
@@ -120,8 +126,9 @@ def fab_profile(start) -> FabProfile:
                 widths = tuple(round(tw["min"] + i * tw["step"], 2) for i in range(n))
             court = data.get("courtyard", {})
             excess = court.get("excess_mm", 0.10)
+            types = frozenset(t for t in ("micro", "blind", "buried") if via.get("allow_" + t))
             return FabProfile(via.get("default_drill_mm", 0.3), via.get("default_size_mm", 0.6),
-                              excess, widths, f, court.get("component_spacing_mm", 2 * excess))
+                              excess, widths, f, court.get("component_spacing_mm", 2 * excess), types)
     return FabProfile()
 
 

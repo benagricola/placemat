@@ -89,7 +89,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | vias in a row out from a pad, a tail joining them | `board.vias(net, along=PadRef(...), count=N)`; as a track point, its value is the farthest via | Copper calls |
 | a track on to a via or a via row | the value `board.via()`/`board.vias(along=)` returns, as a track point | Copper calls |
 | stitching vias over a cell, a pour or a keepout, or along its outline | `board.stitch(net, region, edge=)` | Copper calls |
-| a micro, blind or buried via, for a fab that makes them | `layers=(CopperLayer.B, CopperLayer.IN4)` on `via()`, `vias()` or `stitch()` | Copper calls (A via's layer span) |
+| a micro, blind or buried via, for a fab that makes them (allowed in fab-profile.json) | `layers=(CopperLayer.B, CopperLayer.IN4)` on `via()`, `vias()` or `stitch()` | Copper calls (A via's layer span) |
 | a pour of exactly the shape given | `board.pour(net, points, layer=)` | Copper calls |
 | a pour over a set of pads, pulled back from other nets | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: the hull of the pads' copper (`cover=Cover.BOX`, the box round it) | Copper calls |
 | a neck between two pads, as wide as the narrower or `width=` | `board.pour(net, [PadRef(a), PadRef(b)], layer=, swallow_pads=True, width=)` | Copper calls |
@@ -1366,6 +1366,15 @@ says so. A cell flipped to the other face takes its vias' spans with it,
 mirrored through the stack as KiCad flips them (B-In4 becomes F-In1); a via
 declared at a pad is spanned where the part lands. A fragment built with
 spans carries them into the parent, which reads each via's layers.
+
+These vias cost more, so each type is refused unless the fab profile
+allows it: `"via": {"allow_micro": true, "allow_blind": true,
+"allow_buried": true}` in `fab-profile.json`, each only when the fab makes
+it and its cost is accepted. With none allowed (the default) a span is
+refused when declared, naming the type and the key that allows it, and a
+stamped fragment carrying such a via fails the run, naming its cell. Look
+for another way first: a through via moved, shared or dropped (the give-way
+above), or a field thinned with `drops=`.
 
 ```python
 board.vias(Net("GND"), PadRef(Part("u3"), 17), layers=(CopperLayer.B, CopperLayer.IN4))

@@ -7,6 +7,10 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+A micro, blind or buried via (`layers=` on a via) is refused unless
+`fab-profile.json` allows its type (`"via": {"allow_micro": true}` and
+so on); a stamped fragment carrying one fails the run the same way.
+
 `placemat measure --models` says when a part's 3D model sits off its pads
 or looks turned 90 against its fab outline.
 
