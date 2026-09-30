@@ -170,7 +170,7 @@ def test_a_net_carried_by_a_pour_is_judged_by_the_pour_not_its_pin_leads():
     outline = rect(12.6, 9.5, 6, 7)                                     # y 6..13: the pad's edge is in it
     pour = CopperItem("poly", "VIN", frozenset([F]), (outline,), Box.of_points(outline))
     (v,) = current_paths(board_geometry([u, c], copper=[lead, pour]))
-    assert v.ok and v.value == pytest.approx(6.0) and "U1." in v.note and "C1." in v.note
+    assert v.ok and 6.0 - 0.05 - 1e-6 <= v.value <= 6.0 + 1e-6 and "U1." in v.note and "C1." in v.note
 
 
 def test_keep_out_ignores_a_parts_own_adjacent_pins():
@@ -187,20 +187,18 @@ def test_keep_out_ignores_a_parts_own_adjacent_pins():
 
 
 def test_a_pours_narrowest_neck_is_the_current_paths_width():
-    from placemat.checks import neck_mm
     from placemat.board_geometry import CopperItem
     from placemat.values import Box
     # two 4 x 4 pads of copper joined by a 1.0 wide, 3 long neck
     dumbbell = ((0, 0), (4, 0), (4, 1.5), (7, 1.5), (7, 0), (11, 0), (11, 4), (7, 4), (7, 2.5), (4, 2.5), (4, 4), (0, 4))
-    assert neck_mm(dumbbell) == pytest.approx(1.0)
     u = footprint("U1", 2, 2, nets=("VIN", "SW"), fields={"Pm.I": "vin:3A"})     # its VIN pad in the left bell
     c = footprint("C1", 9.4, 2, nets=("VIN", "GND"), fields={"Pm.I": "vin:3A"})                             # its VIN pad in the right one
     pour = CopperItem("poly", "VIN", frozenset([F]), (dumbbell,), Box.of_points(dumbbell))
     (v,) = current_paths(board_geometry([u, c], copper=[pour]))
-    assert v.value == pytest.approx(1.0) and v.ok is False and "U1." in v.note
+    assert 1.0 - 0.05 - 1e-6 <= v.value <= 1.0 + 1e-6 and v.ok is False and "U1." in v.note   # within a zone_step
     wide = CopperItem("poly", "VIN", frozenset([F]), (((0, 0), (11, 0), (11, 4), (0, 4)),), Box(0, 0, 11, 4))
     (v,) = current_paths(board_geometry([u, c], copper=[wide]))
-    assert v.value == pytest.approx(4.0) and v.ok
+    assert 4.0 - 0.05 - 1e-6 <= v.value <= 4.0 + 1e-6 and v.ok
 
 
 def test_heat_from_a_board_temperature_uses_junction_to_board_when_the_part_gives_it():

@@ -19,6 +19,12 @@ is added) can give `bars=` the few instead. `bars=` and `allow=` of parts
 or cells are refused together; `allow=` of nets is unchanged, and
 `max_height=` still judges the parts `bars=` does not name.
 
+`check current-path` measures a drawn pour along the load's route, as it
+does a zone fill, instead of at the pour's narrowest section anywhere. A
+sliver off the route (where a pad's rounded corner meets the pour's edge)
+no longer fails a wide pour. A pour's width reads within one
+`check.zone_step` of its true width.
+
 ## To 0.63.1
 
 A keepout's drawn label is its name and its height limit, never a list

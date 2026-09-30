@@ -74,3 +74,16 @@ def test_a_pour_neck_is_named_as_the_pours_not_given_a_length():
     pour = CopperItem("poly", "VIN", frozenset([CopperLayer.F]), (dumbbell,), Box.of_points(dumbbell))
     v = _vin(_parts(), [pour])
     assert "mm long" not in v.note and "the pour's narrowest" in v.note, v.note
+
+
+def test_a_pour_is_judged_along_the_route_not_by_a_sliver_off_it():
+    """A drawn pour 3 mm across with a 0.2 mm spur off its side, where no
+    load goes: the route is judged at the pour's width along it, as a zone
+    fill's is, not at the spur."""
+    from placemat.board_geometry import CopperItem
+    from placemat.values import Box, CopperLayer
+    body = ((8, 8.5), (18, 8.5), (18, 7.0), (18.2, 7.0), (18.2, 8.5), (31, 8.5), (31, 11.5), (8, 11.5))
+    pour = CopperItem("poly", "VIN", frozenset([CopperLayer.F]), (body,), Box.of_points(body))
+    v = _vin(_parts(), [pour])
+    assert v.ok is True and 3.0 - 0.05 - 1e-6 <= v.value <= 3.0 + 1e-6, v.note
+    assert "the pour's narrowest point" in v.note, v.note

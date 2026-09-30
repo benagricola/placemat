@@ -68,7 +68,6 @@ def test_a_stroked_pour_is_read_as_one_outline_as_wide_as_it_is(breakout_pcb, tm
     """Its fill and its strokes are one piece of copper: read apart, each
     stroke was a 0.3 mm strip, and a current check took the pour for one."""
     import pcbnew
-    from placemat.checks import neck_mm
     from placemat.kicad.read import read_board
     for ext in (".kicad_pcb", ".kicad_pro"):
         if breakout_pcb.with_suffix(ext).exists():
@@ -86,7 +85,7 @@ def test_a_stroked_pour_is_read_as_one_outline_as_wide_as_it_is(breakout_pcb, tm
     brd.Save(str(pcb))
     (poly,) = [c for c in read_board(pcb).copper if c.kind == "poly" and c.box.left > 190]
     assert len(poly.outlines) == 1
-    assert neck_mm(poly.outlines[0]) > 3.0
+    assert point_in_polygon((202.0, 201.5), poly.outlines[0])       # the middle of the fill, not a 0.3 mm strip
 
 
 def test_an_unfilled_stroked_polygon_is_read_as_its_stroke_not_its_inside(breakout_pcb, tmp_path):
