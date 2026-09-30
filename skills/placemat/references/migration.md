@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.60.0
 
 `board.outward_rotation(item, edge, face=Face.BACK)` answers for an item on
 the back. A flip mirrors the item before it turns, so the front's answer
