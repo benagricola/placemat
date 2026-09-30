@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+import functools
 import math
 
 from . import geometry as _geometry_module
@@ -38,17 +39,26 @@ class ScanResult:
         yield from self.rejected
 
 
-def _grid(center: Location, radius: float, step: float):
+@functools.lru_cache(maxsize=16)
+def _grid_offsets(radius: float, step: float) -> tuple:
+    """(d, dx, dy) within `radius` on a `step` grid, nearest first, cached by
+    (radius, step): `_grid` is called with the same handful of (radius,
+    step) pairs many times over a run (one scan's several passes, many
+    scans of the same kind of item), so the O(n^2) walk-and-sort happens
+    once per pair, not once per call (mirrors `giveway._offsets`)."""
     n = int(math.floor(radius / step + 1e-9))
     pts = []
     for i in range(-n, n + 1):
         for j in range(-n, n + 1):
-            x, y = center.x + i * step, center.y + j * step
             d = math.hypot(i * step, j * step)
             if d <= radius + 1e-9:
-                pts.append((d, round(x, 6), round(y, 6)))
+                pts.append((d, i * step, j * step))
     pts.sort()
-    return pts
+    return tuple(pts)
+
+
+def _grid(center: Location, radius: float, step: float):
+    return [(d, round(center.x + dx, 6), round(center.y + dy, 6)) for d, dx, dy in _grid_offsets(radius, step)]
 
 
 COARSE_STEPS = 4
@@ -228,13 +238,12 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         """The same pass, judged natively (Occupancy.native_sweeper): the same
         legal candidates, tallies, first sentences and blockers."""
         nonlocal tried
-        triples = []
-        for x, y in points:
-            for k, rot in enumerate(rots):
-                if (x, y, rot) in seen:
-                    continue
-                seen.add((x, y, rot))
-                triples.append((x, y, k))
+        # `native.expand` keeps its own (x, y, turn) seen-set (NativeSweepSeen)
+        # for this scan's `native` instance, so the whole points-x-rots loop
+        # and its dedup run in Rust once per pass - the outer Python `seen`
+        # set is left alone, still used by the pure-Python `sweep` branch
+        # above when `native is None`.
+        triples = native.expand(list(points), len(rots))
         if scoring is not None:
             scoring.floor = score.best[0]
         first_only = stop_at_first and not inline           # else the first `accept` counts

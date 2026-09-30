@@ -192,6 +192,62 @@ impl NativeOriginShapes {
     }
 }
 
+/// The (x, y, turn) triples `placer.scan`'s own `seen` Python set used to
+/// dedupe across a scan's several passes (coarse, half-coarse, fine round
+/// each refined candidate) - kept here instead, one instance per scan
+/// (`Occupancy.native_sweeper` builds one `NativeSweeper` per `scan()`
+/// call, which owns one of these), so the loop that builds triples from
+/// `points x rots` runs in Rust once per pass instead of once per
+/// (point, rotation) pair in Python. Coordinates are compared by exact bit
+/// pattern (`f64::to_bits`), matching Python's own `(x, y, rot) in seen`
+/// set-membership exactly: `placer._grid`'s `round(v, 6)` is deterministic,
+/// so the same conceptual point always produces the same bits, from
+/// whichever pass reaches it first.
+#[pyclass]
+#[derive(Default)]
+struct NativeSweepSeen {
+    seen: std::collections::HashSet<(u64, u64, usize)>,
+}
+
+#[pymethods]
+impl NativeSweepSeen {
+    #[new]
+    fn new() -> Self {
+        NativeSweepSeen::default()
+    }
+
+    /// (x, y, turn) triples for every (x, y) in `points` at every turn in
+    /// 0..n_rots not already returned by an earlier call on this instance.
+    fn expand(&mut self, points: Vec<(f64, f64)>, n_rots: usize) -> Vec<(f64, f64, usize)> {
+        let mut out = Vec::new();
+        for (x, y) in points {
+            let kx = x.to_bits();
+            let ky = y.to_bits();
+            for turn in 0..n_rots {
+                if self.seen.insert((kx, ky, turn)) {
+                    out.push((x, y, turn));
+                }
+            }
+        }
+        out
+    }
+}
+
+#[cfg(test)]
+mod sweep_seen_tests {
+    use super::NativeSweepSeen;
+
+    #[test]
+    fn expand_skips_what_was_already_returned() {
+        let mut s = NativeSweepSeen::default();
+        let first = s.expand(vec![(1.0, 2.0), (3.0, 4.0)], 2);
+        assert_eq!(first, vec![(1.0, 2.0, 0), (1.0, 2.0, 1), (3.0, 4.0, 0), (3.0, 4.0, 1)]);
+        let second = s.expand(vec![(1.0, 2.0), (5.0, 6.0)], 2);
+        // (1.0, 2.0) at both turns already seen; (5.0, 6.0) is new.
+        assert_eq!(second, vec![(5.0, 6.0, 0), (5.0, 6.0, 1)]);
+    }
+}
+
 /// `ratsnest.mst`: one net's airwires as index pairs into `anchors`
 /// ((x, y, refdes, pad number)), in Kruskal's order (native/src/ratsnest.rs).
 #[pyfunction]
@@ -825,6 +881,7 @@ fn placemat_native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(hypot_many, m)?)?;
     m.add_class::<NativeObstacles>()?;
     m.add_class::<NativeOriginShapes>()?;
+    m.add_class::<NativeSweepSeen>()?;
     m.add_class::<NativeBoard>()?;
     m.add_class::<NativeRatsnest>()?;
     m.add_class::<NativeEscTurn>()?;
