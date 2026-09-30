@@ -433,6 +433,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             raise RunFailure("placement", str(e), {"item": e.key, "tail": "board written as it stood: %s" % src.pcb})
         (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
         rec.timing_s["resolve"] = round(time.time() - t0, 1)
+        from .project import fab_min_findings
+        plan.findings += fab_min_findings(board.geometry.netclasses, fab)
         n_place = sum(1 for s in plan.steps if s.placement is not None)
         n_copper = sum(s.ops for s in plan.steps)
         say("script", "%d placed, %d copper op(s), %d finding(s)  (%.1fs)" % (
