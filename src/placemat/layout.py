@@ -3343,14 +3343,13 @@ class Board:
         self._allow_via_type(name, span)
         return span
 
-    def _flip_notes(self, occ) -> dict:
-        """{cell: note} for each cell with a via that reaches a face and whose
-        inner end, once the cell is flipped, may no longer join its net. A
-        flip keeps a cell's inner copper on its layer but mirrors such a via
-        (F-In1 becomes B-In4), so its inner end moves. It still joins when
-        both layers are of one KiCad layer type and hold the via net's own
-        plane. Noted on the cell's step when it lands on the back."""
-        types = self.geometry.layer_types
+    def _plane_layers(self) -> dict:
+        """{layer: {net, ...}} of every plane this board carries on that
+        layer: each board.plane() call, from the moment it is declared (no
+        copper drawn yet), plus any zone the generated board already
+        carries that belongs to no cell (a board-wide plane a fragment does
+        not own). A stamped cell's own local zone is not a board-wide
+        plane and is left out, the same as `_flip_notes` always judged it."""
         planes: dict = {}
         for net, layers in self._planes_declared:
             for l in layers:
@@ -3359,6 +3358,17 @@ class Board:
             if c.kind == "zone" and not c.owner:
                 for l in c.layers:
                     planes.setdefault(l, set()).add(c.net)
+        return planes
+
+    def _flip_notes(self, occ) -> dict:
+        """{cell: note} for each cell with a via that reaches a face and whose
+        inner end, once the cell is flipped, may no longer join its net. A
+        flip keeps a cell's inner copper on its layer but mirrors such a via
+        (F-In1 becomes B-In4), so its inner end moves. It still joins when
+        both layers are of one KiCad layer type and hold the via net's own
+        plane. Noted on the cell's step when it lands on the back."""
+        types = self.geometry.layer_types
+        planes = self._plane_layers()
 
         def standing(layer, net):
             nets = planes.get(layer, set())
@@ -3819,6 +3829,8 @@ class Board:
         thinned = self._thin_drops(occ)    # likewise: a cell's geometry takes its fields as thinned
         occ.quiet_nets = frozenset(self._plane_nets() | set(self._free_nets))
         occ.plane_nets = frozenset(c.net for c in self._copper if c.key.split(" ")[0] == "plane")   # drops' nets
+        occ.plane_layers = self._plane_layers()      # {layer: {net, ...}}: give way's shorten reads this
+        occ.fab_via_tiers = self.fab_via_tiers        # "micro"/"blind"/"buried" -> "yes"/"no"/"if-needed"
         if self._fit:
             occ.board_box = None                # no frame yet: the decided items have no edge to be judged by
         for intent in self._placements():
