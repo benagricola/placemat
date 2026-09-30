@@ -238,3 +238,16 @@ def test_a_run_may_be_read_off_a_round_board_too():
     for ref in ("D1", "D2"):
         far = max(c.distance(Location(20.0, 20.0)) for c in corners(reach_of(plan, ref)))
         assert far == pytest.approx(19.5, abs=AT_KEEP_IN) and far <= 19.5
+
+
+@pytest.mark.parametrize("overhang", [0.5, 1.3, 3.0])
+def test_a_part_on_a_run_overhangs_it_by_exactly_the_overhang(overhang):
+    """overhang= on a run puts the part's outward reach that far past the
+    edge, as on a named edge, not its centre on the edge whatever the
+    overhang."""
+    b = make_board("j1")
+    b.outline(ROUNDED_TOP)
+    tip = b.edge(facing=Edge.SOUTH)                   # the straight bottom, y = 40
+    b.place(Part("j1"), at=OnEdge(tip, along=Along.MID, overhang=overhang))
+    plan = b.resolve()
+    assert reach_of(plan, "J1").bottom == pytest.approx(40.0 + overhang, abs=0.01)

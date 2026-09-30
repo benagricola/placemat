@@ -345,6 +345,12 @@ def run_placement(occ: Occupancy, item, shape, run, along: float, standoff: floa
     def holds(d):
         cx, cy = centre_at(d)
         return shape.why_not(off.moved(cx, cy), standoff) is None
+    if standoff < 0.0:
+        # an overhang: the outward reach stands exactly that far past the edge, as on a
+        # named edge. The keep-in test cannot place it - a negative margin holds any box
+        # whose centre is on the board, so the search would stop with the centre on the edge
+        cx, cy = centre_at(standoff + box_support(what, out_b) / 2.0)
+        return Placement(Location(round(cx - box.center.x, 6), round(cy - box.center.y, 6)), rotation, face)
     d = max(0.0, standoff + box_support(what, out_b) / 2.0)
     limit = d + max(what.width, what.height) + 2.0
     while d < limit and not holds(d):

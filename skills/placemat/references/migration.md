@@ -5,6 +5,12 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+An item `OnEdge(run, overhang=)` on a stretch of a shaped board's edge
+overhangs it by exactly `overhang`, as on a named edge; it stood with its
+centre on the edge whatever the overhang.
+
 ## To 0.56.1
 
 A cutout or keepout `OnEdge` an east or west edge is held back by half its
