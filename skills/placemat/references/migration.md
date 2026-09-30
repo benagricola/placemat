@@ -7,6 +7,8 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+`placemat parts --fragments` names the fragment each part was stamped from.
+
 `board.place(Cell(...), at=Pin(Part(member), x, y))` puts a member's
 footprint origin on the point: a cell placed by a point that is no pad (a
 winding's arc centre on a disc's centre), not by an offset worked out in

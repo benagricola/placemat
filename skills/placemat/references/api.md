@@ -1437,7 +1437,7 @@ placemat routes <script> [--release NET ... | --release-all]
 placemat impact <run-dir-or-json> <run-dir-or-json> [--board DIR]
 placemat drc <layout.kicad_pcb> [--json]
 placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part ...] [--pads] [--envelope] [--copper [NET ...]] [--keepouts [NAME ...] [--near MM]] [--labels] [--outline] [--json]
-placemat parts <layout.kicad_pcb | script> [--field NAME ...] [--json]
+placemat parts <layout.kicad_pcb | script> [--field NAME ...] [--fragments] [--json]
 placemat nets <layout.kicad_pcb | script> [--sort COLUMN] [--net NET ...] [--inst] [--json]
 placemat datasheet <pdf> [--show PAGE|TOPIC] [--read] [--no-ocr] [--out DIR] [--dpi N] [--json]
 placemat datasheet check <pdf> <footprint.kicad_mod> [--pitch F] [--pad WxH] [--pads N] [--span F] [--tol F] [--json]
@@ -1543,7 +1543,10 @@ for assembly with a part nobody can buy; a part marked do-not-populate is
 never warned about. `--json` gives the same lines as `warnings`. The last
 line counts the parts, the pads and the solder joints an assembler places -
 the pads of every part it populates, do-not-populate and board-only parts
-left out (`--json`: `totals`).
+left out (`--json`: `totals`). `--fragments` adds the fragment each part
+was stamped from, read from the generator's `layout.log` beside the board:
+`-` for a part the generator placed itself, `?` for one the log does not
+name.
 
 `nets` answers "which nets matter": one row per net with at least two pads -
 its pad count and the parts it joins (refs, or instance paths with `--inst`);

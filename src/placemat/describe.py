@@ -187,6 +187,22 @@ def parts_rows(geometry, fields=()) -> list:
             for fp in sorted(geometry.footprints, key=lambda f: f.inst)]
 
 
+def fragment_sources(log_path) -> dict:
+    """{instance: the fragment it was stamped from, or "-" when the generator
+    placed it itself}, from the generator's layout log (`layout.log` beside
+    the board): its PLACE_FP_FRAGMENT and PLACE_FP lines. A log path is the
+    instance and then the footprint's name."""
+    import re
+    out = {}
+    for line in open(log_path, encoding="utf-8", errors="replace"):
+        m = re.search(r"OPLOG PLACE_FP(_FRAGMENT)? path=(\S+)(?:.*fragment_group=(\S+))?", line)
+        if not m:
+            continue
+        inst = m.group(2).rsplit(".", 1)[0]
+        out[inst] = m.group(3) if m.group(1) and m.group(3) else "-"
+    return out
+
+
 def board_totals(geometry) -> dict:
     """The board's part and pad counts, and the solder joints an assembler
     places: the pads of every part it populates - a do-not-populate part and
@@ -196,15 +212,17 @@ def board_totals(geometry) -> dict:
             "joints": sum(len(fp.pads) for fp in fps if not fp.dnp and not fp.board_only)}
 
 
-def parts_lines(geometry, fields=()) -> list:
+def parts_lines(geometry, fields=(), fragments=None) -> list:
     rows = parts_rows(geometry, fields)
     if not rows:
         return ["no footprints on this board"]
     out = ["%-26s %-6s %-6s %-12s %8s %8s %5s %8s %5s %6s  %-28s %s" % (
         "instance", "ref", "face", "cell", "x", "y", "rot", "mm2", "pins", "height", "value",
-        "  ".join(["footprint"] + list(fields)))]
+        "  ".join(["footprint"] + list(fields) + (["fragment"] if fragments is not None else [])))]
     for r in rows:
         extra = [r["footprint"] or "-"] + [r["fields"][f] or "-" for f in fields]
+        if fragments is not None:
+            extra.append(fragments.get(r["instance"], "?"))        # "?": the log does not name it
         out.append("%-26s %-6s %-6s %-12s %8.2f %8.2f %5g %8.2f %5d %6s  %-28s %s" % (
             r["instance"][:26], r["ref"], r["face"], (r["cell"] or "-")[:12],
             r["x"], r["y"], r["rotation"], r["mm2"], r["pins"],

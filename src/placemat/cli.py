@@ -107,6 +107,9 @@ def parser() -> argparse.ArgumentParser:
     pl.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
     pl.add_argument("--field", action="append", default=[], metavar="NAME",
                     help="a footprint field to list for each part (an order code, a manufacturer part number); repeatable")
+    pl.add_argument("--fragments", action="store_true",
+                    help="the fragment each part was stamped from, read from the generator's layout.log beside "
+                         "the board ('-': placed by the generator itself)")
     pl.add_argument("--json", action="store_true")
 
     nt = sub.add_parser("nets", help="every net with two or more pads: pad count, parts, span (the minimum "
@@ -747,11 +750,22 @@ def cmd_parts(args) -> int:
     snap = read_board(pcb)
     cfg = load(src.board_dir if src is not None else pcb.parent)
     warnings = describe.order_warnings(snap, cfg.parts_order_fields)
+    fragments = None
+    if getattr(args, "fragments", False):
+        log = pcb.parent / "layout.log"
+        if not log.exists():
+            console.say("parts", "no layout.log beside %s to read the fragments from" % pcb, level="fail")
+            return 2
+        fragments = describe.fragment_sources(log)
     if args.json:
-        console.data(json.dumps({"parts": describe.parts_rows(snap, getattr(args, "field", ())),
-                                 "totals": describe.board_totals(snap), "warnings": warnings}, indent=2))
+        rows = describe.parts_rows(snap, getattr(args, "field", ()))
+        if fragments is not None:
+            for r in rows:
+                r["fragment"] = fragments.get(r["instance"])
+        console.data(json.dumps({"parts": rows, "totals": describe.board_totals(snap), "warnings": warnings},
+                                indent=2))
         return 0
-    console.lines("parts", "\n".join(describe.parts_lines(snap, getattr(args, "field", ()))))
+    console.lines("parts", "\n".join(describe.parts_lines(snap, getattr(args, "field", ()), fragments)))
     for w in warnings:
         console.say("parts", w, level="finding")
     return 0

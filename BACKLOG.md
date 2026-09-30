@@ -16,9 +16,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **The fragment each stamped part came from, in `parts`** (PLACEMAT_GAPS
-  2026-09-29 "which fragment a nested module's parts came from"), or
-  "ignored: ancestor authoritative".
 - **A finding when a 3D model's box does not sit over the footprint's pads**
   (PLACEMAT_GAPS 2026-09-29 "a footprint's 3D model transform"; the path and
   transform are in `measure` now): needs the model file's own extents.
