@@ -143,3 +143,53 @@ def test_reading_a_rule_area_gives_its_name_cell_layers_and_excludes(breakout_pc
     assert ra.cell == "ant_rf"
     assert ra.excludes == frozenset(["parts"])
     assert len(ra.layers) >= 2 and len(ra.polygon) == 4
+
+
+def test_the_keepout_drawings_group_does_not_read_back_as_a_cell(breakout_pcb, tmp_path):
+    """placemat's own `keepout drawings` group holds a shape and a text, no
+    footprints: it is not a stamped cell, and must not become one that
+    `placemat measure` (or anything else iterating snap.cells) then trips
+    over with no box."""
+    from placemat.cutouts import Circle
+    from placemat.values import Location as Loc
+    pcb = _copy(breakout_pcb, tmp_path)
+    before = read_board(pcb)
+    b = Board(before, edge_margin=0.0, keep_going=True)
+    b.keepout(Circle(1.0), "probe", at=Loc(12.0, 12.0), excludes=("parts",), max_height=1.0,
+              why="a height band for this probe")
+    apply_plan(pcb, b.resolve())
+    after = read_board(pcb)
+    assert "keepout drawings" not in after.cells
+    # every remaining cell still answers a real box, the way `placemat measure` reads it
+    for name in after.cells:
+        c = after.cell(name)
+        assert c.box is not None, name
+
+
+def test_a_second_write_does_not_pull_unrelated_items_into_the_keepout_drawings_group(breakout_pcb, tmp_path):
+    """The board's UUID generator is seeded the same way on every write
+    (`seed_uuids`), for a reproducible file. A SECOND write, reading back a
+    board this project already wrote once, must not let its own freshly
+    seeded items land on a UUID an existing, unrelated item (a stamped
+    cell's track) already carries: that made the group's own membership
+    (keyed by UUID) pick up items nobody drew for it."""
+    import pcbnew
+    from placemat.cutouts import Circle
+    from placemat.values import Location as Loc
+    pcb = _copy(breakout_pcb, tmp_path)
+    before = read_board(pcb)
+    b = Board(before, edge_margin=0.0, keep_going=True)
+    b.keepout(Circle(1.0), "probe", at=Loc(12.0, 12.0), excludes=("parts",), max_height=1.0, why="probe")
+    apply_plan(pcb, b.resolve())
+    # a second, DIFFERENT script (a different keepout name, so it does not clash with the
+    # rule area the first write left on the board) against the board the first write produced -
+    # an ordinary "read what placemat last wrote and lay out again" cycle.
+    before2 = read_board(pcb)
+    b2 = Board(before2, edge_margin=0.0, keep_going=True)
+    b2.keepout(Circle(1.0), "probe0", at=Loc(18.0, 12.0), excludes=("parts",), max_height=1.0, why="probe0")
+    b2.keepout(Circle(1.0), "probe2", at=Loc(16.0, 12.0), excludes=("parts",), max_height=1.0, why="probe2")
+    apply_plan(pcb, b2.resolve())
+    board = pcbnew.LoadBoard(str(pcb))
+    (group,) = [g for g in board.Groups() if g.GetName() == "keepout drawings"]
+    kinds = sorted(type(it).__name__ for it in group.GetItems())
+    assert kinds == ["PCB_SHAPE", "PCB_SHAPE", "PCB_TEXT", "PCB_TEXT"], kinds

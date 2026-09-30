@@ -654,6 +654,8 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
     for name, items in group_items.items():
         members = tuple(by_ref[it.GetReference()] for it in items if isinstance(it, pcbnew.FOOTPRINT))
         own = [c.box for c in copper if c.owner == name and c.kind != "pad"]
+        if not members and not own:
+            continue        # no footprints and no copper: not a cell (placemat's own `keepout drawings`, say)
         copper_box = Box.union(own)
         box = Box.union([fp.body_box for fp in members] + own)
         phys = Box.union([fp.phys_box for fp in members] + own)

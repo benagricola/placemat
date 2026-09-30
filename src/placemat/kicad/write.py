@@ -374,13 +374,37 @@ def _keepout_admits(k) -> bool:
     return k.max_height is not None or bool(k.owners - k.admitted) or bool(k.allow)
 
 
+def _unique_uuid(board, it) -> None:
+    """`seed_uuids` draws a deterministic sequence for the items one write
+    creates, so an unchanged plan writes an unchanged file - but a board
+    this project already wrote once (or hand-built with the same seed) can
+    already carry an unrelated item at a UUID this write's own sequence
+    lands on next; a group keyed by UUID (`keepout drawings`) would then
+    read that unrelated item as one of its own. `ResolveItem` (None: not
+    found) is asked before `it` joins the board, so it can only find an
+    EXISTING item; `ResetUuid` redraws from the same seeded generator,
+    deterministic for a given board and call order, until free."""
+    while board.ResolveItem(it.m_Uuid, True) is not None:
+        it.ResetUuid()
+
+
 def _draw_keepout_drawings(board, plan):
     """Each keepout that admits something (write.keepout_drawings), drawn as
     its outline and a label naming what it admits, in placemat's own group
-    `keepout drawings`, replaced whole every run. A stamped fragment's own
-    (still nested in its cell's group at this point in the write, before
-    _write_groups lifts nested groups) is left alone: only the top-level
-    group by this name is ours."""
+    `keepout drawings`, replaced whole every run. Only a TOP-LEVEL group by
+    this name is ours to replace (`GetParentGroup() is None`): a stamped
+    fragment's own, wherever the external generator puts it, is left
+    alone, the same as `_draw_keepouts` leaves a fragment's own rule areas.
+
+    A fragment's own rule area is a DIRECT member of its cell's own group
+    (see tests/test_write_roundtrip.py's `_add_rule_area`), which
+    `_move_cell` already moves and flips like any other member; a
+    fragment's own keepout drawing is expected to arrive the same way once
+    a generator writes one, but this is unverified against a real
+    generator (this feature is new; no generated fragment carries one
+    yet) - if it instead arrives nested one level inside the cell's group,
+    `_move_cell`'s own `isinstance(it, pcbnew.PCB_GROUP): continue` will
+    skip it, and it will not move with the cell."""
     for g in list(board.Groups()):
         if g.GetName() == _KEEPOUT_DRAWINGS_GROUP and g.GetParentGroup() is None:
             for it in list(g.GetItems()):
@@ -406,6 +430,7 @@ def _draw_keepout_drawings(board, plan):
         for x, y in k.poly:
             ps.Append(nm(x), nm(y))
         sh.SetPolyShape(ps)
+        _unique_uuid(board, sh)
         board.Add(sh)
         drawn.append(sh)
         centre = Box.of_points(k.poly).center
@@ -417,6 +442,7 @@ def _draw_keepout_drawings(board, plan):
         t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_CENTER)
         t.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_CENTER)
         t.SetPosition(vec(centre.x, centre.y))
+        _unique_uuid(board, t)
         board.Add(t)
         drawn.append(t)
     if drawn:
@@ -424,6 +450,7 @@ def _draw_keepout_drawings(board, plan):
         g.SetName(_KEEPOUT_DRAWINGS_GROUP)
         for it in drawn:
             g.AddItem(it)
+        _unique_uuid(board, g)
         board.Add(g)
 
 
