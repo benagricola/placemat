@@ -5,7 +5,12 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## To 0.63.1
+## Unreleased
+
+A carried via's move, and a share's tail, are judged by one native call
+each instead of offset by offset in Python: the same placements, steps and
+findings, faster where vias give way. Near a net tie the move is still
+judged in Python, as before.
 
 `board.keepout(..., bars=(Part(...), Cell(...)))` names the parts a region
 keeps out and lets every other part in. A script that lists every other
@@ -13,6 +18,8 @@ part in `allow=` to bar a few (hundreds of references, stale when a part
 is added) can give `bars=` the few instead. `bars=` and `allow=` of parts
 or cells are refused together; `allow=` of nets is unchanged, and
 `max_height=` still judges the parts `bars=` does not name.
+
+## To 0.63.1
 
 A keepout's drawn label is its name and its height limit, never a list
 of parts or nets: the rule area and its `.kicad_dru` rule say what it

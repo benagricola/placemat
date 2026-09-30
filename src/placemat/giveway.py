@@ -46,6 +46,13 @@ _NATIVE_MOVE_SEARCH = True
 switched off to compare against the pure-Python per-offset loop
 (tests/test_vias_give_way.py)."""
 
+_NATIVE_TAIL_CLEAR = True
+"""Whether a share's tail is judged by a native call (`tail_clear`) when it can be."""
+
+_NATIVE_FIRST_MOVE = True
+"""Whether a via's whole move is judged by one native call (`first_move`) when the offset search
+is native: switched off to compare against the per-offset Python loop."""
+
 
 def pad_via_id(k: int) -> str:
     """The id of the k-th via the script declared at a pad."""
@@ -245,12 +252,131 @@ def _native_move_offsets(judge: "_Judge", ring, hole, offsets: tuple) -> list | 
     occ = judge.occ
     py_shapes = [_to_native_shape(x, occ._footprint_refs, occ._leads, occ._margins)
                 for x in ((ring,) if hole is None else (ring, hole))]
-    skip = [i for i, s in enumerate(shapes) if s.carried and s.carried in judge.hidden] if judge.hidden else []
+    skip = _hidden_skip(judge, shapes)
     clear = index.first_clear_offset(py_shapes, list(offsets), judge.clearance, False, skip)
     found = tuple(offsets[i] for i in clear)
     if len(cache) < occ.settings.place_via_clear_cache:
         cache[key] = found
     return list(found)
+
+
+def _hidden_skip(judge: "_Judge", shapes: list) -> list:
+    """The indices in a native index's backing `shapes` of the vias `judge` has set aside."""
+    if not judge.hidden:
+        return []
+    cache = judge.others.__dict__.get("_carried_index")
+    if cache is None or cache[0] is not shapes:
+        by: dict = {}
+        for i, s in enumerate(shapes):
+            if s.carried:
+                by.setdefault(s.carried, []).append(i)
+        cache = judge.others.__dict__["_carried_index"] = (shapes, by)
+    return sorted(i for h in judge.hidden for i in cache[1].get(h, ()))
+
+
+def _net_tie_owners(occ) -> frozenset:
+    """The refs of the footprints that are net ties: KiCad lets another net's copper meet their pads
+    inside them (`Occupancy._net_tie_exclusion`), which the native conflict rules do not model."""
+    hit = occ.__dict__.get("_net_tie_owner_set")
+    if hit is None:
+        hit = occ.__dict__["_net_tie_owner_set"] = frozenset(
+            name for fp in occ.geometry.footprints if fp.net_tie_pads for name in (fp.ref, fp.inst))
+    return hit
+
+
+def _meets_net_tie(judge: "_Judge", shapes: list, box: Box, near: list) -> bool:
+    """Whether a net tie's copper lies within a conflict's reach of `box`, on the board (`shapes`,
+    a native index's backing list) or among `near` (the item's own copper and what earlier actions
+    left): where it does the native rules and `_conflict` can disagree, and Python judges."""
+    occ = judge.occ
+    tied = _net_tie_owners(occ)
+    if not tied:
+        return False
+    boxes = judge.others.__dict__.get("_net_tie_boxes")
+    if boxes is None:
+        boxes = judge.others.__dict__["_net_tie_boxes"] = [
+            x.box for x in shapes if x.owner in tied and x.kind in ("pad", "through", "copper")]
+    gap = occ._gap
+    return any(b.overlaps(box, gap=gap) for b in boxes) or \
+        any(o.owner in tied and o.kind in ("pad", "through", "copper") and o.box.overlaps(box, gap=gap)
+            for o in near)
+
+
+def _native_shape(judge: "_Judge", s):
+    """`s` as the native module takes it, kept for this judge: the same shapes are asked again for
+    each via of a resolution."""
+    cache = judge.__dict__.setdefault("_native_shapes", {})
+    hit = cache.get(id(s))
+    if hit is None:
+        from .occupancy import _to_native_shape
+        occ = judge.occ
+        hit = cache[id(s)] = (s, _to_native_shape(s, occ._footprint_refs, occ._leads, occ._margins))
+    return hit[1]
+
+
+def _native_tail_clear(judge: "_Judge", shape, own):
+    """Whether `shape` (a share's tail) is clear of the board, `own` and what earlier actions left,
+    judged natively; None where Python must judge it (as `_native_first_move`'s `used`)."""
+    occ = judge.occ
+    entry = getattr(judge.others, "_native", None)
+    if not _NATIVE_TAIL_CLEAR or entry is None:
+        return None
+    index, shapes = entry
+    gap = occ.gap_for(shape)
+    near = [o for o in list(own) + judge.extra if o.box.overlaps(shape.box, gap=gap)]
+    if _meets_net_tie(judge, shapes, shape.box, near):
+        return None
+    from .occupancy import _to_native_shape
+    return index.tail_clear([_to_native_shape(shape, occ._footprint_refs, occ._leads, occ._margins)],
+                            [_native_shape(judge, o) for o in near], judge.clearance, _hidden_skip(judge, shapes))
+
+
+def _tail_hit(judge: "_Judge", shape, own) -> bool:
+    """Whether `shape` meets the board less the vias set aside, `own` or what earlier actions left."""
+    clear = _native_tail_clear(judge, shape, own)
+    if clear is not None:
+        return not clear
+    return judge.hit([shape], judge.near(shape.box, judge.occ.gap_for(shape)), own, say=False) is not None
+
+
+def _native_first_move(judge: "_Judge", g: "Group", mine: list, span: Box, offsets: list, first, pad, r: float,
+                       width: float):
+    """(used, (dx, dy) or None): the first of `offsets` (the ones `_native_move_offsets` found clear
+    of the board) at which `g`'s ring, hole and tail, moved, also clear `mine` (the item's own copper)
+    and what earlier actions left, and keep the tests `_give`'s loop applies - one native call in
+    place of judging each offset in Python. `used` is False where the loop must run instead: no
+    native index, the switch off, or a net tie near the move, whose rules the native ones do not model.
+    `first`: the copper the via first met; `pad`: the pad it must stay inside, or None; `r` its radius."""
+    occ = judge.occ
+    entry = getattr(judge.others, "_native", None)
+    if not _NATIVE_FIRST_MOVE or entry is None or not offsets:
+        return False, None
+    index, shapes = entry
+    near = list(mine) + [o for o in judge.extra if o.box.overlaps(span, gap=occ._gap)]
+    if _meets_net_tie(judge, shapes, span, near):
+        return False, None
+    met = _first_met(occ, g, first, judge.clearance)
+    native_mine = [_native_shape(judge, o) for o in near]
+    via = [_native_shape(judge, x) for x in ((g.ring,) if g.hole is None else (g.ring, g.hole))]
+    skip = _hidden_skip(judge, shapes)
+    tail = None
+    if g.tail is not None:
+        _, proto = _tail_shape(g.owner, g.net, next(iter(g.tail.layers)), width, g.far, g.centre,
+                               carried=g.id, given=g.id)
+        tail = (_native_shape(judge, proto), tuple(g.far), width)
+    first_arg = None if met is None else (met[0], met[1], r)
+    pad_arg = None if pad is None else (pad.poly, r - 1e-5)
+    start = 0
+    while True:
+        i = index.first_move(via, offsets, judge.clearance, skip, native_mine, g.centre, first_arg, pad_arg, tail,
+                             start)
+        if i is None:
+            return True, None
+        dx, dy = offsets[i]
+        if occ.edge_margin is not None and occ._edge_why(_shift(g.ring, dx, dy).box):
+            start = i + 1                   # the board's edge is judged here, per spot, as `_Judge.hit` does
+            continue
+        return True, (dx, dy)
 
 
 class _Judge:
@@ -355,12 +481,9 @@ class _Owner:
         return n, max(1, int(math.ceil(self.occ.settings.place_drops_keep * n - 1e-9)))
 
 
-def _still_meets(occ, g: Group, first, clearance, r: float):
-    """A quick test that a via moved to a spot still meets `first`, the
-    copper it met where it stood, or None where there is none: its centre
-    in that copper, or nearer it than its clearance plus the via's radius
-    (the ring's copper reaches at least that far). Only a spot this passes
-    is judged in full."""
+def _first_met(occ, g: Group, first, clearance):
+    """(outline, clearance) of `first`, the copper a via met where it stood, when a via moved to a
+    spot can still meet it (see `_still_meets`), else None."""
     if first is None or first.kind not in ("pad", "through", "copper") or not (first.layers & g.ring.layers) \
             or (first.net and first.net == g.net):
         return None
@@ -369,7 +492,19 @@ def _still_meets(occ, g: Group, first, clearance, r: float):
     geo = occ.geometry
     clr = clearance if clearance is not None else (
         geo.clearance(g.net, first.net) if (g.net in geo.nets and first.net in geo.nets) else geo.default_clearance)
-    poly = first.poly
+    return first.poly, clr
+
+
+def _still_meets(occ, g: Group, first, clearance, r: float):
+    """A quick test that a via moved to a spot still meets `first`, the
+    copper it met where it stood, or None where there is none: its centre
+    in that copper, or nearer it than its clearance plus the via's radius
+    (the ring's copper reaches at least that far). Only a spot this passes
+    is judged in full."""
+    met = _first_met(occ, g, first, clearance)
+    if met is None:
+        return None
+    poly, clr = met
     n = len(poly)
 
     def still(c) -> bool:
@@ -457,7 +592,7 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
         for d, c, r, target in targets:
             if d <= r:                          # on its spot: nothing to draw, its tail joins that via as it is
                 left = () if g.tail is None else (replace(g.tail, carried="", points=(), given=g.id),)
-                if left and judge.hit(left, judge.near(left[0].box, occ.gap_for(left[0])), own, say=False):
+                if left and _tail_hit(judge, left[0], own):
                     continue
                 # a tail an earlier giving way drew is the plan's to draw; the one its item drew is on the board
                 kept = Track(g.net, next(iter(g.tail.layers)), _width(g.tail), Location(*g.far),
@@ -465,7 +600,7 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
                 return Action("share", g.id, g.owner, g.home, g.net, g.centre, c, kept, None, pad_key, met,
                               s.score_via_share, left, target), None, None
             track, shape = _tail_shape(g.owner, g.net, layer, width, start, c, given=g.id)
-            if judge.hit([shape], judge.near(shape.box, occ.gap_for(shape)), own, say=False):
+            if _tail_hit(judge, shape, own):
                 continue
             return Action("share", g.id, g.owner, g.home, g.net, g.centre, c, track, old, pad_key, met,
                           s.score_via_share, (shape,), target), None, None
@@ -479,23 +614,43 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
         span = g.ring.box.inflate(limit)
         if g.tail is not None:
             span = Box.union([span, g.tail.box.inflate(limit)])
-        pool = judge.near(span, occ._gap)
         mine = [o for o in own if o.box.overlaps(span, gap=occ._gap)]
-        still = _still_meets(occ, g, first, judge.clearance, r)
         all_offsets = _offsets(limit, s.place_via_move_step)
         # The native search only knows the STATIC board (judge.others'
         # persistent index): it cannot see `judge.hidden` (another via also
         # giving way to this same candidate, excluded from `pool` while it
         # is decided) or `judge.extra` (copper an earlier give-way in this
         # same resolve() call already left behind) - both candidate-scoped,
-        # not board state. So it is used only to narrow the search order,
-        # nearest first; `judge.hit(moved, pool, mine, ...)` below still
-        # runs, unconditionally, as the one decision that matters - native
-        # just means it is asked of far fewer doomed offsets before the
-        # first surviving one.
+        # not board state. The first is given to it as the vias to set
+        # aside, the second as shapes beside `mine`. It finds the
+        # board-clear offsets once per scan (`_native_move_offsets`) and
+        # judges each candidate's move whole (`_native_first_move`). Where
+        # either is not available the loop below judges each offset in
+        # Python, as the reference.
         native_clear = _native_move_offsets(judge, g.ring, g.hole, all_offsets)
         candidates = native_clear if native_clear is not None else all_offsets
         found = None
+        used, at = _native_first_move(judge, g, mine, span, candidates, first, pad if inside else None, r, width) \
+            if native_clear is not None else (False, None)
+        if used:
+            # the Action is drawn as the loop below draws it
+            if at is not None:
+                dx, dy = at
+                to = (round(g.centre[0] + dx, 9), round(g.centre[1] + dy, 9))
+                moved = [replace(_shift(g.ring, dx, dy), given=g.id)]
+                if g.hole is not None:
+                    moved.append(replace(_shift(g.hole, dx, dy), given=g.id))
+                track = None
+                if g.tail is not None:
+                    track, shape = _tail_shape(g.owner, g.net, next(iter(g.tail.layers)), width, g.far, to,
+                                               carried=g.id, given=g.id)
+                    moved.append(shape)
+                found = Action("move", g.id, g.owner, g.home, g.net, g.centre, to, track, old, pad_key, met,
+                               s.score_via_move, tuple(moved))
+            candidates = ()
+        else:
+            pool = judge.near(span, occ._gap)
+            still = _still_meets(occ, g, first, judge.clearance, r)
         for dx, dy in candidates:
             to = (round(g.centre[0] + dx, 9), round(g.centre[1] + dy, 9))
             if inside and not _disc_inside(pad.poly, to, r - 1e-5):
@@ -611,9 +766,11 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
             if g.home in skip or g.owner in skip or not g.ring.box.overlaps(extent, gap=occ._gap):
                 continue
             hit = None
+            parts = g.shapes
             for x in fixed:
-                for o in g.shapes:
-                    if x.box.overlaps(o.box, gap=occ.gap_for(x)):
+                gap = occ.gap_for(x)
+                for o in parts:
+                    if x.box.overlaps(o.box, gap=gap):
                         why = occ._conflict(x, o, clearance)
                         if why:
                             hit = (why, x)

@@ -8,6 +8,7 @@ mod escapes;
 mod exact;
 mod fill;
 mod geometry;
+mod giveway;
 mod pockets;
 mod ratsnest;
 mod shapes;
@@ -208,6 +209,60 @@ impl NativeObstacles {
             }
         }
         Ok(out)
+    }
+
+    /// `giveway.py`'s judgement of a share's tail (`_Judge.hit` on the tail
+    /// shape): whether none of `shapes` meets the board, less the obstacles
+    /// in `skip`, or `mine` (the item's own copper and what earlier
+    /// actions left, which the index does not hold).
+    fn tail_clear(&self, shapes: Vec<PyShape>, mine: Vec<PyShape>, clearance: Option<f64>, skip: Vec<usize>) -> PyResult<bool> {
+        let built: Vec<shapes::Shape> = shapes.iter().map(build_shape).collect::<PyResult<_>>()?;
+        let mine: Vec<shapes::Shape> = mine.iter().map(build_shape).collect::<PyResult<_>>()?;
+        let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
+        Ok(giveway::tail_clear(&self.grid, &built, &mine, clearance, &self.cfg, &skip))
+    }
+
+    /// The index in `offsets` (from `start`) of the first at which a via's
+    /// move passes every test `giveway._give`'s loop applies, or `None`:
+    /// the disc inside `pad` (poly, radius), the copper `first` met
+    /// (poly, clearance, radius) no longer met, `via` (ring, hole) shifted
+    /// clear of `mine`, and `tail` (shape, far end, width) redrawn clear of
+    /// the board less `skip`, and of `mine`. The offsets are the ones
+    /// `first_clear_offset` found clear of the board. See `giveway.rs`.
+    #[pyo3(signature = (via, offsets, clearance, skip, mine, centre, first, pad, tail, start))]
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    fn first_move(
+        &self,
+        via: Vec<PyShape>,
+        offsets: Vec<(f64, f64)>,
+        clearance: Option<f64>,
+        skip: Vec<usize>,
+        mine: Vec<PyShape>,
+        centre: Point,
+        first: Option<(Vec<Point>, f64, f64)>,
+        pad: Option<(Vec<Point>, f64)>,
+        tail: Option<(PyShape, Point, f64)>,
+        start: usize,
+    ) -> PyResult<Option<usize>> {
+        let via: Vec<shapes::Shape> = via.iter().map(build_shape).collect::<PyResult<_>>()?;
+        let mine: Vec<shapes::Shape> = mine.iter().map(build_shape).collect::<PyResult<_>>()?;
+        let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
+        let proto = match &tail {
+            Some((t, _, _)) => Some(build_shape(t)?),
+            None => None,
+        };
+        let m = giveway::Move {
+            via: &via,
+            mine: &mine,
+            centre,
+            first: first.as_ref().map(|(p, c, r)| (p.as_slice(), *c, *r)),
+            pad: pad.as_ref().map(|(p, r)| (p.as_slice(), *r)),
+            tail: match (&proto, &tail) {
+                (Some(p), Some((_, far, w))) => Some((p, *far, *w)),
+                _ => None,
+            },
+        };
+        Ok(giveway::first_move(&self.grid, &self.cfg, &m, &offsets, clearance, &skip, start))
     }
 }
 

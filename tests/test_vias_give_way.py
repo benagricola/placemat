@@ -134,6 +134,31 @@ def test_sharing_costs_score_via_share_in_the_search():
     assert r.chosen is not None and r.score == 1.0
 
 
+def test_a_nearest_first_scan_stops_at_the_first_spot_where_its_vias_give_way(monkeypatch):
+    """Unscored, a scan takes the nearest spot that is legal: where the item is legal only as its
+    vias give way, the first spot they do ends it, and no further spot is resolved."""
+    from placemat import giveway
+    from placemat.placement import Placement
+    from placemat.placer import scan
+    b = _cell_board(other=(19.1, 23.4))
+    occ = Occupancy(b.geometry, 0.5, settings=b.settings)
+    occ.commit(b.geometry.footprint("R9"), Placement(Location(19.5, 21.9), 0.0, Face.BACK))
+    centre = occ._geometry(b.geometry.cells["m"]).reference.location
+    hint = Placement(Location(centre.x - 20, centre.y - 20), 0.0, Face.FRONT)
+    asked = []
+    real = giveway.resolve
+
+    def recording(*a, **k):
+        res = real(*a, **k)
+        asked.append((a[2].location.x, a[2].location.y, res.why))
+        return res
+    monkeypatch.setattr(giveway, "resolve", recording)
+    r = scan(occ, b.geometry.cells["m"], hint, 0.5, 0.25, (0.0,), score=None)
+    assert r.chosen is not None
+    assert asked and asked[-1][2] is None and all(why is not None for _, _, why in asked[:-1]), asked
+    assert (r.chosen.location.x, r.chosen.location.y) == asked[-1][:2]
+
+
 def test_a_riders_via_gives_way_as_its_item_is_placed():
     """c1 rides u1, its GND pad 2.5 mm north of u1's pad 1, where R9's pad S
     lies on the back; a GND via 0.93 mm off takes its pad's via."""
@@ -445,6 +470,130 @@ def test_a_via_move_is_the_same_native_or_not(monkeypatch):
                            plan.step("r9").placement, plan.step("r9").note)
     assert runs[True] == runs[False]
     assert runs[True][0] and runs[True][0][0][0] == "move"       # a move actually happened, on both paths
+
+
+def _first_move_runs(monkeypatch, make, flag="_NATIVE_FIRST_MOVE", call="_native_first_move"):
+    """`make()` resolved with a via's whole move (or a share's tail: `flag`, `call`) judged natively
+    and by the Python loop: what each gave way to (and the steps' notes), and how many the native
+    call judged."""
+    from placemat import geometry, giveway
+    if geometry._native is None:
+        pytest.skip("no native module")
+    used = []
+    real = getattr(giveway, call)
+
+    def counting(*a, **k):
+        out = real(*a, **k)
+        used.append(out[0] if isinstance(out, tuple) else out is not None)
+        return out
+    monkeypatch.setattr(giveway, call, counting)
+    runs = {}
+    for native_on in (False, True):
+        monkeypatch.setattr(giveway, flag, native_on)
+        used.clear()
+        plan = make().resolve()
+        runs[native_on] = ([(a.kind, a.via, a.at, a.to, a.tail, a.old_tail, a.cost, round(a.moved_mm, 6))
+                            for a in plan.occupancy.given_way.values()],
+                           [(st.item, st.placement, st.note) for st in plan.steps], sum(used))
+    return runs
+
+
+_MOVES = {
+    "a tail redrawn": lambda: _moving_board((39.1, 42.2), True, (19.5, 23.0)),
+    "inside its pad": lambda: _moving_board((39.1, 40.0), False, (17.45, 20.0), r9_w=3.0),
+    "refused inside its pad": lambda: _moving_board((39.1, 40.0), False, (20.1, 20.0)),
+    "refused within via_move": lambda: _moving_board((39.1, 42.2), True, (19.5, 23.0),
+                                                     settings=_settings(place_via_move=0.1)),
+    "a placed via": lambda: _later_board([_via("SIG", 39.1, 42.2, owner="m"),
+                                          track("SIG", 39.1, 40.0, 39.1, 42.2, w=0.2, owner="m")],
+                                         (19.5, 23.0), net="SIG"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_MOVES))
+def test_a_via_move_is_the_same_with_one_native_call_as_with_the_loop(monkeypatch, name):
+    runs = _first_move_runs(monkeypatch, _MOVES[name])
+    assert runs[True][:2] == runs[False][:2]
+    assert runs[False][2] == 0
+    if name != "refused within via_move":            # no spot is clear of the board: nothing left to judge
+        assert runs[True][2] >= 1, "the native first_move judged no move"
+
+
+_SHARES = {
+    "a tail drawn": lambda: _cell_board(other=(19.1, 22.85)),
+    "a crossing tail refused": lambda: _cell_board(other=(19.1, 22.85),
+                                                   extra=[track("Y", 18.6, 21.0, 19.6, 21.0, w=0.2)]),
+    "a placed via shares": lambda: _shared_later(),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_SHARES))
+def test_a_share_tail_is_the_same_judged_natively_as_by_the_loop(monkeypatch, name):
+    runs = _first_move_runs(monkeypatch, _SHARES[name], "_NATIVE_TAIL_CLEAR", "_native_tail_clear")
+    assert runs[True][:2] == runs[False][:2]
+    assert runs[False][2] == 0
+    assert runs[True][2] >= 1, "no share tail was judged natively"
+
+
+def test_a_clear_offset_cache_of_no_size_gives_the_same_answers(monkeypatch):
+    from placemat import geometry
+    if geometry._native is None:
+        pytest.skip("no native module")
+    def run(cache):
+        plan = _later_board([_via("SIG", 39.1, 42.2, owner="m"),
+                             track("SIG", 39.1, 40.0, 39.1, 42.2, w=0.2, owner="m")], (19.5, 23.0), net="SIG",
+                            settings=_settings(place_via_clear_cache=cache)).resolve()
+        return [(a.kind, a.via, a.to) for a in plan.occupancy.given_way.values()], plan.step("r9").placement
+    assert run(0) == run(4096)
+    assert run(0)[0]
+
+
+def test_a_via_move_past_the_board_edge_takes_the_next_spot(monkeypatch):
+    """The board's edge is judged in Python, per spot: where it refuses the nearest clear spot
+    the native call is asked again from the next offset, and the same spot is taken as by the loop."""
+    real = Occupancy._edge_why
+
+    def edge(self, body):
+        if body.width < 0.6 and 21.75 < body.top < 21.9:     # a via's ring, in a band the nearest spot lies in
+            return "too near the edge"
+        return real(self, body)
+    free = _first_move_runs(monkeypatch, _MOVES["a tail redrawn"])
+    monkeypatch.setattr(Occupancy, "_edge_why", edge)
+    runs = _first_move_runs(monkeypatch, _MOVES["a tail redrawn"])
+    assert runs[True][:2] == runs[False][:2]
+    assert runs[True][2] >= 1
+    assert runs[True][0][0][3] != free[True][0][0][3]       # the edge moved the choice
+
+
+def test_the_native_calls_are_not_used_where_a_net_tie_lies_near_the_move(monkeypatch):
+    """R9's pad lies beside the via: were R9 a net tie, `_conflict` could let the via meet it, which
+    the native rules do not know, so Python judges both the move and a share's tail."""
+    from placemat import giveway
+    monkeypatch.setattr(giveway, "_net_tie_owners", lambda occ: frozenset(["R9"]))
+    runs = _first_move_runs(monkeypatch, _MOVES["a tail redrawn"])
+    assert runs[True][:2] == runs[False][:2]
+    assert runs[True][2] == 0
+    runs = _first_move_runs(monkeypatch, _SHARES["a tail drawn"], "_NATIVE_TAIL_CLEAR", "_native_tail_clear")
+    assert runs[True][:2] == runs[False][:2]
+    assert runs[True][2] == 0
+
+
+def test_a_net_tie_far_from_the_move_leaves_it_native(monkeypatch):
+    from placemat import giveway
+    monkeypatch.setattr(giveway, "_net_tie_owners", lambda occ: frozenset(["U9"]))
+    runs = _first_move_runs(monkeypatch, _MOVES["a tail redrawn"])
+    assert runs[True][:2] == runs[False][:2]
+    assert runs[True][2] >= 1
+
+
+def test_a_net_tie_footprint_is_seen_on_the_board():
+    import dataclasses
+    from placemat import giveway
+    g = _moving_board((39.1, 42.2), True, (19.5, 23.0)).geometry
+    assert giveway._net_tie_owners(Occupancy(g)) == frozenset()
+    tied = tuple(dataclasses.replace(fp, net_tie_pads=frozenset(["1"])) if fp.ref == "R9" else fp
+                 for fp in g.footprints)
+    assert giveway._net_tie_owners(Occupancy(dataclasses.replace(g, footprints=tied))) == frozenset(["R9", "r9"])
 
 
 def test_a_placed_owner_keeps_its_keep_share():
