@@ -1,0 +1,98 @@
+"""check current-path measures a zone fill's width along the load's route:
+the fill rasterised at `check.zone_step`, each cell's distance to the
+fill's edge, and the widest path between the copper where the route
+enters and leaves the fill. Pure: synthetic boards."""
+import re
+
+import pytest
+
+from placemat.board_geometry import CopperItem
+from placemat.checks import current_paths, ipc2221_width_mm, kwargs_from, run_checks
+from placemat.settings import Settings
+from placemat.values import Box, CopperLayer
+from tests.fixtures import board_geometry, footprint, rect, track
+
+F = CopperLayer.F
+STEP = 0.05
+
+
+def _zone(net, *outlines):
+    return CopperItem("zone", net, frozenset([F]), tuple(outlines), Box.of_points([p for o in outlines for p in o]))
+
+
+def _parts(amps="1A"):
+    """Q1's SW pad at (11.4, 10), L1's at (18.6, 10), each 1 x 1."""
+    q1 = footprint("Q1", 10, 10, nets=("GND", "SW"), fields={"Pm.I": amps})
+    l1 = footprint("L1", 20, 10, nets=("SW", "VOUT"), fields={"Pm.I": amps})
+    return [q1, l1]
+
+
+def _sw(parts, copper, **kw):
+    return {v.subject: v for v in current_paths(board_geometry(parts, copper=copper), **kw)}["SW"]
+
+
+def _neck(note):
+    m = re.search(r"neck at \(([-\d.]+), ([-\d.]+)\)", note)
+    assert m, note
+    return float(m.group(1)), float(m.group(2))
+
+
+def test_a_fill_lane_between_two_carriers_is_judged_at_its_width():
+    lane = rect(15, 10, 8, 1.2)                      # x 11 to 19, 1.2 mm across; both SW pads inside
+    v = _sw(_parts(), [_zone("SW", lane)])
+    assert v.ok is True, v.note
+    assert 1.2 - STEP - 1e-6 <= v.value <= 1.2 + 1e-6
+    x, y = _neck(v.note)
+    assert 11.0 <= x <= 19.0 and 9.4 <= y <= 10.6
+    assert "the fill's narrowest point" in v.note and "not measured" not in v.note
+
+
+def test_a_fill_slit_to_a_hole_is_not_read_as_zero_and_goes_round_the_hole():
+    """As KiCad stores a fill: the hole (a via's, 1 mm square) is joined to
+    the outline by a slit of no width. The route goes round the hole, 1.5 mm
+    either side of it."""
+    fill = ((11, 8), (19, 8), (19, 12), (15, 12), (15, 10.5),                   # down the slit
+            (14.5, 10.5), (14.5, 9.5), (15.5, 9.5), (15.5, 10.5), (15, 10.5),   # round the hole
+            (15, 12), (11, 12))                                                  # back up the slit
+    v = _sw(_parts(), [_zone("SW", fill)])
+    assert v.ok is True, v.note
+    assert 1.5 - STEP - 1e-6 <= v.value <= 1.5 + 1e-6
+
+
+def test_a_fill_neck_narrower_than_the_need_fails_naming_its_point():
+    fill = ((11, 8.5), (14.8, 8.5), (14.8, 9.8), (15.2, 9.8), (15.2, 8.5), (19, 8.5), (19, 11.5),
+            (15.2, 11.5), (15.2, 10.2), (14.8, 10.2), (14.8, 11.5), (11, 11.5))   # 3 mm, a 0.4 mm neck at x 15
+    v = _sw(_parts("3.6A"), [_zone("SW", fill)])
+    assert v.ok is False, v.note
+    assert v.limit == pytest.approx(ipc2221_width_mm(3.6, 10.0, 1.0))
+    assert 0.4 - STEP - 1e-6 <= v.value <= 0.4 + 1e-6
+    x, y = _neck(v.note)
+    assert 14.8 - STEP <= x <= 15.2 + STEP and 9.8 <= y <= 10.2
+
+
+def test_a_fill_thinner_than_one_step_reads_as_one_step_and_says_so():
+    fill = ((11, 8.5), (14.8, 8.5), (14.8, 9.985), (15.2, 9.985), (15.2, 8.5), (19, 8.5), (19, 11.5),
+            (15.2, 11.5), (15.2, 10.015), (14.8, 10.015), (14.8, 11.5), (11, 11.5))  # a 0.03 mm neck
+    v = _sw(_parts(), [_zone("SW", fill)])
+    assert v.ok is False, v.note
+    assert v.value == pytest.approx(STEP)
+    assert "0.05 mm step" in v.note, v.note
+
+
+def test_a_route_through_a_fill_and_a_narrower_track_is_judged_by_the_track():
+    """The track ends on the fill's edge; the fill beside its end is no
+    narrower than the track, so the track is the neck."""
+    copper = [_zone("SW", rect(13, 10, 4, 3)), track("SW", 15, 10, 18.6, 10, w=0.5)]
+    v = _sw(_parts("3.6A"), copper)
+    assert v.ok is False and v.value == pytest.approx(0.5), v.note
+    assert "mm long" in v.note and "zone fill" in v.note
+
+
+def test_the_step_is_the_setting():
+    """A coarser step reads the same 1.2 mm lane within its own step."""
+    lane = rect(15, 10, 8, 1.2)
+    geom = board_geometry(_parts(), copper=[_zone("SW", lane)])
+    v = {v.subject: v for v in run_checks(geom, **kwargs_from(Settings(check_zone_step=0.2)))
+         if v.check == "current-path"}["SW"]
+    assert 1.2 - 0.2 - 1e-6 <= v.value <= 1.2 + 1e-6
+    assert v.value != pytest.approx(1.15)                     # not the 0.05 mm step's reading

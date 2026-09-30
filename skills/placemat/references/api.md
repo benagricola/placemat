@@ -1,7 +1,7 @@
 # The script surface
 
 ```python
-from placemat import (board, Along, Axis, Bend, Beside, Between, Box, Cell, CellPadRef, Centre, Cover, Pin, Polar, OnRim, OnBore,
+from placemat import (board, Along, Axis, Bend, Beside, Between, Box, Cell, CellPadRef, Centre, Corner, Cover, Pin, Polar, OnRim, OnBore,
                        Cutout, Disc, Drops, Arc, Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Inside, Land, Line,
                        LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part, Past, Priority, Turned, X, Y)
 ```
@@ -42,6 +42,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | beside one part, level with a pad of it or of any firmly placed part | `at=Beside(item, Edge.SOUTH, align=PadRef(Part(other), n))` | Placement (Beside) |
 | its pad a lane (or the clearance) past other pads | `at=Beside(item, Edge.SOUTH, align=(own_pad, Past([PadRef(...)], Edge.WEST, lane=Net(...))))` | Placement (Beside) |
 | that lane as wide as its current needs | `Past(..., lane=Net(...), width=)` in that align | Placement (Beside) |
+| its pad a lane (or the clearance) off a 45 past a pad's corner | `at=Beside(item, Edge.SOUTH, align=(own_pad, Past([PadRef(...)], Corner.NE, lane=Net(...))))` | Placement (Beside) |
 | fixed off a part that is itself searched (a bypass at a searched part's pad end) | any firm `at=` (`Pin`, `Beside`, `row(of=)`) on the searched part: it rides the search | Placement (Riders) |
 | turned with another part | `rotation=Turned(part, deg)` | Placement |
 | turned to face a board edge or a bearing | `board.outward_rotation(item, edge)` | Faces |
@@ -82,6 +83,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | which end of an off-grid leg takes the 45 | `board.track(..., bend=Bend.START/END/BOTH)` | Copper vocabulary |
 | a track through the gap between two pads | `Between(PadRef(a), PadRef(b))` as a track point | Copper vocabulary (Lane waypoints) |
 | a track held the clearance off pads, vias or tracks | `Past([PadRef(...), via, track], Edge.EAST, across=)` as a track point | Copper vocabulary (Lane waypoints) |
+| a track's 45 held the clearance off a pad's corner | `Past([PadRef(...)], Corner.NE)` as a track point | Copper vocabulary (Lane waypoints) |
 | a via at the nearest legal spot to a pad | `board.via(net, FreeSpot(near=PadRef(...)))` | Copper calls |
 | a via its clearance past pads, vias or tracks, on a pad's axis | `board.via(net, at=Past([...], Edge.SOUTH, across=PadRef(...)))` | Copper calls |
 | a power or exposed pad filled with vias | `board.vias(net, PadRef(...))` | Copper calls |
@@ -421,7 +423,15 @@ or `WEST` beside a `NORTH` or `SOUTH` side). A placement is decided before
 any copper is planned, so the Past takes pads only - a via or a track is
 refused - and takes no `across=`. The pads' parts are placed firmly first,
 as for any firm placement. The track then takes the same line as a
-waypoint, `Past([PadRef(...)], Edge.WEST)`. A width sized for a current
+waypoint, `Past([PadRef(...)], Edge.WEST)`.
+
+With a `Corner` in place of the edge, `(own_pad, Past(pads, Corner.NE,
+lane=Net(...)))` stands the own pad off the 45 that passes the pads' NE
+corner: the own pad's corner facing the 45 (its SW corner) stands the same
+distance out along the diagonal from the pads' corner, measured across it.
+`Beside`'s side decides one axis and the corner the other, so any side
+goes with any corner. The track takes the 45 as a waypoint,
+`Past([PadRef(...)], Corner.NE)`. A width sized for a current
 is a fact: a named constant citing IPC-2221 at the board's `check.rise_c`
 and `check.copper_oz` (`placemat settings` prints them); the run's
 `current-path` check then judges the copper drawn in the lane.
@@ -555,9 +565,11 @@ pull toward what is placed, which only separates items the rank cannot, then
 the largest. The sentence that chose each is in its step. One exception to
 the rank: of two items joined by a `board.link()` and neither placed, the one
 with less pull toward what is placed waits for the other, so it is seeded on
-the part the link joins it to; its step says "waited for" which, and when
-its own `priority=` would have put it first, that it set that priority aside
-for the link. Two pulled equally keep the rank's order.
+the part the link joins it to; its step says "waited for" which. The wait
+orders items within one `priority=` tier: an item never waits for a partner
+of a lower tier, so a `HIGH` item linked to a `DEFAULT` one goes down with
+the `HIGH` tier and the other then places toward it. Two pulled equally
+keep the rank's order.
 
 **What a part claims.** `[place] envelope` says what one part may not share
 with another. `courtyard` (the default) is its courtyard and its pads.
@@ -1203,10 +1215,22 @@ its pads to be placed and its vias and tracks to be planned. A track whose
 not drawn, and the finding names both. Both are accepted wherever a track
 point is.
 
+`Past(items, Corner.NE)` holds a 45 off a corner of the same box (`Corner`
+is `NE`, `NW`, `SE` or `SW`). The point is on the outward diagonal from
+that corner, half the track's width plus the clearance from it, rounded
+away from the items; a 45 through it across the diagonal (NW to SE for an
+NE corner) passes the corner at the clearance. A corner fixes both axes, so
+it takes no `across=`. The track's legs either side of the point take that
+45 through it wherever the points either side allow one, ahead of `bend=`;
+where they do not and the track passes the corner nearer than the
+clearance, the finding names the corner.
+
 ```python
 v = board.via(Net("SIG_N"), FreeSpot(near=PadRef(Part("j1"), 3)))
 board.track(Net("SIG_P"), [PadRef(Part("j1"), 2), Past([v], Edge.SOUTH), PadRef(Part("j1"), 8)],
             layer=CopperLayer.F)                 # a U-turn a track's clearance under the via
+board.track(Net("S_A"), [PadRef(Part("r_a"), 2), Past([PadRef(Part("r_b"), 2)], Corner.NE),
+                         PadRef(Part("j1"), 1)], layer=CopperLayer.F)   # its 45 a clearance off r_b's pad corner
 ```
 
 **Who bridges.** Where two tracks of different nets cross on one layer, the
@@ -1715,19 +1739,24 @@ or via by its net and ends: "L1 pad 1 (SW) at (x, y) to U3 pad 9 (FB) at
 (x, y)"; a nearer pair inside one part is said after it: "U3's own pads are
 1.27 mm apart, a distance its footprint sets". `--json` carries the same,
 in the verdict's note. The current path is the route the load
-takes, through tracks, vias, pours and zone fills alike - a zone fill's
-own width is not measured
-(as KiCad stores a fill, each hole is slit to its outline), so a route through
-one is judged by its other copper, says so, and a route through a fill alone
-is not judged: each two parts carrying `Pm.I` on the net
+takes, through tracks, vias, pours and zone fills alike. A zone fill on
+the route is measured along it: the fill is rasterised at `check.zone_step`
+(default 0.05 mm), each cell's distance to the fill's edge taken (the slit
+KiCad draws from each hole to the outline has no width, so it is no edge),
+and the widest path found between the copper the route enters and leaves
+the fill by - the widest disc that can travel from touching the one to
+touching the other. Its width reads within about one step of the copper's;
+a neck no cell falls in reads as one step and says so. The fill's
+width is the route's there when it is narrower than the rest of the route
+by more than a step. Each two parts carrying `Pm.I` on the net
 are judged at the lesser of their two currents - what can flow between
 them - by the narrowest point of the widest route from any pad of one to
 any pad of the other; the net's verdict is its worst pair, naming both ends
 and the current, and its neck: the point along the route the width is
 narrowest, and how far the route stays within 10% of that width, measured
 along the copper the widest route passes - "neck at (x, y), 0.9 mm long".
-Where the neck is a zone fill, whose width is not measured, no neck point
-is given. A net only one part carries is not judged: one carrier cannot
+Where the neck is in a zone fill, the point is the fill's narrowest
+point, with no length. A net only one part carries is not judged: one carrier cannot
 say where its load goes (the widest-joined other pad is as often a
 capacitor carrying ripple), and the verdict asks for a `Pm.I` on the part
 that takes the load. A part carries on a net only at a current above zero:
@@ -2089,6 +2118,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `check.keep_out_mm` | 2.0 | how far sense copper stays from a switch node (`--keep-out`) |
 | `check.rise_c` | 10.0 | the rise a current path is sized for (`--rise`) |
 | `check.copper_oz` | 1.0 | outer copper weight the widths are sized for (`--copper-oz`) |
+| `check.zone_step` | 0.05 | the cell a zone fill is rasterised at to measure its width along a load's route; the width reads within one step |
 | `check.limits` | none | a bound per check, e.g. `"hot-loop" = 20.0` (`--limit`) |
 | `parts.order_fields` | `["Lcsc", "LCSC", "Mpn", "MPN"]` | a footprint field naming an order code (an LCSC number, an MPN); `parts` warns when a placed part (not `dnp`) has none of them present and non-empty |
 | `explore.slack` | 0.25 | an explored item draws among spots scoring within this fraction of its best |

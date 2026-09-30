@@ -30,6 +30,25 @@ judged the route to the widest-joined other pad at the full current, often
 a capacitor carrying ripple, and failed it. Give the part that takes the
 load its own `Pm.I` and the route between the two is judged.
 
+`Past(items, Corner.NE)` is a waypoint for a 45 held the clearance off a
+corner of the items' copper box, and `(own_pad, Past(pads, Corner.NE,
+lane=Net(...)))` in `Beside`'s align stands a pad off that 45. A waypoint
+on a 45 worked out by hand - a constant x - y (or x + y) from the pad's
+corner plus the clearance and half the width times root 2 - can be said
+this way; the drawn 45 lies on the same line.
+
+`check current-path` measures a zone fill's width along the load's route,
+at `check.zone_step` (default 0.05 mm): two carriers only a fill joins are
+judged, where they read "not judged", and a route through a fill names the
+fill's narrowest point when that is its neck. A verdict can newly fail on
+a fill lane that is narrower than the current needs.
+
+A linked item never waits for a partner of a lower `priority=` tier: a
+`HIGH` item linked to a `DEFAULT` one goes down with the `HIGH` tier, where
+it waited for its partner and its step said its priority was set aside for
+the link. Between items of one tier the wait is unchanged. Placements where
+such a link crossed tiers can move.
+
 ## To 0.56.2
 
 `layers=(CopperLayer.B, CopperLayer.IN4)` on `board.via()`, `board.vias()`
@@ -1266,3 +1285,4 @@ that says what replaces it.
 | `tail=False` on a `FreeSpot` via whose track the script draws itself | To 0.55.0 |
 | a pair centreline typed as coordinates | Unreleased |
 | a power pour polygon built from pad edges | Unreleased |
+| a waypoint on a 45 worked out as x - y or x + y off a pad's corner | Unreleased |

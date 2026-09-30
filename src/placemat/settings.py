@@ -88,6 +88,7 @@ class Settings:
     check_keep_out_mm: float = 2.0
     check_rise_c: float = 10.0
     check_copper_oz: float = 1.0
+    check_zone_step: float = 0.05     # the cell a zone fill is rasterised at to measure its width on a load's route
     check_limits: dict = field(default_factory=dict)
     # [parts]
     parts_order_fields: tuple = ("Lcsc", "LCSC", "Mpn", "MPN")   # a placed part with none of these fields non-empty gets a "no order number" warning
@@ -277,7 +278,7 @@ _ABOVE_ZERO = frozenset((
     "place_conflict_gap", "place_fit_room", "copper_bridge_half", "copper_finger_bridge_width",
     "copper_plane_min_thickness", "copper_pour_stroke", "copper_microvia_drill", "label_size",
     "label_thickness", "geometry_arc_sag", "geometry_index_cells",
-    "geometry_arc_error_nm", "check_rise_c", "check_copper_oz",
+    "geometry_arc_error_nm", "check_rise_c", "check_copper_oz", "check_zone_step",
     "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share"))

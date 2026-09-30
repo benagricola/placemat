@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 import math
 
 from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
-                     pair_ops, polyline_tracks, resolve_bridges)
+                     pair_ops, polyline_tracks, resolve_bridges, _point_seg)
 from .geometry import Transform, box_polygon, circle_polygon, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
 from .findings import Finding, Findings
 from .occupancy import Occupancy, Shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
@@ -30,7 +30,7 @@ from .placement import Placement
 from .settings import Settings
 from .placer import BlockSpec, _grid, _pin_normal, _reason_key, box_centered_placement, cell_pad_anchored_placement, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
-from .values import (Turned, Axis, Bend, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Turned, Axis, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -1898,7 +1898,7 @@ class Board:
             raise TypeError("%s: Beside's side decides where the part stands along the pads; Past in its "
                             "align takes no across=" % key)
         upright = side in (Edge.EAST, Edge.WEST)
-        if (p.edge in (Edge.EAST, Edge.WEST)) == upright:
+        if isinstance(p.edge, Edge) and (p.edge in (Edge.EAST, Edge.WEST)) == upright:
             raise ValueError("%s: Beside on the %s side decides the part's %s; the Past in its align decides "
                              "the other axis, so its edge is %s, not %s" % (
                 key, side.name, "x" if upright else "y",
@@ -1973,7 +1973,28 @@ class Board:
             shapes = [sh for ref in past.items for sh in _pad_shapes(self, occ, ref)]
             box = Box.union([sh.box for sh in shapes])
             off = _lane_distance(self, own_pad.net, [sh.net for sh in shapes], past.lane, past.width)
-            if past.edge is Edge.EAST:
+            if isinstance(past.edge, Corner):
+                # the own pad's corner that faces back across the 45 stands `off` out along the
+                # diagonal from the pads' corner; the side has decided one axis, this the other
+                sx, sy = past.edge.signs
+                c = _box_corner(box, past.edge)
+                qx = own.left if sx > 0 else own.right
+                qy = own.top if sy > 0 else own.bottom
+                reach = off * math.sqrt(2.0)            # sx * dx + sy * dy of the own corner off the pads'
+                if past.lane is not None:
+                    # off the lane's own point as a track's Past takes it, rounded away from the pads,
+                    # so that rounding cannot put the lane's track nearer the own pad than its clearance
+                    lane = self.geometry.require_net(past.lane)
+                    lw = self._width(lane, past.width)
+                    d = (lw / 2.0 + max(_net_clearance(self, sh.net, lane) for sh in shapes)) / math.sqrt(2.0)
+                    px, py = _round_away(c.x + sx * d, sx), _round_away(c.y + sy * d, sy)
+                    reach = (sx * (px - c.x) + sy * (py - c.y)
+                             + (lw / 2.0 + _net_clearance(self, lane, own_pad.net)) * math.sqrt(2.0))
+                if ox is None:
+                    ox = _round_away(c.x - qx + sx * (reach - sy * (qy + oy - c.y)), sx)
+                else:
+                    oy = _round_away(c.y - qy + sy * (reach - sx * (qx + ox - c.x)), sy)
+            elif past.edge is Edge.EAST:
                 ox = box.right + off - own.left
             elif past.edge is Edge.WEST:
                 ox = box.left - off - own.right
@@ -2894,7 +2915,10 @@ class Board:
                     name, ", ".join(p.key for p in lost)))
                 return []
             located = []
+            lanes = []                # per point: the 45's directions at a Past off a corner, else None
+            corners = []              # (Past, the box's corner, the centreline's distance off it)
             for p in points:
+                lane = None
                 if isinstance(p, Between):
                     at = _between_point(self, ctx, name, w, p)
                 elif isinstance(p, Past):
@@ -2903,18 +2927,30 @@ class Board:
                         ctx.notes.append("%s: its point past %s is not drawn, because %s" % (
                             intent.key, ", ".join(_past_names(self, p)), at))
                         return []
+                    if isinstance(p.edge, Corner):
+                        box, off = _past_reach(self, ctx, name, w, p, intent.key, intent.index)
+                        corners.append((p, _box_corner(box, p.edge), off))
+                        lane = _lane_dirs(p.edge)
                 else:
                     at = ctx.locate(p)
                 located.append(at)
+                lanes.append(lane)
             pads = [isinstance(p, (PadRef, CellPadRef)) for p in points]
 
             def clear(a, b):          # a leg that touches no pad of another net
                 shape = _shape_of(Track(name, layer, w, a, b))
                 return not ctx.occ.copper_conflicts(shape)
 
-            pts = octilinear(located, pads, clear, bend)
+            pts = octilinear(located, pads, clear, bend, lanes)
             cut_pts, diagonals = chamfer_cuts(pts, chamfer)
             ops = polyline_tracks(name, layer, w, cut_pts)
+            for p, c, off in corners:
+                near = min((_point_seg(c, t.start, t.end)[0] for t in ops), default=math.inf)
+                if near < off - 1e-6:
+                    ctx.notes.append("track %s: the points either side of its 45 past the %s corner of %s allow "
+                                     "no 45 through it; the track passes that corner at %.3f mm, under the "
+                                     "%.3f mm clearance" % (name, p.edge.value, ", ".join(_past_names(self, p)),
+                                                            near - w / 2.0, off - w / 2.0))
             if chamfer > 0:
                 # the 45 a corner's own cut emits, not a straight leg that merely
                 # happens to run between two separate corners' cuts
@@ -5241,16 +5277,14 @@ class Board:
             partner = self._waited[obj.key]
             why = (why + "; " if why else "") + "waited for %s, the item it is linked to with more placed connections" % (
                 partner)
-            other = next((o for o in self._placements() if o.key == partner), None)
-            if other is not None and obj.priority.rank > other.priority.rank:
-                # the wait comes before the tier: say what it overrode
-                why += " (its own priority %s set aside for the link)" % obj.priority.name.lower()
         return obj, why
 
     def _link_waits(self, pending: list, pull: dict) -> dict:
         """{item key: the linked partner it waits for}, over declared links
         between two pending items: the one with less pull toward what is
-        placed waits. Level pull waits for nothing."""
+        placed waits. Level pull waits for nothing, and nothing waits for a
+        partner of a lower priority tier: the wait orders items within a
+        tier, never across one."""
         owner = {}
         for o in pending:
             for fp in (o.item.members if o.kind in ("block", "cell") else (o.item,)):
@@ -5265,7 +5299,8 @@ class Board:
             pa, pb = pull[a.key], pull[b.key]
             if abs(pa - pb) > 1e-9:
                 slow, fast = (a, b) if pa < pb else (b, a)
-                waits.setdefault(slow.key, fast.key)
+                if fast.priority.rank >= slow.priority.rank:
+                    waits.setdefault(slow.key, fast.key)
         return waits
 
     def _commit_block(self, occ: Occupancy, spec, members: dict, i: PlaceIntent, plan: Plan, note: str) -> Step:
@@ -6215,18 +6250,46 @@ def _past_copper(board: "Board", occ: Occupancy, ops_at: dict, p: Past, what: st
     return out
 
 
+def _past_reach(board: "Board", ctx: "_CopperContext", net: str, width: float, p: Past, what: str,
+                current: int | None = None):
+    """(the items' combined box, `width`/2 plus the worst clearance by net
+    pair from `net` to them): what Past's point is measured from. A string
+    instead, the reason, when a via or track it names has no copper."""
+    copper = _past_copper(board, ctx.occ, ctx.ops_at, p, what, current)
+    if isinstance(copper, str):
+        return copper
+    return (Box.union([b for _, b in copper]),
+            width / 2.0 + max(_pad_clearance(board, net, n) for n, _ in copper))
+
+
+def _box_corner(box: Box, corner: Corner) -> Location:
+    sx, sy = corner.signs
+    return Location(box.right if sx > 0 else box.left, box.bottom if sy > 0 else box.top)
+
+
+def _lane_dirs(corner: Corner) -> set:
+    """The two directions of a 45 across `corner`'s outward diagonal."""
+    sx, sy = corner.signs
+    return {(1, -sx * sy), (-1, sx * sy)}
+
+
 def _past_point(board: "Board", ctx: "_CopperContext", net: str, width: float, p: Past, what: str,
                 current: int | None = None):
     """Past(items, edge)'s point for copper of `net`: `width`/2 plus the
     worst clearance by net pair off the items' combined box on `edge`,
     across it where `across` says (default the middle of the box's side).
-    A string instead, the reason, when a via or track it names has no
-    copper."""
-    copper = _past_copper(board, ctx.occ, ctx.ops_at, p, what, current)
-    if isinstance(copper, str):
-        return copper
-    box = Box.union([b for _, b in copper])
-    off = width / 2.0 + max(_pad_clearance(board, net, n) for n, _ in copper)
+    At a `Corner`, that far out from the box's corner on its outward
+    diagonal. Rounded away from the items. A string instead, the reason,
+    when a via or track it names has no copper."""
+    reach = _past_reach(board, ctx, net, width, p, what, current)
+    if isinstance(reach, str):
+        return reach
+    box, off = reach
+    if isinstance(p.edge, Corner):
+        sx, sy = p.edge.signs
+        c = _box_corner(box, p.edge)
+        d = off / math.sqrt(2.0)
+        return Location(_round_away(c.x + sx * d, sx), _round_away(c.y + sy * d, sy))
     upright = p.edge in (Edge.EAST, Edge.WEST)          # the side runs north-south: across is y
     lo, hi = (box.top, box.bottom) if upright else (box.left, box.right)
     a = p.across
