@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.64.0
 
 A carried via's move, and a share's tail, are judged by one native call
 each instead of offset by offset in Python: the same placements, steps and
@@ -1527,7 +1527,8 @@ that says what replaces it.
 | a plane outline built from a group's box | To 0.55.0 |
 | two parts' positions worked out from a driver's pin at a mechanical pitch | To 0.55.0 |
 | `tail=False` on a `FreeSpot` via whose track the script draws itself | To 0.55.0 |
-| a pair centreline typed as coordinates | Unreleased |
-| a power pour polygon built from pad edges | Unreleased |
-| a waypoint on a 45 worked out as x - y or x + y off a pad's corner | Unreleased |
+| a pair centreline typed as coordinates | To 0.56.0 |
+| a power pour polygon built from pad edges | To 0.56.0 |
+| a waypoint on a 45 worked out as x - y or x + y off a pad's corner | To 0.57.0 |
 | a cell stood as far toward an end as its tall members allow, by offsets worked out from its members' frame | To 0.63.0 |
+| a sense track's first point placed from `placed_size()` half a track off a pad's edge | To 0.64.0 |
