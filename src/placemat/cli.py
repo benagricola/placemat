@@ -94,6 +94,9 @@ def parser() -> argparse.ArgumentParser:
                    help="each part within --near of these rule areas (default: all): its physical and courtyard "
                         "gap to it, or that it reaches in")
     m.add_argument("--near", type=float, default=1.0, help="with --keepouts: how near a part is listed (mm, default 1)")
+    m.add_argument("--models", action="store_true",
+                   help="read each part's 3D model and say when it sits off its pads or looks turned 90 against "
+                        "its fab outline")
     m.add_argument("--envelope", action="store_true",
                    help="for each side of a part's drawn envelope, the item that sets it: its layer, which one and its box")
     m.add_argument("--labels", action="store_true",
@@ -732,6 +735,10 @@ def cmd_measure(args) -> int:
             doc["copper_on_pads"] = describe.copper_on(fp, snap)
         docs.append(doc)
         lines += describe.part_lines(fp, snap, pads=args.pads, envelope=getattr(args, "envelope", False))
+        if getattr(args, "models", False):
+            checked = describe.model_check(fp, pcb.parent)
+            doc["model_checks"] = checked
+            lines += ["  model check: %s" % n for n in checked] or (["  model check: ok"] if fp.models else [])
     if args.json:
         console.data(json.dumps({"parts": docs}, indent=2))
     else:

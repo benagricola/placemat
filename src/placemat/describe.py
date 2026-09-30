@@ -12,7 +12,7 @@ from collections import Counter
 from .board_geometry import part_height
 from .geometry import distance_to_boundary, polys_overlap
 from .ranking import pin_count
-from .values import Box, CopperLayer
+from .values import Box, CopperLayer, Face
 
 
 def _xy(p) -> list:
@@ -396,3 +396,117 @@ def keepout_lines(geometry, names, near: float = 1.0) -> list:
             row["ref"], row["instance"], gap(row["physical"], row["physical_overlaps"]),
             gap(row["courtyard"], row["courtyard_overlaps"])))
     return lines or ["no part within %.2f mm of %s" % (near, " ".join(names) if names else "a keepout")]
+
+
+_STEP_POINT = r"CARTESIAN_POINT\s*\(\s*'[^']*'\s*,\s*\(\s*([-+]?[\d.]+(?:[eE][-+]?\d+)?)\s*,\s*" \
+              r"([-+]?[\d.]+(?:[eE][-+]?\d+)?)\s*,\s*([-+]?[\d.]+(?:[eE][-+]?\d+)?)\s*\)"
+
+
+def _step_extent(path) -> tuple | None:
+    """(x0, y0, z0, x1, y1, z1) in mm, the model's own y-up frame: the box
+    round every CARTESIAN_POINT a STEP file holds, inches scaled to mm; None
+    when it has none."""
+    import re
+    text = open(path, encoding="latin-1").read()
+    pts = [(float(a), float(b), float(c)) for a, b, c in re.findall(_STEP_POINT, text)]
+    if not pts:
+        return None
+    k = 25.4 if "'INCH'" in text.upper() else 1.0
+    lo = [k * min(p[i] for p in pts) for i in range(3)]
+    hi = [k * max(p[i] for p in pts) for i in range(3)]
+    return (lo[0], lo[1], lo[2], hi[0], hi[1], hi[2])
+
+
+def step_box(path) -> tuple | None:
+    """(x0, y0, x1, y1): a STEP model's box on its own plane, in mm."""
+    e = _step_extent(path)
+    return None if e is None else (e[0], e[1], e[3], e[4])
+
+
+def _model_path(text: str, project_dir) -> Path | None:
+    import os
+    import re
+    from pathlib import Path
+
+    def var(m):
+        name = m.group(1)
+        if name == "KIPRJMOD":
+            return str(project_dir)
+        if name in os.environ:
+            return os.environ[name]
+        if re.fullmatch(r"KICAD\d*_3DMODEL_DIR", name):
+            return "/usr/share/kicad/3dmodels"
+        return m.group(0)
+    p = Path(re.sub(r"\$\{([^}]+)\}", var, text.replace("\\", "/")))
+    if not p.is_absolute():
+        p = Path(project_dir) / p
+    tries = [p] + ([p.with_suffix(s) for s in (".step", ".stp", ".STEP")] if p.suffix.lower() in (".wrl", ".wrz") else [])
+    return next((t for t in tries if t.exists() and t.suffix.lower() in (".step", ".stp")), None)
+
+
+def _local(fp, pts):
+    """Board points of a part into its own footprint frame (its origin, no
+    turn, front face), the frame its model's transform is given in."""
+    from .geometry import Transform
+    t = Transform.translate(-fp.location.x, -fp.location.y).then(Transform.rotate(-fp.rotation))
+    out = [t.apply(p) for p in pts]
+    return [(-x, y) for x, y in out] if fp.face is Face.BACK else out
+
+
+def _model_xy(extent, off, rot, scale) -> Box:
+    """The model's box as KiCad's 3D view places it, projected on the
+    footprint's plane (y down): scaled, turned by its x, y and z angles
+    negated (glRotatef(-r) in the view's y-up frame, x then y then z), then
+    offset."""
+    import math
+    x0, y0, z0, x1, y1, z1 = extent
+    corners = [(x, y, zz) for x in (x0, x1) for y in (y0, y1) for zz in (z0, z1)]
+
+    def rot_axis(v, axis, deg):
+        a = math.radians(-deg)
+        c, s = math.cos(a), math.sin(a)
+        x, y, zz = v
+        if axis == "x":
+            return (x, y * c - zz * s, y * s + zz * c)
+        if axis == "y":
+            return (x * c + zz * s, y, -x * s + zz * c)
+        return (x * c - y * s, x * s + y * c, zz)
+    out = []
+    for v in corners:
+        v = (v[0] * scale[0], v[1] * scale[1], v[2] * scale[2])
+        v = rot_axis(rot_axis(rot_axis(v, "x", rot[0]), "y", rot[1]), "z", rot[2])
+        out.append((v[0] + off[0], -(v[1] + off[1])))           # the view's y is up; the footprint's, down
+    return Box.of_points(out)
+
+
+def model_check(fp, project_dir) -> list:
+    """What is wrong with where a part's 3D models sit, in its own frame: a
+    model not found, a model whose box misses its pads' centre, or one that
+    matches its fab outline only when turned 90. [] when nothing is."""
+    notes = []
+    pads = Box.of_points(_local(fp, [q for p in fp.pads for o in p.outlines for q in o])) if fp.pads else None
+    body = Box.of_points(_local(fp, [q for _, poly in fp.fab for q in poly])) if fp.fab else None
+    for text, off, rot, scale in getattr(fp, "models", ()):
+        name = text.replace("\\", "/").rsplit("/", 1)[-1]
+        if text.startswith("kicad-embed://"):
+            continue                        # embedded in the board file, not a file to read
+        path = _model_path(text, project_dir)
+        if path is None:
+            notes.append("model %s: not found (%s)" % (name, text))
+            continue
+        extent = _step_extent(path)
+        if extent is None:
+            notes.append("model %s: no points in its STEP file" % name)
+            continue
+        m = _model_xy(extent, off, rot, scale)
+        if pads is not None and not (m.left - 1e-6 <= pads.center.x <= m.right + 1e-6
+                                     and m.top - 1e-6 <= pads.center.y <= m.bottom + 1e-6):
+            notes.append("model %s: sits off its pads - its box %.2f %.2f %.2f %.2f against the pads' centre "
+                         "(%.2f, %.2f)" % (name, m.left, m.top, m.right, m.bottom, pads.center.x, pads.center.y))
+        if body is not None and abs(body.width - body.height) > 0.3:
+            same = abs(m.width - body.width) + abs(m.height - body.height)
+            swap = abs(m.width - body.height) + abs(m.height - body.width)
+            if swap + 0.2 < same:
+                notes.append("model %s: looks turned 90 against its fab outline (model %.2f x %.2f, outline "
+                             "%.2f x %.2f)" % (name, m.width, m.height, body.width, body.height))
+    return notes

@@ -7,6 +7,9 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+`placemat measure --models` says when a part's 3D model sits off its pads
+or looks turned 90 against its fab outline.
+
 `placemat parts --fragments` names the fragment each part was stamped from.
 
 `board.place(Cell(...), at=Pin(Part(member), x, y))` puts a member's

@@ -16,9 +16,6 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
-- **A finding when a 3D model's box does not sit over the footprint's pads**
-  (PLACEMAT_GAPS 2026-09-29 "a footprint's 3D model transform"; the path and
-  transform are in `measure` now): needs the model file's own extents.
 - **A plug on another board against a receptacle here** (owner: spec later,
   2026-09-30; PLACEMAT_GAPS 2026-09-27, twice): pad-to-pad nets across two board files and a turn.
 ## Housekeeping (left for Ben: outside this repository)
