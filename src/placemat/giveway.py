@@ -12,11 +12,13 @@ copper, on either face, at a candidate, it tries in turn to
    tail's far end, or where it stood) to that via, on its own face;
 2. move up to `place.via_move`, searched on a `place.via_move_step` grid,
    nearest first, to a spot clear of every other net's copper and every
-   hole, its tail redrawn from its pad; a via inside its pad stays inside it.
+   hole, its tail redrawn from its pad; a via inside its pad stays inside it;
+3. be dropped, a plane net's drop only, while its pad keeps
+   `place.drops_keep` of its drops (rounded up, at least one).
 
 The search judges the item less its carried vias natively, as it judges
 any item; what the vias do is judged here, in Python, after that, and priced
-at `score.via_share` and `score.via_move` each.
+at `score.via_share`, `score.via_move` and `score.via_drop` each.
 
 What is decided is recomputed at each commit from the board as it stands, so
 a replayed commit, or a part the cleanup pass moves, gives way the same."""
@@ -40,7 +42,7 @@ def pad_via_id(k: int) -> str:
 
 def enabled(settings) -> bool:
     """Whether a carried via may give way at all under these settings."""
-    return settings.place_via_share > 0 or settings.place_via_move > 0
+    return settings.place_via_share > 0 or settings.place_via_move > 0 or settings.place_drops_keep < 1.0
 
 
 def reach(settings) -> float:
@@ -52,7 +54,8 @@ def least_cost(settings) -> float:
     """The least a spot where a via must give way costs beyond its score:
     the cheapest way these settings allow."""
     ways = [cost for on, cost in ((settings.place_via_share > 0, settings.score_via_share),
-                                  (settings.place_via_move > 0, settings.score_via_move)) if on]
+                                  (settings.place_via_move > 0, settings.score_via_move),
+                                  (settings.place_drops_keep < 1.0, settings.score_via_drop)) if on]
     return min(ways) if ways else 0.0
 
 
@@ -238,10 +241,17 @@ class _Judge:
 
 
 class _Owner:
-    """What a via's own item says about it: its pads, its face."""
+    """What a via's own item says about it: its pads, its face, its drops."""
 
-    def __init__(self, occ, pads, face):
+    def __init__(self, occ, pads, face, groups_, dropped=None):
         self.occ, self.pads, self.face = occ, pads, face
+        self.dropped = dict(dropped or {})
+        self.counts: dict = {}
+        for g in groups_.values():
+            if g.net in occ.plane_nets:
+                key = self.pad_of(g)[0]
+                if key is not None:
+                    self.counts[key] = self.counts.get(key, 0) + 1
 
     def pad_of(self, g: Group):
         """(pad key, its shape, whether the via is inside it): the pad of the
@@ -263,6 +273,11 @@ class _Owner:
         if len(outer) == 1:
             return outer[0]
         return self.face.copper
+
+    def keeps(self, key) -> tuple:
+        """(drops the pad has, how many it must keep)."""
+        n = self.counts.get(key, 0)
+        return n, max(1, int(math.ceil(self.occ.settings.place_drops_keep * n - 1e-9)))
 
 
 def _still_meets(occ, g: Group, first, clearance, r: float):
@@ -298,7 +313,7 @@ def _tail_shape(owner, net, layer, width, start, end, carried="", given=""):
                     points=(tuple(end), tuple(start)) if carried else (), given=given)
 
 
-def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, first=None):
+def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: dict, first=None):
     """(Action, None) for the first way `g` can give way, else (None, why
     not), judged against `judge` and the item's own copper `own`. `first`:
     the copper it met, which a move is judged against before the rest."""
@@ -369,6 +384,19 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, first=None):
         if found is not None:
             return found, None
         said.append("no spot within %.2f mm%s is clear" % (limit, " inside its pad" if inside else ""))
+    if g.net not in occ.plane_nets:
+        said.append("%s is not a plane net, so it is no drop" % g.net)
+    elif pad_key is None:
+        said.append("it serves no pad of its own")
+    else:
+        n, keep = who.keeps(pad_key)
+        gone = who.dropped.get(pad_key, 0) + drops_now.get(pad_key, 0)
+        if n - gone - 1 >= keep:
+            drops_now[pad_key] = drops_now.get(pad_key, 0) + 1
+            return Action("drop", g.id, g.owner, g.home, g.net, g.centre, None, None, old, pad_key, met,
+                          s.score_via_drop, ()), None
+        said.append("%s pad %s keeps %d of its %d drops, and must keep %d" % (pad_key[0], pad_key[1], n - gone,
+                                                                              n, keep))
     return None, ", ".join(said)
 
 
@@ -395,7 +423,7 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
     own = groups(occ, mine)
     if own:
         mine_face = placement.face
-        who = _Owner(occ, _pads(occ, mine), mine_face)
+        who = _Owner(occ, _pads(occ, mine), mine_face, own)
         meeting = []
         for g in own.values():
             pool = judge.near(Box.union([x.box for x in g.shapes]), occ._gap)
@@ -405,10 +433,11 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
         if meeting:
             gone = {g.id for g, _ in meeting}
             keep = [x for x in mine if x.kind in _COPPER_AND_HOLES and x.carried not in gone]
+            drops_now: dict = {}
             for g, (why, o) in meeting:
                 met = "the edge" if o is None else occ.who(o.owner) if o.owner else \
                     ("a via" if o.kind == "through" else "a track")
-                action, why_not = _give(occ, g, judge, keep, who, met, o)
+                action, why_not = _give(occ, g, judge, keep, who, met, drops_now, o)
                 if action is None:
                     return _refused(occ, res, "%s; it cannot give way: %s" % (why, why_not), o)
                 keep += list(action.shapes)

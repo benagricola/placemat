@@ -834,6 +834,7 @@ class Occupancy:
 
     # ------------------------------------------------------------ the ratsnest
     quiet_nets: frozenset = frozenset()     # plane and free nets: their crossings weigh score.crossing_plane
+    plane_nets: frozenset = frozenset()     # nets the board declares a plane (a pour, a finger) for: their carried vias are drops
 
     def ratsnest(self):
         """placemat's ratsnest (ratsnest.py) of every item placed so far, kept

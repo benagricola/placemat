@@ -3553,6 +3553,7 @@ class Board:
                         component_spacing=self.component_spacing)
         self._carry_pad_vias(occ)          # before any cell's geometry is built from its members'
         occ.quiet_nets = frozenset(self._plane_nets() | set(self._free_nets))
+        occ.plane_nets = frozenset(c.net for c in self._copper if c.key.split(" ")[0] == "plane")   # drops' nets
         if self._fit:
             occ.board_box = None                # no frame yet: the decided items have no edge to be judged by
         for intent in self._placements():

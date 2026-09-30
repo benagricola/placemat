@@ -1247,14 +1247,18 @@ does not refuse the spot at once. The via tries, in turn:
 - to move up to `place.via_move` (0.5 mm), searched on a
   `place.via_move_step` (0.05 mm) grid nearest first, to a spot clear of
   every other net's copper on every layer and of every hole, its tail
-  redrawn from its pad. A via inside its pad moves only within that pad.
+  redrawn from its pad. A via inside its pad moves only within that pad;
+- a drop only (a via of a net the board declares a `plane()` for): to be
+  dropped, while each of the item's pads keeps at least `place.drops_keep`
+  (0.5) of its drops, rounded up and never fewer than one. A shared drop
+  counts as kept.
 
 If none works the spot is refused, and the refusal names the via and why
 each way failed: "via GND at (19.10, 21.90) is 0.00 mm from S copper on
 B.Cu (needs 0.20); it cannot give way: no GND via within 1.00 mm to share,
-no spot within 0.50 mm is clear".
+no spot within 0.50 mm is clear, GND is not a plane net, so it is no drop".
 Each way has a cost the search adds to the spot's score -
-`score.via_share` (1), `score.via_move` (2) - so it
+`score.via_share` (1), `score.via_move` (2), `score.via_drop` (10) - so it
 prefers spots where the vias stay as drawn; a nearest-first search takes a
 spot where they give way only when no spot has them as drawn. A
 firm item's carried vias, and a rider's, give way where it is put. An item
@@ -2026,6 +2030,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.via_share` | 1.0 | how near a via of its net a carried via that meets another net's copper may be to share it instead; 0 never shares |
 | `place.via_move` | 0.5 | how far such a via may move to clear it; 0 never moves |
 | `place.via_move_step` | 0.05 | the grid a via's move is searched on |
+| `place.drops_keep` | 0.5 | the share of a pad's plane drops it keeps when one is dropped to clear another net's copper, rounded up and never fewer than one; 1 drops none |
 | `copper.chamfer` | 1.0 | how far a right angle is cut back into two 45s |
 | `copper.pair_chamfer` | 0.5 | the same, for a differential pair |
 | `copper.pair_via_step` | 0.4 | how far clear of its partner a pair's lead vias |
@@ -2100,6 +2105,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.congestion` | 10 | explore: mm per `explore.congestion_step` of the worst RUDY cell |
 | `score.via_share` | 1 | mm the search adds to a spot for each carried via that shares a via of its net there |
 | `score.via_move` | 2 | mm for each carried via that moves there |
+| `score.via_drop` | 10 | mm for each plane drop dropped there |
 | `solve.enabled` | false | give the searched tier its hints from a global solve of the whole netlist, before any item is scanned |
 | `solve.iterations` | 200 | the solve's conjugate-gradient cap per axis per round |
 | `solve.tolerance` | 1e-06 | the residual the solve stops at |

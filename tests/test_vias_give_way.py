@@ -263,3 +263,55 @@ def test_a_via_that_could_share_or_move_shares():
     plan = b.resolve()
     [a] = plan.occupancy.given_way.values()
     assert (a.kind, a.to) == ("share", (18.2, 22.2))
+
+
+# ------------------------------------------------------------------ dropping
+_DROP_ONLY = dict(place_via_share=0.0, place_via_move=0.0)
+_THREE = [(38.85, 39.75), (38.85, 40.25), (39.35, 40.0)]    # in U1's GND pad; R9's pad S meets the right one
+
+
+def test_a_plane_drop_is_dropped_while_its_pad_keeps_its_share():
+    """Three drops in the pad: it must keep ceil(0.5 * 3) = 2, so the one R9
+    meets goes."""
+    plan = _moving_board(_THREE, False, (20.3, 20.0), net="GND", planes=("GND",),
+                         settings=_settings(**_DROP_ONLY)).resolve()
+    assert plan.step("m").placement is not None, plan.step("m").note
+    [a] = plan.occupancy.given_way.values()
+    assert (a.kind, a.via, a.pad, a.tail) == ("drop", "m via 2", ("U1", "1"), None)
+    assert len([c for c in plan.occupancy.copper if c.owner == "m" and c.kind == "through"]) == 2
+
+
+def test_a_pad_at_its_keep_share_refuses_the_candidate():
+    """Two drops, both over R9's pad S: one may go, the pad keeps the other."""
+    plan = _moving_board([(38.85, 40.0), (39.35, 40.0)], False, (19.8, 20.0), net="GND", planes=("GND",),
+                         settings=_settings(**_DROP_ONLY)).resolve()
+    step = plan.step("m")
+    assert step.placement is None
+    assert "U1 pad 1 keeps 1 of its 2 drops, and must keep 1" in step.note, step.note
+
+
+def test_a_pads_last_drop_is_never_dropped_whatever_drops_keep_says():
+    plan = _moving_board((39.35, 40.0), False, (20.3, 20.0), net="GND", planes=("GND",),
+                         settings=_settings(place_drops_keep=0.0, **_DROP_ONLY)).resolve()
+    step = plan.step("m")
+    assert step.placement is None
+    assert "keeps 1 of its 1 drops, and must keep 1" in step.note, step.note
+
+
+def test_a_signal_via_is_never_dropped():
+    plan = _moving_board(_THREE, False, (20.3, 20.0), net="SIG", settings=_settings(**_DROP_ONLY)).resolve()
+    step = plan.step("m")
+    assert step.placement is None
+    assert "SIG is not a plane net, so it is no drop" in step.note, step.note
+
+
+def test_dropping_costs_score_via_drop_in_the_search():
+    from placemat.placement import Placement
+    from placemat.placer import scan
+    b = _moving_board(_THREE, False, (20.3, 20.0), net="GND", planes=("GND",), settings=_settings(**_DROP_ONLY))
+    occ = Occupancy(b.geometry, 0.5, settings=b.settings)
+    occ.plane_nets = frozenset(["GND"])
+    centre = occ._geometry(b.geometry.cells["m"]).reference.location
+    hint = Placement(Location(centre.x - 20, centre.y - 20), 0.0, Face.FRONT)
+    r = scan(occ, b.geometry.cells["m"], hint, 0.0, 0.2, (0.0,), score=lambda p: 0.0)
+    assert r.chosen is not None and r.score == 10.0
