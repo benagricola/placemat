@@ -7,13 +7,26 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Open
 
+- **Bugs from the fairing core on 0.56.1** (fairing 2026-09-30): `OnEdge(run,
+  overhang=)` on a shaped board's run puts the centre on the edge whatever
+  the overhang; `run.at(run.length)` raises ZeroDivisionError on a short
+  curved run; in-batch copper findings at exactly the clearance ("0.16 ...
+  needs 0.16"); vias listed on In1..In30 in some reports; a refusal's copper
+  kind reads only "copper x363" with no items named.
+- **A cell placed by a member's footprint origin** (fairing 2026-09-30): a
+  winding's arc centre on the disc centre; `Pin` needs a pad and a cell's
+  Location is its box centre.
+- **Plane drops and the far face** (fairing 2026-09-30; needs a spec): a via
+  layer span for one-deep laser blind vias carried by a cell's drops, and a
+  drop landing on a same-net far-face pad or via scored as shared.
+- **A linked chain waits link by link past its priority** (fairing
+  2026-09-30, observed): each cell of a chain waits for the previous and is
+  searched after smaller cells took the room, its priority set aside.
+- **A 45-degree lane off a pad's corner** (owner chose 2026-09-30:
+  `Diagonal(pad, clearance)`, not arithmetic on X/Y; needs a spec).
 - **The fragment each stamped part came from, in `parts`** (PLACEMAT_GAPS
   2026-09-29 "which fragment a nested module's parts came from"), or
   "ignored: ancestor authoritative".
-- **Reference arithmetic or a 45-degree lane** (PLACEMAT_GAPS 2026-09-29 "a
-  position that is a sum of an x and a y"; needs a spec): `X(a) + Y(b) - k`
-  or a `Diagonal(ref, clearance)` lane; `X(Part)` is the box centre, not the
-  footprint origin, and nothing says so.
 - **The current-path check following the load path** (PLACEMAT_GAPS
   2026-09-29 "measures a branch, not the load path"; needs a spec): source
   to load between the parts that carry the current, or a path the script
@@ -21,17 +34,14 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 - **A finding when a 3D model's box does not sit over the footprint's pads**
   (PLACEMAT_GAPS 2026-09-29 "a footprint's 3D model transform"; the path and
   transform are in `measure` now): needs the model file's own extents.
-- **A zone fill's width along the load's route** (from the current-path
-  review, 2026-09-28): `check current-path` does not measure a fill's own
+- **A zone fill's width along the load's route** (owner: spec it, 2026-09-30;
+  from the current-path review, 2026-09-28): `check current-path` does not measure a fill's own
   width (KiCad slits each hole to the outline, so its narrowest neck reads
   about 0). The width the route passes through inside the fill, between
   where it enters and leaves (a raster and a widest-path search), would let
   a load running in a zone lane be judged.
-- **`placemat impact` between a run and a KiCad file**, copper included
-  (PLACEMAT_GAPS 2026-09-27 "folding a hand layout into a fragment's
-  script").
-- **A plug on another board against a receptacle here** (PLACEMAT_GAPS
-  2026-09-27, twice): pad-to-pad nets across two board files and a turn.
+- **A plug on another board against a receptacle here** (owner: spec later,
+  2026-09-30; PLACEMAT_GAPS 2026-09-27, twice): pad-to-pad nets across two board files and a turn.
 - **Riders, Inside, one land, explicit router pairs; the skill rewritten**
   (0.56.1; spec `2026-09-29-remaining-backlog-design.md`): a firm placement
   on a searched item rides its search; `keepout(Inside(Part))`;
