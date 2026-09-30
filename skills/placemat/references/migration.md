@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.63.0
 
 Under `[place] envelope = "physical"`, a footprint that draws neither silk
 nor fab claims its courtyard as the part itself: another part's body or
@@ -1477,4 +1477,4 @@ that says what replaces it.
 | a pair centreline typed as coordinates | Unreleased |
 | a power pour polygon built from pad edges | Unreleased |
 | a waypoint on a 45 worked out as x - y or x + y off a pad's corner | Unreleased |
-| a cell stood as far toward an end as its tall members allow, by offsets worked out from its members' frame | Unreleased |
+| a cell stood as far toward an end as its tall members allow, by offsets worked out from its members' frame | To 0.63.0 |
