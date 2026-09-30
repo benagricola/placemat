@@ -7,6 +7,12 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+Under `[place] envelope = "physical"`, a part whose fab layer holds one
+closed shape (a circle, a polygon, a rectangle) claims that shape, stroke
+included, as its body; several graphics (four lines round a body) still
+claim the box round them. A round or chamfered body no longer claims its
+square, so placements under that envelope can move.
+
 A label on an item that found no place is a `label` finding ("not drawn:
 U8 found no place"), and the run goes on. It stopped the run, even under
 `--keep-going`.

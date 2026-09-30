@@ -296,12 +296,34 @@ def _fab(fp) -> tuple:
     nothing, so what they enclose is taken instead."""
     out = []
     for layer, face in _FAB.items():
-        boxes = [_box_of(d.GetBoundingBox()) for d in fp.GraphicalItems()
-                 if d.GetLayer() == layer and not isinstance(d, pcbnew.PCB_TEXT)]
+        items = [d for d in fp.GraphicalItems() if d.GetLayer() == layer and not isinstance(d, pcbnew.PCB_TEXT)]
+        closed = _closed_outline(items[0]) if len(items) == 1 else None
+        if closed:                      # one closed shape (a round body): that shape, not its box
+            out.append((face, closed))
+            continue
+        boxes = [_box_of(d.GetBoundingBox()) for d in items]
         box = Box.union(boxes) if boxes else None
         if box is not None and box.width > 0 and box.height > 0:
             out.append((face, ((box.left, box.top), (box.right, box.top), (box.right, box.bottom), (box.left, box.bottom))))
     return tuple(out)
+
+
+def _closed_outline(d) -> tuple | None:
+    """A fab graphic that is one closed shape - a circle, a polygon or a
+    rectangle - as its drawn outline in board mm, its stroke included, as
+    KiCad's own TransformShapeToPolygon gives it; None for any other."""
+    if not isinstance(d, pcbnew.PCB_SHAPE) or d.GetShape() not in (pcbnew.SHAPE_T_CIRCLE, pcbnew.SHAPE_T_RECT,
+                                                                    pcbnew.SHAPE_T_POLY):
+        return None
+    from ..settings import active
+    ps = pcbnew.SHAPE_POLY_SET()
+    d.TransformShapeToPolygon(ps, d.GetLayer(), 0, active().geometry_arc_error_nm, pcbnew.ERROR_OUTSIDE)
+    ps.Unfracture()                    # an unfilled shape is a ring: its outer edge is the outline, the hole is not
+    if ps.OutlineCount() != 1:
+        return None
+    o = ps.Outline(0)
+    pts = tuple((mm(o.CPoint(i).x), mm(o.CPoint(i).y)) for i in range(o.PointCount()))
+    return pts if len(pts) >= 3 else None
 
 
 def _pads(board, fp, err_nm: int = CLEAR_ERR_NM) -> tuple[PadGeom, ...]:
