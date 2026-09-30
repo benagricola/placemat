@@ -520,6 +520,12 @@ def _outline(board) -> tuple:
     return tuple(outs)
 
 
+def _ref_key(ref: str) -> tuple:
+    """A reference's natural order: R2 before R10."""
+    import re
+    return tuple((0, int(t)) if t.isdigit() else (1, t) for t in re.findall(r"\d+|\D+", ref))
+
+
 def _netclasses(board) -> tuple[dict[str, NetClass], float]:
     """{net: its NetClass}. A net's class carries a diff-pair width and gap
     only when one of its named classes sets them itself: the effective class
@@ -700,7 +706,10 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
     copper = _copper(board, groups_of, arc_error_nm)
     cells = {}
     for name, items in group_items.items():
-        members = tuple(by_ref[it.GetReference()] for it in items if isinstance(it, pcbnew.FOOTPRINT))
+        # in reference order: KiCad returns a group's items in no fixed order, and the search and the
+        # findings read members in turn
+        members = tuple(sorted((by_ref[it.GetReference()] for it in items if isinstance(it, pcbnew.FOOTPRINT)),
+                               key=lambda fp: _ref_key(fp.ref)))
         own = [c.box for c in copper if c.owner == name and c.kind != "pad"]
         if not members and not own:
             continue        # no footprints and no copper: not a cell (placemat's own `keepout drawings`, say)

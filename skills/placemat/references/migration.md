@@ -7,6 +7,14 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+A cell's members are read in reference order. KiCad returns a group's
+items in no fixed order, so the refusal tallies and a `split` finding's
+member lists could differ between two runs of the same board.
+
+A scan searches a placed via's clear moves once, not once per candidate
+(`place.via_clear_cache`): the same placements, faster where vias give
+way.
+
 A `board.push` between two footprints, where the capture could say what the
 source emits and what the other tolerates, is now said on the parts instead:
 `Pm.Emits` (`magnetic:3.2mT@13.5mm^3 heat:15C@5mm^1`) and `Pm.EmitsAt` on the
