@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.57.1
 
 A carried via shares only another item's via, and a via another shares
 no longer gives way itself: in 0.57.0 a cell's vias could share one
