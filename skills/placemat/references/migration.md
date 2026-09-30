@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.59.1
 
 `placemat facts` reads the board as generated, as `run` does. It failed on
 a board run before whose script names a keepout, reading the last run's
