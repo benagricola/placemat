@@ -5,30 +5,23 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## In progress
 
+- **A 45 off a pad's corner, a zone fill's width, a link wait under
+  priority** (spec `2026-09-30-diagonal-lane-zone-width-link-priority-design.md`,
+  approved 2026-09-30).
 - **Vias that give way** (spec `2026-09-30-plane-drops-and-the-far-face-design.md`,
   approved 2026-09-30; plan `2026-09-30-vias-that-give-way.md`): share,
   move, drop; `drops=` on place(); a via's layer span.
 - **The current-path check with one carrier** (owner: say it can't judge,
   2026-09-30): a lone carrier was judged to the widest-joined capacitor.
+
 ## Open
 
-- **A linked chain waits link by link past its priority** (fairing
-  2026-09-30, observed): each cell of a chain waits for the previous and is
-  searched after smaller cells took the room, its priority set aside.
-- **A 45-degree lane off a pad's corner** (owner chose 2026-09-30:
-  `Diagonal(pad, clearance)`, not arithmetic on X/Y; needs a spec).
 - **The fragment each stamped part came from, in `parts`** (PLACEMAT_GAPS
   2026-09-29 "which fragment a nested module's parts came from"), or
   "ignored: ancestor authoritative".
 - **A finding when a 3D model's box does not sit over the footprint's pads**
   (PLACEMAT_GAPS 2026-09-29 "a footprint's 3D model transform"; the path and
   transform are in `measure` now): needs the model file's own extents.
-- **A zone fill's width along the load's route** (owner: spec it, 2026-09-30;
-  from the current-path review, 2026-09-28): `check current-path` does not measure a fill's own
-  width (KiCad slits each hole to the outline, so its narrowest neck reads
-  about 0). The width the route passes through inside the fill, between
-  where it enters and leaves (a raster and a widest-path search), would let
-  a load running in a zone lane be judged.
 - **A plug on another board against a receptacle here** (owner: spec later,
   2026-09-30; PLACEMAT_GAPS 2026-09-27, twice): pad-to-pad nets across two board files and a turn.
 ## Housekeeping (left for Ben: outside this repository)
