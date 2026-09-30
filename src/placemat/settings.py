@@ -64,6 +64,7 @@ class Settings:
     place_via_move: float = 0.5         # or move this far to clear it; 0: never
     place_via_move_step: float = 0.05   # the grid a via's move is searched on
     place_drops_keep: float = 0.5       # the share of a pad's drops it keeps, rounded up, never fewer than one (Drops.MIN); a carried drop is dropped only while its pad keeps this share; 1: never
+    place_split_min_group: int = 2      # the least members a group needs to count, in a cell's split finding (splits.py)
     # [copper]
     copper_chamfer: float = 1.0
     copper_pair_chamfer: float = 0.5
@@ -302,6 +303,9 @@ _AT_LEAST_ZERO = frozenset((
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
     "score_pair_crossing", "place_via_share", "place_via_move", "score_via_share",
     "score_via_move", "score_via_drop", "score_via_shorten"))
+# A floor of 2: below it a "group" can never be more than one part, which
+# is not a group at all.
+_AT_LEAST_TWO = frozenset(("place_split_min_group",))
 
 
 def _declared(name: str) -> str:
@@ -371,6 +375,8 @@ def _validate(name: str, value, path: str):
         raise SettingsError("%s: %s must be greater than 0, not %r" % (path, dotted, value))
     if name in _AT_LEAST_ZERO and value < 0:
         raise SettingsError("%s: %s may not be negative, not %r" % (path, dotted, value))
+    if name in _AT_LEAST_TWO and value < 2:
+        raise SettingsError("%s: %s must be at least 2, not %r" % (path, dotted, value))
 
 
 # Keys retired because they named a board fact: placemat.toml holds no

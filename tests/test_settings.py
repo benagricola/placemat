@@ -138,6 +138,22 @@ def test_a_value_under_its_floor_is_an_error(tmp_path):
     assert "place.step" in str(e.value) and "greater than 0" in str(e.value)
 
 
+def test_split_min_group_defaults_to_two():
+    assert S.Settings().place_split_min_group == 2
+
+
+def test_a_split_min_group_under_two_is_an_error(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[place]\nsplit_min_group = 1\n")
+    with pytest.raises(S.SettingsError) as e:
+        S.load(tmp_path)
+    assert "place.split_min_group" in str(e.value) and "at least 2" in str(e.value)
+
+
+def test_a_split_min_group_of_two_is_allowed(tmp_path):
+    _toml(tmp_path / "placemat.toml", "[place]\nsplit_min_group = 2\n")
+    assert S.load(tmp_path).place_split_min_group == 2
+
+
 def test_a_negative_weight_is_an_error(tmp_path):
     _toml(tmp_path / "placemat.toml", "[rank]\narea = -1.0\n")
     with pytest.raises(S.SettingsError):

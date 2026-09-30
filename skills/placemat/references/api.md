@@ -2190,6 +2190,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.via_move` | 0.5 | how far such a via may move to clear it; 0 never moves |
 | `place.via_move_step` | 0.05 | the grid a via's move is searched on |
 | `place.drops_keep` | 0.5 | the share of a pad's drops (vias of a `plane()` net in it) the pad keeps, rounded up and never fewer than one: what `drops=Drops.MIN` keeps of each field, and what a pad keeps when a carried drop is dropped to clear another net's copper (1 drops none there) |
+| `place.split_min_group` | 2 | the least members a group needs to count as one, in a cell's `split` finding |
 | `copper.chamfer` | 1.0 | how far a right angle is cut back into two 45s |
 | `copper.pair_chamfer` | 0.5 | the same, for a differential pair |
 | `copper.pair_via_step` | 0.4 | how far clear of its partner a pair's lead vias |
