@@ -23,7 +23,7 @@ from ..placement import Placement
 from ..board_geometry import (CellGeom, Footprint, layer_marker, resolve_marker, split_marker,
                               stackup_order)
 from ..cutouts import closes_itself
-from ..values import CopperLayer, Face
+from ..values import Box, CopperLayer, Face
 
 def nm(v: float) -> int:
     return pcbnew.FromMM(float(v))
@@ -338,6 +338,93 @@ def _draw_keepouts(board, plan):
             o.Append(nm(x), nm(y))
         z.SetZoneName("keepout %s%s" % (k.name, layer_marker(k.layers, stack)))
         board.Add(z)
+
+
+_KEEPOUT_DRAWINGS_GROUP = "keepout drawings"
+
+
+def _keepout_drawing_layer(layers):
+    """The Fab layer a keepout's outline and label are drawn on: F.Fab or
+    B.Fab when every one of its copper layers is on one face, else
+    User.Comments (both faces, layers=None, or inner layers only)."""
+    if layers is None:
+        return pcbnew.Cmts_User
+    faces = {l.face for l in layers if l.face is not None}
+    if len(faces) != 1:
+        return pcbnew.Cmts_User
+    return pcbnew.F_Fab if next(iter(faces)) is Face.FRONT else pcbnew.B_Fab
+
+
+def _keepout_admits_text(k) -> str:
+    """`<name>: parts <= H mm` for a height, `<name>: U3, U4` for parts
+    named by allow=, `<name>: GND copper` for nets, joined with '; ' when
+    a keepout admits more than one kind."""
+    clauses = []
+    if k.max_height is not None:
+        clauses.append("parts <= %.2f mm" % k.max_height)
+    named = sorted(k.owners - k.admitted)
+    if named:
+        clauses.append(", ".join(named))
+    if k.allow:
+        clauses.append(", ".join(sorted(k.allow)) + " copper")
+    return "%s: %s" % (k.name, "; ".join(clauses))
+
+
+def _keepout_admits(k) -> bool:
+    return k.max_height is not None or bool(k.owners - k.admitted) or bool(k.allow)
+
+
+def _draw_keepout_drawings(board, plan):
+    """Each keepout that admits something (write.keepout_drawings), drawn as
+    its outline and a label naming what it admits, in placemat's own group
+    `keepout drawings`, replaced whole every run. A stamped fragment's own
+    (still nested in its cell's group at this point in the write, before
+    _write_groups lifts nested groups) is left alone: only the top-level
+    group by this name is ours."""
+    for g in list(board.Groups()):
+        if g.GetName() == _KEEPOUT_DRAWINGS_GROUP and g.GetParentGroup() is None:
+            for it in list(g.GetItems()):
+                g.RemoveItem(it)
+                board.Delete(it)
+            board.Delete(g)
+    mode = plan.occupancy.settings.write_keepout_drawings
+    if mode == "none":
+        return
+    line = plan.occupancy.settings.write_keepout_line
+    size = plan.occupancy.settings.write_keepout_text
+    drawn = []
+    for k in plan.keepouts.values():
+        if mode == "admitting" and not _keepout_admits(k):
+            continue
+        layer = _keepout_drawing_layer(k.layers)
+        sh = pcbnew.PCB_SHAPE(board, pcbnew.SHAPE_T_POLY)
+        sh.SetLayer(layer)
+        sh.SetFilled(False)
+        sh.SetWidth(nm(line))
+        ps = pcbnew.SHAPE_POLY_SET()
+        ps.NewOutline()
+        for x, y in k.poly:
+            ps.Append(nm(x), nm(y))
+        sh.SetPolyShape(ps)
+        board.Add(sh)
+        drawn.append(sh)
+        centre = Box.of_points(k.poly).center
+        t = pcbnew.PCB_TEXT(board)
+        t.SetText(_keepout_admits_text(k))
+        t.SetLayer(layer)
+        t.SetTextSize(pcbnew.VECTOR2I(nm(size), nm(size)))
+        t.SetTextThickness(nm(line))
+        t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_CENTER)
+        t.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_CENTER)
+        t.SetPosition(vec(centre.x, centre.y))
+        board.Add(t)
+        drawn.append(t)
+    if drawn:
+        g = pcbnew.PCB_GROUP(board)
+        g.SetName(_KEEPOUT_DRAWINGS_GROUP)
+        for it in drawn:
+            g.AddItem(it)
+        board.Add(g)
 
 
 def _draw_outline(board, plan: Plan):
@@ -949,6 +1036,7 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
         plan.merged_zones = _merge_cell_zones(board, plan)
     _draw_outline(board, plan)
     _draw_keepouts(board, plan)
+    _draw_keepout_drawings(board, plan)
     draw_copper(board, plan.copper, plan.geometry, plan.findings)
     plan.group_notes = _write_groups(board, plan)
     out = str(out_path or pcb_path)

@@ -5,6 +5,14 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+A keepout that admits something (`allow=` or `max_height=`) is now also
+drawn on the board: its outline and a label naming what it admits, on the
+Fab layer of its face or `User.Comments`, in its own group `keepout
+drawings`. `write.keepout_drawings = "none"` turns it off; `"all"` draws
+every keepout, admitting or not.
+
 ## To 0.57.2
 
 A keepout that excludes parts only no longer judges a cell's own tracks

@@ -845,6 +845,18 @@ KiCad's DRC lists a part (or a track of a net) the keepout allows as
 `permitted` (`metrics.permitted`, and the DRC line's "permitted by their
 keepout"), not as violations.
 
+**Drawn on the board.** A rule area is a hatch on a copper layer with
+nothing saying what it admits, so alongside it, a keepout that admits
+something (`allow=` or `max_height=`) is drawn as its own outline and a
+label naming what it admits - `ring: parts <= 1.90 mm`, `antenna: R_ANT
+copper`, joined with `; ` when it admits more than one kind - on the Fab
+layer of its face (`F.Fab` for a keepout on `F.Cu`), or `User.Comments`
+for one on both faces or on inner layers only. `write.keepout_drawings`
+chooses which: `admitting` (the default), `all`, or `none`. These
+drawings are placemat's own, in one group, `keepout drawings`, replaced
+whole on every write; a stamped fragment's own belong to its cell's group
+and move with it, as its rule areas do.
+
 **The board edge.** A region may hang off it. Only the on-board part does
 anything - a part is refused for crossing the keep-in before any reservation is
 tested, and KiCad clips a zone to Edge.Cuts itself - and the step counts the
