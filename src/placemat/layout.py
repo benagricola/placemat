@@ -5057,16 +5057,14 @@ class Board:
             partner = self._waited[obj.key]
             why = (why + "; " if why else "") + "waited for %s, the item it is linked to with more placed connections" % (
                 partner)
-            other = next((o for o in self._placements() if o.key == partner), None)
-            if other is not None and obj.priority.rank > other.priority.rank:
-                # the wait comes before the tier: say what it overrode
-                why += " (its own priority %s set aside for the link)" % obj.priority.name.lower()
         return obj, why
 
     def _link_waits(self, pending: list, pull: dict) -> dict:
         """{item key: the linked partner it waits for}, over declared links
         between two pending items: the one with less pull toward what is
-        placed waits. Level pull waits for nothing."""
+        placed waits. Level pull waits for nothing, and nothing waits for a
+        partner of a lower priority tier: the wait orders items within a
+        tier, never across one."""
         owner = {}
         for o in pending:
             for fp in (o.item.members if o.kind in ("block", "cell") else (o.item,)):
@@ -5081,7 +5079,8 @@ class Board:
             pa, pb = pull[a.key], pull[b.key]
             if abs(pa - pb) > 1e-9:
                 slow, fast = (a, b) if pa < pb else (b, a)
-                waits.setdefault(slow.key, fast.key)
+                if fast.priority.rank >= slow.priority.rank:
+                    waits.setdefault(slow.key, fast.key)
         return waits
 
     def _commit_block(self, occ: Occupancy, spec, members: dict, i: PlaceIntent, plan: Plan, note: str) -> Step:

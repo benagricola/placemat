@@ -30,6 +30,12 @@ judged, where they read "not judged", and a route through a fill names the
 fill's narrowest point when that is its neck. A verdict can newly fail on
 a fill lane that is narrower than the current needs.
 
+A linked item never waits for a partner of a lower `priority=` tier: a
+`HIGH` item linked to a `DEFAULT` one goes down with the `HIGH` tier, where
+it waited for its partner and its step said its priority was set aside for
+the link. Between items of one tier the wait is unchanged. Placements where
+such a link crossed tiers can move.
+
 ## To 0.56.2
 
 A copper finding measures a via as the circle it is, as KiCad's DRC does:

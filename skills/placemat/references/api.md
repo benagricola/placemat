@@ -534,9 +534,11 @@ pull toward what is placed, which only separates items the rank cannot, then
 the largest. The sentence that chose each is in its step. One exception to
 the rank: of two items joined by a `board.link()` and neither placed, the one
 with less pull toward what is placed waits for the other, so it is seeded on
-the part the link joins it to; its step says "waited for" which, and when
-its own `priority=` would have put it first, that it set that priority aside
-for the link. Two pulled equally keep the rank's order.
+the part the link joins it to; its step says "waited for" which. The wait
+orders items within one `priority=` tier: an item never waits for a partner
+of a lower tier, so a `HIGH` item linked to a `DEFAULT` one goes down with
+the `HIGH` tier and the other then places toward it. Two pulled equally
+keep the rank's order.
 
 **What a part claims.** `[place] envelope` says what one part may not share
 with another. `courtyard` (the default) is its courtyard and its pads.
