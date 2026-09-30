@@ -25,6 +25,15 @@ sliver off the route (where a pad's rounded corner meets the pour's edge)
 no longer fails a wide pour. A pour's width reads within one
 `check.zone_step` of its true width.
 
+A label at `rotation=90` is boxed where it reads: up the page from its
+anchor, as long as the text. Its box ran down over its own item and off to
+one side, so its reservation and its "sits on" findings were in the wrong
+place; a script that moved parts to clear a vertical label's finding can
+drop the move. Under `[place] envelope = "physical"` a label sits on a part
+when it overlaps one of the part's shapes (its body, pads, mask, silk, or
+the courtyard an undrawn part claims), not the box round them: a label in
+the corner of a round part's box no longer sits on it.
+
 ## To 0.63.1
 
 A keepout's drawn label is its name and its height limit, never a list

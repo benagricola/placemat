@@ -211,3 +211,57 @@ def test_a_part_searched_later_keeps_its_silk_the_silk_clearance_from_a_label():
     silk = Box.union([s.box for s in plan.occupancy.items["R1"].shapes if s.kind == "silk"])
     gap = max(t.box.left - silk.right, silk.left - t.box.right, t.box.top - silk.bottom, silk.top - t.box.bottom)
     assert gap >= 0.2 - 1e-9, (t.box, silk)
+
+
+@pytest.mark.parametrize("side", [Edge.NORTH, Edge.SOUTH, Edge.EAST, Edge.WEST])
+def test_a_label_up_the_page_is_boxed_where_it_reads(side):
+    """At rotation 90 the text's length runs up the page and its height
+    across it: the box that finds what the label sits on, and reserves it,
+    stands off the side asked, centred on the item, as long as the text."""
+    b = make_board()
+    b.place(Part("j1"), at=Location(20, 20))
+    b.label(Part("j1"), "RESET", side=side, gap=0.5, size=0.8, thickness=0.15, rotation=90)
+    plan = b.resolve()
+    (t,) = labels(plan)
+    reach = plan.occupancy.items["J1"].reach
+    length, height = 5 * 0.8 * 0.914 + 0.15, 0.8 + 0.15
+    assert t.box.width == pytest.approx(height) and t.box.height == pytest.approx(length)
+    if side is Edge.NORTH:
+        assert t.box.bottom == pytest.approx(reach.top - 0.5) and t.box.center.x == pytest.approx(reach.center.x)
+    elif side is Edge.SOUTH:
+        assert t.box.top == pytest.approx(reach.bottom + 0.5) and t.box.center.x == pytest.approx(reach.center.x)
+    elif side is Edge.EAST:
+        assert t.box.left == pytest.approx(reach.right + 0.5) and t.box.center.y == pytest.approx(reach.center.y)
+    else:
+        assert t.box.right == pytest.approx(reach.left - 0.5) and t.box.center.y == pytest.approx(reach.center.y)
+
+
+def _coin_board(cx, cy):
+    """J1 at (20, 32), and M1: a part that draws neither silk nor fab, its
+    courtyard a disc of radius 5, claimed as the part itself."""
+    import dataclasses
+    import math
+    from placemat.settings import Settings
+    from placemat.values import Box
+    disc = tuple((cx + 5 * math.cos(k * math.pi / 16), cy + 5 * math.sin(k * math.pi / 16)) for k in range(32))
+    m1 = dataclasses.replace(footprint("M1", cx, cy, w=10, h=10, inst="m1", nets=("A", "B")),
+                             courtyard_poly=disc, courtyard_box=Box.of_points(disc))
+    fps = [footprint("J1", 20, 32, w=8, h=4, inst="j1", nets=("A", "B")), m1]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0,
+              settings=dataclasses.replace(Settings(), place_envelope="physical"))
+    b.place(Part("j1"), at=Location(20, 32))
+    b.label(Part("j1"), "MOTOR", side=Edge.NORTH, gap=2.0)       # the text's box: x 17.6 to 22.4, y 26.9 to 28
+    return b.resolve()
+
+
+def test_a_label_in_the_corner_of_a_round_parts_box_does_not_sit_on_it():
+    """What a label sits on is judged by the other part's shapes, not the
+    box round them: the disc's box covers the label's corner, the disc
+    does not."""
+    plan = _coin_board(26, 23)
+    assert not [f for f in plan.findings if "sits on" in f and "M1" in f], list(plan.findings)
+
+
+def test_a_label_inside_a_claimed_courtyard_sits_on_its_part():
+    plan = _coin_board(25, 24)
+    assert [f for f in plan.findings if "sits on" in f and "M1" in f], list(plan.findings)

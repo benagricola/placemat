@@ -95,9 +95,9 @@ class Text:
         if self.rotation % 180 == 0:
             left = self.at.x + {"left": 0.0, "centre": -w / 2, "right": -w}[self.hjust]
             top = self.at.y + {"top": 0.0, "centre": -h / 2, "bottom": -h}[self.vjust]
-        else:                                   # 90 counter-clockwise: the text runs up the page
-            top = self.at.y + {"left": -w, "centre": -w / 2, "right": 0.0}[self.hjust]
-            left = self.at.x + {"top": 0.0, "centre": -h / 2, "bottom": -h}[self.vjust]
+        else:                                   # 90 counter-clockwise: the text runs up the page, its length in h
+            top = self.at.y + {"left": -h, "centre": -h / 2, "right": 0.0}[self.hjust]
+            left = self.at.x + {"top": 0.0, "centre": -w / 2, "bottom": -w}[self.vjust]
         return Box(left, top, left + w, top + h)
 
 

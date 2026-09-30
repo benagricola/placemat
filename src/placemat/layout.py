@@ -5045,9 +5045,7 @@ class Board:
         done = plan.__dict__.setdefault("_labelled", {})
         if final:                       # what landed on a label after it was worked out
             for key, (op, own, face) in done.items():
-                hits = sorted({occ.who(r) for r, g in occ.items.items()
-                               if g.reference.face is face and r not in occ.pending and (g.reach or g.body).overlaps(op.box)} - own)
-                for h in hits:
+                for h in _label_hits(occ, op.box, face, own):
                     if not any(f.startswith("%s: sits on" % key) and h in f for f in plan.findings):
                         plan.findings.append(Finding("label", "%s: sits on %s" % (key, h)))
         def box_of(item):
@@ -5077,8 +5075,7 @@ class Board:
             op = _label_op(text, box, face, side, gap, align, size, thick, knockout, rotation, line)
             plan.copper.append(op)
             own = {occ.who(r) for r in refs}
-            hits = sorted({occ.who(r) for r, g in occ.items.items()
-                           if g.reference.face is face and r not in occ.pending and (g.reach or g.body).overlaps(op.box)} - own)
+            hits = _label_hits(occ, op.box, face, own)
             note = "%s of %s" % (side.name.lower(), key.split(" ", 2)[1])
             if hits:
                 plan.findings.append(Finding("label", "%s: sits on %s" % (key, ", ".join(hits))))
@@ -6361,6 +6358,32 @@ def _rotation_taking(local: Edge, edge: Edge) -> float:
         if abs(x - want[0]) < 1e-9 and abs(y - want[1]) < 1e-9:
             return r
     raise ValueError("no rotation takes %s to %s" % (local, edge))
+
+
+_LABEL_COVERS = ("body", "pad", "through", "mask", "silk")
+"""The shapes of another part a label sitting on is a finding: what covers
+it, clips it or stands in its silk. A claimed courtyard is the part itself
+and counts too; another courtyard does not, as silk may stand in one."""
+
+
+def _label_hits(occ, box: Box, face: Face, own: set) -> list:
+    """Who a label's text box sits on, on its face: under the physical
+    envelope, a part one of whose shapes it overlaps (a round part's disc,
+    not the box round it); under the others, which draw no silk or body,
+    a part whose reach it overlaps."""
+    label = box_polygon(box)
+    out = set()
+    for r, g in occ.items.items():
+        if g.reference.face is not face or r in occ.pending or occ.who(r) in own:
+            continue
+        if occ.envelope != "physical":
+            if (g.reach or g.body).overlaps(box):
+                out.add(occ.who(r))
+            continue
+        if any((s.kind in _LABEL_COVERS or (s.kind == "courtyard" and s.claims)) and s.box.overlaps(box)
+               and polys_overlap(label, s.poly) for s in g.shapes):
+            out.add(occ.who(r))
+    return sorted(out)
 
 
 def _label_op(text, box: Box, face: Face, side: Edge, gap: float, align: str, size: float, thick: float,
