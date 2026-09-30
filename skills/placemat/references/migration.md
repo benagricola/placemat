@@ -5,6 +5,12 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+A track declared `bridge=True` that passed under another among the copper
+planned before the search no longer stops the run ("'Via' object has no
+attribute 'layer'") when copper is planned after it.
+
 ## To 0.64.0
 
 A carried via's move, and a share's tail, are judged by one native call

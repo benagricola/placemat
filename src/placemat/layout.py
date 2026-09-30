@@ -5184,7 +5184,7 @@ class Board:
                 shapes.append(hole_shape("", op.at, op.drill, op.net, layers=frozenset(op.layers)))   # what is placed after keeps its holes clear
         occ.add_copper(shapes)
         if any(c.freedom.decided for c in intents):
-            ctx.fixed_tracks += [op for op in ops]
+            ctx.fixed_tracks += [op for op in ops if isinstance(op, Track)]     # a bridge's vias are not tracks
         for key, (prio, n, why, freedom) in by_key.items():
             note = "%d op(s)" % n + ("; in the pad: filled or plugged at the fab" if key.startswith("vias ") else "")
             step = Step(key, "copper", prio, None, 0.0, note, why, n, freedom=freedom)
