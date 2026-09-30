@@ -61,6 +61,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | **what pulls parts together** | | |
 | a connection priced (a bypass capacitor, a series part) | `board.link(a, b, weight=, limit_mm=)` | Links |
 | a part held back from a source by physics, not a hand-picked point (a field sensor from a magnet, a heat-sensitive part from a heat source) | `board.push(item, from_=, falloff=, reference=(r_ref, v_ref), limit=)` | Push |
+| a part held back from another part by what the capture says they emit and tolerate | `Pm.Emits` on the source, `Pm.Limit` on the sensitive part (no script line) | Push, annotated |
 | a net whose off-board run dwarfs the board | `board.free_net(net)` | Links |
 | a module's outward, quiet and handoff sides | `board.faces(outward=, quiet=, handoff=)` | Faces |
 | **the board and its regions** | | |
@@ -1193,6 +1194,50 @@ it.
 distance where it landed: `push from m1: 0.21 at 15.9 mm (limit 0.3)`.
 `placemat check` does not re-judge it - the model is the script's own.
 
+### Push, annotated
+
+`board.push` is for a source no footprint carries (a point in the
+enclosure). A source that is a footprint, and a part sensitive to it, are
+said once in the capture (`references/capture.md`: `Pm.Emits`,
+`Pm.EmitsAt`, `Pm.Limit`, `Pm.SensesAt`) and need no script line. At each
+run placemat pairs every part carrying a `Pm.Limit` of a kind with every
+part carrying a `Pm.Emits` of that kind, in cells and loose alike, and each
+pair acts as a push with the same model, `value(r) = v_ref * (r_ref / r) **
+falloff`, the same hard disc and the same soft price (`score.push`).
+
+**Order.** A pair is judged by whichever of its two parts is placed second,
+so nothing waits for anything and no cycle can form. When the sensitive
+part is placed second it is `board.push(sensitive, from_=<the source's
+emission point>)`. When the source is placed second the disc is round the
+sensitive part's sensing point, and the source is measured from its own
+emission point. All placed sources of a kind add at the part: a candidate
+where the sum exceeds the limit is refused, whichever source is placed
+second, and the price is the sum of each pair's `score.push * value /
+limit`. The sum is asked on the search; a part placed by an edge, a run, a
+line, a ring or a spoke is held by the discs alone. A limit the sources placed before already exceed is not enforced on
+the source placed next (no place helps it); the price stays. Two parts that
+each emit and limit one kind (heat) are judged the same way.
+
+`board.push` on an annotated item adds to its annotated pushes. A part
+placed to measure a source (a temperature sensor beside a converter)
+carries no limit for that kind; keep it close with `Near` or a link.
+
+A source that is a member of a cell is measured where the cell carries it.
+A sensitive part inside a block is not judged while the block is placed
+(a push never reaches a block's member); `placemat check` still reports it.
+The cleanup pass leaves a source that has a sensitive partner, and a
+sensitive part with several sources of one kind, where the search put them.
+
+**Refused at the start of a run:** a value that does not parse, a `pad:N`
+the part lacks, and a kind given in two units (a source's `mT` against a
+limit's `uT`), naming both parts.
+
+**The report.** The step of a part in a pair gives, per kind, the summed
+value at the sensitive part where it landed, its limit and the nearest
+source: `magnetic at U2: 0.21 mT of 0.3 mT limit, nearest source M1 at 15.9
+mm`. `placemat check` reports each sensitive part's `exposure`, per kind,
+at its final place (below).
+
 ## Faces (a module's sides, declared once)
 
 ```python
@@ -1926,7 +1971,12 @@ second and a half a page and only runs on pages under 200 characters.
 `references/capture.md` says which) and reports hot loop area, switch node
 copper, keep-out distance, crossings under sense tracks, current path
 width against IPC-2221 and junction temperature; exit 1 on a failed
-verdict. The keep-out verdict judges what layout can change - a part's own
+verdict. `exposure` is each sensitive part's modelled value per kind at
+its final place against its `Pm.Limit`, pass or fail, naming the sources
+that contribute and their distances: `exposure  U2 magnetic  0.21 mT
+(limit 0.3) ok - magnetic at the body centre: M1 0.21 mT at 15.9 mm`. A
+kind no source emits passes at zero and says so; a `Pm.Emits` or `Pm.Limit`
+that does not read is one unjudged verdict naming the part. The keep-out verdict judges what layout can change - a part's own
 pins are its package, left out - and names the two pieces of copper that
 set its distance and their points, a pad by its part and number, a track
 or via by its net and ends: "L1 pad 1 (SW) at (x, y) to U3 pad 9 (FB) at

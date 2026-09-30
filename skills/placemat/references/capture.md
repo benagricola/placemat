@@ -26,6 +26,10 @@ case-insensitively; use these:
 | `Pm.ThetaJb` | junction-to-board, e.g. `15.5C/W`: what a board temperature wants | heat |
 | `Pm.ThetaJa` | junction-to-ambient, the datasheet's JEDEC-board figure, used only without `Pm.ThetaJb` | heat |
 | `Pm.Height` | the part's seated height in mm: `1.1mm` | the layout: a keepout's `max_height=`, `board.height_of()`, `placemat parts` |
+| `Pm.Emits` | on a source: `<kind>:<value><unit>@<r>mm^<falloff>`, several joined by spaces: `magnetic:3.2mT@13.5mm^3 heat:15C@5mm^1` | the layout (a push), exposure |
+| `Pm.EmitsAt` | on a source: `x,y` in mm in the footprint's own frame, or `pad:<number>`; default the footprint's origin | the layout, exposure |
+| `Pm.Limit` | on a sensitive part: `<kind>:<value><unit>`, several joined by spaces: `magnetic:0.5mT heat:5C` | the layout (a push), exposure |
+| `Pm.SensesAt` | on a sensitive part: `pad:<number>`; default the body centre | the layout, exposure |
 
 `Pm.Height` is read under that exact name. It lets a layout script say the
 room a case leaves over a region once, `board.keepout(shape, name,
@@ -44,6 +48,42 @@ at what it draws, not at the load.
 
 A value is a plain string with its unit, with its source in a comment
 beside it (the datasheet section); a placeholder says so.
+
+## Sources and limits
+
+`Pm.Emits` says a part emits something (a field, heat): `<kind>:<value><unit>@<r>mm^<falloff>` reads "`value` at `r` mm, falling off as `r ** -falloff`",
+so `value(r) = v_ref * (r_ref / r) ** falloff`. A dipole's field falls off as
+the cube (`^3`), heat spreading through a plane roughly linearly (`^1`).
+`Pm.Limit` says a part tolerates only so much of a kind: `<kind>:<value><unit>`. A source and a sensitive part pair when they name the same kind;
+`kind` is free text.
+
+```
+M1  (a magnet)      Pm.Emits:  magnetic:3.2mT@13.5mm^3
+    (a case-mounted magnet is a footprint the board's project draws, with its outline,
+     the pads it lands on and Pm.EmitsAt at its source point)
+U2  (a field sensor) Pm.Limit: magnetic:0.5mT      Pm.SensesAt: pad:3
+U1  (a converter)    Pm.Emits: heat:15C@5mm^1      Pm.EmitsAt: pad:9
+Y1  (a crystal)      Pm.Limit: heat:5C
+```
+
+- `Pm.EmitsAt` is in the footprint's own frame, so it turns and flips with
+  the footprint as its pads do; `pad:<number>` names a pad. `Pm.SensesAt`
+  names the sensing pad.
+- A unit is the text after the value. A kind must carry one unit on every
+  part that names it; a mismatch is refused when the run starts, naming both
+  parts.
+- Several sources of a kind add at the sensitive part.
+- A part that measures a source (a temperature sensor placed to read a
+  converter) carries no limit for that kind: it is not sensitive to that
+  source. Keep it close with `Near` or a link.
+- A source no footprint carries (a point in the enclosure) is not annotated:
+  it is `board.push(item, from_=Location(x, y), ...)` in the script.
+- `Pm.Aggressor` and `Pm.Sensitive` keep their meanings (copper checks);
+  these four are about fields and heat, not copper.
+
+The layout holds each pair apart by the same model `board.push` uses
+(`references/api.md`, "Push, annotated"), and `placemat check` judges each
+sensitive part's value at its final place against its limit.
 
 ## How the checks find their nets
 
@@ -98,6 +138,10 @@ runs the same checks on the board it wrote.
   the part that takes the load (an input connector's load, a switch's
   inductor, a supply's output) its
   own `Pm.I` so the route between them is judged
+- `exposure`: per sensitive part and kind, the summed modelled value at the
+  part's sensing point (`Pm.SensesAt`, else its body centre) against its
+  `Pm.Limit`, naming each contributing source with its value and distance;
+  a kind no source emits passes at zero
 - `heat`: the board temperature (`--ambient`, default 100 C) plus `Pm.Pd`
   times `Pm.ThetaJb` (or `Pm.ThetaJa` when that is all the part has, which
   is pessimistic), against `Pm.TjMax`
@@ -110,6 +154,10 @@ settings` prints them.
 1. Mark every part the datasheet's layout rules name: the switch and its
    input caps (`Pm.Loop`), the switch and the inductor (`Pm.Aggressor`),
    the feedback divider (`Pm.Sensitive`).
+   A part that emits a field or heat other parts must not read (a magnet,
+   an inductor, a hot converter) gets `Pm.Emits` and `Pm.EmitsAt`; a part
+   sensitive to one (a field sensor, a crystal, a thermistor) gets
+   `Pm.Limit` and `Pm.SensesAt`.
 2. Give every part that dissipates or carries the load current its numbers
    (`Pm.I`, `Pm.Pd`, `Pm.TjMax`, `Pm.ThetaJb`), with the datasheet section
    cited beside each, and a part whose height matters its `Pm.Height`.

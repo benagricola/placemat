@@ -169,6 +169,16 @@ model into declarations.
      isolated input's connector need not sit at its isolator;
    - mechanical facts: mounting patterns, case windows, a sensor whose
      position is its function;
+   - field and heat sources (a magnet, an inductor, a hot converter) and
+     the parts sensitive to them (a field sensor, a crystal, a thermistor):
+     add the annotations to the schematic capture (the `.zen`) as the
+     board is modelled - `Pm.Emits` and `Pm.EmitsAt` on each source,
+     `Pm.Limit` and `Pm.SensesAt` on each sensitive part
+     (`references/capture.md`, "Sources and limits") - and placemat pairs
+     them with no script line. `board.push` is for a source no footprint
+     carries (a point in the enclosure). A part placed to measure a source
+     (a temperature sensor beside a converter) carries no limit for that
+     kind; keep it close with `Near` or a link;
    - a cell is placed as one rigid piece; when its parts want different
      places, the capture's module boundary is wrong for this board - a
      job joined to the rest only through board-level nets, or a cell too
