@@ -4,12 +4,12 @@ Status: draft, for approval.
 
 Source: Ben asked what could move into the native module (2026-09-30).
 Profiles, all under cProfile, which roughly doubles pure-Python time:
-- **The fairing core's checks** (`placemat check` on the written board):
+- **The whole-board test board's checks** (`placemat check` on the written board):
   1500 s. The zone-fill width was 1497 s of it:
   - `_Fill.touching` 1228 s: about a billion `point_segment_distance` calls;
   - `_Fill._reach` 234 s;
   - the distance transform 16 s.
-- **The fairing core's placement** (`run`, up to the write): 727 s.
+- **The whole-board test board's placement** (`run`, up to the write): 727 s.
   - `giveway.resolve` took 552 s over 19,657 calls.
   - The native sweep took 70 s.
 - **The bench's modules** (default and physical configs): 127 s. The native
@@ -43,7 +43,7 @@ Instead:
 
 The current test is exact to the copper's edges; the raster is exact to
 half a cell. So the Python version is compared with the current one on the
-tests and the fairing core. A width may change by at most one step
+tests and the whole-board test board. A width may change by at most one step
 (`check.zone_step`), and a changed verdict is reported, not assumed.
 
 **Then native.** `_Fill` moves to Rust as `NativeFill`, in a new
@@ -56,12 +56,12 @@ Python keeps the choice of the neck point and the sentence. A parity test
 runs both on the current-path tests' fills and on a slit fill, and requires
 identical widths and neck cells.
 
-Target: the core's checks under 30 s, unprofiled.
+Target: the whole-board checks under 30 s, unprofiled.
 
 ## 2. Give way
 
 `resolve` runs for every candidate spot that is legal apart from its vias:
-19,657 times on the core, each searching up to `place.via_move` of offsets
+19,657 times on the whole board, each searching up to `place.via_move` of offsets
 for each via that meets something.
 
 **Split each via's move search into a part that holds for the whole scan
@@ -85,8 +85,8 @@ and a part that depends on the candidate.**
 The rest of give way (drops' keep shares, the report, apply and undo) stays
 in Python.
 
-Target: give way under 15% of the core's placement time, down from 76%.
-The same actions on the give-way tests and the core.
+Target: give way under 15% of the whole board's placement time, down from 76%.
+The same actions on the give-way tests and the whole board.
 
 ## 3. The sweep's Python
 
@@ -109,9 +109,9 @@ profiled.
 ## 4. A bench case this size
 
 The bench's modules carry no via fields and no zone fills worth measuring,
-so neither slowdown showed. The bench gains a whole-board case: the fairing
-core's generated board and a layout script placing its cells, committed
-under `fixtures/fairing/core/` (the fairing fixtures are already there).
+so neither slowdown showed. The bench gains a whole-board case: a
+six-layer test board of 31 cells, with via fields and zone fills, and a
+layout script placing its cells, committed under `fixtures/`.
 
 Timed separately:
 - `bench.py --board` runs its placement;
@@ -131,13 +131,13 @@ Each is its own commit, with the bench tally and the timings.
 
 ## Verification
 
-- Zone width: the current-path tests pass unchanged; the core's verdicts
+- Zone width: the current-path tests pass unchanged; the whole board's verdicts
   match, or each difference is at most one step and listed.
 - NativeFill: parity with the Python `_Fill` on every test fill and on the
-  core's fills.
+  whole board's fills.
 - Give way:
   - the give-way tests pass unchanged;
-  - the core's give-way actions are identical before and after;
+  - the whole board's give-way actions are identical before and after;
   - `test_a_sweep_whose_vias_give_way_is_the_same_native_or_not` passes.
 - The sweep: `test_native_sweep` and `test_native_legal` pass; bench
   "same 32" on every config.

@@ -2,12 +2,11 @@
 
 Status: draft, for approval.
 
-Source: Ben, through the fairing completion session and then directly
-(2026-09-30). Today:
-- fab-profile.json holds only `courtyard.excess_mm`;
-- the stackup is described only in prose (ARCHITECTURE.md, board_rules.zen);
+Source: Ben (2026-09-30). Today a board's facts are split across files:
 - placemat.toml holds `[check] copper_oz` and `rise_c`, and `[route] layers`
   and `diff_pairs`;
+- fab-profile.json holds via types and courtyard values;
+- the stackup is wherever a project writes it down, often only in prose;
 - nothing in the skill asks a session to establish any of this.
 
 ## The rule
@@ -43,15 +42,10 @@ a pair class sets `diff_pair_width` and `diff_pair_gap`. KiCad has no
 placemat reads the layer types today (`BoardGeometry.layer_types`). It does
 not read the copper weights or use the pair classes.
 
-On the fairing core, board_rules.zen declares no stackup, so the board
-carries the stdlib 6-layer default:
-- copper: F mixed 1 oz; In1 ground, In2 power, In3 mixed and In4 ground,
-  each 0.5 oz (0.0152 mm); B mixed 1 oz;
-- this does not match the prose: signal / GND / signal / 3V3 / GND /
-  signal, with 1 oz inner copper planned.
-
-Its `90Ohm Diff` class lists no nets. So the core's placemat.toml names
-the route layers and the pairs by hand.
+A .zen that declares no stackup gives the board the stdlib's default for
+its layer count: roles and copper weights the design may not intend, with
+nothing to say so. A pair class that lists no nets leaves the pairs to be
+named elsewhere, today in placemat.toml, as are the route layers.
 
 ## 1. placemat reads the board's facts
 
@@ -124,9 +118,9 @@ So give way gets a fourth way, after share, move and drop:
 With the type at `"yes"`, shorten is a real way. With `"if-needed"`, it is
 judged but never applied:
 - A search that finds no legal spot, but would have found one with the
-  if-needed type, says so on the step: "protect: no spot; it places with 6
+  if-needed type, says so on the step: "m: no spot; it places with 6
   GND drops as B-In4 blind vias (via.blind is if-needed in
-  fab-profile.json)".
+  fab-profile.json)", for an item m.
 - The same sentence is a finding of kind `needs`, in the run summary and in
   `impact`.
 - The spot is still refused. The user decides by setting the type to
@@ -196,42 +190,41 @@ layer from the board.
 
 A migration.md section for this release says what to change on a board.
 
-**1. Declare the stackup in the .zen.** In board_rules.zen, give
-`BoardConfig` a `stackup`, with each copper layer's role and weight, and
-the dielectrics from the fab's stackup for the chosen part number. The
-fairing core's, from its prose, with 1 oz inner copper:
+**1. Declare the stackup in the .zen.** Give the board's `BoardConfig` a
+`stackup`, with a `CopperLayer` for each copper layer, top to bottom, and a
+`DielectricLayer` between each pair. Each copper layer takes its weight as
+a thickness and its role; each dielectric takes the fab's thickness and
+material for the chosen stackup:
 
 ```python
 load("@stdlib/board_config.zen", "BoardConfig", "CopperLayer", "DielectricLayer",
-     "Material", "Stackup", ...)
+     "Material", "Stackup")
 
 STACKUP = Stackup(
-    thickness = 1.6,
-    materials = [...],          # the fab's prepreg and core, as the stdlib's BASE_6L_STACKUP lists them
+    thickness = <board mm>,
+    materials = [<the fab's prepreg and core, as Material(...)>],
     layers = [
-        CopperLayer(thickness = 0.035, role = "signal"),   # F.Cu
-        DielectricLayer(thickness = ..., material = "3313", form = "prepreg"),
-        CopperLayer(thickness = 0.035, role = "ground"),   # In1.Cu, GND
-        DielectricLayer(thickness = ..., material = "FR4-Core", form = "core"),
-        CopperLayer(thickness = 0.035, role = "signal"),   # In2.Cu
-        DielectricLayer(thickness = ..., material = "2116", form = "prepreg"),
-        CopperLayer(thickness = 0.035, role = "power"),    # In3.Cu, 3V3
-        DielectricLayer(thickness = ..., material = "FR4-Core", form = "core"),
-        CopperLayer(thickness = 0.035, role = "ground"),   # In4.Cu, GND
-        DielectricLayer(thickness = ..., material = "3313", form = "prepreg"),
-        CopperLayer(thickness = 0.035, role = "signal"),   # B.Cu
+        CopperLayer(thickness = <mm>, role = "<signal|mixed|power|ground>"),   # F.Cu
+        DielectricLayer(thickness = <mm>, material = "<name>", form = "<prepreg|core>"),
+        # ... each inner copper layer, with a dielectric after it ...
+        CopperLayer(thickness = <mm>, role = "<signal|mixed|power|ground>"),   # B.Cu
     ],
 )
 CONFIG = BoardConfig(stackup = STACKUP, design_rules = ...)
 ```
 
-The dielectric thicknesses are the fab's for that stackup (1 oz inner
-changes them from the 0.5 oz stack's). The impedance classes' widths
-(`50Ohm SE`, `90Ohm Diff`) depend on them, so they are re-checked against
-the fab's impedance calculator.
+A layer's role is what it carries:
+- `signal`: tracks;
+- `ground` or `power`: a plane;
+- `mixed`: both.
 
-**2. Name the pair nets in their class:**
-`USB_PAIR_CLASS = NetClass(name = "90Ohm Diff", ..., nets = ["USB_D_P", "USB_D_N"])`.
+The route step routes on `signal` and `mixed` layers. The impedance
+classes' widths depend on the dielectrics, so they are re-checked whenever
+the stackup changes.
+
+**2. Name the pair nets in their class.** A differential pair class takes
+`nets = ["<NET>_P", "<NET>_N"]` (names or KiCad wildcard patterns), with
+its `diff_pair_width` and `diff_pair_gap`.
 
 **3. Delete the retired keys from placemat.toml:** `[check] copper_oz`,
 `[route] layers` and `[route] diff_pairs`. A run refuses them, naming what

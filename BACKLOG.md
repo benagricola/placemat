@@ -12,7 +12,7 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
 
 ## Housekeeping (left for Ben: outside this repository)
 
-- `mnb-ecosystem/pyproject.toml` points placemat at the stale
+- A downstream project's `pyproject.toml` points placemat at the stale
   `~/work/placemat-greenfield`; the `placemat-check` and
   `placemat-greenfield` worktrees are stale.
 
@@ -28,7 +28,7 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   wait never outranks priority (spec
   `2026-09-30-diagonal-lane-zone-width-link-priority-design.md`); `Pin` on
   a member's origin; `measure --models`; `parts --fragments`.
-- **The fairing core's 0.56.1 bugs** (0.56.2): an overhang on a shaped
+- **A test board's 0.56.1 bugs** (0.56.2): an overhang on a shaped
   board's run; a run's point at its own end; a copper finding measuring a
   via as its circle; findings naming the board's own layers; a refusal's
   copper count naming whose copper and which net.
@@ -42,7 +42,7 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   the router has kept out of a left-out net's partial inner pour since
   0.50's pour guards. A routed copy's copper per net is `measure --copper`
   on it, and its layers `placemat layer`.
-- **Lanes as intent** (0.55.0; fairing PLACEMAT_GAPS 2026-09-29; spec
+- **Lanes as intent** (0.55.0; a board's PLACEMAT_GAPS 2026-09-29; spec
   `2026-09-29-past-copper-and-row-pitch-design.md`): `Past` over vias and
   tracks with `across=`; a via at a `Past` point; `Beside` aligning a pad a
   lane past other pads; `row(of=, centre=PadRef, pitch=)`; `plane(over=)`.
@@ -50,7 +50,7 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   footprint copper per KiCad's exclusion; a nested cell written where the
   plan put it; `measure --copper`, `--envelope`, models; `parts` joint
   counts; `drc` instance paths.
-- **Fixes from the fairing's 0.54 conversion** (0.54.1; fairing reports
+- **Fixes from a board's 0.54 conversion** (0.54.1; a board's reports
   2026-09-29): swallow pours settle by draw order as KiCad's zone priority
   does; a pad is joined when the pour's copper overlaps it; `vias(along=)`
   joined to its pad by a tail and a track may end on it; `Beside` aligns to
@@ -84,11 +84,11 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   `2026-09-29-cell-members-in-reservations-design.md`).
 
 - **Routing a pour net's taps the pours do not reach** (0.51.0; the
-  fairing board's session, 2026-09-28; spec
+  a board's session, 2026-09-28; spec
   `2026-09-28-pour-net-islands-design.md`): `[route] islands`, routed first
   and alone. Breakout, a partial In2 pour over half of a net's pads: 3 pieces
   apart before, 0 after, its pour kept clear in the main pass.
-- **`lock --current` all-or-nothing** (0.51.0; the fairing board's
+- **`lock --current` all-or-nothing** (0.51.0; a board's
   session, 2026-09-28; spec `2026-09-28-lock-current-partial-design.md`):
   `--partial` locks what stands and lists the rest.
 
@@ -281,7 +281,7 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   rectangle; reasons are formatted once per rejection bucket. Sequential
   timing on the merged code, Python then native, CPU time, whole bench
   corpus: default 62.3 -> 25.0 s (2.49x), solve 59.3 -> 22.0 s (2.70x),
-  physical 136.2 -> 30.6 s (4.45x); the fairing core's resolve 224.1 ->
+  physical 136.2 -> 30.6 s (4.45x); a whole test board's resolve 224.1 ->
   48.3 s (4.64x). All 102 bench results and all 174 core steps identical;
   the suite passes both ways. Spec:
   `docs/superpowers/specs/2026-09-24-native-core-design.md`. Open: how the
@@ -290,8 +290,8 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   costing the parent: the cell's step now says how much board its regions
   take beyond its members, and `board.fanout()` is the band that follows
   the pad rows. Item 2, the via-in-pad chip on the back: fixed in 0.29.0
-  (checked on the fairing core: the MCU's 9 exposed-pad vias read as vias,
-  0 leads). Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`,
+  (checked on a whole test board: the MCU's 9 exposed-pad vias read as vias,
+  0 leads). Source: a board's `PLACEMAT_GAPS.md`,
   "2026-09-23: placemat 0.28".
 - **The solve's default: stays off** (decided 2026-09-24): re-measured on the
   current code (rotations, pockets, neighbour swaps), the solve against the
@@ -301,85 +301,80 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   (closed 2026-09-24): the library's courtyards are its own to fix. On the
   placemat side a courtyard-envelope run lists each footprint whose silk
   passes its courtyard (`metrics.footprints`), the physical envelope spaces
-  by silk, and a label keeps the silk clearance. Source: fairing-instrument
-  `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 6.
+  by silk, and a label keeps the silk clearance. Source: a board's `PLACEMAT_GAPS.md`, "the bench panel cell", item 6.
 - **A fanout band** (0.29.0): `board.fanout(part, depth=, sides=)` reserves
   the strip outside each pad row on the part's face for its satellites and
   SHORT-linked parts. Spec: `docs/superpowers/specs/2026-09-24-fanout-band-design.md`.
-  Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive
+  Source: a board's `PLACEMAT_GAPS.md`, "passive
   orientation", items 2 and 5.
 - **Pin names for pads** (0.29.0): read from the symbols the .zen files
   use (through the component's footprint, else the netlist's name);
   `PadRef(part, pin=)` and pin names in `measure --pads`. 53 parts named on
-  the fairing core, the MCU's 57 pins among them. Spec:
+  a whole test board, the MCU's 57 pins among them. Spec:
   `docs/superpowers/specs/2026-09-24-pin-names-design.md`. Source:
-  fairing-instrument `electronics/PLACEMAT_GAPS.md`, "2026-09-22: which pad
+  a board's `PLACEMAT_GAPS.md`, "2026-09-22: which pad
   is the supply pin", "the power cells" item 4.
 - **Neighbours trade places in the cleanup pass** (0.29.0): two
   neighbouring two-pad parts of any size are tried in each other's places,
   in any rotation each may take. Bench: 6 better, 0 worse. Source:
-  fairing-instrument `electronics/PLACEMAT_GAPS.md`, "passive orientation",
+  a board's `PLACEMAT_GAPS.md`, "passive orientation",
   item 5.
 - **A line item starts across from its links** (0.29.0): `Location(x, None)`
   and `Centre(None, y)` slide from the point across from what they connect
-  to when that is placed. Source: fairing-instrument
-  `electronics/PLACEMAT_GAPS.md`, "passive orientation", item 4.
+  to when that is placed. Source: a board's `PLACEMAT_GAPS.md`, "passive orientation", item 4.
 - **Label boxes in `measure`; a fragment framed** (0.29.0): `measure
   --labels` gives every board silk text's drawn box; `placemat preview`
   frames on the board outline and the placed parts, so parts left at the
-  generator's positions do not shrink the view. Source: fairing-instrument
-  `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 5.
+  generator's positions do not shrink the view. Source: a board's `PLACEMAT_GAPS.md`, "the MCU cell", item 5.
 - **Per-net airwire and part coordinates** (0.29.0): `metrics.airwire_per_net`,
   the impact's `airwire by net:`, and origin, rotation and centre in `parts`.
-  Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the bench panel
+  Source: a board's `PLACEMAT_GAPS.md`, "the bench panel
   cell", item 5.
 - **`[drc.severities]`** (0.29.0): KiCad rule severities written into the
-  board's project each run. Source: fairing-instrument
-  `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 1.
+  board's project each run. Source: a board's `PLACEMAT_GAPS.md`, "the MCU cell", item 1.
 - **A fragment laid out by default rules is named** (0.29.0): the rules
   come from the generator (`pcb`); a run notes a board whose silk clearance
   is 0 and the skill says to give a fragment the parent's config. Source:
-  fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 3.
+  a board's `PLACEMAT_GAPS.md`, "the MCU cell", item 3.
 - **Courtyards judged as KiCad judges them** (0.29.0): measured, KiCad's
   DRC counts touching courtyards as overlapping and its polygon lies inside
   the drawn box (by 0.03 for a 0.05 stroke). Each footprint's margin is
   read from KiCad's polygon; two courtyards may overlap by the two margins
   less 0.001. Bench: default 14 better, 4 worse, median 0.99. Source:
-  fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things", item 6.
+  a board's `PLACEMAT_GAPS.md`, "seven things", item 6.
 - **A stamped cell's labels are reserved in the parent** (0.29.0): each
   silk text in a cell's group is read as a parts-excluding region of the
-  cell on its face. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`,
+  cell on its face. Source: a board's `PLACEMAT_GAPS.md`,
   "the bench panel cell", item 2.
 - **A label keeps the silk clearance from its part** (0.29.0): the label
   gap is at least the board's silk clearance. Reproduced with the flag tab
   footprint and KiCad's DRC: at gap 0 every side touched the tab's silk on
   the front; on the back and with the fix, DRC is clean at every rotation.
-  Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven
+  Source: a board's `PLACEMAT_GAPS.md`, "seven
   things", item 7.
 - **Rows in a drawn envelope keep the envelope's gaps** (0.29.0): a row's
   or ring's gap is at least the widest gap the envelope enforces. Source:
-  fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the MCU cell", item 4.
+  a board's `PLACEMAT_GAPS.md`, "the MCU cell", item 4.
 - **Parts a keepout allows are not DRC violations** (0.29.0): KiCad's
   `items_not_allowed` for an allowed part or net is counted as permitted.
-  Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "the power
+  Source: a board's `PLACEMAT_GAPS.md`, "the power
   cells", item 3.
 - **"Wholly off the board" by area** (0.29.0): a region is off the board
   only when it shares no area with it or lies inside a hole. Source:
-  fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things", item 4.
+  a board's `PLACEMAT_GAPS.md`, "seven things", item 4.
 - **The far face under a through-hole part** (0.29.0): only its holes
   claim it; a lead keeps courtyards off, a via in the part's own pad does
-  not. Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven
+  not. Source: a board's `PLACEMAT_GAPS.md`, "seven
   things" item 5, "the power cells" item 1.
 - **What a run is made from** (0.29.0): the cached generation records
   its inputs and regenerates when one changes; the script's directory is
   importable and its sibling modules count in the run id. Source:
-  fairing-instrument `electronics/PLACEMAT_GAPS.md`, "seven things" items
+  a board's `PLACEMAT_GAPS.md`, "seven things" items
   2 and 3, "the bench panel cell" item 3.
 - **Three gaps bugs** (0.28.0): the pocket search takes the largest room
   the item fits, and the check before a search rounds toward room; a parts
   keepout or stamped rule area keeps parts off only the faces its layers
-  name; an undeclared part is a finding. Source: fairing-instrument
-  `electronics/PLACEMAT_GAPS.md`, "the MCU cell" item 2, "the power cells"
+  name; an undeclared part is a finding. Source: a board's `PLACEMAT_GAPS.md`, "the MCU cell" item 2, "the power cells"
   item 2, "seven things" item 1, "passive orientation" item 3, "the bench
   panel cell" item 4.
 - **Rotations for searched parts** (0.28.0): all four for a part with none
@@ -388,15 +383,14 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   median HPWL 0.84 (default). Core board copy (its script already lists
   four rotations on searched parts): 126 placed either way, wire cost
   1385.1 -> 1383.7, 589 -> 676 CPU s under power save. Blocks keep one
-  rotation (the bench has none to measure). Source: fairing-instrument `electronics/PLACEMAT_GAPS.md`,
+  rotation (the bench has none to measure). Source: a board's `PLACEMAT_GAPS.md`,
   "passive orientation", items 1 and 5.
 - **legal() faster** (0.28.0): shapes turned once per rotation, rectangles
   by their boxes; the same placements, about a third less resolve time in
   the courtyard envelope.
 - **Coinciding outlines** (0.28.0): `polys_overlap` finds shared
   interior when every vertex lies on the other's boundary; two satellites on
-  one pad are refused with the reason, not stacked. Source: fairing-instrument
-  `electronics/PLACEMAT_GAPS.md`, "the bench panel cell", item 1.
+  one pad are refused with the reason, not stacked. Source: a board's `PLACEMAT_GAPS.md`, "the bench panel cell", item 1.
 - **placemat preview** (0.27.0): the plan drawn without building the board,
   with links, pockets, unplaced parts, copper and a congestion heat map;
   core board unchanged preview 5.3 s. A part not yet placed no longer blocks
@@ -464,5 +458,5 @@ from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
   `docs/superpowers/specs/2026-09-22-bench-and-pocket-fallback-design.md`.
 
 - **The solve crashed on a board with a keepout** (`51fd482`). Source:
-  fairing-instrument `electronics/PLACEMAT_GAPS.md`, "2026-09-22: `[solve]
+  a board's `PLACEMAT_GAPS.md`, "2026-09-22: `[solve]
   enabled = true` crashes on a board with a keepout".
