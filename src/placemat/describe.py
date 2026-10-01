@@ -7,12 +7,15 @@ pinned by tests that run without KiCad, and `cli.py` stays a dispatcher.
 """
 from __future__ import annotations
 
+import math
 from collections import Counter
 
 from .board_geometry import part_height
 from .geometry import distance_to_boundary, polys_overlap
 from .ranking import pin_count
 from .values import Box, CopperLayer, Face
+
+DRC_EPSILON_MM = 0.0005
 
 
 def _xy(p) -> list:
@@ -332,6 +335,99 @@ def copper_segments(geometry, nets) -> list:
     return out
 
 
+def _seg_distance(a, b, c, d) -> float:
+    """The shortest distance between segments a-b and c-d."""
+    from .geometry import point_segment_distance, segments_intersect
+    if segments_intersect(a, b, c, d):
+        return 0.0
+    return min(point_segment_distance(a, c, d), point_segment_distance(b, c, d),
+               point_segment_distance(c, a, b), point_segment_distance(d, a, b))
+
+
+def _seg_to_chain(a, b, pts, closed, filled) -> float:
+    """From segment a-b to a chain of points (a closed outline when `closed`);
+    0 where it reaches into a `filled` one."""
+    from .geometry import point_in_polygon
+    if len(pts) == 1:
+        from .geometry import point_segment_distance
+        return point_segment_distance(pts[0], a, b)
+    if filled and len(pts) >= 3 and point_in_polygon(a, tuple(pts)):
+        return 0.0
+    n = len(pts)
+    return min(_seg_distance(a, b, pts[i], pts[(i + 1) % n]) for i in range(n if closed else n - 1))
+
+
+def _foreign_shapes(c) -> list:
+    """What measures a copper item's edge: [(points, closed, filled, radius)],
+    the distance to the chain less the radius. A via, a straight track and a
+    graphic polygon are measured as KiCad's DRC does, as a circle, a segment
+    and an outline with a stroke, not by the polygons that approximate them;
+    anything else by its copper outlines."""
+    if c.kind == "via" and c.anchors:
+        return [([c.anchors[0]], False, False, c.width_mm / 2.0)]
+    if c.kind == "track" and len(c.anchors) == 2 and c.length_mm <= math.dist(*c.anchors) + 1e-3:
+        return [(list(c.anchors), False, False, c.width_mm / 2.0)]
+    if c.kind == "poly" and c.vertices:
+        return [(list(o), True, c.filled, c.width_mm / 2.0) for o in c.vertices if len(o) >= 2]
+    return [(list(o), True, True, 0.0) for o in c.outlines if len(o) >= 3]
+
+
+def _pair_clearance(geometry, a: str, b: str) -> float:
+    try:
+        return geometry.clearance(a, b)
+    except KeyError:
+        try:
+            return geometry.clearance(a)
+        except KeyError:
+            return 0.0
+
+
+def copper_polygons(geometry, nets) -> list:
+    """Every graphic copper polygon of `nets` (every net when empty): its net,
+    layer, stroke width, whether it is filled and its outlines' vertices; and
+    for each edge the nearest copper of another net on its layer (pad, track,
+    via, polygon, zone fill), the gap from the polygon's copper (the edge
+    grown by half the stroke) to it, the clearance the net class pair needs
+    and `under` where the gap is less. An unfilled polygon's copper is its
+    stroke alone. A .kicad_dru rule is not read. Round pads are measured by
+    their polygons, which stand up to 0.005 mm outside the circle."""
+    want = set(nets)
+    polys = [c for c in geometry.copper if c.kind == "poly" and c.vertices and (not want or c.net in want)]
+    out = []
+    for c in sorted(polys, key=lambda c: (c.net, sorted(l.value for l in c.layers), c.vertices)):
+        others = [(o, _foreign_shapes(o)) for o in geometry.copper
+                  if o is not c and o.net != c.net and o.layers & c.layers and (o.outlines or o.anchors)]
+        edges = []
+        for ring in c.vertices:
+            n = len(ring)
+            for i in range(n if n > 2 else n - 1):
+                a, b = ring[i], ring[(i + 1) % n]
+                best, who = math.inf, None
+                for o, shapes in others:
+                    for pts, closed, filled, radius in shapes:
+                        # the box lower bound: nothing in a far box can beat the best so far
+                        near = max(min(a[0], b[0]) - max(p[0] for p in pts), min(p[0] for p in pts) - max(a[0], b[0]),
+                                   min(a[1], b[1]) - max(p[1] for p in pts), min(p[1] for p in pts) - max(a[1], b[1]),
+                                   0.0) - radius - c.width_mm / 2.0
+                        if near >= best:
+                            continue
+                        d = _seg_to_chain(a, b, pts, closed, filled) - radius - c.width_mm / 2.0
+                        if d < best:
+                            best, who = d, o
+                gap = max(best, 0.0) if who is not None else None
+                clearance = _pair_clearance(geometry, c.net, who.net) if who is not None else None
+                edges.append({"start": [round(a[0], 4), round(a[1], 4)], "end": [round(b[0], 4), round(b[1], 4)],
+                              "nearest": None if who is None else {"kind": who.kind, "net": who.net, "owner": who.owner},
+                              "gap": None if gap is None else round(gap, 4),
+                              "clearance": None if clearance is None else round(clearance, 4),
+                              # KiCad's DRC passes a pair within its epsilon (BOARD_DESIGN_SETTINGS::GetDRCEpsilon)
+                              "under": who is not None and gap < clearance - DRC_EPSILON_MM})
+        out.append({"net": c.net, "layer": "/".join(sorted(l.value for l in c.layers)), "width": round(c.width_mm, 4),
+                    "filled": c.filled, "vertices": [[round(x, 4), round(y, 4)] for ring in c.vertices for x, y in ring],
+                    "edges": edges})
+    return out
+
+
 def copper_lines(geometry, nets) -> list:
     lines = []
     for s in copper_segments(geometry, nets):
@@ -343,6 +439,16 @@ def copper_lines(geometry, nets) -> list:
         if c.kind == "via" and (not want or c.net in want):
             lines.append("%s  via  (%.3f, %.3f)  size %.2f drill %.2f" % (
                 c.net, c.box.center.x, c.box.center.y, c.box.width, c.drill_mm))
+    for p in copper_polygons(geometry, nets):
+        lines.append("%s  %s  polygon  stroke %.2f  %s  %d vertices: %s" % (
+            p["net"], p["layer"], p["width"], "filled" if p["filled"] else "unfilled", len(p["vertices"]),
+            " ".join("(%.3f, %.3f)" % tuple(v) for v in p["vertices"])))
+        for e in p["edges"]:
+            who = e["nearest"]
+            lines.append("  edge (%.3f, %.3f) -> (%.3f, %.3f)  %s" % (*e["start"], *e["end"], "no copper of another net"
+                         if who is None else "nearest %s %s%s  gap %.3f mm  needs %.3f mm%s" % (
+                             who["kind"], who["net"] or "-", " (%s)" % who["owner"] if who["owner"] else "", e["gap"],
+                             e["clearance"], "  under" if e["under"] else "")))
     return lines or ["no tracks or vias%s" % (" on " + " ".join(nets) if nets else "")]
 
 

@@ -133,7 +133,7 @@ a `.kicad_mod` or loading pcbnew.
 | each track segment of a net and what its ends land on | `placemat measure <board> --copper [NET ...]` | Commands |
 | how near each part stands to a keepout | `placemat measure <board> --keepouts [NAME ...]` | Commands |
 | the silk texts and marks on a board | `placemat measure <board> --labels` | Commands |
-| one copper layer by net, and tracks inside another net's zone | `placemat layer <board> <LAYER>` | Commands |
+| one copper layer by net (zone fills, polygons, tracks, vias, pads), and tracks inside another net's zone | `placemat layer <board> <LAYER>` | Commands |
 | which nets matter: span, routed length, detour, vias | `placemat nets <board>` | Commands |
 | what is at a point, where a via fits, a clear path between two pads | `placemat occupancy <board> --at / --via-near / --corridor` | Commands |
 | each DRC violation, with the parts' instance paths | `placemat drc <layout.kicad_pcb>` | Commands |
@@ -2085,7 +2085,16 @@ degrees - a model that lost its turn, which otherwise shows only in the
 render (`--json`: `model_checks`). `--copper [NET ...]` lists instead every track segment
 of those nets (all when none is named) - layer, width, both ends and what
 each lands on (a pad as REF.NUMBER, a via, another track, or `-`), length
-and bearing, `off 0/45/90` on a leg at any other angle - then the vias.
+and bearing, `off 0/45/90` on a leg at any other angle - then the vias, then
+each graphic copper polygon of those nets (a `PCB_SHAPE` polygon on a copper
+layer): net, layer, stroke width, filled, its vertices, and per edge the
+nearest copper of another net on its layer (pad, track, via, polygon, zone
+fill), the gap from the polygon's copper (its outline grown by half its
+stroke; an unfilled polygon's copper is its stroke alone) to it, the
+clearance the net class pair needs and `under` where the gap is less
+(`--json`: `polygons`, each with `edges`). A board's `.kicad_dru` rules are
+not read. Round pads are measured by their polygons, up to 0.005 mm outside
+the circle.
 Given the routed copy (`.placemat/route/.../*.kicad_pcb`) it shows where the
 router put each net's copper.
 `--keepouts [NAME ...]` lists, per rule area (all when none is named) and
