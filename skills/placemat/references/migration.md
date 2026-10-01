@@ -5,6 +5,15 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+A track from a net tie's pad across the tie's own copper is judged where
+KiCad's DRC judges it: at the track's collision position as KiCad computes
+it for a segment against a polygon (its start, when the copper holds it,
+else the nearest point of the copper's edges to its centreline), not where
+the two outlines first cross. A track leaving a round net-tie pad over the
+tie's bar was a clearance finding KiCad's DRC does not report.
+
 ## To 0.65.1
 
 `check crossings-under` no longer counts another net's copper behind a

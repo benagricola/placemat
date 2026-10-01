@@ -65,3 +65,33 @@ def test_a_track_meeting_a_net_tie_winding_inside_its_own_pad_is_not_a_conflict(
 def test_the_same_meeting_on_a_footprint_that_is_no_net_tie_is_a_conflict():
     plan = _tank_board(())
     assert [f for f in plan.findings if "L1 copper" in f], plan.findings
+
+
+def _round_tie_board():
+    """A net tie as a stock 0.3 mm one draws it: two round pads 0.5 mm apart,
+    pad 1 (net A) at (20, 20), pad 2 (net B) at (19.5, 20), joined by a bar
+    from pad 2's centre to pad 1's; a 0.16 mm track of net A leaves pad 1's
+    centre southward, across the bar's end."""
+    from placemat.geometry import circle_polygon
+    from placemat.values import Box, Net, PadRef
+    tie = footprint("NT1", 19.75, 20, w=1.7, h=0.3, inst="nt1", nets=("A", "B"))
+    pads = []
+    for p, (cx, net) in zip(tie.pads, ((20.0, "A"), (19.5, "B"))):
+        disc = circle_polygon(Location(cx, 20.0), 0.15, 32)
+        pads.append(dataclasses.replace(p, net=net, outlines=(disc,), box=Box.of_points(disc)))
+    bar = rect(19.75, 20.0, 0.5, 0.3)                                   # x 19.5 to 20.0, y 19.85 to 20.15
+    tie = dataclasses.replace(tie, pads=tuple(pads), copper=((CopperLayer.F, bar),), net_tie_pads=frozenset({"1", "2"}))
+    b = Board(board_geometry([tie], width=40, height=40), edge_margin=0.5, keep_going=True)
+    b.place(Part("nt1"), at=Location(19.75, 20))
+    b.track(Net("A"), [PadRef(Part("nt1"), 1), Location(20.0, 21.0)], layer=CopperLayer.F, width=0.16, chamfer=0)
+    return b.resolve()
+
+
+def test_a_track_from_a_round_net_tie_pad_across_the_bar_is_not_a_conflict():
+    """KiCad judges where a track meets the tie's copper as its collision
+    position for a segment (SHAPE_LINE_CHAIN_BASE::Collide(SEG)): the track's
+    start inside the copper, else the nearest point of the copper's edges to
+    its centreline. Here that lies on pad 1, so KiCad's DRC passes it; where
+    the two outlines cross lies just outside the round pad."""
+    plan = _round_tie_board()
+    assert not [f for f in plan.findings if "NT1 copper" in f], plan.findings

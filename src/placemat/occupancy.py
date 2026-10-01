@@ -1825,7 +1825,12 @@ class Occupancy:
                     and sh.layers & item.layers & other.layers]
             if not pads:
                 continue
-            at = _contact_point(item.poly, other.poly)
+            ends = getattr(item, "ends", None)
+            # a track meets the tie where KiCad's segment collision puts it (DRC test of a track against an
+            # item: the track's SHAPE_SEGMENT collides with the other's polygon); other copper where their
+            # outlines meet
+            at = _kicad_segment_location(ends, other.poly) if ends and len(ends) == 2 else \
+                _contact_point(item.poly, other.poly)
             if any(point_in_polygon(at, pad) or _point_poly_distance(at, pad) <= _NET_TIE_EPSILON for pad in pads):
                 return True
         return False
@@ -1834,6 +1839,129 @@ class Occupancy:
 # KiCad's DRC epsilon (BOARD_DESIGN_SETTINGS::GetDRCEpsilon, 0.0005 mm by default): how far a
 # collision may lie outside a net-tie pad and still be inside it
 _NET_TIE_EPSILON = 0.0005
+
+
+def _kicad_segment_location(ends, poly) -> tuple:
+    """Where KiCad's DRC places a track's collision with a closed polygon:
+    SHAPE_LINE_CHAIN_BASE::Collide(SEG) (libs/kimath/src/geometry/
+    shape_line_chain.cpp, KiCad 10.0), on the track's centreline `ends`. Its
+    start, when the polygon holds it (PointInside's crossing rule, so a point
+    on a right-hand edge is outside); else the nearest point of the first of
+    the polygon's edges nearest the centreline (SEG::NearestPoint). Worked in
+    whole nanometres, as KiCad does."""
+    nm = lambda p: (int(round(p[0] * 1e6)), int(round(p[1] * 1e6)))
+    a, b = nm(ends[0]), nm(ends[1])
+    pts = [nm(p) for p in poly]
+    if _k_point_inside(a, pts):
+        at = a
+    else:
+        best, at = None, a
+        for i in range(len(pts)):
+            edge = (pts[i], pts[(i + 1) % len(pts)])
+            d2 = _k_seg_sq_distance(edge, (a, b))
+            if best is None or d2 < best:
+                at, best = _k_seg_nearest_to_seg(edge, (a, b)), d2
+                if d2 == 0:
+                    break
+    return (at[0] / 1e6, at[1] / 1e6)
+
+
+def _k_rescale(a: int, b: int, c: int) -> int:
+    """KiCad's rescale(): a * b / c, rounded half away from zero."""
+    q = a * b
+    r = (abs(q) + abs(c) // 2) // abs(c)
+    return r if (q >= 0) == (c > 0) else -r
+
+
+def _k_point_inside(p, pts) -> bool:
+    """SHAPE_LINE_CHAIN_BASE::PointInside at an accuracy of 0."""
+    inside = False
+    n = len(pts)
+    for i in range(n):
+        p1, p2 = pts[i], pts[(i + 1) % n]
+        dy = p2[1] - p1[1]
+        if dy == 0:
+            continue
+        d = _k_rescale(p2[0] - p1[0], p[1] - p1[1], dy)
+        if ((p1[1] >= p[1]) != (p2[1] >= p[1])) and (p[0] - p1[0] < d):
+            inside = not inside
+    return inside
+
+
+def _k_nearest_to_point(seg, p):
+    """SEG::NearestPoint(VECTOR2I)."""
+    (ax, ay), (bx, by) = seg
+    dx, dy = bx - ax, by - ay
+    l2 = dx * dx + dy * dy
+    if l2 == 0:
+        return (ax, ay)
+    t = dx * (p[0] - ax) + dy * (p[1] - ay)
+    if t < 0:
+        return (ax, ay)
+    if t > l2:
+        return (bx, by)
+    return (ax + _k_rescale(t, dx, l2), ay + _k_rescale(t, dy, l2))
+
+
+def _k_intersect(s1, s2):
+    """SEG::Intersect(aSeg): the point two segments share, or None; for
+    collinear ones the middle of their overlap."""
+    (ax, ay), (bx, by) = s1
+    (cx, cy), (ex, ey) = s2
+    if max(ax, bx) < min(cx, ex) or max(cx, ex) < min(ax, bx) or \
+            max(ay, by) < min(cy, ey) or max(cy, ey) < min(ay, by):
+        return None
+    d1x, d1y = bx - ax, by - ay
+    d2x, d2y = ex - cx, ey - cy
+    ox, oy = cx - ax, cy - ay
+    det = d2x * d1y - d2y * d1x
+    if det == 0:
+        if d1x * oy - d1y * ox != 0:
+            return None
+        use_x = abs(d1x) >= abs(d1y)
+        s1a, s1b, s2a, s2b, o1a, o1b = (ax, bx, cx, ex, ay, by) if use_x else (ay, by, cy, ey, ax, bx)
+        lo, hi = max(min(s1a, s1b), min(s2a, s2b)), min(max(s1a, s1b), max(s2a, s2b))
+        if hi < lo:
+            return None
+        proj = int((lo + hi) / 2)                  # C++ integer division truncates toward zero
+        other = o1a + _k_rescale(proj - s1a, o1b - o1a, s1b - s1a) if s1b != s1a else o1a
+        return (proj, other) if use_x else (other, proj)
+    p2 = d2x * oy - d2y * ox
+    p1 = d1x * oy - d1y * ox
+    if det > 0:
+        if p1 < 0 or p1 > det or p2 < 0 or p2 > det:
+            return None
+    elif p1 > 0 or p1 < det or p2 > 0 or p2 < det:
+        return None
+    return (cx + _k_rescale(p1, d2x, det), cy + _k_rescale(p1, d2y, det))
+
+
+def _k_sq(p, q) -> int:
+    return (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2
+
+
+def _k_seg_sq_distance(s1, s2) -> int:
+    """SEG::SquaredDistance(SEG)."""
+    if s1[0] == s1[1]:
+        return _k_sq(_k_nearest_to_point(s2, s1[0]), s1[0])
+    if s2[0] == s2[1]:
+        return _k_sq(_k_nearest_to_point(s1, s2[0]), s2[0])
+    if _k_intersect(s1, s2) is not None:
+        return 0
+    return min(_k_sq(_k_nearest_to_point(s2, s1[0]), s1[0]), _k_sq(_k_nearest_to_point(s2, s1[1]), s1[1]),
+               _k_sq(_k_nearest_to_point(s1, s2[0]), s2[0]), _k_sq(_k_nearest_to_point(s1, s2[1]), s2[1]))
+
+
+def _k_seg_nearest_to_seg(s1, s2):
+    """SEG::NearestPoint(SEG): the point of `s1` nearest `s2`."""
+    hit = _k_intersect(s1, s2)
+    if hit is not None:
+        return hit
+    outs = [s1[0], s1[1], _k_nearest_to_point(s1, s2[0]), _k_nearest_to_point(s1, s2[1])]
+    dists = [_k_sq(_k_nearest_to_point(s2, s1[0]), s1[0]), _k_sq(_k_nearest_to_point(s2, s1[1]), s1[1]),
+             _k_sq(outs[2], s2[0]), _k_sq(outs[3], s2[1])]
+    i = min(range(4), key=lambda k: (dists[k], k))
+    return outs[i]
 
 
 def _point_poly_distance(p, poly) -> float:
