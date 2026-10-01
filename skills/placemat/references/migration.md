@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.67.0
 
 ### New
 
@@ -1782,11 +1782,11 @@ that says what replaces it.
 | a pair centreline typed as coordinates | To 0.56.0 |
 | a power pour polygon built from pad edges | To 0.56.0 |
 | a pour polygon bounded by neighbouring lanes, vias and parts | To 0.65.0 |
-| a swallowing pour with `cover=` or corner points, relying on pull-back | Unreleased |
+| a swallowing pour with `cover=` or corner points, relying on pull-back | To 0.67.0 |
 | a waypoint on a 45 worked out as x - y or x + y off a pad's corner | To 0.57.0 |
 | a cell stood as far toward an end as its tall members allow, by offsets worked out from its members' frame | To 0.63.0 |
 | a sense track's first point placed from `placed_size()` half a track off a pad's edge | To 0.64.0 |
-| a pad placed at `X(PadRef(...), PITCH)` to stand a mechanical pitch from another pad | Unreleased |
-| a `Beside` `gap=` worked out to put a pad a clearance off another part's pad | Unreleased |
+| a pad placed at `X(PadRef(...), PITCH)` to stand a mechanical pitch from another pad | To 0.67.0 |
+| a `Beside` `gap=` worked out to put a pad a clearance off another part's pad | To 0.67.0 |
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |
