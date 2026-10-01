@@ -1275,6 +1275,19 @@ class Occupancy:
                       for s in geom.shapes)
         return {face} | ({Face.FRONT, Face.BACK} if through else set())
 
+    def board_why(self, box: Box, margin: float) -> str | None:
+        """None when `box` lies on the board - inside its outline, outside
+        its cutouts - with `margin` to spare from every edge, else what it
+        crosses."""
+        if self.board_shape is not None:
+            return self.board_shape.why_not(box, margin)
+        if self.board_box is not None:
+            if not self.board_box.inflate(-margin).contains(box):
+                return "crosses the board edge margin (%.2f mm)" % margin
+            if self.board_cutouts:
+                return self.board_cutouts.why_not(box, margin)
+        return None
+
     def _edge_why(self, body: Box) -> str | None:
         """What the board's edge says of a body box, or None."""
         if self.board_shape is not None:

@@ -6011,10 +6011,23 @@ class Board:
             # silk clearance is a silk overlap to KiCad, whatever gap was asked for.
             gap = max(gap, self.geometry.silk_clearance)
             op = _label_op(text, box, face, side, gap, align, size, thick, knockout, rotation, line)
-            plan.copper.append(op)
             own = {occ.who(r) for r in refs}
-            hits = _label_hits(occ, op.box, face, own)
             note = "%s of %s" % (side.name.lower(), key.split(" ", 2)[1])
+            off = self._label_off_board(occ, op.box)
+            if off:                     # silk off the board is not printed: another spot on it, if the label is not in a line
+                spots = [] if group else [c for c in self._label_candidates(entry, box, op)
+                                          if not self._label_off_board(occ, c[2].box)]
+                spots.sort(key=lambda c: bool(_label_hits(occ, c[2].box, face, own)))      # a clear one first
+                if spots:
+                    side_, word, op = spots[0]
+                    note = "%s %s of %s; moved from %s: it was %s" % (
+                        side_.name.lower(), word, key.split(" ", 2)[1], side.name.lower(), off)
+                    plan.__dict__.setdefault("_label_at", {})[key] = "%s %s" % (side_.name.lower(), word)
+                else:
+                    plan.findings.append(Finding("label", "%s: no spot on the board for it beside %s: it is %s" % (
+                        key, key.split(" ", 2)[1], off)))
+            plan.copper.append(op)
+            hits = _label_hits(occ, op.box, face, own)
             if hits:
                 plan.findings.append(Finding("label", "%s: sits on %s" % (key, ", ".join(hits))))
                 note += "; sits on " + ", ".join(hits)
@@ -6077,6 +6090,14 @@ class Board:
                 return True
         layer = reservation.layer
         return any((layer is None or layer.face in faces) and reservation.overlaps(b) for b, faces in bodies)
+
+    def _label_off_board(self, occ, box: Box) -> str | None:
+        """Why a label's text box is not on the board, or None. Silk off the
+        board is not printed, and KiCad judges silk to the board edge by the
+        silk clearance rule (drc_test_provider_edge_clearance.cpp:
+        SILK_CLEARANCE_CONSTRAINT, DRCE_SILK_EDGE_CLEARANCE), so the text keeps
+        that clearance from the outline and from a cutout."""
+        return occ.board_why(box, self.geometry.silk_clearance)
 
     def _label_candidates(self, entry, box: Box, op: Text) -> list:
         """[(side, where on it, the label there)] for the spots a label may
@@ -6153,8 +6174,8 @@ class Board:
                 cb = cand.box
                 silk = Shape(key, "silk", frozenset([face]), frozenset(), "", box_polygon(cb), cb)
                 held = dataclasses.replace(reservation, poly=box_polygon(cb))
-                if (self._label_in_the_way(occ, silk, held, item, placement, committed) or _label_hits(occ, cb, face, set(own))
-                        or any(cb.overlaps(b) for b in labels)
+                if (self._label_off_board(occ, cb) or self._label_in_the_way(occ, silk, held, item, placement, committed)
+                        or _label_hits(occ, cb, face, set(own)) or any(cb.overlaps(b) for b in labels)
                         or (occ.envelope == "physical" and any(
                             o.box.overlaps(cb, gap=occ._drawn_gap) and occ._conflict(silk, o, None)
                             for o in obstacles))):

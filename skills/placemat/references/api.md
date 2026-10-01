@@ -2249,6 +2249,12 @@ where it was put and the label moves, first along the side it was
 declared on (between that side's start and end, nearest its declared spot
 first), then to the item's other sides, nearest first. It keeps its `gap`
 off the item and clear of what is placed, so it still reads as that item's.
+A label's spot is always on the board: inside its outline (a round or shaped
+board's too), outside its cutouts, and the board's silk clearance from the
+edge, which is what KiCad checks silk to the board edge against. A label
+declared where that is not so moves the same way when first placed; with no
+spot on the board a `label` finding says so (a line of labels is only
+reported).
 The step's note says so ("moved from north END to north MID: U20 was
 there"). With no clear spot it stays, a `label` finding names it and what
 is in the way, and the firm item's collision stops the run as before.
