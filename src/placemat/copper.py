@@ -460,9 +460,12 @@ def _nearest(pts: list, q: Location):
     return best[1], best[2], best[3]
 
 
-def _dir(a: Location, b: Location):
-    return (0 if abs(b.x - a.x) < 1e-9 else math.copysign(1, b.x - a.x),
-            0 if abs(b.y - a.y) < 1e-9 else math.copysign(1, b.y - a.y))
+STRAIGHT = 1e-9     # the default for a leg's `tolerance`: below it two ends are level on an axis
+
+
+def _dir(a: Location, b: Location, tol: float = STRAIGHT):
+    return (0 if abs(b.x - a.x) < tol else math.copysign(1, b.x - a.x),
+            0 if abs(b.y - a.y) < tol else math.copysign(1, b.y - a.y))
 
 
 def _turns(dirs: list) -> int:
@@ -477,13 +480,14 @@ def _turns(dirs: list) -> int:
     return n
 
 
-def _leg_candidates(a: Location, b: Location) -> list:
+def _leg_candidates(a: Location, b: Location, tol: float = STRAIGHT) -> list:
     """Octilinear ways from a to b with at most three legs, each a list of
     points including a and b: the 45 at the start, at the end, or between
     two straights; two 45s round one straight; and the two right-angle
-    L shapes. Every leg is at 0, 45 or 90 degrees."""
+    L shapes. Every leg is at 0, 45 or 90 degrees. Ends that differ by less
+    than `tol` on an axis are level on it: one straight leg between them."""
     dx, dy = b.x - a.x, b.y - a.y
-    if abs(dx) < 1e-9 or abs(dy) < 1e-9 or abs(abs(dx) - abs(dy)) < 1e-9:
+    if abs(dx) < tol or abs(dy) < tol or abs(abs(dx) - abs(dy)) < 1e-9:
         return [[a, b]]
     sx, sy = math.copysign(1, dx), math.copysign(1, dy)
     m = min(abs(dx), abs(dy))                      # the diagonal's reach on each axis
@@ -509,11 +513,11 @@ def _leg_candidates(a: Location, b: Location) -> list:
     return out
 
 
-def _bend_matches(cand: list, bend) -> bool:
+def _bend_matches(cand: list, bend, tol: float = STRAIGHT) -> bool:
     """Whether every diagonal sub-leg of `cand` sits exactly where `bend`
     asks: START at a alone, END at b alone, BOTH at both with one straight
     leg between them."""
-    dirs = [_dir(p, q) for p, q in zip(cand, cand[1:])]
+    dirs = [_dir(p, q, tol) for p, q in zip(cand, cand[1:])]
     diag = [i for i, d in enumerate(dirs) if d[0] != 0 and d[1] != 0]
     if bend.value == "start":
         return diag == [0]
@@ -522,7 +526,7 @@ def _bend_matches(cand: list, bend) -> bool:
     return len(dirs) == 3 and diag == [0, 2]                    # BOTH
 
 
-def _detours(a: Location, b: Location) -> list:
+def _detours(a: Location, b: Location, tol: float = STRAIGHT) -> list:
     """Other octilinear ways from a to b, for when none of `_leg_candidates`
     clears: a straight along the minor axis before the 45 or after it (out
     along a pin's row and off the pad beside it, where every way that starts
@@ -532,7 +536,7 @@ def _detours(a: Location, b: Location) -> list:
     either axis."""
     dx, dy = b.x - a.x, b.y - a.y
     m = min(abs(dx), abs(dy))
-    if m < 1e-9:
+    if m < tol:
         return []
     sx, sy = math.copysign(1, dx), math.copysign(1, dy)
     one_45 = abs(abs(dx) - abs(dy)) < 1e-9
@@ -552,7 +556,7 @@ def _detours(a: Location, b: Location) -> list:
 
 
 def route_leg(a: Location, b: Location, pad_a: bool, pad_b: bool, prev, nxt, clear, bend=None,
-              lane_a=None, lane_b=None) -> list:
+              lane_a=None, lane_b=None, tol: float = STRAIGHT) -> list:
     """The best octilinear way from a to b: among the candidates whose legs
     all `clear`, the fewest direction changes against the legs either side
     (a chamfered right angle counting two), then the shortest, then the 45
@@ -565,25 +569,26 @@ def route_leg(a: Location, b: Location, pad_a: bool, pad_b: bool, prev, nxt, cle
     corner. `bend` (a `Bend`) then narrows them to those whose 45 sits at
     the end it names, before that scoring runs. A narrowing no candidate
     meets is dropped; a leg with no room to choose (already on the grid,
-    or already a single 45) is unaffected."""
-    cands = _leg_candidates(a, b)
+    or already a single 45) is unaffected. Ends level to within `tol` on an
+    axis are one straight leg."""
+    cands = _leg_candidates(a, b, tol)
     if clear is not None and not any(all(clear(p, q) for p, q in zip(c, c[1:])) for c in cands):
-        cands += _detours(a, b)
+        cands += _detours(a, b, tol)
     if lane_a or lane_b:
-        on = [c for c in cands if (not lane_a or _dir(c[0], c[1]) in lane_a)
-              and (not lane_b or _dir(c[-2], c[-1]) in lane_b)]
+        on = [c for c in cands if (not lane_a or _dir(c[0], c[1], tol) in lane_a)
+              and (not lane_b or _dir(c[-2], c[-1], tol) in lane_b)]
         if on:
             cands = on
     if bend is not None:
-        matched = [c for c in cands if _bend_matches(c, bend)]
+        matched = [c for c in cands if _bend_matches(c, bend, tol)]
         if matched:
             cands = matched
     scored = []
     for k, cand in enumerate(cands):
-        dirs = [prev] + [_dir(p, q) for p, q in zip(cand, cand[1:])] + [nxt]
+        dirs = [prev] + [_dir(p, q, tol) for p, q in zip(cand, cand[1:])] + [nxt]
         turns = _turns(dirs)
         length = sum(p.distance(q) for p, q in zip(cand, cand[1:]))
-        first = len(cand) == 3 and _dir(cand[0], cand[1])[0] != 0 and _dir(cand[0], cand[1])[1] != 0
+        first = len(cand) == 3 and _dir(cand[0], cand[1], tol)[0] != 0 and _dir(cand[0], cand[1], tol)[1] != 0
         tie = 0 if (first and not (pad_b and not pad_a)) or (not first and pad_b and not pad_a) else 1
         ok = all(clear(p, q) for p, q in zip(cand, cand[1:])) if clear is not None else True
         scored.append((0 if ok else 1, turns, round(length, 6), tie, k, cand))
@@ -591,20 +596,21 @@ def route_leg(a: Location, b: Location, pad_a: bool, pad_b: bool, prev, nxt, cle
     return scored[0][5]
 
 
-def octilinear(pts: list, at_pad=None, clear=None, bend=None, lanes=None) -> list:
+def octilinear(pts: list, at_pad=None, clear=None, bend=None, lanes=None, tolerance: float = STRAIGHT) -> list:
     """The polyline with every leg at 0, 45 or 90 degrees: a leg at another
     angle is routed by route_leg, the best clear octilinear way between its
     ends given the legs either side. `bend` is the script's own choice of
     which end takes the 45 (None: the planner's). `lanes`, one per point,
     is None or the directions a leg may leave or reach that point on (a
-    45 held off a corner)."""
+    45 held off a corner). A leg whose ends differ by less than `tolerance`
+    on one axis is drawn straight between them (`copper.straight_tolerance`)."""
     at_pad = at_pad or [False] * len(pts)
     lanes = lanes or [None] * len(pts)
     out = [pts[0]] if pts else []
     for i, (a, b) in enumerate(zip(pts, pts[1:])):
-        prev = _dir(out[-2], out[-1]) if len(out) > 1 else None
-        nxt = _dir(b, pts[i + 2]) if i + 2 < len(pts) else None
-        out += route_leg(a, b, at_pad[i], at_pad[i + 1], prev, nxt, clear, bend, lanes[i], lanes[i + 1])[1:]
+        prev = _dir(out[-2], out[-1], tolerance) if len(out) > 1 else None
+        nxt = _dir(b, pts[i + 2], tolerance) if i + 2 < len(pts) else None
+        out += route_leg(a, b, at_pad[i], at_pad[i + 1], prev, nxt, clear, bend, lanes[i], lanes[i + 1], tolerance)[1:]
     return out
 
 

@@ -1,9 +1,9 @@
 # The script surface
 
 ```python
-from placemat import (board, Along, Axis, Bend, Beside, Between, Box, Cell, CellPadRef, Centre, Corner, Cover, Pin, Polar, OnRim, OnBore,
-                       Cutout, Disc, Drops, Arc, Circle, Path, Slot, CopperLayer, Edge, Face, Forbid, Fraction, FreeSpot, Inside, Land, Line,
-                       LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part, Past, Priority, Turned, X, Y)
+from placemat import (board, Along, Axis, Bearing, Bend, Beside, Between, Box, Cell, CellPadRef, Centre, Corner, Cover, Pin, Polar, OnRim, OnBore,
+                       Cutout, Disc, Drops, Arc, Circle, Path, Slot, CopperLayer, Edge, Face, Facing, Forbid, Fraction, FreeSpot, Inside, Land, Line,
+                       LinkWeight, Location, Mid, Near, Net, OnEdge, Origin, Parallel, PadRef, Part, Past, Priority, Turned, X, Y)
 ```
 
 `board` is the board being laid out. Questions answer from the generated
@@ -36,6 +36,12 @@ replaces. Only a relation that search cannot say goes in the board's
 | its own pad against another pad's edge (a net tie at a shunt's inner edge) | `at=Pin(1, PadRef(part, n, edge=Edge.SOUTH, along=Along.END))` | Placement |
 | a cell placed by one of its members' pads | `at=Pin(CellPadRef(cell, net=), x, y)` | Placement |
 | a cell placed by a member's footprint origin (not a pad) | `at=Pin(Part(member), x, y)` | Placement |
+| a part's own origin on another part's (or a cell's) origin | `at=Origin(Part(other))` | Placement (Origins) |
+| its own origin on the midpoint of two pads (a pad-less outline between two pins) | `at=Mid(PadRef(a, 1), PadRef(b, 1))` | Placement (Origins) |
+| another part's origin as a coordinate | `X(Origin(Part(other)))`, `Mid(Origin(a), Origin(b))`, `Polar(r, bearing, about=Origin(...))` | Placement (Origins) |
+| the midpoint of two of its own pads on a point | `at=Pin(Mid(10, 11), x, y)` | Placement (Own pad midpoint) |
+| that midpoint level with a point, beside a part | `at=Beside(item, Edge.SOUTH, align=(Mid(10, 11), X(point)))` | Placement (Own pad midpoint) |
+| one land of a pin drawn as several on the point | `at=Pin(key, x, y, land=Land.LARGEST)` | Placement (Own pad midpoint) |
 | between two pads | `at=Centre(X(Mid(a, b)), Y(a))` | Placement |
 | sliding along one line, the other axis free | `at=Centre(None, y)` / `Location(x, None)` | Placement |
 | as far toward one end of a line as it is legal | `at=Centre(x, None, toward=Edge.SOUTH)` | Placement |
@@ -48,6 +54,9 @@ replaces. Only a relation that search cannot say goes in the board's
 | its pad a lane (or the clearance) off a 45 past a pad's corner | `at=Beside(item, Edge.SOUTH, align=(own_pad, Past([PadRef(...)], Corner.NE, lane=Net(...))))` | Placement (Beside) |
 | fixed off a part that is itself searched (a bypass at a searched part's pad end) | any firm `at=` (`Pin`, `Beside`, `row(of=)`) on the searched part: it rides the search | Placement (Riders) |
 | turned with another part | `rotation=Turned(part, deg)` | Placement |
+| turned parallel to the line between two pads (any angle) | `rotation=Parallel(PadRef(a, 1), PadRef(a, 2))` | Placement (Turns) |
+| a point a gap off a pad along that line's normal | `Polar(gap, Bearing(a, b, 90), about=pad)` | Placement (Turns) |
+| turned so a pad's row faces a board side | `rotation=Facing(PadRef(part, n), Edge.NORTH)` | Placement (Turns) |
 | turned to face a board edge or a bearing | `board.outward_rotation(item, edge, face=)` | Faces |
 | its fine-pitch escape kept clear | `board.fanout(part, depth=)` | Placement |
 | a pin row's routes out kept clear, lanes and vias, before parts are placed | `esc = board.escape(part, pins, turn=Edge.WEST, vias=[...])` | Placement (Escape) |
@@ -280,6 +289,68 @@ LEDs, buttons and a connector whose exact spot does not matter are
 `Freedom` - `fixed` for a point, `edge` for a distance along an edge,
 `searched` for anything with a freedom left - and it is DERIVED from
 `at=`, never given.
+
+**Origins.** `Origin(Part("a"))` is a part's footprint origin as placed, a
+point wherever a point is taken: `at=`, `X()`/`Y()`, `Mid`,
+`Polar(about=)`, `Pin(key, point)`. `board.place(Part("b"), at=Origin(Part("a")),
+rotation=Turned(Part("a"), 0))` stands b's own origin on a's, as
+`at=Location` does, and waits for a. `Origin(Cell("c"))` is the cell's frame
+origin, the (0, 0) its fragment was stamped in, carried by the placement the
+cell was given; a cell is placed by a member's origin with
+`Pin(Part(member), Origin(...))`, not `at=Origin(...)`. `X(Part("a"))` is
+still a's body centre. `at=Mid(a, b)`, the midpoint of two references (pads,
+origins), stands the part's origin there too, as `at=Location` does (a
+cell's box centre), and waits for what it names: a pad-less outline
+between two pins is `at=Mid(PadRef(Part("j_p"), 1), PadRef(Part("j_n"), 1))`.
+
+**Own pad midpoint.** `Pin(Mid(10, 11), x, y)` (or `Pin(Mid(10, 11), point)`)
+puts the midpoint of the part's own pads 10 and 11 on the point, at any
+turn and face; the keys are as `Pin` takes them (a number, a net, a
+`PinName`), and two different pads. `Beside(item, side, align=(Mid(10, 11),
+their))` lines that midpoint up as an own pad is, `their` a `PadRef` or a
+point of the axis `side` leaves free: an `X(...)` for a north or south
+side, a `Y(...)` for east or west, or a `Mid`/`Origin` (its coordinate on
+that axis). `Pin(key, ..., land=Land.LARGEST)` or `land=2` puts one land of
+a pin drawn as several on the point, as `PadRef(land=)` names one (counted
+from 1, in the footprint's order); `Mid` takes no `land=`.
+
+```python
+board.place(Part("ldc"), at=Beside(Part("tank0"), Edge.SOUTH,
+            align=(Mid(10, 11), X(Mid(PadRef(Part("l_ring0"), "B"), PadRef(Part("l_ring1"), "A"))))),
+            rotation=0, why="the coil inputs centred between the windings' terminals")
+```
+
+**Turns.** `rotation=Parallel(a, b, degrees=0)` turns the part so its own
+x axis (its footprint's 0 degree axis) lies along the line from point `a`
+to point `b`, plus `degrees`: any angle, not only right angles, and the
+part waits for both points (pads, an `Origin`, a `Mid`; not a point of the
+part itself). On the back face the part's own x axis is the mirrored one,
+and it still lies along the line. `Bearing(a, b, degrees=0)` is the compass
+bearing of that line (0 north, 90 east, as `Polar` reads one) plus
+`degrees`, for `Polar`'s bearing, which then needs its radius.
+`Beside` stays on the board's axes; a stand-off along a turned line is
+`Polar` and `Bearing` from a pad:
+
+```python
+line = (PadRef(Part("l_ring0"), "A"), PadRef(Part("l_ring0"), "B"))
+board.place(Part("c_tank0"), at=Pin(1, Polar(TANK_GAP, Bearing(*line, 90), about=line[0])),
+            rotation=Parallel(*line), why="the tank parallel to its winding's terminals, off along the normal")
+```
+
+`rotation=Facing(PadRef(Part("ldc"), 9), Edge.NORTH)` is the one of the
+part's four right-angle turns where that pad's way out (its row's outward
+axis, `_pin_normal`'s, as fanouts and escapes read it) points at the
+edge; `Facing([PadRef(...), ...], edge)` takes a row of pads. It is settled
+when the part is declared, from the part alone, and refused naming the pads
+when a pad has no way out (a square pad at the corner of the pad field, a
+lone pad) or the pads' ways out differ (two rows). On the back face it is
+the turn that faces the side as seen from the front. `rotations=` with any
+of `Turned`, `Parallel` or `Facing` is refused.
+
+A track leg whose ends differ by less than `copper.straight_tolerance`
+(0.002 mm) on one axis is drawn as one straight segment, not a straight
+plus a sub-micron jog; `placemat measure --copper` does not flag it as off
+0/45/90.
 
 **Riders.** A firm placement - `Pin`, `Beside`, `row(of=)`, or a point said
 in pads - whose reference is a searched part or cell rides it. At each
@@ -2690,6 +2761,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `copper.plane_clearance` | 0.2 | a zone's pullback from foreign copper |
 | `copper.plane_min_thickness` | 0.2 | a zone's minimum filled width |
 | `copper.pour_stroke` | 0.2 | a pour's outline stroke |
+| `copper.straight_tolerance` | 0.002 | a track leg whose ends differ by less than this on one axis is drawn straight between them; `measure --copper` judges 0/45/90 by it too |
 | `write.split_groups` | "lift" | the generator's nested groups: `lift` each cell's group out of its module's to the top level (the module keeps its own parts), `split` also takes out of a group the parts the script places by steps of their own, `keep` writes them as generated; a group left empty is removed |
 | `write.keepout_drawings` | "admitting" | draw a keepout's outline and name (and its height limit) on its Fab layer, or `User.Comments` for one on both faces or on inner layers only: `admitting` (default) those that admit something, `all` every keepout, `none` |
 | `write.keepout_line` | 0.1 | a drawn keepout's outline stroke |

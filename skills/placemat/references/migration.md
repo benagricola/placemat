@@ -7,6 +7,41 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+`Origin(Part(...))` is a part's footprint origin as placed (a cell's
+`Origin(Cell(...))`: its frame origin), a point wherever a point is taken:
+`at=`, `X()`/`Y()`, `Mid`, `Polar(about=)`, `Pin(key, point)`.
+`at=Origin(Part("a"))` stands a part's own origin on a's, and waits for a.
+It replaces coordinates worked out to put one part on another's origin
+(`X(Part(...))` is the body centre, not the origin).
+
+`at=Mid(a, b)` places a part's origin (a cell's box centre) on the midpoint
+of two references, as `at=Location` does, and waits for them. It was
+refused ("at= takes a Location, a Centre, a Pin, ..."). Before:
+`at=(X(Mid(a, b)), Y(a))`; after: `at=Mid(a, b)`.
+
+`Pin(Mid(10, 11), x, y)` puts the midpoint of two of a part's own pads on
+a point, and `Beside(item, side, align=(Mid(10, 11), point))` lines it up
+across the side; `align=` also takes `X(...)`, `Y(...)`, `Mid` and `Origin`
+as the other part's point. `Pin(key, ..., land=Land.LARGEST)` (or a land's
+number) puts one land of a pin drawn as several on the point. These replace
+an offset worked out from the pads' spacing to centre a pair of pads on a
+coordinate.
+
+`rotation=Parallel(a, b, degrees=0)` turns a part so its own x axis lies
+along the line between two points, at any angle; `Bearing(a, b, degrees=0)`
+is that line's compass bearing for `Polar`. `rotation=Facing(PadRef(part,
+n), Edge.NORTH)` (or a list of pads) is the right-angle turn where a pad's
+row points at an edge, refused where no turn does. A rotation typed as a
+constant (3.96, 270) that is right only because of where pads happen to be,
+and an `assert` on pad positions after the place to check it, are these
+forms.
+
+A track leg whose ends differ by less than `copper.straight_tolerance`
+(default 0.002 mm) on one axis is drawn straight; before, a pad-to-pad track
+between pads 0.001 mm out of line got a 1 micron jog, which `measure
+--copper` flagged as off 0/45/90. `measure --copper` judges by the same
+tolerance.
+
 `board.stitch(net, keepout_name)` over a keepout that excludes vias but lets
 the net in (`allow=(Net("GND"),)`) stitches it. It was refused ("excludes
 vias ... add 'GND' to its allow="), and once past that check no via was let
@@ -1744,6 +1779,10 @@ that says what replaces it.
 | a cell stood as far toward an end as its tall members allow, by offsets worked out from its members' frame | To 0.63.0 |
 | a sense track's first point placed from `placed_size()` half a track off a pad's edge | To 0.64.0 |
 | a pad placed at `X(PadRef(...), PITCH)` to stand a mechanical pitch from another pad | Unreleased |
+| a part placed at another part's origin through computed coordinates | Unreleased |
+| a part's pad midpoint aligned by arithmetic (half the pads' spacing in an `X()` or a `Beside` offset) | Unreleased |
+| a rotation constant for a part parallel to a line between pads | Unreleased |
+| a rotation constant checked by an `assert` on pad positions | Unreleased |
 | a `Beside` `gap=` worked out to put a pad a clearance off another part's pad | Unreleased |
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |

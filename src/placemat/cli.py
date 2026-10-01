@@ -717,11 +717,13 @@ def cmd_measure(args) -> int:
             console.lines("measure", "\n".join(describe.keepout_lines(snap, args.keepouts, near)))
         return 0
     if getattr(args, "copper", None) is not None:
+        from .settings import load
+        tol = load(find_board(p).board_dir if p.suffix != ".kicad_pcb" else pcb.parent).copper_straight_tolerance
         if args.json:
-            console.data(json.dumps({"segments": describe.copper_segments(snap, args.copper),
+            console.data(json.dumps({"segments": describe.copper_segments(snap, args.copper, tol),
                                      "polygons": describe.copper_polygons(snap, args.copper)}, indent=2))
         else:
-            console.lines("measure", "\n".join(describe.copper_lines(snap, args.copper)))
+            console.lines("measure", "\n".join(describe.copper_lines(snap, args.copper, tol)))
         return 0
     try:                                            # pin names, when the board's source is beside it
         import dataclasses as _dc

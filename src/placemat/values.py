@@ -188,19 +188,36 @@ class Pin:
     a pad reference, a PadRef with `edge=`), or `Pin(key, x, y)`, each axis a
     number or a reference. How a part is put where its pin must be: a cap's
     pad on a pin's axis, a diode's pad facing another's, a net tie's pad
-    against another pad's edge."""
+    against another pad's edge.
+
+    `key` may also be `Mid(k1, k2)`, two of the part's own pads (keys as
+    above, or `PinName`): the midpoint of the two lands on the point. `land=`
+    names one land of a pin drawn as several (`Land.LARGEST` or its 1-based
+    index in the footprint's order), as `PadRef(land=)` does."""
     key: object
     x: object
     y: object = None            # None: x is the point
+    land: object = field(default=None, kw_only=True, metadata={"omit_default": True})
 
     def __post_init__(self):
         if self.x is None or (self.y is None and isinstance(self.x, (int, float))):
             raise ValueError("a Pin places the pad on a point: Pin(key, point) or Pin(key, x, y)")
+        if self.land is not None:
+            _check_land("a Pin", self.land)
+            if isinstance(self.key, Mid):
+                raise TypeError("a Pin's land= names a land of one pad; Pin(Mid(...)) is two pads' midpoint")
 
     @property
     def axes(self) -> tuple:
         """What each axis is said in: (x, y), or the one point twice."""
         return (self.x, self.x) if self.y is None else (self.x, self.y)
+
+
+def _check_land(what: str, land) -> None:
+    if isinstance(land, bool) or not isinstance(land, (int, Land)):
+        raise TypeError("%s's land= is Land.LARGEST or a land's number, not %r" % (what, land))
+    if not isinstance(land, Land) and land < 1:
+        raise ValueError("%s's land= counts from 1, in the footprint's order; not %r" % (what, land))
 
 
 @dataclass(frozen=True)
@@ -526,10 +543,7 @@ class PadRef:
             if not isinstance(self.along, Along):
                 raise TypeError("a PadRef's along= is Along.START, MID or END, not %r" % (self.along,))
         if self.land is not None:
-            if isinstance(self.land, bool) or not isinstance(self.land, (int, Land)):
-                raise TypeError("a PadRef's land= is Land.LARGEST or a land's number, not %r" % (self.land,))
-            if not isinstance(self.land, Land) and self.land < 1:
-                raise ValueError("a PadRef's land= counts from 1, in the footprint's order; not %r" % (self.land,))
+            _check_land("a PadRef", self.land)
         if self.pin is not None:
             if self.key is not None:
                 raise TypeError("a PadRef names its pad one way: a key or pin=, not both")
@@ -560,6 +574,61 @@ class Turned:
     def __post_init__(self):
         if not isinstance(self.part, Part):
             raise TypeError("Turned follows a Part's rotation, not %r" % (self.part,))
+
+
+@dataclass(frozen=True)
+class Parallel:
+    """A rotation that turns a part so its own x axis (its footprint's 0
+    degree axis) lies along the line from point `a` to point `b`, plus
+    `degrees`: any angle, not only the right angles. `a` and `b` are any
+    point reference (pads, an `Origin`, a `Mid`); it waits for both."""
+    a: object
+    b: object
+    degrees: float = 0.0
+
+    def __post_init__(self):
+        _check_degrees("Parallel", self.degrees)
+
+
+@dataclass(frozen=True)
+class Facing:
+    """A rotation chosen by pads: of the part's four right-angle turns, the
+    one where the pad's way out (its row's outward axis, as fanouts and
+    escapes read it) points at `edge`. `pads` is a `PadRef` of the part, or
+    a list of them, which must lie in one row. On the back face it is the
+    turn that faces the side as seen from the front."""
+    pads: object
+    edge: Edge
+
+    def __post_init__(self):
+        pads = (self.pads,) if isinstance(self.pads, PadRef) else self.pads
+        pads = tuple(pads) if isinstance(pads, (list, tuple)) else (pads,)
+        if not pads or not all(isinstance(p, PadRef) for p in pads):
+            raise TypeError("Facing's pads are a PadRef of the part, or a list of them, not %r" % (self.pads,))
+        if len({p.part for p in pads}) != 1:
+            raise TypeError("Facing's pads are all of one part, the part it turns")
+        if not isinstance(self.edge, Edge):
+            raise TypeError("Facing's edge is an Edge, not %r" % (self.edge,))
+        object.__setattr__(self, "pads", pads)
+
+
+def _check_degrees(what: str, degrees) -> None:
+    if isinstance(degrees, bool) or not isinstance(degrees, (int, float)):
+        raise TypeError("%s's degrees is a number, not %r" % (what, degrees))
+
+
+@dataclass(frozen=True)
+class Bearing:
+    """The compass bearing of the line from point `a` to point `b` (0 north,
+    90 east, as `Polar` reads one) plus `degrees`, for `Polar`'s bearing:
+    `Polar(gap, Bearing(a, b, 90), about=pad)` is a point `gap` off the pad
+    along the line's normal. `a` and `b` are any point reference."""
+    a: object
+    b: object
+    degrees: float = 0.0
+
+    def __post_init__(self):
+        _check_degrees("Bearing", self.degrees)
 
 
 @dataclass(frozen=True)
@@ -598,6 +667,20 @@ class Mid:
     that sits between them: `X(Mid(pin_p, pin_n))`."""
     a: object
     b: object
+
+
+@dataclass(frozen=True)
+class Origin:
+    """A part's footprint origin as placed (a cell's: its frame origin, the
+    origin of the coordinates it was stamped in), as a point wherever a point
+    is taken: `at=`, `X()`/`Y()`, `Mid`, `Polar(about=)`, `Pin(key, point)`.
+    A part placed `at=Origin(Part(a))` stands its own origin there, and waits
+    for `a`."""
+    item: object
+
+    def __post_init__(self):
+        if not isinstance(self.item, (Part, Cell)):
+            raise TypeError("Origin is a Part's or a Cell's origin, not %r" % (self.item,))
 
 
 @dataclass(frozen=True)
@@ -899,7 +982,8 @@ class Polar:
     centre, not from an outline. Either may be None to leave that freedom:
     Polar(16.0) slides round that ring, Polar(None, 90.0) slides out along
     that spoke. A polar place is a coordinate, so it does not turn the item;
-    OnRim and ring() do."""
+    OnRim and ring() do. The bearing may be `Bearing(a, b, degrees)`, the
+    bearing of the line between two points, and then needs a radius."""
     radius: object
     angle: object = None
     about: object = None
@@ -907,7 +991,7 @@ class Polar:
     def __post_init__(self):
         if self.radius is None and self.angle is None:
             raise ValueError("a Polar place needs a radius, a bearing, or both")
-        if self.angle is not None:
+        if self.angle is not None and not isinstance(self.angle, Bearing):
             bearing(self.angle)
         if self.radius is not None and (isinstance(self.radius, bool)
                                         or not isinstance(self.radius, (int, float)) or self.radius < 0):
