@@ -441,35 +441,155 @@ def _keep_out_text(item: _NamedCopper, point: tuple) -> str:
     return "%s %s at (%.2f, %.2f)" % (item.kind, item.net, point[0], point[1])
 
 
+@dataclass(frozen=True)
+class KeepOut:
+    """One part's `Pm.KeepOut`, resolved against the board: the part's pads
+    on `pads` (nets) keep `distance_mm` from the copper on `away` (nets),
+    from the datasheet cited in `source`. A part's own pads are not judged
+    against it (their spacing is the footprint's)."""
+    ref: str
+    distance_mm: float
+    source: str
+    pads: tuple
+    away: tuple
+
+
+def _net_named(name: str, net: str) -> bool:
+    """Whether `net` is the net `name` (case-insensitive) names: the whole
+    name, or its last part where the board's net carries the path of the
+    module it sits in (`BUCK1.SW`, `BUCK1/SW`), so one annotation reads in a
+    module and in every parent that stamps it."""
+    n, w = net.lower(), name.lower()
+    return n == w or n.endswith("." + w) or n.endswith("/" + w)
+
+
+def _net_names(fp: Footprint, names, what: str, key: str):
+    """The nets of `fp`'s pads that `names` name (`_net_named`), as the board
+    writes them, or a ValueError for a name no pad carries."""
+    out = []
+    for n in names:
+        hit = sorted({p.net for p in fp.pads if p.net and _net_named(n, p.net)})
+        if not hit:
+            raise ValueError("%s: %s names %s %r, which no pad of %s carries" % (fp.ref, key, what, n, fp.ref))
+        out += hit
+    return tuple(dict.fromkeys(out))
+
+
+def _keep_out_of(fp: Footprint, text: str, nodes: set) -> KeepOut:
+    """`Pm.KeepOut: <distance>mm [pads=<nets>] [away=<nets>]; <citation>`: the
+    part's pads on `pads` keep `distance` from the copper on `away`, both
+    nets of the part's own pads. Raises ValueError, naming the part, for what
+    does not read."""
+    key = "Pm.KeepOut"
+    head, semi, cite = text.partition(";")
+    if not semi or not cite.strip():
+        raise ValueError("%s: %s %r has no citation: write it after a ';', the datasheet and where in it the "
+                         "distance is stated or drawn" % (fp.ref, key, text))
+    words = head.split()
+    m = re.fullmatch(r"([0-9]*\.?[0-9]+)(?:mm)?", words[0]) if words else None
+    if not m:
+        raise ValueError("%s: %s %r does not begin with a distance in mm" % (fp.ref, key, text))
+    distance = float(m.group(1))
+    if distance <= 0:
+        raise ValueError("%s: %s distance %g is not above zero" % (fp.ref, key, distance))
+    given = {}
+    for w in words[1:]:
+        name, eq, value = w.partition("=")
+        if not eq or name.lower() not in ("pads", "away") or not value or name.lower() in given:
+            raise ValueError("%s: %s says %r: after the distance it takes pads=<nets> and away=<nets>" % (fp.ref, key, w))
+        given[name.lower()] = [n for n in value.split(",") if n]
+    if "pads" in given:
+        pads = _net_names(fp, given["pads"], "a pad net", key)
+    else:
+        want = _facts_of(fp).sensitive
+        pads = tuple(n for n in sorted({p.net for p in fp.pads}) if want and _net_named(want, n))
+        if not pads:
+            raise ValueError("%s: %s names no pads to keep clear: give pads=<nets>, or the part's Pm.Sensitive net" % (fp.ref, key))
+    if "away" in given:
+        away = _net_names(fp, given["away"], "a net", key)
+    else:
+        away = tuple(sorted(n for n in {p.net for p in fp.pads} if n in nodes))
+        if not away:
+            raise ValueError("%s: %s names no copper to keep away from: give away=<nets>; %s is on no switch node"
+                             % (fp.ref, key, fp.ref))
+    return KeepOut(fp.ref, distance, cite.strip(), pads, away)
+
+
+def keep_outs(geometry: BoardGeometry) -> tuple:
+    """The parts' `Pm.KeepOut` as ({ref: KeepOut}, [(ref, why it was refused)]).
+    A refused one is not applied."""
+    nodes = {n.net for n in switch_nodes(geometry)}
+    out, refused = {}, []
+    for fp in geometry.footprints:
+        text = next((v for k, v in fp.fields.items() if k.lower() == "pm.keepout" and v.strip()), None)
+        if text is None:
+            continue
+        try:
+            out[fp.ref] = _keep_out_of(fp, text, nodes)
+        except ValueError as e:
+            refused.append((fp.ref, str(e)))
+    return out, refused
+
+
+def _part_limit(a: _NamedCopper, b: _NamedCopper, parts: dict):
+    """The `KeepOut` that sets the limit for `a` (copper on a node net) and
+    `b` (copper on a sensitive net), the largest where two parts do: one
+    whose pad `b` is, on its `pads` nets, with `a` on its `away` nets and
+    not the part's own pad. None where no part's limit covers the pair."""
+    hit = None
+    if b.kind == "pad" and b.owner in parts:
+        k = parts[b.owner]
+        if b.net in k.pads and a.net in k.away and not (a.kind == "pad" and a.owner == b.owner):
+            hit = k
+    if a.kind == "pad" and a.owner in parts:
+        k = parts[a.owner]
+        if a.net in k.pads and b.net in k.away and not (b.kind == "pad" and b.owner == a.owner):
+            if hit is None or k.distance_mm > hit.distance_mm:
+                hit = k
+    return hit
+
+
 def keep_out(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list[Verdict]:
     sensitive = _sensitive_nets(geometry)
-    out = []
-    for node in switch_nodes(geometry):
-        node_items = _keep_out_copper(geometry, node.net)
-        sense_items = [c for net in sensitive for c in _keep_out_copper(geometry, net)]
+    parts, refused = keep_outs(geometry)
+    out = [Verdict("keep-out", "%s Pm.KeepOut" % ref, 0.0, "mm", None, False,
+                   "refused, so the part is judged at the board-wide %g mm: %s" % (limit_mm, why)) for ref, why in refused]
+    nodes = {n.net for n in switch_nodes(geometry)}
+    named = {n for k in parts.values() for n in k.away}
+    for net in sorted(nodes | named):
+        node_items = _keep_out_copper(geometry, net)
+        sense_nets = sorted((set(sensitive) | {n for k in parts.values() for n in k.pads}) - {net})
+        sense_items = [(c, n) for n in sense_nets for c in _keep_out_copper(geometry, n)]
         if not node_items or not sense_items:
             continue
         # a part's own pins are package, not layout: judged apart, and said when nearer
         best, own = None, None
         for a in node_items:
-            for b in sense_items:
+            for b, snet in sense_items:
                 same = a.kind == "pad" and b.kind == "pad" and a.owner == b.owner
+                k = _part_limit(a, b, parts)
+                if k is None and not (net in nodes and snet in sensitive):
+                    continue            # a pair only a part's own limit names: judged by that alone
+                limit = k.distance_mm if k is not None else limit_mm
                 for oa in a.outlines:
                     for ob in b.outlines:
                         d = poly_distance(oa, ob)
                         if same:
                             if own is None or d < own[0]:
                                 own = (d, a)
-                        elif best is None or d < best[0]:
-                            best = (d, a, b, oa, ob)
+                        elif best is None or (d - limit, d) < (best[0] - best[5], best[0]):
+                            best = (d, a, b, oa, ob, limit, k)
         if best is None:
             continue
-        d, a, b, oa, ob = best
+        d, a, b, oa, ob, limit, k = best
         pa, pb, _ = _nearest_points(oa, ob)
         note = "%s to %s" % (_keep_out_text(a, pa), _keep_out_text(b, pb))
+        if k is not None:
+            note += "; limit %g mm from %s's Pm.KeepOut (%s), not the board-wide %g mm" % (
+                k.distance_mm, k.ref, k.source, limit_mm)
         if own is not None and own[0] < d:
             note += "; %s's own pads are %.2f mm apart, a distance its footprint sets" % (own[1].owner, own[0])
-        out.append(Verdict("keep-out", node.net, d, "mm", limit_mm, d >= limit_mm, note))
+        out.append(Verdict("keep-out", net, d, "mm", limit, d >= limit - 1e-9, note))
     return out
 
 
@@ -723,8 +843,10 @@ class _Fill:
             self.sq = self._native.sq
             self.levels = self._native.levels
             self._native_polys: dict = {}          # id(polys) -> polys, keeping it alive so id() cannot be reused
+            self._paths = {}                       # (id(entry), id(exit_)) -> the path `width` found, for neck_length
             return
         self._native = None
+        self._paths = {}
         box = Box.of_points(poly)
         self.s = step
         self.x0, self.y0 = box.left - step, box.top - step
@@ -924,7 +1046,32 @@ class _Fill:
         neck = min((k for k, c in enumerate(stretch) if sq[c] == b), key=lambda k: abs(k - mid), default=None)
         neck = stretch[neck] if neck is not None else min(path, key=lambda c: sq[c])
         w = 2.0 * self.radius(b)
+        self._paths[(id(entry), id(exit_))] = (entry, exit_, path)      # for neck_length; the polys kept so id() cannot be reused
         return w, self.centre(neck), w <= self.s + 1e-9
+
+    def neck_length(self, entry, exit_, need: float) -> float | None:
+        """How far the route `width` found between `entry` and `exit_` runs
+        through fill narrower than `need`: along its path of cells, from the
+        last cell the entry copper reaches through fill at least `need` wide
+        to the first the exit copper reaches that way (an end the path starts
+        or stops short of is the path's own end). Read within a step or two
+        of the true length. None when `width` found no path of cells (the
+        fill is narrower than a step), or has not been asked this pair."""
+        got = self._paths.get((id(entry), id(exit_)))
+        if got is None or got[0] is not entry or got[1] is not exit_:
+            return None
+        path = got[2]
+        tau = (need / (2.0 * self.s) + 0.5) ** 2
+        from_entry = self._reach(self.touching(entry, tau), set(), tau)[1]
+        from_exit = self._reach(self.touching(exit_, tau), set(), tau)[1]
+        last = max((k for k, c in enumerate(path) if c in from_entry), default=-1)
+        first = min((k for k, c in enumerate(path) if c in from_exit and k > last), default=len(path))
+        lo, hi = max(last, 0), min(first, len(path) - 1)
+        total = 0.0
+        for k in range(lo, hi):
+            (r0, q0), (r1, q1) = divmod(path[k], self.nx), divmod(path[k + 1], self.nx)
+            total += self.s * (math.sqrt(2.0) if (r0 != r1 and q0 != q1) else 1.0)
+        return total
 
 
 def _widest_from(nodes, near, sources) -> dict:
@@ -950,12 +1097,12 @@ def _widest_from(nodes, near, sources) -> dict:
     return best
 
 
-def _neck(nodes, best, end_i: int, w: float) -> tuple:
-    """The bottleneck's point, how far the route stays within 10% of it -
-    the run of consecutive track nodes around the bottleneck this narrow,
-    stopped each way by a pad, via, pour or wider track - and the
-    bottleneck node's own layers (for the current-path check's per-layer
-    weight)."""
+def _neck(nodes, best, end_i: int, w: float, need_of) -> tuple:
+    """The bottleneck's point, how far the route stays narrower than the
+    width the current needs - the run of consecutive track nodes around the
+    bottleneck narrower than `need_of(its layers)`, stopped each way by a
+    pad, via, pour or a track that wide - and the bottleneck node's own
+    layers (for the current-path check's per-layer weight)."""
     path, i = [], end_i
     while i is not None:
         path.append(i)
@@ -963,12 +1110,13 @@ def _neck(nodes, best, end_i: int, w: float) -> tuple:
     path.reverse()                                       # source -> target
     pos = next(k for k, idx in enumerate(path) if abs(nodes[idx][1] - w) < 1e-6)
     neck_i = path[pos]
+    need = need_of(nodes[neck_i][4])
 
     def length(idx):
         return nodes[idx][6]
 
     def narrow(idx):
-        return nodes[idx][0] == "track" and nodes[idx][1] <= w * (1.0 + active().check_neck_band) + 1e-9
+        return nodes[idx][0] == "track" and nodes[idx][1] < need - 1e-9
     total = length(neck_i)
     k = pos - 1
     while k >= 0 and narrow(path[k]):
@@ -996,8 +1144,9 @@ def _route(best, end_i: int) -> list:
 def _fill_on(nodes, path: list, fills: dict, measured: dict, step: float):
     """The narrowest zone fill or drawn pour along a route, each measured
     between the copper the route enters and leaves it by: (width, point,
-    one step or less, the node's own layers, whether it is a pour), or None
-    when the route passes no fill that narrows it."""
+    one step or less, the node's own layers, whether it is a pour, the fill's
+    `_Fill`, the copper the route enters it by, the copper it leaves it by),
+    or None when the route passes no fill that narrows it."""
     worst = None
     for k in range(1, len(path) - 1):
         z = path[k]
@@ -1008,15 +1157,51 @@ def _fill_on(nodes, path: list, fills: dict, measured: dict, step: float):
             if z not in fills:
                 fills[z] = _Fill(nodes[z][2][0], step)
             got = fills[z].width(nodes[path[k - 1]][2], nodes[path[k + 1]][2])
-            measured[key] = None if got is None else got + (nodes[z][4], nodes[z][0] == "poly")
+            measured[key] = None if got is None else got + (nodes[z][4], nodes[z][0] == "poly", fills[z],
+                                                             nodes[path[k - 1]][2], nodes[path[k + 1]][2])
         got = measured[key]
         if got is not None and (worst is None or got[0] < worst[0]):
             worst = got
     return worst
 
 
+@dataclass(frozen=True)
+class _Basis:
+    """What a neck narrower than the need is judged by besides its width:
+    its length and whether conduction to the copper at its ends carries the
+    heat of its current (`_neck_credit`)."""
+    length: float | None        # mm; None where the route's length there could not be measured
+    credited: bool
+    rise_c: float               # the neck's own peak rise above its ends
+    budget_c: float             # the share of the rise the neck may use
+    max_mm: float               # the longest a neck of this width passes
+    width: float
+    amps: float
+
+
+def _neck_credit(w: float, need: float, amps: float, length, layers, copper_mm: dict, rise_c: float,
+                 copper_oz: float) -> _Basis:
+    """A neck narrower than `need` and `length` mm long, credited when its
+    peak rise from conduction to the copper at both ends alone,
+    rho I^2 L^2 / (8 k A^2) (one-dimensional conduction, uniform heat
+    generation, ends held cool; no loss to board or air), stays within the
+    share of `rise_c` `check.neck_end_share` leaves it. Where the length is
+    unknown, or the share leaves none, nothing is credited
+    (docs/superpowers/specs/2026-10-01-neck-length-and-part-keep-out-design.md)."""
+    cfg = active()
+    thickness_m = _layer_oz(next(iter(layers), None), copper_mm, copper_oz) * _MM_PER_OZ * 1e-3
+    area = w * 1e-3 * thickness_m
+    budget = (1.0 - cfg.check_neck_end_share) * rise_c
+    rho, k = cfg.check_neck_resistivity, cfg.check_neck_conductivity
+    longest = (area / amps) * math.sqrt(8.0 * k * budget / rho) * 1e3 if amps > 0 and budget > 0 else 0.0
+    if length is None:
+        return _Basis(None, False, math.inf, budget, longest, w, amps)
+    rise = rho * amps * amps * (length * 1e-3) ** 2 / (8.0 * k * area * area)
+    return _Basis(length, budget > 0 and rise <= budget + 1e-12, rise, budget, longest, w, amps)
+
+
 def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, copper_oz: float,
-           zone_step: float = ZONE_STEP):
+           zone_step: float = ZONE_STEP, measure_necks: bool = True):
     """The routes the load takes on `net`, carriers being {ref: amps}: for
     each two carriers, the widest route from any pad of one to any pad of the
     other, at the lesser current - what can flow between them; with one
@@ -1025,10 +1210,14 @@ def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, cop
     enters and leaves it by (`_Fill.width`); its width is the route's there
     when it is narrower than the rest of the route by more than one
     `zone_step`, closer than which the grid cannot tell the two apart.
+    A route narrower than its need has its neck's length measured, and the
+    neck credited when it is short (`_neck_credit`), unless `measure_necks`
+    is off (a caller that wants widths only).
     Returns (judged: [(width, need, amps, from, to, the fill: None when the
     route passes none, else (its width, one step or less, whether it is the
     neck, whether it is a pour), the neck's point, how far the route stays
-    that narrow, None for a fill's narrowest point)], unmeasured: [(from, to, why)] -
+    narrower than the need (None where not measured), the `_Basis` of a neck
+    narrower than its need, else None)], unmeasured: [(from, to, why)] -
     a route through pads and vias alone, which has no copper width to
     judge - and apart: the pairs no copper joins yet)."""
     nodes, near = _net_graph(geometry, net)
@@ -1038,7 +1227,7 @@ def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, cop
     refs = sorted(carriers)
     pairs = [(a, b) for k, a in enumerate(refs) for b in refs[k + 1:]] if len(refs) > 1 else \
         [(refs[0], None)]
-    searched, fills, measured = {}, {}, {}
+    searched, fills, measured, lengths = {}, {}, {}, {}
     judged, unmeasured, apart = [], [], []
     for a, b in pairs:
         if not pads.get(a):
@@ -1065,14 +1254,27 @@ def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, cop
                                else "joined only through pads, vias and a zone fill or pour where their copper meets"))
             continue
         amps = carriers[a] if b is None else min(carriers[a], carriers[b])
+
+        def need_of(layers):
+            return _need_mm(amps, rise_c, copper_oz, geometry.copper_mm, layers)
         if narrows:
-            need = _need_mm(amps, rise_c, copper_oz, geometry.copper_mm, fill[3])
-            judged.append((width, need, amps, start, to, (fill[0], fill[2], True, fill[4]), fill[1], None))
+            need = need_of(fill[3])
+            length, basis = None, None
+            if measure_necks and width < need - 1e-9:
+                key = (id(fill[5]), id(fill[6]), id(fill[7]), round(need, 6))
+                if key not in lengths:
+                    lengths[key] = fill[5].neck_length(fill[6], fill[7], need)
+                length = lengths[key]
+                basis = _neck_credit(width, need, amps, length, fill[3], geometry.copper_mm, rise_c, copper_oz)
+            judged.append((width, need, amps, start, to, (fill[0], fill[2], True, fill[4]), fill[1], length, basis))
             continue
-        point, length, neck_layers = _neck(nodes, best, end_i, w)
-        need = _need_mm(amps, rise_c, copper_oz, geometry.copper_mm, neck_layers)
+        point, length, neck_layers = _neck(nodes, best, end_i, w, need_of)
+        need = need_of(neck_layers)
+        basis = None
+        if measure_necks and w < need - 1e-9:
+            basis = _neck_credit(w, need, amps, length, neck_layers, geometry.copper_mm, rise_c, copper_oz)
         judged.append((w, need, amps, start, to, None if fill is None else (fill[0], fill[2], False, fill[4]), point,
-                       length))
+                       length, basis))
     return judged, unmeasured, apart
 
 
@@ -1124,10 +1326,10 @@ def pour_current(net: str, layer, pads, vias, copper, carriers: dict, copper_mm:
             for ref, number, outline in pads],
         copper=[CopperItem("via", net, layers, (o,), Box.of_points(o)) for o in vias]
         + [CopperItem("poly", net, layers, (o,), Box.of_points(o)) for o in copper])
-    judged, _, apart = _pairs(stand_in, net, carriers, rise_c, copper_oz, zone_step)
+    judged, _, apart = _pairs(stand_in, net, carriers, rise_c, copper_oz, zone_step, measure_necks=False)
     if not judged:
         return PourReading(0.0, 0.0, 0.0, "", "", (0.0, 0.0)) if apart else None
-    w, need, amps, a, b, _, point, _ = min(judged, key=lambda j: j[0] / j[1])
+    w, need, amps, a, b, _, point = min(judged, key=lambda j: j[0] / j[1])[:7]
     return PourReading(w, need, amps, a, b, tuple(point))
 
 
@@ -1153,7 +1355,11 @@ def current_paths(geometry: BoardGeometry, rise_c: float = TRACK_RISE_C, copper_
             out.append(Verdict("current-path", net, 0.0, "mm", ipc2221_width_mm(amps, rise_c, copper_oz), None,
                                "not judged (%g A): %s" % (amps, "; ".join(said))))
             continue
-        w, need, amps, a, b, fill, point, length = min(judged, key=lambda j: j[0] / j[1])
+        def passes(j):
+            return j[0] >= j[1] or (j[8] is not None and j[8].credited)
+        # the worst route: one that fails, then the narrowest against its need
+        w, need, amps, a, b, fill, point, length, basis = min(judged, key=lambda j: (passes(j), j[0] / j[1]))
+        ok = passes((w, need, amps, a, b, fill, point, length, basis))
         note = "narrowest point of the load's widest route, %s to %s, for %g A at %g C rise on %g oz" % (
             a, b, amps, rise_c, copper_oz)
         if fill is not None and fill[2]:
@@ -1161,11 +1367,26 @@ def current_paths(geometry: BoardGeometry, rise_c: float = TRACK_RISE_C, copper_
             if fill[1]:
                 note += " (one %g mm step or less wide there, read as one step)" % zone_step
         else:
-            note += "; neck at (%.2f, %.2f), %.2f mm long" % (point[0], point[1], length)
+            note += "; neck at (%.2f, %.2f)" % (point[0], point[1])
             if fill is not None:
                 note += "; through a %s %.2f mm wide at its narrowest" % ("pour" if fill[3] else "zone fill", fill[0])
-        out.append(Verdict("current-path", net, w, "mm", need, w >= need, note + ("; " + "; ".join(said) if said else "")))
+        if basis is not None:
+            note += "; " + _basis_text(basis, rise_c)
+        out.append(Verdict("current-path", net, w, "mm", need, ok, note + ("; " + "; ".join(said) if said else "")))
     return out
+
+
+def _basis_text(basis: _Basis, rise_c: float) -> str:
+    """The sentence naming a neck's width, length and what its verdict rests on."""
+    if basis.length is None:
+        return "a neck %.2f mm wide, its length not measured (the fill is under one step wide there), so not credited" % basis.width
+    head = "a %.2f mm long neck at %.2f mm" % (basis.length, basis.width)
+    if basis.budget_c <= 0:
+        return "%s, not credited as short: check.neck_end_share leaves it no share of the %g C rise" % (head, rise_c)
+    return ("%s, %s: %.2g C of its %.2g C share of the %g C rise by conduction to the copper at each end "
+            "(a %.2f mm wide neck passes up to %.2f mm at %g A)" % (
+                head, "credited as short" if basis.credited else "too long", basis.rise_c, basis.budget_c, rise_c,
+                basis.width, basis.max_mm, basis.amps))
 
 
 # ------------------------------------------------------------------ heat

@@ -6,18 +6,6 @@ file. An item cites its source as "a board's session, <date>".
 
 ## In progress
 
-- **current-path weighs a neck's length; a keep-out limit per part** (a
-  board's session, 2026-10-01; the user's words relayed): a pour necking
-  between a package's adjacent pads cannot be widened, and a short neck
-  should be judged by its length too; regulators' datasheets put feedback
-  closer to the switch node than the board-wide keep-out, so the limit
-  belongs on the part, cited. Being built.
-
-- **The corner-45 check judges other layers' pads; a load with several
-  pins** (a board's session, 2026-10-01): an inner-layer track past a corner
-  of front-only pads is judged against them; current-path takes one small
-  pin of a load whose exposed pad also carries the current. Being fixed.
-
 - **facts --confirm writes beside a module; a side at a pin row's end** (a
   board's session, 2026-10-01): `--confirm` created a placemat.toml beside a
   module script, which broke its imports; [facts] holds one digest for all
@@ -25,6 +13,13 @@ file. An item cites its source as "a board's session, <date>".
   Being built.
 
 ## Open
+
+- **Current shared between a load's pins** (a board's session, 2026-10-01):
+  `current-path` judges a load by the widest route to any one of its pins at
+  the full current. Where the routes to two pins have separate necks, the
+  current splits between them and neither neck need carry it all; a pour has
+  no per-route width to flow over the route graph. Wanted: a flow with a
+  width per neck, only where the routes share no neck.
 
 - **A via field re-laid round a conflict** (the via give-way
   investigation, 2026-10-01): when an item's copper meets some vias of a

@@ -78,6 +78,42 @@ section for each hand-written pattern a newer form replaces.
   block and `rotation=Facing(...)`, which keep a fixed face. `api.md`,
   "Either face".
 
+- **`current-path` weighs how long a neck is.** A stretch of the route
+  narrower than the width its current needs is credited as short when
+  conduction to the copper at each end holds its rise (`rho I^2 L^2 /
+  (8 k (w t)^2)`) inside the neck's share of `check.rise_c`, and fails as
+  "too long" when it does not. The note says "a 0.40 mm long neck at 1.03 mm,
+  credited as short: ..." or "too long: ...". The neck's length is measured
+  along the route: the run of track segments narrower than the need, or, in
+  a pour or zone fill, the raster path between where the copper at each end
+  reaches fill the need wide. New settings `check.neck_end_share` (0.6; 1
+  turns the credit off), `check.neck_resistivity` and `check.neck_conductivity`;
+  `check.neck_band` is no longer read (a config naming it still loads). A
+  pour that necked between a package's pads and failed `current-path` may now
+  pass; a neck that passed does not change. `api.md`, "check".
+
+- **`Pm.KeepOut` on a part: a cited keep-out distance.**
+  `Pm.KeepOut: 0.7mm pads=FB,COMP away=SW,BOOT; <datasheet, section>` on a
+  part (capture, `references/capture.md`) is that part's keep-out limit: the
+  `keep-out` check judges a pair with one of its `pads=` pads against copper
+  on an `away=` net at that distance in place of `check.keep_out_mm`, and the
+  planner holds it as a clearance between exactly those (a fitted pour, a
+  track, a via and another part's pad keep the distance from that part's pads;
+  its own pads, other copper on the same nets and other parts' pads do not).
+  A citation is required: an annotation without one, a distance that does not
+  read or a net no pad of the part carries refuses the run, naming the part.
+  `pads=` defaults to the part's `Pm.Sensitive` net and `away=` to the switch
+  nodes it is on. It is held in every module that carries the part and every
+  parent that stamps it, with nothing repeated in a script. A datasheet
+  distance never lowers a clearance below the netclass's or a `board.rule`'s.
+  `board.accept` stays for a one-off verdict. `api.md`, "A part's keep-out".
+
+- **A clearance rule can be a part's** (`rules.Rule.of`): between two nets, only
+  where the copper on the second is a pad of one part and the copper on the
+  first is not its own pad, written to the `.kicad_dru` as a
+  `B.Reference == '<ref>'` condition and carried natively. Derived from
+  `Pm.KeepOut`; not a script call.
+
 ### Migration steps
 
 **A fitted pour that replaced a 0.70.0 `grow=` pour and lost current width
@@ -168,6 +204,28 @@ board.place(Cell("c"), face=Face.EITHER)
 A cell that must stand on one face (a connector that faces out, a part that
 must be on the side a user touches) keeps `face=`. `Face.EITHER` with a
 decided position or an edge is refused, naming what decided it.
+
+**A per-net `board.accept("keep-out", ...)` for a datasheet distance becomes
+`Pm.KeepOut` on the part.** An acceptance taken because a regulator's own
+datasheet draws the feedback or compensation pin nearer the switch node than
+`check.keep_out_mm`, repeated in each script (and in each module stamped into
+a parent), is the part's fact. Put it on the part in the capture, with the
+datasheet cited, and delete the acceptance: the check judges the part at its
+distance, and the planner keeps the copper that far from those pads.
+
+```python
+# before: in every script that places the part, per net, and again in each module stamped into a parent
+board.accept("keep-out", "SW", at_least=0.7, why="the datasheet's reference layout puts FB 0.7 mm from SW")
+```
+```
+# after: once, on the part (the capture's annotations; the citation is required)
+Pm.KeepOut: 0.7mm pads=FB away=SW; datasheet rev B, section 10.2, layout example
+```
+
+An acceptance for a layout fact (a pour that cannot be pulled back, a pad pair
+no distance fixes) stays `board.accept`. An acceptance for `current-path` on a
+short neck can go once `current-path` credits the neck: run the check, and
+keep the acceptance only where the note says "too long".
 
 ### Fixed
 

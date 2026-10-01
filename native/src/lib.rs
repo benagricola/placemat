@@ -86,19 +86,20 @@ fn geometry_bounds(poly: &[Point]) -> (f64, f64, f64, f64) {
     (x0, y0, x1, y1)
 }
 
-/// One clearance rule as Python hands it over: (on, between, within owners, min). See
+/// One clearance rule as Python hands it over: (on, between, within owners, min, of). See
 /// `placemat.rules.ClearanceRules`; the rules arrive in declaration order.
-type RuleArg = (Option<String>, Option<(String, String)>, Option<Vec<String>>, f64);
+type RuleArg = (Option<String>, Option<(String, String)>, Option<Vec<String>>, f64, Option<String>);
 
 fn build_rules(rules: Option<Vec<RuleArg>>) -> Vec<shapes::ClearanceRule> {
     rules
         .unwrap_or_default()
         .into_iter()
-        .map(|(on, between, within, min)| shapes::ClearanceRule {
+        .map(|(on, between, within, min, of)| shapes::ClearanceRule {
             on,
             between,
             within: within.map(|w| w.into_iter().collect()),
             min,
+            of,
         })
         .collect()
 }

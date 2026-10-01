@@ -113,6 +113,7 @@ pub struct ClearanceRule {
     pub between: Option<(String, String)>,
     pub within: Option<HashSet<String>>,
     pub min: f64,
+    pub of: Option<String>, // with `between`: only where the shape on the second net is a pad of this part and the one on the first is not
 }
 
 impl ClearanceRule {
@@ -121,6 +122,10 @@ impl ClearanceRule {
             return !a.owner.is_empty() && !b.owner.is_empty() && owners.contains(&a.owner) && owners.contains(&b.owner);
         }
         if let Some((x, y)) = &self.between {
+            if let Some(part) = &self.of {
+                return (a.net == *x && b.net == *y && b.owner == *part && a.owner != *part)
+                    || (b.net == *x && a.net == *y && a.owner == *part && b.owner != *part);
+            }
             return (a.net == *x && b.net == *y) || (a.net == *y && b.net == *x);
         }
         match &self.on {
@@ -577,6 +582,26 @@ mod tests {
         assert!(conflict(&a, &b, None, &c)); // both owners in the cell
         let other = shape(Kind::Pad, "X1", rect(1.3, 0.0, 1.0, 1.0), 1, 1, "B", true);
         assert!(!conflict(&a, &other, None, &c)); // X1 is in no cell: the between= rule's 0.1 stands
+    }
+
+    #[test]
+    fn a_rule_of_a_part_holds_only_that_parts_pad_against_copper_that_is_not_its_own_pad() {
+        // U1's pad on FB, 0.5 mm from a pad of SW: clear under the 0.2 netclass figure
+        let fb_u1 = shape(Kind::Pad, "U1", rect(0.0, 0.0, 1.0, 1.0), 1, 1, "FB", true);
+        let sw_l1 = shape(Kind::Pad, "L1", rect(1.5, 0.0, 1.0, 1.0), 1, 1, "SW", true);
+        let sw_u1 = shape(Kind::Pad, "U1", rect(1.5, 0.0, 1.0, 1.0), 1, 1, "SW", true);
+        let fb_r1 = shape(Kind::Pad, "R1", rect(0.0, 0.0, 1.0, 1.0), 1, 1, "FB", true);
+        let mut c = cfg();
+        c.rules.push(ClearanceRule {
+            between: Some(("SW".into(), "FB".into())),
+            of: Some("U1".into()),
+            min: 1.0,
+            ..Default::default()
+        });
+        assert!(conflict(&fb_u1, &sw_l1, None, &c)); // U1's FB pad keeps 1.0 from another part's SW copper
+        assert!(conflict(&sw_l1, &fb_u1, None, &c)); // whichever way round
+        assert!(!conflict(&fb_u1, &sw_u1, None, &c)); // not from its own SW pad: the footprint sets that gap
+        assert!(!conflict(&fb_r1, &sw_l1, None, &c)); // another part's FB pad keeps the netclass figure
     }
 
     #[test]

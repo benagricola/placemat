@@ -112,7 +112,10 @@ class Settings:
     check_ambient_c: float = 100.0
     check_keep_out_mm: float = 2.0
     check_rise_c: float = 10.0
-    check_neck_band: float = 0.1      # a current path's neck runs as far as its track stays within this fraction of the narrowest width
+    check_neck_band: float = 0.1      # no longer read (a neck is the run narrower than the need); accepted so a config naming it loads
+    check_neck_end_share: float = 0.6   # the share of check.rise_c the copper at a short neck's two ends is taken to have used; 1 turns the short-neck credit off
+    check_neck_resistivity: float = 2.2e-8      # copper's resistivity at the working temperature, ohm m, for the short-neck credit
+    check_neck_conductivity: float = 384.0      # copper's thermal conductivity, W/(m K), for the short-neck credit
     check_zone_step: float = 0.05     # the cell a zone fill is rasterised at to measure its width on a load's route
     check_limits: dict = field(default_factory=dict)
     # [parts]
@@ -320,7 +323,7 @@ _ABOVE_ZERO = frozenset((
     "place_conflict_gap", "place_fit_room", "copper_bridge_half", "copper_finger_bridge_width", "copper_finger_min_piece",
     "copper_plane_min_thickness", "copper_pour_stroke", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_size",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
-    "geometry_arc_error_nm", "check_rise_c", "check_zone_step",
+    "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_neck_resistivity", "check_neck_conductivity",
     "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line", "write_keepout_text"))
@@ -336,6 +339,7 @@ _AT_LEAST_ZERO = frozenset((
 # A floor of 2: below it a "group" can never be more than one part, which
 # is not a group at all.
 _AT_LEAST_TWO = frozenset(("place_split_min_group",))
+_UNIT_INTERVAL = frozenset(("check_neck_end_share",))      # a share: 0 to 1
 
 
 def _declared(name: str) -> str:
@@ -405,6 +409,8 @@ def _validate(name: str, value, path: str):
         raise SettingsError("%s: %s must be greater than 0, not %r" % (path, dotted, value))
     if name in _AT_LEAST_ZERO and value < 0:
         raise SettingsError("%s: %s may not be negative, not %r" % (path, dotted, value))
+    if name in _UNIT_INTERVAL and not 0 <= value <= 1:
+        raise SettingsError("%s: %s must be between 0 and 1, not %r" % (path, dotted, value))
     if name in _AT_LEAST_TWO and value < 2:
         raise SettingsError("%s: %s must be at least 2, not %r" % (path, dotted, value))
 

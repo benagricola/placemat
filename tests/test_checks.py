@@ -167,7 +167,7 @@ def test_a_current_may_be_given_per_net_so_a_control_pin_is_not_sized_for_the_po
     assert f["U1"].current_a is None and f["U1"].currents == {"vin": 3.0, "fb": 0.001}
     cin = footprint("C1", 8, 13, nets=("GND", "VIN"), fields={"Pm.I": "vin:3A"})     # its VIN pad at (9.4, 13)
     r = footprint("R1", 22, 13, nets=("FB", "X"), fields={"Pm.I": "fb:1mA"})                       # its FB pad at (20.6, 13)
-    vin = track("VIN", 9.4, 13, 12.6, 13, w=0.5)
+    vin = track("VIN", 9.4, 13, 12.6, 13, w=0.3)
     fb = track("FB", 15.4, 13, 20.6, 13, w=0.2)
     by_net = {v.subject: v for v in current_paths(board_geometry([u, cin, r], copper=[vin, fb]))}
     assert not by_net["VIN"].ok and by_net["FB"].ok
@@ -210,14 +210,14 @@ def test_keep_out_ignores_a_parts_own_adjacent_pins():
 def test_a_pours_narrowest_neck_is_the_current_paths_width():
     from placemat.board_geometry import CopperItem
     from placemat.values import Box
-    # two 4 x 4 pads of copper joined by a 1.0 wide, 3 long neck
-    dumbbell = ((0, 0), (4, 0), (4, 1.5), (7, 1.5), (7, 0), (11, 0), (11, 4), (7, 4), (7, 2.5), (4, 2.5), (4, 4), (0, 4))
+    # two 4 x 4 pads of copper joined by a 1.0 wide, 12 long neck
+    dumbbell = ((0, 0), (4, 0), (4, 1.5), (16, 1.5), (16, 0), (20, 0), (20, 4), (16, 4), (16, 2.5), (4, 2.5), (4, 4), (0, 4))
     u = footprint("U1", 2, 2, nets=("VIN", "SW"), fields={"Pm.I": "vin:3A"})     # its VIN pad in the left bell
-    c = footprint("C1", 9.4, 2, nets=("VIN", "GND"), fields={"Pm.I": "vin:3A"})                             # its VIN pad in the right one
+    c = footprint("C1", 18.4, 2, nets=("VIN", "GND"), fields={"Pm.I": "vin:3A"})                             # its VIN pad in the right one
     pour = CopperItem("poly", "VIN", frozenset([F]), (dumbbell,), Box.of_points(dumbbell))
     (v,) = current_paths(board_geometry([u, c], copper=[pour]))
     assert 1.0 - 0.05 - 1e-6 <= v.value <= 1.0 + 1e-6 and v.ok is False and "U1." in v.note   # within a zone_step
-    wide = CopperItem("poly", "VIN", frozenset([F]), (((0, 0), (11, 0), (11, 4), (0, 4)),), Box(0, 0, 11, 4))
+    wide = CopperItem("poly", "VIN", frozenset([F]), (((0, 0), (20, 0), (20, 4), (0, 4)),), Box(0, 0, 20, 4))
     (v,) = current_paths(board_geometry([u, c], copper=[wide]))
     assert 4.0 - 0.05 - 1e-6 <= v.value <= 4.0 + 1e-6 and v.ok
 

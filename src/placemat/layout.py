@@ -3496,6 +3496,31 @@ class Board:
         self._acceptances.append(a)
         return a
 
+    def _part_keep_outs(self) -> None:
+        """A part's `Pm.KeepOut` as clearance rules: between the copper on each
+        net it says to stay away from and its own pads on each net it keeps
+        clear (`rules.Rule.of`), at its distance, or the clearance the pair has
+        otherwise where that is more. They stand after the script's rules, so
+        the part's own, more particular, figure decides where both match.
+        Refuses a `Pm.KeepOut` that does not read, naming the part."""
+        from . import checks
+        from .rules import Rule
+        parts, refused = checks.keep_outs(self.geometry)
+        if refused:
+            raise ValueError("; ".join(why for _, why in refused))
+        self._rules = [r for r in self._rules if r.of is None]
+        self._clearance_rules_cache = None
+        derived = []
+        for ref, k in sorted(parts.items()):
+            for away in k.away:
+                for pads in k.pads:
+                    base = self._clearance(away, pads)           # the script's rules and the netclass: never lowered
+                    derived.append(Rule("clearance", max(k.distance_mm, base),
+                                        "%s keep-out %s to %s: %s" % (ref, away, pads, k.source),
+                                        between=(away, pads), of=ref))
+        self._rules += derived
+        self._clearance_rules_cache = None
+
     def _clearance_rules(self):
         """The declared clearance rules, read as KiCad judges them (rules.ClearanceRules)."""
         from .rules import ClearanceRules
@@ -5395,6 +5420,7 @@ class Board:
     def resolve(self, progress=None, reuse=None, explore=None, lock=None, routes=None) -> Plan:
         self._check_groups()                # what a declared group may hold, before the search
         self._annotations = exposure.read(self.geometry)    # sources and sensitive parts (Pm.Emits, Pm.Limit); refuses a unit mismatch
+        self._part_keep_outs()              # the clearances the parts' Pm.KeepOut ask of other nets' copper; refuses one with no citation
         self._find_riders()                 # before anything asks what is searched
         # An explore variant (explore.py): seed 0, or none, is the plain placement.
         self._explore = explore if (explore is not None and explore.seed) else None
