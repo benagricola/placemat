@@ -31,7 +31,7 @@ from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
 from .settings import Settings
-from .placer import BlockSpec, _grid, _pin_normal, facing_rotation, pad_way_out, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
+from .placer import BlockSpec, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
 from .values import (Turned, Turns, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, SideOf, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
@@ -307,6 +307,7 @@ class PlaceIntent:
     line: int = field(default=0, metadata={"reuse": False})   # the script line that declared it: not what it decides
     toward: object = field(default=None, metadata={"omit_default": True})   # Centre(toward=): an end of the free line
     pin_land: object = field(default=None, metadata={"omit_default": True})   # Pin(land=): the land of `pin` that lands on the point
+    either: bool = field(default=False, metadata={"omit_default": True})   # face=Face.EITHER: `face` is FRONT, and the search also tries the back
 
     @property
     def turns_on_point(self) -> bool:
@@ -2407,6 +2408,11 @@ class Board:
 
         `drops=Drops.HALF` or `Drops.MIN` thins a cell's via fields where
         it is placed (see `Drops`); the fragment itself is untouched.
+
+        `face=Face.EITHER` lets a searched part or cell (seeded, or `Near`) take
+        either face: the search scans the front, then the back, scores them alike
+        and adds `score.back_face` to a back spot. A position that is decided or
+        along an edge, a block, and a turn that depends on the face are refused.
         """
         radius = self.settings.place_radius if radius is None else radius
         step = self.settings.place_step if step is None else step
@@ -2414,7 +2420,11 @@ class Board:
         try:
             face = Face(face)
         except ValueError:
-            raise TypeError("%s: face is Face.FRONT/BACK or \"front\"/\"back\", not %r" % (key, face)) from None
+            raise TypeError("%s: face is Face.FRONT/BACK/EITHER or \"front\"/\"back\"/\"either\", not %r"
+                            % (key, face)) from None
+        either = face is Face.EITHER
+        if either:
+            face = Face.FRONT       # what the rest of the declaration reads; _settle also tries the back
         try:
             drops = Drops(drops)
         except ValueError:
@@ -2569,6 +2579,10 @@ class Board:
                              "searched and priority=%s has nothing to order; drop the priority, or drop the "
                              "position to have it searched" % (key, priority.value))
         priority = priority or Priority.DEFAULT
+        if either:
+            self._refuse_either(key, kind, rotation, at=at, center=center, edge=edge, along=along, pin_x=pin_x,
+                                pin_y=pin_y, rim=rim, angle=angle, radius_at=radius_at, run=run, beside=beside,
+                                cell_pin=cell_pin, pin=pin, about=about, row_of=_row_of)
         faces_note = ""
         if isinstance(rotation, Facing):
             if kind != "part":
@@ -2638,9 +2652,26 @@ class Board:
                              pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward, about, run,
                              freedom, required, rotation_given, turned=turned, beside=beside, row_of=_row_of,
                              cell_pin=cell_pin, drops=drops, line=_script_line(),
-                             toward=getattr(_centre_toward, "toward", None), pin_land=pin_land)
+                             toward=getattr(_centre_toward, "toward", None), pin_land=pin_land, either=either)
         self._intents.append(intent)
         return intent
+
+    @staticmethod
+    def _refuse_either(key: str, kind: str, rotation, **decided) -> None:
+        """`face=Face.EITHER` is for an item the search places freely: seeded, or round a `Near`.
+        Anything that decides the position, an edge, a ring or a line, or turns the item to a
+        side of the board, is judged on the one face it was declared for."""
+        if kind == "block":
+            raise ValueError("%s: a block is laid out at its anchor on one face; face=Face.EITHER is for a "
+                             "searched part or cell" % key)
+        if isinstance(rotation, Facing):
+            raise ValueError("%s: rotation=Facing(...) turns a part by the face it is on, so it keeps a fixed "
+                             "face; drop face=Face.EITHER or the Facing" % key)
+        named = sorted(k for k, v in decided.items() if v is not None)
+        if named:
+            raise ValueError("%s: face=Face.EITHER is for an item whose spot is searched (seeded by its links, or "
+                             "Near); this declaration decides or constrains it with %s, so give it a face"
+                             % (key, ", ".join(named)))
 
     def _turn_list(self, key: str, rotations) -> tuple:
         """The turns `rotations=` names: its angles as given, or - for a step in degrees, or
@@ -3156,7 +3187,7 @@ class Board:
                                  "together" % (fp.inst, a, b))
         intent = next((i for i in self._intents if getattr(i, "item", None) is fp), None)
         if (turn is not None and intent is not None and intent.rotation_given
-                and isinstance(intent.rotation, (int, float)) and intent.face is Face.FRONT and fp.face is Face.FRONT):
+                and isinstance(intent.rotation, (int, float)) and intent.face is Face.FRONT and not intent.either and fp.face is Face.FRONT):
             ux, uy = Transform.rotate(intent.rotation).apply(Transform.rotate(-fp.rotation).apply(ref_way))
             if abs(abs(ux) - 1.0) < 1e-6 or abs(abs(uy) - 1.0) < 1e-6:
                 try:
@@ -6000,10 +6031,11 @@ class Board:
             rots = list(self._turns(i))
         tried = []
         riders = {}             # a rider's refusal, the first each time it refused a candidate
-        for rot in rots:
-            env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, i.face))
-            for pocket in pockets(occ, env.width, env.height, i.face, step=max(i.step, self.settings.place_pocket_step)):
-                hint = box_centered_placement(occ, i.item, pocket.box.center, rot, i.face)
+        for face in self._faces_of(i):
+          for rot in rots:
+            env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, face))
+            for pocket in pockets(occ, env.width, env.height, face, step=max(i.step, self.settings.place_pocket_step)):
+                hint = box_centered_placement(occ, i.item, pocket.box.center, rot, face)
                 result = scan(occ, i.item, hint, max(pocket.box.width, pocket.box.height) / 2, i.step, (rot,), clr,
                               accept=self._accept(i))
                 for k, why in result.reasons.items():
@@ -6012,12 +6044,14 @@ class Board:
                 if result.chosen is not None:
                     note = "pocket %.1f x %.1f at (%.1f, %.1f): nothing it connects to is placed" % (
                         pocket.box.width, pocket.box.height, pocket.box.center.x, pocket.box.center.y)
+                    if face is not i.face:
+                        note += "; on the %s face, where the %s has no pocket it fits" % (face.value, i.face.value)
                     return self._step(i, result.chosen, 0.0, note)
                 tried.append(pocket)
         plan.findings.append(Finding("unplaced", "%s: no pocket fits its %s envelope on the %s face (%d pocket(s) tried)" % (
             i.key, "%.1f x %.1f" % (occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).width,
                                     occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).height),
-            i.face.value, len(tried)) + "".join("; %s" % why for why in riders.values())))
+            self._face_text(i), len(tried)) + "".join("; %s" % why for why in riders.values())))
         return self._step(i, None, 0.0, "UNPLACED: no pocket fits" + "".join("; %s" % why for why in riders.values()))
 
     def _seeded_pocket(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, hint: Placement, score,
@@ -6026,29 +6060,33 @@ class Board:
         seed that it fits, scanned with the same link score, so it lands at
         the end nearest what it connects to. None when no pocket takes it;
         with it, how many pockets there were."""
-        seen = []
-        for rot in rotations:
-            env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, i.face))
-            for pocket in pockets(occ, env.width, env.height, i.face, step=max(i.step, self.settings.place_pocket_step)):
-                if all(pocket.box != p.box for p, _ in seen):
-                    seen.append((pocket, rot))
         at = hint.location
 
         def gap(pocket):
             b = pocket.box
             return math.hypot(max(b.left - at.x, 0.0, at.x - b.right), max(b.top - at.y, 0.0, at.y - b.bottom))
-        for k in sorted(range(len(seen)), key=lambda k: (round(gap(seen[k][0]), 6), k)):
-            pocket, rot = seen[k]
-            start = box_centered_placement(occ, i.item, pocket.box.center, rot, i.face)
-            result = scan(occ, i.item, start, max(pocket.box.width, pocket.box.height) / 2, i.step,
-                          tuple(rotations), clr, score=score, accept=self._accept(i))
-            if result.chosen is not None:
-                plan.pocketed.append(i.key)
-                note = "%s; took the pocket %.1f x %.1f at (%.1f, %.1f), %.1f mm from the seed" % (
-                    why, pocket.box.width, pocket.box.height, pocket.box.center.x, pocket.box.center.y, gap(pocket))
-                return self._step(i, result.chosen,
-                            result.moved_mm, note), len(seen)
-        return None, len(seen)
+        total = 0
+        for face in self._faces_of(i):          # the front's pockets first, then the back's
+            seen = []
+            for rot in rotations:
+                env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, face))
+                for pocket in pockets(occ, env.width, env.height, face, step=max(i.step, self.settings.place_pocket_step)):
+                    if all(pocket.box != p.box for p, _ in seen):
+                        seen.append((pocket, rot))
+            total += len(seen)
+            for k in sorted(range(len(seen)), key=lambda k: (round(gap(seen[k][0]), 6), k)):
+                pocket, rot = seen[k]
+                start = box_centered_placement(occ, i.item, pocket.box.center, rot, face)
+                result = scan(occ, i.item, start, max(pocket.box.width, pocket.box.height) / 2, i.step,
+                              tuple(rotations), clr, score=score, accept=self._accept(i))
+                if result.chosen is not None:
+                    plan.pocketed.append(i.key)
+                    note = "%s; took the pocket %.1f x %.1f at (%.1f, %.1f), %.1f mm from the seed" % (
+                        why, pocket.box.width, pocket.box.height, pocket.box.center.x, pocket.box.center.y, gap(pocket))
+                    if face is not i.face:
+                        note += ", on the %s face" % face.value
+                    return self._step(i, result.chosen, result.moved_mm, note), total
+        return None, total
 
     def _placements(self) -> list:
         """The item placements among the intents.
@@ -6919,14 +6957,15 @@ class Board:
         if occ.board_box is None:
             return ""
         envs = []
-        for rot in (self._turns(i)):
-            env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, i.face))
-            if pockets(occ, env.width, env.height, i.face, step=max(i.step, self.settings.place_pocket_step), limit=1, covered=True):
-                return ""
-            envs.append(env)
+        for face in self._faces_of(i):
+            for rot in (self._turns(i)):
+                env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, face))
+                if pockets(occ, env.width, env.height, face, step=max(i.step, self.settings.place_pocket_step), limit=1, covered=True):
+                    return ""
+                envs.append(env)
         env = envs[0]
         return "no pocket fits its %.1f x %.1f envelope on the %s face at any rotation asked for" % (
-            env.width, env.height, i.face.value)
+            env.width, env.height, self._face_text(i))
 
     def _no_place_report(self, occ: Occupancy, obj, step) -> str:
         """Why a critical item stopped the run: its envelope, the reason, and
@@ -6934,12 +6973,13 @@ class Board:
         would have to move."""
         item = obj.item.anchor if obj.kind == "block" else obj.item
         env = occ.body_box(item, Placement(Location(0, 0), obj.rotation, obj.face))
-        free = pockets(occ, 2.0, 2.0, obj.face, step=self.settings.place_pocket_step, limit=4)
+        free = [p for face in self._faces_of(obj) for p in
+                pockets(occ, 2.0, 2.0, face, step=self.settings.place_pocket_step, limit=4)][:4]
         rects = "; ".join("%.1f x %.1f at (%.1f, %.1f)" % (p.box.width, p.box.height, p.box.center.x, p.box.center.y)
                           for p in free) or "none"
         return ("%s (required) found no place for its %.1f x %.1f envelope on the %s face: %s. "
                 "Biggest free rectangles there now: %s. The board as it stood is written; nothing was placed after it."
-                % (obj.key, env.width, env.height, obj.face.value, step.note.replace("UNPLACED: ", ""), rects))
+                % (obj.key, env.width, env.height, self._face_text(obj), step.note.replace("UNPLACED: ", ""), rects))
 
     def _next_to_place(self, pending: list, occ: Occupancy, placed: set):
         """Which searched item goes next: the script's tier first, then the
@@ -7405,12 +7445,13 @@ class Board:
         turns = set(self._turns(i)) | {i.rotation, (i.rotation + 90) % 360}      # a pocket's two as well
         at = occ.board_box.center if occ.board_box is not None else Location(0.0, 0.0)
         why = []
-        for rot in sorted(turns):
-            laid = self._ride_turn(occ, plan, i, Placement(at, rot, i.face))
-            bad = None if laid is None else next(((r, g) for r, _, g in laid[1] if g), None)
-            if bad is None:
-                return None
-            why.append("%g: rider %s: %s" % (rot, bad[0].key, bad[1]))
+        for face in self._faces_of(i):
+            for rot in sorted(turns):
+                laid = self._ride_turn(occ, plan, i, Placement(at, rot, face))
+                bad = None if laid is None else next(((r, g) for r, _, g in laid[1] if g), None)
+                if bad is None:
+                    return None
+                why.append("%g: rider %s: %s" % (rot, bad[0].key, bad[1]))
         return "cannot be laid out with its riders at any rotation it may take, whatever room the board has " \
                "(%s)" % "; ".join(why)
 
@@ -7560,8 +7601,8 @@ class Board:
         if hopeless:
             plan.findings.append(Finding("unplaced", "%s: %s" % (i.key, hopeless)))
             return self._step(i, None, 0.0, "UNPLACED: " + hopeless)
-        result = scan(occ, i.item, hint, radius, i.step, self._turns(i), clr, score=score, pick=self._pick(i),
-                      accept=accept)
+        result, face_note = self._scan_faces(occ, i, hint, radius, clr, score, accept,
+                                             reseed=(targets if i.near is None and solved is None else None))
         if result.chosen is None and solved is not None:
             # The solve spreads items without seeing what is already placed, so
             # its hint can land where nothing is legal. That must not cost a
@@ -7582,6 +7623,8 @@ class Board:
             plan.findings.append(Finding("unplaced", "%s: %s" % (i.key, blame)))
             return self._step(i, None, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()))
         note = seeded
+        if face_note:
+            note = (note + "; " if note else "") + face_note
         if result.moved_mm > 0:
             first = next(iter(result.reasons.values()), "")
             moved = "moved %.2f mm off the hint" % result.moved_mm
@@ -7593,6 +7636,51 @@ class Board:
         if push_sources:
             note = (note + "; " if note else "") + self._push_notes(occ, plan, i, result.chosen, push_sources)
         return self._step(i, result.chosen, result.moved_mm, note)
+
+    @staticmethod
+    def _faces_of(i: PlaceIntent) -> tuple:
+        """The faces a search of `i` tries, the front first."""
+        return (Face.FRONT, Face.BACK) if i.either else (i.face,)
+
+    @staticmethod
+    def _face_text(i: PlaceIntent) -> str:
+        return "front or back" if i.either else i.face.value
+
+    def _scan_faces(self, occ: Occupancy, i: PlaceIntent, hint: Placement, radius: float, clr, score, accept,
+                    reseed=None):
+        """(the scan's result, a note on the face taken) for `i`. A fixed face is one scan. Face.EITHER
+        scans the front and then the back, each at its own turn of the hint (`reseed`: the targets a
+        seeded hint was made from, laid again for the back's pads), and takes the back only where
+        its score plus `score.back_face` is less than the front's, or the front has no legal spot.
+        An unscored search takes the front when it has a spot: the back costs more and nothing else
+        tells them apart. A failure carries both faces' refusals."""
+        turns, pick = self._turns(i), self._pick(i)
+        if not i.either:
+            return scan(occ, i.item, hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept), ""
+        cost = self.settings.score_back_face
+        front = scan(occ, i.item, hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept)
+        if front.chosen is not None and score is None:
+            return front, ""
+        if hint.face is Face.BACK:
+            back_hint = hint
+        elif reseed:
+            back_hint = self._seed_hint(i.item, occ, reseed, i.rotation, Face.BACK)
+        else:
+            back_hint = Placement(hint.location, hint.rotation, Face.BACK)
+        if front.chosen is not None and hasattr(score, "best"):
+            score.best[0] = min(score.best[0], front.score - cost)      # a back spot must beat the front's by it
+        back = scan(occ, i.item, back_hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept)
+        if back.chosen is not None and (front.chosen is None or back.score + cost < front.score):
+            if front.chosen is None:
+                why = "the front has no legal spot (%s)" % _blame_text(front)
+            else:
+                why = "%.2f and %.2f for the back face against %.2f on the front" % (back.score, cost, front.score)
+            return back, "on the back face: " + why
+        if front.chosen is not None:
+            return front, ""
+        merged = ScanResult(None, hint, front.tried + back.tried, front.rejected + back.rejected,
+                            {**back.reasons, **front.reasons}, front.blockers + back.blockers)
+        return merged, ""
 
     def _push_notes(self, occ: Occupancy, plan: Plan, i: PlaceIntent, placement: Placement, push_sources: list) -> str:
         """What each push comes to with `i` at `placement`, recorded on the plan and as the step's note."""

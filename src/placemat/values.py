@@ -53,9 +53,12 @@ CopperLayer = _CopperLayerNames("CopperLayer", _COPPER_LAYER_NAMES)
 class Face(str, Enum):
     FRONT = "front"
     BACK = "back"
+    EITHER = "either"       # place(face=) only: the search tries both; a placement is always front or back
 
     @property
     def copper(self) -> CopperLayer:
+        if self is Face.EITHER:
+            raise ValueError("Face.EITHER is not a face: a searched item lands on the front or the back")
         return CopperLayer.F if self is Face.FRONT else CopperLayer.B
 
 

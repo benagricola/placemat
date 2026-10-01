@@ -41,6 +41,17 @@ section for each hand-written pattern a newer form replaces.
 - **`board.row(items, edge, over=[PadRef, ...])`**: the row ordered by where
   the pads its items serve lie along it, once they are placed.
 
+- **A searched item on either face**: `board.place(item, face=Face.EITHER)`
+  on a part or cell with no position, or a `Near`, searches the front, then
+  the back, and keeps the better spot, each judged and scored as spots are
+  (legality, links, crossings, escapes, `board.push` and `Pm` limits, the
+  flip rules). A back spot costs `score.back_face` (2.0) more, so the front
+  wins an equal spot, and an item with no spot on the front takes the back;
+  the step note says which. The default stays `Face.FRONT`: no existing
+  script moves. It is refused with a decided position, an edge, a ring, a
+  block and `rotation=Facing(...)`, which keep a fixed face. `api.md`,
+  "Either face".
+
 ### Migration steps
 
 **A fitted pour that replaced a `grow=` pour and lost current width gets
@@ -104,6 +115,21 @@ board.row(caps, Edge.NORTH, rotation=[0 if PAD1_WEST[c] else 180 for c in caps])
 # after
 board.row(caps, Edge.NORTH, rotation=Facing(1, Edge.WEST))
 ```
+
+**A cell pinned to a face by hand becomes `face=Face.EITHER`.** When the face
+was picked by trying both, or by hand because the front was full, and nothing
+makes it face something, let the search choose.
+
+```python
+# before: the back, because the front had no room beside its links
+board.place(Cell("c"), face=Face.BACK)
+# after: the front when it fits and costs no more, else the back
+board.place(Cell("c"), face=Face.EITHER)
+```
+
+A cell that must stand on one face (a connector that faces out, a part that
+must be on the side a user touches) keeps `face=`. `Face.EITHER` with a
+decided position or an edge is refused, naming what decided it.
 
 ### Fixed
 
@@ -2225,3 +2251,4 @@ that says what replaces it.
 | a computed `0 if ... else 180` turn or a `*_EAST` flag read back to pick a `Beside` side, a turn or a row order | Unreleased |
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |
+| a searched cell or part pinned to `face=Face.BACK` (or `FRONT`) by hand only because one face was full | Unreleased |

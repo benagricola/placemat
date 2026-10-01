@@ -176,6 +176,7 @@ class Settings:
     score_via_share: float = 1.0        # the search: a carried via that shares a same-net via
     score_via_move: float = 2.0         # a carried via that moves
     score_via_drop: float = 10.0        # a plane drop dropped
+    score_back_face: float = 2.0        # the search: a spot on the back face costs this more, so equal spots prefer the front (face=Face.EITHER)
     score_push: float = 10.0            # a push: score.push times the modelled value over its limit, at the search
     score_via_leave: float = 4.0        # a carried via that leaves its pad: between move and shorten
     score_via_shorten: float = 5.0      # a carried drop shortened to the plane's nearest layer instead of dropped: between move and drop
@@ -329,7 +330,7 @@ _AT_LEAST_ZERO = frozenset((
     "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset", "copper_straight_tolerance",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
     "score_pair_crossing", "copper_tap_overlap", "check_neck_band", "solve_spread_pull", "place_via_share", "place_via_move", "place_via_leave", "score_via_share", "score_via_leave",
-    "score_via_move", "score_via_drop", "score_via_shorten", "score_push"))
+    "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face"))
 # A floor of 2: below it a "group" can never be more than one part, which
 # is not a group at all.
 _AT_LEAST_TWO = frozenset(("place_split_min_group",))

@@ -234,6 +234,7 @@ board.place(item, at=Beside(Part("u1"), Edge.EAST, align=Along.MID))   # FIXED: 
 board.place(item, at=Near(Location(x, y)), radius=3.0, step=0.2, rotations=(0, 90))  # searched round a hint
 board.place(item, at=Near(PadRef(u1, 3).local(0.4, -1.2), radius=0), rotation=Turned(u1, 90))  # off a pad in its part's own frame, turned with it
 board.place(cell, at=Pin(Part("c.member"), Location(x, y)), rotations=Turns.ANY)  # on the point, its turn searched (one freedom)
+board.place(item, face=Face.EITHER)                                     # searched on both faces; the front unless the back is better
 ```
 `item` is a `Part` (schematic instance), a `Cell` (module group) or a block
 (below). One declaration per item. `why=` is recorded in the run. A FIXED
@@ -486,7 +487,36 @@ default), and a part and a cell flip the same way. KiCad's orientation field
 will read `rotation + 180` for a back-face part, which is exactly what you get
 by drawing that part upright on the front and pressing F. `face=` takes
 `Face.FRONT`/`Face.BACK` or the string it prints, `"front"`/`"back"`; anything
-else is refused at declaration.
+else is refused at declaration. The default is `Face.FRONT`.
+
+**Either face.** `face=Face.EITHER` (or `"either"`) on a searched part or cell,
+with no position or a `Near`, lets the search try both faces. It scans the
+front as it does now, then the back, each spot judged and scored as any is:
+the board's keep-in, courtyards and bodies on their own face, plated leads and
+holes on both ("The far face"), keepouts by the layers they cover, via
+conflicts with the other face's copper, a cell's flip rules (above), link
+lengths from the pads where they land on that face, ratsnest crossings,
+escape weights, `board.push` and `Pm.Emits`/`Pm.Limit` pairs. A spot on the
+back costs `score.back_face` more (2.0), so the front wins an equal spot; the
+back is taken when its score plus that is below the front's, or when the front
+has no legal spot. With nothing to score by (no link, push or lane) the front
+is taken whenever it has a spot. The step note says why a back spot was
+taken. An item with no spot on either face takes the front's pockets, then the
+back's, and is unplaced when none fits.
+
+```python
+board.place(Cell("m1"), face=Face.EITHER)                       # a cell with no reason to be on one face
+board.place(Part("c9"), at=Near(PadRef(Part("u1"), "3")), face=Face.EITHER)
+```
+
+Links do not pull an item to the face its partners are on: the search
+measures a link in the board's plane, a link between faces costs its length,
+and a part on the back is mirrored, so its pads land on the other sides of it.
+An item that must face something keeps a fixed face: `Face.EITHER` is refused
+with a decided position (`Location`, `Centre`, `Pin`, `Beside`...), a line, an
+edge, a rim or a ring, a block, and `rotation=Facing(...)`. A label follows the
+face chosen; a keepout with `layers=` is judged against it, and a
+through-hole lead is refused by either face's keepout.
 
 **A cell's flip keeps its inner layers, which KiCad's does not.** A cell
 flipped to the back swaps its own F and B copper and keeps its inner copper
@@ -3060,6 +3090,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.via_leave` | 4 | mm for each carried via that leaves its pad there, between move and shorten |
 | `score.via_drop` | 10 | mm for each plane drop dropped there |
 | `score.push` | 10 | mm-equivalent: `score.push` times a push's modelled value over its limit, at the search |
+| `score.back_face` | 2.0 | mm the search adds to a spot on the back face of an item placed with `face=Face.EITHER`, so an equal spot is the front's; no item with a fixed face pays it |
 | `score.via_shorten` | 5 | mm for each carried plane drop shortened to the plane's nearest layer instead of dropped, between move and drop |
 | `solve.enabled` | false | give the searched tier its hints from a global solve of the whole netlist, before any item is scanned |
 | `solve.iterations` | 200 | the solve's conjugate-gradient cap per axis per round |
