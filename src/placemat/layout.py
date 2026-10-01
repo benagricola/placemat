@@ -4279,8 +4279,10 @@ class Board:
         (a keepout reads them in its own frame), each edge for the side its
         normal is nearest, within 45 degrees; by default every edge. A via
         stands at the outside of a corner between two kept edges, shared by
-        both rows. A via that cannot stand is left out and noted; a row left
-        with a gap over `pitch` is a finding."""
+        both rows; a row ends `hole_to_edge` plus the via's radius in from a
+        side not kept it meets. With `sides=`, a finding names the board side
+        each row landed on. A via that cannot stand is left out and noted; a
+        row left with a gap over `pitch` is a finding."""
         name = self.geometry.require_net(net)
         if outside and not edge:
             raise ValueError("%s: stitch's outside=True rows the vias along the region's edge; give edge=True too"
@@ -4379,7 +4381,7 @@ class Board:
         rows = _stitch_outside_rows(poly, turn, off, step, wanted)
         vias, standing, left_out = [], [], []
         seen: dict = {}
-        for side, points in rows:
+        for side, _board_side, points in rows:
             kept = []
             for t, (x, y) in points:
                 at = Location(round(x, 6), round(y, 6))
@@ -4403,6 +4405,10 @@ class Board:
             if max(reach, default=0.0) > step + 1e-6:
                 ctx.notes.append("stitch %s: the %s side's row has a %.2f mm gap, over its %.2f mm pitch"
                                  % (name, _SIDE_WORD[side], max(reach), step))
+        if wanted is not None and rows:
+            ctx.notes.append("stitch %s: rows by the region's side as turned -> the board's side: %s" % (
+                name, ", ".join("%s side -> board %s" % (_SIDE_WORD[side], _SIDE_WORD[board_side])
+                                for side, board_side, _ in rows)))
         if not rows:
             ctx.notes.append("stitch %s: no edge of the region faces the sides asked for" % name)
         elif not vias:
@@ -8085,16 +8091,19 @@ def _stitch_edge_points(poly, step: float, inset: float):
 
 
 _SIDE_WORD = {Edge.NORTH: "north", Edge.EAST: "east", Edge.SOUTH: "south", Edge.WEST: "west"}
+_SIDE_BEARING = {Edge.NORTH: 0.0, Edge.EAST: 90.0, Edge.SOUTH: 180.0, Edge.WEST: 270.0}
 
 
 def _stitch_outside_rows(poly, turn: float, off: float, step: float, wanted) -> list:
-    """[(side, [(distance along the row, (x, y)), ...])] of `stitch(outside=True)`:
+    """[(side, board side, [(distance along the row, (x, y)), ...])] of `stitch(outside=True)`:
     one row per edge of `poly` whose outward normal, read in the region's own
     frame (turned back by `turn`, a clockwise bearing), is within 45 degrees of
     a side in `wanted` (None: every edge). A row stands `off` out from its edge
     along the normal and runs end to end, `ceil(L / step) + 1` points evenly
     spread. Where two kept edges meet at a corner, both rows end on the one
-    point where their offset lines cross, so the corner has one via. Collinear
+    point where their offset lines cross, so the corner has one via. Where a kept
+    edge meets one not kept (at a convex corner), the row ends `off` in from
+    that edge's line, so a via never stands on a side left unkept. Collinear
     vertices are one edge."""
     pts = list(poly)
     i = 0
@@ -8115,20 +8124,32 @@ def _stitch_outside_rows(poly, turn: float, off: float, step: float, wanted) -> 
             edges.append(None)
             continue
         nx, ny = sign * (by - ay) / length, -sign * (bx - ax) / length
-        local = (math.degrees(math.atan2(nx, -ny)) - turn) % 360.0
+        bearing = math.degrees(math.atan2(nx, -ny))
+        local = (bearing - turn) % 360.0
+        board_side = min((Edge.NORTH, Edge.EAST, Edge.SOUTH, Edge.WEST),
+                         key=lambda e: abs((bearing % 360.0 - _SIDE_BEARING[e] + 180.0) % 360.0 - 180.0))
         faces = [e for e, b in ((Edge.NORTH, 0.0), (Edge.EAST, 90.0), (Edge.SOUTH, 180.0), (Edge.WEST, 270.0))
                  if abs((local - b + 180.0) % 360.0 - 180.0) <= 45.0 + 1e-6]
         hit = next((e for e in faces if wanted is None or e in wanted), None)
-        edges.append((pts[k], pts[(k + 1) % n], length, (nx, ny), hit))
+        edges.append((pts[k], pts[(k + 1) % n], length, (nx, ny), hit, board_side))
 
     def end_of(e, f, at_start: bool):
-        (ax, ay), (bx, by), _, (nx, ny), _ = e
+        (ax, ay), (bx, by), _, (nx, ny), _, _ = e
         vx, vy = (ax, ay) if at_start else (bx, by)
         if f is not None and f[4] is not None:
             dot = nx * f[3][0] + ny * f[3][1]
             if dot > -1.0 + 1e-6:                           # the offset lines cross at the corner's outside
                 k = off / (1.0 + dot)
                 return vx + k * (nx + f[3][0]), vy + k * (ny + f[3][1])
+        elif f is not None:
+            # a side not kept meets this one at a convex corner: the row ends where it stands `off` in from that
+            # side's line, the same distance the shared corner's via stands out from both lines
+            fx, fy = f[3]
+            dot = nx * fx + ny * fy
+            wx, wy = f[0] if at_start else f[1]             # the far end of the unkept side
+            if dot < 1.0 - 1e-6 and (wx - vx) * nx + (wy - vy) * ny < 0:
+                k = off / (1.0 - dot)
+                return vx + k * (nx - fx), vy + k * (ny - fy)
         return vx + off * nx, vy + off * ny
 
     rows = []
@@ -8139,7 +8160,7 @@ def _stitch_outside_rows(poly, turn: float, off: float, step: float, wanted) -> 
         b = end_of(e, edges[(k + 1) % n], False)
         length = math.hypot(b[0] - a[0], b[1] - a[1])
         count = max(1, math.ceil(length / step - 1e-9))
-        rows.append((e[4], [(length * i / count, (a[0] + (b[0] - a[0]) * i / count, a[1] + (b[1] - a[1]) * i / count))
+        rows.append((e[4], e[5], [(length * i / count, (a[0] + (b[0] - a[0]) * i / count, a[1] + (b[1] - a[1]) * i / count))
                             for i in range(count + 1)]))
     return rows
 
