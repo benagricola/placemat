@@ -7,6 +7,27 @@ section for each hand-written pattern a newer form replaces.
 
 ## To 0.75.0
 
+### New
+
+- **A part's `board.vias()` grid gives way.** A pad filled with vias used
+  to be laid after its part landed and judged as copper afterwards, so
+  another item's pad over a row of it either refused a searched item or
+  left the row out of the grid. The grid is now carried with its part,
+  placed firmly or searched, and gives way as a stamped cell's field does:
+  a via moves, the field is re-laid (moved, a row shifted, the pitch closed
+  or uneven, a row out, keeping the count), a via leaves its pad, a plane
+  net's vias are dropped down to `place.drops_keep`. Same settings, costs
+  and findings ("GND field in U1 pad 1 re-laid by uneven pitch, 8 vias
+  before, 8 after under R6"); `inset=` is kept by a relay, and no two vias
+  come closer than the floor `pitch=` is refused under. The grid is drawn
+  after the search, so a pour that names it is planned after the search too.
+  The row form, `vias(net, along=, count=)`, is unchanged. A grid on a net
+  that is no plane, with no room, now refuses the other item's spot (a firm
+  item: a collision) where the grid used to skip the site silently: a script
+  that placed before may now see that refusal, and the item goes elsewhere. `api.md`,
+  "Carried vias give way".
+
+
 ### Fixed
 
 - **A stamped cell's faces note is left out of the written board.** A
@@ -49,24 +70,6 @@ section for each hand-written pattern a newer form replaces.
   false` keeps the old behaviour. Nothing in a script changes; a spot that
   was refused or cost drops may now keep its vias, and a search may take a
   spot it had passed over. `api.md`, "Carried vias give way".
-
-- **A part's `board.vias()` grid gives way.** A pad filled with vias used
-  to be laid after its part landed and judged as copper afterwards, so
-  another item's pad over a row of it either refused a searched item or
-  left the row out of the grid. The grid is now carried with its part,
-  placed firmly or searched, and gives way as a stamped cell's field does:
-  a via moves, the field is re-laid (moved, a row shifted, the pitch closed
-  or uneven, a row out, keeping the count), a via leaves its pad, a plane
-  net's vias are dropped down to `place.drops_keep`. Same settings, costs
-  and findings ("GND field in U1 pad 1 re-laid by uneven pitch, 8 vias
-  before, 8 after under R6"); `inset=` is kept by a relay, and no two vias
-  come closer than the floor `pitch=` is refused under. The grid is drawn
-  after the search, so a pour that names it is planned after the search too.
-  The row form, `vias(net, along=, count=)`, is unchanged. A grid on a net
-  that is no plane, with no room, now refuses the other item's spot (a firm
-  item: a collision) where the grid used to skip the site silently: a script
-  that placed before may now see that refusal, and the item goes elsewhere. `api.md`,
-  "Carried vias give way".
 
 ### Fixed
 
