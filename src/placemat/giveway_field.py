@@ -21,7 +21,7 @@ from dataclasses import dataclass, field, replace
 import math
 
 from .geometry import point_segment_distance
-from .giveway import Action, _disc_inside, _radius, _shift, _Judge
+from .giveway import FIELD_PREFIX, Action, _disc_inside, _radius, _shift, _Judge, field_key
 from .values import Box
 
 _LINE = 1e-3
@@ -71,6 +71,20 @@ class _Cand:
     drops: list = field(default_factory=list)       # members taken out
     adds: list = field(default_factory=list)        # sites that get a new via
     plain: bool = False                             # the vias that meet the item, taken out and nothing more
+
+
+def relayable(occ, g) -> bool:
+    """Whether the via `g` is one a relay may move: a stamped cell's own, or one of a part's grid
+    (`board.vias()` at a pad)."""
+    return g.home in occ.geometry.cells or g.id.startswith(FIELD_PREFIX)
+
+
+def field_inset(occ, g) -> float:
+    """The inset the grid of `g` was declared with, 0 for a cell's field."""
+    if not g.id.startswith(FIELD_PREFIX):
+        return 0.0
+    k = int(g.id[len(FIELD_PREFIX):].split(" ")[0])
+    return occ.field_decls.get(k, 0.0)
 
 
 def _lines(vals) -> list:
@@ -164,8 +178,8 @@ class _Layouts:
         for m in ctx.members.values():
             if m.home != g.home or m.net != g.net:
                 continue
-            key, _, inside = _pad_of(who, m)
-            if key != pad_key or not inside:
+            key, land, inside = _pad_of(who, m)
+            if key != pad_key or not inside or land is not pad:
                 continue
             members.append(m)
             a = acted.get(m.id)
@@ -174,8 +188,8 @@ class _Layouts:
                     shared_now += 1
                 elif a.kind != "drop":
                     self.fixed.append(tuple(a.to) if a.kind in ("move", "leave") and a.to else m.centre)
-            elif m.tail is not None or m.routed:
-                self.fixed.append(m.centre)
+            elif m.tail is not None or m.routed or not relayable(occ, m):
+                self.fixed.append(m.centre)         # a via the field's own steps hold: it keeps its site
             else:
                 self.rel.append(m)
         self.members = members
@@ -190,6 +204,7 @@ class _Layouts:
             self.ok = False                         # a field of one via is drawn at one size and drill
             return
         self.pmin = max(2.0 * self.r, 2.0 * self.rh + occ.geometry.hole_to_hole)
+        self.inset = field_inset(occ, g)
         drawn = [d for d in who.drawn.values() if d.net == g.net and d.home == g.home
                  and _pad_of(who, d)[0] == pad_key and _pad_of(who, d)[2]]
         self.before = len(self.rel) + len(self.fixed) + self.shared
@@ -207,8 +222,9 @@ class _Layouts:
         self.c, self.sn = math.cos(self.t), math.sin(self.t)
         ext_u = [self.uv(p)[0] for p in poly]
         ext_v = [self.uv(p)[1] for p in poly]
-        self.ulo, self.uhi = min(ext_u) + self.r, max(ext_u) - self.r
-        self.vlo, self.vhi = min(ext_v) + self.r, max(ext_v) - self.r
+        reach = self.r + self.inset         # a grid declared with inset= keeps it: the via's copper grown by it lies in the land
+        self.ulo, self.uhi = min(ext_u) + reach, max(ext_u) - reach
+        self.vlo, self.vhi = min(ext_v) + reach, max(ext_v) - reach
         self.rel_pos = [self.uv(m.centre) for m in self.rel]
         self.fix_pos = [self.uv(p) for p in self.fixed]
         # the board the new sites are judged against: the pad's neighbourhood, less the field's own vias
@@ -263,7 +279,7 @@ class _Layouts:
         hit = self.cache.get(key)
         if hit is None:
             at = self.xy(q)
-            hit = self.cache[key] = _disc_inside(self.pad.poly, at, self.r - 1e-5) and \
+            hit = self.cache[key] = _disc_inside(self.pad.poly, at, self.r + self.inset - 1e-5) and \
                 self._hit(self.shapes_at(self.g, at)) is None
         return hit
 
@@ -507,7 +523,7 @@ def relay(occ, g, judge, own, who, pad_key, pad, met: str, ctx: Ctx | None):
     apply or no legal layout is cheaper than dropping the vias that meet it."""
     s = occ.settings
     if ctx is None or not s.place_via_relay or pad is None or pad_key is None or g.tail is not None or g.routed \
-            or g.home not in occ.geometry.cells:
+            or not relayable(occ, g):
         return None
     key = (g.home, pad_key, len(ctx.actions))
     if key in ctx.failed:
@@ -525,10 +541,11 @@ def relay(occ, g, judge, own, who, pad_key, pad, met: str, ctx: Ctx | None):
 
 def _new_id(occ, lay: _Layouts, g, used: set) -> str:
     taken = {m.id for m in lay.members} | set(occ.given_way) | used
+    base = field_key(g)
     k = 0
-    while "%s relay %d" % (g.owner, k) in taken:
+    while "%s relay %d" % (base, k) in taken:
         k += 1
-    return "%s relay %d" % (g.owner, k)
+    return "%s relay %d" % (base, k)
 
 
 def _action(occ, lay: _Layouts, g, c: _Cand, met: str) -> Relaid:

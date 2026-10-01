@@ -446,6 +446,7 @@ class Occupancy:
         self._given_by: dict = {}
         self._pristine: dict = {}
         self._pristine_copper: dict = {}
+        self.field_decls: dict = {}         # a part's via grid (giveway.field_via_id's K) -> the inset it was declared with
         for fp in geometry.footprints:
             self._register(fp)
         carried = _cell_vias(geometry, self.settings.place_via_route > 0)

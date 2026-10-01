@@ -2033,8 +2033,9 @@ points at the fix: "...; the 45 of its chamfer at (x, y); a smaller
 chamfer= there keeps clear".
 
 **Carried vias give way.** A carried via is one a part or a cell brings
-with it: a via at a searched part's pad, as above, or one of a stamped
-cell's own. Its tail is the one track of the same owner and net that ends
+with it: a via at a searched part's pad, as above, a via of a grid
+`board.vias(net, pad)` fills a part's pad with (a part placed firmly or
+searched; below), or one of a stamped cell's own. Its tail is the one track of the same owner and net that ends
 at its centre. A via that two or more of the cell's tracks end on is a
 routed via, which moves with its tracks (below); a via whose track runs on
 to another of the cell's vias is part of a route and stays as drawn.
@@ -2068,7 +2069,8 @@ does not refuse the spot at once. The via tries, in turn:
   as drawn. The refusal says "no spot within 0.50 mm is clear with its 2
   tracks rebuilt";
 - a via of a field (the carried vias of one net inside one pad of that
-  net, a stamped cell's own, a plane net's drops or an exposed pad's grid),
+  net: a stamped cell's own, a plane net's drops or an exposed pad's grid, or a part's
+  `board.vias(net, pad)` grid),
   with no tail, when no spot inside the pad is clear for it alone: to have
   its field re-laid in the pad as a whole (`place.via_relay`, true; false
   never relays). Every via of the field that meets the item is handled at
@@ -2092,8 +2094,11 @@ does not refuse the spot at once. The via tries, in turn:
   field in U1 pad 1 re-laid by shift vias, 9 vias before, 9 after under
   R9", and a drop reports what the pad holds: "3 GND vias dropped under R9
   (U1 pad 1 holds 6 of 9)". Undoing one via of a relay, as placing its
-  item again does, undoes the field. A part's `board.vias()` grid is laid
-  after the part lands and is not carried, so it does not give way;
+  item again does, undoes the field. A grid declared with `inset=` keeps
+  it at every site a relay chooses, and no two vias of a field come closer
+  than the floor `pitch=` is refused under, `max(size, drill +
+  hole-to-hole)`, so a grid declared at a wider pitch can be closed down to
+  that floor and one declared at the floor cannot be closed;
 - a via inside a pad of its own net with no tail, when no spot inside the
   pad is clear: to leave its pad, up to `place.via_leave` (1.0 mm) from
   where it stood, to the nearest spot clear of every other net's copper
@@ -2211,6 +2216,23 @@ has its hole and is not filled. A pad
 no via fits in is a finding; a `pitch` under the hole-to-hole rule is refused
 when declared. The step says the vias are in the pad: filled or plugged at
 the fab.
+
+The grid is carried with its part, a part placed firmly or searched: its
+sites are those above that clear the part's own copper and holes, laid with
+the part, and what other items do is judged when each is placed, not when
+the grid is drawn. Where another item's copper meets some of them they give
+way as a stamped cell's field does (above): a via moves, the field is
+re-laid, a via leaves its pad, and a plane net's vias are dropped down to
+`place.drops_keep`; a net that is no plane keeps its count or refuses the
+spot, and a firm item with no spot is a collision. The grid is drawn after
+the search, as a via declared at a pad is, and each via is judged once more
+against the copper planned before it, which is why a pour that names a grid
+is planned after the search too. A part put on its host's pad by a pin is
+not refused by the host's grid; the vias give way to it. The row form,
+`vias(net, along=, count=)`, is not carried and is planned after its part
+as before. A part's grid used to skip a site another item's copper met, or
+refuse a searched item; it now gives way, so a spot that cost vias may keep
+them, and one that was refused may be taken.
 
 **Vias in a row.** `board.vias(net, along=PadRef(...), count=N)` draws N
 vias out from a pad along its escape axis (the outward normal of the pad

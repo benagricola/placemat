@@ -2,8 +2,9 @@
 and-the-far-face-design.md, section 1).
 
 A carried via is one a part or a stamped cell brings with it: a via the
-script declared at a searched part's pad (`board.via(net, PadRef(...))`), or
-one of a stamped fragment's own. Its tail is the one track of its owner's, on
+script declared at a searched part's pad (`board.via(net, PadRef(...))`), one of the grid
+`board.vias(net, pad)` fills a part's pad with (docs/superpowers/specs/2026-10-01-
+carried-via-grids-design.md), or one of a stamped fragment's own. Its tail is the one track of its owner's, on
 its net, that ends at its centre. Where a carried via meets another net's
 copper, on either face, at a candidate, it tries in turn to
 
@@ -71,6 +72,23 @@ is native: switched off to compare against the per-offset Python loop."""
 def pad_via_id(k: int) -> str:
     """The id of the k-th via the script declared at a pad."""
     return "pad via %d" % k
+
+
+FIELD_PREFIX = "pad field "
+"""What the id of a via of a part's grid (`board.vias()` at a pad) starts with."""
+
+
+def field_via_id(k: int, j: int) -> str:
+    """The id of the j-th via of the k-th grid the script declared."""
+    return "%s%d via %d" % (FIELD_PREFIX, k, j)
+
+
+def field_key(g) -> str:
+    """What names a via's field in the ids a relay adds to it: "pad field K" for a part's grid, else the
+    via's owner (a cell's name)."""
+    if g.id.startswith(FIELD_PREFIX):
+        return FIELD_PREFIX + g.id[len(FIELD_PREFIX):].split(" ")[0]
+    return g.owner
 
 
 def enabled(settings) -> bool:
