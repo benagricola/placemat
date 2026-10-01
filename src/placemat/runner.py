@@ -558,9 +558,14 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         # is in the run record rather than in a command nobody ran.
         rec.metrics = metrics                 # the checks count into this same dict
         t0 = time.time()
-        verdicts = checks.run_checks(read_board(src.pcb), **checks.kwargs_from(cfg))
-        for line in checks.record(rec, verdicts):
+        verdicts, outcomes = checks.judge(checks.run_checks(read_board(src.pcb), **checks.kwargs_from(cfg)),
+                                          plan.acceptances)
+        for line in checks.record(rec, verdicts, outcomes):
             say("checks", line)
+        stale = checks.findings_of(outcomes)            # after the finding lines printed above: said here, kept in run.json
+        plan.findings.extend(stale)
+        for f in stale:
+            say("finding", f, level="finding")
         rec.timing_s["checks"] = round(time.time() - t0, 1)
         if route:
             from .kicad.route import route_board

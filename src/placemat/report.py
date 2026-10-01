@@ -26,6 +26,7 @@ class RunRecord:
     paths: dict = field(default_factory=dict)
     failure: dict | None = None
     verdicts: list = field(default_factory=list)      # the design checks, as `Verdict` fields
+    acceptances: list = field(default_factory=list)   # each board.accept and what it met (checks.Outcome.record)
 
     def save(self, path) -> Path:
         path = Path(path)
@@ -215,6 +216,12 @@ def impact(before: RunRecord, after: RunRecord) -> str:
     return "\n".join(lines)
 
 
+def _state(v: dict) -> str:
+    if v.get("accepted"):
+        return "accepted"
+    return {True: "ok", False: "FAIL", None: "not judged"}[v.get("ok")]
+
+
 def _verdict_changes(before: list, after: list) -> list:
     """Design checks whose verdict flipped, named. A check that went from a
     pass to a fail is the line a reader must not miss; one that came right is
@@ -223,13 +230,11 @@ def _verdict_changes(before: list, after: list) -> list:
     out = []
     for v in after:
         prev = was.get((v["check"], v["subject"]))
-        if prev is None or prev.get("ok") == v.get("ok"):
+        if prev is None or _state(prev) == _state(v):
             continue
-        state = {True: "ok", False: "FAIL", None: "not judged"}
         lim = "" if v.get("limit") is None else " (limit %g)" % v["limit"]
         out.append("  %s %s: %s -> %s, %g %s%s" % (
-            v["check"], v["subject"], state[prev.get("ok")], state[v.get("ok")],
-            v["value"], v["unit"], lim))
+            v["check"], v["subject"], _state(prev), _state(v), v["value"], v["unit"], lim))
     return (["checks:"] + out) if out else []
 
 

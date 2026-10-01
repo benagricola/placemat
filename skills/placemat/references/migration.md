@@ -13,6 +13,14 @@ them. They show the board as an earlier run placed it: the run log says
 which ("not rendered: layout.png kept from run <id>"), and `run.json`'s
 metrics carry `renders_from`, the run that made them.
 
+`board.accept(check, subject, at_least= | at_most=, why=)` takes one failed
+check verdict as it is, with the reason, instead of a board-wide limit
+loosened for it. Within the bound the run reads "accepted" for that verdict
+and counts it under `checks_accepted`; past the bound it fails as before. An
+acceptance that matches no verdict, or whose verdict passes, is a `setup`
+finding. A script without `board.accept` runs, digests and locks as it did.
+`api.md`, "Accepting a check verdict".
+
 ## To 0.65.2
 
 A track from a net tie's pad across the tie's own copper is judged where

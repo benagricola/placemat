@@ -11,6 +11,7 @@ instead of guessing.
 from __future__ import annotations
 
 from collections import deque
+import dataclasses
 from dataclasses import dataclass
 import bisect
 import math
@@ -97,12 +98,128 @@ class Verdict:
     limit: float | None = None
     ok: bool | None = None              # None: not judged (no limit, or a fact is missing)
     note: str = ""
+    accepted: str = ""                  # a failed verdict inside a script's acceptance: "accepted (>= 0.35): why"
 
     def line(self) -> str:
         judged = "" if self.ok is None else (" ok" if self.ok else " FAIL")
+        if self.accepted:
+            judged = " " + self.accepted
         lim = "" if self.limit is None else " (limit %g)" % self.limit
         note = " - " + self.note if self.note else ""
         return "%-15s %-12s %8.3g %s%s%s%s" % (self.check, self.subject, self.value, self.unit, lim, judged, note)
+
+
+# ------------------------------------------------------------ acceptances
+
+SIDES = {"keep-out": "at_least", "current-path": "at_least",
+         "crossings-under": "at_most", "heat": "at_most", "exposure": "at_most",
+         "hot-loop": "at_most", "switch-node": "at_most"}
+"""Which way each check is judged: `at_least` where more is better,
+`at_most` where less is."""
+
+
+@dataclass(frozen=True)
+class Acceptance:
+    """`board.accept`: one verdict a script takes as it is, with the reason,
+    up to a bound on the side the check judges."""
+    check: str
+    subject: str
+    at_least: float | None = None
+    at_most: float | None = None
+    why: str = ""
+
+    @property
+    def side(self) -> str:
+        return "at_least" if self.at_least is not None else "at_most"
+
+    @property
+    def bound(self) -> float:
+        return self.at_least if self.at_least is not None else self.at_most
+
+    def text(self) -> str:
+        return "%s %g" % (">=" if self.side == "at_least" else "<=", self.bound)
+
+    def holds(self, value: float) -> bool:
+        return value >= self.bound - 1e-9 if self.side == "at_least" else value <= self.bound + 1e-9
+
+
+@dataclass(frozen=True)
+class Outcome:
+    """What one acceptance met: accepted; past (the verdict is worse than the
+    bound); unmatched (the run produced no such verdict); or not needed (the
+    verdict passes, or is not judged, without it)."""
+    acceptance: Acceptance
+    outcome: str
+    value: float | None = None
+    why_not: str = ""                   # for "not needed": "passes" or "is not judged"
+
+    def line(self) -> str:
+        a = self.acceptance
+        said = {"accepted": "accepted", "past": "past its bound, still FAIL",
+                "unmatched": "matched no verdict", "not needed": "not needed"}[self.outcome]
+        val = "" if self.value is None else " (%.4g)" % self.value
+        return "%s %s %s%s: %s - %s" % (a.check, a.subject, a.text(), val, said, a.why)
+
+    def record(self) -> dict:
+        a = self.acceptance
+        return {"check": a.check, "subject": a.subject, "side": a.side, "bound": a.bound, "why": a.why,
+                "value": self.value, "outcome": self.outcome}
+
+
+def accept(check: str, subject: str, at_least: float | None = None, at_most: float | None = None,
+           why: str = "") -> Acceptance:
+    """An acceptance, refused when malformed. See `Board.accept`."""
+    if check not in SIDES:
+        raise ValueError("unknown check %r: one of %s" % (check, ", ".join(sorted(SIDES))))
+    if (at_least is None) == (at_most is None):
+        raise ValueError("accept(%r, %r) takes exactly one of at_least= and at_most=" % (check, subject))
+    side = "at_least" if at_least is not None else "at_most"
+    if side != SIDES[check]:
+        raise ValueError("%s is judged by %s: use %s=, not %s=" % (
+            check, "a floor" if SIDES[check] == "at_least" else "a ceiling", SIDES[check], side))
+    if not str(why).strip():
+        raise ValueError("accept(%r, %r) says why: a verdict accepted without a reason is a loosened limit" % (check, subject))
+    return Acceptance(check, str(subject), None if at_least is None else float(at_least),
+                      None if at_most is None else float(at_most), why)
+
+
+def judge(verdicts: list, acceptances) -> tuple[list, list]:
+    """The verdicts as the script's acceptances read them, and what each
+    acceptance met. A failed verdict inside its acceptance's bound is
+    accepted; past the bound it still fails and its note names the
+    acceptance. Other verdicts are returned as they were."""
+    out = list(verdicts)
+    outcomes = []
+    for a in acceptances:
+        at = [i for i, v in enumerate(out) if v.check == a.check and v.subject == a.subject]
+        if not at:
+            outcomes.append(Outcome(a, "unmatched"))
+            continue
+        i = at[0]
+        v = out[i]
+        if v.ok is not False:
+            outcomes.append(Outcome(a, "not needed", v.value, "passes" if v.ok else "is not judged"))
+        elif a.holds(v.value):
+            out[i] = dataclasses.replace(v, accepted="accepted (%s): %s" % (a.text(), a.why))
+            outcomes.append(Outcome(a, "accepted", v.value))
+        else:
+            past = "past its acceptance of %s: %s" % (a.text(), a.why)
+            out[i] = dataclasses.replace(v, note=(v.note + "; " if v.note else "") + past)
+            outcomes.append(Outcome(a, "past", v.value))
+    return out, outcomes
+
+
+def findings_of(outcomes) -> list:
+    """The `setup` findings for acceptances that matched nothing or were not needed."""
+    from .findings import Finding
+    out = []
+    for o in outcomes:
+        a = o.acceptance
+        if o.outcome == "unmatched":
+            out.append(Finding("setup", "accept %s %s: no verdict by that check and subject on this board" % (a.check, a.subject)))
+        elif o.outcome == "not needed":
+            out.append(Finding("setup", "accept %s %s: not needed: the check %s" % (a.check, a.subject, o.why_not)))
+    return out
 
 
 # ----------------------------------------------------------------- facts
@@ -1108,19 +1225,26 @@ def kwargs_from(settings) -> dict:
             "zone_step": settings.check_zone_step}
 
 
-def record(rec, verdicts) -> list:
+def record(rec, verdicts, outcomes=()) -> list:
     """Put a board's verdicts on its run record and return the lines to print.
+    `verdicts` and `outcomes` are what `judge` returned.
 
     A verdict with `ok` None was not judged - no limit was set, or a fact the
     check needs is missing - and it is counted as such rather than as a pass:
-    a check that passes because a footprint lacks `Pm.Pd` is worse than none."""
+    a check that passes because a footprint lacks `Pm.Pd` is worse than none.
+    An accepted verdict is counted as accepted, not as failed."""
     rec.verdicts = [dict(v.__dict__) for v in verdicts]
-    failed = [v for v in verdicts if v.ok is False]
+    rec.acceptances = [o.record() for o in outcomes]
+    accepted = [v for v in verdicts if v.accepted]
+    failed = [v for v in verdicts if v.ok is False and not v.accepted]
     unjudged = [v for v in verdicts if v.ok is None]
     rec.metrics["checks_failed"] = len(failed)
+    rec.metrics["checks_accepted"] = len(accepted)
     rec.metrics["checks_unjudged"] = len(unjudged)
+    held = [o.line() for o in outcomes]
     if not verdicts:
-        return ["no Pm.* facts on this board: no design checks ran"]
-    head = "%d check(s): %d failed, %d passed, %d not judged" % (
-        len(verdicts), len(failed), len(verdicts) - len(failed) - len(unjudged), len(unjudged))
-    return [head] + [v.line() for v in failed]
+        return ["no Pm.* facts on this board: no design checks ran"] + held
+    head = "%d check(s): %d failed, %s%d passed, %d not judged" % (
+        len(verdicts), len(failed), "%d accepted, " % len(accepted) if accepted else "",
+        len(verdicts) - len(failed) - len(accepted) - len(unjudged), len(unjudged))
+    return [head] + [v.line() for v in failed] + held

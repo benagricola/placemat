@@ -554,6 +554,7 @@ class Plan:
     links: list = field(default_factory=list)
     pushes: list = field(default_factory=list)                    # every push, once its item has a place (Push)
     rules: list = field(default_factory=list)
+    acceptances: list = field(default_factory=list)               # board.accept: judged after the checks run (checks.Acceptance)
     outline: Box | None = None
     draw_outline: bool = True           # False: the outline is a placement frame only (a module fragment)
     chamfer: float = 0.0
@@ -848,6 +849,7 @@ class Board:
         self._faces: tuple | None = None
         self._links: list[Link] = []
         self._rules: list = []
+        self._acceptances: list = []        # checks.Acceptance of each board.accept: read by the checks step alone, in no digest
         self._free_nets: set = set()
         self._outline: Box | None = geometry.outline_box
         self._shape = None                  # a board that is not a rectangle: a Disc or an Outline
@@ -3118,6 +3120,23 @@ class Board:
         self._rules.append(rule)
         return rule
 
+    def accept(self, check: str, subject: str, *, at_least: float | None = None,
+               at_most: float | None = None, why: str = ""):
+        """Take one design-check verdict as it is, with the reason. `subject`
+        is what the verdict names as the run prints it: the net (`keep-out`,
+        `crossings-under`, `current-path`, `switch-node`), the part (`heat`),
+        "<ref> <kind>" (`exposure`) or the loop (`hot-loop`). Exactly one
+        bound, on the side the check judges: `at_least=` for `keep-out` and
+        `current-path`, `at_most=` for the rest. A failed verdict within the
+        bound reads accepted; past it, it fails, naming the acceptance. It
+        changes no placement or copper."""
+        from . import checks
+        a = checks.accept(check, subject, at_least, at_most, why)
+        if any(x.check == a.check and x.subject == a.subject for x in self._acceptances):
+            raise ValueError("%s %s is already accepted" % (a.check, a.subject))
+        self._acceptances.append(a)
+        return a
+
     def _clearance_rules(self):
         """The declared clearance rules, read as KiCad judges them (rules.ClearanceRules)."""
         from .rules import ClearanceRules
@@ -4723,7 +4742,7 @@ class Board:
                 occ.pending |= occ._geometry(item).owners
         plan = Plan(self.geometry, occ, outline=self._outline, chamfer=self._chamfer, radius=self._radius,
                     shape=self._shape, cutouts=self._cutouts,
-                    rules=list(self._rules), draw_outline=self._draw_outline,
+                    rules=list(self._rules), acceptances=list(self._acceptances), draw_outline=self._draw_outline,
                     cell_zones_under_planes=self.settings.copper_cell_zones_under_planes,
                     split_groups=self.settings.write_split_groups, groups=list(self._groups.values()),
                     thinned=thinned)

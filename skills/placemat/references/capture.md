@@ -148,7 +148,10 @@ runs the same checks on the board it wrote.
   is pessimistic), against `Pm.TjMax`
 
 The defaults are settings (`[check]` in `placemat.toml`); `placemat
-settings` prints them.
+settings` prints them. A verdict no layout can improve (a package's pitch
+sets a track's width) is taken as it is, with a reason, by the layout
+script's `board.accept` (`references/api.md`, "Accepting a check verdict"),
+not by loosening a limit for the whole board.
 
 ## Annotating a capture
 
