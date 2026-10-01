@@ -108,6 +108,7 @@ def test_a_via_in_the_pad_keeps_off_another_nets_copper_on_the_far_side():
     g = board_geometry([_part(_square()), under, footprint("R1", 5, 5, w=2, h=1, inst="r1", nets=("GND", "SIG"))],
                        width=40, height=40)
     b = Board(dataclasses.replace(g, hole_to_hole=0.25), edge_margin=0.5)
+    b.plane(Net("GND"), [CopperLayer.B])        # a plane net's vias may be dropped for the pad
     b.place(Part("u1"), at=Location(20, 21.5))
     b.place(Part("c9"), at=Location(20, 20.5), face=Face.BACK)
     b.vias(Net("GND"), PadRef(Part("u1"), 1), size=0.6, drill=0.3)
@@ -146,7 +147,7 @@ def test_a_pin_with_its_own_holes_keeps_the_rule_from_each():
     b.place(Part("u1"), at=Location(20, 21.5))
     b.vias(Net("GND"), PadRef(Part("u1"), 1), size=0.6, drill=0.3)
     plan = b.resolve()
-    own = [(sh.box.center, 0.3) for sh in plan.occupancy.items["U1"].shapes if sh.kind == "through"]
+    own = [(sh.box.center, 0.3) for sh in plan.occupancy.items["U1"].shapes if sh.kind == "through" and not sh.carried]
     vias = _vias(plan)
     assert vias and len(own) == 4 and _clear_of_holes(vias, own, 0.25)
 

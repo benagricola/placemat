@@ -24,7 +24,7 @@ from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfer_c
                      pair_ops, polyline_tracks, resolve_bridges, _point_seg)
 from .geometry import Transform, box_polygon, circle_polygon, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
 from .findings import Finding, Findings
-from .giveway import enabled as giveway_enabled, pad_via_id
+from .giveway import FIELD_PREFIX, enabled as giveway_enabled, field_via_id, pad_via_id
 from .occupancy import LABEL_SOURCE, VIA_BUCKET, Occupancy, Shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
 from .cutouts import Cutouts, Path, _turned, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
@@ -882,6 +882,10 @@ class Board:
         self._waited: dict = {}                # item key -> the linked partner it waited for
         self._copper: list[CopperIntent] = []
         self._pad_vias: list = []          # (pad ref, net, drill, size, span) of each via declared at a pad: its part carries it
+        self._pad_fields: list = []        # (pad ref, net, drill, size, span, inset, pitch, step) of each board.vias() grid: its part carries it
+        self._field_notes: dict = {}       # grid index -> why none of its vias is drawn, said when it is planned
+        self._late_copper: set = set()     # indexes of the copper intents planned after the search whatever their part (a part's grid)
+        self._copper_after: dict = {}      # copper intent index -> the intents it is planned after, and so late when they are
         self._labels: list = []
         self._fanouts: list = []           # (key, footprint, depth, sides or None, why)
         self._escapes: list = []           # the EscapeDecl of each board.escape() (lanes.py)
@@ -1170,6 +1174,57 @@ class Board:
                                   Box.of_points(ring), carried=tag, points=points),
                             dataclasses.replace(hole_shape(owner, c, drill, net, layers=layers), carried=tag,
                                                 points=points)])
+        self._carry_pad_fields(occ, flipped)
+
+    def _carry_pad_fields(self, occ, flipped: set) -> None:
+        """Each grid declared with `vias(net, pad)` becomes copper of the pad's part, firmly placed or
+        searched: the sites the grid has always drawn (`_field_sites`) that clear the part's own copper and
+        holes and the vias carried before them, each a via ring and a hole. What the rest of the board does is
+        for give-way to meet when the part is placed (giveway.py); the plan draws what is carried
+        (`vias()`'s plan). A grid with no site says why when it is planned."""
+        from .occupancy import _BOTH, hole_shape
+        occ.field_decls = {}
+        self._field_notes = {}
+        for k, (pad, net, drill, size, span, inset, pitch, step) in enumerate(self._pad_fields):
+            ref, number, _, _ = self._pad_ref(pad)
+            if ref not in occ.items:
+                continue
+            occ.field_decls[k] = inset
+            sites, why = self._field_sites(occ, pad, span, size, step, inset)
+            if why:
+                self._field_notes[k] = "vias %s: %s" % (net, why)
+                continue
+            owner = "via at %s.%s" % (ref, number)
+            layers = frozenset(span) if ref not in flipped else occ._flip_span(frozenset(span))
+            faces = frozenset(l.face for l in layers if l.face is not None) if span else _BOTH
+            kept: list = []
+            for at in sites:
+                tag, points = field_via_id(k, len(kept) // 2), ((at.x, at.y),)
+                ring = via_ring(at, size)
+                shapes = [Shape(owner, "through", faces, layers or frozenset(self.geometry.layers), net, ring,
+                                Box.of_points(ring), carried=tag, points=points),
+                          dataclasses.replace(hole_shape(owner, at, drill, net, layers=layers), carried=tag,
+                                              points=points)]
+                if not self._clear_of_own(occ, ref, shapes, kept):
+                    continue
+                kept += shapes
+            if not kept:
+                self._field_notes[k] = ("vias %s: no via fits in %s.%s, or clears the copper and holes round it "
+                                        "(%.2f mm via, %.2f mm drill, %.2f mm inset)" % (net, ref, number, size, drill, inset))
+                continue
+            occ.carry(ref, kept)
+
+    @staticmethod
+    def _clear_of_own(occ, ref: str, shapes: list, kept: list) -> bool:
+        """Whether a carried via's ring and hole (`shapes`) clear the copper and holes of the part `ref` and the
+        vias carried before it: the rules the board's copper and holes are held to."""
+        for o in list(occ.items[ref].shapes) + kept:
+            if o.kind not in ("pad", "through", "copper", "hole", "npth"):
+                continue
+            for x in shapes:
+                if x.box.overlaps(o.box, gap=occ._copper_reach) and occ._conflict(x, o, None, exact=True, say=False):
+                    return False
+        return True
 
     def _thin_drops(self, occ) -> dict:
         """Each cell placed with `drops=HALF` or `MIN` loses the vias of its
@@ -4376,48 +4431,72 @@ class Board:
             intent = self._copper_intent("via row %s" % name, net, priority, plan, _refs_in([along]), why)
             return intent
         owner, number, _, _ = self._pad_ref(pad)
+        k = len(self._pad_fields)
+        self._pad_fields.append((pad, name, d, s, span, float(inset), None if pitch is None else float(pitch), step))
+        prefix = "%s%d " % (FIELD_PREFIX, k)
 
         def plan(ctx):
-            from .lock import _turn
+            # the grid's vias are its part's, carried (_carry_pad_vias) and given way as the items were placed:
+            # what is drawn is what the part carries now, each judged once more against the copper planned before it
             occ = ctx.occ
-            g = occ.items[owner]
-            rot = g.reference.rotation
-            shapes = [sh for sh in _pad_shapes(self, occ, pad) if sh.kind == "pad"]   # a through land has its hole
-            lands = [sh.poly for sh in shapes if not span or sh.layers & set(span)]
-            if shapes and not lands:
-                ctx.notes.append("vias %s: a span of %s does not reach %s.%s on %s" % (
-                    name, _span_text(span), owner, number,
-                    "/".join(sorted({l.value for sh in shapes for l in sh.layers}))))
+            said = self._field_notes.get(k)
+            if said:
+                ctx.notes.append(said)
                 return []
-            obstacles = self._via_obstacles(ctx)
-            vias = []
-            for land in lands:
-                c = Box.of_points(land).center
-                local = [_turn(x - c.x, y - c.y, -rot) for x, y in land]      # the land in its part's frame
-                lx0, lx1 = min(p[0] for p in local), max(p[0] for p in local)
-                ly0, ly1 = min(p[1] for p in local), max(p[1] for p in local)
-                mx, my = (lx0 + lx1) / 2.0, (ly0 + ly1) / 2.0
+            held = [sh for sh in ctx.fields.get(owner, ()) if sh.kind == "through" and sh.carried.startswith(prefix)]
+            shortened = {a.via: a for a in occ.given_way.values() if a.kind == "shorten" and a.via.startswith(prefix)}
+            holes, bare, forbidding = self._via_obstacles(ctx)
+            mine = [sh.points[0] for sh in held]
+            holes = [h for h in holes if not any(abs(h[0].x - x) < 1e-4 and abs(h[0].y - y) < 1e-4 for x, y in mine)]
+            ops = []
+            for sh in sorted(held, key=lambda sh: sh.carried):
+                at = Location(round(sh.points[0][0], 6), round(sh.points[0][1], 6))
+                layers = tuple(sorted(sh.layers, key=stackup_order)) if sh.carried in shortened else span
+                if self._via_site_why(ctx, at, name, s, d, (holes, bare, forbidding), layers) is not None:
+                    continue
+                via = Via(name, at, d, s, layers)
+                ops.append(via)
+                ctx.planned_vias.append(via)    # the next via, and a later FreeSpot, keep the rule from it
+            for a in sorted(occ.given_way.values(), key=lambda a: a.via):
+                if a.via.startswith(prefix) and a.tail is not None and a.kind in ("leave", "share"):
+                    ctx.planned_tails.append(a.tail)
+                    ops.append(a.tail)
+            return ops
+        intent = self._copper_intent("vias %s" % name, net, priority, plan, _refs_in([pad]), why)
+        self._late_copper.add(intent.index)         # planned after the search: its part's grid gives way as items are placed
+        return intent
 
-                def count(extent):              # to 10 nm: a turned land's corners are rounded
-                    return max(0, int(math.floor((extent - s - 2.0 * inset) / step + 1e-5)) + 1)
-                nx, ny = count(lx1 - lx0), count(ly1 - ly0)
-                for i in range(nx):
-                    for j in range(ny):
-                        ox, oy = _turn(mx + (i - (nx - 1) / 2.0) * step, my + (j - (ny - 1) / 2.0) * step, rot)
-                        at = Location(round(c.x + ox, 6), round(c.y + oy, 6))
-                        # 10 nm short of the copper: a via reaching the land's edge is inside it
-                        if (poly_within(circle_polygon(at, s / 2.0 + inset - 1e-5, 24), land)
-                                and self._via_site_why(ctx, at, name, s, d, obstacles, span) is None):
-                            via = Via(name, at, d, s, span)
-                            vias.append(via)
-                            ctx.planned_vias.append(via)    # the next via, and a later FreeSpot, keep the rule from it
-            if not vias:
-                ctx.notes.append("vias %s: no via fits in %s.%s, or clears the copper and holes round it "
-                                 "(%.2f mm via, %.2f mm drill, %.2f mm inset)" % (
-                    name, owner, number, s, d, inset))
-                return []
-            return vias
-        return self._copper_intent("vias %s" % name, net, priority, plan, _refs_in([pad]), why)
+    def _field_sites(self, occ, pad, span: tuple, s: float, step: float, inset: float) -> tuple:
+        """(the sites of a grid of vias of size `s` in a pad, in the plan's frame, or None; why there is none).
+        A pad filled with a square grid `step` apart in its part's own frame, centred on each land, keeping
+        each site whose via, grown by `inset`, lies wholly in the land."""
+        from .lock import _turn
+        owner, number, _, _ = self._pad_ref(pad)
+        rot = occ.items[owner].reference.rotation
+        shapes = [sh for sh in _pad_shapes(self, occ, pad) if sh.kind == "pad"]       # a through land has its hole
+        lands = [sh.poly for sh in shapes if not span or sh.layers & set(span)]
+        if shapes and not lands:
+            return [], "a span of %s does not reach %s.%s on %s" % (
+                _span_text(span), owner, number, "/".join(sorted({l.value for sh in shapes for l in sh.layers})))
+        out = []
+        for land in lands:
+            c = Box.of_points(land).center
+            local = [_turn(x - c.x, y - c.y, -rot) for x, y in land]      # the land in its part's frame
+            lx0, lx1 = min(p[0] for p in local), max(p[0] for p in local)
+            ly0, ly1 = min(p[1] for p in local), max(p[1] for p in local)
+            mx, my = (lx0 + lx1) / 2.0, (ly0 + ly1) / 2.0
+
+            def count(extent):              # to 10 nm: a turned land's corners are rounded
+                return max(0, int(math.floor((extent - s - 2.0 * inset) / step + 1e-5)) + 1)
+            nx, ny = count(lx1 - lx0), count(ly1 - ly0)
+            for i in range(nx):
+                for j in range(ny):
+                    ox, oy = _turn(mx + (i - (nx - 1) / 2.0) * step, my + (j - (ny - 1) / 2.0) * step, rot)
+                    at = Location(round(c.x + ox, 6), round(c.y + oy, 6))
+                    # 10 nm short of the copper: a via reaching the land's edge is inside it
+                    if poly_within(circle_polygon(at, s / 2.0 + inset - 1e-5, 24), land):
+                        out.append(at)
+        return out, None
 
     def via(self, net, at, *, drill: float | None = None, size: float | None = None, layers=None,
             priority: Priority = Priority.DEFAULT, why: str = ""):
@@ -4598,7 +4677,10 @@ class Board:
             if not vias:
                 ctx.notes.append("stitch %s: no via fits in the region at a %.2f mm pitch" % (name, step))
             return vias
-        return self._copper_intent("stitch %s" % name, net, priority, plan, refs, why, extra_owners=extra_owners)
+        intent = self._copper_intent("stitch %s" % name, net, priority, plan, refs, why, extra_owners=extra_owners)
+        if pour_intent is not None:
+            self._copper_after[intent.index] = (pour_intent.index,)
+        return intent
 
     def _stitch_outside(self, ctx, name: str, poly, turn: float, off: float, step: float, wanted, size: float,
                         drill: float, obstacles, span: tuple, pour_intent) -> list:
@@ -5143,6 +5225,7 @@ class Board:
             return [Pour(name, layer, pts, stroke, fitted)]
         intent = self._copper_intent("pour %s" % name, net, priority, plan, refs, why)
         intent.members = vias
+        self._copper_after[intent.index] = tuple(v.index for v in vias)
         intent.reach = reach
         return intent
 
@@ -5454,7 +5537,17 @@ class Board:
                 fps = [i.item]
             searched |= {fp.ref for fp in fps}
         for c in self._copper:
-            c.freedom = Freedom.SEARCHED if (c.owners & searched) else Freedom.FIXED
+            c.freedom = Freedom.SEARCHED if (c.owners & searched) or c.index in self._late_copper else Freedom.FIXED
+        # copper planned after another is planned after the search when that is: a pour fitted to a part's grid
+        late = {c.index for c in self._copper if c.freedom is Freedom.SEARCHED}
+        grew = True
+        while grew:
+            grew = False
+            for c in self._copper:
+                if c.freedom.decided and any(i in late for i in self._copper_after.get(c.index, ())):
+                    c.freedom = Freedom.SEARCHED
+                    late.add(c.index)
+                    grew = True
 
     reuse_extra = ""        # what the runner adds to the reuse context: tool version, board file, settings, fab profile
 
@@ -6591,6 +6684,27 @@ class Board:
             step.note = (step.note + "; " if step.note else "") + "moved from %s to %s: %s was there" % (was, now, because)
 
     def _plan_copper(self, occ, ctx, intents, plan: Plan, progress):
+        """Plan a batch of copper together, with the vias of the parts' grids lifted off the board: a grid is
+        drawn by its own plan (`vias()`), which keeps each via off the copper planned before it, so a track
+        declared across a grid is drawn and the grid goes round it, as it always has."""
+        lifted = {}
+        for ref, g in occ.items.items():
+            if any(x.carried.startswith(FIELD_PREFIX) for x in g.shapes):
+                lifted[ref] = g
+                occ.items[ref] = dataclasses.replace(g, shapes=tuple(x for x in g.shapes
+                                                                     if not x.carried.startswith(FIELD_PREFIX)))
+        ctx.fields = {ref: [x for x in g.shapes if x.carried.startswith(FIELD_PREFIX)] for ref, g in lifted.items()}
+        if lifted:
+            occ._changed()
+        try:
+            self._plan_copper_batch(occ, ctx, intents, plan, progress)
+        finally:
+            if lifted:
+                occ.items.update(lifted)
+                occ._changed()
+            ctx.fields = {}
+
+    def _plan_copper_batch(self, occ, ctx, intents, plan: Plan, progress):
         """Plan a batch of copper together. Tracks are collected first and
         their crossings settled by priority; pours, zones, vias and fingers
         follow (a finger yields to every track already planned)."""
@@ -7617,7 +7731,10 @@ class Board:
                 r = dataclasses.replace(r, rotation=self._turned_rotation(view, r))
             p, chose = self._firm_placement(view, plan, r)
             others = obstacles.get(r.key) if obstacles is not None else None
-            in_group = occ.legal(r.item, p, self.clearance, others=ShapeIndex(group), board=False)
+            # the vias the group carries are not what a rider is judged against: they give way to it when it is
+            # committed (occupancy._commit), as to any item placed after them
+            in_group = occ.legal(r.item, p, self.clearance, others=ShapeIndex([x for x in group if not x.carried]),
+                                 board=False)
             # on the board its carried vias, and those placed before it, may give way (giveway.py)
             on_board = occ.legal_giving_way(r.item, p, self.clearance, others=others,
                                             past_edge=self._firm_past_edge(r), by_corners=True)[0] \
@@ -8354,6 +8471,7 @@ class _CopperContext:
     def __init__(self, board: Board, occ: Occupancy):
         self.board, self.occ = board, occ
         self.planned_tracks: list = []     # every track planned so far (any batch)
+        self.fields: dict = {}             # part -> the carried vias of its grids, lifted off the board while a batch is planned
         self.fixed_tracks: list = []       # tracks from the FIXED batch: never yield
         self.notes: list = []              # findings a copper plan raises about itself
         self.planned_vias: list = []       # every via planned so far, for a FreeSpot's hole rule

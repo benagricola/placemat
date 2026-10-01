@@ -37,6 +37,23 @@ section for each hand-written pattern a newer form replaces.
   was refused or cost drops may now keep its vias, and a search may take a
   spot it had passed over. `api.md`, "Carried vias give way".
 
+- **A part's `board.vias()` grid gives way.** A pad filled with vias used
+  to be laid after its part landed and judged as copper afterwards, so
+  another item's pad over a row of it either refused a searched item or
+  left the row out of the grid. The grid is now carried with its part,
+  placed firmly or searched, and gives way as a stamped cell's field does:
+  a via moves, the field is re-laid (moved, a row shifted, the pitch closed
+  or uneven, a row out, keeping the count), a via leaves its pad, a plane
+  net's vias are dropped down to `place.drops_keep`. Same settings, costs
+  and findings ("GND field in U1 pad 1 re-laid by uneven pitch, 8 vias
+  before, 8 after under R6"); `inset=` is kept by a relay, and no two vias
+  come closer than the floor `pitch=` is refused under. The grid is drawn
+  after the search, so a pour that names it is planned after the search too.
+  The row form, `vias(net, along=, count=)`, is unchanged. Nothing in a
+  script changes. A net that is no plane with no room now refuses the spot
+  (a firm item: a collision) where the grid used to skip the site. `api.md`,
+  "Carried vias give way".
+
 ### Fixed
 
 - A part's `Pm.KeepOut` no longer holds the part's own pad escapes. The rule

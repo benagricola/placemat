@@ -180,7 +180,7 @@ dropped from a field report what the pad holds: "3 GND vias dropped under R9
   along an axis), so the target is the count drawn.
 - `inset=`: a stamped cell does not know the inset its grid was laid with; a
   new site is inside its pad as `board.vias()` keeps it by default.
-- A part's `board.vias()` grid (section Problem).
+- A part's `board.vias()` grid (section Problem); see 2026-10-01-carried-via-grids-design.md.
 - Mixed via sizes or drills in one field: it is not re-laid.
 
 ## Verification

@@ -502,10 +502,10 @@ the script.
   violation's parts by instance path. api.md's "Read the board" index has
   the rest.
 - A refusal ending "cannot give way" is a via question: a carried via (one
-  at a searched part's pad, or a stamped cell's own) met another net's
+  at a searched part's pad, a part's `board.vias()` grid, or a stamped cell's own) met another net's
   copper and none of its steps worked. The steps, in order, are share a
   same-net via, move, re-lay its field (the vias of one net in one pad of
-  a stamped cell: moved, a row shifted, the pitch closed or uneven, a row
+  a stamped cell or a part's grid: moved, a row shifted, the pitch closed or uneven, a row
   out, keeping the count where the pad allows), leave its pad (a via in
   its pad, joined by a new tail), shorten (a plane drop) and drop. A via that two or more of a
   cell's tracks end on has one step: it moves with its tracks rebuilt
