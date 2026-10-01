@@ -89,7 +89,11 @@ def parser() -> argparse.ArgumentParser:
                    help="every pad's number, net, layers, centre and copper box")
     m.add_argument("--copper", nargs="*", default=None, metavar="NET",
                    help="every track segment of these nets (default: all) with its layer, width, ends, bearing and "
-                        "what each end lands on, a leg off 0/45/90 flagged; and the vias")
+                        "what each end lands on, a leg off 0/45/90 flagged; the vias; and each graphic copper "
+                        "polygon (net, layer, stroke, filled, vertices) with, per edge, the nearest copper of "
+                        "another net on its layer, the gap from the polygon's copper (its outline grown by half "
+                        "its stroke) to it, the clearance the net class pair needs and `under` where the gap is "
+                        "less; a board's .kicad_dru rules are not read")
     m.add_argument("--keepouts", nargs="*", default=None, metavar="NAME",
                    help="each part within --near of these rule areas (default: all): its physical and courtyard "
                         "gap to it, or that it reaches in")
@@ -171,8 +175,9 @@ def parser() -> argparse.ArgumentParser:
                      help="do not read a text-poor page off its render")
     dsp.add_argument("--json", action="store_true")
 
-    ly = sub.add_parser("layer", help="one copper layer of a board: its zone fills, tracks, vias and pads coloured "
-                                      "by net with a legend, and each track inside another net's zone outline")
+    ly = sub.add_parser("layer", help="one copper layer of a board: its zone fills, graphic copper polygons, tracks, "
+                                      "vias and pads coloured by net with a legend, and each track inside another "
+                                      "net's zone outline")
     ly.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
     ly.add_argument("layer", help="a copper layer, e.g. In2.Cu")
     ly.add_argument("--out", help="the SVG to write (default <board dir>/.placemat/layer-<layer>.svg)")
@@ -713,7 +718,8 @@ def cmd_measure(args) -> int:
         return 0
     if getattr(args, "copper", None) is not None:
         if args.json:
-            console.data(json.dumps({"segments": describe.copper_segments(snap, args.copper)}, indent=2))
+            console.data(json.dumps({"segments": describe.copper_segments(snap, args.copper),
+                                     "polygons": describe.copper_polygons(snap, args.copper)}, indent=2))
         else:
             console.lines("measure", "\n".join(describe.copper_lines(snap, args.copper)))
         return 0
@@ -1116,10 +1122,12 @@ def cmd_layer(args) -> int:
     crossings = layer_crossings(items)
     nets = sorted({z["net"] for z in items["zones"] if z["net"]})
     if args.json:
-        console.data(json.dumps({"svg": str(out), "zone_nets": nets, "crossings": crossings}, indent=2))
+        console.data(json.dumps({"svg": str(out), "zone_nets": nets,
+                                 "polygons": len(items["polygons"]), "crossings": crossings}, indent=2))
         return 0
-    console.say("layer", "%s: %d zone(s) (%s), %d track(s), %d via(s); %s" % (
-        args.layer, len(items["zones"]), ", ".join(nets) or "none", len(items["tracks"]), len(items["vias"]), out))
+    console.say("layer", "%s: %d zone(s) (%s), %d track(s), %d via(s)%s; %s" % (
+        args.layer, len(items["zones"]), ", ".join(nets) or "none", len(items["tracks"]), len(items["vias"]),
+        ", %d polygon(s)" % len(items["polygons"]) if items["polygons"] else "", out))
     for c in crossings:
         console.say("layer", "%s track (%.2f, %.2f)-(%.2f, %.2f) runs inside %s's zone outline" % (
             c["track_net"], *c["start"], *c["end"], c["zone_net"]), level="finding")

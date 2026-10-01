@@ -12,7 +12,8 @@ from .geometry import point_in_polygon, segments_intersect
 
 def read_layer(pcb, layer: str) -> dict:
     """The layer's zones (net, outline, fills), tracks (net, ends, width),
-    vias (net, centre, size) and pads (net, outline), read with pcbnew."""
+    vias (net, centre, size), pads (net, outline) and graphic copper polygons
+    (net, outlines, stroke, filled), read with pcbnew."""
     import pcbnew
     from .kicad.read import mm, outlines_of, quiet_stderr
     with quiet_stderr():
@@ -49,7 +50,16 @@ def read_layer(pcb, layer: str) -> dict:
                 for poly in outlines_of(p, lid):
                     pads.append({"net": p.GetNetname(), "ref": "%s.%s" % (f.GetReference(), p.GetNumber()),
                                  "outline": poly})
-    return {"layer": layer, "zones": zones, "tracks": tracks, "vias": vias, "pads": pads}
+    polygons = []
+    for d in board.GetDrawings():
+        if isinstance(d, pcbnew.PCB_SHAPE) and d.GetShape() == pcbnew.SHAPE_T_POLY and d.IsOnLayer(lid):
+            ps = d.GetPolyShape()
+            polygons.append({"net": d.GetNetname(), "width": mm(d.GetWidth()),
+                             "filled": d.IsSolidFill() if hasattr(d, "IsSolidFill") else d.IsFilled(),
+                             "outlines": [tuple((mm(ps.Outline(k).CPoint(j).x), mm(ps.Outline(k).CPoint(j).y))
+                                                for j in range(ps.Outline(k).PointCount()))
+                                          for k in range(ps.OutlineCount())]})
+    return {"layer": layer, "zones": zones, "tracks": tracks, "vias": vias, "pads": pads, "polygons": polygons}
 
 
 def _inside(a, b, poly) -> bool:
@@ -89,13 +99,15 @@ def _pts(poly) -> str:
 
 def layer_svg(items: dict, layer: str) -> str:
     """The layer as SVG in board millimetres: fills translucent, zone outlines
-    dashed, pads, tracks and vias solid, a legend of the nets on the right."""
+    dashed, graphic polygons filled or as strokes, pads, tracks and vias solid, a legend of the nets on the right."""
     nets = ([z["net"] for z in items["zones"]] + [t["net"] for t in items["tracks"]]
-            + [v["net"] for v in items["vias"]] + [p["net"] for p in items["pads"]])
+            + [v["net"] for v in items["vias"]] + [p["net"] for p in items["pads"]]
+            + [g["net"] for g in items.get("polygons", ())])
     colour = net_colours(nets)
     pts = ([p for z in items["zones"] for o in z["outline"] for p in o] + [t["start"] for t in items["tracks"]]
            + [t["end"] for t in items["tracks"]] + [v["at"] for v in items["vias"]]
-           + [p for q in items["pads"] for p in q["outline"]])
+           + [p for q in items["pads"] for p in q["outline"]]
+           + [p for g in items.get("polygons", ()) for o in g["outlines"] for p in o])
     if not pts:
         x0 = y0 = 0.0
         x1 = y1 = 10.0
@@ -115,6 +127,15 @@ def layer_svg(items: dict, layer: str) -> str:
         for o in z["outline"]:
             out.append('<polygon class="outline" points="%s" fill="none" stroke="%s" stroke-width="0.1" '
                        'stroke-dasharray="0.6 0.3"/>' % (_pts(o), c))
+    for g in items.get("polygons", ()):
+        c = colour.get(g["net"], "#888888")
+        for o in g["outlines"]:
+            if g["filled"]:                 # as KiCad draws it: the fill, and the stroke round its edge
+                out.append('<polygon class="polygon filled" points="%s" fill="%s" fill-opacity="0.45" stroke="%s" '
+                           'stroke-width="%.3f" stroke-linejoin="round"/>' % (_pts(o), c, c, g["width"]))
+            else:
+                out.append('<polygon class="polygon outlined" points="%s" fill="none" stroke="%s" stroke-width="%.3f" '
+                           'stroke-linejoin="round"/>' % (_pts(o), c, g["width"]))
     for p in items["pads"]:
         out.append('<polygon class="pad" points="%s" fill="%s"/>' % (_pts(p["outline"]), colour.get(p["net"], "#888888")))
     for t in items["tracks"]:

@@ -56,3 +56,37 @@ def test_the_svg_colours_each_net_and_carries_a_legend(tmp_path):
     text = layer_svg(items, "F.Cu")
     assert text.startswith("<svg") and "GND" in text and "SIG" in text
     assert 'class="fill"' in text and 'class="track"' in text
+
+
+def _polygon_board(tmp_path):
+    b = pcbnew.CreateEmptyBoard()
+    for name, filled, x in (("GND", True, 10), ("SIG", False, 20)):
+        n = pcbnew.NETINFO_ITEM(b, name)
+        b.Add(n)
+        s = pcbnew.PCB_SHAPE(b, pcbnew.SHAPE_T_POLY)
+        s.SetLayer(pcbnew.F_Cu)
+        s.SetFilled(filled)
+        s.SetWidth(pcbnew.FromMM(0.2))
+        pts = pcbnew.VECTOR_VECTOR2I()
+        for px, py in ((x, 10), (x + 5, 10), (x + 5, 15)):
+            pts.append(_vec(px, py))
+        s.SetPolyPoints(pts)
+        s.SetNet(n)
+        b.Add(s)
+    path = tmp_path / "polys.kicad_pcb"
+    b.Save(str(path))
+    return path
+
+
+def test_graphic_copper_polygons_are_drawn_filled_or_outlined_by_net(tmp_path):
+    items = read_layer(_polygon_board(tmp_path), "F.Cu")
+    assert {(p["net"], p["filled"]) for p in items["polygons"]} == {("GND", True), ("SIG", False)}
+    text = layer_svg(items, "F.Cu")
+    assert text.count('class="polygon filled"') == 1 and text.count('class="polygon outlined"') == 1
+    assert "GND" in text and "SIG" in text
+
+
+def test_the_summary_line_counts_polygons(tmp_path, capsys):
+    from placemat.cli import main
+    assert main(["layer", str(_polygon_board(tmp_path)), "F.Cu", "--out", str(tmp_path / "l.svg")]) == 0
+    assert "2 polygon(s)" in capsys.readouterr().out

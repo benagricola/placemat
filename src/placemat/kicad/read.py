@@ -478,7 +478,7 @@ def read_layer_types(path) -> dict:
 def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, ...]:
     items = []
 
-    def add(kind, obj, net, owner=None, width=0.0, drill=0.0, anchors=(), length=0.0):
+    def add(kind, obj, net, owner=None, width=0.0, drill=0.0, anchors=(), length=0.0, vertices=(), filled=True):
         cu = [l for l in obj.GetLayerSet().CuStack() if board.IsLayerEnabled(l)]
         if not cu:
             return                      # nothing on a layer this board has
@@ -487,7 +487,7 @@ def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, .
             return
         items.append(CopperItem(kind, net, _copper_layers(board, obj.GetLayerSet()), outs,
                                 Box.of_points([p for o in outs for p in o]), owner, width, drill,
-                                tuple((mm(v.x), mm(v.y)) for v in anchors), length))
+                                tuple((mm(v.x), mm(v.y)) for v in anchors), length, vertices, filled))
 
     for fp in board.GetFootprints():
         for pad in fp.Pads():
@@ -506,7 +506,13 @@ def _copper(board, groups_of, err_nm: int = CLEAR_ERR_NM) -> tuple[CopperItem, .
                 length=mm(t.GetLength()))
     for d in board.GetDrawings():
         if isinstance(d, pcbnew.PCB_SHAPE) and d.GetLayerSet().CuStack():
-            add("poly", d, d.GetNetname(), groups_of.get(_kiid(d)), anchors=tuple(d.GetConnectionPoints()))
+            kw = {}
+            if d.GetShape() == pcbnew.SHAPE_T_POLY:         # the outline as drawn, its stroke and whether it is filled
+                ps = d.GetPolyShape()
+                kw = {"width": mm(d.GetWidth()), "filled": d.IsSolidFill() if hasattr(d, "IsSolidFill") else d.IsFilled(),
+                      "vertices": tuple(tuple((mm(o.CPoint(j).x), mm(o.CPoint(j).y)) for j in range(o.PointCount()))
+                                        for o in (ps.Outline(k) for k in range(ps.OutlineCount())))}
+            add("poly", d, d.GetNetname(), groups_of.get(_kiid(d)), anchors=tuple(d.GetConnectionPoints()), **kw)
     for i in range(board.GetAreaCount()):
         z = board.GetArea(i)
         for layer in z.GetLayerSet().CuStack():

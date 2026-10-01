@@ -459,7 +459,8 @@ the script.
   to pad, no waypoints, no offsets), run, and read the numbers.
 - `placemat layer <board> <LAYER>` draws one copper layer by net and lists
   tracks inside another net's zone; `placemat measure --copper [NET]` lists
-  each track segment and what its ends land on; `placemat drc` names each
+  each track segment and what its ends land on, and each graphic copper
+  polygon with its edges' gaps; `placemat drc` names each
   violation's parts by instance path. api.md's "Read the board" index has
   the rest.
 - A number chosen to dodge something is a workaround for a rule the tool

@@ -12,6 +12,14 @@ mechanical pitch from another pad along a bearing (0 north, 90 east), said
 as one point: two contacts at a part's tab pitch, with no offset typed into
 an `X()`. It was refused ("float() argument ... not 'Polar'").
 
+`placemat measure <board> --copper [NET ...]` also lists each graphic copper
+polygon of those nets (a `PCB_SHAPE` polygon on a copper layer, such as a
+pour drawn by hand) after the tracks and vias: net, layer, stroke width,
+filled, vertices, and per edge the nearest copper of another net, the gap
+from the polygon's copper to it, the clearance the pair needs and `under`
+where the gap is less. `--json` adds a `polygons` key beside `segments`.
+`placemat layer` draws these polygons and counts them in its summary line.
+
 ## To 0.66.1
 
 A net tie placed so it stands out from a pad of its net (`Pin(1, PadRef(...,
