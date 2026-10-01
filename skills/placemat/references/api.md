@@ -2074,7 +2074,7 @@ placemat drc <layout.kicad_pcb> [--json]
 placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part ...] [--pads] [--envelope] [--models] [--copper [NET ...]] [--keepouts [NAME ...] [--near MM]] [--labels] [--outline] [--json]
 placemat parts <layout.kicad_pcb | script> [--field NAME ...] [--fragments] [--json]
 placemat nets <layout.kicad_pcb | script> [--sort COLUMN] [--net NET ...] [--inst] [--json]
-placemat datasheet <pdf> [--show PAGE|TOPIC] [--read] [--no-ocr] [--out DIR] [--dpi N] [--json]
+placemat datasheet <pdf> [--show PAGE|TOPIC [--png | --out FILE.png]] [--read] [--no-ocr] [--dpi N] [--json]
 placemat datasheet check <pdf> <footprint.kicad_mod> [--pitch F] [--pad WxH] [--pads N] [--span F] [--tol F] [--json]
 placemat occupancy <layout.kicad_pcb | script> (--at X,Y | --box X0,Y0,X1,Y1 | --via-near PART.PAD | --corridor A B)
                    [--net N] [--size D] [--drill H] [--layer L] [--radius R] [--step S] [--in-pad] [--json]
@@ -2180,7 +2180,7 @@ placemat preview <script> [--svg] [--face front|back|both] [--out DIR]
 ```
 
 It writes `preview.svg` and, through `[preview] converter`, `preview.png` at
-`[preview] px_per_mm`, under `<board>/.placemat/preview/`, and prints the
+`[preview] px_per_mm`, under `<board>/.placemat/views/preview/`, and prints the
 paths, the step counts, what it reused, the congestion line and the findings.
 Each face is a panel, the back mirrored as seen from the front, on a
 millimetre grid: the board, keepouts and reservations, each part's pads,
@@ -2232,13 +2232,17 @@ loading pcbnew in a scratch script.
 
 `datasheet` ranks a PDF's pages against four topics - land pattern, package
 dimensions, layout rules and pin map - and prints the evidence behind each
-ranking, so the ranking can be judged rather than trusted. `--show p7` renders
-that page to a PNG and prints its text with positions; `--show land` resolves
-the topic through the index first. Measured over 67 datasheets, a keyword list
+ranking, so the ranking can be judged rather than trusted. `--show p7` prints
+that page's text with positions; `--show land` resolves the topic through the
+index first. It writes no file unless asked: `--png` also renders the page to
+`<project>/.placemat/views/datasheet/<pdf>-p<N>.png` (the project is the
+nearest directory up from the PDF holding `.placemat/` or `placemat.toml`, else
+the PDF's own), and `--out FILE.png` renders it there; the path is printed, and
+in `--json` it is `png`, beside `text`. Measured over 67 datasheets, a keyword list
 alone names a land pattern on half of them, so the geometry counts too: a page
 holding a row of identical rectangles is a pad row whether or not it says so.
 A datasheet whose every dimension is an outlined curve carries no text at all,
-and `--show` is the answer for those.
+and `--show --png` is the answer for those: look at the render.
 It shells out to mupdf and poppler; `tesseract` is used when installed.
 
 `--read` prints the facts the sheet could be made to yield - its unit, its
@@ -2601,16 +2605,21 @@ in a place of its own:
 | `run` | what that generation was made from, to know when it is out of date | `.placemat/generated/<board>.inputs.json` |
 | `run` | the run: `run.json`, `script.log`, a copy of the board, renders, `drc.json`, `impact.txt`, `reuse.json` (what the next run replays) | `.placemat/runs/<id>/` |
 | `run` | `latest.json` (the last run of any board), `latest-<board>.json` (the last of each board: what a run compares with and reuses), `best.json`, and with `--label` an alias | `.placemat/runs/` |
-| `preview` | `preview.svg`, `preview.png`, and `reuse.json` (what the next preview replays) | `.placemat/preview/`, or `--out DIR` |
+| `preview` | `preview.svg`, `preview.png`, and `reuse.json` (what the next preview replays) | `.placemat/views/preview/`, or `--out DIR` |
 | `run` / `preview` with `--explore --accept`, `lock --current`, `route --adopt` | the lock: accepted decisions | `<script stem>.lock.json` beside the script |
 | `freeze` | the script's frozen `place()` calls, and the lock less those entries | the script, and its lock |
 | `route --adopt` / `routes --release` | the kept routes | `<script stem>.routes.json` beside the script |
 | `route` | the input and routed boards, the router's log, `route.json` | `.placemat/route/`, or `--out DIR` |
-| `show` | the item's renders | `.placemat/show/`, or `--out DIR` |
-| `datasheet --show` | the page's render | beside the PDF, or `--out DIR` |
+| `show` | the item's renders | `.placemat/views/show/`, or `--out DIR` |
+| `layer` | the layer's SVG | `.placemat/views/layer/`, or `--out FILE` |
+| `datasheet --show --png` | the page's render | `.placemat/views/datasheet/` in the PDF's project, or `--out FILE.png` |
 | `faces` | the declared sides, into the fragment | the fragment named |
 
-`.placemat/` sits in the board's directory. The other commands only read.
+`.placemat/` sits in the board's directory. `.placemat/views/` holds what a rerun
+regenerates (the `preview`, `show`, `layer` and `datasheet` images); it has a
+`.gitignore` of `*`, written when placemat first writes there, so a project
+never tracks it. The other commands only read; `datasheet` and `drc` write
+nothing unless asked.
 
 A written board's 3D model paths resolve from its own folder: a
 `${KIPRJMOD}`-relative or relative model path that does not is re-anchored

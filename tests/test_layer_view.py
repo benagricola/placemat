@@ -90,3 +90,12 @@ def test_the_summary_line_counts_polygons(tmp_path, capsys):
     from placemat.cli import main
     assert main(["layer", str(_polygon_board(tmp_path)), "F.Cu", "--out", str(tmp_path / "l.svg")]) == 0
     assert "2 polygon(s)" in capsys.readouterr().out
+
+
+def test_layer_writes_by_default_under_the_views_folder_with_a_gitignore(tmp_path, capsys):
+    from placemat.cli import main
+    pcb = _polygon_board(tmp_path)
+    assert main(["layer", str(pcb), "F.Cu"]) == 0
+    svg = pcb.parent / ".placemat" / "views" / "layer" / "layer-F_Cu.svg"
+    assert svg.exists() and str(svg) in capsys.readouterr().out
+    assert (pcb.parent / ".placemat" / "views" / ".gitignore").read_text() == "*\n"

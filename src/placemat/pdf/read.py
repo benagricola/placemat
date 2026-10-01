@@ -149,12 +149,13 @@ def draw_paths(path, page: int) -> tuple:
     return tuple(out)
 
 
-def render(path, page: int, out_dir, dpi: int = 300):
-    """One page as a PNG. This is the channel that always works: a datasheet
+def render(path, page: int, out_dir, dpi: int = 300, name: str | None = None):
+    """One page as a PNG, <pdf stem>-p<page>.png in out_dir unless name says
+    otherwise. This is the channel that always works: a datasheet
     whose every dimension is an outlined curve still renders."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    stem = out / ("%s-p%d" % (Path(path).stem, page))
+    stem = out / (Path(name).stem if name else "%s-p%d" % (Path(path).stem, page))
     png = stem.with_suffix(".png")
     try:
         _run(["pdftoppm", "-png", "-r", str(dpi), "-f", str(page), "-l", str(page),

@@ -124,9 +124,10 @@ def test_show_renders_one_cell_on_its_own_with_a_pad_map(breakout_pcb, tmp_path,
     assert cli.main(["show", str(pcb), "bus_drop0"]) == 0
     out = capsys.readouterr().out
     assert "bus_drop0" in out and "CAN_S0_P" in out
-    pngs = sorted((tmp_path / ".placemat" / "show").glob("bus_drop0-*.png"))
+    pngs = sorted((tmp_path / ".placemat" / "views" / "show").glob("bus_drop0-*.png"))
     assert [p.name for p in pngs] == ["bus_drop0-bottom.png", "bus_drop0-iso-bottom.png", "bus_drop0-iso.png", "bus_drop0-top.png"]
     assert all(p.stat().st_size > 1000 for p in pngs)
+    assert (tmp_path / ".placemat" / "views" / ".gitignore").read_text() == "*\n"
 
 
 def test_the_faces_command_writes_the_fact_into_a_fragment_and_replaces_an_old_one(breakout_pcb, tmp_path):

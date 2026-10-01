@@ -6,6 +6,7 @@ import json
 import re
 from pathlib import Path
 import sys
+import tempfile
 
 from .console import console
 
@@ -160,7 +161,9 @@ def parser() -> argparse.ArgumentParser:
     dsp.add_argument("pdf", help="a datasheet PDF, or the word `check`")
     dsp.add_argument("rest", nargs="*", help="for `check`: <pdf> <footprint.kicad_mod>")
     dsp.add_argument("--show", metavar="PAGE|TOPIC", default=None,
-                     help="render a page (p7) or a topic's best page (land) and print its text")
+                     help="print a page's (p7) or a topic's best page's (land) text")
+    dsp.add_argument("--png", action="store_true",
+                     help="with --show: also render the page, under <project>/.placemat/views/datasheet/")
     dsp.add_argument("--read", action="store_true",
                      help="the facts the sheet could be made to yield, with their provenance")
     dsp.add_argument("--pitch", type=float, default=None, help="check: the pitch the sheet requires, mm")
@@ -169,7 +172,7 @@ def parser() -> argparse.ArgumentParser:
     dsp.add_argument("--span", type=float, default=None, help="check: the span across the pads, mm")
     dsp.add_argument("--tol", type=float, default=0.02,
                      help="how far a value may differ and still agree, mm")
-    dsp.add_argument("--out", default=None, help="where renders go (default: beside the PDF)")
+    dsp.add_argument("--out", default=None, help="with --show: render the page to this .png path (a directory gets <pdf>-p<N>.png)")
     dsp.add_argument("--dpi", type=int, default=300)
     dsp.add_argument("--no-ocr", action="store_true",
                      help="do not read a text-poor page off its render")
@@ -180,14 +183,14 @@ def parser() -> argparse.ArgumentParser:
                                       "net's zone outline")
     ly.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
     ly.add_argument("layer", help="a copper layer, e.g. In2.Cu")
-    ly.add_argument("--out", help="the SVG to write (default <board dir>/.placemat/layer-<layer>.svg)")
+    ly.add_argument("--out", help="the SVG to write (default <board dir>/.placemat/views/layer/layer-<layer>.svg)")
     ly.add_argument("--json", action="store_true")
 
     sh = sub.add_parser("show", help="one cell or part on its own: a render from above and below, its pads by net, "
                                      "and the sides its module declared (outward, quiet, handoff)")
     sh.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
     sh.add_argument("item", help="a cell name, a part instance or a refdes")
-    sh.add_argument("--out", help="where the PNGs go (default: <board dir>/.placemat/show)")
+    sh.add_argument("--out", help="where the PNGs go (default: <board dir>/.placemat/views/show)")
 
     fc = sub.add_parser("faces", help="write a module fragment's sides into it: outward=N (faces the board edge), "
                                       "quiet=S (away from aggressors), handoff=E (where its signals leave)")
@@ -199,7 +202,7 @@ def parser() -> argparse.ArgumentParser:
     pv.add_argument("script", help="a layout script")
     pv.add_argument("--svg", action="store_true", help="write the SVG only, without converting it to PNG")
     pv.add_argument("--face", choices=("front", "back", "both"), default="both")
-    pv.add_argument("--out", help="where to write (default <board>/.placemat/preview)")
+    pv.add_argument("--out", help="where to write (default <board>/.placemat/views/preview)")
     pv.add_argument("--no-heat", action="store_true", help="leave out the congestion heat map")
     pv.add_argument("--no-links", action="store_true", help="leave out the declared links")
     pv.add_argument("--no-copper", action="store_true", help="leave out the planned copper")
@@ -500,9 +503,9 @@ def cmd_drc(args) -> int:
     from .report import airwires_from_drc
     from .pairs import board_pairs
     pcb = Path(args.pcb)
-    out = pcb.parent / "drc.json"
-    report = run_drc(pcb, out)
-    data = json.loads(out.read_text())
+    with tempfile.TemporaryDirectory() as scratch:      # the report is read here and not kept: a rerun makes it again
+        report = run_drc(pcb, Path(scratch) / "drc.json")
+        data = json.loads((Path(scratch) / "drc.json").read_text())
     try:
         from .kicad.read import read_board
         snap = read_board(pcb)
@@ -835,7 +838,8 @@ def _pages_of(pdf, path, args, with_paths=True) -> dict:
     for n in range(1, pdf.page_count(path) + 1):
         runs = pdf.text_runs(path, n)
         if not args.no_ocr and pdf.have_ocr() and pdf.text_is_thin(runs):
-            runs = runs + pdf.ocr_runs(path, n, Path(args.out or path.parent), args.dpi)
+            with tempfile.TemporaryDirectory() as scratch:      # the render is only read, never kept
+                runs = runs + pdf.ocr_runs(path, n, scratch, args.dpi)
         by_page[n] = (runs, pdf.draw_paths(path, n) if with_paths else ())
     return by_page
 
@@ -884,6 +888,9 @@ def cmd_datasheet(args) -> int:
     from .pdf import read as pdf
     if args.pdf == "check":
         return _datasheet_check(args)
+    if (args.png or args.out) and not args.show:
+        console.say("datasheet", "--png and --out render the page --show names: add --show p<N> or a topic")
+        return 1
     path = Path(args.pdf)
     try:
         pages = pdf.page_count(path)
@@ -905,16 +912,32 @@ def cmd_datasheet(args) -> int:
             console.say("datasheet", "no candidate for %r; the index says what was found, "
                                      "or name a page as p<N>" % args.show)
             return 1
-        out_dir = Path(args.out) if args.out else path.parent
-        png = pdf.render(path, page, out_dir, args.dpi)
+        png = None
+        if args.png or args.out:
+            from .project import datasheet_root, note_views, views_dir
+            if args.out and Path(args.out).suffix.lower() == ".png":
+                out = Path(args.out)
+                png = pdf.render(path, page, out.parent, args.dpi, name=out.name)
+                note_views(png.parent)
+            else:
+                out_dir = Path(args.out) if args.out else views_dir(datasheet_root(path), "datasheet")
+                png = pdf.render(path, page, out_dir, args.dpi)
+                note_views(out_dir)
         runs, _ = by_page[page]
         if args.json:
-            console.data(json.dumps({"page": page, "png": str(png),
-                                     "text": [r.text for r in runs]}, indent=2))
+            doc = {"page": page, "text": [r.text for r in runs]}
+            if png is not None:
+                doc["png"] = str(png)
+            console.data(json.dumps(doc, indent=2))
             return 0
-        console.say("datasheet", "page %d rendered to %s" % (page, png))
+        console.say("datasheet", "page %d" % page if png is None else "page %d rendered to %s" % (page, png))
         for r in runs:
             console.say("datasheet", "  %-6.0f %-6.0f %s" % (r.box.left, r.box.top, r.text.strip()))
+        if not runs:
+            console.say("datasheet", "no text on this page (outlined curves)")
+            if not pdf.have_ocr():
+                console.say("datasheet", "tesseract is not installed: a page whose dimensions are "
+                                         "outlined curves has no text to read")
         return 0
     if args.json:
         console.data(json.dumps({"pdf": str(path), "pages": pages, "ocr": pdf.have_ocr(),
@@ -1108,7 +1131,7 @@ def cmd_occupancy(args) -> int:
 
 def cmd_layer(args) -> int:
     from .layerview import layer_crossings, layer_svg, read_layer
-    from .project import find_board
+    from .project import board_dir_of, find_board, note_views, views_dir
     p = Path(args.pcb)
     pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
     try:
@@ -1116,8 +1139,10 @@ def cmd_layer(args) -> int:
     except ValueError as e:
         console.say("layer", str(e), level="fail")
         return 2
-    out = Path(args.out) if args.out else pcb.parent / ".placemat" / ("layer-%s.svg" % args.layer.replace(".", "_"))
+    out = Path(args.out) if args.out else (views_dir(board_dir_of(pcb), "layer")
+                                           / ("layer-%s.svg" % args.layer.replace(".", "_")))
     out.parent.mkdir(parents=True, exist_ok=True)
+    note_views(out.parent)
     out.write_text(layer_svg(items, args.layer))
     crossings = layer_crossings(items)
     nets = sorted({z["net"] for z in items["zones"] if z["net"]})
@@ -1137,7 +1162,7 @@ def cmd_layer(args) -> int:
 def cmd_show(args) -> int:
     from .kicad.read import read_board
     from .kicad.write import show_item
-    from .project import find_board
+    from .project import board_dir_of, find_board, note_views, views_dir
     p = Path(args.pcb)
     pcb = p if p.suffix == ".kicad_pcb" else find_board(p).pcb
     snap = read_board(pcb)
@@ -1167,9 +1192,8 @@ def cmd_show(args) -> int:
                                   "from_centre": [round(fp.location.x - ref_box.center.x, 3),
                                                   round(fp.location.y - ref_box.center.y, 3)],
                                   "rotation": fp.rotation, "face": fp.face.value, "pads": pads})
-    # <board dir>/.placemat/show: the board dir holds layout/<Board>/layout.kicad_pcb
-    out = Path(args.out) if args.out else (pcb.parents[2] / ".placemat" / "show" if pcb.parent.parent.name == "layout"
-                                           else pcb.parent / ".placemat" / "show")
+    out = Path(args.out) if args.out else views_dir(board_dir_of(pcb), "show")
+    note_views(out)
     doc["renders"] = [str(png) for png in show_item(pcb, name, out)]
     if args.json:
         console.data(json.dumps(doc, indent=2))

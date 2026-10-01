@@ -161,7 +161,7 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
             margin: float = 5.0, quiet: bool = False, explore=None, tags: bool = True) -> Preview:
     from .board_geometry import members_of
     from .preview import draw_annotated
-    from .project import fab_profile, find_board
+    from .project import fab_profile, find_board, note_views
     from .report import latest_for
     from .runner import cached_generation, reuse_parts, scripted_board, stale_inputs
     from . import settings as settings_mod
@@ -169,8 +169,9 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
     script = Path(script).resolve()
     src = find_board(script)
     cfg = settings_mod.load(src.board_dir)
-    out = Path(out) if out else src.board_dir / ".placemat" / "preview"
+    out = Path(out) if out else src.board_dir / ".placemat" / "views" / "preview"
     out.mkdir(parents=True, exist_ok=True)
+    note_views(out)
     # The generation is read where the first run cached it. The board's own
     # file is the last run's placed board, and a preview leaves it alone.
     generated = cached_generation(src) / src.pcb.name
