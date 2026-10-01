@@ -1918,10 +1918,11 @@ board.vias(Net("GND"), PadRef(Part("u3"), 17), layers=(CopperLayer.B, CopperLaye
 ```
 
 **A pour between two pads.** `board.pour(net, [PadRef(a), PadRef(b)])`
-with exactly two pads draws the neck between them - a rectangle along their
+(or with `swallow_pads=True` and `width=`) with exactly two pads draws the neck between them - a rectangle along their
 centreline, as wide as the narrower pad measured across the run, unless
 `width=` says otherwise - instead of needing a third point. It is drawn as
-declared, with `swallow_pads` or without: another net's copper inside it is a
+declared. `swallow_pads=True` over two pads with no `width=` is a fitted pour
+instead. A declared pour's copper is its outline plus half its stroke: another net's copper inside it is a
 copper finding, and nothing is cut from it.
 
 **A pour grown from its pads.** `board.pour(net, pads, layer=, grow=mm,
@@ -1960,7 +1961,7 @@ written as given, a graphic polygon; another net's copper inside it is a
 copper finding, and nothing is cut from it.
 
 **A fitted pour.** `board.pour(net, pads, layer=, swallow_pads=True)` over
-three or more pads (`PadRef`, `CellPadRef`) draws one polygon fitted round
+two or more pads (two with `width=` are the neck) (`PadRef`, `CellPadRef`) draws one polygon fitted round
 the copper planned before it: the shortest closed outline that holds all the
 pads' copper (every land) and enters no other copper's clearance outline.
 That is every other net's pad (at its real shape), track, via and pour on

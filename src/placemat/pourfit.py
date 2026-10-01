@@ -455,7 +455,12 @@ def fit(holds, pieces, margin: float = 0.0) -> Fit:
     verts: dict = {}
     for label, poly in holds:
         if margin > 0.0 and not clear(poly):
-            poly = inset(poly, margin) or poly
+            # held in by the margin; or, on a pad too small for that, as far in as clears the copper
+            # (down to a speck at its centre: the pour need only touch it)
+            c = (sum(p[0] for p in poly) / len(poly), sum(p[1] for p in poly) / len(poly))
+            tries = [inset(poly, margin)] + [[(c[0] + (x - c[0]) * f, c[1] + (y - c[1]) * f) for x, y in poly]
+                                              for f in (0.5, 0.25, 0.1, 0.02)]
+            poly = next((t for t in tries if t and clear(t)), poly)
         if not clear(poly):
             pc = next(pc for pc in near if any(pc.contains(p) for p in poly)
                       or any(pc.blocks(poly[i], poly[(i + 1) % len(poly)]) for i in range(len(poly))))

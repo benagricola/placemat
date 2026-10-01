@@ -4510,7 +4510,7 @@ class Board:
         (never a zone: nothing refills it, and nothing is cut from it once it
         is planned). Another net's copper inside it is a copper finding.
 
-        `swallow_pads=True` over pads (`PadRef`, `CellPadRef`; three or more)
+        `swallow_pads=True` over pads (`PadRef`, `CellPadRef`; two or more, without `width=`)
         fits the pour round the copper planned before it: the shortest closed
         outline that holds all their copper and keeps each other net's
         copper, every hole and the board edge its clearance (`board.rule`
@@ -4529,7 +4529,7 @@ class Board:
         Without `swallow_pads`, `cover` says what corners that name pads cover
         (`Cover`): HULL the hull of their copper, BOX the box round it, CENTRES
         (the default) the polygon through the points. Exactly two pads
-        (`[PadRef(a), PadRef(b)]`) draws the neck between them instead - a
+        (`[PadRef(a), PadRef(b)]`) with `width=`, or without `swallow_pads`, draws the neck between them instead - a
         rectangle along their centreline, as wide as the narrower pad measured
         across it, unless `width=` says otherwise.
 
@@ -4553,7 +4553,7 @@ class Board:
         if len(points) < 3 and not neck:
             raise ValueError("%s: a pour needs 3 or more points, or exactly two pads for the neck between "
                              "them (%d given)" % (name, len(points)))
-        fitted = swallow_pads and not neck
+        fitted = swallow_pads and not (neck and width is not None)
         if fitted and cover is not None:
             raise ValueError("pour %s: swallow_pads=True fits the pour round other nets' copper from its pads "
                              "alone, so it takes no cover=; drop cover=, or drop swallow_pads for a pour drawn "
@@ -4567,7 +4567,7 @@ class Board:
         refs = _refs_in(points)
 
         def plan(ctx):
-            if neck:
+            if neck and not fitted:
                 ca, cb = ctx.locate(points[0]), ctx.locate(points[1])
                 dx, dy = cb.x - ca.x, cb.y - ca.y
                 n = math.hypot(dx, dy)
@@ -7877,7 +7877,7 @@ def _shape_of(op) -> Shape | None:
     if isinstance(op, Pour):
         faces = frozenset([op.layer.face]) if op.layer.face else frozenset()
         poly = op.polygon
-        if op.fitted and op.stroke > 0:         # the copper reaches half the stroke past its outline
+        if op.stroke > 0:                       # the copper reaches half the stroke past its outline
             from .pourfit import offset
             poly = offset(poly, op.stroke / 2.0)
         return Shape("", "copper", faces, frozenset([op.layer]), op.net, poly, Box.of_points(poly))

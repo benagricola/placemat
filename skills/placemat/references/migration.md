@@ -48,9 +48,15 @@ What changes in a script:
   the pour joins and drop `cover=` and the points. A pour that needs a
   hand-drawn shape goes without `swallow_pads` and is drawn as declared
   (`cover=Cover.HULL`, `Cover.BOX`, or its points).
-- A pour without `swallow_pads`, and the two-pad neck, are drawn as
-  declared and nothing is cut from them: another net's copper inside one is
-  a copper finding. Before, the neck was cut back when it had `swallow_pads`.
+- `board.pour(net, [pad_a, pad_b], swallow_pads=True)` with exactly two pads
+  and no `width=` is fitted too (the outline round the two pads). With
+  `width=` it is the neck, drawn as declared, as is a two-pad pour without
+  `swallow_pads`.
+- A pour without `swallow_pads`, and a declared neck, are drawn as
+  declared and nothing is cut from them: another net's copper inside one,
+  or within the clearance of its copper (its outline plus half its stroke),
+  is a copper finding. Before, a declared pour was held at its outline, so a
+  pour too close to another net's pad or pour raised no finding.
 - A pour that cannot be fitted (other copper where the outline cannot go
   round it, or two pads that cannot be joined) is not drawn, and a copper
   finding names the copper and the pads. A pour whose outline narrows under

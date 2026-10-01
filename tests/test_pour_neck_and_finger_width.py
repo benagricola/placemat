@@ -30,7 +30,7 @@ def _points(plan):
 
 def test_a_pour_between_two_pads_needs_no_third_point():
     b = _board()
-    b.pour(Net("V48"), [PadRef(Part("pa"), 1), PadRef(Part("pb"), 1)], layer=CopperLayer.F, swallow_pads=True)
+    b.pour(Net("V48"), [PadRef(Part("pa"), 1), PadRef(Part("pb"), 1)], layer=CopperLayer.F)
     plan = b.resolve()
     p = _points(plan)
     xs = sorted({round(x, 6) for x, _ in p.points})
@@ -56,13 +56,21 @@ def test_a_pour_of_two_non_pad_points_still_needs_a_third():
         b.pour(Net("V48"), [Location(0, 0), Location(5, 5)], layer=CopperLayer.F)
 
 
-def test_a_pour_neck_with_swallow_pads_is_drawn_as_declared():
-    """Exactly two pads are a neck whatever swallow_pads says: nothing is fitted, nothing cut."""
+def test_a_two_pad_pour_with_swallow_pads_and_width_is_the_neck_as_declared():
+    """Nothing is fitted, nothing cut; foreign copper in it is a finding."""
     b = _board()
-    b.pour(Net("V48"), [PadRef(Part("pa"), 1), PadRef(Part("pb"), 1)], layer=CopperLayer.F, swallow_pads=True)
+    b.pour(Net("V48"), [PadRef(Part("pa"), 1), PadRef(Part("pb"), 1)], layer=CopperLayer.F, swallow_pads=True, width=1.0)
     p = _points(b.resolve())
     assert not p.fitted
     assert p.points == ((20.0, 20.5), (26.0, 20.5), (26.0, 19.5), (20.0, 19.5))
+
+
+def test_a_two_pad_pour_with_swallow_pads_and_no_width_is_fitted():
+    b = _board()
+    b.pour(Net("V48"), [PadRef(Part("pa"), 1), PadRef(Part("pb"), 1)], layer=CopperLayer.F, swallow_pads=True)
+    p = _points(b.resolve())
+    assert p.fitted
+    assert Box.of_points(p.points).left == 19.0 and Box.of_points(p.points).right == 26.5
 
 
 def test_a_swallowing_pour_naming_another_nets_pad_and_plain_points_is_refused():
