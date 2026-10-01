@@ -124,7 +124,8 @@ def copper_outlines(item, layer_id, err_nm=CLEAR_ERR_NM):
                 for x, y in poly:
                     union.Append(pcbnew.FromMM(x), pcbnew.FromMM(y))
             union.Simplify()
-            merged = tuple(tuple((mm(o.CPoint(j).x), mm(o.CPoint(j).y)) for j in range(o.PointCount()))
+            union.Fracture()                            # a hole joined to the outside by a slit, as a zone fill's are
+            merged =tuple(tuple((mm(o.CPoint(j).x), mm(o.CPoint(j).y)) for j in range(o.PointCount()))
                            for o in (union.Outline(k) for k in range(union.OutlineCount())))
             return tuple(m for m in merged if len(m) >= 3) or tuple(out)
     return outlines_of(item, layer_id, err_nm)
