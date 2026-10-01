@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.69.0
 
 ### New
 
@@ -1990,10 +1990,10 @@ that says what replaces it.
 | a `Beside` `gap=` worked out to put a pad a clearance off another part's pad | To 0.67.0 |
 | ground vias outside a region typed as computed `Location` vias | To 0.68.0 |
 | points of a datasheet figure typed as coordinates beside a `Path(anchor=)` keepout | To 0.68.0 |
-| `board.plane(net, layers=(In2,), over=[parts])` standing in for an inner-layer area over vias | Unreleased |
-| a part placed at another part's origin through computed coordinates | Unreleased |
-| a part's pad midpoint aligned by arithmetic (half the pads' spacing in an `X()` or a `Beside` offset) | Unreleased |
-| a rotation constant for a part parallel to a line between pads | Unreleased |
-| a rotation constant checked by an `assert` on pad positions | Unreleased |
+| `board.plane(net, layers=(In2,), over=[parts])` standing in for an inner-layer area over vias | To 0.69.0 |
+| a part placed at another part's origin through computed coordinates | To 0.69.0 |
+| a part's pad midpoint aligned by arithmetic (half the pads' spacing in an `X()` or a `Beside` offset) | To 0.69.0 |
+| a rotation constant for a part parallel to a line between pads | To 0.69.0 |
+| a rotation constant checked by an `assert` on pad positions | To 0.69.0 |
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |

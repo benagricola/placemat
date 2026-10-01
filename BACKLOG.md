@@ -6,77 +6,6 @@ file. An item cites its source as "a board's session, <date>".
 
 ## In progress
 
-- **Stitch row ends at a side not kept** (a board's session, 2026-10-01):
-  with `outside=True`, a row that starts at a corner where a kept side meets
-  a side not kept begins at the corner itself, so its first via can sit on
-  the board edge; inset it as at a shared corner.
-
-- **A fitted pour that joins vias** (a board's session, 2026-10-01; spec
-  `2026-10-01-fitted-pour-on-vias-design.md`): vias as a fitted pour's
-  members on an inner layer, replacing a plane as the stopgap. Being built.
-
-- **A plated hole's clearance to other nets' copper** (built, not yet
-  released): a hole keeps the hole clearance, a net tie's bar included.
-
-- **Origins, mids and turns** (built, not yet released; spec
-  `2026-10-01-origins-mids-and-turns-design.md`): `Origin`, `at=Mid(...)`,
-  `Pin(Mid(...))`, `Parallel`, `Bearing`, `Facing` and
-  `copper.straight_tolerance` answer the four requests below.
-
-- **A part's footprint origin on another point** (a board's session,
-  2026-10-01, twice): two windings drawn about one disc centre needed the
-  second's footprint origin (no pad) on the first's. `Pin(key, point)` needs
-  one of the part's own pads, and only a cell's `Pin` takes a member `Part`;
-  `Polar(0, about=Part(...))` and `Centre(X(Part(...)), Y(Part(...)))` place
-  the body centre, and the windings' bodies differ. Separately, a coin's
-  outline (no pads) needed its origin on the midpoint of two pins:
-  `board.place(Part, at=Mid(PadRef(a, 1), PadRef(b, 1)))` is refused ("at=
-  takes a Location, a Centre, a Pin, ... a Near or a point of references,
-  not Mid(...)"), and `Pin(key, Mid(...))` has no pad to key. Done instead:
-  `Location(0, 0)` and `Location(X(Mid(...)), Y(pad))`. Could offer:
-  `at=Pin(Part("b"), Part("a"))` for a part, its footprint origin on
-  another part's, and `at=Mid(...)` (any point form) for a part, its
-  footprint origin on the point.
-
-- **A part centred by two of its own pads on another pair's midpoint** (a
-  board's session, 2026-10-01): a coil reader's inputs (pins 9 to 12, so the
-  midpoint of pins 10 and 11) centred on the windings' centre line, the
-  part a fixed gap south of the tanks. Forms tried: `Beside(..., align=
-  PadRef / (own_pad, their_pad))` (best pairing 0.11 mm east of centred);
-  `align=(own, Past(...))` (a pad's edge past other pads, not a midpoint);
-  `Pin(key, X(Mid(...)), Y(...))` (one own pad: 0.25 mm off, and no Y
-  reference without an offset gives the reader's y); `Centre(X(Mid(...)),
-  ...)` and `row(of=, centre=PadRef)` (the body, 0.5 mm off the inputs'
-  midpoint; no gap form for y); `Pin(PadRef(part, 13, land=2), ...)` (a
-  `Pin` key refuses `land=`). Done instead: the pairing 0.11 mm east, the
-  longest 45 at 1.66 mm against 1.07 mm centred. Could offer: `Mid` of two
-  own pads as an `align=` or `Pin` key, `Beside(item, side, align=(Mid(9,
-  12), X(Mid(PadRef(a), PadRef(b)))))` or `Pin(Mid(10, 11), ...)`.
-
-- **A part turned parallel to the line through two pads** (a board's
-  session, 2026-10-01): each tank capacitor parallel to its winding's
-  terminal pair (3.96 degrees off the x axis), a gap inboard along that
-  pair's normal, so both stubs are equal (0.855 mm). Forms tried:
-  `Beside` (axis-aligned only); `rotation=Turned(Part, deg)` (the angle
-  would be read from pad positions); `Pin(1, PadRef(term, edge=...))`
-  (refused off the right angle, and the pads would touch with no stub);
-  `Polar(r, bearing, about=PadRef(...))` (computed from terminal positions;
-  `Pin(key, Polar(...))` was refused in 0.66.0, since fixed). Done instead:
-  axis-aligned at rotation 180, stubs 0.85 and 0.92 mm, each with a 1 um
-  jog from a 0402's 0.001 mm wider pitch. Could offer: `rotation=Along(
-  PadRef(a), PadRef(b))` with `Beside(item, side)` measured along that
-  line's normal; or a track end that snaps a sub-micron leg straight.
-
-- **A part turned so named pads face a side** (a board's session,
-  2026-10-01): a reader turned so pins 9 to 12 face north, a bypass so its
-  supply pin is north, a tank so pad A is east, each turn chosen by reading
-  pad offsets. `board.outward_rotation(item, edge)` answers for a cell's
-  declared faces or a part's local +Y, not named pins; `Turned(...)` is
-  relative to another part. Done instead: each turn a named constant with
-  an assert on the footprint's pad positions in its own frame. Could offer:
-  `rotation=Facing(PadRef(part, 9), Edge.NORTH)`, the turn that puts that
-  pad (or a pin row) on that side of the part.
-
 - **A cell turned about a fixed point, its bearing searched** (a board's
   session, 2026-10-01): a cell whose member origin is pinned to a point
   (windings drawn about a disc centre) at a fixed bearing; any bearing round
@@ -357,6 +286,16 @@ file. An item cites its source as "a board's session, <date>".
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Fitted pours on vias, hole clearance, origins and turns, stitch row
+  ends** (0.69.0; specs `2026-10-01-fitted-pour-on-vias-design.md`,
+  `2026-10-01-origins-mids-and-turns-design.md`): a fitted pour takes vias
+  as members; a plated hole keeps the hole clearance from other nets'
+  copper; `Origin`, `at=Mid`, `Pin(Mid(...))`, `Parallel`, `Bearing`,
+  `Facing`, `copper.straight_tolerance`; an outside stitch row is inset
+  where it meets a side not kept, and the run names the board side each row
+  landed on; the skill's rules for planes, joins, sense lines and cited
+  datasheet decisions; requests go to the placemat agent, not a gaps file.
 
 - **Vias, flips and lanes** (0.57.0): a carried via shares, moves or is
   dropped to clear a far-face part, and a placed item's vias give way to a
