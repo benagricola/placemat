@@ -127,6 +127,15 @@ class Cover(str, Enum):
     CENTRES = "centres"
 
 
+class Reach(str, Enum):
+    """What `reach=` of a fitted pour is when it is not a distance: CURRENT
+    grows the pour into the room round it only as far as its net's
+    current-path width needs (the check's own width, from the parts' `Pm.I`,
+    `[check] rise_c` and the board's copper weight), the smallest multiple of
+    `[copper] pour_reach_step` that meets it."""
+    CURRENT = "current"
+
+
 class Bend(str, Enum):
     """Which end of an off-grid track leg takes its 45: the diagonal touches
     that pad end, a straight run carries the rest of the leg; BOTH puts a

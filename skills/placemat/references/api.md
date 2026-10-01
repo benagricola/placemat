@@ -126,7 +126,8 @@ request (SKILL.md, "When no form says it").
 | a pour over a set of pads, fitted round other nets' copper | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: a graphic polygon holding the pads' copper, every edge at least the clearance from other copper | Copper calls (A fitted pour) |
 | a pour on an inner layer joining vias | `board.pour(net, [vias, PadRef(...), ...], layer=, swallow_pads=True)`: members are pads and the vias `via()`, `vias()` and a lane's `.via` return | Copper calls (A fitted pour) |
 | a pour over the hull or the box round a set of pads, drawn as declared | `board.pour(net, [PadRef(...), ...], layer=, cover=Cover.HULL)` (or `Cover.BOX`) | Copper calls (What a pour over pads covers) |
-| a pour that reaches past its pads into the room round them, by a distance with no fact behind it | an escape hatch, as a coordinate is (SKILL.md, "When no form says it"): `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True, reach=mm)` only on the user's yes for that declaration. Where the net's current is known, the pour widened to its current need is the form. `grow=` and `within=` are gone; for ground or a plane net, `board.plane(net, layers, over=[...])` | Copper calls (A fitted pour) |
+| a pour that widens into the room round its pads until its net's current-path width is met | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True, reach=Reach.CURRENT)`: grown only as far as the current on the parts, the rise and the copper weight need, cut back by other nets' clearance outlines; a finding names the neck where the room runs out | Copper calls (A fitted pour, Reach) |
+| a pour that reaches past its pads by a distance with no fact behind it | an escape hatch, as a coordinate is (SKILL.md, "When no form says it"): `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True, reach=mm)` only on the user's yes for that declaration. `grow=` and `within=` are gone; for ground or a plane net, `board.plane(net, layers, over=[...])` | Copper calls (A fitted pour) |
 | a neck between two pads, as wide as the narrower or `width=` | `board.pour(net, [PadRef(a), PadRef(b)], layer=, width=)` | Copper calls |
 | a wide pour along a centreline into a pad | `board.finger(net, from_=, to=, width=)` | Copper calls |
 | a finger as wide as a named pad | `board.finger(net, from_=, to=, width=PadRef(...))` | Copper calls |
@@ -2195,9 +2196,10 @@ copper finding, and nothing is cut from it.
 
 **No grown pour.** `board.pour` takes no `grow=` or `within=`: a pour is
 fitted, never a KiCad zone grown from its pads. A pour that reaches past its
-pads into the room round them is the pour widened to its net's current need,
-or, as an escape hatch the user approves, `board.pour(net, pads, layer=,
-swallow_pads=True, reach=mm)` (A fitted pour); for ground or a plane net,
+pads into the room round them is `board.pour(net, pads, layer=,
+swallow_pads=True, reach=Reach.CURRENT)`, widened to its net's current need,
+or, as an escape hatch the user approves, `reach=mm` (A fitted pour); for
+ground or a plane net,
 `board.plane(net, layers, over=[...])`. `board.stitch(net, pour)` over a
 fitted pour places its vias inside the pour's outline as planned.
 
@@ -2256,10 +2258,34 @@ a fact the design does not hold yet (no current known for the net, a pour
 wanted thick so tracks can be routed round it by hand), so a script uses it
 only on the user's explicit yes for that one declaration (SKILL.md, "When no
 form says it"). Where the net's current is known, the pour widened to its
-current need is the form, and it names no distance. The narrow-neck finding is not made for a
-pour with `reach=`. It is refused with `width=`, without `swallow_pads=True`,
-and for a distance of 0 or less; it needs KiCad's pcbnew at plan time, whose
-polygon booleans it uses.
+current need is the form, `reach=Reach.CURRENT` (below), and it names no
+distance. The narrow-neck finding is not made for a pour with `reach=`. It is
+refused with `width=`, without `swallow_pads=True`, and for a distance of 0 or
+less; it needs KiCad's pcbnew at plan time, whose polygon booleans it uses.
+
+**Reach.CURRENT.** `board.pour(net, pads, layer=, swallow_pads=True,
+reach=Reach.CURRENT)` grows the pour into the same room only as far as its
+net's `current-path` width needs, so the script names no distance. The need
+and the width are the check's own, `placemat check current-path`'s: the
+current is the parts' `Pm.I`, the rise is `[check] rise_c`, the copper weight
+the board's stackup (IPC-2221), and the pour is measured along the route
+between the parts that carry the current, at `[check] zone_step`, as a
+written board is. The reach is the smallest multiple of `[copper]
+pour_reach_step` (0.05 mm) at which that reading passes, searched up to
+`[copper] pour_reach_max` (5 mm); a hull that already passes is the fitted
+outline unchanged. The grown copper is `reach=`'s: cut back by other nets'
+clearance outlines, graphic polygon(s), never a zone. Only the pour's own
+copper counts, so a track that also joins the parts is not credited.
+
+Where the room runs out first (copper of another net stands at the neck) the
+pour is drawn at the reach where its width stopped gaining and a finding
+names the net, the current, the width reached, the width needed, the neck's
+point and the copper standing there; `check current-path` reports the same
+neck. It is refused at the declaration where fewer than two parts carry
+current on the net (the check does not judge such a net either), and with
+`width=` or without `swallow_pads=True`. Where the pour's pads belong to fewer
+than two of the parts that carry current, it is not drawn and a finding says
+so. It needs pcbnew at plan time, as `reach=mm` does.
 
 It is written as a graphic copper polygon (a filled `PCB_SHAPE`), never as a
 zone: nothing refills it round later copper, and nothing is cut from it once
@@ -3020,6 +3046,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `copper.plane_clearance` | 0.2 | a zone's pullback from foreign copper |
 | `copper.plane_min_thickness` | 0.2 | a zone's minimum filled width |
 | `copper.pour_stroke` | 0.2 | a pour's outline stroke |
+| `copper.pour_reach_step` | 0.05 | mm: the step `reach=Reach.CURRENT` grows a fitted pour by, so the reach is a multiple of it |
+| `copper.pour_reach_max` | 5.0 | mm: the furthest `reach=Reach.CURRENT` grows a fitted pour; where the need is not met by then a finding says so |
 | `copper.straight_tolerance` | 0.002 | a track leg whose ends differ by less than this on one axis is drawn straight between them; `measure --copper` judges 0/45/90 by it too |
 | `write.split_groups` | "lift" | the generator's nested groups: `lift` each cell's group out of its module's to the top level (the module keeps its own parts), `split` also takes out of a group the parts the script places by steps of their own, `keep` writes them as generated; a group left empty is removed |
 | `write.keepout_drawings` | "admitting" | draw a keepout's outline and name (and its height limit) on its Fab layer, or `User.Comments` for one on both faces or on inner layers only: `admitting` (default) those that admit something, `all` every keepout, `none` |

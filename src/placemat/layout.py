@@ -36,7 +36,7 @@ from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
 from .values import (Turned, Turns, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, SideOf, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      PinName, Priority, X, Y, pad_key)
-from .values import Figure, FigurePoint
+from .values import Figure, FigurePoint, Reach
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
 
@@ -425,7 +425,7 @@ class CopperIntent:
     owners: frozenset = frozenset()       # refdes its endpoints belong to
     freedom: Freedom = Freedom.FIXED      # derived in resolve(), once every declaration is in
     members: tuple = field(default=(), metadata={"omit_default": True})    # a fitted pour's via intents
-    reach: float | None = field(default=None, metadata={"omit_default": True})   # a fitted pour's reach=, mm
+    reach: float | Reach | None = field(default=None, metadata={"omit_default": True})   # a fitted pour's reach=: mm, or Reach.CURRENT
 
     @property
     def rank(self):
@@ -4932,7 +4932,7 @@ class Board:
 
     def pour(self, net, points, *, layer: CopperLayer, stroke: float | None = None, swallow_pads: bool = False,
              width: float | None = None, cover: Cover | None = None, priority: Priority = Priority.DEFAULT,
-             reach: float | None = None, grow: float | None = None, within=None, why: str = ""):
+             reach: float | Reach | None = None, grow: float | None = None, within=None, why: str = ""):
         """A filled copper polygon on one layer, written as a graphic polygon
         (never a zone: nothing refills it, and nothing is cut from it once it
         is planned). Another net's copper inside it is a copper finding.
@@ -4983,9 +4983,10 @@ class Board:
         stroke = self.settings.copper_pour_stroke if stroke is None else stroke
         layer = CopperLayer.of(layer)
         name = self.geometry.require_net(net)
-        if reach is not None:
+        if reach is not None and reach is not Reach.CURRENT:
             if isinstance(reach, bool) or not isinstance(reach, (int, float)) or not reach > 0.0:
-                raise ValueError("pour %s: reach= is a distance in mm greater than 0, not %r" % (name, reach))
+                raise ValueError("pour %s: reach= is a distance in mm greater than 0, or Reach.CURRENT, not %r"
+                                 % (name, reach))
             reach = float(reach)
         if grow is not None or within is not None:
             raise ValueError("pour %s: grow= and within= are gone, a pour is fitted and never a zone grown from its "
@@ -5017,6 +5018,15 @@ class Board:
         if reach is not None and not fitted:
             raise ValueError("pour %s: reach= grows a fitted pour into the room round it, so it takes swallow_pads=True "
                              "over pads and vias, and no width= (a neck between two pads is drawn as declared)" % name)
+        if reach is Reach.CURRENT:
+            from . import checks
+            carry = checks.carriers_of(self.geometry).get(name, {})
+            if len(carry) < 2:
+                who = "no part carries current on it" if not carry else \
+                    "only %s carries current on it, and the width is sized between two parts" % next(iter(carry))
+                raise ValueError("pour %s: reach=Reach.CURRENT sizes the pour for the current its net carries, from "
+                                 "the parts' Pm.I, and %s. Give the parts that carry it their Pm.I, or, where the "
+                                 "user approves a distance, use reach=mm" % (name, who))
         if cover is None:
             cover = Cover.CENTRES
         refs = _refs_in(points, via_ends=True)         # a via's pads: the pour waits for them as the via does
@@ -5072,10 +5082,11 @@ class Board:
         if not it.key.startswith("via"):
             raise TypeError("pour %s: a fitted pour joins pads and vias, and %s is neither" % (name, it.key))
 
-    def _fit_pour(self, ctx, net: str, pads, layer: CopperLayer, stroke: float, reach: float | None = None):
+    def _fit_pour(self, ctx, net: str, pads, layer: CopperLayer, stroke: float, reach: float | Reach | None = None):
         """The outline of a fitted pour (pourfit.py) over `pads` as the plan
         stands - with `reach`, the outlines of its copper grown that far into the room
-        round it - or [] with a finding when none can be drawn."""
+        round it (a distance, or as far as the net's current needs: Reach.CURRENT) - or [] with a finding
+        when none can be drawn."""
         from . import pourfit
         occ = ctx.occ
         half = stroke / 2.0
@@ -5085,6 +5096,7 @@ class Board:
         slack = self.settings.geometry_arc_error_nm * 1e-6
         sag = max(self.settings.geometry_arc_sag - slack, self.settings.geometry_arc_sag / 2.0)
         holds, boxes = [], []
+        member_pads, member_vias = [], []       # what Reach.CURRENT measures the pour between
         for p in pads:
             if isinstance(p, CopperIntent):
                 ops = ctx.ops_at.get(p.index)
@@ -5103,6 +5115,7 @@ class Board:
                         return []
                     holds.append((label, pourfit.hull(op.polygon)))
                     boxes.append(op.box)
+                    member_vias.append(op.polygon)
                 continue
             owner, number, _, _ = self._pad_ref(p)
             label = "%s.%s" % (owner, number)
@@ -5116,7 +5129,9 @@ class Board:
                     return []
                 holds.append((label, pourfit.hull(sh.poly)))
                 boxes.append(sh.box)
-        span = Box.union(boxes).inflate(reach or 0.0)       # what reach= may take a clearance outline in
+                member_pads.append((owner, number, sh.poly))
+        grows = self.settings.copper_pour_reach_max if reach is Reach.CURRENT else (reach or 0.0)
+        span = Box.union(boxes).inflate(grows)       # what reach= may take a clearance outline in
         pieces = []
 
         def add(sh, clr: float, what: str):
@@ -5158,6 +5173,8 @@ class Board:
             else:
                 ctx.notes.append("pour %s: its pads leave no area to fit; the pour is not drawn" % net)
             return []
+        if reach is Reach.CURRENT:
+            return self._reached_to_current(ctx, net, layer, stroke, res.outline, pieces, sag, member_pads, member_vias)
         if reach is not None:
             return self._reached(ctx, net, res.outline, reach, pieces, sag)
         need = self._width(net, None)
@@ -5166,6 +5183,15 @@ class Board:
                 ctx.notes.append("pour %s: narrows to %.2f mm at (%.2f, %.2f), under its net's %.2f mm track"
                                  % (net, gap + stroke, x, y, need))
         return [res.outline]
+
+    def _grown(self, outline, reach: float, pieces) -> list:
+        """The loops of `outline` grown by `reach` and cut back by every clearance outline in `pieces`,
+        the parts joined to `outline` (polyops.grow_and_cut); arcs lie no more than `geometry.arc_sag` off."""
+        from .kicad import polyops
+        box = Box.of_points(outline).inflate(reach)
+        cutters = [pc.poly for pc in pieces if pc.right > box.left and pc.left < box.right
+                   and pc.bottom > box.top and pc.top < box.bottom]
+        return polyops.grow_and_cut(outline, reach, self.settings.geometry_arc_sag, cutters)
 
     def _reached(self, ctx, net: str, outline, reach: float, pieces, sag: float):
         """The copper of a fitted pour grown by `reach` into the room round its
@@ -5176,13 +5202,79 @@ class Board:
             ctx.notes.append("pour %s: reach= needs KiCad's pcbnew at plan time, for its polygon booleans; the pour "
                              "is not drawn" % net)
             return []
-        box = Box.of_points(outline).inflate(reach)
-        cutters = [pc.poly for pc in pieces if pc.right > box.left and pc.left < box.right
-                   and pc.bottom > box.top and pc.top < box.bottom]
-        got = polyops.grow_and_cut(outline, reach, self.settings.geometry_arc_sag, cutters)
+        got = self._grown(outline, reach, pieces)
         if not got:
             ctx.notes.append("pour %s: reach= leaves no copper joined to its pads; the pour is not drawn" % net)
         return got
+
+    def _reached_to_current(self, ctx, net: str, layer: CopperLayer, stroke: float, outline, pieces, sag: float,
+                            member_pads, member_vias):
+        """The copper of a fitted pour grown into the room round its `outline` as far as its net's
+        current-path width needs and no further: the smallest multiple of `[copper] pour_reach_step` whose
+        copper `checks.pour_current` reads at the width the current needs (`reach=` of that distance, by
+        `_reached`'s booleans), searched up to `[copper] pour_reach_max`. Where the maximum falls short, the
+        smallest multiple that reaches the width the maximum does, and a finding names the neck."""
+        from . import checks, pourfit
+        from .kicad import polyops
+        s = self.settings
+        if not polyops.available():
+            ctx.notes.append("pour %s: reach=Reach.CURRENT needs KiCad's pcbnew at plan time, for its polygon "
+                             "booleans; the pour is not drawn" % net)
+            return []
+        have = {p[0] for p in member_pads}
+        carriers = {r: a for r, a in checks.carriers_of(self.geometry).get(net, {}).items() if r in have}
+        if len(carriers) < 2:
+            ctx.notes.append("pour %s: reach=Reach.CURRENT sizes the pour for the current between two of its parts, "
+                             "and %s of its pads' parts carries current on %s (Pm.I); the pour is not drawn"
+                             % (net, "none" if not carriers else "only %s" % next(iter(carriers)), net))
+            return []
+        step = s.copper_pour_reach_step
+        top = int(math.floor(s.copper_pour_reach_max / step + 1e-9))
+        tried: dict = {}
+
+        def at(k: int):
+            if k not in tried:
+                loops = [outline] if k == 0 else (self._grown(outline, k * step, pieces) or [outline])
+                reading = checks.pour_current(net, layer, member_pads, member_vias,
+                                              [pourfit.offset(o, stroke / 2.0) for o in loops], carriers,
+                                              self.geometry.copper_mm, s.check_rise_c, checks.COPPER_OZ,
+                                              s.check_zone_step)
+                tried[k] = (loops, reading)
+            return tried[k]
+
+        def width(k: int) -> float:
+            reading = at(k)[1]
+            return math.inf if reading is None else reading.width
+
+        def met(k: int) -> bool:
+            reading = at(k)[1]
+            return reading is None or reading.ok
+
+        if met(0):
+            return at(0)[0]
+        # the width only gains with the reach: the goal is the need, or where the room runs out the width
+        # the furthest reach gets
+        goal = (lambda k: met(k)) if met(top) else (lambda k: width(k) >= width(top) - 1e-9)
+        if goal(0):
+            k = 0
+        else:
+            lo, hi = 0, top
+            while hi - lo > 1:
+                mid = (lo + hi) // 2
+                lo, hi = (mid, hi) if not goal(mid) else (lo, mid)
+            k = hi
+        loops, reading = at(k)
+        if not met(k):
+            x, y = reading.point
+            near = min(((poly_distance(pc.poly, ((x, y), (x + 1e-6, y), (x, y + 1e-6))), pc.what) for pc in pieces),
+                       default=(math.inf, ""))
+            blocked = "; %s stands there" % near[1] if near[0] <= reading.width else ""
+            ctx.notes.append(
+                "pour %s: the room runs out at %.2f mm of reach (up to %.2f mm tried): it narrows to %.2f mm at "
+                "(%.2f, %.2f), where %g A between %s and %s needs %.2f mm at a %g C rise%s; drawn at that width"
+                % (net, k * step, s.copper_pour_reach_max, reading.width, x, y, reading.amps, reading.start,
+                   reading.to, reading.need, s.check_rise_c, blocked))
+        return loops
 
     def plane(self, net, layers, *, outline=None, inset: float | None = None, chamfer: float | None = None,
               clearance: float | None = None, min_thickness: float | None = None, solid_pads: bool = True,

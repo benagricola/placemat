@@ -21,8 +21,8 @@ def release(version: str) -> str:
 from .context import board
 from .cutouts import Circle, Path, Slot
 from .outline import Arc
-from .values import (Along, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Centre, Cutout, Disc, Drops, Figure, FigurePoint, Forbid, Fraction, FreeSpot, Inside, Land, Line, Near, OnBore, OnEdge, OnRim, Origin, Parallel, Past, Pin, Polar, Box, Cell, CellPadRef, CopperLayer, Edge, Face, Facing, LinkWeight, Location, Mid, Net, PadRef,
+from .values import (Along, Axis, Bearing, Bend, Corner, Cover, Reach, Beside, Between, Centre, Cutout, Disc, Drops, Figure, FigurePoint, Forbid, Fraction, FreeSpot, Inside, Land, Line, Near, OnBore, OnEdge, OnRim, Origin, Parallel, Past, Pin, Polar, Box, Cell, CellPadRef, CopperLayer, Edge, Face, Facing, LinkWeight, Location, Mid, Net, PadRef,
                      Part, Priority, SideOf, Turned, Turns, X, Y)
 
-__all__ = ["board", "Along", "Axis", "Bearing", "Bend", "Corner", "Cover", "Beside", "Between", "Box", "Cell", "CellPadRef", "Centre", "Pin", "Polar", "OnRim", "OnBore", "Cutout", "Disc", "Drops", "Figure", "FigurePoint", "Arc", "Circle", "Path", "Slot", "CopperLayer", "Edge", "Face", "Facing", "Forbid",
+__all__ = ["board", "Along", "Axis", "Bearing", "Bend", "Corner", "Cover", "Reach", "Beside", "Between", "Box", "Cell", "CellPadRef", "Centre", "Pin", "Polar", "OnRim", "OnBore", "Cutout", "Disc", "Drops", "Figure", "FigurePoint", "Arc", "Circle", "Path", "Slot", "CopperLayer", "Edge", "Face", "Facing", "Forbid",
            "Fraction", "FreeSpot", "Inside", "Land", "Line", "LinkWeight", "Location", "Mid", "Near", "Net", "OnEdge", "Origin", "Parallel", "PadRef", "Part", "Past", "Priority", "SideOf", "Turned", "Turns", "X", "Y"]

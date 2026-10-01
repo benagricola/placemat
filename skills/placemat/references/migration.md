@@ -18,9 +18,21 @@ section for each hand-written pattern a newer form replaces.
   coordinate is: a script uses it only on the user's yes for that one
   declaration, where the design does not yet hold the facts the intent form
   needs (no current known for the net, a pour wanted thick to route round by
-  hand). Where the net's current is known, the pour widened to its current
-  need is the form. `reach=` needs pcbnew at plan time (KiCad's polygon
+  hand). Where the net's current is known, the form is `reach=Reach.CURRENT`
+  (next entry). `reach=` needs pcbnew at plan time (KiCad's polygon
   booleans) and is refused with `width=` or without `swallow_pads=True`.
+
+- **`reach=Reach.CURRENT` on a fitted pour**: `board.pour(net, pads,
+  layer=, swallow_pads=True, reach=Reach.CURRENT)` grows the pour into the
+  room round its pads only as far as its net's `current-path` width needs,
+  cut back by other nets' clearance as `reach=mm` is. The need is the
+  check's: the parts' `Pm.I`, `[check] rise_c`, the copper weight from the
+  stackup. The distance is the smallest multiple of `[copper]
+  pour_reach_step` (default 0.05 mm) that passes, up to `[copper]
+  pour_reach_max` (default 5 mm); where another net's copper leaves no more
+  room, a finding names the neck, the width reached and the width needed.
+  It is refused where fewer than two parts carry current on the net. A pour
+  without it is unchanged. `api.md`, "Reach.CURRENT".
 
 - **`Facing` on a part with no pad rows**: a ball in a grid, a square pad at
   a corner of the pad field or a lone pad has the direction from the pad
@@ -56,6 +68,32 @@ section for each hand-written pattern a newer form replaces.
   "Either face".
 
 ### Migration steps
+
+**A fitted pour that replaced a 0.70.0 `grow=` pour and lost current width
+gets `reach=Reach.CURRENT`.** The 0.70.0 step turned `grow=mm` into a fitted
+pour, which is the hull of its pads where the grown pour was the hull grown by
+`mm`. Where `placemat check current-path` reports the net narrower than its
+current needs, the pour widens to the current instead of carrying the old
+distance; the parts that carry the net's current need their `Pm.I`.
+
+```python
+# before (0.70.0): the hull alone; current-path reports a neck narrower than the net needs
+board.pour(Net("<NET>"), [PadRef(Part("a"), "<PAD>"), PadRef(Part("b"), "<PAD>")], layer=CopperLayer.F, swallow_pads=True)
+# after: grown into the room round it as far as the net's current needs, cut back from other nets
+board.pour(Net("<NET>"), [PadRef(Part("a"), "<PAD>"), PadRef(Part("b"), "<PAD>")], layer=CopperLayer.F, swallow_pads=True,
+           reach=Reach.CURRENT)
+```
+
+**A `reach=mm` picked by trial for current width becomes `reach=Reach.CURRENT`.**
+
+```python
+# before: a distance found by trial, standing in for "carry the net's current"
+board.pour(Net("<NET>"), [PadRef(Part("a"), "<PAD>"), PadRef(Part("b"), "<PAD>")], layer=CopperLayer.F, swallow_pads=True,
+           reach=0.4)
+# after: the width the current needs, from Pm.I, the rise and the copper weight
+board.pour(Net("<NET>"), [PadRef(Part("a"), "<PAD>"), PadRef(Part("b"), "<PAD>")], layer=CopperLayer.F, swallow_pads=True,
+           reach=Reach.CURRENT)
+```
 
 **A turn computed to read where a pad lands becomes `SideOf`.**
 

@@ -138,7 +138,8 @@ coordinate escape hatch under this rule.
 `reach=mm` on a fitted pour is a distance in place of a fact (the net's
 current), so it is an escape hatch under this rule too: ask, name the
 request, and write it only on the user's yes for that one pour. Where the
-net's current is known, the pour widened to its current need is the form.
+net's current is known (`Pm.I` on the parts that carry it), the form is
+`reach=Reach.CURRENT`: the pour grows only as far as that current needs.
 
 `placemat freeze` writes coordinates into a script, and that is placemat
 recording its own result: `--explore`/`--accept` and `freeze` write what a

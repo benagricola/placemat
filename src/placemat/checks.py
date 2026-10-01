@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import bisect
 import math
 import re
+import types
 
 from . import exposure as _exposure
 from . import geometry as _geometry_module
@@ -1075,8 +1076,9 @@ def _pairs(geometry: BoardGeometry, net: str, carriers: dict, rise_c: float, cop
     return judged, unmeasured, apart
 
 
-def current_paths(geometry: BoardGeometry, rise_c: float = TRACK_RISE_C, copper_oz: float = COPPER_OZ,
-                  zone_step: float = ZONE_STEP) -> list[Verdict]:
+def carriers_of(geometry: BoardGeometry) -> dict[str, dict[str, float]]:
+    """The parts that carry current on each net, {net: {ref: amps}}, from their
+    `Pm.I` facts."""
     f = facts(geometry)
     carriers: dict[str, dict] = {}
     for fp in geometry.footprints:
@@ -1086,6 +1088,52 @@ def current_paths(geometry: BoardGeometry, rise_c: float = TRACK_RISE_C, copper_
             if amps is not None and amps > 0:          # a net given no current, or 0, is not one it carries
                 on = carriers.setdefault(p.net, {})
                 on[fp.ref] = max(on.get(fp.ref, 0.0), amps)
+    return carriers
+
+
+@dataclass(frozen=True)
+class PourReading:
+    """What `current-path` reads on a pour joining carriers: the width of its
+    narrowest route, the width the current needs there, and where."""
+    width: float
+    need: float
+    amps: float
+    start: str
+    to: str
+    point: tuple
+
+    @property
+    def ok(self) -> bool:
+        return self.width >= self.need
+
+
+def pour_current(net: str, layer, pads, vias, copper, carriers: dict, copper_mm: dict, rise_c: float,
+                 copper_oz: float, zone_step: float):
+    """`current-path`'s reading of a drawn pour as the plan holds it, by the
+    check's own route search (`_pairs`): `pads` are (ref, number, outline) of
+    the pour's members, `vias` the outlines of its via members, `copper` the
+    outlines of the pour (one polygon each), `carriers` {ref: amps} of the
+    parts carrying current on `net`. The worst route, as a PourReading, or
+    None where no route is narrowed by the pour (its pads touch). A pour
+    that joins no two carriers reads width 0."""
+    layers = frozenset([layer])
+    stand_in = types.SimpleNamespace(
+        copper_mm=copper_mm,
+        footprints=[types.SimpleNamespace(ref=ref, pads=[types.SimpleNamespace(
+            net=net, number=number, outlines=(outline,), box=Box.of_points(outline), layers=layers)])
+            for ref, number, outline in pads],
+        copper=[CopperItem("via", net, layers, (o,), Box.of_points(o)) for o in vias]
+        + [CopperItem("poly", net, layers, (o,), Box.of_points(o)) for o in copper])
+    judged, _, apart = _pairs(stand_in, net, carriers, rise_c, copper_oz, zone_step)
+    if not judged:
+        return PourReading(0.0, 0.0, 0.0, "", "", (0.0, 0.0)) if apart else None
+    w, need, amps, a, b, _, point, _ = min(judged, key=lambda j: j[0] / j[1])
+    return PourReading(w, need, amps, a, b, tuple(point))
+
+
+def current_paths(geometry: BoardGeometry, rise_c: float = TRACK_RISE_C, copper_oz: float = COPPER_OZ,
+                  zone_step: float = ZONE_STEP) -> list[Verdict]:
+    carriers = carriers_of(geometry)
     out = []
     for net, on in sorted(carriers.items()):
         if len(on) == 1:

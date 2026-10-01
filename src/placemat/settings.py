@@ -87,6 +87,8 @@ class Settings:
     copper_plane_clearance: float = 0.2
     copper_plane_min_thickness: float = 0.2
     copper_pour_stroke: float = 0.2
+    copper_pour_reach_step: float = 0.05   # the step reach=Reach.CURRENT grows a fitted pour by, mm
+    copper_pour_reach_max: float = 5.0     # the furthest reach=Reach.CURRENT grows a fitted pour, mm
     copper_cell_zones_under_planes: str = "drop"   # a stamped cell's zone the board's own plane covers: merged into it, or kept
     copper_tap_overlap: float = 0.005   # how far a tap's copper reaches over its pad's edge, mm: copper that only meets the pad along a line may not read as joined
     copper_microvia_drill: float = 0.1  # a micro via's (laser) drill, when the script gives none
@@ -316,7 +318,7 @@ _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_bearing_step", "place_coarse_from", "place_coarse_steps",
     "place_refine_around", "place_block_gap_step", "place_block_gap_reach", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "geometry_cap_steps", "solve_spread_growth", "solve_pull", "score_escape_depth", "place_via_move_step", "place_via_clear_cache",
     "place_conflict_gap", "place_fit_room", "copper_bridge_half", "copper_finger_bridge_width", "copper_finger_min_piece",
-    "copper_plane_min_thickness", "copper_pour_stroke", "copper_microvia_drill", "label_size",
+    "copper_plane_min_thickness", "copper_pour_stroke", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_size",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_zone_step",
     "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
