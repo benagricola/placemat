@@ -586,6 +586,18 @@ def parallel_rotation(a: Location, b: Location, face: Face, degrees: float = 0.0
     return round((turn + degrees) % 360.0, 6)
 
 
+def _pad_boxes(occ: Occupancy, item, face: Face) -> dict:
+    """{pad number: its land boxes} of the item at the origin, rotation 0, on `face`."""
+    probe = Placement(Location(0.0, 0.0), 0.0, face)
+    geom = occ._geometry(item)
+    t = occ._transform(geom, probe)
+    boxes: dict = {}
+    for sh in geom.shapes:
+        if sh.kind in ("pad", "through"):
+            boxes.setdefault(sh.label, []).append(transform_box(sh.box, t))
+    return boxes
+
+
 def pad_way_out(occ: Occupancy, item, numbers: list, face: Face = Face.FRONT) -> tuple:
     """The way out of the item's pads `numbers`, as a unit board vector with the
     item at rotation 0 on `face`. Each pad's is `_pin_normal`'s outward normal of
@@ -595,13 +607,7 @@ def pad_way_out(occ: Occupancy, item, numbers: list, face: Face = Face.FRONT) ->
     snapped to an axis. Raises ValueError, saying why, where pads' ways out
     differ (two rows), or that direction has none (the centroid at the field's
     centre) or two nearest axes (a diagonal)."""
-    probe = Placement(Location(0.0, 0.0), 0.0, face)
-    geom = occ._geometry(item)
-    t = occ._transform(geom, probe)
-    boxes: dict = {}
-    for sh in geom.shapes:
-        if sh.kind in ("pad", "through"):
-            boxes.setdefault(sh.label, []).append(transform_box(sh.box, t))
+    boxes = _pad_boxes(occ, item, face)
     pads = {(item.ref, n): Box.union(bs).center for n, bs in boxes.items()}
     outs, rowless = {}, []
     for n in numbers:
@@ -618,6 +624,33 @@ def pad_way_out(occ: Occupancy, item, numbers: list, face: Face = Face.FRONT) ->
             ", ".join(numbers), ", ".join("%s %s" % (n, _way_name(o)) for n, o in outs.items())))
     (ox, oy), = set(outs.values())
     return float(ox), float(oy)
+
+
+def pad_row_end(occ: Occupancy, item, number: str, face: Face = Face.FRONT) -> tuple:
+    """The end of its row that the item's pad `number` is nearer, as a unit board vector
+    along the row with the item at rotation 0 on `face`. The row is the pads that share the
+    pad's way out (`_pin_normal`); the end is the side of the row's middle (halfway between
+    its outermost pad centres) the pad lies on. Raises ValueError, saying why, where the pad
+    has no row (a grid, a corner pad, a lone pad) or lies at the row's middle."""
+    boxes = _pad_boxes(occ, item, face)
+    pads = {(item.ref, n): Box.union(bs).center for n, bs in boxes.items()}
+    box = Box.union(boxes[number])
+    out = _pin_normal(pads, item.ref, box.center, 0.0, box)
+    if out is None:
+        raise ValueError("pad %s has no row to read an end from (a pad of a grid, a square pad at a corner "
+                         "of the pad field, or a lone pad)" % number)
+    out = (round(out[0]), round(out[1]))
+    axis = (abs(out[1]), abs(out[0]))                   # along the row: across its way out
+    row = [n for n, bs in boxes.items()
+           if (lambda o: o is not None and (round(o[0]), round(o[1])) == out)(
+               _pin_normal(pads, item.ref, Box.union(bs).center, 0.0, Box.union(bs)))]
+    along = {n: pads[(item.ref, n)].x * axis[0] + pads[(item.ref, n)].y * axis[1] for n in row}
+    mid = (min(along.values()) + max(along.values())) / 2.0
+    off = along[number] - mid
+    if abs(off) < _AXIS_TIE:
+        raise ValueError("pad %s lies at the middle of its row of %d pads, so neither end is nearer; name a pad "
+                         "nearer one end" % (number, len(row)))
+    return (axis[0] * math.copysign(1.0, off), axis[1] * math.copysign(1.0, off))
 
 
 def _field_way_out(pads: dict, ref: str, numbers: list, rowless: list) -> tuple:

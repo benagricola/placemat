@@ -147,3 +147,41 @@ Tests, all on synthetic boards:
   Equal coordinates refused; a row with `over=` and a count that does not match
   refused.
 - `Facing`, `SideOf` and a row without `over=` digest as before.
+
+## Addendum: the end of a pin row (2026-10-01)
+
+Source: a board's session on 0.72.0. A part's bypass stands past the END of
+a package, on the side where pin 1 or a supply pin lands, not on the row's
+outward normal that `SideOf(pad)` gives. A flag for which end pin 1 lands at
+kept the script's side in step with its turn.
+
+`SideOf(pad, along=True)` is the board side of the row's end the pad is
+nearer. The row is the pads sharing the pad's way out (`_pin_normal`); along
+its axis (across the way out) the end is the side of the middle between the
+row's outermost pad centres that the pad lies on, with the part's placed
+turn and face applied as `SideOf` does. It names one pad. It is refused,
+saying why, for a pad within 1e-6 mm of the row's middle (the middle pin of
+an odd row: neither end is nearer) and for a pad with no row (a grid, a
+corner pad, a lone pad), where the pad's row has no ends to name.
+
+Facing toward a row end: `Facing(pads, toward=SideOf(PadRef(other, key),
+along=True))`. `toward=` takes a `PadRef` (the pad's way out) or a `SideOf`
+(either way); the turn is the one where the pads' way out is opposite that
+side, so the pads face `other`, for a part that stands `Beside(other, <the
+same SideOf>)`. A `toward=PadRef(...)` is the same as `toward=SideOf(
+PadRef(...))`. Chosen over a flag on `PadRef` (`PadRef(u, 1, along=True)`)
+because `SideOf` already names "a side that waits for a part" and `toward=`
+needs only to accept it; a `PadRef` flag would leave a pad reference that is
+not a pad. `along` is omitted from a `SideOf`'s digest while False.
+
+```python
+board.place(Part("bypass"), at=Beside(Part("u"), SideOf(PadRef(Part("u"), 1), along=True)),
+            rotation=Facing(PadRef(Part("bypass"), "SUPPLY"), toward=SideOf(PadRef(Part("u"), 1), along=True)))
+```
+
+Tests (`tests/test_sideof_along.py`): a 10-pin and an 8-pin dual-row package,
+the first and last pin of each row, at the four turns and on the back face:
+the part stands on the end the placed pad lies at (measured off the placed
+pads against the centroid of their row), and a pad of the part faces the
+package; declared before the package; a mid-row pad refused; a pad with no
+row refused; two pads refused; the digest unchanged until `along` is set.

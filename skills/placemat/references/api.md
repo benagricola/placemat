@@ -61,6 +61,7 @@ request (SKILL.md, "When no form says it").
 | every part of a row turned so its pad n faces a side | `board.row(items, edge, rotation=Facing(n, Edge.WEST))` | Placement (Rows) |
 | turned so its pad faces another part's pad, whichever side that lands on | `rotation=Facing(PadRef(c, "SUPPLY"), toward=PadRef(u, "VCC"))` | Placement (Turns) |
 | beside a part on the side where its pad lands after its turn | `at=Beside(Part("u"), SideOf(PadRef(Part("u"), "VCC")))` | Placement (Beside) |
+| beside a part past the end of the pin row where a pad lies | `at=Beside(Part("u"), SideOf(PadRef(Part("u"), 1), along=True))` | Placement (Beside) |
 | a row ordered by where the pads its items serve land | `board.row(items, edge, of=Part("u"), over=[PadRef(Part("u"), "SDA"), ...])` | Placement (Rows) |
 | on a point, its turn (a bearing) searched, scored by links, pushes and keepouts | `at=Pin(Part("c.member"), Location(x, y)), rotations=Turns.ANY` | Placement (Turns) |
 | turned to face a board edge or a bearing | `board.outward_rotation(item, edge, face=)` | Faces |
@@ -371,7 +372,10 @@ one per item. `Facing(pad_key, toward=PadRef(other, "VCC"))` turns the part
 so its pad's way out is opposite the way out of that pad, which makes the pad
 face it for a part standing on the side of `other` where that pad lands
 (`Beside(other, SideOf(...))` puts it there). It waits for `other`, as
-`Turned` does; it is refused in a row.
+`Turned` does; it is refused in a row. `toward=SideOf(PadRef(other, key),
+along=True)` turns the pad's way out opposite the row end that pad lies at,
+for a part standing there (`Beside(other, SideOf(PadRef(other, key),
+along=True))`).
 
 A track leg whose ends differ by less than `copper.straight_tolerance`
 (0.002 mm) on one axis is drawn as one straight segment, not a straight
@@ -750,7 +754,17 @@ placed, its turn and face applied and snapped to the nearest axis - the same
 way out `Facing` reads, so `Beside(u, SideOf(pad))` stands the part where
 `Facing(pad, edge)` would have put that edge. `u` is placed first. A
 `SideOf` side with a `Past`, a lane or an `X`/`Y` point in `align=` is
-refused: those check the side's axis now. There is no eager
+refused: those check the side's axis now.
+
+`SideOf(PadRef(Part("u"), 1), along=True)` is the side where the pad lies
+along its row instead of the row's outward normal: the end of the row the pad
+is nearer, with `u`'s turn and face applied. The row is the pads that share
+the pad's way out, and the end is which side of the middle between its
+outermost pad centres the pad lies on. It names one pad. A pad exactly mid-row (the middle pin of an odd
+row) is refused, saying neither end is nearer, and so is a pad with no row (a
+grid, a corner pad, a lone pad). Use it for a part that stands past the end
+of a package on the side where a given pin lands:
+`Beside(u, SideOf(PadRef(u, 1), along=True))`. There is no eager
 `board.side_of(...)`: a side a script would branch on is a relation to
 say (`SideOf`, `Facing(toward=)`, `row(over=)`).
 
@@ -2479,9 +2493,18 @@ placemat settings [<script-or-board-dir>] [--json]
 weight, the pair classes and their nets, each via type's tier, the fab
 minimums and the rise - and whether they match the last confirmation. It
 flags a `signal` layer carrying a `plane()` and a `power` (ground) layer
-carrying none. `--confirm` records a digest of the printed facts in
-placemat.toml's `[facts] confirmed`; this is placemat's own record, never
-part of a run's id, so confirming never re-plans a board. A run whose
+carrying none. `--confirm` records a digest of the printed facts in the
+nearest placemat.toml that exists above the board (the one the run uses; a
+new one is made beside the board only when there is none), under
+`[facts.boards]` keyed by the script's path relative to that file:
+`"modules/m/M_layout.py" = "<digest>"`. A board and its modules each keep
+their own, since their facts differ; the script's path is the key because
+the digest comes from that script's own `plane()` calls over the board it
+declares, and a board's name is shared by its variants. A file's old single
+`[facts] confirmed = "<digest>"` is read for any script with no entry of its
+own, and the next `--confirm` of a script whose digest it holds moves it into
+the table. This is placemat's own record, never part of a run's id, so
+confirming never re-plans a board. A run whose
 facts do not match says so on its own line
 ("facts: unconfirmed - placemat facts") and records a `facts` finding, but
 still runs. A via type fab-profile.json's `via` does not name, or a missing
@@ -3229,7 +3252,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `cleanup.step` | 0.5 | that search's step |
 | `cleanup.swap_neighbours` | 4 | each part is offered a swap with this many of its nearest movable neighbours: both lifted, each searched round the other's old spot |
 | `cleanup.swap_radius` | 1.0 | how far round the other's old spot each part of a swap is searched |
-| `facts.confirmed` | none | a digest of the last `placemat facts --confirm`; placemat's own record, not part of a run's id |
+| `facts.boards` | none | `[facts.boards]`: a script's path relative to this placemat.toml -> the digest of its last `placemat facts --confirm`; placemat's own record, not part of a run's id |
+| `facts.confirmed` | none | the old single digest, read for any script with no entry in `facts.boards`; replaced by that table on the next `--confirm` |
 
 A run also records `metrics.seeded_by_net`: how many searched items each net
 seeded. One net seeding most of the board is a missing `board.plane()`. And

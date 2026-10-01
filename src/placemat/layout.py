@@ -31,7 +31,7 @@ from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
 from .settings import Settings
-from .placer import BlockSpec, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
+from .placer import BlockSpec, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
 from .values import (Turned, Turns, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, SideOf, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
@@ -2625,7 +2625,8 @@ class Board:
         if isinstance(turned, Turned):
             needs.add(self._pad_ref(turned.part)[0])   # turned by it: placed after it
         elif isinstance(turned, Facing):
-            needs.add(self._pad_ref(turned.toward)[0])  # turned toward its pad: placed after its part
+            toward = turned.toward.pads[0] if isinstance(turned.toward, SideOf) else turned.toward
+            needs.add(self._pad_ref(toward)[0])         # turned toward its pad: placed after its part
         elif turned is not None:
             line = {self._pad_ref(ref)[0] for ref in _refs_in([turned.a, turned.b])}
             if line & {fp.ref for fp in members_of(geom)}:
@@ -2716,7 +2717,10 @@ class Board:
         placed = occ.items[ref].reference
         numbers = self._facing_numbers(key, geom, side)
         try:
-            way = pad_way_out(self._bare_occupancy(), geom, numbers, placed.face)
+            if side.along:
+                way = pad_row_end(self._bare_occupancy(), geom, numbers[0], placed.face)
+            else:
+                way = pad_way_out(self._bare_occupancy(), geom, numbers, placed.face)
             return way_out_side(way, placed.rotation)
         except ValueError as e:
             raise ValueError("%s: SideOf(%s): %s" % (key, ", ".join("pad %s" % n for n in numbers), e)) from None
@@ -2752,7 +2756,8 @@ class Board:
         """The turn of `Facing(pads, toward=pad)`: the pads' way out opposite the target pad's, where
         that part stands now."""
         t = i.turned
-        edge = _OPPOSITE[self._side_of(occ, i.key, SideOf((t.toward,)))]
+        target = t.toward if isinstance(t.toward, SideOf) else SideOf((t.toward,))
+        edge = _OPPOSITE[self._side_of(occ, i.key, target)]
         return self._facing_rotation(i.key, i.item, Facing(t.pads, edge), i.face)
 
     def row(self, items, edge: Edge, *, of=None, gap: float | None = None, start=None, align=Along.START,
