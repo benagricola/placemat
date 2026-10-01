@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.70.0
 
 ### New
 
@@ -488,7 +488,7 @@ pad) can name the pads and a `grow=` instead; the polygon's arithmetic goes.
 The pour is a KiCad zone: its outline is the pads' hull grown by `grow`,
 clipped to `within=` (a keepout's name, a `Cell`, or `Part`s), and KiCad's
 fill keeps it off every other net's copper and applies the board's
-clearance rules. Removed in Unreleased: see its migration step.
+clearance rules. Removed in 0.70.0: see its migration step.
 
 A plane's fill keeps the script's `board.rule` clearances. KiCad reads the
 rules file beside a board as it loads it, and the file was written after
@@ -2061,6 +2061,6 @@ that says what replaces it.
 | a part's pad midpoint aligned by arithmetic (half the pads' spacing in an `X()` or a `Beside` offset) | To 0.69.0 |
 | a rotation constant for a part parallel to a line between pads | To 0.69.0 |
 | a rotation constant checked by an `assert` on pad positions | To 0.69.0 |
-| a pour with `grow=` reaching past its pads | Unreleased |
+| a pour with `grow=` reaching past its pads | To 0.70.0 |
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |
