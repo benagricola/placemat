@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.65.1
 
 `check crossings-under` no longer counts another net's copper behind a
 plane: copper on another layer under a sensitive track counts unless a
