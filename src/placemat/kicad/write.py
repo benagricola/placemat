@@ -22,6 +22,7 @@ from ..placement import Placement
 from ..board_geometry import (CellGeom, Footprint, layer_marker, resolve_marker, split_marker,
                               stackup_order)
 from ..cutouts import closes_itself
+from .read import FACES_PREFIX
 from ..values import Box, CopperLayer, Face
 
 def nm(v: float) -> int:
@@ -829,6 +830,7 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     with quiet_stderr():
         board = pcbnew.LoadBoard(pcb_path)
     seed_uuids()
+    _drop_stamped_faces_notes(board)
     groups = {g.GetName(): g for g in board.Groups()}
     by_ref = {fp.GetReference(): fp for fp in board.GetFootprints()}
     for name, gone in sorted(plan.thinned.items()):
@@ -858,6 +860,20 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     write_rules(out, list(plan.rules) + keepout_rules(plan, [fp.GetReference() for fp in board.GetFootprints()],
                                                       stack))
     return out
+
+
+def _drop_stamped_faces_notes(board) -> None:
+    """Take a stamped fragment's faces note off the board. The note is the
+    fragment's fact for the parent, read at load (read.board_geometry_of);
+    stamped, it sits a fixed distance below the fragment's content, is a
+    member of the cell's group, and stays behind when the cell is turned and
+    placed, stretching the group's box across the gap. A note not in a group
+    is a fragment's own, opened on its own, and is kept."""
+    for g in list(board.Groups()):
+        for it in list(g.GetItems()):
+            if isinstance(it, pcbnew.PCB_TEXT) and it.GetText().startswith(FACES_PREFIX):
+                g.RemoveItem(it)
+                board.Delete(it)
 
 
 def _write_groups(board, plan: Plan) -> list:

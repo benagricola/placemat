@@ -205,3 +205,51 @@ def test_a_nested_cell_placed_apart_from_its_parent_is_written_where_the_plan_pu
     for ref in {m.ref for m in plan.geometry.cells["power_drop0"].members}:
         want = plan.occupancy.items[ref].reference.location
         assert (after[ref].x, after[ref].y) == pytest.approx((want.x, want.y), abs=0.01), ref
+
+
+def _copy_breakout(breakout_pcb, tmp_path):
+    pcb = tmp_path / "layout.kicad_pcb"
+    shutil.copy(breakout_pcb, pcb)
+    if breakout_pcb.with_suffix(".kicad_pro").exists():
+        shutil.copy(breakout_pcb.with_suffix(".kicad_pro"), tmp_path / "layout.kicad_pro")
+    return pcb
+
+
+def _faces_note(brd, x=0.0, y=0.0):
+    import pcbnew
+    t = pcbnew.PCB_TEXT(brd)
+    t.SetText("placemat faces outward=N quiet=S")
+    t.SetLayer(pcbnew.Cmts_User)
+    t.SetPosition(pcbnew.VECTOR2I(int(x * 1e6), int(y * 1e6)))
+    brd.Add(t)
+    return t
+
+
+def test_a_stamped_cells_faces_note_is_read_then_left_out_of_the_written_board(breakout_pcb, tmp_path):
+    import pcbnew
+    pcb = _copy_breakout(breakout_pcb, tmp_path)
+    brd = pcbnew.LoadBoard(str(pcb))
+    next(g for g in brd.Groups() if g.GetName() == "power_drop0").AddItem(_faces_note(brd, 400.0, 400.0))
+    brd.Save(str(pcb))
+    geometry = read_board(pcb)
+    assert geometry.cells["power_drop0"].faces == {"outward": "N", "quiet": "S"}
+    before = geometry.cells["power_drop0"].box
+    _write(pcb, lambda b: b.place(Cell("power_drop0"), at=Location(30, 80)))
+    brd = pcbnew.LoadBoard(str(pcb))
+    assert not [d for d in brd.GetDrawings() if isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith("placemat faces")]
+    g = next(g for g in brd.Groups() if g.GetName() == "power_drop0")
+    assert not [i for i in g.GetItems() if isinstance(i, pcbnew.PCB_TEXT)]
+    after = read_board(pcb).cells["power_drop0"].box
+    assert after.width == pytest.approx(before.width, abs=0.01) and after.height == pytest.approx(before.height, abs=0.01)
+    assert g.GetBoundingBox().GetWidth() / 1e6 < before.width + 10      # no 400 mm reach to the note
+
+
+def test_a_fragment_opened_on_its_own_keeps_its_faces_note(breakout_pcb, tmp_path):
+    import pcbnew
+    pcb = _copy_breakout(breakout_pcb, tmp_path)
+    brd = pcbnew.LoadBoard(str(pcb))
+    _faces_note(brd)
+    brd.Save(str(pcb))
+    _write(pcb, lambda b: b.place(Cell("power_drop0"), at=Location(30, 80)))
+    texts = [d.GetText() for d in pcbnew.LoadBoard(str(pcb)).GetDrawings() if isinstance(d, pcbnew.PCB_TEXT)]
+    assert "placemat faces outward=N quiet=S" in texts
