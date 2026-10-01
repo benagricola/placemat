@@ -1,6 +1,6 @@
 # Escape lanes: a pin row's routes out, reserved when the part is placed
 
-Status: draft, for approval.
+Status: approved (2026-10-01).
 
 Source: a board's session (2026-10-01), relaying Ben's preferred approach
 from moving dense module scripts to intent only. Supersedes part 2
@@ -118,9 +118,16 @@ own nets:
 - Copper planned later of another net is judged against it as against a
   drawn track.
 
-A searched part's escape is settled where the part lands. A lane that
-meets something already placed is a finding naming both; the search does
-not yet weigh its part's lanes (a follow-up, if it is needed).
+A searched part's lanes are weighed in its search. At each candidate the
+escape is laid out as above, and the candidate is priced
+`score.escape_lane` (a setting, default 400, as `score.escape_walled`: a
+declared route out that cannot be laid is a pin walled off from its own
+route) for each lane that would meet another net's pad, hole or copper
+already placed, or whose via finds no legal spot. The price joins the
+candidate's other escape terms (`escapes.py`), so the search prefers a
+spot where every lane lies clear; where none does, the part still lands
+and each blocked lane is a finding naming what blocks it. The escape is
+settled where the part lands.
 
 ### Handles
 
@@ -201,6 +208,10 @@ way.
 - Handles: a part `Beside` a lane's via; a pad aligned on a lane; a pad
   at a lane's end; a track from a lane to a pad; `Past` with a lane's
   via.
+- The search: a searched part with an escape, two candidate spots, a
+  part already placed whose pad would sit on a lane at the nearer one:
+  the part lands at the other; with every spot blocked, it lands and the
+  blocked lane is a finding.
 - Each refusal.
 - A lane never drawn is a finding.
 - The written board passes KiCad's DRC on the PD row model.

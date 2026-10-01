@@ -1,6 +1,6 @@
 # A pour grown from its pads up to the copper round it
 
-Status: draft, for approval.
+Status: approved (2026-10-01).
 
 Source: a board's session (2026-10-01), relaying Ben's preferred approach
 from moving dense module scripts to intent only.

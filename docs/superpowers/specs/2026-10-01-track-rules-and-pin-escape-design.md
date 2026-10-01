@@ -1,6 +1,6 @@
 # Clearance rules the router keeps, and a track that leaves its pin straight
 
-Status: draft, for approval. Part 2 is superseded by
+Status: part 1 approved (2026-10-01). Part 2 is superseded by
 `2026-10-01-escape-lanes-design.md` (an escape of one pin with no turn is
 its straight exit); part 1 stands.
 
