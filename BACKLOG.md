@@ -77,6 +77,29 @@ file. An item cites its source as "a board's session, <date>".
   `rotation=Facing(PadRef(part, 9), Edge.NORTH)`, the turn that puts that
   pad (or a pin row) on that side of the part.
 
+- **A cell turned about a fixed point, its bearing searched** (a board's
+  session, 2026-10-01): a cell whose member origin is pinned to a point
+  (windings drawn about a disc centre) at a fixed bearing; any bearing round
+  the circumference would do, away from where the board's arms join and from
+  aggressors and sensitive parts. Forms tried: `OnRim()` slides, but only on
+  `board.disc` (this board is `board.outline`); leaving `rotation=` out
+  tries the four right-angle turns only. Asked for: the bearing searched
+  (continuous or at a step), scored by links, emitter/limit pairs and
+  keepouts, keepouts following the cell, and a way to bar bearings. Being
+  specced.
+
+- **Keep-in judged on a cell's whole body box** (a board's session,
+  2026-10-01): an arc-shaped cell along a round rim fails "body box ... is
+  past the board's keep-in" because its box's corners pass the rim though
+  none of its members do. Judge the keep-in member by member. Being fixed.
+
+- **An in-pad via that meets the other face's pad cannot give way** (a
+  board's session, 2026-10-01): a cell's in-pad plane drop (`board.via(net,
+  PadRef(...))`) lies under another cell's pad on the other face; "cannot
+  give way: no via within 1.00 mm to share, no spot within 0.50 mm inside
+  it". It should leave its pad on a tail to a free spot nearby, or the
+  other cell's via should move. Folded into the via give-way investigation.
+
 ## Open
 
 - **A plug on another board against a receptacle here** (owner: spec later,
