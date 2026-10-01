@@ -5,6 +5,14 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+`placemat run --no-render` keeps the layout folder's last renders
+(`layout.png`, `layout-iso.png`, `layout-bottom.png`) instead of deleting
+them. They show the board as an earlier run placed it: the run log says
+which ("not rendered: layout.png kept from run <id>"), and `run.json`'s
+metrics carry `renders_from`, the run that made them.
+
 ## To 0.65.2
 
 A track from a net tie's pad across the tie's own copper is judged where

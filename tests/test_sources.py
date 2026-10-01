@@ -173,3 +173,23 @@ def test_a_board_edited_since_its_last_run_is_kept(tmp_path, monkeypatch):
     run_dir.mkdir()
     runner.generate(src, run_dir, fresh=True, quiet=True)
     assert (run_dir / "kept" / "layout.kicad_pcb").read_text() == "(kicad_pcb moved by hand in KiCad)\n"
+
+
+def test_a_run_that_does_not_render_keeps_the_last_renders(tmp_path, monkeypatch):
+    """--no-render skips making new renders; it does not delete the old ones.
+    A run that renders replaces them, so it does not carry them over."""
+    root, board, src = _project(tmp_path)
+    calls = []
+    monkeypatch.setattr(runner, "_sh", _fake_pcb(calls))
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    assert runner.generate(src, run_dir, fresh=False, quiet=True) is True
+    renders = [src.layout_dir / n for n in ("layout.png", "layout-iso.png")]
+    for p in renders:
+        p.write_bytes(b"png of the last run")
+    assert runner.generate(src, run_dir, fresh=False, quiet=True, keep_renders=True) is False   # restored
+    assert all(p.read_bytes() == b"png of the last run" for p in renders)
+    assert runner.generate(src, run_dir, fresh=True, quiet=True, keep_renders=True) is True     # generated again
+    assert all(p.read_bytes() == b"png of the last run" for p in renders)
+    assert runner.generate(src, run_dir, fresh=False, quiet=True) is False                       # a run that renders
+    assert not any(p.exists() for p in renders)

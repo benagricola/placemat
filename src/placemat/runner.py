@@ -117,19 +117,22 @@ def cached_generation(src: BoardSource) -> Path:
 # What placemat itself writes into a layout folder, beside what the generator
 # writes (the cached generation's files): anything else there is someone's.
 _OURS = (".kicad_pcb", ".kicad_pro", ".kicad_prl", ".kicad_dru")
-_OUR_FILES = ("layout.png", "layout-iso.png", "layout-bottom.png", "drc.json")
+_RENDERS = ("layout.png", "layout-iso.png", "layout-bottom.png")
+_OUR_FILES = _RENDERS + ("drc.json",)
 
 
-def _set_aside(src: BoardSource, run_dir: Path, cache: Path, quiet: bool) -> list:
+def _set_aside(src: BoardSource, run_dir: Path, cache: Path, quiet: bool, keep_renders: bool = False) -> list:
     """Before the layout folder is replaced: every file in it that neither
     placemat nor the generator wrote is copied into the run's `kept/` and
     returned with what was said, to be put back and logged; and a board
     edited since its last run (a hand edit in KiCad) is copied there too,
-    since placemat writes over it. Both are said on the terminal."""
+    since placemat writes over it. Both are said on the terminal.
+    `keep_renders`: a run that makes no renders keeps the last ones too."""
     if not src.layout_dir.exists():
         return [], []
     generated = {p.relative_to(cache) for p in cache.rglob("*")} if cache.exists() else set()
-    ours = {Path(src.pcb.stem + ext) for ext in _OURS} | {Path(n) for n in _OUR_FILES}
+    ours = {Path(src.pcb.stem + ext) for ext in _OURS} | \
+        {Path(n) for n in _OUR_FILES if not (keep_renders and n in _RENDERS)}
     kept_dir = run_dir / "kept"
     foreign = []
     for p in sorted(src.layout_dir.rglob("*")):
@@ -139,9 +142,10 @@ def _set_aside(src: BoardSource, run_dir: Path, cache: Path, quiet: bool) -> lis
             shutil.copy2(p, kept_dir / rel)
             foreign.append(rel)
     notes = []
-    if foreign:
+    hand = [r for r in foreign if str(r) not in _RENDERS]
+    if hand:
         notes.append("kept %d file(s) placemat did not write, put back after generation: %s" % (
-            len(foreign), ", ".join(str(r) for r in foreign)))
+            len(hand), ", ".join(str(r) for r in hand)))
     try:
         last = latest_for(src.board_dir / ".placemat" / "runs", src.name)
     except (ValueError, OSError):
@@ -163,7 +167,7 @@ def _put_back(src: BoardSource, run_dir: Path, foreign: list) -> None:
 
 
 def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
-             timeout: int = 900) -> bool:
+             timeout: int = 900, keep_renders: bool = False) -> bool:
     """Put a freshly generated (unscripted) board in src.layout_dir. A copy of
     the generation is cached beside the runs so a rerun of the script does not
     pay for `pcb layout` again; `fresh` forces it. Returns True when the
@@ -172,7 +176,7 @@ def generate(src: BoardSource, run_dir: Path, fresh: bool, quiet: bool,
     log = run_dir / "generate.log"
     inputs = generator_inputs(src)
     stale = stale_inputs(src, inputs) if cache.exists() else None
-    foreign, notes = _set_aside(src, run_dir, cache, quiet)
+    foreign, notes = _set_aside(src, run_dir, cache, quiet, keep_renders)
     if cache.exists() and not fresh and not stale:
         shutil.rmtree(src.layout_dir, ignore_errors=True)
         shutil.copytree(cache, src.layout_dir)
@@ -342,6 +346,15 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                 previous_id = last.run_id
         except (json.JSONDecodeError, TypeError, KeyError, OSError):
             previous_reuse = None
+    # Which run made the renders in the layout folder: a run that renders none keeps them, and says whose
+    renders_from = None
+    try:
+        last_any = latest_for(runs, src.name)
+        if last_any is not None:
+            renders_from = (last_any.metrics or {}).get("renders_from") or \
+                (last_any.run_id if "render" in (last_any.timing_s or {}) else None)
+    except (json.JSONDecodeError, TypeError, KeyError, OSError, ValueError):
+        renders_from = None
     staging = runs / ("." + time.strftime("%Y%m%d-%H%M%S-") + str(os.getpid()))
     shutil.rmtree(staging, ignore_errors=True)
     staging.mkdir(parents=True)
@@ -358,7 +371,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         shutil.copytree(src.layout_dir, before)
     try:
         t0 = time.time()
-        generated = generate(src, run_dir, fresh, quiet, cfg.timeout_generate)
+        generated = generate(src, run_dir, fresh, quiet, cfg.timeout_generate, keep_renders=not render)
         rec.timing_s["generate"] = round(time.time() - t0, 1)
         # The run's name: a hash of the script, the generated board and the tool.
         from . import __version__
@@ -569,6 +582,13 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             render_board(src.pcb, run_dir / "render.log", both_faces=getattr(board, "both_faces", False))
             rec.timing_s["render"] = round(time.time() - t0, 1)
             say("render", "%s  (%.1fs)" % (", ".join(p.name for p in src.layout_dir.glob("layout*.png")), rec.timing_s["render"]))
+            metrics["renders_from"] = rec.run_id
+        else:
+            kept = [n for n in _RENDERS if (src.layout_dir / n).exists()]
+            if kept:
+                metrics["renders_from"] = renders_from
+                say("render", "not rendered: %s kept from %s, the board as that run placed it" % (
+                    ", ".join(kept), "run %s" % renders_from if renders_from else "an earlier run"))
         rec.metrics = metrics
         rec.placements = {s.item: {"x": s.placement.location.x, "y": s.placement.location.y,
                                    "rotation": s.placement.rotation, "face": s.placement.face.value}
