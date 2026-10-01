@@ -67,6 +67,7 @@ class Settings:
     place_via_move: float = 0.5         # or move this far to clear it; 0: never
     place_via_move_step: float = 0.05   # the grid a via's move is searched on
     place_via_leave: float = 1.0         # a via inside its pad with no spot clear there may leave it this far, joined by a new tail; 0: never
+    place_via_relay: bool = True        # a via field a conflict meets is re-laid in its pad, before its vias leave it or are dropped (giveway_field.py); false: never
     place_via_clear_cache: int = 4096   # a scan keeps this many placed vias' clear moves, each searched once
     place_drops_keep: float = 0.5       # the share of a pad's drops it keeps, rounded up, never fewer than one (Drops.MIN); a carried drop is dropped only while its pad keeps this share; 1: never
     place_edge_step: float = 0.05       # a part placed on a curved board edge is stepped in from the edge at this step until the keep-in holds it (placer.py)
@@ -184,6 +185,10 @@ class Settings:
     score_back_face: float = 2.0        # the search: a spot on the back face costs this more, so equal spots prefer the front (face=Face.EITHER)
     score_push: float = 10.0            # a push: score.push times the modelled value over its limit, at the search
     score_via_leave: float = 4.0        # a carried via that leaves its pad: between move and shorten
+    score_via_relay: float = 3.0         # a via field re-laid in its pad, once: between move and leave
+    score_via_relay_moved: float = 0.5    # each via a relay moves or adds
+    score_via_relay_gap: float = 1.0      # each empty site a relay leaves in the field's grid, beyond the drawn field's
+    score_via_relay_pitch: float = 4.0    # each mm the field's line spacings depart from the pitch it was drawn at, summed
     score_via_shorten: float = 5.0      # a carried drop shortened to the plane's nearest layer instead of dropped: between move and drop
     # [solve] - the global pre-solve for the searched tier's hints
     solve_enabled: bool = False
@@ -336,7 +341,8 @@ _AT_LEAST_ZERO = frozenset((
     "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset", "copper_straight_tolerance",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
     "score_pair_crossing", "copper_tap_overlap", "check_neck_band", "solve_spread_pull", "place_via_share", "place_via_move", "place_via_leave", "score_via_share", "score_via_leave",
-    "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face"))
+    "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face",
+    "score_via_relay", "score_via_relay_moved", "score_via_relay_gap", "score_via_relay_pitch"))
 # A floor of 2: below it a "group" can never be more than one part, which
 # is not a group at all.
 _AT_LEAST_TWO = frozenset(("place_split_min_group",))

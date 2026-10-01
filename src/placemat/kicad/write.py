@@ -134,9 +134,11 @@ def _given_way(board, plan: Plan, groups: dict) -> None:
         return abs(v.x / 1e6 - at[0]) <= _ON_MM and abs(v.y / 1e6 - at[1]) <= _ON_MM
     # Delete, not Remove: an item Remove hands to its Python wrapper is freed when the wrapper
     # goes, and on a large board that left pcbnew's bindings returning unwrapped objects
+    from ..giveway_field import write as write_field
+    write_field(board, [a for a in plan.given_way if getattr(a, "field", "")], groups)
     for a in plan.given_way:
         g = groups.get(a.home)
-        if g is None:
+        if g is None or getattr(a, "field", ""):
             continue
         items = list(g.GetItems())
         via = next((it for it in items if isinstance(it, pcbnew.PCB_VIA) and it.GetNetname() == a.net

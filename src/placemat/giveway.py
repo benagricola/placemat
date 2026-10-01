@@ -82,6 +82,7 @@ def least_cost(settings, tiers=None) -> float:
     shorten = any(t == "yes" for t in (tiers or {}).values())
     ways = [cost for on, cost in ((settings.place_via_share > 0, settings.score_via_share),
                                   (settings.place_via_move > 0, settings.score_via_move),
+                                  (settings.place_via_relay, settings.score_via_relay),
                                   (settings.place_via_leave > 0, settings.score_via_leave),
                                   (shorten, settings.score_via_shorten),
                                   (settings.place_drops_keep < 1.0, settings.score_via_drop)) if on]
@@ -454,6 +455,7 @@ class _Owner:
 
     def __init__(self, occ, pads, face, groups_, dropped=None):
         self.occ, self.pads, self.face = occ, pads, face
+        self.drawn = groups_            # the item's carried vias as it draws them
         self.dropped = dict(dropped or {})
         self.counts: dict = {}
         for g in groups_.values():
@@ -692,11 +694,13 @@ def _widest(judge: "_Judge", g: Group, mine: list, at: tuple, tail, pool=None):
     return None
 
 
-def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: dict, first=None):
+def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: dict, first=None, field=None):
     """(Action, why not, needs) for the first way `g` can give way, else
     (None, why not, an if-needed note or None), judged against `judge` and
     the item's own copper `own`. `first`: the copper it met, which a move is
-    judged against before the rest."""
+    judged against before the rest. `field`: what a relay of the via's field reads
+    (giveway_field.Ctx), or None."""
+    from . import giveway_field
     s = occ.settings
     geo = occ.geometry
     pad_key, pad, inside = who.pad_of(g)
@@ -734,6 +738,10 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
             return Action("move", g.id, g.owner, g.home, g.net, g.centre, to, track, old, pad_key, met,
                           s.score_via_move, tuple(moved)), None, None
         said.append("no spot within %.2f mm%s is clear" % (s.place_via_move, " inside its pad" if inside else ""))
+    if inside:
+        relaid = giveway_field.relay(occ, g, judge, own, who, pad_key, pad, met, field)
+        if relaid is not None:
+            return relaid, None, None
     if inside and g.tail is None and s.place_via_leave > 0 and pad is not None and layer in pad.layers:
         # no spot inside the pad is clear: leave it, joined by a new tail from where it stood
         widths = _tail_widths(occ, g.net)
@@ -761,7 +769,7 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
         said.append("it serves no pad of its own")
     else:
         n, keep = who.keeps(pad_key)
-        gone = who.dropped.get(pad_key, 0) + drops_now.get(pad_key, 0)
+        gone = who.dropped.get(pad_key, 0) + drops_now.get(pad_key, 0) + giveway_field.relay_loss(field, who, g, pad_key)
         if n - gone - 1 >= keep:
             drops_now[pad_key] = drops_now.get(pad_key, 0) + 1
             return Action("drop", g.id, g.owner, g.home, g.net, g.centre, None, None, old, pad_key, met,
@@ -808,6 +816,7 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
     already placed that its own copper meets, then its own that meet the
     board - or why one of them cannot give way. The item less its carried
     vias is taken to be legal there."""
+    from . import giveway_field
     s = occ.settings
     res = Resolution()
     if not enabled(s):
@@ -848,7 +857,10 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
             if hit is not None:
                 met.append((g, hit))
         judge.hidden |= {g.id for g, _ in met}          # none of them is there for another to share
+        fctx = giveway_field.Ctx(occ.placed_groups(), geom, res.actions)
         for g, hit in met:
+            if giveway_field.done(res, g):
+                continue
             sharer = next((a for a in occ.given_way.values() if a.kind == "share" and a.target == g.id), None)
             if sharer is not None:
                 return _refused(occ, res, "%s; the via %s at (%.2f, %.2f) (%s) cannot give way: the via at "
@@ -859,13 +871,16 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
                                 g.ring)
             who = owners.get(g.home) or owners.setdefault(g.home, _home_owner(occ, g.home))
             action, why_not, needs = _give(occ, g, judge, [x for x in mine if x.kind in kinds],
-                                           who, occ.who(hit[1].owner), drops_placed.setdefault(g.home, {}), hit[1])
+                                           who, occ.who(hit[1].owner), drops_placed.setdefault(g.home, {}), hit[1], fctx)
             if action is None:
                 res.needs = needs
                 if needs:
                     occ.needs[geom.owners] = needs
                 return _refused(occ, res, "%s; the via %s at (%.2f, %.2f) (%s) cannot give way: %s" % (
                     hit[0], g.net, g.centre[0], g.centre[1], _owner_name(occ, g), why_not), g.ring)
+            if isinstance(action, giveway_field.Relaid):
+                giveway_field.take(res, judge, action)
+                continue
             judge.extra += list(action.shapes)
             res.actions.append(action)
             res.cost += action.cost
@@ -883,15 +898,21 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
             gone = {g.id for g, _ in meeting}
             keep = [x for x in mine if x.kind in _COPPER_AND_HOLES and x.carried not in gone]
             drops_now: dict = {}
+            fctx = giveway_field.Ctx(own, geom, res.actions)
             for g, (why, o) in meeting:
+                if giveway_field.done(res, g):
+                    continue
                 met = "the edge" if o is None else occ.who(o.owner) if o.owner else \
                     ("a via" if o.kind == "through" else "a track")
-                action, why_not, needs = _give(occ, g, judge, keep, who, met, drops_now, o)
+                action, why_not, needs = _give(occ, g, judge, keep, who, met, drops_now, o, fctx)
                 if action is None:
                     res.needs = needs
                     if needs:
                         occ.needs[geom.owners] = needs
                     return _refused(occ, res, "%s; it cannot give way: %s" % (why, why_not), o)
+                if isinstance(action, giveway_field.Relaid):
+                    giveway_field.take(res, judge, action, keep)
+                    continue
                 keep += list(action.shapes)
                 res.actions.append(action)
                 res.cost += action.cost
@@ -953,6 +974,7 @@ def apply(occ, res: Resolution, by: str) -> None:
     """Leave on the board what `res` decided, `by` the item placed: each via
     that gave way taken out of its item, and what it left in its place put
     in; the item as drawn is kept to put back if it is placed again."""
+    from . import giveway_field
     for a in res.actions:
         if a.home in occ.items and occ.geometry.has_footprint(a.home):
             occ._pristine.setdefault(a.home, occ.items[a.home])
@@ -964,6 +986,7 @@ def apply(occ, res: Resolution, by: str) -> None:
         before = occ.given_way.get(a.via)
         if before is not None:
             a = replace(a, at=before.at, old_tail=before.old_tail if before.old_tail is not None else a.old_tail)
+            a = giveway_field.chain(before, a)
         occ.given_way[a.via] = a
         occ._given_by.setdefault(a.via, []).append(by)
     if res.actions:
@@ -978,6 +1001,10 @@ def sharers(occ, via: str) -> list:
 def undo(occ, via: str) -> None:
     """Put a via that gave way back as its item drew it, and those that
     share it, since it may no longer be where they joined it."""
+    from . import giveway_field
+    a = occ.given_way.get(via)
+    if a is not None and getattr(a, "field", "") and via not in occ.__dict__.get("_field_undoing", ()):
+        return giveway_field.undo_field(occ, a.field, undo)
     for v in sharers(occ, via):
         undo(occ, v)
     a = occ.given_way.pop(via, None)
@@ -998,8 +1025,11 @@ def undo(occ, via: str) -> None:
 def report(occ) -> list:
     """(home, sentence) per item whose carried vias gave way, a clause per
     net: "6 GND vias shared, 2 moved up to 0.25 mm, 1 dropped under U3"."""
+    from . import giveway_field
     by: dict = {}
     for a in occ.given_way.values():
+        if getattr(a, "field", ""):
+            continue                        # a field's relay reports as one (giveway_field.report)
         by.setdefault(a.home, {}).setdefault(a.net, []).append(a)
     out = []
     for home in sorted(by):
@@ -1018,6 +1048,7 @@ def report(occ) -> list:
                 parts.append(("%d %s via%s %s" % (n, net, "" if n == 1 else "s", verb)) if not parts else
                              "%d %s" % (n, verb))
             under = sorted({a.under for a in acts if a.under})
-            said.append(", ".join(parts) + (" under %s" % ", ".join(under) if under else ""))
+            said.append(", ".join(parts) + (" under %s" % ", ".join(under) if under else "")
+                        + giveway_field.held_note(occ, home, acts))
         out.append((home, "; ".join(said)))
-    return out
+    return giveway_field.merged(out, occ)
