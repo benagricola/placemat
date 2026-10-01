@@ -62,9 +62,10 @@ section for each hand-written pattern a newer form replaces.
   before, 8 after under R6"); `inset=` is kept by a relay, and no two vias
   come closer than the floor `pitch=` is refused under. The grid is drawn
   after the search, so a pour that names it is planned after the search too.
-  The row form, `vias(net, along=, count=)`, is unchanged. Nothing in a
-  script changes. A net that is no plane with no room now refuses the spot
-  (a firm item: a collision) where the grid used to skip the site. `api.md`,
+  The row form, `vias(net, along=, count=)`, is unchanged. A grid on a net
+  that is no plane, with no room, now refuses the other item's spot (a firm
+  item: a collision) where the grid used to skip the site silently: a script
+  that placed before may now see that refusal, and the item goes elsewhere. `api.md`,
   "Carried vias give way".
 
 ### Fixed
