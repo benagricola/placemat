@@ -5,6 +5,18 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+The router and the copper findings keep `board.rule` clearances. The
+clearance between two items is now that of the last rule declared that
+matches them (higher or lower than the net class pair's), else the net
+class's, as KiCad's DRC reads the written `.kicad_dru`; before, only the
+DRC did. A swallowing pour's pull-back reads the rules too. A script that
+held a track off a net a rule names with a waypoint can drop the waypoint;
+a script whose rule lowered a clearance no longer gets findings KiCad does
+not report. A rule above `[place] conflict_gap` stops the run with a
+message naming both.
+
 ## To 0.64.1
 
 A track declared `bridge=True` that passed under another among the copper
