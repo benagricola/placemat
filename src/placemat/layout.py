@@ -2985,11 +2985,15 @@ class Board:
             self._escape_laid[decl.index] = laid
             shapes = []
             for n in laid.order:
-                kept = self._escape_kept[(decl.index, n)] = [_shape_of(t) for t in laid.lanes[n].tracks]
+                name = "the escape lane of %s pin %s" % (decl.ref, n)
+                kept = self._escape_kept[(decl.index, n)] = [dataclasses.replace(_shape_of(t), lane=name)
+                                                              for t in laid.lanes[n].tracks]
                 shapes += kept
                 via = laid.lanes[n].via
                 if via is not None:
-                    shapes += [_shape_of(via), hole_shape("", via.at, via.drill, via.net, layers=frozenset(via.layers))]
+                    shapes += [dataclasses.replace(_shape_of(via), lane=name),
+                               dataclasses.replace(hole_shape("", via.at, via.drill, via.net, layers=frozenset(via.layers)),
+                                                   lane=name)]
             occ.add_copper(shapes)
             for n, lane in laid.blocked():
                 plan.findings.append(Finding("escape_lane", "%s pin %s (%s): its lane is blocked by %s" % (

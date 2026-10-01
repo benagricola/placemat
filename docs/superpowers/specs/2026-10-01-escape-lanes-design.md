@@ -48,7 +48,7 @@ esc = board.escape(Part("pd"), [32, 31, 30], turn=Edge.WEST, vias=[31, 30],
 ```
 
 `board.escape(part, pins, *, turn=None, vias=(), depth=None, run=None,
-widths=None, pairs=(), why)` declares each pin's route out of its row: a
+widths=None, pairs=(), chamfer=None, via_size=None, via_drill=None, why)` declares each pin's route out of its row: a
 straight along the row's outward axis (the riser), then, with `turn=`, a
 lane parallel to the row, and optionally a via. Pins are named as a
 `PadRef` names them on that part (number, net, or `PinName`).
@@ -82,9 +82,16 @@ throughout, which the hand layout's last step contradicts.)
   past the tips (`depth=` overrides it); each next lane one step further
   out.
 - Each riser runs from its pad's centre straight out to its lane, then
-  turns; the corner is chamfered as the track's own chamfer.
+  turns; the corner is cut by `chamfer=` (default `copper.chamfer`). The
+  lanes are laid out and reserved with it, and a track that begins with a
+  lane is drawn with it unless the track's own `chamfer=` says otherwise
+  (the lane is then laid out with that one). (Added after release: a
+  chamfer's 45 runs across the inside of the turn, nearer an inner lane's via
+  than a square corner is, so a lane whose via is not placed yet is judged
+  both square and cut when another lane's via is searched.)
 - A lane with a via ends at it. The vias are placed innermost lane first,
-  each at the first spot along its lane past the row's turn-side end
+  each (`via_size=` and `via_drill=`, default the board's) at the first
+  spot along its lane past the row's turn-side end
   that keeps the clearance from the part's pads, every riser and lane,
   and the vias already placed. A lane without a via ends level with the
   outermost via, or one step past the row's turn-side end where the
@@ -120,7 +127,8 @@ own nets:
 - Vias placed later (`FreeSpot`, stitching, give-way) keep the clearance
   from it; an escape's own vias do not give way.
 - Copper planned later of another net is judged against it as against a
-  drawn track.
+  drawn track, until a track begins with the lane: the track's own copper
+  stands in its place.
 
 A searched part's lanes are weighed in its search. At each candidate the
 escape is laid out as above, and the candidate is priced

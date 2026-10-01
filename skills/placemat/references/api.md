@@ -425,7 +425,8 @@ board.track(Net("PGOOD"), [esc[30]], layer=CopperLayer.F)
 ```
 
 `board.escape(part, pins, *, turn=None, vias=(), depth=None, run=None,
-widths=None, pairs=(), why)` gives each pin of one row a riser (straight out
+widths=None, pairs=(), chamfer=None, via_size=None, via_drill=None, why)`
+gives each pin of one row a riser (straight out
 along the row's way out, as `vias()` reads it) and, with `turn=`, a lane
 parallel to the row, ending at a via where `vias=` names the pin. Pins are
 named as a `PadRef` names a pad (number, net or `PinName`). It returns the
@@ -450,11 +451,19 @@ not along a board axis is refused.
   lanes, innermost first. A lane and the via beside it keep the clearance
   wherever the via stands.
 - **Corners.** Each riser runs from its pad's centre to its lane and turns;
-  the corner is chamfered as the track's own chamfer. `turn=` a `Corner` (a
+  the corner is cut by `chamfer=` (default `copper.chamfer`), as `track()`'s
+  `chamfer=` cuts one. The lanes are laid out and reserved with it, and a
+  track that begins with a lane is drawn with it unless the track gives its
+  own `chamfer=`, which that lane is then laid out and reserved with too. A
+  chamfer's 45 runs across the inside of the turn, nearer an inner lane's via
+  than a square corner is, so each via is searched clear of the 45 and of the
+  square corner of every lane still to be placed; a larger `chamfer=` can
+  therefore stand the vias farther along their lanes. `turn=` a `Corner` (a
   north row: `NW` or `NE`) runs the lanes at 45, a step apart across their
   direction.
-- **Vias.** A lane with a via ends at it. The vias are placed innermost lane
-  first, each at the first spot along its lane, from the row's turn-side end,
+- **Vias.** A lane with a via ends at it, its via `via_size=` and `via_drill=`
+  (default the board's, as `board.via()`'s `size=` and `drill=`; the lane's
+  steps use that size). The vias are placed innermost lane first, each at the first spot along its lane, from the row's turn-side end,
   that keeps the clearance from every pad of the part, every other lane and
   the vias already placed, and from what is placed on the board (the edge,
   other nets' copper, holes, keepouts). A lane with none ends level with
@@ -478,7 +487,8 @@ net within the clearance; the parts a fanout lets in (linked at
 `LinkWeight.SHORT`) are judged the same. Vias placed later (`FreeSpot`,
 `stitch`, give way) keep the clearance from it, and an escape's own vias do
 not give way. Copper of another net planned later is judged against it as
-against a drawn track. The cleanup pass leaves the escaped part where the
+against a drawn track, until a track begins with the lane: the track's own
+copper then stands in its place, and what is judged is what is drawn. The cleanup pass leaves the escaped part where the
 search put it.
 
 A searched part's lanes are weighed in its search. At each candidate the
@@ -512,7 +522,8 @@ A script may declare both. Refused at declaration: pins of another part or
 row, a pin named twice, `turn=` along the row's axis (when the part's
 rotation is already declared, else when it is placed), `vias=`, `widths=` or
 `pairs=` naming a pin the escape does not, a pair whose lanes are not
-neighbours, `run=` or `depth=` of 0 or less, and a lane as any track point
+neighbours, `run=`, `depth=`, `via_size=` or `via_drill=` of 0 or less, a
+negative `chamfer=`, and a lane as any track point
 but the first. At resolve, a via with no legal spot along its lane or axis
 even with nothing else on the board stops the run, naming what stands in the
 way; a via that only the rest of the board blocks is a finding.
@@ -2626,7 +2637,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.pair_crossing` | 100 | mm a differential pair (a net class's own, board_pairs) crossing itself costs, in place of `score.crossing`: such a pair has to exchange sides to route coupled, so a swap of two identical parts or a turned part is worth wire |
 | `score.escape_crossed` | 20 | mm two escapes from one part's pins crossing near its pin row cost |
 | `score.escape_closed` | 50 | mm a pad whose last route toward what it connects to is closed costs |
-| `score.escape_walled` | 400 | mm a pad with no route out at all costs |
+| `score.escape_walled` | 400 | mm a pad with no route out at all costs. A pad that copper of its own net already leaves (a track from it, a via in it, a pour over it, a grown pour's hull) is not counted, closed or walled; what walls one is named by owner, "track NET", "via NET", "pour NET" or "the escape lane of U1 pin 53" |
 | `score.escape_lane` | 400 | mm a declared `board.escape` lane costs that another net's pad, hole or copper already placed blocks, or whose via has no legal spot: in the search at each candidate, and in the run score as the `escape_lane` finding |
 | `score.escape_depth` | 1.5 | mm: the corridor length the escape findings, and so the run score, are measured at, whatever `place.escape_depth` the search used, so runs at different search depths compare |
 | `score.congestion` | 10 | explore: mm per `explore.congestion_step` of the worst RUDY cell |

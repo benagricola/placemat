@@ -49,6 +49,8 @@ class Shape:
     # a courtyard claimed as the part itself: under the physical envelope, a footprint that
     # draws neither silk nor fab claims its courtyard, which keeps other parts' drawn shapes out
     claims: bool = False
+    # an escape's reserved riser, lane or via (board.escape): the name a finding gives it
+    lane: str = ""
 
 
 # A Shape as a plain tuple, for the optional native accelerator (kind,
@@ -791,10 +793,14 @@ class Occupancy:
     def blame_owner(self, o) -> str:
         """What a refusal's tally names a blocking shape by: its owner, and for
         copper its net too - "cell logic's U3 GND", or "via GND" for a via no
-        part owns - so a count of copper refusals says whose copper it was."""
+        part owns - so a count of copper refusals says whose copper it was. An
+        escape's lane is "the escape lane of U1 pin 53", and a pour "pour NET"."""
+        if o.lane:
+            return o.lane
         if o.kind not in ("pad", "through", "copper"):
             return self.who(o.owner)
-        base = self.who(o.owner) if o.owner else ("via" if o.kind == "through" else "track")
+        base = self.who(o.owner) if o.owner else (
+            "via" if o.kind == "through" else "track" if o.ends else "pour")
         return "%s %s" % (base, o.net) if o.net else base
 
     def who(self, owner: str) -> str:

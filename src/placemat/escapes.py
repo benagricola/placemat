@@ -329,15 +329,32 @@ class Escapes:
                 targets = self._targets(ref, c0.number, c0.net, at)
                 if open_ and any(self._toward(c, targets) for c in open_):
                     continue
+                if self._joined(ref, c0.number, c0.net):
+                    continue
                 pad = Box.union([c.box for c in group])
                 near = list(self._bgrid.near(pad.inflate(self.depth + 1.0)))
-                by = sorted({sh.owner for c in group for sh in self._bgrid.near(c.box) if self._closes_any(sh, c)})
+                by = sorted({sh.owner or occ.blame_owner(sh) for c in group for sh in self._bgrid.near(c.box)
+                             if self._closes_any(sh, c)})
                 if not open_ and not path_out(occ, ref, c0.number, self.depth, near=near):
                     walled.append((ref, c0.number, c0.net, by, []))
                     continue
                 if targets and not any(path_out(occ, ref, c0.number, self.depth, toward=t, near=near) for t in targets):
                     closed.append((ref, c0.number, c0.net, by, self._joins(ref, c0.number, c0.net)))
         return closed, walled
+
+    def _joined(self, ref: str, number: str, net: str) -> bool:
+        """Whether copper of the pad's own net already leaves it: a track from it, a via in
+        it, a pour over it (a grown pour is held as its pads' hull). Its way out is made."""
+        occ = self.occ
+        for p in self._blockers.get(ref, ()):
+            if p.label != number:
+                continue
+            for s in self._bgrid.near(p.box):
+                if (s.net == net and s.kind in ("copper", "through") and s.layers & p.layers
+                        and not occ.geometry.has_footprint(s.owner) and s.box.overlaps(p.box)
+                        and polys_overlap(s.poly, p.poly)):
+                    return True
+        return False
 
     def _closes_any(self, s, c) -> bool:
         """Whether `s` closes corridor `c`, the pad's own part included: what a
