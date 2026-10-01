@@ -120,7 +120,7 @@ request (SKILL.md, "When no form says it").
 | a pour over a set of pads, fitted round other nets' copper | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: a graphic polygon holding the pads' copper, every edge at least the clearance from other copper | Copper calls (A fitted pour) |
 | a pour on an inner layer joining vias | `board.pour(net, [vias, PadRef(...), ...], layer=, swallow_pads=True)`: members are pads and the vias `via()`, `vias()` and a lane's `.via` return | Copper calls (A fitted pour) |
 | a pour over the hull or the box round a set of pads, drawn as declared | `board.pour(net, [PadRef(...), ...], layer=, cover=Cover.HULL)` (or `Cover.BOX`) | Copper calls (What a pour over pads covers) |
-| a pour that reaches past its pads into the room round them, up to the copper of other nets | `board.pour(net, [PadRef(...), ...], layer=, grow=mm, within=None)`: a KiCad zone grown from the pads' hull, clipped to `within=` (a keepout's name, a `Cell`, or `Part`s) | Copper calls |
+| a pour that reaches past its pads into the room round them | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: a fitted polygon holding the pads' copper, kept clear of other nets. `grow=` and `within=` are gone; for ground or a plane net, `board.plane(net, layers, over=[...])` | Copper calls (A fitted pour) |
 | a neck between two pads, as wide as the narrower or `width=` | `board.pour(net, [PadRef(a), PadRef(b)], layer=, width=)` | Copper calls |
 | a wide pour along a centreline into a pad | `board.finger(net, from_=, to=, width=)` | Copper calls |
 | a finger as wide as a named pad | `board.finger(net, from_=, to=, width=PadRef(...))` | Copper calls |
@@ -1808,7 +1808,6 @@ board.pour(net, [PadRef(a), PadRef(b), PadRef(c)], layer=..., swallow_pads=True)
 board.pour(net, [via_a, vias_b, PadRef(c)], layer=..., swallow_pads=True)  # members may be vias as well as pads
 board.pour(net, [PadRef(a), PadRef(b), PadRef(c)], layer=..., cover=Cover.HULL)  # declared: the hull of the pads' copper
 board.pour(net, [PadRef(a), PadRef(b)], layer=..., width=None)  # the neck between two pads
-board.pour(net, [PadRef(a), PadRef(b)], layer=..., grow=1.2, within=None)  # a zone grown from the pads' hull by grow= mm, clipped to within=; KiCad fills it
 board.plane(net, layers=(CopperLayer.IN1,), outline=None, inset=0.4)  # zone(s), whole board or outline
 board.plane(net, layers=(CopperLayer.IN1,), over=[Part(...), Cell(...)], margin=0.0)  # zone(s) over named items
 board.plane(..., clearance=None, min_thickness=None, solid_pads=True, chamfer=None)  # the zone's pullback and minimum width (copper.plane_*), pads joined solid or by thermal spokes, the frame outline's corner chamfer
@@ -2057,30 +2056,12 @@ declared. `swallow_pads=True` over two pads with no `width=` is a fitted pour
 instead. A declared pour's copper is its outline plus half its stroke: another net's copper inside it is a
 copper finding, and nothing is cut from it.
 
-**A pour grown from its pads.** `board.pour(net, pads, layer=, grow=mm,
-within=None)` writes a KiCad zone whose outline is the hull of the pads'
-copper grown by `grow` mm, clipped to `within=` (a keepout's name, a `Cell`,
-or `Part`s: the region `plane(over=)` takes), and KiCad fills it: pulled
-back from every other net's pads, tracks, vias, holes and pours, with the
-clearance rules of the board (`board.rule` ones too), and from the board
-edge. A piece of fill joined to no pad of the net is removed (KiCad's island
-removal); a piece joined only to a pad of the net the pour does not name is
-kept. Its pads connect solid, its minimum width is
-`copper.plane_min_thickness`, and its zone priority is above every plane
-on its layer, so a plane of another net pulls back from the pour rather
-than the pour from the plane. `grow=` is required and more than 0: a pour that may reach anywhere
-is a plane. `points` are pads only, and `swallow_pads=`, `cover=` and
-`width=` are refused with `grow=` (the zone's own fill decides its extent).
-Use it for what a hand layout draws as a polygon bounded by the lanes, vias
-and parts round a pin.
-
-It is planned after every other copper of its batch. Until it is filled,
-the plan holds the hull of its pads for it, and copper planned later is
-judged against that. `board.stitch(net, pour)` on a grown pour places its
-vias inside the outline as on any pour; after the fill, a stitching via the
-fill does not reach is a finding, and so is a pour whose fill joins none of
-its pads. The checks read the filled board, so `current-path` measures the
-fill as any zone's.
+**No grown pour.** `board.pour` takes no `grow=` or `within=`: a pour is
+fitted, never a KiCad zone grown from its pads. A pour that reaches past its
+pads into the room round them is `board.pour(net, pads, layer=,
+swallow_pads=True)` (A fitted pour), and for ground or a plane net,
+`board.plane(net, layers, over=[...])`. `board.stitch(net, pour)` over a
+fitted pour places its vias inside the pour's outline as planned.
 
 **What a pour over pads covers.** For a pour drawn as declared (no
 `swallow_pads`), `cover=` (`Cover`) says what corners that name pads cover.
@@ -2914,7 +2895,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.pair_crossing` | 100 | mm a differential pair (a net class's own, board_pairs) crossing itself costs, in place of `score.crossing`: such a pair has to exchange sides to route coupled, so a swap of two identical parts or a turned part is worth wire |
 | `score.escape_crossed` | 20 | mm two escapes from one part's pins crossing near its pin row cost |
 | `score.escape_closed` | 50 | mm a pad whose last route toward what it connects to is closed costs |
-| `score.escape_walled` | 400 | mm a pad with no route out at all costs. A pad that copper of its own net already leaves (a track from it, a via in it, a pour over it, a grown pour's hull) is not counted, closed or walled; what walls one is named by owner, "track NET", "via NET", "pour NET" or "the escape lane of U1 pin 53" |
+| `score.escape_walled` | 400 | mm a pad with no route out at all costs. A pad that copper of its own net already leaves (a track from it, a via in it, a pour over it) is not counted, closed or walled; what walls one is named by owner, "track NET", "via NET", "pour NET" or "the escape lane of U1 pin 53" |
 | `score.escape_lane` | 400 | mm a declared `board.escape` lane costs that another net's pad, hole or copper already placed blocks, or whose via has no legal spot: in the search at each candidate, and in the run score as the `escape_lane` finding |
 | `score.escape_depth` | 1.5 | mm: the corridor length the escape findings, and so the run score, are measured at, whatever `place.escape_depth` the search used, so runs at different search depths compare |
 | `score.congestion` | 10 | explore: mm per `explore.congestion_step` of the worst RUDY cell |

@@ -17,13 +17,12 @@ pcbnew = import_pcbnew()
 
 from ..layout import MergedZone, Plan
 from ..copper import Pour, Text, Track, Via, Zone
-from ..findings import Finding
-from ..geometry import Transform, circle_polygon, poly_within
+from ..geometry import Transform, poly_within
 from ..placement import Placement
 from ..board_geometry import (CellGeom, Footprint, layer_marker, resolve_marker, split_marker,
                               stackup_order)
 from ..cutouts import closes_itself
-from ..values import Box, CopperLayer, Face, Location
+from ..values import Box, CopperLayer, Face
 
 def nm(v: float) -> int:
     return pcbnew.FromMM(float(v))
@@ -168,7 +167,7 @@ def _merge_cell_zones(board, plan: Plan) -> list:
     so does one whose pads join otherwise than the plane's (a cell's solid
     ground under a thermal board fill: merged, its solid joins became
     spokes or none) - recorded in `plan.kept_zones`."""
-    planes = [op for op in plan.copper if isinstance(op, Zone) and not op.grown]
+    planes = [op for op in plan.copper if isinstance(op, Zone)]
     # every zone is found before any is deleted, and deleted, not removed: a
     # removed zone is freed with its Python wrapper and corrupts board.Zones()
     zones = [(g, it) for g in board.Groups() if g.GetName() in plan.geometry.cells
@@ -616,29 +615,6 @@ def _draw_text(board, op: Text):
     board.Add(t)
 
 
-def _joined_pad_copper(board, joined, layer) -> dict:
-    """label -> SHAPE_POLY_SET of that pad's copper on `layer`, for each
-    joined label ("REF.NUMBER") the board has: a fill is joined to a pad
-    when its copper overlaps the pad's."""
-    layer_id = _layer_id(board, layer)
-    labels = {label for label, _ in joined}
-    out = {}
-    for fp in board.GetFootprints():
-        for p in fp.Pads():
-            label = "%s.%s" % (fp.GetReference(), p.GetNumber())
-            if label not in labels or not p.IsOnLayer(layer_id):
-                continue
-            ps = out.setdefault(label, pcbnew.SHAPE_POLY_SET())
-            p.TransformShapeToPolySet(ps, layer_id, 0, nm(0.001), pcbnew.ERROR_INSIDE)
-    return out
-
-
-def _overlaps(a, b) -> bool:
-    c = pcbnew.SHAPE_POLY_SET(a)
-    c.BooleanIntersection(b)
-    return c.OutlineCount() > 0
-
-
 def _draw_pour(board, op: Pour):
     """A pour is a graphic polygon of the net, filled, drawn exactly as planned."""
     one = pcbnew.SHAPE_POLY_SET()
@@ -673,10 +649,6 @@ def _draw_zone(board, op: Zone):
     z.SetMinThickness(nm(op.min_thickness))
     z.SetIsRuleArea(False)
     z.SetPadConnection(pcbnew.ZONE_CONNECTION_FULL if op.solid_pads else pcbnew.ZONE_CONNECTION_THERMAL)
-    if op.grown:
-        # a pour grown from its pads: it sits above the planes, and the fill drops what joins none of its pads
-        z.SetAssignedPriority(op.priority)
-        z.SetIslandRemovalMode(pcbnew.ISLAND_REMOVAL_MODE_ALWAYS)
     o = z.Outline()
     o.NewOutline()
     for x, y in op.points:
@@ -694,9 +666,8 @@ def _draw_zone(board, op: Zone):
     return z
 
 
-def draw_copper(board, ops, findings=None):
+def draw_copper(board, ops):
     zones = []
-    grown = []                  # (zone, op) of each pour grown from its pads
     for op in ops:
         if isinstance(op, Track):
             _draw_track(board, op)
@@ -708,33 +679,8 @@ def draw_copper(board, ops, findings=None):
             _draw_text(board, op)
         elif isinstance(op, Zone):
             zones.append(_draw_zone(board, op))
-            if op.grown:
-                grown.append((zones[-1], op))
     if zones:
         pcbnew.ZONE_FILLER(board).Fill(board.Zones())
-    for z, op in grown:
-        _check_grown(board, z, op, findings)
-
-
-def _check_grown(board, z, op: Zone, findings):
-    """What a grown pour's fill left: a pour whose fill joins none of its
-    pads, and a stitching via the fill does not reach, are findings."""
-    if findings is None:
-        return
-    fill = z.GetFilledPolysList(_layer_id(board, op.layer))
-    if op.named_pads:
-        pad_copper = _joined_pad_copper(board, op.named_pads, op.layer)
-        if not any(_overlaps(fill, pad_copper[label]) for label, _ in op.named_pads if label in pad_copper):
-            findings.append(Finding("copper", "pour %s: its fill joins none of its pads (%s)"
-                                    % (op.net, ", ".join(label for label, _ in op.named_pads))))
-    for x, y, size in op.stitched:
-        ring = pcbnew.SHAPE_POLY_SET()
-        ring.NewOutline()
-        for cx, cy in circle_polygon(Location(x, y), size / 2.0, 16):
-            ring.Append(nm(cx), nm(cy))
-        if not _overlaps(fill, ring):
-            findings.append(Finding("copper", "pour %s: the stitching via at (%.2f, %.2f) lies outside its fill"
-                                    % (op.net, x, y)))
 
 
 def refs_to_fab(board, text_mm: float = 0.8, thick_mm: float = 0.15):
@@ -875,9 +821,8 @@ def save(board, path: str):
 def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     pcb_path = str(pcb_path)
     if any(isinstance(op, Zone) for op in plan.copper):
-        # KiCad reads the rules file beside a board as the board loads, and a zone's fill (a plane's, a
-        # grown pour's) keeps the clearance rules the script declared: they are there before the load,
-        # not only after the save
+        # KiCad reads the rules file beside a board as the board loads, and a plane's fill keeps the
+        # clearance rules the script declared: they are there before the load, not only after the save
         from ..rules import write_rules
         write_rules(pcb_path, list(plan.rules))
     with quiet_stderr():
@@ -902,7 +847,7 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     _draw_outline(board, plan)
     _draw_keepouts(board, plan)
     _draw_keepout_drawings(board, plan)
-    draw_copper(board, plan.copper, plan.findings)
+    draw_copper(board, plan.copper)
     plan.group_notes = _write_groups(board, plan)
     out = str(out_path or pcb_path)
     plan.models = _reanchor_models(board, Path(out).parent)

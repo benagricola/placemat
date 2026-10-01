@@ -5,6 +5,26 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Migration steps
+
+**A pour with `grow=` becomes a fitted pour.** `board.pour(net, pads, layer=,
+grow=mm, within=)` is refused: it wrote a KiCad zone grown from the pads, which
+copper planned later could cut through. A fitted pour is a static polygon
+joining the pads, drawn at its place in the batch; copper planned after it
+keeps clear. A pour of a plane net (ground) that used `grow=` becomes
+`board.plane(net, layers, over=[...])`. A `board.stitch` over the pour works
+as before, over the fitted pour's outline.
+
+```python
+# before: a KiCad zone grown from the pads, which copper planned later can cut through
+board.pour(Net("<NET>"), [PadRef(Part("a"), "<PAD>"), PadRef(Part("b"), "<PAD>")], layer=CopperLayer.F, grow=<mm>)
+# after: a fitted polygon joining the pads; copper planned later keeps clear of it
+board.pour(Net("<NET>"), [PadRef(Part("a"), "<PAD>"), PadRef(Part("b"), "<PAD>")], layer=CopperLayer.F, swallow_pads=True,
+           why="...")
+```
+
 ## To 0.69.0
 
 ### New
@@ -422,7 +442,7 @@ pad) can name the pads and a `grow=` instead; the polygon's arithmetic goes.
 The pour is a KiCad zone: its outline is the pads' hull grown by `grow`,
 clipped to `within=` (a keepout's name, a `Cell`, or `Part`s), and KiCad's
 fill keeps it off every other net's copper and applies the board's
-clearance rules. See "A pour grown from its pads" in api.md.
+clearance rules. Removed in Unreleased: see its migration step.
 
 A plane's fill keeps the script's `board.rule` clearances. KiCad reads the
 rules file beside a board as it loads it, and the file was written after
@@ -1995,5 +2015,6 @@ that says what replaces it.
 | a part's pad midpoint aligned by arithmetic (half the pads' spacing in an `X()` or a `Beside` offset) | To 0.69.0 |
 | a rotation constant for a part parallel to a line between pads | To 0.69.0 |
 | a rotation constant checked by an `assert` on pad positions | To 0.69.0 |
+| a pour with `grow=` reaching past its pads | Unreleased |
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |
