@@ -20,8 +20,8 @@ from dataclasses import dataclass, field
 import math
 
 from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
-                     pair_ops, polyline_tracks, resolve_bridges, _point_seg)
-from .geometry import Transform, box_polygon, circle_polygon, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
+                     grown_hull, pair_ops, polyline_tracks, resolve_bridges, _point_seg)
+from .geometry import Transform, box_polygon, circle_polygon, clip_to_convex, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
 from .findings import Finding, Findings
 from .giveway import enabled as giveway_enabled, pad_via_id
 from .occupancy import Occupancy, Shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
@@ -815,6 +815,7 @@ class Board:
         self.fab_via_tiers = dict(fab_via_tiers) if fab_via_tiers is not None else type(self).fab_via_tiers
         self.fab_source = fab_source
         self._planes_declared: list = []    # (net, layers) of each board.plane()
+        self._grown_pours: dict = {}        # copper intent index -> its outline(ctx), of each pour(grow=)
         self._solve_hints = None
         self.geometry = geometry
         self.courtyard_excess = courtyard_excess    # the fab's assembly margin round a part: the only spacing that comes free
@@ -1049,6 +1050,21 @@ class Board:
         # kept off it must stay off
         return Box.union([transform_box(s.box, t) for s in g.shapes
                           if (s.kind in _ENVELOPE_DRAWN_KINDS or s.kind == "copper") and s.owner != own])
+
+    def _items_box(self, ctx, items) -> Box:
+        """The box round the drawn envelopes of `items` (Parts and Cells) as
+        placed now: the region `plane(over=)` and `pour(within=)` take."""
+        boxes = []
+        for it in items:
+            geom, key, kind = self._item(it)
+            if kind == "cell" and key not in self._cell_placements:
+                # a cell the script never places stands where the generator put it: its
+                # members, each where it is
+                boxes += [self._drawn_envelope_box(Part(fp.inst), ctx.occ.items[fp.ref].reference)
+                          for fp in geom.members]
+            else:
+                boxes.append(self._drawn_envelope_box(it, self._item_placement(ctx.occ, it)))
+        return Box.union(boxes)
 
     def _item_placement(self, occ: Occupancy, item) -> Placement:
         """Where a placed Part or Cell stands, for a region that moves and
@@ -3706,6 +3722,8 @@ class Board:
                     via = Via(name, at, d, s, span)
                     vias.append(via)
                     ctx.planned_vias.append(via)
+                    if pour_intent is not None:
+                        ctx.stitched.setdefault(pour_intent.index, []).append(via)
             if not vias:
                 ctx.notes.append("stitch %s: no via fits in the region at a %.2f mm pitch" % (name, step))
             return vias
@@ -4018,7 +4036,7 @@ class Board:
 
     def pour(self, net, points, *, layer: CopperLayer, stroke: float | None = None, swallow_pads: bool = False,
              width: float | None = None, cover: Cover | None = None, priority: Priority = Priority.DEFAULT,
-             why: str = ""):
+             grow: float | None = None, within=None, why: str = ""):
         """A filled copper polygon on one layer. It does not pull back from
         foreign copper; `swallow_pads` grows it over the same-net pads its
         outline touches and pulls it back from other nets when written.
@@ -4027,10 +4045,20 @@ class Board:
         other the polygon through its points. Exactly two pads (`[PadRef(a),
         PadRef(b)]`) draws the neck between them instead - a rectangle along
         their centreline, as wide as the narrower pad measured across it,
-        unless `width=` says otherwise."""
+        unless `width=` says otherwise.
+
+        `grow=mm` instead grows the pour from its pads (`points` is then
+        pads only): a KiCad zone whose outline is the hull of the pads'
+        copper grown by `grow`, clipped to `within=` (a keepout's name, a
+        `Cell`, or `Part`s: the region `plane(over=)` takes). KiCad fills it,
+        pulled back from every other net's copper, and drops the pieces
+        joined to none of its pads; it is planned after the rest of its
+        batch's copper and sits above the planes on its layer."""
         stroke = self.settings.copper_pour_stroke if stroke is None else stroke
         layer = CopperLayer.of(layer)
         name = self.geometry.require_net(net)
+        if grow is not None or within is not None:
+            return self._grown_pour(name, net, points, layer, grow, within, swallow_pads, width, cover, priority, why)
         if cover is not None and not isinstance(cover, Cover):
             raise TypeError("%s: a pour's cover is Cover.HULL, Cover.BOX or Cover.CENTRES, not %r" % (name, cover))
         all_pads = all(isinstance(p, (PadRef, CellPadRef)) for p in points)
@@ -4078,6 +4106,75 @@ class Board:
         intent = self._copper_intent("pour %s" % name, net, priority, plan, refs, why)
         return intent
 
+    def _grown_pour(self, name, net, pads, layer, grow, within, swallow_pads, width, cover, priority, why):
+        """`pour(grow=)`: see there. A zone, planned after the rest of its batch."""
+        if grow is None:
+            raise ValueError("pour %s: within= clips a grown pour, so it needs grow=" % name)
+        if grow <= 0:
+            raise ValueError("pour %s: grow= is how far the pour may reach from its pads, more than 0 mm "
+                             "(%s given); a pour that may reach anywhere is a plane" % (name, grow))
+        for what, given in (("swallow_pads=", swallow_pads), ("cover=", cover is not None), ("width=", width is not None)):
+            if given:
+                raise ValueError("pour %s: grow= takes no %s; the zone's own fill decides its extent" % (name, what))
+        pads = list(pads)
+        if not pads:
+            raise ValueError("pour %s: a grown pour starts from at least one pad" % name)
+        for p in pads:
+            if not isinstance(p, (PadRef, CellPadRef)):
+                raise TypeError("pour %s: a grown pour starts from copper, so its points are pads (PadRef, "
+                                "CellPadRef), not %r" % (name, p))
+        if within is not None:
+            if isinstance(within, (Part, Cell)):
+                within = [within]
+            if isinstance(within, str):
+                if within not in self._keepouts:
+                    raise KeyError("no keepout named %r on this board" % (within,))
+            else:
+                within = list(within)
+                if not within or not all(isinstance(it, (Part, Cell)) for it in within):
+                    raise TypeError("pour %s: within= is a keepout's name, or Part(...)/Cell(...) items, not %r"
+                                    % (name, within))
+                for it in within:
+                    self._item(it)              # a real part or cell, checked now
+        min_thickness = self.settings.copper_plane_min_thickness
+        refs = _refs_in(pads) + ([] if within is None or isinstance(within, str) else _refs_in(within))
+
+        def outline(ctx):
+            """The pads' hull grown by `grow`, clipped to `within`; (hull, outline), the outline empty
+            when `within` leaves nothing. Cached on the context: a stitch over this pour asks first."""
+            if intent.index in ctx.pour_at:
+                return ctx.pour_at[intent.index]
+            corners = [q for p in pads for sh in _pad_shapes(self, ctx.occ, p) for q in sh.poly]
+            hull = grown_hull(corners, 0.0, 0.0)
+            pts = grown_hull(corners, float(grow), self.settings.geometry_arc_sag)
+            if isinstance(within, str):
+                placed = ctx.plan.keepouts.get(within) if ctx.plan else None
+                region = None if placed is None else placed.poly
+            elif within is not None:
+                region = box_polygon(self._items_box(ctx, within))
+            else:
+                region = None
+            if region is not None:
+                pts = clip_to_convex(tuple(region), pts)
+                if len(pts) < 3 or Box.of_points(pts).width <= 0 or Box.of_points(pts).height <= 0:
+                    pts = ()
+            ctx.pour_at[intent.index] = got = (hull, pts)
+            return got
+
+        def plan(ctx):
+            hull, pts = outline(ctx)
+            if not pts:
+                ctx.notes.append("pour %s: its pads' reach lies outside what it is within, so it is not drawn" % name)
+                return []
+            named = tuple(n for n in (_named_pad(self, ctx, name, p) for p in pads) if n is not None)
+            stitched = tuple((v.at.x, v.at.y, v.size) for v in ctx.stitched.get(intent.index, ()))
+            ctx.grown_zones += 1
+            return [Zone(name, layer, pts, 0.0, min_thickness, True, grown=True, priority=ctx.grown_zones,
+                         hull=hull, named_pads=named, stitched=stitched)]
+        intent = self._copper_intent("pour %s" % name, net, priority, plan, refs, why)
+        self._grown_pours[intent.index] = outline
+        return intent
+
     def plane(self, net, layers, *, outline=None, inset: float | None = None, chamfer: float | None = None,
               clearance: float | None = None, min_thickness: float | None = None, solid_pads: bool = True,
               priority: Priority = Priority.DEFAULT, over=None, margin: float = 0.0, why: str = ""):
@@ -4104,17 +4201,7 @@ class Board:
 
         def plan(ctx):
             if over is not None:
-                boxes = []
-                for it in over:
-                    geom, key, kind = self._item(it)
-                    if kind == "cell" and key not in self._cell_placements:
-                        # a cell the script never places stands where the generator put it: its
-                        # members, each where it is
-                        boxes += [self._drawn_envelope_box(Part(fp.inst), ctx.occ.items[fp.ref].reference)
-                                  for fp in geom.members]
-                    else:
-                        boxes.append(self._drawn_envelope_box(it, self._item_placement(ctx.occ, it)))
-                box = Box.union(boxes).inflate(float(margin))
+                box = self._items_box(ctx, over).inflate(float(margin))
                 frame = ctx.occ.board_box
                 if frame is not None:
                     f = frame.inflate(-inset)
@@ -5135,11 +5222,14 @@ class Board:
         their crossings settled by priority; pours, zones, vias and fingers
         follow (a finger yields to every track already planned)."""
         tracks, others = [], []
-        deferred = []
+        deferred, grown = [], []
         ctx.batch_tracks = []
         for c in sorted(intents, key=lambda c: c.index):
             if c.key.startswith("finger"):
                 deferred.append(c)          # a finger is cut by the tracks planned in this batch
+                continue
+            if c.index in self._grown_pours:
+                grown.append(c)             # a grown pour grows up to everything else in its batch
                 continue
             ctx.ops_at[c.index] = c.plan(ctx)
             for op in ctx.ops_at[c.index]:
@@ -5152,7 +5242,7 @@ class Board:
         plan.findings += findings + [Finding("copper", n) for n in ctx.notes]
         ctx.notes = []
         ctx.planned_tracks += [op for op in ops if isinstance(op, Track)]
-        for c in deferred:
+        for c in deferred + grown:
             ctx.ops_at[c.index] = c.plan(ctx)
             for op in ctx.ops_at[c.index]:
                 others.append((c, op))
@@ -5184,7 +5274,9 @@ class Board:
             # against this raw shape would report a problem the written board never has, so it is
             # left out; the raw shape still goes into the occupancy below, so it stays an obstacle
             # for copper planned after it, the same as the writer keeps it one.
-            skip_findings = isinstance(op, Pour) and op.swallow_pads
+            # A grown pour is held as its pads' hull, which the fill pulls back from other copper
+            # (the same reason); the copper planned after it is judged against that.
+            skip_findings = (isinstance(op, Pour) and op.swallow_pads) or isinstance(op, Zone)
             if not skip_findings:
                 hits = occ.copper_conflicts(shape)
                 # and this batch's own copper planned before it, which reaches the occupancy only
@@ -6661,6 +6753,8 @@ class _CopperContext:
         self.batch_tracks: list = []       # tracks planned so far in the batch being planned: not in the occupancy yet
         self.via_at: dict = {}             # via intent index -> where it landed, for a track ending on it
         self.pour_at: dict = {}            # pour intent index -> its drawn points, for a stitch over it
+        self.stitched: dict = {}           # grown pour intent index -> the stitching vias planned over it
+        self.grown_zones = 0               # grown pours planned so far: each sits above the one before
         self.ops_at: dict = {}             # copper intent index -> the ops its plan gave, for a Past over it
         self.plan = None                   # the plan being built: its keepouts, for a FreeSpot
 
@@ -6970,6 +7064,8 @@ def _stitch_region(board: "Board", ctx: "_CopperContext", region, pour_intent) -
     keepout's polygon (None until it is settled - never later than any
     copper, since a keepout is always planned in the fixed queue)."""
     if pour_intent is not None:
+        if pour_intent.index in board._grown_pours:     # planned after its batch, but its outline is known now
+            return board._grown_pours[pour_intent.index](ctx)[1] or None
         return ctx.pour_at.get(pour_intent.index)
     if isinstance(region, Cell):
         geom, key, kind = board._item(region)
@@ -7114,6 +7210,9 @@ def _shape_of(op) -> Shape | None:
     if isinstance(op, Pour):
         faces = frozenset([op.layer.face]) if op.layer.face else frozenset()
         return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.polygon, op.box)
+    if isinstance(op, Zone) and op.hull:        # a grown pour: what it covers whatever the fill does
+        faces = frozenset([op.layer.face]) if op.layer.face else frozenset()
+        return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.hull, Box.of_points(op.hull))
     return None            # a zone pulls back round everything; it is never an obstacle
 
 

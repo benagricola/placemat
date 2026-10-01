@@ -99,6 +99,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | a micro, blind or buried via, for a fab that makes them (allowed in fab-profile.json) | `layers=(CopperLayer.B, CopperLayer.IN4)` on `via()`, `vias()` or `stitch()` | Copper calls (A via's layer span) |
 | a pour of exactly the shape given | `board.pour(net, points, layer=)` | Copper calls |
 | a pour over a set of pads, pulled back from other nets | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: the hull of the pads' copper (`cover=Cover.BOX`, the box round it) | Copper calls |
+| a pour that reaches past its pads into the room round them, up to the copper of other nets | `board.pour(net, [PadRef(...), ...], layer=, grow=mm, within=None)`: a KiCad zone grown from the pads' hull, clipped to `within=` (a keepout's name, a `Cell`, or `Part`s) | Copper calls |
 | a neck between two pads, as wide as the narrower or `width=` | `board.pour(net, [PadRef(a), PadRef(b)], layer=, swallow_pads=True, width=)` | Copper calls |
 | a wide pour along a centreline into a pad | `board.finger(net, from_=, to=, width=)` | Copper calls |
 | a finger as wide as a named pad | `board.finger(net, from_=, to=, width=PadRef(...))` | Copper calls |
@@ -1488,6 +1489,7 @@ board.stitch(net, region, pitch=None, size=None, drill=None, edge=False, layers=
 board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False, stroke=None)  # filled polygon; stroke= its outline's width (copper.pour_stroke)
 board.pour(net, [PadRef(a), PadRef(b), PadRef(c)], layer=..., swallow_pads=True, cover=None)  # over the pads' copper
 board.pour(net, [PadRef(a), PadRef(b)], layer=..., swallow_pads=True, width=None)  # the neck between two pads
+board.pour(net, [PadRef(a), PadRef(b)], layer=..., grow=1.2, within=None)  # a zone grown from the pads' hull by grow= mm, clipped to within=; KiCad fills it
 board.plane(net, layers=(CopperLayer.IN1,), outline=None, inset=0.4)  # zone(s), whole board or outline
 board.plane(net, layers=(CopperLayer.IN1,), over=[Part(...), Cell(...)], margin=0.0)  # zone(s) over named items
 board.plane(..., clearance=None, min_thickness=None, solid_pads=True, chamfer=None)  # the zone's pullback and minimum width (copper.plane_*), pads joined solid or by thermal spokes, the frame outline's corner chamfer
@@ -1710,6 +1712,31 @@ swallow_pads=True)` with exactly two pads draws the neck between them - a
 rectangle along their centreline, as wide as the narrower pad measured
 across the run, unless `width=` says otherwise - instead of needing a
 third point.
+
+**A pour grown from its pads.** `board.pour(net, pads, layer=, grow=mm,
+within=None)` writes a KiCad zone whose outline is the hull of the pads'
+copper grown by `grow` mm, clipped to `within=` (a keepout's name, a `Cell`,
+or `Part`s: the region `plane(over=)` takes), and KiCad fills it: pulled
+back from every other net's pads, tracks, vias, holes and pours, with the
+clearance rules of the board (`board.rule` ones too), and from the board
+edge. A piece of fill joined to no pad of the net is removed (KiCad's island
+removal); a piece joined only to a pad of the net the pour does not name is
+kept. Its pads connect solid, its minimum width is
+`copper.plane_min_thickness`, and its zone priority is above every plane
+on its layer, so a plane of another net pulls back from the pour rather
+than the pour from the plane. `grow=` is required and more than 0: a pour that may reach anywhere
+is a plane. `points` are pads only, and `swallow_pads=`, `cover=` and
+`width=` are refused with `grow=` (the zone's own fill decides its extent).
+Use it for what a hand layout draws as a polygon bounded by the lanes, vias
+and parts round a pin.
+
+It is planned after every other copper of its batch. Until it is filled,
+the plan holds the hull of its pads for it, and copper planned later is
+judged against that. `board.stitch(net, pour)` on a grown pour places its
+vias inside the outline as on any pour; after the fill, a stitching via the
+fill does not reach is a finding, and so is a pour whose fill joins none of
+its pads. The checks read the filled board, so `current-path` measures the
+fill as any zone's.
 
 **What a pour over pads covers.** `cover=` (`Cover`) says what corners
 that name pads cover. `Cover.HULL`, the default for a `swallow_pads` pour

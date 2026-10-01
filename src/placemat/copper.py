@@ -138,6 +138,14 @@ class Zone:
     min_thickness: float = 0.2
     solid_pads: bool = True
     npth_clearance: float = 0.25
+    # a pour grown from its pads (board.pour(grow=)): the zone's own island removal and priority, the
+    # pads' hull the plan holds for it until it is filled, the pads the fill must join ((label, (x, y))
+    # mm) and the stitching vias placed in it ((x, y, size) mm)
+    grown: bool = False
+    priority: int = 0
+    hull: tuple = ()
+    named_pads: tuple = ()
+    stitched: tuple = ()
 
     @property
     def box(self) -> Box:
@@ -145,6 +153,33 @@ class Zone:
 
 
 CopperOp = Track | Via | Pour | Zone
+
+
+def grown_hull(points, r: float, sag: float) -> Polygon:
+    """The convex polygon `points` grown by `r` all round: each corner of its
+    hull becomes an arc of radius `r`, its vertices on the circle so the
+    outline never reaches past `r`, with chords sagging at most `sag`."""
+    from .checks import _hull
+    hull = _hull([(round(x, 6), round(y, 6)) for x, y in points])
+    if r <= 0 or len(hull) < 3:
+        return tuple(hull)
+    step = math.acos(max(0.0, 1.0 - sag / r)) * 2.0         # the angle one chord spans
+    step = max(step, 1e-3)
+    out = []
+    n = len(hull)
+    for i in range(n):
+        px, py = hull[i - 1]
+        cx, cy = hull[i]
+        nx, ny = hull[(i + 1) % n]
+        a0 = math.atan2(-(cx - px), cy - py)                # the outward normal of the edge in
+        a1 = math.atan2(-(nx - cx), ny - cy)                # and of the edge out
+        while a1 < a0:
+            a1 += 2.0 * math.pi
+        k = max(1, int(math.ceil((a1 - a0) / step)))
+        for j in range(k + 1):
+            a = a0 + (a1 - a0) * j / k
+            out.append((round(cx + r * math.cos(a), 6), round(cy + r * math.sin(a), 6)))
+    return tuple(out)
 
 
 _CAP_STEPS = 8          # segments round each half-circle end
