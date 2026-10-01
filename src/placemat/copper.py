@@ -103,18 +103,16 @@ class Text:
 
 @dataclass(frozen=True)
 class Pour:
-    """A filled copper polygon of fixed shape on one layer. It is drawn exactly
-    as given and never pulls back from other copper: a pour that touches a
-    foreign pad is a short - unless `swallow_pads`, which both grows it over
-    the same-net pads its outline touches AND pulls it back from every other
-    net's copper on its layer to the netclass clearance, dropping any piece
-    the pull-back cuts off that no longer touches a named or swallowed pad."""
+    """A filled copper polygon of fixed shape on one layer, drawn exactly as
+    given as a graphic polygon (never a zone: nothing refills it, and nothing
+    is cut from it afterwards). Another net's copper inside it is a copper
+    finding. `fitted` marks one whose points were fitted round the copper
+    planned before it (pourfit.py)."""
     net: str
     layer: CopperLayer
     points: tuple[tuple[float, float], ...]
     stroke: float = 0.2
-    swallow_pads: bool = False       # grow the outline over same-net pads it touches, and pull back from foreign copper
-    named_pads: tuple = ()           # ((label, (x, y)), ...): the pads the declaration named, to check are still joined
+    fitted: bool = False
 
     @property
     def polygon(self) -> Polygon:

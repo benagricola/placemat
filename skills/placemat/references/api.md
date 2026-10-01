@@ -107,9 +107,10 @@ replaces. Only a relation that search cannot say goes in the board's
 | stitching vias over a cell, a pour or a keepout, or along its outline | `board.stitch(net, region, edge=)` | Copper calls |
 | a micro, blind or buried via, for a fab that makes them (allowed in fab-profile.json) | `layers=(CopperLayer.B, CopperLayer.IN4)` on `via()`, `vias()` or `stitch()` | Copper calls (A via's layer span) |
 | a pour of exactly the shape given | `board.pour(net, points, layer=)` | Copper calls |
-| a pour over a set of pads, pulled back from other nets | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: the hull of the pads' copper (`cover=Cover.BOX`, the box round it) | Copper calls |
+| a pour over a set of pads, fitted round other nets' copper | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: a graphic polygon holding the pads' copper, every edge at least the clearance from other copper | Copper calls (A fitted pour) |
+| a pour over the hull or the box round a set of pads, drawn as declared | `board.pour(net, [PadRef(...), ...], layer=, cover=Cover.HULL)` (or `Cover.BOX`) | Copper calls (What a pour over pads covers) |
 | a pour that reaches past its pads into the room round them, up to the copper of other nets | `board.pour(net, [PadRef(...), ...], layer=, grow=mm, within=None)`: a KiCad zone grown from the pads' hull, clipped to `within=` (a keepout's name, a `Cell`, or `Part`s) | Copper calls |
-| a neck between two pads, as wide as the narrower or `width=` | `board.pour(net, [PadRef(a), PadRef(b)], layer=, swallow_pads=True, width=)` | Copper calls |
+| a neck between two pads, as wide as the narrower or `width=` | `board.pour(net, [PadRef(a), PadRef(b)], layer=, width=)` | Copper calls |
 | a wide pour along a centreline into a pad | `board.finger(net, from_=, to=, width=)` | Copper calls |
 | a finger as wide as a named pad | `board.finger(net, from_=, to=, width=PadRef(...))` | Copper calls |
 | a zone over the whole board, or an outline | `board.plane(net, layers=, outline=)` | Copper calls |
@@ -1481,8 +1482,8 @@ pair's (the larger of the two classes'). `between=(a, b)` matches one item
 on `a` and the other on `b`; `on=n` matches either item on `n`;
 `within=cell` matches two items that are both the cell's members' pads or
 its own copper (copper the script declares belongs to no cell). A track's
-legs, `Past`, `Between`, `FreeSpot`, a via's spot and a swallowing pour's
-pull-back all read it, so a rule that holds a net off another needs no
+legs, `Past`, `Between`, `FreeSpot`, a via's spot and a fitted pour's
+outline all read it, so a rule that holds a net off another needs no
 waypoint. A copper finding under a rule names it: `(needs 0.30, rule: the
 rule's why)`. `[place] conflict_gap` must be at least the largest rule
 clearance, or the run refuses to start. The CLI's queries on a read board
@@ -1559,7 +1560,7 @@ Every copper call is named for the shape it leaves on the board:
 |---|---|
 | track | one straight trace segment of a width, on one layer; `board.track` draws several end to end |
 | via | a plated hole joining all copper layers at one point |
-| pour | a filled polygon of exactly the shape given, on one layer; it never pulls back from other copper, so it is drawn where nothing foreign is - except `swallow_pads`, which both grows it over the same-net pads its outline touches and pulls it back from every other net's copper to the netclass clearance |
+| pour | a filled graphic polygon on one layer, never a zone: drawn exactly as planned, and never cut afterwards. Given as points it is the shape given; with `swallow_pads=True` over pads it is fitted round the copper planned before it |
 | zone | a filled area KiCad fills and refills, pulling back by the clearance round every foreign pad, track and via; what a plane is made of |
 | plane | a zone covering the whole board (or an outline, or the box round named parts) on one or more layers, for a net that everything reaches by a via |
 | bridge | a via, a short track on the opposite face passing under one or more tracks, and a via back: how a track gets past copper on its own layer without touching it |
@@ -1695,8 +1696,9 @@ board.vias(net, pad=PadRef(...), pitch=None, size=None, drill=None, inset=0, lay
 board.vias(net, along=PadRef(...), count=N, pitch=None, size=None, drill=None, layers=None)  # a row out from a pad, along its escape axis
 board.stitch(net, region, pitch=None, size=None, drill=None, edge=False, layers=None)  # vias in a grid over a cell, a pour or a keepout
 board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False, stroke=None)  # filled polygon; stroke= its outline's width (copper.pour_stroke)
-board.pour(net, [PadRef(a), PadRef(b), PadRef(c)], layer=..., swallow_pads=True, cover=None)  # over the pads' copper
-board.pour(net, [PadRef(a), PadRef(b)], layer=..., swallow_pads=True, width=None)  # the neck between two pads
+board.pour(net, [PadRef(a), PadRef(b), PadRef(c)], layer=..., swallow_pads=True)  # fitted round other nets' copper, holding the pads
+board.pour(net, [PadRef(a), PadRef(b), PadRef(c)], layer=..., cover=Cover.HULL)  # declared: the hull of the pads' copper
+board.pour(net, [PadRef(a), PadRef(b)], layer=..., width=None)  # the neck between two pads
 board.pour(net, [PadRef(a), PadRef(b)], layer=..., grow=1.2, within=None)  # a zone grown from the pads' hull by grow= mm, clipped to within=; KiCad fills it
 board.plane(net, layers=(CopperLayer.IN1,), outline=None, inset=0.4)  # zone(s), whole board or outline
 board.plane(net, layers=(CopperLayer.IN1,), over=[Part(...), Cell(...)], margin=0.0)  # zone(s) over named items
@@ -1915,11 +1917,12 @@ naming the rule and both values.
 board.vias(Net("GND"), PadRef(Part("u3"), 17), layers=(CopperLayer.B, CopperLayer.IN4))
 ```
 
-**A pour between two pads.** `board.pour(net, [PadRef(a), PadRef(b)],
-swallow_pads=True)` with exactly two pads draws the neck between them - a
-rectangle along their centreline, as wide as the narrower pad measured
-across the run, unless `width=` says otherwise - instead of needing a
-third point.
+**A pour between two pads.** `board.pour(net, [PadRef(a), PadRef(b)])`
+with exactly two pads draws the neck between them - a rectangle along their
+centreline, as wide as the narrower pad measured across the run, unless
+`width=` says otherwise - instead of needing a third point. It is drawn as
+declared, with `swallow_pads` or without: another net's copper inside it is a
+copper finding, and nothing is cut from it.
 
 **A pour grown from its pads.** `board.pour(net, pads, layer=, grow=mm,
 within=None)` writes a KiCad zone whose outline is the hull of the pads'
@@ -1946,37 +1949,55 @@ fill does not reach is a finding, and so is a pour whose fill joins none of
 its pads. The checks read the filled board, so `current-path` measures the
 fill as any zone's.
 
-**What a pour over pads covers.** `cover=` (`Cover`) says what corners
-that name pads cover. `Cover.HULL`, the default for a `swallow_pads` pour
-whose corners are all pads (three or more), is the convex hull of those
-pads' copper, every land's corners; `Cover.BOX` is the box round it;
-`Cover.CENTRES`, the default otherwise, is the polygon through the points
-as given, a pad at its centre - over three pads in a row that is a line,
-and the pour is as thin as its stroke. A plain point among the corners
-counts as given under HULL and BOX too.
+**What a pour over pads covers.** For a pour drawn as declared (no
+`swallow_pads`), `cover=` (`Cover`) says what corners that name pads cover.
+`Cover.HULL` is the convex hull of those pads' copper, every land's
+corners; `Cover.BOX` is the box round it; `Cover.CENTRES`, the default, is
+the polygon through the points as given, a pad at its centre - over three
+pads in a row that is a line, and the pour is as thin as its stroke. A plain
+point among the corners counts as given under HULL and BOX too. The pour is
+written as given, a graphic polygon; another net's copper inside it is a
+copper finding, and nothing is cut from it.
 
-**A swallowing pour pulls back too.** `swallow_pads` both grows the pour
-over the same-net pads its outline touches and pulls it back, to the
-netclass clearance (the larger of the two nets' classes, or a `board.rule`
-clearance that matches the pair), from every other net's copper on its layer - every
-pad, at its real shape rather than its bounding box; every track, via and
-pour this run plans (two swallow pours settle as KiCad's zone priority
-does: the one the plan draws first - the one declared first, when both
-wait on the same placements - keeps its fill, and the later one keeps the clearance from it as
-written); and every track, via and poly already on the board
-before this run (a stamped cell's own), as a zone fill does. A pad with no
-net, or on a net this board's geometry does not know, keeps the board's
-own default clearance. A piece the pull-back cuts off that no longer
-touches a named or swallowed pad is dropped; if that leaves a named pad
-joined to nothing, it is a finding naming the pad. Only a same-net pad
-counts as one of the pour's own pads: a polygon corner that names another
-net's pad shapes the outline near it and is never swallowed or checked as
-joined. A pour without `swallow_pads` keeps exactly the shape it is given,
-still.
+**A fitted pour.** `board.pour(net, pads, layer=, swallow_pads=True)` over
+three or more pads (`PadRef`, `CellPadRef`) draws one polygon fitted round
+the copper planned before it: the shortest closed outline that holds all the
+pads' copper (every land) and enters no other copper's clearance outline.
+That is every other net's pad (at its real shape), track, via and pour on
+the layer, every unplated hole and the board edge, each grown by the clearance the
+pair needs plus half the pour's stroke. The clearance is the pair's class
+figure or the `board.rule` one that matches it, as the router keeps it; a pad
+with no net keeps the board's default. Every edge is straight. Where the
+outline passes a pad's corner, a track's end or a via it follows the
+clearance outline by straight edges that stay outside it: the nearest it
+comes is the clearance plus `[geometry] arc_error_nm` (0.005 mm, the error
+pads and tracks are read with), and no corner stands more than `[geometry]
+arc_sag` (0.02 mm) past the clearance. With nothing in the way the outline is
+the hull of the pads' copper. A pad that another net's clearance outline
+reaches into (copper nearer than the clearance and half the stroke) is held
+inside its edges by half the stroke plus the arc sag, so the stroke does not
+reach the other copper.
 
-The pull-back is applied when the board is written, so the plan does not
-report a `swallow_pads` pour's clearance to other nets; the declared shape
-still occupies the board, an obstacle for copper planned after it.
+It is written as a graphic copper polygon (a filled `PCB_SHAPE`), never as a
+zone: nothing refills it round later copper, and nothing is cut from it once
+it is planned. Copper of another net planned after it keeps its clearance
+from it like any copper; a track declared across one is a copper finding,
+and the pour stays as it was fitted. A pour sees the copper planned before
+it, so declare a pour after the tracks and vias it must go round.
+
+Where other copper stands where the outline cannot go round it - between two
+of the pads with no gap past it, or inside the pads' hull with no edge to
+carve it from - or two pads cannot be joined at all, the pour is not drawn
+and a copper finding names the copper and the pads it stands between. Where
+the outline narrows, between its pads, to less than its net's track width, a
+finding names where, and the pour is drawn. A pad that is on another net, or
+has no copper on the pour's layer, is a finding and the pour is not drawn.
+
+A fitted pour is given by its pads alone: `cover=` with `swallow_pads=True`
+is refused, and so is any point that is not a pad. The pull-back this
+replaces (`swallow_pads` over a hull, a box or points, cut back from other
+copper when the board was written) is gone; see `migration.md`,
+"Unreleased".
 
 **A finger as wide as a pad.** `board.finger(net, from_=, to=, width=PadRef(...))`
 runs the finger as wide as that pad measured across the run, instead of a

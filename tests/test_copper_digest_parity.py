@@ -46,7 +46,7 @@ def _build():
     items["via"] = b.via(Net("A"), Location(25, 25), why="tap")
     items["vias"] = b.vias(Net("A"), PadRef(Part("u1"), "A"), pitch=0.6, size=0.5, drill=0.25, inset=0.05)
     items["pour"] = b.pour(Net("B"), [Location(0, 0), Location(10, 0), Location(10, 4), Location(0, 4)],
-                           layer=CopperLayer.F, swallow_pads=True, why="plane")
+                           layer=CopperLayer.F, why="plane")
     items["finger"] = b.finger(Net("B"), layer=CopperLayer.F, from_=(5.0, 5.0), to=(15.0, 5.0), width=1.2)
     return items
 
