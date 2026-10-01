@@ -8,7 +8,7 @@ otherwise) unless the script lists `rotations=`. The scorer already sums each
 pad's distance to what it connects to, so it would turn a two-pad part to put
 the right pad toward its pin, but it is never offered the turn. The cleanup
 pass keeps every rotation. Source: a board's `PLACEMAT_GAPS.md`, "passive orientation and the MCU's fanout",
-items 1 and 5. On their core board, `rotations=(0, 90, 180, 270)` on every
+items 1 and 5. On their whole test board, `rotations=(0, 90, 180, 270)` on every
 searched part took ratsnest crossings from 1,318 to 1,124.
 
 ## Measured
@@ -70,7 +70,7 @@ Pure:
   not turn one given `rotation=`;
 - reuse: changing `[place] rotations` changes the context key.
 
-Bench: the whole corpus with the tally in the commit; the core board copy
+Bench: the whole corpus with the tally in the commit; the whole-board copy
 timed before and after.
 
 ## Documentation

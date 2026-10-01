@@ -21,7 +21,7 @@ the same length, so the search, weighted toward that line (heuristic 1.9),
 stair-steps along it for almost nothing. Placemat passes no turn cost.
 
 The router's smoothing pass (issue #536, which placemat's quick route turns
-off) does not remove it: SDA and SCL routed alone on a copy of the core came
+off) does not remove it: SDA and SCL routed alone on a copy of the whole test board came
 out identical with and without it.
 
 ## Measured

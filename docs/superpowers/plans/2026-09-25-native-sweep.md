@@ -21,7 +21,7 @@
 
 ### Task 1: Spike, profile and mutation sites
 
-- [x] Prototype a sweep over the obstacle test alone (edge and reservations still called from Python per candidate) on fairing/SlotControl; measure the candidate-check cost and what share the edge and reservation tests keep; record in the spec.
+- [x] Prototype a sweep over the obstacle test alone (edge and reservations still called from Python per candidate) on the slowest fixture module; measure the candidate-check cost and what share the edge and reservation tests keep; record in the spec.
 - [x] List every site that changes `board_shape`, `board_cutouts`, `edge_margin` or `reservations` on an Occupancy (the handle's generation must bump at each); record in the spec.
 - [x] Profile at 0.33 (the spec's revision): legality 35%, the scorer 31%; the scorer goes native (tasks 6-8).
 
@@ -80,5 +80,5 @@
 
 ### Task 9: Measure and decide the later stages
 
-- [x] Sequential timings (corpus default, solve and physical, the core board, `bench.py --explore 64`), Python then native, against the spec's targets; profile what remains; write in the spec whether blocks, the cleanup pass or explore's per-variant overhead is next, with numbers.
+- [x] Sequential timings (corpus default, solve and physical, the whole test board, `bench.py --explore 64`), Python then native, against the spec's targets; profile what remains; write in the spec whether blocks, the cleanup pass or explore's per-variant overhead is next, with numbers.
 - [ ] Docs (`native/README.md`, the spec, the migration note if anything a user sees changes), release; commit.

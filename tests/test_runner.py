@@ -45,7 +45,7 @@ def test_a_route_this_run_already_produced_is_not_overwritten(tmp_path):
 def test_drc_refuses_a_board_with_no_project_file_beside_it(tmp_path):
     """kicad-cli substitutes its own defaults when the project file is not
     there, and the report then measures KiCad rather than the board: on the
-    fairing main board that is 1263 violations against a true 313, including
+    whole test board that is 1263 violations against a true 313, including
     199 track_width that do not exist."""
     from placemat.kicad.drc import run_drc
     pcb = tmp_path / "layout.kicad_pcb"

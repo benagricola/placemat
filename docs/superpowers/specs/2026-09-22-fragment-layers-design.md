@@ -10,21 +10,21 @@ not, and nothing says so.
 
 ## What happens now, measured
 
-The W3011 antenna module declares `keepout antenna` on every copper layer
+A chip-antenna module declares `keepout antenna` on every copper layer
 (datasheet Detail A/B: no metallisation on any layer) and `keepout antenna_c`
 on In2 (Detail C). Read back:
 
 | where | rule area | layers |
 |---|---|---|
-| fragment `modules/gnss_antenna` | `keepout antenna` | F.Cu, B.Cu |
+| fragment `modules/antenna` | `keepout antenna` | F.Cu, B.Cu |
 | fragment | `keepout antenna_c` | none - In2 is not on this board |
-| generated parent `boards/main` | `keepout antenna_1` | F.Cu, B.Cu |
+| generated parent board | `keepout antenna_1` | F.Cu, B.Cu |
 | generated parent | `keepout antenna_c_1` | In2.Cu |
 
 So In2 survives and the all-layer keepout does not: the parent's pours fill
 under the antenna on In1 and In2, which is the entry in `PLACEMAT_GAPS.md`
 that cost a board. The parent script currently restates both shapes by hand as
-`w3011_ab` and `w3011_c`.
+`ant_ab` and `ant_c`.
 
 Why, established by saving test boards:
 

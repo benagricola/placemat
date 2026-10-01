@@ -32,7 +32,7 @@ The nine entries, and what each actually needed:
 | 2026-09-19 USB-C receptacle | how far its copper reaches from the origin | `Box.union(pad outlines)` |
 | 2026-09-19 port on the placed board | position, rotation, copper's distance to the board edge | placement + a board polygon placemat does not read |
 | 2026-09-19 FFC hold-down tabs | are pads 11 and 12 real pads, and how big | `fp.pads` |
-| 2026-09-20 Keystone terminals | do the two legs share a pad number | `fp.pads` |
+| 2026-09-20 clip terminals | do the two legs share a pad number | `fp.pads` |
 | 2026-09-20 display fan, USB pair | placed pad centres and boxes | `PadGeom.box` after placement |
 | 2026-09-20 board read back as a table | pads, vias and tracks per part in the board frame | `BoardGeometry.copper` |
 | 2026-09-20 footprint pad identity | each pad's net and true copper box | `outlines_of` |
@@ -42,7 +42,7 @@ The nine entries, and what each actually needed:
 **The numbers are already right.** Two checks worth recording, because they are
 the two the gaps file says are hard:
 
-The TPS55288's four custom corner pads report `GetSize()` as `0.005 x 0.005` -
+A boost converter's four custom corner pads report `GetSize()` as `0.005 x 0.005` -
 the anchor the gaps file warns "lies for a custom pad" - and placemat's
 `outlines_of` returns their real copper box, `0.920 x 0.720`. The correction the
 entry asks for is already made; it is simply never printed.
@@ -72,7 +72,7 @@ its **effective copper box** - the box round `outlines_of`, not the anchor
 `size`, because for a custom pad the anchor is not the copper.
 
 ```
-part  usbconnector.j_usb   U36   TYPE-C-31-M-15
+part  connector.j_usb      U36   <USB-C receptacle>
   face front  rotation 90  origin (25.50, 68.10)
   body 8.70 x 3.00   courtyard 8.95 x 4.86   physical 8.86 x 4.86
   nearest board edge: copper 2.35 mm, courtyard 1.05 mm
@@ -96,8 +96,8 @@ went down in.
 
 ```
 instance                 ref   face   cell      mm2   pins  value
-logic.mcu                U18   front  logic    56.0     57  ESP32-S3R8
-usbconverter.l_vbus      U37   back   usbconv  31.5      2  4.7uH
+logic.mcu                U18   front  logic    56.0     57  <MCU module>
+converter.l_vbus         U37   back   conv     31.5      2  4.7uH
 ```
 
 ### A footprint with no board
@@ -210,7 +210,7 @@ With KiCad:
     than one hundred points with a hole for a disc with a bore;
 14. against the committed Breakout, a known part's measured pad centres equal
     `Occupancy.pad_location` for the same part - the two readers agree;
-15. the TPS55288's custom corner pads report a copper box near 0.92 x 0.72 and
+15. a boost converter's custom corner pads report a copper box near 0.92 x 0.72 and
     not 0.005;
 16. for a part the generator left at rotation 0 and a script places at
     rotation 0 on the front, `measure` on its `.kicad_mod` and `measure` on the

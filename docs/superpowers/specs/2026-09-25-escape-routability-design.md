@@ -13,7 +13,7 @@ part. Three findings say it does not:
   scores best and routes worst; 1.5 routes best (100% on the MCU cell) and
   scores worse; 2.0 routes worse again.
 - Fewer crossings did not predict better routing either: across eight
-  finalists the core's crossings ran 927-1106 with no ordering in closure.
+  finalists the whole test board's crossings ran 927-1106 with no ordering in closure.
 - Drawn to scale (scratch figures, 2026-09-25), depth controls three
   unrelated things:
   1. the length of each pin's straight strip, which rarely matters at
@@ -40,7 +40,7 @@ Two sources, both independent of placemat's own measures:
   tool (`qfn_fanout.py`, stub and under-pad via-drop methods) shows what a
   fan-out generator can and cannot escape, and `blocking_analysis.py` names
   what blocked a failed net.
-- **A hand-routed layout.** a downstream project's modules/MCU_RP2350B`
+- **A hand-routed layout.** a downstream project's MCU module
   (QFN-80, 0.4 mm pitch; 123 tracks and 59 vias round the chip). Its
   `LAYOUT-INTENT.md` records rules found by routing it, which a model has to
   reproduce:
@@ -78,7 +78,7 @@ pad on a ring well outside the chip, and supplies go to planes.
 
 Cases, all to scale and drawn as SVG/PNG from the board itself:
 
-1. **Bare chip.** The RP2350B footprint alone, at the net classes in use
+1. **Bare chip.** The QFN-80 chip's footprint alone, at the net classes in use
    (0.2/0.2, 0.15/0.15, 0.1/0.1 track/clearance; via 0.6/0.3 and
    0.45/0.25). The baseline: everything should escape.
 2. **One cap at a pin.** A 0402 (then 0603) on one supply pin mid-row, over
@@ -149,5 +149,5 @@ made scores comparable across depths and would be superseded.
 
 Every case runs twice: F.Cu signal with B.Cu ground (as the test boards
 are, where a via only serves a plane pin), and both layers signal (as the
-RP2350 module is, where relief vias carry signals on B.Cu). That shows
+MCU module is, where relief vias carry signals on B.Cu). That shows
 whether the model has to know the stack-up.

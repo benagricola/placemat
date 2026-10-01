@@ -143,8 +143,8 @@ BT /Helv 10 Tf 20 100 Td (Ordering) Tj ET
     assert "nothing could be sourced" in capsys.readouterr().out
 
 
-PARTS = pathlib.Path("/home/ben/Documents/Hardware/fairing-instrument/electronics/parts")
-needs_parts = pytest.mark.skipif(not PARTS.is_dir(), reason="the fairing parts are not here")
+PARTS = pathlib.Path(__file__).resolve().parents[1] / "fixtures/fairing/parts"
+needs_parts = pytest.mark.skipif(not PARTS.is_dir(), reason="the fixture parts are not here")
 
 
 @needs_kicad

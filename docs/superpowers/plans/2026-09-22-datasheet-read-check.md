@@ -257,16 +257,16 @@ def test_a_dotted_pcb_still_matches_the_land_keyword():
 
 ```python
 # append to tests/test_datasheet_corpus.py
-@pytest.mark.skipif(not TYPEC.exists(), reason="no TYPE-C datasheet")
+@pytest.mark.skipif(not CONNECTOR.exists(), reason="no TYPE-C datasheet")
 @pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract is not here")
 def test_ocr_turns_the_text_free_connector_into_a_strong_land_pattern(tmp_path):
     """Its own text is six runs. Read off the render it yields the heading,
     the dimension stack and the unit."""
-    runs = read.ocr_runs(TYPEC, 1, tmp_path)
+    runs = read.ocr_runs(CONNECTOR, 1, tmp_path)
     assert len(runs) > 50
     assert any("LAYOUT" in r.text.upper() for r in runs)
     assert ds.unit_of(runs) == "mm"
-    ev = ds.page_evidence("land", runs, read.draw_paths(TYPEC, 1))
+    ev = ds.page_evidence("land", runs, read.draw_paths(CONNECTOR, 1))
     assert ds.band_of(ev) == "strong"
 ```
 
@@ -977,13 +977,13 @@ git commit -m "placemat datasheet --read, and check against a footprint"
 
 ```python
 # append to tests/test_datasheet_corpus.py
-@pytest.mark.skipif(not TYPEC.exists(), reason="no TYPE-C datasheet")
+@pytest.mark.skipif(not CONNECTOR.exists(), reason="no TYPE-C datasheet")
 @pytest.mark.skipif(shutil.which("tesseract") is None, reason="tesseract is not here")
 def test_the_connectors_dimension_stack_is_sourced_with_confidence(tmp_path):
     """0.50 1.50 2.50 3.50 5.05 6.15 6.65 are on the sheet and readable only
     off the render. 4.55 is there too and tesseract reads it as 4.95, which is
     why a sourced number carries its confidence."""
-    runs = read.ocr_runs(TYPEC, 1, tmp_path)
+    runs = read.ocr_runs(CONNECTOR, 1, tmp_path)
     found = ds.facts({1: (runs, ())})
     dims = {round(f.value, 2) for f in found if f.name == "dimension"}
     assert {0.5, 1.5, 2.5, 3.5, 5.05, 6.15, 6.65} <= dims

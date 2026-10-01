@@ -18,7 +18,7 @@
 - `_disc_inside` and `still` are ported with the same tolerances (`r - 1e-5` for the disc, `d - r < clr - 1e-9` for still); chosen offsets are identical to the Python loop.
 - In pcbnew code use `board.Delete(item)`, never `board.Remove(item)` (nothing here touches pcbnew).
 - Targeted tests only, never the full suite; do not run the router.
-- Commits: author "Ben Agricola <ben+git@agrico.la>", no trailers, no references to tooling or sessions.
+- Commits: author "<owner name> <owner email>", no trailers, no references to tooling or sessions.
 
 ## Review Focus
 

@@ -2,7 +2,7 @@
 
 Status: approved (2026-10-01).
 
-Source: a board's session (2026-10-01), relaying Ben's preferred approach
+Source: a board's session (2026-10-01), relaying the owner's preferred approach
 from moving dense module scripts to intent only.
 
 ## Problem

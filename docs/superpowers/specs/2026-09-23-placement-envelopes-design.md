@@ -41,7 +41,7 @@ tested; those are footprint findings.
 
 - The netclass clearance comes from the project, as now.
 - The silk clearance is the board's `silkscreen.minimum_item_clearance`
-  (0.1 mm on the core board).
+  (0.1 mm on the whole test board).
 - The assembly gap is a new fab-profile.json key, `component_spacing`. Its
   default is twice `courtyard_excess`, which reproduces today's touching
   courtyards on a well-drawn footprint.
@@ -60,18 +60,18 @@ tested; those are footprint findings.
 - `placemat measure` prints the envelope and which layers set it.
 - In courtyard mode, a footprint whose silk or pads pass its courtyard by more
   than the silk clearance is reported, e.g. `U21: courtyard understates the
-  part by 0.42 mm (silk)`. On the core board that names 46.
+  part by 0.42 mm (silk)`. On the whole test board that names 46.
 - The mode is part of the run id through the settings hash.
 
 ## Acceptance
 
 - With physical, placed parts produce no `silk_overlap` or `silk_over_copper`
-  items between different footprints. The core's 124 go to 0, apart from any
+  items between different footprints. The whole test board's 124 go to 0, apart from any
   that come from Reference/Value text.
 - A unit test places two footprints whose silk passes their courtyards and
   cannot make their silk overlap.
 - A footprint with only pads places exactly as in courtyard mode.
-- The resolve on the 220-part core stays within 20% of its current 137 s.
+- The resolve on the 220-part whole test board stays within 20% of its current 137 s.
 - The migration note says that switching the mode re-places every board.
 
 ## Out of scope

@@ -1,8 +1,8 @@
 # `placemat nets`, and parts with no order number
 
 Date: 2026-09-29
-Status: approved 2026-09-29 (Ben: implement unless a decision is needed)
-Source: a board's PLACEMAT_GAPS.md, 2026-09-29 "which nets span the core
+Status: approved 2026-09-29 (the owner: implement unless a decision is needed)
+Source: a board's PLACEMAT_GAPS.md, 2026-09-29 "which nets span the whole test board
 furthest" and "which footprints carry an LCSC number"
 
 ## The problem
@@ -30,7 +30,7 @@ flags a placed part that has neither.
      column name.
    - A script is resolved to its board as `placemat parts` does.
 2. **`placemat parts` warns for a placed part with no order number.** One
-   line per part: "no order number: R40 (usbpd.r_wet)".
+   line per part: "no order number: R40 (pd.r_wet)".
    - "No order number" means none of the fields in `[parts] order_fields`
      (default `["Lcsc", "LCSC", "Mpn", "MPN"]`) is present and non-empty.
    - A part carrying `dnp` is skipped.

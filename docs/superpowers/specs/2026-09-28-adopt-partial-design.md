@@ -2,13 +2,13 @@
 
 Date: 2026-09-28
 Status: approved 2026-09-28
-Source: a board's layout work, 2026-09-28 (the core): "can route --adopt keep
+Source: a board's layout work, 2026-09-28 (the whole test board): "can route --adopt keep
 the closed parts of a net that is still open"
 
 ## The problem
 
 `route --adopt` keeps a net only whole: one still open after the route is
-left out. On the core the router leaves GND (and V3V3 before it) two or
+left out. On the whole test board the router leaves GND (and V3V3 before it) two or
 three connections short of whole on every pass, so every pass throws away
 its ~30 GND plane drops and pad-to-pad joins - about a third of the board's
 86 open connections - and the next pass routes them again, differently.

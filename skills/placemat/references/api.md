@@ -1677,9 +1677,9 @@ refused, naming the pad; so is `edge=` anywhere but a track point, a
 `Past`'s `across=` or a `Pin`'s point (below).
 
 ```python
-tap = PadRef(Part("r_shunt"), "VSHUNT", edge=Edge.SOUTH, along=Along.END)
-board.track(Net("VSHUNT"), [tap, Past([PadRef(Part("r_shunt"), "VSHUNT")], Edge.EAST, across=tap),
-                            PadRef(Part("r_sense"), "VSHUNT")], layer=CopperLayer.F)   # out of the gap, then away
+tap = PadRef(Part("r_shunt"), "V_HI", edge=Edge.SOUTH, along=Along.END)
+board.track(Net("V_HI"), [tap, Past([PadRef(Part("r_shunt"), "V_HI")], Edge.EAST, across=tap),
+                            PadRef(Part("r_sense"), "V_HI")], layer=CopperLayer.F)   # out of the gap, then away
 ```
 
 **A part's pad on another pad's edge.** The same `PadRef` is accepted as
@@ -1697,7 +1697,7 @@ lies under the shunt's body, pad 1 against the shunt's pad and pad 2 out
 past its end, where the sense track starts:
 
 ```python
-board.place(Part("nt_vshunt"), at=Pin(1, PadRef(Part("r_shunt"), "VSHUNT", edge=Edge.SOUTH, along=Along.END)),
+board.place(Part("nt_v_hi"), at=Pin(1, PadRef(Part("r_shunt"), "V_HI", edge=Edge.SOUTH, along=Along.END)),
             rotation=Turned(Part("r_shunt"), 90), why="the Kelvin junction at the shunt's inner edge")
 ```
 

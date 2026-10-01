@@ -194,7 +194,7 @@ Evidence: fixtures/mnb/modules/Buck_LM5164/Buck_LM5164_layout.py (placement
 lines 88-116, copper 118-175), which is typical of the 18 fixtures. Also the
 pad-references spec, which cites a board project's frame helper
 workaround helpers (`beside`, `drawn_from_pad`, `pour`, `pour_box`) and
-Usb5v's `pads_pour` and lanes. Items marked SPEC are in
+a boost module's `pads_pour` and lanes. Items marked SPEC are in
 docs/superpowers/specs/2026-09-29-pad-references-design.md and not built
 (I grepped src for `Beside`, `pour_pads`, `def lane`, `Origin(`,
 `Envelope(`: none).

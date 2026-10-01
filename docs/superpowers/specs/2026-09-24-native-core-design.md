@@ -217,7 +217,7 @@ numbers (12-34x), consistent with the marshalling-cost finding below.
 Remeasured for the persistent-index change below under quieter conditions.
 
 Profiling
-`legal()` with native wired (SlotControl, `physical`) found the win was
+`legal()` with native wired (the largest module, `physical`) found the win was
 smaller than the Phase 1 profile's arithmetic suggested, and why: handing
 a candidate's shapes to native costs real Python-side marshalling
 (`_to_native_shape_shifted`: building a plain tuple, including a shifted
@@ -225,7 +225,7 @@ polygon, per candidate shape, for every shape - not only the ones that
 turn out to conflict). An early version of this wiring built a full
 `occupancy.Shape` object (a dataclass, with its own box) for every
 candidate shape unconditionally before converting each to a native tuple -
-1.1M `Shape.__init__` calls on the SlotControl/`physical` profile alone,
+1.1M `Shape.__init__` calls on the largest module's `physical` profile alone,
 most of them for shapes that were never the ones that conflicted. Fixed:
 only the ONE shape native identifies as the conflicting one is ever turned
 into a full `Shape` (to hand to the untouched `_conflict` for its
@@ -432,7 +432,7 @@ Rust in one continuous push, in a rough proposed order: (1) per-candidate
 shapes stay native [done, above], (2) the whole candidate sweep of
 `scan()`, (3) `scan_block` / `layout_block`, (4) `pockets()`, (5) the
 cleanup pass. Before taking (2) on faith, profiled the CURRENT (post
-per-candidate-shapes-native) code on `SlotControl`/`physical` to see where
+per-candidate-shapes-native) code on the largest module under `physical` to see where
 time actually goes now, the same way every earlier boundary decision in
 this spec was made - not by guessing at the proposed order's payoff.
 
@@ -555,7 +555,7 @@ three real fixture boards and three envelopes. `pytest -q` and
 `PLACEMAT_NATIVE=0 pytest -q` both green. `fixtures/bench.py --jobs 4`:
 `same 32` in every config (this changes performance only).
 
-**Measured effect:** the same `SlotControl`/`default` profile this stage
+**Measured effect:** the same largest-module `default` profile this stage
 started from: instrumented total 16.7s to 14.0s (16%); `_conflict` /
 `_drawn_conflict` no longer appear in the top 35 functions by time at all
 (from a combined ~3.3s). Whole-corpus `--jobs 4` bench seconds: `default`

@@ -6,7 +6,7 @@ Status: implemented 2026-09-24 (see Results); revised after 0.33
 ## Revision after 0.33
 
 0.33 added a crossing and escape cost to every legal candidate (the
-crossings-escapes spec). Profile of fairing/SlotControl at 0.33, default
+crossings-escapes spec). Profile of the largest fixture module at 0.33, default
 config, native module on (9.7 s unprofiled; under the profiler):
 
 | | cumulative |
@@ -44,7 +44,7 @@ scorer, as in Python.
 ## Where the time goes now
 
 Profile of three explore variants of the benchmark's slowest module
-(fairing/SlotControl, default config, native module on, 2026-09-25):
+(the largest fixture module, default config, native module on, 2026-09-25):
 
 | | cumulative | own |
 |---|---|---|
@@ -242,9 +242,9 @@ then the v0.33.0 tag with its native module:
 - The corpus default at 3.6x 0.33's native (target 2x).
 - `bench.py --explore 64`: 0.06 s per variant against 0.33's 0.30 (5x;
   target 2x); pure Python 0.52-0.81 s.
-- fairing/SlotControl, the slowest module: 9.7 s at 0.33, 2.1 s now.
+- the largest fixture module, the slowest: 9.7 s at 0.33, 2.1 s now.
 - a test board's MCU cell's script (it declares blocks): 2.3 s at 0.33,
-  1.0 s now, the same placement. The core board's script stops on one of
+  1.0 s now, the same placement. The whole test board's script stops on one of
   its own assertions with the fragments now checked out, at 0.33 and now
   alike, so it was not timed.
 
@@ -253,7 +253,7 @@ Consistency: the suite passes native and pure Python; the bench is `same
 the same results in all three configurations, and `--explore 64` chooses
 the same variant on every module both ways.
 
-Two early full explore runs gave fairing/SlotControl 1697.7 where eleven
+Two early full explore runs gave the largest fixture module 1697.7 where eleven
 later runs, native and pure Python, gave 1598.4, with the same seed
 chosen. It did not recur with a fixed or a varied hash seed, under load,
 or alone; the cause is not known.

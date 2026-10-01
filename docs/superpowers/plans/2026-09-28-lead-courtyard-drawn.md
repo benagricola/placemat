@@ -15,7 +15,7 @@
 - Generic wording in source, tests' docstrings aside: no module, part or board names.
 - Plain ASCII.
 - Every placement change runs `fixtures/bench.py`; tally in the commit; `--update` when a number changes.
-- Commit with `git -c user.name="Ben Agricola"`; no Claude/Anthropic/session reference.
+- Commit with `git -c user.name="<owner name>"`; no Claude/Anthropic/session reference.
 - Rebuild native with `uv pip install -q -e ".[native]"` after a Rust change.
 
 ## Rulings made while planning

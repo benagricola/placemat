@@ -2,7 +2,7 @@
 
 Status: approved (2026-10-01).
 
-Source: Ben, through a board's session (2026-10-01): a net tie at a current
+Source: the owner, through a board's session (2026-10-01): a net tie at a current
 shunt's output pad.
 
 ## Problem
@@ -12,7 +12,7 @@ stands north of the shunt's output pad, lying east-west: pad 1 on that pad's
 centre line, its stub running straight down into the pad, and the tie's
 sense pad a clearance (0.16 mm) off the output pad. KiCad exempts a net
 tie's pads from clearance to the tie's own nets, so its DRC would not flag
-the sense pad standing nearer; Ben wants it clear anyway.
+the sense pad standing nearer; the owner wants it clear anyway.
 
 - `Beside(Part("shunt"), Edge.NORTH, gap=, align=(1, PadRef(shunt, "VOUT")))`
   lines pad 1 up on the pad's centre line, but `gap=` counts from the

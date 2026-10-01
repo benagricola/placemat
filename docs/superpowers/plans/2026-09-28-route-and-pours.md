@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Generic wording; plain ASCII; never modify ~/work/KiCadRoutingTools.
-- Commit with `git -c user.name="Ben Agricola"`; no Claude/Anthropic/session reference.
+- Commit with `git -c user.name="<owner name>"`; no Claude/Anthropic/session reference.
 - No placement change: no bench run needed (the router's input copy only).
 
 ## Review Focus

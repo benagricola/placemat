@@ -2,7 +2,7 @@
 
 Status: approved (2026-09-30).
 
-Source: Ben asked what could move into the native module (2026-09-30).
+Source: the owner asked what could move into the native module (2026-09-30).
 Profiles, all under cProfile, which roughly doubles pure-Python time:
 - **The whole-board test board's checks** (`placemat check` on the written board):
   1500 s. The zone-fill width was 1497 s of it:

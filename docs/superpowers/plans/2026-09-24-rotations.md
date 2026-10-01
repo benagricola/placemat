@@ -24,7 +24,7 @@
 
 - [ ] Failing tests: seeded two-pad part between two pins turns to 180 by default; `rotation=0`, `rotations=(0,)` and `"declared"` keep 0; a part that fits only at 90 places by default and is refused with `"declared"`; an `OnEdge` part, a `Centre(x, None)` part and a cell keep their rotation; a bad setting value is refused.
 - [ ] Implement: `rotation_given = rotation is not None` recorded in `place()`; `_turns(i)` returns `i.rotations` if given, `(i.rotation,)` if `rotation_given`, a cell's or a non-searched item's `(i.rotation,)`, else the four rotations from `i.rotation` when the setting is `"all"`.
-- [ ] Suite; bench; core board copy timed; commit with the tally and baseline.
+- [ ] Suite; bench; whole-board copy timed; commit with the tally and baseline.
 
 ### Task 2: Blocks
 
@@ -42,5 +42,5 @@ Outcome: not measurable - the bench declares loose parts only, so blocks keep on
 
 ### Task 4: Time, docs, release
 
-- [ ] Core board copy: resolve time before and after. If over 1.5x, profile the scored scan and reduce (for example, the coarse pass at one rotation, the fine pass at all four) with the bench re-run.
+- [ ] Whole-board copy: resolve time before and after. If over 1.5x, profile the scored scan and reduce (for example, the coarse pass at one rotation, the fine pass at all four) with the bench re-run.
 - [ ] `api.md`, `SKILL.md`, `migration.md` (To 0.28), BACKLOG to Done; version bump to 0.28.0; commit.

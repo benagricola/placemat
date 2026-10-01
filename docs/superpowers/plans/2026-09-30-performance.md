@@ -19,7 +19,7 @@
 - Tunables are settings in `src/placemat/settings.py` with defaults, documented in `skills/placemat/references/api.md`'s settings table - never bare literals. (Exception, matching existing precedent: private `functools.lru_cache(maxsize=N)` bounds on a pure implementation-detail cache, as `giveway._offsets` and `geometry._prepared_many` already do - not a placement/check behaviour knob.)
 - Native module builds into this worktree only (`native/.native-dist`, `../.native-build`), never into the shared `.venv`. `.native-build/` and `.native-dist/` go in `.git/info/exclude` (git-dir: `/home/ben/work/placemat/.git/worktrees/agent-ac6b28de9d1ab4d11/info/exclude`), not `.gitignore`. Already done.
 - Keep `giveway.py` `_give`'s share/move/drop decision logic itself untouched where possible; add the native offset search as a helper it calls, so a concurrent "shorten way" change merges cleanly.
-- Commits: `git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit ...`; message has zero Claude/Anthropic/session/co-authored references (verify with the grep after every commit); plain ASCII only.
+- Commits: `git -c user.name="<owner name>" -c user.email="<owner email>" commit ...`; message has zero Claude/Anthropic/session/co-authored references (verify with the grep after every commit); plain ASCII only.
 - Tests: targeted files only, run as `PYTHONPATH=<worktree>/.native-build:<worktree>/src /home/ben/work/placemat/.venv/bin/python -m pytest -q -p no:cacheprovider tests/<files>` (copy `src/placemat/_version.py` from the main checkout first). Never the full suite, never the router.
 - Bench: `fixtures/bench.py --jobs 2` (default 32-module tally) after each step touching placement, plus the whole-board timings once per step; never two heavy jobs at once. Tally and timings go in the step's commit message.
 - Sandbox note (this worktree): shell substitution (`$PWD`, `$(...)`, globs) inside a command the isolation check treats as "too complex to verify" gets refused - use literal absolute paths in every command, one command per invocation rather than long `&&` chains where practical.
@@ -140,7 +140,7 @@ Since the whole-board fixture is not committed until Task 2, verify this task in
 - [ ] **Step 7: Commit**
 
 ```
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "..."
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "..."
 ```
 Message states: the change (raster+transform replaces the edge scan in `_Fill.touching`), the pytest result, and that whole-board timing/verdict comparison is deferred to the next commit (which adds the fixture). Then:
 ```
@@ -165,7 +165,7 @@ must print nothing.
 - [ ] **Step 1: Check the source boards' size before copying**
 
 ```
-ls -la /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/fairprof/electronics/boards/core/.placemat/generated/Core/layout.kicad_pcb /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/fairprof/electronics/boards/core/layout/layout.kicad_pcb
+ls -la <source checkout>/electronics/boards/<board>/.placemat/generated/<Board>/layout.kicad_pcb <source checkout>/electronics/boards/<board>/layout/layout.kicad_pcb
 ```
 If either exceeds ~5 MB, stop and report it in the final report instead of committing (per the task's instructions) - do not proceed with this task's remaining steps for that file; note the gap.
 
@@ -174,10 +174,10 @@ If either exceeds ~5 MB, stop and report it in the final report instead of commi
 ```
 mkdir -p /home/ben/work/placemat/.claude/worktrees/agent-ac6b28de9d1ab4d11/fixtures/fairing/core/generated
 mkdir -p /home/ben/work/placemat/.claude/worktrees/agent-ac6b28de9d1ab4d11/fixtures/fairing/core/layout
-cp /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/fairprof/electronics/boards/core/.placemat/generated/Core/layout.kicad_pcb /home/ben/work/placemat/.claude/worktrees/agent-ac6b28de9d1ab4d11/fixtures/fairing/core/generated/layout.kicad_pcb
-cp /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/fairprof/electronics/boards/core/.placemat/generated/Core/layout.kicad_pro /home/ben/work/placemat/.claude/worktrees/agent-ac6b28de9d1ab4d11/fixtures/fairing/core/generated/layout.kicad_pro
-cp /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/fairprof/electronics/boards/core/layout/layout.kicad_pcb /home/ben/work/placemat/.claude/worktrees/agent-ac6b28de9d1ab4d11/fixtures/fairing/core/layout/layout.kicad_pcb
-cp /tmp/claude-1000/-home-ben-work-placemat/5d67ca9e-2758-4c31-8023-db2f60969045/scratchpad/fairprof/electronics/boards/core/layout/layout.kicad_pro /home/ben/work/placemat/.claude/worktrees/agent-ac6b28de9d1ab4d11/fixtures/fairing/core/layout/layout.kicad_pro
+cp <source checkout>/electronics/boards/<board>/.placemat/generated/<Board>/layout.kicad_pcb /home/ben/work/placemat/.claude/worktrees/agent-ac6b28de9d1ab4d11/fixtures/fairing/core/generated/layout.kicad_pcb
+cp <source checkout>/electronics/boards/<board>/.placemat/generated/<Board>/layout.kicad_pro /home/ben/work/placemat/.claude/worktrees/agent-ac6b28de9d1ab4d11/fixtures/fairing/core/generated/layout.kicad_pro
+cp <source checkout>/electronics/boards/<board>/layout/layout.kicad_pcb /home/ben/work/placemat/.claude/worktrees/agent-ac6b28de9d1ab4d11/fixtures/fairing/core/layout/layout.kicad_pcb
+cp <source checkout>/electronics/boards/<board>/layout/layout.kicad_pro /home/ben/work/placemat/.claude/worktrees/agent-ac6b28de9d1ab4d11/fixtures/fairing/core/layout/layout.kicad_pro
 ```
 Before adding to git, `grep` both `.kicad_pcb` files for the source project's own name (whatever it is - checked against the real filenames encountered) and for any comment/script path leaking the source repo, to satisfy "commit no layout script or prose from the source project"; a `.kicad_pcb` is KiCad's own binary-ish s-expression format with no placemat script embedded, but footprint library/sheet paths can leak a source repo path - inspect for `(sheetfile ...)`, `(sheetname ...)`, `(property "Sheetfile" ...)` and any absolute path under the source checkout, and strip/generalise any found (matching the project-agnostic rule) before staging.
 
@@ -258,7 +258,7 @@ Expected: `same 32` on every config (Task 1 touches only `checks.py`, never plac
 - [ ] **Step 6: Commit the fixture and the bench flags together**
 
 ```
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "..."
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "..."
 ```
 Message states: the fixture added (generic wording only - "the whole-board fixture", "a six-layer test board"), the `--board`/`--checks` flags, the bench tally ("same 32" x3), and the `--board`/`--checks` timings measured. If Task 1's before/after `--checks` comparison was obtained, state the checks-verdict diff (if any: at most one `check.zone_step` per changed width, each changed verdict listed) here - since this is the first commit where the fixture exists to measure against. If no before-comparison was obtained, say so plainly rather than asserting "unchanged" without having checked.
 Then verify:
@@ -515,7 +515,7 @@ pstats.Stats(p).sort_stats('cumulative').print_stats(15)
 
 Message states: what changed in each of the three spots, the pytest results (step 10), the bench tally (step 11), the profiled before/after for the sweep's Python (against the spec's <15s target, or the honest gap if not met), and the unprofiled whole-board `--board` timing before/after.
 ```
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "..."
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "..."
 ```
 ```
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
@@ -783,7 +783,7 @@ Read `giveway.resolve`'s cumulative time as a share of the whole run's cumulativ
 
 Message states: the native `first_clear_offset` addition, the Python-side helper and its fallback, the ruling on the tail (still Python, still per-winning-offset), pytest results, bench tally, and the give-way share before/after against the 15% target.
 ```
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "..."
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "..."
 ```
 ```
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
@@ -1144,7 +1144,7 @@ PYTHONPATH=/home/ben/work/placemat/.claude/worktrees/agent-ac6b28de9d1ab4d11/.na
 
 Message states: the `NativeFill` port and its Python-side toggle, the parity test coverage (every current-path fixture fill plus a slit fill), pytest results, the whole-board `--checks` timing against the "under 30 s" target, the bench tally, and the `--board` timing (should be unchanged from Task 4, since NativeFill affects checks only).
 ```
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "..."
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "..."
 ```
 ```
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"

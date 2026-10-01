@@ -13,16 +13,16 @@ lanes. Its rough count of lane relations per module:
 
 | module | lanes |
 |---|---|
-| pdcontroller | 34 |
-| usbconverter | 55 |
-| mcu | 38 |
-| protection | 23 |
-| supervisor | 15 |
-| usb5v | 11 |
-| usbmoisture | 9 |
-| logicsupply | 8 |
-| usbpowerpath | 6 |
-| usbpdsupport | 3 |
+| module A | 34 |
+| module B | 55 |
+| module C | 38 |
+| module D | 23 |
+| module E | 15 |
+| module F | 11 |
+| module G | 9 |
+| module H | 8 |
+| module I | 6 |
+| module J | 3 |
 
 In each case a module script on 0.54 still computes a coordinate by hand,
 from pad tips, a pad centre or a group's box.

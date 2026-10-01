@@ -12,24 +12,24 @@ from tests.conftest import needs_breakout, needs_kicad
 
 
 def test_an_island_net_may_carry_a_width():
-    assert parse_islands(["VSHUNT", "VBIKE=0.5"]) == {"VSHUNT": None, "VBIKE": 0.5}
-    with pytest.raises(ValueError, match="VBIKE=wide"):
-        parse_islands(["VBIKE=wide"])
+    assert parse_islands(["V_HI", "VIN=0.5"]) == {"V_HI": None, "VIN": 0.5}
+    with pytest.raises(ValueError, match="VIN=wide"):
+        parse_islands(["VIN=wide"])
 
 
 def test_the_islands_pass_names_its_nets_and_their_widths():
     cmd = router_command("py", "route.py", "in", "out", set(), ["F.Cu", "B.Cu"], "s.json",
-                         nets=["VSHUNT", "VBIKE"], widths={"VBIKE": 0.5})
+                         nets=["V_HI", "VIN"], widths={"VIN": 0.5})
     i = cmd.index("--nets")
-    assert cmd[i + 1:i + 3] == ["VBIKE", "VSHUNT"] and "*" not in cmd
+    assert cmd[i + 1:i + 3] == ["VIN", "V_HI"] and "*" not in cmd
     j = cmd.index("--power-nets")
-    assert cmd[j + 1] == "VBIKE" and cmd[cmd.index("--power-nets-widths") + 1] == "0.5"
+    assert cmd[j + 1] == "VIN" and cmd[cmd.index("--power-nets-widths") + 1] == "0.5"
 
 
 def test_the_route_command_passes_the_setting_and_the_flag(tmp_path, monkeypatch):
     from placemat import cli
     import placemat.kicad.route as route_mod
-    (tmp_path / "placemat.toml").write_text('[route]\nislands = ["VSHUNT"]\n')
+    (tmp_path / "placemat.toml").write_text('[route]\nislands = ["V_HI"]\n')
     pcb = tmp_path / "layout.kicad_pcb"
     pcb.write_text("")
     seen = {}
@@ -44,8 +44,8 @@ def test_the_route_command_passes_the_setting_and_the_flag(tmp_path, monkeypatch
         seen["islands"] = islands
         return Report()
     monkeypatch.setattr(route_mod, "route_board", stand_in)
-    assert cli.main(["route", str(pcb), "--islands", "VBIKE=0.5"]) == 0
-    assert seen["islands"] == {"VSHUNT": None, "VBIKE": 0.5}
+    assert cli.main(["route", str(pcb), "--islands", "VIN=0.5"]) == 0
+    assert seen["islands"] == {"V_HI": None, "VIN": 0.5}
 
 
 @needs_kicad
@@ -99,7 +99,7 @@ def test_a_router_run_joins_the_pads_a_partial_pour_leaves_apart(breakout_pcb, t
 
 def test_a_malformed_island_entry_is_refused_when_the_settings_load(tmp_path):
     from placemat.settings import SettingsError, load
-    for bad in ('"VBIKE=wide"', '"=0.5"', '"VBIKE=0"'):
+    for bad in ('"VIN=wide"', '"=0.5"', '"VIN=0"'):
         (tmp_path / "placemat.toml").write_text('[route]\nislands = [%s]\n' % bad)
         with pytest.raises(SettingsError, match="route.islands"):
             load(tmp_path)
@@ -108,7 +108,7 @@ def test_a_malformed_island_entry_is_refused_when_the_settings_load(tmp_path):
 def test_a_bare_flag_keeps_the_width_the_setting_gives(tmp_path, monkeypatch):
     from placemat import cli
     import placemat.kicad.route as route_mod
-    (tmp_path / "placemat.toml").write_text('[route]\nislands = ["VBIKE=0.5"]\n')
+    (tmp_path / "placemat.toml").write_text('[route]\nislands = ["VIN=0.5"]\n')
     pcb = tmp_path / "layout.kicad_pcb"
     pcb.write_text("")
     seen = {}
@@ -123,9 +123,9 @@ def test_a_bare_flag_keeps_the_width_the_setting_gives(tmp_path, monkeypatch):
         seen["islands"] = islands
         return Report()
     monkeypatch.setattr(route_mod, "route_board", stand_in)
-    assert cli.main(["route", str(pcb), "--islands", "VBIKE", "VSHUNT"]) == 0
-    assert seen["islands"] == {"VBIKE": 0.5, "VSHUNT": None}
-    assert cli.main(["route", str(pcb), "--islands", "VBIKE=wide"]) == 2
+    assert cli.main(["route", str(pcb), "--islands", "VIN", "V_HI"]) == 0
+    assert seen["islands"] == {"VIN": 0.5, "V_HI": None}
+    assert cli.main(["route", str(pcb), "--islands", "VIN=wide"]) == 2
 
 
 def _four_layer_with_pours(breakout_pcb, dest, nets):

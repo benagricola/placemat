@@ -1,9 +1,9 @@
 # Findings that name the copper they measured
 
 Date: 2026-09-29
-Status: approved 2026-09-29 (Ben: implement unless a decision is needed)
+Status: approved 2026-09-29 (the owner: implement unless a decision is needed)
 Source: a board's PLACEMAT_GAPS.md, 2026-09-28 "which copper a keep-out or
-current-path check measured" and "the usb5v cell's copper by net, and where a
+current-path check measured" and "a boost cell's copper by net, and where a
 chamfer cut" (part 2)
 
 ## The problem
@@ -23,7 +23,7 @@ chamfer cut" (part 2)
 ## The change
 
 1. **The keep-out verdict names its two items and points.** For example:
-   "SW_5V to FB_5V 1.27 mm: U3 pad 5 (SW) at (x, y) to U3 pad 9 (FB) at
+   "SW_OUT to FB_OUT 1.27 mm: U3 pad 5 (SW) at (x, y) to U3 pad 9 (FB) at
    (x, y); both pads of U3, a distance its footprint sets". A track or via
    is named by net and ends. `--json` carries the same fields.
 2. **A current-path verdict gives its neck** as a point and a length along

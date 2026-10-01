@@ -23,7 +23,7 @@
 - Plain ASCII only: no em/en dashes, no unicode arrows, straight quotes.
 - A new field that feeds a run's digest carries `metadata={"omit_default": True}` where existing code does that, so old scripts digest as before (`Settings` fields already follow this convention where relevant; `FabProfile.json()` must stay byte-identical for a profile with no new keys).
 - Never use `board.Remove(item)` in pcbnew code; always `board.Delete(item)`.
-- Commits: `git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit ...`. No Claude/Anthropic/session/AI/Co-Authored-By references anywhere in a commit message; verify with `git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"` after every commit (must print nothing).
+- Commits: `git -c user.name="<owner name>" -c user.email="<owner email>" commit ...`. No Claude/Anthropic/session/AI/Co-Authored-By references anywhere in a commit message; verify with `git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"` after every commit (must print nothing).
 - Tests: targeted files only. `cp /home/ben/work/placemat/src/placemat/_version.py src/placemat/; PYTHONPATH=$PWD/src /home/ben/work/placemat/.venv/bin/python -m pytest -q -p no:cacheprovider tests/<files>`. Never run the full suite, never run the router, never `uv pip install`.
 - Bench once, at the end: `PYTHONPATH=$PWD/src /home/ben/work/placemat/.venv/bin/python fixtures/bench.py --jobs 2`; its tally lines go in the final commit message.
 
@@ -245,7 +245,7 @@ Expected: PASS
 
 ```bash
 git add src/placemat/kicad/read.py src/placemat/board_geometry.py tests/test_stackup_copper_mm.py tests/test_board_geometry_read.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "$(cat <<'EOF'
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "$(cat <<'EOF'
 Board geometry reads each copper layer's own stackup weight
 
 Parsed from the .kicad_pcb's own setup/stackup text, since this KiCad
@@ -513,7 +513,7 @@ If any existing test fails: it is almost certainly a call site still passing `co
 
 ```bash
 git add src/placemat/checks.py tests/test_checks.py tests/test_current_path_pairs.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "$(cat <<'EOF'
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "$(cat <<'EOF'
 Current-path check judges each piece of copper by its own layer's weight
 
 Inner copper is sized by IPC-2221's inner constant against the board's
@@ -636,7 +636,7 @@ Expected: PASS. If `test_checks_wiring.py` or another file calls `overrides_from
 
 ```bash
 git add src/placemat/settings.py src/placemat/cli.py tests/test_settings.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "$(cat <<'EOF'
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "$(cat <<'EOF'
 Retire check.copper_oz, route.layers and route.diff_pairs from placemat.toml
 
 Each is refused by name, citing the .zen field that replaces it.
@@ -768,7 +768,7 @@ Expected: PASS. Fix any remaining call site in these files still using `resolved
 
 ```bash
 git add src/placemat/kicad/route.py tests/test_route_plane_layers.py tests/test_route_settings.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "$(cat <<'EOF'
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "$(cat <<'EOF'
 Route layers default to each layer's own role, not plane coverage
 
 Every signal or mixed layer, F.Cu and B.Cu always; placemat route
@@ -897,7 +897,7 @@ Expected: PASS (all tests in the file, old and new).
 
 ```bash
 git add src/placemat/pairs.py tests/test_pairs.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "$(cat <<'EOF'
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "$(cat <<'EOF'
 Differential pairs come from the board's own net classes
 
 A class of exactly two nets pairs them whatever they are named; more
@@ -1111,7 +1111,7 @@ Expected: no hits outside `route_diff_pair_gap`/`route_diff_pair_width` (which s
 
 ```bash
 git add src/placemat/score.py src/placemat/occupancy.py src/placemat/report.py src/placemat/runner.py src/placemat/cli.py src/placemat/kicad/route.py src/placemat/pairs.py tests/test_route_pairs.py tests/test_pair_crossing.py tests/test_explicit_pairs.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "$(cat <<'EOF'
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "$(cat <<'EOF'
 Score, occupancy, drc reporting and the route step read pairs off the
 board's net classes, not route.diff_pairs
 
@@ -1168,7 +1168,7 @@ Expected: PASS.
 
 ```bash
 git add src/placemat/findings.py tests/test_finding_kinds.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "$(cat <<'EOF'
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "$(cat <<'EOF'
 Finding kinds fab, facts and needs
 
 fab: a board rule below the fab profile's minimum. facts: unconfirmed
@@ -1327,7 +1327,7 @@ Expected: `test_project.py` PASS. `test_via_types_allowed.py` will fail here - i
 
 ```bash
 git add src/placemat/project.py tests/test_project.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "$(cat <<'EOF'
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "$(cat <<'EOF'
 fab-profile.json: via types take yes/no/if-needed, and a min section
 
 The 0.57 allow_micro/allow_blind/allow_buried keys still read as
@@ -1427,7 +1427,7 @@ Expected: no hits.
 
 ```bash
 git add src/placemat/layout.py src/placemat/runner.py tests/test_via_types_allowed.py tests/test_flip_keeps_inner_layers.py tests/test_via_span.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "$(cat <<'EOF'
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "$(cat <<'EOF'
 Board takes fab_via_tiers, not a flat allow-set
 
 A script's via type is refused for a reason that says which: not
@@ -1561,7 +1561,7 @@ Expected: PASS.
 
 ```bash
 git add src/placemat/project.py src/placemat/runner.py tests/test_project.py tests/test_runner.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "$(cat <<'EOF'
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "$(cat <<'EOF'
 A board rule below the fab profile's minimum is a fab finding
 
 Checked against each of the board's net classes at run start: track
@@ -1810,7 +1810,7 @@ Expected: PASS. If Step 6's plan.findings wiring proves substantially more invas
 
 ```bash
 git add src/placemat/giveway.py src/placemat/layout.py src/placemat/occupancy.py src/placemat/placer.py tests/test_vias_give_way.py tests/test_vias_give_way_kicad.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "$(cat <<'EOF'
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "$(cat <<'EOF'
 Give way's fourth way: shorten a drop to its own face and its plane's
 nearest layer
 
@@ -2244,7 +2244,7 @@ Expected: PASS (this is exactly what Step 7's `Settings.json()` exclusion guaran
 
 ```bash
 git add src/placemat/facts.py src/placemat/settings.py src/placemat/cli.py src/placemat/runner.py tests/test_facts.py tests/test_settings.py tests/test_runner.py tests/test_cli_output.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "$(cat <<'EOF'
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "$(cat <<'EOF'
 placemat facts: print the board's facts and their home; --confirm records them
 
 An unconfirmed run says so on its first line and records a facts
@@ -2419,7 +2419,7 @@ current-path verdicts can change on this release.
 
 ```bash
 git add skills/placemat/SKILL.md skills/placemat/references/api.md skills/placemat/references/capture.md skills/placemat/references/migration.md
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "$(cat <<'EOF'
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "$(cat <<'EOF'
 Skill and reference docs: establish the facts, where a change goes,
 fab-profile.json's keys, placemat facts, migration
 

@@ -92,7 +92,7 @@ the committed board's gate state: DRC clean, unconnected 0, the same 36
 dangling module stubs, zero crossings, 126.5 x 229.89. Crossings per net, congestion and routing (`placemat run --route`,
 `placemat route`, explicit and never default) are in. Next: STOP and plan
 the placer search kinds (pocket scan, net-seeded search, compaction,
-blocks) before building them against the Middleweight. The ecosystem's dependency still points at the old placemat
+blocks) before building them against the second consumer. The ecosystem's dependency still points at the old placemat
 checkout.
 
 ## Build order (each slice has a test that runs without KiCad where possible)
@@ -109,10 +109,10 @@ checkout.
    attributed delta
 6. skill rewrite (fresh-board workflow, electrical model first, the new API,
    the gates), then the Breakout script is rewritten from the skill alone
-7. Middleweight is the second consumer; anything it needs that the API lacks
+7. The second consumer is another downstream project; anything it needs that the API lacks
    is a proposal, not a local helper
 
-## Rulings (Ben, 2026-09-13)
+## Rulings (the owner, 2026-09-13)
 
 - Purpose, kept in front of every decision: the tool exists so an LLM can
   iterate on placement FAST, test thousands of candidates offline, and see at
@@ -125,7 +125,7 @@ checkout.
   who passes under, only a track declared bridge=True may, and a crossing
   nobody may bridge is a finding. "Lane" is reserved for a future bundle
   object (several nets at a pitch, pin-order sorting, length per net),
-  backlog with the Middleweight.
+  backlog with the second consumer.
 - Ordering is PRIORITY, not authoring order. A declaration says how firm it
   is; the runner decides when it runs and what may yield to it:
     placement  FIXED (mechanical fact, first, never moved)
@@ -178,7 +178,7 @@ What it lacks is everything that chooses the hint and the order.
    not the bounding box. Not built until a board needs it.
 7. **Separation scoring** (keep power, analogue, digital and noisy regions
    apart, by classifying nets and parts): an idea to develop after the
-   above works on the Middleweight, not part of this round.
+   above works on the second consumer, not part of this round.
 8. **Routing config per board**: the router's grid and clearance must be
    chosen per board (the Breakout at 0.1 mm grid is 12M cells a layer and
    every net fails "boxed in" in 220 s); an open question alongside the

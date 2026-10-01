@@ -50,7 +50,7 @@ written:
   (default 2, an integer, at least 2) in `settings.py`.
 - Plain ASCII only: no em/en dashes, no unicode arrows, straight quotes.
 - Skill and doc text: plain, measured, no marketing tone.
-- Commits: `git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la
+- Commits: `git -c user.name="<owner name>" -c user.email="<owner email>"
   commit ...`. No reference to Claude, Anthropic, AI, sessions or
   Co-Authored-By in any commit message; verify with `git log -1
   --format=%B | grep -iE "claude|anthropic|session|co-authored"` after
@@ -155,8 +155,8 @@ Same command as Step 2. Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la add src/placemat/findings.py tests/test_finding_kinds.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "Finding kind split: a cell whose parts form separate groups"
+git -c user.name="<owner name>" -c user.email="<owner email>" add src/placemat/findings.py tests/test_finding_kinds.py
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "Finding kind split: a cell whose parts form separate groups"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 
@@ -269,8 +269,8 @@ Same command as Step 6. Expected: PASS.
 - [ ] **Step 9: Commit**
 
 ```bash
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la add src/placemat/settings.py tests/test_settings.py skills/placemat/references/api.md
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "Setting place.split_min_group: the least members a group needs to count"
+git -c user.name="<owner name>" -c user.email="<owner email>" add src/placemat/settings.py tests/test_settings.py skills/placemat/references/api.md
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "Setting place.split_min_group: the least members a group needs to count"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 
@@ -598,8 +598,8 @@ Same command as Step 2. Expected: PASS, all of them.
 - [ ] **Step 5: Commit**
 
 ```bash
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la add src/placemat/splits.py tests/test_splits.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "splits.py: group a cell's members by the nets local to it"
+git -c user.name="<owner name>" -c user.email="<owner email>" add src/placemat/splits.py tests/test_splits.py
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "splits.py: group a cell's members by the nets local to it"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 
@@ -741,8 +741,8 @@ Expected: PASS throughout.
 - [ ] **Step 6: Commit**
 
 ```bash
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la add src/placemat/layout.py tests/test_splits.py tests/test_run_score.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "A run reports a cell of several jobs as a split finding"
+git -c user.name="<owner name>" -c user.email="<owner email>" add src/placemat/layout.py tests/test_splits.py tests/test_run_score.py
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "A run reports a cell of several jobs as a split finding"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 
@@ -887,8 +887,8 @@ task's edits did not break any of them).
 - [ ] **Step 6: Commit**
 
 ```bash
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la add skills/placemat/SKILL.md skills/placemat/references/capture.md skills/placemat/references/api.md skills/placemat/references/migration.md
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "Skill and docs: modules for placement, and the split finding"
+git -c user.name="<owner name>" -c user.email="<owner email>" add skills/placemat/SKILL.md skills/placemat/references/capture.md skills/placemat/references/api.md skills/placemat/references/migration.md
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "Skill and docs: modules for placement, and the split finding"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 

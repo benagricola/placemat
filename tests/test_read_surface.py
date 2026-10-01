@@ -16,11 +16,12 @@ from tests.conftest import needs_breakout, needs_kicad
 
 pytestmark = [needs_kicad]
 
-FAIRING = "/home/ben/Documents/Hardware/fairing-instrument/electronics/boards/main/kicad/layout.kicad_pcb"
-PARTS = "/home/ben/Documents/Hardware/fairing-instrument/electronics/parts"
-needs_fairing = pytest.mark.skipif(not pathlib.Path(FAIRING).exists(),
-                                   reason="the fairing main board is not here")
-needs_parts = pytest.mark.skipif(not os.path.isdir(PARTS), reason="the fairing parts are not here")
+# A four-layer board whose outline is a disc with a bore: set PLACEMAT_TEST_DISC_BOARD to its .kicad_pcb.
+DISC_BOARD = os.environ.get("PLACEMAT_TEST_DISC_BOARD", "/nonexistent.kicad_pcb")
+PARTS = str(pathlib.Path(__file__).resolve().parents[1] / "fixtures/fairing/parts")
+needs_disc_board = pytest.mark.skipif(not pathlib.Path(DISC_BOARD).exists(),
+                                      reason="the disc board is not here (PLACEMAT_TEST_DISC_BOARD)")
+needs_parts = pytest.mark.skipif(not os.path.isdir(PARTS), reason="the fixture parts are not here")
 
 
 def _one(pattern):
@@ -48,11 +49,11 @@ def test_the_outline_box_agrees_with_the_polygon(breakout_pcb):
     assert poly_box.height == pytest.approx(g.outline_box.height, abs=0.2)
 
 
-@needs_fairing
+@needs_disc_board
 def test_a_disc_with_a_bore_reads_as_a_curve_and_a_hole():
     """The case outline gets wrong: it holds one bounding box per Edge.Cuts
     drawing, so a disc reads as a square."""
-    g = read_board(FAIRING)
+    g = read_board(DISC_BOARD)
     assert len(g.board_polygon) >= 2                 # the rim, and at least one hole
     assert len(g.board_polygon[0]) > 100             # a flattened curve, not a rectangle
 
@@ -78,7 +79,7 @@ def test_the_hold_down_tabs_are_real_pads():
 
 @needs_parts
 def test_a_custom_pad_reports_its_copper_and_not_its_anchor():
-    """The TPS55288's four corner pads report GetSize() as 0.005 x 0.005."""
+    """A boost converter's four corner pads report GetSize() as 0.005 x 0.005."""
     from placemat.kicad.read import read_footprint
     fp, _ = read_footprint(_one("*TPS55288*"))
     odd = [p for p in fp.pads if 0.5 < p.box.width < 1.5 and 0.5 < p.box.height < 1.0]
@@ -232,9 +233,9 @@ def test_a_placed_pad_reports_only_layers_the_board_has(breakout_pcb):
     assert all(set(p.layers) == stack for p in through)
 
 
-@needs_fairing
+@needs_disc_board
 def test_a_four_layer_boards_pads_name_four_layers():
-    g = read_board(FAIRING)
+    g = read_board(DISC_BOARD)
     assert len(g.layers) == 4
     through = [p for fp in g.footprints for p in fp.pads if p.through]
     assert through and all(len(p.layers) == 4 for p in through)

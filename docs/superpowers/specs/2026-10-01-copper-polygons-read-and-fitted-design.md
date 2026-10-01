@@ -2,7 +2,7 @@
 
 Status: approved (2026-10-01), with pull-back removed entirely.
 
-Source: Ben, through a board's session (2026-10-01): a boost converter's
+Source: the owner, through a board's session (2026-10-01): a boost converter's
 VOUT and SW2 copper drawn by hand as polygons, to be folded into the
 module's script.
 
@@ -58,7 +58,7 @@ pulls it back from every other net's copper afterwards. Where other copper
 stands inside the hull, the result is a hull with bites taken out of it:
 one hull over a switch node's four pads covers the gap between a bootstrap
 pin and the output bar; one over the output pads covers a sense pin and its
-track. The shape Ben draws instead is one static polygon over the pads it
+track. The shape the owner draws instead is one static polygon over the pads it
 joins, every edge straight, every edge that passes other copper tangent to
 that copper's clearance outline: a rubber band round its own pads, pushed
 in by foreign clearances.
@@ -66,7 +66,7 @@ in by foreign clearances.
 ### Design
 
 `board.pour(net, pads, layer=, swallow_pads=True)` over pads is **fitted**
-(Ben: fitting replaces pull-back on pours):
+(the owner: fitting replaces pull-back on pours):
 
 - **Its pads**: the copper of every pad named (all their lands) is inside
   the outline.
@@ -100,7 +100,7 @@ in by foreign clearances.
 
 ### Pull-back is removed
 
-Ben (2026-10-01): pull-back goes entirely, with no second behaviour; pours
+The owner (2026-10-01): pull-back goes entirely, with no second behaviour; pours
 are re-laid out in the fitted style.
 
 - The writer's pull-back of pours (`_pulled_back`, `_swallow_grown` and the

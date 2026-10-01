@@ -428,7 +428,7 @@ def test_rectangles_of_the_same_size_cluster():
 
 
 def test_dimension_numbers_are_the_decimals_on_the_page():
-    runs = [_run("0.50"), _run("1.30"), _run("Page 7 of 11"), _run("ANT016008LCS2442MA1")]
+    runs = [_run("0.50"), _run("1.30"), _run("Page 7 of 11"), _run("ANT-CHIP")]
     assert sorted(ds.dimension_numbers(runs)) == [0.5, 1.3]
 
 
@@ -554,8 +554,8 @@ Expected: FAIL, `AttributeError: ... has no attribute 'page_evidence'`
 # append to src/placemat/datasheet.py
 TOPICS = ("land", "package", "rules", "pins")
 
-# One vendor's words for a thing are not another's: the W3011 says "MECHANICAL
-# DRAWING" and "PWB Layout" where TDK says "RECOMMENDED LAND PATTERN". Measured
+# One vendor's words for a thing are not another's: one antenna datasheet says "MECHANICAL
+# DRAWING" and "PWB Layout" where another vendor says "RECOMMENDED LAND PATTERN". Measured
 # over 67 datasheets, a keyword list alone finds a land pattern on half of
 # them, which is why it is one signal beside the geometry and never the answer.
 KEYWORDS = {
@@ -690,7 +690,7 @@ def test_a_topic_with_no_candidate_still_appears():
 
 def test_the_index_lines_name_the_page_the_band_and_the_evidence():
     by_page = {7: _page(7, ("RECOMMENDED LAND PATTERN", "0.50", "1.30", "2.10"), rects=8)}
-    text = "\n".join(ds.index_lines("TDK-ANT016008", 11, ds.index(by_page)))
+    text = "\n".join(ds.index_lines("ANT-CHIP", 11, ds.index(by_page)))
     assert "p7" in text and "land" in text and "strong" in text
     assert "RECOMMENDED LAND PATTERN" in text
 
@@ -974,26 +974,26 @@ CORPUS = pathlib.Path("a board project's `datasheets`")
 pytestmark = [pytest.mark.skipif(shutil.which("mutool") is None, reason="mutool is not here"),
               pytest.mark.skipif(not CORPUS.is_dir(), reason="the datasheet corpus is not here")]
 
-TDK = CORPUS / "TDK-ANT016008LCS2442MA1_C76585.pdf"
-TYPEC = CORPUS / "Korean_Hroparts_Elec-TYPE_C_31_M_12_C165948.pdf"
+ANTENNA = CORPUS / "antenna.pdf"
+CONNECTOR = CORPUS / "connector.pdf"
 
 
-@pytest.mark.skipif(not TDK.exists(), reason="no TDK antenna datasheet")
+@pytest.mark.skipif(not ANTENNA.exists(), reason="no antenna datasheet")
 def test_the_antennas_land_pattern_is_found_on_page_7():
-    by_page = {n: (read.text_runs(TDK, n), read.draw_paths(TDK, n))
-               for n in range(1, read.page_count(TDK) + 1)}
+    by_page = {n: (read.text_runs(ANTENNA, n), read.draw_paths(ANTENNA, n))
+               for n in range(1, read.page_count(ANTENNA) + 1)}
     land = [c for c in ds.index(by_page) if c.topic == "land"][0]
     assert land.page == 7 and land.band == "strong"
 
 
-@pytest.mark.skipif(not TYPEC.exists(), reason="no TYPE-C datasheet")
+@pytest.mark.skipif(not CONNECTOR.exists(), reason="no TYPE-C datasheet")
 def test_a_datasheet_with_no_text_still_yields_its_rectangles():
     """55 characters of text on the whole page; every dimension is an outlined
     curve. The geometry is still there, and it is what makes this part
     tractable at all."""
-    runs = read.text_runs(TYPEC, 1)
+    runs = read.text_runs(CONNECTOR, 1)
     assert sum(len(r.text) for r in runs) < 200
-    groups = ds.clusters(ds.rectangles(read.draw_paths(TYPEC, 1)))
+    groups = ds.clusters(ds.rectangles(read.draw_paths(CONNECTOR, 1)))
     assert groups and groups[0][1] >= 10
 ```
 
@@ -1081,7 +1081,7 @@ git commit -m "Plugin 0.12.0: placemat datasheet"
    reports half its raw size.
 7. Text comes back with its box, and an XML-escaped character is decoded.
 8. `--json` carries the same rows as the tables.
-9. Against the corpus, the TDK antenna's land pattern is page 7 at band
+9. Against the corpus, the chip antenna's land pattern is page 7 at band
    `strong`, and the TYPE-C 31-M-12 yields a cluster of at least 10 equal
    rectangles from a page with under 200 characters of text.
 10. A file that is not a PDF exits 1 naming the path and what the tool said.

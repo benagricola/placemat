@@ -27,7 +27,7 @@ def test_rectangles_of_the_same_size_cluster():
 
 
 def test_dimension_numbers_are_the_decimals_on_the_page():
-    runs = [_run("0.50"), _run("1.30"), _run("Page 7 of 11"), _run("ANT016008LCS2442MA1")]
+    runs = [_run("0.50"), _run("1.30"), _run("Page 7 of 11"), _run("ANT-CHIP")]
     assert sorted(ds.dimension_numbers(runs)) == [0.5, 1.3]
 
 
@@ -88,7 +88,7 @@ def test_a_topic_with_no_candidate_still_appears():
 
 def test_the_index_lines_name_the_page_the_band_and_the_evidence():
     by_page = {7: _page(7, ("RECOMMENDED LAND PATTERN", "0.50", "1.30", "2.10"), rects=8)}
-    text = "\n".join(ds.index_lines("TDK-ANT016008", 11, ds.index(by_page)))
+    text = "\n".join(ds.index_lines("ANT-CHIP", 11, ds.index(by_page)))
     assert "p7" in text and "land" in text and "strong" in text
     assert "RECOMMENDED LAND PATTERN" in text
 

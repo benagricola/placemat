@@ -51,7 +51,7 @@ x 49.45 and the file has it at x 34.21: the pad order is reversed along the
 part. Everything downstream inherits it - `Pin()` placements, `PadRef` copper
 endpoints, via-in-pad drops, and every clearance the occupancy model judged.
 
-The workaround in `boards/main/Main_layout.py` - monkeypatching
+The workaround in one downstream board's layout script - monkeypatching
 `Occupancy._transform` to mirror top-bottom - gives `R(t - 2r) . mirror_y`,
 which agrees only when `r` is 0 or 180. It fixes half the board and breaks the
 half that was accidentally right.
@@ -219,7 +219,7 @@ and a project two releases behind is stranded.
 **Back-face parts move. Cells do not.** A cell's flip is unchanged, and a board
 with no back-face parts is unaffected - the Breakout writes identical bytes.
 
-`boards/main/Main_layout.py` must drop its `Occupancy._transform` monkeypatch.
+That script must drop its `Occupancy._transform` monkeypatch.
 It is currently masking the bug for parts at generated rotation 0 and 180 and
 creating it for those at 90 and 270, so removing it and taking the fix is
 strictly better; the board re-places and wants a DRC read afterwards.

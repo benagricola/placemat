@@ -124,7 +124,7 @@ def test_a_tap_anywhere_but_a_track_point_or_pasts_across_is_refused():
 
 
 def _shunt_board():
-    """An upright shunt RS at (30, 30): VSHUNT pad north, VPROT pad south,
+    """An upright shunt RS at (30, 30): V_HI pad north, V_LO pad south,
     each 1.2 x 1.57, a 0.76 gap between them; a sense pad of each net, R5's
     north-east and U1's south-east. Each tap leaves the middle of its pad's
     inner edge, runs east in the gap, and turns to its sense pad."""
@@ -136,17 +136,17 @@ def _shunt_board():
         body = Box.union([p.box for p in pads]).inflate(0.2)
         return Footprint(ref, ref.lower(), None, ref, Location(cx, cy), 0.0, Face.FRONT, body, body.inflate(0.1),
                          body, tuple(pads))
-    rs = part("RS", [pad("RS", "rs", 1, "VSHUNT", 30, 28.835, 1.2, 1.57),
-                     pad("RS", "rs", 2, "VPROT", 30, 31.165, 1.2, 1.57)], 30, 30)
-    r5 = part("R5", [pad("R5", "r5", 1, "VSHUNT", 34, 26, 1.0, 1.0)], 34, 26)
-    u1 = part("U1", [pad("U1", "u1", 1, "VPROT", 34, 34, 1.0, 1.0)], 34, 34)
+    rs = part("RS", [pad("RS", "rs", 1, "V_HI", 30, 28.835, 1.2, 1.57),
+                     pad("RS", "rs", 2, "V_LO", 30, 31.165, 1.2, 1.57)], 30, 30)
+    r5 = part("R5", [pad("R5", "r5", 1, "V_HI", 34, 26, 1.0, 1.0)], 34, 26)
+    u1 = part("U1", [pad("U1", "u1", 1, "V_LO", 34, 34, 1.0, 1.0)], 34, 34)
     b = Board(board_geometry([rs, r5, u1], width=60, height=60), edge_margin=1.0)
     vs = PadRef(Part("rs"), 1, edge=Edge.SOUTH)
     vp = PadRef(Part("rs"), 2, edge=Edge.NORTH)
     lane = 30.6 + 0.2 + W / 2
-    b.track(Net("VSHUNT"), [vs, Past([PadRef(Part("rs"), 1)], Edge.EAST, across=vs), Location(lane, 26),
+    b.track(Net("V_HI"), [vs, Past([PadRef(Part("rs"), 1)], Edge.EAST, across=vs), Location(lane, 26),
                             PadRef(Part("r5"), 1)], layer=F, chamfer=0)
-    b.track(Net("VPROT"), [vp, Past([PadRef(Part("rs"), 2)], Edge.EAST, across=vp), Location(lane, 34),
+    b.track(Net("V_LO"), [vp, Past([PadRef(Part("rs"), 2)], Edge.EAST, across=vp), Location(lane, 34),
                            PadRef(Part("u1"), 1)], layer=F, chamfer=0)
     return b.resolve()
 
@@ -161,11 +161,11 @@ def test_a_shunts_taps_pass_kicads_drc_and_are_connected(tmp_path):
     board = pcbnew.CreateEmptyBoard()
     v = lambda x, y: pcbnew.VECTOR2I(pcbnew.FromMM(x), pcbnew.FromMM(y))
     nets = {}
-    for name in ("VSHUNT", "VPROT"):
+    for name in ("V_HI", "V_LO"):
         nets[name] = pcbnew.NETINFO_ITEM(board, name)
         board.Add(nets[name])
-    for ref, pads in (("RS", ((1, "VSHUNT", 30, 28.835, 1.2, 1.57), (2, "VPROT", 30, 31.165, 1.2, 1.57))),
-                      ("R5", ((1, "VSHUNT", 34, 26, 1.0, 1.0),)), ("U1", ((1, "VPROT", 34, 34, 1.0, 1.0),))):
+    for ref, pads in (("RS", ((1, "V_HI", 30, 28.835, 1.2, 1.57), (2, "V_LO", 30, 31.165, 1.2, 1.57))),
+                      ("R5", ((1, "V_HI", 34, 26, 1.0, 1.0),)), ("U1", ((1, "V_LO", 34, 34, 1.0, 1.0),))):
         fp = pcbnew.FOOTPRINT(board)
         fp.SetReference(ref)
         fp.SetPosition(v(pads[0][2], pads[0][3]))
