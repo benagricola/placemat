@@ -5,6 +5,21 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A routed via of a stamped cell moves with its tracks.** A via that two
+  or more of a cell's tracks end on used to stay as drawn, so a cell whose
+  routed via met the other face's copper was refused at every spot. It now
+  gives way as a unit: it moves up to `place.via_route` (0.5 mm), and each
+  track that ends on it is rebuilt from its far end to the new spot by
+  octilinear legs, each clear of other nets, the whole move refused where
+  any part is. Costs `score.via_route` (3). `place.via_route = 0` keeps the
+  old behaviour. Nothing in a script changes; a placement a script had
+  worked round by moving the cell may now find a spot. `api.md`, "Carried
+  vias give way".
+
 ## To 0.73.0
 
 ### New

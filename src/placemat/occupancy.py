@@ -299,12 +299,15 @@ def hole_shape(owner: str, centre: Location, drill: float, net: str = "", label:
 _TOUCH_MM = 1e-4     # a track's end on a via's centre: KiCad writes both to the nanometre
 
 
-def _cell_vias(geometry) -> dict:
+def _cell_vias(geometry, routed: bool = False) -> dict:
     """{id(copper item): (carried id, points)} for each via a stamped cell
     carries that may give way (giveway.py), and its tail: the one track of
-    the cell's, on the via's net, that ends at the via's centre. A via that
-    two of the cell's tracks meet, or whose one track runs on to another of
-    the cell's vias, is part of a route and stays as drawn."""
+    the cell's, on the via's net, that ends at the via's centre. A via whose
+    one track runs on to another of the cell's vias is part of a route and
+    stays as drawn; so does one that two of the cell's tracks meet, unless
+    `routed` (`place.via_route` is above 0): then it is carried with each of
+    those tracks as its legs, which move with it (giveway._route), and stays
+    as drawn only where one of them runs on to another of the cell's vias."""
     tracks: dict = {}
     for c in geometry.copper:
         if c.kind == "track" and c.owner in geometry.cells and len(c.anchors) == 2 and c.net:
@@ -327,6 +330,13 @@ def _cell_vias(geometry) -> dict:
         at = c.anchors[0]
         touching = [t for t in tracks.get((c.owner, c.net), ()) if on(t.anchors[0], at) or on(t.anchors[1], at)]
         if len(touching) > 1:
+            fars = [t.anchors[1] if on(t.anchors[0], at) else t.anchors[0] for t in touching]
+            if not routed or any(on(far, v) for far in fars for v in at_via[(c.owner, c.net)]):
+                continue
+            tag = "%s via %d" % (c.owner, n)
+            for t, far in zip(touching, fars):
+                out[id(t)] = (tag, (tuple(at), tuple(far)))
+            out[id(c)] = (tag, (tuple(at),))
             continue
         tag = "%s via %d" % (c.owner, n)
         if touching:
@@ -436,7 +446,7 @@ class Occupancy:
         self._pristine_copper: dict = {}
         for fp in geometry.footprints:
             self._register(fp)
-        carried = _cell_vias(geometry)
+        carried = _cell_vias(geometry, self.settings.place_via_route > 0)
         for c in geometry.copper:
             if c.kind == "pad":
                 continue          # pads travel with their footprint

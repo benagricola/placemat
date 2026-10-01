@@ -294,7 +294,7 @@ def test_a_via_that_could_share_or_move_shares():
 
 
 # ------------------------------------------------------------------ dropping
-_DROP_ONLY = dict(place_via_share=0.0, place_via_move=0.0, place_via_leave=0.0)
+_DROP_ONLY = dict(place_via_share=0.0, place_via_move=0.0, place_via_leave=0.0, place_via_route=0.0)
 _THREE = [(38.85, 39.75), (38.85, 40.25), (39.35, 40.0)]    # in U1's GND pad; R9's pad S meets the right one
 
 
@@ -347,7 +347,7 @@ def test_dropping_costs_score_via_drop_in_the_search():
 
 # ---------------------------------------------------------------- shortening
 IN1 = CopperLayer.IN1
-_SHORTEN_ONLY = dict(place_via_share=0.0, place_via_move=0.0, place_via_leave=0.0)
+_SHORTEN_ONLY = dict(place_via_share=0.0, place_via_move=0.0, place_via_leave=0.0, place_via_route=0.0)
 
 
 def _shorten_board(via_at, r9_at, plane_layer=IN1, tiers=None, settings=None, extra=()):
