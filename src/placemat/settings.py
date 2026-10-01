@@ -80,6 +80,7 @@ class Settings:
     copper_pour_stroke: float = 0.2
     copper_cell_zones_under_planes: str = "drop"   # a stamped cell's zone the board's own plane covers: merged into it, or kept
     copper_microvia_drill: float = 0.1  # a micro via's (laser) drill, when the script gives none
+    copper_straight_tolerance: float = 0.002   # a track leg whose ends differ less than this on one axis is drawn straight; measure --copper judges 0/45/90 by it
     # [write]
     write_split_groups: str = "lift"    # each cell's group nested in a module's: lifted to the top level (the module keeps its parts); "split" also takes out the parts placed apart; "keep" as generated
     write_keepout_drawings: str = "admitting"   # draw a keepout's outline and name (and height limit) on its Fab layer (or User.Comments): "admitting" (default) those that admit something, "all" every keepout, "none"
@@ -308,7 +309,7 @@ _AT_LEAST_ZERO = frozenset((
     "best_crossing_noise", "score_unplaced", "score_priority_high", "score_priority_default", "score_priority_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",
-    "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset",
+    "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset", "copper_straight_tolerance",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
     "score_pair_crossing", "place_via_share", "place_via_move", "score_via_share",
     "score_via_move", "score_via_drop", "score_via_shorten", "score_push"))

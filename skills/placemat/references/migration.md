@@ -9,6 +9,42 @@ section for each hand-written pattern a newer form replaces.
 
 ### New
 
+- **A part's origin as a point**: `Origin(Part(...))` is a part's footprint
+  origin as placed (a cell's `Origin(Cell(...))`: its frame origin), a point
+  wherever a point is taken: `at=`, `X()`/`Y()`, `Mid`, `Polar(about=)`,
+  `Pin(key, point)`. `at=Origin(Part("a"))` stands a part's own origin on
+  a's, and waits for a. It replaces coordinates worked out to put one part
+  on another's origin (`X(Part(...))` is the body centre, not the origin).
+
+- **A part on a midpoint**: `at=Mid(a, b)` places a part's origin (a cell's
+  box centre) on the midpoint of two references, as `at=Location` does, and
+  waits for them. It was refused ("at= takes a Location, a Centre, a Pin,
+  ..."). Before: `at=(X(Mid(a, b)), Y(a))`; after: `at=Mid(a, b)`.
+
+- **A pair of a part's own pads on a point**: `Pin(Mid(10, 11), x, y)` puts
+  the midpoint of two of a part's own pads on a point, and `Beside(item,
+  side, align=(Mid(10, 11), point))` lines it up across the side; `align=`
+  also takes `X(...)`, `Y(...)`, `Mid` and `Origin` as the other part's
+  point. `Pin(key, ..., land=Land.LARGEST)` (or a land's number) puts one
+  land of a pin drawn as several on the point. These replace an offset
+  worked out from the pads' spacing to centre a pair of pads on a
+  coordinate.
+
+- **Turns by intent**: `rotation=Parallel(a, b, degrees=0)` turns a part so
+  its own x axis lies along the line between two points, at any angle;
+  `Bearing(a, b, degrees=0)` is that line's compass bearing for `Polar`.
+  `rotation=Facing(PadRef(part, n), Edge.NORTH)` (or a list of pads) is the
+  right-angle turn where a pad's row points at an edge, refused where no
+  turn does. A rotation typed as a constant (3.96, 270) that is right only
+  because of where pads happen to be, and an `assert` on pad positions after
+  the place to check it, are these forms.
+
+- **Near-straight legs drawn straight**: a track leg whose ends differ by
+  less than `copper.straight_tolerance` (default 0.002 mm) on one axis is
+  drawn straight; before, a pad-to-pad track between pads 0.001 mm out of
+  line got a 1 micron jog, which `measure --copper` flagged as off 0/45/90.
+  `measure --copper` judges by the same tolerance.
+
 - **A fitted pour joins vias**: `board.pour(net, members, layer=,
   swallow_pads=True)` takes the vias `board.via()` and `board.vias()` return
   (all of a `vias()` result) and a lane's `.via` as members, with or without
@@ -47,6 +83,23 @@ board.pour(Net("VOUT"), [drops, board.via(Net("VOUT"), FreeSpot(PadRef(Part("u_c
   from `FreeSpot` could land with its drill 0.15 mm from a net tie's bar,
   which KiCad's DRC flags and placemat did not; the search now steps past it,
   and a part, via or track left too near a drilled hole is a copper finding.
+
+**A part on another part's origin, a midpoint or a turn read off pad
+positions becomes `Origin`, `Mid`, `Parallel` or `Facing`.**
+
+```python
+# before: coordinates and turns worked out from the footprints
+board.place(Part("b"), at=Location(A_X + ORIGIN_DX, A_Y + ORIGIN_DY))  # a's origin, worked out
+board.place(Part("c"), at=(X(Mid(PadRef(Part("a"), 1), PadRef(Part("b"), 1))), Y(PadRef(Part("a"), 1))))
+board.place(Part("d"), rotation=3.96, ...)        # parallel to a's pads 1 and 2, read off their positions
+board.place(Part("e"), rotation=270, ...)         # so pins 9 to 12 face north, with an assert on pad positions
+
+# after: the relations themselves
+board.place(Part("b"), at=Origin(Part("a")))
+board.place(Part("c"), at=Mid(PadRef(Part("a"), 1), PadRef(Part("b"), 1)))
+board.place(Part("d"), rotation=Parallel(PadRef(Part("a"), 1), PadRef(Part("a"), 2)), ...)
+board.place(Part("e"), rotation=Facing([PadRef(Part("e"), n) for n in (9, 10, 11, 12)], Edge.NORTH), ...)
+```
 
 ## To 0.68.0
 
@@ -1923,5 +1976,9 @@ that says what replaces it.
 | ground vias outside a region typed as computed `Location` vias | To 0.68.0 |
 | points of a datasheet figure typed as coordinates beside a `Path(anchor=)` keepout | To 0.68.0 |
 | `board.plane(net, layers=(In2,), over=[parts])` standing in for an inner-layer area over vias | Unreleased |
+| a part placed at another part's origin through computed coordinates | Unreleased |
+| a part's pad midpoint aligned by arithmetic (half the pads' spacing in an `X()` or a `Beside` offset) | Unreleased |
+| a rotation constant for a part parallel to a line between pads | Unreleased |
+| a rotation constant checked by an `assert` on pad positions | Unreleased |
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |

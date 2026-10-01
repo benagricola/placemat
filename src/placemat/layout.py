@@ -18,6 +18,7 @@ import dataclasses
 from collections import Counter
 from dataclasses import dataclass, field
 import math
+import types
 
 from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
                      grown_hull, pair_ops, polyline_tracks, resolve_bridges, _point_seg)
@@ -30,11 +31,11 @@ from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
 from .settings import Settings
-from .placer import BlockSpec, _grid, _pin_normal, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
+from .placer import BlockSpec, _grid, _pin_normal, facing_rotation, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
-from .values import (Turned, Axis, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
-                     Priority, X, Y, pad_key)
+from .values import (Turned, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+                     PinName, Priority, X, Y, pad_key)
 from .values import Figure, FigurePoint
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
@@ -271,7 +272,7 @@ class PlaceIntent:
     freedom: Freedom = Freedom.SEARCHED   # derived from at=, never chosen
     required: bool = False                # failing to place this stops the run
     rotation_given: bool = False          # the script said rotation=: that one, not a choice of four
-    turned: object = field(default=None, metadata={"omit_default": True})   # a Turned: its part's rotation plus its degrees, settled at placement
+    turned: object = field(default=None, metadata={"omit_default": True})   # a Turned (its part's rotation plus its degrees) or a Parallel (the line between two points), settled at placement
     beside: object = field(default=None, metadata={"omit_default": True})   # a _BesideSpec: settled against its item's placed envelope
     row_of: object = field(default=None, metadata={"omit_default": True})   # a row(of=) item: an edge placement measured off its envelope, not the board's
     cell_pin: object = field(default=None, metadata={"omit_default": True})  # (owner, number, dx, dy[, lx, ly]): a cell placed by a member's pad
@@ -279,6 +280,7 @@ class PlaceIntent:
     pushes: tuple = field(default=(), metadata={"omit_default": True})   # Push declarations on this item, from board.push()
     line: int = field(default=0, metadata={"reuse": False})   # the script line that declared it: not what it decides
     toward: object = field(default=None, metadata={"omit_default": True})   # Centre(toward=): an end of the free line
+    pin_land: object = field(default=None, metadata={"omit_default": True})   # Pin(land=): the land of `pin` that lands on the point
 
     @property
     def rank(self):
@@ -1208,6 +1210,36 @@ class Board:
             return next((d.part for d in self._escapes if any(v is ref for v in d.via_intents.values())), None)
         return None
 
+    def _origin_of(self, occ: Occupancy, item) -> Location:
+        """Where `Origin(item)` is now: a part's footprint origin as placed; a cell's
+        frame origin, the (0, 0) the generator stamped it in, carried by the placement
+        the cell was given (as stamped while the script gives it none)."""
+        geom, key, kind = self._item(item)
+        if kind != "cell":
+            return occ.items[geom.ref].reference.location
+        placed = self._cell_placements.get(key)
+        if placed is None:
+            return Location(0.0, 0.0)
+        stamped = types.SimpleNamespace(reference=Placement(geom.box.center, 0.0, Face.FRONT))
+        return occ._transform(stamped, placed).apply_location(Location(0.0, 0.0))
+
+    def _own_pad_key(self, geom, key):
+        """A pad key of the part `geom` (a number, a net, a `PinName`, or `Mid` of two of
+        them), checked now: the key as given, but a pin's name as the number it names, and
+        a midpoint with each end so."""
+        if isinstance(key, Mid):
+            a, b = self._own_pad_key(geom, key.a), self._own_pad_key(geom, key.b)
+            if isinstance(a, Mid) or isinstance(b, Mid):
+                raise TypeError("%s: a Mid of own pads takes two pads, not another Mid" % geom.inst)
+            if geom.pad(a).number == geom.pad(b).number:
+                raise ValueError("%s: Mid(%r, %r) names one pad twice; a midpoint is of two pads" % (geom.inst, key.a, key.b))
+            return Mid(a, b)
+        if isinstance(key, PinName):
+            number = self.geometry.pad(Part(geom.inst), key).number
+            return int(number) if number.isdigit() else number
+        geom.pad(key)                                   # a real pad of this part
+        return key
+
     def _pad_land(self, ref) -> int | None:
         """The 0-based land a PadRef's `land=` names among its pad number's
         lands, in the footprint's order: Land.LARGEST the one of most copper
@@ -2014,14 +2046,18 @@ class Board:
             number = owns[0].number
             norm = ("pads", int(number) if number.isdigit() else number, align)
         elif isinstance(align, tuple):
-            if len(align) != 2 or not isinstance(align[1], (PadRef, Past, Lane)):
-                raise TypeError("%s: Beside's align pair is (own_pad, PadRef(item, pad)), (own_pad, "
+            if len(align) != 2 or not isinstance(align[1], (PadRef, Past, Lane, X, Y, Mid, Origin)):
+                raise TypeError("%s: Beside's align pair is (own_pad, PadRef(item, pad)), (own_pad, a point "
+                                "of the other axis: X(...), Y(...), Mid(...), Origin(...)), (own_pad, "
                                 "Past(pads, edge)) or (own_pad, esc[pin]), not %r" % (key, align))
             own_key, their = align
             if kind != "part":
                 raise TypeError("%s: align=(own_pad, their_pad) needs the placed item's own pad; a %s has "
                                 "none - align=Along.START/MID/END instead" % (key, kind))
-            geom.pad(own_key)                          # a real pad of this part, checked now
+            own_key = self._own_pad_key(geom, own_key)      # a real pad (or two, as Mid) of this part, checked now
+            if isinstance(own_key, Mid) and isinstance(their, (Past, Lane)):
+                raise TypeError("%s: a midpoint of two own pads aligns on a pad or a point; Past and a lane "
+                                "stand an own pad's edge off the pads" % key)
             if isinstance(their, Past):
                 self._check_beside_past(key, at.side, their)
                 norm = ("past", own_key, their)
@@ -2029,7 +2065,10 @@ class Board:
                 self._check_beside_lane(key, at.side, their)
                 norm = ("lane", own_key, their)
             else:
-                self.geometry.pad(their.part, their.key)    # and a real pad of the item named
+                if isinstance(their, PadRef):
+                    self.geometry.pad(their.part, their.key)    # and a real pad of the item named
+                else:
+                    self._check_beside_point(key, at.side, their)
                 norm = ("pads", own_key, their)
         else:
             raise TypeError("%s: Beside's align is a PadRef, an (own_pad, their_pad) pair, Along.START/MID/END, "
@@ -2037,6 +2076,17 @@ class Board:
         if at.copper and item_kind != "item":
             raise TypeError("%s: Beside's copper= measures from pads; a %s has none" % (key, item_kind))
         return _BesideSpec(at.item, at.side, norm, at.gap, at.copper)
+
+    def _check_beside_point(self, key: str, side: Edge, point) -> None:
+        """A point in Beside's align: placed parts' pads or origins, and an X() on a side that
+        decides y (NORTH, SOUTH), a Y() on one that decides x."""
+        upright = side in (Edge.EAST, Edge.WEST)
+        if isinstance(point, (X, Y)) and isinstance(point, Y) != upright:
+            raise ValueError("%s: Beside on the %s side decides the part's %s, so the part is lined up on a %s: "
+                             "%s(...), not %s(...)" % (key, side.name, "x" if upright else "y", "y" if upright else "x",
+                                                      "Y" if upright else "X", type(point).__name__))
+        for ref in _refs_in([point]):
+            self._pad_ref(ref)                          # real pads, parts, cells
 
     def _check_beside_past(self, key: str, side: Edge, p: Past):
         """A Past in Beside's align: over pads only, since a placement is
@@ -2283,6 +2333,12 @@ class Board:
         Pin(key, x, y)          the item's own pad `key` (number or net)
         Pin(key, point)         lands on the point (a PadRef with `edge=`:
                                 the pad lies against that edge)           -> FIXED, no freedom
+        Pin(Mid(k1, k2), ...)   the midpoint of two own pads lands on it;
+        Pin(key, ..., land=)    one land of a pin drawn as several does   -> FIXED, no freedom
+        Origin(part)            the item's own origin on that part's (or
+                                cell's frame) origin                      -> FIXED, no freedom
+        Mid(a, b)               the origin (a cell: its box centre) on the
+                                midpoint of two references, as a Location -> FIXED, no freedom
         OnEdge(edge, along=)    its reach at the keep-in, at that distance
                                 (mm, a reference, Along.MID, Fraction(f))  -> EDGE, no freedom
         OnEdge(edge)            on that edge, wherever there is room:
@@ -2292,6 +2348,10 @@ class Board:
         nothing                 seeded from its links                     -> searched, two freedoms
 
         `radius=`, `step=` and `rotations=` tune a search (seeded or Near).
+
+        `rotation=` is a number, `Turned(part, degrees)`, `Parallel(a, b, degrees)`
+        (the item's x axis along the line between two points) or `Facing(pads,
+        edge)` (the right-angle turn where those pads' row points at the edge).
 
         `required=True` says that failing to place this item stops the run,
         with the board as it stood and the biggest free rectangles on its
@@ -2325,7 +2385,7 @@ class Board:
         pin_x = pin_y = None
         _centre_toward = None
         pinned = ""
-        pin = None
+        pin = pin_land = None
         beside = None
         cell_pin = None
         if isinstance(at, Pin) and kind == "cell" and isinstance(at.key, Part):
@@ -2354,8 +2414,18 @@ class Board:
                 what = "a block is placed by its anchor's position, not a pad" if kind == "block" else \
                     "a cell has no pad of its own"
                 raise TypeError("%s: a Pin places a part by its pad; %s" % (key, what))
-            geom.pad(at.key)                                # a real pad of this part, checked now
-            pin, center, at = at.key, at.axes, None
+            pin = self._own_pad_key(geom, at.key)           # a real pad (or two) of this part, checked now
+            if at.land is not None:
+                self._pad_land(PadRef(Part(geom.inst), pin, land=at.land))      # a real land
+                pin_land = at.land
+            center, at = at.axes, None
+        elif isinstance(at, Mid):
+            pass        # a point of references: stays in `at`, as a Location does; a cell's goes to its centre below
+        elif isinstance(at, Origin):
+            if kind != "part":
+                raise TypeError("%s: at=Origin(...) stands a part's own origin on it; a %s is placed by a member's: "
+                                "Pin(Part(member), Origin(...))" % (key, kind))
+            # stays in `at`: _firm_placement stands the part's origin on it, as for a Location
         elif isinstance(at, Beside):
             beside = self._beside_spec(key, geom, kind, at)
             at = None
@@ -2398,8 +2468,11 @@ class Board:
             # _locate - center holds the Polar itself, and radius_at/about the raw reference,
             # so a declaration that never used about= digests exactly as before
             about_now = at.about is None or isinstance(at.about, (Location, tuple))
+            if isinstance(at.angle, Bearing) and at.radius is None:
+                raise TypeError("%s: a Polar with a Bearing of two points needs its radius; a bearing is "
+                                "not a spoke to slide out along" % key)
             if at.radius is not None and at.angle is not None:
-                if about_now:
+                if about_now and not isinstance(at.angle, Bearing):
                     about = self.centre if at.about is None else _as_point(at.about)
                     center, about, at = polar_point(about, at.angle, at.radius), about, None
                 else:
@@ -2448,9 +2521,18 @@ class Board:
                              "position to have it searched" % (key, priority.value))
         priority = priority or Priority.DEFAULT
         faces_note = ""
-        turned = rotation if isinstance(rotation, Turned) else None
+        if isinstance(rotation, Facing):
+            if kind != "part":
+                raise TypeError("%s: rotation=Facing(...) turns a part by its pads; a %s has none of its own" % (key, kind))
+            if rotations:
+                raise ValueError("%s: rotation=Facing(...) settles the rotation; rotations= would override it" % key)
+            rotation = self._facing_rotation(key, geom, rotation, face)     # of the part alone: settled now
+        turned = rotation if isinstance(rotation, (Turned, Parallel)) else None
         if turned is not None and rotations:
-            raise ValueError("%s: rotation=Turned(...) settles the rotation; rotations= would override it" % key)
+            raise ValueError("%s: rotation=%s(...) settles the rotation; rotations= would override it"
+                             % (key, type(turned).__name__))
+        if isinstance(turned, Parallel) and kind == "block":
+            raise TypeError("%s: a block is turned by its anchor, not rotation=Parallel(...)" % key)
         if turned is not None:
             rotation = float(turned.degrees)        # provisional: the ranking measures by it until the part is down
         rotation_given = rotation is not None
@@ -2474,12 +2556,20 @@ class Board:
             needs.add(cutout_token(at.edge.name))   # the hole is cut before anything is put against it
         if isinstance(along, _RowSlot):
             needs |= along.row.needs
-        if turned is not None:
+        if isinstance(turned, Turned):
             needs.add(self._pad_ref(turned.part)[0])   # turned by it: placed after it
+        elif turned is not None:
+            line = {self._pad_ref(ref)[0] for ref in _refs_in([turned.a, turned.b])}
+            if line & {fp.ref for fp in members_of(geom)}:
+                raise ValueError("%s: rotation=Parallel(...) turns the part by a line between points placed first; "
+                                 "a point of the part itself moves with it" % key)
+            needs |= line                               # turned by the line between them: placed after both
         if beside is not None:
             needs.add(cutout_token(beside.item.keepout.name) if isinstance(beside.item, KeepoutIntent)
                       else self._pad_ref(beside.item)[0])
-            if beside.align[0] in ("pads", "lane"):
+            if beside.align[0] == "pads":
+                needs |= {self._pad_ref(ref)[0] for ref in _refs_in([beside.align[2]])}
+            elif beside.align[0] == "lane":
                 needs.add(self._pad_ref(beside.align[2])[0])
             elif beside.align[0] == "past":
                 needs |= {self._pad_ref(ref)[0] for ref in beside.align[2].items}
@@ -2492,9 +2582,22 @@ class Board:
                              pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward, about, run,
                              freedom, required, rotation_given, turned=turned, beside=beside, row_of=_row_of,
                              cell_pin=cell_pin, drops=drops, line=_script_line(),
-                             toward=getattr(_centre_toward, "toward", None))
+                             toward=getattr(_centre_toward, "toward", None), pin_land=pin_land)
         self._intents.append(intent)
         return intent
+
+    def _facing_rotation(self, key: str, geom, facing: Facing, face: Face) -> float:
+        """The turn `Facing(pads, edge)` says for the part `geom` on `face`: refused, naming the
+        pads, where no right-angle turn points their row's way out at the edge."""
+        if any(p.part != Part(geom.inst) for p in facing.pads):
+            raise TypeError("%s: Facing turns the part by its own pads, not by %s" % (
+                key, ", ".join("%s pad %s" % (p.part, p.key) for p in facing.pads if p.part != Part(geom.inst))))
+        numbers = [self.geometry.pad(p.part, p.key).number for p in facing.pads]
+        try:
+            return facing_rotation(self._bare_occupancy(), geom, numbers, facing.edge, face)
+        except ValueError as e:
+            raise ValueError("%s: Facing(%s, %s): %s" % (
+                key, ", ".join("pad %s" % n for n in numbers), facing.edge.name, e)) from None
 
     def row(self, items, edge: Edge, *, of=None, gap: float | None = None, start=None, align=Along.START,
             rotation: float | None = None, line=Line.CENTRE, behind: Row | None = None, inboard: float | None = None,
@@ -3850,7 +3953,7 @@ class Board:
                 shape = _shape_of(Track(name, layer, w, a, b))
                 return not ctx.occ.copper_conflicts(shape)
 
-            pts = octilinear(located, pads, clear, bend, lanes)
+            pts = octilinear(located, pads, clear, bend, lanes, self.settings.copper_straight_tolerance)
             cut_pts, diagonals = chamfer_cuts(pts, chamfer)
             ops = polyline_tracks(name, layer, w, cut_pts)
             for p, c, off in corners:
@@ -3870,7 +3973,8 @@ class Board:
                       for t in ops]
             if len(points) > 2 and any(not clear(t.start, t.end) for t in ops):
                 # the script's waypoints steer this track into a pad: would pad to pad clear?
-                direct = polyline_tracks(name, layer, w, chamfered(octilinear([located[0], located[-1]], [pads[0], pads[-1]], clear, bend), chamfer))
+                direct = polyline_tracks(name, layer, w, chamfered(octilinear([located[0], located[-1]], [pads[0], pads[-1]], clear, bend,
+                                                                           tolerance=self.settings.copper_straight_tolerance), chamfer))
                 others = [t for t in ctx.planned_tracks + ctx.batch_tracks
                           if t.net != name and t.layer is layer]     # tracks not in the occupancy yet count too
 
@@ -5228,9 +5332,8 @@ class Board:
                 else:
                     settle_cutout(obj)
                 return
-            if getattr(obj, "turned", None) is not None:    # its part is placed by now: needs said so
-                ref = self._pad_ref(obj.turned.part)[0]
-                obj.rotation = (occ.items[ref].reference.rotation + obj.turned.degrees) % 360.0
+            if getattr(obj, "turned", None) is not None:    # its part, or its line's points, are placed by now: needs said so
+                obj.rotation = self._turned_rotation(occ, obj)
             if isinstance(obj.run, CutoutEdge):     # the hole is down by now: read its real stretch
                 obj.run = self.cutout(obj.run.name).edge(side=obj.run.side, within=obj.run.within)
                 if isinstance(obj.along, (Along, Fraction)):
@@ -6822,6 +6925,16 @@ class Board:
             cache[key] = None if why is None else "; ".join(why)
         return cache[key]
 
+    def _turned_rotation(self, occ, i: PlaceIntent) -> float:
+        """The rotation a `Turned` or a `Parallel` settles to, read off `occ` as it stands:
+        the part's own plus its degrees, or the turn that lies the item's x axis along the line."""
+        t = i.turned
+        if isinstance(t, Parallel):
+            a, b = _locate(self, occ, t.a), _locate(self, occ, t.b)
+            return parallel_rotation(a, b, i.face, t.degrees)
+        ref = self._pad_ref(t.part)[0]
+        return (occ.items[ref].reference.rotation + t.degrees) % 360.0
+
     def _firm_past_edge(self, i: PlaceIntent) -> bool:
         """Whether a firm item's body may cross the edge margin: one declared
         on an edge, a run or the rim closer than the keep-in."""
@@ -6845,13 +6958,14 @@ class Board:
                                                 _locate(self, occ, i.center), i.rotation, i.face, lx, ly)
         elif i.center is not None and i.pin is not None:
             # a PadRef's edge= in the point stands the pad off by its own size, as it stands at this rotation
-            size = pad_box_at(occ, i.item, i.pin, i.rotation, i.face)
+            land = None if i.pin_land is None else self._pad_land(PadRef(Part(i.item.inst), i.pin, land=i.pin_land))
+            size = pad_box_at(occ, i.item, i.pin, i.rotation, i.face, land)
             p = pad_anchored_placement(occ, i.item, i.pin, _locate(self, occ, i.center, (size.width, size.height)),
-                                       i.rotation, i.face)
+                                       i.rotation, i.face, land)
             # A net names one pad here, the first of however many carry it.
             # Say which, because an offset the script measured has to come
             # off the same pad, and from outside nothing shows which it was.
-            kind, value = pad_key(i.pin)
+            kind, value = pad_key(i.pin) if not isinstance(i.pin, Mid) else (None, None)
             if kind == "net":
                 same = i.item.pads_on(value)
                 if len(same) > 1:
@@ -6962,8 +7076,7 @@ class Board:
             if isinstance(r.along, _RowSlot):
                 self._reset_rows(r.along.row)
             if r.turned is not None:
-                turned = view.items[self._pad_ref(r.turned.part)[0]].reference.rotation
-                r = dataclasses.replace(r, rotation=(turned + r.turned.degrees) % 360.0)
+                r = dataclasses.replace(r, rotation=self._turned_rotation(view, r))
             p, chose = self._firm_placement(view, plan, r)
             others = obstacles.get(r.key) if obstacles is not None else None
             in_group = occ.legal(r.item, p, self.clearance, others=ShapeIndex(group), board=False)
@@ -7412,9 +7525,12 @@ def _locate(board: "Board", occ: Occupancy, ref, placed: tuple | None = None) ->
     if isinstance(ref, Y):
         at = _locate(board, occ, ref.ref, placed)
         return Location(at.x, at.y + ref.dy)
+    if isinstance(ref, Origin):
+        return board._origin_of(occ, ref.item)
     if isinstance(ref, Polar):
         centre = board.centre if ref.about is None else _locate(board, occ, ref.about, placed)
-        return polar_point(centre, ref.angle, float(ref.radius))
+        angle = _line_bearing(board, occ, ref.angle, placed) if isinstance(ref.angle, Bearing) else ref.angle
+        return polar_point(centre, angle, float(ref.radius))
     if isinstance(ref, tuple) and len(ref) == 2:
         return Location(_coord(board, occ, ref[0], "x", placed), _coord(board, occ, ref[1], "y", placed))
     if isinstance(ref, Centre):
@@ -7454,6 +7570,15 @@ def _figure_point(board: "Board", occ: Occupancy, ref: FigurePoint, placed: tupl
     return Location(x, y)
 
 
+def _line_bearing(board: "Board", occ: Occupancy, b: Bearing, placed: tuple | None = None) -> float:
+    """The compass bearing a `Bearing(a, b, degrees)` says: the line from a to b, plus its degrees."""
+    a, c = _locate(board, occ, b.a, placed), _locate(board, occ, b.b, placed)
+    if a.distance(c) < 1e-9:
+        raise ValueError("a Bearing's two points are one point, %.3f, %.3f: the line between them has no direction"
+                         % (a.x, a.y))
+    return (bearing_of(c.x - a.x, c.y - a.y) + b.degrees) % 360.0
+
+
 def _coord(board: "Board", occ: Occupancy, v, axis: str, placed: tuple | None = None) -> float:
     """One coordinate: a number, X()/Y() of a reference, a row coordinate,
     or a reference/point whose `axis` coordinate is meant."""
@@ -7461,7 +7586,7 @@ def _coord(board: "Board", occ: Occupancy, v, axis: str, placed: tuple | None = 
         return _locate(board, occ, v.ref, placed).x + v.dx
     if isinstance(v, Y):
         return _locate(board, occ, v.ref, placed).y + v.dy
-    if isinstance(v, (PadRef, CellPadRef, Location, tuple, Mid, Part, Cell, LanePoint, FigurePoint)):
+    if isinstance(v, (PadRef, CellPadRef, Location, tuple, Mid, Part, Cell, LanePoint, FigurePoint, Origin)):
         l = _locate(board, occ, v, placed)
         return l.x if axis == "x" else l.y
     if isinstance(v, Polar):
@@ -8049,6 +8174,12 @@ def _refs_in(points, via_ends: bool = False) -> list:
             out += _refs_in([p.a, p.b])
         elif isinstance(p, FigurePoint):
             out += _refs_in([p.figure.at] + ([p.figure.rotation.part] if isinstance(p.figure.rotation, Turned) else []))
+        elif isinstance(p, Origin):
+            out += _refs_in([p.item])       # its part or cell is placed first
+        elif isinstance(p, Bearing):
+            out += _refs_in([p.a, p.b])
+        elif isinstance(p, Polar):
+            out += _refs_in([p.about, p.angle])
         elif isinstance(p, Between):
             out += _refs_in([p.a, p.b])
         elif isinstance(p, Past):

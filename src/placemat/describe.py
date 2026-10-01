@@ -310,11 +310,12 @@ def _lands_on(pt, net, layers, geometry, own) -> str:
     return "-"
 
 
-def copper_segments(geometry, nets) -> list:
+def copper_segments(geometry, nets, tolerance: float = 0.002) -> list:
     """Every track segment on the board, of `nets` (every net when empty): its
     layer, width, ends, length, bearing (0-180 degrees from east, screen y
     down) and what each end lands on; `octilinear` when it runs at 0, 45 or
-    90 degrees."""
+    90 degrees, or is level on an axis to within `tolerance` (the
+    `copper.straight_tolerance` setting, which draws such a leg straight)."""
     import math
     want = set(nets)
     out = []
@@ -328,7 +329,7 @@ def copper_segments(geometry, nets) -> list:
         out.append({"net": c.net, "layer": "/".join(sorted(l.value for l in c.layers)), "width": c.width_mm,
                     "start": [round(x1, 3), round(y1, 3)], "end": [round(x2, 3), round(y2, 3)],
                     "length": round(c.length_mm or chord, 3), "angle": angle, "arc": arc,
-                    "octilinear": arc or min(abs(angle - a) for a in (0.0, 45.0, 90.0, 135.0, 180.0)) < 0.05,
+                    "octilinear": arc or min(abs(x2 - x1), abs(y2 - y1)) < tolerance or min(abs(angle - a) for a in (0.0, 45.0, 90.0, 135.0, 180.0)) < 0.05,
                     "start_on": _lands_on((x1, y1), c.net, c.layers, geometry, c),
                     "end_on": _lands_on((x2, y2), c.net, c.layers, geometry, c)})
     out.sort(key=lambda s: (s["net"], s["layer"]))
@@ -428,9 +429,9 @@ def copper_polygons(geometry, nets) -> list:
     return out
 
 
-def copper_lines(geometry, nets) -> list:
+def copper_lines(geometry, nets, tolerance: float = 0.002) -> list:
     lines = []
-    for s in copper_segments(geometry, nets):
+    for s in copper_segments(geometry, nets, tolerance):
         lines.append("%s  %s  %.2f  (%.3f, %.3f) %s -> (%.3f, %.3f) %s  %.3f mm  %s%s" % (
             s["net"], s["layer"], s["width"], *s["start"], s["start_on"], *s["end"], s["end_on"], s["length"],
             "arc" if s["arc"] else "%.1f deg" % s["angle"], "" if s["octilinear"] else "  off 0/45/90"))

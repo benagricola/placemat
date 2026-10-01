@@ -16,7 +16,7 @@ from . import giveway
 from .geometry import Transform, _rect_of, point_in_polygon, polys_overlap, transform_box
 from .occupancy import Occupancy, ShapeIndex, _reason_key
 from .placement import Placement
-from .values import Box, Edge, Face, Location, bearing_vector, box_support
+from .values import Box, Edge, Face, Location, Mid, bearing, bearing_vector, box_support
 
 
 @dataclass
@@ -538,22 +538,84 @@ def sweep_standoff(moving, fixed, u, d: float) -> float | None:
     return best
 
 
-def pad_box_at(occ: Occupancy, item, key, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
+def pad_box_at(occ: Occupancy, item, key, rotation: float = 0.0, face: Face = Face.FRONT,
+               land: int | None = None) -> Box:
     """The box of the item's pad `key` (a number or a net) with the item at
-    the origin, turned to `rotation` and on `face`."""
+    the origin, turned to `rotation` and on `face`; with `land` (0-based, in
+    the footprint's order for that number) that one land's. For a `Mid` of
+    two keys, the point halfway between their pads, as a box of no size."""
+    if isinstance(key, Mid):
+        a, b = (pad_box_at(occ, item, k, rotation, face).center for k in (key.a, key.b))
+        mx, my = (a.x + b.x) / 2.0, (a.y + b.y) / 2.0
+        return Box(mx, my, mx, my)
     probe = Placement(Location(0.0, 0.0), rotation, face)
     number = item.pad(key).number
     geom = occ._geometry(item)
     t = occ._transform(geom, probe)
-    return Box.union([transform_box(s.box, t) for s in geom.shapes if s.kind in ("pad", "through") and s.label == number])
+    shapes = [s for s in geom.shapes if s.kind in ("pad", "through") and s.label == number]
+    if land is not None:
+        counts = [len(q.outlines) for q in item.pads if q.number == number]
+        shapes = shapes[sum(counts[:land]):sum(counts[:land + 1])]
+    return Box.union([transform_box(s.box, t) for s in shapes])
 
 
 def pad_anchored_placement(occ: Occupancy, item, key, point: Location, rotation: float = 0.0,
-                           face: Face = Face.FRONT) -> Placement:
-    """The placement that puts the item's pad `key` (a number or a net) on
-    `point` at `rotation`."""
-    at = pad_box_at(occ, item, key, rotation, face).center
+                           face: Face = Face.FRONT, land: int | None = None) -> Placement:
+    """The placement that puts the item's pad `key` (a number or a net; one
+    `land` of it; or the midpoint of two, as `Mid`) on `point` at `rotation`."""
+    at = pad_box_at(occ, item, key, rotation, face, land).center
     return Placement(Location(round(point.x - at.x, 6), round(point.y - at.y, 6)), rotation, face)
+
+
+def parallel_rotation(a: Location, b: Location, face: Face, degrees: float = 0.0) -> float:
+    """The rotation that lies a part's own x axis along the line from `a` to
+    `b`, plus `degrees`. A part turns counter-clockwise on screen; on the back
+    face its own x axis is mirrored, so it points the other way for the same
+    rotation."""
+    dx, dy = b.x - a.x, b.y - a.y
+    if math.hypot(dx, dy) < 1e-9:
+        raise ValueError("Parallel's two points are one point, %.3f, %.3f: the line between them has no direction"
+                         % (a.x, a.y))
+    turn = math.degrees(math.atan2(-dy, dx)) if face is Face.FRONT else math.degrees(math.atan2(dy, -dx))
+    return round((turn + degrees) % 360.0, 6)
+
+
+def facing_rotation(occ: Occupancy, item, numbers: list, edge: Edge, face: Face = Face.FRONT) -> float:
+    """Of the item's four right-angle turns on `face`, the one where the way out
+    of pads `numbers` (`_pin_normal`'s outward normal of the row each sits in)
+    points at `edge`. Raises ValueError, saying why, where a pad has no way out
+    (a square pad at a corner, a lone pad) or the pads' ways out differ (two
+    rows)."""
+    probe = Placement(Location(0.0, 0.0), 0.0, face)
+    geom = occ._geometry(item)
+    t = occ._transform(geom, probe)
+    boxes: dict = {}
+    for sh in geom.shapes:
+        if sh.kind in ("pad", "through"):
+            boxes.setdefault(sh.label, []).append(transform_box(sh.box, t))
+    pads = {(item.ref, n): Box.union(bs).center for n, bs in boxes.items()}
+    outs = {}
+    for n in numbers:
+        box = Box.union(boxes[n])
+        out = _pin_normal(pads, item.ref, box.center, 0.0, box)
+        if out is None:
+            raise ValueError("pad %s has no way out to turn by: it is a square pad at a corner of the pad field, "
+                             "or the only pad of a row" % n)
+        outs[n] = (round(out[0]), round(out[1]))
+    if len(set(outs.values())) > 1:
+        raise ValueError("pads %s are not one row: their ways out differ (%s)" % (
+            ", ".join(numbers), ", ".join("%s %s" % (n, _way_name(o)) for n, o in outs.items())))
+    (ox, oy), = set(outs.values())
+    want = bearing_vector(bearing(edge))
+    for r in (0.0, 90.0, 180.0, 270.0):
+        ux, uy = Transform.rotate(r).apply((ox, oy))
+        if abs(ux - want[0]) < 1e-6 and abs(uy - want[1]) < 1e-6:
+            return r
+    raise ValueError("no right-angle turn points their way out at %s" % edge.name)
+
+
+def _way_name(out: tuple) -> str:
+    return {(0, -1): "north", (0, 1): "south", (1, 0): "east", (-1, 0): "west"}.get(out, "%s,%s" % out)
 
 
 def cell_pad_anchored_placement(occ: Occupancy, cell, owner: str, number: str, dx: float, dy: float,
