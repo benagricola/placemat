@@ -25,7 +25,7 @@ from .geometry import Transform, box_polygon, circle_polygon, clip_to_convex, vi
 from .findings import Finding, Findings
 from .giveway import enabled as giveway_enabled, pad_via_id
 from .occupancy import Occupancy, Shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
-from .cutouts import Cutouts, Path, loop_gap, signed_area
+from .cutouts import Cutouts, Path, _turned, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
@@ -35,6 +35,7 @@ from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
 from .values import (Turned, Axis, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
+from .values import Figure, FigurePoint
 
 RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RANK_COPPER = range(7)
 
@@ -1563,9 +1564,26 @@ class Board:
         order = list(self._named_cutouts)
         return "cutout %r" % order[n] if 0 <= n < len(order) else "an unnamed cutout"
 
-    def keepout(self, shape, name: str, *, at=None, rotation=None, margin: float | None = None,
-                excludes=None, allow=(), layers=None, max_height: float | None = None,
-                bars=(), why: str = "") -> KeepoutIntent:
+    def figure(self, *, at, rotation=0.0, anchor=(0.0, 0.0), why: str = "") -> Figure:
+        """A datasheet figure's frame: its point `anchor`, in the figure's own
+        coordinates (mm), lands on `at` (any point), turned about it by
+        `rotation`, a number or `Turned(part, degrees)`, as a keepout's `Path`
+        is. It places nothing. `fig.point(x, y)` is the figure's point
+        (x, y), usable wherever a point is (a Pin's target, a track, finger
+        or via point, `Polar(about=)`, `X()`/`Y()`, `Mid`); `keepout(...,
+        frame=fig)` puts a path in the same frame.
+
+        It is for a datasheet's dimensioned reference layout (an antenna
+        land pattern, an RF keepout, a dimensioned crystal or sensor layout),
+        its points typed as printed. `why=` is required: the datasheet and
+        the figure or page the coordinates come from. It is not for a layout
+        a datasheet shows without measurements, and not a way round a
+        placement that intent can say."""
+        return Figure(at, rotation, anchor, why)
+
+    def keepout(self, shape, name: str, *, at=None, rotation=None, frame: Figure | None = None,
+                margin: float | None = None, excludes=None, allow=(), layers=None,
+                max_height: float | None = None, bars=(), why: str = "") -> KeepoutIntent:
         """A region that forbids. By default nothing may sit, fill, route, via
         or pad there on any copper layer the board has; `excludes` narrows
         what and `layers` narrows where. `allow` names the parts that may sit
@@ -1579,7 +1597,11 @@ class Board:
         go with `allow=` of parts or cells, and with `max_height` the parts
         it names are barred whatever their height. `rotation=` is a
         number, or `Turned(part, degrees)` to turn with a part already on
-        the board, the same as a place() does.
+        the board, the same as a place() does. `frame=` is a
+        `board.figure(...)` in place of `at=` and `rotation=`: the shape's
+        points are read as the figure's own, with no move of the shape's box
+        centre, so the keepout and the figure's points share one frame; the
+        shape then carries no `anchor=` of its own.
 
         `shape` may instead be a Part or a Cell already on the board (no
         `at=` or `rotation=`, so `margin=` in their place): the region is
@@ -1589,6 +1611,20 @@ class Board:
 
         `shape` may be `Inside(Part(...), margin)`: the box inside that
         part's pads (`Inside`), settled the same way."""
+        if frame is not None:
+            if not isinstance(frame, Figure):
+                raise TypeError("keepout %r: frame= is a board.figure(...), not %r" % (name, frame))
+            if at is not None or rotation is not None:
+                raise ValueError("keepout %r: frame= places the shape in the figure's frame; give no at= or "
+                                 "rotation=" % name)
+            if not hasattr(shape, "anchor"):
+                raise ValueError("keepout %r: frame= places a Path, Slot or Circle in the figure's frame, not %r"
+                                 % (name, shape))
+            if shape.anchor is not None:
+                raise ValueError("keepout %r: frame= reads the shape's points as the figure's own; give the "
+                                 "shape no anchor= (the figure's anchor is its own)" % name)
+            shape = dataclasses.replace(shape, anchor=frame.anchor)
+            at, rotation = frame.at, frame.rotation
         inside = shape if isinstance(shape, Inside) else None
         region_of = inside.part if inside is not None else shape if isinstance(shape, (Part, Cell)) else None
         if region_of is not None:
@@ -7221,6 +7257,8 @@ def _locate(board: "Board", occ: Occupancy, ref, placed: tuple | None = None) ->
         return Location(_coord(board, occ, ref.x, "x", placed), _coord(board, occ, ref.y, "y", placed))   # a Location said in references
     if isinstance(ref, LanePoint):
         return board._lane_point(occ, ref)
+    if isinstance(ref, FigurePoint):
+        return _figure_point(board, occ, ref, placed)
     if isinstance(ref, Mid):
         a, b = _locate(board, occ, ref.a, placed), _locate(board, occ, ref.b, placed)
         return Location((a.x + b.x) / 2.0, (a.y + b.y) / 2.0)
@@ -7258,6 +7296,20 @@ def _locate(board: "Board", occ: Occupancy, ref, placed: tuple | None = None) ->
     return at
 
 
+def _figure_point(board: "Board", occ: Occupancy, ref: FigurePoint, placed: tuple | None = None) -> Location:
+    """A figure's point on the board: its own (x, y) less the figure's anchor,
+    turned by the figure's bearing about the place the anchor lands, as a
+    keepout's Path with `anchor=` is (cutouts._turned)."""
+    fig = ref.figure
+    centre = _locate(board, occ, fig.at, placed)
+    rot = fig.rotation
+    if isinstance(rot, Turned):
+        # a bearing, clockwise from the top: the part's turn (counter-clockwise) negated, as _region_rotation does
+        rot = -(occ.items[board._pad_ref(rot.part)[0]].reference.rotation + rot.degrees) % 360.0
+    x, y = _turned([(ref.x - fig.anchor[0], ref.y - fig.anchor[1])], centre, float(rot))[0]
+    return Location(x, y)
+
+
 def _coord(board: "Board", occ: Occupancy, v, axis: str, placed: tuple | None = None) -> float:
     """One coordinate: a number, X()/Y() of a reference, a row coordinate,
     or a reference/point whose `axis` coordinate is meant."""
@@ -7265,7 +7317,7 @@ def _coord(board: "Board", occ: Occupancy, v, axis: str, placed: tuple | None = 
         return _locate(board, occ, v.ref, placed).x + v.dx
     if isinstance(v, Y):
         return _locate(board, occ, v.ref, placed).y + v.dy
-    if isinstance(v, (PadRef, CellPadRef, Location, tuple, Mid, Part, Cell, LanePoint)):
+    if isinstance(v, (PadRef, CellPadRef, Location, tuple, Mid, Part, Cell, LanePoint, FigurePoint)):
         l = _locate(board, occ, v, placed)
         return l.x if axis == "x" else l.y
     if isinstance(v, Polar):
@@ -7791,6 +7843,8 @@ def _refs_in(points, via_ends: bool = False) -> list:
             out += _refs_in([p.near])       # the pad it searches from must be placed first
         elif isinstance(p, Mid):
             out += _refs_in([p.a, p.b])
+        elif isinstance(p, FigurePoint):
+            out += _refs_in([p.figure.at] + ([p.figure.rotation.part] if isinstance(p.figure.rotation, Turned) else []))
         elif isinstance(p, Between):
             out += _refs_in([p.a, p.b])
         elif isinstance(p, Past):

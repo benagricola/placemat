@@ -30,6 +30,15 @@ from the polygon's copper to it, the clearance the pair needs and `under`
 where the gap is less. `--json` adds a `polygons` key beside `segments`.
 `placemat layer` draws these polygons and counts them in its summary line.
 
+`board.figure(at=, rotation=, anchor=, why=)` is a datasheet figure's frame,
+for a dimensioned reference layout only, and `fig.point(x, y)` is a point of
+it, usable as a `Pin` target, a track, finger or via point, `Polar(about=)`
+or inside a `Mid`. `board.keepout(Path(FIGURE), name, frame=fig)` places the
+path in the same frame, giving the polygon of `Path(FIGURE, anchor=A)` with
+`at=` and `rotation=` the same. A figure's points typed as coordinates beside
+such a keepout (a feed pad, a strip's ends, its vias) become `fig.point(...)`
+with the keepout on `frame=fig`, so they turn and move with it.
+
 `Beside(item, side, copper=True, gap=, align=)` stands a part as near
 `item` on `side` as its pads allow, every pad of it a clearance (by net
 pair, `board.rule` clearances included) plus `gap` off every pad of `item`
@@ -1750,5 +1759,6 @@ that says what replaces it.
 | a sense track's first point placed from `placed_size()` half a track off a pad's edge | To 0.64.0 |
 | a pad placed at `X(PadRef(...), PITCH)` to stand a mechanical pitch from another pad | Unreleased |
 | a `Beside` `gap=` worked out to put a pad a clearance off another part's pad | Unreleased |
+| points of a datasheet figure typed as coordinates beside a `Path(anchor=)` keepout | Unreleased |
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |
