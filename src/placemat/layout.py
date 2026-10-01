@@ -5796,6 +5796,7 @@ class Board:
         from .giveway import report
         plan.given_way = [a for _, a in sorted(occ.given_way.items()) if a.home in self.geometry.cells]
         plan.copper += [a.tail for a in plan.given_way if a.tail is not None]
+        plan.copper += [t for a in plan.given_way for t in a.tracks]          # a routed via's rebuilt tracks
         step_of = {}
         for key, it in plan._items.items():
             if isinstance(it, CellGeom):

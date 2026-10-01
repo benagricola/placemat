@@ -145,16 +145,15 @@ def _given_way(board, plan: Plan, groups: dict) -> None:
                     and on(it.GetPosition(), a.at)), None)
         if via is None:
             continue
-        if a.old_tail is not None:
-            for it in items:
-                if not isinstance(it, pcbnew.PCB_TRACK) or isinstance(it, pcbnew.PCB_VIA) or it.GetNetname() != a.net:
-                    continue
-                s, e = it.GetStart(), it.GetEnd()
-                (p, q) = a.old_tail
-                if (on(s, p) and on(e, q)) or (on(s, q) and on(e, p)):
-                    g.RemoveItem(it)
-                    board.Delete(it)
-        if a.kind in ("move", "leave"):
+        gone = ([a.old_tail] if a.old_tail is not None else []) + list(a.old_tracks)
+        # every track is found before any is deleted: a deleted item's wrapper is dead
+        for it in [it for it in items if isinstance(it, pcbnew.PCB_TRACK) and not isinstance(it, pcbnew.PCB_VIA)
+                   and it.GetNetname() == a.net
+                   and any((on(it.GetStart(), p) and on(it.GetEnd(), q)) or (on(it.GetStart(), q) and on(it.GetEnd(), p))
+                           for p, q in gone)]:
+            g.RemoveItem(it)
+            board.Delete(it)
+        if a.kind in ("move", "leave", "route"):
             via.SetPosition(vec(*a.to))
         else:
             g.RemoveItem(via)

@@ -166,7 +166,7 @@ class _Layouts:
                     shared_now += 1
                 elif a.kind != "drop":
                     self.fixed.append(tuple(a.to) if a.kind in ("move", "leave") and a.to else m.centre)
-            elif m.tail is not None:
+            elif m.tail is not None or m.routed:
                 self.fixed.append(m.centre)
             else:
                 self.rel.append(m)
@@ -474,7 +474,7 @@ def relay(occ, g, judge, own, who, pad_key, pad, met: str, ctx: Ctx | None):
     """A `Relaid` for the field of `g` re-laid round what `g` meets, or None where the step does not
     apply or no legal layout is cheaper than dropping the vias that meet it."""
     s = occ.settings
-    if ctx is None or not s.place_via_relay or pad is None or pad_key is None or g.tail is not None \
+    if ctx is None or not s.place_via_relay or pad is None or pad_key is None or g.tail is not None or g.routed \
             or g.home not in occ.geometry.cells:
         return None
     key = (g.home, pad_key, len(ctx.actions))
@@ -525,8 +525,8 @@ def _action(occ, lay: _Layouts, g, c: _Cand, met: str) -> Relaid:
         new = tuple(replace(x, carried=vid, given=vid) for x in lay.shapes_at(g, to))
         parts.append(FieldStep(kind="relay-add", via=vid, at=to, to=to, shapes=new, under=met, **common))
         shapes += list(new)
-    return Relaid("relay", g.id, g.owner, g.home, g.net, g.centre, None, None, None, lay.pad_key, met, c.cost,
-                  tuple(shapes), "", tuple(parts), frozenset(gone))
+    return Relaid(kind="relay", via=g.id, owner=g.owner, home=g.home, net=g.net, at=g.centre, pad=lay.pad_key,
+                  under=met, cost=c.cost, shapes=tuple(shapes), parts=tuple(parts), gone=frozenset(gone))
 
 
 def take(res, judge, action: Relaid, keep=None) -> None:

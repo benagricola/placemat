@@ -68,6 +68,7 @@ class Settings:
     place_via_move_step: float = 0.05   # the grid a via's move is searched on
     place_via_leave: float = 1.0         # a via inside its pad with no spot clear there may leave it this far, joined by a new tail; 0: never
     place_via_relay: bool = True        # a via field a conflict meets is re-laid in its pad, before its vias leave it or are dropped (giveway_field.py); false: never
+    place_via_route: float = 0.5        # a via two or more of a cell's tracks end on moves this far with them, its tracks rebuilt; 0: never
     place_via_clear_cache: int = 4096   # a scan keeps this many placed vias' clear moves, each searched once
     place_drops_keep: float = 0.5       # the share of a pad's drops it keeps, rounded up, never fewer than one (Drops.MIN); a carried drop is dropped only while its pad keeps this share; 1: never
     place_edge_step: float = 0.05       # a part placed on a curved board edge is stepped in from the edge at this step until the keep-in holds it (placer.py)
@@ -189,6 +190,7 @@ class Settings:
     score_via_relay_moved: float = 0.5    # each via a relay moves or adds
     score_via_relay_gap: float = 1.0      # each empty site a relay leaves in the field's grid, beyond the drawn field's
     score_via_relay_pitch: float = 4.0    # each mm the field's line spacings depart from the pitch it was drawn at, summed
+    score_via_route: float = 3.0        # a carried via that moves with its tracks rebuilt: above a move, below leaving its pad
     score_via_shorten: float = 5.0      # a carried drop shortened to the plane's nearest layer instead of dropped: between move and drop
     # [solve] - the global pre-solve for the searched tier's hints
     solve_enabled: bool = False
@@ -340,7 +342,7 @@ _AT_LEAST_ZERO = frozenset((
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",
     "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset", "copper_straight_tolerance",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
-    "score_pair_crossing", "copper_tap_overlap", "check_neck_band", "solve_spread_pull", "place_via_share", "place_via_move", "place_via_leave", "score_via_share", "score_via_leave",
+    "score_pair_crossing", "copper_tap_overlap", "check_neck_band", "solve_spread_pull", "place_via_share", "place_via_move", "place_via_leave", "place_via_route", "score_via_route", "score_via_share", "score_via_leave",
     "score_via_move", "score_via_drop", "score_via_shorten", "score_push", "score_back_face",
     "score_via_relay", "score_via_relay_moved", "score_via_relay_gap", "score_via_relay_pitch"))
 # A floor of 2: below it a "group" can never be more than one part, which

@@ -26,6 +26,10 @@ copper, on either face, at a candidate, it tries in turn to
 5. be dropped, a plane net's drop only, while its pad keeps
    `place.drops_keep` of its drops (rounded up, at least one).
 
+A routed via, one that two or more of its cell's tracks end on, has one step in
+place of these: it moves up to `place.via_route` with every one of its tracks
+rebuilt from its far end (`_give_routed`), priced at `score.via_route`.
+
 A via already placed does the same for a later item whose own copper meets
 it. The search judges the item less its carried vias natively, as it judges
 any item; what the vias do is judged here, in Python, after that, and priced
@@ -67,12 +71,12 @@ def pad_via_id(k: int) -> str:
 def enabled(settings) -> bool:
     """Whether a carried via may give way at all under these settings."""
     return settings.place_via_share > 0 or settings.place_via_move > 0 or settings.place_via_leave > 0 \
-        or settings.place_drops_keep < 1.0
+        or settings.place_via_route > 0 or settings.place_drops_keep < 1.0
 
 
 def reach(settings) -> float:
     """How far past an item's copper what its vias do can reach."""
-    return settings.place_via_share + max(settings.place_via_move, settings.place_via_leave)
+    return settings.place_via_share + max(settings.place_via_move, settings.place_via_leave, settings.place_via_route)
 
 
 def least_cost(settings, tiers=None) -> float:
@@ -84,6 +88,7 @@ def least_cost(settings, tiers=None) -> float:
                                   (settings.place_via_move > 0, settings.score_via_move),
                                   (settings.place_via_relay, settings.score_via_relay),
                                   (settings.place_via_leave > 0, settings.score_via_leave),
+                                  (settings.place_via_route > 0, settings.score_via_route),
                                   (shorten, settings.score_via_shorten),
                                   (settings.place_drops_keep < 1.0, settings.score_via_drop)) if on]
     return min(ways) if ways else 0.0
@@ -101,10 +106,15 @@ class Group:
     tail: object = None
     centre: tuple = ()
     far: tuple | None = None    # its tail's other end
+    legs: list = field(default_factory=list)    # every track of its own that ends on it: one is its tail, more make it routed
+
+    @property
+    def routed(self) -> bool:
+        return len(self.legs) > 1
 
     @property
     def shapes(self) -> list:
-        return [s for s in (self.ring, self.hole, self.tail) if s is not None]
+        return [s for s in (self.ring, self.hole) if s is not None] + list(self.legs)
 
 
 @dataclass(frozen=True)
@@ -124,10 +134,12 @@ class Action:
     cost: float = 0.0
     shapes: tuple = field(default=(), compare=False)    # what it leaves on the board in its place
     target: str = ""            # shared: the id of the carried via it joins, which may not give way while it does
+    tracks: tuple = ()          # route: the Tracks drawn in place of the via's own, every segment
+    old_tracks: tuple = ()      # route: the drawn tracks taken away, each as its two ends (the via's end first)
 
     @property
     def moved_mm(self) -> float:
-        return math.dist(self.at, self.to) if self.kind == "move" else 0.0
+        return math.dist(self.at, self.to) if self.kind in ("move", "route") else 0.0
 
 
 @dataclass
@@ -167,6 +179,10 @@ def groups(occ, shapes) -> dict:
             g.hole = s
         elif s.kind == "copper":
             g.tail, g.far = s, s.points[1]
+            g.legs.append(s)
+    for g in out.values():
+        if g.routed:                # a via with several tracks has no one tail (see `_give_routed`)
+            g.tail = g.far = None
     return {k: out[k] for k in sorted(out) if out[k].ring is not None}
 
 
@@ -703,6 +719,8 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
     from . import giveway_field
     s = occ.settings
     geo = occ.geometry
+    if g.routed:
+        return _give_routed(occ, g, judge, own, who, met)
     pad_key, pad, inside = who.pad_of(g)
     layer = who.layer(g, pad)
     old = (g.centre, g.far) if g.tail is not None else None
@@ -985,7 +1003,8 @@ def apply(occ, res: Resolution, by: str) -> None:
             occ.copper = [c for c in occ.copper if c.carried != a.via] + list(a.shapes)
         before = occ.given_way.get(a.via)
         if before is not None:
-            a = replace(a, at=before.at, old_tail=before.old_tail if before.old_tail is not None else a.old_tail)
+            a = replace(a, at=before.at, old_tail=before.old_tail if before.old_tail is not None else a.old_tail,
+                        old_tracks=before.old_tracks or a.old_tracks)
             a = giveway_field.chain(before, a)
         occ.given_way[a.via] = a
         occ._given_by.setdefault(a.via, []).append(by)
@@ -1037,11 +1056,11 @@ def report(occ) -> list:
         for net in sorted(by[home]):
             acts = by[home][net]
             parts = []
-            for kind, verb in (("share", "shared"), ("move", "moved"), ("leave", "left its pad"), ("shorten", "shortened"), ("drop", "dropped")):
+            for kind, verb in (("share", "shared"), ("move", "moved"), ("route", "re-routed"), ("leave", "left its pad"), ("shorten", "shortened"), ("drop", "dropped")):
                 done = [a for a in acts if a.kind == kind]
                 if not done:
                     continue
-                if kind == "move":
+                if kind in ("move", "route"):
                     far = max(a.moved_mm for a in done)
                     verb += (" %.2f mm" if len(done) == 1 else " up to %.2f mm") % far
                 n = len(done)
@@ -1052,3 +1071,99 @@ def report(occ) -> list:
                         + giveway_field.held_note(occ, home, acts))
         out.append((home, "; ".join(said)))
     return giveway_field.merged(out, occ)
+
+
+# ------------------------------------------------------------------ a routed via
+# (docs/superpowers/specs/2026-10-01-routed-via-moves-design.md)
+
+_ON = 1e-6
+"""How near two ends are to be the same point: a leg's end and the via's centre are the same number."""
+
+
+def _chains(g: Group) -> list:
+    """(far end, layer, width) of each track of a routed via: the leg that starts at its centre, followed
+    through the legs that join it end to end (a track a move rebuilt is several), to the end furthest
+    from the via. The layer and width are the first leg's."""
+    def at(p, q) -> bool:
+        return abs(p[0] - q[0]) <= _ON and abs(p[1] - q[1]) <= _ON
+    out, used = [], set()
+    for head in g.legs:
+        if not at(head.points[0], g.centre):
+            continue
+        cur = head
+        while True:
+            used.add(id(cur))
+            nxt = next((l for l in g.legs if id(l) not in used and at(l.points[0], cur.points[1])), None)
+            if nxt is None:
+                break
+            cur = nxt
+        out.append((cur.points[1], next(iter(head.layers)), _width(head)))
+    return out
+
+
+def _far_ends(g: Group) -> list:
+    """Where the tracks of a routed via end away from it: they stay when it moves."""
+    return [far for far, _, _ in _chains(g)]
+
+
+def _rebuilt(occ, g: Group, judge: "_Judge", mine: list, chains: list, to: tuple):
+    """The Tracks that join each chain's far end to `to`, drawn as a declared track is (copper.octilinear
+    between the ends, its right angles chamfered), each of its layer and width, or None where one has no
+    length or a segment of one is not clear of the board, `mine` and what earlier actions left."""
+    from .copper import chamfer_cuts, octilinear, polyline_tracks
+    s = occ.settings
+    drawn = []
+    for far, layer, width in chains:
+        if math.dist(far, to) <= _ON:
+            return None
+
+        def clear(a, b, layer=layer, width=width) -> bool:
+            return not _tail_hit(judge, _tail_shape(g.owner, g.net, layer, width, (a.x, a.y), (b.x, b.y))[1], mine)
+        path = octilinear([Location(*far), Location(*to)], [False, False], clear, tolerance=s.copper_straight_tolerance)
+        cut, diagonals = chamfer_cuts(path, s.copper_chamfer)
+        cuts = {(round(a.x, 6), round(a.y, 6), round(b.x, 6), round(b.y, 6)) for a, b in diagonals}
+        for t in polyline_tracks(g.net, layer, width, cut):
+            if not clear(t.start, t.end):
+                return None
+            drawn.append(replace(t, chamfer_cut=(round(t.start.x, 6), round(t.start.y, 6), round(t.end.x, 6),
+                                                 round(t.end.y, 6)) in cuts))
+    return drawn
+
+
+def _give_routed(occ, g: Group, judge: "_Judge", own, who: _Owner, met: str):
+    """(Action, why not, None) for a via that two or more of its item's tracks end on, moved up to
+    `place.via_route`, nearest spot first, with each track rebuilt from its far end; the spot is used only
+    when its ring, its hole and every track are clear, so one that fails leaves them all as drawn."""
+    s = occ.settings
+    pad_key, pad, inside = who.pad_of(g)
+    chains = _chains(g)
+    limit = s.place_via_route
+    r = _radius(g)
+    span = Box.union([g.ring.box.inflate(limit)] + [x.box.inflate(limit) for x in g.legs])
+    mine = [o for o in own if o.box.overlaps(span, gap=occ._gap)]
+    offsets = _offsets(limit, s.place_via_move_step)
+    clear_spots = _native_move_offsets(judge, g.ring, g.hole, offsets)
+    # the native offsets are clear of the board; what is left to judge is the item's own copper and what
+    # earlier actions left, and without them every offset, against the board too
+    pool = [o for o in judge.extra if o.box.overlaps(span, gap=occ._gap)] if clear_spots is not None else \
+        judge.near(span, occ._gap)
+    for dx, dy in (offsets if clear_spots is None else clear_spots):
+        to = (round(g.centre[0] + dx, 9), round(g.centre[1] + dy, 9))
+        if inside and not _disc_inside(pad.poly, to, r - 1e-5):
+            continue
+        moved = [replace(_shift(g.ring, dx, dy), given=g.id)]
+        if g.hole is not None:
+            moved.append(replace(_shift(g.hole, dx, dy), given=g.id))
+        if judge.hit(moved, pool, mine, say=False):
+            continue
+        tracks = _rebuilt(occ, g, judge, mine, chains, to)
+        if tracks is None:
+            continue
+        for t in tracks:
+            moved.append(_tail_shape(g.owner, g.net, t.layer, t.width, (t.start.x, t.start.y), (t.end.x, t.end.y),
+                                     carried=g.id, given=g.id)[1])
+        old = tuple((tuple(x.points[0]), tuple(x.points[1])) for x in g.legs)
+        return Action("route", g.id, g.owner, g.home, g.net, g.centre, to, None, None, pad_key, met,
+                      s.score_via_route, tuple(moved), tracks=tuple(tracks), old_tracks=old), None, None
+    return None, "no spot within %.2f mm%s is clear with its %d tracks rebuilt" % (
+        limit, " inside its pad" if inside else "", len(chains)), None

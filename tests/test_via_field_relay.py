@@ -306,6 +306,6 @@ def test_the_relay_settings_have_defaults_and_are_settable(tmp_path):
 
 def test_the_least_give_way_cost_counts_a_relay():
     from placemat.giveway import least_cost
-    off = dict(place_via_share=0.0, place_via_move=0.0, place_via_leave=0.0)
+    off = dict(place_via_share=0.0, place_via_move=0.0, place_via_leave=0.0, place_via_route=0.0)
     assert least_cost(Settings(**off)) == Settings().score_via_relay
     assert least_cost(Settings(place_via_relay=False, **off)) == Settings().score_via_drop
