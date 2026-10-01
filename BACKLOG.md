@@ -51,7 +51,9 @@ file. An item cites its source as "a board's session, <date>".
 - **A run stalls on an item with no legal spot** (a board's session,
   2026-10-01): a run that took about 3 minutes now goes 30+ minutes without
   a step after a searched cell that has no legal spot; the resolve phase
-  measured about ten times its old time. Being diagnosed.
+  measured about ten times its old time. Cause: since 0.66.0 an item that
+  owns or meets a net tie skips the native search and runs the Python one,
+  about 40x slower per candidate. Being fixed.
 
 ## Open
 
