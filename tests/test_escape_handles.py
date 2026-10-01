@@ -53,6 +53,19 @@ def test_a_part_waits_for_the_escaped_part_it_refers_to():
     assert plan.placement("c_pd") is not None and not _unplaced_or_fixed(plan)
 
 
+def test_a_part_beside_a_via_rides_the_searched_part_whose_escape_it_is():
+    from placemat.values import Near
+    b = board_with([qfn(nets=PD_NETS), small_part("C1", "c_pd", ("GND", "PGOOD"))])
+    b.place(Part("pd"), at=Near(Location(30, 30), radius=1.0, step=0.5, rotations=(0.0,)))
+    esc = b.escape(Part("pd"), [32, 31, 30], turn=Edge.WEST, vias=[31, 30], why="north row")
+    b.place(Part("c_pd"), at=Beside(esc[30].via, Edge.WEST), why="west of PGOOD's via")
+    plan = b.resolve()
+    via = b._escape_laid[0].lanes["30"].via
+    assert "rides pd" in plan.step("c_pd").note
+    assert plan.box("c_pd").center.x < via.at.x
+    assert not _unplaced_or_fixed(plan)
+
+
 def test_a_pad_stands_centred_across_a_lane_s_line_at_the_end_of_it():
     b, esc = _model(small_part("C1", "c_pd", ("GND", "VOUT")))
     b.place(Part("c_pd"), at=Beside(esc[30].via, Edge.WEST, align=(2, esc[32])), why="on VOUT's lane, west of the via")

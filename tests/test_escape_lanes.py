@@ -244,6 +244,29 @@ def test_a_free_spot_via_of_another_net_keeps_off_a_lane():
     assert (tap.at.x, tap.at.y) != (tap0.at.x, tap0.at.y)             # the lanes moved it off the nearest spot
 
 
+def test_depth_sets_the_innermost_lane_and_run_the_end_of_lanes_with_no_via():
+    b = pd_board()
+    esc = b.escape(Part("pd"), [32, 31], turn=Edge.WEST, depth=0.9, run=1.5, why="a deeper first lane, longer ends")
+    b.track(Net("VOUT"), [esc[32]], layer=F, why="its lane")
+    b.track(Net("SENSE"), [esc[31]], layer=F, why="its lane")
+    plan = b.resolve()
+    assert _lane_y(plan, "VOUT") == pytest.approx(TIP_N - 0.9, abs=1e-9)
+    assert _lane_y(plan, "SENSE") == pytest.approx(TIP_N - 0.9 - (TRACK + CLEAR), abs=1e-9)
+    for net in ("VOUT", "SENSE"):
+        west = min(min(t.start.x, t.end.x) for t in plan.copper if isinstance(t, Track) and t.net == net)
+        assert west == pytest.approx(ROW_END_W - 1.5, abs=1e-6)         # run= past the row's turn-side end
+
+
+def test_the_escape_has_a_step_and_its_lanes_stand_in_the_occupancy_as_copper_of_their_nets():
+    b, esc = _north_row()
+    _draw(b, esc)
+    plan = b.resolve()
+    assert "3 lanes kept for pins 32, 31, 30" in plan.step("escape U1").note
+    reserved = {s.net for s in plan.occupancy.copper if s.kind == "copper"}
+    assert {"VOUT", "SENSE", "PGOOD"} <= reserved
+    assert not [f for f in plan.findings if f.kind in ("copper", "escape_lane")]
+
+
 def test_a_west_row_turning_north_lays_its_lanes_along_y_the_same_way():
     nets = {1: "A1", 2: "A2", 3: "A3"}
     b = board_with([qfn(nets=nets)])

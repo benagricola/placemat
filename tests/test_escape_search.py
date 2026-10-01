@@ -63,6 +63,17 @@ def test_the_price_is_the_setting():
     assert "escape_lane" in __import__("placemat.score", fromlist=["TERMS"]).TERMS
 
 
+def test_the_escape_settings_load_with_their_floors(tmp_path):
+    from placemat import settings as S
+    (tmp_path / "placemat.toml").write_text("[score]\nescape_lane = 0\n[place]\nescape_via_step = 0.1\nescape_via_reach = 3\n")
+    s = S.load(tmp_path)
+    assert (s.score_escape_lane, s.place_escape_via_step, s.place_escape_via_reach) == (0, 0.1, 3)
+    for text in ("[score]\nescape_lane = -1\n", "[place]\nescape_via_step = 0\n", "[place]\nescape_via_reach = 0\n"):
+        (tmp_path / "placemat.toml").write_text(text)
+        with pytest.raises(S.SettingsError):
+            S.load(tmp_path)
+
+
 def test_the_lane_finding_is_scored_like_the_other_escape_findings():
     from placemat import score
     cfg = Settings()

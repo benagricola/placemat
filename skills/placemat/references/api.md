@@ -438,12 +438,16 @@ not along a board axis is refused.
   pin the next lane out, so no riser crosses a lane. There is no `order=`.
 - **Steps.** The innermost lane's centreline is its own copper plus the
   clearance past the pads' outermost reach (`depth=` sets that distance
-  instead); each next lane is a step out: half of each lane's copper plus the
-  clearance by net pair, as the router judges it (`board.rule` clearances
-  count). A lane's copper is its `widths=` track (else its net's track width);
-  where the neighbour has a via, its via's size counts in the lane's step
-  too, since a track passes it. A lane and the via beside it keep the
-  clearance wherever the via stands along its lane.
+  instead); each next lane is a step out. A lane's copper is its via's size
+  where it has a via, else its track (`widths=`, else its net's track width).
+  A step is the clearance by net pair, as the router judges it (`board.rule`
+  clearances count), added to the largest of: half each lane's track; half
+  the inner lane's via and half the outer lane's track (the outer track
+  passes the inner via); half the inner lane's track and half the outer
+  lane's via (the inner track may run on past it). Two vias are not stepped
+  apart by their sizes: they keep the clearance by standing apart along their
+  lanes, innermost first. A lane and the via beside it keep the clearance
+  wherever the via stands.
 - **Corners.** Each riser runs from its pad's centre to its lane and turns;
   the corner is chamfered as the track's own chamfer. `turn=` a `Corner` (a
   north row: `NW` or `NE`) runs the lanes at 45, a step apart across their
