@@ -372,7 +372,9 @@ the script.
   position; a footprint not on a board is `placemat measure
   <path>.kicad_mod`). Before extracting a datasheet's images or text, run
   `placemat datasheet <pdf>` to find the page with the land pattern,
-  dimensions, layout rules or pin map, then `--show` it.
+  dimensions, layout rules or pin map, then `--show` it for its text, and
+  `--show ... --png` for the render (written under `.placemat/views/datasheet/`,
+  and the command prints the path).
 - Say what is a mechanical point and what is a distance along an edge;
   leave the rest a bare `place(item)`. The placer seeds each searched item
   from the placed pads it is wired to and says why in its step. When

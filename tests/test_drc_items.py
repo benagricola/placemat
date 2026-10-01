@@ -40,6 +40,7 @@ def test_the_drc_command_lists_the_items(breakout_pcb, tmp_path, capsys):
         if breakout_pcb.with_suffix(ext).exists():
             shutil.copy(breakout_pcb.with_suffix(ext), tmp_path / ("layout" + ext))
     cli.main(["drc", str(tmp_path / "layout.kicad_pcb"), "--json"])
+    assert not (tmp_path / "drc.json").exists()
     data = json.loads(capsys.readouterr().out)
     assert "violations" in data and "unconnected_items" in data
     assert all({"kind", "severity", "description", "items"} <= set(v) for v in data["violations"])

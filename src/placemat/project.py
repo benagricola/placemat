@@ -24,6 +24,44 @@ class BoardSource:
         return self.layout_dir / "layout.kicad_pcb"
 
 
+def board_dir_of(pcb) -> Path:
+    """The board dir of a board file: the board dir holds layout/<Board>/layout.kicad_pcb."""
+    pcb = Path(pcb)
+    return pcb.parents[2] if pcb.parent.parent.name == "layout" else pcb.parent
+
+
+def note_views(path) -> None:
+    """Keep what is written under a .placemat/views folder out of version control:
+    that folder holds output a rerun regenerates, and gets a .gitignore of `*`
+    whatever the project's own ignore file says."""
+    path = Path(path).absolute()
+    for d in [path, *path.parents]:
+        if d.name == "views" and d.parent.name == ".placemat":
+            d.mkdir(parents=True, exist_ok=True)
+            ignore = d / ".gitignore"
+            if not ignore.exists():
+                ignore.write_text("*\n")
+            return
+
+
+def views_dir(base, command: str) -> Path:
+    """<base>/.placemat/views/<command>, made, with its folder's .gitignore."""
+    out = Path(base) / ".placemat" / "views" / command
+    out.mkdir(parents=True, exist_ok=True)
+    note_views(out)
+    return out
+
+
+def datasheet_root(pdf) -> Path:
+    """The project a datasheet belongs to: the nearest directory up from the PDF
+    that holds a .placemat directory or a placemat.toml, else the PDF's own."""
+    pdf = Path(pdf).absolute()
+    for d in pdf.parents:
+        if (d / ".placemat").is_dir() or (d / "placemat.toml").is_file():
+            return d
+    return pdf.parent
+
+
 _BOARD_RE = re.compile(r"\b(Board|Layout|Project)\s*\(", re.S)
 _NAME_RE = re.compile(r'\bname\s*=\s*"([^"]+)"')
 _LAYOUT_RE = re.compile(r'\b(?:layout_path|path)\s*=\s*"([^"]+)"')

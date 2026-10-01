@@ -149,10 +149,11 @@ def test_placemat_preview_on_a_fixture_module_writes_both_and_reuses_on_a_second
     exe = [sys.executable, "-m", "placemat", "preview", str(mod / "UsbC_layout.py")]
     first = subprocess.run(exe, capture_output=True, text=True, timeout=600)
     assert first.returncode == 0, first.stdout + first.stderr
-    png = mod / ".placemat/preview/preview.png"
-    assert (mod / ".placemat/preview/preview.svg").exists() and png.exists()
+    png = mod / ".placemat/views/preview/preview.png"
+    assert (mod / ".placemat/views/preview/preview.svg").exists() and png.exists()
     width = struct.unpack(">I", png.read_bytes()[16:20])[0]
     assert width > 1000
+    assert (mod / ".placemat/views/.gitignore").read_text() == "*\n"
     assert not (mod / ".placemat/runs/latest.json").exists()
     second = subprocess.run(exe, capture_output=True, text=True, timeout=600)
     assert "reused  all" in second.stdout, second.stdout

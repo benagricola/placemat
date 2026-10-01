@@ -25,22 +25,81 @@ def test_the_index_prints_the_land_pattern_page(tmp_path, capsys):
     assert "land pattern" in out and "p1" in out
 
 
-def test_show_renders_a_page_and_names_the_file(tmp_path, capsys):
+def _tree(root):
+    return sorted(str(p.relative_to(root)) for p in root.rglob("*"))
+
+
+def test_show_without_an_output_request_writes_no_file_and_prints_the_text(tmp_path, capsys):
     p = make_pdf(tmp_path / "land.pdf", LAND)
-    assert main(["datasheet", str(p), "--show", "p1", "--out", str(tmp_path / "o")]) == 0
-    assert ".png" in capsys.readouterr().out
-    assert list((tmp_path / "o").glob("*.png"))
+    before = _tree(tmp_path)
+    assert main(["datasheet", str(p), "--show", "p1"]) == 0
+    out = capsys.readouterr().out
+    assert _tree(tmp_path) == before
+    assert ".png" not in out and "page 1" in out and "RECOMMENDED LAND PATTERN" in out
+
+
+def test_show_on_a_page_with_no_text_says_so(tmp_path, capsys):
+    p = make_pdf(tmp_path / "blank.pdf", "%%MediaBox 0 0 200 200\n")
+    assert main(["datasheet", str(p), "--show", "p1", "--no-ocr"]) == 0
+    assert "no text on this page (outlined curves)" in capsys.readouterr().out
+    assert not list(tmp_path.rglob("*.png")) and not (tmp_path / ".placemat").exists()
+
+
+def test_png_writes_under_the_projects_views_folder_with_a_gitignore(tmp_path, capsys):
+    (tmp_path / "placemat.toml").write_text("")
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    p = make_pdf(docs / "land.pdf", LAND)
+    assert main(["datasheet", str(p), "--show", "p1", "--png"]) == 0
+    views = tmp_path / ".placemat" / "views"
+    assert (views / "datasheet" / "land-p1.png").exists()
+    assert (views / ".gitignore").read_text() == "*\n"
+    assert str(views / "datasheet" / "land-p1.png") in capsys.readouterr().out
+    assert not list(docs.glob("*.png")) and not (docs / ".placemat").exists()
+
+
+def test_png_with_no_project_uses_the_pdfs_own_directory(tmp_path):
+    p = make_pdf(tmp_path / "land.pdf", LAND)
+    assert main(["datasheet", str(p), "--show", "land", "--png"]) == 0
+    assert (tmp_path / ".placemat/views/datasheet/land-p1.png").exists()
+    assert not list(tmp_path.glob("*.png"))
+
+
+def test_out_writes_exactly_there_and_nowhere_else(tmp_path, capsys):
+    import json
+    p = make_pdf(tmp_path / "land.pdf", LAND)
+    target = tmp_path / "o" / "page.png"
+    before = _tree(tmp_path)
+    assert main(["datasheet", str(p), "--show", "p1", "--out", str(target), "--json"]) == 0
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["png"] == str(target) and doc["text"]
+    assert _tree(tmp_path) == sorted(before + ["o", "o/page.png"])
+
+
+def test_json_without_a_render_has_text_and_no_png(tmp_path, capsys):
+    import json
+    p = make_pdf(tmp_path / "land.pdf", LAND)
+    assert main(["datasheet", str(p), "--show", "p1", "--json"]) == 0
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["text"] and "png" not in doc
+
+
+def test_png_without_show_is_refused(tmp_path, capsys):
+    p = make_pdf(tmp_path / "land.pdf", LAND)
+    assert main(["datasheet", str(p), "--png"]) == 1
+    assert "--show" in capsys.readouterr().out
+    assert not list(tmp_path.rglob("*.png")) and not (tmp_path / ".placemat").exists()
 
 
 def test_show_resolves_a_topic_to_its_best_page(tmp_path, capsys):
     p = make_pdf(tmp_path / "land.pdf", LAND)
-    assert main(["datasheet", str(p), "--show", "land", "--out", str(tmp_path / "o")]) == 0
-    assert ".png" in capsys.readouterr().out
+    assert main(["datasheet", str(p), "--show", "land"]) == 0
+    assert "page 1" in capsys.readouterr().out
 
 
 def test_show_for_a_topic_with_no_candidate_says_so(tmp_path, capsys):
     p = make_pdf(tmp_path / "bare.pdf", BARE)
-    assert main(["datasheet", str(p), "--show", "pins", "--out", str(tmp_path / "o")]) == 1
+    assert main(["datasheet", str(p), "--show", "pins"]) == 1
     assert "no candidate" in capsys.readouterr().out
 
 
