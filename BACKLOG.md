@@ -42,6 +42,11 @@ file. An item cites its source as "a board's session, <date>".
   the clearance. `reach=mm` on a fitted pour, and a pad held to its own edge
   where its footprint sets the gap. Being built.
 
+- **Facing on a ball grid, in a row, and a side by where a pad lands** (a
+  board's session, 2026-10-01): `Facing` refuses a pad with no row (a 2x2
+  ball grid); `row()` takes no `Facing`; scripts still compute a turn to
+  read which side a pad lands on. Being built.
+
 ## Open
 
 - **A via field re-laid round a conflict** (the via give-way
