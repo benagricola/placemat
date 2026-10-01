@@ -1,6 +1,6 @@
 # A fitted pour that joins vias
 
-Status: draft, for approval.
+Status: approved (2026-10-01).
 
 Source: a board's session (2026-10-01), migrating to fitted pours (0.67.0).
 
