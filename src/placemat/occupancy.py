@@ -233,13 +233,16 @@ def _fp_shapes(fp: Footprint, envelope: str = "courtyard", polygon_share: float 
     """What a part claims. `courtyard`: its courtyard and its pads. `physical`:
     its pads, mask openings, silk and body - or, for a footprint that draws
     neither silk nor fab, its courtyard (which falls back to its pads).
-    `union`: both."""
+    `union`: both. A net tie that draws no courtyard, silk or fab claims its
+    pads and copper in every envelope."""
     shapes = []
     # The courtyard and the body stay on the part's own face: only its holes
     # reach the other (the through pads and unplated holes below).
     faces = frozenset([fp.face])
     drawn = bool(fp.silk or fp.fab)
-    if envelope != "physical" or not drawn:
+    if fp.copper_only:                          # a net tie that draws nothing is copper: no courtyard, no body
+        pass
+    elif envelope != "physical" or not drawn:
         claims = envelope == "physical"         # the part claims its courtyard in place of what it would draw
         if courtyard_drawn(fp, polygon_share):
             ct = tuple(fp.courtyard_poly)
@@ -347,6 +350,13 @@ class Occupancy:
         self.component_spacing = component_spacing          # body to body, body to another part's pad
         self.silk_clearance = geometry.silk_clearance       # silk to silk, silk to a mask opening
         self._footprint_refs = frozenset(fp.ref for fp in geometry.footprints)
+        # the footprints whose body and courtyard keep pads and copper out, or that a body keeps out: all but a
+        # net tie drawing nothing, which is copper as a track is
+        self._body_refs = frozenset(fp.ref for fp in geometry.footprints if not fp.copper_only)
+        # KiCad's net-tie exclusion (_net_tie_exclusion) is not in the native conflict rules, so a pair with a
+        # net tie in it is settled here: a native hit on one that Python excuses sends the check to Python
+        self._tie_refs = frozenset(fp.ref for fp in geometry.footprints if fp.net_tie_pads)
+        self._mover = None          # (shapes, dx, dy) of the item a Python legality check is moving
         # KiCad's courtyard lies inside the box by the stroke: two boxes may overlap by that much. A
         # courtyard claimed as drawn is KiCad's own polygon, with nothing to allow for.
         share = self.settings.place_courtyard_polygon_share
@@ -1171,7 +1181,7 @@ class Occupancy:
             return hit
         shapes = self._obstacle_shapes(skip, carried)
         index = native.NativeObstacles(
-            [_to_native_shape(s, self._footprint_refs, self._leads, self._margins) for s in shapes],
+            [_to_native_shape(s, self._body_refs, self._leads, self._margins) for s in shapes],
             **self._native_conflict_kwargs())
         entry = (index, shapes)
         self._native_obstacle_cache[key] = entry
@@ -1312,6 +1322,8 @@ class Occupancy:
             others = self.obstacles(geom)
         dx, dy = placement.location.x, placement.location.y
         native_entry = getattr(others, "_native", None)
+        if native_entry is not None and self._tie_refs & geom.owners:
+            native_entry = None             # a net tie's own pairs are settled in Python (see _tie_refs)
         if native_entry is not None:
             # The near-obstacle search itself - ShapeIndex.near() plus the
             # per-shape "close" filter plus _conflict/_drawn_conflict's own
@@ -1337,13 +1349,16 @@ class Occupancy:
             moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
                          tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label, claims=s.claims)
             why = self._conflict(moved, o, clearance)
-            if why is None:
+            if why is None and o.owner in self._tie_refs:
+                native_entry = None         # a net tie's exclusion: the rest of the check is Python's
+            elif why is None:
                 raise AssertionError(
                     "native found a conflict between a %s and a %s that _conflict disagrees with; "
                     "this is a native/Python mismatch, not a placement question" % (moved.kind, o.kind))
-            if blame is not None:
-                blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
-            return why
+            else:
+                if blame is not None:
+                    blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
+                return why
         # What a conflict can reach from: the body, or in a drawn envelope every
         # shape the part claims - silk can stand well past the body.
         shapes = self._legal_origin_shapes(item, geom, placement)
@@ -1355,19 +1370,23 @@ class Occupancy:
             return None
         # Each shape is turned and faced once per rotation and face, then
         # shifted; only a shape whose box reaches an obstacle is moved as a polygon.
-        for s in shapes:
-            sb = s.box.moved(dx, dy)
-            close = [o for o in near if sb.overlaps(o.box, gap=self.gap_for(s))]
-            if not close:
-                continue
-            moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
-                          tuple((x + dx, y + dy) for x, y in s.poly), sb, s.label, claims=s.claims)
-            for o in close:
-                why = self._conflict(moved, o, clearance)
-                if why:
-                    if blame is not None:
-                        blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
-                    return why
+        self._mover = (shapes, dx, dy)
+        try:
+            for s in shapes:
+                sb = s.box.moved(dx, dy)
+                close = [o for o in near if sb.overlaps(o.box, gap=self.gap_for(s))]
+                if not close:
+                    continue
+                moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
+                              tuple((x + dx, y + dy) for x, y in s.poly), sb, s.label, claims=s.claims)
+                for o in close:
+                    why = self._conflict(moved, o, clearance)
+                    if why:
+                        if blame is not None:
+                            blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
+                        return why
+        finally:
+            self._mover = None
         return None
 
     def legal_giving_way(self, item, placement: Placement, clearance: float | None = None, others=None,
@@ -1431,7 +1450,7 @@ class Occupancy:
         if others is None:
             others = self.obstacles(geom)
         native_entry = getattr(others, "_native", None)
-        if native_entry is None:
+        if native_entry is None or self._tie_refs & geom.owners:
             why = self.legal(item, placement, clearance, others=others, blame=blame)
             return None if why is None else (_reason_key(why), (lambda why=why: why))
         native_index, native_shapes = native_entry
@@ -1444,6 +1463,9 @@ class Occupancy:
         si, oi = hit
         o = native_shapes[oi]
         s = origin_shapes[si]
+        if o.owner in self._tie_refs:
+            why = self.legal(item, placement, clearance, others=others, blame=blame)   # a net tie's exclusion
+            return None if why is None else (_reason_key(why), (lambda why=why: why))
         moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
                      tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label, claims=s.claims)
         if blame is not None:
@@ -1467,6 +1489,8 @@ class Occupancy:
         entry = getattr(others, "_native", None)
         if native is None or entry is None or not hasattr(native, "sweep"):
             return None
+        if self._tie_refs & self._geometry(item).owners:
+            return None                     # a net tie's pairs are settled in Python (see _tie_refs)
         board = native_board(self)
         if board is None:
             return None
@@ -1548,8 +1572,8 @@ class Occupancy:
             gap = self.component_spacing
         elif "body" in pair and pair & {"pad", "through"}:
             other = o if s.kind == "body" else s
-            if other.owner not in self._footprint_refs:
-                return None                 # a track or via may run under a body
+            if other.owner not in self._body_refs:
+                return None                 # a track, a via or a net tie that draws nothing may lie under a body
             gap = self.component_spacing
         else:
             return None
@@ -1611,7 +1635,7 @@ class Occupancy:
             return hit[1]
         origin_shapes = self._legal_origin_shapes(item, geom, placement)
         handle = native.NativeOriginShapes(
-            [_to_native_shape(s, self._footprint_refs, self._leads, self._margins) for s in origin_shapes])
+            [_to_native_shape(s, self._body_refs, self._leads, self._margins) for s in origin_shapes])
         cache[key] = (geom, handle)
         return handle
 
@@ -1703,7 +1727,7 @@ class Occupancy:
             # a courtyard claimed as the part itself keeps another part's body and pads out (not its silk: ink may lie over it)
             other = o if claim is s else s
             if other.kind in ("body", "pad", "through"):
-                if other.owner != claim.owner and other.owner in self._footprint_refs \
+                if other.owner != claim.owner and other.owner in self._body_refs \
                         and claim.faces & other.faces and polys_overlap(claim.poly, other.poly):
                     return "%s %s sits in %s courtyard, which it claims as it draws nothing else" % (
                         self.who(other.owner), _NAMES.get(other.kind, other.kind), self.who(claim.owner))
@@ -1751,7 +1775,7 @@ class Occupancy:
                     return self._lead_sentence(court, other)
                 return None
             if other.kind == "npth" or (other.kind == "through" and self.vias_block_courtyards
-                                        and other.owner not in self.items):
+                                        and (other.owner not in self.items or other.owner not in self._body_refs)):
                 if polys_overlap(court.poly, other.poly):
                     return "%s courtyard sits over a %s (%s)" % (self.who(court.owner), other.kind, self.who(other.owner) if other.owner else "via")
             return None
@@ -1809,6 +1833,16 @@ class Occupancy:
         own = [l for l in self.geometry.layers if l in layers]
         return "/".join(l.value for l in (own or sorted(layers, key=lambda l: l.value)))
 
+    def _shapes_standing(self, owner: str):
+        """(shape, outline) of each shape of `owner` where it stands: as
+        committed, or at the candidate placement a legality check is judging
+        (`_mover`) when that is the item."""
+        mover = self._mover
+        if mover is not None and any(sh.owner == owner for sh in mover[0]):
+            _, dx, dy = mover
+            return [(sh, tuple((x + dx, y + dy) for x, y in sh.poly)) for sh in mover[0] if sh.owner == owner]
+        return [(sh, sh.poly) for sh in self.items[owner].shapes]
+
     def _net_tie_exclusion(self, s, o) -> bool:
         """KiCad's DRC_ENGINE::IsNetTieExclusion, either way round: copper of
         a net-tie footprint colliding with another item of the net of one of
@@ -1820,7 +1854,7 @@ class Occupancy:
             fp = self.geometry.footprint(other.owner)
             if not fp.net_tie_pads or other.owner not in self.items:
                 continue
-            pads = [sh.poly for sh in self.items[other.owner].shapes
+            pads = [poly for sh, poly in self._shapes_standing(other.owner)
                     if sh.kind in ("pad", "through") and sh.label in fp.net_tie_pads and sh.net == item.net
                     and sh.layers & item.layers & other.layers]
             if not pads:
@@ -1830,7 +1864,7 @@ class Occupancy:
             # item: the track's SHAPE_SEGMENT collides with the other's polygon); other copper where their
             # outlines meet
             at = _kicad_segment_location(ends, other.poly) if ends and len(ends) == 2 else \
-                _contact_point(item.poly, other.poly)
+                _corner_inside(other.poly, item.poly) or _contact_point(item.poly, other.poly)
             if any(point_in_polygon(at, pad) or _point_poly_distance(at, pad) <= _NET_TIE_EPSILON for pad in pads):
                 return True
         return False
@@ -1966,6 +2000,15 @@ def _k_seg_nearest_to_seg(s1, s2):
 
 def _point_poly_distance(p, poly) -> float:
     return min(point_segment_distance(p, poly[i], poly[(i + 1) % len(poly)]) for i in range(len(poly)))
+
+
+def _corner_inside(a, b):
+    """The first corner of polygon `a` that lies inside polygon `b`, or None:
+    where KiCad reports a net tie's drawn copper meeting another net's pad
+    when a corner of that copper stands in the pad (it collides the copper as
+    triangles, whose corner is the position it reads; checked against the
+    DRC engine for a bar laid over a pad's edge)."""
+    return next((p for p in a if point_in_polygon(p, b)), None)
 
 
 def _contact_point(a, b):

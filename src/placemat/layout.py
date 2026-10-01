@@ -30,7 +30,7 @@ from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
 from .settings import Settings
-from .placer import BlockSpec, _grid, _pin_normal, _reason_key, box_centered_placement, cell_pad_anchored_placement, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
+from .placer import BlockSpec, _grid, _pin_normal, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
 from .values import (Turned, Axis, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
@@ -2199,7 +2199,8 @@ class Board:
         Centre(None, y)         slides along the line, from across what it
                                 connects to, else sharing it evenly     -> searched, one freedom
         Pin(key, x, y)          the item's own pad `key` (number or net)
-                                lands on the point                        -> FIXED, no freedom
+        Pin(key, point)         lands on the point (a PadRef with `edge=`:
+                                the pad lies against that edge)           -> FIXED, no freedom
         OnEdge(edge, along=)    its reach at the keep-in, at that distance
                                 (mm, a reference, Along.MID, Fraction(f))  -> EDGE, no freedom
         OnEdge(edge)            on that edge, wherever there is room:
@@ -2250,7 +2251,7 @@ class Board:
             member = next((fp for fp in geom.members if fp.inst == at.key.inst), None)
             if member is None:
                 raise TypeError("%s: Pin's %r is not one of cell %s's members" % (key, at.key, key))
-            cell_pin, center, at = (member.ref, None, 0.0, 0.0), (at.x, at.y), None
+            cell_pin, center, at = (member.ref, None, 0.0, 0.0), at.axes, None
         elif isinstance(at, Pin) and kind == "cell" and not isinstance(at.key, (CellPadRef, PadRef)):
             raise TypeError("%s: a cell has no pad of its own; Pin's key is a CellPadRef, a PadRef on "
                             "one of its members, or a member Part (its footprint origin), not %r" % (key, at.key))
@@ -2265,14 +2266,14 @@ class Board:
                                  "land for a point on a placed pad, not for Pin's key" % key)
             lx, ly = getattr(at.key, "lx", 0.0), getattr(at.key, "ly", 0.0)
             pin_tuple = (owner, number, dx, dy, lx, ly) if (lx or ly) else (owner, number, dx, dy)
-            cell_pin, center, at = pin_tuple, (at.x, at.y), None
+            cell_pin, center, at = pin_tuple, at.axes, None
         elif isinstance(at, Pin):
             if kind != "part":
                 what = "a block is placed by its anchor's position, not a pad" if kind == "block" else \
                     "a cell has no pad of its own"
                 raise TypeError("%s: a Pin places a part by its pad; %s" % (key, what))
             geom.pad(at.key)                                # a real pad of this part, checked now
-            pin, center, at = at.key, (at.x, at.y), None
+            pin, center, at = at.key, at.axes, None
         elif isinstance(at, Beside):
             beside = self._beside_spec(key, geom, kind, at)
             at = None
@@ -6506,7 +6507,10 @@ class Board:
                 p = cell_pad_anchored_placement(occ, i.item, owner, number, dx, dy,
                                                 _locate(self, occ, i.center), i.rotation, i.face, lx, ly)
         elif i.center is not None and i.pin is not None:
-            p = pad_anchored_placement(occ, i.item, i.pin, _locate(self, occ, i.center), i.rotation, i.face)
+            # a PadRef's edge= in the point stands the pad off by its own size, as it stands at this rotation
+            size = pad_box_at(occ, i.item, i.pin, i.rotation, i.face)
+            p = pad_anchored_placement(occ, i.item, i.pin, _locate(self, occ, i.center, (size.width, size.height)),
+                                       i.rotation, i.face)
             # A net names one pad here, the first of however many carry it.
             # Say which, because an offset the script measured has to come
             # off the same pad, and from outside nothing shows which it was.
@@ -7047,39 +7051,45 @@ def _as_point(value) -> Location:
     raise TypeError("a centre is a Location or an (x, y) pair, not %r" % (value,))
 
 
-def _locate(board: "Board", occ: Occupancy, ref) -> Location:
+def _locate(board: "Board", occ: Occupancy, ref, placed: tuple | None = None) -> Location:
     """A point on the board as things stand: a Location, a pad reference
     (where that pad now is), the Mid of two points, a bare X()/Y() of one
     (the other axis its own), a Polar about a centre that may itself be a
     reference, or an (x, y) pair whose members may be numbers, X()/Y() of
-    references, or row coordinates."""
+    references, or row coordinates. `placed` is the (width, height) of the
+    pad a Pin is placing, which a PadRef's `edge=` stands off by."""
     if isinstance(ref, Location):
         if isinstance(ref.x, (int, float)) and isinstance(ref.y, (int, float)):
             return ref
-        return Location(_coord(board, occ, ref.x, "x"), _coord(board, occ, ref.y, "y"))   # a Location said in references
+        return Location(_coord(board, occ, ref.x, "x", placed), _coord(board, occ, ref.y, "y", placed))   # a Location said in references
     if isinstance(ref, LanePoint):
         return board._lane_point(occ, ref)
     if isinstance(ref, Mid):
-        a, b = _locate(board, occ, ref.a), _locate(board, occ, ref.b)
+        a, b = _locate(board, occ, ref.a, placed), _locate(board, occ, ref.b, placed)
         return Location((a.x + b.x) / 2.0, (a.y + b.y) / 2.0)
     if isinstance(ref, X):
-        return Location(_locate(board, occ, ref.ref).x + ref.dx, _locate(board, occ, ref.ref).y)
+        at = _locate(board, occ, ref.ref, placed)
+        return Location(at.x + ref.dx, at.y)
     if isinstance(ref, Y):
-        return Location(_locate(board, occ, ref.ref).x, _locate(board, occ, ref.ref).y + ref.dy)
+        at = _locate(board, occ, ref.ref, placed)
+        return Location(at.x, at.y + ref.dy)
     if isinstance(ref, Polar):
-        centre = board.centre if ref.about is None else _locate(board, occ, ref.about)
+        centre = board.centre if ref.about is None else _locate(board, occ, ref.about, placed)
         return polar_point(centre, ref.angle, float(ref.radius))
     if isinstance(ref, tuple) and len(ref) == 2:
-        return Location(_coord(board, occ, ref[0], "x"), _coord(board, occ, ref[1], "y"))
+        return Location(_coord(board, occ, ref[0], "x", placed), _coord(board, occ, ref[1], "y", placed))
     if isinstance(ref, Centre):
-        return Location(_coord(board, occ, ref.x, "x"), _coord(board, occ, ref.y, "y"))
+        return Location(_coord(board, occ, ref.x, "x", placed), _coord(board, occ, ref.y, "y", placed))
     if isinstance(ref, (Part, Cell)):
         geom, key, kind = board._item(ref)
         refs = [fp.ref for fp in (geom.members if kind == "cell" else (geom,))]
         return Box.union([occ.items[r].body for r in refs]).center      # where its body is now
     if getattr(ref, "edge", None) is not None:
+        if placed is not None:
+            return _edge_point(board, occ, placed[1] if ref.edge in (Edge.NORTH, Edge.SOUTH) else placed[0], ref,
+                               placed[0] if ref.edge in (Edge.NORTH, Edge.SOUTH) else placed[1])
         raise ValueError("%s pad %s: a PadRef's edge= is a track's point on that edge of the pad, or a Past's "
-                         "across=; here it has no track width to stand off by" % (board._pad_ref(ref)[0], ref.key))
+                         "across=, or a Pin's point for a part's pad; here it has no width to stand off by" % (board._pad_ref(ref)[0], ref.key))
     owner, number, dx, dy = board._pad_ref(ref)
     at = occ.pad_location(owner, number, board._pad_land(ref)).offset(dx, dy)
     lx, ly = getattr(ref, "lx", 0.0), getattr(ref, "ly", 0.0)
@@ -7091,15 +7101,15 @@ def _locate(board: "Board", occ: Occupancy, ref) -> Location:
     return at
 
 
-def _coord(board: "Board", occ: Occupancy, v, axis: str) -> float:
+def _coord(board: "Board", occ: Occupancy, v, axis: str, placed: tuple | None = None) -> float:
     """One coordinate: a number, X()/Y() of a reference, a row coordinate,
     or a reference/point whose `axis` coordinate is meant."""
     if isinstance(v, X):
-        return _locate(board, occ, v.ref).x + v.dx
+        return _locate(board, occ, v.ref, placed).x + v.dx
     if isinstance(v, Y):
-        return _locate(board, occ, v.ref).y + v.dy
+        return _locate(board, occ, v.ref, placed).y + v.dy
     if isinstance(v, (PadRef, CellPadRef, Location, tuple, Mid, Part, Cell, LanePoint)):
-        l = _locate(board, occ, v)
+        l = _locate(board, occ, v, placed)
         return l.x if axis == "x" else l.y
     if isinstance(v, RowCoord):
         return v.row.resolve(v.what, occ.board_box)
@@ -7315,15 +7325,17 @@ _EDGE_OVERLAP = 0.005
 meets the pad along a line may not read as joined to KiCad's connectivity."""
 
 
-def _edge_point(board: "Board", occ: Occupancy, width: float, ref: PadRef) -> Location:
-    """A track point on `ref.edge` of its pad (the side of the pad's copper
-    box, board frame), for a track `width` wide: half the width outside the
-    edge, less `_EDGE_OVERLAP`, so the track's copper lies against it. Along
-    the edge, `ref.along`: MID the middle, START the west or north end, END
-    the other, a half width in from the corner so the copper ends flush with
-    the pad's side. The track's copper there must meet the pad's along the
-    edge: an end of a round pad's edge, or of one turned off the right
-    angle, has none, and is refused."""
+def _edge_point(board: "Board", occ: Occupancy, width: float, ref: PadRef,
+                along_width: float | None = None) -> Location:
+    """A point on `ref.edge` of its pad (the side of the pad's copper box,
+    board frame) for copper `width` across the edge: half the width outside
+    the edge, less `_EDGE_OVERLAP`, so the copper lies against it. A track's
+    copper is as wide along the edge as across it; a placed pad's is
+    `along_width`. Along the edge, `ref.along`: MID the middle, START the
+    west or north end, END the other, half the copper's width along in from
+    the corner so it ends flush with the pad's side. The copper there must
+    meet the pad's along the edge: an end of a round pad's edge, or of one
+    turned off the right angle, has none, and is refused."""
     owner, number, _, _ = board._pad_ref(ref)
     polys = [sh.poly for sh in _pad_shapes(board, occ, ref)]
     box = Box.union([Box.of_points(p) for p in polys])
@@ -7333,12 +7345,13 @@ def _edge_point(board: "Board", occ: Occupancy, width: float, ref: PadRef) -> Lo
     lo, hi = (box.top, box.bottom) if upright else (box.left, box.right)
     along = ref.along or Along.MID
     half = width / 2.0
-    at = {Along.START: lo + half, Along.MID: (lo + hi) / 2.0, Along.END: hi - half}[along]
-    reach = (at, at) if along is Along.MID else (at - half, at + half)
+    half_along = half if along_width is None else along_width / 2.0
+    at = {Along.START: lo + half_along, Along.MID: (lo + hi) / 2.0, Along.END: hi - half_along}[along]
+    reach = (at, at) if along is Along.MID else (at - half_along, at + half_along)
     if not on or min(on) > reach[1] + 1e-6 or max(on) < reach[0] - 1e-6 or \
             (along is not Along.MID and min(hi, max(on)) - max(lo, min(on)) < 1e-3):
         raise ValueError("%s pad %s: its %s edge has no copper at its %s (a round pad, or one turned off the "
-                         "right angle); tap it at Along.MID" % (occ.who(owner), number, ref.edge.name.lower(),
+                         "right angle); use Along.MID" % (occ.who(owner), number, ref.edge.name.lower(),
                                                                 along.name.lower()))
     out = half - _EDGE_OVERLAP
     if ref.edge is Edge.EAST:

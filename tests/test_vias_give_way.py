@@ -772,7 +772,7 @@ def test_a_placed_vias_clear_moves_are_searched_once_per_scan():
 
     others = ShapeIndex([])
     others._native = (Index(), [])
-    occ = types.SimpleNamespace(_footprint_refs=frozenset(), _leads=frozenset(), _margins={},
+    occ = types.SimpleNamespace(_body_refs=frozenset(), _leads=frozenset(), _margins={},
                                 settings=Settings())
     judge = types.SimpleNamespace(occ=occ, others=others, hidden={"m via 0"}, clearance=0.2)
     from placemat.occupancy import Shape

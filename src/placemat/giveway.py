@@ -250,7 +250,7 @@ def _native_move_offsets(judge: "_Judge", ring, hole, offsets: tuple) -> list | 
         return list(hit)
     from .occupancy import _to_native_shape
     occ = judge.occ
-    py_shapes = [_to_native_shape(x, occ._footprint_refs, occ._leads, occ._margins)
+    py_shapes = [_to_native_shape(x, occ._body_refs, occ._leads, occ._margins)
                 for x in ((ring,) if hole is None else (ring, hole))]
     skip = _hidden_skip(judge, shapes)
     clear = index.first_clear_offset(py_shapes, list(offsets), judge.clearance, False, skip)
@@ -310,7 +310,7 @@ def _native_shape(judge: "_Judge", s):
     if hit is None:
         from .occupancy import _to_native_shape
         occ = judge.occ
-        hit = cache[id(s)] = (s, _to_native_shape(s, occ._footprint_refs, occ._leads, occ._margins))
+        hit = cache[id(s)] = (s, _to_native_shape(s, occ._body_refs, occ._leads, occ._margins))
     return hit[1]
 
 
@@ -327,7 +327,7 @@ def _native_tail_clear(judge: "_Judge", shape, own):
     if _meets_net_tie(judge, shapes, shape.box, near):
         return None
     from .occupancy import _to_native_shape
-    return index.tail_clear([_to_native_shape(shape, occ._footprint_refs, occ._leads, occ._margins)],
+    return index.tail_clear([_to_native_shape(shape, occ._body_refs, occ._leads, occ._margins)],
                             [_native_shape(judge, o) for o in near], judge.clearance, _hidden_skip(judge, shapes))
 
 

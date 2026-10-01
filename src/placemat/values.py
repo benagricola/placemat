@@ -183,16 +183,24 @@ class Centre:
 @dataclass(frozen=True)
 class Pin:
     """A place for one of the item's own pads: the pad `key` (a number or a
-    net name) lands on (x, y), each axis a number or a reference, and the
-    part sits round it at its rotation. How a part is put where its pin
-    must be: a cap's pad on a pin's axis, a diode's pad facing another's."""
+    net name) lands on a point, and the part sits round it at its rotation.
+    The point is `Pin(key, point)`, any place a script can name (a Location,
+    a pad reference, a PadRef with `edge=`), or `Pin(key, x, y)`, each axis a
+    number or a reference. How a part is put where its pin must be: a cap's
+    pad on a pin's axis, a diode's pad facing another's, a net tie's pad
+    against another pad's edge."""
     key: object
     x: object
-    y: object
+    y: object = None            # None: x is the point
 
     def __post_init__(self):
-        if self.x is None or self.y is None:
-            raise ValueError("a Pin places both axes: the pad lands on one point")
+        if self.x is None or (self.y is None and isinstance(self.x, (int, float))):
+            raise ValueError("a Pin places the pad on a point: Pin(key, point) or Pin(key, x, y)")
+
+    @property
+    def axes(self) -> tuple:
+        """What each axis is said in: (x, y), or the one point twice."""
+        return (self.x, self.x) if self.y is None else (self.x, self.y)
 
 
 @dataclass(frozen=True)

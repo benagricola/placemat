@@ -16,7 +16,7 @@ placemat_native = pytest.importorskip("placemat_native")
 
 from placemat.values import Box, CopperLayer, Face, Location
 from placemat.occupancy import Occupancy, Shape
-from tests.fixtures import board_geometry, footprint, pad, track
+from tests.fixtures import board_geometry, footprint, pad, rect, track
 from tests.test_occupancy import occ_with
 
 
@@ -57,9 +57,9 @@ def _all_shapes(occ: Occupancy):
     out = []
     for owner, g in occ.items.items():
         for s in g.shapes:
-            out.append((s, owner in occ._footprint_refs, (s.owner, s.label) in occ._leads, occ._margins.get(owner, 0.0)))
+            out.append((s, owner in occ._body_refs, (s.owner, s.label) in occ._leads, occ._margins.get(owner, 0.0)))
     for c in occ.copper:
-        out.append((c, c.owner in occ._footprint_refs, (c.owner, c.label) in occ._leads, occ._margins.get(c.owner, 0.0)))
+        out.append((c, c.owner in occ._body_refs, (c.owner, c.label) in occ._leads, occ._margins.get(c.owner, 0.0)))
     hole_poly = tuple((10.0 + 0.4 * math.cos(2 * math.pi * i / 12), 10.0 + 0.4 * math.sin(2 * math.pi * i / 12))
                       for i in range(12))
     hole = Shape("U1", "npth", frozenset([Face.FRONT, Face.BACK]), frozenset(CopperLayer), "", hole_poly, Box.of_points(hole_poly))
@@ -94,6 +94,8 @@ def _rich_occupancy(envelope="union", vias_block_courtyards=False, rules=()):
     ]
     from tests.test_courtyard_polygons import _sector
     fps.append(_sector("L1", "l1", centre=(30.0, 30.0)))             # a courtyard claimed as KiCad draws it
+    from tests.test_pad_on_pad_edge import _tie
+    fps.append(_tie("NT", ("A", "B")))               # a net tie that draws nothing: copper, no courtyard and no body
     import dataclasses
     cells = []
     if rules:
@@ -110,6 +112,14 @@ def _rich_occupancy(envelope="union", vias_block_courtyards=False, rules=()):
                           "GND", via_poly, Box.of_points(via_poly)),
                     hole_shape("", Location(14.15, 14.15), 0.2, "GND")])     # the via's drill
     return occ
+
+
+def _excused(occ, s, o, py, native):
+    """Native says conflict and Python says none, between copper and a net tie's copper: KiCad's net-tie
+    exclusion (Occupancy._net_tie_exclusion), which the native rules do not model and `legal` leaves to
+    Python (`_tie_refs`)."""
+    return native and not py and (s.owner in occ._tie_refs or o.owner in occ._tie_refs) \
+        and occ._net_tie_exclusion(s, o)
 
 
 def _offset(poly, dx, dy):
@@ -140,7 +150,7 @@ def test_conflict_agrees_with_python_on_randomised_shape_pairs(envelope):
         native = placemat_native.conflict(_py_shape(s_moved, s_is_fp, s_is_lead, s_margin),
                                           _py_shape(o_moved, o_is_fp, o_is_lead, o_margin), clearance, **cfg)
         n += 1
-        if py != native:
+        if py != native and not _excused(occ, s_moved, o_moved, py, native):
             mismatches.append((s_moved.kind, o_moved.kind, dx, dy, clearance, py, native))
     assert not mismatches, "%d/%d mismatches: %s" % (len(mismatches), n, mismatches[:5])
 
@@ -167,7 +177,7 @@ def test_conflict_agrees_with_python_under_clearance_rules(envelope):
         native = placemat_native.conflict(_py_shape(s_moved, s_is_fp, s_is_lead, s_margin),
                                           _py_shape(o_moved, o_is_fp, o_is_lead, o_margin), clearance, **cfg)
         changed += py != (plain._conflict(s_moved, o_moved, clearance) is not None)
-        if py != native:
+        if py != native and not _excused(occ, s_moved, o_moved, py, native):
             mismatches.append((s_moved.kind, o_moved.kind, s_moved.net, o_moved.net, dx, dy, clearance, py, native))
     assert not mismatches, "%d mismatches: %s" % (len(mismatches), mismatches[:5])
     assert changed > 30, "the rules changed only %d verdicts: the fuzz does not reach them" % changed
@@ -186,7 +196,7 @@ def test_conflict_agrees_with_vias_blocking_courtyards():
         py = occ._conflict(s, o_moved, None) is not None
         native = placemat_native.conflict(_py_shape(s, s_is_fp, s_is_lead, s_margin),
                                           _py_shape(o_moved, o_is_fp, o_is_lead, o_margin), None, **cfg)
-        if py != native:
+        if py != native and not _excused(occ, s, o_moved, py, native):
             mismatches.append((s.kind, o_moved.kind, dx, dy))
     assert not mismatches
 
@@ -258,3 +268,27 @@ def test_conflict_agrees_at_the_courtyard_touch_boundary():
     r2 = Shape("R2", "courtyard", r1.faces, frozenset(), "", r2_poly, Box.of_points(r2_poly))
     assert occ._conflict(r1, r2, None) is None
     assert placemat_native.conflict(_py_shape(r1, True), _py_shape(r2, True), None, **cfg) is False
+
+
+@pytest.mark.parametrize("envelope", ["physical", "union"])
+def test_conflict_agrees_that_a_body_and_a_claimed_courtyard_may_stand_over_a_net_ties_pad(envelope):
+    """A positive control for the net tie that draws nothing: another part's body sits over its pad, and a
+    part that draws nothing claims a courtyard over it, with no conflict in either engine; the same body
+    over a pad of a part that is no net tie is one in both."""
+    occ = _rich_occupancy(envelope=envelope)
+    cfg = _cfg_kwargs(occ)
+    tie_pad = next(s for s in occ.items["NT"].shapes if s.kind == "pad" and s.label == "1")
+    u3_pad = next(s for s in occ.items["U3"].shapes if s.kind == "pad" and s.label == "1")
+    body = Shape("U1", "body", frozenset([Face.FRONT]), frozenset(), "", rect(0, 0, 2.0, 2.0), Box.of_points(rect(0, 0, 2.0, 2.0)))
+    claim = Shape("U3", "courtyard", frozenset([Face.FRONT]), frozenset(), "", rect(0, 0, 2.0, 2.0),
+                  Box.of_points(rect(0, 0, 2.0, 2.0)), claims=True)
+    for shape in (body, claim):
+        for target, want in ((tie_pad, False), (u3_pad, True)):
+            if shape.owner == target.owner:
+                continue
+            c = target.box.center
+            moved = _shifted(shape, c.x, c.y)
+            py = occ._conflict(moved, target, None) is not None
+            native = placemat_native.conflict(_py_shape(moved, shape.owner in occ._body_refs, False),
+                                              _py_shape(target, target.owner in occ._body_refs, False), None, **cfg)
+            assert py == native == want, (shape.kind, target.owner, py, native)

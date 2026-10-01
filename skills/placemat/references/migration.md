@@ -7,6 +7,21 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+`Pin(key, point)` places a part's pad on one point (a `Location`, a
+`PadRef`, a `Mid`); `Pin(key, x, y)` is unchanged. A `PadRef` with `edge=`
+(and `along=`) is now accepted as that point, or through `X()`/`Y()`: the
+part's pad lies against that edge of the target pad, outside it, flush with
+the pad's side at `START`/`END`. Its size across the edge is the part's at
+its rotation. `edge=` is still refused for a via's `at=` and the like.
+
+A net tie (a footprint with KiCad net-tie pad groups) that draws no
+courtyard, silk or fab claims its pads and its copper graphics only, under
+every `[place] envelope`: another part's body or courtyard may stand over
+it, and another net's pad or copper keeps the clearance from it. Before,
+its courtyard (falling back to the box round its pads and bar) was claimed,
+and under `physical` a shunt's body kept it out of the shunt's own gap. A
+net tie that draws a courtyard is unchanged.
+
 `placemat run --no-render` keeps the layout folder's last renders
 (`layout.png`, `layout-iso.png`, `layout-bottom.png`) instead of deleting
 them. They show the board as an earlier run placed it: the run log says
