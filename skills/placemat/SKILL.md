@@ -464,6 +464,9 @@ the script.
   the rest.
 - A number chosen to dodge something is a workaround for a rule the tool
   should carry: say so in the run notes.
+- A design check that fails where no layout does better is accepted only on
+  the user's reason: declare it with `board.accept(..., why=)`, not by
+  loosening a board-wide limit (`check.limits`, `--rise`, `--keep-out`).
 
 ## Gates, in order
 

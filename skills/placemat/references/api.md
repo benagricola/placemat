@@ -88,6 +88,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | a region that keeps a few parts out and lets every other part in | `board.keepout(..., bars=(Part(...), Cell(...)))` | Keepouts |
 | a part against a keepout's boundary | `at=Beside(keepout, Edge.SOUTH)` | Placement (Beside) |
 | a clearance that differs from the net class, in one place | `board.rule(clearance=, within=/between=/on=)` | Rules |
+| one design-check verdict taken as it is, with the reason | `board.accept(check, subject, at_least=/at_most=, why=)` | Accepting a check verdict |
 | **copper** | | |
 | a track from a pad to a pad | `board.track(net, [PadRef(a), PadRef(b)], layer=)` | Copper calls |
 | which end of an off-grid leg takes the 45 | `board.track(..., bend=Bend.START/END/BOTH)` | Copper vocabulary |
@@ -1458,6 +1459,36 @@ rule's why)`. `[place] conflict_gap` must be at least the largest rule
 clearance, or the run refuses to start. The CLI's queries on a read board
 have no script and judge by net classes.
 
+## Accepting a check verdict
+
+```python
+board.accept("current-path", "VOUT", at_least=0.35,
+             why="into pin 11, 0.5 mm from pins 10 and 12: the package's pitch sets it")
+board.accept("heat", "U3", at_most=118.0, why="...")
+```
+A design check can fail where no layout does better, and `check.limits`,
+`--rise` and `--keep-out` loosen a check on every board. `board.accept(check,
+subject, *, at_least= | at_most=, why=)` takes the one verdict a check gives
+`subject` as it is. `subject` is what the run prints: the net (`keep-out`,
+`crossings-under`, `current-path`, `switch-node`), the part ref (`heat`),
+"<ref> <kind>" (`exposure`) or the loop's name (`hot-loop`). Give one bound,
+on the side the check judges: `at_least=` for `keep-out` and `current-path`,
+`at_most=` for `crossings-under`, `heat`, `exposure`, `hot-loop` and
+`switch-node`. `why` is required, and the same check and subject cannot be
+accepted twice; each of these, and an unknown check name, raises.
+
+After the checks run, a failed verdict inside its bound reads `accepted
+(>= 0.35): <why>` instead of FAIL and counts as accepted, not failed
+(`checks_accepted` in the metrics, beside `checks_failed`; the `checks` head
+line counts it). Past the bound it fails as before and its note says "past its
+acceptance of <bound>: <why>". The `checks` lines print every acceptance and
+what it matched. `run.json` carries them under `acceptances` (`check`,
+`subject`, `side`, `bound`, `why`, the verdict's `value`, and an `outcome` of
+`accepted`, `past`, `unmatched` or `not needed`). An acceptance that matches
+no verdict, or whose verdict passes or is not judged without it, is a `setup`
+finding. An acceptance moves no part or copper and is in no reuse or lock
+digest. `placemat check` has no script and judges as ever.
+
 ## Blocks
 
 ```python
@@ -2227,9 +2258,10 @@ that takes the load. A part carries on a net only at a current above zero:
 a per-net `Pm.I` that leaves a net out, or gives it 0, leaves a sense pin
 out of the load. Two carriers no copper joins yet are said, not judged. A board with no facts reports nothing to check. **Every `placemat
 run` runs the same checks on the board it wrote**, prints one `checks` line -
-how many failed, passed and were not judged, then each failure - and keeps the
-verdicts in `run.json` under `verdicts`, with `checks_failed` and
-`checks_unjudged` in the metrics. A verdict is "not judged" when no limit is
+how many failed, were accepted (`board.accept`), passed and were not judged,
+then each failure - and keeps the
+verdicts in `run.json` under `verdicts`, with `checks_failed`,
+`checks_accepted` and `checks_unjudged` in the metrics. A verdict is "not judged" when no limit is
 set or a fact the check needs is missing, and it is never counted as a pass.
 The impact names any check whose verdict flipped since the previous run, and
 the nets whose airwire changed most (`airwire by net:`); a run records
