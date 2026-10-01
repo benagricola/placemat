@@ -601,6 +601,57 @@ class Mid:
 
 
 @dataclass(frozen=True)
+class Figure:
+    """A datasheet figure's frame on the board, from `board.figure(...)`: the
+    figure's point `anchor` (in its own coordinates, mm) lands on `at`, any
+    point, and the figure is turned about it by `rotation`, a bearing in
+    degrees or `Turned(part, degrees)`, as a keepout's `Path` is. It places
+    nothing; `point(x, y)` names a point of the figure, and `frame=` of a
+    keepout puts a path in it. `why` names the datasheet and the figure the
+    coordinates are printed in: a figure is for a dimensioned reference
+    layout, matched as printed."""
+    at: object
+    rotation: object = 0.0
+    anchor: tuple = (0.0, 0.0)
+    why: str = ""
+
+    def __post_init__(self):
+        if not (isinstance(self.why, str) and self.why.strip()):
+            raise ValueError("board.figure: why= names the datasheet and the figure or page its coordinates come "
+                             "from, e.g. why=\"<part> datasheet p7, recommended layout\". A figure is for a "
+                             "datasheet's dimensioned reference layout (an antenna land pattern, an RF keepout, a "
+                             "dimensioned crystal or sensor layout), with its points as printed")
+        if self.at is None:
+            raise ValueError("a figure lands on a point: board.figure(at=...)")
+        if not isinstance(self.rotation, (int, float, Turned)) or isinstance(self.rotation, bool):
+            raise TypeError("a figure's rotation is a number or Turned(part, degrees), not %r" % (self.rotation,))
+        a = self.anchor
+        if not (isinstance(a, (tuple, list)) and len(a) == 2
+                and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in a)):
+            raise TypeError("a figure's anchor is an (x, y) pair of numbers in the figure's own coordinates, not %r" % (a,))
+        object.__setattr__(self, "anchor", (float(a[0]), float(a[1])))
+
+    def point(self, x: float, y: float) -> "FigurePoint":
+        """The figure's point (x, y), as a point reference."""
+        return FigurePoint(self, x, y)
+
+
+@dataclass(frozen=True)
+class FigurePoint:
+    """A point of a `Figure`, in the figure's own coordinates: a point
+    reference, settled when the figure's `at` and the part its rotation
+    follows are."""
+    figure: Figure
+    x: float
+    y: float
+
+    def __post_init__(self):
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (self.x, self.y)):
+            raise TypeError("a figure's point is fig.point(x, y), numbers in the figure's own coordinates, not %r"
+                            % ((self.x, self.y),))
+
+
+@dataclass(frozen=True)
 class Between:
     """A track waypoint at the centreline of the gap between two pads:
     `board.track(net, [..., Between(PadRef(a), PadRef(b)), ...], ...)`.

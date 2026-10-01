@@ -85,6 +85,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | a region shaped by a part or cell, growing and turning with it | `board.keepout(item, name, margin=)` | Keepouts |
 | a region inside a part's pads (between two pad columns, inside a pad ring) | `board.keepout(Inside(Part(...), margin=), name)` | Keepouts |
 | a clearance anchored on a pad, in a datasheet's own coordinates | `Path(FIGURE, anchor=...)`, `at=PadRef(...)`, `rotation=Turned(part, 0)` | Keepouts |
+| the points of a datasheet's dimensioned reference layout (feed, strip, vias), in the figure's own coordinates | `fig = board.figure(at=, rotation=, anchor=, why=)`, `fig.point(x, y)`, `board.keepout(Path(FIGURE), name, frame=fig)` | Keepouts |
 | a clearance band along a board edge | `board.keepout(shape, name, at=OnEdge(edge, along=Along.MID))` | Cutouts (the shape on an edge) |
 | a region a case leaves little room over | `board.keepout(..., excludes=(Forbid.PARTS,), max_height=)` | Keepouts |
 | a region that keeps a few parts out and lets every other part in | `board.keepout(..., bars=(Part(...), Cell(...)))` | Keepouts |
@@ -957,7 +958,7 @@ outline path instead. The default is 0.0, which means unchecked.
 A region that forbids, as against a cutout, which removes board.
 
 ```python
-board.keepout(shape, name, *, at=None, rotation=None, margin=None, excludes=None,
+board.keepout(shape, name, *, at=None, rotation=None, frame=None, margin=None, excludes=None,
               allow=(), layers=None, max_height=None, bars=(), why="")
 ```
 
@@ -979,6 +980,39 @@ part's own rotation does (anticlockwise on screen). A freedom left in `at=`
 settles against what is on the board. `anchor=` is the point of the shape
 that lands on `at=`; without one it is the middle of the shape's box, which
 is right for a slot and meaningless for a stepped clearance.
+
+**A datasheet figure's frame.** `board.figure(at=, rotation=, anchor=(0, 0), why=)`
+is for a datasheet's dimensioned reference layout (an antenna land pattern,
+an RF keepout, a dimensioned crystal or sensor layout), with the points typed
+exactly as printed. It is not for a layout a datasheet shows without
+measurements (a converter's application layout with no stated dimensions),
+and not a way round a placement that intent can say. `why=` is required and
+names the datasheet and the figure or page the coordinates come from; a
+figure without it is refused.
+
+`anchor` is the figure's own point (mm) that lands on `at` (any point: a pad,
+a `Mid`, an origin), and `rotation` (a number, or `Turned(part, degrees)`)
+turns the figure about it exactly as a keepout's `Path` is turned and
+placed. `board.figure` places nothing. `fig.point(x, y)` is the figure's
+point (x, y) as a point reference, settled when `at` and the rotation's part
+are: it goes wherever a point does (`Pin(key, point)` and a Pin's `X()` /
+`Y()`, a track, finger or via point, `Polar(about=)`, `Mid`).
+`board.keepout(Path(FIGURE), name, frame=fig)` reads the path in the same
+frame, with its points as the figure's own and no move of the box centre; it
+is the polygon `Path(FIGURE, anchor=A)` gives at the same `at=` and
+`rotation=`. `frame=` goes with no `at=`, `rotation=` or `anchor=`. The
+rotation does not mirror for a part on the back face, as a keepout's does
+not.
+
+```python
+fig = board.figure(at=Mid(PadRef(Part("ant"), 1), PadRef(Part("ant"), 4)),
+                   rotation=Turned(Part("ant"), 0), why="ant datasheet p7, recommended layout")
+board.keepout(Path(CLEARANCE), "antenna clearance", frame=fig, why="ant datasheet p7")
+board.place(Part("c_match"), at=Pin(1, fig.point(-2.1, 3.4)), rotation=Turned(Part("ant"), 90),
+            why="ant datasheet p7")
+for y in (0.9, 1.9, 2.9):
+    board.via(Net("GND"), at=fig.point(4.2, y), why="ant datasheet p7: the strip's vias")
+```
 
 **A region shaped by an item.** `shape` may be a `Part` or a `Cell` already on
 the board instead: no `at=` or `rotation=`, `margin=` (default 0) in their

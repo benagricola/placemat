@@ -29,6 +29,13 @@ section for each hand-written pattern a newer form replaces.
   `--out FILE.png` also render it. `placemat drc` no longer leaves a
   `drc.json` beside the board.
 
+- **`board.figure(at=, rotation=, anchor=, why=)`**: a datasheet figure's
+  frame, for a dimensioned reference layout only (`why=` names the datasheet
+  and figure, and is required); `fig.point(x, y)` is a point of it in the
+  datasheet's own coordinates, usable as a `Pin` target, a track, finger or
+  via point, `Polar(about=)` or inside a `Mid`; `board.keepout(Path(FIGURE),
+  name, frame=fig)` puts the figure's keepout in the same frame.
+
 ### Migration steps
 
 **Ground vias typed out along a region's edge become a stitched row
@@ -62,6 +69,22 @@ placemat datasheet d.pdf --show p3 --out page.png
 ```
 
 `--out DIR` still takes a directory.
+
+**Points of a datasheet's dimensioned layout typed as board coordinates
+become points of the figure.**
+
+```python
+# before: the keepout in the datasheet's frame, its feed pad and vias worked out by hand
+board.keepout(Path(CLEARANCE, anchor=(0, 0)), "antenna clearance",
+              at=Mid(PadRef(Part("ant"), 1), PadRef(Part("ant"), 4)), rotation=Turned(Part("ant"), 0))
+board.via(Net("GND"), at=Location(12.43, -3.08))
+
+# after: one frame, the datasheet's numbers as printed
+fig = board.figure(at=Mid(PadRef(Part("ant"), 1), PadRef(Part("ant"), 4)), rotation=Turned(Part("ant"), 0),
+                   why="antenna datasheet p7, recommended layout")
+board.keepout(Path(CLEARANCE), "antenna clearance", frame=fig)
+board.via(Net("GND"), at=fig.point(4.2, 0.9))
+```
 
 ### Fixed
 
@@ -1856,5 +1879,6 @@ that says what replaces it.
 | a pad placed at `X(PadRef(...), PITCH)` to stand a mechanical pitch from another pad | To 0.67.0 |
 | a `Beside` `gap=` worked out to put a pad a clearance off another part's pad | To 0.67.0 |
 | ground vias outside a region typed as computed `Location` vias | Unreleased |
+| points of a datasheet figure typed as coordinates beside a `Path(anchor=)` keepout | Unreleased |
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |

@@ -128,6 +128,10 @@ A coordinate with no comment naming a gap, or with no approval behind it,
 is what this section forbids. Being unable to say a relation is not
 approval, and neither is an earlier approval for something else.
 
+`board.figure` is allowed without that approval only for a datasheet's
+dimensioned layout, its `why=` citing the figure; any other use is a
+coordinate escape hatch under this rule.
+
 `placemat freeze` writes coordinates into a script, and that is placemat
 recording its own result: `--explore`/`--accept` and `freeze` write what a
 search decided - `Near(PadRef(...).local(dx, dy), radius=0)`,
