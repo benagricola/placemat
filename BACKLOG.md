@@ -6,15 +6,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## In progress
 
-- **A part's `board.vias()` grid carried, so it can be re-laid** (the via
-  give-way investigation, 2026-10-01): only a stamped cell's vias are carried
-  and give way, field relay included. A grid laid at a part's pad is
-  planned after the part lands and is judged as copper by items placed later,
-  so it never re-lays. Wanted: the grid's sites worked out as the part is
-  searched, as `board.via()` at a pad does, so a conflict meets it as a field.
-  Related: a declared count for a grid (`count=` is for a row along an axis
-  only) and the `inset=` a stamped grid was laid with, which a cell does not
-  keep. Being built.
+- **Searched cells turned to a circle's tangent, in a radial band** (a
+  board's session, 2026-10-01; from the user's hand placement): cells along
+  a disc on a shaped board want their long side tangent at their own
+  bearing, inboard of a rim band; the four right-angle turns cannot follow
+  the curve and a 5 degree search costs 72x. Being built.
 
 ## Open
 
@@ -250,6 +246,12 @@ file. An item cites its source as "a board's session, <date>".
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **board.vias() grids give way; stamped faces notes left out** (0.75.0;
+  spec `2026-10-01-carried-via-grids-design.md`): a part's pad grid is
+  carried with its part and gives way as a cell's field does (a signal-net
+  grid with no room refuses the other item's spot, the user's choice); a
+  stamped cell's faces note is read, then deleted from the written board.
 
 - **Via fields re-laid, routed vias moved, Pm.KeepOut fixed** (0.74.0;
   specs `2026-10-01-via-field-relay-design.md`,
