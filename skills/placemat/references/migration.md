@@ -7,46 +7,39 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
-`Beside(keepout, side, align=PadRef(part, pad))` is taken, as the pair form
-`align=(own_pad, PadRef(part, pad))` already was: the pad is a placed
-part's, lined up with the placed part's own pad of its net. It was refused
-("a keepout has no pads to align on").
+### New
 
-`board.stitch(net, keepout_name)` over a keepout that excludes vias but lets
-the net in (`allow=(Net("GND"),)`) stitches it. It was refused ("excludes
-vias ... add 'GND' to its allow="), and once past that check no via was let
-stand in it.
+- **Fitted pours** (replace pull-back): a pour over pads is fitted when it
+  is planned, the shortest straight-edged outline that holds its pads and
+  keeps every other net's copper its clearance, written as a graphic copper
+  polygon, never a zone. `api.md`, "A fitted pour".
+- **`Beside(..., copper=True)`**: a part stands a clearance (by net pair,
+  `board.rule` included) plus `gap` off another part's pads, measured copper
+  to copper.
+- **`Pin(key, Polar(radius, bearing, about=...))`**: a pad a mechanical
+  pitch from another pad along a bearing (0 north, 90 east).
+- **Graphic copper polygons in the read commands**: `placemat measure
+  --copper` lists each one (net, layer, stroke, filled, vertices, and per
+  edge the nearest other-net copper, the gap, the clearance and `under`);
+  `--json` adds `polygons`; `placemat layer` draws and counts them. Fingers
+  are such polygons.
 
-`Pin(key, Polar(radius, bearing, about=PadRef(...)))` places the pad a
-mechanical pitch from another pad along a bearing (0 north, 90 east), said
-as one point: two contacts at a part's tab pitch, with no offset typed into
-an `X()`. It was refused ("float() argument ... not 'Polar'").
+### Migration steps
 
-`placemat measure <board> --copper [NET ...]` also lists each graphic copper
-polygon of those nets (a `PCB_SHAPE` polygon on a copper layer, such as a
-pour drawn by hand) after the tracks and vias: net, layer, stroke width,
-filled, vertices, and per edge the nearest copper of another net, the gap
-from the polygon's copper to it, the clearance the pair needs and `under`
-where the gap is less. `--json` adds a `polygons` key beside `segments`.
-`placemat layer` draws these polygons and counts them in its summary line.
+**A pour drawn as points, or as a hull cut back from other copper, becomes a
+fitted pour.** Pull-back is gone, and `cover=` or a plain point on a
+swallowing pour is refused, so these scripts stop at the declaration until
+they are moved.
 
-`Beside(item, side, copper=True, gap=, align=)` stands a part as near
-`item` on `side` as its pads allow, every pad of it a clearance (by net
-pair, `board.rule` clearances included) plus `gap` off every pad of `item`
-of another net, measured copper to copper; pads of one net set no distance.
-It replaces a `gap=` worked out so that a pad lands a clearance off another
-part's pad, which counts from the envelope and is out by however far the
-envelope sits inside the pads. Without `copper=`, `Beside` is unchanged.
+```python
+# before: corners as points, or a hull/box, cut back from other copper when written
+board.pour(Net("SW"), [PadRef(Part("q1"), "SW"), (2.4, -1.1), PadRef(Part("l1"), "SW"), (0.8, 0.6)],
+           layer=CopperLayer.F, swallow_pads=True, cover=Cover.CENTRES)
 
-Pull-back is gone. A pour over pads (`swallow_pads=True`) used to be
-declared as a hull, a box or a polygon and cut back from other copper when
-the board was written, which left a hull with bites taken out of it and
-no finding at plan time. It is now fitted when it is planned: the shortest
-closed outline that holds its pads' copper and keeps every other net's
-copper its clearance (plus half the stroke), every edge straight, written as
-a graphic copper polygon and never a zone. Copper planned after it keeps
-clear of it; a track declared across one is a copper finding, and the pour is
-not cut. `api.md`, "A fitted pour".
+# after: the pads it joins; the outline is fitted round every other net's clearance
+board.pour(Net("SW"), [PadRef(Part("q1"), "SW"), PadRef(Part("l1"), "SW"), PadRef(Part("c_boot"), "SW")],
+           layer=CopperLayer.F, swallow_pads=True)
+```
 
 What changes in a script:
 
@@ -75,6 +68,45 @@ What changes in a script:
   vias it has to go round, or the later copper meets it as a finding.
 - A pad of another net among a swallowing pour's pads, or one with no copper
   on the pour's layer, is a finding and the pour is not drawn.
+
+**A `Beside` gap worked out so a pad lands a clearance off another part's
+pad becomes `copper=True`.** `gap=` counts from the envelope, which sits
+inside the pads by a footprint's own amount, so the worked-out number was
+right only for that footprint.
+
+```python
+# before: the gap tuned by hand until the sense pad read 0.16 mm off the pad
+board.place(Part("nt_sense"), at=Beside(Part("shunt"), Edge.NORTH, gap=0.26,
+                                        align=(1, PadRef(Part("shunt"), "VOUT"))), rotation=0)
+
+# after: the clearance by net pair, copper to copper
+board.place(Part("nt_sense"), at=Beside(Part("shunt"), Edge.NORTH, copper=True,
+                                        align=(1, PadRef(Part("shunt"), "VOUT"))), rotation=0)
+```
+
+**A pad placed at an offset coordinate from another pad, at a mechanical
+pitch, becomes a `Polar` about that pad.**
+
+```python
+# before: an offset typed into X()
+board.place(Part("j_b"), at=Location(X(PadRef(Part("j_a"), 1), PITCH), Y(PadRef(Part("j_a"), 1))), rotation=0)
+
+# after: the pitch along a bearing from the pad
+board.place(Part("j_b"), at=Pin(1, Polar(PITCH, 90, about=PadRef(Part("j_a"), 1))), rotation=0)
+```
+
+### Fixed
+
+- `Beside(keepout, side, align=PadRef(part, pad))` is taken, as the pair
+  form `align=(own_pad, PadRef(part, pad))` already was. It was refused ("a
+  keepout has no pads to align on").
+- `board.stitch(net, keepout_name)` over a keepout that excludes vias but
+  lets the net in (`allow=(Net("GND"),)`) stitches it. It was refused
+  ("excludes vias ... add 'GND' to its allow="), and past that check no via
+  was let stand in it.
+- `Pin(key, Polar(...))` was refused ("float() argument ... not 'Polar'").
+- A declared pour too near another net's pad or pour now raises a copper
+  finding; it was judged at its outline without its stroke and passed.
 
 ## To 0.66.1
 

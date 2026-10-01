@@ -68,9 +68,12 @@ form or two together. Before deciding a relation cannot be said:
    relation as well (`lane`, `pitch`, `across`, `over=`, `cover`, `fit`).
 3. Compose: one form for the side, another for the other axis; the value
    one call returns as a point or an item of the next.
-4. Read the newest sections of `references/migration.md`: each names the
-   hand-computed pattern a new form replaces ("... computed by hand ... can
-   be said this way").
+4. Read the newest sections of `references/migration.md`. Each release's
+   section has **New** (forms and tools it adds), **Migration steps** (each
+   with the old coordinate or hand-computed form beside the intent form that
+   replaces it, as code) and **Fixed**. When upgrading, apply every
+   migration step that matches the script, and look through New for forms
+   that replace a coordinate or a computed number in it.
 
 The forms that most often answer "placemat can't say this":
 
