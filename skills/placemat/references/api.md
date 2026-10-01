@@ -42,6 +42,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | somewhere the netlist cannot say (a thermal neighbour) | `at=Near(PadRef(...))` | Placement |
 | beside a part, a cell or a keepout, at the envelope gap | `at=Beside(item, Edge.EAST, align=Along.START, gap=)` | Placement (Beside) |
 | beside one part, level with a pad of it or of any firmly placed part | `at=Beside(item, Edge.SOUTH, align=PadRef(Part(other), n))` | Placement (Beside) |
+| a part a clearance off another part's pad copper (a net tie at a pad) | `at=Beside(item, Edge.NORTH, copper=True, align=(own_pad, PadRef(...)))` | Placement (Beside) |
 | its pad a lane (or the clearance) past other pads | `at=Beside(item, Edge.SOUTH, align=(own_pad, Past([PadRef(...)], Edge.WEST, lane=Net(...))))` | Placement (Beside) |
 | that lane as wide as its current needs | `Past(..., lane=Net(...), width=)` in that align | Placement (Beside) |
 | its pad a lane (or the clearance) off a 45 past a pad's corner | `at=Beside(item, Edge.SOUTH, align=(own_pad, Past([PadRef(...)], Corner.NE, lane=Net(...))))` | Placement (Beside) |
@@ -576,6 +577,22 @@ start, `END` flush with its end, `MID` (default) centred. The pad may be
 `item`'s own or any other part's placed firmly by then: west of a
 capacitor, level with a driver's pin, is `Beside(Part("c_boot"),
 Edge.WEST, align=PadRef(Part("u1"), "SW"))`.
+
+`copper=True` measures the standoff from pad copper, not envelopes: the part
+stands as near `item` on `side` as its pads allow, every pad of it keeping,
+from every pad of `item` (of a cell, its members') of another net, the
+clearance the pair needs (by net pair, `board.rule` clearances included)
+plus `gap`, which is then added to it, not a floor against the envelope's
+gap (default 0.0). Pads are measured as their copper outlines, so a round
+or turned pad gets its true standoff, and only pads that face each other
+across `side` at the `align=` count. Pads of one net set no distance, so a
+net tie's pad 1 on the output net may stand on that net's pad while its pad
+2 stands the clearance off it; the tie's own-net exemption in KiCad's DRC
+does not shorten the distance. The part's body, courtyard and silk are
+judged afterwards as for any placement, and a body that overlaps `item`'s
+at that distance is refused. A part with no pad facing a pad of another net
+is refused. A keepout or an escape has no pads, so `copper=` is refused for
+them.
 
 `align=(own_pad, Past(pads, Edge.WEST, lane=None))` stands the own pad's
 facing edge past the pads' `edge` side instead of level with a pad. The

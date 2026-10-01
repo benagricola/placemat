@@ -20,6 +20,14 @@ from the polygon's copper to it, the clearance the pair needs and `under`
 where the gap is less. `--json` adds a `polygons` key beside `segments`.
 `placemat layer` draws these polygons and counts them in its summary line.
 
+`Beside(item, side, copper=True, gap=, align=)` stands a part as near
+`item` on `side` as its pads allow, every pad of it a clearance (by net
+pair, `board.rule` clearances included) plus `gap` off every pad of `item`
+of another net, measured copper to copper; pads of one net set no distance.
+It replaces a `gap=` worked out so that a pad lands a clearance off another
+part's pad, which counts from the envelope and is out by however far the
+envelope sits inside the pads. Without `copper=`, `Beside` is unchanged.
+
 ## To 0.66.1
 
 A net tie placed so it stands out from a pad of its net (`Pin(1, PadRef(...,
@@ -1698,5 +1706,6 @@ that says what replaces it.
 | a cell stood as far toward an end as its tall members allow, by offsets worked out from its members' frame | To 0.63.0 |
 | a sense track's first point placed from `placed_size()` half a track off a pad's edge | To 0.64.0 |
 | a pad placed at `X(PadRef(...), PITCH)` to stand a mechanical pitch from another pad | Unreleased |
+| a `Beside` `gap=` worked out to put a pad a clearance off another part's pad | Unreleased |
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |

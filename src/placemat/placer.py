@@ -481,6 +481,63 @@ def box_centered_placement(occ: Occupancy, item, center: Location, rotation: flo
                      rotation, face)
 
 
+def _offset_hits(o, u, poly, d: float) -> list:
+    """The t at which the point o + t*u is exactly `d` from an edge of `poly`:
+    where it crosses the lines `d` either side of each edge, within the edge's
+    span, and the circles of radius `d` round each vertex."""
+    out = []
+    n = len(poly)
+    for k in range(n):
+        p, q = poly[k], poly[(k + 1) % n]
+        ex, ey = q[0] - p[0], q[1] - p[1]
+        length = math.hypot(ex, ey)
+        if length == 0.0:
+            continue
+        ex, ey = ex / length, ey / length
+        nx, ny = -ey, ex
+        slope = u[0] * nx + u[1] * ny
+        if slope != 0.0:
+            base = (o[0] - p[0]) * nx + (o[1] - p[1]) * ny
+            for side in (d, -d):
+                t = (side - base) / slope
+                foot = (o[0] + t * u[0] - p[0]) * ex + (o[1] + t * u[1] - p[1]) * ey
+                if -1e-9 <= foot <= length + 1e-9:
+                    out.append(t)
+        wx, wy = o[0] - p[0], o[1] - p[1]
+        half = u[0] * wx + u[1] * wy
+        disc = half * half - (wx * wx + wy * wy - d * d)
+        if disc >= -1e-12:
+            root = math.sqrt(max(disc, 0.0))
+            out += [-half - root, -half + root]
+    return out
+
+
+def sweep_standoff(moving, fixed, u, d: float) -> float | None:
+    """How far, as a translation `t` along the unit vector `u`, `moving` (a
+    polygon) must go for it to stand `d` from `fixed` for good - the greatest
+    t at which the two are exactly `d` apart - or None when no translation
+    along `u` brings them within `d`. Exact: the last contact is a vertex of
+    one polygon at distance `d` from an edge or vertex of the other, so the
+    candidates are where each vertex, carried along `u` (or back along it,
+    for the fixed polygon's), crosses the edges' offset lines and the
+    vertices' circles."""
+    box_m, box_f = Box.of_points(moving), Box.of_points(fixed)
+    across = (box_m.top - box_f.bottom, box_f.top - box_m.bottom) if u[0] else \
+        (box_m.left - box_f.right, box_f.left - box_m.right)
+    if max(across) >= d:
+        return None
+    best = None
+    for origin, direction, poly in (
+            [(v, u, fixed) for v in moving] + [(v, (-u[0], -u[1]), moving) for v in fixed]):
+        for t in _offset_hits(origin, direction, poly, d):
+            if best is not None and t <= best:
+                continue
+            shifted = tuple((x + t * u[0], y + t * u[1]) for x, y in moving)
+            if abs(_geometry_module.poly_distance(shifted, fixed) - d) <= 1e-6:
+                best = t
+    return best
+
+
 def pad_box_at(occ: Occupancy, item, key, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
     """The box of the item's pad `key` (a number or a net) with the item at
     the origin, turned to `rotation` and on `face`."""
