@@ -483,9 +483,6 @@ class Escapes:
         return crossed, closed, walled
 
 
-_CELL_MM = 0.05     # the path search's grid: a quarter of the narrowest track a fab offers
-
-
 def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None, near=None) -> bool:
     """Whether a track of the pad's net can get out of it: a path, at the
     net's track width and clearance from every other net's copper on the
@@ -514,8 +511,9 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
             and s.box.overlaps(reach)]
     walls = [s.box.inflate(track) for s in foes if s.layers & layers]
     vias = [s.box.inflate(via) for s in foes]
-    nx = max(1, int(math.ceil(win.width / _CELL_MM)))
-    ny = max(1, int(math.ceil(win.height / _CELL_MM)))
+    cell = occ.settings.place_escape_cell
+    nx = max(1, int(math.ceil(win.width / cell)))
+    ny = max(1, int(math.ceil(win.height / cell)))
     cw, ch = win.width / nx, win.height / ny
 
     def centre(i, j):

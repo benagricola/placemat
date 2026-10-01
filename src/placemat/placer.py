@@ -463,7 +463,7 @@ def run_placement(occ: Occupancy, item, shape, run, along: float, standoff: floa
     d = max(0.0, standoff + box_support(what, out_b) / 2.0)
     limit = d + max(what.width, what.height) + 2.0
     while d < limit and not holds(d):
-        d += 0.05
+        d += occ.settings.place_edge_step
     if holds(d):
         d = _bisect(holds, 0.0, d, want_low=True) + _SLACK
     cx, cy = centre_at(d)

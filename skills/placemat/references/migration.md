@@ -52,6 +52,13 @@ section for each hand-written pattern a newer form replaces.
   does not span it is a finding naming it, as is a pad without copper there.
   The pour is planned after its vias.
 
+- **Settings for what were literals**: `place.edge_step`, `place.pocket_step`,
+  `place.freedom_min_step`, `place.cutout_step`, `place.cutout_angle_step`,
+  `place.escape_cell`, `copper.finger_min_piece`, `copper.tap_overlap`,
+  `geometry.cap_steps`, `check.neck_band`, `solve.pull`, `solve.spread_pull`
+  and `solve.spread_growth`. Each defaults to the value it had, so nothing
+  moves.
+
 ### Migration steps
 
 - SKILL.md, "Placement and copper practice", gains three rules: a plane

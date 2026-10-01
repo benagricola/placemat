@@ -245,7 +245,7 @@ impl NativeObstacles {
     /// move passes every test `giveway._give`'s loop applies, or `None`:
     /// the disc inside `pad` (poly, radius), the copper `first` met
     /// (poly, clearance, radius) no longer met, `via` (ring, hole) shifted
-    /// clear of `mine`, and `tail` (shape, far end, width) redrawn clear of
+    /// clear of `mine`, and `tail` (shape, far end, width, cap steps) redrawn clear of
     /// the board less `skip`, and of `mine`. The offsets are the ones
     /// `first_clear_offset` found clear of the board. See `giveway.rs`.
     #[pyo3(signature = (via, offsets, clearance, skip, mine, centre, first, pad, tail, start))]
@@ -260,14 +260,14 @@ impl NativeObstacles {
         centre: Point,
         first: Option<(Vec<Point>, f64, f64)>,
         pad: Option<(Vec<Point>, f64)>,
-        tail: Option<(PyShape, Point, f64)>,
+        tail: Option<(PyShape, Point, f64, usize)>,
         start: usize,
     ) -> PyResult<Option<usize>> {
         let via: Vec<shapes::Shape> = via.iter().map(build_shape).collect::<PyResult<_>>()?;
         let mine: Vec<shapes::Shape> = mine.iter().map(build_shape).collect::<PyResult<_>>()?;
         let skip: std::collections::HashSet<usize> = skip.into_iter().collect();
         let proto = match &tail {
-            Some((t, _, _)) => Some(build_shape(t)?),
+            Some((t, _, _, _)) => Some(build_shape(t)?),
             None => None,
         };
         let m = giveway::Move {
@@ -277,7 +277,7 @@ impl NativeObstacles {
             first: first.as_ref().map(|(p, c, r)| (p.as_slice(), *c, *r)),
             pad: pad.as_ref().map(|(p, r)| (p.as_slice(), *r)),
             tail: match (&proto, &tail) {
-                (Some(p), Some((_, far, w))) => Some((p, *far, *w)),
+                (Some(p), Some((_, far, w, cap))) => Some((p, *far, *w, *cap)),
                 _ => None,
             },
         };

@@ -21,6 +21,7 @@ from . import exposure as _exposure
 from . import geometry as _geometry_module
 from .board_geometry import BoardGeometry, CopperItem, Footprint
 from .geometry import poly_distance, polys_overlap
+from .settings import active
 from .values import Box
 
 AMBIENT_C = 100.0
@@ -966,7 +967,7 @@ def _neck(nodes, best, end_i: int, w: float) -> tuple:
         return nodes[idx][6]
 
     def narrow(idx):
-        return nodes[idx][0] == "track" and nodes[idx][1] <= w * 1.1 + 1e-9
+        return nodes[idx][0] == "track" and nodes[idx][1] <= w * (1.0 + active().check_neck_band) + 1e-9
     total = length(neck_i)
     k = pos - 1
     while k >= 0 and narrow(path[k]):

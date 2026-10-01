@@ -10,9 +10,6 @@ use crate::geometry::{point_in_polygon, point_segment_distance, Point};
 use crate::shapes::{box_overlaps, conflict, may_meet, Bounds, ConflictConfig, Shape, ShapeGrid};
 use std::collections::HashSet;
 
-/// `copper._CAP_STEPS`: segments round each half-circle end of a track.
-const CAP_STEPS: usize = 8;
-
 /// `giveway._disc_inside`: whether the disc of radius `r` round `c` lies
 /// inside `poly`: its centre inside, and every side at least `r` from it.
 pub fn disc_inside(poly: &[Point], c: Point, r: f64) -> bool {
@@ -36,18 +33,18 @@ pub fn still_meets(poly: &[Point], clr: f64, r: f64, c: Point) -> bool {
 }
 
 /// `copper._segment_polygon`: a track as KiCad draws it, its two sides and
-/// a round end at each end.
-pub fn segment_polygon(a: Point, b: Point, width: f64) -> Vec<Point> {
+/// a round end at each end, `cap_steps` segments round each (`[geometry] cap_steps`).
+pub fn segment_polygon(a: Point, b: Point, width: f64, cap_steps: usize) -> Vec<Point> {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let n = exact::hypot(dx, dy);
     let h = width / 2.0;
     let (ux, uy) = if n == 0.0 { (1.0, 0.0) } else { (dx / n, dy / n) };
     let base = uy.atan2(ux);
-    let far = h / (std::f64::consts::PI / (2 * CAP_STEPS) as f64).cos();
-    let step = std::f64::consts::PI / CAP_STEPS as f64;
+    let far = h / (std::f64::consts::PI / (2 * cap_steps) as f64).cos();
+    let step = std::f64::consts::PI / cap_steps as f64;
     let cap = |c: Point, start: f64| -> Vec<Point> {
         let mut pts = vec![(c.0 + h * start.cos(), c.1 + h * start.sin())];
-        for j in 0..CAP_STEPS {
+        for j in 0..cap_steps {
             let ang = start + (j as f64 + 0.5) * step;
             pts.push((c.0 + far * ang.cos(), c.1 + far * ang.sin()));
         }
@@ -98,8 +95,9 @@ pub struct Move<'a> {
     pub first: Option<(&'a [Point], f64, f64)>,
     /// the pad the via lies in, and the disc radius it must keep inside it
     pub pad: Option<(&'a [Point], f64)>,
-    /// the tail's shape (its outline is replaced at each offset), its far end and width
-    pub tail: Option<(&'a Shape, Point, f64)>,
+    /// the tail's shape (its outline is replaced at each offset), its far end, its width and the
+    /// segments round each of its round ends
+    pub tail: Option<(&'a Shape, Point, f64, usize)>,
 }
 
 /// The index in `offsets` (from `start`) of the first that passes every
@@ -132,8 +130,8 @@ pub fn first_move(grid: &ShapeGrid, cfg: &ConflictConfig, m: &Move, offsets: &[(
                 continue 'offsets;
             }
         }
-        if let Some((proto, far, width)) = m.tail {
-            let poly = segment_polygon(far, to, width);
+        if let Some((proto, far, width, cap_steps)) = m.tail {
+            let poly = segment_polygon(far, to, width, cap_steps);
             let s = Shape { bbox: bounds(&poly), poly, ..proto.clone() };
             if meets_board(grid, &s, clearance, cfg, skip) || meets_any(&s, m.mine, clearance, cfg) {
                 continue;
@@ -190,9 +188,11 @@ mod tests {
         assert!(!still_meets(&poly, 0.2, 0.25, (1.5, 0.0)));     // 0.5 - 0.25 = 0.25 >= 0.2
     }
 
+    const CAP_STEPS: usize = 8;                 // [geometry] cap_steps' default
+
     #[test]
     fn a_track_outline_has_two_ends_of_ten_points() {
-        let p = segment_polygon((0.0, 0.0), (2.0, 0.0), 0.2);
+        let p = segment_polygon((0.0, 0.0), (2.0, 0.0), 0.2, CAP_STEPS);
         assert_eq!(p.len(), 2 * (CAP_STEPS + 2));
         let b = bounds(&p);
         assert!((b.0 + 0.1).abs() < 1e-12 && (b.2 - 2.1).abs() < 1e-12, "{:?}", b);
@@ -201,8 +201,8 @@ mod tests {
 
     #[test]
     fn a_track_of_no_length_points_along_x() {
-        let p = segment_polygon((1.0, 1.0), (1.0, 1.0), 0.2);
-        let q = segment_polygon((1.0, 1.0), (2.0, 1.0), 0.2);
+        let p = segment_polygon((1.0, 1.0), (1.0, 1.0), 0.2, CAP_STEPS);
+        let q = segment_polygon((1.0, 1.0), (2.0, 1.0), 0.2, CAP_STEPS);
         assert_eq!(p.len(), q.len());
         assert_eq!(p[0], (1.0 + 0.1 * (-std::f64::consts::FRAC_PI_2).cos(), 1.0 + 0.1 * (-std::f64::consts::FRAC_PI_2).sin()));
     }
@@ -228,7 +228,7 @@ mod tests {
         let via = vec![ring];
         let offsets = vec![(0.0, 1.0), (2.0, 0.0)];
         let m = Move { via: &via, mine: &[], centre: (0.0, 0.0), first: None, pad: None,
-                       tail: Some((&proto, (0.0, -1.0), 0.2)) };
+                       tail: Some((&proto, (0.0, -1.0), 0.2, CAP_STEPS)) };
         assert_eq!(first_move(&grid, &cfg(), &m, &offsets, Some(0.2), &HashSet::new(), 0), Some(1));
         let skip: HashSet<usize> = [0].into_iter().collect();
         assert_eq!(first_move(&grid, &cfg(), &m, &offsets, Some(0.2), &skip, 0), Some(0));

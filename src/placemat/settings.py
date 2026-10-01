@@ -67,6 +67,12 @@ class Settings:
     place_via_move_step: float = 0.05   # the grid a via's move is searched on
     place_via_clear_cache: int = 4096   # a scan keeps this many placed vias' clear moves, each searched once
     place_drops_keep: float = 0.5       # the share of a pad's drops it keeps, rounded up, never fewer than one (Drops.MIN); a carried drop is dropped only while its pad keeps this share; 1: never
+    place_edge_step: float = 0.05       # a part placed on a curved board edge is stepped in from the edge at this step until the keep-in holds it (placer.py)
+    place_pocket_step: float = 0.5      # the raster a free-rectangle (pocket) search blocks the board at, least; an item's own step is used when coarser (layout.py)
+    place_freedom_min_step: float = 0.2   # the least step a part's one-freedom search (along an edge, round a ring) walks at, mm; an item's own step is used when coarser
+    place_cutout_step: float = 0.2      # the step a cutout is slid along a free axis at, mm
+    place_cutout_angle_step: float = 0.5   # the step a cutout is turned round its centre at, degrees
+    place_escape_cell: float = 0.05     # the grid a pad's path out is searched on, mm (escapes.py); a quarter of the narrowest track a fab offers
     place_split_min_group: int = 2      # the least members a group needs to count, in a cell's split finding (splits.py)
     # [copper]
     copper_chamfer: float = 1.0
@@ -74,11 +80,13 @@ class Settings:
     copper_pair_via_step: float = 0.4
     copper_bridge_half: float = 1.1
     copper_finger_bridge_width: float = 1.0
+    copper_finger_min_piece: float = 0.05   # a finger's piece between two bridges no longer than this is not drawn, mm
     copper_plane_inset: float = 0.4
     copper_plane_clearance: float = 0.2
     copper_plane_min_thickness: float = 0.2
     copper_pour_stroke: float = 0.2
     copper_cell_zones_under_planes: str = "drop"   # a stamped cell's zone the board's own plane covers: merged into it, or kept
+    copper_tap_overlap: float = 0.005   # how far a tap's copper reaches over its pad's edge, mm: copper that only meets the pad along a line may not read as joined
     copper_microvia_drill: float = 0.1  # a micro via's (laser) drill, when the script gives none
     copper_straight_tolerance: float = 0.002   # a track leg whose ends differ less than this on one axis is drawn straight; measure --copper judges 0/45/90 by it
     # [write]
@@ -94,10 +102,12 @@ class Settings:
     geometry_arc_sag: float = 0.02
     geometry_index_cells: int = 16
     geometry_arc_error_nm: int = 5000
+    geometry_cap_steps: int = 8         # segments round each half-circle end of a track's polygon (copper.py, native/src/giveway.rs)
     # [check]
     check_ambient_c: float = 100.0
     check_keep_out_mm: float = 2.0
     check_rise_c: float = 10.0
+    check_neck_band: float = 0.1      # a current path's neck runs as far as its track stays within this fraction of the narrowest width
     check_zone_step: float = 0.05     # the cell a zone fill is rasterised at to measure its width on a load's route
     check_limits: dict = field(default_factory=dict)
     # [parts]
@@ -170,6 +180,9 @@ class Settings:
     solve_iterations: int = 200
     solve_tolerance: float = 1e-6
     solve_rounds: int = 8
+    solve_pull: float = 0.01            # the weak pull of every part toward the middle of the board, per unit spring
+    solve_spread_pull: float = 0.01     # the first round's pull of each part toward its spread cell
+    solve_spread_growth: float = 2.0    # the pull's growth each round after: round n pulls with spread_pull * growth ** n
     preview_converter: str = "rsvg-convert --width {width} -o {png} {svg}"   # SVG to PNG; {svg}, {png}, {width}
     preview_px_per_mm: float = 40.0     # the PNG's resolution: 40 px a millimetre shows a 0.1 mm gap as 4 px
     preview_model_edge: int = 1568      # px an image's long edge is scaled to before the reading model sees it
@@ -296,8 +309,8 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 # from this table because weighting a dimension at nothing is a real choice.
 _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_coarse_from", "place_coarse_steps",
-    "place_refine_around", "place_block_gap_step", "place_block_gap_reach", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "score_escape_depth", "place_via_move_step", "place_via_clear_cache",
-    "place_conflict_gap", "place_fit_room", "copper_bridge_half", "copper_finger_bridge_width",
+    "place_refine_around", "place_block_gap_step", "place_block_gap_reach", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "geometry_cap_steps", "solve_spread_growth", "solve_pull", "score_escape_depth", "place_via_move_step", "place_via_clear_cache",
+    "place_conflict_gap", "place_fit_room", "copper_bridge_half", "copper_finger_bridge_width", "copper_finger_min_piece",
     "copper_plane_min_thickness", "copper_pour_stroke", "copper_microvia_drill", "label_size",
     "label_thickness", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_zone_step",
@@ -311,7 +324,7 @@ _AT_LEAST_ZERO = frozenset((
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",
     "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset", "copper_straight_tolerance",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
-    "score_pair_crossing", "place_via_share", "place_via_move", "score_via_share",
+    "score_pair_crossing", "copper_tap_overlap", "check_neck_band", "solve_spread_pull", "place_via_share", "place_via_move", "score_via_share",
     "score_via_move", "score_via_drop", "score_via_shorten", "score_push"))
 # A floor of 2: below it a "group" can never be more than one part, which
 # is not a group at all.

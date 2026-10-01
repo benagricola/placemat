@@ -9,6 +9,7 @@ import math
 
 from .findings import Finding
 from .geometry import Polygon
+from .settings import active
 from .values import Box, CopperLayer, Face, Location
 
 # A bridge passes under a crossed track: via land (0.30) + clearance (0.20)
@@ -180,9 +181,6 @@ def grown_hull(points, r: float, sag: float) -> Polygon:
     return tuple(out)
 
 
-_CAP_STEPS = 8          # segments round each half-circle end
-
-
 def _segment_polygon(a: Location, b: Location, width: float) -> Polygon:
     """A track as KiCad draws it: its two sides and a round end at each end.
     Each end's vertices stand just outside the arc (every edge on or outside
@@ -197,13 +195,14 @@ def _segment_polygon(a: Location, b: Location, width: float) -> Polygon:
     else:
         ux, uy = dx / n, dy / n
     base = math.atan2(uy, ux)
-    far = h / math.cos(math.pi / (2 * _CAP_STEPS))
-    step = math.pi / _CAP_STEPS
+    cap_steps = active().geometry_cap_steps          # `[geometry] cap_steps`
+    far = h / math.cos(math.pi / (2 * cap_steps))
+    step = math.pi / cap_steps
 
     def cap(c, start):
         pts = [(c.x + h * math.cos(start), c.y + h * math.sin(start))]
         pts += [(c.x + far * math.cos(start + (j + 0.5) * step), c.y + far * math.sin(start + (j + 0.5) * step))
-                for j in range(_CAP_STEPS)]
+                for j in range(cap_steps)]
         pts.append((c.x + h * math.cos(start + math.pi), c.y + h * math.sin(start + math.pi)))
         return pts
     return tuple(cap(b, base - math.pi / 2) + cap(a, base + math.pi / 2))
@@ -314,14 +313,15 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
 
 
 def finger_ops(net: str, layer: CopperLayer, a: Location, b: Location, width: float, lane_segments,
-               via_drill: float, via_size: float, bridge_width: float = 1.0,
-               notch_half: float = BRIDGE_HALF) -> list:
+               via_drill: float, via_size: float, bridge_width: float, notch_half: float,
+               min_piece: float) -> list:
     """A finger: a rectangular pour of `width` along the centreline a-b (a
     wide copper reach from a big pour to a pad). Where a same-layer track of
     another net (given as segments) crosses the centreline the rectangle is
     cut into pieces either side of it, and each cut is bridged: a via, a
     track on the opposite face under the crossing track, and a via, so the
-    pieces stay one net."""
+    pieces stay one net. A piece no longer than `min_piece` between two
+    bridges is not drawn."""
     length = a.distance(b)
     if length < 1e-9:
         return []
@@ -343,7 +343,7 @@ def finger_ops(net: str, layer: CopperLayer, a: Location, b: Location, width: fl
         return (round(a.x + ux * s, 6), round(a.y + uy * s, 6))
     for i in range(0, len(bounds), 2):
         s0, s1 = bounds[i], bounds[i + 1]
-        if s1 > s0 + 0.05:
+        if s1 > s0 + min_piece:
             (x0, y0), (x1, y1) = at(s0), at(s1)
             # stroke=0: the points are already width apart: the default pour stroke would
             # draw the copper that much wider again, past what the script asked for.
