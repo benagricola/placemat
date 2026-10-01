@@ -85,15 +85,19 @@ def test_a_label_may_mark_one_pad():
     assert t.at.x == pytest.approx(pad.x) and t.at.y == pytest.approx(pad.y + 0.5 + 0.3) and t.size == 0.6
 
 
-def test_a_fixed_part_on_a_reserved_label_is_a_collision_that_stops_the_run():
-    from placemat.layout import PlacementCollision
+def test_a_label_gives_way_to_a_fixed_part_declared_on_it():
+    """The part stays where it was put; the label, a user's mark, moves next
+    to its item."""
     b = make_board()
     b.place(Part("j1"), at=Location(20, 20))
     b.place(Part("r1"), at=Location(20, 16.4))              # right where a north label goes
     b.label(Part("j1"), "MOTOR", side=Edge.NORTH, gap=0.5)
-    with pytest.raises(PlacementCollision) as e:
-        b.resolve()
-    assert "label j1 MOTOR" in str(e.value) and "r1" in str(e.value)
+    plan = b.resolve()
+    (t,) = labels(plan)
+    assert plan.box("r1").center == Location(20, 16.4)
+    assert t.side is not Edge.NORTH and not t.box.overlaps(plan.box("r1"))
+    assert "moved from north" in plan.step("label j1 MOTOR").note and "R1" in plan.step("label j1 MOTOR").note
+    assert not [f for f in plan.findings if "label" in str(f)], list(plan.findings)
 
 
 def test_a_label_on_an_undeclared_part_uses_where_the_board_has_it_but_an_unplaced_ones_is_a_finding():

@@ -2225,10 +2225,20 @@ over their pads but past the part's outline;
 `knockout` cuts it out of a filled box, which reads better over a busy
 board. `size` and `thickness` default to 1.0 and 0.15 mm. A label is
 worked out the moment its item is placed and the text's own box on
-its face is reserved: nothing placed later lands on it, and a firm
-item declared on top of it is a collision that stops the run.
-`reserve=False` keeps the label out of the way of placement and only
-reports what lands on it. Mark what a user handles:
+its face is reserved: a searched item keeps off it. A label is a user's
+mark, not part of what makes the board work, so it gives way: where a
+firm item (`Location`, `Pin`, `Beside`, `OnEdge`, `row`) would stand
+within the silk clearance of the text, or on its box, the item stays
+where it was put and the label moves, first along the side it was
+declared on (between that side's start and end, nearest its declared spot
+first), then to the item's other sides, nearest first. It keeps its `gap`
+off the item and clear of what is placed, so it still reads as that item's.
+The step's note says so ("moved from north END to north MID: U20 was
+there"). With no clear spot it stays, a `label` finding names it and what
+is in the way, and the firm item's collision stops the run as before.
+A line of labels (a list, or `line=`) keeps its line and does not move.
+`label.slide_step` is the step along a side. `reserve=False` keeps the
+label out of the way of placement and only reports what lands on it. Mark what a user handles:
 every connector, jumper, switch and LED, by what it does, not its refdes.
 
 ## Layers and faces
@@ -2897,6 +2907,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `label.size` | 1.0 | silkscreen text height |
 | `label.thickness` | 0.15 | silkscreen stroke width |
 | `label.gap` | 0.0 | a label's gap from what it names; never less than the board's silk clearance |
+| `label.slide_step` | 0.25 | the step a label slides by along its item's side when a firm part is placed beside it |
 | `geometry.arc_sag` | 0.02 | how far a flattened arc may cut the corner off the real one |
 | `geometry.index_cells` | 16 | buckets across the longer side of the spatial index |
 | `geometry.arc_error_nm` | 5000 | arc approximation error when reading pad outlines |

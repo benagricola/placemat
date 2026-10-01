@@ -5338,6 +5338,7 @@ class Board:
             else:
                 occ.commit(obj.item, step.placement)
                 placed.update(fp.ref for fp in members_of(obj.item))
+                self._labels_give_way(occ, plan, obj.item, step.placement, True)     # as the settle did, for a replay
                 if obj.kind == "cell":
                     self._cell_placements[obj.key] = step.placement
                     taken = self._stamped_region_cost(occ, obj.item)
@@ -5352,6 +5353,7 @@ class Board:
                     raise CriticalUnplaced(r.key, self._no_place_report(occ, r, rs), plan)
                 if rs.placement is not None:
                     placed.update(fp.ref for fp in members_of(r.item))
+                    self._labels_give_way(occ, plan, r.item, rs.placement, True)
                     if r.turned is not None:
                         r.rotation = rs.placement.rotation      # as a firm Turned item's is set when it is placed
                     if r.kind == "cell":
@@ -5985,12 +5987,7 @@ class Board:
                 for h in _label_hits(occ, op.box, face, own):
                     if not any(f.startswith("%s: sits on" % key) and h in f for f in plan.findings):
                         plan.findings.append(Finding("label", "%s: sits on %s" % (key, h)))
-        def box_of(item):
-            refs = self._label_refs(item)
-            if isinstance(item, (PadRef, CellPadRef)):
-                owner, number, _, _ = self._pad_ref(item)
-                return Box.union([s.box for s in _pad_shapes(self, occ, item)]), occ.items[owner].reference.face
-            return Box.union([occ.items[r].reach or occ.items[r].body for r in refs]), occ.items[refs[0]].reference.face
+        box_of = lambda item: self._label_item_box(occ, item)
         for entry in self._labels:
             key, item, text, side, gap, align, size, thick, knockout, rotation, why, reserve, group = entry
             if key in done:
@@ -6022,12 +6019,175 @@ class Board:
                 # The reservation keeps bodies off the text; as silk it also keeps
                 # a later part's silk the silk clearance away where the envelope
                 # claims silk, as KiCad checks it.
-                occ.add_copper([Shape(key, "silk", frozenset([face]), frozenset(), "", box_polygon(op.box), op.box)])
+                silk = Shape(key, "silk", frozenset([face]), frozenset(), "", box_polygon(op.box), op.box)
+                occ.add_copper([silk])
+                plan.__dict__.setdefault("_label_parts", {})[key] = (silk, occ.reservations[-1])
                 note += "; reserved"
             plan.steps.append(Step(key, "copper", Priority.DEFAULT, None, 0.0, note, why, 1))
             done[key] = (op, own, face)
             if progress:
                 progress("%-28s copper  label    %s" % (key, note))
+
+    def _label_item_box(self, occ, item) -> tuple:
+        """(the reach a label stands off, its face): a pad's copper, or the
+        reach of the part or of every member of the cell."""
+        refs = self._label_refs(item)
+        if isinstance(item, (PadRef, CellPadRef)):
+            owner = self._pad_ref(item)[0]
+            return Box.union([s.box for s in _pad_shapes(self, occ, item)]), occ.items[owner].reference.face
+        return Box.union([occ.items[r].reach or occ.items[r].body for r in refs]), occ.items[refs[0]].reference.face
+
+    @staticmethod
+    def _label_in_the_way(occ, shape, reservation, item, placement, committed: bool = False) -> bool:
+        """Whether `item` at `placement` stands where a label's text is kept
+        clear: its silk within the silk clearance of the text's silk, or its
+        body in the text's reserved box, on the label's face. `committed`:
+        the item is already on the occupancy, so its shapes are read there."""
+        box = shape.box
+        face = next(iter(shape.faces))
+        if committed:
+            held = [occ.items[fp.ref] for fp in members_of(item) if fp.ref in occ.items]
+            shapes = [sh for g in held for sh in g.shapes]
+            if any(sh.box.overlaps(box, gap=occ.gap_for(sh)) and occ._conflict(sh, shape, None) for sh in shapes):
+                return True
+            on_face = any(g.reference.face is face for g in held)
+            reach = lambda: any((g.reach or g.body).overlaps(box) for g in held)
+            bodies = [(g.body, occ.standing_faces(g, g.reference.face)) for g in held]
+        else:
+            if occ.legal(item, placement, others=[shape], board=False) is not None:
+                return True
+            on_face = placement.face is face
+            shapes = occ.shifted_shapes(item, placement)
+            reach = lambda: occ.reach_box(item, placement).overlaps(box)
+            geom = occ._geometry(item)
+            faces = occ.standing_faces(geom, placement.face)
+            bodies = [(occ.shifted_body_box(item, placement), faces)]
+            if geom.parts:                          # a cell is judged by its members' boxes
+                bodies = [(pb, faces) for pb in occ._shifted_parts(geom, placement)]
+        if on_face:                                 # what _label_hits calls sitting on a label
+            if occ.envelope != "physical":
+                if reach():
+                    return True
+            elif any((sh.kind in _LABEL_COVERS or (sh.kind == "courtyard" and sh.claims)) and sh.box.overlaps(box)
+                     and polys_overlap(shape.poly, sh.poly) for sh in shapes):
+                return True
+        layer = reservation.layer
+        return any((layer is None or layer.face in faces) and reservation.overlaps(b) for b, faces in bodies)
+
+    def _label_candidates(self, entry, box: Box, op: Text) -> list:
+        """[(side, where on it, the label there)] for the spots a label may
+        move to, nearest first: along its declared side, from where it stands
+        to either flush end, then the item's other sides, nearest to where it
+        stands first, each from its declared align. A spot keeps the label's
+        own gap off the item and the label over the item's extent on that side
+        (a label wider than the side: between its two flush ends)."""
+        key, item, text, side, gap, align, size, thick, knockout, rotation = entry[:10]
+        face = op.face
+        gap = max(gap, self.geometry.silk_clearance)
+        step = self.settings.label_slide_step
+        stand = op.box.center
+
+        def drawn(s):
+            return _label_op(text, box, face, s, gap, align, size, thick, knockout, rotation)
+
+        def far(s):
+            c = drawn(s).box.center
+            return math.hypot(c.x - stand.x, c.y - stand.y)
+
+        out = []
+        for s in [side] + sorted((s for s in Edge if s is not side), key=far):
+            base = op if s is side else drawn(s)
+            along_x = s in (Edge.NORTH, Edge.SOUTH)               # the side runs along x
+            lo, hi = (box.left, box.right) if along_x else (box.top, box.bottom)
+            bb = base.box
+            here, length = (bb.left, bb.width) if along_x else (bb.top, bb.height)
+            start, end = lo, hi - length
+            pmin, pmax = min(start, end), max(start, end)
+            spots = {round(here, 6), round(start, 6), round(end, 6)}
+            spots |= {round(min(pmax, pmin + k * step), 6) for k in range(int((pmax - pmin) / step) + 2)}
+            for p in sorted((p for p in spots if pmin - 1e-6 <= p <= pmax + 1e-6), key=lambda p: (abs(p - here), p)):
+                d = p - here
+                at = Location(base.at.x + d, base.at.y) if along_x else Location(base.at.x, base.at.y + d)
+                if abs(p - start) < 1e-6:
+                    word = "START"
+                elif abs(p - end) < 1e-6:
+                    word = "END"
+                elif abs(p - (start + end) / 2.0) < 1e-6:
+                    word = "MID"
+                else:
+                    word = "%.2f mm from START" % abs(p - start)
+                out.append((s, word, base if abs(d) < 1e-9 else dataclasses.replace(base, at=at)))
+        return out
+
+    def _labels_give_way(self, occ, plan: Plan, item, placement: Placement, committed: bool = False) -> bool:
+        """A label is a user's mark, not what makes the board work: where
+        `item`, firm at `placement`, would stand within silk clearance of the
+        text of a label declared on another item, or in its reserved box, the
+        label moves - along its side, then to the item's other sides - and
+        the item does not. True when one did. A label with no clear spot
+        stays, and is a finding; a line of labels keeps its line."""
+        parts = plan.__dict__.get("_label_parts")
+        if not parts:
+            return False
+        done = plan._labelled
+        mine = sorted({occ.who(fp.ref) for fp in members_of(item)})
+        moved = False
+        for entry in self._labels:
+            key = entry[0]
+            if key not in parts or key not in done or entry[12]:
+                continue
+            op, own, face = done[key]
+            shape, reservation = parts[key]
+            if own & set(mine) or not self._label_in_the_way(occ, shape, reservation, item, placement, committed):
+                continue
+            box = self._label_item_box(occ, entry[1])[0]
+            theirs = ({self._pad_ref(entry[1])[0]} if isinstance(entry[1], (PadRef, CellPadRef))
+                      else set(self._label_refs(entry[1])) | {self._item(entry[1])[1]})
+            obstacles = occ._obstacle_shapes(frozenset(occ.pending) | theirs | {key})
+            labels = [d[0].box for k, d in parts.items() if k != key]
+            for side, word, cand in self._label_candidates(entry, box, op):
+                cb = cand.box
+                silk = Shape(key, "silk", frozenset([face]), frozenset(), "", box_polygon(cb), cb)
+                held = dataclasses.replace(reservation, poly=box_polygon(cb))
+                if (self._label_in_the_way(occ, silk, held, item, placement, committed) or _label_hits(occ, cb, face, set(own))
+                        or any(cb.overlaps(b) for b in labels)
+                        or (occ.envelope == "physical" and any(
+                            o.box.overlaps(cb, gap=occ._drawn_gap) and occ._conflict(silk, o, None)
+                            for o in obstacles))):
+                    continue
+                self._move_label(occ, plan, entry, cand, silk, held, side, word, ", ".join(mine))
+                moved = True
+                break
+            else:
+                said = "%s: no clear spot beside %s for it to move to, and %s is in the way" % (
+                    key, key.split(" ", 2)[1], ", ".join(mine))
+                if said not in plan.findings:
+                    plan.findings.append(Finding("label", said))
+        return moved
+
+    def _move_label(self, occ, plan: Plan, entry, op: Text, shape: Shape, reservation, side: Edge, word: str,
+                    because: str) -> None:
+        """Take a label from where it stands to `op`: its text, its silk
+        obstacle, its reserved box, and a note on its step."""
+        key = entry[0]
+        old, own, face = plan._labelled[key]
+        was_shape, was_reservation = plan._label_parts[key]
+        for n, c in enumerate(plan.copper):
+            if c is old:
+                plan.copper[n] = op
+                break
+        occ.remove_copper([was_shape])
+        occ.reservations.remove(was_reservation)
+        occ.add_copper([shape])
+        occ.reservations.append(reservation)
+        plan._label_parts[key] = (shape, reservation)
+        plan._labelled[key] = (op, own, face)
+        step = next((st for st in plan.steps if st.item == key), None)
+        if step is not None:
+            at = plan.__dict__.setdefault("_label_at", {})
+            was = at.get(key) or "%s %s" % (entry[3].name.lower(), {"centre": "MID"}.get(entry[5], entry[5].upper()))
+            now = at[key] = "%s %s" % (side.name.lower(), word)
+            step.note = (step.note + "; " if step.note else "") + "moved from %s to %s: %s was there" % (was, now, because)
 
     def _plan_copper(self, occ, ctx, intents, plan: Plan, progress):
         """Plan a batch of copper together. Tracks are collected first and
@@ -7126,7 +7286,10 @@ class Board:
                 plan.findings.append(Finding("unplaced", "%s: %s" % (r.key, why)))
                 plan.steps.append(self._step(r, None, 0.0, "UNPLACED: " + why))
             return
-        for r, p, chose, on_board, in_group in self._ride(occ, plan, i, step.placement, None, stop=False):
+        laid = self._ride(occ, plan, i, step.placement, None, stop=False)
+        if any([self._labels_give_way(occ, plan, r.item, p) for r, p, *_ in laid]):
+            laid = self._ride(occ, plan, i, step.placement, None, stop=False)
+        for r, p, chose, on_board, in_group in laid:
             why = on_board or in_group
             if why:
                 plan.findings.append(Finding("fixed", "%s (%s): %s" % (r.key, r.freedom.value, why)))
@@ -7143,6 +7306,7 @@ class Board:
         push_sources = self._reserve_pushes(occ, plan, i)
         if i.freedom.decided:
             p, chose = self._firm_placement(occ, plan, i)
+            self._labels_give_way(occ, plan, i.item, p)     # a user's label moves, the part does not
             # its carried vias, and those of the items placed before it, may give way (giveway.py):
             # its commit does what this found
             why = occ.legal_giving_way(i.item, p, clr, past_edge=self._firm_past_edge(i), by_corners=True)[0]
