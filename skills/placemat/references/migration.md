@@ -54,6 +54,12 @@ section for each hand-written pattern a newer form replaces.
 
 ### Migration steps
 
+- SKILL.md, "Placement and copper practice", gains three rules: a plane
+  net is a zone and a power join is a fitted pour; a sense line leaving
+  power copper is its own net with a net tie at the tap; a decision taken
+  from a datasheet cites it in `why=`. A script that draws ground as a
+  pour, or runs a sense track on the power net, changes to match.
+
 - A board no longer keeps a placemat gaps file. When no form says a
   relation, send it as a request to the agent working on placemat itself;
   it files the request in placemat's `BACKLOG.md` and replies (SKILL.md,

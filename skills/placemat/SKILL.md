@@ -448,6 +448,24 @@ the script.
   a wide track). Copper whose every endpoint is decided is planned before
   the search, so loose parts go round it. A plane serves what it reaches
   by a via; a bypass capacitor served through a via is a bulk capacitor.
+- A plane net (ground on a face, an inner plane) is a zone: `board.plane`,
+  which later copper and vias cut through. A power or hot-loop join is a
+  fitted pour, `board.pour(net, members, layer=, swallow_pads=True)`: it is
+  drawn as planned, and copper planned after it keeps clear. Never draw a
+  plane net as a pour, and never stand a plane in for a join.
+- A low-current sense line that leaves power copper (a current shunt's
+  Kelvin tap, the top or bottom of a feedback divider) is its own net in
+  the capture, joined to the power net by a net tie at the tap point. On
+  the power net, a sense track can run along its own pad or pour and merge
+  with it, and DRC says nothing; on its own net, DRC keeps it clear
+  everywhere but the tie. The tie's power pad sits on the tap point
+  (`Pin(key, PadRef(..., edge=))`), its stub enters the power pad where
+  the sense is taken rather than running alongside it, and the sense pad
+  stands a clearance off the power copper with `Beside(..., copper=True)`,
+  since KiCad exempts a tie's own nets from clearance.
+- A layout decision that rests on a datasheet or other primary source
+  names it in the declaration's `why=` (document, page, figure), so the run
+  record carries the evidence beside the decision.
 - Tracks are octilinear and every right angle is chamfered; the tool picks
   the route with the fewest turns. Give a track its ends and only the
   waypoints where it must go. A daisy chain is a chain, not a bus with
