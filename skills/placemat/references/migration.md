@@ -5,6 +5,40 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A turn taken from the spot's bearing, and a band of radii.**
+  `rotations=Turns.TANGENT` (or `Tangent(about=, quarters=)`) turns a
+  searched part or cell, at each spot, so its outward side points away from
+  a centre, and also tries the half turn: two turns a spot, not the 72 of
+  `Turns.ANY`, and the one that is tangent preferred. `Polar((r_min, r_max),
+  None, about=centre)` searches the ground between two radii about a point,
+  on a disc or a `board.outline()` board, so items stand inboard of a rim
+  keepout. The bearing is binned by the new setting `place.tangent_bin`
+  (10.0 degrees). `api.md`, "Round boards".
+
+### Migration steps
+
+**A cell or part turned by hand to follow a circle becomes a tangent turn in
+a band.** A script that spread items round a circle and typed each one's turn
+(45 degrees because it packed better than the right angles) has the search
+take it.
+
+```python
+# before: a turn picked by hand, each cell in a ring of its own
+board.place(Cell("<CELL>"), at=Pin(Part("<CELL>.<MEMBER>"), Location(<X>, <Y>)), rotation=45)
+
+# after: searched in a radial band about the centre of the round part, turned to the tangent where it lands
+board.place(Cell("<CELL>"), at=Polar((<R_MIN>, <R_MAX>), None, about=Location(<CX>, <CY>)),
+            rotations=Turns.TANGENT)
+```
+
+On an outline board `about=` is the round part's centre, not `board.centre`.
+Items that nothing pulls share the band's turn, and a link decides between
+the outward turn and the half turn.
+
 ## To 0.75.0
 
 ### New
@@ -2534,3 +2568,4 @@ that says what replaces it.
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |
 | a searched cell or part pinned to `face=Face.BACK` (or `FRONT`) by hand only because one face was full | To 0.72.0 |
+| a cell or part turned by a hand-picked constant (45 or similar) to follow a circle, at a typed point | Unreleased |

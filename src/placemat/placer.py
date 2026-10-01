@@ -61,6 +61,99 @@ def _grid(center: Location, radius: float, step: float):
     return [(d, round(center.x + dx, 6), round(center.y + dy, 6)) for d, dx, dy in _grid_offsets(radius, step)]
 
 
+class SpotTurns:
+    """The turns a scan judges a spot at, when they depend on the spot: `turns` is every turn the
+    scan prepares, `at(x, y)` the ones a spot takes, best first, and `tie(cand)` what breaks a tie
+    between candidates of one score and distance. `offset` maps a turn to where the item's body
+    centre lies from its origin at that turn (placement.location is the origin), and `band`,
+    (r_min, r_max) about `centre`, keeps only the turns that leave the body centre in it."""
+
+    def __init__(self, centre: Location, offset=None, band: tuple | None = None):
+        self.centre, self.offset, self.band = centre, offset or {}, band
+        self.turns: tuple = ()
+
+    def _kept(self, x: float, y: float, rots: tuple) -> tuple:
+        if self.band is None:
+            return rots
+        lo, hi = self.band
+        out = []
+        for r in rots:
+            dx, dy = self.offset.get(r, (0.0, 0.0))
+            if lo - 1e-9 <= math.hypot(x + dx - self.centre.x, y + dy - self.centre.y) <= hi + 1e-9:
+                out.append(r)
+        return tuple(out)
+
+    def at(self, x: float, y: float) -> tuple:
+        raise NotImplementedError
+
+    def tie(self, cand: Placement) -> tuple:
+        return (0, cand.rotation % 360.0)
+
+
+class BandTurns(SpotTurns):
+    """Fixed turns at every spot, in a band: the turns a spot keeps are those that leave the item's
+    body centre between the band's radii."""
+
+    def __init__(self, centre: Location, rotations, offset, band: tuple):
+        super().__init__(centre, offset, band)
+        self._rots = tuple(sorted({r % 360 for r in rotations}))
+        self.turns = self._rots
+
+    def at(self, x: float, y: float) -> tuple:
+        return self._kept(x, y, self._rots)
+
+
+class BearingTurns(SpotTurns):
+    """Turns that follow the spot's bearing about `centre`: the item's outward side away from it, and
+    the half turn (with `quarters`, the two quarter turns too). The bearing is cut into bins of
+    `bin_deg` (round(360 / bin_deg) equal ones) and a spot takes the turns of its bin's middle
+    bearing, `outward_turn(bearing)` being the turn that points the outward side along that bearing.
+    The spot's bearing is that of the item's body centre, which lies off its origin by an amount that
+    depends on the turn: the bin is found from the outward turn of the origin's bin, then again from
+    the centre that turn gives, until it stops changing. `at` is the turns of one spot, the outward
+    turn first."""
+
+    def __init__(self, centre: Location, outward_turn, bin_deg: float, quarters: bool = False, offset=None,
+                 band: tuple | None = None):
+        super().__init__(centre, offset, band)
+        if isinstance(bin_deg, bool) or not isinstance(bin_deg, (int, float)) or not 0 < bin_deg <= 360:
+            raise ValueError("place.tangent_bin is degrees of bearing, above 0 and at most 360, not %r" % (bin_deg,))
+        self.n = max(1, round(360.0 / bin_deg))
+        self.width = 360.0 / self.n
+        offsets = (0.0, 90.0, 270.0, 180.0) if quarters else (0.0, 180.0)
+        self._bins = tuple(tuple(round((outward_turn((k + 0.5) * self.width) + o) % 360.0, 6) % 360.0 for o in offsets)
+                           for k in range(self.n))
+        self.turns = tuple(sorted({r for rots in self._bins for r in rots}))
+
+    def bin_of(self, x: float, y: float) -> int:
+        dx, dy = x - self.centre.x, y - self.centre.y
+        if dx == 0.0 and dy == 0.0:
+            return 0
+        return int((math.degrees(math.atan2(dx, -dy)) % 360.0) // self.width) % self.n
+
+    def _bin(self, x: float, y: float) -> int:
+        k = self.bin_of(x, y)
+        for _ in range(4):
+            if not self.offset:
+                break
+            dx, dy = self.offset.get(self._bins[k][0], (0.0, 0.0))
+            nxt = self.bin_of(x + dx, y + dy)
+            if nxt == k:
+                break
+            k = nxt
+        return k
+
+    def at(self, x: float, y: float) -> tuple:
+        """The turns a spot is judged at, the outward one first."""
+        return self._kept(x, y, self._bins[self._bin(x, y)])
+
+    def tie(self, cand: Placement) -> tuple:
+        """The outward turn, then the quarters, then the half turn, of the spot's bin."""
+        rots = self._bins[self._bin(cand.location.x, cand.location.y)]
+        r = cand.rotation % 360.0
+        return (rots.index(r) if r in rots else len(rots), r)
+
+
 COARSE_STEPS = 4
 """A scored scan over a wide radius first walks a grid this many steps
 apart and refines to the step only around its best spots. The default for
@@ -80,7 +173,7 @@ NATIVE_SWEEP = True
 
 def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
          rotations=None, clearance: float | None = None, commit: bool = False, score=None,
-         pick=None, accept=None) -> ScanResult:
+         pick=None, accept=None, turns_at: SpotTurns | None = None, within=None) -> ScanResult:
     """A legal location within `radius` of `hint`, on a `step` grid, trying
     each rotation at each location. Without `score` it is the nearest legal
     candidate to the hint; with `score(placement) -> float` it is the legal
@@ -94,8 +187,16 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     it, a sentence refuses it, tallied under the sentence's text before its
     first colon. An unscored scan asks it of each candidate in turn; a
     scored one of the best candidates first, until one is counted, so the
-    scorer must not prune by a candidate `accept` may refuse."""
-    rots = tuple(sorted({(r % 360) for r in (rotations or (hint.rotation,))}))
+    scorer must not prune by a candidate `accept` may refuse.
+
+    `turns_at` (a SpotTurns) takes the place of `rotations`: each spot is judged at the turns it
+    gives it (a bearing's, a band's), best first, and a tie goes to the turn it ranks first.
+    `within(x, y)` keeps the grid's points it is true of, a pre-filter for turns_at's own band."""
+    rots = turns_at.turns if turns_at is not None else \
+        tuple(sorted({(r % 360) for r in (rotations or (hint.rotation,))}))
+    turn_index = {r: k for k, r in enumerate(rots)} if turns_at is not None else None
+    tie = turns_at.tie if turns_at is not None else (lambda cand: cand.rotation)
+    spot_seen: set = set()          # (x, y, turn index) a native pass was given, when the turns follow the spot
     rejected: Counter = Counter()
     reasons: dict = {}
     blockers: Counter = Counter()
@@ -189,7 +290,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             if best is not None:
                 best[0] = min(before, sc + res.cost)
             d = math.hypot(cand.location.x - hint.location.x, cand.location.y - hint.location.y)
-            legal.append((sc + res.cost, d, cand.rotation, cand))
+            legal.append((sc + res.cost, d, tie(cand), cand))
         return None
 
     def sweep(points, stop_at_first: bool) -> list:
@@ -205,7 +306,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         legal = []
         held = []
         for x, y in points:
-            for rot in rots:
+            for rot in (rots if turns_at is None else turns_at.at(x, y)):
                 if (x, y, rot) in seen:
                     continue
                 seen.add((x, y, rot))
@@ -222,7 +323,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                     if inline and refused(cand):
                         continue
                     d = math.hypot(x - hint.location.x, y - hint.location.y)
-                    legal.append((score(cand) if score else 0.0, d, rot, cand))
+                    legal.append((score(cand) if score else 0.0, d, tie(cand), cand))
                     if stop_at_first:
                         for c, h, bl in held:
                             tally(h[0], h[1], [blocker_key(b) for b in bl])
@@ -249,7 +350,16 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         # and its dedup run in Rust once per pass - the outer Python `seen`
         # set is left alone, still used by the pure-Python `sweep` branch
         # above when `native is None`.
-        triples = native.expand(list(points), len(rots))
+        if turns_at is None:
+            triples = native.expand(list(points), len(rots))
+        else:
+            triples = []        # each spot at its own turns, outward first: the order a first-legal pass takes them in
+            for x, y in points:
+                for rot in turns_at.at(x, y):
+                    triple = (x, y, turn_index[rot])
+                    if triple not in spot_seen:
+                        spot_seen.add(triple)
+                        triples.append(triple)
         if scoring is not None:
             scoring.floor = score.best[0]
         first_only = stop_at_first and not inline           # else the first `accept` counts
@@ -264,7 +374,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             if inline and refused(cand):
                 continue
             d = math.hypot(x - hint.location.x, y - hint.location.y)
-            legal.append(((sc if scoring is not None else score(cand)) if score else 0.0, d, rots[k], cand))
+            legal.append(((sc if scoring is not None else score(cand)) if score else 0.0, d, tie(cand), cand))
             if stop_at_first:
                 break
         if gw is None or (stop_at_first and legal):
@@ -318,26 +428,30 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         """Whether a pass found a candidate that counts: one `accept` takes too."""
         return bool(legal) if inline or accept is None else bool(counted(sorted(legal, key=lambda k: k[:3]), 1))
 
+    def grid(centre, r, s):
+        pts = _grid(centre, r, s)
+        return pts if within is None else [p for p in pts if within(p[1], p[2])]
+
     cfg = occ.settings
     if score is None or radius / step < cfg.place_coarse_from:
-        legal = sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), stop_at_first=score is None)
+        legal = sweep(((x, y) for _, x, y in grid(hint.location, radius, step)), stop_at_first=score is None)
     else:
         coarse = step * cfg.place_coarse_steps
-        legal = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse)), False)
+        legal = sweep(((x, y) for _, x, y in grid(hint.location, radius, coarse)), False)
         if not any_counted(legal):
-            legal += sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse / 2)), False)
+            legal += sweep(((x, y) for _, x, y in grid(hint.location, radius, coarse / 2)), False)
         if not any_counted(legal):
             # Nothing on either coarse lattice. The coarse pass is there to
             # save time, not to decide: the fine grid still gets its walk, so
             # a spot narrower than a coarse step is not reported as no room.
-            legal += sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), False)
+            legal += sweep(((x, y) for _, x, y in grid(hint.location, radius, step)), False)
         if legal:
             legal.sort(key=lambda k: k[:3])
             for _, _, _, cand in counted(legal, cfg.place_refine_around):
                 # The fine grid is centred on a coarse candidate, which can sit at
                 # the edge of the radius: keep only what is still inside it, so
                 # "within radius of the hint" is what a script gets.
-                legal += sweep(((x, y) for _, x, y in _grid(cand.location, coarse, step)
+                legal += sweep(((x, y) for _, x, y in grid(cand.location, coarse, step)
                                 if math.hypot(x - hint.location.x, y - hint.location.y) <= radius + 1e-9), False)
     if accept is not None and not inline:
         legal = counted(sorted(legal, key=lambda k: k[:3]), 1 if pick is None else None)
