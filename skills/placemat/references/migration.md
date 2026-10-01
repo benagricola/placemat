@@ -5,6 +5,40 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+Pull-back is gone. A pour over pads (`swallow_pads=True`) used to be
+declared as a hull, a box or a polygon and cut back from other copper when
+the board was written, which left a hull with bites taken out of it and
+no finding at plan time. It is now fitted when it is planned: the shortest
+closed outline that holds its pads' copper and keeps every other net's
+copper its clearance (plus half the stroke), every edge straight, written as
+a graphic copper polygon and never a zone. Copper planned after it keeps
+clear of it; a track declared across one is a copper finding, and the pour is
+not cut. `api.md`, "A fitted pour".
+
+What changes in a script:
+
+- `board.pour(net, pads, swallow_pads=True)` over three or more pads changes
+  shape, from a hull cut by other copper to the fitted outline. Where nothing
+  stands inside the hull, the outline is the hull.
+- `cover=` with `swallow_pads=True` and a plain point (a `Location`, an
+  `(x, y)`) among its points are refused at the declaration. Name the pads
+  the pour joins and drop `cover=` and the points. A pour that needs a
+  hand-drawn shape goes without `swallow_pads` and is drawn as declared
+  (`cover=Cover.HULL`, `Cover.BOX`, or its points).
+- A pour without `swallow_pads`, and the two-pad neck, are drawn as
+  declared and nothing is cut from them: another net's copper inside one is
+  a copper finding. Before, the neck was cut back when it had `swallow_pads`.
+- A pour that cannot be fitted (other copper where the outline cannot go
+  round it, or two pads that cannot be joined) is not drawn, and a copper
+  finding names the copper and the pads. A pour whose outline narrows under
+  its net's track width is drawn, with a finding where.
+- A pour sees the copper planned before it. Declare it after the tracks and
+  vias it has to go round, or the later copper meets it as a finding.
+- A pad of another net among a swallowing pour's pads, or one with no copper
+  on the pour's layer, is a finding and the pour is not drawn.
+
 ## To 0.66.1
 
 A net tie placed so it stands out from a pad of its net (`Pin(1, PadRef(...,
@@ -1679,6 +1713,7 @@ that says what replaces it.
 | a pair centreline typed as coordinates | To 0.56.0 |
 | a power pour polygon built from pad edges | To 0.56.0 |
 | a pour polygon bounded by neighbouring lanes, vias and parts | To 0.65.0 |
+| a swallowing pour with `cover=` or corner points, relying on pull-back | Unreleased |
 | a waypoint on a 45 worked out as x - y or x + y off a pad's corner | To 0.57.0 |
 | a cell stood as far toward an end as its tall members allow, by offsets worked out from its members' frame | To 0.63.0 |
 | a sense track's first point placed from `placed_size()` half a track off a pad's edge | To 0.64.0 |

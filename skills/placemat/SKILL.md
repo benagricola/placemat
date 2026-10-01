@@ -89,8 +89,10 @@ The forms that most often answer "placemat can't say this":
   return is a track point (a row's farthest via); those and what
   `board.track()` returns are `Past` items in later copper.
 - Copper over pads and parts: `board.pour(net, [pads], swallow_pads=True)`
-  covers the hull of their copper (`cover=Cover.BOX`, `Cover.CENTRES`);
-  two pads make a neck (`width=`); `board.finger(..., width=PadRef(...))`;
+  is fitted round other nets' copper, holding the pads' copper, written as
+  a graphic polygon (`cover=` and plain points are refused); a pour of
+  points or `cover=Cover.HULL`/`BOX` is drawn as declared; two pads make a
+  neck (`width=`); `board.finger(..., width=PadRef(...))`;
   `board.plane(net, layers, over=[parts])`; `board.stitch(net, region,
   edge=True)`; `board.keepout(Part(...), name, margin=)`.
 - `at=Pin(key, x, y)` or `Pin(key, point)`, the point a `PadRef(..., edge=)` to lie against a pad's edge (a cell by a member's pad too), `rotation=Turned(part,
