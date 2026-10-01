@@ -7130,6 +7130,11 @@ def _coord(board: "Board", occ: Occupancy, v, axis: str, placed: tuple | None = 
     if isinstance(v, (PadRef, CellPadRef, Location, tuple, Mid, Part, Cell, LanePoint)):
         l = _locate(board, occ, v, placed)
         return l.x if axis == "x" else l.y
+    if isinstance(v, Polar):
+        if v.radius is None or v.angle is None:
+            raise ValueError("a Polar as a point needs both its radius and its bearing; %r leaves one free" % (v,))
+        l = _locate(board, occ, v, placed)
+        return l.x if axis == "x" else l.y
     if isinstance(v, RowCoord):
         return v.row.resolve(v.what, occ.board_box)
     return float(v)

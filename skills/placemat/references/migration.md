@@ -5,6 +5,13 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+`Pin(key, Polar(radius, bearing, about=PadRef(...)))` places the pad a
+mechanical pitch from another pad along a bearing (0 north, 90 east), said
+as one point: two contacts at a part's tab pitch, with no offset typed into
+an `X()`. It was refused ("float() argument ... not 'Polar'").
+
 ## To 0.66.1
 
 A net tie placed so it stands out from a pad of its net (`Pin(1, PadRef(...,
@@ -1682,5 +1689,6 @@ that says what replaces it.
 | a waypoint on a 45 worked out as x - y or x + y off a pad's corner | To 0.57.0 |
 | a cell stood as far toward an end as its tall members allow, by offsets worked out from its members' frame | To 0.63.0 |
 | a sense track's first point placed from `placed_size()` half a track off a pad's edge | To 0.64.0 |
+| a pad placed at `X(PadRef(...), PITCH)` to stand a mechanical pitch from another pad | Unreleased |
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |

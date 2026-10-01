@@ -367,3 +367,19 @@ def test_the_shunt_with_its_two_ties_passes_kicads_drc(tmp_path):
                                                                        "copper_edge_clearance", "hole_clearance")]
     assert not bad, bad
     assert not data.get("unconnected_items"), data.get("unconnected_items")
+
+
+def test_a_pin_at_a_pitch_from_another_pad_by_a_polar_about_it():
+    """Pin(key, Polar(radius, bearing, about=pad)): the pad a mechanical
+    pitch from another pad along a bearing (90 is east), said as one point."""
+    from placemat.layout import Board
+    from placemat.values import Location, PadRef, Part, Pin, Polar
+    from tests.fixtures import board_geometry, footprint
+    fps = [footprint("J1", 10, 10, w=2, h=1, inst="j1", nets=("A", "B")),
+           footprint("J2", 20, 20, w=2, h=1, inst="j2", nets=("C", "D"))]
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
+    b.place(Part("j1"), at=Location(20, 20), rotation=0)
+    b.place(Part("j2"), at=Pin(1, Polar(2.7, 90, about=PadRef(Part("j1"), 1))), rotation=0)
+    plan = b.resolve()
+    p1, p2 = plan.occupancy.pad_location("J1", "1"), plan.occupancy.pad_location("J2", "1")
+    assert (round(p2.x - p1.x, 6), round(p2.y - p1.y, 6)) == (2.7, 0.0)
