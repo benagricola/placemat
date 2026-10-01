@@ -165,6 +165,34 @@ def test_the_shunt_with_its_ties_is_clean_in_every_envelope(envelope):
     assert not _own(plan), plan.findings
 
 
+# ------------------------------------------------------------------ a net tie standing out from a pad
+
+def _standing_rider(rotation):
+    """The shunt is searched (the board gives it a place) and a stock tie rides it: its pad 1 against the shunt's
+    VSHUNT pad on the south edge, the rest of the tie turned `rotation`."""
+    b = _board([_shunt(), _tie("NT1", ("VSHUNT", "VSHUNT_SENSE"))])
+    b.place(Part("rs"))
+    b.place(Part("nt1"), at=Pin(1, PadRef(Part("rs"), 1, edge=Edge.SOUTH, along=Along.MID)), rotation=rotation)
+    return b.resolve()
+
+
+def test_a_datum_part_is_placed_with_a_net_tie_riding_it_that_stands_out_from_its_pad():
+    """The tie's bar is 0.145 mm from the pad it stands on, which the tie's pad 1 joins: KiCad's DRC gives the bar
+    no clearance to the nets of the tie's pads, so the part's search does not refuse every place for it."""
+    plan = _standing_rider(270)
+    assert not [f for f in plan.findings if "rider" in f or "no place" in f or "cannot be laid out" in f], plan.findings
+    pad1, pad2 = _pad(plan, "NT1", 1), _pad(plan, "NT1", 2)
+    shunt = _pad(plan, "RS", 1)
+    assert pad2.center.y > pad1.center.y                                                   # pad 2 lies further out
+    assert pad1.top == pytest.approx(shunt.bottom - OVER, abs=1e-6)
+
+
+def test_a_riding_net_tie_turned_to_lie_across_the_pad_of_another_net_is_still_refused():
+    """Its pad 2 (net VSHUNT_SENSE) then lies over copper of VSHUNT wherever the shunt stands."""
+    plan = _standing_rider(0)
+    assert [f for f in plan.findings if "cannot be laid out with its riders" in f], plan.findings
+
+
 # ------------------------------------------------------------------ refusals
 
 def test_an_end_on_a_round_target_pad_is_refused_naming_the_pad():

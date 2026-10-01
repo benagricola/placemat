@@ -16,6 +16,7 @@ import math
 from dataclasses import dataclass
 
 from . import geometry as _geometry_module
+from . import kicad_collide as _kc
 from .geometry import (_clean, PolyRaster, Polygon, Transform, box_polygon, circle_polygon, poly_distance,
                        point_in_polygon, point_segment_distance, polys_overlap, transform_box,
                        transform_polygon)
@@ -356,7 +357,6 @@ class Occupancy:
         # KiCad's net-tie exclusion (_net_tie_exclusion) is not in the native conflict rules, so a pair with a
         # net tie in it is settled here: a native hit on one that Python excuses sends the check to Python
         self._tie_refs = frozenset(fp.ref for fp in geometry.footprints if fp.net_tie_pads)
-        self._mover = None          # (shapes, dx, dy) of the item a Python legality check is moving
         # KiCad's courtyard lies inside the box by the stroke: two boxes may overlap by that much. A
         # courtyard claimed as drawn is KiCad's own polygon, with nothing to allow for.
         share = self.settings.place_courtyard_polygon_share
@@ -1370,23 +1370,19 @@ class Occupancy:
             return None
         # Each shape is turned and faced once per rotation and face, then
         # shifted; only a shape whose box reaches an obstacle is moved as a polygon.
-        self._mover = (shapes, dx, dy)
-        try:
-            for s in shapes:
-                sb = s.box.moved(dx, dy)
-                close = [o for o in near if sb.overlaps(o.box, gap=self.gap_for(s))]
-                if not close:
-                    continue
-                moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
-                              tuple((x + dx, y + dy) for x, y in s.poly), sb, s.label, claims=s.claims)
-                for o in close:
-                    why = self._conflict(moved, o, clearance)
-                    if why:
-                        if blame is not None:
-                            blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
-                        return why
-        finally:
-            self._mover = None
+        for s in shapes:
+            sb = s.box.moved(dx, dy)
+            close = [o for o in near if sb.overlaps(o.box, gap=self.gap_for(s))]
+            if not close:
+                continue
+            moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
+                          tuple((x + dx, y + dy) for x, y in s.poly), sb, s.label, claims=s.claims)
+            for o in close:
+                why = self._conflict(moved, o, clearance)
+                if why:
+                    if blame is not None:
+                        blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
+                    return why
         return None
 
     def legal_giving_way(self, item, placement: Placement, clearance: float | None = None, others=None,
@@ -1795,7 +1791,7 @@ class Occupancy:
             # a finding (exact) measures a via as its circle; placement keeps the polygons the
             # native judge reads, so the two agree on what is legal
             gap = _copper_gap(s, o) if exact else poly_distance(s.poly, o.poly)
-            if gap < clr - 1e-9 and self._net_tie_exclusion(s, o):
+            if gap < clr - 1e-9 and self._net_tie_exclusion(s, o, clr):
                 return None
             if gap < clr - 1e-9 and not say:
                 return "copper"
@@ -1833,39 +1829,188 @@ class Occupancy:
         own = [l for l in self.geometry.layers if l in layers]
         return "/".join(l.value for l in (own or sorted(layers, key=lambda l: l.value)))
 
-    def _shapes_standing(self, owner: str):
-        """(shape, outline) of each shape of `owner` where it stands: as
-        committed, or at the candidate placement a legality check is judging
-        (`_mover`) when that is the item."""
-        mover = self._mover
-        if mover is not None and any(sh.owner == owner for sh in mover[0]):
-            _, dx, dy = mover
-            return [(sh, tuple((x + dx, y + dy) for x, y in sh.poly)) for sh in mover[0] if sh.owner == owner]
-        return [(sh, sh.poly) for sh in self.items[owner].shapes]
+    def _read_of(self, sh, poly):
+        """(move, shapes) for a pad or a footprint's copper graphic `sh`
+        standing as `poly`: the move that carries the outline it was read with
+        onto `poly` (None when no outline read fits), and the effective shape
+        read with it ((): none read). The footprint's other pads stand where
+        that move puts them, wherever the part is judged - committed, or at a
+        candidate."""
+        fp = self.geometry.footprint(sh.owner)
+        if sh.kind == "copper":
+            kept = fp.copper_shapes
+            reads = [(p, kept[i] if i < len(kept) else ()) for i, (_, p) in enumerate(fp.copper)]
+        else:
+            reads = [(o, p.kshapes) for p in fp.pads if p.number == sh.label for o in p.outlines]
+        for ref, shapes in reads:
+            move = _affine_between(ref, poly)
+            if move is not None:
+                return move, shapes
+        return None, ()
 
-    def _net_tie_exclusion(self, s, o) -> bool:
-        """KiCad's DRC_ENGINE::IsNetTieExclusion, either way round: copper of
-        a net-tie footprint colliding with another item of the net of one of
-        its net-tie pads is allowed where they collide inside that pad - a
-        track entering the pad a winding leaves."""
+    def _pad_standing(self, pad, move):
+        """(layers, outlines, shape) of a pad of a footprint read, moved by `move`."""
+        a, b, c, d, _, _ = move
+        t = Transform(*move)
+        polys = tuple(transform_polygon(o, t, clean=False) for o in pad.outlines)
+        shape = _kc.Compound(_move_shapes(pad.kshapes, move)) if pad.kshapes else \
+            _kc.Compound([("p", tuple((_kc.to_nm(x), _kc.to_nm(y)) for x, y in poly)) for poly in polys])
+        layers = self._mirror_layers(pad.layers) if a * d - b * c < 0 else pad.layers
+        return layers, polys, shape
+
+    def _tie_pads(self, item, other) -> list:
+        """(outlines, shape) of each pad of `other`'s footprint that lets `item`
+        collide with `other` inside it: a net-tie pad of the net of `item`, on a
+        layer they share (DRC_ENGINE::IsNetTieExclusion), where the part
+        stands as `other` does."""
+        if not item.net or item.owner == other.owner or not self.geometry.has_footprint(other.owner):
+            return []
+        fp = self.geometry.footprint(other.owner)
+        pads = [p for p in fp.pads if p.number in fp.net_tie_pads and p.net == item.net]
+        if not pads:
+            return []
+        move, _ = self._read_of(other, other.poly)
+        if move is None:
+            return []
+        out = []
+        for p in pads:
+            layers, polys, shape = self._pad_standing(p, move)
+            if layers & item.layers & other.layers:
+                out.append((polys, shape))
+        return out
+
+    def _net_tie_exclusion(self, s, o, clearance: float | None = None) -> bool:
+        """Whether KiCad's DRC lets two pieces of copper meet because one is a
+        net tie's. Two rules, each ported from KiCad:
+
+        - a net tie's copper drawing has no clearance to a connected item of
+          the net of a pad of its group it overlaps (`_net_tie_cache`);
+        - DRC_ENGINE::IsNetTieExclusion: a collision of an item with a net-tie
+          footprint's pad or graphic is allowed where its position lies inside
+          one of that footprint's net-tie pads of the item's net - the
+          position the clearance provider's `SHAPE::Collide` gives it
+          (`_kicad_exclusion`; a track's, `_kicad_segment_location`).
+
+        `clearance`, mm, is the one the pair is judged by; the pair's own when
+        None."""
+        for graphic, other in ((s, o), (o, s)):
+            if other.net and self._is_tie_graphic(graphic) and not self._is_footprint_graphic(other) \
+                    and other.net in self._net_tie_cache(graphic):
+                return True
+        ported = self._kicad_pair(s, o)
+        if ported is not None:
+            return self._kicad_exclusion(s, o, ported, clearance)
         for item, other in ((s, o), (o, s)):
-            if not item.net or item.owner == other.owner or not self.geometry.has_footprint(other.owner):
-                continue
-            fp = self.geometry.footprint(other.owner)
-            if not fp.net_tie_pads or other.owner not in self.items:
-                continue
-            pads = [poly for sh, poly in self._shapes_standing(other.owner)
-                    if sh.kind in ("pad", "through") and sh.label in fp.net_tie_pads and sh.net == item.net
-                    and sh.layers & item.layers & other.layers]
-            if not pads:
-                continue
             ends = getattr(item, "ends", None)
+            if not (ends and len(ends) == 2):
+                continue            # KiCad gives a zone, whose test is another, no position exclusion
+            pads = self._tie_pads(item, other)
             # a track meets the tie where KiCad's segment collision puts it (DRC test of a track against an
-            # item: the track's SHAPE_SEGMENT collides with the other's polygon); other copper where their
-            # outlines meet
-            at = _kicad_segment_location(ends, other.poly) if ends and len(ends) == 2 else \
-                _corner_inside(other.poly, item.poly) or _contact_point(item.poly, other.poly)
-            if any(point_in_polygon(at, pad) or _point_poly_distance(at, pad) <= _NET_TIE_EPSILON for pad in pads):
+            # item: the track's SHAPE_SEGMENT collides with the other's polygon)
+            at = _kicad_segment_location(ends, other.poly) if pads else None
+            if any(point_in_polygon(at, poly) or _point_poly_distance(at, poly) <= _NET_TIE_EPSILON
+                   for polys, _ in pads for poly in polys):
+                return True
+        return False
+
+    def _is_footprint_graphic(self, sh) -> bool:
+        """A footprint's own copper drawing: PCB_SHAPE::IsConnected() is false
+        for it, though it has copper to collide."""
+        return sh.kind == "copper" and not sh.ends and self.geometry.has_footprint(sh.owner)
+
+    def _is_tie_graphic(self, sh) -> bool:
+        return self._is_footprint_graphic(sh) and bool(self.geometry.footprint(sh.owner).net_tie_pads) \
+            and sh.owner in self.items
+
+    def _net_tie_cache(self, graphic) -> frozenset:
+        """The nets KiCad lets a net tie's copper drawing meet with no
+        clearance: FOOTPRINT::BuildNetTieCache (pcbnew/footprint.cpp) gives each
+        graphic the nets of the pads of a net-tie group it collides with, the
+        group's other pads' too; DRC_ENGINE::EvalRules (drc_engine.cpp,
+        "Handle Footprint net ties") then zeroes the clearance between that
+        graphic and any connected item of one of them, wherever they meet. A
+        pad of the group is looked at as it stands, the graphic as `graphic`
+        stands."""
+        fp = self.geometry.footprint(graphic.owner)
+        groups = fp.net_tie_groups or (tuple(sorted(fp.net_tie_pads)),)
+        move, _ = self._read_of(graphic, graphic.poly)
+        if move is None:
+            return frozenset()
+        nets: set = set()
+        drawn = self._kicad_prims(graphic, graphic.poly)
+        for pad in fp.pads:
+            group = next((g for g in groups if pad.number in g), None) if pad.number in fp.net_tie_pads else None
+            members = [p for p in fp.pads if group and p.number in group]
+            if not members or (fp.net_tie_groups and len(members) < 2):
+                continue                # BuildNetTieCache: a pad is a net tie only with another in its group
+            if _kc.collide(self._pad_standing(pad, move)[2], drawn, 0) is not None:
+                nets.update(p.net for p in members if p.net)
+        return frozenset(nets)
+
+    def _is_footprint_copper(self, sh) -> bool:
+        return sh.kind in ("pad", "through", "copper") and not sh.ends and self.geometry.has_footprint(sh.owner)
+
+    def _kicad_pair(self, s, o):
+        """The two shapes as KiCad's DRC collides them (`kicad_collide`
+        compounds, nm), or None when either is not one it ports: a track
+        (`_kicad_segment_location`), or copper that is not a footprint's - a
+        zone, whose test KiCad does not give the net-tie exclusion."""
+        out = []
+        for sh in (s, o):
+            if self._is_footprint_copper(sh):
+                out.append(self._kicad_prims(sh, sh.poly))
+            elif sh.circle and not sh.ends:
+                x, y, r = sh.circle
+                out.append(_kc.Compound([("c", _kc.to_nm(x), _kc.to_nm(y), _kc.to_nm(r))]))
+            else:
+                return None
+        return tuple(out)
+
+    def _kicad_prims(self, sh, poly):
+        """`sh`, a pad or a footprint's copper graphic, standing as `poly`
+        (its outline there), as the SHAPE_COMPOUND KiCad's DRC collides: the
+        effective shape read, carried by the move that carries the read
+        outline onto `poly`. A shape never read (a synthetic footprint) is its
+        outline, a SHAPE_SIMPLE."""
+        move, shapes = self._read_of(sh, poly)
+        if move is not None and shapes:
+            return _kc.Compound(_move_shapes(shapes, move))
+        return _kc.Compound([("p", tuple((_kc.to_nm(x), _kc.to_nm(y)) for x, y in poly))])
+
+    def _kicad_exclusion(self, s, o, shapes, clearance: float | None) -> bool:
+        """IsNetTieExclusion at the position KiCad's DRC gives the collision
+        of `s` and `o` (`kicad_collide.collide`, as in the clearance provider:
+        `itemShape->Collide( otherShape, sub_e( clearance ), &actual, &pos )`).
+        Which of the two is the item and which the other is the order KiCad
+        tests them in - by UUID for a graphic, and for two pads by where they
+        were allocated in 10.0.6 (UUID later) - and a board's is not known
+        here, so the pair is excluded only where KiCad would exclude it either
+        way round; a collision KiCad does not find either way is left to
+        the clearance judged here. A pad tested against a pad is excluded only
+        by the pad tested first (DRC_TEST_PROVIDER_COPPER_CLEARANCE::
+        testPadAgainstItem); anything else by either, at the same position
+        (testSingleLayerItemAgainstItem)."""
+        if clearance is None:
+            clearance = self.pair_clearance(s.net, o.net, s.owner, o.owner)[0]
+        clr = max(0, _kc.to_nm(clearance) - _NET_TIE_EPSILON_NM)          # sub_e()
+        padded = s.kind in ("pad", "through") and o.kind in ("pad", "through") \
+            and self.geometry.has_footprint(s.owner) and self.geometry.has_footprint(o.owner)
+        for (a, ca), (b, cb) in (((s, shapes[0]), (o, shapes[1])), ((o, shapes[1]), (s, shapes[0]))):
+            hit = _kc.collide(ca, cb, clr)
+            if hit is None:
+                return False
+            at = hit[1]
+            sides = ((a, b),) if padded else ((a, b), (b, a))
+            if not any(self._at_tie_pad(at, item, other) for item, other in sides):
+                return False
+        return True
+
+    def _at_tie_pad(self, at, item, other) -> bool:
+        """DRC_ENGINE::IsNetTieExclusion's own test: whether `at` (nm) lies in
+        a net-tie pad of `other`'s footprint of `item`'s net - the pad's
+        effective shape colliding with the point within the DRC epsilon."""
+        for _, shape in self._tie_pads(item, other):
+            if _kc.collide_point(shape, at, _NET_TIE_EPSILON_NM):
                 return True
         return False
 
@@ -1873,6 +2018,73 @@ class Occupancy:
 # KiCad's DRC epsilon (BOARD_DESIGN_SETTINGS::GetDRCEpsilon, 0.0005 mm by default): how far a
 # collision may lie outside a net-tie pad and still be inside it
 _NET_TIE_EPSILON = 0.0005
+_NET_TIE_EPSILON_NM = 500
+
+
+def _affine_between(ref, poly):
+    """(a, b, c, d, tx, ty) of the rigid move that carries `ref`, an outline as
+    read, onto `poly`, vertex for vertex, in mm; None when `poly` is not that
+    outline moved (they are told apart by fitting every vertex)."""
+    n = len(ref)
+    if n != len(poly) or n < 3:
+        return None
+    i = 0
+    j = max(range(n), key=lambda k: (ref[k][0] - ref[i][0]) ** 2 + (ref[k][1] - ref[i][1]) ** 2)
+    dx, dy = ref[j][0] - ref[i][0], ref[j][1] - ref[i][1]
+    k = max(range(n), key=lambda m: abs(dx * (ref[m][1] - ref[i][1]) - dy * (ref[m][0] - ref[i][0])))
+    det = dx * (ref[k][1] - ref[i][1]) - dy * (ref[k][0] - ref[i][0])
+    if abs(det) < 1e-12:
+        return None
+    ex, ey = ref[k][0] - ref[i][0], ref[k][1] - ref[i][1]
+
+    def solve(vi, vj, vk):
+        # v = base + p * (x - xi) + q * (y - yi), through the three vertices
+        fj, fk = vj - vi, vk - vi
+        p = (fj * ey - fk * dy) / det
+        q = (dx * fk - ex * fj) / det
+        return p, q
+    a, b = solve(poly[i][0], poly[j][0], poly[k][0])
+    c, d = solve(poly[i][1], poly[j][1], poly[k][1])
+    tx = poly[i][0] - a * ref[i][0] - b * ref[i][1]
+    ty = poly[i][1] - c * ref[i][0] - d * ref[i][1]
+    if abs(abs(a * d - b * c) - 1.0) > 1e-6:
+        return None
+    for (x, y), (u, v) in zip(ref, poly):
+        if abs(a * x + b * y + tx - u) > 1e-5 or abs(c * x + d * y + ty - v) > 1e-5:
+            return None
+    return a, b, c, d, tx, ty
+
+
+def _move_shapes(shapes, affine):
+    """`kicad_collide` shapes (nm) under `affine` (mm): the rigid move of the
+    outline they were read with."""
+    a, b, c, d, tx, ty = affine
+    tx, ty = tx * 1e6, ty * 1e6
+
+    def at(x, y):
+        return int(round(a * x + b * y + tx)), int(round(c * x + d * y + ty))
+    out = []
+    for sh in shapes:
+        t = sh[0]
+        if t == "c":
+            out.append(("c",) + at(sh[1], sh[2]) + (sh[3],))
+        elif t == "s":
+            out.append(("s",) + at(sh[1], sh[2]) + at(sh[3], sh[4]) + (sh[5],))
+        elif t == "p":
+            out.append(("p", tuple(at(x, y) for x, y in sh[1])))
+        else:
+            # PAD::buildEffectiveShape lists the corners of a rectangle bottom-left first, counter-clockwise,
+            # and turns the list by the pad's orientation: a quarter turn starts it a corner on
+            _, x, y, w, h = sh[:5]
+            corners = [(x, y + h), (x + w, y + h), (x + w, y), (x, y)]
+            q = sh[5] if len(sh) > 5 else 0
+            pts = [at(*corners[(q + i) % 4]) for i in range(4)]
+            xs, ys = {p[0] for p in pts}, {p[1] for p in pts}
+            if len(xs) == 2 and len(ys) == 2:       # still a SHAPE_RECT where the turn leaves it square
+                out.append(("r", min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys), q))
+            else:
+                out.append(("p", tuple(pts)))
+    return out
 
 
 def _kicad_segment_location(ends, poly) -> tuple:
@@ -1886,168 +2098,22 @@ def _kicad_segment_location(ends, poly) -> tuple:
     nm = lambda p: (int(round(p[0] * 1e6)), int(round(p[1] * 1e6)))
     a, b = nm(ends[0]), nm(ends[1])
     pts = [nm(p) for p in poly]
-    if _k_point_inside(a, pts):
+    if _kc.point_inside(a, pts):
         at = a
     else:
         best, at = None, a
         for i in range(len(pts)):
             edge = (pts[i], pts[(i + 1) % len(pts)])
-            d2 = _k_seg_sq_distance(edge, (a, b))
+            d2 = _kc.sq_distance(edge, (a, b))
             if best is None or d2 < best:
-                at, best = _k_seg_nearest_to_seg(edge, (a, b)), d2
+                at, best = _kc.nearest_point(edge, (a, b)), d2
                 if d2 == 0:
                     break
     return (at[0] / 1e6, at[1] / 1e6)
 
 
-def _k_rescale(a: int, b: int, c: int) -> int:
-    """KiCad's rescale(): a * b / c, rounded half away from zero."""
-    q = a * b
-    r = (abs(q) + abs(c) // 2) // abs(c)
-    return r if (q >= 0) == (c > 0) else -r
-
-
-def _k_point_inside(p, pts) -> bool:
-    """SHAPE_LINE_CHAIN_BASE::PointInside at an accuracy of 0."""
-    inside = False
-    n = len(pts)
-    for i in range(n):
-        p1, p2 = pts[i], pts[(i + 1) % n]
-        dy = p2[1] - p1[1]
-        if dy == 0:
-            continue
-        d = _k_rescale(p2[0] - p1[0], p[1] - p1[1], dy)
-        if ((p1[1] >= p[1]) != (p2[1] >= p[1])) and (p[0] - p1[0] < d):
-            inside = not inside
-    return inside
-
-
-def _k_nearest_to_point(seg, p):
-    """SEG::NearestPoint(VECTOR2I)."""
-    (ax, ay), (bx, by) = seg
-    dx, dy = bx - ax, by - ay
-    l2 = dx * dx + dy * dy
-    if l2 == 0:
-        return (ax, ay)
-    t = dx * (p[0] - ax) + dy * (p[1] - ay)
-    if t < 0:
-        return (ax, ay)
-    if t > l2:
-        return (bx, by)
-    return (ax + _k_rescale(t, dx, l2), ay + _k_rescale(t, dy, l2))
-
-
-def _k_intersect(s1, s2):
-    """SEG::Intersect(aSeg): the point two segments share, or None; for
-    collinear ones the middle of their overlap."""
-    (ax, ay), (bx, by) = s1
-    (cx, cy), (ex, ey) = s2
-    if max(ax, bx) < min(cx, ex) or max(cx, ex) < min(ax, bx) or \
-            max(ay, by) < min(cy, ey) or max(cy, ey) < min(ay, by):
-        return None
-    d1x, d1y = bx - ax, by - ay
-    d2x, d2y = ex - cx, ey - cy
-    ox, oy = cx - ax, cy - ay
-    det = d2x * d1y - d2y * d1x
-    if det == 0:
-        if d1x * oy - d1y * ox != 0:
-            return None
-        use_x = abs(d1x) >= abs(d1y)
-        s1a, s1b, s2a, s2b, o1a, o1b = (ax, bx, cx, ex, ay, by) if use_x else (ay, by, cy, ey, ax, bx)
-        lo, hi = max(min(s1a, s1b), min(s2a, s2b)), min(max(s1a, s1b), max(s2a, s2b))
-        if hi < lo:
-            return None
-        proj = int((lo + hi) / 2)                  # C++ integer division truncates toward zero
-        other = o1a + _k_rescale(proj - s1a, o1b - o1a, s1b - s1a) if s1b != s1a else o1a
-        return (proj, other) if use_x else (other, proj)
-    p2 = d2x * oy - d2y * ox
-    p1 = d1x * oy - d1y * ox
-    if det > 0:
-        if p1 < 0 or p1 > det or p2 < 0 or p2 > det:
-            return None
-    elif p1 > 0 or p1 < det or p2 > 0 or p2 < det:
-        return None
-    return (cx + _k_rescale(p1, d2x, det), cy + _k_rescale(p1, d2y, det))
-
-
-def _k_sq(p, q) -> int:
-    return (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2
-
-
-def _k_seg_sq_distance(s1, s2) -> int:
-    """SEG::SquaredDistance(SEG)."""
-    if s1[0] == s1[1]:
-        return _k_sq(_k_nearest_to_point(s2, s1[0]), s1[0])
-    if s2[0] == s2[1]:
-        return _k_sq(_k_nearest_to_point(s1, s2[0]), s2[0])
-    if _k_intersect(s1, s2) is not None:
-        return 0
-    return min(_k_sq(_k_nearest_to_point(s2, s1[0]), s1[0]), _k_sq(_k_nearest_to_point(s2, s1[1]), s1[1]),
-               _k_sq(_k_nearest_to_point(s1, s2[0]), s2[0]), _k_sq(_k_nearest_to_point(s1, s2[1]), s2[1]))
-
-
-def _k_seg_nearest_to_seg(s1, s2):
-    """SEG::NearestPoint(SEG): the point of `s1` nearest `s2`."""
-    hit = _k_intersect(s1, s2)
-    if hit is not None:
-        return hit
-    outs = [s1[0], s1[1], _k_nearest_to_point(s1, s2[0]), _k_nearest_to_point(s1, s2[1])]
-    dists = [_k_sq(_k_nearest_to_point(s2, s1[0]), s1[0]), _k_sq(_k_nearest_to_point(s2, s1[1]), s1[1]),
-             _k_sq(outs[2], s2[0]), _k_sq(outs[3], s2[1])]
-    i = min(range(4), key=lambda k: (dists[k], k))
-    return outs[i]
-
-
 def _point_poly_distance(p, poly) -> float:
     return min(point_segment_distance(p, poly[i], poly[(i + 1) % len(poly)]) for i in range(len(poly)))
-
-
-def _corner_inside(a, b):
-    """The first corner of polygon `a` that lies inside polygon `b`, or None:
-    where KiCad reports a net tie's drawn copper meeting another net's pad
-    when a corner of that copper stands in the pad (it collides the copper as
-    triangles, whose corner is the position it reads; checked against the
-    DRC engine for a bar laid over a pad's edge)."""
-    return next((p for p in a if point_in_polygon(p, b)), None)
-
-
-def _contact_point(a, b):
-    """Where polygon `a` meets polygon `b`: a point where their outlines
-    cross, else a vertex of one inside the other, else the point of `a`
-    nearest `b` - the one collision position KiCad's own check reads."""
-    for i in range(len(a)):
-        p1, p2 = a[i], a[(i + 1) % len(a)]
-        for j in range(len(b)):
-            q1, q2 = b[j], b[(j + 1) % len(b)]
-            d = (p2[0] - p1[0]) * (q2[1] - q1[1]) - (p2[1] - p1[1]) * (q2[0] - q1[0])
-            if abs(d) < 1e-15:
-                continue
-            t = ((q1[0] - p1[0]) * (q2[1] - q1[1]) - (q1[1] - p1[1]) * (q2[0] - q1[0])) / d
-            u = ((q1[0] - p1[0]) * (p2[1] - p1[1]) - (q1[1] - p1[1]) * (p2[0] - p1[0])) / d
-            if 0.0 <= t <= 1.0 and 0.0 <= u <= 1.0:
-                return (p1[0] + t * (p2[0] - p1[0]), p1[1] + t * (p2[1] - p1[1]))
-    for p in a:
-        if point_in_polygon(p, b):
-            return p
-    for p in b:
-        if point_in_polygon(p, a):
-            return p
-    best, at = None, a[0]
-    for p in a:
-        d = _point_poly_distance(p, b)
-        if best is None or d < best:
-            best, at = d, p
-    for q in b:
-        for i in range(len(a)):
-            p1, p2 = a[i], a[(i + 1) % len(a)]
-            d = point_segment_distance(q, p1, p2)
-            if d < best:
-                dx, dy = p2[0] - p1[0], p2[1] - p1[1]
-                L = dx * dx + dy * dy
-                t = 0.0 if L == 0 else max(0.0, min(1.0, ((q[0] - p1[0]) * dx + (q[1] - p1[1]) * dy) / L))
-                best, at = d, (p1[0] + t * dx, p1[1] + t * dy)
-    return at
-
 
 
 def _copper_gap(s, o) -> float:

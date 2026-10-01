@@ -5,6 +5,19 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+A net tie placed so it stands out from a pad of its net (`Pin(1, PadRef(...,
+edge=...))`, turned so pad 2 lies further out) is no longer refused for its
+copper bar's clearance to that pad: KiCad's DRC gives a net tie's copper
+drawing no clearance to the nets of the group's pads it overlaps
+(`DRC_ENGINE::EvalRules`, "Net tie"), wherever they meet, and placemat now
+judges the same. A datum part with such a tie riding it is placed where it
+was refused at every turn. Where a pad meets a net tie's pad, the exclusion
+(`DRC_ENGINE::IsNetTieExclusion`) is judged at the position KiCad's own shape
+collision gives, read from the pad's and the graphic's effective shapes, and
+holds only if it holds whichever item KiCad tests first. No script change.
+
 ## To 0.66.0
 
 `Pin(key, point)` places a part's pad on one point (a `Location`, a

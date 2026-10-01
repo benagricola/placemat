@@ -130,6 +130,37 @@ def copper_outlines(item, layer_id, err_nm=CLEAR_ERR_NM):
     return outlines_of(item, layer_id, err_nm)
 
 
+def kicad_shapes(shape, quarters: int = 0) -> tuple:
+    """A pcbnew effective shape (`GetEffectiveShape`: the SHAPE_COMPOUND KiCad's
+    DRC collides) as the tuples of `kicad_collide`, in nm; () when it holds a
+    kind that module does not port (an arc, a rounded rectangle). A pad's
+    rectangle is axis-aligned because the pad is turned by a quarter turn
+    (PAD::buildEffectiveShape): `quarters` of them, which fixes the corner its
+    outline starts at when it is turned further."""
+    try:
+        subs = list(shape.Cast().GetSubshapes())
+    except (AttributeError, TypeError):
+        return ()
+    out = []
+    for sub in subs:
+        t = sub.Type()
+        if t == pcbnew.SH_RECT and sub.GetRadius() == 0:
+            at = sub.GetPosition()
+            out.append(("r", at.x, at.y, sub.GetWidth(), sub.GetHeight(), quarters))
+        elif t == pcbnew.SH_SEGMENT:
+            seg = sub.GetSeg()
+            out.append(("s", seg.A.x, seg.A.y, seg.B.x, seg.B.y, sub.GetWidth()))
+        elif t == pcbnew.SH_CIRCLE:
+            c = sub.GetCenter()
+            out.append(("c", c.x, c.y, sub.GetRadius()))
+        elif t == pcbnew.SH_SIMPLE:
+            v = sub.Vertices()
+            out.append(("p", tuple((v.CPoint(i).x, v.CPoint(i).y) for i in range(v.PointCount()))))
+        else:
+            return ()
+    return tuple(out)
+
+
 def _kiid(item) -> str:
     return item.m_Uuid.AsString()
 
@@ -260,14 +291,19 @@ def _silk(fp, err_nm: int = CLEAR_ERR_NM) -> tuple:
 def _copper_art(fp, err_nm: int = CLEAR_ERR_NM) -> tuple:
     """Every copper graphic the footprint draws (not its pads): a net-tie's
     winding, a printed antenna's trace. Copper the placer must keep other
-    nets clear of, stroke included."""
+    nets clear of, stroke included. Per outline: ((CopperLayer, polygon),
+    ...), and beside it the effective shape KiCad's DRC collides, the
+    graphic's own, repeated for each outline it gave."""
     out = []
+    shapes = []
     for d in fp.GraphicalItems():
         layer = d.GetLayer()
         if isinstance(d, pcbnew.PCB_SHAPE) and pcbnew.IsCopperLayer(layer):
             name = fp.GetBoard().GetLayerName(layer) if fp.GetBoard() else pcbnew.LayerName(layer)
-            out += [(CopperLayer.of(name), poly) for poly in copper_outlines(d, layer, err_nm)]
-    return tuple(out)
+            polys = copper_outlines(d, layer, err_nm)
+            out += [(CopperLayer.of(name), poly) for poly in polys]
+            shapes += [kicad_shapes(d.GetEffectiveShape())] * len(polys)
+    return tuple(out), tuple(shapes)
 
 
 def _mask(fp, err_nm: int = CLEAR_ERR_NM) -> tuple:
@@ -347,8 +383,12 @@ def _pads(board, fp, err_nm: int = CLEAR_ERR_NM) -> tuple[PadGeom, ...]:
                             drill_mm=mm(drill.x) if attr == pcbnew.PAD_ATTRIB_PTH else 0.0,
                             mask_paste=_mask_paste(pad),
                             anchor=Location(mm(pad.ShapePos(cu[0]).x), mm(pad.ShapePos(cu[0]).y)),
-                            custom=_is_custom(pad, cu[0])))
+                            custom=_is_custom(pad, cu[0]), kshapes=kicad_shapes(pad.GetEffectiveShape(cu[0]), _quarters(pad))))
     return tuple(pads)
+
+
+def _quarters(pad) -> int:
+    return int(round(pad.GetOrientationDegrees() / 90.0)) % 4
 
 
 def _is_custom(pad, layer) -> bool:
@@ -374,8 +414,23 @@ def _models(fp) -> tuple:
     return tuple((m.m_Filename, xyz(m.m_Offset), xyz(m.m_Rotation), xyz(m.m_Scale)) for m in fp.Models())
 
 
+def _net_tie_groups(fp) -> tuple:
+    """The pad numbers of each of a net tie's groups (FOOTPRINT::GetNetTiePads
+    gives a pad its group)."""
+    if not fp.IsNetTie():
+        return ()
+    groups = set()
+    for pad in fp.Pads():
+        group = {q.GetNumber() for q in fp.GetNetTiePads(pad)}
+        if group:
+            group.add(pad.GetNumber())
+            groups.add(tuple(sorted(group)))
+    return tuple(sorted(groups))
+
+
 def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footprint:
     pos = fp.GetPosition()
+    copper, copper_shapes = _copper_art(fp, err_nm)
     return Footprint(ref=fp.GetReference(), inst=inst_of(fp), cell=cell, value=fp.GetValue(),
                      location=Location(mm(pos.x), mm(pos.y)),
                      rotation=fp.GetOrientationDegrees(),
@@ -386,8 +441,10 @@ def _footprint(board, fp, excess_mm, cell, err_nm: int = CLEAR_ERR_NM) -> Footpr
                      lib_id=fp.GetFPIDAsString(), dnp=fp.IsDNP(),
                      bom_excluded=fp.IsExcludedFromBOM(), board_only=fp.IsBoardOnly(),
                      net_tie_pads=frozenset(p.GetNumber() for p in fp.Pads() if fp.IsNetTie() and fp.GetNetTiePads(p)),
+                     net_tie_groups=_net_tie_groups(fp),
                      models=_models(fp),
-                     silk=_silk(fp, err_nm), mask=_mask(fp, err_nm), fab=_fab(fp), copper=_copper_art(fp, err_nm),
+                     silk=_silk(fp, err_nm), mask=_mask(fp, err_nm), fab=_fab(fp),
+                     copper=copper, copper_shapes=copper_shapes,
                      courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp))
 
 
@@ -692,7 +749,9 @@ def read_footprint(path, courtyard_excess_mm: float = 0.10) -> tuple:
                             outlines=outs, box=Box.of_points([q for o in outs for q in o]),
                             through=through,
                             drill_mm=mm(pad.GetDrillSize().x) if through else 0.0,
-                            mask_paste=_mask_paste(pad), custom=_is_custom(pad, cu[0])))
+                            mask_paste=_mask_paste(pad), custom=_is_custom(pad, cu[0]),
+                            kshapes=kicad_shapes(pad.GetEffectiveShape(cu[0]), _quarters(pad))))
+    copper, copper_shapes = _copper_art(fp)
     geom = Footprint(ref=p.stem, inst=p.stem, cell=None, value=fp.GetValue() or p.stem,
                      location=Location(0.0, 0.0), rotation=0.0, face=Face.FRONT,
                      body_box=body_box(fp, courtyard_excess_mm), courtyard_box=courtyard_box(fp),
@@ -700,7 +759,8 @@ def read_footprint(path, courtyard_excess_mm: float = 0.10) -> tuple:
                      fields={f.GetName(): f.GetText() for f in fp.GetFields()},
                      lib_id=fp.GetFPIDAsString(), dnp=fp.IsDNP(),
                      bom_excluded=fp.IsExcludedFromBOM(), board_only=fp.IsBoardOnly(),
-                     silk=_silk(fp), mask=_mask(fp), fab=_fab(fp), copper=_copper_art(fp), courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp))
+                     silk=_silk(fp), mask=_mask(fp), fab=_fab(fp), copper=copper, copper_shapes=copper_shapes,
+                     courtyard_margin=courtyard_margin(fp), courtyard_poly=courtyard_poly(fp))
     return geom, digest
 
 
