@@ -1,4 +1,4 @@
-"""board.pour(net, [PadRef(a), PadRef(b)], swallow_pads=True) draws the neck
+"""board.pour(net, [PadRef(a), PadRef(b)]) draws the neck, as declared (swallow_pads changes nothing for two pads),
 between two pads instead of needing a third point, as wide as the narrower
 pad across the run unless width= says otherwise; board.finger(...,
 width=PadRef(...)) runs as wide as that pad across the run. Pure."""
@@ -56,31 +56,34 @@ def test_a_pour_of_two_non_pad_points_still_needs_a_third():
         b.pour(Net("V48"), [Location(0, 0), Location(5, 5)], layer=CopperLayer.F)
 
 
-def test_a_pour_neck_and_swallow_still_grows_over_the_pads(monkeypatch):
-    """The neck's own points are near the pads' centres, well inside their
-    boxes: swallow_pads still has something to grow over."""
-    from placemat.copper import Pour as _Pour
+def test_a_pour_neck_with_swallow_pads_is_drawn_as_declared():
+    """Exactly two pads are a neck whatever swallow_pads says: nothing is fitted, nothing cut."""
     b = _board()
-    intent = b.pour(Net("V48"), [PadRef(Part("pa"), 1), PadRef(Part("pb"), 1)], layer=CopperLayer.F,
-                    swallow_pads=True)
-    plan = b.resolve()
-    p = _points(plan)
-    assert p.swallow_pads is True
-    assert set(p.named_pads) == {("PA.1", (20.0, 20.0)), ("PB.1", (26.0, 20.0))}
+    b.pour(Net("V48"), [PadRef(Part("pa"), 1), PadRef(Part("pb"), 1)], layer=CopperLayer.F, swallow_pads=True)
+    p = _points(b.resolve())
+    assert not p.fitted
+    assert p.points == ((20.0, 20.5), (26.0, 20.5), (26.0, 19.5), (20.0, 19.5))
 
 
-def test_a_pours_corner_naming_another_nets_pad_is_not_a_named_pad():
-    """A polygon corner may be given as a PadRef purely to shape the pour
-    close to another part's pad, not to swallow it: only a same-net pad is
-    one of the pads the pull-back must still touch."""
+def test_a_swallowing_pour_naming_another_nets_pad_and_plain_points_is_refused():
+    """A fitted pour is given by its pads: a plain point is refused, and so is a corner that is not a pad."""
+    pa = _one_pad_part("PA", "pa", "V48", 20.0, 20.0, 2.0, 2.0)
+    foreign = _one_pad_part("PF", "pf", "GND", 26.0, 20.0, 1.0, 1.0)
+    b = Board(board_geometry([pa, foreign], width=60, height=60), edge_margin=1.0)
+    with pytest.raises(ValueError, match="every point is a pad"):
+        b.pour(Net("V48"), [PadRef(Part("pa"), 1), Location(25.0, 15.0), PadRef(Part("pf"), 1), Location(15.0, 25.0)],
+               layer=CopperLayer.F, swallow_pads=True)
+
+
+def test_a_declared_pours_corner_may_name_another_nets_pad():
+    """A corner given as a PadRef shapes the pour close to another part's pad; the pour is drawn as declared."""
     pa = _one_pad_part("PA", "pa", "V48", 20.0, 20.0, 2.0, 2.0)
     foreign = _one_pad_part("PF", "pf", "GND", 26.0, 20.0, 1.0, 1.0)
     b = Board(board_geometry([pa, foreign], width=60, height=60), edge_margin=1.0)
     b.pour(Net("V48"), [PadRef(Part("pa"), 1), Location(25.0, 15.0), PadRef(Part("pf"), 1), Location(15.0, 25.0)],
-          layer=CopperLayer.F, swallow_pads=True)
-    plan = b.resolve()
-    p = _points(plan)
-    assert p.named_pads == (("PA.1", (20.0, 20.0)),)
+           layer=CopperLayer.F)
+    p = _points(b.resolve())
+    assert not p.fitted and p.points == ((20.0, 20.0), (25.0, 15.0), (26.0, 20.0), (15.0, 25.0))
 
 
 def test_a_finger_may_run_as_wide_as_a_named_pad():

@@ -4460,15 +4460,32 @@ class Board:
     def pour(self, net, points, *, layer: CopperLayer, stroke: float | None = None, swallow_pads: bool = False,
              width: float | None = None, cover: Cover | None = None, priority: Priority = Priority.DEFAULT,
              grow: float | None = None, within=None, why: str = ""):
-        """A filled copper polygon on one layer. It does not pull back from
-        foreign copper; `swallow_pads` grows it over the same-net pads its
-        outline touches and pulls it back from other nets when written.
-        `cover` says what corners that name pads cover (`Cover`): a pour over
-        pads whose corners are all pads covers the hull of their copper, any
-        other the polygon through its points. Exactly two pads (`[PadRef(a),
-        PadRef(b)]`) draws the neck between them instead - a rectangle along
-        their centreline, as wide as the narrower pad measured across it,
-        unless `width=` says otherwise.
+        """A filled copper polygon on one layer, written as a graphic polygon
+        (never a zone: nothing refills it, and nothing is cut from it once it
+        is planned). Another net's copper inside it is a copper finding.
+
+        `swallow_pads=True` over pads (`PadRef`, `CellPadRef`; three or more)
+        fits the pour round the copper planned before it: the shortest closed
+        outline that holds all their copper and keeps each other net's
+        copper, every hole and the board edge its clearance (`board.rule`
+        clearances included) plus half the pour's stroke, every edge
+        straight. Where the outline wraps round a pad's corner, a track's end
+        or a via it does so by edges tangent to the clearance outline, each
+        corner no more than `geometry.arc_sag` past it. Copper planned after a
+        fitted pour keeps clear of it; a track declared across one is a copper
+        finding. Where other copper stands where the outline cannot go round
+        it (between two of its pads with no gap past it), or two pads cannot
+        be joined, the pour is not drawn and a finding names the copper and
+        the pads; where the outline narrows to less than the net's track width
+        a finding names where, and it is drawn. A fitted pour is given by its
+        pads alone: `cover=` and plain points are refused.
+
+        Without `swallow_pads`, `cover` says what corners that name pads cover
+        (`Cover`): HULL the hull of their copper, BOX the box round it, CENTRES
+        (the default) the polygon through the points. Exactly two pads
+        (`[PadRef(a), PadRef(b)]`) draws the neck between them instead - a
+        rectangle along their centreline, as wide as the narrower pad measured
+        across it, unless `width=` says otherwise.
 
         `grow=mm` instead grows the pour from its pads (`points` is then
         pads only): a KiCad zone whose outline is the hull of the pads'
@@ -4484,13 +4501,23 @@ class Board:
             return self._grown_pour(name, net, points, layer, grow, within, swallow_pads, width, cover, priority, why)
         if cover is not None and not isinstance(cover, Cover):
             raise TypeError("%s: a pour's cover is Cover.HULL, Cover.BOX or Cover.CENTRES, not %r" % (name, cover))
+        points = list(points)
         all_pads = all(isinstance(p, (PadRef, CellPadRef)) for p in points)
-        if cover is None:
-            cover = Cover.HULL if swallow_pads and all_pads and len(points) >= 3 else Cover.CENTRES
         neck = len(points) == 2 and all_pads
         if len(points) < 3 and not neck:
             raise ValueError("%s: a pour needs 3 or more points, or exactly two pads for the neck between "
                              "them (%d given)" % (name, len(points)))
+        fitted = swallow_pads and not neck
+        if fitted and cover is not None:
+            raise ValueError("pour %s: swallow_pads=True fits the pour round other nets' copper from its pads "
+                             "alone, so it takes no cover=; drop cover=, or drop swallow_pads for a pour drawn "
+                             "as declared" % name)
+        if fitted and not all_pads:
+            raise ValueError("pour %s: swallow_pads=True fits the pour round other nets' copper from its pads "
+                             "alone, so every point is a pad (PadRef, CellPadRef); a pour through plain points "
+                             "is declared without swallow_pads" % name)
+        if cover is None:
+            cover = Cover.CENTRES
         refs = _refs_in(points)
 
         def plan(ctx):
@@ -4506,6 +4533,10 @@ class Board:
                     _pad_half_across(self, ctx.occ, points[1], cb, ux, uy))
                 nx, ny = -uy * w / 2.0, ux * w / 2.0
                 pts = ((ca.x + nx, ca.y + ny), (cb.x + nx, cb.y + ny), (cb.x - nx, cb.y - ny), (ca.x - nx, ca.y - ny))
+            elif fitted:
+                pts = self._fit_pour(ctx, name, points, layer, stroke)
+                if pts is None:
+                    return []
             elif cover is Cover.CENTRES:
                 pts = tuple((l.x, l.y) for l in (ctx.locate(p) for p in points))
             else:
@@ -4523,11 +4554,82 @@ class Board:
                     from .checks import _hull
                     pts = tuple(_hull([(round(x, 6), round(y, 6)) for x, y in corners]))
             ctx.pour_at[intent.index] = pts       # a stitch over this pour, once it is drawn
-            named = tuple(_named_pad(self, ctx, name, p) for p in points)
-            named = tuple(n for n in named if n is not None)
-            return [Pour(name, layer, pts, stroke, swallow_pads, named)]
+            return [Pour(name, layer, pts, stroke, fitted)]
         intent = self._copper_intent("pour %s" % name, net, priority, plan, refs, why)
         return intent
+
+    def _fit_pour(self, ctx, net: str, pads, layer: CopperLayer, stroke: float):
+        """The outline of a fitted pour (pourfit.py) over `pads` as the plan
+        stands, or None with a finding when none can be drawn."""
+        from . import pourfit
+        occ = ctx.occ
+        half = stroke / 2.0
+        # every clearance outline is held off by the error its arcs are read with (a pad or a track is
+        # a polygon a few microns outside the copper), and the arcs are cut finer by as much, so no
+        # corner stands more than `arc_sag` past the clearance
+        slack = self.settings.geometry_arc_error_nm * 1e-6
+        sag = max(self.settings.geometry_arc_sag - slack, self.settings.geometry_arc_sag / 2.0)
+        holds, boxes = [], []
+        for p in pads:
+            owner, number, _, _ = self._pad_ref(p)
+            label = "%s.%s" % (owner, number)
+            for sh in _pad_shapes(self, occ, p):
+                if sh.net != net:
+                    ctx.notes.append("pour %s: pad %s is on net %s, and a fitted pour holds only its own net's pads"
+                                     % (net, label, sh.net or "-"))
+                    return None
+                if layer not in sh.layers:
+                    ctx.notes.append("pour %s: pad %s has no copper on %s" % (net, label, layer.value))
+                    return None
+                holds.append((label, pourfit.hull(sh.poly)))
+                boxes.append(sh.box)
+        reach = Box.union(boxes)
+        pieces = []
+
+        def add(sh, clr: float, what: str):
+            # a polygon of copper (a pour, a drawn poly) is read with the same error on its side of the gap
+            r = clr + half + slack * (2 if sh.kind == "copper" and not sh.ends and not sh.owner else 1)
+            if not sh.box.overlaps(reach, gap=r):
+                return
+            pieces.extend(pourfit.pieces_of(sh.poly, r, sag, what, sh.circle, sh.ends))
+
+        shapes = []
+        for owner, g in occ.items.items():
+            if owner not in occ.pending:
+                shapes += [sh for sh in g.shapes if sh.kind in ("pad", "through", "copper", "npth")]
+        shapes += [sh for sh in occ.copper if sh.kind in ("copper", "through")]
+        shapes += [sh for sh in (_shape_of(op) for op in ctx.batch_ops) if sh is not None]
+        for sh in shapes:
+            if sh.kind == "npth":
+                cx, cy = sh.box.center.x, sh.box.center.y
+                add(dataclasses.replace(sh, circle=(cx, cy, max(math.hypot(x - cx, y - cy) for x, y in sh.poly))),
+                    self.geometry.hole_clearance, "%s's unplated hole" % occ.who(sh.owner))
+            elif layer in sh.layers and sh.net != net:
+                add(sh, occ.pair_clearance(net, sh.net, "", sh.owner)[0], _copper_name(occ, sh))
+        if occ.edge_margin is not None:
+            pieces += pourfit.edge_pieces(_edge_loops(occ), occ.edge_margin + half + slack, sag, reach)
+        res = pourfit.fit(holds, pieces, half + self.settings.geometry_arc_sag)
+        if res.problem:
+            between = " and ".join(res.pads)
+            what = res.piece.what if res.piece is not None else "other copper"
+            if res.problem == "too close":
+                ctx.notes.append("pour %s: %s is within its clearance of pad %s, so no pour can hold the pad clear; "
+                                 "the pour is not drawn" % (net, what, between))
+            elif res.problem == "enclosed":
+                ctx.notes.append("pour %s: %s stands between pads %s with no way round it; the pour is not drawn"
+                                 % (net, what, between))
+            elif res.problem == "no way":
+                ctx.notes.append("pour %s: %s leaves no way between pads %s; the pour is not drawn"
+                                 % (net, what, between))
+            else:
+                ctx.notes.append("pour %s: its pads leave no area to fit; the pour is not drawn" % net)
+            return None
+        need = self._width(net, None)
+        for gap, (x, y) in sorted(res.necks):
+            if gap + stroke < need - 1e-6:
+                ctx.notes.append("pour %s: narrows to %.2f mm at (%.2f, %.2f), under its net's %.2f mm track"
+                                 % (net, gap + stroke, x, y, need))
+        return res.outline
 
     def _grown_pour(self, name, net, pads, layer, grow, within, swallow_pads, width, cover, priority, why):
         """`pour(grow=)`: see there. A zone, planned after the rest of its batch."""
@@ -5653,6 +5755,7 @@ class Board:
         tracks, others = [], []
         deferred, grown = [], []
         ctx.batch_tracks = []
+        ctx.batch_ops = []
         for c in sorted(intents, key=lambda c: c.index):
             if c.key.startswith("finger"):
                 deferred.append(c)          # a finger is cut by the tracks planned in this batch
@@ -5661,6 +5764,7 @@ class Board:
                 grown.append(c)             # a grown pour grows up to everything else in its batch
                 continue
             ctx.ops_at[c.index] = c.plan(ctx)
+            ctx.batch_ops += ctx.ops_at[c.index]
             for op in ctx.ops_at[c.index]:
                 (tracks if isinstance(op, Track) else others).append((c, op))
                 if isinstance(op, Track):
@@ -5696,26 +5800,16 @@ class Board:
             shape = _shape_of(op)
             if shape is None:
                 continue
-            # A swallow pour is drawn exactly as declared here, but the writer (kicad/write.py's
-            # _draw_pour) pulls it back from every other net's copper to the netclass clearance
-            # before saving it - and placemat's geometry (geometry.py) and its native module have
-            # no polygon subtract to compute that pull-back here too. A clearance finding measured
-            # against this raw shape would report a problem the written board never has, so it is
-            # left out; the raw shape still goes into the occupancy below, so it stays an obstacle
-            # for copper planned after it, the same as the writer keeps it one.
-            # A grown pour is held as its pads' hull, which the fill pulls back from other copper
-            # (the same reason); the copper planned after it is judged against that.
-            skip_findings = (isinstance(op, Pour) and op.swallow_pads) or isinstance(op, Zone)
+            # A zone is filled by KiCad, which pulls it back round other copper; a grown pour is held as
+            # its pads' hull (the same reason), and the copper planned after it is judged against that.
+            skip_findings = isinstance(op, Zone)
             if not skip_findings:
                 hits = occ.copper_conflicts(shape)
                 # and this batch's own copper planned before it, which reaches the occupancy only
                 # once the batch is done: a track of one net through a via of another, both planned
-                # together. Tracks that cross are the bridging's to settle, and a swallow pour's
-                # clearance is the writer's, as above.
+                # together. Tracks that cross are the bridging's to settle.
                 for earlier, o in batch:
                     if o.net == shape.net or not shape.box.overlaps(o.box, gap=occ._copper_reach):
-                        continue
-                    if isinstance(earlier, Pour) and earlier.swallow_pads:
                         continue
                     if isinstance(op, Track) and isinstance(earlier, Track) and segments_intersect(
                             (op.start.x, op.start.y), (op.end.x, op.end.y),
@@ -7246,6 +7340,7 @@ class _CopperContext:
         self.planned_vias: list = []       # every via planned so far, for a FreeSpot's hole rule
         self.planned_tails: list = []      # every FreeSpot tail planned so far: not in the occupancy until the batch ends
         self.batch_tracks: list = []       # tracks planned so far in the batch being planned: not in the occupancy yet
+        self.batch_ops: list = []          # every op planned so far in that batch, for a fitted pour to keep clear of
         self.via_at: dict = {}             # via intent index -> where it landed, for a track ending on it
         self.pour_at: dict = {}            # pour intent index -> its drawn points, for a stitch over it
         self.stitched: dict = {}           # grown pour intent index -> the stitching vias planned over it
@@ -7316,12 +7411,9 @@ def _inner_box(pads: list, centre: Location) -> Box:
 
 
 def _named_pad(board: "Board", ctx: "_CopperContext", net: str, p) -> tuple | None:
-    """(label, (x, y)) for a point that names a same-net pad, else None: what
-    a `swallow_pads` pour's pull-back checks are still joined to the result
-    once it pulls back from foreign copper. A point that names another net's
-    pad is a corner reference only - the pour never grows over it and the
-    pull-back cuts it clear like any other foreign pad, so it is not one of
-    the pads the result must still touch."""
+    """(label, (x, y)) for a point that names a same-net pad, else None: the
+    pads a grown pour's fill must still join. A point that names another
+    net's pad is a corner reference only, not one of them."""
     if not isinstance(p, (PadRef, CellPadRef)):
         return None
     owner, number, _, _ = board._pad_ref(p)
@@ -7329,6 +7421,30 @@ def _named_pad(board: "Board", ctx: "_CopperContext", net: str, p) -> tuple | No
         return None
     at = ctx.locate(p)
     return ("%s.%s" % (owner, number), (at.x, at.y))
+
+
+def _copper_name(occ: Occupancy, sh: Shape) -> str:
+    """How a finding names a piece of copper standing in a fitted pour's way."""
+    if sh.kind in ("pad", "through") and sh.owner:
+        return "%s pad %s (%s)" % (occ.who(sh.owner), sh.label, sh.net or "no net")
+    if sh.circle:
+        return "via %s at (%.2f, %.2f)" % (sh.net or "-", sh.circle[0], sh.circle[1])
+    if sh.ends:
+        return "track %s (%.2f, %.2f)-(%.2f, %.2f)" % (sh.net or "-", sh.ends[0][0], sh.ends[0][1], sh.ends[1][0], sh.ends[1][1])
+    if sh.owner:
+        return "%s copper %s" % (occ.who(sh.owner), sh.net or "-")
+    return "pour %s" % sh.net if sh.net else "copper"
+
+
+def _edge_loops(occ: Occupancy) -> list:
+    """The board's edge as closed polylines: its outline, and each cutout's."""
+    shape = occ.board_shape
+    if shape is None:
+        loops = [tuple(box_polygon(occ.board_box))] if occ.board_box is not None else []
+        return loops + list(occ.board_cutouts.loops if occ.board_cutouts else ())
+    if hasattr(shape, "loops"):
+        return list(shape.loops)
+    return [tuple(shape.polygon())] + list(shape.cutouts.loops)
 
 
 def _pad_shapes(board: "Board", occ: Occupancy, ref) -> list:
@@ -7709,7 +7825,11 @@ def _shape_of(op) -> Shape | None:
                      circle=(op.at.x, op.at.y, op.size / 2.0))
     if isinstance(op, Pour):
         faces = frozenset([op.layer.face]) if op.layer.face else frozenset()
-        return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.polygon, op.box)
+        poly = op.polygon
+        if op.fitted and op.stroke > 0:         # the copper reaches half the stroke past its outline
+            from .pourfit import offset
+            poly = offset(poly, op.stroke / 2.0)
+        return Shape("", "copper", faces, frozenset([op.layer]), op.net, poly, Box.of_points(poly))
     if isinstance(op, Zone) and op.hull:        # a grown pour: what it covers whatever the fill does
         faces = frozenset([op.layer.face]) if op.layer.face else frozenset()
         return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.hull, Box.of_points(op.hull))

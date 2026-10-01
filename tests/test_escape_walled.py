@@ -52,10 +52,10 @@ def test_a_grown_pour_over_the_pad_is_a_way_out():
     assert _walled(b.resolve()) == []
 
 
-def test_a_swallow_pour_over_the_pad_is_a_way_out():
+def test_a_pour_over_the_pad_is_a_way_out():
     b = _board(_walled_in(0.1))
     b.pour(Net("IN"), [Location(29.9, 29.9), Location(30.1, 29.9), Location(30.1, 30.1)], layer=F,
-           swallow_pads=True, why="its own pour")
+           why="its own pour")
     assert _walled(b.resolve()) == []
 
 

@@ -107,11 +107,11 @@ class Line(str, Enum):
 
 
 class Cover(str, Enum):
-    """What a pour whose corners name pads covers: HULL, the convex hull of
-    those pads' copper (and any plain points); BOX, the box round it;
-    CENTRES, the polygon through the points as given, a pad at its centre.
-    A pour over pads (`swallow_pads=True`) whose corners are all pads takes
-    HULL; any other pour, CENTRES."""
+    """What a pour drawn as declared (no `swallow_pads`) whose corners name
+    pads covers: HULL, the convex hull of those pads' copper (and any plain
+    points); BOX, the box round it; CENTRES (the default), the polygon
+    through the points as given, a pad at its centre. A pour over pads with
+    `swallow_pads=True` is fitted round other copper and takes none."""
     HULL = "hull"
     BOX = "box"
     CENTRES = "centres"
