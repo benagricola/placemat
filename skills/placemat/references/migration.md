@@ -5,6 +5,82 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **`Facing` on a part with no pad rows**: a ball in a grid, a square pad at
+  a corner of the pad field or a lone pad has the direction from the pad
+  field's centre through the named pads' centroid, snapped to an axis, as
+  its way out. Name the outermost row or column of a grid:
+  `Facing([PadRef(p, "B2"), PadRef(p, "A2")], Edge.SOUTH)`. It is refused,
+  saying why, where that direction is none or a diagonal (one corner ball
+  alone). Pads that have a row behave as before.
+
+- **`Facing` in a row**: `Facing(pad_key, edge)` names a pad by a bare key
+  that each member resolves for itself, and `rotation=` of `row()`, `ring()`
+  and a run row takes a number, a `Facing`, or a list of either, one per item
+  (a list of the wrong length is now refused).
+
+- **`SideOf(pads)`** as `Beside`'s side: the board side where the pads'
+  way out points once their part is placed, its turn and face applied.
+
+- **`Facing(pads, toward=PadRef(other, key))`**: the pads face another part's
+  pad, whichever side it lands on; settled when the part is placed.
+
+- **`board.row(items, edge, over=[PadRef, ...])`**: the row ordered by where
+  the pads its items serve lie along it, once they are placed.
+
+### Migration steps
+
+**A turn computed to read where a pad lands becomes `SideOf`.**
+
+```python
+# before: a numeric turn, read back to pick the side
+TURN = 0 if PIN1_AT_WEST else 180
+board.place(Part("u"), at=Location(X, Y), rotation=TURN)
+VCC_EAST = (TURN == 0)
+board.place(Part("pullup"), at=Beside(Part("u"), Edge.EAST if VCC_EAST else Edge.WEST))
+
+# after: the side is where the pad lands
+board.place(Part("u"), at=Location(X, Y), rotation=Facing(PadRef(Part("u"), 1), Edge.WEST))
+board.place(Part("pullup"), at=Beside(Part("u"), SideOf(PadRef(Part("u"), "VCC"))))
+```
+
+**A turn picked by a side flag becomes `toward=`.**
+
+```python
+# before
+board.place(Part("c"), at=Beside(Part("u"), Edge.EAST if VCC_EAST else Edge.WEST),
+            rotation=Facing(PadRef(Part("c"), "SUPPLY"), Edge.WEST if VCC_EAST else Edge.EAST))
+
+# after
+board.place(Part("c"), at=Beside(Part("u"), SideOf(PadRef(Part("u"), "VCC"))),
+            rotation=Facing(PadRef(Part("c"), "SUPPLY"), toward=PadRef(Part("u"), "VCC")))
+```
+
+**A row's order picked by a flag becomes `over=`.**
+
+```python
+# before
+order = [r_sda, r_scl] if SDA_WEST else [r_scl, r_sda]
+board.row(order, Edge.NORTH, of=Part("u"), centre=PadRef(Part("u"), "SDA"), rotation=0)
+
+# after
+board.row([r_sda, r_scl], Edge.NORTH, of=Part("u"), centre=PadRef(Part("u"), "SDA"), rotation=0,
+          over=[PadRef(Part("u"), "SDA"), PadRef(Part("u"), "SCL")])
+```
+
+**A row's rotation list computed per member becomes a `Facing`.**
+
+```python
+# before
+board.row(caps, Edge.NORTH, rotation=[0 if PAD1_WEST[c] else 180 for c in caps])
+
+# after
+board.row(caps, Edge.NORTH, rotation=Facing(1, Edge.WEST))
+```
+
 ## To 0.70.0
 
 ### New
@@ -2062,5 +2138,6 @@ that says what replaces it.
 | a rotation constant for a part parallel to a line between pads | To 0.69.0 |
 | a rotation constant checked by an `assert` on pad positions | To 0.69.0 |
 | a pour with `grow=` reaching past its pads | To 0.70.0 |
+| a computed `0 if ... else 180` turn or a `*_EAST` flag read back to pick a `Beside` side, a turn or a row order | Unreleased |
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |

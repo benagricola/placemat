@@ -580,12 +580,15 @@ def parallel_rotation(a: Location, b: Location, face: Face, degrees: float = 0.0
     return round((turn + degrees) % 360.0, 6)
 
 
-def facing_rotation(occ: Occupancy, item, numbers: list, edge: Edge, face: Face = Face.FRONT) -> float:
-    """Of the item's four right-angle turns on `face`, the one where the way out
-    of pads `numbers` (`_pin_normal`'s outward normal of the row each sits in)
-    points at `edge`. Raises ValueError, saying why, where a pad has no way out
-    (a square pad at a corner, a lone pad) or the pads' ways out differ (two
-    rows)."""
+def pad_way_out(occ: Occupancy, item, numbers: list, face: Face = Face.FRONT) -> tuple:
+    """The way out of the item's pads `numbers`, as a unit board vector with the
+    item at rotation 0 on `face`. Each pad's is `_pin_normal`'s outward normal of
+    the row it sits in; the pads must share one. Where any has no row (a pad in a
+    grid, a square pad at a corner of the pad field, a lone pad) the way out is
+    the direction from the pad field's centre through the named pads' centroid,
+    snapped to an axis. Raises ValueError, saying why, where pads' ways out
+    differ (two rows), or that direction has none (the centroid at the field's
+    centre) or two nearest axes (a diagonal)."""
     probe = Placement(Location(0.0, 0.0), 0.0, face)
     geom = occ._geometry(item)
     t = occ._transform(geom, probe)
@@ -594,18 +597,66 @@ def facing_rotation(occ: Occupancy, item, numbers: list, edge: Edge, face: Face 
         if sh.kind in ("pad", "through"):
             boxes.setdefault(sh.label, []).append(transform_box(sh.box, t))
     pads = {(item.ref, n): Box.union(bs).center for n, bs in boxes.items()}
-    outs = {}
+    outs, rowless = {}, []
     for n in numbers:
         box = Box.union(boxes[n])
         out = _pin_normal(pads, item.ref, box.center, 0.0, box)
         if out is None:
-            raise ValueError("pad %s has no way out to turn by: it is a square pad at a corner of the pad field, "
-                             "or the only pad of a row" % n)
-        outs[n] = (round(out[0]), round(out[1]))
+            rowless.append(n)
+        else:
+            outs[n] = (round(out[0]), round(out[1]))
+    if rowless:
+        return _field_way_out(pads, item.ref, numbers, rowless)
     if len(set(outs.values())) > 1:
         raise ValueError("pads %s are not one row: their ways out differ (%s)" % (
             ", ".join(numbers), ", ".join("%s %s" % (n, _way_name(o)) for n, o in outs.items())))
     (ox, oy), = set(outs.values())
+    return float(ox), float(oy)
+
+
+def _field_way_out(pads: dict, ref: str, numbers: list, rowless: list) -> tuple:
+    """The way out of pads with no row: from the centre of the box of all the part's
+    pad centres through the named pads' centroid, to the nearest axis."""
+    every = [q for (r, _), q in pads.items() if r == ref]
+    cx = (min(q.x for q in every) + max(q.x for q in every)) / 2.0
+    cy = (min(q.y for q in every) + max(q.y for q in every)) / 2.0
+    named = [pads[(ref, n)] for n in numbers]
+    dx = sum(q.x for q in named) / len(named) - cx
+    dy = sum(q.y for q in named) / len(named) - cy
+    who = "pad%s %s" % ("s" if len(numbers) > 1 else "", ", ".join(numbers))
+    why = "%s has no row to read a way out from (%s)" % (
+        "pad %s" % ", ".join(rowless) if len(rowless) == 1 else "pads %s" % ", ".join(rowless),
+        "a pad of a grid, a square pad at a corner of the pad field, or a lone pad")
+    if math.hypot(dx, dy) < _AXIS_TIE:
+        raise ValueError("%s: %s lie%s at the centre of the pad field, so no side is nearer; name the pads "
+                         "of one side of it" % (why, who, "" if len(numbers) > 1 else "s"))
+    if abs(abs(dx) - abs(dy)) < _AXIS_TIE:
+        raise ValueError("%s: %s lie%s on a diagonal of the pad field, so two sides are equally near; name the "
+                         "pads of one side of it (a row or column of the grid)" % (why, who, "" if len(numbers) > 1 else "s"))
+    return (math.copysign(1.0, dx), 0.0) if abs(dx) > abs(dy) else (0.0, math.copysign(1.0, dy))
+
+
+_AXIS_TIE = 1e-6
+"""mm: how near two offsets from the pad field's centre are to equal (a diagonal), or an offset to
+nothing, before a direction snapped to an axis is refused as ambiguous."""
+
+
+def way_out_side(way: tuple, rotation: float) -> Edge:
+    """The board side a way out (a unit vector with the item at rotation 0) points at
+    once the item is turned by `rotation`, to the nearest axis. ValueError on a diagonal."""
+    ux, uy = Transform.rotate(rotation).apply(way)
+    if abs(abs(ux) - abs(uy)) < _AXIS_TIE:
+        raise ValueError("turned %g degrees the way out points along a diagonal, so no side is nearest" % rotation)
+    if abs(ux) > abs(uy):
+        return Edge.EAST if ux > 0 else Edge.WEST
+    return Edge.SOUTH if uy > 0 else Edge.NORTH
+
+
+def facing_rotation(occ: Occupancy, item, numbers: list, edge: Edge, face: Face = Face.FRONT) -> float:
+    """Of the item's four right-angle turns on `face`, the one where the way out
+    of pads `numbers` (see `pad_way_out`) points at `edge`. Raises ValueError,
+    saying why, where the pads have no way out or their ways out differ."""
+    ox, oy = pad_way_out(occ, item, numbers, face)
     want = bearing_vector(bearing(edge))
     for r in (0.0, 90.0, 180.0, 270.0):
         ux, uy = Transform.rotate(r).apply((ox, oy))

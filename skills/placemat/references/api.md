@@ -2,7 +2,7 @@
 
 ```python
 from placemat import (board, Along, Axis, Bearing, Bend, Beside, Between, Box, Cell, CellPadRef, Centre, Corner, Cover, Pin, Polar, OnRim, OnBore,
-                       Cutout, Disc, Drops, Arc, Circle, Path, Slot, CopperLayer, Edge, Face, Facing, Forbid, Fraction, FreeSpot, Inside, Land, Line,
+                       Cutout, Disc, Drops, Arc, Circle, Path, Slot, CopperLayer, Edge, Face, Facing, Forbid, Fraction, FreeSpot, Inside, Land, Line, SideOf,
                        LinkWeight, Location, Mid, Near, Net, OnEdge, Origin, Parallel, PadRef, Part, Past, Priority, Turned, X, Y)
 ```
 
@@ -57,6 +57,11 @@ request (SKILL.md, "When no form says it").
 | turned parallel to the line between two pads (any angle) | `rotation=Parallel(PadRef(a, 1), PadRef(a, 2))` | Placement (Turns) |
 | a point a gap off a pad along that line's normal | `Polar(gap, Bearing(a, b, 90), about=pad)` | Placement (Turns) |
 | turned so a pad's row faces a board side | `rotation=Facing(PadRef(part, n), Edge.NORTH)` | Placement (Turns) |
+| turned so a grid's outer row or column faces a side | `rotation=Facing([PadRef(part, "B2"), PadRef(part, "A2")], Edge.SOUTH)` | Placement (Turns) |
+| every part of a row turned so its pad n faces a side | `board.row(items, edge, rotation=Facing(n, Edge.WEST))` | Placement (Rows) |
+| turned so its pad faces another part's pad, whichever side that lands on | `rotation=Facing(PadRef(c, "SUPPLY"), toward=PadRef(u, "VCC"))` | Placement (Turns) |
+| beside a part on the side where its pad lands after its turn | `at=Beside(Part("u"), SideOf(PadRef(Part("u"), "VCC")))` | Placement (Beside) |
+| a row ordered by where the pads its items serve land | `board.row(items, edge, of=Part("u"), over=[PadRef(Part("u"), "SDA"), ...])` | Placement (Rows) |
 | on a point, its turn (a bearing) searched, scored by links, pushes and keepouts | `at=Pin(Part("c.member"), Location(x, y)), rotations=Turns.ANY` | Placement (Turns) |
 | turned to face a board edge or a bearing | `board.outward_rotation(item, edge, face=)` | Faces |
 | its fine-pitch escape kept clear | `board.fanout(part, depth=)` | Placement |
@@ -346,10 +351,25 @@ part's four right-angle turns where that pad's way out (its row's outward
 axis, `_pin_normal`'s, as fanouts and escapes read it) points at the
 edge; `Facing([PadRef(...), ...], edge)` takes a row of pads. It is settled
 when the part is declared, from the part alone, and refused naming the pads
-when a pad has no way out (a square pad at the corner of the pad field, a
-lone pad) or the pads' ways out differ (two rows). On the back face it is
-the turn that faces the side as seen from the front. `rotations=` with any
-of `Turned`, `Parallel` or `Facing` is refused.
+when their ways out differ (two rows). A pad with no row (a ball in a grid, a
+square pad at the corner of the pad field, a lone pad) has the direction
+from the pad field's centre through the named pads' centroid, snapped to an
+axis: name the outermost row or column of a grid, `Facing([PadRef(p, "B2"),
+PadRef(p, "A2")], Edge.SOUTH)` puts that column on the south side. It is
+refused, saying why, when that direction is none (the centroid at the
+field's centre) or a diagonal (one corner ball alone). On the back face it
+is the turn that faces the side as seen from the front. `rotations=` with
+any of `Turned`, `Parallel` or `Facing` is refused.
+
+`Facing(1, Edge.WEST)` and `Facing("DRAIN", Edge.SOUTH)` name a pad by a bare
+key (number or net) that each part resolves for itself, so one value serves
+a row: `board.row(items, edge, rotation=Facing(1, Edge.WEST))`. `rotation=` of
+`row()`, `ring()` and a run row is a number, a `Facing`, or a list of either,
+one per item. `Facing(pad_key, toward=PadRef(other, "VCC"))` turns the part
+so its pad's way out is opposite the way out of that pad, which makes the pad
+face it for a part standing on the side of `other` where that pad lands
+(`Beside(other, SideOf(...))` puts it there). It waits for `other`, as
+`Turned` does; it is refused in a row.
 
 A track leg whose ends differ by less than `copper.straight_tolerance`
 (0.002 mm) on one axis is drawn as one straight segment, not a straight
@@ -690,6 +710,16 @@ start, `END` flush with its end, `MID` (default) centred. The pad may be
 capacitor, level with a driver's pin, is `Beside(Part("c_boot"),
 Edge.WEST, align=PadRef(Part("u1"), "SW"))`.
 
+`side` may be `SideOf(PadRef(Part("u"), "VCC"))` (or a list of pads, as
+`Facing` takes): the board side the pad's way out points at once `u` is
+placed, its turn and face applied and snapped to the nearest axis - the same
+way out `Facing` reads, so `Beside(u, SideOf(pad))` stands the part where
+`Facing(pad, edge)` would have put that edge. `u` is placed first. A
+`SideOf` side with a `Past`, a lane or an `X`/`Y` point in `align=` is
+refused: those check the side's axis now. There is no eager
+`board.side_of(...)`: a side a script would branch on is a relation to
+say (`SideOf`, `Facing(toward=)`, `row(over=)`).
+
 `copper=True` measures the standoff from pad copper, not envelopes: the part
 stands as near `item` on `side` as its pads allow, every pad of it keeping,
 from every pad of `item` (of a cell, its members') of another net, the
@@ -800,6 +830,21 @@ board's own edge - accepts a fit frame:
 board.row([R_SDA, R_SCL], Edge.EAST, of=Part("u1"), align=Along.START)   # a lane east of U1, top-flush
 board.row([Part("p_a"), Part("p_b")], Edge.NORTH, of=Part("u1"),
           centre=PadRef(Part("u1"), 8), pitch=2.7)                         # two pins at a mechanical pitch, over U1's pin 8
+```
+
+`over=[PadRef, ...]` (one pad per item, in the order the items are given) orders a
+row by where those pads lie along it, increasing (x for a north or south
+row, y for east or west), once they are placed: each item stands among its
+neighbours as the pad it serves stands among theirs, so a script need not
+know which pin landed west. The row waits for the pads' parts; equal
+coordinates are refused naming the items. It composes with every anchor
+(`of=`, `centre=`, `start=`, `align=`, `before=`/`after=`). An order read
+off the items' nets was not built: a net reaches several pads, or none
+directly.
+
+```python
+board.row([R_SCL, R_SDA], Edge.NORTH, of=Part("u1"),
+          over=[PadRef(Part("u1"), "SCL"), PadRef(Part("u1"), "SDA")])   # whichever pin is west, its resistor is
 ```
 
 **Positions said in terms of pads and parts.** `Centre` (and a point of
