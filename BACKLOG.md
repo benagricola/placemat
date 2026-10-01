@@ -1,14 +1,286 @@
 # Backlog
 
-Open work, newest source first. An item names where it came from; a report
-from a board's `PLACEMAT_GAPS.md` is cited by file and date heading.
+Open work, newest source first. Other projects' agents send placemat
+requests by message; the placemat session files them here and owns this
+file. An item cites its source as "a board's session, <date>".
 
 ## In progress
+
+- **Stitch row ends at a side not kept** (a board's session, 2026-10-01):
+  with `outside=True`, a row that starts at a corner where a kept side meets
+  a side not kept begins at the corner itself, so its first via can sit on
+  the board edge; inset it as at a shared corner.
 
 ## Open
 
 - **A plug on another board against a receptacle here** (owner: spec later,
-  2026-09-30; PLACEMAT_GAPS 2026-09-27, twice): pad-to-pad nets across two board files and a turn.
+  2026-09-30; a board's session, 2026-09-27, twice): pad-to-pad nets
+  across two board files and a turn. Needed: for a receptacle on one board
+  and the plug it mates with on another (laid on its back face, turned 180
+  degrees), which pad lands on which, and which nets differ; also which
+  parts of the other board stand over the receptacle and how far they hang
+  (needs part heights from a 3D model's box). Done instead: pcbnew
+  `FootprintLoad` and `Flip` in a scratch board, the other board's
+  `.kicad_pcb` read with `LoadBoard`, its STEP read with build123d. Forms
+  tried: `placemat measure` reads a part on a board it has placed or a bare
+  `.kicad_mod` in its own frame, not a part on another board turned onto
+  this one. Could offer: a mating check taking two footprints, or a part on
+  each of two board files, the faces they meet on and the turn between
+  them, listing each pad pair and flagging any whose nets differ.
+
+- **A board's interface to its enclosure, written on every run** (a board's
+  session, 2026-09-19, 2026-09-20): the enclosure model needed mechanical
+  anchors off each board (a connector mouth's centre against the outline,
+  how far a receptacle stands off the board, the tallest part on each face,
+  a sensor's and an antenna connector's positions). The only channel was a
+  STEP export measured by a separate tool; it is gitignored and went stale
+  silently, and a massing model ran 2.94 mm out for a day. A related miss:
+  an `OnEdge` overhang worked out from a courtyard put a receptacle's mouth
+  4.0 mm further out than the script's printed anchor for thirty rounds,
+  and nothing compared the placed pad against the stated position. Could
+  offer: a machine-readable file (TOML or JSON) written on each run, in
+  board coordinates, with each part's origin, rotation, copper box,
+  courtyard box, 3D model box and height; the outline's box and routed
+  slots; and anchors the script declares (`anchor("name", part=, offset=)`),
+  so a git diff shows a moved connector. An anchor check would compare a
+  named pad's placed box with a stated position. `measure --pads` and
+  `--copper` already give the placed numbers on request; the file and the
+  check are what is missing.
+
+- **Reports a datasheet review asked for** (a board's session, 2026-09-20,
+  twice): checking a routed six-layer board against each part's datasheet
+  needed numbers `placemat nets` and `occupancy` do not give. Done
+  instead: pcbnew `LoadBoard` with per-layer copper built from
+  `ConvertBrdLayerToPolygonalContours`, and a small graph over track ends,
+  vias and pours. Could offer: per net, length by layer, a width histogram,
+  via positions, the bottleneck width between two named pads, and the vias
+  whose removal disconnects it (stubs of 42 to 60 mm of a thin track on
+  three test-point nets were invisible in a run); an island report per
+  pour and layer (pieces carrying no same-net pad or via, with area and
+  box) and, per plane, the drops its fill does not reach once routed
+  tracks cut it (four vias were found on cut-off islands); a distance
+  report from a named decoupling or sense part's live pad to the pin it
+  serves; and, for a round board, each part's courtyard minimum and maximum
+  radius, the zone it lands in and its height against that zone's limit,
+  the height read from a part property.
+
+- **Small gaps in a large board's script** (a board's session, 2026-09-20):
+  `board.both_faces` and `refs_on_fab` are read by `getattr` on the Board,
+  but the `board` proxy a script imports has no `__setattr__`, so setting
+  either sets it on the proxy (worked round through
+  `placemat.context._active`), and neither is in api.md. A cell's whole box
+  is held inside the outline, including a corner of the box that holds no
+  member, so a cell whose box reaches over a notch its parts do not was
+  moved by asking for a change elsewhere. A finger to a pad ends with a cap
+  the pad's width, so a finger into a pad 0.08 mm from its neighbour
+  reports a clearance the footprint already has; a track into the same pad
+  does not. Could offer: a documented setting for both flags, a cell's
+  extent from its members and copper rather than its box, and the finger's
+  cap judged as the track's is.
+
+- **An overhang on a fixed placement** (a board's session, 2026-09-21): a
+  receptacle's mouth had to reach a board arm's tip, so its body stands
+  about 2.3 mm past the edge. `overhang=` is documented on `OnEdge` and
+  `OnRim` only, and the part's spot was a decided coordinate
+  (`at=Location(...)`), so every run reports "body box ... is past the
+  board's keep-in (0.40 mm)". Could offer: `overhang=` on `Location` and
+  `Centre`, or a way to say a part's reach may leave the board here.
+
+- **A ring shape** (a board's session, 2026-09-21): a seal band round a
+  disc was a hand-traced `Path` of 360 points with a radial cut. Could
+  offer: `Ring(inner, outer)` as a shape for a keepout or a cutout.
+
+- **Naming what blocks a part, and a net with no plane** (a board's
+  session, 2026-09-21; may be resolved in part by 0.50.0's "No legal
+  location" naming drawn things; check with the requester): `no legal
+  location` counted obstructions as `courtyard xN` without saying which face
+  or which owners, so a via field of plated thermal vias on the other face
+  read as something wrong. With no `board.plane()` declared for the two
+  planes' nets, 155 of 220 parts reported no legal location, all seeded
+  within a few millimetres of the board's centre, because every part
+  sharing a net with that many pads is pulled to their centroid; declaring
+  the planes took the findings from 165 to 71. Could offer: the top few
+  blocking owners named in the finding, and a warning when a net with a
+  large share of the board's pads has no plane.
+
+- **Symbol-to-pad identity and electrical types** (a board's session,
+  2026-09-21, twice; 2026-09-26): before writing a part's schematic wrapper,
+  a session needed each manufacturer symbol pin's name, number and
+  electrical type joined to the footprint's pad, with source hashes, and
+  proof that a KiCad 10 symbol conversion kept the pin map. Done instead:
+  downloaded symbol and footprint assets read by hand against the
+  manufacturer's pin table, and a parsed inventory around `kicad-cli sym
+  upgrade` (43 pairs agreed). A standalone footprint capture also showed
+  nine unnumbered plated through-hole objects inside an exposed pad and
+  incomplete courtyards, which nothing flagged. Could offer: a standalone
+  part report joining symbol pin, pad number, electrical type, footprint
+  identity and source hash; a warning for unnamed conductive through-hole
+  objects inside an exposed pad.
+
+- **Source-to-schematic equivalence and circuit assertions** (a board's
+  session, 2026-09-21, 2026-09-26, 2026-09-27): placemat reports pads and
+  nets on a generated board but compares nothing between the source circuit
+  and the schematic, so a project carries its own audit comparing the
+  evaluated netlist JSON with `kicad-cli sch export netlist` (139 net
+  partitions and 568 pins at one point, 194 nets and 772 pins later), and
+  tests that read the same JSON to assert isolation between nets. Could
+  offer: a verification command for source/schematic equivalence, and a
+  circuit-level connectivity query and assertion interface, so safety
+  requirements (two nets isolated, an enable pin held) live with placemat.
+  The rest of that session's schematic notes (ERC findings, no-connect
+  markers, hierarchy label aliases, orphan labels after a part swap, a
+  KiCad project's library tables) concern a schematic generator, not
+  placemat.
+
+- **Package-specific datasheet pages** (a board's session, 2026-09-26): for
+  a converter in one of two package variants, `placemat datasheet` indexed
+  the multi-package PDF and selected the page for the other variant, so the
+  land drawing for the variant in use was found by rendering the vendor's
+  current PDF by hand, and the pin table in the importer's PDF was
+  incomplete. Could offer: page selection by package code, and a warning
+  when the PDF the importer fetched lacks the drawing for the package named
+  in the footprint.
+
+- **Datasheet land, body and model comparison** (a board's session,
+  2026-09-26, 2026-09-27): five imported footprints disagreed with the
+  datasheet in ways `measure` showed only as a size: custom pads whose
+  polygons carry a 0.1 mm stroke that enlarges each edge by 0.05 mm (two
+  converter packages and a connector's four 0.6 x 1.3 mm lands drawn as
+  polygons, where the stroke shrank clearances to 0.1501 mm), a coil whose
+  lands were 2.15 x 3.32 mm at 5.82 mm pitch against 2.35 x 3.50 mm at
+  6.05 mm and whose fab outline was 6.6 x 6.6 against a 7.0 x 6.6 body,
+  and a capacitor whose STEP model measured 4.25 mm high with a negative
+  minimum Z against a 3.0 mm maximum. Done instead: the `.kicad_mod`
+  primitives read by hand, the model measured with build123d, adapted
+  footprints written. Could offer: `measure --pads` printing a custom pad's
+  stroke and its un-stroked bounds beside the copper outline (`--pads` now
+  gives the copper outline, which may already answer part of this; check
+  with the requester), `placemat datasheet check` accepting nominal and
+  maximum body bounds and a custom pad's outline, and a model report with
+  bounding box, seating plane and the datasheet's maximum height.
+
+- **A cell's declared frame and a named edge datum** (a board's session,
+  2026-09-26): `board.cell().box` is the union of parts and copper in the
+  generated parent's coordinates, not the fragment's declared frame or its
+  RF keepout's extent: an antenna fragment's frame is 9.885 x 6.45 mm while
+  its stamped cell reports 8.360 x 2.935 mm. The parent derived the edge
+  datum from a member's location relative to the cell's centre and the
+  datasheet's pad inset, with a keepout depth typed as a number. Could
+  offer: a cell's declared frame and a named edge datum in the public API.
+
+- **Editing a library footprint** (a board's session, 2026-09-26,
+  2026-09-27, four times): a silk circle or corner mark over its own part's
+  pad (three LEDs, a coil, an inductor's SW pad, a protection part's mask
+  openings) needed moving to the fab layer, and a QFN's land pattern needed
+  correcting (exposed land 2.8 mm to 2.45 mm, perimeter lands 0.28 x 0.70
+  mm to 0.24 x 0.60 mm, row centres 3.8 mm, four 1.08 mm paste apertures).
+  Placemat has no library editor, so the source `.kicad_mod` was edited and
+  the board regenerated through placemat. Could offer: a way to move a
+  library graphic between layers by index or by overlap with a pad, and to
+  edit lands and paste apertures, from the project rather than the source
+  file.
+
+- **Run history for fragments that share a directory** (a board's session,
+  2026-09-26; may be resolved by 0.38.0's per-board last run; check with the
+  requester): a first run of one fragment compared against another's
+  because both stand in one directory and share `.placemat` history, so its
+  impact was not a before/after. Could offer: best and history chosen per
+  board.
+
+- **Compare a run with a KiCad file** (a board's session, 2026-09-27, three
+  times): a hand layout of a fragment was folded into its script by reading
+  both boards' part positions with `placemat parts` and their copper
+  (tracks, vias, zone outlines by net) with a pcbnew `LoadBoard` dump and
+  `kicad-cli pcb export svg`, diffed as text or by eye. Nothing compares
+  copper. Could offer: `placemat impact` between a run and a KiCad file:
+  parts moved and turned, tracks, vias and zones changed, by net.
+
+- **Searching a cell that has a cutout attached** (a board's session,
+  2026-09-27): a protection fragment collides with fixed geometry in two
+  faces, so its parent needs to search it, but a vent anchored to the cell
+  is refused because cutout placement accepts only fixed or edge
+  dependencies (the error names a part in the cell). A fixed-rotation
+  diagnostic worsened the collisions. Could offer: a cutout placed from a
+  searched cell or part, riding it as a firm placement does.
+
+- **A position that is a sum of an x and a y** (a board's session,
+  2026-09-29; may be resolved in part by `Past(..., Corner.X, lane=)` in a
+  `Beside` align, 0.57.0; check with the requester): a comb of three
+  resistors fed by parallel 45-degree tracks, each 45 a clearance off the
+  next pad's corner, so each position is one reference's x plus another's
+  y. `X(ref, dx)` and `Y(ref, dy)` take a number offset only, and
+  `X(Part(...), dx)` is measured from the part's box centre, which on one
+  controller is 0.1 mm from the footprint origin that `pad_from_origin`
+  measures from; the comb landed 0.1 mm off until the numbers were
+  anchored on a pad, and nothing in the run said the two frames differ.
+  Done instead: numbers worked out from the controller's pads. Could offer:
+  arithmetic on references (`X(a) + Y(b) - k`), or a `Diagonal(ref,
+  clearance)` lane for 45-degree copper; and `X(Part)` documented as the
+  box centre, or an `Origin(part)` reference.
+
+- **A part's own centre level with another part's pad** (a board's session,
+  2026-09-29): a SOT-23-5 regulator centred under a microcontroller's
+  exposed pad. Its pads stand in two columns, so none lies on its centre
+  line. `Beside(..., align=)` takes the placed part's pad, a pad pair, or an
+  `Along` of the item's side; `Along.MID` of a chip lopsided by its pin-1
+  mark stood the regulator 0.3 mm off the exposed pad, which closed the gap
+  a ground pin reached the front ground through. Could offer:
+  `align=(Along.MID, PadRef(...))`, the placed part's own centre level with
+  a pad.
+
+- **A part's footprint origin on another point** (a board's session,
+  2026-10-01, twice): two windings drawn about one disc centre needed the
+  second's footprint origin (no pad) on the first's. `Pin(key, point)` needs
+  one of the part's own pads, and only a cell's `Pin` takes a member `Part`;
+  `Polar(0, about=Part(...))` and `Centre(X(Part(...)), Y(Part(...)))` place
+  the body centre, and the windings' bodies differ. Separately, a coin's
+  outline (no pads) needed its origin on the midpoint of two pins:
+  `board.place(Part, at=Mid(PadRef(a, 1), PadRef(b, 1)))` is refused ("at=
+  takes a Location, a Centre, a Pin, ... a Near or a point of references,
+  not Mid(...)"), and `Pin(key, Mid(...))` has no pad to key. Done instead:
+  `Location(0, 0)` and `Location(X(Mid(...)), Y(pad))`. Could offer:
+  `at=Pin(Part("b"), Part("a"))` for a part, its footprint origin on
+  another part's, and `at=Mid(...)` (any point form) for a part, its
+  footprint origin on the point.
+
+- **A part centred by two of its own pads on another pair's midpoint** (a
+  board's session, 2026-10-01): a coil reader's inputs (pins 9 to 12, so the
+  midpoint of pins 10 and 11) centred on the windings' centre line, the
+  part a fixed gap south of the tanks. Forms tried: `Beside(..., align=
+  PadRef / (own_pad, their_pad))` (best pairing 0.11 mm east of centred);
+  `align=(own, Past(...))` (a pad's edge past other pads, not a midpoint);
+  `Pin(key, X(Mid(...)), Y(...))` (one own pad: 0.25 mm off, and no Y
+  reference without an offset gives the reader's y); `Centre(X(Mid(...)),
+  ...)` and `row(of=, centre=PadRef)` (the body, 0.5 mm off the inputs'
+  midpoint; no gap form for y); `Pin(PadRef(part, 13, land=2), ...)` (a
+  `Pin` key refuses `land=`). Done instead: the pairing 0.11 mm east, the
+  longest 45 at 1.66 mm against 1.07 mm centred. Could offer: `Mid` of two
+  own pads as an `align=` or `Pin` key, `Beside(item, side, align=(Mid(9,
+  12), X(Mid(PadRef(a), PadRef(b)))))` or `Pin(Mid(10, 11), ...)`.
+
+- **A part turned parallel to the line through two pads** (a board's
+  session, 2026-10-01): each tank capacitor parallel to its winding's
+  terminal pair (3.96 degrees off the x axis), a gap inboard along that
+  pair's normal, so both stubs are equal (0.855 mm). Forms tried:
+  `Beside` (axis-aligned only); `rotation=Turned(Part, deg)` (the angle
+  would be read from pad positions); `Pin(1, PadRef(term, edge=...))`
+  (refused off the right angle, and the pads would touch with no stub);
+  `Polar(r, bearing, about=PadRef(...))` (computed from terminal positions;
+  `Pin(key, Polar(...))` was refused in 0.66.0, since fixed). Done instead:
+  axis-aligned at rotation 180, stubs 0.85 and 0.92 mm, each with a 1 um
+  jog from a 0402's 0.001 mm wider pitch. Could offer: `rotation=Along(
+  PadRef(a), PadRef(b))` with `Beside(item, side)` measured along that
+  line's normal; or a track end that snaps a sub-micron leg straight.
+
+- **A part turned so named pads face a side** (a board's session,
+  2026-10-01): a reader turned so pins 9 to 12 face north, a bypass so its
+  supply pin is north, a tank so pad A is east, each turn chosen by reading
+  pad offsets. `board.outward_rotation(item, edge)` answers for a cell's
+  declared faces or a part's local +Y, not named pins; `Turned(...)` is
+  relative to another part. Done instead: each turn a named constant with
+  an assert on the footprint's pad positions in its own frame. Could offer:
+  `rotation=Facing(PadRef(part, 9), Edge.NORTH)`, the turn that puts that
+  pad (or a pin row) on that side of the part.
 
 ## Housekeeping (left for Ben: outside this repository)
 
