@@ -41,9 +41,9 @@ def test_a_load_running_in_a_zone_is_judged_by_the_fill_not_by_a_boot_track():
 
 def test_a_route_through_a_zone_and_a_track_is_judged_by_the_track():
     parts, _ = _power()
-    copper = [_zone("SW", 13, 10, 4, 3), track("SW", 15, 10, 18.6, 10, w=0.5)]     # half zone, half a thin track
+    copper = [_zone("SW", 13, 10, 4, 3), track("SW", 15, 10, 18.6, 10, w=0.25)]     # half zone, half a thin track
     v = _sw(parts, copper)
-    assert v.ok is False and v.value == pytest.approx(0.5) and "zone" in v.note
+    assert v.ok is False and v.value == pytest.approx(0.25) and "zone" in v.note
 
 
 def test_the_note_names_the_pad_the_route_starts_from():

@@ -225,7 +225,7 @@ def _sw(pcb):
 
 
 @needs_kicad
-def test_a_pour_over_two_offset_pads_fails_current_path_and_passes_with_reach(tmp_path):
+def test_a_pour_over_two_offset_pads_is_narrow_for_current_path_and_widens_with_reach(tmp_path):
     from placemat.kicad.drc import run_drc
     (tmp_path / "bare").mkdir()
     (tmp_path / "reached").mkdir()
@@ -233,7 +233,8 @@ def test_a_pour_over_two_offset_pads_fails_current_path_and_passes_with_reach(tm
     plan = _declared(pcb, None).resolve()
     apply_plan(pcb, plan)
     narrow = _sw(pcb)
-    assert narrow.ok is False and narrow.value < narrow.limit, narrow
+    # narrower than the need, and short enough to be credited: width alone is what reach grows
+    assert narrow.value < narrow.limit and "credited as short" in narrow.note, narrow
     pcb2 = _written_node(tmp_path / "reached")
     plan = _declared(pcb2, 0.8).resolve()
     assert not [f for f in declared_findings(plan) if f.startswith("pour")], plan.findings

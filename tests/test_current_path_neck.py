@@ -1,6 +1,6 @@
 """check current-path gives its neck as a point and a length along the
-route: how far the widest route stays within 10% of its narrowest width.
-Pure: synthetic boards."""
+route: how far the widest route stays narrower than the width its current
+needs. Pure: synthetic boards."""
 import pytest
 
 from placemat.checks import current_paths
@@ -18,27 +18,29 @@ def _parts():
 
 
 def test_the_necks_point_lies_on_it_and_its_length_is_measured_along_it():
-    """A 2 mm long, 0.3 mm wide neck between two 0.6 mm wide runs: the point
-    is on the neck and the length is the neck's own, not the wide runs
-    either side of it. (The wide runs stay narrower than the neck's own
-    rounded end caps are long, so they do not touch each other directly.)"""
-    wide1 = track("VIN", 8.6, 10, 15, 10, w=0.6)
-    neck = track("VIN", 15, 10, 17, 10, w=0.3)
-    wide2 = track("VIN", 17, 10, 28.6, 10, w=0.6)
+    """A 6 mm long, 0.3 mm wide neck between two runs 1.5 mm wide, at least
+    what 3 A needs: the point is on the neck and the length is the neck's
+    own, not the wide runs either side of it. (The wide runs stay shorter
+    than the neck's own end caps are long, so they do not touch each other
+    directly.)"""
+    wide1 = track("VIN", 8.6, 10, 15, 10, w=1.5)
+    neck = track("VIN", 15, 10, 21, 10, w=0.3)
+    wide2 = track("VIN", 21, 10, 28.6, 10, w=1.5)
     v = _vin(_parts(), [wide1, neck, wide2])
     assert v.value == pytest.approx(0.3) and not v.ok
-    assert "neck at (16.00, 10.00), 2.00 mm long" in v.note
+    assert "neck at (18.00, 10.00)" in v.note and "a 6.00 mm long neck at 0.30 mm, too long" in v.note, v.note
 
 
-def test_the_length_sums_a_run_of_similarly_narrow_segments():
-    """The neck made of two 1 mm segments, both 0.3 mm wide: the length
-    covers both, not just the one the point sits on."""
-    wide1 = track("VIN", 8.6, 10, 15, 10, w=0.6)
-    neck1 = track("VIN", 15, 10, 16, 10, w=0.3)
-    neck2 = track("VIN", 16, 10, 17, 10, w=0.3)
-    wide2 = track("VIN", 17, 10, 28.6, 10, w=0.6)
+def test_the_length_sums_a_run_of_segments_narrower_than_the_need():
+    """The neck made of two 3 mm segments, 0.3 and 0.5 mm wide, both under
+    what 3 A needs: the length covers both, not just the one the point sits
+    on, and its width is the narrower."""
+    wide1 = track("VIN", 8.6, 10, 15, 10, w=1.5)
+    neck1 = track("VIN", 15, 10, 18, 10, w=0.3)
+    neck2 = track("VIN", 18, 10, 21, 10, w=0.5)
+    wide2 = track("VIN", 21, 10, 28.6, 10, w=1.5)
     v = _vin(_parts(), [wide1, neck1, neck2, wide2])
-    assert "2.00 mm long" in v.note
+    assert "a 6.00 mm long neck at 0.30 mm" in v.note, v.note
 
 
 def test_a_route_through_a_zone_fill_names_the_fills_narrowest_point():
@@ -57,23 +59,28 @@ def test_a_route_through_a_zone_fill_names_the_fills_narrowest_point():
 
 def test_an_arc_neck_is_measured_along_the_arc():
     """An arc's length is its own, not the chord between its ends."""
-    wide1 = track("VIN", 8.6, 10, 15, 10, w=0.6)
-    neck = track("VIN", 15, 10, 17, 10, w=0.3, length=2.5)      # an arc: 2.5 mm along, 2 mm across
-    wide2 = track("VIN", 17, 10, 28.6, 10, w=0.6)
+    wide1 = track("VIN", 8.6, 10, 15, 10, w=1.5)
+    neck = track("VIN", 15, 10, 21, 10, w=0.3, length=6.5)      # an arc: 6.5 mm along, 6 mm across
+    wide2 = track("VIN", 21, 10, 28.6, 10, w=1.5)
     v = _vin(_parts(), [wide1, neck, wide2])
-    assert "2.50 mm long" in v.note
+    assert "a 6.50 mm long neck" in v.note, v.note
 
 
-def test_a_pour_neck_is_named_as_the_pours_not_given_a_length():
-    """A drawn pour's narrowest point has no length along the route: the
-    note says it is the pour's, not "0.00 mm long"."""
+def test_a_pour_neck_is_named_as_the_pours_and_given_the_length_the_raster_measures():
+    """A drawn pour's narrowest point is named as the pour's, and its length
+    is how far the route runs through pour narrower than the need: the 13 mm
+    neck and the flare into it at each end (a disc 1.37 mm across no longer
+    fits), within a step or two."""
     from placemat.board_geometry import CopperItem
     from placemat.values import Box, CopperLayer
     dumbbell = ((8, 8), (13, 8), (13, 9.5), (26, 9.5), (26, 8), (31, 8), (31, 12), (26, 12), (26, 10.5),
                 (13, 10.5), (13, 12), (8, 12))
     pour = CopperItem("poly", "VIN", frozenset([CopperLayer.F]), (dumbbell,), Box.of_points(dumbbell))
     v = _vin(_parts(), [pour])
-    assert "mm long" not in v.note and "the pour's narrowest" in v.note, v.note
+    assert "the pour's narrowest" in v.note, v.note
+    import re
+    length = float(re.search(r"a ([\d.]+) mm long neck", v.note).group(1))
+    assert 13.0 <= length <= 15.5 and "too long" in v.note, v.note
 
 
 def test_a_pour_is_judged_along_the_route_not_by_a_sliver_off_it():

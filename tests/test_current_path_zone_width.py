@@ -82,10 +82,10 @@ def test_a_fill_thinner_than_one_step_reads_as_one_step_and_says_so():
 def test_a_route_through_a_fill_and_a_narrower_track_is_judged_by_the_track():
     """The track ends on the fill's edge; the fill beside its end is no
     narrower than the track, so the track is the neck."""
-    copper = [_zone("SW", rect(13, 10, 4, 3)), track("SW", 15, 10, 18.6, 10, w=0.5)]
+    copper = [_zone("SW", rect(13, 10, 4, 3)), track("SW", 15, 10, 18.6, 10, w=0.25)]
     v = _sw(_parts("3.6A"), copper)
-    assert v.ok is False and v.value == pytest.approx(0.5), v.note
-    assert "mm long" in v.note and "zone fill" in v.note
+    assert v.ok is False and v.value == pytest.approx(0.25), v.note
+    assert "3.60 mm long neck at 0.25 mm" in v.note and "zone fill" in v.note
 
 
 def test_copper_distance_reads_the_real_distance_not_zero_everywhere(monkeypatch):

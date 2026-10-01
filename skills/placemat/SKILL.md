@@ -516,7 +516,10 @@ the script.
   should carry: say so in the run notes.
 - A design check that fails where no layout does better is accepted only on
   the user's reason: declare it with `board.accept(..., why=)`, not by
-  loosening a board-wide limit (`check.limits`, `--rise`, `--keep-out`).
+  loosening a board-wide limit (`check.limits`, `--rise`, `--keep-out`). A
+  keep-out distance a part's datasheet draws is a fact about the part, not an
+  acceptance: it is `Pm.KeepOut` on the part with the datasheet cited
+  (`references/capture.md`).
 
 ## Gates, in order
 

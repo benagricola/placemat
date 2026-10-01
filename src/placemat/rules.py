@@ -16,12 +16,20 @@ class Rule:
     within: str | None = None           # a cell (a KiCad group)
     between: tuple[str, str] | None = None
     on: str | None = None               # one net
+    of: str | None = None               # with `between=(a, b)`: only where the copper on `b` is a pad of this part and the copper on `a` is not
 
     def condition(self) -> str:
         if self.within is not None:
             return "A.memberOf('%s') && B.memberOf('%s')" % (self.within, self.within)
         if self.between is not None:
             a, b = self.between
+            if self.of is not None:
+                # a pad of the part on b, and not a pad of the part on a (A.Reference is empty on a track or a via);
+                # KiCad matches a rule in both orders, written out as `between` is
+                def side(x, y):
+                    return "%s.NetName == '%s' && %s.NetName == '%s' && %s.Reference == '%s' && !(%s.Reference == '%s')" % (
+                        x, a, y, b, y, self.of, x, self.of)
+                return "(%s) || (%s)" % (side("A", "B"), side("B", "A"))
             return "(A.NetName == '%s' && B.NetName == '%s') || (A.NetName == '%s' && B.NetName == '%s')" % (a, b, b, a)
         return "A.NetName == '%s'" % self.on
 
@@ -55,15 +63,20 @@ class ClearanceRules:
                     return r
             elif r.between is not None:
                 a, b = r.between
-                if (net_a == a and net_b == b) or (net_a == b and net_b == a):
+                if r.of is not None:
+                    # the part's pad on b, with the copper of a that is not its own pad
+                    if (net_a == a and net_b == b and owner_b == r.of and owner_a != r.of) \
+                            or (net_b == a and net_a == b and owner_a == r.of and owner_b != r.of):
+                        return r
+                elif (net_a == a and net_b == b) or (net_a == b and net_b == a):
                     return r
             elif r.on in (net_a, net_b):
                 return r
         return None
 
     def native(self) -> list:
-        """The rules as the native module takes them, in declaration order: (on, between, within owners, min)."""
-        return [(r.on, r.between, sorted(self.cell_owners[r.within]) if r.within is not None else None, r.min_mm)
+        """The rules as the native module takes them, in declaration order: (on, between, within owners, min, of)."""
+        return [(r.on, r.between, sorted(self.cell_owners[r.within]) if r.within is not None else None, r.min_mm, r.of)
                 for r in self.rules]
 
     def largest(self) -> float:

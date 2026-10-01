@@ -20,6 +20,7 @@ case-insensitively; use these:
 | `Pm.Loop` | a loop's name: the parts that share one form one loop; `hot` by convention for the fast-current loop (input caps, the switch) | hot-loop |
 | `Pm.Aggressor` | `true` | switch-node, keep-out |
 | `Pm.Sensitive` | the net on the part's pads that must stay clear, by name: `VFB` | keep-out, crossings-under |
+| `Pm.KeepOut` | a datasheet keep-out distance for the part's pins, cited: `0.7mm pads=FB,COMP away=SW,BOOT; datasheet rev B, section 10.2, layout example` | keep-out, the layout (a clearance) |
 | `Pm.I` | amps at full load per net the part's pads carry: `vin:3A sw:3A`; a bare `3A` means every pad | current-path |
 | `Pm.Pd` | watts at full load, worst case, from the datasheet | heat |
 | `Pm.TjMax` | e.g. `125C` | heat |
@@ -48,6 +49,41 @@ at what it draws, not at the load.
 
 A value is a plain string with its unit, with its source in a comment
 beside it (the datasheet section); a placeholder says so.
+
+### Keep-out distance on a part
+
+`Pm.KeepOut` is a datasheet fact about a part: its feedback or compensation
+pin may stand only so near its switch node, and the datasheet's own reference
+layout says how near. It lives on the part, so it holds in every board that
+uses the part and in every module that is stamped into a parent; do not
+write it as `board.accept("keep-out", ...)` in each layout script, which is
+for one verdict a layout cannot do better on.
+
+```
+Pm.KeepOut: <distance>mm [pads=<net>[,<net>...]] [away=<net>[,<net>...]]; <citation>
+```
+
+- The distance is in mm (`0.7mm` or `0.7`), above zero. It may be below or
+  above `check.keep_out_mm`.
+- `pads=` names the nets of this part's pads that keep the distance (the
+  sensitive pins: feedback, compensation). Without it, the part's
+  `Pm.Sensitive` net.
+- `away=` names the nets of this part's pads whose copper the pads keep away
+  from (the switch and boot pins). Without it, the switch nodes the part is
+  on.
+- Name nets as the capture names them for this part; the last part of a
+  net's path matches (`BUCK1.SW` is `SW`), so the same annotation reads in
+  the module and in a parent that stamps it. A name no pad of the part
+  carries refuses the annotation.
+- The citation after `;` is required: the datasheet and where in it the
+  distance is stated or drawn. An annotation without one is refused, and so is
+  one whose distance does not read.
+- It acts as a clearance between the copper on the `away=` nets and this
+  part's `pads=` pads, held by the planner (a fitted pour, a track, a via,
+  another part's pad) and judged by `keep-out` alike. The part's own pads are
+  not held to it: their spacing is the footprint's. Other copper on the same
+  nets, another part's pads and copper that leaves this part's own pads keep
+  the netclass figure.
 
 ## Sources and limits
 
@@ -123,7 +159,9 @@ runs the same checks on the board it wrote.
   extent; `--limit switch-node=<mm2>`
 - `keep-out`: the nearest sensitive-net copper to each switch node,
   against `--keep-out` (default 2 mm), naming the two pieces of copper; a
-  part's own pins are its package and are not judged
+  part's own pins are its package and are not judged. Where a pad of the
+  pair is a part's `Pm.KeepOut` pad against copper on its `away` net, the
+  part's cited distance is the limit instead, and the note says so
 - `crossings-under`: other nets' copper on another layer under a
   sensitive net's tracks, unless a plane fill on a layer between them
   covers the crossing; zones and vias do not count, the limit is zero
@@ -134,7 +172,10 @@ runs the same checks on the board it wrote.
   width at `--rise` (default 10 C), on the copper weight the board's own
   stackup gives that layer (the IPC-2221 inner-layer constant on an inner
   layer, outer on F.Cu/B.Cu; a layer the stackup does not weigh falls back
-  to 1 oz), with the neck's point and length; carriers no copper joins yet
+  to 1 oz), with the neck's point; a neck narrower than the width needed
+  is judged by its length too, credited as short or too long
+  (`check.neck_end_share`, `neck_resistivity`, `neck_conductivity`); carriers
+  no copper joins yet
   are reported, not judged, and so is a net only one part carries: give
   the part that takes the load (an input connector's load, a switch's
   inductor, a supply's output) its

@@ -1742,12 +1742,53 @@ After the checks run, a failed verdict inside its bound reads `accepted
 (`checks_accepted` in the metrics, beside `checks_failed`; the `checks` head
 line counts it). Past the bound it fails as before and its note says "past its
 acceptance of <bound>: <why>". The `checks` lines print every acceptance and
-what it matched. `run.json` carries them under `acceptances` (`check`,
+what it matched. `board.accept` is for a one-off verdict where the layout cannot
+do better, with its reason. A datasheet fact about a part - how near its feedback
+pin may stand to its switch node - is not a verdict to accept per net in each
+script: it is `Pm.KeepOut` on the part (`references/capture.md`), cited, and holds
+in every board and every module stamped into one. `run.json` carries them under `acceptances` (`check`,
 `subject`, `side`, `bound`, `why`, the verdict's `value`, and an `outcome` of
 `accepted`, `past`, `unmatched` or `not needed`). An acceptance that matches
 no verdict, or whose verdict passes or is not judged without it, is a `setup`
 finding. An acceptance moves no part or copper and is in no reuse or lock
 digest. `placemat check` has no script and judges as ever.
+
+## A part's keep-out
+
+```
+Pm.KeepOut: 0.7mm pads=FB,COMP away=SW,BOOT; datasheet rev B, section 10.2, layout example
+```
+A datasheet's keep-out distance for a part's pins is a field on the part (the
+capture writes it; `references/capture.md` has the form), not a rule in a
+script. The part's pads on the nets named by `pads=` keep that distance from
+the copper on the nets named by `away=` - both nets of the part's own pads,
+named as the capture names them (a stamped module's nets carry its path, and
+the last part of the name matches: `BUCK1.SW` is `SW`). The default for `pads=`
+is the part's `Pm.Sensitive` net; for `away=` the switch nodes the part is on. The
+citation after `;` is required.
+
+The plan holds it as a clearance, and the check judges by it:
+
+- between each `away` net's copper and each of the part's `pads` net's pads: a
+  fitted pour's outline, a declared track, a via and another part's pad keep
+  the distance from that pad (`rules.Rule.of`, written to the `.kicad_dru`
+  beside the board for KiCad's DRC, and in native), where the netclass or a
+  script's `board.rule` for the pair would not ask for more - a datasheet
+  distance never lowers a clearance;
+- the part's own pads are exempt, whichever nets they are on: the footprint
+  sets that gap, and nothing a layout does changes it (the check says when it
+  is nearer than the verdict's pair);
+- other copper on the same nets, another part's pads on `pads=` nets, and
+  copper leaving the part's own pads keep the netclass figure: the datasheet
+  states the part's pins, not the net;
+- a `Pm.KeepOut` that does not read (no citation, a distance that does not
+  parse or is not above zero, a net no pad of the part carries) refuses the
+  run at `resolve()` naming the part, and `placemat check` reports it as a
+  failed verdict; `[place] conflict_gap` must be at least the distance, as for
+  any clearance rule.
+
+`board.accept("keep-out", ...)` stays for a one-off verdict. A datasheet fact
+about a part belongs on the part.
 
 ## Blocks
 
@@ -2651,7 +2692,13 @@ that contribute and their distances: `exposure  U2 magnetic  0.21 mT
 (limit 0.3) ok - magnetic at the body centre: M1 0.21 mT at 15.9 mm`. A
 kind no source emits passes at zero and says so; a `Pm.Emits` or `Pm.Limit`
 that does not read is one unjudged verdict naming the part. The keep-out verdict judges what layout can change - a part's own
-pins are its package, left out - and names the two pieces of copper that
+pins are its package, left out - against `check.keep_out_mm` (`--keep-out`),
+or against the part's own limit where a pad of a part carrying `Pm.KeepOut`
+is one of the pair: the limit is the datasheet distance the part cites, the
+verdict's note says "limit 0.7 mm from U3's Pm.KeepOut (<citation>), not the
+board-wide 2 mm", and a `Pm.KeepOut` that does not read is a failed
+`<ref> Pm.KeepOut` verdict, the part judged at the board-wide limit. The
+same distance is held in the plan (see "A part's keep-out" below). It names the two pieces of copper that
 set its distance and their points, a pad by its part and number, a track
 or via by its net and ends: "L1 pad 1 (SW) at (x, y) to U3 pad 9 (FB) at
 (x, y)"; a nearer pair inside one part is said after it: "U3's own pads are
@@ -2671,10 +2718,35 @@ are judged at the lesser of their two currents - what can flow between
 them - by the narrowest point of the widest route from any pad of one to
 any pad of the other; the net's verdict is its worst pair, naming both ends
 and the current, and its neck: the point along the route the width is
-narrowest, and how far the route stays within 10% of that width, measured
-along the copper the widest route passes - "neck at (x, y), 0.9 mm long".
-Where the neck is in a zone fill, the point is the fill's narrowest
-point, with no length. A net only one part carries is not judged: one carrier cannot
+narrowest - "neck at (x, y)". A route's width is the widest to any pin of
+the load on the net: a load with several pins on a net (a small pin and an
+exposed pad) is judged by the route to whichever is joined widest.
+
+A neck is the stretch of the route narrower than the width its current
+needs, and its length is measured along the route: through tracks, the
+run of consecutive track segments narrower than the need (an arc along the
+arc); through a pour or a zone fill, from the raster the check builds, the
+path distance between where the copper at the entry reaches fill the need
+wide and where the copper at the exit does (the flare into a neck counts,
+a disc the need wide no longer fitting there), read within a step or two.
+IPC-2221's chart is for a long conductor; a short constriction between
+wide copper loses heat by conduction into the copper either side (IPC-2152
+has no length term; Brooks and Adam's simulation, 2015, shows a 1 in. neck
+at two thirds of a 6 in. neck's rise). A neck narrower than its need is
+credited as short when conduction to the copper at each end alone holds its
+peak rise, `rho I^2 L^2 / (8 k (w t)^2)` (one-dimensional conduction,
+uniform heat generation, no side loss), inside `1 - check.neck_end_share`
+of `check.rise_c`; `L_max = (w t / I) sqrt(8 k (1 - end_share) rise_c / rho)`
+is the longest neck of that width that passes. The note says width, length
+and which: "a 0.40 mm long neck at 1.03 mm, credited as short: 0.01 C of its 4 C
+share of the 10 C rise by conduction to the copper at each end (a 1.03 mm wide
+neck passes up to 7.48 mm at 3.6 A)", or "too long: ..." and the verdict fails
+as it did before lengths were weighed. The verdict's value is still the width and
+its limit the need. The copper at each end is taken as wide (a pad is taken
+as a sink, as the route search takes it as passing any width) and cool to the
+extent of `check.neck_end_share`; a fill narrower than one raster step has
+no measurable length and is not credited. `reach=Reach.CURRENT` on a fitted pour
+keeps widening toward the full width: only the verdict credits a short neck. A net only one part carries is not judged: one carrier cannot
 say where its load goes (the widest-joined other pad is as often a
 capacitor carrying ripple), and the verdict asks for a `Pm.I` on the part
 that takes the load. A part carries on a net only at a current above zero:
@@ -3070,7 +3142,10 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `check.ambient_c` | 100.0 | board temperature the junction estimate starts from (`--ambient`) |
 | `check.keep_out_mm` | 2.0 | how far sense copper stays from a switch node (`--keep-out`) |
 | `check.rise_c` | 10.0 | the rise a current path is sized for (`--rise`) |
-| `check.neck_band` | 0.1 | a current path's neck runs as far as its track stays within this fraction of the narrowest width |
+| `check.neck_band` | 0.1 | no longer read: a neck is the stretch narrower than the width its current needs; a config naming it still loads |
+| `check.neck_end_share` | 0.6 | the share of `check.rise_c` the copper at a short neck's two ends is taken to have used (Brooks and Adam's simulated trace ends sit at 57.9 C of a 94.7 C peak); the neck is credited as short when its own conduction rise stays inside the rest. 1 turns the credit off |
+| `check.neck_resistivity` | 2.2e-8 | copper's resistivity at the working temperature, ohm m (1.68e-8 at 20 C, 4.04e-3 per K, at 100 C) |
+| `check.neck_conductivity` | 384 | copper's thermal conductivity, W/(m K) |
 | `check.zone_step` | 0.05 | the cell a zone fill is rasterised at to measure its width along a load's route; the width reads within one step |
 | `check.limits` | none | a bound per check, e.g. `"hot-loop" = 20.0` (`--limit`) |
 | `parts.order_fields` | `["Lcsc", "LCSC", "Mpn", "MPN"]` | a footprint field naming an order code (an LCSC number, an MPN); `parts` warns when a placed part (not `dnp`) has none of them present and non-empty |

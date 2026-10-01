@@ -25,17 +25,17 @@ file. An item cites its source as "a board's session, <date>".
   ball grid); `row()` takes no `Facing`; scripts still compute a turn to
   read which side a pad lands on. Being built.
 
-- **current-path weighs a neck's length; a keep-out limit per part** (a
-  board's session, 2026-10-01; the user's words relayed): a pour necking
-  between a package's adjacent pads cannot be widened, and a short neck
-  should be judged by its length too; regulators' datasheets put feedback
-  closer to the switch node than the board-wide keep-out, so the limit
-  belongs on the part, cited. Being built.
-
 - **Labels kept on the board** (found building labels that yield): a label
   giving way is not checked against the outline. Being fixed.
 
 ## Open
+
+- **Current shared between a load's pins** (a board's session, 2026-10-01):
+  `current-path` judges a load by the widest route to any one of its pins at
+  the full current. Where the routes to two pins have separate necks, the
+  current splits between them and neither neck need carry it all; a pour has
+  no per-route width to flow over the route graph. Wanted: a flow with a
+  width per neck, only where the routes share no neck.
 
 - **A via field re-laid round a conflict** (the via give-way
   investigation, 2026-10-01): when an item's copper meets some vias of a
