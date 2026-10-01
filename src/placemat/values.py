@@ -99,6 +99,13 @@ class Along(str, Enum):
         return {"start": 0.0, "mid": 0.5, "end": 1.0}[self.value]
 
 
+class Turns(str, Enum):
+    """The turns a search may take, said without a step: ANY is every
+    `place.bearing_step` degrees round the circle. `rotations=` also takes a
+    list of angles, or a number, the step in degrees."""
+    ANY = "any"
+
+
 class Line(str, Enum):
     """How a row's items align across the row, from the edge inward."""
     CENTRE = "centre"

@@ -21,7 +21,8 @@ def explorable(intent) -> bool:
     """An item whose spot the scan chooses: searched from its links or round
     a Near() hint. An edge, a line, a rim, a run or a spoke slides by its own
     rule, and a decided item has nothing to choose."""
-    return (intent.freedom is Freedom.SEARCHED and intent.edge is None and intent.run is None
+    return (intent.freedom is Freedom.SEARCHED and not intent.turns_on_point
+            and intent.edge is None and intent.run is None
             and intent.rim is None and intent.pin_x is None and intent.pin_y is None
             and intent.angle is None and intent.radius_at is None)
 

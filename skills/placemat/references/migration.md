@@ -7,6 +7,26 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **Settings for what were literals**: `place.edge_step`, `place.pocket_step`,
+  `place.freedom_min_step`, `place.cutout_step`, `place.cutout_angle_step`,
+  `place.escape_cell`, `copper.finger_min_piece`, `copper.tap_overlap`,
+  `geometry.cap_steps`, `check.neck_band`, `solve.pull`, `solve.spread_pull`
+  and `solve.spread_growth`. Each defaults to the value it had, so nothing
+  moves.
+
+- **A turn searched about a fixed point**: `rotations=` on a place that is a
+  point (`Pin` on a part's pad, a cell's member pad or a member's origin,
+  `Location`, `Centre`, `Origin`, `Mid`) keeps the item on the point and
+  searches its turn. Each turn is judged as a decided place is (the board's
+  keep-in, keepouts, other items) and scored as any search is (links,
+  `Pm.Emits`/`Pm.Limit` pairs, `board.push`, escape lanes); the cheapest
+  wins, and a tie goes to the `rotation=` given. A bearing to avoid is a
+  keepout over what stands there. `rotations=` also takes a step in degrees
+  (`rotations=5`) or `Turns.ANY`, every `place.bearing_step` degrees
+  (default 5.0). Before, `rotations=` on such a place was read and ignored.
+
 ### Migration steps
 
 **A pour with `grow=` becomes a fitted pour.** `board.pour(net, pads, layer=,
@@ -24,6 +44,32 @@ board.pour(Net("<NET>"), [PadRef(Part("a"), "<PAD>"), PadRef(Part("b"), "<PAD>")
 board.pour(Net("<NET>"), [PadRef(Part("a"), "<PAD>"), PadRef(Part("b"), "<PAD>")], layer=CopperLayer.F, swallow_pads=True,
            why="...")
 ```
+
+**A cell turned about a fixed point at a bearing picked by hand becomes a
+searched bearing.**
+
+```python
+# before: the bearing is a constant, chosen by trying turns until the links looked right
+board.place(Cell("c"), rotation=FIXED_DEG, at=Pin(Part("c.member"), POINT))
+
+# after: the turn is searched about the point, scored by the links, pushes and keepouts
+board.place(Cell("c"), at=Pin(Part("c.member"), POINT), rotations=Turns.ANY)
+board.keepout(Circle(4.0), "arms", at=..., why="where the arms join")   # a bearing to avoid is a region
+```
+
+A script that already passes `rotations=` with a `Pin`, `Location` or `Centre`
+that names a point now has its turn searched; before, the item was laid once
+at `rotation=` (0 if none) and `rotations=` was ignored. Drop `rotations=` to
+keep that one turn.
+
+### Fixed
+
+- A fixed cell whose member is drawn as an arc along a round rim is no longer
+  refused "body box ... is past the board's keep-in" when the member's box
+  corner passes the rim but its pads, courtyard and copper do not. A fixed
+  part turned off the axes was already judged by what it is; a cell now falls
+  back to its shapes when its members' boxes fail, as a part does. A searched
+  item is still judged by boxes, natively and in Python alike.
 
 ## To 0.69.0
 
@@ -71,13 +117,6 @@ board.pour(Net("<NET>"), [PadRef(Part("a"), "<PAD>"), PadRef(Part("b"), "<PAD>")
   pads. A via counts on the pour's layer when its span includes it; one that
   does not span it is a finding naming it, as is a pad without copper there.
   The pour is planned after its vias.
-
-- **Settings for what were literals**: `place.edge_step`, `place.pocket_step`,
-  `place.freedom_min_step`, `place.cutout_step`, `place.cutout_angle_step`,
-  `place.escape_cell`, `copper.finger_min_piece`, `copper.tap_overlap`,
-  `geometry.cap_steps`, `check.neck_band`, `solve.pull`, `solve.spread_pull`
-  and `solve.spread_growth`. Each defaults to the value it had, so nothing
-  moves.
 
 ### Migration steps
 

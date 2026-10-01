@@ -57,6 +57,7 @@ request (SKILL.md, "When no form says it").
 | turned parallel to the line between two pads (any angle) | `rotation=Parallel(PadRef(a, 1), PadRef(a, 2))` | Placement (Turns) |
 | a point a gap off a pad along that line's normal | `Polar(gap, Bearing(a, b, 90), about=pad)` | Placement (Turns) |
 | turned so a pad's row faces a board side | `rotation=Facing(PadRef(part, n), Edge.NORTH)` | Placement (Turns) |
+| on a point, its turn (a bearing) searched, scored by links, pushes and keepouts | `at=Pin(Part("c.member"), Location(x, y)), rotations=Turns.ANY` | Placement (Turns) |
 | turned to face a board edge or a bearing | `board.outward_rotation(item, edge, face=)` | Faces |
 | its fine-pitch escape kept clear | `board.fanout(part, depth=)` | Placement |
 | a pin row's routes out kept clear, lanes and vias, before parts are placed | `esc = board.escape(part, pins, turn=Edge.WEST, vias=[...])` | Placement (Escape) |
@@ -227,6 +228,7 @@ board.place(item, at=Pin("VIN", X(pin), Y(pin, 2.0)), rotation=90)       # FIXED
 board.place(item, at=Beside(Part("u1"), Edge.EAST, align=Along.MID))   # FIXED: the drawn envelope a gap off another item's
 board.place(item, at=Near(Location(x, y)), radius=3.0, step=0.2, rotations=(0, 90))  # searched round a hint
 board.place(item, at=Near(PadRef(u1, 3).local(0.4, -1.2), radius=0), rotation=Turned(u1, 90))  # off a pad in its part's own frame, turned with it
+board.place(cell, at=Pin(Part("c.member"), Location(x, y)), rotations=Turns.ANY)  # on the point, its turn searched (one freedom)
 ```
 `item` is a `Part` (schematic instance), a `Cell` (module group) or a block
 (below). One declaration per item. `why=` is recorded in the run. A FIXED
@@ -383,6 +385,42 @@ nearest what they connect to. `rotation=` keeps that one rotation;
 `rotations=` the ones listed. An edge, a line or a ring decides its item's
 rotation, and a cell or a block keeps its own. `[place] rotations =
 "declared"` tries only the declared rotation.
+
+**The turns `rotations=` names.** A list of angles (any angle, `range(0, 360,
+5)`), a number, the step in degrees from 0 (`rotations=5` is 0, 5 ... 355;
+between 0 and 360), or `Turns.ANY`, every `place.bearing_step` degrees
+(default 5.0), so a script need not carry the step. `Near(rotations=)` takes
+the same. Each turn is another candidate at every point scanned, so a fine
+step costs that many times the scan.
+
+**A point with turns to search.** `rotations=` on a place that is a point -
+`Location`, `Centre`, `Pin` (a part's pad, a cell's member pad, or a member's
+origin, `Pin(Part("c.member"), point)`), `Origin`, `Mid` - leaves the item on
+the point and searches its turn, as `OnRim()` searches a slide: the item is
+searched, with one freedom, and waits its turn in the rank. Each turn is laid
+as the declaration lays it (the point stays on its spot), kept when the item
+is legal there - the board's keep-in judged by what a member is, a round rim
+and a member drawn as an arc, keepouts, hard-limit discs, other items, carried
+vias giving way - and scored as a search scores: links, `Pm.Emits` and
+`Pm.Limit` pairs, `board.push`, escape lanes. The cheapest wins; a tie goes to
+the turn nearest `rotation=` (0 without it), then the smaller angle, so with
+nothing to pull it the item keeps the turn it was given. The step says
+`turned 180 of 72 bearings tried about its point, cost 17.70`.
+
+```python
+board.place(Cell("winding"), at=Pin(Part("winding.a"), Location(x, y)), rotations=Turns.ANY)
+board.keepout(Circle(4.0), "arms", at=Location(ax, ay), why="where the arms join")  # a bearing to avoid is a region
+```
+
+A bearing to avoid is said by what stands there: a keepout over the region
+refuses every turn that puts a member in it, and an emitter or limit pair or a
+`board.push` costs the turns that stand near the aggressor. A rule area on the
+cell's own module follows the turn taken. With every turn refused the item is
+unplaced and the finding names the refusals. An item placed beside the cell
+rides it (below). A keepout shaped by one of its members (`board.keepout(Part,
+...)`) is refused as for any searched item, since regions are settled with the
+firm items; the global solve, the cleanup pass and explore leave it on its
+point. A fixed `rotation=` with no `rotations=` is laid once, as before.
 
 **The rank.** Unless the script says, a searched item's place in the queue
 is worked out from what it IS: how much board its courtyard needs and how
@@ -867,6 +905,14 @@ claimed as the polygon KiCad draws and its DRC tests, not the box round it:
 parts whose boxes overlap but whose courtyards do not may stand together, and
 on a round board its edge is judged by the polygon's points
 (`place.courtyard_polygon_share`).
+
+**A cell against a round rim.** A cell is judged against the board's edge by
+its members' boxes, not the box round them, so an arc of members along a rim
+may stand where the box round the arc passes it. For an item whose place the
+script decided (`Location`, `Pin`, an edge or a rim), a member whose own box
+corner passes the rim is judged again by the corners of its pads, courtyard
+and copper, so a member drawn as an arc may stand along the rim; a searched
+item is judged by boxes, as a part is.
 
 **The far face.** A part's courtyard and body are on its own face. Its
 plated pads and unplated holes reach both, so on the far face a part keeps
@@ -2803,6 +2849,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.radius` | 3.0 | a search's default radius |
 | `place.step` | 0.2 | a search's default step |
 | `place.rotations` | "all" | a searched part with no `rotation=` or `rotations=`: `all` four rotations, or only its `declared` one |
+| `place.bearing_step` | 5.0 | degrees between the turns of `rotations=Turns.ANY` |
 | `place.envelope` | "courtyard" | what a part claims against another: `courtyard` (its courtyard and pads), `physical` (its pads, mask openings, silk and body, each at the board's own gap), or `union` (both) |
 | `place.coarse_steps` | 4 | how many steps apart a scored scan's first pass walks |
 | `place.coarse_from` | 12 | radius-to-step ratio from which a scan goes coarse first |

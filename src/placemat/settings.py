@@ -49,6 +49,7 @@ class Settings:
     place_step: float = 0.2
     place_envelope: str = "courtyard"   # what a part claims: its courtyard, its pads, mask, silk and body, or both
     place_rotations: str = "all"        # a searched part with no rotation given: all four, or only its declared one
+    place_bearing_step: float = 5.0     # degrees between the turns of rotations=Turns.ANY
     place_coarse_steps: int = 4
     place_coarse_from: float = 12.0
     place_refine_around: int = 3
@@ -308,7 +309,7 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 # zero scan step never moves, a zero timeout never runs. Weights are absent
 # from this table because weighting a dimension at nothing is a real choice.
 _ABOVE_ZERO = frozenset((
-    "place_radius", "place_step", "place_coarse_from", "place_coarse_steps",
+    "place_radius", "place_step", "place_bearing_step", "place_coarse_from", "place_coarse_steps",
     "place_refine_around", "place_block_gap_step", "place_block_gap_reach", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "geometry_cap_steps", "solve_spread_growth", "solve_pull", "score_escape_depth", "place_via_move_step", "place_via_clear_cache",
     "place_conflict_gap", "place_fit_room", "copper_bridge_half", "copper_finger_bridge_width", "copper_finger_min_piece",
     "copper_plane_min_thickness", "copper_pour_stroke", "copper_microvia_drill", "label_size",
