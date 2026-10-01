@@ -5,6 +5,19 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A stamped cell's faces note is left out of the written board.** A
+  fragment's `board.faces(...)` note (a `placemat faces ...` text on
+  User.Comments, 1 mm below its content) was stamped with the cell as a
+  member of its group and stayed where it was when the cell was turned and
+  placed, so a group's box spanned the gap (99 to 110 mm in one parent) and
+  hand-placing it in KiCad was painful. The parent still reads the faces
+  from it; the run now deletes the note from the written board. A fragment
+  opened on its own keeps its note. Nothing in a script changes.
+
 ## To 0.74.0
 
 ### New
