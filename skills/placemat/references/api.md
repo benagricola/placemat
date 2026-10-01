@@ -48,6 +48,12 @@ replaces. Only a relation that search cannot say goes in the board's
 | turned with another part | `rotation=Turned(part, deg)` | Placement |
 | turned to face a board edge or a bearing | `board.outward_rotation(item, edge, face=)` | Faces |
 | its fine-pitch escape kept clear | `board.fanout(part, depth=)` | Placement |
+| a pin row's routes out kept clear, lanes and vias, before parts are placed | `esc = board.escape(part, pins, turn=Edge.WEST, vias=[...])` | Placement (Escape) |
+| a track along one of those lanes, through its via | `board.track(net, [esc[pin], ...])` | Placement (Escape) |
+| a part beside a lane's via, or beside the whole escape | `at=Beside(esc[pin].via, Edge.WEST)` / `at=Beside(esc, Edge.NORTH)` | Placement (Escape) |
+| a part's pad on a pin's lane | `at=Beside(item, Edge.WEST, align=(own_pad, esc[pin]))` | Placement (Escape) |
+| a part's pad at the end of a lane | `at=Pin(key, X(esc[pin].end), Y(esc[pin].end))` | Placement (Escape) |
+| a via or a track held off a lane's via | `Past([esc[pin].via], Edge.WEST)` | Placement (Escape) |
 | **groups of parts** | | |
 | a part and the parts at its pins | `board.block(anchor, satellites=[(item, net), ...])` | Blocks |
 | parts down a board edge, in order | `board.row(items, edge)` | Placement (Rows) |
@@ -406,6 +412,111 @@ satellites of a block it anchors and parts linked to its pads at
 `LinkWeight.SHORT` or more may enter; a resistor seeded on a GPIO lands at
 the nearest legal spot outside, across the band from its pin.
 
+**An escape** keeps a pin row's routes out, and says where they run:
+
+```python
+esc = board.escape(Part("pd"), [32, 31, 30], turn=Edge.WEST, vias=[31, 30],
+                   widths={32: OUT_TRACK}, why="OUT, SENSE and PGOOD out of the north row")
+board.place(Part("c_pd"), at=Beside(esc[30].via, Edge.WEST, align=(2, esc[32])),
+            why="OUT's capacitor at the end of its lane, west of PGOOD's via")
+board.track(Net("OUT"), [esc[32], PadRef(Part("c_pd"), 2)], layer=CopperLayer.F)
+board.track(Net("SENSE"), [esc[31]], layer=CopperLayer.F)
+board.track(Net("PGOOD"), [esc[30]], layer=CopperLayer.F)
+```
+
+`board.escape(part, pins, *, turn=None, vias=(), depth=None, run=None,
+widths=None, pairs=(), why)` gives each pin of one row a riser (straight out
+along the row's way out, as `vias()` reads it) and, with `turn=`, a lane
+parallel to the row, ending at a via where `vias=` names the pin. Pins are
+named as a `PadRef` names a pad (number, net or `PinName`). It returns the
+`Escape`. All the pins are on one row of one part, a pin on another row or
+another part is refused, and so is a pin named twice. The lanes are worked
+out when the part is placed, from its pads as placed; a row whose way out is
+not along a board axis is refused.
+
+- **Order.** With `turn=` (an `Edge` across the row: a north row turns `WEST`
+  or `EAST`) the pin nearest the turn side takes the innermost lane, the next
+  pin the next lane out, so no riser crosses a lane. There is no `order=`.
+- **Steps.** The innermost lane's centreline is its own copper plus the
+  clearance past the pads' outermost reach (`depth=` sets that distance
+  instead); each next lane is a step out. A lane's copper is its via's size
+  where it has a via, else its track (`widths=`, else its net's track width).
+  A step is the clearance by net pair, as the router judges it (`board.rule`
+  clearances count), added to the largest of: half each lane's track; half
+  the inner lane's via and half the outer lane's track (the outer track
+  passes the inner via); half the inner lane's track and half the outer
+  lane's via (the inner track may run on past it). Two vias are not stepped
+  apart by their sizes: they keep the clearance by standing apart along their
+  lanes, innermost first. A lane and the via beside it keep the clearance
+  wherever the via stands.
+- **Corners.** Each riser runs from its pad's centre to its lane and turns;
+  the corner is chamfered as the track's own chamfer. `turn=` a `Corner` (a
+  north row: `NW` or `NE`) runs the lanes at 45, a step apart across their
+  direction.
+- **Vias.** A lane with a via ends at it. The vias are placed innermost lane
+  first, each at the first spot along its lane, from the row's turn-side end,
+  that keeps the clearance from every pad of the part, every other lane and
+  the vias already placed, and from what is placed on the board (the edge,
+  other nets' copper, holes, keepouts). A lane with none ends level with
+  the outermost via, or one step past the row's turn-side end where the
+  escape has none; `run=` (mm past that end, or each 45's length) sets the
+  end of such lanes instead.
+- **No turn.** Each riser runs out `depth=` past the pads' reach (default: its
+  copper plus the clearance), and a pin in `vias=` ends in a via at the first
+  spot out along its own axis that keeps the clearance from the part's pads
+  and the vias already placed, taken in the order `pins` lists them. At a
+  fine pitch alternate pins fall into a near and a far row.
+- **`pairs=[(a, b)]`** runs two neighbouring lanes together, the net class's
+  pair gap apart (else the clearance) instead of a step. Their pins must be
+  neighbours along the row; `pairs=` needs `turn=`.
+
+The escape is settled as soon as its part is placed, as a fanout is, and its
+risers, lanes and vias stand in the occupancy as copper of their own nets. A
+part placed later may stand over a lane with its body, and with a pad of the
+lane's own net on it, but not with a pad, a hole or other copper of another
+net within the clearance; the parts a fanout lets in (linked at
+`LinkWeight.SHORT`) are judged the same. Vias placed later (`FreeSpot`,
+`stitch`, give way) keep the clearance from it, and an escape's own vias do
+not give way. Copper of another net planned later is judged against it as
+against a drawn track. The cleanup pass leaves the escaped part where the
+search put it.
+
+A searched part's lanes are weighed in its search. At each candidate the
+escape is laid out as above and the candidate costs `score.escape_lane` (400)
+for each lane that would meet another net's pad, hole or copper already
+placed, or whose via finds no legal spot. Where no candidate lies clear the
+part lands anyway and each blocked lane is an `escape_lane` finding naming
+what blocks it. Only the plain search prices lanes (a part on an edge or a
+rim, or one inside a cell or block, is laid out where it lands). A lane the
+run never draws (no track begins with it) is a setup finding: its room was
+kept for nothing.
+
+What the handles are:
+
+| handle | is |
+|---|---|
+| `esc[pin]` | the pin's lane, named as the pin was. As a track's first point it stands for the pin's riser, its lane and its via (`board.track(net, [esc[31]])`), and the track goes on from it (`[esc[32], PadRef(...)]`); anywhere else in a track it is refused. A track from a lane takes the lane's `widths=` track unless it gives a `width=` |
+| `esc[pin].via` | the lane's via, as `board.via()` returns one: a track point, a `Past` item (`Past([esc[30].via], Edge.WEST)`) and the item of a `Beside` (`Beside(esc[30].via, Edge.WEST)` stands a part the envelope gap off it). It is drawn when a track begins with the lane or the handle is used; refused for a lane with no via |
+| `align=(own_pad, esc[pin])` | in a `Beside`: the own pad centred across the lane's line (the lane's for a lane turned across the row, the riser's without a turn). The side decides the other axis, so the lane's line must run across it; a 45 lane has no line |
+| `esc[pin].end` | where the lane ends (its via, or the end of its track) as a point reference: `X()`, `Y()` and a `Pin` take it, `at=Pin(1, X(esc[32].end), Y(esc[32].end))` |
+| `Beside(esc, Edge.NORTH)` | stands an item beside the escape's risers, lanes and vias together |
+
+A placement that refers to a lane waits for its part, as one that refers to
+a pad does, and rides the part when it is searched.
+
+An escape and a fanout both stay: a fanout keeps the bodies of unrelated
+parts off a part's pad rows, and lets in the part's block satellites and the
+parts linked at `LinkWeight.SHORT`; an escape keeps the named pins' routes
+clear of other nets' copper, including that of the parts the fanout lets in.
+A script may declare both. Refused at declaration: pins of another part or
+row, a pin named twice, `turn=` along the row's axis (when the part's
+rotation is already declared, else when it is placed), `vias=`, `widths=` or
+`pairs=` naming a pin the escape does not, a pair whose lanes are not
+neighbours, `run=` or `depth=` of 0 or less, and a lane as any track point
+but the first. At resolve, a via with no legal spot along its lane or axis
+even with nothing else on the board stops the run, naming what stands in the
+way; a via that only the rest of the board blocks is a finding.
+
 **`Near` is for what the netlist cannot say**: a thermal sensor that must
 sit by the FETs it shares no net with, a test point wanted at the edge.
 A `Location` constant that stands for "the power area" or "the bus
@@ -421,8 +532,9 @@ rotation)`) lands there. A face that must stand proud of the edge says
 `OnEdge(edge, overhang=)` with a why. A row inboard of an edge row is `behind=` it.
 
 **Beside another item.** `at=Beside(item, Edge.EAST, align=None, gap=None)`
-stands the item on that side of `item` - a `Part`, a `Cell` or a keepout
-(what `board.keepout(...)` returns) - its drawn envelope `gap` off
+stands the item on that side of `item` - a `Part`, a `Cell`, a keepout
+(what `board.keepout(...)` returns), an escape or the via of one of its lanes
+(see "An escape") - its drawn envelope `gap` off
 `item`'s. `gap` is a floor, not an override, as `row(of=)`'s is: at least
 the envelope's own gap - the rule a row's default gap keeps too: the
 widest of the net clearance, the component spacing and the silk
@@ -912,7 +1024,8 @@ A stamped region larger than its cell costs the parent the difference: the
 cell's step says `its stamped regions keep parts off N mm2 of board beyond
 its own parts`. For a part's escape band, `board.fanout()` follows the pad
 rows and admits the part's own satellites and the parts linked to its pads
-at `LinkWeight.SHORT` or more; a rectangle keepout does neither. A cell's
+at `LinkWeight.SHORT` or more; a rectangle keepout does neither. For the
+routes of named pins, `board.escape()` keeps their lanes and vias. A cell's
 regions are read from the generated board, so a keepout whose name would
 collide with one is refused.
 
@@ -2145,7 +2258,7 @@ wrong counted and weighted by a `[score]` setting (the table below):
 - each millimetre a link is past its limit, times the link's weight;
 - each finding by its kind: a fixed item not legal where put, copper that
   breaks a rule, a label on a part, a crossed, closed or walled-off escape,
-  and a setup finding (the same every run, 0 by default);
+  a declared escape lane that something blocks (`board.escape`), and a setup finding (the same every run, 0 by default);
 - each ratsnest crossing, with a plane's or free net's crossing at
   `score.crossing_plane` of it;
 - the airwire itself, a millimetre each.
@@ -2430,6 +2543,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.block_gap_reach` | 2.0 | how far a satellite may stand off its pin |
 | `place.escape_depth` | 1.0 | how far each corridor out of a pad runs in the search: it weighs a candidate that crosses, closes or walls off a pad's corridors (`score.escape_*`); the run score measures them at `score.escape_depth` |
 | `place.escape_pads` | 1 | a part's pads keep escapes when it has at least this many (3 leaves two-pad parts out) |
+| `place.escape_via_step` | 0.05 | mm: the step a `board.escape` lane's via is searched along its lane at, from the row's end, before it is bisected back to the nearest nanometre |
+| `place.escape_via_reach` | 5.0 | mm: how far along its lane, or its axis, a `board.escape` via is searched before it has no legal spot |
 | `place.courtyard_touch` | 0.0 | how far two courtyards may overlap at least; each pair may also overlap by the two parts' margins (how far KiCad's courtyard polygon lies inside the drawn box) less 0.001 mm, which keeps KiCad's courtyards apart - it counts touching as overlapping |
 | `place.courtyard_polygon_share` | 0.98 | a courtyard whose polygon covers less of the box round it than this (a slice of a disc, an L, a rectangle turned off the axes) is claimed as KiCad draws it, with no margin; one that covers more is claimed as its box |
 | `place.conflict_gap` | 1.0 | how far outside a box a conflict can still reach |
@@ -2512,6 +2627,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.escape_crossed` | 20 | mm two escapes from one part's pins crossing near its pin row cost |
 | `score.escape_closed` | 50 | mm a pad whose last route toward what it connects to is closed costs |
 | `score.escape_walled` | 400 | mm a pad with no route out at all costs |
+| `score.escape_lane` | 400 | mm a declared `board.escape` lane costs that another net's pad, hole or copper already placed blocks, or whose via has no legal spot: in the search at each candidate, and in the run score as the `escape_lane` finding |
 | `score.escape_depth` | 1.5 | mm: the corridor length the escape findings, and so the run score, are measured at, whatever `place.escape_depth` the search used, so runs at different search depths compare |
 | `score.congestion` | 10 | explore: mm per `explore.congestion_step` of the worst RUDY cell |
 | `score.via_share` | 1 | mm the search adds to a spot for each carried via that shares a via of its net there |

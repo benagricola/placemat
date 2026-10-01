@@ -30,9 +30,10 @@ how a change is judged, so try placement decisions and measure them.
 
 A script says where each part and each piece of copper goes relative to
 what it stands against - a board edge, a row, the pin it serves, a lane
-past other pads, a keepout, another part - and placemat works out the
-coordinate. A script that computes its own positions is a coordinate file
-that placemat happens to read.
+past other pads, a pin row's lanes and vias (`board.escape`), a keepout,
+another part - and placemat works out the coordinate. A script that
+computes its own positions is a coordinate file that placemat happens to
+read.
 
 A script must not:
 - do arithmetic on a coordinate to decide where a part, a via or a track
@@ -260,9 +261,11 @@ model into declarations.
    where to look. Two firm placements that collide stop the run: fix the
    declaration. A crossed or walled escape left after the search is a
    placement to change by hand (a swap, a satellite's pin,
-   `board.fanout()`). A `pair_crossed` differential pair must exchange
-   sides to route coupled: swap two interchangeable parts on it, or turn a
-   part whose pinout is mirrored, before routing. A net class whose
+   `board.fanout()`, or `board.escape()` to keep named pins' lanes). An
+   `escape_lane` finding names what blocks a declared lane. A
+   `pair_crossed` differential pair must exchange sides to route coupled:
+   swap two interchangeable parts on it, or turn a part whose pinout is
+   mirrored, before routing. A net class whose
    clearance does not fit a part's pad pitch is a setup finding: fix the
    class, or give those nets their own, before routing. A `facts:
    unconfirmed` line and a `facts` finding mean step 1 was skipped or the
