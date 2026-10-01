@@ -100,11 +100,12 @@ file. An item cites its source as "a board's session, <date>".
   it". It should leave its pad on a tail to a free spot nearby, or the
   other cell's via should move. Folded into the via give-way investigation.
 
-- **Beside ignores a label on the item it is beside** (a board's session,
-  2026-10-01): a cell placed `Beside` another lands 0.17 mm from a label
-  declared on the other cell's member (silk needs 0.20); the gap is measured
-  from the cell's parts only. A label should count in its item's reach.
-  Being fixed.
+- **A user label gives way to parts** (a board's session, 2026-10-01; the
+  user's decision, relayed with their words): a cell placed `Beside`
+  another landed 0.17 mm from a label on the other cell's member (silk
+  needs 0.20). A user label does not define how the device works, so it
+  moves, not the part: along its item's side, then to another side, always
+  by its item. Being built.
 
 ## Open
 
