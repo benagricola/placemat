@@ -132,6 +132,30 @@ def box_polygon(box: Box) -> Polygon:
 
 
 # ------------------------------------------------------------------ predicates
+def clip_to_convex(subject: Polygon, clipper: Polygon) -> Polygon:
+    """`subject` cut to the convex `clipper` (Sutherland-Hodgman): the part of
+    it inside, empty when none is."""
+    area = sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(clipper, clipper[1:] + clipper[:1]))
+    sign = 1.0 if area >= 0 else -1.0
+    out = list(subject)
+    for a, b in zip(clipper, clipper[1:] + clipper[:1]):
+        if not out:
+            break
+
+        def side(p):
+            return sign * ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]))
+        work, out = out, []
+        for i, cur in enumerate(work):
+            last = work[i - 1]
+            sc, sl = side(cur), side(last)
+            if (sc >= 0) != (sl >= 0):
+                t = sl / (sl - sc)
+                out.append((last[0] + (cur[0] - last[0]) * t, last[1] + (cur[1] - last[1]) * t))
+            if sc >= 0:
+                out.append(cur)
+    return tuple((round(x, 6), round(y, 6)) for x, y in out)
+
+
 def _cross(o: Point, a: Point, b: Point) -> float:
     return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
 

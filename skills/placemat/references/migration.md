@@ -5,6 +5,21 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+`board.pour(net, pads, layer=, grow=mm, within=None)` grows a pour from its
+pads up to the copper round them. A script that drew a pour as a polygon
+bounded by the neighbouring lanes, vias and parts (a column over two pins,
+its edge a clearance off another pin's lane, widening into a capacitor's
+pad) can name the pads and a `grow=` instead; the polygon's arithmetic goes.
+The pour is a KiCad zone: its outline is the pads' hull grown by `grow`,
+clipped to `within=` (a keepout's name, a `Cell`, or `Part`s), and KiCad's
+fill keeps it off every other net's copper and applies the board's
+clearance rules. See "A pour grown from its pads" in api.md.
+
+A run with a grown pour writes the board's rules file before it loads the
+board, so the fill sees the script's `board.rule` clearances.
+
 ## To 0.64.1
 
 A track declared `bridge=True` that passed under another among the copper
@@ -1542,6 +1557,7 @@ that says what replaces it.
 | `tail=False` on a `FreeSpot` via whose track the script draws itself | To 0.55.0 |
 | a pair centreline typed as coordinates | To 0.56.0 |
 | a power pour polygon built from pad edges | To 0.56.0 |
+| a pour polygon bounded by neighbouring lanes, vias and parts | Unreleased |
 | a waypoint on a 45 worked out as x - y or x + y off a pad's corner | To 0.57.0 |
 | a cell stood as far toward an end as its tall members allow, by offsets worked out from its members' frame | To 0.63.0 |
 | a sense track's first point placed from `placed_size()` half a track off a pad's edge | To 0.64.0 |
