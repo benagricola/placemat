@@ -72,7 +72,7 @@ def test_a_cell_of_arc_shaped_members_whose_boxes_cross_the_keep_in_is_placed(di
 
 
 def test_a_cell_with_a_member_past_the_rim_is_still_refused():
-    fps = [_arc("A1", "ring.a", 185, 265, 17.0, 19.9), _arc("A2", "ring.b", 275, 355, 17.0, 19.0)]
+    fps = [_arc("A1", "ring.a", 185, 265, 17.0, 20.2), _arc("A2", "ring.b", 275, 355, 17.0, 19.0)]
     b = _round_board(fps)
     b.place(Cell("ring"), at=Box.union([fp.body_box for fp in fps]).center)
     assert _edge_findings(b.resolve())

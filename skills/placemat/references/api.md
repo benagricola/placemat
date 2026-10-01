@@ -176,7 +176,7 @@ a `.kicad_mod` or loading pcbnew.
 | `board.cell_pad(Cell("xcvr0"), net="BUS_H", ref_prefix="H")` (or `number=`) | one pad inside a cell |
 | `board.net(Net("V48"))` | the net name, or `KeyError` |
 | `board.netclass(Net("BUS_P"))` | its class: `.track_width`, `.clearance`, `.diff_pair_width`, `.diff_pair_gap` |
-| `board.keep_in` | the board's copper-to-edge rule: where an EDGE item's reach lands |
+| `board.keep_in` | the board's copper-to-edge rule: how far inside the edge copper stays, and where an EDGE item's reach lands; a courtyard or body only has to stay inside the edge itself |
 | `board.reach(item, rotation=, face=)` | the item's body, pads and silk together, as a box at the origin |
 | `board.height_of(part)` | the part's height in mm from its `Pm.Height` field; an error naming the field when it has none |
 | `board.parts(net=None)` | every part on the board as a `Part`, or those with a pad on `net`: derive drops and checks from the netlist |
@@ -714,7 +714,10 @@ the last of them fails to place.
 
 **The edge is the board's.** Nothing in a script says how far from the
 edge a thing sits. `board.keep_in` is the board's own copper-to-edge
-rule; an edge item's reach (body, pads and silk together, `board.reach(item,
+rule: pads and copper stay that far inside the edge (KiCad's
+`copper_edge_clearance`), a courtyard or body only inside the edge itself, so
+a searched part may stand nearer the edge by its courtyard's margin. An edge
+item's reach (body, pads and silk together, `board.reach(item,
 rotation)`) lands there. A face that must stand proud of the edge says
 `OnEdge(edge, overhang=)` with a why. A row inboard of an edge row is `behind=` it.
 
@@ -1533,8 +1536,8 @@ a `Location`, an (x, y) pair, a `Part` or `Cell` (its body centre), a
 `PadRef`, a `Mid` of two points, or another `Polar` - resolved once the
 Polar item itself is placed, the same as `ring(about=)`.
 
-**The keep-in is radial.** The rim holds an item's furthest corner back by
-`board.keep_in`; a bore holds its nearest point out by the same, and that is
+**The keep-in is radial.** The rim holds an item's furthest copper corner back
+by `board.keep_in` and its furthest courtyard or body corner to the rim itself; a bore holds its nearest point out by the same, and that is
 an edge, not a corner, when the item straddles the bore. A plane inset from
 the rim is a disc, and Edge.Cuts is written as a circle (two, with a bore),
 so KiCad mills the arc and clips every fill to it.

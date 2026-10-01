@@ -237,7 +237,7 @@ def test_a_run_may_be_read_off_a_round_board_too():
     assert placement_findings(plan) == []
     for ref in ("D1", "D2"):
         far = max(c.distance(Location(20.0, 20.0)) for c in corners(reach_of(plan, ref)))
-        assert far == pytest.approx(19.5, abs=AT_KEEP_IN) and far <= 19.5
+        assert far == pytest.approx(19.5, abs=AT_KEEP_IN) and far <= 19.5 + 1e-5      # held to the nanometre
 
 
 @pytest.mark.parametrize("overhang", [0.5, 1.3, 3.0])

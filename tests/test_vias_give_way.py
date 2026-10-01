@@ -602,10 +602,10 @@ def test_a_via_move_past_the_board_edge_takes_the_next_spot(monkeypatch):
     the native call is asked again from the next offset, and the same spot is taken as by the loop."""
     real = Occupancy._edge_why
 
-    def edge(self, body):
+    def edge(self, body, *args, **kw):
         if body.width < 0.6 and 21.75 < body.top < 21.9:     # a via's ring, in a band the nearest spot lies in
             return "too near the edge"
-        return real(self, body)
+        return real(self, body, *args, **kw)
     free = _first_move_runs(monkeypatch, _MOVES["a tail redrawn"])
     monkeypatch.setattr(Occupancy, "_edge_why", edge)
     runs = _first_move_runs(monkeypatch, _MOVES["a tail redrawn"])

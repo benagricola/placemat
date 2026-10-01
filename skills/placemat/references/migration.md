@@ -169,6 +169,20 @@ decided position or an edge is refused, naming what decided it.
 - A graphic polygon with a hole (a pour with `reach=` round a pad it cannot
   touch) is read back with the hole, as a zone fill's are, so the pad in it is
   not taken for copper under the pour.
+- The board edge is judged as KiCad judges it. Copper (pads, and the copper
+  a cell carries) stays `board.keep_in` inside the edge and out of cutouts by
+  the same, as before; a courtyard and a body only have to stay inside the
+  edge itself and out of cutouts. A part's body and courtyard were held the
+  keep-in inside the edge too, which KiCad has no rule for. A searched part
+  or cell may now stand nearer the edge by the margin its courtyard has past
+  its copper (up to `board.keep_in`), and a cell of arc-shaped members whose
+  courtyards reach past the keep-in on a round board, with the copper inside
+  it, is placed where it was refused with "past the board's keep-in". A
+  courtyard that crosses the edge itself, and copper nearer the edge than the
+  keep-in, are still refused. Where an item is placed at the edge (an edge
+  row, `OnEdge`, `OnRim`, a ring at the rim) its reach still lands at the
+  keep-in. A refusal of a courtyard or body now reads "body box ... (0.00
+  mm)", and of copper "copper to edge: box ...".
 
 - A user label could cost a searched item its place: the label's reserved
   box and silk stood as obstacles, so a cell or part searched later was

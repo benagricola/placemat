@@ -13,7 +13,7 @@ from tests.conftest import needs_native  # noqa: E402
 pytestmark = [needs_native]
 
 from placemat.cutouts import Arc, Circle, Cutouts, Slot  # noqa: E402
-from placemat.occupancy import Occupancy  # noqa: E402
+from placemat.occupancy import _COPPER_LABEL, Occupancy  # noqa: E402
 from placemat.outline import Outline  # noqa: E402
 from placemat.placement import Placement  # noqa: E402
 from placemat.values import Box, CopperLayer, Disc, Face, Location  # noqa: E402
@@ -39,15 +39,14 @@ def _boxes(rng, lo, hi, n=N):
     return out
 
 
-def _python(occ, fp, body):
-    geom = occ._geometry(fp)
-    return occ._edge_or_reservation_conflict(geom, body, Placement(Location(0, 0), 0.0, Face.FRONT), False, None)
+def _python(occ, fp, body, flat=False):
+    return occ._edge_why(body, occ.flat_edge_margin) if flat else occ._edge_why(body, label=_COPPER_LABEL)
 
 
-def _native(occ, board, body):
-    from placemat.occupancy import edge_sentence
-    code = board.edge((body.left, body.top, body.right, body.bottom))
-    return None if code == 0 else edge_sentence(code, body, occ.edge_margin)
+def _native(occ, board, body, flat=False):
+    from placemat.occupancy import COPPER_EDGE, edge_sentence
+    code = board.edge((body.left, body.top, body.right, body.bottom), flat)
+    return None if code == 0 else edge_sentence(code if flat else code + COPPER_EDGE, body, occ.edge_margin)
 
 
 SLOT = Slot(12.0, 3.0).path_at(Location(30.0, 20.0))
@@ -69,7 +68,8 @@ def test_the_edge_refuses_what_python_refuses_in_the_same_words(name, margin, kw
     board = native_board(occ)
     rng = random.Random(hash(name) & 0xffff)
     for body in _boxes(rng, -3, 63):
-        assert _native(occ, board, body) == _python(occ, fp, body), (name, body)
+        assert _native(occ, board, body) == _python(occ, fp, body, False), (name, body)
+        assert _native(occ, board, body, True) == _python(occ, fp, body, True), (name, body)
 
 
 def test_a_reservation_refuses_what_python_refuses():

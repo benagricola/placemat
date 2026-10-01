@@ -34,7 +34,8 @@ def footprint(ref, cx, cy, w=4.0, h=2.0, nets=("A", "B"), through=False, face=Fa
     inst = inst or ref.lower()
     pads = (pad(ref, inst, 1, nets[0], cx - w / 2 + 0.6, cy, 1.0, 1.0, through, face),
             pad(ref, inst, 2, nets[1], cx + w / 2 - 0.6, cy, 1.0, 1.0, through, face))
-    body = Box(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
+    # a read part's body box and physical box hold its pads (kicad/read.py body_box, phys_box)
+    body = Box.union([Box(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)] + [p.box for p in pads])
     sw, sn, se, ss = silk
     phys = Box(body.left - sw, body.top - sn, body.right + se, body.bottom + ss)
     # silk_boxes: silk graphics as (x0, y0, x1, y1) boxes, drawn; fab: the body box; mask_grow:

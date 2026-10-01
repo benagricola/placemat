@@ -590,8 +590,10 @@ impl NativeBoard {
     }
 
     /// The edge verdict for one body box (tests): 0 allowed, else the code.
-    fn edge(&self, body: PyBox) -> u8 {
-        self.keepin.why_not(&bx(body)).unwrap_or(0)
+    #[pyo3(signature = (body, flat=false))]
+    fn edge(&self, body: PyBox, flat: bool) -> u8 {
+        let b = bx(body);
+        (if flat { self.keepin.why_not_flat(&b) } else { self.keepin.why_not(&b) }).unwrap_or(0)
     }
 
     /// Whether reservation `i` refuses one body box (tests).
@@ -873,15 +875,19 @@ fn pymax3(a: f64, b: f64, c: f64) -> f64 {
 /// them - stopping at the first refusal. Returns (the indexes of the legal
 /// candidates, in order; and each refusal as (kind, a, b, count, first
 /// candidate index) in the order first met: kind 0 an edge refusal with
-/// a = its code, 1 a reservation with a = its index, 2 a conflict with
+/// a = its code (plus `COPPER_EDGE` when it is the copper's, judged at the
+/// keep-in; a courtyard or body is judged against the edge itself), 1 a reservation with a = its index, 2 a conflict with
 /// a = the turn << 32 | the candidate's shape in that turn's list, and
 /// b = the obstacle). With `stop_at_first`
 /// it stops at the first legal candidate. `judged`, beside `parts`: for
 /// each reservation in `reservations` order, the indexes of the parts it
 /// judges (a cell's members it does not let in, and its own copper, as
 /// `Occupancy.judged` gives them); without it every part is judged.
+/// `edges` (per turn) and `edge_parts` (per turn, beside `parts`) are what
+/// the edge judges, as `Occupancy._item_edge_why` does: the courtyard and
+/// body box, and the copper's box or None for no copper.
 #[pyfunction]
-#[pyo3(signature = (board, reservations, obstacles, origins, bodies, points, clearance, stop_at_first, scoring=None, parts=None, judged=None))]
+#[pyo3(signature = (board, reservations, obstacles, origins, bodies, edges, points, clearance, stop_at_first, scoring=None, parts=None, judged=None, edge_parts=None))]
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn sweep(
     py: Python<'_>,
@@ -890,14 +896,17 @@ fn sweep(
     obstacles: &NativeObstacles,
     origins: Vec<PyRef<'_, NativeOriginShapes>>,
     bodies: Vec<PyBox>,
+    edges: Vec<(PyBox, Option<PyBox>)>,
     points: Vec<(f64, f64, usize)>,
     clearance: Option<f64>,
     stop_at_first: bool,
     scoring: Option<Bound<'_, PyAny>>,
     parts: Option<Vec<Vec<PyBox>>>,
     judged: Option<Vec<Vec<usize>>>,
+    edge_parts: Option<Vec<Vec<(PyBox, Option<PyBox>)>>>,
 ) -> PyResult<(Vec<usize>, Vec<f64>, Vec<(u8, i64, i64, usize, usize)>)> {
     let parts = parts.unwrap_or_default();
+    let edge_parts = edge_parts.unwrap_or_default();
     let mut search: Option<PyRefMut<'_, NativeScoring>> = None;
     let mut tidy: Option<PyRefMut<'_, NativeCleanupScoring>> = None;
     if let Some(sc) = scoring.as_ref() {
@@ -952,16 +961,42 @@ fn sweep(
             }).collect(),
             _ => Vec::new(),
         };
-        if let Some(code) = board.keepin.why_not(&body) {
-            let hit = if members.is_empty() {
+        let shift = |p: PyBox| board::B {
+            l: exact::clean9(p.0 + x),
+            t: exact::clean9(p.1 + y),
+            r: exact::clean9(p.2 + x),
+            b: exact::clean9(p.3 + y),
+        };
+        let (flat, copper) = edges[turn];
+        let member_edges: &[(PyBox, Option<PyBox>)] = match edge_parts.get(turn) {
+            Some(ps) if !members.is_empty() => ps,
+            _ => &[],
+        };
+        let mut edge_hit: Option<(u8, usize)> = None;
+        if let Some(code) = board.keepin.why_not_flat(&shift(flat)) {
+            edge_hit = if member_edges.is_empty() {
                 Some((code, 0usize))
             } else {
-                members.iter().enumerate().find_map(|(k, m)| board.keepin.why_not(m).map(|c| (c, k + 1)))
+                member_edges.iter().enumerate()
+                    .find_map(|(k, m)| board.keepin.why_not_flat(&shift(m.0)).map(|c| (c, k + 1)))
             };
-            if let Some((code, k)) = hit {
-                refuse((0, code as i64, k as i64), idx, &mut refused);
-                continue;
+        }
+        if edge_hit.is_none() {
+            if let Some(cb) = copper {
+                if let Some(code) = board.keepin.why_not(&shift(cb)) {
+                    edge_hit = if member_edges.is_empty() {
+                        Some((code | board::COPPER_EDGE, 0usize))
+                    } else {
+                        member_edges.iter().enumerate().find_map(|(k, m)| {
+                            m.1.and_then(|c| board.keepin.why_not(&shift(c)).map(|c| (c | board::COPPER_EDGE, k + 1)))
+                        })
+                    };
+                }
             }
+        }
+        if let Some((code, k)) = edge_hit {
+            refuse((0, code as i64, k as i64), idx, &mut refused);
+            continue;
         }
         // b: the part the reservation refuses, 1-based (a cell's member or its own copper, in
         // `Occupancy.judged` order); 0 for an item with no parts
