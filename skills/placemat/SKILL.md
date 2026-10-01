@@ -504,15 +504,17 @@ the script.
 - A refusal ending "cannot give way" is a via question: a carried via (one
   at a searched part's pad, or a stamped cell's own) met another net's
   copper and none of its steps worked. The steps, in order, are share a
-  same-net via, move, leave its pad (a via in its pad, joined by a new
-  tail), shorten (a plane drop) and drop. A via that two or more of a
+  same-net via, move, re-lay its field (the vias of one net in one pad of
+  a stamped cell: moved, a row shifted, the pitch closed or uneven, a row
+  out, keeping the count where the pad allows), leave its pad (a via in
+  its pad, joined by a new tail), shorten (a plane drop) and drop. A via that two or more of a
   cell's tracks end on has one step: it moves with its tracks rebuilt
   from their far ends ("no spot within 0.50 mm is clear with its 2 tracks
   rebuilt"; `place.via_route` sets the reach, 0 leaves it as drawn). The
   sentence names each step and why it failed. `place.via_move` and
   `place.via_share` set the reaches,
   `place.via_leave` how far a via may leave its pad, `place.drops_keep` how
-  many of a pad's drops must stay, and `drops=` on a cell thins its drops
+  many of a pad's drops must stay, `place.via_relay` turns the re-lay off, and `drops=` on a cell thins its drops
   before the search. Shorten runs only when the fab profile's micro, blind
   or buried tier for the shorter via is "yes"; the refusal says when one
   would have cleared it. api.md, "Carried vias give way", has the rest.

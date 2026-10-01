@@ -10,16 +10,17 @@ prices each (`score.via_relay*`), and takes the cheapest whose new sites are
 legal. The result is a group of per-via actions (`FieldStep`) sharing a field
 id, applied and undone as one.
 
-giveway.py calls into this module at four places: `_give` (the step), the
-two loops of `resolve` (a relay handles every via of its field that meets the
-item), `apply` (an added via moved again), `undo` and `report`.
+giveway.py calls into this module from `_give` (the step, and the drop step's
+count), the two loops of `resolve` (a relay handles every via of its field that
+meets the item), `apply` (an added via moved again), `undo` and `report`; the
+write (kicad/write.py) calls `write`.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 import math
 
-from .geometry import point_in_polygon, point_segment_distance
+from .geometry import point_segment_distance
 from .giveway import Action, _disc_inside, _radius, _shift, _Judge
 from .values import Box
 
@@ -28,8 +29,6 @@ _LINE = 1e-3
 
 _SITE = 1e-4
 """Two sites this close are one site (mm)."""
-
-_RELAY_KINDS = ("relay-move", "relay-drop", "relay-add")
 
 
 @dataclass
@@ -95,31 +94,40 @@ def _median(xs: list) -> float:
 
 
 def _axis(poly, pts) -> float:
-    """The angle of the field's `u` axis: the direction most of the pad's outline runs in, mod
-    90 degrees; the direction of the closest pair of vias where the outline has no such direction."""
+    """The angle of the field's `u` axis, mod 90 degrees: of the directions the pad's edges run in and
+    the one the closest pair of vias lie in, the one the vias fall on the fewest lines under (the longest
+    edge's on a tie)."""
     n = len(poly)
-    bins: dict = {}
-    longest: dict = {}
-    total = 0.0
+    edges = []
     for i in range(n):
         (ax, ay), (bx, by) = poly[i], poly[(i + 1) % n]
         length = math.hypot(bx - ax, by - ay)
-        if length < 1e-9:
-            continue
-        ang = math.degrees(math.atan2(by - ay, bx - ax)) % 90.0
-        key = int(round(ang * 10)) % 900
-        bins[key] = bins.get(key, 0.0) + length
-        if length > longest.get(key, (0.0, 0.0))[0]:
-            longest[key] = (length, ang)
-        total += length
-    if bins:
-        key, best = max(bins.items(), key=lambda kv: (kv[1], -kv[0]))
-        if best >= 0.4 * total:
-            return math.radians(longest[key][1])
+        if length > 1e-9:
+            edges.append((-length, math.atan2(by - ay, bx - ax) % (math.pi / 2.0)))
+    angles: list = []
+    for _, a in sorted(edges):
+        if not any(abs(a - b) < 1e-6 for b in angles):
+            angles.append(a)
     if len(pts) >= 2:
-        d, a, b = min((math.dist(p, q), p, q) for i, p in enumerate(pts) for q in pts[i + 1:])
-        return math.atan2(b[1] - a[1], b[0] - a[0]) % (math.pi / 2.0)
-    return 0.0
+        _, p, q = min((math.dist(p, q), p, q) for i, p in enumerate(pts) for q in pts[i + 1:])
+        angles.append(math.atan2(q[1] - p[1], q[0] - p[0]) % (math.pi / 2.0))
+    if not angles:
+        return 0.0
+
+    def lines_under(a: float) -> int:
+        c, s = math.cos(a), math.sin(a)
+        return len(_lines([x * c + y * s for x, y in pts])) + len(_lines([-x * s + y * c for x, y in pts]))
+    return min(angles, key=lambda a: (lines_under(a), angles.index(a)))
+
+
+def _pad_of(who, m):
+    """`who.pad_of(m)`, kept for the life of `who`: a field asks it of every via of its cell."""
+    cache = who.__dict__.setdefault("_field_pads", {})
+    key = (m.id, m.centre, m.far)
+    hit = cache.get(key)
+    if hit is None:
+        hit = cache[key] = who.pad_of(m)
+    return hit
 
 
 def _hole_radius(g) -> float:
@@ -156,7 +164,7 @@ class _Layouts:
         for m in ctx.members.values():
             if m.home != g.home or m.net != g.net:
                 continue
-            key, _, inside = who.pad_of(m)
+            key, _, inside = _pad_of(who, m)
             if key != pad_key or not inside:
                 continue
             members.append(m)
@@ -183,7 +191,7 @@ class _Layouts:
             return
         self.pmin = max(2.0 * self.r, 2.0 * self.rh + occ.geometry.hole_to_hole)
         drawn = [d for d in who.drawn.values() if d.net == g.net and d.home == g.home
-                 and who.pad_of(d)[0] == pad_key and who.pad_of(d)[2]]
+                 and _pad_of(who, d)[0] == pad_key and _pad_of(who, d)[2]]
         self.before = len(self.rel) + len(self.fixed) + self.shared
         self.want = max(len(drawn), self.before)
         if g.net in occ.plane_nets:
@@ -203,7 +211,6 @@ class _Layouts:
         self.vlo, self.vhi = min(ext_v) + self.r, max(ext_v) - self.r
         self.rel_pos = [self.uv(m.centre) for m in self.rel]
         self.fix_pos = [self.uv(p) for p in self.fixed]
-        self.region = box
         # the board the new sites are judged against: the pad's neighbourhood, less the field's own vias
         self.rel_ids = {m.id for m in self.rel}
         local = _pool(occ, ctx.geom, box)
@@ -212,7 +219,6 @@ class _Layouts:
         self.judge.extra = list(judge.extra)
         self.own = [o for o in own if o.carried not in self.rel_ids]
         self.cache: dict = {}
-        self.taken = {a.via for a in ctx.actions}
         self.under = {}
         for m in self.rel:
             what = self.meets(m)
@@ -358,45 +364,71 @@ class _Layouts:
         return cands
 
     def _pitches(self, cands: list, keep_pos: list) -> None:
-        """Close the pitch, or make it uneven: only where every via of the field is free to move."""
+        """Close the pitch, or make it uneven: only where every via of the field is free to move. Each
+        way is walked from the smallest change up, and the first layout that is legal is the one that
+        counts: a bigger change moves the same vias further, which only costs more."""
         step = self.s.place_via_move_step
+        conflicts = [self.uv(m.centre) for m in self.conflicts]
+
+        def found(way: str, move) -> bool:
+            if not all(self.clear(move(p)) for p in conflicts):         # the vias that meet the item first
+                return False
+            c = _Cand(way, [move(p) for p in self.rel_pos], len(cands))
+            if self._lay(c) and self.legal(c):
+                cands.append(c)
+                return True
+            return False
         for axis, lines_, e in ((0, self.U, self.eu), (1, self.V, self.ev)):
             if len(lines_) < 2:
                 continue
+
+            def along(p, to, axis=axis):
+                return (to, p[1]) if axis == 0 else (p[0], to)
             # close the pitch toward each end
             for anchor in (lines_[0], lines_[-1]):
+                if any(abs(p[axis] - anchor) <= _LINE for p in conflicts):
+                    continue                                            # the line that stays is one that meets it
                 k = 1
-                while e - k * step >= 0.5 * self.pmin:
+                while e - k * step > 0:
                     f = (e - k * step) / e
-                    cands.append(_Cand("close the pitch", [
-                        ((anchor + (p[0] - anchor) * f, p[1]) if axis == 0 else (p[0], anchor + (p[1] - anchor) * f))
-                        for p in self.rel_pos], len(cands)))
+                    if found("close the pitch", lambda p, f=f, anchor=anchor: along(p, anchor + (p[axis] - anchor) * f)):
+                        break
                     k += 1
-            # the lines on one side of a pivot move together
+            # the lines on one side of a pivot move together, by what the pad and the gap beside the pivot allow
+            lo, hi = (self.ulo, self.uhi) if axis == 0 else (self.vlo, self.vhi)
             for pivot in range(0, len(lines_)):
+                gap = lines_[pivot] - lines_[pivot - 1] if pivot else math.inf
                 for upper in (True, False):
                     if pivot == 0 and not upper:
                         continue
                     cut = lines_[pivot] - _LINE
-                    k = 1
-                    while k * step <= e + 1e-9:
-                        for sign in (1, -1):
+                    if any((p[axis] >= cut) != upper for p in conflicts):
+                        continue                                        # a via that meets it stays where it is
+                    block = [c for c in lines_ if (c >= cut) == upper]
+                    d_lo = max(lo - min(block), -gap if upper else -math.inf)
+                    d_hi = min(hi - max(block), gap if not upper else math.inf)
+                    way = "uneven pitch" if pivot else "shift the field"
+                    for sign, room in ((1, d_hi), (-1, -d_lo)):
+                        k = 1
+                        while k * step <= room + 1e-9:
                             d = sign * k * step
-                            moved = []
-                            for p in self.rel_pos:
-                                on = (p[axis] >= cut) == upper
-                                q = (p[0] + (d if on and axis == 0 else 0.0), p[1] + (d if on and axis == 1 else 0.0))
-                                moved.append(q)
-                            cands.append(_Cand("uneven pitch" if pivot else "shift the field", moved, len(cands)))
-                        k += 1
+                            if found(way, lambda p, d=d, cut=cut, upper=upper, axis=axis:
+                                     along(p, p[axis] + d) if (p[axis] >= cut) == upper else p):
+                                break
+                            k += 1
 
     # scoring --------------------------------------------------------
     def _lay(self, c: _Cand) -> bool:
         """Map `c`'s sites onto the field's vias: stays, moves, drops, adds. False where it is not a layout."""
-        sites = []
+        c.keeps, c.moves, c.drops, c.adds = [], [], [], []
+        sites, seen = [], set()
         for q in c.sites:
-            if any(math.dist(q, p) < _SITE for p in sites):
+            if not (self.ulo - 1e-6 <= q[0] <= self.uhi + 1e-6 and self.vlo - 1e-6 <= q[1] <= self.vhi + 1e-6):
+                return False                                # outside the pad
+            key = (round(q[0] / _SITE), round(q[1] / _SITE))
+            if key in seen:
                 return False                                # two vias on one site: not a layout
+            seen.add(key)
             sites.append((round(q[0], 6), round(q[1], 6)))
         fixed = self.fix_pos
         allp = sites + list(fixed)
@@ -553,7 +585,7 @@ def relay_loss(ctx: Ctx | None, who, g, pad_key) -> int:
         return 0
     occ = who.occ
     present = sum(1 for m in ctx.members.values() if m.home == g.home and m.net == g.net
-                  and who.pad_of(m)[0] == pad_key and who.pad_of(m)[2])
+                  and _pad_of(who, m)[0] == pad_key and _pad_of(who, m)[2])
     shared = sum(1 for a in occ.given_way.values() if a.kind == "share" and a.pad == pad_key and a.home == g.home)
     n = who.counts.get(pad_key, 0)
     return n - present - shared - who.dropped.get(pad_key, 0)

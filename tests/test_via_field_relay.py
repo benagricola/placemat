@@ -309,3 +309,37 @@ def test_the_least_give_way_cost_counts_a_relay():
     off = dict(place_via_share=0.0, place_via_move=0.0, place_via_leave=0.0, place_via_route=0.0)
     assert least_cost(Settings(**off)) == Settings().score_via_relay
     assert least_cost(Settings(place_via_relay=False, **off)) == Settings().score_via_drop
+
+
+def test_a_routed_via_of_the_field_stays_and_the_rest_of_the_field_is_re_laid_round_it():
+    from tests.fixtures import track
+    legs = [track("GND", 38.1, 40.3, 36.0, 40.3, w=0.2, owner="m"), track("GND", 38.1, 40.3, 38.1, 42.0, w=0.2, owner="m")]
+    plan = _board(FIELD, [TOP_ROW], settings=NO_LEAVE, extra=legs).resolve()
+    assert plan.step("m").placement is not None, plan.step("m").note
+    steps = list(plan.occupancy.given_way.values())
+    assert [a.kind for a in steps] == ["relay-move"] * 3
+    assert "m via 4" not in {a.via for a in steps}               # the via the two tracks end on
+    assert len(_placed(plan)) == 9 and (18.1, 20.3) in _placed(plan)
+
+
+def test_a_thinned_field_keeps_its_count_too():
+    """A checkerboard (`Drops.HALF`): five of nine sites. Its row's two corner vias move to free sites."""
+    half = [(37.5, 39.1), (38.7, 39.1), (38.1, 39.7), (37.5, 40.3), (38.7, 40.3)]
+    plan = _board(half, [TOP_ROW], settings=NO_LEAVE).resolve()
+    assert plan.step("m").placement is not None, plan.step("m").note
+    assert [a.kind for a in plan.occupancy.given_way.values()] == ["relay-move"] * 2
+    assert len(_placed(plan)) == 5
+
+
+def test_the_field_frame_follows_the_pads_edges_whatever_its_turn():
+    import math
+    from placemat.giveway_field import _axis
+    turn = math.radians(30.0)
+
+    def rot(x, y):
+        return (x * math.cos(turn) - y * math.sin(turn), x * math.sin(turn) + y * math.cos(turn))
+    pad_poly = [rot(x, y) for x, y in ((-1.5, -1.0), (1.5, -1.0), (1.5, 1.0), (-1.5, 1.0))]
+    pts = [rot(x, y) for x in (-0.6, 0.0, 0.6) for y in (-0.6, 0.0, 0.6)]
+    assert math.degrees(_axis(pad_poly, pts)) == pytest.approx(30.0, abs=1e-6)
+    assert math.degrees(_axis([(math.cos(a / 12.0 * math.pi), math.sin(a / 12.0 * math.pi)) for a in range(24)],
+                              [rot(x, y) for x in (-0.3, 0.3) for y in (-0.3, 0.3)])) == pytest.approx(30.0, abs=1e-6)

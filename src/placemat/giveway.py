@@ -13,17 +13,22 @@ copper, on either face, at a candidate, it tries in turn to
 2. move up to `place.via_move`, searched on a `place.via_move_step` grid,
    nearest first, to a spot clear of every other net's copper and every
    hole, its tail redrawn from its pad; a via inside its pad stays inside it;
-3. leave its pad, a via inside its pad with no tail and no spot inside it
+3. have its field re-laid, a via of a field (a stamped cell's vias of one net
+   in one pad) with no tail: the vias of the field that meet the item are
+   moved, taken out or added, inside the pad, as one step priced at
+   `score.via_relay` (giveway_field.py, docs/superpowers/specs/2026-10-01-via-
+   field-relay-design.md);
+4. leave its pad, a via inside its pad with no tail and no spot inside it
    clear: it moves up to `place.via_leave` to the nearest spot that is, and
    a new tail on its own face joins it to the pad, at the net's track width
    or narrower down to the board's minimum;
-4. shorten to a via from its own face to the nearest layer of its own
+5. shorten to a via from its own face to the nearest layer of its own
    plane between it and the far face - a plane net's carried drop only,
    and only when the fab profile's tier for the resulting via type
    (micro, blind or buried) is "yes"; "if-needed" is judged (its span
    named, would it clear) but never applied, and "no" is not applied, though
    the refusal says when it would have cleared;
-5. be dropped, a plane net's drop only, while its pad keeps
+6. be dropped, a plane net's drop only, while its pad keeps
    `place.drops_keep` of its drops (rounded up, at least one).
 
 A routed via, one that two or more of its cell's tracks end on, has one step in
@@ -33,7 +38,7 @@ rebuilt from its far end (`_give_routed`), priced at `score.via_route`.
 A via already placed does the same for a later item whose own copper meets
 it. The search judges the item less its carried vias natively, as it judges
 any item; what the vias do is judged here, in Python, after that, and priced
-at `score.via_share`, `score.via_move`, `score.via_leave`, `score.via_shorten` and
+at `score.via_share`, `score.via_move`, `score.via_relay`, `score.via_leave`, `score.via_shorten` and
 `score.via_drop` each.
 
 What is decided is recomputed at each commit from the board as it stands, so

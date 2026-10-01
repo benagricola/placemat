@@ -20,6 +20,23 @@ section for each hand-written pattern a newer form replaces.
   worked round by moving the cell may now find a spot. `api.md`, "Carried
   vias give way".
 
+- **A via field is re-laid round a conflict, not only thinned.** Where
+  another item's copper meets some vias of a field (a stamped cell's vias
+  of one net in one pad: an exposed pad's grid, a plane net's drops),
+  give-way took them out one at a time down to `place.drops_keep`, and
+  refused the spot for a net that is no plane. It now re-lays the field
+  first: the vias that meet it move to free sites of the field's lattice, a
+  row or column shifts, the pitch closes toward one end or goes uneven, or
+  whole rows are taken out, whichever is the cheapest legal layout inside
+  the pad, new vias added where the pad has room so the count holds. Costs
+  `score.via_relay` (3) once, `score.via_relay_moved` (0.5) per via moved or
+  added, `score.via_relay_gap` (1) and `score.via_relay_pitch` (4) for an
+  irregular grid. The finding names the way and the count, "GND field in U1
+  pad 1 re-laid by shift vias, 9 vias before, 9 after". `place.via_relay =
+  false` keeps the old behaviour. Nothing in a script changes; a spot that
+  was refused or cost drops may now keep its vias, and a search may take a
+  spot it had passed over. `api.md`, "Carried vias give way".
+
 ## To 0.73.0
 
 ### New

@@ -6,17 +6,21 @@ file. An item cites its source as "a board's session, <date>".
 
 ## In progress
 
-- **A via field re-laid round a conflict** (the via give-way
-  investigation, 2026-10-01): when an item's copper meets some vias of a
-  field under a pad, drop the conflicting rows and add vias on the field's
-  free side to keep a target count, reporting the count before and after.
-  Give-way acts one via at a time and has no field to re-lay. Being built.
-
 - **A routed via moved with its tracks** (the same): a cell's via with two
   or more tracks never gives way; moving it needs the tracks re-routed as a
   unit, not the straight tail giving way draws. Being built.
 
 ## Open
+
+- **A part's `board.vias()` grid carried, so it can be re-laid** (the via
+  give-way investigation, 2026-10-01): only a stamped cell's vias are carried
+  and give way, field relay included. A grid laid at a part's pad is
+  planned after the part lands and is judged as copper by items placed later,
+  so it never re-lays. Wanted: the grid's sites worked out as the part is
+  searched, as `board.via()` at a pad does, so a conflict meets it as a field.
+  Related: a declared count for a grid (`count=` is for a row along an axis
+  only) and the `inset=` a stamped grid was laid with, which a cell does not
+  keep.
 
 - **Current shared between a load's pins** (a board's session, 2026-10-01):
   `current-path` judges a load by the widest route to any one of its pins at

@@ -2046,6 +2046,33 @@ does not refuse the spot at once. The via tries, in turn:
   and gives way again from the same far ends. `place.via_route` 0 leaves it
   as drawn. The refusal says "no spot within 0.50 mm is clear with its 2
   tracks rebuilt";
+- a via of a field (the carried vias of one net inside one pad of that
+  net, a stamped cell's own, a plane net's drops or an exposed pad's grid),
+  with no tail, when no spot inside the pad is clear for it alone: to have
+  its field re-laid in the pad as a whole (`place.via_relay`, true; false
+  never relays). Every via of the field that meets the item is handled at
+  once, a row is one step. The layouts tried, each inside the pad, at least
+  the closest hole-to-hole pitch apart, every new site judged as a move's
+  is (the other face's copper, holes, the edge and the item's own copper):
+  the vias that meet it moved to the free sites of the field's lattice; a
+  row or column shifted to a free line; the line spacing closed toward one
+  end; the lines on one side of a pivot shifted together (an uneven
+  pitch); the rows or columns that meet it taken out whole; the vias that
+  meet it taken out, which is what drop does and is left to it. Each is
+  priced `score.via_relay` once, `score.via_drop` for each via fewer than
+  the field was drawn with, `score.via_relay_moved` for each via moved or
+  added, `score.via_relay_gap` for each empty site left in the field's
+  grid beyond the drawn field's and `score.via_relay_pitch` per mm the
+  line spacings depart from the drawn pitch; the cheapest legal one is
+  taken. A plane net's field may end with fewer vias than drawn down to
+  `place.drops_keep`'s floor; any other net's field keeps its count or is
+  not re-laid. A field already short may be brought back up to the count
+  it was drawn with. The finding says which way and the count: "m: GND
+  field in U1 pad 1 re-laid by shift vias, 9 vias before, 9 after under
+  R9", and a drop reports what the pad holds: "3 GND vias dropped under R9
+  (U1 pad 1 holds 6 of 9)". Undoing one via of a relay, as placing its
+  item again does, undoes the field. A part's `board.vias()` grid is laid
+  after the part lands and is not carried, so it does not give way;
 - a via inside a pad of its own net with no tail, when no spot inside the
   pad is clear: to leave its pad, up to `place.via_leave` (1.0 mm) from
   where it stood, to the nearest spot clear of every other net's copper
@@ -2078,7 +2105,7 @@ each way failed: "via GND at (19.10, 21.90) is 0.00 mm from S copper on
 B.Cu (needs 0.20); it cannot give way: no GND via within 1.00 mm to share,
 no spot within 0.50 mm is clear, GND is not a plane net, so it is no drop".
 Each way has a cost the search adds to the spot's score - `score.via_share`
-(1), `score.via_move` (2), `score.via_route` (3), `score.via_leave` (4), `score.via_shorten` (5), `score.via_drop` (10) -
+(1), `score.via_move` (2), `score.via_route` (3), `score.via_relay` (3, once for the field, and `score.via_relay_moved` (0.5) for each via it moves or adds), `score.via_leave` (4), `score.via_shorten` (5), `score.via_drop` (10) -
 so it prefers spots where the vias stay as drawn; a nearest-first search
 takes a spot where they give way only when no spot has them as drawn. A via
 already placed does the same for an item placed later whose own copper
@@ -3156,6 +3183,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.via_move` | 0.5 | how far such a via may move to clear it; 0 never moves |
 | `place.via_move_step` | 0.05 | the grid a via's move, or its leaving its pad, is searched on |
 | `place.via_route` | 0.5 | how far a via that two or more of a cell's tracks end on may move, its tracks rebuilt from their far ends; 0 leaves it as drawn |
+| `place.via_relay` | true | whether a via field a conflict meets is re-laid in its pad, as a whole, before its vias leave the pad or are dropped; false leaves each via to its own steps |
 | `place.via_leave` | 1.0 | how far a via inside its pad, with no spot clear inside it, may leave it, joined by a new tail; 0 never leaves |
 | `place.via_clear_cache` | 4096 | how many placed vias' clear moves a scan keeps, each searched once for every candidate that meets it; a speed setting, results are the same |
 | `place.drops_keep` | 0.5 | the share of a pad's drops (vias of a `plane()` net in it) the pad keeps, rounded up and never fewer than one: what `drops=Drops.MIN` keeps of each field, and what a pad keeps when a carried drop is dropped to clear another net's copper (1 drops none there) |
@@ -3249,6 +3277,10 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.via_share` | 1 | mm the search adds to a spot for each carried via that shares a via of its net there |
 | `score.via_move` | 2 | mm for each carried via that moves there |
 | `score.via_route` | 3 | mm for each routed via that moves with its tracks rebuilt there, between move and leave |
+| `score.via_relay` | 3 | mm for each via field re-laid there, once, between move and leave |
+| `score.via_relay_moved` | 0.5 | mm for each via a relay moves or adds |
+| `score.via_relay_gap` | 1 | mm for each empty site a relay leaves in the field's grid, beyond the drawn field's |
+| `score.via_relay_pitch` | 4 | mm for each mm the field's line spacings, summed, depart from the pitch it was drawn at |
 | `score.via_leave` | 4 | mm for each carried via that leaves its pad there, between move and shorten |
 | `score.via_drop` | 10 | mm for each plane drop dropped there |
 | `score.push` | 10 | mm-equivalent: `score.push` times a push's modelled value over its limit, at the search |
