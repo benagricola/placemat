@@ -20,6 +20,15 @@ section for each hand-written pattern a newer form replaces.
   typed out for a datasheet's "vias outside the clearance". A via that cannot
   stand is left out and noted, and a gap over `pitch` is a finding.
 
+- **Regenerable output goes under `.placemat/views/`**: `preview`, `show`
+  and `layer` write there (`views/preview/`, `views/show/`, `views/layer/`),
+  and placemat writes a `.gitignore` of `*` into `.placemat/views/` so none of
+  it is tracked. Run records under `.placemat/runs/` are unchanged.
+- **`placemat datasheet` writes no file by default**: `--show` prints the
+  page's text (and says so when the page has none); `--png` or
+  `--out FILE.png` also render it. `placemat drc` no longer leaves a
+  `drc.json` beside the board.
+
 ### Migration steps
 
 **Ground vias typed out along a region's edge become a stitched row
@@ -34,6 +43,25 @@ for x, y in ((1.20, -3.55), (3.20, -3.55), (5.20, -3.55), (5.75, -1.60), (5.75, 
 board.stitch(Net("GND"), "antenna clearance", edge=True, outside=True, hole_to_edge=0.35,
              pitch=2.0, sides=[Edge.EAST, Edge.SOUTH], why="datasheet: vias outside the clearance")
 ```
+
+**A script or agent that reads a datasheet page PNG from beside the PDF, or a
+preview, show or layer image from the old folders, reads the printed path
+instead.** `.placemat/preview/`, `.placemat/show/` and
+`<layout>/.placemat/layer-*.svg` are now under `.placemat/views/<command>/`;
+each command prints where it wrote. A script that read `drc.json` beside the
+board runs `placemat drc --json`.
+
+```
+# before: the PNG appeared beside the PDF
+placemat datasheet d.pdf --show p3
+cat d-p3.png
+
+# after: ask for the PNG; the command prints its path
+placemat datasheet d.pdf --show p3 --png      # <project>/.placemat/views/datasheet/d-p3.png
+placemat datasheet d.pdf --show p3 --out page.png
+```
+
+`--out DIR` still takes a directory.
 
 ### Fixed
 
@@ -55,14 +83,6 @@ board.stitch(Net("GND"), "antenna clearance", edge=True, outside=True, hole_to_e
   edge the nearest other-net copper, the gap, the clearance and `under`);
   `--json` adds `polygons`; `placemat layer` draws and counts them. Fingers
   are such polygons.
-- **Regenerable output goes under `.placemat/views/`**: `preview`, `show`
-  and `layer` write there (`views/preview/`, `views/show/`, `views/layer/`),
-  and placemat writes a `.gitignore` of `*` into `.placemat/views/` so none of
-  it is tracked. Run records under `.placemat/runs/` are unchanged.
-- **`placemat datasheet` writes no file by default**: `--show` prints the
-  page's text (and says so when the page has none); `--png` or
-  `--out FILE.png` also render it. `placemat drc` no longer leaves a
-  `drc.json` beside the board.
 
 ### Migration steps
 
@@ -135,24 +155,6 @@ board.place(Part("j_b"), at=Location(X(PadRef(Part("j_a"), 1), PITCH), Y(PadRef(
 board.place(Part("j_b"), at=Pin(1, Polar(PITCH, 90, about=PadRef(Part("j_a"), 1))), rotation=0)
 ```
 
-**A script or agent that reads a datasheet page PNG from beside the PDF, or a
-preview, show or layer image from the old folders, reads the printed path
-instead.** `.placemat/preview/`, `.placemat/show/` and
-`<layout>/.placemat/layer-*.svg` are now under `.placemat/views/<command>/`;
-each command prints where it wrote. A script that read `drc.json` beside the
-board runs `placemat drc --json`.
-
-```
-# before: the PNG appeared beside the PDF
-placemat datasheet d.pdf --show p3
-cat d-p3.png
-
-# after: ask for the PNG; the command prints its path
-placemat datasheet d.pdf --show p3 --png      # <project>/.placemat/views/datasheet/d-p3.png
-placemat datasheet d.pdf --show p3 --out page.png
-```
-
-`--out DIR` still takes a directory.
 
 ### Fixed
 
