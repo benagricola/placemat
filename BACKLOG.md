@@ -108,6 +108,18 @@ file. An item cites its source as "a board's session, <date>".
   moves, not the part: along its item's side, then to another side, always
   by its item. Being built.
 
+- **A cell searched on either face** (a board's session, 2026-10-01; the
+  user's words, relayed: "For stuff that doesn't _need_ to be on the front
+  face, we should be searching both faces anyway"): `face=` takes FRONT or
+  BACK only, so each searched cell is pinned to a face by hand. The search
+  should try both faces for an item that need not face something, scored as
+  spots are now. To be specced.
+
+- **A run stalls on an item with no legal spot** (a board's session,
+  2026-10-01): a run that took about 3 minutes now goes 30+ minutes without
+  a step after a searched cell that has no legal spot; the resolve phase
+  measured about ten times its old time. Being diagnosed.
+
 ## Open
 
 - **A via field re-laid round a conflict** (the via give-way
