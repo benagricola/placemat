@@ -431,6 +431,47 @@ def inset(poly, d: float):
     return None
 
 
+def _area(poly) -> float:
+    return sum(_cross(poly[0], poly[i], poly[i + 1]) for i in range(1, len(poly) - 1)) / 2.0
+
+
+def _halfplane(poly, nx: float, ny: float, c: float) -> list:
+    """The convex polygon `poly` cut to the side where nx*x + ny*y >= c."""
+    out = []
+    for i, p in enumerate(poly):
+        q = poly[(i + 1) % len(poly)]
+        sp, sq = nx * p[0] + ny * p[1] - c, nx * q[0] + ny * q[1] - c
+        if sp >= 0.0:
+            out.append(p)
+        if (sp < 0.0 < sq) or (sq < 0.0 < sp):
+            t = sp / (sp - sq)
+            out.append((p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])))
+    return out
+
+
+def clipped(poly, pieces):
+    """The part of the convex pad `poly` that lies outside `pieces`, or None
+    when none of it does: for each piece that reaches into what is left, the
+    side of one of its edges that keeps the most. The pad is closer to
+    another net's copper than the clearance there (its footprint sets the
+    gap), so the pour holds only the part of it that is clear; the pad's own
+    copper stays as it is."""
+    out = list(poly)
+    for pc in pieces:
+        if not (any(pc.contains(p) for p in out)
+                or any(pc.blocks(out[i], out[(i + 1) % len(out)]) for i in range(len(out)))):
+            continue
+        best, most = None, 1e-9
+        for nx, ny, c in pc.edges:
+            part = _halfplane(out, nx, ny, c)
+            if len(part) >= 3 and _area(part) > most:
+                best, most = part, _area(part)
+        if best is None:
+            return None
+        out = best
+    return out
+
+
 def _ends(h, piece) -> tuple:
     """The two ends of the hull edge nearest the piece's centre: a direction
     to say which pads stand either side of the piece."""
@@ -461,6 +502,11 @@ def fit(holds, pieces, margin: float = 0.0) -> Fit:
             tries = [inset(poly, margin)] + [[(c[0] + (x - c[0]) * f, c[1] + (y - c[1]) * f) for x, y in poly]
                                               for f in (0.5, 0.25, 0.1, 0.02)]
             poly = next((t for t in tries if t and clear(t)), poly)
+        if not clear(poly):
+            # a pad nearer the copper than the clearance, its footprint's own spacing: held as far as it is clear
+            part = clipped(poly, near)
+            if part is not None and clear(part):
+                poly = part
         if not clear(poly):
             pc = next(pc for pc in near if any(pc.contains(p) for p in poly)
                       or any(pc.blocks(poly[i], poly[(i + 1) % len(poly)]) for i in range(len(poly))))

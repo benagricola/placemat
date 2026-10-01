@@ -79,6 +79,11 @@ def test_a_fit_holds_its_pads_enters_no_piece_and_does_not_cross_itself():
         o, n = res.outline, len(res.outline)
         for label, poly in holds:
             c = (sum(p[0] for p in poly) / len(poly), sum(p[1] for p in poly) / len(poly))
+            if any(pc.contains(c) for pc in pieces):
+                # a pad nearer another net's copper than its clearance is held as far as it is clear:
+                # its centre is in the way, and the part held is what the outline reaches
+                assert any(pourfit._inside(o, v) or pourfit._edge_gap(o, v) < 1e-5 for v in poly), (seed, label)
+                continue
             assert pourfit._inside(o, c) or pourfit._edge_gap(o, c) < 1e-5, (seed, label)
         for i in range(n):
             a, b = o[i], o[(i + 1) % n]
@@ -119,3 +124,27 @@ def test_a_pad_too_thin_to_inset_is_still_held_clear_of_a_neighbour():
     other = pourfit.pieces_of(_rect(0.5, 0.5, 1.0, 0.3), 0.265, SAG, "other")
     res = pourfit.fit([("A", own), ("B", far)], other, 0.12)
     assert not res.problem and res.outline
+
+
+def test_a_pad_nearer_the_copper_than_the_clearance_is_held_as_far_as_it_is_clear():
+    """A 0.2 mm tall pad 0.1 mm from another net's pad, nearer than its clearance: the neighbour's
+    clearance outline reaches past the pad's centre, so no inset or shrinking of the pad clears it.
+    The pour holds the part of the pad that lies outside the outline."""
+    own = pourfit.hull(_rect(0.0, 0.0, 1.0, 0.2))
+    far = pourfit.hull(_rect(4.0, 0.0, 1.0, 0.2))
+    other = pourfit.pieces_of(_rect(0.0, -0.25, 1.0, 0.1), 0.265, SAG, "other")
+    res = pourfit.fit([("A", own), ("B", far)], other, 0.12)
+    assert not res.problem and res.outline
+    assert not any(pc.contains(p) for pc in other for p in res.outline)
+    assert all(not pc.blocks(res.outline[i], res.outline[(i + 1) % len(res.outline)])
+               for pc in other for i in range(len(res.outline)))
+    near_pad = [p for p in res.outline if abs(p[0]) <= 0.5 + 1e-9]
+    assert near_pad and all(p[1] >= 0.065 - 1e-6 for p in near_pad)
+
+
+def test_a_pad_wholly_inside_the_clearance_is_still_too_close():
+    own = pourfit.hull(_rect(0.0, 0.0, 1.0, 0.1))
+    far = pourfit.hull(_rect(4.0, 0.0, 1.0, 0.1))
+    other = pourfit.pieces_of(_rect(0.0, -0.2, 1.0, 0.1), 0.265, SAG, "other")
+    res = pourfit.fit([("A", own), ("B", far)], other, 0.12)
+    assert res.problem == "too close" and res.pads == ("A",)

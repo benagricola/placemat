@@ -5,6 +5,48 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **`reach=` on a fitted pour**: `board.pour(net, pads, layer=,
+  swallow_pads=True, reach=mm)` grows the pour's copper into the room round
+  it. The fitted outline is grown by `reach`, cut back by the clearance
+  outline of every other net's copper planned before the pour, and of what is
+  left the part joined to the members is drawn, as graphic polygon(s). It
+  replaces what a `grow=` pour did for current width: a hull narrower than the
+  net's `current-path` need gets `reach=` of the difference over two. `reach=`
+  needs pcbnew at plan time (KiCad's polygon booleans) and is refused with
+  `width=` or without `swallow_pads=True`.
+
+### Migration steps
+
+**A fitted pour that replaced a `grow=` pour and lost current width gets
+`reach=`.** The 0.70.0 step turned `grow=mm` into a fitted pour, which is the
+hull of its pads where the grown pour was the hull grown by `mm`. Where
+`placemat check current-path` now reports the net narrower than it needs, add
+`reach=<the old grow>`.
+
+```python
+# before (0.70.0): the hull alone; current-path reports a neck narrower than the net needs
+board.pour(Net("<NET>"), [PadRef(Part("a"), "<PAD>"), PadRef(Part("b"), "<PAD>")], layer=CopperLayer.F, swallow_pads=True)
+# after: the hull grown into the room round it, cut back from other nets
+board.pour(Net("<NET>"), [PadRef(Part("a"), "<PAD>"), PadRef(Part("b"), "<PAD>")], layer=CopperLayer.F, swallow_pads=True,
+           reach=<the old grow>)
+```
+
+### Fixed
+
+- A fitted pour over a pad that stands nearer another net's copper than the
+  clearance (two pins whose footprint gap is under it) is drawn, holding the
+  part of the pad that is clear of that copper, where it was refused with "so
+  no pour can hold the pad clear". The pour's added copper keeps the full
+  clearance from the other pad; the pad pair's own gap is the footprint's. A
+  pad wholly inside the clearance outline is still refused.
+- A graphic polygon with a hole (a pour with `reach=` round a pad it cannot
+  touch) is read back with the hole, as a zone fill's are, so the pad in it is
+  not taken for copper under the pour.
+
 ## To 0.71.0
 
 ### New

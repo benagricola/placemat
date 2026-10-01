@@ -121,7 +121,7 @@ request (SKILL.md, "When no form says it").
 | a pour over a set of pads, fitted round other nets' copper | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: a graphic polygon holding the pads' copper, every edge at least the clearance from other copper | Copper calls (A fitted pour) |
 | a pour on an inner layer joining vias | `board.pour(net, [vias, PadRef(...), ...], layer=, swallow_pads=True)`: members are pads and the vias `via()`, `vias()` and a lane's `.via` return | Copper calls (A fitted pour) |
 | a pour over the hull or the box round a set of pads, drawn as declared | `board.pour(net, [PadRef(...), ...], layer=, cover=Cover.HULL)` (or `Cover.BOX`) | Copper calls (What a pour over pads covers) |
-| a pour that reaches past its pads into the room round them | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: a fitted polygon holding the pads' copper, kept clear of other nets. `grow=` and `within=` are gone; for ground or a plane net, `board.plane(net, layers, over=[...])` | Copper calls (A fitted pour) |
+| a pour that reaches past its pads into the room round them | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True, reach=mm)`: the fitted outline grown by `reach` into the room round it, cut back by other nets' clearance outlines planned before it. `grow=` and `within=` are gone; for ground or a plane net, `board.plane(net, layers, over=[...])` | Copper calls (A fitted pour) |
 | a neck between two pads, as wide as the narrower or `width=` | `board.pour(net, [PadRef(a), PadRef(b)], layer=, width=)` | Copper calls |
 | a wide pour along a centreline into a pad | `board.finger(net, from_=, to=, width=)` | Copper calls |
 | a finger as wide as a named pad | `board.finger(net, from_=, to=, width=PadRef(...))` | Copper calls |
@@ -2121,7 +2121,7 @@ copper finding, and nothing is cut from it.
 **No grown pour.** `board.pour` takes no `grow=` or `within=`: a pour is
 fitted, never a KiCad zone grown from its pads. A pour that reaches past its
 pads into the room round them is `board.pour(net, pads, layer=,
-swallow_pads=True)` (A fitted pour), and for ground or a plane net,
+swallow_pads=True, reach=mm)` (A fitted pour), and for ground or a plane net,
 `board.plane(net, layers, over=[...])`. `board.stitch(net, pour)` over a
 fitted pour places its vias inside the pour's outline as planned.
 
@@ -2153,7 +2153,33 @@ arc_sag` (0.02 mm) past the clearance. With nothing in the way the outline is
 the hull of the pads' copper. A pad that another net's clearance outline
 reaches into (copper nearer than the clearance and half the stroke) is held
 inside its edges by half the stroke plus the arc sag, so the stroke does not
-reach the other copper.
+reach the other copper. A pad that stands nearer another net's copper than the
+clearance itself (its footprint sets the gap between two pins) is held as far
+as it is clear: the pour holds the part of the pad outside that copper's
+clearance outline, so its added copper keeps the full clearance, and the pad's
+own copper is as the footprint has it. KiCad has no exemption for a polygon
+whose edge is the pad's edge (a board graphic is judged against the
+neighbouring pad like any copper), so the pour's edge never stands where the
+pad's does on that side. Where the whole pad is inside the clearance outline,
+the pour is not drawn and the finding names it.
+
+**Reach.** `reach=mm` on a fitted pour grows its copper into the room round it:
+the fitted outline grown by `reach` (arcs no more than `[geometry] arc_sag`
+off), cut back by the clearance outline of every other net's copper planned
+before it (the pieces the fit keeps clear of, the board edge included), and of
+what is left the part joined to the members. It is written as graphic
+polygon(s), never a zone; where copper cut across the reach leaves more than
+one part joined to the members, each is a polygon. Copper that stands wholly
+inside the grown ring leaves a hole, drawn as KiCad draws a zone fill's: one
+polygon whose outline goes in to the hole and back by a bridge of no width.
+Copper planned after the pour keeps clear of the grown copper as for any
+fitted pour. Use it where the hull of the pads is narrower than the current
+the net carries (`placemat check current-path`): `reach=` adds that much on
+every side the room allows, so a hull 1.4 mm across with `reach=0.4` is 2.2 mm
+across where nothing is in the way. The narrow-neck finding is not made for a
+pour with `reach=`. It is refused with `width=`, without `swallow_pads=True`,
+and for a distance of 0 or less; it needs KiCad's pcbnew at plan time, whose
+polygon booleans it uses.
 
 It is written as a graphic copper polygon (a filled `PCB_SHAPE`), never as a
 zone: nothing refills it round later copper, and nothing is cut from it once

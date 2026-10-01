@@ -398,6 +398,7 @@ class CopperIntent:
     owners: frozenset = frozenset()       # refdes its endpoints belong to
     freedom: Freedom = Freedom.FIXED      # derived in resolve(), once every declaration is in
     members: tuple = field(default=(), metadata={"omit_default": True})    # a fitted pour's via intents
+    reach: float | None = field(default=None, metadata={"omit_default": True})   # a fitted pour's reach=, mm
 
     @property
     def rank(self):
@@ -4781,7 +4782,7 @@ class Board:
 
     def pour(self, net, points, *, layer: CopperLayer, stroke: float | None = None, swallow_pads: bool = False,
              width: float | None = None, cover: Cover | None = None, priority: Priority = Priority.DEFAULT,
-             grow: float | None = None, within=None, why: str = ""):
+             reach: float | None = None, grow: float | None = None, within=None, why: str = ""):
         """A filled copper polygon on one layer, written as a graphic polygon
         (never a zone: nothing refills it, and nothing is cut from it once it
         is planned). Another net's copper inside it is a copper finding.
@@ -4806,6 +4807,21 @@ class Board:
         its copper ring there, and one that does not span it is a finding. The
         pour is planned after its vias.
 
+        `reach=mm` on a fitted pour grows its copper into the room round it:
+        the fitted outline grown by `reach` (arcs no more than
+        `geometry.arc_sag` off), cut back by every other net's clearance
+        outline planned before it (the pieces the fit keeps clear of), of
+        which the part joined to the members is kept, written as graphic
+        polygon(s). The copper reaches half the pour's stroke further, as any
+        pour's does. Copper planned after it keeps clear as for any fitted
+        pour. A pour that must carry current (check `current-path`) over a
+        narrow hull takes the width it needs from `reach=`; it needs KiCad's
+        pcbnew at plan time, whose polygon booleans it uses. Where the pour
+        is drawn, the part of a pad that lies nearer another net's copper than the
+        clearance (its footprint sets that gap) is held only as far as it is
+        clear; the pad's own copper is as it is, and the pour's added copper
+        keeps the full clearance.
+
         Without `swallow_pads`, `cover` says what corners that name pads cover
         (`Cover`): HULL the hull of their copper, BOX the box round it, CENTRES
         (the default) the polygon through the points. Exactly two pads
@@ -4817,6 +4833,10 @@ class Board:
         stroke = self.settings.copper_pour_stroke if stroke is None else stroke
         layer = CopperLayer.of(layer)
         name = self.geometry.require_net(net)
+        if reach is not None:
+            if isinstance(reach, bool) or not isinstance(reach, (int, float)) or not reach > 0.0:
+                raise ValueError("pour %s: reach= is a distance in mm greater than 0, not %r" % (name, reach))
+            reach = float(reach)
         if grow is not None or within is not None:
             raise ValueError("pour %s: grow= and within= are gone, a pour is fitted and never a zone grown from its "
                              "pads; join the pads with board.pour(net, pads, layer=, swallow_pads=True), or for "
@@ -4844,6 +4864,9 @@ class Board:
             raise ValueError("pour %s: swallow_pads=True fits the pour round other nets' copper from its pads "
                              "alone, so every point is a pad (PadRef, CellPadRef) or a via; a pour through plain "
                              "points is declared without swallow_pads" % name)
+        if reach is not None and not fitted:
+            raise ValueError("pour %s: reach= grows a fitted pour into the room round it, so it takes swallow_pads=True "
+                             "over pads and vias, and no width= (a neck between two pads is drawn as declared)" % name)
         if cover is None:
             cover = Cover.CENTRES
         refs = _refs_in(points, via_ends=True)         # a via's pads: the pour waits for them as the via does
@@ -4862,9 +4885,13 @@ class Board:
                 nx, ny = -uy * w / 2.0, ux * w / 2.0
                 pts = ((ca.x + nx, ca.y + ny), (cb.x + nx, cb.y + ny), (cb.x - nx, cb.y - ny), (ca.x - nx, ca.y - ny))
             elif fitted:
-                pts = self._fit_pour(ctx, name, points, layer, stroke)
-                if pts is None:
+                outlines = self._fit_pour(ctx, name, points, layer, stroke, reach)
+                if not outlines:
                     return []
+                pts = outlines[0]
+                if len(outlines) > 1:               # a reach cut in two by copper that stands across it
+                    ctx.pour_at[intent.index] = pts
+                    return [Pour(name, layer, o, stroke, True) for o in outlines]
             elif cover is Cover.CENTRES:
                 pts = tuple((l.x, l.y) for l in (ctx.locate(p) for p in points))
             else:
@@ -4885,6 +4912,7 @@ class Board:
             return [Pour(name, layer, pts, stroke, fitted)]
         intent = self._copper_intent("pour %s" % name, net, priority, plan, refs, why)
         intent.members = vias
+        intent.reach = reach
         return intent
 
     def _check_pour_via(self, name: str, it: CopperIntent):
@@ -4894,9 +4922,10 @@ class Board:
         if not it.key.startswith("via"):
             raise TypeError("pour %s: a fitted pour joins pads and vias, and %s is neither" % (name, it.key))
 
-    def _fit_pour(self, ctx, net: str, pads, layer: CopperLayer, stroke: float):
+    def _fit_pour(self, ctx, net: str, pads, layer: CopperLayer, stroke: float, reach: float | None = None):
         """The outline of a fitted pour (pourfit.py) over `pads` as the plan
-        stands, or None with a finding when none can be drawn."""
+        stands - with `reach`, the outlines of its copper grown that far into the room
+        round it - or [] with a finding when none can be drawn."""
         from . import pourfit
         occ = ctx.occ
         half = stroke / 2.0
@@ -4911,17 +4940,17 @@ class Board:
                 ops = ctx.ops_at.get(p.index)
                 if ops is None or not any(isinstance(op, Via) for op in ops):
                     ctx.notes.append("pour %s: %s" % (net, _past_unplanned(ctx.ops_at, p, "the pour", None)))
-                    return None
+                    return []
                 for op in (op for op in ops if isinstance(op, Via)):
                     label = "via at (%.2f, %.2f)" % (op.at.x, op.at.y)
                     if op.net != net:
                         ctx.notes.append("pour %s: %s is on net %s, and a fitted pour holds only its own net's "
                                          "copper" % (net, label, op.net))
-                        return None
+                        return []
                     if op.layers and layer not in op.layers:
                         ctx.notes.append("pour %s: %s does not span %s (it spans %s)"
                                          % (net, label, layer.value, _span_text(op.layers)))
-                        return None
+                        return []
                     holds.append((label, pourfit.hull(op.polygon)))
                     boxes.append(op.box)
                 continue
@@ -4931,19 +4960,19 @@ class Board:
                 if sh.net != net:
                     ctx.notes.append("pour %s: pad %s is on net %s, and a fitted pour holds only its own net's pads"
                                      % (net, label, sh.net or "-"))
-                    return None
+                    return []
                 if layer not in sh.layers:
                     ctx.notes.append("pour %s: pad %s has no copper on %s" % (net, label, layer.value))
-                    return None
+                    return []
                 holds.append((label, pourfit.hull(sh.poly)))
                 boxes.append(sh.box)
-        reach = Box.union(boxes)
+        span = Box.union(boxes).inflate(reach or 0.0)       # what reach= may take a clearance outline in
         pieces = []
 
         def add(sh, clr: float, what: str):
             # a polygon of copper (a pour, a drawn poly) is read with the same error on its side of the gap
             r = clr + half + slack * (2 if sh.kind == "copper" and not sh.ends and not sh.owner else 1)
-            if not sh.box.overlaps(reach, gap=r):
+            if not sh.box.overlaps(span, gap=r):
                 return
             pieces.extend(pourfit.pieces_of(sh.poly, r, sag, what, sh.circle, sh.ends))
 
@@ -4961,7 +4990,7 @@ class Board:
             elif layer in sh.layers and sh.net != net:
                 add(sh, occ.pair_clearance(net, sh.net, "", sh.owner)[0], _copper_name(occ, sh))
         if occ.edge_margin is not None:
-            pieces += pourfit.edge_pieces(_edge_loops(occ), occ.edge_margin + half + slack, sag, reach)
+            pieces += pourfit.edge_pieces(_edge_loops(occ), occ.edge_margin + half + slack, sag, span)
         res = pourfit.fit(holds, pieces, half + self.settings.geometry_arc_sag)
         if res.problem:
             between = " and ".join(res.pads)
@@ -4978,13 +5007,32 @@ class Board:
                                  % (net, what, noun, between))
             else:
                 ctx.notes.append("pour %s: its pads leave no area to fit; the pour is not drawn" % net)
-            return None
+            return []
+        if reach is not None:
+            return self._reached(ctx, net, res.outline, reach, pieces, sag)
         need = self._width(net, None)
         for gap, (x, y) in sorted(res.necks):
             if gap + stroke < need - 1e-6:
                 ctx.notes.append("pour %s: narrows to %.2f mm at (%.2f, %.2f), under its net's %.2f mm track"
                                  % (net, gap + stroke, x, y, need))
-        return res.outline
+        return [res.outline]
+
+    def _reached(self, ctx, net: str, outline, reach: float, pieces, sag: float):
+        """The copper of a fitted pour grown by `reach` into the room round its
+        `outline`: cut back by every clearance outline in `pieces`, and of what is left the parts
+        joined to the pour's own. Arcs lie no more than `geometry.arc_sag` off."""
+        from .kicad import polyops
+        if not polyops.available():
+            ctx.notes.append("pour %s: reach= needs KiCad's pcbnew at plan time, for its polygon booleans; the pour "
+                             "is not drawn" % net)
+            return []
+        box = Box.of_points(outline).inflate(reach)
+        cutters = [pc.poly for pc in pieces if pc.right > box.left and pc.left < box.right
+                   and pc.bottom > box.top and pc.top < box.bottom]
+        got = polyops.grow_and_cut(outline, reach, self.settings.geometry_arc_sag, cutters)
+        if not got:
+            ctx.notes.append("pour %s: reach= leaves no copper joined to its pads; the pour is not drawn" % net)
+        return got
 
     def plane(self, net, layers, *, outline=None, inset: float | None = None, chamfer: float | None = None,
               clearance: float | None = None, min_thickness: float | None = None, solid_pads: bool = True,
