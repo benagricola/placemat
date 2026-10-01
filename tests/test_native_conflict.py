@@ -292,3 +292,36 @@ def test_conflict_agrees_that_a_body_and_a_claimed_courtyard_may_stand_over_a_ne
             native = placemat_native.conflict(_py_shape(moved, shape.owner in occ._body_refs, False),
                                               _py_shape(target, target.owner in occ._body_refs, False), None, **cfg)
             assert py == native == want, (shape.kind, target.owner, py, native)
+
+
+def test_conflict_agrees_on_a_plated_hole_beside_netless_and_net_tie_copper():
+    """A plated hole keeps the hole clearance from the copper of another net (Occupancy._hole_conflict):
+    holes of a few nets drawn up to the rich board's pads, tracks, vias and net tie's copper, and judged by
+    both engines, with a drill each side of the clearance. Native has no net-tie exclusion, which `legal`
+    leaves to Python (`_excused`)."""
+    from placemat.occupancy import hole_shape
+    occ = _rich_occupancy()
+    cfg = _cfg_kwargs(occ)
+    assert cfg["hole_clearance"] == 0.2
+    copper = [(s, fp, lead, m) for s, fp, lead, m in _all_shapes(occ) if s.kind in ("pad", "through", "copper")]
+    assert any(s.kind == "copper" and s.owner == "NT" for s, *_ in copper), "the net tie's copper is on the board"
+    rnd = random.Random(20261002)
+    hits = clear = 0
+    mismatches = []
+    for _ in range(6000):
+        o, o_fp, o_lead, o_margin = rnd.choice(copper)
+        net = rnd.choice(["", "A", "B", "GND", o.net])
+        drill = rnd.choice([0.2, 0.3, 0.6])
+        # the drill's centre lies within half a millimetre of the copper's box
+        cx = rnd.uniform(o.box.left - 0.5, o.box.right + 0.5)
+        cy = rnd.uniform(o.box.top - 0.5, o.box.bottom + 0.5)
+        layers = rnd.choice([frozenset(), frozenset([CopperLayer.F]), frozenset([CopperLayer.B])])
+        hole = hole_shape("", Location(cx, cy), drill, net, layers=layers)
+        py = occ._conflict(hole, o, None) is not None
+        native = placemat_native.conflict(_py_shape(hole, False), _py_shape(o, o_fp, o_lead, o_margin), None, **cfg)
+        hits += py
+        clear += not py
+        if py != native and not _excused(occ, hole, o, py, native):
+            mismatches.append((o.kind, o.owner, o.net, net, drill, (cx, cy), py, native))
+    assert not mismatches, "%d mismatches: %s" % (len(mismatches), mismatches[:5])
+    assert hits > 100 and clear > 100, (hits, clear)

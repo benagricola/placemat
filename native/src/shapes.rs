@@ -66,6 +66,9 @@ impl Kind {
     fn is_hole(self) -> bool {
         matches!(self, Kind::Hole | Kind::Npth)
     }
+    fn is_copperish(self) -> bool {
+        matches!(self, Kind::Pad | Kind::Through | Kind::Copper)
+    }
 }
 
 pub type Bounds = (f64, f64, f64, f64); // left, top, right, bottom
@@ -138,7 +141,7 @@ pub struct ConflictConfig {
     pub gap: f64,       // Occupancy._gap: the conflict-gap prefilter for a non-drawn shape
     pub drawn_gap: f64, // Occupancy._drawn_gap: for a silk/mask/body shape
     pub hole_to_hole: f64,   // BoardGeometry.hole_to_hole: two drilled holes, whatever their nets
-    pub hole_clearance: f64, // BoardGeometry.hole_clearance: copper to an unplated hole
+    pub hole_clearance: f64, // BoardGeometry.hole_clearance: copper to a drilled hole
 }
 
 impl ConflictConfig {
@@ -222,13 +225,13 @@ fn circle_distance(hole: &Shape, poly: &[Point]) -> f64 {
     (0..n).map(|i| point_segment_distance(c, poly[i], poly[(i + 1) % n])).fold(f64::INFINITY, f64::min) - r
 }
 
-/// Whether two kinds can meet at all: a plated hole meets only another hole.
+/// Whether two kinds can meet at all: a plated hole meets another hole, or copper.
 pub(crate) fn may_meet(a: Kind, b: Kind) -> bool {
     if a == Kind::Hole {
-        return b.is_hole();
+        return b.is_hole() || b.is_copperish();
     }
     if b == Kind::Hole {
-        return a.is_hole();
+        return a.is_hole() || a.is_copperish();
     }
     true
 }
@@ -277,7 +280,21 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
         return ((sx - ox).powi(2) + (sy - oy).powi(2)).sqrt() - rs - ro < need - 1e-9;
     }
     if s.kind == Kind::Hole || o.kind == Kind::Hole {
-        return false; // its pad or via ring answers for everything else
+        // a plated hole keeps the hole clearance from the copper of another net
+        // (Occupancy._hole_conflict); a net tie's own exclusion is Python's
+        // (`_tie_refs`), as it is for a copper clearance
+        let (hole, metal) = if s.kind == Kind::Hole { (s, o) } else { (o, s) };
+        if !metal.kind.is_copperish() || (!hole.net.is_empty() && hole.net == metal.net) {
+            return false;
+        }
+        let common = if hole.layers != 0 { hole.layers & metal.layers } else { metal.layers };
+        if common == 0 {
+            return false;
+        }
+        let need = cfg.hole_clearance;
+        let slack = HOLE_SLACK * (hole.bbox.2 - hole.bbox.0);
+        return box_gap(hole.bbox, metal.bbox) < need + slack - 1e-9
+            && circle_distance(hole, &metal.poly) < need - 1e-9;
     }
     let court = |k: Kind| matches!(k, Kind::Courtyard | Kind::Keepclear);
     if court(s.kind) && court(o.kind) {
@@ -645,6 +662,28 @@ mod tests {
         assert!(!conflict(&back, &front, None, &cfg()));
         assert!(conflict(&back, &deep, None, &cfg()));
         assert!(conflict(&back, &through, None, &cfg()));
+    }
+
+    #[test]
+    fn a_plated_hole_keeps_the_hole_clearance_from_copper_of_another_net() {
+        // a 0.3 mm drill to copper whose edge is at x = 0.5: 0.35 mm
+        let ring: Vec<Point> = (0..16)
+            .map(|i| (0.15 * (i as f64 * std::f64::consts::PI / 8.0).cos(), 0.15 * (i as f64 * std::f64::consts::PI / 8.0).sin()))
+            .collect();
+        let hole = shape(Kind::Hole, "", ring.clone(), 3, 0, "A", false);
+        let bar = shape(Kind::Copper, "NT1", rect(0.6, 0.0, 0.2, 1.0), 1, 1, "", true);
+        let mut c = cfg();
+        c.hole_clearance = 0.3;
+        assert!(!conflict(&hole, &bar, None, &c));
+        c.hole_clearance = 0.4;
+        assert!(conflict(&hole, &bar, None, &c)); // netless copper counts, whichever way round
+        assert!(conflict(&bar, &hole, None, &c));
+        let own = shape(Kind::Pad, "U1", rect(0.6, 0.0, 0.2, 1.0), 1, 1, "A", true);
+        assert!(!conflict(&hole, &own, None, &c)); // its own net's copper is not judged
+        let back = shape(Kind::Copper, "NT1", rect(0.6, 0.0, 0.2, 1.0), 2, 0b10, "", true);
+        let blind = shape(Kind::Hole, "", ring, 1, 0b01, "A", false);
+        assert!(!conflict(&blind, &back, None, &c)); // a hole spanning no layer of the copper's
+        assert!(conflict(&hole, &back, None, &c));
     }
 
     #[test]
