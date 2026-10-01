@@ -1960,9 +1960,6 @@ class Board:
         elif isinstance(align, Along):
             norm = ("along", align)
         elif isinstance(align, PadRef):
-            if item_kind == "keepout":
-                raise TypeError("%s: a keepout has no pads to align on; align=Along.START/MID/END, or "
-                                "leave align= out" % key)
             if kind != "part":
                 raise TypeError("%s: align=PadRef needs the placed item's own pad; a %s has none - give "
                                 "align=(own_pad, their_pad)" % (key, kind))

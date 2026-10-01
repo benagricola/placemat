@@ -7,6 +7,11 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+`Beside(keepout, side, align=PadRef(part, pad))` is taken, as the pair form
+`align=(own_pad, PadRef(part, pad))` already was: the pad is a placed
+part's, lined up with the placed part's own pad of its net. It was refused
+("a keepout has no pads to align on").
+
 `board.stitch(net, keepout_name)` over a keepout that excludes vias but lets
 the net in (`allow=(Net("GND"),)`) stitches it. It was refused ("excludes
 vias ... add 'GND' to its allow="), and once past that check no via was let

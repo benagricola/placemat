@@ -167,13 +167,22 @@ def test_the_item_may_be_a_keepout():
     assert r1.center.y == pytest.approx(20.0)  # MID of the keepout's east side (18..22)
 
 
-def test_a_keepout_has_no_pads_to_align_on():
-    b = make_board()
-    b.place(Part("u1"), at=Location(20, 20))
-    k = b.keepout(Path([(-3.0, -2.0), (3.0, -2.0), (3.0, 2.0), (-3.0, 2.0)]), "clr",
-                  at=Location(20.0, 20.0), why="a clearance")
-    with pytest.raises(TypeError, match="no pads"):
-        b.place(Part("r1"), at=Beside(k, Edge.EAST, align=PadRef(Part("u1"), "A")))
+def test_beside_a_keepout_aligns_on_a_placed_parts_pad_as_the_pair_form_does():
+    """align=PadRef(part, pad) lines up the placed part's own pad of that
+    pad's net with it: the pad is a placed part's, not the keepout's, so a
+    keepout as the item takes it as it takes (own_pad, their_pad)."""
+    def placed(align):
+        b = make_board()
+        b.place(Part("u1"), at=Location(20, 26))
+        k = b.keepout(Path([(-3.0, -2.0), (3.0, -2.0), (3.0, 2.0), (-3.0, 2.0)]), "clr",
+                      at=Location(20.0, 20.0), why="a clearance")
+        b.place(Part("r1"), at=Beside(k, Edge.EAST, align=align))
+        plan = b.resolve()
+        return plan.occupancy.pad_location("R1", "1"), plan.occupancy.pad_location("U1", "1"), plan.box("r1")
+    single, u1_a, box = placed(PadRef(Part("u1"), "A"))
+    pair, _, _ = placed((1, PadRef(Part("u1"), "A")))
+    assert single == pair
+    assert single.y == pytest.approx(u1_a.y) and box.left == pytest.approx(23.1)
 
 
 def test_physical_envelope_widens_the_gap_to_the_clearance_rule():
