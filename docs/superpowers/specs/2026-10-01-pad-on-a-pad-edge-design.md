@@ -1,6 +1,6 @@
 # A part's pad placed on another pad's edge, and net ties as copper
 
-Status: draft, for approval.
+Status: approved (2026-10-01).
 
 Source: a board's session (2026-10-01), placing net ties Ben approved at a
 current shunt's Kelvin taps.
