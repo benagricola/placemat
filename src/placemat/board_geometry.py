@@ -251,6 +251,7 @@ class BoardGeometry:
     hole_to_hole: float = 0.25            # the nearest two drilled holes may come, from the board's rules
     hole_clearance: float = 0.0           # a hole's clearance to copper of another net
     silk_clearance: float = 0.0           # silk to silk and to a mask opening, from the board's rules
+    min_track_width: float = 0.0          # the narrowest track the board's rules allow; 0: not known
     pin_names: dict = field(default_factory=dict, compare=False)   # refdes -> {pad number: pin name}, from the symbols
     layer_types: dict = field(default_factory=dict, compare=False)  # CopperLayer -> KiCad's type: signal, power, mixed, jumper
     copper_mm: dict = field(default_factory=dict, compare=False)   # CopperLayer -> thickness mm, from the board's stackup; {}: no stackup declared

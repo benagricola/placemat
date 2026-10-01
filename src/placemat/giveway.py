@@ -13,18 +13,23 @@ copper, on either face, at a candidate, it tries in turn to
 2. move up to `place.via_move`, searched on a `place.via_move_step` grid,
    nearest first, to a spot clear of every other net's copper and every
    hole, its tail redrawn from its pad; a via inside its pad stays inside it;
-3. shorten to a via from its own face to the nearest layer of its own
+3. leave its pad, a via inside its pad with no tail and no spot inside it
+   clear: it moves up to `place.via_leave` to the nearest spot that is, and
+   a new tail on its own face joins it to the pad, at the net's track width
+   or narrower down to the board's minimum;
+4. shorten to a via from its own face to the nearest layer of its own
    plane between it and the far face - a plane net's carried drop only,
    and only when the fab profile's tier for the resulting via type
    (micro, blind or buried) is "yes"; "if-needed" is judged (its span
-   named, would it clear) but never applied, and "no" is not tried at all;
-4. be dropped, a plane net's drop only, while its pad keeps
+   named, would it clear) but never applied, and "no" is not applied, though
+   the refusal says when it would have cleared;
+5. be dropped, a plane net's drop only, while its pad keeps
    `place.drops_keep` of its drops (rounded up, at least one).
 
 A via already placed does the same for a later item whose own copper meets
 it. The search judges the item less its carried vias natively, as it judges
 any item; what the vias do is judged here, in Python, after that, and priced
-at `score.via_share`, `score.via_move`, `score.via_shorten` and
+at `score.via_share`, `score.via_move`, `score.via_leave`, `score.via_shorten` and
 `score.via_drop` each.
 
 What is decided is recomputed at each commit from the board as it stands, so
@@ -61,12 +66,13 @@ def pad_via_id(k: int) -> str:
 
 def enabled(settings) -> bool:
     """Whether a carried via may give way at all under these settings."""
-    return settings.place_via_share > 0 or settings.place_via_move > 0 or settings.place_drops_keep < 1.0
+    return settings.place_via_share > 0 or settings.place_via_move > 0 or settings.place_via_leave > 0 \
+        or settings.place_drops_keep < 1.0
 
 
 def reach(settings) -> float:
     """How far past an item's copper what its vias do can reach."""
-    return settings.place_via_share + settings.place_via_move
+    return settings.place_via_share + max(settings.place_via_move, settings.place_via_leave)
 
 
 def least_cost(settings, tiers=None) -> float:
@@ -76,6 +82,7 @@ def least_cost(settings, tiers=None) -> float:
     shorten = any(t == "yes" for t in (tiers or {}).values())
     ways = [cost for on, cost in ((settings.place_via_share > 0, settings.score_via_share),
                                   (settings.place_via_move > 0, settings.score_via_move),
+                                  (settings.place_via_leave > 0, settings.score_via_leave),
                                   (shorten, settings.score_via_shorten),
                                   (settings.place_drops_keep < 1.0, settings.score_via_drop)) if on]
     return min(ways) if ways else 0.0
@@ -102,14 +109,14 @@ class Group:
 @dataclass(frozen=True)
 class Action:
     """What one carried via did."""
-    kind: str                   # share | move | shorten | drop
+    kind: str                   # share | move | leave | shorten | drop
     via: str                    # its id
     owner: str
     home: str
     net: str
     at: tuple                   # where it stood as drawn
     to: tuple | None = None     # moved: its new centre; shared: the centre of the via it joins
-    tail: object = None         # the Track drawn: a share's joining tail, a move's redrawn one
+    tail: object = None         # the Track drawn: a share's joining tail, a move's redrawn one, a leave's new one
     old_tail: tuple | None = None   # the drawn tail taken away, as its two ends (the via's end first)
     pad: tuple | None = None    # (refdes, pad number) of the pad it serves
     under: str = ""             # whose copper it met
@@ -340,13 +347,14 @@ def _tail_hit(judge: "_Judge", shape, own) -> bool:
 
 
 def _native_first_move(judge: "_Judge", g: "Group", mine: list, span: Box, offsets: list, first, pad, r: float,
-                       width: float):
+                       tail_spec):
     """(used, (dx, dy) or None): the first of `offsets` (the ones `_native_move_offsets` found clear
     of the board) at which `g`'s ring, hole and tail, moved, also clear `mine` (the item's own copper)
     and what earlier actions left, and keep the tests `_give`'s loop applies - one native call in
     place of judging each offset in Python. `used` is False where the loop must run instead: no
     native index, the switch off, or a net tie near the move, whose rules the native ones do not model.
-    `first`: the copper the via first met; `pad`: the pad it must stay inside, or None; `r` its radius."""
+    `first`: the copper the via first met; `pad`: the pad it must stay inside, or None; `r` its radius;
+    `tail_spec`: None, or (the tail's far end, its layer, its width), the tail redrawn from there."""
     occ = judge.occ
     entry = getattr(judge.others, "_native", None)
     if not _NATIVE_FIRST_MOVE or entry is None or not offsets:
@@ -360,10 +368,10 @@ def _native_first_move(judge: "_Judge", g: "Group", mine: list, span: Box, offse
     via = [_native_shape(judge, x) for x in ((g.ring,) if g.hole is None else (g.ring, g.hole))]
     skip = _hidden_skip(judge, shapes)
     tail = None
-    if g.tail is not None:
-        _, proto = _tail_shape(g.owner, g.net, next(iter(g.tail.layers)), width, g.far, g.centre,
-                               carried=g.id, given=g.id)
-        tail = (_native_shape(judge, proto), tuple(g.far), width, occ.settings.geometry_cap_steps)
+    if tail_spec is not None:
+        far, layer, width = tail_spec
+        _, proto = _tail_shape(g.owner, g.net, layer, width, far, g.centre, carried=g.id, given=g.id)
+        tail = (_native_shape(judge, proto), tuple(far), width, occ.settings.geometry_cap_steps)
     first_arg = None if met is None else (met[0], met[1], r)
     pad_arg = None if pad is None else (pad.poly, r - 1e-5)
     start = 0
@@ -534,42 +542,154 @@ def _shorten_kind(span: tuple) -> str:
 
 
 def _shorten(occ, g: Group, judge: "_Judge", own, layer, met: str):
-    """(Action, note) for a drop reshaped to its own face and the nearest
+    """(Action, note, hint) for a drop reshaped to its own face and the nearest
     layer of its own plane, when the fab profile allows drawing it for
-    real; (None, note) when it is only judged (if-needed) or not possible
-    at all - `note` names the span an if-needed tier would have used, else
-    None."""
+    real; (None, note, hint) when it is only judged (if-needed) or not
+    possible at all - `note` names the span an if-needed tier would have
+    used, else None; `hint` says a shorter via would clear it but the tier
+    is "no", else None."""
     from .board_geometry import stackup_order
     s, geo = occ.settings, occ.geometry
     board = sorted(geo.layers, key=stackup_order)
     if layer not in board:
-        return None, None
+        return None, None, None
     plane_layers = getattr(occ, "plane_layers", {})
     own_i = board.index(layer)
     reach_layers = sorted((l for l, nets in plane_layers.items() if g.net in nets and l != layer and l in board),
                           key=lambda l: abs(board.index(l) - own_i))
     if not reach_layers:
-        return None, None
+        return None, None, None
     nearest = reach_layers[0]
     lo, hi = sorted((own_i, board.index(nearest)))
     span = tuple(board[lo:hi + 1])
     if len(span) < 2 or len(span) == len(board):
-        return None, None                  # already this short, or no shorter than a through via
+        return None, None, None            # already this short, or no shorter than a through via
     kind = _shorten_kind(span)
     tier = getattr(occ, "fab_via_tiers", {}).get(kind, "no")
-    if tier == "no":
-        return None, None
     layers = frozenset(span)
     ring = replace(g.ring, layers=layers, given=g.id)
     shapes = (ring,) if g.hole is None else (ring, replace(g.hole, layers=layers, given=g.id))
     pool = judge.near(Box.union([x.box for x in shapes]), occ._gap)
     would_clear = judge.hit(shapes, pool, own, say=False) is None
+    if tier == "no":
+        return None, None, ("a %s via from %s to %s would clear this; the fab profile does not allow %s vias" % (
+            kind, span[0].value, span[-1].value, kind)) if would_clear else None
     note = "a %s via shortened to %s-%s (via.%s is if-needed in fab-profile.json)" % (
         kind, span[0].value[:-3], span[-1].value[:-3], kind) if would_clear else None
     if tier == "yes" and would_clear:
         return Action("shorten", g.id, g.owner, g.home, g.net, g.centre, g.centre, None, None, None, met,
-                      s.score_via_shorten, shapes), None
-    return None, note
+                      s.score_via_shorten, shapes), None, None
+    return None, note, None
+
+
+def _tail_widths(occ, net: str) -> tuple:
+    """The widths a new tail of `net` may be drawn at, widest first: the net class's track width, then
+    narrower in 0.05 mm steps down to the board's minimum track width (just the net's where that is
+    not known or is not narrower)."""
+    geo = occ.geometry
+    top = geo.netclass(net).track_width if net in geo.nets else 0.2
+    least = min(top, geo.min_track_width) if geo.min_track_width > 0 else top
+    out = [top]
+    w = top
+    while w - _TAIL_STEP > least + 1e-9:
+        w = round(w - _TAIL_STEP, 6)
+        out.append(w)
+    if least < out[-1] - 1e-9:
+        out.append(round(least, 6))
+    return tuple(out)
+
+
+_TAIL_STEP = 0.05
+"""How much narrower each width a leaving via's tail may be drawn at is."""
+
+
+def _moved(g: Group, dx: float, dy: float, tail, width: float):
+    """(its new centre, the shapes it leaves, the Track drawn or None) for `g` moved by (dx, dy), its
+    tail (`tail`: the far end, the layer and the widths) drawn from its far end at `width`."""
+    to = (round(g.centre[0] + dx, 9), round(g.centre[1] + dy, 9))
+    moved = [replace(_shift(g.ring, dx, dy), given=g.id)]
+    if g.hole is not None:
+        moved.append(replace(_shift(g.hole, dx, dy), given=g.id))
+    track = None
+    if tail is not None:
+        track, shape = _tail_shape(g.owner, g.net, tail[1], width, tail[0], to, carried=g.id, given=g.id)
+        moved.append(shape)
+    return to, moved, track
+
+
+def _find_move(occ, g: Group, judge: "_Judge", own, first, limit: float, pad, tail):
+    """(dx, dy, tail width) of the nearest spot within `limit` of `g` where its ring, hole and tail are
+    clear of the board (less the vias set aside), `own` and what earlier actions left, else None.
+    `pad`: the pad it must stay inside, or None. `tail`: None, or (the tail's far end, its layer, the
+    widths it may be drawn at, widest first): the spot is the nearest where the narrowest is clear, and
+    the width the widest that is clear there."""
+    s = occ.settings
+    r = _radius(g)
+    widths = () if tail is None else tail[2]
+    span = g.ring.box.inflate(limit)
+    if g.tail is not None:
+        span = Box.union([span, g.tail.box.inflate(limit)])
+    mine = [o for o in own if o.box.overlaps(span, gap=occ._gap)]
+    all_offsets = _offsets(limit, s.place_via_move_step)
+    # The native search only knows the STATIC board (judge.others'
+    # persistent index): it cannot see `judge.hidden` (another via also
+    # giving way to this same candidate, excluded from `pool` while it
+    # is decided) or `judge.extra` (copper an earlier give-way in this
+    # same resolve() call already left behind) - both candidate-scoped,
+    # not board state. The first is given to it as the vias to set
+    # aside, the second as shapes beside `mine`. It finds the
+    # board-clear offsets once per scan (`_native_move_offsets`) and
+    # judges each candidate's move whole (`_native_first_move`). Where
+    # either is not available the loop below judges each offset in
+    # Python, as the reference.
+    native_clear = _native_move_offsets(judge, g.ring, g.hole, all_offsets)
+    candidates = native_clear if native_clear is not None else all_offsets
+    narrow = None if tail is None else (tail[0], tail[1], widths[-1])
+    used, at = _native_first_move(judge, g, mine, span, candidates, first, pad, r, narrow) \
+        if native_clear is not None else (False, None)
+    if used:
+        if at is None:
+            return None
+        width = _widest(judge, g, mine, at, tail)
+        return at[0], at[1], width if width is not None else widths[-1]
+    pool = judge.near(span, occ._gap)
+    still = _still_meets(occ, g, first, judge.clearance, r)
+    for dx, dy in candidates:
+        to = (round(g.centre[0] + dx, 9), round(g.centre[1] + dy, 9))
+        if pad is not None and not _disc_inside(pad.poly, to, r - 1e-5):
+            continue
+        if still is not None and still(to):
+            continue
+        ring = _shift(g.ring, dx, dy)
+        if native_clear is None and first is not None and first.box.overlaps(ring.box, gap=occ._gap) \
+                and occ._conflict(ring, first, judge.clearance, say=False):
+            continue                    # still on what it met: most spots near it are (no-native path only)
+        moved = [replace(ring, given=g.id)]
+        if g.hole is not None:
+            moved.append(replace(_shift(g.hole, dx, dy), given=g.id))
+        if judge.hit(moved, pool, mine, say=False):
+            continue
+        if tail is None:
+            return dx, dy, 0.0
+        width = _widest(judge, g, mine, (dx, dy), tail, pool)
+        if width is not None:
+            return dx, dy, width
+    return None
+
+
+def _widest(judge: "_Judge", g: Group, mine: list, at: tuple, tail, pool=None):
+    """The widest of `tail`'s widths whose tail, drawn to `g` moved by `at`, is clear; 0.0 where there is
+    no tail; None where none is."""
+    if tail is None:
+        return 0.0
+    to = (round(g.centre[0] + at[0], 9), round(g.centre[1] + at[1], 9))
+    for width in tail[2]:
+        _, shape = _tail_shape(g.owner, g.net, tail[1], width, tail[0], to, carried=g.id, given=g.id)
+        if pool is None:
+            pool = judge.near(shape.box, judge.occ.gap_for(shape))
+        if judge.hit([shape], pool, mine, say=False) is None:
+            return width
+    return None
 
 
 def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: dict, first=None):
@@ -606,82 +726,32 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
                     "no tail to the %s via%s within %.2f mm is clear" % (g.net, "s" if len(targets) > 1 else "",
                                                                          s.place_via_share))
     if s.place_via_move > 0:
-        limit = s.place_via_move
-        r = _radius(g)
-        width = _width(g.tail) if g.tail is not None else 0.0
-        span = g.ring.box.inflate(limit)
-        if g.tail is not None:
-            span = Box.union([span, g.tail.box.inflate(limit)])
-        mine = [o for o in own if o.box.overlaps(span, gap=occ._gap)]
-        all_offsets = _offsets(limit, s.place_via_move_step)
-        # The native search only knows the STATIC board (judge.others'
-        # persistent index): it cannot see `judge.hidden` (another via also
-        # giving way to this same candidate, excluded from `pool` while it
-        # is decided) or `judge.extra` (copper an earlier give-way in this
-        # same resolve() call already left behind) - both candidate-scoped,
-        # not board state. The first is given to it as the vias to set
-        # aside, the second as shapes beside `mine`. It finds the
-        # board-clear offsets once per scan (`_native_move_offsets`) and
-        # judges each candidate's move whole (`_native_first_move`). Where
-        # either is not available the loop below judges each offset in
-        # Python, as the reference.
-        native_clear = _native_move_offsets(judge, g.ring, g.hole, all_offsets)
-        candidates = native_clear if native_clear is not None else all_offsets
-        found = None
-        used, at = _native_first_move(judge, g, mine, span, candidates, first, pad if inside else None, r, width) \
-            if native_clear is not None else (False, None)
-        if used:
-            # the Action is drawn as the loop below draws it
-            if at is not None:
-                dx, dy = at
-                to = (round(g.centre[0] + dx, 9), round(g.centre[1] + dy, 9))
-                moved = [replace(_shift(g.ring, dx, dy), given=g.id)]
-                if g.hole is not None:
-                    moved.append(replace(_shift(g.hole, dx, dy), given=g.id))
-                track = None
-                if g.tail is not None:
-                    track, shape = _tail_shape(g.owner, g.net, next(iter(g.tail.layers)), width, g.far, to,
-                                               carried=g.id, given=g.id)
-                    moved.append(shape)
-                found = Action("move", g.id, g.owner, g.home, g.net, g.centre, to, track, old, pad_key, met,
-                               s.score_via_move, tuple(moved))
-            candidates = ()
-        else:
-            pool = judge.near(span, occ._gap)
-            still = _still_meets(occ, g, first, judge.clearance, r)
-        for dx, dy in candidates:
-            to = (round(g.centre[0] + dx, 9), round(g.centre[1] + dy, 9))
-            if inside and not _disc_inside(pad.poly, to, r - 1e-5):
-                continue
-            if still is not None and still(to):
-                continue
-            ring = _shift(g.ring, dx, dy)
-            if native_clear is None and first is not None and first.box.overlaps(ring.box, gap=occ._gap) \
-                    and occ._conflict(ring, first, judge.clearance, say=False):
-                continue                    # still on what it met: most spots near it are (no-native path only)
-            moved = [replace(ring, given=g.id)]
-            if g.hole is not None:
-                moved.append(replace(_shift(g.hole, dx, dy), given=g.id))
-            if judge.hit(moved, pool, mine, say=False):
-                continue
-            track = None
-            if g.tail is not None:
-                track, shape = _tail_shape(g.owner, g.net, next(iter(g.tail.layers)), width, g.far, to,
-                                           carried=g.id, given=g.id)
-                if judge.hit([shape], pool, mine, say=False):
-                    continue
-                moved.append(shape)
-            found = Action("move", g.id, g.owner, g.home, g.net, g.centre, to, track, old, pad_key, met,
-                           s.score_via_move, tuple(moved))
-            break
+        tail = None if g.tail is None else (g.far, next(iter(g.tail.layers)), (_width(g.tail),))
+        found = _find_move(occ, g, judge, own, first, s.place_via_move, pad if inside else None, tail)
         if found is not None:
-            return found, None, None
-        said.append("no spot within %.2f mm%s is clear" % (limit, " inside its pad" if inside else ""))
+            dx, dy, width = found
+            to, moved, track = _moved(g, dx, dy, tail, width)
+            return Action("move", g.id, g.owner, g.home, g.net, g.centre, to, track, old, pad_key, met,
+                          s.score_via_move, tuple(moved)), None, None
+        said.append("no spot within %.2f mm%s is clear" % (s.place_via_move, " inside its pad" if inside else ""))
+    if inside and g.tail is None and s.place_via_leave > 0 and pad is not None and layer in pad.layers:
+        # no spot inside the pad is clear: leave it, joined by a new tail from where it stood
+        widths = _tail_widths(occ, g.net)
+        tail = (g.centre, layer, widths)
+        found = _find_move(occ, g, judge, own, first, s.place_via_leave, None, tail)
+        if found is not None:
+            dx, dy, width = found
+            to, moved, track = _moved(g, dx, dy, tail, width)
+            return Action("leave", g.id, g.owner, g.home, g.net, g.centre, to, track, None, pad_key, met,
+                          s.score_via_leave, tuple(moved)), None, None
+        said.append("no spot within %.2f mm is clear to leave its pad by a tail" % s.place_via_leave)
     needs = None
     if g.net in occ.plane_nets:
-        action, note = _shorten(occ, g, judge, own, layer, met)
+        action, note, hint = _shorten(occ, g, judge, own, layer, met)
         if action is not None:
             return action, None, None
+        if hint is not None:
+            said.append(hint)
         if note is not None:
             needs = note
             said.append("no spot; it places with %s" % note)
@@ -937,7 +1007,7 @@ def report(occ) -> list:
         for net in sorted(by[home]):
             acts = by[home][net]
             parts = []
-            for kind, verb in (("share", "shared"), ("move", "moved"), ("shorten", "shortened"), ("drop", "dropped")):
+            for kind, verb in (("share", "shared"), ("move", "moved"), ("leave", "left its pad"), ("shorten", "shortened"), ("drop", "dropped")):
                 done = [a for a in acts if a.kind == kind]
                 if not done:
                     continue

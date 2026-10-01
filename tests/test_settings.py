@@ -271,6 +271,16 @@ def test_score_via_shorten_has_a_default_and_is_settable(tmp_path):
     assert S.load(tmp_path).score_via_shorten == 8.0
 
 
+def test_the_leave_settings_have_defaults_and_are_settable(tmp_path):
+    assert (S.Settings().place_via_leave, S.Settings().score_via_leave) == (1.0, 4.0)
+    _toml(tmp_path / "placemat.toml", "[place]\nvia_leave = 0.8\n[score]\nvia_leave = 3.0\n")
+    got = S.load(tmp_path)
+    assert (got.place_via_leave, got.score_via_leave) == (0.8, 3.0)
+    _toml(tmp_path / "placemat.toml", "[place]\nvia_leave = -1\n")
+    with pytest.raises(S.SettingsError):
+        S.load(tmp_path)
+
+
 def test_facts_confirmed_does_not_feed_the_digest(tmp_path):
     plain = S.Settings()
     _toml(tmp_path / "placemat.toml", '[facts]\nconfirmed = "abc123"\n')

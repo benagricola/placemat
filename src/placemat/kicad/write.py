@@ -152,7 +152,7 @@ def _given_way(board, plan: Plan, groups: dict) -> None:
                 if (on(s, p) and on(e, q)) or (on(s, q) and on(e, p)):
                     g.RemoveItem(it)
                     board.Delete(it)
-        if a.kind == "move":
+        if a.kind in ("move", "leave"):
             via.SetPosition(vec(*a.to))
         else:
             g.RemoveItem(via)

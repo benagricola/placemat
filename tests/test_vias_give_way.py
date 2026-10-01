@@ -250,10 +250,10 @@ def test_a_via_inside_its_pad_moves_only_within_the_pad():
     assert (a.kind, a.to, a.tail) == ("move", (19.3, 20.0), None)
 
 
-def test_a_via_inside_its_pad_with_room_only_outside_it_is_refused():
+def test_a_via_inside_its_pad_with_room_only_outside_it_is_refused_where_it_may_not_leave():
     """R9's pad S on the back covers the right of U1's pad: clear spots are
     to the left, 0.35 mm off, where the via would leave its pad."""
-    plan = _moving_board((39.1, 40.0), False, (20.1, 20.0)).resolve()
+    plan = _moving_board((39.1, 40.0), False, (20.1, 20.0), settings=_settings(place_via_leave=0.0)).resolve()
     step = plan.step("m")
     assert step.placement is None
     assert "no spot within 0.50 mm inside its pad is clear" in step.note, step.note
@@ -294,7 +294,7 @@ def test_a_via_that_could_share_or_move_shares():
 
 
 # ------------------------------------------------------------------ dropping
-_DROP_ONLY = dict(place_via_share=0.0, place_via_move=0.0)
+_DROP_ONLY = dict(place_via_share=0.0, place_via_move=0.0, place_via_leave=0.0)
 _THREE = [(38.85, 39.75), (38.85, 40.25), (39.35, 40.0)]    # in U1's GND pad; R9's pad S meets the right one
 
 
@@ -347,10 +347,10 @@ def test_dropping_costs_score_via_drop_in_the_search():
 
 # ---------------------------------------------------------------- shortening
 IN1 = CopperLayer.IN1
-_SHORTEN_ONLY = dict(place_via_share=0.0, place_via_move=0.0)
+_SHORTEN_ONLY = dict(place_via_share=0.0, place_via_move=0.0, place_via_leave=0.0)
 
 
-def _shorten_board(via_at, r9_at, plane_layer=IN1, tiers=None, settings=None):
+def _shorten_board(via_at, r9_at, plane_layer=IN1, tiers=None, settings=None, extra=()):
     """Cell m: U1 (front) with its GND pad at (39.1, 40) and a through GND
     via of the cell's at `via_at`, on a 3-layer board (F, plane_layer, B)
     whose plane_layer carries a GND plane. R9 on the back at `r9_at`, where
@@ -358,7 +358,7 @@ def _shorten_board(via_at, r9_at, plane_layer=IN1, tiers=None, settings=None):
     import dataclasses
     net = "GND"
     copper = [_via(net, *via_at, owner="m", layers=frozenset([F, plane_layer, B])),
-             track(net, 39.1, 40.0, via_at[0], via_at[1], w=0.2, owner="m")]
+             track(net, 39.1, 40.0, via_at[0], via_at[1], w=0.2, owner="m")] + list(extra)
     fps = [footprint("U1", 40, 40, w=3, h=1, inst="m.u1", nets=(net, "X"), cell="m"),
            footprint("R9", r9_at[0], r9_at[1], w=2.0, h=1, inst="r9", nets=("S", "T"), face=Face.BACK)]
     g = board_geometry(fps, cells=["m"], copper=copper, width=50, height=50, extra_nets=(net,))
@@ -393,12 +393,59 @@ def test_an_if_needed_tier_is_judged_but_never_applied():
     assert not plan.occupancy.given_way
 
 
-def test_no_tier_refuses_without_mentioning_shorten():
+def test_a_no_tier_refuses_and_says_a_shorter_via_would_clear_it():
     b = _shorten_board((39.1, 41.9), (19.5, 21.9), settings=_settings(**_SHORTEN_ONLY))
     plan = b.resolve()
     step = plan.step("m")
     assert step.placement is None
-    assert "if-needed" not in step.note and "shorten" not in step.note.lower(), step.note
+    assert "a micro via from F.Cu to In1.Cu would clear this; the fab profile does not allow micro vias" \
+        in step.note, step.note
+    assert "if-needed" not in step.note and "places with" not in step.note
+    assert not plan.occupancy.needs
+
+
+def test_a_no_tier_says_nothing_where_a_shorter_via_would_not_clear_it():
+    """Another net's track on the front lies across the via too: shortened to F-In1 it would still meet it."""
+    b = _shorten_board((39.1, 41.9), (19.5, 21.9), settings=_settings(**_SHORTEN_ONLY),
+                       extra=[track("Y", 18.6, 21.9, 19.6, 21.9, w=0.2)])
+    step = b.resolve().step("m")
+    assert step.placement is None
+    assert "cannot give way" in step.note and "would clear this" not in step.note, step.note
+
+
+def test_a_yes_tier_still_shortens_with_a_no_tier_hint_in_place():
+    b = _shorten_board((39.1, 41.9), (19.5, 21.9), tiers={"micro": "yes"}, settings=_settings(**_SHORTEN_ONLY))
+    assert [a.kind for a in b.resolve().occupancy.given_way.values()] == ["shorten"]
+
+
+# ------------------------------------------------------------------ the tally of vias that could not give way
+def test_a_refusal_by_a_via_that_cannot_give_way_is_tallied_as_that():
+    from placemat.occupancy import VIA_BUCKET, _reason_key
+    assert VIA_BUCKET == "via cannot give way"
+    assert _reason_key("copper: pad Y is 0.0 mm from GND copper; the via GND at (1.00, 2.00) (U1) cannot give way: "
+                       "no spot") == VIA_BUCKET
+    assert _reason_key("through via X at (1.00, 2.00) is too near; it cannot give way: no spot") == VIA_BUCKET
+    assert _reason_key("copper pad Y is 0.0 mm from GND copper") == "copper"
+
+
+def test_a_scan_counts_the_vias_that_could_not_give_way_apart_from_copper():
+    from placemat.placement import Placement
+    from placemat.placer import scan
+    b = _moving_board((39.1, 42.2), True, (19.5, 23.0), settings=_settings(place_via_move=0.1))
+    occ = Occupancy(b.geometry, 0.5, settings=b.settings)
+    centre = occ._geometry(b.geometry.cells["m"]).reference.location
+    hint = Placement(Location(centre.x - 20, centre.y - 20), 0.0, Face.FRONT)
+    r = scan(occ, b.geometry.cells["m"], hint, 0.0, 0.2, (0.0,), score=None)
+    assert r.chosen is None
+    assert r.rejected["via cannot give way"] == 1 and "copper" not in r.rejected, r.rejected
+    assert "cannot give way" in r.reasons["via cannot give way"]
+
+
+def test_the_unplaced_finding_says_how_many_vias_could_not_give_way():
+    plan = _moving_board((39.1, 42.2), True, (19.5, 23.0), settings=_settings(place_via_move=0.1)).resolve()
+    [f] = [f for f in plan.findings if f.kind == "unplaced"]
+    assert "vias that could not give way x1" in f, f
+    assert "copper x" not in f, f
 
 
 # ------------------------------------------------------------------ items already placed, and the report
@@ -501,7 +548,9 @@ def _first_move_runs(monkeypatch, make, flag="_NATIVE_FIRST_MOVE", call="_native
 _MOVES = {
     "a tail redrawn": lambda: _moving_board((39.1, 42.2), True, (19.5, 23.0)),
     "inside its pad": lambda: _moving_board((39.1, 40.0), False, (17.45, 20.0), r9_w=3.0),
-    "refused inside its pad": lambda: _moving_board((39.1, 40.0), False, (20.1, 20.0)),
+    "refused inside its pad": lambda: _moving_board((39.1, 40.0), False, (20.1, 20.0),
+                                                    settings=_settings(place_via_leave=0.0)),
+    "leaves its pad": lambda: _moving_board((39.1, 40.0), False, (20.1, 20.0)),
     "refused within via_move": lambda: _moving_board((39.1, 42.2), True, (19.5, 23.0),
                                                      settings=_settings(place_via_move=0.1)),
     "a placed via": lambda: _later_board([_via("SIG", 39.1, 42.2, owner="m"),

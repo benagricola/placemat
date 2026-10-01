@@ -495,6 +495,17 @@ the script.
   polygon with its edges' gaps; `placemat drc` names each
   violation's parts by instance path. api.md's "Read the board" index has
   the rest.
+- A refusal ending "cannot give way" is a via question: a carried via (one
+  at a searched part's pad, or a stamped cell's own) met another net's
+  copper and none of its steps worked. The steps, in order, are share a
+  same-net via, move, leave its pad (a via in its pad, joined by a new
+  tail), shorten (a plane drop) and drop. The sentence names each step and
+  why it failed. `place.via_move` and `place.via_share` set the reaches,
+  `place.via_leave` how far a via may leave its pad, `place.drops_keep` how
+  many of a pad's drops must stay, and `drops=` on a cell thins its drops
+  before the search. Shorten runs only when the fab profile's micro, blind
+  or buried tier for the shorter via is "yes"; the refusal says when one
+  would have cleared it. api.md, "Carried vias give way", has the rest.
 - A number chosen to dodge something is a workaround for a rule the tool
   should carry: say so in the run notes.
 - A design check that fails where no layout does better is accepted only on
