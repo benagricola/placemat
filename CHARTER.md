@@ -24,6 +24,22 @@ edge, searched for a free spot. placemat works out the numbers.
   only where the user approves that one site; `board.figure` is only for a
   layout given in a cited datasheet figure.
 
+### Judged as KiCad judges
+
+A rule placemat enforces on a board is KiCad's rule, judged on the same
+shapes KiCad uses: copper by copper clearance and copper-to-edge, holes by
+hole clearance, net ties by KiCad's exclusion. Where placemat adds a rule of
+its own, it is named as placemat's, and it does not stand in for a KiCad
+rule on different shapes. A user label is a mark, not a function of the
+board: it gives way to parts, staying next to its item.
+
+- **Why:** a check stricter or looser than KiCad's either refuses a board
+  KiCad accepts, which costs placements for nothing, or passes a board
+  KiCad's DRC fails.
+- **Breaking it looks like:** a courtyard held to the copper-to-edge
+  keep-in; a rule ported without its exemptions; a part refused or moved
+  for a user label.
+
 ### A project-agnostic tool
 
 placemat serves every board that uses it. Its code, tests, skill, docs,
