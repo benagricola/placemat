@@ -1,6 +1,6 @@
 # Graphic copper polygons: read back, and fitted round other nets
 
-Status: draft, for approval.
+Status: approved (2026-10-01), with pull-back removed entirely.
 
 Source: Ben, through a board's session (2026-10-01): a boost converter's
 VOUT and SW2 copper drawn by hand as polygons, to be folded into the
@@ -84,9 +84,9 @@ in by foreign clearances.
   more than `geometry.arc_sag` past the arc. So an edge that passes foreign
   copper keeps at least its clearance from it and at most the clearance
   plus `geometry.arc_sag`.
-- **Drawn once, static**: written as the polygon it is, no pull-back when
-  written. The writer's pull-back of swallowing pours is removed for a
-  fitted pour.
+- **Drawn once, static**: written as a graphic copper polygon (a filled
+  `PCB_SHAPE`), never as a zone, so nothing refills it round later copper
+  and nothing can be drawn across it later without a finding.
 - **An obstacle afterwards**: copper planned after it of another net keeps
   its clearance from it like any copper; where it cannot (a track declared
   across it), that is a copper finding, not a cut in the pour.
@@ -98,18 +98,35 @@ in by foreign clearances.
 - **Thin necks**: where the outline narrows, between its pads, to less
   than its net's track width, a finding names where; it is drawn.
 
-A pour whose points are not all pads (a corner given as a point), and a
-pour declared with `cover=` (`Cover.HULL`, `Cover.BOX`, `Cover.CENTRES`),
-keeps today's shape and pull-back. A pour without `swallow_pads` is drawn
-exactly as declared, as today.
+### Pull-back is removed
+
+Ben (2026-10-01): pull-back goes entirely, with no second behaviour; pours
+are re-laid out in the fitted style.
+
+- The writer's pull-back of pours (`_pulled_back`, `_swallow_grown` and the
+  piece-dropping that follows them in kicad/write.py) is removed. No pour
+  is cut after it is planned.
+- `board.pour(net, pads, swallow_pads=True)` over pads is always fitted.
+  `cover=` (`Cover.HULL`, `Cover.BOX`, `Cover.CENTRES`) with `swallow_pads`
+  is refused, naming the fitted pour as its replacement. `Cover` stays for
+  a pour without `swallow_pads`, which is drawn as declared.
+- A swallowing pour with a point that is not a pad is refused: a fitted
+  pour is given by its pads.
+- The two-pad neck (`[PadRef(a), PadRef(b)]` with `width=`) is drawn as
+  declared, with no pull-back; another net's copper inside it is a copper
+  finding.
+- A pour without `swallow_pads` is drawn exactly as declared, as today;
+  another net's copper inside it is a copper finding.
+- A fitted pour is never written as a zone. Zones stay what they are:
+  `board.plane` and the grown pour (`grow=`, 0.65.0), which KiCad fills.
 
 ### What changes for existing scripts
 
-Every swallowing pour over pads alone changes shape: from a hull with other
-nets' copper pulled out of it, to the fitted outline. Where no other copper
-stands inside the hull, the fitted outline is the hull (to within
-`geometry.arc_sag` at its rounded pad corners). A script that wants the old
-shape names its `cover=` explicitly.
+Every swallowing pour over pads changes shape: from a hull with other nets'
+copper pulled out of it, to the fitted outline. Where no other copper stands
+inside the hull, the fitted outline is the hull (to within `geometry.arc_sag`
+at its rounded pad corners). A script that gave `cover=` or a plain point
+to a swallowing pour stops at the declaration and is re-laid out.
 
 ### Verification
 
@@ -126,10 +143,14 @@ shape names its `cover=` explicitly.
 - Another net's via standing where the outline cannot go round it: the
   pour is not drawn, and the finding names the via and the pads.
 - A `board.rule` clearance for the pair is kept.
-- A swallowing pour with `cover=Cover.HULL`: today's shape and pull-back.
+- A swallowing pour with `cover=` or with a plain point: refused at the
+  declaration, naming the fitted pour.
+- The written board holds the fitted pour as a graphic polygon, not a zone.
+- A pour without `swallow_pads` with another net's pad inside it: a copper
+  finding; the pour is written as declared, not cut.
 - KiCad's DRC on the written board: no clearance violation from a fitted
   pour.
 - Bench: unchanged (the corpus places parts and declares no pours).
-- On release, the boards whose scripts declare swallowing pours over pads
-  (20 layout scripts in one project) are rerun on scratch copies and each
-  changed pour reported: its findings before and after, and KiCad's DRC.
+- Before release, a few of the layout scripts that declare swallowing
+  pours (one project has 20) are rerun on scratch copies, and each changed
+  pour reported: its findings before and after, and KiCad's DRC.
