@@ -1,5 +1,7 @@
 # placemat
 
+What placemat is for, its principles and what the agent decides alone are in `CHARTER.md`.
+
 ## pcbnew: delete board items with `board.Delete`, not `board.Remove`
 
 To take an item off a board for good, use `board.Delete(item)`, after
