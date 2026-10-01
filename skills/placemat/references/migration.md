@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.65.0
 
 The router and the copper findings keep `board.rule` clearances. The
 clearance between two items is now that of the last rule declared that
@@ -1584,9 +1584,9 @@ that says what replaces it.
 | `tail=False` on a `FreeSpot` via whose track the script draws itself | To 0.55.0 |
 | a pair centreline typed as coordinates | To 0.56.0 |
 | a power pour polygon built from pad edges | To 0.56.0 |
-| a pour polygon bounded by neighbouring lanes, vias and parts | Unreleased |
+| a pour polygon bounded by neighbouring lanes, vias and parts | To 0.65.0 |
 | a waypoint on a 45 worked out as x - y or x + y off a pad's corner | To 0.57.0 |
 | a cell stood as far toward an end as its tall members allow, by offsets worked out from its members' frame | To 0.63.0 |
 | a sense track's first point placed from `placed_size()` half a track off a pad's edge | To 0.64.0 |
-| lane lines worked out as pin tips plus track, clearance and via steps | Unreleased |
-| parts placed at coordinates worked out from a lane or a via's position | Unreleased |
+| lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
+| parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |
