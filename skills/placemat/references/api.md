@@ -109,6 +109,7 @@ request (SKILL.md, "When no form says it").
 | a micro, blind or buried via, for a fab that makes them (allowed in fab-profile.json) | `layers=(CopperLayer.B, CopperLayer.IN4)` on `via()`, `vias()` or `stitch()` | Copper calls (A via's layer span) |
 | a pour of exactly the shape given | `board.pour(net, points, layer=)` | Copper calls |
 | a pour over a set of pads, fitted round other nets' copper | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: a graphic polygon holding the pads' copper, every edge at least the clearance from other copper | Copper calls (A fitted pour) |
+| a pour on an inner layer joining vias | `board.pour(net, [vias, PadRef(...), ...], layer=, swallow_pads=True)`: members are pads and the vias `via()`, `vias()` and a lane's `.via` return | Copper calls (A fitted pour) |
 | a pour over the hull or the box round a set of pads, drawn as declared | `board.pour(net, [PadRef(...), ...], layer=, cover=Cover.HULL)` (or `Cover.BOX`) | Copper calls (What a pour over pads covers) |
 | a pour that reaches past its pads into the room round them, up to the copper of other nets | `board.pour(net, [PadRef(...), ...], layer=, grow=mm, within=None)`: a KiCad zone grown from the pads' hull, clipped to `within=` (a keepout's name, a `Cell`, or `Part`s) | Copper calls |
 | a neck between two pads, as wide as the narrower or `width=` | `board.pour(net, [PadRef(a), PadRef(b)], layer=, width=)` | Copper calls |
@@ -1733,6 +1734,7 @@ board.vias(net, along=PadRef(...), count=N, pitch=None, size=None, drill=None, l
 board.stitch(net, region, pitch=None, size=None, drill=None, edge=False, outside=False, hole_to_edge=None, sides=None, layers=None)  # vias in a grid over a cell, a pour or a keepout
 board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False, stroke=None)  # filled polygon; stroke= its outline's width (copper.pour_stroke)
 board.pour(net, [PadRef(a), PadRef(b), PadRef(c)], layer=..., swallow_pads=True)  # fitted round other nets' copper, holding the pads
+board.pour(net, [via_a, vias_b, PadRef(c)], layer=..., swallow_pads=True)  # members may be vias as well as pads
 board.pour(net, [PadRef(a), PadRef(b), PadRef(c)], layer=..., cover=Cover.HULL)  # declared: the hull of the pads' copper
 board.pour(net, [PadRef(a), PadRef(b)], layer=..., width=None)  # the neck between two pads
 board.pour(net, [PadRef(a), PadRef(b)], layer=..., grow=1.2, within=None)  # a zone grown from the pads' hull by grow= mm, clipped to within=; KiCad fills it
@@ -2020,7 +2022,8 @@ written as given, a graphic polygon; another net's copper inside it is a
 copper finding, and nothing is cut from it.
 
 **A fitted pour.** `board.pour(net, pads, layer=, swallow_pads=True)` over
-two or more pads (two with `width=` are the neck) (`PadRef`, `CellPadRef`) draws one polygon fitted round
+two or more pads (two with `width=` are the neck) (`PadRef`, `CellPadRef`), or
+vias (below), draws one polygon fitted round
 the copper planned before it: the shortest closed outline that holds all the
 pads' copper (every land) and enters no other copper's clearance outline.
 That is every other net's pad (at its real shape), track, via and pour on
@@ -2053,8 +2056,26 @@ the outline narrows, between its pads, to less than its net's track width, a
 finding names where, and the pour is drawn. A pad that is on another net, or
 has no copper on the pour's layer, is a finding and the pour is not drawn.
 
-A fitted pour is given by its pads alone: `cover=` with `swallow_pads=True`
-is refused, and so is any point that is not a pad. The pull-back this
+A fitted pour's members may be vias as well as pads: what `board.via()` and
+`board.vias()` return (a `vias()` result counts as all its vias) and an
+escape lane's `.via`. A via counts on the pour's layer when its span includes
+that layer, as its copper ring there; a via that does not span the layer is a
+finding naming it, and the pour is not drawn, as for a pad with no copper on
+it. A pour of vias alone is allowed. The pour is planned after the vias it
+joins (and after the parts they are found from), so the vias are held as
+planned. On an inner layer this is how to join the vias dropped from a
+part's pads:
+
+```python
+drops = board.vias(Net("VOUT"), along=PadRef(Part("c_out"), "VOUT"), count=3)
+q1_drop = board.via(Net("VOUT"), FreeSpot(PadRef(Part("q1"), "VOUT")))
+board.pour(Net("VOUT"), [drops, q1_drop], layer=CopperLayer.IN2, swallow_pads=True,
+           why="the output area on In2, joining the drops")   # a front pad named here is refused on In2
+```
+
+A fitted pour is given by its pads and vias alone: `cover=` with `swallow_pads=True`
+is refused, and so is any point that is not a pad or a via; a via is a member only
+of a fitted pour. The pull-back this
 replaces (`swallow_pads` over a hull, a box or points, cut back from other
 copper when the board was written) is gone; see `migration.md`,
 "Unreleased".

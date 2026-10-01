@@ -7,6 +7,15 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **A fitted pour joins vias**: `board.pour(net, members, layer=,
+  swallow_pads=True)` takes the vias `board.via()` and `board.vias()` return
+  (all of a `vias()` result) and a lane's `.via` as members, with or without
+  pads. A via counts on the pour's layer when its span includes it; one that
+  does not span it is a finding naming it, as is a pad without copper there.
+  The pour is planned after its vias.
+
 ### Migration steps
 
 - A board no longer keeps a placemat gaps file. When no form says a
@@ -14,6 +23,22 @@ section for each hand-written pattern a newer form replaces.
   it files the request in placemat's `BACKLOG.md` and replies (SKILL.md,
   "When no form says it"). A comment beside an approved coordinate names
   the request's backlog title instead of a gap entry.
+
+**An inner-layer area over vias, written as a plane over their parts, becomes
+a fitted pour of the vias.** `board.plane(over=)` is a KiCad zone: it fills the
+whole box round the parts and lets copper planned later be drawn across it. A
+fitted pour is drawn at its place in the batch and copper planned after it
+keeps clear.
+
+```python
+# before: a zone over the converter and its capacitors, standing in for the area
+board.plane(Net("VOUT"), layers=(CopperLayer.IN2,), over=[Part("u_conv"), Part("c_out")])
+
+# after: the area is the outline round the vias dropped from the output pads
+drops = board.vias(Net("VOUT"), along=PadRef(Part("c_out"), "VOUT"), count=3)
+board.pour(Net("VOUT"), [drops, board.via(Net("VOUT"), FreeSpot(PadRef(Part("u_conv"), "VOUT")))],
+           layer=CopperLayer.IN2, swallow_pads=True, why="the output area on In2, joining the drops")
+```
 
 ## To 0.68.0
 
@@ -1890,5 +1915,6 @@ that says what replaces it.
 | a `Beside` `gap=` worked out to put a pad a clearance off another part's pad | To 0.67.0 |
 | ground vias outside a region typed as computed `Location` vias | To 0.68.0 |
 | points of a datasheet figure typed as coordinates beside a `Path(anchor=)` keepout | To 0.68.0 |
+| `board.plane(net, layers=(In2,), over=[parts])` standing in for an inner-layer area over vias | Unreleased |
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |

@@ -388,6 +388,7 @@ class CopperIntent:
     bridge: bool = False        # tracks: may pass under copper they cross
     owners: frozenset = frozenset()       # refdes its endpoints belong to
     freedom: Freedom = Freedom.FIXED      # derived in resolve(), once every declaration is in
+    members: tuple = field(default=(), metadata={"omit_default": True})    # a fitted pour's via intents
 
     @property
     def rank(self):
@@ -4642,7 +4643,11 @@ class Board:
         be joined, the pour is not drawn and a finding names the copper and
         the pads; where the outline narrows to less than the net's track width
         a finding names where, and it is drawn. A fitted pour is given by its
-        pads alone: `cover=` and plain points are refused.
+        pads and vias alone: `cover=` and plain points are refused. Its members
+        may be vias as well as pads (what `via()` and `vias()` return, a lane's
+        `.via`): a via counts on the pour's layer when its span includes it, as
+        its copper ring there, and one that does not span it is a finding. The
+        pour is planned after its vias.
 
         Without `swallow_pads`, `cover` says what corners that name pads cover
         (`Cover`): HULL the hull of their copper, BOX the box round it, CENTRES
@@ -4666,9 +4671,15 @@ class Board:
         if cover is not None and not isinstance(cover, Cover):
             raise TypeError("%s: a pour's cover is Cover.HULL, Cover.BOX or Cover.CENTRES, not %r" % (name, cover))
         points = list(points)
+        vias = tuple(p for p in points if isinstance(p, CopperIntent))
+        for v in vias:
+            self._check_pour_via(name, v)
+        if vias and not swallow_pads:
+            raise TypeError("pour %s: a via may be a track's end point, one of a Past's items or a member of a fitted "
+                            "pour (swallow_pads=True), and only that" % name)
         all_pads = all(isinstance(p, (PadRef, CellPadRef)) for p in points)
         neck = len(points) == 2 and all_pads
-        if len(points) < 3 and not neck:
+        if len(points) < 3 and not neck and not vias:
             raise ValueError("%s: a pour needs 3 or more points, or exactly two pads for the neck between "
                              "them (%d given)" % (name, len(points)))
         fitted = swallow_pads and not (neck and width is not None)
@@ -4676,13 +4687,13 @@ class Board:
             raise ValueError("pour %s: swallow_pads=True fits the pour round other nets' copper from its pads "
                              "alone, so it takes no cover=; drop cover=, or drop swallow_pads for a pour drawn "
                              "as declared" % name)
-        if fitted and not all_pads:
+        if fitted and not all(isinstance(p, (PadRef, CellPadRef, CopperIntent)) for p in points):
             raise ValueError("pour %s: swallow_pads=True fits the pour round other nets' copper from its pads "
-                             "alone, so every point is a pad (PadRef, CellPadRef); a pour through plain points "
-                             "is declared without swallow_pads" % name)
+                             "alone, so every point is a pad (PadRef, CellPadRef) or a via; a pour through plain "
+                             "points is declared without swallow_pads" % name)
         if cover is None:
             cover = Cover.CENTRES
-        refs = _refs_in(points)
+        refs = _refs_in(points, via_ends=True)         # a via's pads: the pour waits for them as the via does
 
         def plan(ctx):
             if neck and not fitted:
@@ -4720,7 +4731,15 @@ class Board:
             ctx.pour_at[intent.index] = pts       # a stitch over this pour, once it is drawn
             return [Pour(name, layer, pts, stroke, fitted)]
         intent = self._copper_intent("pour %s" % name, net, priority, plan, refs, why)
+        intent.members = vias
         return intent
+
+    def _check_pour_via(self, name: str, it: CopperIntent):
+        """A via intent (`via()`, `vias()`, a lane's `.via`) of this board is a pour's member; a track is not."""
+        if not any(it is c for c in self._copper):
+            raise TypeError("pour %s: %s is copper of another board" % (name, it.key))
+        if not it.key.startswith("via"):
+            raise TypeError("pour %s: a fitted pour joins pads and vias, and %s is neither" % (name, it.key))
 
     def _fit_pour(self, ctx, net: str, pads, layer: CopperLayer, stroke: float):
         """The outline of a fitted pour (pourfit.py) over `pads` as the plan
@@ -4735,6 +4754,24 @@ class Board:
         sag = max(self.settings.geometry_arc_sag - slack, self.settings.geometry_arc_sag / 2.0)
         holds, boxes = [], []
         for p in pads:
+            if isinstance(p, CopperIntent):
+                ops = ctx.ops_at.get(p.index)
+                if ops is None or not any(isinstance(op, Via) for op in ops):
+                    ctx.notes.append("pour %s: %s" % (net, _past_unplanned(ctx.ops_at, p, "the pour", None)))
+                    return None
+                for op in (op for op in ops if isinstance(op, Via)):
+                    label = "via at (%.2f, %.2f)" % (op.at.x, op.at.y)
+                    if op.net != net:
+                        ctx.notes.append("pour %s: %s is on net %s, and a fitted pour holds only its own net's "
+                                         "copper" % (net, label, op.net))
+                        return None
+                    if op.layers and layer not in op.layers:
+                        ctx.notes.append("pour %s: %s does not span %s (it spans %s)"
+                                         % (net, label, layer.value, _span_text(op.layers)))
+                        return None
+                    holds.append((label, pourfit.hull(op.polygon)))
+                    boxes.append(op.box)
+                continue
             owner, number, _, _ = self._pad_ref(p)
             label = "%s.%s" % (owner, number)
             for sh in _pad_shapes(self, occ, p):
@@ -4775,16 +4812,17 @@ class Board:
         res = pourfit.fit(holds, pieces, half + self.settings.geometry_arc_sag)
         if res.problem:
             between = " and ".join(res.pads)
+            noun = "pad" if not any(l.startswith("via ") for l in res.pads) else "member"
             what = res.piece.what if res.piece is not None else "other copper"
             if res.problem == "too close":
-                ctx.notes.append("pour %s: %s is within its clearance of pad %s, so no pour can hold the pad clear; "
-                                 "the pour is not drawn" % (net, what, between))
+                ctx.notes.append("pour %s: %s is within its clearance of %s %s, so no pour can hold the %s clear; "
+                                 "the pour is not drawn" % (net, what, noun, between, noun))
             elif res.problem == "enclosed":
-                ctx.notes.append("pour %s: %s stands between pads %s with no way round it; the pour is not drawn"
-                                 % (net, what, between))
+                ctx.notes.append("pour %s: %s stands between %ss %s with no way round it; the pour is not drawn"
+                                 % (net, what, noun, between))
             elif res.problem == "no way":
-                ctx.notes.append("pour %s: %s leaves no way between pads %s; the pour is not drawn"
-                                 % (net, what, between))
+                ctx.notes.append("pour %s: %s leaves no way between %ss %s; the pour is not drawn"
+                                 % (net, what, noun, between))
             else:
                 ctx.notes.append("pour %s: its pads leave no area to fit; the pour is not drawn" % net)
             return None
