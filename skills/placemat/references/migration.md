@@ -5,6 +5,19 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- `board.stitch(..., edge=True, outside=True, sides=)`: a row that meets a
+  side not kept now ends `hole_to_edge` plus the via's radius in from that
+  side, as a shared corner's via already stood off both its sides. In 0.68.0
+  the row began at the corner itself, so its end via could land on the board
+  edge when the unkept side lay on it. A run with `sides=` also gets a finding
+  naming the board side each row landed on ("east side -> board north"; the
+  sides are read in the keepout's own frame as turned). Rows that ended at an
+  unkept side are shorter by that inset, so their via positions move.
+
 ## To 0.68.0
 
 ### New

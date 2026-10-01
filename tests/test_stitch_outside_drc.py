@@ -77,7 +77,7 @@ def _plan(pad_at):
 
 def test_kicad_finds_no_clearance_or_hole_violation_in_the_outside_row(tmp_path):
     plan = _plan((37.0, 29.0))              # a pad of another net beside the east row: the via it blocks is left out
-    assert len([o for o in plan.copper if isinstance(o, Via)]) == 10
+    assert len([o for o in plan.copper if isinstance(o, Via)]) == 8      # 4 + 6 - 1 shared corner, less the east via the pad blocks
     assert _violations(tmp_path, plan) == []
 
 

@@ -230,13 +230,14 @@ def test_stitch_outside_rows_two_sides_off_the_edge_with_a_shared_corner():
     vias = _vias(plan)
     # a hole edge 0.35 off the edge puts its centre 0.35 + 0.15 out
     east, south = _row(vias, "x", 35.5), _row(vias, "y", 33.5)
-    assert east == [27.0, 28.625, 30.25, 31.875, 33.5]          # 6.5 mm from the north end to the corner via
-    assert south == [25.0, 26.75, 28.5, 30.25, 32.0, 33.75, 35.5]      # 10.5 mm: ceil(10.5 / 2) + 1 = 7 vias
-    assert len(vias) == len(set((v.at.x, v.at.y) for v in vias)) == 5 + 7 - 1     # the corner via is shared
+    # the north and west sides are not kept: a row ends 0.5 in from them, and runs out to the shared corner
+    assert east == [27.5, 29.5, 31.5, 33.5]                     # 6 mm: ceil(6 / 2) + 1 = 4 vias
+    assert south == [25.5, 27.5, 29.5, 31.5, 33.5, 35.5]        # 10 mm: ceil(10 / 2) + 1 = 6 vias
+    assert len(vias) == len(set((v.at.x, v.at.y) for v in vias)) == 4 + 6 - 1     # the corner via is shared
     assert not [v for v in vias if abs(v.at.x - 35.5) > 1e-6 and abs(v.at.y - 33.5) > 1e-6]     # none on the others
     for row in (east, south):
         assert max(b - a for a, b in zip(row, row[1:])) <= 2.0 + 1e-9
-    assert not any("stitch" in str(f) for f in plan.findings), plan.findings
+    assert not any("stitch" in str(f) and "-> board" not in str(f) for f in plan.findings), plan.findings
 
 
 def test_stitch_outside_default_hole_to_edge_lets_the_copper_touch_the_edge_from_outside():
@@ -248,7 +249,8 @@ def test_stitch_outside_default_hole_to_edge_lets_the_copper_touch_the_edge_from
     vias = _vias(plan)
     assert vias, plan.findings
     # the centre is half the via's size out: the via is judged as a 16-gon whose corners stand 0.006 mm past its circle
-    assert sorted(round(v.at.y, 6) for v in vias) == [27.0, 29.0, 31.0, 33.0]
+    # the row stands in from the unkept north and south sides by the same 0.306, so it spans 27.306 to 32.694
+    assert sorted(round(v.at.y, 6) for v in vias) == [27.305878, 29.101959, 30.898041, 32.694122]
     assert all(24.69 < v.at.x < 24.70 for v in vias), [v.at.x for v in vias]
 
 
@@ -276,7 +278,7 @@ def test_stitch_outside_reads_sides_in_a_turned_keepouts_frame():
     plan = b.resolve()
     vias = _vias(plan)
     # the part's east is the board's north once it turns 90 degrees: the keepout is 6 wide, 10 tall
-    assert sorted((round(v.at.x, 6), round(v.at.y, 6)) for v in vias) == [(27.0, 24.5), (29.0, 24.5), (31.0, 24.5), (33.0, 24.5)]
+    assert sorted((round(v.at.x, 6), round(v.at.y, 6)) for v in vias) == [(27.5, 24.5), (29.166667, 24.5), (30.833333, 24.5), (32.5, 24.5)]
 
 
 def test_stitch_outside_leaves_out_a_via_another_nets_pad_blocks_and_finds_the_gap():
@@ -288,10 +290,10 @@ def test_stitch_outside_leaves_out_a_via_another_nets_pad_blocks_and_finds_the_g
              sides=[Edge.EAST], size=0.6, drill=0.3, why="probe")
     plan = b.resolve()
     ys = _row(_vias(plan), "x", 35.5)
-    assert ys == [27.0, 31.0, 33.0], ys                 # the via at y=29 would sit 0.19 mm from the pad
+    assert ys == [27.5, 30.833333, 32.5], ys            # the via at y=29.17 would sit 0.19 mm from the pad
     said = [str(f) for f in plan.findings if "stitch GND" in str(f)]
-    assert any("(35.50, 29.00)" in t and "copper" in t for t in said), said
-    assert any("east side" in t and "4.00 mm gap" in t and "2.00 mm pitch" in t for t in said), said
+    assert any("(35.50, 29.17)" in t and "copper" in t for t in said), said
+    assert any("east side" in t and "3.33 mm gap" in t and "2.00 mm pitch" in t for t in said), said
 
 
 def test_stitch_outside_without_edge_is_refused():
@@ -317,3 +319,47 @@ def test_stitch_outside_an_l_shaped_region_crosses_at_a_reflex_corner():
     pts = {(round(v.at.x, 6), round(v.at.y, 6)) for v in _vias(b.resolve())}
     # the inner corner is at (30, 30) in the keepout's box; the offset lines cross 0.5 out along both normals
     assert (30.5, 30.5) in pts
+
+
+def _edge_board(margin=0.1):
+    """A turned keepout (the part is turned 90 degrees: its east is the board's north, its north the board's
+    west) 6 wide and 10 tall, its board-west side on the board edge."""
+    from placemat.cutouts import Path
+    from placemat.values import Turned
+    ant = footprint("ANT", 40, 40, w=4, h=2, inst="ant", nets=("A", "B"))
+    b = Board(board_geometry([ant], width=60, height=60, extra_nets=["GND"]), edge_margin=margin, keep_going=True)
+    b.place(Part("ant"), at=Location(40, 40), rotation=90)
+    b.keepout(Path(RECT), "clearance", at=Location(3, 30), rotation=Turned(Part("ant"), 0), why="probe")
+    return b
+
+
+def test_stitch_outside_row_ending_at_an_unkept_side_is_inset_from_it():
+    from placemat.values import Edge
+    b = _edge_board()
+    b.stitch(Net("GND"), "clearance", edge=True, outside=True, hole_to_edge=0.35, pitch=2.0,
+             sides=[Edge.EAST], size=0.6, drill=0.3, why="probe")
+    plan = b.resolve()
+    vias = _vias(plan)
+    # the board's north row, y = 25 - 0.5; the unkept west (x = 0) and east (x = 6) sides each hold the end 0.5 in
+    assert _row(vias, "y", 24.5) == [0.5, 2.166667, 3.833333, 5.5], [(v.at.x, v.at.y) for v in vias]
+    assert not any("left out" in str(f) for f in plan.findings), plan.findings
+
+
+def test_stitch_outside_every_via_keeps_the_board_edge_clearance():
+    from placemat.values import Edge
+    b = _edge_board(margin=0.3)             # the 0.5 inset leaves 0.2 of copper to the edge: too close, so left out
+    b.stitch(Net("GND"), "clearance", edge=True, outside=True, hole_to_edge=0.35, pitch=2.0,
+             sides=[Edge.EAST], size=0.6, drill=0.3, why="probe")
+    plan = b.resolve()
+    vias = _vias(plan)
+    assert vias and all(v.at.x - 0.3 >= 0.3 - 1e-9 for v in vias), [(v.at.x, v.at.y) for v in vias]
+    assert any("left out" in str(f) and "board edge" in str(f) for f in plan.findings), plan.findings
+
+
+def test_stitch_outside_with_sides_notes_which_board_side_each_row_landed_on():
+    from placemat.values import Edge
+    b = _edge_board()
+    b.stitch(Net("GND"), "clearance", edge=True, outside=True, hole_to_edge=0.35, pitch=2.0,
+             sides=[Edge.EAST, Edge.WEST], size=0.6, drill=0.3, why="probe")
+    said = [str(f) for f in b.resolve().findings if "stitch GND" in str(f) and "board" in str(f)]
+    assert any("east side -> board north" in t and "west side -> board south" in t for t in said), said
