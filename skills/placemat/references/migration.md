@@ -52,6 +52,17 @@ section for each hand-written pattern a newer form replaces.
   does not span it is a finding naming it, as is a pad without copper there.
   The pour is planned after its vias.
 
+- **A turn searched about a fixed point**: `rotations=` on a place that is a
+  point (`Pin` on a part's pad, a cell's member pad or a member's origin,
+  `Location`, `Centre`, `Origin`, `Mid`) keeps the item on the point and
+  searches its turn. Each turn is judged as a decided place is (the board's
+  keep-in, keepouts, other items) and scored as any search is (links,
+  `Pm.Emits`/`Pm.Limit` pairs, `board.push`, escape lanes); the cheapest
+  wins, and a tie goes to the `rotation=` given. A bearing to avoid is a
+  keepout over what stands there. `rotations=` also takes a step in degrees
+  (`rotations=5`) or `Turns.ANY`, every `place.bearing_step` degrees
+  (default 5.0). Before, `rotations=` on such a place was read and ignored.
+
 ### Migration steps
 
 - SKILL.md, "Placement and copper practice", gains three rules: a plane
@@ -99,7 +110,31 @@ board.place(Part("d"), rotation=Parallel(PadRef(Part("a"), 1), PadRef(Part("a"),
 board.place(Part("e"), rotation=Facing([PadRef(Part("e"), n) for n in (9, 10, 11, 12)], Edge.NORTH), ...)
 ```
 
+**A cell turned about a fixed point at a bearing picked by hand becomes a
+searched bearing.**
+
+```python
+# before: the bearing is a constant, chosen by trying turns until the links looked right
+board.place(Cell("c"), rotation=FIXED_DEG, at=Pin(Part("c.member"), POINT))
+
+# after: the turn is searched about the point, scored by the links, pushes and keepouts
+board.place(Cell("c"), at=Pin(Part("c.member"), POINT), rotations=Turns.ANY)
+board.keepout(Circle(4.0), "arms", at=..., why="where the arms join")   # a bearing to avoid is a region
+```
+
+A script that already passes `rotations=` with a `Pin`, `Location` or `Centre`
+that names a point now has its turn searched; before, the item was laid once
+at `rotation=` (0 if none) and `rotations=` was ignored. Drop `rotations=` to
+keep that one turn.
+
 ### Fixed
+
+- A fixed cell whose member is drawn as an arc along a round rim is no longer
+  refused "body box ... is past the board's keep-in" when the member's box
+  corner passes the rim but its pads, courtyard and copper do not. A fixed
+  part turned off the axes was already judged by what it is; a cell now falls
+  back to its shapes when its members' boxes fail, as a part does. A searched
+  item is still judged by boxes, natively and in Python alike.
 
 - `board.stitch(..., edge=True, outside=True, sides=)`: a row that meets a
   side not kept now ends `hole_to_edge` plus the via's radius in from that

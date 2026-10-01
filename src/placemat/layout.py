@@ -34,7 +34,7 @@ from .settings import Settings
 from .placer import BlockSpec, _grid, _pin_normal, facing_rotation, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
-from .values import (Turned, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Turned, Turns, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      PinName, Priority, X, Y, pad_key)
 from .values import Figure, FigurePoint
 
@@ -281,6 +281,13 @@ class PlaceIntent:
     line: int = field(default=0, metadata={"reuse": False})   # the script line that declared it: not what it decides
     toward: object = field(default=None, metadata={"omit_default": True})   # Centre(toward=): an end of the free line
     pin_land: object = field(default=None, metadata={"omit_default": True})   # Pin(land=): the land of `pin` that lands on the point
+
+    @property
+    def turns_on_point(self) -> bool:
+        """A place that is a point, declared with turns to search: the item stays on the point
+        and its turn is the search."""
+        return (bool(self.rotations) and self.beside is None and not self.freedom.decided
+                and (self.at is not None or self.center is not None))
 
     @property
     def rank(self):
@@ -2504,15 +2511,18 @@ class Board:
         else:
             raise TypeError("%s: at= takes a Location, a Centre, a Pin, an OnEdge, an OnRim, an OnBore, a Polar, a Near "
                             "or a point of references, not %r" % (key, at))
+        rotations = self._turn_list(key, rotations)
         source = "auto" if priority is None else "script"
         # Whether the declaration decides the position is a different question
         # from how important the item is. A decided position goes down before
         # anything searched and nothing may push it; a priority orders the
         # items that are still being searched a spot. FIXED and EDGE answer the
         # first question, so they hold exactly when the position is decided.
+        # A point with turns to search leaves its turn to the search: the item stays on the point
+        turns_on_point = bool(rotations) and (at is not None or center is not None) and beside is None
         decided = (at is not None or center is not None or beside is not None
                    or ((edge is not None or run is not None) and along is not None)
-                   or (rim is not None and angle is not None))
+                   or (rim is not None and angle is not None)) and not turns_on_point
         freedom = Freedom.SEARCHED if not decided else \
             Freedom.FIXED if (at is not None or center is not None or beside is not None) else Freedom.EDGE
         if decided and priority is not None:
@@ -2585,6 +2595,19 @@ class Board:
                              toward=getattr(_centre_toward, "toward", None), pin_land=pin_land)
         self._intents.append(intent)
         return intent
+
+    def _turn_list(self, key: str, rotations) -> tuple:
+        """The turns `rotations=` names: its angles as given, or - for a step in degrees, or
+        `Turns.ANY` (`place.bearing_step`) - every step from 0 round the circle."""
+        if rotations is None or (not isinstance(rotations, (int, float, Turns)) and not rotations):
+            return ()
+        if isinstance(rotations, (bool, int, float, Turns)):
+            step = self.settings.place_bearing_step if rotations is Turns.ANY else rotations
+            if isinstance(step, bool) or not isinstance(step, (int, float)) or not 0 < step <= 360:
+                raise ValueError("%s: rotations= as a step is between 0 and 360 degrees, not %r; or give the "
+                                 "angles, or Turns.ANY for every place.bearing_step" % (key, rotations))
+            return tuple(round(k * float(step), 6) for k in range(int(math.ceil(360.0 / step - 1e-9))))
+        return tuple(rotations)
 
     def _facing_rotation(self, key: str, geom, facing: Facing, face: Face) -> float:
         """The turn `Facing(pads, edge)` says for the part `geom` on `face`: refused, naming the
@@ -7205,6 +7228,8 @@ class Board:
             if why:
                 plan.findings.append(Finding("fixed", "%s (%s): %s" % (i.key, i.freedom.value, why)))
             return self._step(i, p, 0.0, "; ".join(x for x in (chose, why) if x))
+        if i.turns_on_point:
+            return self._settle_turns_on_point(occ, i, plan, placed, clr, push_sources)
         if i.run is not None:
             return self._settle_along_run(occ, i, plan, clr)
         if i.rim is not None:
@@ -7307,22 +7332,79 @@ class Board:
                 moved += " for a better link score"
             note = (note + "; " if note else "") + moved
         if push_sources:
-            points = {}
-            bits = []
-            pads = occ.candidate_pad_locations(i.item, result.chosen)
-            for source_point, p in push_sources:
-                at = _push_at(occ, i.item, result.chosen, p, pads, points)
-                if at is None:
-                    at = result.chosen.location
-                value, r = _push_value(source_point, at, p)
-                p.achieved_value, p.achieved_mm = round(value, 4), round(r, 3)
-                if not p.sens:
-                    bits.append("push from %s: %.2g at %.1f mm (limit %.2g)" % (
-                        _push_source_label(p), value, r, p.limit))
-                plan.pushes.append(p)
-            bits += self._exposure_notes(occ, i, result.chosen, push_sources)
-            note = (note + "; " if note else "") + "; ".join(bits)
+            note = (note + "; " if note else "") + self._push_notes(occ, plan, i, result.chosen, push_sources)
         return self._step(i, result.chosen, result.moved_mm, note)
+
+    def _push_notes(self, occ: Occupancy, plan: Plan, i: PlaceIntent, placement: Placement, push_sources: list) -> str:
+        """What each push comes to with `i` at `placement`, recorded on the plan and as the step's note."""
+        points = {}
+        bits = []
+        pads = occ.candidate_pad_locations(i.item, placement)
+        for source_point, p in push_sources:
+            at = _push_at(occ, i.item, placement, p, pads, points)
+            if at is None:
+                at = placement.location
+            value, r = _push_value(source_point, at, p)
+            p.achieved_value, p.achieved_mm = round(value, 4), round(r, 3)
+            if not p.sens:
+                bits.append("push from %s: %.2g at %.1f mm (limit %.2g)" % (
+                    _push_source_label(p), value, r, p.limit))
+            plan.pushes.append(p)
+        bits += self._exposure_notes(occ, i, placement, push_sources)
+        return "; ".join(bits)
+
+    def _settle_turns_on_point(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set, clr,
+                               push_sources: list) -> Step:
+        """The item stays on its point and its turn is searched: each turn `rotations=` names is laid
+        as the declaration lays it, kept when the item is legal there as a decided place is judged,
+        and scored as a search scores a candidate (links, pushes, escape lanes, a via giving way).
+        The cheapest wins; a tie goes to the turn nearest `rotation=`, then the smaller angle."""
+        turns = sorted({float(r) % 360.0 for r in i.rotations})
+        laid = {}
+        for rot in turns:
+            laid[rot] = self._firm_placement(occ, plan, dataclasses.replace(i, rotation=rot))
+        geom = occ._geometry(i.item)
+        region = Box.union([transform_box(occ._extent(geom), occ._transform(geom, p)) for p, _ in laid.values()])
+        others = occ.obstacles(geom, region)
+        targets = self._targets(i.item, occ, placed)
+        exposed = self._exposure_accept(occ, i, push_sources)
+        accept = self._accept(i)            # the items riding it, asked of each turn that is otherwise legal
+        lanes = self._lane_pricer(occ, plan, i)
+        score = self._scorer(i.item, occ, targets, prune=exposed is None and accept is None, pushes=push_sources,
+                             lanes=lanes) if targets or push_sources or lanes else None
+        declared = float(i.rotation) % 360.0
+        found = []
+        rejected: Counter = Counter()
+        reasons: dict = {}
+        for rot, (p, chose) in laid.items():
+            why, resolution = occ.legal_giving_way(i.item, p, clr, others=others, by_corners=True)
+            if why is None and exposed is not None:
+                why = exposed(p)
+            if why is None and accept is not None:
+                why = accept(p)
+            if why is not None:
+                key = _reason_key(why)
+                rejected[key] += 1
+                reasons.setdefault(key, why)
+                continue
+            cost = (score(p) if score is not None else 0.0) + (resolution.cost if resolution is not None else 0.0)
+            away = abs((rot - declared + 180.0) % 360.0 - 180.0)
+            found.append((cost, away, rot, p, chose))
+        if not found:
+            plan.findings.append(Finding("unplaced", "%s: no bearing of %d tried leaves it legal on its point (%s)" % (
+                i.key, len(turns), ", ".join("%s x%d" % kv for kv in rejected.most_common(3)))))
+            return self._step(i, None, 0.0, "UNPLACED: " + "; ".join(reasons.values()))
+        cost, away, rot, p, chose = min(found, key=lambda f: f[:3])
+        note = "turned %g of %d bearings tried about its point" % (rot, len(turns))
+        if score is not None:
+            note += ", cost %.2f" % cost
+        if rejected:
+            note += "; %d refused: %s" % (sum(rejected.values()), next(iter(reasons.values())))
+        if chose:
+            note = chose + "; " + note
+        if push_sources:
+            note += "; " + self._push_notes(occ, plan, i, p, push_sources)
+        return self._step(i, p, 0.0, note)
 
 @contextlib.contextmanager
 def _recording_commits(occ: Occupancy):

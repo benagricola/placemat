@@ -85,13 +85,17 @@ file. An item cites its source as "a board's session, <date>".
   `board.disc` (this board is `board.outline`); leaving `rotation=` out
   tries the four right-angle turns only. Asked for: the bearing searched
   (continuous or at a step), scored by links, emitter/limit pairs and
-  keepouts, keepouts following the cell, and a way to bar bearings. Being
-  specced.
+  keepouts, keepouts following the cell, and a way to bar bearings. Built,
+  not yet released (spec `2026-10-01-cell-bearing-search-design.md`):
+  `rotations=` (a list, a step or `Turns.ANY`) on a place that is a point
+  searches the turn; a keepout bars a bearing.
 
 - **Keep-in judged on a cell's whole body box** (a board's session,
   2026-10-01): an arc-shaped cell along a round rim fails "body box ... is
   past the board's keep-in" because its box's corners pass the rim though
-  none of its members do. Judge the keep-in member by member. Being fixed.
+  none of its members do. Judge the keep-in member by member. Built, not yet
+  released: the cell was already judged by member boxes; a member drawn as an
+  arc passes by its own box, so a decided cell now falls back to its shapes.
 
 - **An in-pad via that meets the other face's pad cannot give way** (a
   board's session, 2026-10-01): a cell's in-pad plane drop (`board.via(net,

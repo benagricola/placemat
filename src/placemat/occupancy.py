@@ -1236,9 +1236,10 @@ class Occupancy:
             if why and geom.parts:
                 parts = self._shifted_parts(geom, placement)
                 why = next((w for w in map(self._edge_why, parts) if w), None)
-            elif why and by_corners and self.board_shape is not None and self._corners_inside(geom, placement):
-                # a decided part turned off the axes: its box's corner passes a round rim, the part does not.
-                # Only for a place the script decided: a scan judges by boxes, natively and in Python alike
+            if why and by_corners and self.board_shape is not None and self._corners_inside(geom, placement):
+                # a decided part turned off the axes, or a member drawn as an arc: its box's corner passes a
+                # round rim, the part does not. Only for a place the script decided: a scan judges by boxes,
+                # natively and in Python alike
                 why = None
             if why:
                 if blame is not None:
