@@ -36,7 +36,7 @@ def _round_board(fps, cells=("ring",), disc=True):
 
 
 def _edge_findings(plan):
-    return [f for f in plan.findings if "keep-in" in str(f) or "board edge" in str(f) or "outside" in str(f)]
+    return [f for f in plan.findings if "keep-in" in str(f) or "board edge" in str(f) or "outside" in str(f) or " edge" in str(f)]
 
 
 def _members_along_the_rim(n=7, r=18.0):
