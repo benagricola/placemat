@@ -107,7 +107,8 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
     others = occ.obstacles(geom, region)
     seen: set = set()
     native = occ.native_sweeper(item, hint.face, rots, others, clearance) if NATIVE_SWEEP else None
-    scoring = score.native(rots, hint.face) if native is not None and hasattr(score, "native") else None
+    scoring = score.native(rots, hint.face) if native is not None and not native.recheck and hasattr(score, "native") \
+        else None
     # Carried vias that may give way (giveway.py): a pass judges the item as it is first; the
     # candidates that refuses are judged again less its carried vias, and against the board less
     # the placed items' carried vias, and the vias then share, move or drop at a cost
@@ -141,6 +142,11 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 if n is not None and len(out) == n:
                     break
         return out
+
+    def blocker_of(key) -> list:
+        """A native refusal's blocker key as the blockers a tally counts: none for a candidate
+        refused in full without one (NativeSweeper's `recheck`)."""
+        return [] if key is None else [key]
 
     def blocker_key(b) -> tuple:
         return (b.kind, b.owner, "/".join(sorted(f.value for f in b.faces)))
@@ -263,7 +269,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 break
         if gw is None or (stop_at_first and legal):
             for bucket, count, first, reason, blocker in refusals:
-                tally(bucket, reason, [blocker], count)
+                tally(bucket, reason, blocker_of(blocker), count)
             return legal
         taken = set(found)
         sub = [triples[i] for i in range(len(triples)) if i not in taken]
@@ -284,7 +290,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             while start < len(sub):
                 found_b, _, refusals_b = gw.native.run(sub[start:], True, None)
                 for bucket, count, first, reason, blocker in refusals_b:
-                    tally(bucket, reason, [blocker], count)
+                    tally(bucket, reason, blocker_of(blocker), count)
                 if not found_b:
                     break
                 j = start + found_b[0]
@@ -295,7 +301,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                 start = j + 1
             return legal
         found_b, _, refusals_b = gw.native.run(sub, False, None)
-        events = [(first, 0, (bucket, reason, [blocker], count)) for bucket, count, first, reason, blocker in refusals_b]
+        events = [(first, 0, (bucket, reason, blocker_of(blocker), count)) for bucket, count, first, reason, blocker in refusals_b]
         events += [(j, 1, None) for j in found_b]
         for j, kind, what in sorted(events, key=lambda e: e[0]):
             if kind == 0:
