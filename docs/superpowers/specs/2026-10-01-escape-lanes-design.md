@@ -61,12 +61,16 @@ another row is refused, naming it. The row's **tips** are the outermost
 reach of its pads along the axis. **Clearance** is the clearance by net
 pair between neighbouring copper, as the router judges it.
 
-Each lane's **copper** is its via's size where it has a via, else its
-track width (`widths=` for that pin, else the net's track width): a via
-may stand anywhere along it, so the lanes either side keep clear of it
-whole. A **step** between two neighbours is half of each one's copper
-plus the clearance. These are the hand layout's own figures: its
-`LANE = TRACK + CLEAR` and its lane-to-via steps.
+Each lane's track width is `widths=` for that pin, else the net's track
+width. A **step** between two neighbouring lanes is the clearance plus
+the largest of: half of each one's track; half the inner one's via plus
+half the outer one's track; half the inner one's track plus half the
+outer one's via. These are the hand layout's own figures (its
+`LANE = TRACK + CLEAR` and its lane-to-via steps). Two vias on
+neighbouring lanes are not stepped apart by their sizes: they keep clear
+by standing apart along their lanes, innermost first. (Corrected at
+implementation: the spec first said a lane's copper was its via's size
+throughout, which the hand layout's last step contradicts.)
 
 **With `turn=`** (an `Edge` across the row: a north row turns `WEST` or
 `EAST`):
