@@ -5,6 +5,17 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- The "allow no 45" finding for a `Past(..., Corner.X)` waypoint is judged
+  against copper on the track's own layer only: pads on that layer, vias whose
+  span includes it, tracks on it. A track on an inner layer past a corner of
+  front-only pads no longer gets the finding for them, and the finding names
+  only the items it was judged against. The waypoint's place is unchanged:
+  the lane still runs off every item the `Past` names, on whatever face.
+
 ## To 0.72.0
 
 ### New
