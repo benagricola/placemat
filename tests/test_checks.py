@@ -86,6 +86,27 @@ def test_a_crossing_under_a_sensitive_track_by_another_net_is_counted():
     assert crossings_under(board_geometry([cin, u, l, cout, rfb], copper=[fb, beside]))[0].ok
 
 
+def test_copper_behind_a_plane_between_is_not_under_a_sensitive_track():
+    """A layer's copper is under a sensitive track unless a plane fill on a
+    layer between them covers where it crosses: an inner trunk behind a
+    ground plane is shielded from the track; without the plane, or where the
+    plane does not reach, it is under it."""
+    from placemat.board_geometry import CopperItem
+    from placemat.values import Box, CopperLayer
+    from tests.fixtures import rect
+    cin, u, l, cout, rfb = buck()
+    fb = track("FB", 21.4, 20, 30, 20, w=0.2, layer=F)
+    trunk = track("SW", 25, 10, 25, 30, w=0.5, layer=CopperLayer.IN2)
+    plane = rect(25, 20, 20, 20)                 # x 15 to 35, y 10 to 30: covers the crossing at (25, 20)
+    gnd = CopperItem("zone", "GND", frozenset([CopperLayer.IN1]), (plane,), Box.of_points(plane))
+    parts = [cin, u, l, cout, rfb]
+    assert not crossings_under(board_geometry(parts, copper=[fb, trunk]))[0].ok
+    assert crossings_under(board_geometry(parts, copper=[fb, trunk, gnd]))[0].ok
+    short = rect(25, 12, 20, 4)                  # y 10 to 14: the plane stops short of the crossing
+    gap = CopperItem("zone", "GND", frozenset([CopperLayer.IN1]), (short,), Box.of_points(short))
+    assert not crossings_under(board_geometry(parts, copper=[fb, trunk, gap]))[0].ok
+
+
 def test_ipc2221_width_for_an_outer_track():
     # 3 A at a 10 C rise on 1 oz copper: 74 sq mil of cross-section, 54 mil wide
     assert ipc2221_width_mm(3.0, rise_c=10.0, copper_oz=1.0) == pytest.approx(1.37, abs=0.02)

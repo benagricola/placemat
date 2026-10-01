@@ -124,8 +124,9 @@ runs the same checks on the board it wrote.
 - `keep-out`: the nearest sensitive-net copper to each switch node,
   against `--keep-out` (default 2 mm), naming the two pieces of copper; a
   part's own pins are its package and are not judged
-- `crossings-under`: other nets' copper on the other face under a
-  sensitive net's tracks; zones and vias do not count, the limit is zero
+- `crossings-under`: other nets' copper on another layer under a
+  sensitive net's tracks, unless a plane fill on a layer between them
+  covers the crossing; zones and vias do not count, the limit is zero
 - `current-path`: per net a `Pm.I` names, each two parts carrying on it
   judged at the lesser of their currents by the narrowest point of the
   widest route between them (tracks, vias, pours, and zone fills, each

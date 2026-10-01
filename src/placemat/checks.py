@@ -354,6 +354,58 @@ def keep_out(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list[Ver
     return out
 
 
+def _shielded(geometry: BoardGeometry, track: CopperItem, other: CopperItem) -> bool:
+    """Whether a plane fill on a copper layer between `track`'s and
+    `other`'s covers where they cross: another net's copper behind a plane
+    is not under the track, whatever layer it is on."""
+    from .board_geometry import stackup_order
+    a = min(stackup_order(l) for l in track.layers)
+    b = min(stackup_order(l) for l in other.layers)
+    lo, hi = min(a, b), max(a, b)
+    overlaps = [(p, q) for p in track.outlines for q in other.outlines if polys_overlap(p, q)]
+    points = [x for p, q in overlaps for x in _overlap_points(p, q)]
+    for z in geometry.copper:
+        if z.kind != "zone" or not any(lo < stackup_order(l) < hi for l in z.layers):
+            continue
+        if not (z.box.overlaps(track.box) and z.box.overlaps(other.box)):
+            continue
+        if points and all(_covered(x, z.outlines) for x in points):
+            return True
+    return False
+
+
+def _overlap_points(p, q) -> list:
+    """Points where two overlapping outlines meet: each one's vertices inside
+    the other, and their edges' crossings; what a plane must cover to shield
+    the crossing."""
+    from .geometry import point_in_polygon, segments_intersect
+    pts = [v for v in p if point_in_polygon(v, q)] + [v for v in q if point_in_polygon(v, p)]
+    for i in range(len(p)):
+        a1, a2 = p[i], p[(i + 1) % len(p)]
+        for j in range(len(q)):
+            b1, b2 = q[j], q[(j + 1) % len(q)]
+            if segments_intersect(a1, a2, b1, b2):
+                x = _segment_crossing(a1, a2, b1, b2)
+                if x is not None:
+                    pts.append(x)
+    return pts
+
+
+def _segment_crossing(a1, a2, b1, b2):
+    dx1, dy1 = a2[0] - a1[0], a2[1] - a1[1]
+    dx2, dy2 = b2[0] - b1[0], b2[1] - b1[1]
+    den = dx1 * dy2 - dy1 * dx2
+    if abs(den) < 1e-12:
+        return None
+    t = ((b1[0] - a1[0]) * dy2 - (b1[1] - a1[1]) * dx2) / den
+    return (a1[0] + t * dx1, a1[1] + t * dy1)
+
+
+def _covered(point, outlines) -> bool:
+    from .geometry import point_in_polygon
+    return any(point_in_polygon(point, o) for o in outlines)
+
+
 def crossings_under(geometry: BoardGeometry) -> list[Verdict]:
     out = []
     for net, how in sorted(_sensitive_nets(geometry).items()):
@@ -363,10 +415,12 @@ def crossings_under(geometry: BoardGeometry) -> list[Verdict]:
             for c in geometry.copper:
                 if c.net == net or c.kind in ("zone", "via") or c.layers & t.layers:
                     continue
-                if t.box.overlaps(c.box) and any(polys_overlap(a, b) for a in t.outlines for b in c.outlines):
+                if t.box.overlaps(c.box) and any(polys_overlap(a, b) for a in t.outlines for b in c.outlines) \
+                        and not _shielded(geometry, t, c):
                     count += 1
         out.append(Verdict("crossings-under", net, count, "crossings", 0, count == 0,
-                           "other nets' copper on the other face under %s's tracks (%s)" % (net, how)))
+                           "other nets' copper on another layer under %s's tracks, with no plane between "
+                           "covering the crossing (%s)" % (net, how)))
     return out
 
 

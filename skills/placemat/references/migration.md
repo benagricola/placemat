@@ -5,6 +5,14 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+`check crossings-under` no longer counts another net's copper behind a
+plane: copper on another layer under a sensitive track counts unless a
+plane fill on a layer between them covers the crossing. An inner trunk
+under an outer RF track, with a ground plane between, was a failing
+crossing.
+
 ## To 0.65.0
 
 The router and the copper findings keep `board.rule` clearances. The
