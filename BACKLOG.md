@@ -35,6 +35,13 @@ file. An item cites its source as "a board's session, <date>".
   owns or meets a net tie skips the native search and runs the Python one,
   about 40x slower per candidate. Being fixed.
 
+- **A fitted pour that reaches into the room round its members** (a board's
+  session, 2026-10-01, after 0.70.0 removed `grow=`): a switch node's fitted
+  pour stops at its pads' hull and now fails its current-path width; a pour
+  over adjacent pins is refused where the footprint's own pin gap is below
+  the clearance. `reach=mm` on a fitted pour, and a pad held to its own edge
+  where its footprint sets the gap. Being built.
+
 ## Open
 
 - **A via field re-laid round a conflict** (the via give-way
