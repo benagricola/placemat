@@ -1,6 +1,6 @@
 # Origins, a part's own pad midpoint, and turns said by pads
 
-Status: draft, for approval.
+Status: approved (2026-10-01).
 
 Source: Ben, through a board's session (2026-10-01): an inductive ring
 sensor cell (two windings drawn about a disc centre, two LC tanks, a
