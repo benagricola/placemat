@@ -13,6 +13,39 @@ plane fill on a layer between them covers the crossing. An inner trunk
 under an outer RF track, with a ground plane between, was a failing
 crossing.
 
+`board.escape` takes `chamfer=` (default `copper.chamfer`), `via_size=` and
+`via_drill=` (default the board's, as `board.via()`'s `size=` and `drill=`).
+The lanes are laid out, reserved and, for a track that begins with a lane,
+drawn with that chamfer; the track's own `chamfer=` still wins, and the lane
+is then laid out with it. A script that gave a lane's track a smaller
+`chamfer=` to keep its 45 off another lane's via, or gave each lane's via a
+`size=` the escape's did not have, can say it once on the escape and drop it
+from the tracks.
+
+The via search now judges every lane still to be placed as it will be drawn:
+square and cut at its chamfer. A chamfer's 45 runs across the inside of the
+turn, so an outer lane's corner could stand inside the clearance of an inner
+lane's via; the via now moves along its lane instead, and a script whose
+lanes' vias stood where the square corner allowed may see them a little
+farther along. `chamfer=0` gives the square layout back.
+
+A lane's reservation no longer stays in the occupancy once a track begins
+with the lane: the track's own copper is judged in its place, so a clearance
+finding against a lane's reserved copper that the drawn track clears is gone.
+
+An escape may name a pin drawn as two lands, one in each of two rows (a
+QFN's corner pin): it stands in the row by the land that leads out the way the
+other pins do, and its lane starts at that land. An escape whose pins have no
+way out in common is refused at the declaration with the ways named, and an
+escape that cannot be laid out where the part stands (a via with no legal
+spot) fails the run with that message, not a traceback.
+
+A pad that copper of its own net already leaves (a track from it, a via in
+it, a pour over it, a grown pour's hull) is no longer an `escape_walled` or
+`escape_closed` finding; one that is still walled names the copper by owner
+("track NET", "via NET", "pour NET", "the escape lane of U1 pin 53"), no
+longer by an empty name.
+
 ## To 0.65.0
 
 The router and the copper findings keep `board.rule` clearances. The

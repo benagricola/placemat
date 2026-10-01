@@ -82,9 +82,16 @@ def test_a_pair_or_a_run_needs_a_turn():
 
 def test_a_run_or_a_depth_of_nothing_or_less_is_refused():
     b = _board()
-    for kw in ({"run": 0.0}, {"run": -1.0}, {"depth": 0.0}, {"depth": -0.5}):
+    for kw in ({"run": 0.0}, {"run": -1.0}, {"depth": 0.0}, {"depth": -0.5}, {"via_size": 0.0}, {"via_drill": -0.1}):
         with pytest.raises(ValueError, match="more than 0"):
             b.escape(Part("pd"), [32, 31], turn=Edge.WEST, why="x", **kw)
+
+
+def test_a_negative_chamfer_is_refused_and_none_is_allowed():
+    b = _board()
+    with pytest.raises(ValueError, match="chamfer= is 0 or more"):
+        b.escape(Part("pd"), [32, 31], turn=Edge.WEST, chamfer=-0.1, why="x")
+    b.escape(Part("pd"), [32, 31], turn=Edge.WEST, chamfer=0.0, why="square")
 
 
 def test_a_turn_that_is_neither_an_edge_nor_a_corner_is_refused():

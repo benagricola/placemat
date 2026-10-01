@@ -72,6 +72,7 @@ def resolve_like_last_run(script, lock_entries=None) -> tuple:
         raise ValueError("%s has not been run yet: `placemat run %s` first" % (src.name, script.name))
     from . import reuse as reuse_mod
     from .layout import CriticalUnplaced, PlacementCollision
+    from .lanes import EscapeError
     from .runner import RunFailure
     with settings_mod.bind(cfg):
         fab = fab_profile(src.board_dir)
@@ -101,13 +102,13 @@ def resolve_like_last_run(script, lock_entries=None) -> tuple:
             board.keep_going = False
         try:
             plan = board.resolve(reuse=previous, lock=lock_now, routes=kept)
-        except (PlacementCollision, CriticalUnplaced) as e:
+        except (PlacementCollision, CriticalUnplaced, EscapeError) as e:
             if known or board.keep_going:
                 raise ValueError("the script does not place as it stands: %s" % str(e).splitlines()[0])
             board = build(True)
             try:
                 plan = board.resolve(reuse=previous, lock=lock_now, routes=kept)
-            except (PlacementCollision, CriticalUnplaced) as e2:
+            except (PlacementCollision, CriticalUnplaced, EscapeError) as e2:
                 raise ValueError("the script does not place as it stands: %s" % str(e2).splitlines()[0])
     return board, plan, src, last.run_id
 

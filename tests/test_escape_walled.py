@@ -1,0 +1,100 @@
+"""A pad walled in is a finding naming what walls it; a pad that copper of its own net already leaves (a track
+from it, a via in it, a pour over it) has its way out, and what walls a pad is named as a refusal names it."""
+import dataclasses
+
+import pytest
+
+from placemat.board_geometry import Footprint
+from placemat.layout import Board
+from placemat.settings import Settings
+from placemat.values import Box, CopperLayer, Edge, Face, Location, Net, PadRef, Part
+from tests.escape_fixtures import PD_NETS, board_with, pd_board, qfn
+from tests.fixtures import board_geometry, footprint, pad
+from tests.test_escape_findings import _walled_in
+
+F = CopperLayer.F
+
+
+def _board(fps, **kw):
+    cfg = dataclasses.replace(Settings(), cleanup_enabled=False)
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0, settings=cfg, keep_going=True, **kw)
+    for fp in fps:
+        b.place(Part(fp.inst), at=fp.location)
+    return b
+
+
+def _walled(plan):
+    return [str(f) for f in plan.findings if f.kind == "escape_walled"]
+
+
+IN = PadRef(Part("u9"), 1)
+
+
+def test_the_walled_pad_of_the_fixture_is_still_a_finding():
+    assert _walled(_board(_walled_in(0.1)).resolve()) == ["U9 pin 1 (IN): walled off by R9"]
+
+
+def test_a_via_in_the_pad_is_a_way_out():
+    b = _board(_walled_in(0.1))
+    b.via(Net("IN"), IN, why="the pad's own via")
+    assert _walled(b.resolve()) == []
+
+
+def test_a_track_from_the_pad_is_a_way_out():
+    b = _board(_walled_in(0.1))
+    b.track(Net("IN"), [IN, Location(30.0, 30.1)], layer=F, why="a track from the pad")
+    assert _walled(b.resolve()) == []
+
+
+def test_a_grown_pour_over_the_pad_is_a_way_out():
+    b = _board(_walled_in(0.1))
+    b.pour(Net("IN"), [IN], layer=F, grow=1.0, why="its own pour")
+    assert _walled(b.resolve()) == []
+
+
+def test_a_swallow_pour_over_the_pad_is_a_way_out():
+    b = _board(_walled_in(0.1))
+    b.pour(Net("IN"), [Location(29.9, 29.9), Location(30.1, 29.9), Location(30.1, 30.1)], layer=F,
+           swallow_pads=True, why="its own pour")
+    assert _walled(b.resolve()) == []
+
+
+def test_copper_of_another_net_on_the_pad_is_not_a_way_out():
+    b = _board(_walled_in(0.1))
+    b.track(Net("Z"), [Location(30.0, 29.9), Location(30.0, 30.0)], layer=F, why="another net's track on the pad")
+    assert _walled(b.resolve())
+
+
+def _ring_open_south():
+    """U9's IN pad at (30, 30) ringed 0.1 mm off by R9's pads, the south one left out for a track."""
+    fps = _walled_in(0.1)
+    ring = fps[1]
+    keep = tuple(p for p in ring.pads if abs(p.box.center.x - 30.0) > 0.1 or p.box.center.y < 30.5)
+    assert len(keep) == len(ring.pads) - 1
+    fps[1] = Footprint(ring.ref, ring.inst, None, ring.ref, ring.location, 0.0, Face.FRONT, ring.body_box,
+                       ring.courtyard_box, ring.phys_box, keep)
+    return fps
+
+
+def test_a_track_of_the_script_that_walls_a_pad_is_named_as_a_refusal_names_it():
+    b = _board(_ring_open_south())
+    b.track(Net("RING"), [Location(29.0, 30.85), Location(31.0, 30.85)], layer=F, width=0.2, why="across the way out")
+    (found,) = _walled(b.resolve())
+    assert found == "U9 pin 1 (IN): walled off by R9, track RING"
+
+
+def test_a_pour_of_the_script_that_walls_a_pad_is_a_pour():
+    b = _board(_ring_open_south())
+    b.pour(Net("RING"), [Location(29.0, 30.6), Location(31.0, 30.6), Location(31.0, 31.1), Location(29.0, 31.1)],
+           layer=F, why="a pour across the way out")
+    (found,) = _walled(b.resolve())
+    assert found == "U9 pin 1 (IN): walled off by R9, pour RING"
+
+
+def test_an_escape_lane_that_walls_a_pad_is_named_by_its_pin():
+    """The lanes of an escape are reserved as copper of no owner; a finding says whose lane it is."""
+    b = pd_board()
+    b.escape(Part("pd"), [32, 31, 30], turn=Edge.WEST, vias=[31, 30], why="north row")
+    plan = b.resolve()
+    lanes = {plan.occupancy.blame_owner(s) for s in plan.occupancy.copper if s.lane}
+    assert lanes == {"the escape lane of U1 pin 32", "the escape lane of U1 pin 31", "the escape lane of U1 pin 30"}

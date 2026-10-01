@@ -409,6 +409,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             if verbose:
                 say("bridge" if line.strip().startswith("bridge:") else "step", line.strip())
         from .layout import CriticalUnplaced, PlacementCollision
+        from .lanes import EscapeError
         parts = reuse_parts(src, cfg, fab)
         board.reuse_extra = "|".join(parts[k] for k in ("tool", "board", "settings", "fab"))
         from . import explore as explore_mod, routes as routes_mod
@@ -425,6 +426,9 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
             raise RunFailure("placement", "Firm placements collide; fix the script (or --keep-going to see the rest)",
                              {"collisions": e.collisions, "tail": "\n".join(e.collisions)})
+        except EscapeError as e:                    # a declared escape the part as placed cannot lay out
+            (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
+            raise RunFailure("escape", str(e), {"tail": "fix the escape's declaration, or the part's placement"})
         except CriticalUnplaced as e:
             (run_dir / "script.log").write_text("\n".join(log_lines) + "\n")
             apply_plan(src.pcb, e.plan)                      # the board as it stood when the critical item failed

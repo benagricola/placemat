@@ -87,8 +87,13 @@ class EscapeDecl:
     run: float | None
     widths: tuple           # ((pad number, width), ...)
     pairs: tuple            # ((pad number, pad number), ...)
+    chamfer: float          # the cut at a lane's corners: the lanes are laid, reserved and (by default) drawn with it
+    via_size: float         # the size and drill of the lanes' vias
+    via_drill: float
     why: str
     via_intents: dict = field(default_factory=dict, compare=False, metadata={"reuse": False})
+    chamfers: dict = field(default_factory=dict)    # pad number -> the chamfer= of the track that begins with its lane
+    lands: tuple = ()       # ((pad number, 1-based land), ...): the land in the row, of a pin drawn as several
     drawn: set = field(default_factory=set, compare=False, metadata={"reuse": False})
     used_vias: set = field(default_factory=set, compare=False, metadata={"reuse": False})
 
@@ -98,6 +103,11 @@ class EscapeDecl:
 
     def width_of(self, number: str):
         return dict(self.widths).get(number)
+
+    def chamfer_of(self, number: str) -> float:
+        """The cut at a lane's corner as it will be drawn: its track's own chamfer= where one
+        says it, else the escape's."""
+        return self.chamfers.get(number, self.chamfer)
 
 
 # ------------------------------------------------------------------ the layout
@@ -192,13 +202,49 @@ def turn_direction(turn, u: tuple, key: str) -> tuple:
     return (sx - out * ux, sy - out * uy), True
 
 
+_WAYS = {(0.0, -1.0): "north", (0.0, 1.0): "south", (1.0, 0.0): "east", (-1.0, 0.0): "west"}
+
+
+def _way_name(way: tuple) -> str:
+    return _WAYS.get(way, "(%.2f, %.2f)" % way)
+
+
+def row_way(key: str, numbers: list, boxes: dict, way_of) -> tuple:
+    """(the row's way out, {pad number: indices of its lands in the row}) for the pins `numbers` of
+    a part whose pads' lands are `boxes` (pad number -> the box of each land); `way_of(box)` is the
+    way out of one land. A pin drawn as several lands (a QFN's corner pin, one land in each of two
+    rows) leads out along each; the row is the way out the pins have in common, and such a pin
+    stands in it by the land that leads out that way. The pins' ways must have exactly one in
+    common, else an EscapeError names the pins and the ways."""
+    multi = [n for n, bs in boxes.items() if len(bs) > 1]
+    ways = {n: [way_of(b) for b in boxes[n]] for n in dict.fromkeys([*numbers, *multi])}
+
+    def said(n):
+        return " or ".join(dict.fromkeys(_way_name(w) for w in ways[n]))
+    common = set(ways[numbers[0]])
+    for n in numbers[1:]:
+        common &= set(ways[n])
+    if not common:
+        first = numbers[0]
+        other = next(n for n in numbers[1:] if not set(ways[n]) & set(ways[first]))
+        raise EscapeError("%s: pin %s is not on pin %s's row as the part stands (pin %s leads out %s, pin %s %s); an "
+                          "escape is one row's" % (key, other, first, first, said(first), other, said(other)))
+    if len(common) > 1:
+        raise EscapeError("%s: the pins %s lead out %s alike (a pin drawn as several lands leads out along each); "
+                          "name a pin of the row whose way out is one only" % (
+                              key, ", ".join(numbers), " and ".join(sorted(_way_name(w) for w in common))))
+    (axis,) = common
+    return axis, {n: [i for i, w in enumerate(ways[n]) if w == axis] or list(range(len(boxes[n]))) for n in multi}
+
+
 class Layouter:
     """The arithmetic of one escape. `pads` maps each pad number of the part
     to its shapes; `axis` is the row's outward unit vector; `env` answers
     what the rest of the board says (see layout.py's `_LaneEnv`)."""
 
-    def __init__(self, decl: EscapeDecl, pads: dict, axis: tuple, env):
+    def __init__(self, decl: EscapeDecl, pads: dict, axis: tuple, env, lands: dict | None = None):
         self.decl, self.pads, self.env = decl, pads, env
+        self.lands = lands or {}        # pad number -> indices of its lands in the row, for pads drawn as several
         ux, uy = axis
         if not (abs(abs(ux) - 1.0) < 1e-6 and abs(uy) < 1e-6 or abs(abs(uy) - 1.0) < 1e-6 and abs(ux) < 1e-6):
             raise EscapeError("%s: the row's way out is (%.3f, %.3f), not along a board axis; an escape's lanes "
@@ -220,13 +266,18 @@ class Layouter:
         """The point to 1e-6 mm, the way out rounded outward and the turn side along."""
         return Location(_away(p.x, self.u[0] + self.t[0]), _away(p.y, self.u[1] + self.t[1]))
 
+    def _row_lands(self, number: str) -> list:
+        """The shapes of a pad that stand in the row: all its lands, or of a pad drawn as several
+        the ones whose way out is the row's."""
+        return [self.pads[number][i] for i in self.lands[number]] if number in self.lands else self.pads[number]
+
     def _extent(self, number: str) -> tuple:
-        pts = [p for sh in self.pads[number] for p in sh.poly]
+        pts = [p for sh in self._row_lands(number) for p in sh.poly]
         hs, ss = [self.h_of(p) for p in pts], [self.s_of(p) for p in pts]
         return min(hs), max(hs), min(ss), max(ss)
 
     def _centre(self, number: str) -> Location:
-        return Box.union([sh.box for sh in self.pads[number]]).center
+        return Box.union([sh.box for sh in self._row_lands(number)]).center
 
     # ---- the whole layout
     def lay_out(self) -> Layout:
@@ -250,7 +301,7 @@ class Layouter:
         for n in d.pins:
             net = nets[n]
             width = d.width_of(n) or env.width(net)
-            via = (env.via_size, env.via_drill) if n in d.vias else None
+            via = (d.via_size, d.via_drill) if n in d.vias else None
             c = self._centre(n)
             lanes[n] = _Lane(n, net, width, via, c, self.s_of((c.x, c.y)))
         self.lanes = lanes
@@ -347,11 +398,17 @@ class Layouter:
     def _segments(self, lane: _Lane, a: float | None = None) -> list:
         """The lane's copper as it stands: the riser, and the lane out to `a`, chamfered as
         drawn. A lane whose via is not placed yet (`a` None) runs as far as a via is searched,
-        with its corner square: the most copper it can come to, whatever its chamfer ends up."""
+        and its corner is judged both ways: square, which comes nearest what lies outside the
+        turn, and cut at the lane's chamfer, whose 45 runs across the inside of the turn, nearest
+        what lies there (an inner lane's via). Where its via ends up the lane is cut no deeper
+        than that (a short lane cuts less), so neither comes nearer than it is judged."""
         reach = self._a_min(lane) + self.env.reach if a is None else a
         pts = [lane.centre] + ([lane.corner] if self.decl.turn is not None else []) + [self._end_at(lane, reach)]
-        cut = chamfer_cuts(pts, self.env.chamfer if a is not None else 0.0)[0]
-        return [((a_.x, a_.y), (b_.x, b_.y)) for a_, b_ in zip(cut, cut[1:])]
+        chamfer = self.decl.chamfer_of(lane.number)
+        cuts = [chamfer_cuts(pts, chamfer)[0]]
+        if a is None and chamfer > 0:
+            cuts.append(chamfer_cuts(pts, 0.0)[0])
+        return [((p.x, p.y), (q.x, q.y)) for cut in cuts for p, q in zip(cut, cut[1:])]
 
     # ---- the vias
     def _via_why(self, lane: _Lane, q: Location, others: bool) -> str | None:
@@ -480,7 +537,7 @@ class Layouter:
             lane = self.lanes[n]
             pts = [lane.centre] + ([lane.corner] if d.turn is not None else []) + [lane.end_at]
             pts = [p for i, p in enumerate(pts) if i == 0 or (p.x, p.y) != (pts[i - 1].x, pts[i - 1].y)]
-            cut = chamfer_cuts(pts, env.chamfer)[0]
+            cut = chamfer_cuts(pts, d.chamfer_of(n))[0]
             tracks = tuple(polyline_tracks(lane.net, env.layer, lane.width, cut))
             via = Via(lane.net, lane.via_at, lane.via[1], lane.via[0]) if lane.via_at is not None else None
             if d.turn is None:
