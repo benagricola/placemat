@@ -107,6 +107,11 @@ board.place(Part("j_b"), at=Pin(1, Polar(PITCH, 90, about=PadRef(Part("j_a"), 1)
 - `Pin(key, Polar(...))` was refused ("float() argument ... not 'Polar'").
 - A declared pour too near another net's pad or pour now raises a copper
   finding; it was judged at its outline without its stroke and passed.
+- A plated hole keeps the board's hole clearance from the copper of another
+  net, a net tie's own copper bar included (KiCad's `hole_clearance`). A via
+  from `FreeSpot` could land with its drill 0.15 mm from a net tie's bar,
+  which KiCad's DRC flags and placemat did not; the search now steps past it,
+  and a part, via or track left too near a drilled hole is a copper finding.
 
 ## To 0.66.1
 

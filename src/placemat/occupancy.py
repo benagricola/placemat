@@ -789,6 +789,20 @@ class Occupancy:
                 out.append(why)
         return out
 
+    def hole_conflicts(self, hole: Shape) -> list[str]:
+        """Every pad or copper of another net within the hole clearance of
+        `hole`, a candidate drill (`hole_shape`)."""
+        out = []
+        pools = [g.shapes for owner, g in self.items.items() if owner not in self.pending] + [self.copper]
+        for pool in pools:
+            for o in pool:
+                if o is hole or o.kind not in _COPPERISH or not hole.box.overlaps(o.box, gap=self._copper_reach):
+                    continue
+                why = self._conflict(hole, o, None)
+                if why:
+                    out.append(why)
+        return out
+
     def body_box(self, item, placement: Placement) -> Box:
         geom = self._geometry(item)
         return transform_box(geom.body, self._transform(geom, placement))
@@ -1531,7 +1545,7 @@ class Occupancy:
             return "hole-to-hole"
         if s.kind == "courtyard" or o.kind == "courtyard":
             return "courtyard"
-        if (s.kind in _COPPERISH and o.kind in _COPPERISH) or s.kind == "npth" or o.kind == "npth":
+        if (s.kind in _COPPERISH and o.kind in _COPPERISH) or "npth" in (s.kind, o.kind) or "hole" in (s.kind, o.kind):
             return "copper"
         return self.who(s.owner).split(" ")[0]
 
@@ -1540,15 +1554,18 @@ class Occupancy:
             self.who(court.owner), self.who(lead.owner), " pad %s" % lead.label if lead.label else "",
             "" if lead.net else " (a plated pad with no net: often a footprint defect)")
 
-    def _hole_name(self, s: Shape) -> str:
-        """A hole as a refusal names it: a part's, a cell's via, or a via."""
+    def _hole_name(self, s: Shape, possessive: bool = False) -> str:
+        """A hole as a refusal names it: a part's, a cell's via, or a via.
+        `possessive` asks for the drill itself: "a via's hole"."""
         if s.kind == "hole" and s.owner in self.geometry.cells:
-            return "cell %s's via" % s.owner
-        if s.owner.startswith("via at "):
-            return "the via %s" % s.owner[len("via "):]
-        if not s.owner:
-            return "a via"
-        return "%s's hole" % self.who(s.owner)
+            name = "cell %s's via" % s.owner
+        elif s.owner.startswith("via at "):
+            name = "the via %s" % s.owner[len("via "):]
+        elif not s.owner:
+            name = "a via"
+        else:
+            return "%s's hole" % self.who(s.owner)
+        return name + "'s hole" if possessive else name
 
     def _drawn_conflict(self, s: Shape, o: Shape) -> str | None:
         """Silk, mask openings and bodies of two different parts, each gap
@@ -1749,7 +1766,10 @@ class Occupancy:
                     self._hole_name(s), max(gap, 0.0), self._hole_name(o), need)
             return None
         if ks == "hole" or ko == "hole":
-            return None                     # its pad or via ring answers for everything else
+            hole, metal = (s, o) if ks == "hole" else (o, s)
+            if metal.kind in _COPPERISH:
+                return self._hole_conflict(hole, metal, say)
+            return None
         if ks == "courtyard" and ko == "courtyard":
             # courtyards may touch: a shared edge, to a rounding, is packing, not a collision
             depth = min(min(s.box.right, o.box.right) - max(s.box.left, o.box.left),
@@ -1822,6 +1842,47 @@ class Occupancy:
                         metal.net or self.who(metal.owner), gap, self.who(hole.owner), need)
         return None
 
+    def _hole_conflict(self, hole: Shape, metal: Shape, say: bool = True) -> str | None:
+        """A plated hole against copper of another net: the board's hole
+        clearance from the drill's edge to the copper, netless copper (a net
+        tie's bar) included. DRC_TEST_PROVIDER_COPPER_CLEARANCE::
+        testSingleLayerItemAgainstItem tests each hole of the pair against the
+        other's shape at HOLE_CLEARANCE_CONSTRAINT, for a via on the layers it
+        spans; the same-net waiver is testTrackClearances' and
+        testPadAgainstItem's. The net-tie rule that zeroes a copper clearance
+        (DRC_ENGINE::EvalRules) is for CLEARANCE_CONSTRAINT alone, so a hole
+        keeps the clearance from a net tie's copper but for
+        DRC_ENGINE::IsNetTieExclusion (`_hole_tie_exclusion`). A ring's copper
+        clearance usually implies this one; where it does not, this answers."""
+        if hole.net and hole.net == metal.net:
+            return None
+        common = (hole.layers & metal.layers) if hole.layers else metal.layers
+        if not common:
+            return None
+        need = self.geometry.hole_clearance
+        if _box_gap(hole.box, metal.box) >= need + _HOLE_SLACK * hole.box.width - 1e-9:
+            return None
+        gap = _circle_distance(hole, metal.poly)
+        if gap >= need - 1e-9 or self._hole_tie_exclusion(hole, metal):
+            return None
+        if not say:
+            return "copper"
+        return "%s copper %.2f mm from %s (needs %.2f)" % (
+            metal.net or self.who(metal.owner), max(gap, 0.0), self._hole_name(hole, True), need)
+
+    def _hole_tie_exclusion(self, hole: Shape, metal: Shape) -> bool:
+        """DRC_ENGINE::IsNetTieExclusion for a hole: the hole's net is not
+        tested against a net tie's copper drawing where the hole's centre lies
+        inside a pad of the tie's groups of that net. Only a drawing is let
+        through: a tie's pad meets a via's hole in testPadAgainstItem, which has
+        no such exclusion, and a zone has its own test."""
+        if not hole.net or not self._is_footprint_graphic(metal):
+            return False
+        at = _circle(hole)[0]
+        stand = dataclasses.replace(hole, layers=metal.layers & hole.layers if hole.layers else metal.layers)
+        return any(point_in_polygon(at, poly) or _point_poly_distance(at, poly) <= _NET_TIE_EPSILON
+                   for polys, _ in self._tie_pads(stand, metal) for poly in polys)
+
     def _layers_text(self, layers) -> str:
         """The layers two pieces of copper share, as the board has them, in
         stackup order: a via is copper on every layer placemat knows, and a
@@ -1893,6 +1954,8 @@ class Occupancy:
 
         `clearance`, mm, is the one the pair is judged by; the pair's own when
         None."""
+        if s.kind == "hole" or o.kind == "hole":
+            return self._hole_tie_exclusion(*((s, o) if s.kind == "hole" else (o, s)))
         for graphic, other in ((s, o), (o, s)):
             if other.net and self._is_tie_graphic(graphic) and not self._is_footprint_graphic(other) \
                     and other.net in self._net_tie_cache(graphic):

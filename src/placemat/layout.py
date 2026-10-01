@@ -4327,8 +4327,9 @@ class Board:
         def hole(sh):                    # the circle the polygon was drawn from: its box is short of it when turned
             c = sh.box.center
             return c, 2 * max(math.dist((c.x, c.y), p) for p in sh.poly), sh.layers
-        holes = [hole(sh) for o, g in occ.items.items() if o not in occ.pending for sh in g.shapes if sh.kind == "hole"]
-        holes += [hole(sh) for sh in occ.copper if sh.kind == "hole" and sh.owner not in occ.pending]
+        holes = [hole(sh) + (sh.net,) for o, g in occ.items.items() if o not in occ.pending for sh in g.shapes
+                 if sh.kind == "hole"]
+        holes += [hole(sh) + (sh.net,) for sh in occ.copper if sh.kind == "hole" and sh.owner not in occ.pending]
         # unplated holes (a connector's locating pegs): no copper, so the via's copper keeps the board's hole
         # clearance from the hole's edge as well as the hole-to-hole rule
         bare = [(sh.box.center, sh.box.width) for o, g in occ.items.items() if o not in occ.pending
@@ -4357,6 +4358,7 @@ class Board:
         def apart(layers):              # a span that shares no layer with these: nothing between them
             return bool(own) and bool(layers) and not (own & set(layers))
         ring = via_ring(c, size)
+        drilled = circle_polygon(c, drill / 2.0)
         box = Box.of_points(ring)
         if occ.board_shape is not None:
             if occ.board_shape.why_not(box, self.keep_in):
@@ -4365,6 +4367,10 @@ class Board:
             return "within %.2f mm of the board edge" % self.keep_in
         hits = occ.copper_conflicts(Shape("via", "copper", frozenset(), frozenset(span or self.geometry.layers),
                                           net, ring, box))
+        if hits:
+            return "copper " + hits[0]
+        # its drill keeps the hole clearance from other nets' copper, which a net tie's bar does not lift
+        hits = occ.hole_conflicts(hole_shape("via", c, drill, net, layers=frozenset(span)))
         if hits:
             return "copper " + hits[0]
         for v in ctx.planned_vias:
@@ -4377,17 +4383,29 @@ class Board:
                 clr = self._clearance(net, v.net)
                 if c.distance(v.at) - (size + v.size) / 2.0 < clr - 1e-9:
                     return "copper %.2f mm from the %s via" % (c.distance(v.at) - (size + v.size) / 2.0, v.net)
+                dist = c.distance(v.at)         # a drill against the other's ring, each way
+                for gap, whose in ((dist - (drill + v.size) / 2.0, "the %s via's" % v.net),
+                                   (dist - (size + v.drill) / 2.0, "its")):
+                    if gap < self.geometry.hole_clearance - 1e-9:
+                        return "copper %.2f mm from %s hole (needs %.2f)" % (
+                            max(gap, 0.0), whose, self.geometry.hole_clearance)
         for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
             if own and t.layer not in own:
                 continue
             if t.net != net and poly_distance(ring, t.polygon) < self._clearance(net, t.net) - 1e-9:
                 return "copper %.2f mm from a %s track planned before it" % (poly_distance(ring, t.polygon), t.net)
-        for at, dia, layers in holes:
+            if t.net != net and poly_distance(drilled, t.polygon) < self.geometry.hole_clearance - 1e-9:
+                return "copper %.2f mm from its hole (needs %.2f)" % (
+                    max(poly_distance(drilled, t.polygon), 0.0), self.geometry.hole_clearance)
+        for at, dia, layers, hole_net in holes:
             if apart(layers):
                 continue
             gap = c.distance(at) - (drill + dia) / 2.0
             if gap < self.geometry.hole_to_hole - 1e-9:
                 return "hole %.2f mm from a pad's hole" % max(gap, 0.0)
+            edge = c.distance(at) - (size + dia) / 2.0          # its ring against their drill
+            if hole_net != net and edge < self.geometry.hole_clearance - 1e-9:
+                return "copper %.2f mm from a pad's hole (needs %.2f)" % (max(edge, 0.0), self.geometry.hole_clearance)
         for at, dia in bare:
             gap = c.distance(at) - (drill + dia) / 2.0
             if gap < self.geometry.hole_to_hole - 1e-9:
