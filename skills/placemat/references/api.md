@@ -2373,17 +2373,21 @@ over their pads but past the part's outline;
 `knockout` cuts it out of a filled box, which reads better over a busy
 board. `size` and `thickness` default to 1.0 and 0.15 mm. A label is
 worked out the moment its item is placed and the text's own box on
-its face is reserved: a searched item keeps off it. A label is a user's
-mark, not part of what makes the board work, so it gives way: where a
-firm item (`Location`, `Pin`, `Beside`, `OnEdge`, `row`) would stand
-within the silk clearance of the text, or on its box, the item stays
-where it was put and the label moves, first along the side it was
+its face is reserved. A label is a user's
+mark, not part of what makes the board work, so it gives way: where an
+item would stand within the silk clearance of the text, or on its box, the
+item stays where it is put and the label moves. A firm item (`Location`,
+`Pin`, `Beside`, `OnEdge`, `row`) is judged with its labels already moved;
+a searched item (`Near`, a run, a rim, a pocket) does not see labels at all
+(other items' silk and pads still count), and the labels it lands on move once
+it is down. The label moves first along the side it was
 declared on (between that side's start and end, nearest its declared spot
 first), then to the item's other sides, nearest first. It keeps its `gap`
 off the item and clear of what is placed, so it still reads as that item's.
 The step's note says so ("moved from north END to north MID: U20 was
 there"). With no clear spot it stays, a `label` finding names it and what
-is in the way, and the firm item's collision stops the run as before.
+is in the way, and a firm item's collision stops the run as before; a
+searched item is placed all the same.
 A line of labels (a list, or `line=`) keeps its line and does not move.
 `label.slide_step` is the step along a side. `reserve=False` keeps the
 label out of the way of placement and only reports what lands on it. Mark what a user handles:

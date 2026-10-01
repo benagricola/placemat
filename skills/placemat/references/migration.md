@@ -170,6 +170,16 @@ decided position or an edge is refused, naming what decided it.
   touch) is read back with the hole, as a zone fill's are, so the pad in it is
   not taken for copper under the pour.
 
+- A user label could cost a searched item its place: the label's reserved
+  box and silk stood as obstacles, so a cell or part searched later was
+  refused "its member ... sits in the reservation for label ..." (or "...
+  mask opening is ... from label ... silk") where the label held the only
+  room, and a run could end with no room along it. A search no longer sees
+  labels (other items' silk and pads still count); once the item is down,
+  the labels it lands on give way as they do for a firm part, and a label
+  with no clear spot is a `label` finding while the item is placed. A block
+  is still searched with labels in view.
+
 ## To 0.71.0
 
 ### New
