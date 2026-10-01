@@ -20,7 +20,9 @@ edge, searched for a free spot. placemat works out the numbers.
 - **Breaking it looks like:** a position computed as X + offset; a typed
   `Location` or point in a script; a rotation picked by reading pad
   offsets; placemat building a coordinate-based form to meet a request; a
-  missing form worked round instead of specced. A coordinate is allowed
+  missing form worked round instead of specced; a distance standing in for
+  a fact the design should hold (a pour's `reach=` where the net's current
+  is known). A coordinate is allowed
   only where the user approves that one site; `board.figure` is only for a
   layout given in a cited datasheet figure.
 
