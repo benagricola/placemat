@@ -35,6 +35,11 @@ file. An item cites its source as "a board's session, <date>".
 - **Labels kept on the board** (found building labels that yield): a label
   giving way is not checked against the outline. Being fixed.
 
+- **The corner-45 check judges other layers' pads; a load with several
+  pins** (a board's session, 2026-10-01): an inner-layer track past a corner
+  of front-only pads is judged against them; current-path takes one small
+  pin of a load whose exposed pad also carries the current. Being fixed.
+
 ## Open
 
 - **A via field re-laid round a conflict** (the via give-way
