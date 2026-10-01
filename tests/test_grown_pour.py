@@ -466,3 +466,20 @@ def test_a_polygon_is_clipped_to_a_convex_one():
     assert Box.of_points(got) == Box(2, 0, 4, 4)
     assert clip_to_convex(box, ((10, 10), (12, 10), (12, 12), (10, 12))) == ()
     assert Box.of_points(clip_to_convex(box, ((4, 4), (0, 4), (0, 0), (4, 0)))) == Box(0, 0, 4, 4)     # either winding
+
+
+@needs_kicad
+def test_a_planes_fill_keeps_a_clearance_rule_too(tmp_path):
+    """KiCad reads the rules file beside a board as it loads it: a plane's
+    fill keeps the script's rule only when the file is there before the
+    load, not only after the save."""
+    from placemat.kicad.write import apply_plan
+    pcb = _kicad_board(tmp_path, TWO_PADS, tracks=[("B", 12, 6, 12, 14, 0.3)])
+    plan = _plan(pcb, lambda b: (b.rule(clearance=1.0, between=(Net("A"), Net("B")), why="wide"),
+                                 b.plane(Net("A"), [F], outline=[Location(4, 4), Location(20, 4),
+                                                                 Location(20, 16), Location(4, 16)])))
+    apply_plan(pcb, plan)
+    board = pcbnew.LoadBoard(str(pcb))
+    assert _covers(board, "A", 6, 12)                          # the plane is filled
+    for x in (12 - 0.15 - 0.6, 12 + 0.15 + 0.6):               # inside the rule's 1.0, outside the 0.2 netclass
+        assert not _covers(board, "A", x, 12), x

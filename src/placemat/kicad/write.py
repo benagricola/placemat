@@ -1100,9 +1100,10 @@ def save(board, path: str):
 
 def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     pcb_path = str(pcb_path)
-    if any(isinstance(op, Zone) and op.grown for op in plan.copper):
-        # KiCad reads the rules file beside a board as the board loads, and a grown pour's fill keeps
-        # the clearance rules the script declared: they are there before the load, not only after the save
+    if any(isinstance(op, Zone) for op in plan.copper):
+        # KiCad reads the rules file beside a board as the board loads, and a zone's fill (a plane's, a
+        # grown pour's) keeps the clearance rules the script declared: they are there before the load,
+        # not only after the save
         from ..rules import write_rules
         write_rules(pcb_path, list(plan.rules))
     with quiet_stderr():

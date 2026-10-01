@@ -27,6 +27,11 @@ clipped to `within=` (a keepout's name, a `Cell`, or `Part`s), and KiCad's
 fill keeps it off every other net's copper and applies the board's
 clearance rules. See "A pour grown from its pads" in api.md.
 
+A plane's fill keeps the script's `board.rule` clearances. KiCad reads the
+rules file beside a board as it loads it, and the file was written after
+the fill and the save, so a plane filled to the net class's clearance
+where a rule asked for more; KiCad's DRC then flagged it.
+
 ## To 0.64.1
 
 A track declared `bridge=True` that passed under another among the copper
