@@ -100,10 +100,8 @@ It works with:
   KiCad's code and ports its behaviour; it never changes KiCad.
 - **The router (KiCadRoutingTools).** placemat drives it; changes to it
   stay on local branches.
-- **Projects that use placemat.** Their agents reach the placemat agent by
-  message, never by writing in this repository. The placemat agent files
-  each request in `BACKLOG.md` and replies with one of: being built;
-  waiting on the user, and for what; conflicts with a named principle,
-  with an alternative that fits; could not reproduce, with what was tried.
-  A release that answers a request is announced to the agents that use
-  placemat, naming what they should change.
+- **Projects that use placemat.** Not named here or anywhere in placemat
+  (see "A project-agnostic tool"); their boards may be fixtures. Their
+  requests are filed in `BACKLOG.md`, which only placemat's own agent
+  edits. A release that answers a request is announced to them, naming
+  what they should change.
