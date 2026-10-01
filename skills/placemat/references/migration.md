@@ -194,6 +194,14 @@ decided position or an edge is refused, naming what decided it.
   with no clear spot is a `label` finding while the item is placed. A block
   is still searched with labels in view.
 
+- **A label stays on the board.** A `board.label()` that moved for a firm part
+  could land past the board edge, where silk is not printed, and a label's
+  first spot was not checked against the outline either. A label's spot is
+  now inside the board's outline and outside its cutouts, the board's silk
+  clearance from the edge (round and shaped boards included). A label that is
+  declared off the board moves to another spot beside its item; with none on
+  the board it is a `label` finding.
+
 ## To 0.71.0
 
 ### New
