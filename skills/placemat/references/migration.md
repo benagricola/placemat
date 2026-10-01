@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.68.0
 
 ### New
 
@@ -1878,7 +1878,7 @@ that says what replaces it.
 | a sense track's first point placed from `placed_size()` half a track off a pad's edge | To 0.64.0 |
 | a pad placed at `X(PadRef(...), PITCH)` to stand a mechanical pitch from another pad | To 0.67.0 |
 | a `Beside` `gap=` worked out to put a pad a clearance off another part's pad | To 0.67.0 |
-| ground vias outside a region typed as computed `Location` vias | Unreleased |
-| points of a datasheet figure typed as coordinates beside a `Path(anchor=)` keepout | Unreleased |
+| ground vias outside a region typed as computed `Location` vias | To 0.68.0 |
+| points of a datasheet figure typed as coordinates beside a `Path(anchor=)` keepout | To 0.68.0 |
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |
