@@ -85,6 +85,12 @@ class Footprint:
     def box(self) -> Box:
         return self.body_box
 
+    @property
+    def copper_only(self) -> bool:
+        """A net tie that draws no courtyard, silk or fab: KiCad judges its
+        pads and copper and nothing else, so placement claims no more."""
+        return bool(self.net_tie_pads) and not (self.courtyard_poly or self.silk or self.fab)
+
     def pad(self, key) -> PadGeom:
         kind, value = pad_key(key)
         for p in self.pads:

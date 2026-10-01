@@ -32,7 +32,8 @@ replaces. Only a relation that search cannot say goes in the board's
 | on a board edge, wherever there is room | `at=OnEdge(edge)` | Placement |
 | at a mechanical point along an edge | `at=OnEdge(edge, along=Along.MID)` | Placement |
 | at a mechanical point (an enclosure hole, a datasheet figure) | `at=Location(x, y)`, `x`/`y` named constants | Placement |
-| its own pad on the pin it serves | `at=Pin(key, X(pin), Y(pin))` | Placement |
+| its own pad on the pin it serves | `at=Pin(key, X(pin), Y(pin))`, or `Pin(key, pin)` | Placement |
+| its own pad against another pad's edge (a net tie at a shunt's inner edge) | `at=Pin(1, PadRef(part, n, edge=Edge.SOUTH, along=Along.END))` | Placement |
 | a cell placed by one of its members' pads | `at=Pin(CellPadRef(cell, net=), x, y)` | Placement |
 | a cell placed by a member's footprint origin (not a pad) | `at=Pin(Part(member), x, y)` | Placement |
 | between two pads | `at=Centre(X(Mid(a, b)), Y(a))` | Placement |
@@ -243,7 +244,12 @@ is a note on the cell's step.
 body centre, or the item's own pad `key` (a number or a net), each axis a
 number or a reference, and the two axes may name different parts:
 `Pin(1, X(Part("j1")), Y(PadRef(Part("u1"), 14)))`): a cap whose pad must
-sit on a pin's axis, a diode whose pad faces another's, is a `Pin`. On a cell, which has no pad of its
+sit on a pin's axis, a diode whose pad faces another's, is a `Pin`.
+`Pin(key, point)` says one point instead of two axes: a `Location`, a
+`PadRef`, a `Mid`, any place a script can name. A `PadRef` with `edge=` is
+a point on that edge of the target pad that puts the item's pad `key`
+against it, outside the target: see "A part's pad on another pad's edge"
+below. On a cell, which has no pad of its
 own, `key` is a `CellPadRef` or a `PadRef` naming one of its members' pads,
 or a member `Part` for that member's footprint origin (a winding's arc
 centre, which is no pad); the cell is carried rigidly so that pad, or
@@ -750,7 +756,13 @@ sits over the through-hole lead of J1 pad 2`. Under every
 envelope a footprint's own copper graphics (a net-tie's winding, a printed
 antenna) are copper of no net: every other part, track and via - placed,
 drawn by the script, or found by `FreeSpot` and `--via-near` - keeps the
-default clearance from them. Between two
+default clearance from them. A net tie (a footprint with KiCad net-tie pad
+groups) that draws no courtyard, silk or fab is copper only, as a track is:
+under every envelope it claims its pads and its copper graphics and nothing
+else, so another part's body or courtyard may stand over it, while another
+net's pad or copper keeps the clearance from its pads and bar (KiCad's
+net-tie exclusion applies where they meet the nets of its own pad groups).
+A net tie that draws a courtyard is claimed by it as any part is. Between two
 different parts, every gap is the board's own:
 
 | | another part's copper | mask opening | silk | body |
@@ -1607,13 +1619,32 @@ edge, the one facing the other pad, away from the copper the load current
 flows through. `Past(..., across=tap)` lies on the tap's line, so a lane
 picks it up without a jog. An edge whose copper does not reach the point
 (the end of a round pad's edge, or of one turned off the right angle) is
-refused, naming the pad; so is `edge=` anywhere but a track point or a
-`Past`'s `across=`.
+refused, naming the pad; so is `edge=` anywhere but a track point, a
+`Past`'s `across=` or a `Pin`'s point (below).
 
 ```python
 tap = PadRef(Part("r_shunt"), "VSHUNT", edge=Edge.SOUTH, along=Along.END)
 board.track(Net("VSHUNT"), [tap, Past([PadRef(Part("r_shunt"), "VSHUNT")], Edge.EAST, across=tap),
                             PadRef(Part("r_sense"), "VSHUNT")], layer=CopperLayer.F)   # out of the gap, then away
+```
+
+**A part's pad on another pad's edge.** The same `PadRef` is accepted as
+the point of a `Pin`, `Pin(key, point)` or `Pin(key, X(point), Y(point))`:
+the item's own pad `key` lies against that edge of the target pad,
+outside it, its copper reaching 0.005 mm over the edge so KiCad joins the
+two. Its centre is half its own size across the edge outside the edge, less
+that overlap; `along=Along.MID` centres it on the edge, `START` and `END`
+put its side flush with the target pad's side. The size is the pad's as the
+part stands at its rotation, so `rotation=Turned(...)` settles first. The
+refusals are the track point's: an end of a round pad's edge, a pad off the
+right angle, naming the target pad. A net tie at each inner edge of an
+upright shunt's 0.76 mm gap (two 0.3 mm ties leave 0.17 mm between them)
+lies under the shunt's body, pad 1 against the shunt's pad and pad 2 out
+past its end, where the sense track starts:
+
+```python
+board.place(Part("nt_vshunt"), at=Pin(1, PadRef(Part("r_shunt"), "VSHUNT", edge=Edge.SOUTH, along=Along.END)),
+            rotation=Turned(Part("r_shunt"), 90), why="the Kelvin junction at the shunt's inner edge")
 ```
 
 **Who bridges.** Where two tracks of different nets cross on one layer, the

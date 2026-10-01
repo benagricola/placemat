@@ -93,7 +93,7 @@ The forms that most often answer "placemat can't say this":
   two pads make a neck (`width=`); `board.finger(..., width=PadRef(...))`;
   `board.plane(net, layers, over=[parts])`; `board.stitch(net, region,
   edge=True)`; `board.keepout(Part(...), name, margin=)`.
-- `at=Pin(key, x, y)` (a cell by a member's pad too), `rotation=Turned(part,
+- `at=Pin(key, x, y)` or `Pin(key, point)`, the point a `PadRef(..., edge=)` to lie against a pad's edge (a cell by a member's pad too), `rotation=Turned(part,
   deg)`, `bend=Bend.START`, `board.size(fit=Axis.X, height=)`,
   `board.pair(p, n, [(pP, pN), (pP2, pN2)])`.
 

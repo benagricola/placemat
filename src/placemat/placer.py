@@ -481,16 +481,21 @@ def box_centered_placement(occ: Occupancy, item, center: Location, rotation: flo
                      rotation, face)
 
 
-def pad_anchored_placement(occ: Occupancy, item, key, point: Location, rotation: float = 0.0,
-                           face: Face = Face.FRONT) -> Placement:
-    """The placement that puts the item's pad `key` (a number or a net) on
-    `point` at `rotation`."""
+def pad_box_at(occ: Occupancy, item, key, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
+    """The box of the item's pad `key` (a number or a net) with the item at
+    the origin, turned to `rotation` and on `face`."""
     probe = Placement(Location(0.0, 0.0), rotation, face)
     number = item.pad(key).number
     geom = occ._geometry(item)
     t = occ._transform(geom, probe)
-    boxes = [transform_box(s.box, t) for s in geom.shapes if s.kind in ("pad", "through") and s.label == number]
-    at = Box.union(boxes).center
+    return Box.union([transform_box(s.box, t) for s in geom.shapes if s.kind in ("pad", "through") and s.label == number])
+
+
+def pad_anchored_placement(occ: Occupancy, item, key, point: Location, rotation: float = 0.0,
+                           face: Face = Face.FRONT) -> Placement:
+    """The placement that puts the item's pad `key` (a number or a net) on
+    `point` at `rotation`."""
+    at = pad_box_at(occ, item, key, rotation, face).center
     return Placement(Location(round(point.x - at.x, 6), round(point.y - at.y, 6)), rotation, face)
 
 
