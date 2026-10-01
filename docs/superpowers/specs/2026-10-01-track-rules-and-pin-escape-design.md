@@ -1,6 +1,8 @@
 # Clearance rules the router keeps, and a track that leaves its pin straight
 
-Status: draft, for approval.
+Status: draft, for approval. Part 2 is superseded by
+`2026-10-01-escape-lanes-design.md` (an escape of one pin with no turn is
+its straight exit); part 1 stands.
 
 Source: a board's session (2026-09-30), two requests from routing a QFN's
 crystal pins at 0.4 mm pitch.
