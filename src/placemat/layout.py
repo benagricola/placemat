@@ -32,7 +32,7 @@ from .placement import Placement
 from .settings import Settings
 from .placer import BlockSpec, _grid, _pin_normal, _reason_key, box_centered_placement, cell_pad_anchored_placement, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
-from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, turn_direction
+from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
 from .values import (Turned, Axis, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
@@ -2774,13 +2774,14 @@ class Board:
             pair_numbers.append((a, b))
         if pair_numbers and turn is None:
             raise ValueError("%s: pairs= runs two lanes together, and without turn= there are none" % key)
-        self._check_escape_row(geom, numbers, pair_numbers, turn)
+        lands = self._check_escape_row(geom, numbers, pair_numbers, turn)
         decl = EscapeDecl(len(self._escapes), part, geom.ref, tuple(numbers), turn, via_numbers,
                           None if depth is None else float(depth), None if run is None else float(run),
                           tuple(sorted(wide.items())), tuple(pair_numbers),
                           float(self.settings.copper_chamfer if chamfer is None else chamfer),
                           float(self.via_size if via_size is None else via_size),
                           float(self.via_drill if via_drill is None else via_drill), why)
+        decl.lands = tuple(lands)
         self._escapes.append(decl)
         return Escape(self, decl.index, part)
 
@@ -2793,28 +2794,32 @@ class Board:
             pin = pin.key
         return self.geometry.pad(part, pin).number
 
-    def _check_escape_row(self, fp, numbers: list, pairs: list, turn) -> None:
+    def _check_escape_row(self, fp, numbers: list, pairs: list, turn) -> list:
         """What an escape's pins say of themselves in the part as generated: one
-        row (the same way out), a pair's lanes neighbours, and `turn=` across the
-        row where the script already decided the part's rotation."""
-        pads = {(fp.ref, p.number): p.box.center for p in fp.pads}
+        row (the same way out; a pin drawn as several lands stands in it by the
+        land that leads out that way, returned as (number, 1-based land) pairs), a pair's
+        lanes neighbours, and `turn=` across the row where the script already decided
+        the part's rotation."""
+        by_number: dict = {}
+        for p in fp.pads:
+            by_number.setdefault(p.number, []).append(p)
+        boxes = {n: [p.box for p in ps] for n, ps in by_number.items()}
+        centres = {(fp.ref, n): Box.union(bs).center for n, bs in boxes.items()}
         body = fp.body_box.center
-        by_number = {p.number: p for p in fp.pads}
-        ways = {}
-        for n in numbers:
-            c = by_number[n].box.center
-            way = _pin_normal(pads, fp.ref, c, fp.rotation, by_number[n].box)
+
+        def way_of(box):
+            way = _pin_normal(centres, fp.ref, box.center, fp.rotation, box)
             if way is None:
-                d = math.hypot(c.x - body.x, c.y - body.y) or 1.0
-                way = ((c.x - body.x) / d, (c.y - body.y) / d)
-            ways[n] = way
-        ref_way = ways[numbers[0]]
-        for n in numbers[1:]:
-            if math.hypot(ways[n][0] - ref_way[0], ways[n][1] - ref_way[1]) > 1e-6:
-                raise ValueError("%s: pin %s is not on pin %s's row (its way out differs); an escape is one row's"
-                                 % (fp.inst, n, numbers[0]))
+                d = math.hypot(box.center.x - body.x, box.center.y - body.y) or 1.0
+                way = ((box.center.x - body.x) / d, (box.center.y - body.y) / d)
+            return (round(way[0], 6) + 0.0, round(way[1], 6) + 0.0)
+        try:
+            ref_way, in_row = row_way(fp.inst, numbers, boxes, way_of)
+        except EscapeError as e:
+            raise ValueError(str(e)) from None
+        lands = {n: Box.union([boxes[n][i] for i in in_row.get(n, range(len(boxes[n])))]).center for n in numbers}
         tangent = (-ref_way[1], ref_way[0])
-        order = sorted(numbers, key=lambda n: by_number[n].box.center.x * tangent[0] + by_number[n].box.center.y * tangent[1])
+        order = sorted(numbers, key=lambda n: lands[n].x * tangent[0] + lands[n].y * tangent[1])
         for a, b in pairs:
             if abs(order.index(a) - order.index(b)) != 1:
                 raise ValueError("%s: pins %s and %s are not neighbours along the row, so their lanes cannot run "
@@ -2828,6 +2833,7 @@ class Board:
                     turn_direction(turn, (float(round(ux)), float(round(uy))), "escape %s" % fp.ref)
                 except EscapeError as e:
                     raise ValueError(str(e)) from None
+        return [(n, in_row[n][0] + 1) for n in numbers if n in in_row and len(in_row[n]) < len(boxes[n])]
 
     def _lane_pad(self, lane: Lane):
         decl = self._escapes[lane.index]
@@ -2876,7 +2882,8 @@ class Board:
         decl.drawn.add(lane.number)
         end = self._lane_via(lane) if lane.number in decl.vias else LanePoint(lane, "end")
         key = int(lane.number) if lane.number.isdigit() else lane.number
-        return [PadRef(decl.part, key)] + ([LanePoint(lane, "corner")] if decl.turn is not None else []) + [end]
+        land = dict(decl.lands).get(lane.number)         # a pin drawn as several lands starts at the one in the row
+        return [PadRef(decl.part, key, land=land)] + ([LanePoint(lane, "corner")] if decl.turn is not None else []) + [end]
 
     def _lane_layout(self, occ, decl: EscapeDecl):
         """The escape's layout: as settled when its part was placed, else as
@@ -2938,21 +2945,17 @@ class Board:
         for s in shapes:
             if s.kind in ("pad", "through") and s.owner == fp.ref:
                 pads.setdefault(s.label, []).append(s)
-        centres = {(fp.ref, n): Box.union([s.box for s in ss]).center for n, ss in pads.items()}
-        ways = {}
-        for n in decl.pins:
-            box = Box.union([s.box for s in pads[n]])
+        boxes = {n: [s.box for s in ss] for n, ss in pads.items()}
+        centres = {(fp.ref, n): Box.union(bs).center for n, bs in boxes.items()}
+
+        def way_of(box):
             way = _pin_normal(centres, fp.ref, box.center, rotation, box)
             if way is None:
                 d = math.hypot(box.center.x - body.x, box.center.y - body.y) or 1.0
                 way = ((box.center.x - body.x) / d, (box.center.y - body.y) / d)
-            ways[n] = way
-        axis = ways[decl.pins[0]]
-        for n in decl.pins[1:]:
-            if math.hypot(ways[n][0] - axis[0], ways[n][1] - axis[1]) > 1e-6:
-                raise EscapeError("%s: pin %s is not on pin %s's row as the part stands (its way out differs)" % (
-                    decl.key, n, decl.pins[0]))
-        return Layouter(decl, pads, axis, _LaneEnv(self, occ, decl, pads, face)).lay_out()
+            return (round(way[0], 6) + 0.0, round(way[1], 6) + 0.0)
+        axis, lands = row_way(decl.key, list(decl.pins), boxes, way_of)
+        return Layouter(decl, pads, axis, _LaneEnv(self, occ, decl, pads, face), lands).lay_out()
 
     def _lane_pricer(self, occ, plan, i):
         """A candidate's lane cost (see Scorer): how many of the lanes the part's

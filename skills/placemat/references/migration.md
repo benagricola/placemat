@@ -27,6 +27,13 @@ A lane's reservation no longer stays in the occupancy once a track begins
 with the lane: the track's own copper is judged in its place, so a clearance
 finding against a lane's reserved copper that the drawn track clears is gone.
 
+An escape may name a pin drawn as two lands, one in each of two rows (a
+QFN's corner pin): it stands in the row by the land that leads out the way the
+other pins do, and its lane starts at that land. An escape whose pins have no
+way out in common is refused at the declaration with the ways named, and an
+escape that cannot be laid out where the part stands (a via with no legal
+spot) fails the run with that message, not a traceback.
+
 A pad that copper of its own net already leaves (a track from it, a via in
 it, a pour over it, a grown pour's hull) is no longer an `escape_walled` or
 `escape_closed` finding; one that is still walled names the copper by owner

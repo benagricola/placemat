@@ -431,7 +431,11 @@ along the row's way out, as `vias()` reads it) and, with `turn=`, a lane
 parallel to the row, ending at a via where `vias=` names the pin. Pins are
 named as a `PadRef` names a pad (number, net or `PinName`). It returns the
 `Escape`. All the pins are on one row of one part, a pin on another row or
-another part is refused, and so is a pin named twice. The lanes are worked
+another part is refused (naming each pin's way out), and so is a pin named
+twice. A pin drawn as several lands, a QFN's corner pin with a land in each of
+two rows, leads out along each: it stands in the row by the land that leads
+out the way the other pins do, its lane starts at that land, and an escape
+whose pins have no way out in common, or two, is refused at its declaration. The lanes are worked
 out when the part is placed, from its pads as placed; a row whose way out is
 not along a board axis is refused.
 
@@ -526,7 +530,8 @@ neighbours, `run=`, `depth=`, `via_size=` or `via_drill=` of 0 or less, a
 negative `chamfer=`, and a lane as any track point
 but the first. At resolve, a via with no legal spot along its lane or axis
 even with nothing else on the board stops the run, naming what stands in the
-way; a via that only the rest of the board blocks is a finding.
+way (a run failure, as a collision of firm placements is); a via that only the
+rest of the board blocks is a finding.
 
 **`Near` is for what the netlist cannot say**: a thermal sensor that must
 sit by the FETs it shares no net with, a test point wanted at the edge.
