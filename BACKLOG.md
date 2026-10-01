@@ -6,34 +6,12 @@ file. An item cites its source as "a board's session, <date>".
 
 ## In progress
 
-- **An in-pad via may leave its pad** (a board's session, 2026-10-01; the
-  via give-way investigation): a single in-pad plane drop under another
-  item's pad on the other face can only move inside its pad today, so it
-  cannot give way. It leaves the pad on a new tail when no spot inside is
-  clear; a refusal says when a blind via would have cleared it; a tally
-  counts vias that could not give way; SKILL.md says how to read and tune
-  give-way. Being built.
-
-- **A user label gives way to parts** (a board's session, 2026-10-01; the
-  user's decision, relayed with their words): a cell placed `Beside`
-  another landed 0.17 mm from a label on the other cell's member (silk
-  needs 0.20). A user label does not define how the device works, so it
-  moves, not the part: along its item's side, then to another side, always
-  by its item. Being built.
-
 - **A cell searched on either face** (a board's session, 2026-10-01; the
   user's words, relayed: "For stuff that doesn't _need_ to be on the front
   face, we should be searching both faces anyway"): `face=` takes FRONT or
   BACK only, so each searched cell is pinned to a face by hand. The search
   should try both faces for an item that need not face something, scored as
   spots are now. To be specced.
-
-- **A run stalls on an item with no legal spot** (a board's session,
-  2026-10-01): a run that took about 3 minutes now goes 30+ minutes without
-  a step after a searched cell that has no legal spot; the resolve phase
-  measured about ten times its old time. Cause: since 0.66.0 an item that
-  owns or meets a net tie skips the native search and runs the Python one,
-  about 40x slower per candidate. Being fixed.
 
 - **A fitted pour that reaches into the room round its members** (a board's
   session, 2026-10-01, after 0.70.0 removed `grow=`): a switch node's fitted
@@ -284,6 +262,15 @@ file. An item cites its source as "a board's session, <date>".
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **The net-tie stall, labels give way, an in-pad via leaves its pad**
+  (0.71.0; specs `2026-10-01-labels-give-way-design.md`,
+  `2026-10-01-in-pad-via-leaves-its-pad-design.md`): an item that owns or
+  meets a net tie searches natively again (a run back from over an hour to
+  minutes); a user label moves for a firm part, never the reverse; an
+  in-pad via with no room inside leaves its pad on a tail; a refusal names
+  the shorter via that would clear it; vias that could not give way are
+  tallied.
 
 - **Fitted only, a cell's turn searched, settings for literals** (0.70.0;
   spec `2026-10-01-cell-bearing-search-design.md`): `board.pour(grow=,
