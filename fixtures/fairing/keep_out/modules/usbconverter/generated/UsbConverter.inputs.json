@@ -1,0 +1,18 @@
+{
+ "(generate arguments)": "",
+ "../../../../adapted/parts/Alpha_Omega_Semicon_AON7934.zen": "a900be4198b39f6c84213a68e29e7e549118b3b684d4c6a23deeb276df5ff87f",
+ "../../../../adapted/parts/Alpha_Omega_Semicon_AON7934/AON7934.kicad_sym": "e1759c33a9516f0668ec6b05391d31e9bf390fbbab5d8517559bbe66fd554b68",
+ "../../../../adapted/parts/Sunlord_MWSA0518S_2R2MT.zen": "6aa4264a11b16f62a910d1e8e951b683fb81d3293a5593b6c689779a75dad2a4",
+ "../../../../adapted/parts/Sunlord_MWSA0518S_2R2MT/MWSA0518S_2R2MT.kicad_sym": "bb6fdffacba5b239f9c4ab279b783906c3df33d45ed447dea9b3f0ff0ec2bfd6",
+ "../../../../adapted/parts/Texas_Instruments_TPS55288RPMR.zen": "496b9167703e571981b3caa0197f62dc9accaba302112b71e9e2d9047187240b",
+ "../../../../adapted/parts/Texas_Instruments_TPS55288RPMR/RPM0026A.kicad_mod": "37dfb3763119803a12b6c8ca781199a4674fcf0499cde42700a562195848482d",
+ "../../../../adapted/parts/Texas_Instruments_TPS55288RPMR/TPS55288RPMR.kicad_sym": "4501d96e830916c466224e0a2539df69293378c20804903b413b18ccd9d91f01",
+ "../../../../adapted/parts/YAGEO_PE1206DRM470R01L.zen": "c10f659d8f42a287f4960329344f12ae9dcbd22521fc632eb0329814b2043082",
+ "../../../../adapted/parts/YAGEO_PE1206DRM470R01L/PE1206DRM470R01L.kicad_sym": "79ce2a8b8e29e1cddd6c558910223695177ed69351181dc0dbc72686b2b97bd7",
+ "../../../../adapted/parts/YAGEO_PE1206DRM470R01L/PE1206_Yageo_Table8.kicad_mod": "07088fc1b1f750af22e5f8039e0786d9d54fe89047d1406f617bccaf8a015a53",
+ "../../../../parts/Alpha_Omega_Semicon_AON7934/DFN-8_L3.0-W3.0-P0.65-BL_AON7934.kicad_mod": "576a11056b26970221e0dd696f31d19c2ad1be8183b125ba7dcfca62ed01ca3a",
+ "../../../../parts/Sunlord_MWSA0518S_2R2MT/IND-SMD_L5.4-W5.2.kicad_mod": "58b2ee1d554555e8274f6857f163417b2a3abfdf522d95a7a73ed1d7c6939ee8",
+ "../../../../pcb.toml": "1b757ff291b97d434047ef16a35c19b06009d5502ee3ee0e9332fb32498d26dd",
+ "../../board_rules.zen": "9751402d44ded0920275bb9f00ca213e2c732bee30233279df07f9f94557ca54",
+ "UsbConverter.zen": "2b2d43554a5dcb89c676a2cb190971a4aa46b81052cd310559ee55e094b41e9b"
+}

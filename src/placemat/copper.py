@@ -222,7 +222,7 @@ def bridge_track(track: Track, points, via_drill: float, via_size: float, half: 
 
 
 def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
-                    bridge_half: float = BRIDGE_HALF):
+                    bridge_half: float = BRIDGE_HALF, drop: list | None = None):
     """Decide every same-layer crossing between tracks of different nets.
 
     `entries` are (Track, priority_rank, may_bridge) for the copper being
@@ -230,8 +230,10 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
     yield. At each crossing the lower priority track passes under; at equal
     priority the shorter one does. A crossing where the track that should
     yield may not bridge is returned as a finding and both tracks are drawn
-    as declared. Returns (ops, notes, findings). The result does not depend
-    on the order of `entries`."""
+    as declared, unless `drop` is a list: then the index of the entry that
+    should yield is appended to it, for the caller not to draw it. Returns
+    (ops, notes, findings). The result does not depend on the order of
+    `entries`."""
     entries = list(entries)
     cuts = {i: [] for i in range(len(entries))}
     notes, findings = [], []
@@ -260,6 +262,8 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
             else:
                 findings.append(Finding("copper", "%s and %s cross on %s at (%.2f, %.2f) and neither may bridge" % (
                     entries[i][0].net, entries[j][0].net, entries[i][0].layer.value, pt[0], pt[1])))
+                if drop is not None:
+                    drop.append(k)
         for ft in fixed_tracks:
             pt = _crossing_point(entries[i][0], ft)
             if pt is None:
@@ -269,6 +273,8 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
             else:
                 findings.append(Finding("copper", "%s crosses FIXED %s on %s at (%.2f, %.2f) and may not bridge" % (
                     entries[i][0].net, ft.net, ft.layer.value, pt[0], pt[1])))
+                if drop is not None:
+                    drop.append(i)
     ops = []
     for i, (t, _, _) in enumerate(entries):
         seen = []
@@ -523,12 +529,14 @@ def _detours(a: Location, b: Location, tol: float = STRAIGHT) -> list:
 
 
 def route_leg(a: Location, b: Location, pad_a: bool, pad_b: bool, prev, nxt, clear, bend=None,
-              lane_a=None, lane_b=None, tol: float = STRAIGHT) -> list:
+              lane_a=None, lane_b=None, tol: float = STRAIGHT, through=None) -> list:
     """The best octilinear way from a to b: among the candidates whose legs
     all `clear`, the fewest direction changes against the legs either side
     (a chamfered right angle counting two), then the shortest, then the 45
     at the pad end. If none clears, the fewest-turn candidate is returned
-    and the conflict is left for the run to report. When none clears,
+    and the conflict is left for the run to report - but one that runs
+    through another net's copper (`through(p, q)` says a leg does) is the
+    last choice, behind any that only stands too near. When none clears,
     `_detours` are tried too.
 
     `lane_a`/`lane_b` (sets of directions) narrow the candidates first to
@@ -558,18 +566,22 @@ def route_leg(a: Location, b: Location, pad_a: bool, pad_b: bool, prev, nxt, cle
         first = len(cand) == 3 and _dir(cand[0], cand[1], tol)[0] != 0 and _dir(cand[0], cand[1], tol)[1] != 0
         tie = 0 if (first and not (pad_b and not pad_a)) or (not first and pad_b and not pad_a) else 1
         ok = all(clear(p, q) for p, q in zip(cand, cand[1:])) if clear is not None else True
-        scored.append((0 if ok else 1, turns, round(length, 6), tie, k, cand))
-    scored.sort(key=lambda t: t[:5])
-    return scored[0][5]
+        short = 0 if ok or through is None else int(any(through(p, q) for p, q in zip(cand, cand[1:])))
+        scored.append((0 if ok else 1, short, turns, round(length, 6), tie, k, cand))
+    scored.sort(key=lambda t: t[:6])
+    return scored[0][6]
 
 
-def octilinear(pts: list, at_pad=None, clear=None, bend=None, lanes=None, tolerance: float = STRAIGHT) -> list:
+def octilinear(pts: list, at_pad=None, clear=None, bend=None, lanes=None, tolerance: float = STRAIGHT,
+               through=None) -> list:
     """The polyline with every leg at 0, 45 or 90 degrees: a leg at another
     angle is routed by route_leg, the best clear octilinear way between its
     ends given the legs either side. `bend` is the script's own choice of
     which end takes the 45 (None: the planner's). `lanes`, one per point,
     is None or the directions a leg may leave or reach that point on (a
-    45 held off a corner). A leg whose ends differ by less than `tolerance`
+    45 held off a corner). `through` says a leg runs through another net's
+    copper, which no leg that merely stands too near is passed over for.
+    A leg whose ends differ by less than `tolerance`
     on one axis is drawn straight between them (`copper.straight_tolerance`)."""
     at_pad = at_pad or [False] * len(pts)
     lanes = lanes or [None] * len(pts)
@@ -577,7 +589,8 @@ def octilinear(pts: list, at_pad=None, clear=None, bend=None, lanes=None, tolera
     for i, (a, b) in enumerate(zip(pts, pts[1:])):
         prev = _dir(out[-2], out[-1], tolerance) if len(out) > 1 else None
         nxt = _dir(b, pts[i + 2], tolerance) if i + 2 < len(pts) else None
-        out += route_leg(a, b, at_pad[i], at_pad[i + 1], prev, nxt, clear, bend, lanes[i], lanes[i + 1], tolerance)[1:]
+        out += route_leg(a, b, at_pad[i], at_pad[i + 1], prev, nxt, clear, bend, lanes[i], lanes[i + 1], tolerance,
+                         through)[1:]
     return out
 
 

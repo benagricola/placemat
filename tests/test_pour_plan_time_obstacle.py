@@ -53,11 +53,11 @@ def test_a_fitted_pour_still_blocks_copper_planned_after_it():
     """A track of a third net, planned once its part is placed (so it lands
     in a later copper batch than the pour's fixed one - `at=OnEdge(...)`
     alone is searched, not decided, so u3's track waits behind the whole
-    placement search), conflicts with the pour as planned."""
+    placement search), is not drawn through the pour as planned."""
     u3 = _one_pad_part("U3", "u3", "C", 30.0, 4.0, 1.0, 1.0)
     b = Board(board_geometry(_a_parts() + [u3], width=60, height=60, extra_nets=["A"]), edge_margin=1.0)
     b.place(Part("u3"), at=OnEdge(Edge.EAST))
     b.pour(Net("A"), _a_pads(), layer=CopperLayer.F, swallow_pads=True)
     b.track(Net("C"), [PadRef(Part("u3"), 1), Location(7.0, 4.0)], layer=CopperLayer.F, chamfer=0)
     plan = b.resolve()
-    assert any("copper C" in f for f in declared_findings(plan)), plan.findings
+    assert any("track C" in f and "not drawn" in f for f in declared_findings(plan)), plan.findings

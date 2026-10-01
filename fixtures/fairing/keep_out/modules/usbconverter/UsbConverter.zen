@@ -1,0 +1,123 @@
+# UsbConverter: retained Main connectivity, source lines recorded in retained-circuits.json.
+# Component values remain subject to the core electrical review.
+#
+# Layout facts (placemat-design Pm.*), from TPS55288 ZHCSKY4B section 10.1:
+#  1. The buck side's critical loop is the input capacitors, the high-side
+#     MOSFET's drain and the low-side MOSFET's source: loop "buck".
+#  2. The boost side's critical loop is the output capacitor, VOUT and PGND:
+#     loop "boost".
+#  3. SW1 and SW2 are switch nodes: the half-bridge, the controller and the
+#     inductor are aggressors.
+#  4. ISP (pin 12) and ISN (pin 13) are the current-sense amplifier's inputs,
+#     not power pins (table 5-1); VOUT (pins 11, 26) is the power output. The
+#     traces from the sense resistor to ISP and ISN run in parallel and close
+#     to each other (10.1). Each sense line is its own net, joined to its
+#     shunt pad by a net tie at the pad, so no other VOUT or VBUS copper
+#     joins it: a Kelvin connection.
+#  5. FSW, ILIM, MODE, CDC, COMP and VCC each return to AGND (table 5-1),
+#     and so does DITH/SYNC, a signal input the datasheet ties "to ground"
+#     to disable dithering (Ben, 2026-10-01); AGND joins PGND only at the
+#     VCC capacitor's terminal (10.1), through r_agnd.
+#  6. The SW1 and SW2 traces are as short and small as they can be, with a
+#     ground plane under the converter (10.1).
+#  7. The input capacitors stand close to the high-side MOSFET's input and
+#     the low-side MOSFET's PGND terminal (10.1): loop "buck" above.
+#  8. Thermal vias under the controller take the PGND pin to the PGND plane,
+#     and the VOUT pin to a large VOUT area, separately (10.1).
+#  Items 4-5: ../../../../docs/decisions/schematics/usb-converter-sense-and-signal-ground-2026-10-01.md.
+# Full-load currents and dissipation (19.1 V in, 9 V / 3 A out, 1.923 MHz) are
+# worked in ../../../../docs/decisions/schematics/power-stage-facts-2026-09-27.md.
+
+BUCKBOOST = Module("../../../../adapted/parts/Texas_Instruments_TPS55288RPMR.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+HB = Module("../../../../adapted/parts/Alpha_Omega_Semicon_AON7934.zen")
+L_BOOST = Module("../../../../adapted/parts/Sunlord_MWSA0518S_2R2MT.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+SHUNT = Module("../../../../adapted/parts/YAGEO_PE1206DRM470R01L.zen")
+NET_TIE = Module("@stdlib/generics/NetTie.zen")
+
+bb_fault = io("BB_FAULT", Net)
+gnd = io("GND", Net)
+scl_pwr = io("SCL_PWR", Net)
+sda_pwr = io("SDA_PWR", Net)
+shunt = io("VSHUNT", Net)
+v3v3 = io("V3V3", Net)
+vbus = io("VBUS", Net)
+vbus_en = io("VBUS_EN", Net)
+
+agnd = Net("AGND")
+boot1 = Net("BOOT1")
+boot2 = Net("BOOT2")
+cdc_set = Net("CDC_SET")
+comp_bb = Net("COMP_BB")
+comp_mid = Net("COMP_MID")
+dr1h = Net("DR1H")
+dr1l = Net("DR1L")
+fsw_set = Net("FSW_SET")
+ilim_bb = Net("ILIM_BB")
+isn = Net("ISN")
+isp = Net("ISP")
+mode_bb = Net("MODE_BB")
+vout = Net("VOUT")
+sw1 = Net("SW1")
+sw2 = Net("SW2")
+vcc_bb = Net("VCC_BB")
+
+HB(name = "q_buck", D1 = shunt, G1 = dr1h, S1_D2 = sw1, G2 = dr1l, S2 = gnd,
+   annotations = {"Pm.Role": "switcher", "Pm.Loop": "buck", "Pm.Aggressor": "true",
+                  "Pm.I": "VSHUNT:2.5A SW1:3.6A GND:3.6A", "Pm.Pd": "1.3W", "Pm.ThetaJb": "5.4C/W", "Pm.TjMax": "150C"})
+BUCKBOOST(name = "vbus_conv", VIN = shunt, PGND = gnd, AGND = agnd, VOUT = vout,
+          SDA = sda_pwr, SCL = scl_pwr, EN_UVLO = vbus_en,
+          DR1H = dr1h, DR1L = dr1l,
+          SW1 = sw1, SW2 = sw2, BOOT1 = boot1, BOOT2 = boot2,
+          VCC = vcc_bb, FSW = fsw_set, ILIM = ilim_bb, MODE = mode_bb,
+          CDC = cdc_set, COMP = comp_bb, ISP = isp, ISN = isn,
+          FB_INT = bb_fault, DITH_SYNC = agnd,
+          annotations = {"Pm.KeepOut": "1.26mm pads=COMP_BB away=SW1,SW2; TPS55288 ZHCSKY4B fig. 10-1: SW copper leaves the package beside COMP at its own pad 18 to pad 21 gap (1.26 mm); BOOT copper runs at the package gap, so BOOT is not held", "Pm.Role": "switcher", "Pm.Loop": "boost", "Pm.Aggressor": "true",
+                         "Pm.I": "VOUT:3A SW2:3.6A GND:3.6A", "Pm.Pd": "0.57W", "Pm.ThetaJb": "12.8C/W",
+                         "Pm.TjMax": "125C"})
+L_BOOST(name = "l_vbus", P_1 = sw1, P_2 = sw2,
+        annotations = {"Pm.Role": "inductor", "Pm.Aggressor": "true", "Pm.I": "3.6A", "Pm.Pd": "0.28W"})
+C(name = "c_boot1", value = "100nF", package = "0402", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = boot1, P2 = sw1,
+  annotations = {"LCSC": "C307331", "Pm.Aggressor": "true"})
+C(name = "c_boot2", value = "100nF", package = "0402", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = boot2, P2 = sw2,
+  annotations = {"LCSC": "C307331", "Pm.Aggressor": "true"})
+C(name = "c_vcc_bb", value = "10uF", package = "0603", voltage = "16V", mpn = "CL10A106MA8NRNC", manufacturer = "Samsung Electro-Mechanics", annotations = {"LCSC": "C96446"}, P1 = vcc_bb, P2 = agnd)
+R(name = "r_agnd", mpn = "ERJ-2GE0R00X", manufacturer = "Panasonic Industry", value = "0ohm", package = "0402", P1 = agnd, P2 = gnd)
+# 10 mOhm, 0.5 %, 75 ppm/C, 1 W on Yageo's recommended land, the same part as
+# the input shunt: ../../../../docs/decisions/schematics/input-shunt-2026-09-27.md.
+SHUNT(name = "r_vbus_sense", P1 = vout, P2 = vbus,
+      annotations = {"Pm.Role": "sense", "Pm.I": "3A", "Pm.Pd": "0.09W"})
+# The Kelvin taps (item 4): each sense net meets its shunt pad only here.
+NET_TIE(name = "nt_isp", variant = "2_SMD_0.3mm", P1 = vout, P2 = isp)
+NET_TIE(name = "nt_isn", variant = "2_SMD_0.3mm", P1 = vbus, P2 = isn)
+R(name = "r_fsw", mpn = "0402WGF1002TCE", manufacturer = "UNI-ROYAL(Uniroyal Elec)", value = "10kohm", package = "0402", P1 = fsw_set, P2 = agnd)
+R(name = "r_bb_fault", mpn = "ERJ-2RKF1003X", manufacturer = "Panasonic Industry", value = "100kohm", package = "0402", P1 = v3v3, P2 = bb_fault)
+R(name = "r_vbus_en", mpn = "ERJ-2RKF1003X", manufacturer = "Panasonic Industry", value = "100kohm", package = "0402", P1 = vbus_en, P2 = gnd)
+R(name = "r_ilim_bb", mpn = "ERJ-2RKF5102X", manufacturer = "Panasonic Industry", value = "51kohm", package = "0402", P1 = ilim_bb, P2 = agnd)
+R(name = "r_mode_bb", mpn = "ERJ-2GE0R00X", manufacturer = "Panasonic Industry", value = "0ohm", package = "0402", P1 = mode_bb, P2 = agnd)
+R(name = "r_cdc", mpn = "ERJ-2RKF1003X", manufacturer = "Panasonic Industry", value = "100kohm", package = "0402", P1 = cdc_set, P2 = agnd)
+R(name = "r_comp", value = "10kohm", package = "0402", mpn = "0402WGF1002TCE", manufacturer = "UNI-ROYAL(Uniroyal Elec)", P1 = comp_bb, P2 = comp_mid,
+  annotations = {"LCSC": "C25744", "Pm.Sensitive": "COMP_BB"})
+C(name = "c_comp", value = "2.2nF", package = "0603", mpn = "0603B222K500NT", manufacturer = "FH (Guangdong Fenghua Advanced Tech)", annotations = {"LCSC": "C1604"}, P1 = comp_mid, P2 = agnd)
+C(name = "c_vbus_in_a", value = "10uF", package = "0805", voltage = "50V", mpn = "GRM21BR61H106KE43L", manufacturer = "Murata Electronics", P1 = shunt, P2 = gnd,
+  annotations = {"LCSC": "C440198", "Pm.Role": "bypass", "Pm.Loop": "buck"})
+C(name = "c_vbus_in_b", value = "10uF", package = "0805", voltage = "50V", mpn = "GRM21BR61H106KE43L", manufacturer = "Murata Electronics", P1 = shunt, P2 = gnd,
+  annotations = {"LCSC": "C440198", "Pm.Role": "bypass", "Pm.Loop": "buck"})
+C(name = "c_vbus_out", mpn = "GMK325BJ226MM-T", manufacturer = "Taiyo Yuden", value = "22uF", package = "1210", voltage = "35V", P1 = vout, P2 = gnd,
+  annotations = {"Pm.Role": "output", "Pm.Loop": "boost"})
+# X6S, rated to 105 C, beside the buck-boost (Ben, 2026-10-01):
+# ../../../../docs/decisions/schematics/generic-pin-drift-2026-10-01.md.
+C(name = "c_vbus_pd", mpn = "GRM188C81E475ME11D", manufacturer = "Murata Electronics", value = "4.7uF", package = "0603", voltage = "25V", P1 = vbus, P2 = gnd,
+  annotations = {"LCSC": "C3846121", "Pm.Role": "output"})
+# Reusable standalone layout; parents may place smaller groups instead.
+load("../../board_rules.zen", "CONFIG", "LAYERS")
+
+# A Board() rather than a Layout(), so the fragment is laid out by the core's
+# design rules (board_rules.zen). Its project registers only when this file
+# is built on its own.
+stamp_layout = config("stamp_layout", bool, default = True)
+if stamp_layout:
+    Board(name = "UsbConverter", layout_path = "layout", layers = LAYERS, config = CONFIG)
+
+Project(name = "UsbConverter", path = "kicad", schematic = True, layout = False)

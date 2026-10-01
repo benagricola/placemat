@@ -102,6 +102,7 @@ pub struct Shape {
     pub owner_is_footprint: bool, // owner in Occupancy._footprint_refs (== "in self.items", see module doc)
     pub is_lead: bool,  // (owner, label) in Occupancy._leads: a through pad standing proud of the far face
     pub margin: f64,    // Occupancy._margins.get(owner, 0.0): how far KiCad's own courtyard lies inside courtyard_box
+    pub wire: bool,     // a track or a via, which a rule of a part (`of`) does not hold
 }
 
 /// One of the script's clearance rules (`rules.ClearanceRules`): the first of `on`, `between`
@@ -113,7 +114,7 @@ pub struct ClearanceRule {
     pub between: Option<(String, String)>,
     pub within: Option<HashSet<String>>,
     pub min: f64,
-    pub of: Option<String>, // with `between`: only where the shape on the second net is a pad of this part and the one on the first is not
+    pub of: Option<String>, // with `between`: only where the shape on the second net is a pad of this part and the one on the first is not its own (not its pad, nor an escape of its pads)
 }
 
 impl ClearanceRule {
@@ -123,8 +124,8 @@ impl ClearanceRule {
         }
         if let Some((x, y)) = &self.between {
             if let Some(part) = &self.of {
-                return (a.net == *x && b.net == *y && b.owner == *part && a.owner != *part)
-                    || (b.net == *x && a.net == *y && a.owner == *part && b.owner != *part);
+                return (a.net == *x && b.net == *y && b.owner == *part && a.owner != *part && !a.wire)
+                    || (b.net == *x && a.net == *y && a.owner == *part && b.owner != *part && !b.wire);
             }
             return (a.net == *x && b.net == *y) || (a.net == *y && b.net == *x);
         }
@@ -534,7 +535,7 @@ mod tests {
     fn shape_margin(kind: Kind, owner: &str, poly: Vec<Point>, faces: u8, layers: u32, net: &str,
                     owner_is_footprint: bool, is_lead: bool, margin: f64) -> Shape {
         let bbox = bounds(&poly);
-        Shape { kind, faces, layers, net: net.into(), poly, bbox, owner: owner.into(), owner_is_footprint, is_lead, margin }
+        Shape { kind, faces, layers, net: net.into(), poly, bbox, owner: owner.into(), owner_is_footprint, is_lead, margin, wire: false }
     }
 
     fn bounds(poly: &[Point]) -> Bounds {
@@ -602,6 +603,26 @@ mod tests {
         assert!(conflict(&sw_l1, &fb_u1, None, &c)); // whichever way round
         assert!(!conflict(&fb_u1, &sw_u1, None, &c)); // not from its own SW pad: the footprint sets that gap
         assert!(!conflict(&fb_r1, &sw_l1, None, &c)); // another part's FB pad keeps the netclass figure
+    }
+
+    #[test]
+    fn a_rule_of_a_part_holds_a_pour_and_not_a_track_or_a_via() {
+        // copper of SW 0.5 mm from U1's FB pad: held under U1's rule, unless it is a track or a via
+        let fb_u1 = shape(Kind::Pad, "U1", rect(0.0, 0.0, 1.0, 1.0), 1, 1, "FB", true);
+        let pour = shape(Kind::Copper, "", rect(1.5, 0.0, 1.0, 1.0), 1, 1, "SW", false);
+        let mut track = pour.clone();
+        track.wire = true;
+        let mut c = cfg();
+        c.rules.push(ClearanceRule {
+            between: Some(("SW".into(), "FB".into())),
+            of: Some("U1".into()),
+            min: 1.0,
+            ..Default::default()
+        });
+        assert!(conflict(&fb_u1, &pour, None, &c));
+        assert!(conflict(&pour, &fb_u1, None, &c)); // whichever way round
+        assert!(!conflict(&fb_u1, &track, None, &c)); // a track leaving U1's own pads is not held
+        assert!(!conflict(&track, &fb_u1, None, &c));
     }
 
     #[test]

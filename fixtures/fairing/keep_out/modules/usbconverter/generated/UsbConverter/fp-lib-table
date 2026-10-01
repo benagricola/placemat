@@ -1,0 +1,10 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "stdlib_generics_footprints") (type "KiCad") (uri "${KIPRJMOD}/../../../../../.pcb/stdlib/generics/footprints") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Capacitor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../../../.pcb/stdlib/kicad-footprints/Capacitor_SMD.pretty") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Resistor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../../../.pcb/stdlib/kicad-footprints/Resistor_SMD.pretty") (options "") (descr ""))
+  (lib (name "workspace_adapted_parts_Texas_Instruments_TPS55288RPMR") (type "KiCad") (uri "${KIPRJMOD}/../../../../../adapted/parts/Texas_Instruments_TPS55288RPMR") (options "") (descr ""))
+  (lib (name "workspace_adapted_parts_YAGEO_PE1206DRM470R01L") (type "KiCad") (uri "${KIPRJMOD}/../../../../../adapted/parts/YAGEO_PE1206DRM470R01L") (options "") (descr ""))
+  (lib (name "workspace_parts_Alpha_Omega_Semicon_AON7934") (type "KiCad") (uri "${KIPRJMOD}/../../../../../parts/Alpha_Omega_Semicon_AON7934") (options "") (descr ""))
+  (lib (name "workspace_parts_Sunlord_MWSA0518S_2R2MT") (type "KiCad") (uri "${KIPRJMOD}/../../../../../parts/Sunlord_MWSA0518S_2R2MT") (options "") (descr ""))
+)

@@ -2,6 +2,8 @@
 pads on the nets it names keep that distance from the copper on the nets it
 says to stay away from, in place of the board-wide `check.keep_out_mm`.
 Pure: synthetic boards."""
+import dataclasses
+
 import pytest
 
 from placemat.checks import keep_out, keep_outs
@@ -90,20 +92,56 @@ def test_other_parts_keep_the_board_wide_limit():
 
 
 def test_the_nearest_pair_by_margin_is_the_verdict():
-    """A sense track off u1's FB pad 1.2 mm from SW is another net's copper to the node
-    (judged at the board-wide 2 mm), though u1's own pad at 0.7 mm passes its limit."""
+    """A sense track off u1's FB pad 0.6 mm from the SW pad passes nothing at the part's 0.7 mm, though u1's own
+    FB pad stands exactly at it: the track's pair has the least margin."""
     parts = _switch({"Pm.KeepOut": "0.7mm away=SW; " + CITE})
-    sense = track("FB", 20.0, 15.4, 24.0, 15.4, w=0.2)          # 1.8 mm from l1's SW pad edge (y 13.5)
+    sense = track("FB", 18.0, 14.2, 18.8, 14.2, w=0.2)          # 0.6 mm under the pad of l1's SW that u1's FB pad faces
     v = _one(parts, [sense])
-    assert v.limit == pytest.approx(2.0) and v.ok is False and v.value < 2.0, v.note
+    assert v.limit == pytest.approx(0.7) and v.ok is False and v.value == pytest.approx(0.6), v.note
     assert "track FB" in v.note
 
 
-def test_copper_leaving_the_parts_pad_is_not_the_parts_pad():
-    parts = _switch({"Pm.KeepOut": "0.7mm away=SW; " + CITE})
-    close = track("FB", 19.6, 15.0, 19.6, 14.4, w=0.2)          # leaves U1's pad towards the SW pad
-    far_pad_fix = _one(parts, [close])
-    assert far_pad_fix.limit == pytest.approx(2.0) and far_pad_fix.ok is False
+def test_copper_leaving_the_parts_pad_is_judged_at_the_parts_distance_too():
+    """A feedback track leaves u1's FB pad toward the switch pad: it is the part's feedback copper, held at the
+    datasheet's distance and not at the board-wide one."""
+    parts = _switch({"Pm.KeepOut": "1.5mm away=SW; " + CITE}, gap=2.0)
+    leaving = track("FB", 18.6, 15.5, 18.6, 14.9, w=0.2)        # 1.3 mm under the SW pad's edge
+    v = _one(parts, [leaving])
+    assert v.limit == pytest.approx(1.5) and v.ok is False and v.value == pytest.approx(1.3), v.note
+    assert "track FB" in v.note
+
+
+def test_a_track_joined_to_the_parts_own_pad_on_an_away_net_is_its_pad_escape_and_not_judged():
+    """u1's SW pad has a track off it that runs past its own FB pad at 0.9 mm; the same track off another
+    part's pad is the layout's, and judged."""
+    parts = _switch({"Pm.KeepOut": "1.2mm away=SW; " + CITE}, gap=2.0)       # u1's FB pad at (18.6, 16.0)
+    escape = [track("SW", 21.4, 16.0, 21.4, 17.5, w=0.2), track("SW", 21.4, 17.5, 18.6, 17.5, w=0.2)]
+    v = _one(parts, escape)
+    assert v.ok is True and "track SW" not in v.note, v.note
+    stray = [track("SW", 14.0, 13.5, 14.0, 17.5, w=0.2), track("SW", 14.0, 17.5, 18.6, 17.5, w=0.2)]
+    got = _one(parts, stray)
+    assert got.ok is False and got.value == pytest.approx(0.9) and "track SW" in got.note, got.note
+
+
+def test_a_net_of_the_parts_own_pads_that_the_annotation_does_not_name_is_not_held_against_its_pads():
+    """The boot node is on the part and on a boot capacitor, so it is a switch node; its copper leaves the package
+    at the package's own gap to FB, which the annotation does not hold and the board-wide limit cannot."""
+    q = footprint("Q1", 14, 13, nets=("VIN", "SW"), fields={"Pm.Aggressor": "true"})
+    l = footprint("L1", 20, 13, nets=("SW", "VOUT"), fields={"Pm.Aggressor": "true"})
+    c = footprint("C1", 26, 15.7, nets=("BST", "GND"), fields={"Pm.Aggressor": "true"})
+    u = footprint("U1", 20.0, 15.7, nets=("FB", "SW"), fields={"Pm.Aggressor": "true", "Pm.Sensitive": "FB",
+                                                             "Pm.KeepOut": "0.7mm away=SW; " + CITE})
+    from tests.fixtures import pad
+    u = dataclasses.replace(u, pads=u.pads + (pad("U1", "u1", 3, "BST", 21.4, 14.4),))
+    verdicts = {v.subject: v for v in keep_out(board_geometry([q, l, c, u]), limit_mm=2.0)}
+    assert "BST" not in verdicts, verdicts["BST"].note
+
+
+def test_another_parts_pad_on_the_pads_net_is_held_at_the_parts_distance_too():
+    parts = _switch({"Pm.KeepOut": "0.7mm away=SW; " + CITE}, gap=2.0)
+    r = footprint("R1", 14, 15.0, nets=("FB", "GND"))            # a divider's FB pad 1.5 mm under q1's SW pad
+    verdicts = {v.subject: v for v in keep_out(board_geometry(parts + [r]), limit_mm=2.0)}
+    assert verdicts["SW"].limit == pytest.approx(0.7) and verdicts["SW"].ok is True, verdicts["SW"].note
 
 
 def test_a_parts_own_pads_are_not_judged_against_its_limit():

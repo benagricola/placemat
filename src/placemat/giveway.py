@@ -147,7 +147,7 @@ def _shift(s, dx: float, dy: float):
     from .occupancy import Shape
     return Shape(s.owner, s.kind, s.faces, s.layers, s.net, tuple((x + dx, y + dy) for x, y in s.poly),
                  s.box.moved(dx, dy), s.label, carried=s.carried,
-                 points=tuple((x + dx, y + dy) for x, y in s.points), given=s.given, claims=s.claims)
+                 points=tuple((x + dx, y + dy) for x, y in s.points), given=s.given, claims=s.claims, wire=s.wire)
 
 
 def groups(occ, shapes) -> dict:
@@ -324,6 +324,7 @@ def _native_shape(judge: "_Judge", s):
 def _native_tail_clear(judge: "_Judge", shape, own):
     """Whether `shape` (a share's tail) is clear of the board, `own` and what earlier actions left,
     judged natively; None where Python must judge it (as `_native_first_move`'s `used`)."""
+    from .occupancy import _to_native_shape
     occ = judge.occ
     entry = getattr(judge.others, "_native", None)
     if not _NATIVE_TAIL_CLEAR or entry is None:
@@ -333,7 +334,6 @@ def _native_tail_clear(judge: "_Judge", shape, own):
     near = [o for o in list(own) + judge.extra if o.box.overlaps(shape.box, gap=gap)]
     if _meets_net_tie(judge, shapes, shape.box, near):
         return None
-    from .occupancy import _to_native_shape
     return index.tail_clear([_to_native_shape(shape, occ._body_refs, occ._leads, occ._margins)],
                             [_native_shape(judge, o) for o in near], judge.clearance, _hidden_skip(judge, shapes))
 
@@ -497,7 +497,7 @@ def _first_met(occ, g: Group, first, clearance):
         return None
     if occ.geometry.has_footprint(first.owner) and occ.geometry.footprint(first.owner).net_tie_pads:
         return None
-    clr = clearance if clearance is not None else occ.pair_clearance(g.net, first.net, "", first.owner)[0]
+    clr = clearance if clearance is not None else occ.pair_clearance(g.net, first.net, "", first.owner, wire_a=True)[0]
     return first.poly, clr
 
 
@@ -526,7 +526,7 @@ def _tail_shape(owner, net, layer, width, start, end, carried="", given=""):
     t = Track(net, layer, width, Location(*start), Location(*end))
     faces = frozenset([layer.face]) if layer.face else frozenset()
     return t, Shape(owner, "copper", faces, frozenset([layer]), net, t.polygon, t.box, carried=carried,
-                    points=(tuple(end), tuple(start)) if carried else (), given=given)
+                    points=(tuple(end), tuple(start)) if carried else (), given=given, wire=True)
 
 
 def _shorten_kind(span: tuple) -> str:

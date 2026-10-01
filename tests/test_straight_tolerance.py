@@ -34,7 +34,7 @@ def test_the_setting_defaults_to_two_microns():
 
 def _board(**kw):
     g = board_geometry([footprint("U1", 10, 10, w=4, h=2, inst="u1", nets=("A", "B")),
-                        footprint("U2", 30, 10.001, w=4, h=2, inst="u2", nets=("A", "B"))], width=60, height=60)
+                        footprint("U2", 30, 10.001, w=4, h=2, inst="u2", nets=("B", "A"))], width=60, height=60)
     return Board(g, edge_margin=1.0, settings=Settings(**kw))
 
 

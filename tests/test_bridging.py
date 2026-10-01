@@ -10,7 +10,7 @@ F, B = CopperLayer.F, CopperLayer.B
 
 def make_board():
     fps = [footprint("H1", 10, 30, inst="h1", nets=("CANH", "CANH_S0")),
-           footprint("H2", 10, 60, inst="h2", nets=("CANH_S0", "CANH_S1")),
+           footprint("H2", 10, 60, inst="h2", nets=("CANH_S1", "CANH_S0")),
            footprint("H3", 10, 90, inst="h3", nets=("PERMIT_B", "X"))]
     return Board(board_geometry(fps, width=100, height=120, extra_nets=("V48P",)), edge_margin=1.0)
 
@@ -48,14 +48,16 @@ def test_declaration_order_does_not_change_the_result():
     assert run(True) == run(False)
 
 
-def test_a_crossing_nobody_may_bridge_is_a_finding_and_both_are_drawn():
+def test_a_crossing_nobody_may_bridge_is_a_finding_and_the_yielding_track_is_not_drawn():
+    """The shorter track yields; it may not bridge, so it is left out whole rather than drawn through the other."""
     b = make_board()
     b.track(Net("PERMIT_B"), [(20.0, 0.0), (20.0, 120.0)], layer=F)
     b.track(Net("CANH_S0"), [(40.0, 30.0), (12.0, 30.0)], layer=F)
     plan = b.resolve()
     assert not vias(plan, "CANH_S0") and not vias(plan, "PERMIT_B")
     assert any("PERMIT_B" in f and "CANH_S0" in f and "cross" in f for f in plan.findings)
-    assert len([o for o in plan.copper if isinstance(o, Track)]) == 2
+    assert any("CANH_S0" in f and "not drawn" in f for f in plan.findings)
+    assert [o.net for o in plan.copper if isinstance(o, Track)] == ["PERMIT_B"]
 
 
 def test_the_lower_priority_track_yields_when_both_may_bridge():

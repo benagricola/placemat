@@ -112,13 +112,13 @@ def test_a_cell_pad_reference_follows_the_placed_cell():
 def test_a_point_may_mix_a_fixed_coordinate_with_a_pads():
     from placemat.values import X, Y
     b = make_board()
-    b.place(Part("r1"), at=Location(30, 30))
+    b.place(Part("r1"), at=Location(30, 30), rotation=180)   # its MID pad west, so the track leaves clear of V48's
     b.track(Net("MID"), [PadRef(Part("r1"), "MID"), (10.0, Y(PadRef(Part("r1"), "MID"))),
                          (X(PadRef(Part("r1"), "MID"), dx=1.0), 50.0)], layer=CopperLayer.F, chamfer=0)
     plan = b.resolve()
     t1, t2, t3 = plan.copper                            # the second leg is off the 45 grid: a 45 and a straight
     assert t1.end == Location(10.0, 30.0)
-    assert t3.end == Location(31.4 + 1.0, 50.0)
+    assert t3.end == Location(28.6 + 1.0, 50.0)
 
 
 def test_a_finger_band_may_be_placed_around_a_pads_y():

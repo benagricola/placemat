@@ -389,12 +389,13 @@ class _NamedCopper:
     outlines: tuple
     number: str | None = None
     anchors: tuple = ()
+    layers: frozenset = frozenset()
 
 
 def _keep_out_copper(geometry: BoardGeometry, net: str) -> list[_NamedCopper]:
-    out = [_NamedCopper("pad", fp.ref, net, p.outlines, number=p.number)
+    out = [_NamedCopper("pad", fp.ref, net, p.outlines, number=p.number, layers=p.layers)
            for fp in geometry.footprints for p in fp.pads if p.net == net]
-    out += [_NamedCopper(c.kind, c.owner, net, c.outlines, anchors=c.anchors)
+    out += [_NamedCopper(c.kind, c.owner, net, c.outlines, anchors=c.anchors, layers=c.layers)
             for c in _copper_on(geometry, net, kinds=("track", "via", "poly"))]
     return out
 
@@ -531,22 +532,79 @@ def keep_outs(geometry: BoardGeometry) -> tuple:
     return out, refused
 
 
-def _part_limit(a: _NamedCopper, b: _NamedCopper, parts: dict):
-    """The `KeepOut` that sets the limit for `a` (copper on a node net) and
-    `b` (copper on a sensitive net), the largest where two parts do: one
-    whose pad `b` is, on its `pads` nets, with `a` on its `away` nets and
-    not the part's own pad. None where no part's limit covers the pair."""
-    hit = None
-    if b.kind == "pad" and b.owner in parts:
-        k = parts[b.owner]
-        if b.net in k.pads and a.net in k.away and not (a.kind == "pad" and a.owner == b.owner):
-            hit = k
-    if a.kind == "pad" and a.owner in parts:
-        k = parts[a.owner]
-        if a.net in k.pads and b.net in k.away and not (b.kind == "pad" and b.owner == a.owner):
-            if hit is None or k.distance_mm > hit.distance_mm:
-                hit = k
-    return hit
+class _KeepOutScope:
+    """How a part's `Pm.KeepOut` judges a pair of copper, the nets it names as a pair: copper on one of its
+    `away` nets and copper on one of its `pads` nets keep its distance, in place of the board-wide limit - the
+    part's pads, and the tracks, vias and pours of those nets, but not another part's pads on them. Not judged
+    at it: a pair of the part's own pads (the footprint sets that gap); a track or a via of an `away` net that
+    is joined to the part's own pad on it (its pad escape, which leaves the package where the pins are: the
+    plan holds no track or via of those nets either, `rules.Rule.of`); and the other nets of the part's pads
+    against its `pads` nets, which the annotation does not name (the package's)."""
+
+    def __init__(self, geometry: BoardGeometry, parts: dict):
+        self.geometry = geometry
+        self.parts = parts
+        feet = {fp.ref: fp for fp in geometry.footprints}
+        self.feet = {ref: feet[ref] for ref in parts if ref in feet}
+        self.nets = {ref: {p.net for p in fp.pads if p.net} for ref, fp in self.feet.items()}
+        self._joined = {}
+
+    def escape(self, ref: str, item: _NamedCopper) -> bool:
+        """`item`, a track or a via, is joined to a pad of the part on its own net through tracks and vias of
+        that net (not through a pour, which is the layout's)."""
+        if item.kind not in ("track", "via") or item.net not in self.nets.get(ref, ()):
+            return False
+        key = (ref, item.net)
+        if key not in self._joined:
+            wires = [c for c in _keep_out_copper(self.geometry, item.net) if c.kind in ("track", "via")]
+            reached = [(p.outlines, p.layers) for p in self.feet[ref].pads if p.net == item.net]
+            joined, grew = set(), True
+            while grew:
+                grew = False
+                for w in wires:
+                    if id(w.outlines) in joined:
+                        continue
+                    if any(w.layers & layers and any(poly_distance(o, q) < _JOIN_MM for o in w.outlines for q in outlines)
+                           for outlines, layers in reached):
+                        joined.add(id(w.outlines))
+                        reached.append((w.outlines, w.layers))
+                        grew = True
+            self._joined[key] = joined
+        return id(item.outlines) in self._joined[key]
+
+    def verdict(self, a: _NamedCopper, b: _NamedCopper, node_net: bool, sensitive_net: bool):
+        """How the pair is judged: ("limit", k, mm) at that distance, the part k's (less the footprint's own
+        gap where `a` is one of its pads), ("own", None, None) not judged (the part's own copper), (None, None,
+        None) at the board-wide limit, or ("skip", None, None) not judged by anything: a pair only a part's
+        annotation could name and it does not. `a` is on a switch node or an `away` net, `b` on a sensitive or
+        `pads` net; `node_net` and `sensitive_net` say they are such for the board-wide limit."""
+        hit = None
+        for k in self.parts.values():
+            if k.ref not in self.feet or b.net not in k.pads:
+                continue
+            if a.net in k.away:
+                own_pad = a.kind == "pad" and a.owner == k.ref
+                if own_pad and b.kind == "pad" and b.owner == k.ref:
+                    return "own", None, None
+                if self.escape(k.ref, a):
+                    return "own", None, None
+                limit = k.distance_mm
+                if own_pad:         # no nearer than the package already puts its pads
+                    limit = min(limit, min(poly_distance(o, q) for p in self.feet[k.ref].pads if p.net == b.net
+                                           for q in p.outlines for o in a.outlines))
+                if hit is None or limit > hit[1]:
+                    hit = (k, limit)
+            elif a.net in self.nets[k.ref]:
+                return "own", None, None                # a net of its own pads the annotation does not name
+        if hit is not None:
+            return "limit", hit[0], hit[1]
+        if node_net and sensitive_net:
+            return None, None, None
+        return "skip", None, None
+
+
+_JOIN_MM = 1e-3         # copper this close to other copper of its net is joined to it
+_KEEP_OUT_TOLERANCE_MM = 1e-6   # a nanometre: KiCad's DRC and a fitted pour's outline are rounded to it
 
 
 def keep_out(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list[Verdict]:
@@ -554,6 +612,7 @@ def keep_out(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list[Ver
     parts, refused = keep_outs(geometry)
     out = [Verdict("keep-out", "%s Pm.KeepOut" % ref, 0.0, "mm", None, False,
                    "refused, so the part is judged at the board-wide %g mm: %s" % (limit_mm, why)) for ref, why in refused]
+    scope = _KeepOutScope(geometry, parts)
     nodes = {n.net for n in switch_nodes(geometry)}
     named = {n for k in parts.values() for n in k.away}
     for net in sorted(nodes | named):
@@ -567,16 +626,18 @@ def keep_out(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list[Ver
         for a in node_items:
             for b, snet in sense_items:
                 same = a.kind == "pad" and b.kind == "pad" and a.owner == b.owner
-                k = _part_limit(a, b, parts)
-                if k is None and not (net in nodes and snet in sensitive):
-                    continue            # a pair only a part's own limit names: judged by that alone
-                limit = k.distance_mm if k is not None else limit_mm
+                how, k, kmm = scope.verdict(a, b, net in nodes, snet in sensitive)
+                if how == "skip":
+                    continue                    # a pair only a part's own limit names, and it holds none: not judged
+                limit = kmm if k is not None else limit_mm
                 for oa in a.outlines:
                     for ob in b.outlines:
                         d = poly_distance(oa, ob)
                         if same:
                             if own is None or d < own[0]:
                                 own = (d, a)
+                        elif how == "own":
+                            continue
                         elif best is None or (d - limit, d) < (best[0] - best[5], best[0]):
                             best = (d, a, b, oa, ob, limit, k)
         if best is None:
@@ -586,10 +647,12 @@ def keep_out(geometry: BoardGeometry, limit_mm: float = KEEP_OUT_MM) -> list[Ver
         note = "%s to %s" % (_keep_out_text(a, pa), _keep_out_text(b, pb))
         if k is not None:
             note += "; limit %g mm from %s's Pm.KeepOut (%s), not the board-wide %g mm" % (
-                k.distance_mm, k.ref, k.source, limit_mm)
+                limit, k.ref, k.source, limit_mm)
+            if limit < k.distance_mm - 1e-9:
+                note += ", and no nearer than its own pads stand to each other (%g mm)" % limit
         if own is not None and own[0] < d:
             note += "; %s's own pads are %.2f mm apart, a distance its footprint sets" % (own[1].owner, own[0])
-        out.append(Verdict("keep-out", net, d, "mm", limit, d >= limit - 1e-9, note))
+        out.append(Verdict("keep-out", net, d, "mm", limit, d >= limit - _KEEP_OUT_TOLERANCE_MM, note))
     return out
 
 

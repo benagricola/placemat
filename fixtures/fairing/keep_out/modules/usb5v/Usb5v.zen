@@ -1,0 +1,117 @@
+# Internal 5 V source rail for TPS25751 PP5V; never wired directly to VBUS.
+# Electrical/thermal qualification remains open.
+# Layout facts (placemat-design Pm.*): roles, hot loops, aggressors, sensitive nets,
+# full-load currents and dissipation, worked in
+# ../../../../docs/decisions/schematics/power-stage-facts-2026-09-27.md.
+#
+# Layout rules, LM61440-Q1 datasheet SNVSBE4C (ZHCSL10C) section 12.1:
+#  1. The input capacitors as close as they go to each VIN/PGND pin pair
+#     (VIN1-PGND1, VIN2-PGND2), symmetric about the package; a VIN plane on
+#     a lower layer joins the two pairs.
+#  2. VCC's capacitor close to the VCC and AGND pins, on short wide tracks.
+#  3. CBOOT close to the device on short wide tracks to CBOOT and SW; SW
+#     reaches it under the device through the gap between VIN2 and RBOOT;
+#     RBOOT and CBOOT shorted next to the pins.
+#  4. The feedback divider (RFBT, RFBB, CFF) close to FB; its connections
+#     to FB and to AGND through RFBB short and close to those pins; the
+#     connection to VOUT may be longer but stays away from SW and other
+#     noise sources.
+#  5. The layer under the IC a ground plane; AGND connected to both PGND1
+#     and PGND2, AGND and PGND to the planes through vias by the bypass
+#     capacitors; PGND, VIN and SW kept to one side of the ground plane,
+#     sensitive routes on the other.
+#  6. VIN, VOUT and GND wide and direct; enough copper and thermal vias for
+#     heat.
+#  7. The SW copper from pin to inductor short and wide, its total area
+#     small.
+# The divider's top (with BIAS and CFF) and its bottom are sense nets of
+# their own (PP5V_SENSE, FB_5V_GND), joined by net ties at the first output
+# capacitor's PP5V pad and at the AGND pin, so DRC keeps both off the rail
+# and ground copper (rule 4):
+# ../../../../docs/decisions/schematics/regulator-feedback-sense-2026-10-01.md.
+BUCK = Module("../../../../adapted/parts/Texas_Instruments_LM61440AASQRJRRQ1.zen")
+COIL = Module("../../../../adapted/parts/APV_APH404012C1R5MP01.zen")
+BULK = Module("../../../../adapted/parts/KEMET_T520T107M006APE070.zen")
+BUF = Module("../../../../adapted/parts/UMW_Youtai_Semiconductor_Co_Ltd_SN74LVC1G07DRYR_UMW.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+NET_TIE = Module("@stdlib/generics/NetTie.zen")
+gnd = io("GND", Net)
+vin = io("VSHUNT", Net)
+vout = io("PP5V", Net)
+v3v3 = io("V3V3", Net)
+vbus_en = io("VBUS_EN", Net)
+sw = Net("SW_5V")
+bst = Net("BST_5V")
+fb = Net("FB_5V")
+ff = Net("FF_5V")
+en = Net("EN_5V")
+rt = Net("RT_5V")
+vcc = Net("VCC_5V")
+vout_sense = Net("PP5V_SENSE")
+fb_gnd = Net("FB_5V_GND")
+# LM61440-Q1 (TI SNVSBE4C) at 2.2 MHz, laid out as its 5 V, 2.1 MHz typical
+# application (table 10-2): 1.5 uH, 2 x 22 uF out, CFF 22 pF with RFF 1 kOhm,
+# CVCC 1 uF, CBOOT 100 nF, RBOOT 0, BIAS from the output. Selection:
+# ../../../../docs/decisions/schematics/pp5v-buck-frequency-screen-2026-09-28.md.
+BUCK(name = "buck", VIN1 = vin, VIN2 = vin, PGND1 = gnd, PGND2 = gnd, AGND = gnd, SW = sw,
+     CBOOT = bst, RBOOT = bst, VCC = vcc, BIAS = vout_sense, FB = fb, RT = rt, EN_SYNC = en,
+     PGOOD = NotConnected(),
+     annotations = {"Pm.KeepOut": "1.28mm pads=FB_5V away=SW_5V; LM61440-Q1 ZHCSL10C fig. 12-2: SW copper leaves the package beside FB at its own pad 4 to pad 10 gap (1.28 mm); CBOOT copper runs at the package gap, so BST is not held", "Pm.Role": "switcher", "Pm.Loop": "buck", "Pm.Aggressor": "true", "Pm.I": "VSHUNT:1.6A SW_5V:4.0A GND:3.4A", "Pm.Pd": "1.0W", "Pm.ThetaJa": "25C/W", "Pm.TjMax": "150C"})
+COIL(name = "coil", P_1 = sw, P_2 = vout,
+     annotations = {"Pm.Role": "inductor", "Pm.Aggressor": "true", "Pm.I": "3.4A"})
+# PP5V's reservoir: two 100 uF 6.3 V polymer tantalums (USB PD cSrcBulkShared
+# asks at least 120 uF), 1.2 mm tall: 5.67 V working after KEMET's derating
+# over the 5.19 V worst-case output, ripple about 0.03 A each against 1.22 A.
+# ../../../../docs/decisions/schematics/pp5v-low-profile-screen-2026-09-28.md.
+BULK(name = "bulk_a", P_1 = vout, P_2 = gnd, annotations = {"Pm.Role": "output"})
+BULK(name = "bulk_b", P_1 = vout, P_2 = gnd, annotations = {"Pm.Role": "output"})
+# 1.263 * (1 + 100/22.1) = 6.98 V rising enable (SNVSBE4C VEN 1.263 V +/-5%,
+# 24-32% hysteresis): a PC's 5 V on the protected rail cannot start it.
+R(name = "r_en_top", mpn = "ERJ-2RKF1003X", manufacturer = "Panasonic Industry", value = "100kohm", package = "0402", P1 = vin, P2 = en)
+R(name = "r_en_bottom", mpn = "ERJ-2RKF2212X", manufacturer = "Panasonic Industry", value = "22.1kohm", package = "0402", P1 = en, P2 = gnd)
+# The ESP32 holds the buck off unless it has enabled the USB source (VBUS_EN
+# high): with VBUS_EN low the open-drain buffer pulls EN to ground; high, it
+# lets go and the divider enables the buck at 6.98 V as above. Its 10 uA
+# power-off leakage (UMW datasheet p6, IOFF) raises the rising point at most
+# 1.0 V through r_en_top while the logic rail is down:
+# ../../../../docs/decisions/schematics/pp5v-buck-enable-2026-09-29.md.
+BUF(name = "en_gate", INA = vbus_en, OUTY = en, VCC = v3v3, GND = gnd, NC = NotConnected())
+C(name = "c_en_gate", value = "100nF", package = "0402", voltage = "16V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = v3v3, P2 = gnd,
+  annotations = {"LCSC": "C307331", "Pm.Role": "bypass"})
+# 5.76 kOhm sets 2.2 MHz (SNVSBE4C fADJ: 1.98-2.42 MHz).
+R(name = "r_rt", mpn = "ERJ-2RKF5761X", manufacturer = "Panasonic Industry", value = "5.76kohm", package = "0402", P1 = rt, P2 = gnd)
+NET_TIE(name = "nt_pp5v_sense", variant = "2_SMD_0.3mm", P1 = vout, P2 = vout_sense)
+NET_TIE(name = "nt_fb_gnd", variant = "2_SMD_0.3mm", P1 = gnd, P2 = fb_gnd)
+# 1.0 * (1 + 69.8/16.9) = 5.130 V; 0.1%, 25 ppm/C parts preserve PP5V voltage margin.
+R(name = "r_fb_top", value = "69.8kohm", package = "0402", voltage = "50V", power = "62.5mW",
+  mpn = "RT0402BRD0769K8L", manufacturer = "YAGEO", annotations = {"LCSC": "C852893", "Pm.Role": "sense", "Pm.Sensitive": "FB_5V"}, P1 = vout_sense, P2 = fb)
+R(name = "r_fb_bottom", value = "16.9kohm", package = "0402", voltage = "50V", power = "62.5mW",
+  mpn = "RT0402BRD0716K9L", manufacturer = "YAGEO", annotations = {"LCSC": "C852560", "Pm.Role": "sense", "Pm.Sensitive": "FB_5V"}, P1 = fb, P2 = fb_gnd)
+C(name = "c_ff", mpn = "GCM1555C1H220FA16D", manufacturer = "Murata Electronics", value = "22pF", package = "0402", voltage = "50V", dielectric = "C0G", P1 = vout_sense, P2 = ff,
+  annotations = {"Pm.Sensitive": "FB_5V"})
+R(name = "r_ff", mpn = "ERJ-2RKF1001X", manufacturer = "Panasonic Industry", value = "1kohm", package = "0402", P1 = ff, P2 = fb, annotations = {"Pm.Sensitive": "FB_5V"})
+C(name = "c_vcc", value = "1uF", package = "0402", voltage = "25V", mpn = "CL05A105KA5NQNC", manufacturer = "Samsung Electro-Mechanics", P1 = vcc, P2 = gnd,
+  annotations = {"LCSC": "C52923", "Pm.Role": "bypass"})
+C(name = "c_boot", value = "100nF", package = "0402", voltage = "16V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = bst, P2 = sw,
+  annotations = {"LCSC": "C307331", "Pm.Aggressor": "true"})
+# RBOOT joins CBOOT: TI's value for RBOOT is 0 Ohm and the datasheet allows the
+# two pins shorted, next to the pins.
+# One 4.7 uF and one 100 nF at each VIN/PGND pair (SNVSBE4C: bypass each VIN to its PGND).
+C(name = "c_in1", value = "4.7uF", package = "0805", voltage = "50V", mpn = "CL21A475KBQNNNE", manufacturer = "Samsung Electro-Mechanics", P1 = vin, P2 = gnd,
+  annotations = {"LCSC": "C98192", "Pm.Role": "bypass", "Pm.Loop": "buck"})
+C(name = "c_in2", value = "4.7uF", package = "0805", voltage = "50V", mpn = "CL21A475KBQNNNE", manufacturer = "Samsung Electro-Mechanics", P1 = vin, P2 = gnd,
+  annotations = {"LCSC": "C98192", "Pm.Role": "bypass", "Pm.Loop": "buck"})
+C(name = "c_hf1", value = "100nF", package = "0402", voltage = "50V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = vin, P2 = gnd,
+  annotations = {"LCSC": "C307331", "Pm.Role": "bypass", "Pm.Loop": "buck"})
+C(name = "c_hf2", value = "100nF", package = "0402", voltage = "50V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = vin, P2 = gnd,
+  annotations = {"LCSC": "C307331", "Pm.Role": "bypass", "Pm.Loop": "buck"})
+C(name = "c_out1", value = "22uF", package = "0805", voltage = "10V", dielectric = "X7R",
+  mpn = "GRM21BZ71A226ME15L", manufacturer = "Murata Electronics", annotations = {"LCSC": "C907991", "Pm.Role": "output"}, P1 = vout, P2 = gnd)
+C(name = "c_out2", value = "22uF", package = "0805", voltage = "10V", dielectric = "X7R",
+  mpn = "GRM21BZ71A226ME15L", manufacturer = "Murata Electronics", annotations = {"LCSC": "C907991", "Pm.Role": "output"}, P1 = vout, P2 = gnd)
+load("../../board_rules.zen", "CONFIG", "LAYERS")
+stamp_layout = config("stamp_layout", bool, default = True)
+if stamp_layout:
+    Board(name = "Usb5v", layout_path = "layout", layers = LAYERS, config = CONFIG)
+Project(name = "Usb5v", path = "kicad", schematic = True, layout = False)

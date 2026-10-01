@@ -32,7 +32,7 @@ def test_a_track_ending_diagonally_off_a_pad_corner_is_no_finding():
 
 
 def test_a_conflict_names_a_track_as_its_segment_not_a_pad():
-    fp = footprint("U1", 10.6, 10.0, w=1.2, h=1.0, inst="u1", nets=("Y", "Y"))
+    fp = footprint("U1", 10.75, 10.0, w=1.2, h=1.0, inst="u1", nets=("Y", "Y"))
     g = board_geometry([fp, footprint("R1", 2, 10, w=2, h=1, inst="r1", nets=("X", "Z"))], width=30, height=30,
                        clearance=0.16)
     b = Board(g, edge_margin=0.5)

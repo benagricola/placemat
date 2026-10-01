@@ -270,6 +270,38 @@ moves every item on the nets) but scoped to the part's pads:
 - `[place] conflict_gap` must be at least the largest clearance a rule asks, as
   for any rule; a larger `Pm.KeepOut` makes the run say so.
 
+#### Amendment after 0.73.0
+
+Run on real switching-regulator modules, three of the above were wrong, and
+the text above is superseded where it differs:
+
+- **Escapes.** "Copper leaving the part's own pads keeps the netclass
+  figure" was not what the rule did: `Rule.of` excluded the part's own pads
+  only, so the track leaving the part's boot or switch pin was held to the
+  distance from the feedback pin, which the package's own gap already breaks.
+  KiCad's rule language reads an item's net, type, reference, layer and
+  whether it touches an area or a courtyard; it has no "joined to this part's
+  pad". A courtyard test was tried (`A.intersectsCourtyard`) and holds the
+  first stretch of an escape and not the rest, which starts just outside the
+  courtyard and is as near the feedback pin. The rule is now written
+  `A.Type != 'Track' && A.Type != 'Via'` on the away side: pours and other
+  parts' pads are held, no track or via of the away nets is. The check, which
+  can read connectivity, judges a track or via joined to the part's own pad as
+  its escape and leaves it out.
+- **Limit.** The check judged copper leaving a `pads` pad (a feedback track or
+  pour) at the board-wide limit. It judges the named nets as a pair at the
+  cited distance: any copper on an `away` net against any copper on a `pads`
+  net. Left out: a pair of the part's own pads, an escape, and the nets of the
+  part's other pads that `away=` does not name. The part's own pad against
+  copper of a `pads` net is held to the cited distance or the gap the package
+  puts between those pads, whichever is less.
+- **Reach.** `_clearance_reach` counted a rule of a part for every net it
+  names, which widened `Beside`'s gap to each neighbour on those nets and
+  moved parts that no pad of the part faced. A rule of a part is no one else's
+  reach.
+- **`conflict_gap`.** The setting is a floor under the largest rule clearance;
+  a run no longer refuses to start where the setting is under a rule.
+
 ### 3. A load is all of its pins on the net
 
 A session reported `current-path` picking one pin of a load that has several
