@@ -2342,11 +2342,17 @@ def native_board(occ):
     return board
 
 
+VIA_BUCKET = "via cannot give way"
+"""The bucket a refusal caused by a carried via that could not give way counts under."""
+
+
 def _reason_key(why: str) -> str:
     """Which bucket a refusal sentence counts under, for a scan's `rejected`
     Counter and `reasons` dict (moved here from placer.py, which still
     re-exports it, so legal_bucket's native path can derive the same key
     without formatting the sentence first - see legal_bucket's own doc)."""
+    if "cannot give way" in why:
+        return VIA_BUCKET
     for word in ("courtyard", "edge", "reservation", "copper", "through", "npth", "hole-to-hole"):
         if word in why:
             return word

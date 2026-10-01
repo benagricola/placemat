@@ -1779,6 +1779,15 @@ does not refuse the spot at once. The via tries, in turn:
   `place.via_move_step` (0.05 mm) grid nearest first, to a spot clear of
   every other net's copper on every layer and of every hole, its tail
   redrawn from its pad. A via inside its pad moves only within that pad;
+- a via inside a pad of its own net with no tail, when no spot inside the
+  pad is clear: to leave its pad, up to `place.via_leave` (1.0 mm) from
+  where it stood, to the nearest spot clear of every other net's copper
+  and every hole. A new tail on the via's own face joins it to the pad,
+  from where it stood, in the pad's copper: at the net's track width, or
+  narrower in 0.05 mm steps down to the board's minimum track width where
+  another net's copper or a hole needs it, the widest that is clear at
+  that spot. The via keeps its net, size, drill and layer span. A pad with
+  room inside still moves inside, with no tail;
 - a plane net's carried drop only: to shorten, from its own face to the
   nearest layer of that plane between it and the far face (F-In1 for a
   GND drop from the front with GND on In1 and In4), when the fab profile's
@@ -1789,7 +1798,9 @@ does not refuse the spot at once. The via tries, in turn:
   would have cleared is a finding of kind `needs` ("m: no spot; one would
   clear with a micro via shortened to F-In1 (via.micro is if-needed in
   fab-profile.json)"): setting that type to `"yes"` is the user's call.
-  With `"no"` it is not tried at all;
+  With `"no"` it is not applied, and where it would have cleared the
+  spot the refusal says so: "a blind via from B.Cu to In3.Cu would clear
+  this; the fab profile does not allow blind vias";
 - a drop only (a via of a net the board declares a `plane()` for): to be
   dropped, while each of the item's pads keeps at least `place.drops_keep`
   (0.5) of its drops, rounded up and never fewer than one. A shared drop
@@ -1800,7 +1811,7 @@ each way failed: "via GND at (19.10, 21.90) is 0.00 mm from S copper on
 B.Cu (needs 0.20); it cannot give way: no GND via within 1.00 mm to share,
 no spot within 0.50 mm is clear, GND is not a plane net, so it is no drop".
 Each way has a cost the search adds to the spot's score - `score.via_share`
-(1), `score.via_move` (2), `score.via_shorten` (5), `score.via_drop` (10) -
+(1), `score.via_move` (2), `score.via_leave` (4), `score.via_shorten` (5), `score.via_drop` (10) -
 so it prefers spots where the vias stay as drawn; a nearest-first search
 takes a spot where they give way only when no spot has them as drawn. A via
 already placed does the same for an item placed later whose own copper
@@ -1812,7 +1823,12 @@ give way. A block's members are judged as drawn. The write moves or
 removes a cell's via on the board and draws the tails; a via declared at a
 pad is drawn where it went. What gave way is a note on the owner's step
 and a finding of kind `vias`, per owner and net: "m: 6 GND vias shared, 2
-moved up to 0.25 mm, 1 dropped under R9".
+moved up to 0.25 mm, 1 dropped under R9" (a via that left its pad: "1 GND via
+left its pad under R9").
+
+A placement refused for a via that could not give way is counted in the
+run's refusal tally as "vias that could not give way xN", apart from the
+copper, through or hole counts of the sentences it ends.
 
 **A plane over named parts.** `board.plane(net, layers, over=[Part(...),
 Cell(...)], margin=0.0)` draws the zone over the box round those items'
@@ -2746,7 +2762,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.fit_room` | 10.0 | on a fit frame, how far round the decided content a searched item may go |
 | `place.via_share` | 1.0 | how near a via of its net a carried via that meets another net's copper may be to share it instead; 0 never shares |
 | `place.via_move` | 0.5 | how far such a via may move to clear it; 0 never moves |
-| `place.via_move_step` | 0.05 | the grid a via's move is searched on |
+| `place.via_move_step` | 0.05 | the grid a via's move, or its leaving its pad, is searched on |
+| `place.via_leave` | 1.0 | how far a via inside its pad, with no spot clear inside it, may leave it, joined by a new tail; 0 never leaves |
 | `place.via_clear_cache` | 4096 | how many placed vias' clear moves a scan keeps, each searched once for every candidate that meets it; a speed setting, results are the same |
 | `place.drops_keep` | 0.5 | the share of a pad's drops (vias of a `plane()` net in it) the pad keeps, rounded up and never fewer than one: what `drops=Drops.MIN` keeps of each field, and what a pad keeps when a carried drop is dropped to clear another net's copper (1 drops none there) |
 | `place.split_min_group` | 2 | the least members a group needs to count as one, in a cell's `split` finding |
@@ -2827,6 +2844,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.congestion` | 10 | explore: mm per `explore.congestion_step` of the worst RUDY cell |
 | `score.via_share` | 1 | mm the search adds to a spot for each carried via that shares a via of its net there |
 | `score.via_move` | 2 | mm for each carried via that moves there |
+| `score.via_leave` | 4 | mm for each carried via that leaves its pad there, between move and shorten |
 | `score.via_drop` | 10 | mm for each plane drop dropped there |
 | `score.push` | 10 | mm-equivalent: `score.push` times a push's modelled value over its limit, at the search |
 | `score.via_shorten` | 5 | mm for each carried plane drop shortened to the plane's nearest layer instead of dropped, between move and drop |

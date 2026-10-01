@@ -5,6 +5,30 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A via in its pad may leave it.** A carried via inside a pad of its own
+  net, with no tail and no spot inside the pad clear of another net's
+  copper, moves to the nearest clear spot within `place.via_leave` (1.0 mm;
+  0 never leaves) and is joined to its pad by a new tail on its own face, at
+  the net's track width or narrower down to the board's minimum. It is tried
+  after move and before shorten, priced at `score.via_leave` (4). A part that
+  was refused for "no spot within 0.50 mm inside its pad is clear" may now
+  place. `api.md`, "Carried vias give way".
+- **The run's refusal tally counts vias that could not give way.** A
+  refusal ending "cannot give way" is counted as "vias that could not give
+  way xN" in the no-legal-location note, not under the copper, through or
+  hole word its sentence begins with.
+
+### Fixed
+
+- A refusal for a carried drop whose fab profile tier for a shorter via is
+  `"no"` now says when that via would have cleared the spot ("a blind via
+  from B.Cu to In3.Cu would clear this; the fab profile does not allow blind
+  vias"), where it said nothing of it.
+
 ## To 0.68.0
 
 ### New

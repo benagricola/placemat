@@ -74,3 +74,11 @@ def test_a_via_shared_on_its_spot_keeps_its_tail():
     a = Action("share", "m via 0", "m", "m", "GND", (19.1, 21.9), (19.1, 21.95), None, None)
     _given_way(board, SimpleNamespace(given_way=[a]), groups)
     assert _copper(board) == [("PCB_TRACK", 10.0, 10.0), ("PCB_TRACK", 19.1, 20.0)]
+
+
+def test_a_via_that_left_its_pad_is_moved_as_a_move_is():
+    from placemat.kicad.write import _given_way
+    board, groups = _board()
+    a = Action("leave", "m via 0", "m", "m", "GND", (19.1, 21.9), (18.2, 21.9), None, None)
+    _given_way(board, SimpleNamespace(given_way=[a]), groups)
+    assert _copper(board) == [("PCB_TRACK", 10.0, 10.0), ("PCB_TRACK", 19.1, 20.0), ("PCB_VIA", 18.2, 21.9)]

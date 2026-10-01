@@ -65,6 +65,7 @@ class Settings:
     place_via_share: float = 1.0        # a carried via meeting another net's copper may share a same-net via this close (giveway.py); 0: never
     place_via_move: float = 0.5         # or move this far to clear it; 0: never
     place_via_move_step: float = 0.05   # the grid a via's move is searched on
+    place_via_leave: float = 1.0         # a via inside its pad with no spot clear there may leave it this far, joined by a new tail; 0: never
     place_via_clear_cache: int = 4096   # a scan keeps this many placed vias' clear moves, each searched once
     place_drops_keep: float = 0.5       # the share of a pad's drops it keeps, rounded up, never fewer than one (Drops.MIN); a carried drop is dropped only while its pad keeps this share; 1: never
     place_split_min_group: int = 2      # the least members a group needs to count, in a cell's split finding (splits.py)
@@ -163,6 +164,7 @@ class Settings:
     score_via_move: float = 2.0         # a carried via that moves
     score_via_drop: float = 10.0        # a plane drop dropped
     score_push: float = 10.0            # a push: score.push times the modelled value over its limit, at the search
+    score_via_leave: float = 4.0        # a carried via that leaves its pad: between move and shorten
     score_via_shorten: float = 5.0      # a carried drop shortened to the plane's nearest layer instead of dropped: between move and drop
     # [solve] - the global pre-solve for the searched tier's hints
     solve_enabled: bool = False
@@ -310,7 +312,7 @@ _AT_LEAST_ZERO = frozenset((
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",
     "copper_pair_chamfer", "copper_pair_via_step", "copper_plane_inset",
     "copper_plane_clearance", "label_gap", "check_keep_out_mm", "route_diff_pair_gap", "route_diff_pair_width",
-    "score_pair_crossing", "place_via_share", "place_via_move", "score_via_share",
+    "score_pair_crossing", "place_via_share", "place_via_move", "place_via_leave", "score_via_share", "score_via_leave",
     "score_via_move", "score_via_drop", "score_via_shorten", "score_push"))
 # A floor of 2: below it a "group" can never be more than one part, which
 # is not a group at all.

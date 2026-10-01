@@ -24,7 +24,7 @@ from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfer_c
 from .geometry import Transform, box_polygon, circle_polygon, clip_to_convex, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
 from .findings import Finding, Findings
 from .giveway import enabled as giveway_enabled, pad_via_id
-from .occupancy import Occupancy, Shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
+from .occupancy import VIA_BUCKET, Occupancy, Shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
 from .cutouts import Cutouts, Path, _turned, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from . import exposure
@@ -4137,6 +4137,10 @@ class Board:
                 gave = ctx.occ.given_way.get(carried) if carried is not None else None
                 if gave is not None and gave.kind == "move":
                     where = Location(*gave.to)
+                elif gave is not None and gave.kind == "leave":     # out of its pad, joined to it by a new tail
+                    where = Location(*gave.to)
+                    ctx.planned_tails.append(gave.tail)
+                    ops.append(gave.tail)
                 elif gave is not None:              # shared or dropped as its part was placed (giveway.py)
                     ctx.via_at[intent.index] = Location(*gave.to) if gave.kind == "share" else where
                     if gave.tail is None:
@@ -8100,7 +8104,11 @@ def _blame_text(result) -> str:
     # copper: whose copper a via field met is what a far-face refusal needs to say
     shown += [kv for kv in result.rejected.most_common()
               if (kv[0].startswith("rider ") or kv[0] == "copper") and kv not in shown]
+    shown += [kv for kv in result.rejected.most_common() if kv[0] == VIA_BUCKET and kv not in shown]
     for kind, n in shown:
+        if kind == VIA_BUCKET:
+            parts.append("vias that could not give way x%d" % n)
+            continue
         if kind.startswith("rider "):
             parts.append("%s x%d" % (result.reasons[kind], n))
             continue
