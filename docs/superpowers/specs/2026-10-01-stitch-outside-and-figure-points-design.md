@@ -1,6 +1,6 @@
 # Stitching vias outside a region's edge, and points in a datasheet figure
 
-Status: draft, for approval.
+Status: approved (2026-10-01).
 
 Source: Ben, through a board's session (2026-10-01): two chip antennas'
 datasheet layouts.
