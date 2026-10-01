@@ -93,12 +93,13 @@ file. An item cites its source as "a board's session, <date>".
   past the board's keep-in" because its box's corners pass the rim though
   none of its members do. Judge the keep-in member by member. Being fixed.
 
-- **An in-pad via that meets the other face's pad cannot give way** (a
-  board's session, 2026-10-01): a cell's in-pad plane drop (`board.via(net,
-  PadRef(...))`) lies under another cell's pad on the other face; "cannot
-  give way: no via within 1.00 mm to share, no spot within 0.50 mm inside
-  it". It should leave its pad on a tail to a free spot nearby, or the
-  other cell's via should move. Folded into the via give-way investigation.
+- **An in-pad via may leave its pad** (a board's session, 2026-10-01; the
+  via give-way investigation): a single in-pad plane drop under another
+  item's pad on the other face can only move inside its pad today, so it
+  cannot give way. It leaves the pad on a new tail when no spot inside is
+  clear; a refusal says when a blind via would have cleared it; a tally
+  counts vias that could not give way; SKILL.md says how to read and tune
+  give-way. Being built.
 
 - **A user label gives way to parts** (a board's session, 2026-10-01; the
   user's decision, relayed with their words): a cell placed `Beside`
@@ -108,6 +109,19 @@ file. An item cites its source as "a board's session, <date>".
   by its item. Being built.
 
 ## Open
+
+- **A via field re-laid round a conflict** (the via give-way
+  investigation, 2026-10-01): when an item's copper meets some vias of a
+  field under a pad, drop the conflicting rows and add vias on the field's
+  free side to keep a target count, reporting the count before and after.
+  Give-way acts one via at a time and has no field to re-lay.
+
+- **A per-pad keep floor for drops** (the same): `place.drops_keep` is
+  global; a script cannot say one pad needs N vias.
+
+- **A routed via moved with its tracks** (the same): a cell's via with two
+  or more tracks never gives way; moving it needs the tracks re-routed as a
+  unit, not the straight tail giving way draws.
 
 - **A plug on another board against a receptacle here** (owner: spec later,
   2026-09-30; a board's session, 2026-09-27, twice): pad-to-pad nets
