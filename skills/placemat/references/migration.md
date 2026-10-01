@@ -5,6 +5,38 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **`board.stitch(net, region, edge=True, outside=True, hole_to_edge=,
+  pitch=, sides=)`**: ground vias in a row outside a region's edge, each
+  hole edge `hole_to_edge` off it along the edge's outward normal (by default the via's
+  copper touches the edge), at most `pitch` apart (a side `L` long gets
+  `ceil(L / pitch) + 1`, spread evenly), along the sides named
+  (`sides=[Edge.EAST, Edge.SOUTH]`, read in a keepout's own frame when it is
+  placed with `rotation=Turned(part, ...)`), one via shared at the outside of a
+  corner between two kept sides. It replaces a row of computed `Location` vias
+  typed out for a datasheet's "vias outside the clearance". A via that cannot
+  stand is left out and noted, and a gap over `pitch` is a finding.
+
+### Migration steps
+
+**Ground vias typed out along a region's edge become a stitched row
+outside it.**
+
+```python
+# before: the datasheet's vias outside the clearance, each a computed point
+for x, y in ((1.20, -3.55), (3.20, -3.55), (5.20, -3.55), (5.75, -1.60), (5.75, 0.40)):
+    board.via(Net("GND"), at=Location(x, y))
+
+# after: the row the datasheet asks for, read off the region itself
+board.stitch(Net("GND"), "antenna clearance", edge=True, outside=True, hole_to_edge=0.35,
+             pitch=2.0, sides=[Edge.EAST, Edge.SOUTH], why="datasheet: vias outside the clearance")
+```
+
+### Fixed
+
 ## To 0.67.0
 
 ### New
@@ -1788,5 +1820,6 @@ that says what replaces it.
 | a sense track's first point placed from `placed_size()` half a track off a pad's edge | To 0.64.0 |
 | a pad placed at `X(PadRef(...), PITCH)` to stand a mechanical pitch from another pad | To 0.67.0 |
 | a `Beside` `gap=` worked out to put a pad a clearance off another part's pad | To 0.67.0 |
+| ground vias outside a region typed as computed `Location` vias | Unreleased |
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |

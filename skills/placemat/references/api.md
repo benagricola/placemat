@@ -104,7 +104,7 @@ replaces. Only a relation that search cannot say goes in the board's
 | a track, via or pour on one land of a pin drawn as several | `PadRef(part, n, land=Land.LARGEST)` or `land=2` | Copper vocabulary |
 | vias in a row out from a pad, a tail joining them | `board.vias(net, along=PadRef(...), count=N)`; as a track point, its value is the farthest via | Copper calls |
 | a track on to a via or a via row | the value `board.via()`/`board.vias(along=)` returns, as a track point | Copper calls |
-| stitching vias over a cell, a pour or a keepout, or along its outline | `board.stitch(net, region, edge=)` | Copper calls |
+| stitching vias over a cell, a pour or a keepout, along its outline, or in a row outside it | `board.stitch(net, region, edge=, outside=)` | Copper calls |
 | a micro, blind or buried via, for a fab that makes them (allowed in fab-profile.json) | `layers=(CopperLayer.B, CopperLayer.IN4)` on `via()`, `vias()` or `stitch()` | Copper calls (A via's layer span) |
 | a pour of exactly the shape given | `board.pour(net, points, layer=)` | Copper calls |
 | a pour over a set of pads, fitted round other nets' copper | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: a graphic polygon holding the pads' copper, every edge at least the clearance from other copper | Copper calls (A fitted pour) |
@@ -1696,7 +1696,7 @@ board.via(net, at=FreeSpot(near=PadRef(...), radius=2.0))            # the neare
 board.via(net, at=Past([PadRef(...), ...], Edge.SOUTH, across=None)) # its radius plus its clearance off the items' side
 board.vias(net, pad=PadRef(...), pitch=None, size=None, drill=None, inset=0, layers=None)  # a pad filled with a grid of vias, turned with its part
 board.vias(net, along=PadRef(...), count=N, pitch=None, size=None, drill=None, layers=None)  # a row out from a pad, along its escape axis
-board.stitch(net, region, pitch=None, size=None, drill=None, edge=False, layers=None)  # vias in a grid over a cell, a pour or a keepout
+board.stitch(net, region, pitch=None, size=None, drill=None, edge=False, outside=False, hole_to_edge=None, sides=None, layers=None)  # vias in a grid over a cell, a pour or a keepout
 board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False, stroke=None)  # filled polygon; stroke= its outline's width (copper.pour_stroke)
 board.pour(net, [PadRef(a), PadRef(b), PadRef(c)], layer=..., swallow_pads=True)  # fitted round other nets' copper, holding the pads
 board.pour(net, [PadRef(a), PadRef(b), PadRef(c)], layer=..., cover=Cover.HULL)  # declared: the hull of the pads' copper
@@ -1874,6 +1874,29 @@ rather than planning nothing and saying no via fit.
 its inside: `pitch` apart along each side, a via's own radius plus its
 netclass clearance in from the edge, going all the way round. For stitching
 a ground pour's or a shield keepout's border, not its middle.
+
+`edge=True, outside=True` rows them outside `region` instead, for a
+datasheet's vias round an antenna's clearance. Each via's hole edge stands
+`hole_to_edge` off the region's edge, its centre `hole_to_edge` plus half
+its drill out along the edge's outward normal; by default the via's copper
+touches the edge from outside. `pitch` is the most the vias stand apart
+along an edge: a side `L` long gets `ceil(L / pitch) + 1` vias, evenly
+spread from end to end. `sides=[Edge.EAST, Edge.SOUTH]` keeps only the
+edges whose outward normal faces those sides as the region is turned (a
+keepout placed with `rotation=Turned(part, 0)` reads its sides in the
+part's frame); an edge counts for the side its normal is nearest, within 45
+degrees, and the default is every edge. Where two kept edges meet, one via
+stands at the corner's outside, shared by both rows. Each via is judged as a
+stitching via is; one that cannot stand is left out and named in a finding,
+and a row left with a gap over `pitch` is a finding naming its side and the
+gap. `outside=True` without `edge=True`, and `hole_to_edge=`/`sides=`
+without `outside=True`, are refused. A keepout that forbids vias needs no
+`allow=` for an outside row.
+
+```python
+board.stitch(Net("GND"), "antenna clearance", edge=True, outside=True, hole_to_edge=0.35,
+             pitch=2.0, sides=[Edge.EAST, Edge.SOUTH], why="the datasheet's vias outside the clearance")
+```
 
 **A via's layer span.** For a fab that makes blind or micro vias,
 `layers=(CopperLayer.B, CopperLayer.IN4)` on `board.via()`, `board.vias()`

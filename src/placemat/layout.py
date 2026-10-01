@@ -4115,8 +4115,9 @@ class Board:
         return intent
 
     def stitch(self, net, region, *, pitch: float | None = None, size: float | None = None,
-               drill: float | None = None, edge: bool = False, layers=None, priority: Priority = Priority.DEFAULT,
-               why: str = ""):
+               drill: float | None = None, edge: bool = False, outside: bool = False,
+               hole_to_edge: float | None = None, sides=None, layers=None,
+               priority: Priority = Priority.DEFAULT, why: str = ""):
         """Stitching vias of `net` over `region` - a `Cell`, the
         `CopperIntent` `board.pour()` returns, or a keepout's name - `pitch`
         apart (by default the via-to-via rule: the larger of the via's own
@@ -4126,8 +4127,25 @@ class Board:
         `edge=True` instead rows them along the region's own outline, a
         via's clearance in from it. Resolved once the region itself is:
         after the cell is placed, the pour is drawn, or the keepout is
-        settled. `layers=` spans some layers only, as on `via()`."""
+        settled. `layers=` spans some layers only, as on `via()`.
+
+        `edge=True, outside=True` rows the vias outside the region instead:
+        each via's hole edge `hole_to_edge` off the region's edge, along its
+        outward normal (by default the via's copper just touches the edge),
+        `pitch` the most they stand apart along an edge (a side `L` long gets
+        `ceil(L / pitch) + 1`, spread evenly end to end). `sides=` keeps the
+        edges whose outward normal faces those `Edge`s as the region is turned
+        (a keepout reads them in its own frame), each edge for the side its
+        normal is nearest, within 45 degrees; by default every edge. A via
+        stands at the outside of a corner between two kept edges, shared by
+        both rows. A via that cannot stand is left out and noted; a row left
+        with a gap over `pitch` is a finding."""
         name = self.geometry.require_net(net)
+        if outside and not edge:
+            raise ValueError("%s: stitch's outside=True rows the vias along the region's edge; give edge=True too"
+                             % name)
+        if not outside and (hole_to_edge is not None or sides is not None):
+            raise ValueError("%s: stitch's hole_to_edge= and sides= belong to outside=True" % name)
         span = self._via_span(name, layers)
         nc = self.geometry.netclasses.get(name)
         s = float(size) if size is not None else (nc.via_diameter if nc else self.via_size)
@@ -4152,13 +4170,27 @@ class Board:
             if region not in self._keepouts:
                 raise KeyError("no keepout named %r on this board" % (region,))
             k = self._keepouts[region]
-            if "vias" in k.excludes and name not in {self.geometry.require_net(a) for a in k.allow if isinstance(a, Net)}:
+            if not outside and "vias" in k.excludes and name not in {self.geometry.require_net(a) for a in k.allow if isinstance(a, Net)}:
                 raise ValueError("%s: keepout %r excludes vias (excludes=%s), so no via could stand anywhere "
                                  "in it; add %r to its allow=, or narrow its excludes=" % (
                                      name, region, list(k.excludes), name))
         else:
             raise TypeError("%s: stitch's region is a Cell, a keepout's name, or the CopperIntent "
                             "board.pour() returns, not %r" % (name, region))
+
+        wanted = None
+        if sides is not None:
+            wanted = [Edge(x) for x in ((sides,) if isinstance(sides, (str, Edge)) else sides)]
+            if not wanted:
+                raise ValueError("%s: stitch's sides= names at least one side" % name)
+        # by default the via's copper touches the edge from outside: the reach of the polygon a via is judged
+        # as (`via_ring`'s corners stand a little past its circle), 1e-6 mm over so the touch is not an overlap
+        reach = max(math.hypot(x, y) for x, y in via_ring(Location(0.0, 0.0), s))
+        gap = reach - d / 2.0 + 1e-6 if hole_to_edge is None else float(hole_to_edge)
+        if gap < 0:
+            raise ValueError("%s: stitch's hole_to_edge= is %.2f mm; a hole edge stands off the region by 0 or more"
+                             % (name, gap))
+        off = gap + d / 2.0
 
         def candidates(poly):
             if not edge:
@@ -4180,6 +4212,9 @@ class Board:
                 ctx.notes.append("stitch %s: its region is not drawn, so there is nothing to stitch over" % name)
                 return []
             obstacles = self._via_obstacles(ctx)
+            if outside:
+                turn = ctx.plan.keepouts[region].rotation if isinstance(region, str) and ctx.plan else 0.0
+                return self._stitch_outside(ctx, name, poly, turn, off, step, wanted, s, d, obstacles, span, pour_intent)
             vias = []
             for x, y in candidates(poly):
                 at = Location(round(x, 6), round(y, 6))
@@ -4194,6 +4229,44 @@ class Board:
                 ctx.notes.append("stitch %s: no via fits in the region at a %.2f mm pitch" % (name, step))
             return vias
         return self._copper_intent("stitch %s" % name, net, priority, plan, refs, why, extra_owners=extra_owners)
+
+    def _stitch_outside(self, ctx, name: str, poly, turn: float, off: float, step: float, wanted, size: float,
+                        drill: float, obstacles, span: tuple, pour_intent) -> list:
+        """`stitch(edge=True, outside=True)`: each kept edge's row, every via
+        judged as a stitching via is; the ones that cannot stand are named in
+        one note, and a row left with a gap over `step` is another."""
+        rows = _stitch_outside_rows(poly, turn, off, step, wanted)
+        vias, standing, left_out = [], [], []
+        seen: dict = {}
+        for side, points in rows:
+            kept = []
+            for t, (x, y) in points:
+                at = Location(round(x, 6), round(y, 6))
+                if (at.x, at.y) not in seen:        # a corner via is one via for both rows
+                    seen[(at.x, at.y)] = self._via_site_why(ctx, at, name, size, drill, obstacles, span)
+                    if seen[(at.x, at.y)] is None:
+                        via = Via(name, at, drill, size, span)
+                        vias.append(via)
+                        ctx.planned_vias.append(via)
+                        if pour_intent is not None:
+                            ctx.stitched.setdefault(pour_intent.index, []).append(via)
+                    else:
+                        left_out.append("(%.2f, %.2f) %s" % (at.x, at.y, seen[(at.x, at.y)]))
+                if seen[(at.x, at.y)] is None:
+                    kept.append(t)
+            standing.append((side, kept, points[-1][0]))
+        if left_out:
+            ctx.notes.append("stitch %s: %d via(s) outside the region left out: %s" % (name, len(left_out), "; ".join(left_out)))
+        for side, kept, length in standing:
+            reach = [kept[i + 1] - kept[i] for i in range(len(kept) - 1)] if kept else [length]
+            if max(reach, default=0.0) > step + 1e-6:
+                ctx.notes.append("stitch %s: the %s side's row has a %.2f mm gap, over its %.2f mm pitch"
+                                 % (name, _SIDE_WORD[side], max(reach), step))
+        if not rows:
+            ctx.notes.append("stitch %s: no edge of the region faces the sides asked for" % name)
+        elif not vias:
+            ctx.notes.append("stitch %s: no via fits outside the region at a %.2f mm pitch" % (name, step))
+        return vias
 
     def _via_span(self, name: str, layers) -> tuple:
         """The board's layers a via declared with `layers=` spans, in stackup
@@ -7761,6 +7834,66 @@ def _stitch_edge_points(poly, step: float, inset: float):
         while t <= length - inset + 1e-6:
             yield (ax + ux * t + nx * inset, ay + uy * t + ny * inset)
             t += step
+
+
+_SIDE_WORD = {Edge.NORTH: "north", Edge.EAST: "east", Edge.SOUTH: "south", Edge.WEST: "west"}
+
+
+def _stitch_outside_rows(poly, turn: float, off: float, step: float, wanted) -> list:
+    """[(side, [(distance along the row, (x, y)), ...])] of `stitch(outside=True)`:
+    one row per edge of `poly` whose outward normal, read in the region's own
+    frame (turned back by `turn`, a clockwise bearing), is within 45 degrees of
+    a side in `wanted` (None: every edge). A row stands `off` out from its edge
+    along the normal and runs end to end, `ceil(L / step) + 1` points evenly
+    spread. Where two kept edges meet at a corner, both rows end on the one
+    point where their offset lines cross, so the corner has one via. Collinear
+    vertices are one edge."""
+    pts = list(poly)
+    i = 0
+    while len(pts) > 3 and i < len(pts):                   # drop a vertex that lies on the line through its neighbours
+        (ax, ay), (bx, by), (cx, cy) = pts[i - 1], pts[i], pts[(i + 1) % len(pts)]
+        if abs((bx - ax) * (cy - by) - (by - ay) * (cx - bx)) < 1e-9 * max(1.0, math.hypot(cx - ax, cy - ay)):
+            del pts[i]
+            i = max(i - 1, 0)
+        else:
+            i += 1
+    n = len(pts)
+    sign = 1.0 if sum(pts[k][0] * pts[(k + 1) % n][1] - pts[(k + 1) % n][0] * pts[k][1] for k in range(n)) > 0 else -1.0
+    edges = []                                              # (start, end, length, outward normal, side or None)
+    for k in range(n):
+        (ax, ay), (bx, by) = pts[k], pts[(k + 1) % n]
+        length = math.hypot(bx - ax, by - ay)
+        if length < 1e-9:
+            edges.append(None)
+            continue
+        nx, ny = sign * (by - ay) / length, -sign * (bx - ax) / length
+        local = (math.degrees(math.atan2(nx, -ny)) - turn) % 360.0
+        faces = [e for e, b in ((Edge.NORTH, 0.0), (Edge.EAST, 90.0), (Edge.SOUTH, 180.0), (Edge.WEST, 270.0))
+                 if abs((local - b + 180.0) % 360.0 - 180.0) <= 45.0 + 1e-6]
+        hit = next((e for e in faces if wanted is None or e in wanted), None)
+        edges.append((pts[k], pts[(k + 1) % n], length, (nx, ny), hit))
+
+    def end_of(e, f, at_start: bool):
+        (ax, ay), (bx, by), _, (nx, ny), _ = e
+        vx, vy = (ax, ay) if at_start else (bx, by)
+        if f is not None and f[4] is not None:
+            dot = nx * f[3][0] + ny * f[3][1]
+            if dot > -1.0 + 1e-6:                           # the offset lines cross at the corner's outside
+                k = off / (1.0 + dot)
+                return vx + k * (nx + f[3][0]), vy + k * (ny + f[3][1])
+        return vx + off * nx, vy + off * ny
+
+    rows = []
+    for k, e in enumerate(edges):
+        if e is None or e[4] is None:
+            continue
+        a = end_of(e, edges[k - 1], True)
+        b = end_of(e, edges[(k + 1) % n], False)
+        length = math.hypot(b[0] - a[0], b[1] - a[1])
+        count = max(1, math.ceil(length / step - 1e-9))
+        rows.append((e[4], [(length * i / count, (a[0] + (b[0] - a[0]) * i / count, a[1] + (b[1] - a[1]) * i / count))
+                            for i in range(count + 1)]))
+    return rows
 
 
 def _cutout_half_across(cutout, bearing_deg: float, rotation: float = 0.0) -> float:

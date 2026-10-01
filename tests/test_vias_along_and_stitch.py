@@ -201,3 +201,119 @@ def test_stitch_over_a_keepout_that_lets_its_net_in_is_not_refused():
     b.keepout(Circle(6.0), "shield", at=Location(30, 30), allow=(Net("GND"),), why="probe")
     b.stitch(Net("GND"), "shield", size=0.6, drill=0.3, pitch=1.5)
     assert _vias(b.resolve())
+
+
+# ------------------------------------------------- stitch(edge=True, outside=True)
+RECT = [(0.0, 0.0), (10.0, 0.0), (10.0, 6.0), (0.0, 6.0)]       # centred on (30, 30): x 25..35, y 27..33
+
+
+def _outside_board(parts=(), **kw):
+    from placemat.cutouts import Path
+    b = Board(board_geometry(list(parts), width=60, height=60, extra_nets=["GND", "OTHER"]),
+              edge_margin=1.0, keep_going=True)
+    b.keepout(Path(RECT), "clearance", at=Location(30, 30), why="probe", **kw)
+    return b
+
+
+def _row(vias, axis, value):
+    """The vias whose `axis` coordinate is `value`, sorted along the other one."""
+    other = "y" if axis == "x" else "x"
+    return sorted(round(getattr(v.at, other), 6) for v in vias if abs(getattr(v.at, axis) - value) < 1e-4)
+
+
+def test_stitch_outside_rows_two_sides_off_the_edge_with_a_shared_corner():
+    from placemat.values import Edge
+    b = _outside_board()
+    b.stitch(Net("GND"), "clearance", edge=True, outside=True, hole_to_edge=0.35, pitch=2.0,
+             sides=[Edge.EAST, Edge.SOUTH], size=0.6, drill=0.3, why="probe")
+    plan = b.resolve()
+    vias = _vias(plan)
+    # a hole edge 0.35 off the edge puts its centre 0.35 + 0.15 out
+    east, south = _row(vias, "x", 35.5), _row(vias, "y", 33.5)
+    assert east == [27.0, 28.625, 30.25, 31.875, 33.5]          # 6.5 mm from the north end to the corner via
+    assert south == [25.0, 26.75, 28.5, 30.25, 32.0, 33.75, 35.5]      # 10.5 mm: ceil(10.5 / 2) + 1 = 7 vias
+    assert len(vias) == len(set((v.at.x, v.at.y) for v in vias)) == 5 + 7 - 1     # the corner via is shared
+    assert not [v for v in vias if abs(v.at.x - 35.5) > 1e-6 and abs(v.at.y - 33.5) > 1e-6]     # none on the others
+    for row in (east, south):
+        assert max(b - a for a, b in zip(row, row[1:])) <= 2.0 + 1e-9
+    assert not any("stitch" in str(f) for f in plan.findings), plan.findings
+
+
+def test_stitch_outside_default_hole_to_edge_lets_the_copper_touch_the_edge_from_outside():
+    from placemat.values import Edge
+    b = _outside_board()
+    b.stitch(Net("GND"), "clearance", edge=True, outside=True, pitch=2.0, sides=[Edge.WEST],
+             size=0.6, drill=0.3, why="probe")
+    plan = b.resolve()
+    vias = _vias(plan)
+    assert vias, plan.findings
+    # the centre is half the via's size out: the via is judged as a 16-gon whose corners stand 0.006 mm past its circle
+    assert sorted(round(v.at.y, 6) for v in vias) == [27.0, 29.0, 31.0, 33.0]
+    assert all(24.69 < v.at.x < 24.70 for v in vias), [v.at.x for v in vias]
+
+
+def test_stitch_outside_every_edge_by_default_with_four_shared_corners():
+    b = _outside_board()
+    b.stitch(Net("GND"), "clearance", edge=True, outside=True, hole_to_edge=0.35, pitch=2.0,
+             size=0.6, drill=0.3, why="probe")
+    plan = b.resolve()
+    assert len(_vias(plan)) == 2 * 5 + 2 * 7 - 4         # 7 mm sides: 5 vias, 11 mm sides: 7; four corners shared
+    xs = [(round(v.at.x, 6), round(v.at.y, 6)) for v in _vias(plan)]
+    assert len(xs) == len(set(xs))
+    for corner in ((24.5, 26.5), (35.5, 26.5), (35.5, 33.5), (24.5, 33.5)):
+        assert corner in xs
+
+
+def test_stitch_outside_reads_sides_in_a_turned_keepouts_frame():
+    from placemat.cutouts import Path
+    from placemat.values import Edge, Turned
+    ant = footprint("ANT", 10, 10, w=4, h=2, inst="ant", nets=("A", "B"))
+    b = Board(board_geometry([ant], width=60, height=60, extra_nets=["GND"]), edge_margin=1.0, keep_going=True)
+    b.place(Part("ant"), at=Location(10, 10), rotation=90)
+    b.keepout(Path(RECT), "clearance", at=Location(30, 30), rotation=Turned(Part("ant"), 0), why="probe")
+    b.stitch(Net("GND"), "clearance", edge=True, outside=True, hole_to_edge=0.35, pitch=2.0,
+             sides=[Edge.EAST], size=0.6, drill=0.3, why="probe")
+    plan = b.resolve()
+    vias = _vias(plan)
+    # the part's east is the board's north once it turns 90 degrees: the keepout is 6 wide, 10 tall
+    assert sorted((round(v.at.x, 6), round(v.at.y, 6)) for v in vias) == [(27.0, 24.5), (29.0, 24.5), (31.0, 24.5), (33.0, 24.5)]
+
+
+def test_stitch_outside_leaves_out_a_via_another_nets_pad_blocks_and_finds_the_gap():
+    from placemat.values import Edge
+    other = footprint("T1", 37.0, 29.0, w=4, h=2, inst="t1", nets=("OTHER", "OTHER"))      # its pad 1 at x 35.1..36.1
+    b = _outside_board([other])
+    b.place(Part("t1"), at=Location(37.0, 29.0))
+    b.stitch(Net("GND"), "clearance", edge=True, outside=True, hole_to_edge=0.35, pitch=2.0,
+             sides=[Edge.EAST], size=0.6, drill=0.3, why="probe")
+    plan = b.resolve()
+    ys = _row(_vias(plan), "x", 35.5)
+    assert ys == [27.0, 31.0, 33.0], ys                 # the via at y=29 would sit 0.19 mm from the pad
+    said = [str(f) for f in plan.findings if "stitch GND" in str(f)]
+    assert any("(35.50, 29.00)" in t and "copper" in t for t in said), said
+    assert any("east side" in t and "4.00 mm gap" in t and "2.00 mm pitch" in t for t in said), said
+
+
+def test_stitch_outside_without_edge_is_refused():
+    b = _outside_board()
+    with pytest.raises(ValueError, match="edge=True"):
+        b.stitch(Net("GND"), "clearance", outside=True, pitch=2.0)
+
+
+def test_stitch_sides_and_hole_to_edge_without_outside_are_refused():
+    from placemat.values import Edge
+    b = _outside_board()
+    with pytest.raises(ValueError, match="outside"):
+        b.stitch(Net("GND"), "clearance", edge=True, sides=[Edge.EAST])
+    with pytest.raises(ValueError, match="outside"):
+        b.stitch(Net("GND"), "clearance", edge=True, hole_to_edge=0.3)
+
+
+def test_stitch_outside_an_l_shaped_region_crosses_at_a_reflex_corner():
+    from placemat.cutouts import Path
+    b = Board(board_geometry([], width=60, height=60, extra_nets=["GND"]), edge_margin=1.0, keep_going=True)
+    b.keepout(Path([(0, 0), (6, 0), (6, 3), (3, 3), (3, 6), (0, 6)]), "l", at=Location(30, 30), why="probe")
+    b.stitch(Net("GND"), "l", edge=True, outside=True, hole_to_edge=0.35, pitch=2.0, size=0.6, drill=0.3, why="probe")
+    pts = {(round(v.at.x, 6), round(v.at.y, 6)) for v in _vias(b.resolve())}
+    # the inner corner is at (30, 30) in the keepout's box; the offset lines cross 0.5 out along both normals
+    assert (30.5, 30.5) in pts
