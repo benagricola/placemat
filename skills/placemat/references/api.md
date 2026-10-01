@@ -3,7 +3,7 @@
 ```python
 from placemat import (board, Along, Axis, Bearing, Bend, Beside, Between, Box, Cell, CellPadRef, Centre, Corner, Cover, Pin, Polar, OnRim, OnBore,
                        Cutout, Disc, Drops, Arc, Circle, Path, Slot, CopperLayer, Edge, Face, Facing, Forbid, Fraction, FreeSpot, Inside, Land, Line, SideOf,
-                       LinkWeight, Location, Mid, Near, Net, OnEdge, Origin, Parallel, PadRef, Part, Past, Priority, Turned, X, Y)
+                       LinkWeight, Location, Mid, Near, Net, OnEdge, Origin, Parallel, PadRef, Part, Past, Priority, Tangent, Turned, Turns, X, Y)
 ```
 
 `board` is the board being laid out. Questions answer from the generated
@@ -65,6 +65,7 @@ request (SKILL.md, "When no form says it").
 | a row ordered by where the pads its items serve land | `board.row(items, edge, of=Part("u"), over=[PadRef(Part("u"), "SDA"), ...])` | Placement (Rows) |
 | on a point, its turn (a bearing) searched, scored by links, pushes and keepouts | `at=Pin(Part("c.member"), Location(x, y)), rotations=Turns.ANY` | Placement (Turns) |
 | turned to face a board edge or a bearing | `board.outward_rotation(item, edge, face=)` | Faces |
+| searched in a band of radii about a point, turned to the tangent at whatever bearing it lands on | `at=Polar((r_min, r_max), None, about=centre), rotations=Turns.TANGENT` | Round boards |
 | its fine-pitch escape kept clear | `board.fanout(part, depth=)` | Placement |
 | a pin row's routes out kept clear, lanes and vias, before parts are placed | `esc = board.escape(part, pins, turn=Edge.WEST, vias=[...])` | Placement (Escape) |
 | a track along one of those lanes, through its via | `board.track(net, [esc[pin], ...])` | Placement (Escape) |
@@ -82,6 +83,7 @@ request (SKILL.md, "When no form says it").
 | items at a mechanical pitch along a part's side, centred on a pad | `board.row(items, edge, of=Part(...), centre=PadRef(...), pitch=)` | Placement (Rows) |
 | items round a centre | `board.ring(items, radius=)` | Round boards |
 | a part at a radius and bearing | `at=Polar(radius, angle, about=)` | Round boards |
+| a part searched between two radii | `at=Polar((r_min, r_max), None, about=)` | Round boards |
 | on a disc's rim facing out, or at its bore facing in | `at=OnRim(edge)` / `at=OnBore(edge)` | Round boards |
 | **what pulls parts together** | | |
 | a connection priced (a bypass capacitor, a series part) | `board.link(a, b, weight=, limit_mm=)` | Links |
@@ -236,6 +238,7 @@ board.place(item, at=Beside(Part("u1"), Edge.EAST, align=Along.MID))   # FIXED: 
 board.place(item, at=Near(Location(x, y)), radius=3.0, step=0.2, rotations=(0, 90))  # searched round a hint
 board.place(item, at=Near(PadRef(u1, 3).local(0.4, -1.2), radius=0), rotation=Turned(u1, 90))  # off a pad in its part's own frame, turned with it
 board.place(cell, at=Pin(Part("c.member"), Location(x, y)), rotations=Turns.ANY)  # on the point, its turn searched (one freedom)
+board.place(cell, at=Polar((r_min, r_max), None, about=centre), rotations=Turns.TANGENT)  # searched in a band, turned to the tangent at each spot
 board.place(item, face=Face.EITHER)                                     # searched on both faces; the front unless the back is better
 ```
 `item` is a `Part` (schematic instance), a `Cell` (module group) or a block
@@ -417,7 +420,9 @@ rotation, and a cell or a block keeps its own. `[place] rotations =
 between 0 and 360), or `Turns.ANY`, every `place.bearing_step` degrees
 (default 5.0), so a script need not carry the step. `Near(rotations=)` takes
 the same. Each turn is another candidate at every point scanned, so a fine
-step costs that many times the scan.
+step costs that many times the scan. `Turns.TANGENT` is a turn taken from the
+spot rather than a list: see "A turn that follows the curve", under Round
+boards.
 
 **A point with turns to search.** `rotations=` on a place that is a point -
 `Location`, `Centre`, `Pin` (a part's pad, a cell's member pad, or a member's
@@ -1534,6 +1539,51 @@ it returns carries `.radius`, `.angles`, `.depth`, `.start`, `.end` and
 arc of the rim that faces that way, so `board.row(items, board.edge(facing=
 Edge.NORTH))` puts a row along the top of a round board. `ring()` is the
 better verb when the items go all the way round.
+
+**A band of radii.** `Polar((r_min, r_max), None, about=centre)` searches the
+ground between two radii about `centre`, any bearing: a searched part or cell
+with two freedoms, seeded from its links like any, and scanned only where its
+body centre is in the band. `about=` is any point `Polar(about=)` takes, so a
+band works on a `board.outline()` board, about the middle of its round part
+rather than the middle of its box. With nothing to seed it, the items sharing
+a band divide the turn, as a ring's do, and each starts from its share at the
+band's middle radius. A seed outside the band is brought to the nearest
+radius in it. When nothing in the band is legal the item is unplaced; no
+pocket outside the band is tried. A bearing with a range,
+`Polar((r_min, r_max), 90.0)`, is a spoke segment: one freedom, the radius
+within the range. A range is a place's alone: a cutout or a keepout goes at
+one radius, and a `Bearing` of two points needs one.
+
+A band is how to stay inboard of a keepout band at the rim (a seal rim, a
+gasket land): the keep-in is the board's, so an item's reach would otherwise
+go to it, and the band stops it short.
+
+**A turn that follows the curve.** `rotations=Turns.TANGENT` turns an
+item, at each spot a search tries, so its outward side (its
+`faces(outward=)`, else local +Y, the same side `OnRim` turns out) points
+away from a centre, and also tries the half turn. A rectangular cell whose
+long side is across its outward side then lies tangent to the circle at the
+bearing it lands on; `Tangent(quarters=True)` adds the two quarter turns, for
+one whose long side is its local Y. The centre is, in order, `Tangent(about=)`,
+the `about=` of the `Polar` the item is in, the board's centre.
+
+```python
+CENTRE = Location(26.5, 26.5)                                 # the middle of the round part of an outline
+board.place(Cell("winding"), at=Polar((14.0, 21.0), None, about=CENTRE), rotations=Turns.TANGENT)
+board.place(Cell("winding2"), at=Near(Location(10, 12), radius=4), rotations=Tangent(about=CENTRE, quarters=True))
+```
+
+It needs a searched spot - seeded from links, `Near`, or a band; a decided
+place, a point, a ring, a spoke, an edge, a rim, a `Beside`, a block, `face=
+Face.EITHER` and `rotation=` are refused, with `board.outward_rotation(item,
+bearing)[0]` for the turn at one bearing. The bearing of a spot is that of
+the item's body centre, cut into bins of `place.tangent_bin` degrees (10.0): a
+spot takes the turn of its bin's middle bearing, so the item lies within about
+half a bin of the tangent, and a candidate costs two turns (four with
+quarters), not a step's 72. Of equal cost the outward turn wins, then the
+quarters, then the half turn; a link or a push that favours another turn still
+wins it. The global solve, the cleanup pass and explore leave such an item
+where its scan puts it.
 
 **A disc with cutouts is still a disc.** A slot in a round board does not make
 it a shaped board: `OnRim`, `OnBore`, `ring()`, `board.radius` and
@@ -3180,6 +3230,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.step` | 0.2 | a search's default step |
 | `place.rotations` | "all" | a searched part with no `rotation=` or `rotations=`: `all` four rotations, or only its `declared` one |
 | `place.bearing_step` | 5.0 | degrees between the turns of `rotations=Turns.ANY` |
+| `place.tangent_bin` | 10.0 | degrees of bearing a `Turns.TANGENT` search turns as one: a spot takes its bin's turn |
 | `place.envelope` | "courtyard" | what a part claims against another: `courtyard` (its courtyard and pads), `physical` (its pads, mask openings, silk and body, each at the board's own gap), or `union` (both) |
 | `place.coarse_steps` | 4 | how many steps apart a scored scan's first pass walks |
 | `place.coarse_from` | 12 | radius-to-step ratio from which a scan goes coarse first |

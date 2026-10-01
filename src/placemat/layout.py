@@ -31,10 +31,10 @@ from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
 from .settings import Settings
-from .placer import BlockSpec, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
+from .placer import BandTurns, BearingTurns, BlockSpec, SpotTurns, ScanResult, _grid, _pin_normal, facing_rotation, pad_way_out, pad_row_end, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
-from .values import (Turned, Turns, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, SideOf, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Tangent, Turned, Turns, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, SideOf, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      PinName, Priority, X, Y, pad_key)
 from .values import Figure, FigurePoint, Reach
 
@@ -308,6 +308,8 @@ class PlaceIntent:
     toward: object = field(default=None, metadata={"omit_default": True})   # Centre(toward=): an end of the free line
     pin_land: object = field(default=None, metadata={"omit_default": True})   # Pin(land=): the land of `pin` that lands on the point
     either: bool = field(default=False, metadata={"omit_default": True})   # face=Face.EITHER: `face` is FRONT, and the search also tries the back
+    tangent: object = field(default=None, metadata={"omit_default": True})   # a Tangent: the turn at each spot comes from its bearing
+    band: object = field(default=None, metadata={"omit_default": True})      # (r_min, r_max) about `about`: Polar((r_min, r_max), None)
 
     @property
     def turns_on_point(self) -> bool:
@@ -2435,7 +2437,7 @@ class Board:
             raise TypeError("%s: drops= thins a cell's via fields; a %s carries none of its own" % (key, kind))
         if any(i.key == key for i in self._intents):
             raise ValueError("%s is already placed; one declaration per item" % key)
-        center = edge = along = near = about = run = None
+        center = edge = along = near = about = run = band = None
         rim = angle = radius_at = None
         outward = False
         overhang = 0.0
@@ -2525,19 +2527,27 @@ class Board:
             # _locate - center holds the Polar itself, and radius_at/about the raw reference,
             # so a declaration that never used about= digests exactly as before
             about_now = at.about is None or isinstance(at.about, (Location, tuple))
-            if isinstance(at.angle, Bearing) and at.radius is None:
-                raise TypeError("%s: a Polar with a Bearing of two points needs its radius; a bearing is "
-                                "not a spoke to slide out along" % key)
-            if at.radius is not None and at.angle is not None:
-                if about_now and not isinstance(at.angle, Bearing):
-                    about = self.centre if at.about is None else _as_point(at.about)
-                    center, about, at = polar_point(about, at.angle, at.radius), about, None
-                else:
-                    center, about, at = at, at.about, None
-            else:
+            if at.band is not None:
+                # a radius range: the band between two radii about a centre, searched (a bearing: a spoke segment)
                 about = (self.centre if at.about is None else _as_point(at.about)) if about_now else at.about
-                radius_at, angle = at.radius, (None if at.angle is None else bearing(at.angle))
+                if kind == "block":
+                    raise TypeError("%s: a block is laid from its anchor; a Polar radius range searches a part or a cell" % key)
+                band, angle = at.band, (None if at.angle is None else bearing(at.angle))
                 at = None
+            else:
+                if isinstance(at.angle, Bearing) and at.radius is None:
+                    raise TypeError("%s: a Polar with a Bearing of two points needs its radius; a bearing is "
+                                    "not a spoke to slide out along" % key)
+                if at.radius is not None and at.angle is not None:
+                    if about_now and not isinstance(at.angle, Bearing):
+                        about = self.centre if at.about is None else _as_point(at.about)
+                        center, about, at = polar_point(about, at.angle, at.radius), about, None
+                    else:
+                        center, about, at = at, at.about, None
+                else:
+                    about = (self.centre if at.about is None else _as_point(at.about)) if about_now else at.about
+                    radius_at, angle = at.radius, (None if at.angle is None else bearing(at.angle))
+                    at = None
         elif isinstance(at, Near):
             near = at.location
             radius = at.radius if at.radius is not None else radius
@@ -2561,6 +2571,11 @@ class Board:
         else:
             raise TypeError("%s: at= takes a Location, a Centre, a Pin, an OnEdge, an OnRim, an OnBore, a Polar, a Near "
                             "or a point of references, not %r" % (key, at))
+        tangent = self._tangent_of(key, kind, rotations, rotation, either, at=at, center=center, edge=edge, along=along,
+                                   near=near, rim=rim, run=run, beside=beside, pin_x=pin_x, pin_y=pin_y, pin=pin,
+                                   cell_pin=cell_pin, radius_at=radius_at, angle=angle, band=band, row_of=_row_of)
+        if tangent is not None:
+            rotations = ()
         rotations = self._turn_list(key, rotations)
         source = "auto" if priority is None else "script"
         # Whether the declaration decides the position is a different question
@@ -2618,7 +2633,8 @@ class Board:
                 rotation, faces_note = 0.0, ""
         if kind == "cell" and at is not None and center is None:
             center, at = at, None
-        needs = {self._pad_ref(ref)[0] for ref in _refs_in([at, center, along, pin_x, pin_y, near, about])}   # a real pad, placed before this
+        needs = {self._pad_ref(ref)[0] for ref in _refs_in([at, center, along, pin_x, pin_y, near, about,
+                                                            None if tangent is None else tangent.about])}   # a real pad, placed before this
         if isinstance(at, OnEdge) and isinstance(at.edge, CutoutEdge):
             needs.add(cutout_token(at.edge.name))   # the hole is cut before anything is put against it
         if isinstance(along, _RowSlot):
@@ -2654,7 +2670,8 @@ class Board:
                              pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward, about, run,
                              freedom, required, rotation_given, turned=turned, beside=beside, row_of=_row_of,
                              cell_pin=cell_pin, drops=drops, line=_script_line(),
-                             toward=getattr(_centre_toward, "toward", None), pin_land=pin_land, either=either)
+                             toward=getattr(_centre_toward, "toward", None), pin_land=pin_land, either=either,
+                             tangent=tangent, band=band)
         self._intents.append(intent)
         return intent
 
@@ -2674,6 +2691,32 @@ class Board:
             raise ValueError("%s: face=Face.EITHER is for an item whose spot is searched (seeded by its links, or "
                              "Near); this declaration decides or constrains it with %s, so give it a face"
                              % (key, ", ".join(named)))
+
+    @staticmethod
+    def _tangent_of(key: str, kind: str, rotations, rotation, either: bool, **place) -> Tangent | None:
+        """The Tangent `rotations=` names (`Turns.TANGENT` is `Tangent()`), or None. Tangent turns
+        are for an item whose spot is searched - seeded from its links, round a `Near`, or in a
+        `Polar` band: the turn follows the spot, so a place that is decided or slides by its own rule
+        is refused, with what turns an item there."""
+        if rotations is Turns.TANGENT:
+            rotations = Tangent()
+        if not isinstance(rotations, Tangent):
+            return None
+        if kind == "block":
+            raise TypeError("%s: a block is turned by its anchor; Tangent turns are for a part or a cell" % key)
+        if rotation is not None:
+            raise ValueError("%s: rotation= settles the rotation; Tangent turns would override it" % key)
+        if either:
+            raise ValueError("%s: Tangent turns are taken on one face; drop face=Face.EITHER or the Tangent" % key)
+        decided = sorted(k for k, v in place.items() if v is not None and k not in ("near", "band"))
+        if place["band"] is not None and place["angle"] is not None:
+            decided = sorted(set(decided) | {"a bearing"})
+        if decided:
+            raise ValueError("%s: Tangent turns follow a searched spot (seeded, Near, or a Polar band "
+                             "Polar((r_min, r_max), None)); this place is decided or slides by its own rule (%s). "
+                             "board.outward_rotation(item, bearing)[0] is the turn at one bearing"
+                             % (key, ", ".join(decided)))
+        return rotations
 
     def _turn_list(self, key: str, rotations) -> tuple:
         """The turns `rotations=` names: its angles as given, or - for a step in degrees, or
@@ -3614,7 +3657,8 @@ class Board:
         return (i.kind in ("part", "cell") and not i.freedom.decided and i.near is None
                 and i.at is None and i.center is None
                 and i.edge is None and i.pin_x is None and i.pin_y is None and i.run is None
-                and i.rim is None and i.angle is None and i.radius_at is None)
+                and i.rim is None and i.angle is None and i.radius_at is None
+                and i.tangent is None and i.band is None)
 
     def _global_hints(self, occ: Occupancy, placed: set, plan: Plan) -> dict:
         """Where every searched item not yet placed would sit if the whole
@@ -6873,7 +6917,9 @@ class Board:
 
     def _settle_block_along_spoke(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, spec) -> Step:
         centre = self.centre if i.about is None else _locate(self, occ, i.about)
-        if isinstance(self._shape, Disc) and centre == self._shape.centre:
+        if i.band is not None:
+            lo, hi = i.band
+        elif isinstance(self._shape, Disc) and centre == self._shape.centre:
             lo, hi = self._shape.bore + self.keep_in, self._shape.radius - self.keep_in
         else:
             box = occ.board_box
@@ -7654,7 +7700,7 @@ class Board:
         scan of the whole board, as a block's satellites do. Only for an item
         searched at a known set of turns whose riders move exactly as it
         does; else None, and the search finds out."""
-        if i.outward or self._locked(i) is not None:
+        if i.outward or i.tangent is not None or self._locked(i) is not None:
             return None             # turned by where it lands, or by its lock: any turn at all
         turns = set(self._turns(i)) | {i.rotation, (i.rotation + 90) % 360}      # a pocket's two as well
         at = occ.board_box.center if occ.board_box is not None else Location(0.0, 0.0)
@@ -7784,11 +7830,22 @@ class Board:
                 plan.seeded_by_net[n] += 1
         else:
             hint = None
+        band = self._band_of(occ, i, placed)
+        bt = self._spot_turns(occ, i, placed, band)
+        within = None
+        if band is not None:
+            hint = self._band_hint(i, band, hint)
+            slack = max((math.hypot(dx, dy) for dx, dy in bt.offset.values()), default=0.0)
+            within = lambda x, y, c=band[0], lo=band[1] - slack, hi=band[2] + slack: lo <= math.hypot(x - c.x, y - c.y) <= hi
         # A board still finding its own frame (board.size(fit=True), before anything is placed)
         # has no centre or outline to search wide against yet: a push there falls back to a pocket,
         # the same as an unpushed item with nothing else to seed it.
         wide_push = bool(push_sources) and not self._fit and self._outline is not None
-        if hint is None and wide_push:
+        wide_tangent = hint is None and bt is not None and not self._fit and self._outline is not None
+        if wide_tangent:
+            hint = Placement(bt.centre, i.rotation, i.face)
+            seeded = "searched from the centre its turns are taken about"
+        elif hint is None and wide_push:
             hint = Placement(self.centre, i.rotation, i.face)
             seeded = "searched wide for its push" if len(push_sources) == 1 else "searched wide for its pushes"
         elif hint is None:
@@ -7803,20 +7860,23 @@ class Board:
                              pushes=push_sources, lanes=lanes) if targets or push_sources or lanes else None
         # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
         body = occ._geometry(i.item).body
-        if i.near is not None:
+        if band is not None:
+            radius = band[2] + hint.location.distance(band[0])      # every point of the band is within it
+        elif i.near is not None:
             radius = i.radius
-        elif wide_push:
+        elif wide_push or wide_tangent:
             # A push's own disc can swallow whatever a link or the global solve seeded, so the
             # widening applies whatever else set the hint - not only when a push seeded it too.
             radius = math.hypot(self._outline.width, self._outline.height)
         else:
             radius = max(i.radius, body.width, body.height)
-        hopeless = self._no_pocket_note(occ, i)
+        hopeless = "" if bt is not None or band is not None else self._no_pocket_note(occ, i)
         if hopeless:
             plan.findings.append(Finding("unplaced", "%s: %s" % (i.key, hopeless)))
             return self._step(i, None, 0.0, "UNPLACED: " + hopeless)
         result, face_note = self._scan_faces(occ, i, hint, radius, clr, score, accept,
-                                             reseed=(targets if i.near is None and solved is None else None))
+                                             reseed=(targets if i.near is None and solved is None else None),
+                                             turns_at=bt, within=within)
         if result.chosen is None and solved is not None:
             # The solve spreads items without seeing what is already placed, so
             # its hint can land where nothing is legal. That must not cost a
@@ -7827,7 +7887,7 @@ class Board:
             return step
         if result.chosen is None:
             blame = "no legal location within %.1f mm of %s (%s)" % (radius, _loc(hint.location), _blame_text(result))
-            if i.near is None:
+            if i.near is None and bt is None and band is None:
                 step, tried = self._seeded_pocket(occ, i, plan, clr, hint, score, self._turns(i),
                                                   "%s, but no legal spot within %.1f mm (%s)" % (
                                                       seeded or "seeded", radius, _blame_text(result)))
@@ -7861,7 +7921,7 @@ class Board:
         return "front or back" if i.either else i.face.value
 
     def _scan_faces(self, occ: Occupancy, i: PlaceIntent, hint: Placement, radius: float, clr, score, accept,
-                    reseed=None):
+                    reseed=None, turns_at=None, within=None):
         """(the scan's result, a note on the face taken) for `i`. A fixed face is one scan. Face.EITHER
         scans the front and then the back, each at its own turn of the hint (`reseed`: the targets a
         seeded hint was made from, laid again for the back's pads), and takes the back only where
@@ -7870,7 +7930,8 @@ class Board:
         tells them apart. A failure carries both faces' refusals."""
         turns, pick = self._turns(i), self._pick(i)
         if not i.either:
-            return scan(occ, i.item, hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept), ""
+            return scan(occ, i.item, hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
+                        turns_at=turns_at, within=within), ""
         cost = self.settings.score_back_face
         front = scan(occ, i.item, hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept)
         if front.chosen is not None and score is None:
@@ -7913,6 +7974,49 @@ class Board:
             plan.pushes.append(p)
         bits += self._exposure_notes(occ, i, placement, push_sources)
         return "; ".join(bits)
+
+    def _spot_turns(self, occ: Occupancy, i: PlaceIntent, placed, band: tuple | None) -> SpotTurns | None:
+        """The turns a scan takes at each spot when they depend on it (placer.SpotTurns): a tangent
+        search's, taken from the spot's bearing about the Tangent's `about`, else that of the Polar
+        band the item is in, else the board's centre; or a band's fixed turns, kept where the
+        item's body centre is in the band. None when neither applies."""
+        if i.tangent is None and band is None:
+            return None
+        face = i.face
+        if i.tangent is not None:
+            ref = i.tangent.about if i.tangent.about is not None else i.about
+            centre = self.centre if ref is None else _locate(self, occ, ref)
+            spot = BearingTurns(centre, lambda b: self.outward_rotation(i.item, b, face)[0],
+                                self.settings.place_tangent_bin, i.tangent.quarters,
+                                band=None if band is None else band[1:])
+        else:
+            spot = BandTurns(band[0], self._turns(i), {}, band[1:])
+        spot.offset = {r: (c.x, c.y) for r in spot.turns
+                       for c in (occ.body_box(i.item, Placement(Location(0.0, 0.0), r, face)).center,)}
+        return spot
+
+    def _band_of(self, occ: Occupancy, i: PlaceIntent, placed) -> tuple | None:
+        """(centre, r_min, r_max) of the band a Polar range searches, or None."""
+        if i.band is None or i.angle is not None:
+            return None
+        return (self.centre if i.about is None else _locate(self, occ, i.about)), float(i.band[0]), float(i.band[1])
+
+    def _band_hint(self, i: PlaceIntent, band: tuple, hint: Placement | None) -> Placement:
+        """Where a band's scan starts: the seed brought to the nearest radius in the band, else the
+        item's share of the turn (as a ring's, k of n from the top) at the band's middle radius."""
+        centre, lo, hi = band
+        if hint is not None:
+            d = hint.location.distance(centre)
+            if lo <= d <= hi:
+                return hint
+            if d > 0.0:
+                r = min(max(d, lo), hi)
+                return Placement(polar_point(centre, bearing_of(hint.location.x - centre.x, hint.location.y - centre.y), r),
+                                 hint.rotation, hint.face)
+        fellows = [x for x in self._placements() if x.band == i.band and x.about == i.about and x.angle is None
+                   and not x.freedom.decided]
+        k, n = fellows.index(i), max(len(fellows), 1)
+        return Placement(polar_point(centre, 360.0 * k / n, (lo + hi) / 2.0), i.rotation, i.face)
 
     def _settle_turns_on_point(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set, clr,
                                push_sources: list) -> Step:

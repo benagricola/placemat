@@ -104,9 +104,30 @@ class Along(str, Enum):
 
 class Turns(str, Enum):
     """The turns a search may take, said without a step: ANY is every
-    `place.bearing_step` degrees round the circle. `rotations=` also takes a
-    list of angles, or a number, the step in degrees."""
+    `place.bearing_step` degrees round the circle; TANGENT is, at each spot, the
+    turn that points the item's outward side away from the centre (and the half
+    turn), `Tangent()`. `rotations=` also takes a list of angles, or a number,
+    the step in degrees."""
     ANY = "any"
+    TANGENT = "tangent"
+
+
+@dataclass(frozen=True)
+class Tangent:
+    """Turns taken from the spot: at each spot a search tries, the item is
+    turned so its outward side (its `faces(outward=)`, else local +Y) points
+    away from `about`, and with the half turn, toward it. `quarters=True` adds
+    the two quarter turns, for an item whose long side is its local Y.
+    `about` is a point as `Polar(about=)` takes it; None is the centre of the
+    `Polar` the item is placed in, else the board's. A spot's bearing is
+    quantised into `place.tangent_bin` degrees. `Turns.TANGENT` is
+    `Tangent()`."""
+    about: object = None
+    quarters: bool = False
+
+    def __post_init__(self):
+        if not isinstance(self.quarters, bool):
+            raise TypeError("Tangent's quarters is True or False, not %r" % (self.quarters,))
 
 
 class Line(str, Enum):
@@ -1051,6 +1072,7 @@ class Cutout:
         if self.at is None:
             raise ValueError("cutout %r needs at=: where a hole goes is not a guess. "
                              "at=Location(x, y), Centre(...), Polar(...) or OnEdge(...)" % (self.name,))
+        _refuse_band("cutout", self.name, self.at)
 
 
 @dataclass(frozen=True)
@@ -1084,6 +1106,7 @@ class Keepout:
             raise ValueError("a keepout needs a name: it is how a finding names the region")
         if self.at is None and self.region_of is None:
             raise ValueError("keepout %r needs at=: where a region goes is not a guess" % (self.name,))
+        _refuse_band("keepout", self.name, self.at)
         if not self.why:
             raise ValueError("keepout %r says why: a region nobody can justify is one nobody can move"
                              % (self.name,))
@@ -1109,6 +1132,12 @@ class Inside:
             raise TypeError("Inside's margin is a number of mm, not %r" % (self.margin,))
 
 
+def _refuse_band(what: str, name: str, at) -> None:
+    if isinstance(at, Polar) and at.band is not None:
+        raise ValueError("%s %r: a Polar radius range is a band an item is searched in; a %s goes at one radius"
+                         % (what, name, what))
+
+
 @dataclass(frozen=True)
 class Polar:
     """A place said as a radius and a bearing: the item's body centre
@@ -1118,7 +1147,11 @@ class Polar:
     Polar(16.0) slides round that ring, Polar(None, 90.0) slides out along
     that spoke. A polar place is a coordinate, so it does not turn the item;
     OnRim and ring() do. The bearing may be `Bearing(a, b, degrees)`, the
-    bearing of the line between two points, and then needs a radius."""
+    bearing of the line between two points, and then needs a radius.
+    The radius may be a range, `(r_min, r_max)`: Polar((r_min, r_max), None)
+    searches the band between the two radii (two freedoms), and with a
+    bearing it slides out along that spoke within the range. A range is a
+    place's alone, not a cutout's or a keepout's."""
     radius: object
     angle: object = None
     about: object = None
@@ -1128,9 +1161,25 @@ class Polar:
             raise ValueError("a Polar place needs a radius, a bearing, or both")
         if self.angle is not None and not isinstance(self.angle, Bearing):
             bearing(self.angle)
-        if self.radius is not None and (isinstance(self.radius, bool)
-                                        or not isinstance(self.radius, (int, float)) or self.radius < 0):
+        if isinstance(self.radius, list):
+            object.__setattr__(self, "radius", tuple(self.radius))
+        if isinstance(self.radius, tuple):
+            if (len(self.radius) != 2 or any(isinstance(r, bool) or not isinstance(r, (int, float))
+                                             for r in self.radius)
+                    or not 0 <= self.radius[0] < self.radius[1]):
+                raise ValueError("a Polar radius range is (r_min, r_max), distances from the centre with "
+                                 "0 <= r_min < r_max, not %r" % (self.radius,))
+            if isinstance(self.angle, Bearing):
+                raise TypeError("a Polar radius range has no radius to measure a Bearing of two points by; "
+                                "give a bearing as a number, or leave it None to search the band")
+        elif self.radius is not None and (isinstance(self.radius, bool)
+                                          or not isinstance(self.radius, (int, float)) or self.radius < 0):
             raise ValueError("a Polar radius is a distance from the board's centre, not %r" % (self.radius,))
+
+    @property
+    def band(self) -> tuple | None:
+        """(r_min, r_max) when the radius is a range, else None."""
+        return self.radius if isinstance(self.radius, tuple) else None
 
 
 @dataclass(frozen=True)

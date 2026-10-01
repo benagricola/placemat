@@ -24,7 +24,8 @@ def explorable(intent) -> bool:
     return (intent.freedom is Freedom.SEARCHED and not intent.turns_on_point
             and intent.edge is None and intent.run is None
             and intent.rim is None and intent.pin_x is None and intent.pin_y is None
-            and intent.angle is None and intent.radius_at is None)
+            and intent.angle is None and intent.radius_at is None
+            and intent.tangent is None and intent.band is None)
 
 
 class FocusError(ValueError):
