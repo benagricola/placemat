@@ -35,11 +35,11 @@ def make_board(*insts, margin=0.5, keep_going=False):
     return Board(board_geometry(fps, width=60, height=60), edge_margin=margin, keep_going=keep_going)
 
 
-def place_at(declare, y):
-    """Put a 4 mm part with its centre at (20, y) and say what happened."""
+def place_at(declare, y, x=20.0):
+    """Put a 4 mm part with its centre at (x, y) and say what happened."""
     b = make_board("u1")
     declare(b, [SLOT])
-    b.place(Part("u1"), at=Location(20.0, y))
+    b.place(Part("u1"), at=Location(x, y))
     try:
         b.resolve()
         return None
@@ -452,15 +452,23 @@ def test_the_web_is_the_narrowest_gap_to_anything():
 # ------------------------------------------------- the same on every board
 @pytest.mark.parametrize("name,declare,area", DECLARE, ids=[d[0] for d in DECLARE])
 def test_a_part_over_a_cutout_is_refused_whatever_the_board_is(name, declare, area):
-    assert place_at(declare, 28.0) == "body box 18.00,26.00..22.00,30.00 is inside a cutout"
+    assert place_at(declare, 28.0) == "body box 17.90,25.90..22.10,30.10 is inside a cutout"
 
 
 @pytest.mark.parametrize("name,declare,area", DECLARE, ids=[d[0] for d in DECLARE])
-def test_a_cutout_holds_a_part_off_by_the_keep_in(name, declare, area):
-    """The slot's top face is at 26.5 and the keep-in is 0.5, so a part whose
-    body reaches 26.0 is the last one that fits."""
-    assert place_at(declare, 23.9) is None                      # body to 25.9: 0.6 mm clear
-    assert place_at(declare, 24.1) == "body box 18.00,22.10..22.00,26.10 is past the cutout's keep-in (0.50 mm)"
+def test_a_cutout_holds_a_parts_copper_off_by_the_keep_in(name, declare, area):
+    """The slot's west tip is at x = 11.5 and the keep-in is 0.5. The part's pads stand 0.1 inside its
+    body and its courtyard 0.1 outside it, so its pad edge is its centre + 1.9: the last copper that
+    fits is at 11.0, centre 9.1."""
+    assert place_at(declare, 28.0, 9.1) is None                 # pads to 11.0: 0.5 mm clear
+    why = place_at(declare, 28.0, 9.3)                          # pads to 11.2: 0.3 clear, the courtyard 0.1 clear
+    assert why.startswith("copper to edge: box 7.40,27.50..11.20,28.50 is past the cutout's keep-in (0.50 mm)"), why
+
+
+@pytest.mark.parametrize("name,declare,area", DECLARE, ids=[d[0] for d in DECLARE])
+def test_a_cutout_holds_a_courtyard_off_by_the_cutout_itself_only(name, declare, area):
+    why = place_at(declare, 28.0, 9.45)                         # its courtyard over the tip
+    assert why.startswith("body box 7.35,25.90..11.55,30.10 is past the cutout's keep-in (0.00 mm)"), why
 
 
 @pytest.mark.parametrize("name,declare,area", DECLARE, ids=[d[0] for d in DECLARE])

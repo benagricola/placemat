@@ -1228,15 +1228,9 @@ class Occupancy:
         `why_not` call), so unlike the near-obstacle search below there is
         nothing to gain from deferring them - `legal()` and `legal_bucket()`
         both call this and return its answer unchanged when it fires."""
-        # A cell whose box fails is judged again by its members' boxes: the
-        # box of an L-shaped cell has an empty corner that may sit in a
-        # keepout or past a round board's rim.
         parts = None
         if self.edge_margin is not None and not past_edge:
-            why = self._edge_why(body)
-            if why and geom.parts:
-                parts = self._shifted_parts(geom, placement)
-                why = next((w for w in map(self._edge_why, parts) if w), None)
+            why = self._item_edge_why(geom, placement)
             if why and by_corners and self.board_shape is not None and self._corners_inside(geom, placement):
                 # a decided part turned off the axes, or a member drawn as an arc: its box's corner passes a
                 # round rim, the part does not. Only for a place the script decided: a scan judges by boxes,
@@ -1275,20 +1269,106 @@ class Occupancy:
                       for s in geom.shapes)
         return {face} | ({Face.FRONT, Face.BACK} if through else set())
 
-    def _edge_why(self, body: Box) -> str | None:
-        """What the board's edge says of a body box, or None."""
+    def _edge_why(self, body: Box, margin: float | None = None, label: str = "body box") -> str | None:
+        """What the board's edge says of a box held `margin` (default the
+        keep-in) inside it, or None. `label` names the box in the sentence."""
+        margin = self.edge_margin if margin is None else margin
         if self.board_shape is not None:
-            why = self.board_shape.why_not(body, self.edge_margin)
-            return ("body box %s is %s" % (_fmt(body), why)) if why else None
+            why = self.board_shape.why_not(body, margin)
+            return ("%s %s is %s" % (label, _fmt(body), why)) if why else None
         if self.board_box is not None:
-            inner = self.board_box.inflate(-self.edge_margin)
+            inner = self.board_box.inflate(-margin)
             if not inner.contains(body):
-                return "body box %s crosses the board edge margin (%.2f mm)" % (_fmt(body), self.edge_margin)
+                return "%s %s crosses the board edge margin (%.2f mm)" % (label, _fmt(body), margin)
             if self.board_cutouts:
-                why = self.board_cutouts.why_not(body, self.edge_margin)
+                why = self.board_cutouts.why_not(body, margin)
                 if why:
-                    return "body box %s is %s" % (_fmt(body), why)
+                    return "%s %s is %s" % (label, _fmt(body), why)
         return None
+
+    @property
+    def flat_edge_margin(self) -> float:
+        """The margin a courtyard or body is held inside the edge by: the
+        edge itself, to within `FLAT_EDGE_MARGIN` so that a box crossing a
+        cutout's or an outline's side is caught (a box test with no margin
+        cannot see it), and no more than the keep-in."""
+        return min(self.edge_margin, FLAT_EDGE_MARGIN)
+
+    def _item_edge_why(self, geom: ItemGeometry, placement: Placement) -> str | None:
+        """What the board's edge says of an item at a placement, by boxes.
+        KiCad keeps copper `edge_margin` from the edge (copper_edge_clearance,
+        drc_test_provider_edge_clearance.cpp) and has no such rule for a
+        courtyard, which only has to stay on the board: so the courtyard and
+        body box is judged against the edge itself, and the copper's box
+        against the keep-in. A cell whose box fails is judged again by its
+        members' boxes: the box of an L-shaped cell has an empty corner that
+        may sit in a keepout or past a round board's rim."""
+        flat, flat_parts, copper, copper_parts = self._shifted_edge_boxes(geom, placement)
+        why = self._edge_why(flat, self.flat_edge_margin)
+        if why and geom.parts:
+            why = next((w for w in (self._edge_why(b, self.flat_edge_margin) for b in flat_parts) if w), None)
+        if why or copper is None:
+            return why
+        why = self._edge_why(copper, label=_COPPER_LABEL)
+        if why and geom.parts:
+            why = next((w for w in (self._edge_why(b, label=_COPPER_LABEL) for b in copper_parts if b is not None)
+                        if w), None)
+        return why
+
+    def edge_boxes(self, geom: ItemGeometry) -> tuple:
+        """What the edge judges of an item, as it stands: (the box of its
+        courtyard and body, that box for each of a cell's parts, the box
+        of its copper or None, that for each part or None). The courtyard is
+        the one its envelope claims; the copper is its pads and the copper
+        it carries (a pad, a through pad, a copper graphic or via)."""
+        hit = geom.__dict__.get("_edge_boxes")
+        if hit is None:
+            flat_kinds = ("courtyard", "body")
+            flat = [s.box for s in geom.shapes if s.kind in flat_kinds]
+            copper = [s.box for s in geom.shapes if s.kind in _COPPERISH]
+            flat_parts, copper_parts = [], []
+            if geom.parts:
+                n = len(geom.part_refs)
+                name = next((o for o in geom.owners if o not in geom.part_refs and o not in self._footprint_refs),
+                            None)
+                for k, ref in enumerate(geom.part_refs):
+                    mine = [s for s in geom.shapes if s.owner == ref]
+                    flat_parts.append(Box.union([geom.parts[k]] + [s.box for s in mine if s.kind in flat_kinds]))
+                    cu = [s.box for s in mine if s.kind in _COPPERISH]
+                    copper_parts.append(Box.union(cu) if cu else None)
+                own = [s for s in geom.shapes if s.owner == name]
+                for k, s in enumerate(own):
+                    flat_parts.append(geom.parts[n + k])
+                    copper_parts.append(s.box if s.kind in _COPPERISH else None)
+            hit = (Box.union([geom.body] + flat), tuple(flat_parts), Box.union(copper) if copper else None,
+                   tuple(copper_parts))
+            geom.__dict__["_edge_boxes"] = hit
+        return hit
+
+    def origin_edge_boxes(self, geom: ItemGeometry, rotation: float, face) -> tuple:
+        """`edge_boxes` turned and faced at the origin, unrounded."""
+        cache = self.__dict__.setdefault("_edge_cache", {})
+        key = (id(geom), rotation, face)
+        hit = cache.get(key)
+        if hit is None or hit[0] is not geom:
+            t = self._transform(geom, Placement(Location(0.0, 0.0), rotation, face))
+            flat, flat_parts, copper, copper_parts = self.edge_boxes(geom)
+
+            def turned(b):
+                return None if b is None else transform_box(b, t)
+            hit = (geom, (turned(flat), [turned(b) for b in flat_parts], turned(copper),
+                          [turned(b) for b in copper_parts]))
+            cache[key] = hit
+        return hit[1]
+
+    def _shifted_edge_boxes(self, geom: ItemGeometry, placement: Placement) -> tuple:
+        dx, dy = placement.location.x, placement.location.y
+
+        def shifted(b):
+            return None if b is None else Box(_clean(b.left + dx), _clean(b.top + dy),
+                                              _clean(b.right + dx), _clean(b.bottom + dy))
+        flat, flat_parts, copper, copper_parts = self.origin_edge_boxes(geom, placement.rotation, placement.face)
+        return shifted(flat), [shifted(b) for b in flat_parts], shifted(copper), [shifted(b) for b in copper_parts]
 
     def origin_parts(self, geom: ItemGeometry, rotation: float, face) -> list:
         """A cell's member boxes (`parts`) turned and faced at the origin."""
@@ -1303,13 +1383,15 @@ class Occupancy:
 
     def _corners_inside(self, geom: ItemGeometry, placement: Placement) -> bool:
         """Every corner of every shape the part is made of - pads, body,
-        courtyard, as the envelope claims them - inside the board's shape
-        with the keep-in to spare. On a round board a convex shape whose
-        corners are inside is inside."""
+        courtyard, as the envelope claims them - inside the board's shape: a
+        pad or copper with the keep-in to spare, the rest inside the edge
+        itself. On a round board a convex shape whose corners are inside is
+        inside."""
         t = self._transform(geom, placement)
-        corners = [pt for s in geom.shapes if s.kind != "npth" for pt in transform_polygon(s.poly, t)]
-        return bool(corners) and all(self.board_shape.why_not(Box(x, y, x, y), self.edge_margin) is None
-                                     for x, y in corners)
+        corners = [(pt, self.edge_margin if s.kind in _COPPERISH else 0.0)
+                   for s in geom.shapes if s.kind != "npth" for pt in transform_polygon(s.poly, t)]
+        return bool(corners) and all(self.board_shape.why_not(Box(x, y, x, y), margin) is None
+                                     for (x, y), margin in corners)
 
     def _shifted_parts(self, geom: ItemGeometry, placement: Placement) -> list:
         dx, dy = placement.location.x, placement.location.y
@@ -2275,12 +2357,32 @@ _EDGE_WHY = {1: "outside the board", 2: "inside a cutout", 3: "past the board's 
              6: "into the bore's keep-in (%.2f mm)"}
 
 
+FLAT_EDGE_MARGIN = 2e-5
+"""How far inside the edge a courtyard or body is held, mm (native/src/board.rs
+`FLAT_EDGE_MARGIN`): twice the nanometre a placement is rounded to, which is
+the least a box test sees a box crossing a cutout or an outline's side by."""
+COPPER_EDGE = 16
+"""Added to a native edge code that refuses an item's copper (judged at the
+keep-in) rather than its courtyard and body (judged against the edge itself)."""
+_COPPER_LABEL = "copper to edge: box"
+
+
+def _ltrb(b: Box) -> tuple:
+    return (b.left, b.top, b.right, b.bottom)
+
+
 def edge_sentence(code: int, body: Box, margin: float) -> str:
-    """The sentence `_edge_or_reservation_conflict` gives for a native edge code."""
+    """The sentence `_item_edge_why` gives for a native edge code: `margin`
+    is the keep-in, which a copper code is judged at and any other code is not."""
+    label = _COPPER_LABEL if code >= COPPER_EDGE else "body box"
+    if code >= COPPER_EDGE:
+        code -= COPPER_EDGE
+    else:
+        margin = min(margin, FLAT_EDGE_MARGIN)
     if code == 7:
-        return "body box %s crosses the board edge margin (%.2f mm)" % (_fmt(body), margin)
+        return "%s %s crosses the board edge margin (%.2f mm)" % (label, _fmt(body), margin)
     why = _EDGE_WHY[code]
-    return "body box %s is %s" % (_fmt(body), why % margin if "%" in why else why)
+    return "%s %s is %s" % (label, _fmt(body), why % margin if "%" in why else why)
 
 
 class NativeSweeper:
@@ -2300,6 +2402,7 @@ class NativeSweeper:
         geom = occ._geometry(item)
         self.geom = geom
         self.handles, self.origin, self.bodies, self.parts = [], [], [], []
+        self.edges, self.edge_parts = [], []
         for rot in self.rots:
             at = Placement(Location(0.0, 0.0), rot, face)
             if leave_out:               # the item's own net ties: judged in Python, on the candidates this pass accepts
@@ -2313,6 +2416,10 @@ class NativeSweeper:
             b = occ.origin_body_box(item, rot, face)
             self.bodies.append((b.left, b.top, b.right, b.bottom))
             self.parts.append([(p.left, p.top, p.right, p.bottom) for p in occ.origin_parts(geom, rot, face)])
+            flat, flat_parts, copper, copper_parts = occ.origin_edge_boxes(geom, rot, face)
+            self.edges.append((_ltrb(flat), None if copper is None else _ltrb(copper)))
+            self.edge_parts.append([(_ltrb(f), None if c is None else _ltrb(c))
+                                    for f, c in zip(flat_parts, copper_parts)])
         faces = occ.standing_faces(geom, face)
         self.reservations = [i for i, r in enumerate(occ.reservations)
                              if not (r.layer is not None and r.layer.face not in faces)
@@ -2364,9 +2471,10 @@ class NativeSweeper:
     def _native_run(self, triples, stop_at_first: bool, scoring=None):
         from . import geometry as _g
         legal, scores, refused = _g._native.sweep(self.board, self.reservations, self.index, self.handles,
-                                                  self.bodies, triples, self.clearance, stop_at_first, scoring,
-                                                  self.parts if self.geom.parts else None,
-                                                  self.judged if self.geom.parts else None)
+                                                  self.bodies, self.edges, triples, self.clearance, stop_at_first,
+                                                  scoring, self.parts if self.geom.parts else None,
+                                                  self.judged if self.geom.parts else None,
+                                                  self.edge_parts if self.geom.parts else None)
         out = []
         for kind, a, b, count, first in refused:
             bucket, blocker, reason = self._decode(kind, a, b, triples[first])
@@ -2407,7 +2515,10 @@ class NativeSweeper:
         cand = Placement(Location(x, y), self.rots[turn], self.face)
         if kind == 0:
             def box():              # b: the member whose box the edge refused, 1-based; 0 the whole box
-                return occ.shifted_body_box(self.item, cand) if b == 0 else occ._shifted_parts(self.geom, cand)[b - 1]
+                flat, flat_parts, copper, copper_parts = occ._shifted_edge_boxes(self.geom, cand)
+                if a >= COPPER_EDGE:
+                    return copper if b == 0 else copper_parts[b - 1]
+                return flat if b == 0 else flat_parts[b - 1]
             key = ("edge", a)
             hit = self._decoded.get(key)
             if hit is None:

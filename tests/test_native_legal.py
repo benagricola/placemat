@@ -41,19 +41,9 @@ def _native_legal(occ: Occupancy, item, placement: Placement, clearance=None):
     from placemat.occupancy import Blocker
     geom = occ._geometry(item)
     body = occ.shifted_body_box(item, placement)
-    if occ.edge_margin is not None:
-        if occ.board_shape is not None:
-            why = occ.board_shape.why_not(body, occ.edge_margin)
-            if why:
-                return "body box %s is %s" % (_fmt(body), why), [Blocker("edge", "", frozenset())]
-        elif occ.board_box is not None:
-            inner = occ.board_box.inflate(-occ.edge_margin)
-            if not inner.contains(body):
-                return "edge", [Blocker("edge", "", frozenset())]
-            if occ.board_cutouts:
-                why = occ.board_cutouts.why_not(body, occ.edge_margin)
-                if why:
-                    return "cutout", [Blocker("edge", "", frozenset())]
+    why = occ._item_edge_why(geom, placement) if occ.edge_margin is not None else None
+    if why:
+        return why, [Blocker("edge", "", frozenset())]
     faces = {placement.face} | ({Face.FRONT, Face.BACK} if any(s.kind in ("through", "npth") for s in geom.shapes) else set())
     for r in occ.reservations:
         if r.layer is not None and r.layer.face not in faces:

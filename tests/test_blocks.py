@@ -466,15 +466,17 @@ def test_a_block_may_be_placed_on_a_run():
 
 def test_a_block_may_overhang_the_edge_at_a_distance():
     """A block's anchor overhangs exactly as a lone part on the same OnEdge
-    would; a satellite still keeps clear of the edge margin - nothing in the
-    script declared its own reach past it."""
+    would; a satellite's copper still keeps the edge margin - nothing in the
+    script declared its own reach past it - and its body stays on the board."""
     b = make_board()
     blk = b.block(Part("ldo"), satellites=[(Part("cin"), "VIN")], gap=0.5)
     b.place(blk, at=OnEdge(Edge.SOUTH, along=Along.MID, overhang=0.5))
     plan = b.resolve()
     assert declared_findings(plan) == []
     assert plan.box("ldo").bottom == pytest.approx(60.5, abs=0.05)   # 0.5 mm past the board edge
-    assert plan.box("cin").bottom <= 59.0 + 1e-6                     # the satellite still keeps the keep-in
+    assert plan.box("cin").bottom <= 60.0 + 1e-6                     # its body on the board
+    pads = [sh.box for sh in plan.occupancy.items["C1"].shapes if sh.kind == "pad"]
+    assert max(b.bottom for b in pads) <= 59.0 + 1e-6                # its copper at the keep-in
 
 
 def test_a_block_on_an_edge_with_no_along_may_overhang():

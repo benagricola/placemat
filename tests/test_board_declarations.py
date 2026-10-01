@@ -83,7 +83,9 @@ def test_the_board_size_is_a_declaration_and_bounds_the_search():
     b.place(Part("r1"), at=Near(Location(39, 15), radius=3.0, step=0.5))
     plan = b.resolve()
     assert plan.outline == Box(0, 0, 40.0, 30.0) and plan.chamfer == 2.0
-    assert plan.box("r1").right <= 40.0 - 1.0 + 1e-9
+    assert plan.box("r1").right <= 40.0 + 1e-9                  # the body on the board
+    pads = [sh.box for sh in plan.occupancy.items["R1"].shapes if sh.kind == "pad"]
+    assert max(b.right for b in pads) <= 40.0 - 1.0 + 1e-9      # the copper at the keep-in
 
 
 def test_extent_answers_size_at_a_rotation_without_placing():

@@ -35,7 +35,8 @@ def test_a_courtyard_is_kept_off_a_placed_parts_plated_lead():
 
 
 def test_a_plated_lead_is_kept_out_from_under_a_placed_parts_courtyard():
-    g, occ = _occ([footprint("J1", 30, 40, **LEADED), footprint("C1", 13.5, 10, w=2, h=1, nets=("C", "D"),
+    leaded = dict(LEADED, fab=(28.0, 39.0, 32.0, 41.0))         # drawn where the part stands
+    g, occ = _occ([footprint("J1", 30, 40, **leaded), footprint("C1", 13.5, 10, w=2, h=1, nets=("C", "D"),
                                                                   excess=1.0, fab=(12.5, 9.5, 14.5, 10.5))])
     blame = []
     why = occ.legal(g.footprint("J1"), Placement(Location(10.0, 10.0), 0.0, Face.FRONT), blame=blame)
@@ -49,7 +50,7 @@ def test_a_courtyard_clear_of_the_lead_may_sit_there():
 
 
 def test_a_parts_own_lead_under_its_own_courtyard_is_its_own():
-    g, occ = _occ([footprint("J1", 30, 30, **LEADED)])
+    g, occ = _occ([footprint("J1", 30, 30, **dict(LEADED, fab=(28.0, 29.0, 32.0, 31.0)))])
     assert occ.legal(g.footprint("J1"), Placement(Location(10.0, 10.0), 0.0, Face.FRONT)) is None
 
 

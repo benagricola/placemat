@@ -165,6 +165,9 @@ pub const PAST_BOARD: u8 = 3;    // "past the board's keep-in (%.2f mm)"
 pub const PAST_CUTOUT: u8 = 4;   // "past the cutout's keep-in (%.2f mm)"
 pub const PAST_RIM: u8 = 5;      // "past the rim's keep-in (%.2f mm)"
 pub const INTO_BORE: u8 = 6;     // "into the bore's keep-in (%.2f mm)"
+/// `occupancy.FLAT_EDGE_MARGIN`: how far inside the edge a courtyard or body is held.
+pub const FLAT_EDGE_MARGIN: f64 = 2e-5;
+pub const COPPER_EDGE: u8 = 16;  // added to a code that refuses an item's copper, judged at the keep-in
 pub const PAST_MARGIN: u8 = 7;   // "body box %s crosses the board edge margin (%.2f mm)"
 
 /// `Cutouts.why_not`.
@@ -198,7 +201,20 @@ impl Keepin {
     /// Why the body box may not be there, as `_edge_or_reservation_conflict`
     /// finds it; `None` when the edge allows it.
     pub fn why_not(&self, b: &B) -> Option<u8> {
+        self.why_not_at(b, self.margin?)
+    }
+
+    /// As `why_not`, for a box judged against the edge itself (`FLAT_EDGE_MARGIN`,
+    /// no more than the keep-in): a courtyard or body. A board with no edge
+    /// check allows it.
+    pub fn why_not_flat(&self, b: &B) -> Option<u8> {
         let margin = self.margin?;
+        self.why_not_at(b, pmin(margin, FLAT_EDGE_MARGIN))
+    }
+
+    /// `values.Disc.why_not`, `outline.Outline.why_not` and `Cutouts.why_not`
+    /// as `Occupancy._edge_why` asks them, at `margin`.
+    fn why_not_at(&self, b: &B, margin: f64) -> Option<u8> {
         match &self.shape {
             Shape::Rect { board, cutouts } => {
                 let d = -margin;
@@ -315,6 +331,18 @@ mod tests {
         assert_eq!(k.why_not(&B { l: 2.0, t: 2.0, r: 3.0, b: 3.0 }), None);
         assert_eq!(k.why_not(&B { l: 12.0, t: 2.0, r: 13.0, b: 3.0 }), Some(OUTSIDE));
         assert_eq!(k.why_not(&B { l: 0.2, t: 2.0, r: 1.0, b: 3.0 }), Some(PAST_BOARD));
+    }
+
+    #[test]
+    fn a_courtyard_is_held_to_the_edge_itself_and_copper_to_the_margin() {
+        let sq = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
+        let k = Keepin { margin: Some(0.5), shape: Shape::Outline { loops: Loops::new(&[sq]) } };
+        let near = B { l: 0.2, t: 2.0, r: 1.0, b: 3.0 };
+        assert_eq!(k.why_not_flat(&near), None);
+        assert_eq!(k.why_not(&near), Some(PAST_BOARD));
+        assert_eq!(k.why_not_flat(&B { l: -0.1, t: 2.0, r: 1.0, b: 3.0 }), Some(PAST_BOARD));
+        let none = Keepin { margin: None, shape: Shape::Rect { board: B { l: 0.0, t: 0.0, r: 1.0, b: 1.0 }, cutouts: Loops::new(&[]) } };
+        assert_eq!(none.why_not_flat(&B { l: 5.0, t: 5.0, r: 6.0, b: 6.0 }), None);
     }
 
     #[test]
