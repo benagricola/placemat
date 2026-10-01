@@ -18,9 +18,9 @@ def test_a_turned_part_whose_box_corner_passes_the_rim_but_it_does_not_is_placed
     # 4 x 1 turned 45: its box reaches 1.77 each way, its own corners 1.77 along one axis and 1.06
     # along the other; 7.62 north of the centre, the box's corner is past a 9.5 keep-in and the part is not
     plan = _disc(10.0 - 7.62)
-    assert not [f for f in plan.findings if "keep-in" in f or "board edge" in f], plan.findings
+    assert not [f for f in plan.findings if "keep-in" in f or "board edge" in f or " edge" in f], plan.findings
 
 
 def test_a_turned_part_that_does_pass_the_rim_is_still_refused():
     plan = _disc(10.0 - 8.2)
-    assert [f for f in plan.findings if "keep-in" in f or "outside" in f]
+    assert [f for f in plan.findings if "keep-in" in f or "outside" in f or " edge" in f]

@@ -5,6 +5,23 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- A cell placed by a member's origin (`Pin(Part(...), point)`) whose members are
+  arcs on a round board, with copper at the keep-in, was refused "body box ...
+  is past the board's keep-in (0.00 mm)" although its courtyard, body and
+  copper were inside. Judged by its shapes, a corner of copper drawn as an arc
+  stood a few microns past the keep-in: copper is read as a polygon the arc
+  error (`[geometry] arc_error_nm`) outside the arc it is drawn as, and a
+  board drawn with `board.outline` is flattened with chords inside its curves
+  (`[geometry] arc_sag`) where `board.disc` is exact. A decided place's copper
+  corners are now eased by those errors against the keep-in; copper further
+  past it, and a courtyard or body that crosses the edge, are still refused.
+  A refusal of a courtyard or body names the edge ("is past the board
+  edge", "crosses the board edge") where it read "keep-in (0.00 mm)".
+
 ## To 0.72.0
 
 ### New

@@ -13,6 +13,7 @@ from __future__ import annotations
 import dataclasses
 import functools
 import math
+import re
 from dataclasses import dataclass
 
 from . import geometry as _geometry_module
@@ -20,6 +21,7 @@ from . import kicad_collide as _kc
 from .geometry import (_clean, PolyRaster, Polygon, Transform, box_polygon, circle_polygon, poly_distance,
                        point_in_polygon, point_segment_distance, polys_overlap, transform_box,
                        transform_polygon)
+from .outline import Outline
 from .placement import Placement
 from .settings import Settings
 from .board_geometry import CellGeom, Footprint, BoardGeometry, stackup_order
@@ -1247,11 +1249,12 @@ class Occupancy:
         parts = None
         if self.edge_margin is not None and not past_edge:
             why = self._item_edge_why(geom, placement)
-            if why and by_corners and self.board_shape is not None and self._corners_inside(geom, placement):
+            if why and by_corners and self.board_shape is not None:
                 # a decided part turned off the axes, or a member drawn as an arc: its box's corner passes a
                 # round rim, the part does not. Only for a place the script decided: a scan judges by boxes,
                 # natively and in Python alike
-                why = None
+                if self._corners_inside(geom, placement):
+                    why = None
             if why:
                 if blame is not None:
                     blame.append(Blocker("edge", "", frozenset()))
@@ -1306,15 +1309,15 @@ class Occupancy:
         margin = self.edge_margin if margin is None else margin
         if self.board_shape is not None:
             why = self.board_shape.why_not(body, margin)
-            return ("%s %s is %s" % (label, _fmt(body), why)) if why else None
+            return ("%s %s is %s" % (label, _fmt(body), _edge_named(why, margin))) if why else None
         if self.board_box is not None:
             inner = self.board_box.inflate(-margin)
             if not inner.contains(body):
-                return "%s %s crosses the board edge margin (%.2f mm)" % (label, _fmt(body), margin)
+                return "%s %s crosses the board edge%s" % (label, _fmt(body), _margin_of(margin))
             if self.board_cutouts:
                 why = self.board_cutouts.why_not(body, margin)
                 if why:
-                    return "%s %s is %s" % (label, _fmt(body), why)
+                    return "%s %s is %s" % (label, _fmt(body), _edge_named(why, margin))
         return None
 
     @property
@@ -1417,9 +1420,18 @@ class Occupancy:
         courtyard, as the envelope claims them - inside the board's shape: a
         pad or copper with the keep-in to spare, the rest inside the edge
         itself. On a round board a convex shape whose corners are inside is
-        inside."""
+        inside.
+
+        Copper is read as a polygon a few microns outside the arc it is drawn
+        as, and an outline's curves are flattened with chords inside the real
+        edge, so the keep-in is eased by those errors: KiCad measures the
+        drawn copper to the real edge."""
         t = self._transform(geom, placement)
-        corners = [(pt, self.edge_margin if s.kind in _COPPERISH else 0.0)
+        slack = self.settings.geometry_arc_error_nm * 1e-6
+        if isinstance(self.board_shape, Outline):
+            slack += self.settings.geometry_arc_sag
+        copper = max(self.edge_margin - slack, 0.0)
+        corners = [(pt, copper if s.kind in _COPPERISH else 0.0)
                    for s in geom.shapes if s.kind != "npth" for pt in transform_polygon(s.poly, t)]
         return bool(corners) and all(self.board_shape.why_not(Box(x, y, x, y), margin) is None
                                      for (x, y), margin in corners)
@@ -2398,6 +2410,23 @@ keep-in) rather than its courtyard and body (judged against the edge itself)."""
 _COPPER_LABEL = "copper to edge: box"
 
 
+def _is_flat(margin: float) -> bool:
+    """Whether a margin is the one a courtyard or body is held at: the edge itself."""
+    return margin <= FLAT_EDGE_MARGIN
+
+
+def _margin_of(margin: float) -> str:
+    return "" if _is_flat(margin) else " margin (%.2f mm)" % margin
+
+
+def _edge_named(why: str, margin: float) -> str:
+    """A refusal sentence from a box test, saying "edge" where the margin is the edge itself rather
+    than a keep-in: "past the board's keep-in (0.00 mm)" is "past the board edge"."""
+    if not _is_flat(margin):
+        return why
+    return re.sub(r"'s keep-in \(\d+\.\d+ mm\)", " edge", why)
+
+
 def _ltrb(b: Box) -> tuple:
     return (b.left, b.top, b.right, b.bottom)
 
@@ -2411,9 +2440,9 @@ def edge_sentence(code: int, body: Box, margin: float) -> str:
     else:
         margin = min(margin, FLAT_EDGE_MARGIN)
     if code == 7:
-        return "%s %s crosses the board edge margin (%.2f mm)" % (label, _fmt(body), margin)
+        return "%s %s crosses the board edge%s" % (label, _fmt(body), _margin_of(margin))
     why = _EDGE_WHY[code]
-    return "%s %s is %s" % (label, _fmt(body), why % margin if "%" in why else why)
+    return "%s %s is %s" % (label, _fmt(body), _edge_named(why % margin if "%" in why else why, margin))
 
 
 class NativeSweeper:

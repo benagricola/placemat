@@ -468,7 +468,7 @@ def test_a_cutout_holds_a_parts_copper_off_by_the_keep_in(name, declare, area):
 @pytest.mark.parametrize("name,declare,area", DECLARE, ids=[d[0] for d in DECLARE])
 def test_a_cutout_holds_a_courtyard_off_by_the_cutout_itself_only(name, declare, area):
     why = place_at(declare, 28.0, 9.45)                         # its courtyard over the tip
-    assert why.startswith("body box 7.35,25.90..11.55,30.10 is past the cutout's keep-in (0.00 mm)"), why
+    assert why.startswith("body box 7.35,25.90..11.55,30.10 is past the cutout edge"), why
 
 
 @pytest.mark.parametrize("name,declare,area", DECLARE, ids=[d[0] for d in DECLARE])

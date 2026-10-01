@@ -44,7 +44,7 @@ def _sector(copper_reach, courtyard_reach, a0=190.0, a1=260.0, cell="ring"):
 
 
 def _edge_findings(plan):
-    return [f for f in plan.findings if "keep-in" in str(f) or "board edge" in str(f) or "outside" in str(f)]
+    return [f for f in plan.findings if "keep-in" in str(f) or "board edge" in str(f) or "outside" in str(f) or " edge" in str(f)]
 
 
 def _board(fp):
