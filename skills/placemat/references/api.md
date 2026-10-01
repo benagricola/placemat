@@ -126,7 +126,7 @@ request (SKILL.md, "When no form says it").
 | a pour over a set of pads, fitted round other nets' copper | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True)`: a graphic polygon holding the pads' copper, every edge at least the clearance from other copper | Copper calls (A fitted pour) |
 | a pour on an inner layer joining vias | `board.pour(net, [vias, PadRef(...), ...], layer=, swallow_pads=True)`: members are pads and the vias `via()`, `vias()` and a lane's `.via` return | Copper calls (A fitted pour) |
 | a pour over the hull or the box round a set of pads, drawn as declared | `board.pour(net, [PadRef(...), ...], layer=, cover=Cover.HULL)` (or `Cover.BOX`) | Copper calls (What a pour over pads covers) |
-| a pour that reaches past its pads into the room round them | `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True, reach=mm)`: the fitted outline grown by `reach` into the room round it, cut back by other nets' clearance outlines planned before it. `grow=` and `within=` are gone; for ground or a plane net, `board.plane(net, layers, over=[...])` | Copper calls (A fitted pour) |
+| a pour that reaches past its pads into the room round them, by a distance with no fact behind it | an escape hatch, as a coordinate is (SKILL.md, "When no form says it"): `board.pour(net, [PadRef(...), ...], layer=, swallow_pads=True, reach=mm)` only on the user's yes for that declaration. Where the net's current is known, the pour widened to its current need is the form. `grow=` and `within=` are gone; for ground or a plane net, `board.plane(net, layers, over=[...])` | Copper calls (A fitted pour) |
 | a neck between two pads, as wide as the narrower or `width=` | `board.pour(net, [PadRef(a), PadRef(b)], layer=, width=)` | Copper calls |
 | a wide pour along a centreline into a pad | `board.finger(net, from_=, to=, width=)` | Copper calls |
 | a finger as wide as a named pad | `board.finger(net, from_=, to=, width=PadRef(...))` | Copper calls |
@@ -2195,8 +2195,9 @@ copper finding, and nothing is cut from it.
 
 **No grown pour.** `board.pour` takes no `grow=` or `within=`: a pour is
 fitted, never a KiCad zone grown from its pads. A pour that reaches past its
-pads into the room round them is `board.pour(net, pads, layer=,
-swallow_pads=True, reach=mm)` (A fitted pour), and for ground or a plane net,
+pads into the room round them is the pour widened to its net's current need,
+or, as an escape hatch the user approves, `board.pour(net, pads, layer=,
+swallow_pads=True, reach=mm)` (A fitted pour); for ground or a plane net,
 `board.plane(net, layers, over=[...])`. `board.stitch(net, pour)` over a
 fitted pour places its vias inside the pour's outline as planned.
 
@@ -2248,10 +2249,14 @@ one part joined to the members, each is a polygon. Copper that stands wholly
 inside the grown ring leaves a hole, drawn as KiCad draws a zone fill's: one
 polygon whose outline goes in to the hole and back by a bridge of no width.
 Copper planned after the pour keeps clear of the grown copper as for any
-fitted pour. Use it where the hull of the pads is narrower than the current
-the net carries (`placemat check current-path`): `reach=` adds that much on
-every side the room allows, so a hull 1.4 mm across with `reach=0.4` is 2.2 mm
-across where nothing is in the way. The narrow-neck finding is not made for a
+fitted pour. `reach=` adds that much on every side the room allows, so a
+hull 1.4 mm across with `reach=0.4` is 2.2 mm across where nothing is in the
+way. **It is an escape hatch, as a coordinate is:** the distance stands in for
+a fact the design does not hold yet (no current known for the net, a pour
+wanted thick so tracks can be routed round it by hand), so a script uses it
+only on the user's explicit yes for that one declaration (SKILL.md, "When no
+form says it"). Where the net's current is known, the pour widened to its
+current need is the form, and it names no distance. The narrow-neck finding is not made for a
 pour with `reach=`. It is refused with `width=`, without `swallow_pads=True`,
 and for a distance of 0 or less; it needs KiCad's pcbnew at plan time, whose
 polygon booleans it uses.

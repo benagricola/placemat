@@ -13,11 +13,14 @@ section for each hand-written pattern a newer form replaces.
   swallow_pads=True, reach=mm)` grows the pour's copper into the room round
   it. The fitted outline is grown by `reach`, cut back by the clearance
   outline of every other net's copper planned before the pour, and of what is
-  left the part joined to the members is drawn, as graphic polygon(s). It
-  replaces what a `grow=` pour did for current width: a hull narrower than the
-  net's `current-path` need gets `reach=` of the difference over two. `reach=`
-  needs pcbnew at plan time (KiCad's polygon booleans) and is refused with
-  `width=` or without `swallow_pads=True`.
+  left the part joined to the members is drawn, as graphic polygon(s).
+  `reach=` is a distance in place of a fact, so it is an escape hatch, as a
+  coordinate is: a script uses it only on the user's yes for that one
+  declaration, where the design does not yet hold the facts the intent form
+  needs (no current known for the net, a pour wanted thick to route round by
+  hand). Where the net's current is known, the pour widened to its current
+  need is the form. `reach=` needs pcbnew at plan time (KiCad's polygon
+  booleans) and is refused with `width=` or without `swallow_pads=True`.
 
 - **`Facing` on a part with no pad rows**: a ball in a grid, a square pad at
   a corner of the pad field or a lone pad has the direction from the pad
@@ -53,20 +56,6 @@ section for each hand-written pattern a newer form replaces.
   "Either face".
 
 ### Migration steps
-
-**A fitted pour that replaced a `grow=` pour and lost current width gets
-`reach=`.** The 0.70.0 step turned `grow=mm` into a fitted pour, which is the
-hull of its pads where the grown pour was the hull grown by `mm`. Where
-`placemat check current-path` now reports the net narrower than it needs, add
-`reach=<the old grow>`.
-
-```python
-# before (0.70.0): the hull alone; current-path reports a neck narrower than the net needs
-board.pour(Net("<NET>"), [PadRef(Part("a"), "<PAD>"), PadRef(Part("b"), "<PAD>")], layer=CopperLayer.F, swallow_pads=True)
-# after: the hull grown into the room round it, cut back from other nets
-board.pour(Net("<NET>"), [PadRef(Part("a"), "<PAD>"), PadRef(Part("b"), "<PAD>")], layer=CopperLayer.F, swallow_pads=True,
-           reach=<the old grow>)
-```
 
 **A turn computed to read where a pad lands becomes `SideOf`.**
 
