@@ -344,7 +344,7 @@ class Escapes:
 
     def _joined(self, ref: str, number: str, net: str) -> bool:
         """Whether copper of the pad's own net already leaves it: a track from it, a via in
-        it, a pour over it (a grown pour is held as its pads' hull). Its way out is made."""
+        it, a pour over it. Its way out is made."""
         occ = self.occ
         for p in self._blockers.get(ref, ()):
             if p.label != number:
