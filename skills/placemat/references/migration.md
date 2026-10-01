@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.72.0
 
 ### New
 
@@ -2307,7 +2307,7 @@ that says what replaces it.
 | a rotation constant for a part parallel to a line between pads | To 0.69.0 |
 | a rotation constant checked by an `assert` on pad positions | To 0.69.0 |
 | a pour with `grow=` reaching past its pads | To 0.70.0 |
-| a computed `0 if ... else 180` turn or a `*_EAST` flag read back to pick a `Beside` side, a turn or a row order | Unreleased |
+| a computed `0 if ... else 180` turn or a `*_EAST` flag read back to pick a `Beside` side, a turn or a row order | To 0.72.0 |
 | lane lines worked out as pin tips plus track, clearance and via steps | To 0.65.0 |
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |
-| a searched cell or part pinned to `face=Face.BACK` (or `FRONT`) by hand only because one face was full | Unreleased |
+| a searched cell or part pinned to `face=Face.BACK` (or `FRONT`) by hand only because one face was full | To 0.72.0 |

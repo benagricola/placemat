@@ -6,34 +6,12 @@ file. An item cites its source as "a board's session, <date>".
 
 ## In progress
 
-- **A cell searched on either face** (a board's session, 2026-10-01; the
-  user's words, relayed: "For stuff that doesn't _need_ to be on the front
-  face, we should be searching both faces anyway"): `face=` takes FRONT or
-  BACK only, so each searched cell is pinned to a face by hand. The search
-  should try both faces for an item that need not face something, scored as
-  spots are now. To be specced.
-
-- **A fitted pour that reaches into the room round its members** (a board's
-  session, 2026-10-01, after 0.70.0 removed `grow=`): a switch node's fitted
-  pour stops at its pads' hull and now fails its current-path width; a pour
-  over adjacent pins is refused where the footprint's own pin gap is below
-  the clearance. `reach=mm` on a fitted pour, and a pad held to its own edge
-  where its footprint sets the gap. Being built.
-
-- **Facing on a ball grid, in a row, and a side by where a pad lands** (a
-  board's session, 2026-10-01): `Facing` refuses a pad with no row (a 2x2
-  ball grid); `row()` takes no `Facing`; scripts still compute a turn to
-  read which side a pad lands on. Being built.
-
 - **current-path weighs a neck's length; a keep-out limit per part** (a
   board's session, 2026-10-01; the user's words relayed): a pour necking
   between a package's adjacent pads cannot be widened, and a short neck
   should be judged by its length too; regulators' datasheets put feedback
   closer to the switch node than the board-wide keep-out, so the limit
   belongs on the part, cited. Being built.
-
-- **Labels kept on the board** (found building labels that yield): a label
-  giving way is not checked against the outline. Being fixed.
 
 - **The corner-45 check judges other layers' pads; a load with several
   pins** (a board's session, 2026-10-01): an inner-layer track past a corner
@@ -277,6 +255,18 @@ file. An item cites its source as "a board's session, <date>".
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Pours to their current, Facing everywhere, either face, KiCad's edge
+  rule, labels that never cost a place** (0.72.0; specs
+  `2026-10-01-fitted-pour-reach-design.md`, `2026-10-01-pour-to-current-design.md`,
+  `2026-10-01-facing-grids-rows-sides-design.md`, `2026-10-01-either-face-design.md`,
+  `2026-10-01-labels-yield-to-searches-design.md`): `reach=Reach.CURRENT`
+  widens a fitted pour to its net's current need (`reach=mm` an escape
+  hatch); a pour holds the part of a pad outside a neighbour's clearance;
+  `Facing` on grids and in rows, `SideOf`, `toward=`, `row(over=)`;
+  `face=Face.EITHER` with `score.back_face`; copper to the keep-in,
+  courtyard and body to the edge; searched items do not see labels, and a
+  label stays on the board.
 
 - **The net-tie stall, labels give way, an in-pad via leaves its pad**
   (0.71.0; specs `2026-10-01-labels-give-way-design.md`,
