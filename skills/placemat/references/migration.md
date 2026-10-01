@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.65.2
 
 A track from a net tie's pad across the tie's own copper is judged where
 KiCad's DRC judges it: at the track's collision position as KiCad computes
