@@ -36,6 +36,13 @@ section for each hand-written pattern a newer form replaces.
 
 ### Fixed
 
+- A searched item that owns or meets a net tie ran the slow Python search
+  for every candidate since 0.66.0, about forty times slower than the native
+  one, so a cell with a net tie and no legal spot could take an hour where it
+  took minutes. The native search now leaves the tie's shapes out and judges
+  the candidates it accepts in full, with KiCad's net-tie exclusion. The
+  spots chosen are the same.
+
 - A refusal for a carried drop whose fab profile tier for a shorter via is
   `"no"` now says when that via would have cleared the spot ("a blind via
   from B.Cu to In3.Cu would clear this; the fab profile does not allow blind
