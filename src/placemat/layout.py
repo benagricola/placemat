@@ -4101,7 +4101,7 @@ class Board:
                 return []
             located = []
             lanes = []                # per point: the 45's directions at a Past off a corner, else None
-            corners = []              # (Past, the box's corner, the centreline's distance off it)
+            corners = []              # the Pasts off a corner
             for p in points:
                 lane = None
                 if isinstance(p, Between):
@@ -4113,8 +4113,7 @@ class Board:
                             intent.key, ", ".join(_past_names(self, p)), at))
                         return []
                     if isinstance(p.edge, Corner):
-                        box, off = _past_reach(self, ctx, name, w, p, intent.key, intent.index)
-                        corners.append((p, _box_corner(box, p.edge), off))
+                        corners.append(p)
                         lane = _lane_dirs(p.edge)
                 elif isinstance(p, PadRef) and p.edge is not None:
                     at = _edge_point(self, ctx.occ, w, p)
@@ -4132,12 +4131,18 @@ class Board:
             pts = octilinear(located, pads, clear, bend, lanes, self.settings.copper_straight_tolerance)
             cut_pts, diagonals = chamfer_cuts(pts, chamfer)
             ops = polyline_tracks(name, layer, w, cut_pts)
-            for p, c, off in corners:
+            for p in corners:
+                # the lane runs past every item named, but only copper on this track's layer can be passed too close
+                on = _past_reach(self, ctx, name, w, p, intent.key, intent.index, layer)
+                if on is None:
+                    continue
+                box, off, names = on
+                c = _box_corner(box, p.edge)
                 near = min((_point_seg(c, t.start, t.end)[0] for t in ops), default=math.inf)
                 if near < off - 1e-6:
                     ctx.notes.append("track %s: the points either side of its 45 past the %s corner of %s allow "
                                      "no 45 through it; the track passes that corner at %.3f mm, under the "
-                                     "%.3f mm clearance" % (name, p.edge.value, ", ".join(_past_names(self, p)),
+                                     "%.3f mm clearance" % (name, p.edge.value, ", ".join(names),
                                                             near - w / 2.0, off - w / 2.0))
             if chamfer > 0:
                 # the 45 a corner's own cut emits, not a straight leg that merely
@@ -8466,37 +8471,52 @@ def _past_names(board: "Board", p: Past) -> list:
 
 
 def _past_copper(board: "Board", occ: Occupancy, ops_at: dict, p: Past, what: str,
-                 current: int | None = None):
-    """(net, box, owner) for every piece of copper `p.items` names: each pad's
+                 current: int | None = None, layer: CopperLayer | None = None):
+    """(net, box, owner, name) for every piece of copper `p.items` names: each pad's
     shapes, each via's ring and each track's segments, as the polygons the
-    clearance check measures. A string instead when a via or track has no copper
-    (see `_past_unplanned`)."""
+    clearance check measures. With `layer`, only the copper on that layer: a
+    pad's own layers, a via's span, a track's layer. A string instead when a
+    via or track has no copper (see `_past_unplanned`)."""
     out = []
-    for it in p.items:
+    for it, name in zip(p.items, _past_names(board, p)):
         if isinstance(it, CopperIntent):
             why = _past_unplanned(ops_at, it, what, current)
             if why is not None:
                 return why
             for op in ops_at[it.index]:
                 if isinstance(op, (Via, Track)):
+                    if layer is not None and (op.layer is not layer if isinstance(op, Track)
+                                              else op.layers and layer not in op.layers):
+                        continue
                     # its polygon's box: the copper the clearance check measures, a via's ring a
                     # little outside the true circle
-                    out.append((op.net, op.box, ""))
+                    out.append((op.net, op.box, "", name))
         else:
-            out += [(sh.net, sh.box, sh.owner) for sh in _pad_shapes(board, occ, it)]
+            out += [(sh.net, sh.box, sh.owner, name) for sh in _pad_shapes(board, occ, it)
+                    if layer is None or layer in sh.layers]
     return out
 
 
 def _past_reach(board: "Board", ctx: "_CopperContext", net: str, width: float, p: Past, what: str,
-                current: int | None = None):
+                current: int | None = None, layer: CopperLayer | None = None):
     """(the items' combined box, `width`/2 plus the worst clearance by net
     pair from `net` to them): what Past's point is measured from. A string
-    instead, the reason, when a via or track it names has no copper."""
-    copper = _past_copper(board, ctx.occ, ctx.ops_at, p, what, current)
+    instead, the reason, when a via or track it names has no copper.
+
+    With `layer` it is the verdict's reach instead: (box, distance, names)
+    of the items' copper on that layer alone, or None when there is none.
+    The point's lane is taken off every item, whatever face it is on."""
+    copper = _past_copper(board, ctx.occ, ctx.ops_at, p, what, current, layer)
     if isinstance(copper, str):
         return copper
-    return (Box.union([b for _, b, _ in copper]),
-            width / 2.0 + max(_pad_clearance(board, net, n, o) for n, _, o in copper))
+    if layer is not None:
+        if not copper:
+            return None
+        names = list(dict.fromkeys(nm for *_, nm in copper))
+        return (Box.union([c[1] for c in copper]),
+                width / 2.0 + max(_pad_clearance(board, net, c[0], c[2]) for c in copper), names)
+    return (Box.union([c[1] for c in copper]),
+            width / 2.0 + max(_pad_clearance(board, net, c[0], c[2]) for c in copper))
 
 
 def _box_corner(box: Box, corner: Corner) -> Location:

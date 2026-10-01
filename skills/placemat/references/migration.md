@@ -194,6 +194,13 @@ decided position or an edge is refused, naming what decided it.
   with no clear spot is a `label` finding while the item is placed. A block
   is still searched with labels in view.
 
+- The "allow no 45" finding for a `Past(..., Corner.X)` waypoint is judged
+  against copper on the track's own layer only: pads on that layer, vias whose
+  span includes it, tracks on it. A track on an inner layer past a corner of
+  front-only pads no longer gets the finding for them, and the finding names
+  only the items it was judged against. The waypoint's place is unchanged:
+  the lane still runs off every item the `Past` names, on whatever face.
+
 ## To 0.71.0
 
 ### New
