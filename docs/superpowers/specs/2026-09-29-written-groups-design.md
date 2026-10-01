@@ -3,7 +3,7 @@
 Date: 2026-09-29
 Status: approved 2026-09-29; item 1 revised the same day (below)
 Source: a board's PLACEMAT_GAPS.md, 2026-09-29 "groups a hand placement can
-move"; its workaround `boards/core/snapshots/regroup_clusters.py`
+move"; its workaround `a board's regroup script`
 
 ## The problem
 
@@ -16,11 +16,11 @@ part.
 When a script places a module's parts apart, some fixed on the board and
 others parked or searched elsewhere, that module's group still holds them
 all:
-- **inputpower:** its two tabs are fixed on the board and its filter is
+- **power input:** its two tabs are fixed on the board and its filter is
   parked 100 mm away.
-- **sensors:** the ALS is fixed and the rest are parked.
-- **gnss:** the antenna cell is fixed and the receiver is parked.
-- **usbpd:** its group holds its three stamped cells as sub-groups, plus 15
+- **sensors:** the light sensor is fixed and the rest are parked.
+- **radio:** the antenna cell is fixed and the receiver is parked.
+- **power delivery:** its group holds its three stamped cells as sub-groups, plus 15
   parts of its own.
 
 In pcbnew, selecting any one of these parts drags all of them.
@@ -30,7 +30,7 @@ geometry from the cached generation (`previewer.resolve_like_last_run`), not
 from the written board, so what the written board's groups say changes no
 later placement.
 
-## Revision (2026-09-29, a board session relaying Ben's direction)
+## Revision (2026-09-29, a board session relaying the owner's direction)
 
 No part is pulled out of its module; every module gets its own layout;
 sub-modules are their own groups. So the default is "lift": each nested
@@ -68,8 +68,8 @@ takes parts only; a cell stays a group of its own at the top level.
    - Refused at resolve: a part whose own cell group is written whole (the
      script placed that cell as one). Group the cell instead.
 3. **The run says so**, one line per change:
-   - `groups  usbpd dissolved: its parts were placed apart; usbpd.controller, usbpd.paths, usbpd.moisture now stand alone`
-   - `groups  inputpower.filter written: 4 parts`
+   - `groups  pd dissolved: its parts were placed apart; pd.controller, pd.paths, pd.moisture now stand alone`
+   - `groups  power_in.filter written: 4 parts`
 
 ## Verification
 

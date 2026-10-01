@@ -2,7 +2,7 @@
 
 Date: 2026-09-27
 Status: approved 2026-09-27
-Source: a board's layout work, 2026-09-27 (core, run core-study-3): "two
+Source: a board's layout work, 2026-09-27 (a whole test board, a study run): "two
 stamped cells' vias can land closer than the hole-to-hole rule"
 
 ## The problem

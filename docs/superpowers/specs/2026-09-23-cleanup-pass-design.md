@@ -20,7 +20,7 @@ radius, 0.25 mm step):
 - **Module benchmark**, against placemat today: better on 23 of 32, worse on
   none, the same on 9; better on all 11 modules of fourteen or more parts;
   median HPWL 0.946 of today's where as many are placed.
-- **The 220-part core board**: HPWL 2528.5 -> 2376.3 mm (0.940), declared link
+- **The 220-part whole test board**: HPWL 2528.5 -> 2376.3 mm (0.940), declared link
   length 247.1 -> 226.7 mm, links over their limit 28 -> 26. Resolve 111 s,
   the pass 44 s more.
 - A first version scoring plain HPWL shortened the wire but lengthened the

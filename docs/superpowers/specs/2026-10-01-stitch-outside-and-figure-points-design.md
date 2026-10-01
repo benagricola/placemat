@@ -2,7 +2,7 @@
 
 Status: approved (2026-10-01).
 
-Source: Ben, through a board's session (2026-10-01): two chip antennas'
+Source: the owner, through a board's session (2026-10-01): two chip antennas'
 datasheet layouts.
 
 ## Part 1: stitching vias outside a region's edge

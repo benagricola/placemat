@@ -2,7 +2,7 @@
 
 Status: approved (2026-10-01).
 
-Source: Ben, through a board's session (2026-10-01): an inductive ring
+Source: the owner, through a board's session (2026-10-01): an inductive ring
 sensor cell (two windings drawn about a disc centre, two LC tanks, a
 four-channel inductance-to-digital converter).
 

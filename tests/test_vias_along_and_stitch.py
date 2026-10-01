@@ -171,7 +171,7 @@ def test_stitch_refuses_a_pours_region_of_another_net():
 def test_stitch_edge_rows_vias_along_a_regions_outline():
     """stitch(..., edge=True): a row of vias along the region's own outline
     at the pitch, a via's clearance inside it - not a grid over the whole
-    interior (the audit's real case: GnssAntenna_layout.py's stitching vias,
+    interior (the audit's real case: one antenna script's stitching vias,
     "at most 2 mm apart and 0.35 mm from the ground's edge, along two sides
     of the clearance")."""
     b = Board(board_geometry([], width=60, height=60, extra_nets=["GND"]), edge_margin=1.0, keep_going=True)

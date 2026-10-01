@@ -36,14 +36,14 @@ edge of the pad, touching it.
 - `Past(..., across=PadRef(..., edge=...))` lies on that point's line, not
   the pad's centre line, so a lane can pick up the tap without a jog.
 
-For the shunt in the source (VSHUNT pad north of VPROT, the gap between
+For the shunt in the source (V_HI pad north of V_LO, the gap between
 them; R5 to the north-east):
 
 ```python
-tap = PadRef(Part("r_shunt"), "VSHUNT", edge=Edge.SOUTH, along=Along.END)
-board.track(Net("VSHUNT"), [tap,
-                            Past([PadRef(Part("r_shunt"), "VSHUNT")], Edge.EAST, across=tap),
-                            PadRef(Part("r5"), "VSHUNT")])
+tap = PadRef(Part("r_shunt"), "V_HI", edge=Edge.SOUTH, along=Along.END)
+board.track(Net("V_HI"), [tap,
+                            Past([PadRef(Part("r_shunt"), "V_HI")], Edge.EAST, across=tap),
+                            PadRef(Part("r5"), "V_HI")])
 ```
 
 The tap leaves the inner edge at its east end, runs east a clearance off

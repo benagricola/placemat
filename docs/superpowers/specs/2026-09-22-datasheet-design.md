@@ -45,8 +45,8 @@ millimetres, and picking the pads out of 870 boxes is the open problem.
 
 **Vendors do not share a vocabulary.** A keyword list matching "land pattern",
 "recommended pad", "PCB layout" and five more finds a land pattern in 34 of 67.
-The 26 misses that are not text-poor call it something else: the W3011 says
-"MECHANICAL DRAWING" and "PWB Layout", Abracon says "MECHANICAL DIMENSIONS
+The 26 misses that are not text-poor call it something else: one antenna datasheet says
+"MECHANICAL DRAWING" and "PWB Layout", another vendor says "MECHANICAL DIMENSIONS
 (mm)" and "Layout", TI buries it in an appendix of mostly numbers. A fixed
 keyword list is not a mechanism; it is one signal among several.
 
@@ -97,7 +97,7 @@ the keyword that hit, the rectangle cluster, the numeric density - so a ranking
 can be judged rather than trusted.
 
 ```
-datasheet TDK-ANT016008LCS2442MA1  11 pages, text 41 KB
+datasheet ANT-CHIP  11 pages, text 41 KB
 datasheet   p7   land pattern    strong   "RECOMMENDED LAND PATTERN", 32 rects, 11 dims, unit mm
 datasheet   p6   package         strong   62 rects, 55 dims, unit mm
 datasheet   p7   rules           fair     "Antenna keep out area (All Layer GND off)"
@@ -125,7 +125,7 @@ bounding box and the text or path it came from, so a reader can check it
 against the render in one step.
 
 ```
-datasheet read land TDK-ANT016008LCS2442MA1
+datasheet read land ANT-CHIP
 datasheet   unit        mm            p7 "[ Unit : mm ]"          bbox 344,571
 datasheet   pads        2             p7 rectangle cluster        2 repeated 12 x 8 pt
 datasheet   pitch       -             not sourced
@@ -154,7 +154,7 @@ checked against the footprint, and the drawing corroborates rather than
 measures.
 
 ```
-placemat datasheet check TYPE_C_31_M_12.pdf TYPE-C-31-M-12.kicad_mod --pitch 0.5
+placemat datasheet check connector.pdf connector.kicad_mod --pitch 0.5
 
 check  scale     anchored on pitch 0.5 (supplied); 24 boxes on p1 -> mm
 check  pitch     0.500 datasheet   0.500 footprint   ok
@@ -211,9 +211,9 @@ Without any datasheet, over synthetic input:
 
 Against the committed corpus:
 
-10. the TDK antenna's land pattern ranks page 7 first for `land`;
+10. the chip antenna's land pattern ranks page 7 first for `land`;
 11. the TYPE-C 31-M-12 yields 36 rectangles from page 1 with no text at all;
-12. `[ Unit : mm ]` is read as the unit on the TDK page;
+12. `[ Unit : mm ]` is read as the unit on that page;
 13. a datasheet with no tesseract and no text reports what it could not do,
     and still renders.
 

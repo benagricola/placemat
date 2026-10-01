@@ -17,7 +17,7 @@ auto  = Priority.HIGH if (score >= 0.5 and share >= _CRITICAL_SHARE) else \
 
 `_CRITICAL_SHARE` is 0.02 (`layout.py:34`): a fraction of the whole board's
 area. Three things are wrong with this, and all three are measurable on the
-a board project modular core board (220 footprints, 51 x 70 mm).
+a modular whole test board from a board project (220 footprints, 51 x 70 mm).
 
 **HIGH is unreachable on a board of small parts.** The board's largest
 courtyard is 115.71 mm2 against a board area of about 3570 mm2, so 3.2%; every
@@ -25,9 +25,9 @@ block and cell on it falls under 2%. From the board's own run log
 (`.placemat/runs/5a141489/script.log`):
 
 ```
-block inputpower.efuse       block  default  priority default (auto: 96% of the
+block power_in.efuse        block  default  priority default (auto: 96% of the
 largest area, 1.6% of the board, 20 connection(s), 3 part(s)); ... UNPLACED
-block usbconverter.vbus_conv block  default  priority default (auto: 73% of the
+block converter.vbus_conv    block  default  priority default (auto: 73% of the
 largest area, 1.2% of the board, 30 connection(s), 5 part(s)); ... UNPLACED
 ```
 
@@ -57,10 +57,10 @@ and bus membership, and not size at all:
 
 ```
 ref  inst                      mm2   pins  pull  parts pulling harder
-U7   gnss.gnss              115.71     18    16   29 of 220   (largest part on the board)
+U7   radio.receiver         115.71     18    16   29 of 220   (largest part on the board)
 U4   display.j_panel         61.02     12    10   41          (3rd largest)
-U37  usbconverter.l_vbus     31.50      2     6   66
-U23  logicsupply.l_3v3       20.65      2     2  125          (18th largest)
+U37  converter.l_vbus        31.50      2     6   66
+U23  logic_supply.l_3v3     20.65      2     2  125          (18th largest)
 ```
 
 (Final-state pull, with GND and V3V3 as the board's two declared planes.) A
@@ -189,7 +189,7 @@ standardised over this board's own searched items. The two weights are
 see `2026-09-22-placemat-toml-design.md`, which this design depends on. The rank
 is the position in descending score order; ties keep the same rank.
 
-Log space because the dynamic range is large: on the core board area runs 0.72
+Log space because the dynamic range is large: on the whole test board area runs 0.72
 to 115.71 mm2 and pins 1 to 57. Z-scores because standardising each dimension
 before weighting is what makes 0.7/0.3 deliver 70/30 rather than whatever the
 accidental spreads give, and because it is robust: adding one very large
@@ -209,8 +209,8 @@ block, since a block has no single box until it is laid out at a candidate.
 **Pins** is the count of distinct non-empty pad numbers on the footprint (summed
 over members for a cell or block), floored at 1. This is the datasheet's pin
 count rather than the pad count, and it gets three real cases right for free:
-the Keystone 1285's two legs both numbered `1` read as one pin, the 1287's
-numbered `1` and `2` read as two, and the TPS16630's four unnamed netless
+one clip's two legs both numbered `1` read as one pin, its sibling's
+numbered `1` and `2` read as two, and a hot-swap controller's four unnamed netless
 through-hole pads read as none.
 
 **Connection count leaves the score.** It measured connectivity, and
@@ -232,7 +232,7 @@ rest" and LOW still means "after the rest", and everything else is ordered by
 the rank alone.
 
 The rank score is primary. `pull` demotes to a tie-break, which is the right job
-for it: the core board's 144 small two-pin parts score identically on area and
+for it: the whole test board's 144 small two-pin parts score identically on area and
 pins, tie exactly, and pull then decides among them. That restores the seeding
 behaviour precisely where it belongs and nowhere else.
 
@@ -272,10 +272,10 @@ for a decided item and the rank for a searched one:
 
 ```
 item                         kind   place       result
-gnss.gnss                    part   fixed       at (26.10, 6.20) rot 0 face back
+radio.receiver               part   fixed       at (26.10, 6.20) rot 0 face back
 display.j_panel              part   fixed       at (26.10, 22.20) rot 0 face front
-inputpower.efuse             block  rank 5/64   at (...)  49.0 mm2 (7th of 64), 21 pins (5th)
-usbconverter.l_vbus          part   rank 19/64  at (...)  31.5 mm2 (12th), 2 pins (41st)
+power_in.efuse              block  rank 5/64   at (...)  49.0 mm2 (7th of 64), 21 pins (5th)
+converter.l_vbus             part   rank 19/64  at (...)  31.5 mm2 (12th), 2 pins (41st)
 display.r_term_dc            part   rank 61/64  at (...)  0.6 mm2 (58th), 2 pins (41st)
 ```
 
@@ -315,8 +315,8 @@ Unit, without KiCad, on synthetic footprints:
 
 1. the four bands order correctly: large+many > large+few > small+many >
    small+few;
-2. pin count is distinct non-empty pad numbers - the 1285 (two pads both `1`),
-   the 1287 (`1` and `2`) and four unnamed netless pads;
+2. pin count is distinct non-empty pad numbers - a clip (two pads both `1`),
+   its sibling (`1` and `2`) and four unnamed netless pads;
 3. identical passives tie exactly on score, and pull decides between them;
 4. the score is invariant to a unit change (mm2 against a scaled copy) and is
    not collapsed by one large outlier being added to the board;
@@ -341,8 +341,8 @@ Copper freedom:
     that may not bridge is a finding naming it - the existing bridging tests
     pass with `priority=Priority.FIXED` replaced by decided endpoints.
 
-Against the real geometry (skipped without the board): on the core board's
-`.kicad_pcb`, `inputpower.efuse` and `usbconverter.vbus_conv` rank in the top
+Against the real geometry (skipped without the board): on the whole test board's
+`.kicad_pcb`, `power_in.efuse` and `converter.vbus_conv` rank in the top
 ten. Those are the two blocks that went DEFAULT and UNPLACED.
 
 ## Documentation
@@ -394,7 +394,7 @@ Every existing script re-places. Specifically:
   (12 `board.track`, 14 `board.via`, 6 continuation lines) and none are
   placements: `priority=Priority.FIXED` is deleted from each, and the
   derivation gives the same answer wherever the endpoints were already decided.
-  The four `priority=Priority.HIGH` placement overrides in `Core_layout.py`
+  The four `priority=Priority.HIGH` placement overrides in one board's layout script
   come out too - they exist to work around exactly this.
 - A downstream project uses `Priority.HIGH` three times and no `Priority.FIXED`, so
   the Breakout needs only its re-measurement.

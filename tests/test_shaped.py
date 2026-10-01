@@ -14,7 +14,7 @@ from tests.fixtures import placement_findings, board_geometry, footprint
 SHAPES = {"j1": ("J1", 6.0, 4.0), "r1": ("R1", 2.0, 1.2), "u1": ("U1", 4.0, 4.0),
           "d1": ("D1", 1.6, 0.8), "d2": ("D2", 1.6, 0.8), "d3": ("D3", 1.6, 0.8)}
 
-# Ben's shape: a square with a rounded top. The arc passes through (20, 0),
+# A user's shape: a square with a rounded top. The arc passes through (20, 0),
 # so it is the semicircle of radius 20 over the square's top half.
 ROUNDED_TOP = [(0.0, 40.0), (0.0, 20.0), Arc(to=(40.0, 20.0), via=(20.0, 0.0)), (40.0, 40.0)]
 

@@ -106,12 +106,12 @@
 - Modify: `fixtures/bench.py` (a `physical` configuration beside `default` and `solve`), `fixtures/bench.json`
 
 - [ ] **Step 1:** `fixtures/bench.py --update`: `default` and `solve` same on 32; the new `physical` rows recorded. Report how `physical` compares with `default` per module (placed, findings, HPWL).
-- [ ] **Step 2: The core board**, in the scratch copy with its cached generation, `[place] envelope = "physical"`, full `placemat run` with DRC:
+- [ ] **Step 2: The whole test board**, in the scratch copy with its cached generation, `[place] envelope = "physical"`, full `placemat run` with DRC:
   - `silk_overlap` and `silk_over_copper` items between different footprints: 0, apart from any from Reference/Value text (count them from `drc.json`, pairing each item's two footprints);
   - resolve time within 20% of the courtyard-mode resolve on the same copy (the spec's 137 s is the board agent's machine; measure both here);
   - placed, findings and airwire against courtyard mode, reported.
 - [ ] **Step 3:** If silk items remain, find which shapes or gaps let them through and fix before going on; if the resolve is over budget, profile and fix.
-- [ ] **Step 4: Commit** the bench configuration and baseline with the tally and the core numbers.
+- [ ] **Step 4: Commit** the bench configuration and baseline with the tally and the whole test board numbers.
 
 ---
 

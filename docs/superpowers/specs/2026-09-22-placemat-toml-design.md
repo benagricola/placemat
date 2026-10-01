@@ -280,7 +280,7 @@ Prints every resolved setting, its value, and which file it came from (or
 rank.area              0.7      default
 rank.pins              0.3      default
 place.step             0.1      electronics/placemat.toml
-copper.chamfer         0.4      electronics/boards/main/placemat.toml
+copper.chamfer         0.4      electronics/boards/<board>/placemat.toml
 check.ambient_c        85.0     electronics/placemat.toml
 drc.real_kinds         [8]      default
 ```

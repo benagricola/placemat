@@ -84,7 +84,7 @@ named otherwise cannot be pair-routed, for example a tank's two leads
 - **The current-path check following the load path**
   (PLACEMAT_GAPS 2026-09-29): the entry says the check measured the input
   tab to an input capacitor, while the load leaves through the tab's leads
-  into the core's pour. The input module's only `Pm.I` carriers are its two
+  into the whole test board's pour. The input module's only `Pm.I` carriers are its two
   tabs, so which pair the check judged there is not yet traced. That trace
   comes first; a form for the script to name a path waits on what it shows.
 - **Reference arithmetic, or a 45-degree lane off a pad's corner**

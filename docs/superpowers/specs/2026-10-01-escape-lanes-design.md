@@ -2,7 +2,7 @@
 
 Status: approved (2026-10-01).
 
-Source: a board's session (2026-10-01), relaying Ben's preferred approach
+Source: a board's session (2026-10-01), relaying the owner's preferred approach
 from moving dense module scripts to intent only. Supersedes part 2
 (`PadRef(..., escape=True)`) of
 `2026-10-01-track-rules-and-pin-escape-design.md`; part 1 of that spec
@@ -170,13 +170,13 @@ the end of the run: its room was kept for nothing.
 ### The cases above, by intent
 
 ```python
-esc = board.escape(Part("pd"), ["V3V3", "EXCITE", "USB_WET"], turn=Edge.WEST,
-                   vias=["EXCITE", "USB_WET"], widths={"V3V3": LDO_TRACK}, why="...")
-board.place(Part("c_pd"), at=Beside(esc["EXCITE"].via, Edge.WEST, align=("V3V3", esc["V3V3"])),
+esc = board.escape(Part("pd"), ["V3V3", "SENSE_A", "SENSE_B"], turn=Edge.WEST,
+                   vias=["SENSE_A", "SENSE_B"], widths={"V3V3": LDO_TRACK}, why="...")
+board.place(Part("c_pd"), at=Beside(esc["SENSE_A"].via, Edge.WEST, align=("V3V3", esc["V3V3"])),
             rotation=..., why="VIN_3V3's 10 uF at the end of its lane, west of GPIO6's via")
 board.track(Net("V3V3"), [esc["V3V3"], PadRef(Part("c_pd"), "V3V3")], layer=CopperLayer.F)
-board.track(Net("EXCITE"), [esc["EXCITE"]], layer=CopperLayer.F)
-board.track(Net("USB_WET"), [esc["USB_WET"]], layer=CopperLayer.F)
+board.track(Net("SENSE_A"), [esc["SENSE_A"]], layer=CopperLayer.F)
+board.track(Net("SENSE_B"), [esc["SENSE_B"]], layer=CopperLayer.F)
 
 south = board.escape(Part("ctl"), [2, 3, 4, 5, 6, 7], vias=[2, 3, 4, 5, 6, 7], why="...")   # near and far rows
 xtal = board.escape(Part("mcu"), ["XTAL_N"], why="pin 53's exit kept clear")             # L3 stands off it

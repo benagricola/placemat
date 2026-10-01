@@ -405,7 +405,7 @@ def test_a_via_is_caught_by_a_region_on_any_single_layer():
 
 
 def test_a_region_partly_off_the_board_is_still_enforced():
-    """The fairing case: a fence whose outer boundary IS the board outline,
+    """The disc-board case: a fence whose outer boundary IS the board outline,
     sampled into chords, and a chord across an arc bulges past the true curve.
     The region must still fence the parts it was written to fence."""
     b = make_board("u1", keep_going=True)

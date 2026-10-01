@@ -253,7 +253,7 @@ def _board(tmp_path, copper, zones, group=None):
 
 
 def test_a_stamped_all_layer_keepout_reads_on_every_layer_of_the_parent(tmp_path):
-    """The W3011 case: declared on every layer in a two-layer module, arriving
+    """The chip-antenna case: declared on every layer in a two-layer module, arriving
     in the four-layer parent on F and B only."""
     import pcbnew
     from placemat.kicad.read import read_board

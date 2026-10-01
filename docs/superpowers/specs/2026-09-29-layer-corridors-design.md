@@ -1,13 +1,13 @@
 # Clear corridors on one layer between two pads
 
 Date: 2026-09-29
-Status: approved 2026-09-29 (Ben: implement unless a decision is needed)
+Status: approved 2026-09-29 (the owner: implement unless a decision is needed)
 Source: a board's PLACEMAT_GAPS.md, 2026-09-29 "a clear column on one inner
 layer"
 
 ## The problem
 
-To find where one PD_LDO_3V3 run could cross the core on In3, a board session
+To find where one LDO_3V3 run could cross the whole test board on In3, a board session
 listed, for each 0.5 mm column, every In3-facing pad, via, track, cutout and
 foreign zone, using pcbnew.
 - `placemat occupancy` answers one point or box at a time, about 2 s each.

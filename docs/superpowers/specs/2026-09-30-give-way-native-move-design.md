@@ -2,7 +2,7 @@
 
 Status: approved (2026-09-30).
 
-Source: Ben (2026-09-30), after the per-scan cache (0.62.0) left give way
+Source: the owner (2026-09-30), after the per-scan cache (0.62.0) left give way
 at about 85% of a whole six-layer test board's placement.
 
 ## Where the time is

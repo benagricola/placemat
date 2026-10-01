@@ -28,7 +28,7 @@ def _gap(plan, a, b):
     return min(poly_distance(p.poly, q.poly) for p in _pads(plan, *a) for q in _pads(plan, *b))
 
 
-def _tie_beside_shunt(rotation=0, nets=("VSHUNT", "SENSE"), courtyard=False, rule=None, **kw):
+def _tie_beside_shunt(rotation=0, nets=("V_HI", "SENSE"), courtyard=False, rule=None, **kw):
     b = _board([_shunt(), _tie("NT1", nets, courtyard)])
     if rule:
         b.rule(**rule)
@@ -41,7 +41,7 @@ def _tie_beside_shunt(rotation=0, nets=("VSHUNT", "SENSE"), courtyard=False, rul
 def test_a_net_tie_stands_a_clearance_off_the_pad_of_another_net_copper_to_copper():
     plan = _tie_beside_shunt()
     assert _gap(plan, ("NT1", 2), ("RS", 1)) == pytest.approx(CLEARANCE, abs=1e-4)
-    assert _pads(plan, "NT1", 1)[0].box.center.x == pytest.approx(30.0, abs=1e-6)     # on the VSHUNT pad's centre line
+    assert _pads(plan, "NT1", 1)[0].box.center.x == pytest.approx(30.0, abs=1e-6)     # on the V_HI pad's centre line
     assert not _own(plan), plan.findings
 
 
@@ -60,13 +60,13 @@ def test_a_nearer_pad_of_the_same_net_sets_no_distance():
 
 
 def test_a_board_rule_clearance_for_the_pair_is_kept():
-    plan = _tie_beside_shunt(rule=dict(clearance=0.4, between=(Net("VSHUNT"), Net("SENSE")), why="the pair needs more"))
+    plan = _tie_beside_shunt(rule=dict(clearance=0.4, between=(Net("V_HI"), Net("SENSE")), why="the pair needs more"))
     assert _gap(plan, ("NT1", 2), ("RS", 1)) == pytest.approx(0.4, abs=1e-4)
 
 
 def test_a_round_pad_standing_past_a_corner_gets_its_true_standoff():
     """Pad 2 lies 0.1 mm beyond the item pad's east side: its round copper is nearest the corner, not the side."""
-    b = _board([_shunt(), _tie("NT1", ("VSHUNT", "SENSE")), footprint("R9", 32.1, 10, w=4, h=2, inst="r9",
+    b = _board([_shunt(), _tie("NT1", ("V_HI", "SENSE")), footprint("R9", 32.1, 10, w=4, h=2, inst="r9",
                                                                            nets=("X", "Y"))])
     b.place(Part("rs"), at=Location(30, 30), rotation=0)
     b.place(Part("r9"), at=Location(32.1, 10), rotation=0)
@@ -111,7 +111,7 @@ def test_a_keepout_has_no_copper_to_stand_off():
 def test_without_copper_the_declaration_and_the_placement_are_as_before():
     assert "copper" not in str(canonical(Beside(Part("rs"), Edge.NORTH, gap=0.1)))
     assert "copper" in str(canonical(Beside(Part("rs"), Edge.NORTH, copper=True)))
-    b = _board([_shunt(), _tie("NT1", ("VSHUNT", "SENSE"))])
+    b = _board([_shunt(), _tie("NT1", ("V_HI", "SENSE"))])
     b.place(Part("rs"), at=Location(30, 30), rotation=0)
     b.place(Part("nt1"), at=Beside(Part("rs"), Edge.NORTH, align=(1, PadRef(Part("rs"), 1))), rotation=0)
     plan = b.resolve()

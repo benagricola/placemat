@@ -15,12 +15,12 @@ not the load:
 
 | Net (module) | Reported | What it measured |
 |---|---|---|
-| SW2 (usbconverter) | narrowest track 0.16 | the track joining the controller's two SW2 pins; the 3.6 A runs in the SW2 zone, FET to coil |
-| SW1 (usbconverter) | 0.16 | the boot capacitor's track |
-| ISP (usbconverter) | 0.075 | the current-sense line from the controller's pin 12 |
-| SW_5V (usb5v) | 0.56 | the boot capacitor to coil track; the switch current is in a zone lane |
-| VBIKE, VPROT_IN (protection) | 0.04 | the ideal-diode controller's ANODE/CATHODE sense pins |
-| VSHUNT (logicsupply) | 0.02 | an input pin's lead into its pour |
+| SW2 (a buck-boost module) | narrowest track 0.16 | the track joining the controller's two SW2 pins; the 3.6 A runs in the SW2 zone, FET to coil |
+| SW1 (the same module) | 0.16 | the boot capacitor's track |
+| ISP (the same module) | 0.075 | the current-sense line from the controller's pin 12 |
+| SW_OUT (a boost module) | 0.56 | the boot capacitor to coil track; the switch current is in a zone lane |
+| <NET A>, <NET B> (a protection module) | 0.04 | the ideal-diode controller's ANODE/CATHODE sense pins |
+| <NET C> (a supply module) | 0.02 | an input pin's lead into its pour |
 
 Four things in the check produce these:
 

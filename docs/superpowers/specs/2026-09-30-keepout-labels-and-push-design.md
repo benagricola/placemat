@@ -2,7 +2,7 @@
 
 Status: approved (2026-09-30).
 
-Source: Ben, through a board's session (2026-09-30).
+Source: the owner, through a board's session (2026-09-30).
 
 ## 1. Keepouts drawn for hand placement
 
@@ -43,7 +43,7 @@ These drawings are placemat's own:
 
 ## 1b. A keepout that admits parts is not a footprint keepout in KiCad
 
-Amendment, approved (2026-09-30). Source: Ben, through a board's session
+Amendment, approved (2026-09-30). Source: the owner, through a board's session
 (2026-09-30), from placing parts by hand in KiCad.
 
 **Problem.** A keepout that admits parts by name (`allow=` parts or cells)

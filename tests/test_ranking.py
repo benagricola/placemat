@@ -62,18 +62,18 @@ def _with_pads(ref, inst, pads):
 
 
 def test_pin_count_is_distinct_non_empty_pad_numbers():
-    """The datasheet's pin count, not the pad count. The Keystone 1285 numbers
-    BOTH of its legs 1, so it is one pin; the 1287 numbers them 1 and 2."""
-    k1285 = _with_pads("J1", "j1", [pad("J1", "j1", 1, "VBIKE", -2.5, 0),
-                                    pad("J1", "j1", 1, "VBIKE", 2.5, 0)])
-    k1287 = _with_pads("J2", "j2", [pad("J2", "j2", 1, "VBIKE", -2.5, 0),
-                                    pad("J2", "j2", 2, "VBIKE", 2.5, 0)])
-    assert pin_count(k1285) == 1
-    assert pin_count(k1287) == 2
+    """The datasheet's pin count, not the pad count. One clip numbers
+    BOTH of its legs 1, so it is one pin; its sibling numbers them 1 and 2."""
+    k_same = _with_pads("J1", "j1", [pad("J1", "j1", 1, "VIN", -2.5, 0),
+                                    pad("J1", "j1", 1, "VIN", 2.5, 0)])
+    k_split = _with_pads("J2", "j2", [pad("J2", "j2", 1, "VIN", -2.5, 0),
+                                    pad("J2", "j2", 2, "VIN", 2.5, 0)])
+    assert pin_count(k_same) == 1
+    assert pin_count(k_split) == 2
 
 
 def test_unnamed_netless_pads_are_not_pins():
-    """The TPS16630's four unnamed through-hole pads were not thermal vias and
+    """A hot-swap controller's four unnamed through-hole pads were not thermal vias and
     are not pins either."""
     fp = _with_pads("U1", "u1", [pad("U1", "u1", 1, "VIN", -1, 0),
                                  pad("U1", "u1", 2, "VOUT", 1, 0),

@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - `pcbnew` may be imported only under `src/placemat/kicad/`. `describe.py` and `geometry.py` are pure Python and must be unit-testable without KiCad.
-- A pad's size is the box round `outlines_of`, never `GetSize()`: for a custom pad the anchor is not the copper (TPS55288 corner pads read 0.005 x 0.005 against a real 0.920 x 0.720).
+- A pad's size is the box round `outlines_of`, never `GetSize()`: for a custom pad the anchor is not the copper (a boost converter's corner pads read 0.005 x 0.005 against a real 0.920 x 0.720).
 - A pad read with **no board** reports an attribute (`through`, `smd front`, `smd back`) and never a layer list. Verified: `SetCopperLayerCount(2)` does not restrict a pad's own layer set, so a standalone through-hole pad reports all 32 copper layers, which is true of no real board.
 - `BoardGeometry.outline` is not changed. `board_polygon` is added beside it.
 - Every part block prints all three boxes: `body`, `courtyard`, `physical`.
@@ -139,7 +139,7 @@ from tests.conftest import needs_breakout, needs_kicad
 
 pytestmark = [needs_kicad]
 
-BOARD = "a board project's `boards/main/kicad/layout.kicad_pcb`"
+BOARD = "a board project's main `layout.kicad_pcb`"
 
 
 @needs_breakout
@@ -276,9 +276,9 @@ def test_the_hold_down_tabs_are_real_pads():
 
 @needs_parts
 def test_a_custom_pad_reports_its_copper_and_not_its_anchor():
-    """The TPS55288's four corner pads report GetSize() as 0.005 x 0.005."""
+    """A boost converter's four corner pads report GetSize() as 0.005 x 0.005."""
     from placemat.kicad.read import read_footprint
-    fp, _ = read_footprint(_one("*TPS55288*"))
+    fp, _ = read_footprint(_one("*<boost-converter>*"))
     odd = [p for p in fp.pads if p.box.width > 0.5 and p.box.width < 1.5
            and p.box.height > 0.5 and p.box.height < 1.0]
     assert odd, [(p.number, p.box.width, p.box.height) for p in fp.pads][:6]

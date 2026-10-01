@@ -37,13 +37,13 @@ it. It reuses the vocabulary and the machinery the cutout work built.
 
 ```python
 # the datasheet figure, in its own coordinates, anchored at the antenna's feed
-ACAG0301_CLEARANCE = Path([...], anchor=(0.0, 0.0))
+ANTENNA_CLEARANCE = Path([...], anchor=(0.0, 0.0))
 
-board.keepout(ACAG0301_CLEARANCE, "antenna",
+board.keepout(ANTENNA_CLEARANCE, "antenna",
               at=PadRef(Part("ant"), "ANT_FEED"),
               allow=(Part("ant"), Part("r_ant_series"), Part("c_ant_shunt1"),
                      Part("c_ant_shunt2"), Net("ANT_FEED")),
-              why="ACAG0301 datasheet p1 Layout: copper-free on every layer")
+              why="antenna datasheet p1 Layout: copper-free on every layer")
 ```
 
 Full signature:
@@ -70,7 +70,7 @@ new.
 `Path` takes any closed polygon, concave included, with `Arc(to=, via=)` for
 curved boundaries.
 
-Verified against the real case: the ACAG0301 clearance transcribes to a
+Verified against the real case: the antenna clearance transcribes to a
 fourteen-vertex concave polygon with an arm down one side and a bite out of one
 corner. `Cutouts` flattens it, `point_in_polygon` reads the bite as outside and
 the arm as inside, and it rotates to any bearing. A separate C-shaped test
@@ -89,7 +89,7 @@ meaningless for a fourteen-vertex clearance whose box centre is in the middle
 of nothing.
 
 With it, a datasheet figure is transcribed in its own coordinates, anchored at
-the feature the figure is organised around - for the ACAG0301, the antenna's
+the feature the figure is organised around - for the antenna, the antenna's
 feed - and placed on the real pad. The clearance then follows the antenna
 wherever the placer puts it, which is what a corridor declared in pad
 references is for. Without it the script computes an offset into a polygon by
@@ -185,7 +185,7 @@ Keepouts do not depend on it: the default covers every layer through
 - a `Part` or `Cell` may sit inside the region;
 - a `Net` may run through it.
 
-Both are needed and neither substitutes for the other. The ACAG0301 figure puts
+Both are needed and neither substitutes for the other. The antenna figure puts
 the antenna and its whole pi matching network inside the clearance, so the
 parts must be named individually. `Reservation.allow` today is net names tested
 as `geom.nets & r.allow`, so allowing `GND` in - which every one of those parts
@@ -274,7 +274,7 @@ Test-first, each slice independently demonstrable.
 1. **Anchor.** A shape with `anchor=` lands that point on `at=`; the default is
    still the box centre; cutouts get the same treatment and do not move.
 2. **The region.** A concave `Path` is inside, outside and overlapping where it
-   should be, at any rotation. The ACAG0301 clearance as a fixture.
+   should be, at any rotation. The antenna clearance as a fixture.
 3. **Parts.** A part in the region is refused, naming the keepout. A part in
    `allow=` sits there. A part outside is untouched. `excludes=("parts",)`
    forbids the part and nothing else.
@@ -329,7 +329,7 @@ number the moment the part moves.
 share the shape vocabulary and a reader arriving at one wants the other. It
 carries: the signature; the five `excludes=` names against what each forbids;
 `layers=` and the all-layers default; `allow=` for parts and for nets, and why
-those differ; `anchor=`; and the worked ACAG0301 example, which is the case the
+those differ; `anchor=`; and the worked antenna example, which is the case the
 whole feature exists for. The `## Setup` list gains nothing - a keepout is not
 a board declaration.
 

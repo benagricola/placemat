@@ -2,7 +2,7 @@
 
 Status: approved (2026-09-30).
 
-Source: Ben, through a board's session (2026-09-30).
+Source: the owner, through a board's session (2026-09-30).
 
 ## Two sides of one rule
 
@@ -72,7 +72,7 @@ joins, is not reported.
 ## 3. The capture skill
 
 circuit-capture is a separate skill, and the two skills stand alone. With
-Ben's leave, the coordinator adds the capture side there: module
+the owner's leave, the coordinator adds the capture side there: module
 membership by physical placement need; boundaries at connections that
 tolerate distance; the layout may come back with physical corrections.
 It names neither placemat nor any project.

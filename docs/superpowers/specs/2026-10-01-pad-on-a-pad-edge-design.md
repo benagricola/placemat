@@ -2,14 +2,14 @@
 
 Status: approved (2026-10-01).
 
-Source: a board's session (2026-10-01), placing net ties Ben approved at a
+Source: a board's session (2026-10-01), placing net ties the owner approved at a
 current shunt's Kelvin taps.
 
 ## Problem
 
 A shunt (a 1206 standing upright, 0.76 mm between its pads) gets its sense
-lines through net ties: a tie joins VSHUNT to VSHUNT_SENSE, another VPROT to
-VPROT_SENSE (two 0.3 mm pads 0.5 mm apart, joined by a copper bar; front
+lines through net ties: a tie joins V_HI to V_HI_SENSE, another V_LO to
+V_LO_SENSE (two 0.3 mm pads 0.5 mm apart, joined by a copper bar; front
 copper only, no mask). Each tie belongs in the gap under the shunt's body,
 lying east-west: its pad 1 against its own pad's inner edge, so the tie's
 copper is the Kelvin junction, and its pad 2 out past the pad's east end,
@@ -46,7 +46,7 @@ placed pad's own size across the edge:
   rotation, so `rotation=Turned(...)` settles first.
 
 ```python
-board.place(Part("nt_vshunt"), at=Pin(1, PadRef(Part("r_shunt"), "VSHUNT", edge=Edge.SOUTH,
+board.place(Part("nt_v_hi"), at=Pin(1, PadRef(Part("r_shunt"), "V_HI", edge=Edge.SOUTH,
                                                 along=Along.END)),
             rotation=Turned(Part("r_shunt"), 90), why="the Kelvin junction at the shunt's inner edge")
 ```
@@ -73,7 +73,7 @@ envelope:
 
 ## Verification
 
-- A 0.3 mm two-pad net tie placed `Pin(1, PadRef(shunt, "VSHUNT",
+- A 0.3 mm two-pad net tie placed `Pin(1, PadRef(shunt, "V_HI",
   edge=SOUTH, along=END))`: its pad 1 lies against the shunt pad's south
   edge, overlapping it by 0.005 mm, its east side flush with the pad's;
   `along=MID` centres it.

@@ -12,7 +12,7 @@ off the board.
 
 ## What exists
 
-- `fixtures/mnb/` and `fixtures/fairing/`: 34 modules, 32 with two or more
+- the fixture projects under `fixtures/`: 34 modules, 32 with two or more
   footprints, each with its board (`modules/<name>/layout/layout.kicad_pcb`,
   or `kicad/` for one) and the libraries that build it. 17 carry a layout
   script, so their board is a hand placement.
@@ -79,8 +79,8 @@ exactly which modules moved. Seconds are stored per configuration only.
 ```
 fixtures/bench.py [name ...] [--config NAME] [--jobs N] [--update]
 
-default  mnb/UsbC          placed 1 -> 5 of 5, findings 4 -> 0, hpwl 3.1 -> 24.0   better
-default  fairing/Backlight placed 9 of 9, findings 0, hpwl 20.1 -> 56.9            worse
+default  proj/Conn         placed 1 -> 5 of 5, findings 4 -> 0, hpwl 3.1 -> 24.0   better
+default  proj/Driver       placed 9 of 9, findings 0, hpwl 20.1 -> 56.9            worse
 ...
 default: better 20, worse 2, same 10; placed +143; median hpwl ratio 1.04 over 12 equal-placed
 solve:   better 18, worse 6, same 8;  placed +131; median hpwl ratio 0.92 over 14 equal-placed

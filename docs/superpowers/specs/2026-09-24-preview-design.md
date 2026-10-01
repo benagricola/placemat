@@ -3,7 +3,7 @@
 Date: 2026-09-24
 Status: design
 
-A run writes the board, runs DRC and renders it with kicad-cli. On the core
+A run writes the board, runs DRC and renders it with kicad-cli. On the whole test board
 board the render is 25 s of every run, and with the previous run reused the
 placement itself is 3-4 s, so a run that changes one late part spends 85% of
 its time on the render (the board's own runs: 29 s, of which render 25 s,

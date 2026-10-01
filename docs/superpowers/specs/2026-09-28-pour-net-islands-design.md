@@ -8,9 +8,9 @@ nets have small taps no pour can reach"
 ## The problem
 
 `placemat route` and `run --route` leave every net with a board-level zone
-or pour out of the route (0.50). On a whole test board, VSHUNT (In2 pours)
+or pour out of the route (0.50). On a whole test board, a shunt net (In2 pours)
 also feeds a load switch's output, a resistor behind a panel and a
-converter's input track, and VBIKE (an In2 pour, 4.6 A) feeds a
+converter's input track, and an input-power net (an In2 pour, 4.6 A) feeds a
 supervisor's sense divider and enable pull-up. No pour reaches those pads.
 Kept routes from earlier runs held the taps until a part moved; now nothing
 routes them, and hand-drawn `board.track` legs break when a cell turns.

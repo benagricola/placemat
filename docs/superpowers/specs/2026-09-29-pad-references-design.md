@@ -5,8 +5,8 @@ Status: withdrawn 2026-09-29 (replaced by 2026-09-29-missing-intent-relations-de
 Source: a board's PLACEMAT_GAPS.md, 2026-09-29 "a position that is a sum of an
 x and a y" and "pad edges and drawn envelopes as placement and copper
 references". A board's workaround helpers are the reference behaviour:
-`boards/core/fragment_frame.py` (`beside`, `drawn_from_pad`, `pour`,
-`pour_box`, `placed_size`) and `modules/usb5v/Usb5v_layout.py` (`edge_at`,
+a board's own helper module (`beside`, `drawn_from_pad`, `pour`,
+`pour_box`, `placed_size`) and a module's layout script (`edge_at`,
 `edge`, `pads_pour`, the SW lane at 228-236).
 
 ## The problem
@@ -23,7 +23,7 @@ envelopes and 45-degree lanes by doing the arithmetic in Python first:
   `envelope.drawn_envelope`), not a position another item can be placed
   against.
 - `X(Part)` is the part's body-box centre, which is not its origin (0.1 mm
-  apart on the TPS55288), and nothing says so.
+  apart on a boost converter), and nothing says so.
 
 ## The change
 
@@ -74,7 +74,7 @@ envelopes and 45-degree lanes by doing the arithmetic in Python first:
      width).
    - A lane between two sets of pads is two lanes and their midpoint. If the
      gap is narrower than one track and two clearances, that is a finding
-     naming both sets. This replaces the hand `assert` in `Usb5v_layout.py`.
+     naming both sets. This replaces the hand `assert` in that script.
 7. **`board.pour_pads(net, pads, fillet=0.0, layer=None)`** is a pour whose
    outline is the box round the named pads' copper where they stand.
    - It is inset by `fillet` and stroked at twice it, so only the corners
@@ -83,7 +83,7 @@ envelopes and 45-degree lanes by doing the arithmetic in Python first:
    - A pad of another net inside the box is a finding.
 8. **`board.finger(..., width=)`** also takes a coordinate reference
    (`PadRef(...).width()`), so a neck the width of a pin reads from the pin.
-9. **Docs**: api.md sections for each, with the Usb5v `pads_pour` and SW
+9. **Docs**: api.md sections for each, with a boost module's `pads_pour` and SW
    lane written in the new terms as the example.
 
 ## Verification

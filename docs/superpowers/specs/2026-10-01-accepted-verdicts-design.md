@@ -2,7 +2,7 @@
 
 Status: approved (2026-10-01).
 
-Source: Ben, through a board's session (2026-10-01).
+Source: the owner, through a board's session (2026-10-01).
 
 ## Problem
 

@@ -1026,7 +1026,7 @@ Nothing to change in a script. Three things get stricter, and one report is new.
 **A keepout's `layers=` is now honoured when copper is checked.** A board that
 widened `allow=` to silence a complaint about copper on a layer the region does
 not cover should take those nets back out: the `allow=` admits them on the
-layers that DO matter. `boards/main/Main_layout.py` is the known case.
+layers that DO matter. One downstream board's layout script is the known case.
 
 **A region that hangs off the board edge now forbids.** It used to be discarded
 whole, silently. Expect new findings from a region that was never in force -

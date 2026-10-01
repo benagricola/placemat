@@ -3,7 +3,7 @@
 Date: 2026-09-24
 Status: design
 Source: the brief from the a test board's MCU session (PLACEMAT_GAPS.md,
-"2026-09-24: placemat 0.32", entry 4), and the decisions taken with Ben on
+"2026-09-24: placemat 0.32", entry 4), and the decisions taken with the owner on
 2026-09-24.
 
 ## Why
@@ -62,7 +62,7 @@ edges.
 **Nets not counted.** Plane nets (`board.plane()`) and free nets pull
 nothing today, because each pad drops to its plane by a via. Their crossings
 are counted at a weight, `[place] crossing_plane_weight`, default 0. On the
-core, GND and V3V3 are 417 of 1,041 crossings.
+whole test board, GND and V3V3 are 417 of 1,041 crossings.
 
 **Checked against KiCad.** On every fixture board written and checked with
 kicad-cli, placemat's count for the counted nets equals `airwires_from_drc`'s,
@@ -115,7 +115,7 @@ Where the cost is used:
 ## The run score
 
 Runs, explore variants and bench results are judged by one weighted score
-instead of a fixed order (Ben, 2026-09-24). Every term is a count times a
+instead of a fixed order (the owner, 2026-09-24). Every term is a count times a
 weight, in millimetres of wire, and lower is better:
 
 | Term | Counted as | Weight setting | Default |
@@ -147,10 +147,10 @@ walked in order and the best kept as best.json keeps it:
 
 Where the same parts were placed, the score took the run with fewer
 crossings and less link excess, even with one more finding: a link a hair
-past its limit while the others got shorter. At unplaced 500, two core
+past its limit while the others got shorter. At unplaced 500, two whole-board
 families kept a run with a part fewer for halving the link excess. The one
-run with fewer parts kept at 2000 is Backlight's, whose 0.32 best placed
-every part with its links 1,391 mm x weight past their limits. Ben chose
+run with fewer parts kept at 2000 is one driver module's, whose 0.32 best placed
+every part with its links 1,391 mm x weight past their limits. The owner chose
 unplaced 2000 and link 20 x the link's weight (2026-09-24).
 
 - **Findings get a kind.** A finding becomes `Finding(kind, text)`, with
@@ -230,7 +230,7 @@ airwire from the same neighbouring part within `escape_depth` of that
 part's pads.
 
 **Confirmed for the score.** The run score counts only what a grid path
-search confirms (Ben, 2026-09-24): for each pad the corridors call closed
+search confirms (the owner, 2026-09-24): for each pad the corridors call closed
 or walled, a path at the net's track width and clearance from other nets'
 copper, in 0.05 mm cells over a window `escape_depth` round the pad, to the
 window's edge (facing the target, for closed) or to a spot where a via fits
@@ -256,7 +256,7 @@ so counts at different depths do not compare.
 
 The router, quick mode, on a test board's MCU cell: escapes off 93.6% closure
 with 5 nets open, on 94.9% with 4 (crossings 42 and 48); with the first
-design, the core went from 75.3% (55 open) to 76.6% raw (52 open).
+design, the whole test board went from 75.3% (55 open) to 76.6% raw (52 open).
 
 ## Satellites
 
@@ -319,7 +319,7 @@ The bench, against task 5 (walled, crossings, crossed escapes, HPWL, s):
 HPWL rises 8-17% as the pass trades wire for crossings and escapes at the
 chosen weights. The router, quick mode, on a whole test board (scratch copy):
 the MCU cell 94.9% closure and 4 nets open at task 5, 97.4% and 2 open now,
-with 48 -> 37 crossings; the core 76.1% raw (53 open) against 75.2% (55
+with 48 -> 37 crossings; the whole test board 76.1% raw (53 open) against 75.2% (55
 open), crossings 1,120 -> 1,083, within what one quick route varies.
 
 ## Findings
@@ -350,17 +350,17 @@ board project's own install) against this code, quick routing:
 | MCU cell: crossings, airwire | 43, 191.4 mm | 37, 195.5 mm |
 | MCU cell: route closure, nets open | 98.7%, 1 | 97.4%, 2 |
 | MCU cell: findings | 5 link | 6 link, 5 crossed escapes, 0 walled |
-| Core: crossings, airwire | 1,035, 2,055 mm | 1,106, 2,367 mm |
-| Core: route closure, nets open | 74.3%, 57 | 78.8%, 47 |
-| Core: resolve | 174 s | 72 s |
+| Whole board: crossings, airwire | 1,035, 2,055 mm | 1,106, 2,367 mm |
+| Whole board: route closure, nets open | 74.3%, 57 | 78.8%, 47 |
+| Whole board: resolve | 174 s | 72 s |
 
 Against "Done when" below: no pad is walled off and every satellite is on
 its normal or within its limit; the MCU cell's crossings fall 43 -> 37,
 short of 34; five crossed escapes remain at the flash bus's pins (29-34);
-one bypass link (C8-L2) ends 0.11 mm past its limit. On the core the
+one bypass link (C8-L2) ends 0.11 mm past its limit. On the whole test board the
 router closes more nets but the crossings and the airwire rise. The one
 quick route per case varies by a net or two run to run, so the MCU cell's
-difference is within it; the core's ten nets are likely not.
+difference is within it; the whole test board's ten nets are likely not.
 
 ## Done when
 
@@ -373,7 +373,7 @@ The brief's own targets:
     87d15ed);
   - every satellite on its normal or offset within its limit;
   - every bypass link limit met.
-- Core: crossings below 1,041 (run 985825a5) with no new findings; plane
+- Whole board: crossings below 1,041 (run 985825a5) with no new findings; plane
   nets weighted by `crossing_plane_weight`; runs ranked by the run score,
   with its defaults checked by the replay.
 - Bench:

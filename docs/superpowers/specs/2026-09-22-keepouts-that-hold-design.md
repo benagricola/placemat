@@ -56,8 +56,8 @@ for z in list(board.Zones()):
 and `read.py` never reads a rule area, so `BoardGeometry` has no idea they
 exist and the placer cannot honour them.
 
-**The generator does its part.** In `boards/main/.placemat/generated/Main/layout.kicad_pcb`
-- the unscripted board straight from `pcb layout` - the gnss_antenna module's
+**The generator does its part.** In a board's `.placemat/generated/<Board>/layout.kicad_pcb`
+- the unscripted board straight from `pcb layout` - an antenna module's
 two keepouts are present as `keepout antenna_1` and `keepout antenna_c_1`, and
 **both are members of the `ant_rf` group**. `_move_cell` moves every item of a
 cell's group, so they would travel with the cell correctly. placemat deletes
@@ -74,7 +74,7 @@ neighbour or forty is in the way, or on which face. `Occupancy.who()` already
 formats an owner with its cell; the sentence is computed and thrown away.
 
 And a board with no `plane()` declared pulls every part sharing GND to one
-centroid: 155 of 220 on the modular core, all seeded within a few millimetres
+centroid: 155 of 220 on the modular whole test board, all seeded within a few millimetres
 of the board centre. `_targets` excludes declared plane nets from the pull, so
 the fix is to declare the plane - but nothing says that is what happened.
 
@@ -311,7 +311,7 @@ by getting stricter.
 
 A board that worked round the layer bug by widening `allow=` keeps working; the
 `allow=` is now unnecessary and slightly dangerous, because it admits those nets
-on the layers that DO matter. `boards/main/Main_layout.py` is the known case.
+on the layers that DO matter. One downstream board's layout script is the known case.
 
 A board whose stamped cell keepouts were being deleted will newly report parts
 and copper inside them. On one test board that is the antenna

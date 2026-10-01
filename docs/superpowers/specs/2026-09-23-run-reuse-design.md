@@ -11,7 +11,7 @@ those steps can be replayed instead of searched.
 
 ## Measured
 
-The core board's 107 pairs of consecutive runs, compared by item and
+The whole test board's 107 pairs of consecutive runs, compared by item and
 placement step by step:
 
 - 19 pairs placed everything identically (copper, label or document edits).
@@ -97,7 +97,7 @@ it is a separate decision.
 6. With the solve on, any placement change replays nothing.
 7. A replayed block restores its satellites' commits.
 8. `--no-reuse` resolves from the start.
-9. On the fixture modules and the core board, for a sequence of single edits,
+9. On the fixture modules and the whole test board, for a sequence of single edits,
    the reusing run equals the fresh run and its time is reported.
 
 ## Documentation

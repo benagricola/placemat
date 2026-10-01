@@ -17,7 +17,7 @@
 - Fixed sets of values are validated choices (`settings._CHOICES`), not free strings.
 - Plain ASCII only: no em/en dashes, no unicode arrows, straight quotes.
 - Placemat is intent-driven: no X/Y arithmetic in doc examples; a script says what it means (a push's `from_=`, `falloff=`, `reference=`) and the placer works out the coordinate.
-- Commits: `git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit ...`, zero mentions of Claude/Anthropic/AI/sessions/Co-Authored-By; verify with `git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"` (must print nothing) after every commit.
+- Commits: `git -c user.name="<owner name>" -c user.email="<owner email>" commit ...`, zero mentions of Claude/Anthropic/AI/sessions/Co-Authored-By; verify with `git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"` (must print nothing) after every commit.
 - Tests: run only the targeted files named in each task, via `PYTHONPATH=$PWD/src /home/ben/work/placemat/.venv/bin/python -m pytest -q -p no:cacheprovider tests/<files>`. Never run the full suite. Never `uv pip install` or `maturin develop`. Never the router.
 - New fields on dataclasses that already feed `reuse.canonical()` digests (`PlaceIntent`) carry `metadata={"omit_default": True}` at their empty default, so a script that never calls `push()` digests exactly as before.
 - Additive to scoring/search: no changes to `giveway.py`, `checks.py`, the native Rust scorer (`NativeScoring`), or `explore.py`/`cleanup` - two other agents are working there concurrently.
@@ -135,7 +135,7 @@ And a row right after the `score.via_drop` row:
 
 ```bash
 git add src/placemat/settings.py tests/test_settings.py skills/placemat/references/api.md
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "Settings for keepout drawings and a push's price"
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "Settings for keepout drawings and a push's price"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 The grep must print nothing.
@@ -216,7 +216,7 @@ Expected: PASS, all four files (the last three are unaffected by this change but
 
 ```bash
 git add src/placemat/layout.py tests/test_part_height.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "A placed keepout carries its own height admission, for its drawn label"
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "A placed keepout carries its own height admission, for its drawn label"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 
@@ -532,7 +532,7 @@ every keepout, admitting or not.
 
 ```bash
 git add src/placemat/kicad/write.py tests/test_keepout_drawings.py skills/placemat/references/api.md skills/placemat/references/migration.md
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "Draw what a keepout admits on its Fab layer"
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "Draw what a keepout admits on its Fab layer"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 
@@ -728,7 +728,7 @@ Expected: PASS, unchanged - `PlaceIntent.pushes` defaults to `()` and carries `o
 
 ```bash
 git add src/placemat/layout.py tests/test_push.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "board.push(): a push declaration, and its source placed first"
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "board.push(): a push declaration, and its source placed first"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 
@@ -889,7 +889,7 @@ Expected: PASS, unaffected by this task (no script in these files calls `push()`
 
 ```bash
 git add src/placemat/layout.py tests/test_push.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "A push's hard limit: a disc reserved against the item alone"
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "A push's hard limit: a disc reserved against the item alone"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 
@@ -1105,7 +1105,7 @@ Expected: PASS - `Scorer`'s new `pushes` parameter defaults to `()` everywhere e
 
 ```bash
 git add src/placemat/layout.py tests/test_push.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "A push's soft price in the search, and a wide scan with no other hint"
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "A push's soft price in the search, and a wide scan with no other hint"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 
@@ -1215,7 +1215,7 @@ Expected: PASS, every file.
 
 ```bash
 git add src/placemat/layout.py tests/test_push.py
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "A push's step note gives its landing value and distance"
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "A push's step note gives its landing value and distance"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 
@@ -1331,7 +1331,7 @@ Run: `grep -n "## Push" skills/placemat/references/api.md` and confirm exactly o
 
 ```bash
 git add skills/placemat/references/api.md skills/placemat/references/migration.md skills/placemat/SKILL.md
-git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit -m "Document board.push()"
+git -c user.name="<owner name>" -c user.email="<owner email>" commit -m "Document board.push()"
 git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"
 ```
 

@@ -23,10 +23,10 @@ def _part(ref, pads, cx, cy, fab=True):
 
 
 def _shunt(fab=True):
-    """An upright shunt RS at (30, 30): VSHUNT pad north (y 28.05 to 29.62), VPROT pad south (30.38 to
+    """An upright shunt RS at (30, 30): V_HI pad north (y 28.05 to 29.62), V_LO pad south (30.38 to
     31.95), each 1.2 wide (x 29.4 to 30.6): a 0.76 gap between them."""
-    return _part("RS", [pad("RS", "rs", 1, "VSHUNT", 30, 28.835, 1.2, 1.57),
-                        pad("RS", "rs", 2, "VPROT", 30, 31.165, 1.2, 1.57)], 30, 30, fab)
+    return _part("RS", [pad("RS", "rs", 1, "V_HI", 30, 28.835, 1.2, 1.57),
+                        pad("RS", "rs", 2, "V_LO", 30, 31.165, 1.2, 1.57)], 30, 30, fab)
 
 
 def _tie(ref, nets, courtyard=False, w=0.3, h=0.3, round_pads=True):
@@ -51,13 +51,13 @@ def _tie(ref, nets, courtyard=False, w=0.3, h=0.3, round_pads=True):
 def _board(parts, envelope="courtyard", clearance=0.16, **kw):
     settings = dataclasses.replace(Settings(), place_envelope=envelope)
     return Board(board_geometry(parts, width=60, height=60, clearance=clearance,
-                                extra_nets=("VSHUNT_SENSE", "VPROT_SENSE")),
+                                extra_nets=("V_HI_SENSE", "V_LO_SENSE")),
                  edge_margin=1.0, keep_going=True, settings=settings, **kw)
 
 
 def _shunt_ties(envelope="courtyard", rotation=0, tie_courtyard=False):
-    b = _board([_shunt(), _tie("NT1", ("VSHUNT", "VSHUNT_SENSE"), tie_courtyard),
-                _tie("NT2", ("VPROT", "VPROT_SENSE"), tie_courtyard)], envelope)
+    b = _board([_shunt(), _tie("NT1", ("V_HI", "V_HI_SENSE"), tie_courtyard),
+                _tie("NT2", ("V_LO", "V_LO_SENSE"), tie_courtyard)], envelope)
     b.place(Part("rs"), at=Location(30, 30), rotation=0)
     b.place(Part("nt1"), at=Pin(1, PadRef(Part("rs"), 1, edge=Edge.SOUTH, along=Along.END)), rotation=rotation)
     b.place(Part("nt2"), at=Pin(1, PadRef(Part("rs"), 2, edge=Edge.NORTH, along=Along.END)), rotation=rotation)
@@ -108,7 +108,7 @@ def test_a_pad_placed_at_the_end_of_an_edge_lies_outside_it_flush_with_the_side(
 
 
 def test_a_pad_placed_at_the_middle_of_an_edge_is_centred_on_it():
-    b = _board([_shunt(), _tie("NT1", ("VSHUNT", "VSHUNT_SENSE"))])
+    b = _board([_shunt(), _tie("NT1", ("V_HI", "V_HI_SENSE"))])
     b.place(Part("rs"), at=Location(30, 30), rotation=0)
     b.place(Part("nt1"), at=Pin(1, PadRef(Part("rs"), 1, edge=Edge.SOUTH)), rotation=0)
     plan = b.resolve()
@@ -116,7 +116,7 @@ def test_a_pad_placed_at_the_middle_of_an_edge_is_centred_on_it():
 
 
 def test_the_through_x_and_y_form_says_the_same():
-    b = _board([_shunt(), _tie("NT1", ("VSHUNT", "VSHUNT_SENSE"))])
+    b = _board([_shunt(), _tie("NT1", ("V_HI", "V_HI_SENSE"))])
     b.place(Part("rs"), at=Location(30, 30), rotation=0)
     tap = PadRef(Part("rs"), 1, edge=Edge.SOUTH, along=Along.END)
     b.place(Part("nt1"), at=Pin(1, X(tap), Y(tap)), rotation=0)
@@ -127,7 +127,7 @@ def test_the_through_x_and_y_form_says_the_same():
 
 def _bar_part():
     """A part whose pad 1 is 0.6 wide and 0.2 tall at rotation 0."""
-    p = _tie("T1", ("VSHUNT", "VSHUNT_SENSE"), w=0.6, h=0.2, round_pads=False)
+    p = _tie("T1", ("V_HI", "V_HI_SENSE"), w=0.6, h=0.2, round_pads=False)
     return p
 
 
@@ -169,8 +169,8 @@ def test_the_shunt_with_its_ties_is_clean_in_every_envelope(envelope):
 
 def _standing_rider(rotation):
     """The shunt is searched (the board gives it a place) and a stock tie rides it: its pad 1 against the shunt's
-    VSHUNT pad on the south edge, the rest of the tie turned `rotation`."""
-    b = _board([_shunt(), _tie("NT1", ("VSHUNT", "VSHUNT_SENSE"))])
+    V_HI pad on the south edge, the rest of the tie turned `rotation`."""
+    b = _board([_shunt(), _tie("NT1", ("V_HI", "V_HI_SENSE"))])
     b.place(Part("rs"))
     b.place(Part("nt1"), at=Pin(1, PadRef(Part("rs"), 1, edge=Edge.SOUTH, along=Along.MID)), rotation=rotation)
     return b.resolve()
@@ -188,7 +188,7 @@ def test_a_datum_part_is_placed_with_a_net_tie_riding_it_that_stands_out_from_it
 
 
 def test_a_riding_net_tie_turned_to_lie_across_the_pad_of_another_net_is_still_refused():
-    """Its pad 2 (net VSHUNT_SENSE) then lies over copper of VSHUNT wherever the shunt stands."""
+    """Its pad 2 (net V_HI_SENSE) then lies over copper of V_HI wherever the shunt stands."""
     plan = _standing_rider(0)
     assert [f for f in plan.findings if "cannot be laid out with its riders" in f], plan.findings
 
@@ -210,7 +210,7 @@ def test_an_end_on_a_round_target_pad_is_refused_naming_the_pad():
 def test_an_edge_point_is_still_refused_for_a_via():
     b = _board([_shunt()])
     b.place(Part("rs"), at=Location(30, 30), rotation=0)
-    b.via(Net("VSHUNT"), PadRef(Part("rs"), 1, edge=Edge.EAST))
+    b.via(Net("V_HI"), PadRef(Part("rs"), 1, edge=Edge.EAST))
     with pytest.raises(ValueError, match="edge="):
         b.resolve()
 
@@ -234,7 +234,7 @@ def _cover(ref, left, drawn=True, pad_at=1.0):
 
 
 def _with_cover(envelope, cover, at):
-    b = _board([_shunt(), _tie("NT1", ("VSHUNT", "VSHUNT_SENSE")), cover], envelope)
+    b = _board([_shunt(), _tie("NT1", ("V_HI", "V_HI_SENSE")), cover], envelope)
     b.place(Part("rs"), at=Location(30, 30), rotation=0)
     b.place(Part("nt1"), at=Pin(1, PadRef(Part("rs"), 1, edge=Edge.SOUTH, along=Along.END)), rotation=0)
     b.place(Part(cover.inst), at=Location(*at), rotation=0)
@@ -251,9 +251,9 @@ def test_another_parts_body_and_courtyard_may_stand_over_a_tie(envelope, drawn):
 
 @pytest.mark.parametrize("envelope", ["courtyard", "physical", "union"])
 def test_another_parts_other_net_pad_near_a_tie_is_a_conflict(envelope):
-    """CV's pad (net X) 0.1 mm from the tie's pad 2 (VSHUNT_SENSE): inside the 0.16 clearance."""
+    """CV's pad (net X) 0.1 mm from the tie's pad 2 (V_HI_SENSE): inside the 0.16 clearance."""
     plan = _with_cover(envelope, _cover("CV", 31.0, drawn=False, pad_at=0.45), (31.45, 29.75))
-    assert [f for f in plan.findings if "VSHUNT_SENSE copper" in f], plan.findings
+    assert [f for f in plan.findings if "V_HI_SENSE copper" in f], plan.findings
 
 
 @pytest.mark.parametrize("native", [True, False])
@@ -263,9 +263,9 @@ def test_a_pad_of_the_ties_net_standing_on_its_pad_is_judged_clear_native_or_not
     from placemat import geometry
     if not native:
         monkeypatch.setattr(geometry, "_native", None)
-    probe = _part("P", [pad("P", "p", 1, "VSHUNT_SENSE", 31.0, 29.765, 0.2, 0.2)], 31.0, 29.765, fab=False)
+    probe = _part("P", [pad("P", "p", 1, "V_HI_SENSE", 31.0, 29.765, 0.2, 0.2)], 31.0, 29.765, fab=False)
     probe = dataclasses.replace(probe, body_box=probe.pads[0].box, courtyard_box=probe.pads[0].box)
-    b = _board([_shunt(), _tie("NT1", ("VSHUNT", "VSHUNT_SENSE")), probe])
+    b = _board([_shunt(), _tie("NT1", ("V_HI", "V_HI_SENSE")), probe])
     b.place(Part("rs"), at=Location(30, 30), rotation=0)
     b.place(Part("nt1"), at=Pin(1, PadRef(Part("rs"), 1, edge=Edge.SOUTH, along=Along.END)), rotation=0)
     b.place(Part("p"), at=Location(31.0, 29.765), rotation=0)
@@ -314,7 +314,7 @@ def test_the_shunt_with_its_two_ties_passes_kicads_drc(tmp_path):
     board.GetDesignSettings().m_NetSettings.GetDefaultNetclass().SetClearance(pcbnew.FromMM(0.16))
     v = lambda x, y: pcbnew.VECTOR2I(pcbnew.FromMM(x), pcbnew.FromMM(y))
     nets = {}
-    for name in ("VSHUNT", "VPROT", "VSHUNT_SENSE", "VPROT_SENSE"):
+    for name in ("V_HI", "V_LO", "V_HI_SENSE", "V_LO_SENSE"):
         nets[name] = pcbnew.NETINFO_ITEM(board, name)
         board.Add(nets[name])
 
@@ -343,9 +343,9 @@ def test_the_shunt_with_its_two_ties_passes_kicads_drc(tmp_path):
             made.append(p)
         return fp, made
 
-    for ref, pads in (("RS", ((1, "VSHUNT", 30, 28.835, 1.2, 1.57, False), (2, "VPROT", 30, 31.165, 1.2, 1.57, False))),):
+    for ref, pads in (("RS", ((1, "V_HI", 30, 28.835, 1.2, 1.57, False), (2, "V_LO", 30, 31.165, 1.2, 1.57, False))),):
         part(ref, pads)
-    for ref, nets_ in (("NT1", ("VSHUNT", "VSHUNT_SENSE")), ("NT2", ("VPROT", "VPROT_SENSE"))):
+    for ref, nets_ in (("NT1", ("V_HI", "V_HI_SENSE")), ("NT2", ("V_LO", "V_LO_SENSE"))):
         p1, p2 = _pad(plan, ref, 1).center, _pad(plan, ref, 2).center
         fp, made = part(ref, ((1, nets_[0], p1.x, p1.y, 0.3, 0.3, True), (2, nets_[1], p2.x, p2.y, 0.3, 0.3, True)),
                         tie=True)

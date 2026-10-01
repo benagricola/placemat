@@ -51,7 +51,7 @@ module, pytest.
   - api.md;
   - migration.md: a `## Unreleased` section at the top, created if absent.
 - Commits:
-  - `git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit`;
+  - `git -c user.name="<owner name>" -c user.email="<owner email>" commit`;
   - no Claude/Anthropic/session/Co-Authored-By text;
   - check with `git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"`,
     which prints nothing.

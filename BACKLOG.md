@@ -279,7 +279,7 @@ file. An item cites its source as "a board's session, <date>".
   `align=(Along.MID, PadRef(...))`, the placed part's own centre level with
   a pad.
 
-## Housekeeping (left for Ben: outside this repository)
+## Housekeeping (left for the owner: outside this repository)
 
 - A downstream project's `pyproject.toml` points placemat at the stale
   `~/work/placemat-greenfield`; the `placemat-check` and
@@ -355,7 +355,7 @@ file. An item cites its source as "a board's session, <date>".
 
 - **Staircase routes** (0.52.0; PLACEMAT_GAPS 2026-09-29 "how jagged the kept
   routes are"; spec `2026-09-29-router-turn-cost-design.md`): the router's
-  turn cost at 20000 on every pass (the core: turns per 10 mm 12.6 -> 5.8,
+  turn cost at 20000 on every pass (the whole test board: turns per 10 mm 12.6 -> 5.8,
   copper -10%, closure 66.0% -> 66.8%); its smoothing on; router_args;
   routes --release-all.
 - **A cell against a keepout, member by member** (0.52.0; PLACEMAT_GAPS
@@ -484,7 +484,7 @@ file. An item cites its source as "a board's session, <date>".
   work, 2026-09-27): a cell's vias no longer make it two-faced to a parts
   keepout; plated leads and unplated holes still do.
 - **`check current-path` judges the load's route** (0.41.0; PLACEMAT_GAPS
-  2026-09-27; Ben chose dead-end branches skipped): the widest route between
+  2026-09-27; the owner chose dead-end branches skipped): the widest route between
   carrying parts, or from the one carrying part to another part.
 - **A fragment's extent, and `measure --outline`** (0.41.0; PLACEMAT_GAPS
   2026-09-27): the run's extent line measures parts as the envelope claims
@@ -529,8 +529,8 @@ file. An item cites its source as "a board's session, <date>".
   character reference XML forbids (8ed7488); a run compares with and
   reuses its own board's last run (9278996); a searched `Near` on another
   searched item's pad waits for it (f55c17b).
-- **A cell's zones under the board's own plane** (0.37.0, from Ben on
-  2026-09-27; a core board had 17 cell zones on nets and layers its own
+- **A cell's zones under the board's own plane** (0.37.0, from the owner on
+  2026-09-27; a whole test board had 17 cell zones on nets and layers its own
   planes cover): merged into the plane at write, `copper.cell_zones_under_planes`.
 - **A class clearance that does not fit a pad pitch** (0.36.0, from a
   board agent's request): a setup finding naming the part, its tightest
@@ -561,7 +561,7 @@ file. An item cites its source as "a board's session, <date>".
   timing on the merged code, Python then native, CPU time, whole bench
   corpus: default 62.3 -> 25.0 s (2.49x), solve 59.3 -> 22.0 s (2.70x),
   physical 136.2 -> 30.6 s (4.45x); a whole test board's resolve 224.1 ->
-  48.3 s (4.64x). All 102 bench results and all 174 core steps identical;
+  48.3 s (4.64x). All 102 bench results and all 174 whole-board steps identical;
   the suite passes both ways. Spec:
   `docs/superpowers/specs/2026-09-24-native-core-design.md`. Open: how the
   compiled module is packaged for a release.
@@ -580,7 +580,7 @@ file. An item cites its source as "a board's session, <date>".
   (closed 2026-09-24): the library's courtyards are its own to fix. On the
   placemat side a courtyard-envelope run lists each footprint whose silk
   passes its courtyard (`metrics.footprints`), the physical envelope spaces
-  by silk, and a label keeps the silk clearance. Source: a board's `PLACEMAT_GAPS.md`, "the bench panel cell", item 6.
+  by silk, and a label keeps the silk clearance. Source: a board's `PLACEMAT_GAPS.md`, "a panel cell", item 6.
 - **A fanout band** (0.29.0): `board.fanout(part, depth=, sides=)` reserves
   the strip outside each pad row on the part's face for its satellites and
   SHORT-linked parts. Spec: `docs/superpowers/specs/2026-09-24-fanout-band-design.md`.
@@ -607,7 +607,7 @@ file. An item cites its source as "a board's session, <date>".
   generator's positions do not shrink the view. Source: a board's `PLACEMAT_GAPS.md`, "the MCU cell", item 5.
 - **Per-net airwire and part coordinates** (0.29.0): `metrics.airwire_per_net`,
   the impact's `airwire by net:`, and origin, rotation and centre in `parts`.
-  Source: a board's `PLACEMAT_GAPS.md`, "the bench panel
+  Source: a board's `PLACEMAT_GAPS.md`, "a panel
   cell", item 5.
 - **`[drc.severities]`** (0.29.0): KiCad rule severities written into the
   board's project each run. Source: a board's `PLACEMAT_GAPS.md`, "the MCU cell", item 1.
@@ -624,7 +624,7 @@ file. An item cites its source as "a board's session, <date>".
 - **A stamped cell's labels are reserved in the parent** (0.29.0): each
   silk text in a cell's group is read as a parts-excluding region of the
   cell on its face. Source: a board's `PLACEMAT_GAPS.md`,
-  "the bench panel cell", item 2.
+  "a panel cell", item 2.
 - **A label keeps the silk clearance from its part** (0.29.0): the label
   gap is at least the board's silk clearance. Reproduced with the flag tab
   footprint and KiCad's DRC: at gap 0 every side touched the tab's silk on
@@ -649,17 +649,17 @@ file. An item cites its source as "a board's session, <date>".
   its inputs and regenerates when one changes; the script's directory is
   importable and its sibling modules count in the run id. Source:
   a board's `PLACEMAT_GAPS.md`, "seven things" items
-  2 and 3, "the bench panel cell" item 3.
+  2 and 3, "a panel cell" item 3.
 - **Three gaps bugs** (0.28.0): the pocket search takes the largest room
   the item fits, and the check before a search rounds toward room; a parts
   keepout or stamped rule area keeps parts off only the faces its layers
   name; an undeclared part is a finding. Source: a board's `PLACEMAT_GAPS.md`, "the MCU cell" item 2, "the power cells"
-  item 2, "seven things" item 1, "passive orientation" item 3, "the bench
+  item 2, "seven things" item 1, "passive orientation" item 3, "a
   panel cell" item 4.
 - **Rotations for searched parts** (0.28.0): all four for a part with none
   declared, in the search, the pocket fallback and the cleanup pass;
   `[place] rotations = "declared"` for the old behaviour. Bench: +13 placed,
-  median HPWL 0.84 (default). Core board copy (its script already lists
+  median HPWL 0.84 (default). Whole-board copy (its script already lists
   four rotations on searched parts): 126 placed either way, wire cost
   1385.1 -> 1383.7, 589 -> 676 CPU s under power save. Blocks keep one
   rotation (the bench has none to measure). Source: a board's `PLACEMAT_GAPS.md`,
@@ -669,28 +669,28 @@ file. An item cites its source as "a board's session, <date>".
   the courtyard envelope.
 - **Coinciding outlines** (0.28.0): `polys_overlap` finds shared
   interior when every vertex lies on the other's boundary; two satellites on
-  one pad are refused with the reason, not stacked. Source: a board's `PLACEMAT_GAPS.md`, "the bench panel cell", item 1.
+  one pad are refused with the reason, not stacked. Source: a board's `PLACEMAT_GAPS.md`, "a panel cell", item 1.
 - **placemat preview** (0.27.0): the plan drawn without building the board,
   with links, pockets, unplaced parts, copper and a congestion heat map;
-  core board unchanged preview 5.3 s. A part not yet placed no longer blocks
+  whole test board unchanged preview 5.3 s. A part not yet placed no longer blocks
   pockets, copper checks or cutouts; RUDY without pad blockage.
 - **Code quality pass** (0.26.x): dead code, helpers for repeated code,
   stale docstrings, reuse keys without memory addresses.
 
-- **Run reuse** (0.26.0): replay up to the first changed step, exact. Core
-  board: unchanged rerun 125 s -> 7 s; a late part changed 118 s -> 24 s.
+- **Run reuse** (0.26.0): replay up to the first changed step, exact. Whole
+  test board: unchanged rerun 125 s -> 7 s; a late part changed 118 s -> 24 s.
 - **Speed** (0.26.0): block satellites from cached shapes, a raster for
-  reservations, links by pad pair: core resolve 298 s -> 106 s, placing the
+  reservations, links by pad pair: whole-board resolve 298 s -> 106 s, placing the
   same.
 - **RUDY reported** (0.26.0): worst cell per run. Validation strategy - many
   complete placement pairs routed by KRT (full run), >= 70% pairwise
   agreement on >= 100 pairs, the unrouted connections near the hot cell, a
-  second router on a subset, then 5-10 core placements - is the next step
+  second router on a subset, then 5-10 whole-board placements - is the next step
   before it steers placement.
 
 - **Cleanup pass** (0.25.0): moves and swaps after the searched tier.
   Benchmark: 23 better, 0 worse in default and physical, 26 better with the
-  solve; core board (mid-normalisation snapshot): findings 26 -> 22, link
+  solve; whole test board (mid-normalisation snapshot): findings 26 -> 22, link
   length 831 -> 774 mm.
 - **Improving the solve** (measured 2026-09-23 as patches, not shipped).
   Against no solve, better / worse of 32, before the cleanup pass:
@@ -714,7 +714,7 @@ file. An item cites its source as "a board's session, <date>".
   anchor pad by number; the fab profile in the run id.
 
 - **Placement envelopes** (0.23.0): `[place] envelope = "physical"` claims
-  pads, mask openings, silk and body at the board's own gaps. On the core
+  pads, mask openings, silk and body at the board's own gaps. On the whole test board
   board (2026-09-23 snapshot, mid footprint normalisation): no silk items
   between different parts; resolve 284 s against 239 s in courtyard mode;
   221 placed against 224; 199 `courtyards_overlap` from KiCad's courtyard
@@ -722,7 +722,7 @@ file. An item cites its source as "a board's session, <date>".
 
 - **Three PLACEMAT_GAPS items** (0.22.0): `find_board` skips `layout =
   False`; `board.edge(facing, outermost=True)`; of two linked items neither
-  placed, the one with less pull waits (on the core board's pre-block RF
+  placed, the one with less pull waits (on the whole test board's pre-block RF
   chain: one pocket fewer, 13.5 mm less link length; the current script is
   unchanged).
 

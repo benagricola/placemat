@@ -31,7 +31,7 @@
   - `skills/placemat/references/migration.md` under a `## Unreleased`
     section at the top.
 - Commits:
-  - `git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit`;
+  - `git -c user.name="<owner name>" -c user.email="<owner email>" commit`;
   - no Claude/Anthropic/session/Co-Authored-By text;
   - the grep check prints nothing.
 - Tests:

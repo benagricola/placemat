@@ -44,7 +44,7 @@ def _via(layers, net, x):
 def _board(copper, fps=None):
     fps = fps or [footprint("U1", 10, 14, inst="k.u1", cell="k", nets=("GND", "A"))]
     g = board_geometry(fps, cells=("k",), copper=copper, width=40, height=40,
-                       extra_nets=("GND", "V3V3", "VBIKE"))
+                       extra_nets=("GND", "V3V3", "VIN"))
     g = dataclasses.replace(g, layers=SIX, layer_types=dict(TYPES))
     b = Board(g, edge_margin=0.5, keep_going=True)
     b.plane(Net("GND"), layers=(IN1, IN4))
@@ -77,7 +77,7 @@ def test_flip_span_mirrors_a_face_anchored_via_and_keeps_a_buried_one():
 def test_a_flipped_cells_inner_pour_keeps_its_layer():
     """The flip the old refusal named (a power pour on In2 would have landed
     on In3, V3V3's plane) is placed, with the pour still on In2."""
-    b = _board([_pour(IN2, "VBIKE"), _pour(F, "GND", cx=14)])
+    b = _board([_pour(IN2, "VIN"), _pour(F, "GND", cx=14)])
     b.place(Cell("k"), at=Location(20, 20), face=Face.BACK)
     plan = b.resolve()
     layers = sorted(tuple(sorted(l.value for l in s.layers)) for s in _cell_copper(plan, "copper"))
@@ -103,9 +103,9 @@ def test_a_flipped_parts_inner_copper_mirrors_as_kicad_flips_it():
 
 
 def test_a_flipped_via_whose_inner_end_changes_role_is_noted():
-    """F-In2 on VBIKE: In2 is a power layer of no declared plane, and the
+    """F-In2 on VIN: In2 is a power layer of no declared plane, and the
     flip lands its inner end on In3, V3V3's plane."""
-    b = _board([_via((F, IN1, IN2), "VBIKE", 9)])
+    b = _board([_via((F, IN1, IN2), "VIN", 9)])
     b.place(Cell("k"), at=Location(20, 20), face=Face.BACK)
     note = b.resolve().step("k").note
     assert "In2.Cu" in note and "In3.Cu" in note, note
@@ -128,7 +128,7 @@ def test_a_flipped_via_that_fed_an_inner_track_is_noted():
 
 
 def test_a_cell_on_its_own_face_is_not_noted():
-    b = _board([_via((F, IN1, IN2), "VBIKE", 9)])
+    b = _board([_via((F, IN1, IN2), "VIN", 9)])
     b.place(Cell("k"), at=Location(20, 20), face=Face.FRONT)
     assert "In3.Cu" not in (b.resolve().step("k").note or "")
 

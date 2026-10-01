@@ -45,7 +45,7 @@ coordinates.
   - `skills/placemat/references/migration.md`: a `## Unreleased` section
     above `## To 0.54.1`.
 - Commits:
-  - `git -c user.name="Ben Agricola" -c user.email=ben+git@agrico.la commit`.
+  - `git -c user.name="<owner name>" -c user.email="<owner email>" commit`.
   - The message contains no Claude/Anthropic/session/Co-Authored-By
     reference; check it with
     `git log -1 --format=%B | grep -iE "claude|anthropic|session|co-authored"`,
