@@ -6,6 +6,16 @@ file. An item cites its source as "a board's session, <date>".
 
 ## In progress
 
+- **A via field re-laid round a conflict** (the via give-way
+  investigation, 2026-10-01): when an item's copper meets some vias of a
+  field under a pad, drop the conflicting rows and add vias on the field's
+  free side to keep a target count, reporting the count before and after.
+  Give-way acts one via at a time and has no field to re-lay. Being built.
+
+- **A routed via moved with its tracks** (the same): a cell's via with two
+  or more tracks never gives way; moving it needs the tracks re-routed as a
+  unit, not the straight tail giving way draws. Being built.
+
 ## Open
 
 - **Current shared between a load's pins** (a board's session, 2026-10-01):
@@ -15,18 +25,8 @@ file. An item cites its source as "a board's session, <date>".
   no per-route width to flow over the route graph. Wanted: a flow with a
   width per neck, only where the routes share no neck.
 
-- **A via field re-laid round a conflict** (the via give-way
-  investigation, 2026-10-01): when an item's copper meets some vias of a
-  field under a pad, drop the conflicting rows and add vias on the field's
-  free side to keep a target count, reporting the count before and after.
-  Give-way acts one via at a time and has no field to re-lay.
-
 - **A per-pad keep floor for drops** (the same): `place.drops_keep` is
   global; a script cannot say one pad needs N vias.
-
-- **A routed via moved with its tracks** (the same): a cell's via with two
-  or more tracks never gives way; moving it needs the tracks re-routed as a
-  unit, not the straight tail giving way draws.
 
 - **A plug on another board against a receptacle here** (owner: spec later,
   2026-09-30; a board's session, 2026-09-27, twice): pad-to-pad nets
