@@ -962,7 +962,7 @@ class Board:
         nets = {p.net for item in items for fp in members_of(self._item(item)[0]) for p in fp.pads if p.net}
         widest = max([self.clearance or self.geometry.default_clearance or 0.0, self.component_spacing,
                       self.geometry.silk_clearance] +
-                     [self.geometry.clearance(n) for n in nets if n in self.geometry.nets])
+                     [self._clearance_reach(n) for n in nets])
         return max(float(gap), widest)
 
     def envelope(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
@@ -1481,7 +1481,8 @@ class Board:
         other way and is not measured. Under the clearance, the router cannot
         escape the pad. One finding per part, on its tightest lane."""
         g = self.geometry
-        reach = max((c.clearance for c in g.netclasses.values()), default=0.0)
+        reach = max([c.clearance for c in g.netclasses.values()] + [r.min_mm for r in self._rules if r.kind == "clearance"],
+                    default=0.0)
         for fp in g.footprints:
             pads = [p for p in fp.pads if p.net and p.outlines]
             worst, short = None, 0
@@ -1493,7 +1494,7 @@ class Board:
                 for q in pads:
                     if q.net == p.net or not (p.layers & q.layers):
                         continue
-                    need = g.clearance(p.net, q.net)
+                    need = self._clearance(p.net, q.net, fp.ref, fp.ref)
                     lane = lane_of(q)
                     if lane is None or lane >= need - 1e-6:
                         continue
@@ -2039,7 +2040,7 @@ class Board:
                              if s.kind in ("pad", "through") and s.label == own_pad.number])
             shapes = [sh for ref in past.items for sh in _pad_shapes(self, occ, ref)]
             box = Box.union([sh.box for sh in shapes])
-            off = _lane_distance(self, own_pad.net, [sh.net for sh in shapes], past.lane, past.width)
+            off = _lane_distance(self, own_pad.net, shapes, past.lane, past.width, own_pad.owner)
             if isinstance(past.edge, Corner):
                 # the own pad's corner that faces back across the 45 stands `off` out along the
                 # diagonal from the pads' corner; the side has decided one axis, this the other
@@ -2053,10 +2054,10 @@ class Board:
                     # so that rounding cannot put the lane's track nearer the own pad than its clearance
                     lane = self.geometry.require_net(past.lane)
                     lw = self._width(lane, past.width)
-                    d = (lw / 2.0 + max(_net_clearance(self, sh.net, lane) for sh in shapes)) / math.sqrt(2.0)
+                    d = (lw / 2.0 + max(self._clearance(sh.net, lane, sh.owner) for sh in shapes)) / math.sqrt(2.0)
                     px, py = _round_away(c.x + sx * d, sx), _round_away(c.y + sy * d, sy)
                     reach = (sx * (px - c.x) + sy * (py - c.y)
-                             + (lw / 2.0 + _net_clearance(self, lane, own_pad.net)) * math.sqrt(2.0))
+                             + (lw / 2.0 + self._clearance(lane, own_pad.net)) * math.sqrt(2.0))
                 if ox is None:
                     ox = _round_away(c.x - qx + sx * (reach - sy * (qy + oy - c.y)), sx)
                 else:
@@ -2715,6 +2716,36 @@ class Board:
         self._rules.append(rule)
         return rule
 
+    def _clearance_rules(self):
+        """The declared clearance rules, read as KiCad judges them (rules.ClearanceRules)."""
+        from .rules import ClearanceRules
+        cache = self.__dict__.get("_clearance_rules_cache")
+        if cache is None or cache[0] != len(self._rules):
+            cache = (len(self._rules), ClearanceRules.of(self.geometry, self._rules))
+            self._clearance_rules_cache = cache
+        return cache[1]
+
+    def _clearance(self, net_a, net_b, owner_a=None, owner_b=None) -> float:
+        """The copper clearance between two items, as KiCad judges it: that of
+        the last declared rule that matches them (`within=` reads their
+        owners, a part's ref or a cell's name; a declared track has none),
+        else the netclass pair's, else the board default when either has no
+        net."""
+        rule = self._clearance_rules().match(net_a or "", net_b or "", owner_a or "", owner_b or "")
+        if rule is not None:
+            return rule.min_mm
+        nets = self.geometry.nets
+        if net_a not in nets or net_b not in nets:
+            return self.geometry.default_clearance
+        return self.geometry.clearance(net_a, net_b)
+
+    def _clearance_reach(self, net) -> float:
+        """The most a net's copper can be asked to keep from another's: its
+        class's figure, or a rule that raises it."""
+        base = self.geometry.clearance(net) if net in self.geometry.nets else self.geometry.default_clearance
+        return max([base] + [r.min_mm for r in self._rules if r.kind == "clearance"
+                             and (r.on == net or (r.between is not None and net in r.between))])
+
     def _plane_nets(self) -> set:
         return {c.net for c in self._copper if c.key.split(" ")[0] in ("pour", "plane", "finger")}
 
@@ -3327,7 +3358,7 @@ class Board:
                           if t.net != name and t.layer is layer]     # tracks not in the occupancy yet count too
 
                 def clear_of_tracks(t):
-                    return all(poly_distance(t.polygon, o.polygon) >= self.geometry.clearance(name, o.net) - 1e-9
+                    return all(poly_distance(t.polygon, o.polygon) >= self._clearance(name, o.net) - 1e-9
                                for o in others)
                 if all(clear(t.start, t.end) and clear_of_tracks(t) for t in direct):
                     ctx.notes.append("track %s: a waypoint steers it into another net's pad; drawn pad to pad it clears, "
@@ -3410,7 +3441,7 @@ class Board:
                                      "the centreline's points" % (p_name, n_name))
                     return []
             return pair_ops(p_name, n_name, layer, w, g, start, centre, end, self.via_drill, self.via_size,
-                            via_step, chamfer, self.geometry.clearance(p_name, n_name), sfaces, efaces)
+                            via_step, chamfer, self._clearance(p_name, n_name), sfaces, efaces)
         return self._copper_intent("pair %s/%s" % (p_name, n_name), net_p, priority, plan, refs, why, bridge)
 
     def vias(self, net, pad=None, *, along=None, count: int | None = None, pitch: float | None = None,
@@ -3858,13 +3889,13 @@ class Board:
             if gap < self.geometry.hole_to_hole - 1e-9:
                 return "hole %.2f mm from the %s via's hole" % (max(gap, 0.0), v.net)
             if v.net != net:
-                clr = self.geometry.clearance(net, v.net)
+                clr = self._clearance(net, v.net)
                 if c.distance(v.at) - (size + v.size) / 2.0 < clr - 1e-9:
                     return "copper %.2f mm from the %s via" % (c.distance(v.at) - (size + v.size) / 2.0, v.net)
         for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
             if own and t.layer not in own:
                 continue
-            if t.net != net and poly_distance(ring, t.polygon) < self.geometry.clearance(net, t.net) - 1e-9:
+            if t.net != net and poly_distance(ring, t.polygon) < self._clearance(net, t.net) - 1e-9:
                 return "copper %.2f mm from a %s track planned before it" % (poly_distance(ring, t.polygon), t.net)
         for at, dia, layers in holes:
             if apart(layers):
@@ -3892,11 +3923,11 @@ class Board:
         for v in ctx.planned_vias:
             if v.layers and layer not in v.layers:
                 continue
-            if v.net != net and poly_distance(tail.polygon, v.polygon) < self.geometry.clearance(net, v.net) - 1e-9:
+            if v.net != net and poly_distance(tail.polygon, v.polygon) < self._clearance(net, v.net) - 1e-9:
                 return "tail %.2f mm from the %s via" % (poly_distance(tail.polygon, v.polygon), v.net)
         for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
             if (t.net != net and t.layer is layer
-                    and poly_distance(tail.polygon, t.polygon) < self.geometry.clearance(net, t.net) - 1e-9):
+                    and poly_distance(tail.polygon, t.polygon) < self._clearance(net, t.net) - 1e-9):
                 return "tail crosses a %s track planned before it" % t.net
         hits = ctx.occ.copper_conflicts(Shape("via", "copper", frozenset(), frozenset([layer]),
                                               net, tail.polygon, Box.of_points(tail.polygon)))
@@ -3946,11 +3977,11 @@ class Board:
             for v in ctx.planned_vias:
                 if v.layers and layer not in v.layers:
                     continue
-                if v.net != net and poly_distance(tail, v.polygon) < self.geometry.clearance(net, v.net) - 1e-9:
+                if v.net != net and poly_distance(tail, v.polygon) < self._clearance(net, v.net) - 1e-9:
                     return "tail %.2f mm from the %s via" % (poly_distance(tail, v.polygon), v.net)
             for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
                 if (t.net != net and t.layer is layer
-                        and poly_distance(tail, t.polygon) < self.geometry.clearance(net, t.net) - 1e-9):
+                        and poly_distance(tail, t.polygon) < self._clearance(net, t.net) - 1e-9):
                     return "tail crosses a %s track planned before it" % t.net
             tail_hits = occ.copper_conflicts(Shape("via", "copper", frozenset(), frozenset([layer]),
                                                    net, tail, Box.of_points(tail)))
@@ -4183,7 +4214,7 @@ class Board:
             self._order_rng = _random.Random("%d:order" % self._explore.seed)
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
                         board_cutouts=self._cutouts, settings=self.settings,
-                        component_spacing=self.component_spacing)
+                        component_spacing=self.component_spacing, rules=self._rules)
         self._check_stamped_via_types()     # a fragment's vias the fab profile does not allow fail the run
         self._flip_said = self._flip_notes(occ)     # a flipped cell's via whose inner end changes role
         self._carry_pad_vias(occ)          # before any cell's geometry is built from its members'
@@ -5161,7 +5192,7 @@ class Board:
                 # together. Tracks that cross are the bridging's to settle, and a swallow pour's
                 # clearance is the writer's, as above.
                 for earlier, o in batch:
-                    if o.net == shape.net or not shape.box.overlaps(o.box, gap=1.0):
+                    if o.net == shape.net or not shape.box.overlaps(o.box, gap=occ._copper_reach):
                         continue
                     if isinstance(earlier, Pour) and earlier.swallow_pads:
                         continue
@@ -6768,36 +6799,32 @@ def _pad_half_across(board: "Board", occ: Occupancy, ref, centre: Location, ux: 
               for sh in _pad_shapes(board, occ, ref) for px, py in sh.poly)
 
 
-def _pad_clearance(board: "Board", net: str, pad_net: str) -> float:
-    """The clearance a track of `net` keeps from a pad of `pad_net`: the
+def _pad_clearance(board: "Board", net: str, pad_net: str, pad_owner=None) -> float:
+    """The clearance a track of `net` keeps from a pad of `pad_net` (of part
+    `pad_owner`, for a rule within a cell): `Board._clearance`, which is the
     board default when the pad has no net (occupancy.py's copper_conflicts
     falls back the same way) - a corner-reference pad with GetNetCode() <= 0
     names no netclass to look up."""
-    if pad_net not in board.geometry.nets:
-        return board.geometry.default_clearance
-    return board.geometry.clearance(net, pad_net)
+    return board._clearance(net, pad_net, None, pad_owner)
 
 
 def _net_clearance(board: "Board", a: str, b: str) -> float:
-    """KiCad's clearance between copper of two nets; the board default when
-    either has no net (as `_pad_clearance` falls back)."""
-    nets = board.geometry.nets
-    if a not in nets or b not in nets:
-        return board.geometry.default_clearance
-    return board.geometry.clearance(a, b)
+    """The clearance between copper of two nets (`Board._clearance`); the
+    board default when either has no net (as `_pad_clearance` falls back)."""
+    return board._clearance(a, b)
 
 
-def _lane_distance(board: "Board", own: str, nets: list, lane, width=None) -> float:
-    """How far a pad of net `own` stands past copper of `nets`: the worst
-    clearance between them, or with `lane` a net, room for one track of it
-    between - the clearance from the copper to the lane, the lane's width
-    (`width`, else its track width) and the clearance from the lane to the
-    pad."""
+def _lane_distance(board: "Board", own: str, shapes: list, lane, width=None, own_owner=None) -> float:
+    """How far a pad of net `own` (of part `own_owner`) stands past the copper
+    of `shapes`: the worst clearance between them, or with `lane` a net, room
+    for one track of it between - the clearance from the copper to the lane,
+    the lane's width (`width`, else its track width) and the clearance from
+    the lane to the pad."""
     if lane is None:
-        return max(_net_clearance(board, own, n) for n in nets)
+        return max(board._clearance(own, sh.net, own_owner, sh.owner) for sh in shapes)
     name = board.geometry.require_net(lane)
-    return (max(_net_clearance(board, n, name) for n in nets) + board._width(name, width)
-            + _net_clearance(board, name, own))
+    return (max(board._clearance(sh.net, name, sh.owner) for sh in shapes) + board._width(name, width)
+            + board._clearance(name, own, None, own_owner))
 
 
 def _between_point(board: "Board", ctx: "_CopperContext", net: str, width: float, p: Between) -> Location:
@@ -6807,7 +6834,7 @@ def _between_point(board: "Board", ctx: "_CopperContext", net: str, width: float
     from .geometry import poly_distance
     sa, sb = _pad_shapes(board, ctx.occ, p.a), _pad_shapes(board, ctx.occ, p.b)
     gap = min(poly_distance(x.poly, y.poly) for x in sa for y in sb)
-    need = width + _pad_clearance(board, net, sa[0].net) + _pad_clearance(board, net, sb[0].net)
+    need = width + _pad_clearance(board, net, sa[0].net, sa[0].owner) + _pad_clearance(board, net, sb[0].net, sb[0].owner)
     if gap < need - 1e-6:
         oa, na, _, _ = board._pad_ref(p.a)
         ob, nb, _, _ = board._pad_ref(p.b)
@@ -6848,7 +6875,7 @@ def _past_names(board: "Board", p: Past) -> list:
 
 def _past_copper(board: "Board", occ: Occupancy, ops_at: dict, p: Past, what: str,
                  current: int | None = None):
-    """(net, box) for every piece of copper `p.items` names: each pad's
+    """(net, box, owner) for every piece of copper `p.items` names: each pad's
     shapes, each via's ring and each track's segments, as the polygons the
     clearance check measures. A string instead when a via or track has no copper
     (see `_past_unplanned`)."""
@@ -6862,9 +6889,9 @@ def _past_copper(board: "Board", occ: Occupancy, ops_at: dict, p: Past, what: st
                 if isinstance(op, (Via, Track)):
                     # its polygon's box: the copper the clearance check measures, a via's ring a
                     # little outside the true circle
-                    out.append((op.net, op.box))
+                    out.append((op.net, op.box, ""))
         else:
-            out += [(sh.net, sh.box) for sh in _pad_shapes(board, occ, it)]
+            out += [(sh.net, sh.box, sh.owner) for sh in _pad_shapes(board, occ, it)]
     return out
 
 
@@ -6876,8 +6903,8 @@ def _past_reach(board: "Board", ctx: "_CopperContext", net: str, width: float, p
     copper = _past_copper(board, ctx.occ, ctx.ops_at, p, what, current)
     if isinstance(copper, str):
         return copper
-    return (Box.union([b for _, b in copper]),
-            width / 2.0 + max(_pad_clearance(board, net, n) for n, _ in copper))
+    return (Box.union([b for _, b, _ in copper]),
+            width / 2.0 + max(_pad_clearance(board, net, n, o) for n, _, o in copper))
 
 
 def _box_corner(box: Box, corner: Corner) -> Location:

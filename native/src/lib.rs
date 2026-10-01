@@ -86,11 +86,28 @@ fn geometry_bounds(poly: &[Point]) -> (f64, f64, f64, f64) {
     (x0, y0, x1, y1)
 }
 
+/// One clearance rule as Python hands it over: (on, between, within owners, min). See
+/// `placemat.rules.ClearanceRules`; the rules arrive in declaration order.
+type RuleArg = (Option<String>, Option<(String, String)>, Option<Vec<String>>, f64);
+
+fn build_rules(rules: Option<Vec<RuleArg>>) -> Vec<shapes::ClearanceRule> {
+    rules
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(on, between, within, min)| shapes::ClearanceRule {
+            on,
+            between,
+            within: within.map(|w| w.into_iter().collect()),
+            min,
+        })
+        .collect()
+}
+
 /// `Occupancy._conflict`'s boolean decision (not its reason string), for
 /// direct fuzzing against the live Python method - see
 /// tests/test_native_conflict.py.
 #[pyfunction]
-#[pyo3(signature = (s, o, clearance, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, hole_to_hole, hole_clearance))]
+#[pyo3(signature = (s, o, clearance, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, hole_to_hole, hole_clearance, rules=None))]
 #[allow(clippy::too_many_arguments)]
 fn conflict(
     s: PyShape,
@@ -104,12 +121,13 @@ fn conflict(
     net_clearance: HashMap<String, f64>,
     hole_to_hole: f64,
     hole_clearance: f64,
+    rules: Option<Vec<RuleArg>>,
 ) -> PyResult<bool> {
     // gap/drawn_gap are only read by ShapeGrid::first_conflict's gap_for,
     // not by conflict() itself: unused here.
     let cfg = shapes::ConflictConfig {
-        touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, gap: 0.0, drawn_gap: 0.0,
-        hole_to_hole, hole_clearance,
+        touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance,
+        rules: build_rules(rules), gap: 0.0, drawn_gap: 0.0, hole_to_hole, hole_clearance,
     };
     Ok(shapes::conflict(&build_shape(&s)?, &build_shape(&o)?, clearance, &cfg))
 }
@@ -127,7 +145,7 @@ struct NativeObstacles {
 #[pymethods]
 impl NativeObstacles {
     #[new]
-    #[pyo3(signature = (obstacles, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, gap, drawn_gap, hole_to_hole, hole_clearance))]
+    #[pyo3(signature = (obstacles, touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, gap, drawn_gap, hole_to_hole, hole_clearance, rules=None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         obstacles: Vec<PyShape>,
@@ -141,11 +159,12 @@ impl NativeObstacles {
         drawn_gap: f64,
         hole_to_hole: f64,
         hole_clearance: f64,
+        rules: Option<Vec<RuleArg>>,
     ) -> PyResult<Self> {
         let built: Vec<shapes::Shape> = obstacles.iter().map(build_shape).collect::<PyResult<_>>()?;
         let cfg = shapes::ConflictConfig {
-            touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance, gap, drawn_gap,
-            hole_to_hole, hole_clearance,
+            touch, vias_block_courtyards, silk_clearance, component_spacing, default_clearance, net_clearance,
+            rules: build_rules(rules), gap, drawn_gap, hole_to_hole, hole_clearance,
         };
         Ok(NativeObstacles { grid: shapes::ShapeGrid::new(built), cfg })
     }

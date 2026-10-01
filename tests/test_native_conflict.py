@@ -72,10 +72,21 @@ def _cfg_kwargs(occ: Occupancy):
     return dict(touch=occ._touch, vias_block_courtyards=occ.vias_block_courtyards,
                 silk_clearance=occ.silk_clearance, component_spacing=occ.component_spacing,
                 default_clearance=occ.geometry.default_clearance, net_clearance=net_clearance,
-                hole_to_hole=occ.geometry.hole_to_hole, hole_clearance=occ.geometry.hole_clearance)
+                hole_to_hole=occ.geometry.hole_to_hole, hole_clearance=occ.geometry.hole_clearance,
+                rules=occ.rules.native())
 
 
-def _rich_occupancy(envelope="union", vias_block_courtyards=False):
+def _rules():
+    """Clearance rules of each kind, one raising, one lowering, in an order where a later one overrides an
+    earlier: U1 and U3 are the cell "grp"."""
+    from placemat.rules import Rule
+    return [Rule("clearance", 0.45, "on a", on="A"),
+            Rule("clearance", 0.05, "b to the via", between=("B", "GND")),
+            Rule("clearance", 0.12, "in the cell", within="grp"),
+            Rule("clearance", 0.3, "on b", on="B")]
+
+
+def _rich_occupancy(envelope="union", vias_block_courtyards=False, rules=()):
     fps = [
         footprint("U1", 10, 10, w=4, h=2, fab=(9, 9, 11, 11), silk_boxes=[(8.5, 8.5, 11.5, 9.0)], mask_grow=0.1),
         footprint("U2", 20, 10, w=3, h=3, through=True, fab=(18.5, 8.5, 21.5, 11.5)),
@@ -84,11 +95,15 @@ def _rich_occupancy(envelope="union", vias_block_courtyards=False):
     from tests.test_courtyard_polygons import _sector
     fps.append(_sector("L1", "l1", centre=(30.0, 30.0)))             # a courtyard claimed as KiCad draws it
     import dataclasses
-    g = dataclasses.replace(board_geometry(fps, width=60, height=60, silk_clearance=0.1), hole_clearance=0.2)
+    cells = []
+    if rules:
+        fps = [dataclasses.replace(fp, cell="grp") if fp.ref in ("U1", "U3") else fp for fp in fps]
+        cells = ["grp"]
+    g = dataclasses.replace(board_geometry(fps, cells=cells, width=60, height=60, silk_clearance=0.1), hole_clearance=0.2)
     from placemat.settings import Settings
     settings = dataclasses.replace(Settings(), place_envelope=envelope)
     occ = Occupancy(g, edge_margin=1.0, settings=settings, vias_block_courtyards=vias_block_courtyards,
-                    component_spacing=0.2)
+                    component_spacing=0.2, rules=rules)
     via_poly = ((14.0, 14.0), (14.3, 14.0), (14.3, 14.3), (14.0, 14.3))
     from placemat.occupancy import hole_shape
     occ.add_copper([Shape("", "through", frozenset([Face.FRONT, Face.BACK]), frozenset(CopperLayer),
@@ -128,6 +143,34 @@ def test_conflict_agrees_with_python_on_randomised_shape_pairs(envelope):
         if py != native:
             mismatches.append((s_moved.kind, o_moved.kind, dx, dy, clearance, py, native))
     assert not mismatches, "%d/%d mismatches: %s" % (len(mismatches), n, mismatches[:5])
+
+
+@pytest.mark.parametrize("envelope", ["courtyard", "physical", "union"])
+def test_conflict_agrees_with_python_under_clearance_rules(envelope):
+    """Rules of each kind, raising and lowering, later over earlier: both engines read the same
+    clearance, and the fuzz differs from the rule-free one for enough pairs to mean something."""
+    occ = _rich_occupancy(envelope=envelope, rules=_rules())
+    plain = _rich_occupancy(envelope=envelope)
+    shapes = _all_shapes(occ)
+    cfg = _cfg_kwargs(occ)
+    assert cfg["rules"] and cfg["rules"][2][2] == ["U1", "U3", "grp"]
+    rnd = random.Random(20261001)
+    mismatches, changed = [], 0
+    for _ in range(20000):
+        (s, s_is_fp, s_is_lead, s_margin), (o, o_is_fp, o_is_lead, o_margin) = rnd.choice(shapes), rnd.choice(shapes)
+        # o is brought to within a millimetre or two of s, where a clearance decides
+        dx = s.box.center.x - o.box.center.x + rnd.uniform(-2.4, 2.4)
+        dy = s.box.center.y - o.box.center.y + rnd.uniform(-2.4, 2.4)
+        s_moved, o_moved = s, _shifted(o, dx, dy)
+        clearance = rnd.choice([None, None, None, 0.1, 0.3])
+        py = occ._conflict(s_moved, o_moved, clearance) is not None
+        native = placemat_native.conflict(_py_shape(s_moved, s_is_fp, s_is_lead, s_margin),
+                                          _py_shape(o_moved, o_is_fp, o_is_lead, o_margin), clearance, **cfg)
+        changed += py != (plain._conflict(s_moved, o_moved, clearance) is not None)
+        if py != native:
+            mismatches.append((s_moved.kind, o_moved.kind, s_moved.net, o_moved.net, dx, dy, clearance, py, native))
+    assert not mismatches, "%d mismatches: %s" % (len(mismatches), mismatches[:5])
+    assert changed > 30, "the rules changed only %d verdicts: the fuzz does not reach them" % changed
 
 
 def test_conflict_agrees_with_vias_blocking_courtyards():

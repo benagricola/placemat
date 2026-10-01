@@ -22,7 +22,7 @@
 //! would, in the same order, without needing the two-stage split.
 
 use crate::geometry::{point_in_polygon, point_segment_distance, poly_distance, polys_overlap, Point};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
@@ -101,6 +101,32 @@ pub struct Shape {
     pub margin: f64,    // Occupancy._margins.get(owner, 0.0): how far KiCad's own courtyard lies inside courtyard_box
 }
 
+/// One of the script's clearance rules (`rules.ClearanceRules`): the first of `on`, `between`
+/// and `within` that is set is its condition. `within` holds the owners of the cell's members
+/// and of the copper it carries; a shape with no owner is in no cell.
+#[derive(Clone, Default)]
+pub struct ClearanceRule {
+    pub on: Option<String>,
+    pub between: Option<(String, String)>,
+    pub within: Option<HashSet<String>>,
+    pub min: f64,
+}
+
+impl ClearanceRule {
+    fn matches(&self, a: &Shape, b: &Shape) -> bool {
+        if let Some(owners) = &self.within {
+            return !a.owner.is_empty() && !b.owner.is_empty() && owners.contains(&a.owner) && owners.contains(&b.owner);
+        }
+        if let Some((x, y)) = &self.between {
+            return (a.net == *x && b.net == *y) || (a.net == *y && b.net == *x);
+        }
+        match &self.on {
+            Some(n) => a.net == *n || b.net == *n,
+            None => false,
+        }
+    }
+}
+
 pub struct ConflictConfig {
     pub touch: f64,
     pub vias_block_courtyards: bool,
@@ -108,6 +134,7 @@ pub struct ConflictConfig {
     pub component_spacing: f64,
     pub default_clearance: f64,
     pub net_clearance: HashMap<String, f64>, // net name -> its netclass's own clearance
+    pub rules: Vec<ClearanceRule>, // the script's clearance rules, in declaration order: the last that matches decides
     pub gap: f64,       // Occupancy._gap: the conflict-gap prefilter for a non-drawn shape
     pub drawn_gap: f64, // Occupancy._drawn_gap: for a silk/mask/body shape
     pub hole_to_hole: f64,   // BoardGeometry.hole_to_hole: two drilled holes, whatever their nets
@@ -115,11 +142,14 @@ pub struct ConflictConfig {
 }
 
 impl ConflictConfig {
-    fn pair_clearance(&self, explicit: Option<f64>, net_a: &str, net_b: &str) -> f64 {
+    fn pair_clearance(&self, explicit: Option<f64>, s: &Shape, o: &Shape) -> f64 {
         if let Some(c) = explicit {
             return c;
         }
-        match (self.net_clearance.get(net_a), self.net_clearance.get(net_b)) {
+        if let Some(r) = self.rules.iter().rev().find(|r| r.matches(s, o)) {
+            return r.min;
+        }
+        match (self.net_clearance.get(&s.net), self.net_clearance.get(&o.net)) {
             (Some(&a), Some(&b)) => a.max(b),
             _ => self.default_clearance,
         }
@@ -293,7 +323,7 @@ pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &Con
         if !s.net.is_empty() && s.net == o.net {
             return false;
         }
-        let clr = cfg.pair_clearance(explicit_clearance, &s.net, &o.net);
+        let clr = cfg.pair_clearance(explicit_clearance, s, o);
         if box_gap(s.bbox, o.bbox) >= clr - 1e-9 {
             return false;
         }
@@ -505,11 +535,31 @@ mod tests {
             component_spacing: 0.2,
             default_clearance: 0.2,
             net_clearance: HashMap::new(),
+            rules: Vec::new(),
             gap: 1.0,
             drawn_gap: 0.2,
             hole_to_hole: 0.25,
             hole_clearance: 0.0,
         }
+    }
+
+    #[test]
+    fn the_last_matching_clearance_rule_decides_the_pair() {
+        // two pads 0.3 mm apart: clear under the 0.2 netclass figure
+        let a = shape(Kind::Pad, "U1", rect(0.0, 0.0, 1.0, 1.0), 1, 1, "A", true);
+        let b = shape(Kind::Pad, "R1", rect(1.3, 0.0, 1.0, 1.0), 1, 1, "B", true);
+        let mut c = cfg();
+        assert!(!conflict(&a, &b, None, &c));
+        c.rules.push(ClearanceRule { on: Some("A".into()), min: 0.4, ..Default::default() });
+        assert!(conflict(&a, &b, None, &c)); // a rule on A raises it
+        c.rules.push(ClearanceRule { between: Some(("B".into(), "A".into())), min: 0.1, ..Default::default() });
+        assert!(!conflict(&a, &b, None, &c)); // the later between= decides, whichever way round
+        assert!(conflict(&a, &b, Some(0.5), &c)); // an explicit clearance overrides every rule
+        let owners: HashSet<String> = ["U1".to_string(), "R1".to_string()].into_iter().collect();
+        c.rules.push(ClearanceRule { within: Some(owners), min: 0.35, ..Default::default() });
+        assert!(conflict(&a, &b, None, &c)); // both owners in the cell
+        let other = shape(Kind::Pad, "X1", rect(1.3, 0.0, 1.0, 1.0), 1, 1, "B", true);
+        assert!(!conflict(&a, &other, None, &c)); // X1 is in no cell: the between= rule's 0.1 stands
     }
 
     #[test]

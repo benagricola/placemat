@@ -67,7 +67,7 @@ def test_a_declared_clearance_is_written_beside_the_board_and_its_drc_reads_it(b
     before = read_board(pcb)
     b = Board(before, edge_margin=0.0)
     b.size(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
-    b.rule(clearance=5.0, on=Net("GND"), why="an impossible clearance, to prove the rule is read")
+    b.rule(clearance=0.9, on=Net("GND"), why="a wide clearance, to prove the rule is read")
     apply_plan(pcb, b.resolve())
     assert (tmp_path / "layout.kicad_dru").read_text().startswith("(version 1)")
     report = run_drc(pcb, tmp_path / "drc.json")

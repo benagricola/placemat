@@ -157,7 +157,7 @@ mod tests {
     fn cfg() -> ConflictConfig {
         ConflictConfig {
             touch: 0.02, vias_block_courtyards: false, silk_clearance: 0.1, component_spacing: 0.2,
-            default_clearance: 0.2, net_clearance: HashMap::new(), gap: 1.0, drawn_gap: 0.2, hole_to_hole: 0.25,
+            default_clearance: 0.2, net_clearance: HashMap::new(), rules: Vec::new(), gap: 1.0, drawn_gap: 0.2, hole_to_hole: 0.25,
             hole_clearance: 0.0,
         }
     }

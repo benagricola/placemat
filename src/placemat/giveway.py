@@ -489,9 +489,7 @@ def _first_met(occ, g: Group, first, clearance):
         return None
     if occ.geometry.has_footprint(first.owner) and occ.geometry.footprint(first.owner).net_tie_pads:
         return None
-    geo = occ.geometry
-    clr = clearance if clearance is not None else (
-        geo.clearance(g.net, first.net) if (g.net in geo.nets and first.net in geo.nets) else geo.default_clearance)
+    clr = clearance if clearance is not None else occ.pair_clearance(g.net, first.net, "", first.owner)[0]
     return first.poly, clr
 
 
