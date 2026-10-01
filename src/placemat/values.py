@@ -247,6 +247,13 @@ class Beside:
       one track of it between them;
     - an `Along` of `item`'s side (default `Along.MID`).
 
+    `copper=True` measures the standoff from copper, not envelopes: the part
+    stands as near `item` on `side` as its pads allow, every pad of it
+    keeping, from every pad of `item` (a cell's members') of another net,
+    the clearance the pair needs plus `gap` (default 0.0, with no envelope
+    floor); pads of one net set no distance. Its body, courtyard and silk
+    are judged afterwards as for any placement.
+
     Firm, like `Pin`: the position is decided, not searched. The
     rotation is what the script gave, or its default - `Beside` does not
     turn the part to face `item`."""
@@ -254,6 +261,7 @@ class Beside:
     side: Edge
     align: object = None
     gap: float | None = None
+    copper: bool = field(default=False, kw_only=True, metadata={"omit_default": True})
 
     def __post_init__(self):
         if not isinstance(self.side, Edge):

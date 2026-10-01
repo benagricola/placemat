@@ -30,7 +30,7 @@ from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
 from .settings import Settings
-from .placer import BlockSpec, _grid, _pin_normal, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
+from .placer import BlockSpec, _grid, _pin_normal, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
 from .values import (Turned, Axis, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
@@ -347,11 +347,14 @@ class _BesideSpec:
     envelope's own), and `align` normalised to `("along", Along)`,
     `("pads", own_key, PadRef)` - `own_key` a pad of the part being placed,
     the `PadRef` a pad of `item` (its own net when align was a bare
-    PadRef) - or `("past", own_key, Past)`, a Past over pads."""
+    PadRef) - or `("past", own_key, Past)`, a Past over pads. `copper`:
+    the standoff is measured pad copper to pad copper, not envelope to
+    envelope, and `gap` is added to the pairs' clearance."""
     item: object
     side: Edge
     align: tuple
     gap: float | None
+    copper: bool = field(default=False, metadata={"omit_default": True})
 
 
 @dataclass
@@ -1997,7 +2000,9 @@ class Board:
         else:
             raise TypeError("%s: Beside's align is a PadRef, an (own_pad, their_pad) pair, Along.START/MID/END, "
                             "or nothing (Along.MID), not %r" % (key, align))
-        return _BesideSpec(at.item, at.side, norm, at.gap)
+        if at.copper and item_kind != "item":
+            raise TypeError("%s: Beside's copper= measures from pads; a %s has none" % (key, item_kind))
+        return _BesideSpec(at.item, at.side, norm, at.gap, at.copper)
 
     def _check_beside_past(self, key: str, side: Edge, p: Past):
         """A Past in Beside's align: over pads only, since a placement is
@@ -2058,6 +2063,41 @@ class Board:
         if escape:          # off copper of the escape's nets, as off a part's pads of them
             gap = max([gap] + [self._clearance_reach(n) for n in self._escape_nets(spec.item)])
         return gap
+
+    def _beside_copper_standoff(self, occ: Occupancy, i: PlaceIntent, ox: float, oy: float) -> float:
+        """Where `Beside(copper=True)` stands the part along its side's axis: the
+        offset (x for an east or west side, y for a north or south one) at
+        which every pad of it keeps, from every pad of `item` of another net
+        that it faces across the side (as `ox`, `oy` line it up on the other
+        axis), the clearance the pair needs plus `gap`: the greatest of the
+        pairs' exact standoffs (`sweep_standoff`). Pads of one net set none;
+        a net tie's own-net exemption is not applied, the pair's clearance is
+        what `_clearance` says whatever the footprint is."""
+        b = i.beside
+        u = {Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0), Edge.SOUTH: (0.0, 1.0), Edge.NORTH: (0.0, -1.0)}[b.side]
+        gap = 0.0 if b.gap is None else float(b.gap)
+        bare = self._bare_occupancy()
+        _, own_shapes = bare.candidate_shapes(i.item, Placement(Location(0.0, 0.0), i.rotation, i.face))
+        cross = (0.0, oy) if u[0] else (ox, 0.0)
+        own = [s for s in own_shapes if s.kind in ("pad", "through")]
+        members = [fp for fp in (self._item(b.item)[0].members if isinstance(b.item, Cell) else [self._item(b.item)[0]])]
+        fixed = [s for fp in members for number in dict.fromkeys(p.number for p in fp.pads)
+                 for s in occ.pad_shapes(fp.ref, number)]
+        stand = None
+        for mine in own:
+            poly = tuple((x + cross[0], y + cross[1]) for x, y in mine.poly)
+            for theirs in fixed:
+                if mine.net and mine.net == theirs.net or not mine.layers & theirs.layers:
+                    continue
+                d = self._clearance(mine.net, theirs.net, mine.owner, theirs.owner) + gap
+                t = sweep_standoff(poly, theirs.poly, u, d)
+                if t is not None and (stand is None or t > stand):
+                    stand = t
+        if stand is None:
+            raise ValueError("%s: Beside(copper=True) has no distance to take: no pad of it faces a pad of %s of another "
+                             "net across the %s side; leave copper= out for an envelope's" % (
+                                 i.key, self._item(b.item)[1], b.side.name))
+        return round(stand * (u[0] or u[1]), 6)
 
     def _beside_placement(self, occ: Occupancy, plan: "Plan", i: PlaceIntent) -> Placement:
         """Where `Beside(...)` puts the item: its own drawn envelope `gap`
@@ -2161,6 +2201,12 @@ class Board:
                     oy = their_loc.y - own_pad.y
                 else:
                     ox = their_loc.x - own_pad.x
+        if b.copper:
+            stand = self._beside_copper_standoff(occ, i, ox, oy)
+            if b.side in (Edge.EAST, Edge.WEST):
+                ox = stand
+            else:
+                oy = stand
         return Placement(Location(round(ox, 6), round(oy, 6)), i.rotation, i.face)
 
     def _row_of_placement(self, occ: Occupancy, i: PlaceIntent, along: float) -> Placement:
