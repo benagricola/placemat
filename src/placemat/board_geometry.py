@@ -26,6 +26,7 @@ class PadGeom:
     mask_paste: tuple = ()      # the mask and paste layers the pad opens, e.g. ("F.Mask", "F.Paste")
     anchor: Location | None = None  # KiCad's PAD::ShapePos: where its airwires end; None: the box centre
     custom: bool = False        # a custom pad: its copper is its primitives, and its box hides them
+    kshapes: tuple = ()         # its KiCad effective shape (kicad_collide tuples, nm, as read): what DRC collides; () when not read
 
     @property
     def location(self) -> Location:
@@ -71,6 +72,7 @@ class Footprint:
     mask: tuple = ()            # ((Face, polygon), ...): each pad's mask aperture, the pad grown by its expansion
     fab: tuple = ()             # ((Face, polygon), ...): per face, the box of the fab graphics - the body
     copper: tuple = ()          # ((CopperLayer, polygon), ...): the footprint's own copper graphics (a net-tie's winding)
+    copper_shapes: tuple = ()   # per entry of `copper`, its graphic's KiCad effective shape (kicad_collide tuples, nm, as read)
     courtyard_margin: float = 0.0   # how far KiCad's courtyard polygon lies inside courtyard_box, least side
     courtyard_poly: tuple = ()      # KiCad's courtyard polygon on the part's face, board frame; () when it draws none
     fields: dict = field(default_factory=dict, compare=False)   # the footprint's text fields (the capture's Pm.* facts)
@@ -79,6 +81,7 @@ class Footprint:
     bom_excluded: bool = field(default=False, compare=False)    # left out of the BOM (FOOTPRINT::IsExcludedFromBOM)
     board_only: bool = field(default=False, compare=False)      # on the board only, not the schematic (FOOTPRINT::IsBoardOnly)
     net_tie_pads: frozenset = field(default=frozenset(), compare=False)   # pad numbers in a net-tie group (FOOTPRINT::GetNetTiePads)
+    net_tie_groups: tuple = field(default=(), compare=False)   # the groups, each its pad numbers (FOOTPRINT::MapPadNumbersToNetTieGroups); () reads net_tie_pads as one
     models: tuple = field(default=(), compare=False)   # ((file, offset xyz, rotation xyz, scale xyz), ...): its 3D models
 
     @property
