@@ -970,8 +970,9 @@ board.keepout(CLEARANCE, "antenna", at=PadRef(Part("ant"), "ANT_FEED"),
 ```
 
 **The shape, the place and the rotation** are a cutout's: `Slot`, `Circle`,
-`Path`, `at=` taking `Location`, `Centre`, `Polar`, `OnEdge`, `Near` or a
-`PadRef`, and `rotation=` taking a number (a bearing, clockwise from the
+`Path`, `at=` taking `Location`, `Centre`, `Polar`, `OnEdge`, `Near`, a
+`PadRef` or a `Mid` of two points (a figure anchored between two pads), and
+`rotation=` taking a number (a bearing, clockwise from the
 top) or `Turned(part, degrees)` to turn with a part already on the board -
 the region turning the way the part does, `degrees` turning the way a
 part's own rotation does (anticlockwise on screen). A freedom left in `at=`
@@ -1299,9 +1300,10 @@ board's own EDGE is not a rectangle or a circle.
 them with the verb that does the same thing: `OnEdge(board.edge(facing=X))`
 is where `OnRim(X)` would have put it, held at the keep-in and turned to
 the edge the same way. `Polar` is a coordinate about `board.centre` by
-default, so it works on any board; `about=` moves the centre - a `Location`,
-an (x, y) pair, or a `Part`, `Cell` or `PadRef` resolved once the Polar
-item itself is placed, the same as `ring(about=)`.
+default, so it works on any board; `about=` moves the centre - any point:
+a `Location`, an (x, y) pair, a `Part` or `Cell` (its body centre), a
+`PadRef`, a `Mid` of two points, or another `Polar` - resolved once the
+Polar item itself is placed, the same as `ring(about=)`.
 
 **The keep-in is radial.** The rim holds an item's furthest corner back by
 `board.keep_in`; a bore holds its nearest point out by the same, and that is
