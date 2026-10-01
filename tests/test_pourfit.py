@@ -109,3 +109,13 @@ def test_a_fit_round_thirty_pieces_that_intrude_on_every_side_is_fast():
     start = time.perf_counter()
     res = pourfit.fit(holds, pieces, 0.12)
     assert not res.problem and time.perf_counter() - start < 1.0
+
+
+def test_a_pad_too_thin_to_inset_is_still_held_clear_of_a_neighbour():
+    """Two 0.3 mm tall pads 0.2 mm apart: the neighbour's clearance outline reaches 0.065 into the pad, more
+    than the pad can be inset by the margin; it is held as far in as clears."""
+    own = pourfit.hull(_rect(0.0, 0.0, 1.0, 0.3))
+    far = pourfit.hull(_rect(4.0, 0.0, 1.0, 0.3))
+    other = pourfit.pieces_of(_rect(0.5, 0.5, 1.0, 0.3), 0.265, SAG, "other")
+    res = pourfit.fit([("A", own), ("B", far)], other, 0.12)
+    assert not res.problem and res.outline

@@ -262,7 +262,7 @@ def test_a_neck_between_two_pads_is_drawn_as_declared():
     pa, pb = _part("A0", "A", 10.0, 10.0), _part("A1", "A", 16.0, 10.0)
     blocker = _part("B0", "B", 13.0, 10.0, 0.4, 0.4)
     b = _board([pa, pb, blocker])
-    b.pour(Net("A"), _refs("a", 2), layer=F, swallow_pads=True)
+    b.pour(Net("A"), _refs("a", 2), layer=F, swallow_pads=True, width=1.0)
     plan = b.resolve()
     (p,) = _pours(plan)
     assert not p.fitted and p.points == ((10.0, 10.5), (16.0, 10.5), (16.0, 9.5), (10.0, 9.5))
@@ -536,3 +536,34 @@ def test_kicads_drc_finds_no_clearance_violation_from_a_pour_fitted_where_a_hand
     b.pour(Net(net), [PadRef(Part(ref), int(number)) for ref, number in pads], layer=F, swallow_pads=True, stroke=0.2)
     apply_plan(pcb, b.resolve())
     assert run_drc(pcb, tmp_path / "drc.json").by_type.get("clearance", 0) == 0
+
+
+def test_a_two_pad_pour_with_swallow_pads_is_fitted_round_foreign_copper():
+    blocker = _part("B0", "B", 13.0, 9.6, 0.6, 0.6)
+    pa, pb = _part("A0", "A", 10.0, 10.0), _part("A1", "A", 16.0, 10.0)
+    b = _board([pa, pb, blocker])
+    b.pour(Net("A"), _refs("a", 2), layer=F, swallow_pads=True)
+    plan = b.resolve()
+    p = _outline(plan)
+    gap = _gap(p, blocker.pads[0].outlines[0])
+    assert CLEARANCE - 1e-6 <= gap <= CLEARANCE + SAG + 1e-6, gap
+    assert not declared_findings(plan), plan.findings
+
+
+def test_a_declared_pour_within_the_clearance_of_another_nets_pad_is_a_finding():
+    """The pour's copper reaches half its stroke past its points."""
+    blocker = _part("B0", "B", 12.0, 8.9, 0.6, 0.6)            # its pad edge is 0.2 mm off the points (over the clearance); the stroke leaves 0.1
+    b = _board(_row([blocker]))
+    b.pour(Net("A"), [Location(9.0, 9.4), Location(15.0, 9.4), Location(15.0, 10.6), Location(9.0, 10.6)], layer=F)
+    plan = b.resolve()
+    assert any("copper A" in f and "from B copper" in f for f in declared_findings(plan)), plan.findings
+
+
+def test_two_declared_pours_of_different_nets_too_close_are_a_finding():
+    a = _part("A0", "A", 5.0, 5.0)
+    c = _part("C0", "C", 15.0, 5.0)
+    b = _board([a, c])
+    b.pour(Net("A"), [Location(4, 4), Location(8, 4), Location(8, 6), Location(4, 6)], layer=F)
+    b.pour(Net("C"), [Location(8.1, 4), Location(12, 4), Location(12, 6), Location(8.1, 6)], layer=F)
+    plan = b.resolve()
+    assert any("copper C" in f and "from A copper" in f for f in declared_findings(plan)), plan.findings
