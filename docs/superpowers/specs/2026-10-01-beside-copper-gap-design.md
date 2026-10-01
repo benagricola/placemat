@@ -1,6 +1,6 @@
 # Standing a part a clearance off another part's copper
 
-Status: draft, for approval.
+Status: approved (2026-10-01).
 
 Source: Ben, through a board's session (2026-10-01): a net tie at a current
 shunt's output pad.
