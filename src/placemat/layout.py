@@ -25,7 +25,7 @@ from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfer_c
 from .geometry import Transform, box_polygon, circle_polygon, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
 from .findings import Finding, Findings
 from .giveway import enabled as giveway_enabled, pad_via_id
-from .occupancy import VIA_BUCKET, Occupancy, Shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
+from .occupancy import LABEL_SOURCE, VIA_BUCKET, Occupancy, Shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
 from .cutouts import Cutouts, Path, _turned, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from . import exposure
@@ -5585,8 +5585,12 @@ class Board:
         n_steps, n_findings, n_pocketed = len(plan.steps), len(plan.findings), len(plan.pocketed)
         seeded, solve, items = dict(plan.seeded_by_net), dict(plan.solve), set(plan._items)
         riders = isinstance(obj, PlaceIntent) and obj.key in self._ride_groups
-        self._riding = (obj.key, self._rider_check(occ, plan, obj)) if riders else None
+        # A searched item does not see user labels (a label gives way once the item is down, in
+        # place_one); a firm one does, and its labels have already given way in _settle.
+        occ.labels_yield = bool(plan.__dict__.get("_label_parts")) and not getattr(obj.freedom, "decided", True) \
+            and getattr(obj, "kind", "") != "block"
         try:
+            self._riding = (obj.key, self._rider_check(occ, plan, obj)) if riders else None
             with _recording_commits(occ) as commits:
                 alone = self._riders_alone(occ, plan, obj) if riders else None
                 if alone:
@@ -5594,9 +5598,11 @@ class Board:
                     step = self._step(obj, None, 0.0, "UNPLACED: " + alone)
                 else:
                     step = self._settle(occ, obj, plan, placed)
+                occ.labels_yield = False
                 if riders:
                     self._settle_riders(occ, obj, plan, step)
         finally:
+            occ.labels_yield = False
             self._riding = None
         entry = {"step": _reuse.step_to_json(step), "commits": commits,
                  "steps": [_reuse.step_to_json(s) for s in plan.steps[n_steps:]],
@@ -6019,7 +6025,7 @@ class Board:
                 plan.findings.append(Finding("label", "%s: sits on %s" % (key, ", ".join(hits))))
                 note += "; sits on " + ", ".join(hits)
             if reserve:
-                occ.reserve(op.box, "label %s" % key.split(" ", 1)[1], layer=face.copper)     # the text's own box, no more
+                occ.reserve(op.box, "label %s" % key.split(" ", 1)[1], layer=face.copper, source=LABEL_SOURCE)     # the text's own box, no more
                 # The reservation keeps bodies off the text; as silk it also keeps
                 # a later part's silk the silk clearance away where the envelope
                 # claims silk, as KiCad checks it.

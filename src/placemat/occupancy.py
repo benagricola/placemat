@@ -91,6 +91,15 @@ class Blocker:
     faces: frozenset
 
 
+LABEL_SOURCE = "label"
+"""The `source` of the reservation a user label keeps for its text."""
+
+
+def is_label_silk(shape) -> bool:
+    """Whether a shape is the silk obstacle a user label's text stands as."""
+    return shape.kind == "silk" and shape.owner.startswith("label ")
+
+
 @dataclass(frozen=True)
 class Reservation:
     """A region nothing may sit in. `owners` are refdes that may sit in it by
@@ -397,6 +406,9 @@ class Occupancy:
         self._cells: dict[str, ItemGeometry] = {}        # a cell's geometry, until something moves
         self._pad_location_cache: dict[tuple, Location] = {}   # (ref, number[, land]) -> Location, until a commit
         self.pending: set[str] = set()                    # owners the script will place: not obstacles where the generator left them
+        # While a searched item is placed, a user label's reserved box and silk are not obstacles: the
+        # label gives way once the item is down (layout._labels_give_way), the item never does.
+        self.labels_yield = False
         # A native obstacle index (Rust), one per distinct skip-set (an
         # item's own owners, plus self.pending, at the time it was asked
         # for): scan(), cleanup's per-key hints, and a freedom's several
@@ -1177,6 +1189,8 @@ class Occupancy:
     def _obstacle_shapes(self, skip, carried: bool = True) -> list:
         out = [s for owner, g in self.items.items() if owner not in skip for s in g.shapes]
         out += [c for c in self.copper if c.owner not in skip]
+        if self.labels_yield:
+            out = [s for s in out if not is_label_silk(s)]
         if not carried:
             out = [s for s in out if not s.carried]
         return out + self._yards_of(o for o in self.items if o not in skip)
@@ -1191,6 +1205,8 @@ class Occupancy:
         if native is None:
             return None
         key = skip if carried else (skip, "without carried vias")
+        if self.labels_yield:
+            key = (key, "labels yield")
         hit = self._native_obstacle_cache.get(key)
         if hit is not None:
             return hit
@@ -1252,6 +1268,8 @@ class Occupancy:
                 continue                                   # reserved on the other face only
             if self.let_in(r, geom):
                 continue                                   # named, carrying a net let through, or short enough
+            if self.labels_yield and r.source == LABEL_SOURCE:
+                continue                                   # a label gives way to a searched item
             # the box first because it is cheap, and the placer asks this tens of thousands of times
             if r.overlaps(body):
                 hit = None
@@ -2316,7 +2334,8 @@ class NativeSweeper:
         faces = occ.standing_faces(geom, face)
         self.reservations = [i for i, r in enumerate(occ.reservations)
                              if not (r.layer is not None and r.layer.face not in faces)
-                             and not occ.let_in(r, geom)]
+                             and not occ.let_in(r, geom)
+                             and not (occ.labels_yield and r.source == LABEL_SOURCE)]
         # a cell's parts each reservation judges: its members not let in by their own name or height
         self.judged = [occ.judged(occ.reservations[i], geom) for i in self.reservations] if geom.parts else None
         self._decoded = {}

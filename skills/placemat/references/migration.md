@@ -5,6 +5,20 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- A user label could cost a searched item its place: the label's reserved
+  box and silk stood as obstacles, so a cell or part searched later was
+  refused "its member ... sits in the reservation for label ..." (or "...
+  mask opening is ... from label ... silk") where the label held the only
+  room, and a run could end with no room along it. A search no longer sees
+  labels (other items' silk and pads still count); once the item is down,
+  the labels it lands on give way as they do for a firm part, and a label
+  with no clear spot is a `label` finding while the item is placed. A block
+  is still searched with labels in view.
+
 ## To 0.71.0
 
 ### New

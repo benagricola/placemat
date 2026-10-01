@@ -47,9 +47,9 @@ A moved label's step note says so: "moved from north END to north, 0.1 mm
 toward the start: <what> was there". Its reservation and silk obstacle move
 with it.
 
-Searched items keep treating a label as an obstacle (they avoid it, so no
-label need move). Grouped labels (a list, or `line=`) keep their line and do
-not give way. A block's firm members are not swept.
+A searched item does not see labels; see
+`2026-10-01-labels-yield-to-searches-design.md`. Grouped labels (a list, or
+`line=`) keep their line and do not give way. A block's firm members are not swept.
 
 Labels are re-settled in two places: before a firm placement is judged (so no
 collision is recorded) and after each commit (so a replayed run, which does
