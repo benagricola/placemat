@@ -22,13 +22,14 @@ measures:
 from __future__ import annotations
 
 TERMS = ("unplaced", "drc", "link_over", "fixed", "copper", "label", "escape_crossed", "escape_closed",
-         "escape_walled", "setup", "crossings", "airwire", "congestion")
+         "escape_walled", "escape_lane", "setup", "crossings", "airwire", "congestion")
 
 # a finding kind -> the setting that weighs one; unplaced and link_over are
 # measured apart (by priority, and by how far over), not counted as findings
 _FINDING_WEIGHTS = {"fixed": "score_fixed", "copper": "score_copper", "label": "score_label",
                     "escape_crossed": "score_escape_crossed", "escape_closed": "score_escape_closed",
-                    "escape_walled": "score_escape_walled", "setup": "score_setup"}
+                    "escape_walled": "score_escape_walled", "escape_lane": "score_escape_lane",
+                    "setup": "score_setup"}
 
 
 def terms(m: dict, cfg) -> dict:

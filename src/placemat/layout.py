@@ -32,6 +32,7 @@ from .placement import Placement
 from .settings import Settings
 from .placer import BlockSpec, _grid, _pin_normal, _reason_key, box_centered_placement, cell_pad_anchored_placement, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
+from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, turn_direction
 from .values import (Turned, Axis, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Line, OnBore, OnRim, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      Priority, X, Y, pad_key)
 
@@ -693,10 +694,11 @@ class Scorer:
     the same cost, worked out in the native sweep (placemat_native.NativeScoring),
     sharing `best` with it."""
 
-    def __init__(self, settings, item, occ: Occupancy, targets: list, prune: bool, pushes=()):
+    def __init__(self, settings, item, occ: Occupancy, targets: list, prune: bool, pushes=(), lanes=None):
         s = settings
         self.s, self.item, self.occ, self.targets, self.prune = s, item, occ, targets, prune
         self.pushes = tuple(pushes)
+        self.lanes = lanes          # placement -> how many of the item's declared escape lanes it would block
         self.crossing = s.score_crossing
         self.rn = occ.ratsnest() if self.crossing > 0 else None
         self.escaping = s.score_escape_crossed > 0 or s.score_escape_closed > 0 or s.score_escape_walled > 0
@@ -727,14 +729,17 @@ class Scorer:
         if self.esc is not None:
             crossed, closed, walled = self.esc.closed(self.item, placement, crossed)
             cost += s.score_escape_crossed * crossed + s.score_escape_closed * closed + s.score_escape_walled * walled
+        if self.lanes is not None:
+            cost += s.score_escape_lane * self.lanes(placement)
         self.best[0] = min(self.best[0], cost)
         return cost
 
     def native(self, rots, face):
         """The same cost for the native sweep over these turns, or None when
         the native mirrors it needs are not there, or the item carries a
-        push (the Rust NativeScoring module has no formula for one)."""
-        if self.pushes:
+        push or a declared escape (the Rust NativeScoring module has no
+        formula for either)."""
+        if self.pushes or self.lanes is not None:
             return None
         occ, s = self.occ, self.s
         rn = occ.ratsnest()
@@ -836,6 +841,8 @@ class Board:
         self._pad_vias: list = []          # (pad ref, net, drill, size, span) of each via declared at a pad: its part carries it
         self._labels: list = []
         self._fanouts: list = []           # (key, footprint, depth, sides or None, why)
+        self._escapes: list = []           # the EscapeDecl of each board.escape() (lanes.py)
+        self._escape_laid: dict = {}       # escape index -> its Layout, once its part is placed
         self._faces: tuple | None = None
         self._links: list[Link] = []
         self._rules: list = []
@@ -1161,7 +1168,21 @@ class Board:
         if isinstance(ref, CellPadRef):
             p = self.geometry.cell_pad(ref.cell, net=ref.net, number=ref.number, ref_prefix=ref.ref_prefix)
             return (p.owner, p.number, ref.dx, ref.dy)
+        owner = self._escape_owner(ref)
+        if owner is not None:                       # a lane, a lane's point, an escape or an escape's via: its part
+            return self._pad_ref(owner)
         raise TypeError("not a pad reference: %r" % (ref,))
+
+    def _escape_owner(self, ref):
+        """The Part whose escape `ref` belongs to (the escape, a lane, a point
+        of a lane, or a via an escape declared), else None."""
+        if isinstance(ref, (Escape, Lane)):
+            return ref.part
+        if isinstance(ref, LanePoint):
+            return ref.lane.part
+        if isinstance(ref, CopperIntent):
+            return next((d.part for d in self._escapes if any(v is ref for v in d.via_intents.values())), None)
+        return None
 
     def _pad_land(self, ref) -> int | None:
         """The 0-based land a PadRef's `land=` names among its pad number's
@@ -1905,9 +1926,12 @@ class Board:
         elif isinstance(at.item, (Part, Cell)):
             item_kind = "item"
             item_geom = self._item(at.item)[0]          # a real part or cell, checked now
+        elif self._escape_owner(at.item) is not None and not isinstance(at.item, (Lane, LanePoint)):
+            item_kind = "escape"                        # board.escape()'s Escape, or the via of one of its lanes
         else:
             raise TypeError("%s: Beside's item is a Part, a Cell or a keepout (what board.keepout(...) "
-                            "returns), not %r" % (key, at.item))
+                            "returns), or an escape (board.escape(...)) or the via of one of its lanes, not %r"
+                            % (key, at.item))
         align = at.align
         if align is None:
             norm = ("along", Along.MID)
@@ -1934,9 +1958,9 @@ class Board:
             number = owns[0].number
             norm = ("pads", int(number) if number.isdigit() else number, align)
         elif isinstance(align, tuple):
-            if len(align) != 2 or not isinstance(align[1], (PadRef, Past)):
-                raise TypeError("%s: Beside's align pair is (own_pad, PadRef(item, pad)) or (own_pad, "
-                                "Past(pads, edge)), not %r" % (key, align))
+            if len(align) != 2 or not isinstance(align[1], (PadRef, Past, Lane)):
+                raise TypeError("%s: Beside's align pair is (own_pad, PadRef(item, pad)), (own_pad, "
+                                "Past(pads, edge)) or (own_pad, esc[pin]), not %r" % (key, align))
             own_key, their = align
             if kind != "part":
                 raise TypeError("%s: align=(own_pad, their_pad) needs the placed item's own pad; a %s has "
@@ -1945,6 +1969,9 @@ class Board:
             if isinstance(their, Past):
                 self._check_beside_past(key, at.side, their)
                 norm = ("past", own_key, their)
+            elif isinstance(their, Lane):
+                self._check_beside_lane(key, at.side, their)
+                norm = ("lane", own_key, their)
             else:
                 self.geometry.pad(their.part, their.key)    # and a real pad of the item named
                 norm = ("pads", own_key, their)
@@ -1974,6 +2001,23 @@ class Board:
         if p.lane is not None:
             self.geometry.require_net(p.lane)
 
+    def _check_beside_lane(self, key: str, side: Edge, lane: Lane) -> None:
+        """A lane in Beside's align: this board's, and where its line is known now
+        (turned across the row by an Edge), a line `side` leaves free."""
+        if lane.board is not self:
+            raise TypeError("%s: %s's lane is of another board" % (key, self._escapes[lane.index].key))
+        decl = self._escapes[lane.index]
+        if isinstance(decl.turn, Corner):
+            raise ValueError("%s: pin %s's lane runs at 45, and has no line to stand a pad on; align to the pin's "
+                             "end instead: Pin(key, X(lane.end), Y(lane.end))" % (key, lane.number))
+        if isinstance(decl.turn, Edge):
+            along_x = decl.turn in (Edge.EAST, Edge.WEST)       # the lane runs along x, so its line is a y
+            if along_x != (side in (Edge.EAST, Edge.WEST)):
+                raise ValueError("%s: Beside on the %s side decides the part's %s, and pin %s's lane lies along %s: "
+                                 "a pad is centred across a lane, so it needs the side to decide the %s"
+                                 % (key, side.name, "x" if side in (Edge.EAST, Edge.WEST) else "y", lane.number,
+                                    "x" if along_x else "y", "x" if along_x else "y"))
+
     def _placed_envelope_box(self, occ: Occupancy, item) -> Box:
         """The envelope (courtyard, physical or their union, whichever
         `[place] envelope` claims) a placed Part or Cell draws, read from
@@ -1989,8 +2033,12 @@ class Board:
         the nets' clearance) under a physical envelope, unchanged under a
         courtyard one - exactly as row(of=)'s gap= is: a spacing is the
         envelope's own unless a named rule asks for more."""
-        items = [new_item] if isinstance(spec.item, KeepoutIntent) else [spec.item, new_item]
-        return self._row_gap(items, 0.0 if spec.gap is None else float(spec.gap))
+        escape = self._escape_owner(spec.item) is not None
+        items = [new_item] if isinstance(spec.item, KeepoutIntent) or escape else [spec.item, new_item]
+        gap = self._row_gap(items, 0.0 if spec.gap is None else float(spec.gap))
+        if escape:          # off copper of the escape's nets, as off a part's pads of them
+            gap = max([gap] + [self._clearance_reach(n) for n in self._escape_nets(spec.item)])
+        return gap
 
     def _beside_placement(self, occ: Occupancy, plan: "Plan", i: PlaceIntent) -> Placement:
         """Where `Beside(...)` puts the item: its own drawn envelope `gap`
@@ -2002,6 +2050,8 @@ class Board:
                 raise ValueError("%s: keepout %r has no place, so there is nothing to stand beside"
                                  % (i.key, b.item.keepout.name))
             item_box = Box.of_points(pk.poly)
+        elif self._escape_owner(b.item) is not None:
+            item_box = self._escape_box(occ, b.item)
         else:
             item_box = self._placed_envelope_box(occ, b.item)
         own_box = self.envelope(i.item, i.rotation, i.face)
@@ -2075,11 +2125,23 @@ class Board:
             anchored = pad_anchored_placement(self._bare_occupancy(), i.item, own_key, Location(0.0, 0.0),
                                               i.rotation, i.face)
             own_pad = Location(-anchored.location.x, -anchored.location.y)
-            their_loc = _locate(self, occ, their)
-            if b.side in (Edge.EAST, Edge.WEST):
-                oy = their_loc.y - own_pad.y
+            if align_kind == "lane":
+                # the own pad centred across the lane's line: a y for a lane along x, an x for one along y
+                axis, at = self._lane_line(occ, their)
+                if (axis == "y") != (b.side in (Edge.EAST, Edge.WEST)):
+                    raise ValueError("%s: Beside on the %s side decides the part's %s, and pin %s's lane lies along "
+                                     "%s, so it decides the %s" % (i.key, b.side.name, "x" if axis == "y" else "y",
+                                                                  their.number, "x" if axis == "y" else "y", axis))
+                if axis == "y":
+                    oy = at - own_pad.y
+                else:
+                    ox = at - own_pad.x
             else:
-                ox = their_loc.x - own_pad.x
+                their_loc = _locate(self, occ, their)
+                if b.side in (Edge.EAST, Edge.WEST):
+                    oy = their_loc.y - own_pad.y
+                else:
+                    ox = their_loc.x - own_pad.x
         return Placement(Location(round(ox, 6), round(oy, 6)), i.rotation, i.face)
 
     def _row_of_placement(self, occ: Occupancy, i: PlaceIntent, along: float) -> Placement:
@@ -2317,7 +2379,7 @@ class Board:
         if beside is not None:
             needs.add(cutout_token(beside.item.keepout.name) if isinstance(beside.item, KeepoutIntent)
                       else self._pad_ref(beside.item)[0])
-            if beside.align[0] == "pads":
+            if beside.align[0] in ("pads", "lane"):
                 needs.add(self._pad_ref(beside.align[2])[0])
             elif beside.align[0] == "past":
                 needs |= {self._pad_ref(ref)[0] for ref in beside.align[2].items}
@@ -2624,6 +2686,302 @@ class Board:
             raise ValueError("%s: a fanout's depth is more than 0, not %r" % (key, depth))
         self._fanouts.append((key, geom, float(depth), None if sides is None else tuple(Edge(s) for s in sides), why))
 
+    def escape(self, part, pins, *, turn=None, vias=(), depth=None, run=None, widths=None, pairs=(), why: str):
+        """A pin row's routes out, kept clear from the moment the part is placed:
+        each pin of `pins` (named as a PadRef names a pad: a number, a net or a
+        PinName) gets a riser straight out along the row's way out and, with
+        `turn=` (an Edge across the row, or a Corner for lanes at 45), a lane
+        parallel to the row, ending in a via where `vias=` names the pin. The
+        pin nearest the turn side takes the innermost lane. `depth=` (the
+        innermost lane's offset past the pads' tips) and `run=` (how far lanes
+        with no via run past the row's turn-side end) override the defaults,
+        `widths=` gives a pin's track a width, and `pairs=[(a, b)]` runs two
+        neighbouring lanes together at their net class's pair gap. Returns the
+        Escape: `esc[pin]` is a lane, the first point of a track, and
+        `esc[pin].via` and `esc[pin].end` refer to its via and its end.
+
+        Settled when the part is placed (`_place_escapes`): the risers, lanes
+        and vias stand in the occupancy as copper of their own nets, so a part
+        placed later keeps its other-net pads and holes a clearance off them,
+        and a searched part's lanes are weighed in its search
+        (`score.escape_lane`). A fanout keeps bodies off a part's pad rows;
+        this keeps copper off the named pins' routes."""
+        geom, key, kind = self._item(part)
+        if kind != "part":
+            raise TypeError("%s: an escape is a part's pin row; a cell or block has its own" % key)
+        part = Part(geom.inst)
+        pins = list(pins)
+        if not pins:
+            raise ValueError("%s: an escape names at least one pin" % key)
+        numbers = []
+        for pin in pins:
+            n = self._escape_number(part, pin)
+            if n in numbers:
+                raise ValueError("%s: pin %s is named twice; an escape takes each pin once" % (key, n))
+            if not next(p for p in geom.pads if p.number == n).net:
+                raise ValueError("%s: pin %s has no net, and a lane carries its pin's net" % (key, n))
+            numbers.append(n)
+
+        def named(k, what):
+            n = self._escape_number(part, k)
+            if n not in numbers:
+                raise ValueError("%s: %s names pin %s, which the escape does not (it names %s)" % (
+                    key, what, n, ", ".join(numbers)))
+            return n
+        if turn is not None and not isinstance(turn, (Edge, Corner)):
+            raise TypeError("%s: turn= is an Edge across the row or a Corner for lanes at 45, not %r" % (key, turn))
+        for what, v in (("depth", depth), ("run", run)):
+            if v is not None and not v > 0:
+                raise ValueError("%s: an escape's %s= is more than 0, not %r" % (key, what, v))
+        if run is not None and turn is None:
+            raise ValueError("%s: run= is how far turned lanes run past the row's end; without turn= use depth=" % key)
+        wide = {}
+        for k, w in dict(widths or {}).items():
+            if not w > 0:
+                raise ValueError("%s: a lane's width is more than 0, not %r" % (key, w))
+            wide[named(k, "widths=")] = float(w)
+        via_numbers = frozenset(named(k, "vias=") for k in vias)
+        pair_numbers = []
+        for pair in pairs:
+            a, b = (named(x, "pairs=") for x in pair)
+            if a == b or any(x in used for used in pair_numbers for x in (a, b)):
+                raise ValueError("%s: a pair is two different pins, each in one pair only" % key)
+            pair_numbers.append((a, b))
+        if pair_numbers and turn is None:
+            raise ValueError("%s: pairs= runs two lanes together, and without turn= there are none" % key)
+        self._check_escape_row(geom, numbers, pair_numbers, turn)
+        decl = EscapeDecl(len(self._escapes), part, geom.ref, tuple(numbers), turn, via_numbers,
+                          None if depth is None else float(depth), None if run is None else float(run),
+                          tuple(sorted(wide.items())), tuple(pair_numbers), why)
+        self._escapes.append(decl)
+        return Escape(self, decl.index, part)
+
+    def _escape_number(self, part: Part, pin) -> str:
+        """The pad number a pin is named by: a number, a net or a PinName, or a PadRef on that part."""
+        if isinstance(pin, PadRef):
+            if pin.part != part:
+                raise ValueError("%s: %s is a pin of %s; an escape is one part's pin row" % (
+                    part.inst, pin, pin.part.inst))
+            pin = pin.key
+        return self.geometry.pad(part, pin).number
+
+    def _check_escape_row(self, fp, numbers: list, pairs: list, turn) -> None:
+        """What an escape's pins say of themselves in the part as generated: one
+        row (the same way out), a pair's lanes neighbours, and `turn=` across the
+        row where the script already decided the part's rotation."""
+        pads = {(fp.ref, p.number): p.box.center for p in fp.pads}
+        body = fp.body_box.center
+        by_number = {p.number: p for p in fp.pads}
+        ways = {}
+        for n in numbers:
+            c = by_number[n].box.center
+            way = _pin_normal(pads, fp.ref, c, fp.rotation, by_number[n].box)
+            if way is None:
+                d = math.hypot(c.x - body.x, c.y - body.y) or 1.0
+                way = ((c.x - body.x) / d, (c.y - body.y) / d)
+            ways[n] = way
+        ref_way = ways[numbers[0]]
+        for n in numbers[1:]:
+            if math.hypot(ways[n][0] - ref_way[0], ways[n][1] - ref_way[1]) > 1e-6:
+                raise ValueError("%s: pin %s is not on pin %s's row (its way out differs); an escape is one row's"
+                                 % (fp.inst, n, numbers[0]))
+        tangent = (-ref_way[1], ref_way[0])
+        order = sorted(numbers, key=lambda n: by_number[n].box.center.x * tangent[0] + by_number[n].box.center.y * tangent[1])
+        for a, b in pairs:
+            if abs(order.index(a) - order.index(b)) != 1:
+                raise ValueError("%s: pins %s and %s are not neighbours along the row, so their lanes cannot run "
+                                 "together" % (fp.inst, a, b))
+        intent = next((i for i in self._intents if getattr(i, "item", None) is fp), None)
+        if (turn is not None and intent is not None and intent.rotation_given
+                and isinstance(intent.rotation, (int, float)) and intent.face is Face.FRONT and fp.face is Face.FRONT):
+            ux, uy = Transform.rotate(intent.rotation).apply(Transform.rotate(-fp.rotation).apply(ref_way))
+            if abs(abs(ux) - 1.0) < 1e-6 or abs(abs(uy) - 1.0) < 1e-6:
+                try:
+                    turn_direction(turn, (float(round(ux)), float(round(uy))), "escape %s" % fp.ref)
+                except EscapeError as e:
+                    raise ValueError(str(e)) from None
+
+    def _lane_pad(self, lane: Lane):
+        decl = self._escapes[lane.index]
+        return self.geometry.footprint(decl.part).pad(int(lane.number) if lane.number.isdigit() else lane.number)
+
+    def _escape_pin(self, esc: Escape, pin) -> str:
+        decl = self._escapes[esc.index]
+        n = self._escape_number(decl.part, pin)
+        if n not in decl.pins:
+            raise KeyError("%s: the escape does not name pin %s (it names %s)" % (decl.key, n, ", ".join(decl.pins)))
+        return n
+
+    def _lane_via(self, lane: Lane):
+        """The via of a lane, declared the first time it is asked for (or a track
+        begins with the lane): a via intent like `board.via()`'s, drawn where the
+        escape laid it out. A lane's via nobody asks for is reserved but not drawn."""
+        decl = self._escapes[lane.index]
+        n = lane.number
+        if n not in decl.vias:
+            raise ValueError("%s: pin %s's lane ends level, with no via; name the pin in vias=" % (decl.key, n))
+        decl.used_vias.add(n)
+        intent = decl.via_intents.get(n)
+        if intent is None:
+            net = self._lane_pad(lane).net
+
+            def plan(ctx):
+                laid = self._escape_laid.get(decl.index)
+                if laid is None or n not in decl.used_vias:
+                    return []
+                via = laid.lanes[n].via
+                ctx.planned_vias.append(via)
+                ctx.via_at[intent.index] = via.at
+                return [via]
+            intent = self._copper_intent("via %s" % net, net, Priority.DEFAULT, plan, [decl.part], decl.why)
+            decl.via_intents[n] = intent
+        return intent
+
+    def _lane_points(self, net, lane: Lane) -> list:
+        """The points a lane stands for as a track's first: its pad, the corner
+        where its riser turns, its end (its via, which a track may end on)."""
+        decl = self._escapes[lane.index]
+        pad = self._lane_pad(lane)
+        if self.geometry.require_net(net) != pad.net:
+            raise ValueError("%s: pin %s is on %s, and its lane carries that net, not %s" % (
+                decl.key, lane.number, pad.net, self.geometry.require_net(net)))
+        decl.drawn.add(lane.number)
+        end = self._lane_via(lane) if lane.number in decl.vias else LanePoint(lane, "end")
+        key = int(lane.number) if lane.number.isdigit() else lane.number
+        return [PadRef(decl.part, key)] + ([LanePoint(lane, "corner")] if decl.turn is not None else []) + [end]
+
+    def _lane_layout(self, occ, decl: EscapeDecl):
+        """The escape's layout: as settled when its part was placed, else as
+        the part stands in `occ` now (a candidate, for what rides it)."""
+        laid = self._escape_laid.get(decl.index)
+        return laid if laid is not None else self._escape_layout(occ, decl)
+
+    def _lane_point(self, occ, p: LanePoint) -> Location:
+        decl = self._escapes[p.lane.index]
+        geom = self._lane_layout(occ, decl).lanes[p.lane.number]
+        if p.which == "corner":
+            return geom.corner
+        return geom.end
+
+    def _escape_decl_of(self, item):
+        """(the declaration, the pad number of the lane or None) of an Escape or of an escape's lane via."""
+        if isinstance(item, Escape):
+            return self._escapes[item.index], None
+        for d in self._escapes:
+            for n, v in d.via_intents.items():
+                if v is item:
+                    return d, n
+        raise TypeError("%r is not an escape or an escape's via" % (item,))
+
+    def _escape_nets(self, item) -> list:
+        decl, number = self._escape_decl_of(item)
+        return [self._lane_pad(Lane(self, decl.index, decl.part, n)).net for n in ([number] if number else decl.pins)]
+
+    def _escape_box(self, occ, item) -> Box:
+        """What an escape item occupies once its part is placed: the escape's risers, lanes and vias
+        together, or a lane's via."""
+        decl, number = self._escape_decl_of(item)
+        layout = self._lane_layout(occ, decl)
+        if number is None:
+            return layout.box()
+        via = layout.lanes[number].via
+        return Box(via.at.x - via.size / 2.0, via.at.y - via.size / 2.0, via.at.x + via.size / 2.0, via.at.y + via.size / 2.0)
+
+    def _lane_line(self, occ, lane: Lane) -> tuple:
+        """("x" | "y", coordinate): the line a lane lies along, for a pad to stand on."""
+        geom = self._lane_layout(occ, self._escapes[lane.index]).lanes[lane.number]
+        if geom.line is None:
+            raise ValueError("pin %s's lane runs at 45, and has no line to stand a pad on" % lane.number)
+        return geom.line
+
+    def _escape_layout(self, occ, decl: EscapeDecl, placement=None):
+        """The escape laid out for the part where it stands in `occ`, or at a
+        candidate `placement`. A pin off the row's way out, or a way out off
+        the board's axes, is an EscapeError."""
+        fp = self.geometry.footprint(decl.part)
+        if placement is None:
+            g = occ.items[fp.ref]
+            shapes, rotation, face, body = g.shapes, g.reference.rotation, g.reference.face, g.body.center
+        else:
+            shapes = occ.shifted_shapes(fp, placement)
+            rotation, face = placement.rotation, placement.face
+            body = occ.shifted_body_box(fp, placement).center
+        pads: dict = {}
+        for s in shapes:
+            if s.kind in ("pad", "through") and s.owner == fp.ref:
+                pads.setdefault(s.label, []).append(s)
+        centres = {(fp.ref, n): Box.union([s.box for s in ss]).center for n, ss in pads.items()}
+        ways = {}
+        for n in decl.pins:
+            box = Box.union([s.box for s in pads[n]])
+            way = _pin_normal(centres, fp.ref, box.center, rotation, box)
+            if way is None:
+                d = math.hypot(box.center.x - body.x, box.center.y - body.y) or 1.0
+                way = ((box.center.x - body.x) / d, (box.center.y - body.y) / d)
+            ways[n] = way
+        axis = ways[decl.pins[0]]
+        for n in decl.pins[1:]:
+            if math.hypot(ways[n][0] - axis[0], ways[n][1] - axis[1]) > 1e-6:
+                raise EscapeError("%s: pin %s is not on pin %s's row as the part stands (its way out differs)" % (
+                    decl.key, n, decl.pins[0]))
+        return Layouter(decl, pads, axis, _LaneEnv(self, occ, decl, pads, face)).lay_out()
+
+    def _lane_pricer(self, occ, plan, i):
+        """A candidate's lane cost (see Scorer): how many of the lanes the part's
+        escapes lay out would be blocked at a placement, or None where `i` has no
+        escape. A way out off the axes, or a turn along it, blocks every lane."""
+        decls = [d for d in self._escapes if d.ref == getattr(i.item, "ref", None)]
+        if i.kind != "part" or not decls or self.settings.score_escape_lane <= 0:
+            return None
+
+        def price(placement: Placement) -> int:
+            n = 0
+            for decl in decls:
+                try:
+                    laid = self._escape_layout(occ, decl, placement)
+                except EscapeError:
+                    n += len(decl.pins)
+                    continue
+                n += len(laid.blocked())
+            return n
+        return price
+
+    def _place_escapes(self, occ, plan: Plan, placed: set, progress):
+        """Every escape whose part is down and not yet laid out: its risers,
+        lanes and vias stand in the occupancy as copper of their own nets from
+        here on, and each lane something already placed blocks is a finding."""
+        for decl in self._escapes:
+            if decl.index in self._escape_laid or decl.ref not in placed or decl.ref not in occ.items:
+                continue
+            laid = self._escape_layout(occ, decl)
+            self._escape_laid[decl.index] = laid
+            shapes = []
+            for op in laid.ops():
+                shapes.append(_shape_of(op))
+                if isinstance(op, Via):
+                    shapes.append(hole_shape("", op.at, op.drill, op.net, layers=frozenset(op.layers)))
+            occ.add_copper(shapes)
+            for n, lane in laid.blocked():
+                plan.findings.append(Finding("escape_lane", "%s pin %s (%s): its lane is blocked by %s" % (
+                    decl.ref, n, lane.net, "; ".join(dict.fromkeys(lane.blocked)))))
+            note = "%d lane%s kept for pins %s" % (len(laid.order), "" if len(laid.order) == 1 else "s", ", ".join(decl.pins))
+            if laid.blocked():
+                note += "; %d blocked" % len(laid.blocked())
+            plan.steps.append(Step(decl.key, "copper", Priority.DEFAULT, None, 0.0, note, decl.why, len(laid.order)))
+            if progress:
+                progress("%-28s copper  escape   %s" % (decl.key, note))
+
+    def _report_lanes(self, plan: Plan) -> None:
+        """A lane reserved and never drawn: no track begins with it, so its room
+        was kept for nothing."""
+        for decl in self._escapes:
+            if decl.index not in self._escape_laid:
+                continue
+            for n in decl.pins:
+                if n not in decl.drawn:
+                    plan.findings.append(Finding("setup", "%s pin %s: its lane is reserved and no track begins with "
+                                                 "it, so its room is kept for nothing" % (decl.ref, n)))
+
     def link(self, a, b, weight=LinkWeight.DEFAULT, limit_mm: float | None = None, why: str = "") -> Link:
         """Price one connection between two pads. `weight` is a LinkWeight or
         any integer (0: the length of this connection does not matter);
@@ -2877,12 +3235,13 @@ class Board:
         oy = sum(p.y for p in own) / len(own) - current.location.y if own else 0.0
         return Placement(Location(round(cx - ox, 3), round(cy - oy, 3)), rotation, face)
 
-    def _scorer(self, item, occ: Occupancy, targets: list, prune: bool = True, pushes=()):
+    def _scorer(self, item, occ: Occupancy, targets: list, prune: bool = True, pushes=(), lanes=None):
         """A candidate's cost: each connection's weight times its length,
         `score.crossing` for each ratsnest crossing its airwires would add,
-        the escape weights, and score.push times each push's modelled
-        value over its limit. See `Scorer`."""
-        return Scorer(self.settings, item, occ, targets, prune, pushes)
+        the escape weights, score.push times each push's modelled
+        value over its limit, and `score.escape_lane` for each declared
+        escape lane it would block (`lanes`). See `Scorer`."""
+        return Scorer(self.settings, item, occ, targets, prune, pushes, lanes)
 
     def _push_source_point(self, occ: Occupancy, plan: Plan, source) -> Location:
         """Where a push's source sits, once it is placed: a keepout's own
@@ -3286,6 +3645,14 @@ class Board:
         if bend is not None and not isinstance(bend, Bend):
             raise TypeError("bend is Bend.START, Bend.END or Bend.BOTH, not %r" % (bend,))
         layer = CopperLayer.of(layer)
+        if any(isinstance(p, Lane) for p in points[1:]):
+            raise TypeError("%s: a lane stands for its riser, its lane and its via, so it is a track's first "
+                            "point; a track goes on from it, it does not come back to one" % net)
+        if points and isinstance(points[0], Lane):
+            lane = points[0]
+            if width is None:
+                width = self._escapes[lane.index].width_of(lane.number)      # the lane's own, when widths= gave one
+            points = self._lane_points(net, lane) + list(points[1:])
         for p in points:
             if isinstance(p, CopperIntent) and not p.key.startswith("via "):
                 raise TypeError("%s: a track may end on a via, and %r is not a via" % (net, p.key))
@@ -4212,6 +4579,7 @@ class Board:
         if self._explore is not None:
             import random as _random
             self._order_rng = _random.Random("%d:order" % self._explore.seed)
+        self._escape_laid = {}              # every escape is laid out again, when its part is placed
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
                         board_cutouts=self._cutouts, settings=self.settings,
                         component_spacing=self.component_spacing, rules=self._rules)
@@ -4237,6 +4605,7 @@ class Board:
                     thinned=thinned)
         ctx = _CopperContext(self, occ)
         ctx.plan = plan
+        self._escape_ctx = ctx              # what a lane's via is judged by (_LaneEnv)
         from . import reuse as _reuse
         context = _reuse.context_key(self, self.reuse_extra)
         record = {"version": _reuse.VERSION, "context": context, "steps": [], "reused": 0, "first_change": None}
@@ -4260,6 +4629,7 @@ class Board:
         other_copper = [c for c in self._copper if not c.freedom.decided and c.index not in held]
         placed: set = set()
         self._place_fanouts(occ, plan, placed, progress)
+        self._place_escapes(occ, plan, placed, progress)
         self._place_labels(occ, plan, placed, progress)        # labels on parts the script never moves
         self._check_settled_cutouts(occ, plan)                 # holes whose place was already absolute
 
@@ -4462,6 +4832,7 @@ class Board:
                 if progress:
                     progress(_fmt(rs))
             self._place_fanouts(occ, plan, placed, progress)
+            self._place_escapes(occ, plan, placed, progress)
             self._place_labels(occ, plan, placed, progress)
 
         def place_ranked(lo, hi):
@@ -4542,6 +4913,7 @@ class Board:
         plan.rudy = self._rudy(occ, plan)
         self._report_links(occ, plan, placed)
         self._report_escapes(occ, plan)
+        self._report_lanes(plan)
         self._report_undeclared(plan)
         self._report_splits(plan)
         self._place_labels(occ, plan, placed, progress, final=True)
@@ -4820,7 +5192,7 @@ class Board:
         positioned against - no label, and no other declaration whose place
         refers to it."""
         intents = {i.key: i for i in self._placements()}
-        held = self._paired_refs()
+        held = self._paired_refs() | {d.ref for d in self._escapes}     # lanes were laid where it stands
         for i in self._intents:
             held |= set(getattr(i, "needs", ()) or ())
         for entry in self._labels:
@@ -6298,8 +6670,9 @@ class Board:
         exposed = self._exposure_accept(occ, i, push_sources)
         if exposed is not None:
             accept = exposed if accept is None else (lambda c, a=accept, b=exposed: a(c) or b(c))
+        lanes = self._lane_pricer(occ, plan, i)
         score = self._scorer(i.item, occ, targets, prune=self._pick(i) is None and accept is None,
-                             pushes=push_sources) if targets or push_sources else None
+                             pushes=push_sources, lanes=lanes) if targets or push_sources or lanes else None
         # A seeded item lands on the pads that pull it; it must be free to step at least its own size clear of them.
         body = occ._geometry(i.item).body
         if i.near is not None:
@@ -6555,6 +6928,8 @@ def _locate(board: "Board", occ: Occupancy, ref) -> Location:
         if isinstance(ref.x, (int, float)) and isinstance(ref.y, (int, float)):
             return ref
         return Location(_coord(board, occ, ref.x, "x"), _coord(board, occ, ref.y, "y"))   # a Location said in references
+    if isinstance(ref, LanePoint):
+        return board._lane_point(occ, ref)
     if isinstance(ref, Mid):
         a, b = _locate(board, occ, ref.a), _locate(board, occ, ref.b)
         return Location((a.x + b.x) / 2.0, (a.y + b.y) / 2.0)
@@ -6594,7 +6969,7 @@ def _coord(board: "Board", occ: Occupancy, v, axis: str) -> float:
         return _locate(board, occ, v.ref).x + v.dx
     if isinstance(v, Y):
         return _locate(board, occ, v.ref).y + v.dy
-    if isinstance(v, (PadRef, CellPadRef, Location, tuple, Mid, Part, Cell)):
+    if isinstance(v, (PadRef, CellPadRef, Location, tuple, Mid, Part, Cell, LanePoint)):
         l = _locate(board, occ, v)
         return l.x if axis == "x" else l.y
     if isinstance(v, RowCoord):
@@ -6648,6 +7023,61 @@ class _Riding:
         if ref not in self._moved:
             return self._occ.pad_location(ref, number, land)
         return Box.union([s.box for s in self.pad_shapes(ref, number, land)]).center
+
+
+class _LaneEnv:
+    """What a laid-out escape asks of the board (lanes.py): the clearances the
+    script's rules give, and what already stands where a lane or a via would."""
+
+    def __init__(self, board: "Board", occ, decl: EscapeDecl, pads: dict, face: Face):
+        self.board = board
+        self.occ = getattr(occ, "_occ", occ)            # a candidate's view reads the real occupancy's copper
+        self.layer = face.copper
+        s = board.settings
+        self.chamfer, self.step, self.reach = s.copper_chamfer, s.place_escape_via_step, s.place_escape_via_reach
+        self.via_size, self.via_drill = board.via_size, board.via_drill
+        self.hole_to_hole = board.geometry.hole_to_hole
+        self.own = [sh for shapes in pads.values() for sh in shapes]
+        self.ref = decl.ref
+        self._obstacles = None
+
+    def clearance(self, net_a: str, net_b: str, owner_b=None) -> float:
+        if owner_b:
+            return _pad_clearance(self.board, net_a, net_b, owner_b)
+        return _net_clearance(self.board, net_a, net_b)
+
+    def width(self, net: str) -> float:
+        return self.board._width(net, None)
+
+    def pair_gap(self, net: str) -> float:
+        nc = self.board.geometry.netclass(net)
+        return nc.diff_pair_gap or self.clearance(net, net)
+
+    def via_site(self, at: Location, net: str, size: float, drill: float):
+        """Why a via of `net` may not stand at `at` among what is placed (the
+        edge, other nets' copper, holes, keepouts), or None."""
+        ctx = self.board.__dict__.get("_escape_ctx") or _CopperContext(self.board, self.occ)
+        if self._obstacles is None:
+            self._obstacles = self.board._via_obstacles(ctx)
+        return self.board._via_site_why(ctx, at, net, size, drill, self._obstacles)
+
+    def hits(self, op) -> list:
+        """What copper `op` (a lane's track or via) meets among what is placed: the
+        pads and copper of other nets within their clearance, and unplated holes."""
+        occ = self.occ
+        shape = _shape_of(op)
+        out = list(occ.copper_conflicts(shape))
+        if self.ref in occ.pending:                     # a candidate: its own pads are not in the occupancy yet
+            out += [why for o in self.own if (why := occ._conflict(shape, o, None, exact=True))]
+        for ref, g in occ.items.items():
+            if ref in occ.pending:
+                continue
+            for o in g.shapes:
+                if o.kind == "npth" and shape.box.overlaps(o.box, gap=occ._copper_reach):
+                    why = occ._conflict(shape, o, None, exact=True)
+                    if why:
+                        out.append(why)
+        return out
 
 
 class _CopperContext:
@@ -7024,6 +7454,8 @@ def _refs_in(points, via_ends: bool = False) -> list:
             out += list(p.refs)             # a via's pads: the track waits for them as the via does
         elif isinstance(p, (PadRef, CellPadRef, Part, Cell)):
             out.append(p)
+        elif isinstance(p, LanePoint):
+            out.append(p.lane.part)             # a lane's point waits for its part
         elif isinstance(p, (X, Y)):
             out += _refs_in([p.ref])        # the ref may itself be a point or a pad
         elif isinstance(p, FreeSpot):

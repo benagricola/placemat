@@ -17,6 +17,21 @@ a script whose rule lowered a clearance no longer gets findings KiCad does
 not report. A rule above `[place] conflict_gap` stops the run with a
 message naming both.
 
+`board.escape(part, pins, turn=, vias=, ...)` declares a pin row's routes
+out (a riser and a lane for each pin, a via where it ends in one) and keeps
+them clear from the moment the part is placed: another net's pads, holes
+and copper keep the clearance from them, a searched part's lanes are priced
+in its search (`score.escape_lane`, 400), and a lane something blocks is an
+`escape_lane` finding. Its handles stand in for what a script worked out by
+hand: `board.track(net, [esc[pin]])` draws a pin's riser, lane and via;
+`esc[pin].via` is a via a track, a `Past` or a `Beside` can name;
+`Beside(item, side, align=(own_pad, esc[pin]))` puts a pad on a lane's line;
+`X(esc[pin].end)`/`Y(esc[pin].end)` give a lane's end. A script that has a
+lane line as the pin tips plus a track width and a clearance, a via at that
+plus half a via, or a part stood a pad's width past a via can say the lanes
+once and refer to them. `board.fanout()`
+stays: it keeps bodies off a part's pad rows, which an escape does not.
+
 ## To 0.64.1
 
 A track declared `bridge=True` that passed under another among the copper
@@ -1557,3 +1572,5 @@ that says what replaces it.
 | a waypoint on a 45 worked out as x - y or x + y off a pad's corner | To 0.57.0 |
 | a cell stood as far toward an end as its tall members allow, by offsets worked out from its members' frame | To 0.63.0 |
 | a sense track's first point placed from `placed_size()` half a track off a pad's edge | To 0.64.0 |
+| lane lines worked out as pin tips plus track, clearance and via steps | Unreleased |
+| parts placed at coordinates worked out from a lane or a via's position | Unreleased |

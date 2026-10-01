@@ -109,6 +109,8 @@ def context_key(board, extra: str = "") -> str:
                         board._shape, board._cutouts, board._named_cutouts, board._keepouts, board.web,
                         board._draw_outline, board._chamfer, board._radius, board._faces,
                         board._fanouts])]
+    if board._escapes:                  # left out when none is declared, so a script without one digests as before
+        parts.append(canonical(board._escapes))
     if board.settings.solve_enabled:
         parts.append(canonical([board._intents, board._links]))
     return _sha("context", str(VERSION), *parts)
