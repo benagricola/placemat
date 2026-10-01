@@ -87,8 +87,12 @@ class EscapeDecl:
     run: float | None
     widths: tuple           # ((pad number, width), ...)
     pairs: tuple            # ((pad number, pad number), ...)
+    chamfer: float          # the cut at a lane's corners: the lanes are laid, reserved and (by default) drawn with it
+    via_size: float         # the size and drill of the lanes' vias
+    via_drill: float
     why: str
     via_intents: dict = field(default_factory=dict, compare=False, metadata={"reuse": False})
+    chamfers: dict = field(default_factory=dict)    # pad number -> the chamfer= of the track that begins with its lane
     drawn: set = field(default_factory=set, compare=False, metadata={"reuse": False})
     used_vias: set = field(default_factory=set, compare=False, metadata={"reuse": False})
 
@@ -98,6 +102,11 @@ class EscapeDecl:
 
     def width_of(self, number: str):
         return dict(self.widths).get(number)
+
+    def chamfer_of(self, number: str) -> float:
+        """The cut at a lane's corner as it will be drawn: its track's own chamfer= where one
+        says it, else the escape's."""
+        return self.chamfers.get(number, self.chamfer)
 
 
 # ------------------------------------------------------------------ the layout
@@ -250,7 +259,7 @@ class Layouter:
         for n in d.pins:
             net = nets[n]
             width = d.width_of(n) or env.width(net)
-            via = (env.via_size, env.via_drill) if n in d.vias else None
+            via = (d.via_size, d.via_drill) if n in d.vias else None
             c = self._centre(n)
             lanes[n] = _Lane(n, net, width, via, c, self.s_of((c.x, c.y)))
         self.lanes = lanes
@@ -347,11 +356,17 @@ class Layouter:
     def _segments(self, lane: _Lane, a: float | None = None) -> list:
         """The lane's copper as it stands: the riser, and the lane out to `a`, chamfered as
         drawn. A lane whose via is not placed yet (`a` None) runs as far as a via is searched,
-        with its corner square: the most copper it can come to, whatever its chamfer ends up."""
+        and its corner is judged both ways: square, which comes nearest what lies outside the
+        turn, and cut at the lane's chamfer, whose 45 runs across the inside of the turn, nearest
+        what lies there (an inner lane's via). Where its via ends up the lane is cut no deeper
+        than that (a short lane cuts less), so neither comes nearer than it is judged."""
         reach = self._a_min(lane) + self.env.reach if a is None else a
         pts = [lane.centre] + ([lane.corner] if self.decl.turn is not None else []) + [self._end_at(lane, reach)]
-        cut = chamfer_cuts(pts, self.env.chamfer if a is not None else 0.0)[0]
-        return [((a_.x, a_.y), (b_.x, b_.y)) for a_, b_ in zip(cut, cut[1:])]
+        chamfer = self.decl.chamfer_of(lane.number)
+        cuts = [chamfer_cuts(pts, chamfer)[0]]
+        if a is None and chamfer > 0:
+            cuts.append(chamfer_cuts(pts, 0.0)[0])
+        return [((p.x, p.y), (q.x, q.y)) for cut in cuts for p, q in zip(cut, cut[1:])]
 
     # ---- the vias
     def _via_why(self, lane: _Lane, q: Location, others: bool) -> str | None:
@@ -480,7 +495,7 @@ class Layouter:
             lane = self.lanes[n]
             pts = [lane.centre] + ([lane.corner] if d.turn is not None else []) + [lane.end_at]
             pts = [p for i, p in enumerate(pts) if i == 0 or (p.x, p.y) != (pts[i - 1].x, pts[i - 1].y)]
-            cut = chamfer_cuts(pts, env.chamfer)[0]
+            cut = chamfer_cuts(pts, d.chamfer_of(n))[0]
             tracks = tuple(polyline_tracks(lane.net, env.layer, lane.width, cut))
             via = Via(lane.net, lane.via_at, lane.via[1], lane.via[0]) if lane.via_at is not None else None
             if d.turn is None:

@@ -748,6 +748,15 @@ class Occupancy:
         if self.__dict__.get("_escapes") is not None:
             self._escapes.add_copper(shapes)
 
+    def remove_copper(self, shapes) -> None:
+        """Planned copper that stood as an obstacle is taken back (a reservation the copper
+        drawn in its place replaces)."""
+        gone = {id(s) for s in shapes}
+        self.copper = [c for c in self.copper if id(c) not in gone]
+        self._invalidate_native()
+        if self.__dict__.get("_escapes") is not None:
+            self._escapes.remove_copper(shapes)
+
     def copper_conflicts(self, shape: Shape) -> list[str]:
         """Every pad or copper of another net within clearance of `shape`."""
         out = []

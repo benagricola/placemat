@@ -260,6 +260,26 @@ class Escapes:
             if flags:
                 self.mirror.esc_set_open(flags)
 
+    def remove_copper(self, shapes) -> None:
+        """Copper taken back: the corridors it closed open again where nothing else closes them."""
+        gone = {id(s) for s in shapes}
+        metal = self._blockers.get(":copper", [])
+        self._blockers[":copper"] = [s for s in metal if id(s) not in gone]
+        vacated = [s for s in metal if id(s) in gone]
+        touched = []
+        for s in vacated:
+            self._bgrid.remove(s, s.box)
+        for s in vacated:
+            for c in self._cgrid.near(s.box):
+                if not self._open.get(id(c), True) and self._clear(c):
+                    self._open[id(c)] = True
+                    touched.append(c)
+        if self.mirror is not None:
+            self.mirror.esc_set_metal(":copper", [_metal_tuple(sh) for sh in self._blockers[":copper"]])
+            flags = [(self._nid[id(c)], True) for c in touched if id(c) in self._nid]
+            if flags:
+                self.mirror.esc_set_open(flags)
+
     @staticmethod
     def _closes(s, c) -> bool:
         return (s.net != c.net and s.owner != c.ref and bool(s.layers & c.layers)

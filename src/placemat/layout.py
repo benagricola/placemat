@@ -844,6 +844,7 @@ class Board:
         self._fanouts: list = []           # (key, footprint, depth, sides or None, why)
         self._escapes: list = []           # the EscapeDecl of each board.escape() (lanes.py)
         self._escape_laid: dict = {}       # escape index -> its Layout, once its part is placed
+        self._escape_kept: dict = {}       # (escape index, pad number) -> the occupancy's copper shapes of a lane's riser and lane
         self._faces: tuple | None = None
         self._links: list[Link] = []
         self._rules: list = []
@@ -2702,7 +2703,9 @@ class Board:
             raise ValueError("%s: a fanout's depth is more than 0, not %r" % (key, depth))
         self._fanouts.append((key, geom, float(depth), None if sides is None else tuple(Edge(s) for s in sides), why))
 
-    def escape(self, part, pins, *, turn=None, vias=(), depth=None, run=None, widths=None, pairs=(), why: str):
+    def escape(self, part, pins, *, turn=None, vias=(), depth=None, run=None, widths=None, pairs=(),
+               chamfer: float | None = None, via_size: float | None = None, via_drill: float | None = None,
+               why: str):
         """A pin row's routes out, kept clear from the moment the part is placed:
         each pin of `pins` (named as a PadRef names a pad: a number, a net or a
         PinName) gets a riser straight out along the row's way out and, with
@@ -2712,9 +2715,13 @@ class Board:
         innermost lane's offset past the pads' tips) and `run=` (how far lanes
         with no via run past the row's turn-side end) override the defaults,
         `widths=` gives a pin's track a width, and `pairs=[(a, b)]` runs two
-        neighbouring lanes together at their net class's pair gap. Returns the
-        Escape: `esc[pin]` is a lane, the first point of a track, and
-        `esc[pin].via` and `esc[pin].end` refer to its via and its end.
+        neighbouring lanes together at their net class's pair gap. `chamfer=`
+        (default `copper.chamfer`) cuts the lanes' corners as `track()`'s does,
+        and a track that begins with a lane is drawn with it unless its own
+        `chamfer=` says otherwise; `via_size=` and `via_drill=` size the lanes'
+        vias as `via()`'s do (default the board's). Returns the Escape:
+        `esc[pin]` is a lane, the first point of a track, and `esc[pin].via`
+        and `esc[pin].end` refer to its via and its end.
 
         Settled when the part is placed (`_place_escapes`): the risers, lanes
         and vias stand in the occupancy as copper of their own nets, so a part
@@ -2746,9 +2753,11 @@ class Board:
             return n
         if turn is not None and not isinstance(turn, (Edge, Corner)):
             raise TypeError("%s: turn= is an Edge across the row or a Corner for lanes at 45, not %r" % (key, turn))
-        for what, v in (("depth", depth), ("run", run)):
+        for what, v in (("depth", depth), ("run", run), ("via_size", via_size), ("via_drill", via_drill)):
             if v is not None and not v > 0:
                 raise ValueError("%s: an escape's %s= is more than 0, not %r" % (key, what, v))
+        if chamfer is not None and chamfer < 0:
+            raise ValueError("%s: an escape's chamfer= is 0 or more, not %r" % (key, chamfer))
         if run is not None and turn is None:
             raise ValueError("%s: run= is how far turned lanes run past the row's end; without turn= use depth=" % key)
         wide = {}
@@ -2768,7 +2777,10 @@ class Board:
         self._check_escape_row(geom, numbers, pair_numbers, turn)
         decl = EscapeDecl(len(self._escapes), part, geom.ref, tuple(numbers), turn, via_numbers,
                           None if depth is None else float(depth), None if run is None else float(run),
-                          tuple(sorted(wide.items())), tuple(pair_numbers), why)
+                          tuple(sorted(wide.items())), tuple(pair_numbers),
+                          float(self.settings.copper_chamfer if chamfer is None else chamfer),
+                          float(self.via_size if via_size is None else via_size),
+                          float(self.via_drill if via_drill is None else via_drill), why)
         self._escapes.append(decl)
         return Escape(self, decl.index, part)
 
@@ -2972,10 +2984,12 @@ class Board:
             laid = self._escape_layout(occ, decl)
             self._escape_laid[decl.index] = laid
             shapes = []
-            for op in laid.ops():
-                shapes.append(_shape_of(op))
-                if isinstance(op, Via):
-                    shapes.append(hole_shape("", op.at, op.drill, op.net, layers=frozenset(op.layers)))
+            for n in laid.order:
+                kept = self._escape_kept[(decl.index, n)] = [_shape_of(t) for t in laid.lanes[n].tracks]
+                shapes += kept
+                via = laid.lanes[n].via
+                if via is not None:
+                    shapes += [_shape_of(via), hole_shape("", via.at, via.drill, via.net, layers=frozenset(via.layers))]
             occ.add_copper(shapes)
             for n, lane in laid.blocked():
                 plan.findings.append(Finding("escape_lane", "%s pin %s (%s): its lane is blocked by %s" % (
@@ -2986,6 +3000,13 @@ class Board:
             plan.steps.append(Step(decl.key, "copper", Priority.DEFAULT, None, 0.0, note, decl.why, len(laid.order)))
             if progress:
                 progress("%-28s copper  escape   %s" % (decl.key, note))
+
+    def _release_lane(self, occ, lane: Lane) -> None:
+        """A track begins with `lane`: its reserved riser and lane leave the occupancy, and the
+        track's own copper (the same, or as its chamfer= cuts it) is judged in their place."""
+        kept = self._escape_kept.pop((lane.index, lane.number), None)
+        if kept:
+            occ.remove_copper(kept)
 
     def _report_lanes(self, plan: Plan) -> None:
         """A lane reserved and never drawn: no track begins with it, so its room
@@ -3657,18 +3678,24 @@ class Board:
         lets it pass under a same-layer track of another net it crosses (a
         via, a track on the opposite face, a via back) when it is the one
         that must yield: the lower priority, or at equal priority the shorter."""
-        chamfer = self.settings.copper_chamfer if chamfer is None else chamfer
         if bend is not None and not isinstance(bend, Bend):
             raise TypeError("bend is Bend.START, Bend.END or Bend.BOTH, not %r" % (bend,))
         layer = CopperLayer.of(layer)
         if any(isinstance(p, Lane) for p in points[1:]):
             raise TypeError("%s: a lane stands for its riser, its lane and its via, so it is a track's first "
                             "point; a track goes on from it, it does not come back to one" % net)
+        begins = None
         if points and isinstance(points[0], Lane):
-            lane = points[0]
+            begins = points[0]
+            decl = self._escapes[begins.index]
             if width is None:
-                width = self._escapes[lane.index].width_of(lane.number)      # the lane's own, when widths= gave one
-            points = self._lane_points(net, lane) + list(points[1:])
+                width = decl.width_of(begins.number)    # the lane's own, when widths= gave one
+            if chamfer is None:
+                chamfer = decl.chamfer                  # drawn as the escape laid and reserved it
+            else:
+                decl.chamfers[begins.number] = float(chamfer)       # and laid and reserved as it is to be drawn
+            points = self._lane_points(net, begins) + list(points[1:])
+        chamfer = self.settings.copper_chamfer if chamfer is None else chamfer
         for p in points:
             if isinstance(p, CopperIntent) and not p.key.startswith("via "):
                 raise TypeError("%s: a track may end on a via, and %r is not a via" % (net, p.key))
@@ -3746,6 +3773,8 @@ class Board:
                 if all(clear(t.start, t.end) and clear_of_tracks(t) for t in direct):
                     ctx.notes.append("track %s: a waypoint steers it into another net's pad; drawn pad to pad it clears, "
                                      "so drop the waypoint(s) unless the route must go there" % name)
+            if begins is not None:
+                self._release_lane(ctx.occ, begins)     # what is judged from here is what this track draws
             return ops
         intent = self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge)
         return intent
@@ -4667,6 +4696,7 @@ class Board:
             import random as _random
             self._order_rng = _random.Random("%d:order" % self._explore.seed)
         self._escape_laid = {}              # every escape is laid out again, when its part is placed
+        self._escape_kept = {}
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
                         board_cutouts=self._cutouts, settings=self.settings,
                         component_spacing=self.component_spacing, rules=self._rules)
@@ -7126,8 +7156,7 @@ class _LaneEnv:
         self.occ = getattr(occ, "_occ", occ)            # a candidate's view reads the real occupancy's copper
         self.layer = face.copper
         s = board.settings
-        self.chamfer, self.step, self.reach = s.copper_chamfer, s.place_escape_via_step, s.place_escape_via_reach
-        self.via_size, self.via_drill = board.via_size, board.via_drill
+        self.step, self.reach = s.place_escape_via_step, s.place_escape_via_reach
         self.hole_to_hole = board.geometry.hole_to_hole
         self.own = [sh for shapes in pads.values() for sh in shapes]
         self.ref = decl.ref

@@ -70,7 +70,7 @@ def test_the_three_lanes_are_the_hand_layouts_lines():
 
 
 def test_the_vias_stand_at_the_first_legal_spot_past_the_row_s_end_and_clear():
-    b, esc = _north_row()
+    b, esc = _north_row(chamfer=0.0)        # the hand layout's square corners
     _draw(b, esc)
     plan = b.resolve()
     vias = _vias(plan)
@@ -312,3 +312,117 @@ def test_a_firm_part_placed_at_a_lane_end_rides_the_searched_part_whose_lane_it_
     pad = plan.occupancy.pad_location("C1", "1")
     assert (pad.x, pad.y) == pytest.approx((end.x, end.y), abs=1e-6)
     assert "rides pd" in plan.step("c_pd").note
+
+
+# ---------------------------------------------------------------- the chamfer of a lane's corner
+def _clear_of_vias(plan):
+    """The least edge-to-edge gap from any lane track to a via of another net."""
+    tracks = [t for t in plan.copper if isinstance(t, Track)]
+    vias = [v for v in plan.copper if isinstance(v, Via)]
+    return min(_gap(v.at, t.start, t.end, t.width, v.size) for v in vias for t in tracks if t.net != v.net)
+
+
+def _diagonals(plan, net):
+    return [t for t in plan.copper if isinstance(t, Track) and t.net == net and t.start.x != t.end.x and t.start.y != t.end.y]
+
+
+def test_an_outer_lane_s_chamfer_is_judged_against_an_inner_lane_s_via_where_the_via_is_searched():
+    """A chamfer runs across the inside of the turn, nearer an inner lane's via than the square corner is."""
+    b = pd_board(via_size=0.8, clearance=0.15)
+    esc = b.escape(Part("pd"), [32, 31, 30], turn=Edge.WEST, vias=[31, 30], why="a wide via beside a 45")
+    _draw(b, esc)
+    plan = b.resolve()
+    assert _clear_of_vias(plan) >= 0.15 - 1e-6
+    assert not [f for f in plan.findings if f.kind in ("copper", "escape_lane")], plan.findings
+
+
+def test_a_square_cornered_escape_judges_its_lanes_square():
+    b = pd_board(via_size=0.8, clearance=0.15)
+    esc = b.escape(Part("pd"), [32, 31, 30], turn=Edge.WEST, vias=[31, 30], chamfer=0.0, why="square")
+    _draw(b, esc)
+    plan = b.resolve()
+    assert not _diagonals(plan, "PGOOD")
+    assert _clear_of_vias(plan) >= 0.15 - 1e-6
+    assert not [f for f in plan.findings if f.kind in ("copper", "escape_lane")]
+
+
+def test_a_track_that_begins_with_a_lane_is_drawn_with_the_escape_s_chamfer():
+    b = pd_board()                              # copper.chamfer is 1.0
+    esc = b.escape(Part("pd"), [32, 31, 30], turn=Edge.WEST, vias=[31, 30], chamfer=0.1, why="a small cut")
+    _draw(b, esc)
+    plan = b.resolve()
+    (cut,) = _diagonals(plan, "PGOOD")
+    assert math.hypot(cut.end.x - cut.start.x, cut.end.y - cut.start.y) == pytest.approx(0.1 * math.sqrt(2.0), abs=1e-5)
+    assert not [f for f in plan.findings if f.kind in ("copper", "escape_lane")]
+
+
+def test_the_escape_s_chamfer_defaults_to_the_copper_chamfer():
+    b = pd_board()
+    esc = b.escape(Part("pd"), [32, 31, 30], turn=Edge.WEST, vias=[31, 30], why="the default")
+    assert b._escapes[esc.index].chamfer == b.settings.copper_chamfer
+
+
+def test_a_track_s_own_chamfer_is_drawn_as_given():
+    b = pd_board()
+    esc = b.escape(Part("pd"), [32, 31, 30], turn=Edge.WEST, vias=[31, 30], chamfer=0.5, why="a big cut")
+    b.track(Net("VOUT"), [esc[32]], layer=F, why="its lane")
+    b.track(Net("SENSE"), [esc[31]], layer=F, why="its lane")
+    b.track(Net("PGOOD"), [esc[30]], layer=F, chamfer=0.1, why="a smaller cut than the escape's")
+    plan = b.resolve()
+    (cut,) = _diagonals(plan, "PGOOD")
+    assert math.hypot(cut.end.x - cut.start.x, cut.end.y - cut.start.y) == pytest.approx(0.1 * math.sqrt(2.0), abs=1e-5)
+
+
+def test_a_lane_is_laid_out_with_the_chamfer_its_track_says():
+    """The vias are searched against the corner a lane's track will draw, not the escape's."""
+    def run(track_chamfer):
+        b = pd_board(via_size=0.8, clearance=0.15)
+        esc = b.escape(Part("pd"), [32, 31, 30], turn=Edge.WEST, vias=[31, 30], why="a wide via beside a 45")
+        b.track(Net("VOUT"), [esc[32]], layer=F, why="its lane")
+        b.track(Net("SENSE"), [esc[31]], layer=F, why="its lane")
+        b.track(Net("PGOOD"), [esc[30]], layer=F, chamfer=track_chamfer, why="its lane")
+        plan = b.resolve()
+        assert not [f for f in plan.findings if f.kind in ("copper", "escape_lane")], plan.findings
+        return _vias(plan)["SENSE"].at.x
+    assert run(0.1) > run(None) + 1e-3          # a small cut leaves the via where the square corner allows
+
+
+def test_a_reservation_is_replaced_by_the_copper_drawn_in_its_place():
+    """A track that draws a lane thinner than it was reserved: copper planned beside it is judged against
+    the drawn track."""
+    spot = Location(30.0, TIP_N - 1.5 - 0.5)            # 0.5 off the lane's centreline: clear of 0.1 wide, not of 0.2
+
+    def run(width):
+        b = pd_board()
+        esc = b.escape(Part("pd"), [25], turn=Edge.WEST, vias=[25], depth=1.5, why="one lane, high")
+        b.track(Net("N25"), [esc[25]], layer=F, width=width, why="its lane")
+        b.via(Net("N5"), spot, why="a via beside the lane")
+        plan = b.resolve()
+        held = [s for s in plan.occupancy.copper if s.kind == "copper" and s.net == "N25"]
+        assert len(held) == len([t for t in plan.copper if isinstance(t, Track) and t.net == "N25"])
+        return [str(f) for f in plan.findings if f.kind == "copper"]
+    assert run(None)
+    assert not run(0.1), run(0.1)
+
+
+# ----------------------------------------------------------------- the lanes' vias
+def test_via_size_and_via_drill_size_the_lanes_vias_and_their_steps():
+    size, drill = 0.5, 0.25
+    b = pd_board()
+    esc = b.escape(Part("pd"), [32, 31, 30], turn=Edge.WEST, vias=[31, 30], widths={32: OUT_TRACK}, chamfer=0.0,
+                   via_size=size, via_drill=drill, why="smaller vias than the board's")
+    _draw(b, esc)
+    plan = b.resolve()
+    vias = _vias(plan)
+    assert {(v.size, v.drill) for v in vias.values()} == {(size, drill)}
+    lane0 = TIP_N - (OUT_TRACK + CLEAR)
+    lane1 = lane0 - (OUT_TRACK / 2 + CLEAR + size / 2)
+    assert _lane_y(plan, "SENSE") == pytest.approx(lane1, abs=1e-9)
+    assert not [f for f in plan.findings if f.kind in ("copper", "escape_lane")]
+
+
+def test_the_lanes_vias_default_to_the_boards():
+    b = pd_board()
+    esc = b.escape(Part("pd"), [32, 31, 30], turn=Edge.WEST, vias=[31], why="the default")
+    decl = b._escapes[esc.index]
+    assert (decl.via_size, decl.via_drill) == (b.via_size, b.via_drill)
