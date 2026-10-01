@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.66.1
 
 A net tie placed so it stands out from a pad of its net (`Pin(1, PadRef(...,
 edge=...))`, turned so pad 2 lies further out) is no longer refused for its
