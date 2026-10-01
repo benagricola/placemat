@@ -18,6 +18,12 @@ file. An item cites its source as "a board's session, <date>".
   of front-only pads is judged against them; current-path takes one small
   pin of a load whose exposed pad also carries the current. Being fixed.
 
+- **facts --confirm writes beside a module; a side at a pin row's end** (a
+  board's session, 2026-10-01): `--confirm` created a placemat.toml beside a
+  module script, which broke its imports; [facts] holds one digest for all
+  boards. `SideOf` gives a row's normal, not the row end where a pin lies.
+  Being built.
+
 ## Open
 
 - **A via field re-laid round a conflict** (the via give-way
