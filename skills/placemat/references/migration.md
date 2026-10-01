@@ -82,23 +82,6 @@ board.pour(Net("VOUT"), [drops, board.via(Net("VOUT"), FreeSpot(PadRef(Part("u_c
            layer=CopperLayer.IN2, swallow_pads=True, why="the output area on In2, joining the drops")
 ```
 
-### Fixed
-
-- `board.stitch(..., edge=True, outside=True, sides=)`: a row that meets a
-  side not kept now ends `hole_to_edge` plus the via's radius in from that
-  side, as a shared corner's via already stood off both its sides. In 0.68.0
-  the row began at the corner itself, so its end via could land on the board
-  edge when the unkept side lay on it. A run with `sides=` also gets a finding
-  naming the board side each row landed on ("east side -> board north"; the
-  sides are read in the keepout's own frame as turned). Rows that ended at an
-  unkept side are shorter by that inset, so their via positions move.
-
-- A plated hole keeps the board's hole clearance from the copper of another
-  net, a net tie's own copper bar included (KiCad's `hole_clearance`). A via
-  from `FreeSpot` could land with its drill 0.15 mm from a net tie's bar,
-  which KiCad's DRC flags and placemat did not; the search now steps past it,
-  and a part, via or track left too near a drilled hole is a copper finding.
-
 **A part on another part's origin, a midpoint or a turn read off pad
 positions becomes `Origin`, `Mid`, `Parallel` or `Facing`.**
 
@@ -115,6 +98,23 @@ board.place(Part("c"), at=Mid(PadRef(Part("a"), 1), PadRef(Part("b"), 1)))
 board.place(Part("d"), rotation=Parallel(PadRef(Part("a"), 1), PadRef(Part("a"), 2)), ...)
 board.place(Part("e"), rotation=Facing([PadRef(Part("e"), n) for n in (9, 10, 11, 12)], Edge.NORTH), ...)
 ```
+
+### Fixed
+
+- `board.stitch(..., edge=True, outside=True, sides=)`: a row that meets a
+  side not kept now ends `hole_to_edge` plus the via's radius in from that
+  side, as a shared corner's via already stood off both its sides. In 0.68.0
+  the row began at the corner itself, so its end via could land on the board
+  edge when the unkept side lay on it. A run with `sides=` also gets a finding
+  naming the board side each row landed on ("east side -> board north"; the
+  sides are read in the keepout's own frame as turned). Rows that ended at an
+  unkept side are shorter by that inset, so their via positions move.
+
+- A plated hole keeps the board's hole clearance from the copper of another
+  net, a net tie's own copper bar included (KiCad's `hole_clearance`). A via
+  from `FreeSpot` could land with its drill 0.15 mm from a net tie's bar,
+  which KiCad's DRC flags and placemat did not; the search now steps past it,
+  and a part, via or track left too near a drilled hole is a copper finding.
 
 ## To 0.68.0
 
