@@ -1,0 +1,8 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "stdlib_generics_footprints") (type "KiCad") (uri "${KIPRJMOD}/../../../../../.pcb/stdlib/generics/footprints") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Capacitor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../../../.pcb/stdlib/kicad-footprints/Capacitor_SMD.pretty") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Resistor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../../../.pcb/stdlib/kicad-footprints/Resistor_SMD.pretty") (options "") (descr ""))
+  (lib (name "workspace_adapted_parts_APV_APH404012C2R2MP01") (type "KiCad") (uri "${KIPRJMOD}/../../../../../adapted/parts/APV_APH404012C2R2MP01") (options "") (descr ""))
+  (lib (name "workspace_parts_Texas_Instruments_TPS62933DRLR") (type "KiCad") (uri "${KIPRJMOD}/../../../../../parts/Texas_Instruments_TPS62933DRLR") (options "") (descr ""))
+)

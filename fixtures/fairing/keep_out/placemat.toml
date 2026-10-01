@@ -1,0 +1,27 @@
+# The settings of the board these modules were laid out on, less the one that copied a
+# clearance rule's figure by hand: a part's keep-out must be enough by itself.
+[place]
+envelope = "physical"
+escape_depth = 1.5
+
+[cleanup]
+enabled = false
+
+[drc]
+real_kinds = ["clearance", "shorting_items", "track_width", "annular_width",
+              "hole_clearance", "hole_to_hole", "copper_edge_clearance"]
+
+[drc.severities]
+courtyards_overlap = "ignore"
+
+[score]
+crossing = 8.0
+
+[route]
+islands = ["VSHUNT=0.3", "VBIKE", "GND", "V3V3"]
+
+[check]
+rise_c = 10.0
+
+[solve]
+enabled = true

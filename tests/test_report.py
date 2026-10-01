@@ -157,7 +157,7 @@ def test_a_copper_step_says_which_batch_planned_it():
     b.size(width=60, height=60)
     b.place(Part("u1"), at=Location(10, 10))
     b.place(Part("r1"))
-    b.track(Net("GND"), [Location(5, 40), Location(50, 40)], layer=CopperLayer.F)
+    b.track(Net("GND"), [Location(5, 58), Location(50, 58)], layer=CopperLayer.F)
     b.track(Net("C"), [PadRef(Part("r1"), "C"), Location(50, 50)], layer=CopperLayer.F)
     plan = b.resolve()
     by_item = {s.item: s for s in plan.steps if s.kind == "copper"}

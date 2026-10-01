@@ -54,12 +54,14 @@ class Shape:
     claims: bool = False
     # an escape's reserved riser, lane or via (board.escape): the name a finding gives it
     lane: str = ""
+    # a track or a via: copper that leaves a pad (a pour, a pad and a hole are not)
+    wire: bool = False
 
 
 # A Shape as a plain tuple, for the optional native accelerator (kind,
 # faces as a bitmask, layers as a bitmask, net, poly, owner, whether the
 # owner is a footprint this Occupancy knows, whether (owner, label) is one
-# of its leads, the owner's courtyard margin) - see _to_native_shape and
+# of its leads, the owner's courtyard margin, whether it is a track or a via) - see _to_native_shape and
 # docs/superpowers/specs/2026-09-24-native-core-design.md ("Phase 2"). The
 # bit assignments only need to be consistent within one call; they carry no
 # meaning outside this module.
@@ -80,7 +82,7 @@ def _native_layers(layers: frozenset) -> int:
 def _to_native_shape(s: Shape, footprint_refs: frozenset, leads: frozenset, margins: dict) -> tuple:
     kind = "keepclear" if (s.kind == "courtyard" and s.claims) else s.kind
     return (kind, _native_faces(s.faces), _native_layers(s.layers), s.net or "", tuple(s.poly), s.owner,
-            s.owner in footprint_refs, (s.owner, s.label) in leads, margins.get(s.owner, 0.0))
+            s.owner in footprint_refs, (s.owner, s.label) in leads, margins.get(s.owner, 0.0), s.wire)
 
 
 @dataclass(frozen=True)
@@ -219,6 +221,7 @@ class WithoutCarried:
 
 
 _BOTH = frozenset([Face.FRONT, Face.BACK])
+_THROUGH_MM = 1e-4      # copper of two nets this near is one piece to KiCad: a short, not a clearance
 # The defaults; a board's own come from `[place] conflict_gap` and
 # `[place] courtyard_touch` and are carried on the Occupancy.
 _GAP = 1.0      # how far outside a box a conflict can still reach: the largest clearance a rule asks for
@@ -391,6 +394,8 @@ class Occupancy:
             if self.envelope == "physical" and self._leads else frozenset()
         # the script's clearance rules: a pair they match is judged by the last of them, not the netclass figure
         self.rules = ClearanceRules.of(geometry, rules)
+        # a conflict reaches as far as the largest clearance a rule asks: `[place] conflict_gap` is a floor under it
+        self._gap = max(self._gap, self.rules.largest())
         self._drawn_gap = max(component_spacing, self.silk_clearance)   # the furthest a silk, mask or body check reaches
         if self.envelope != "courtyard" and self._gap < max(component_spacing, self.silk_clearance):
             raise ValueError("[place] conflict_gap %.2f is less than the %.2f mm the %s envelope needs a check to reach"
@@ -399,9 +404,6 @@ class Occupancy:
             raise ValueError("[place] conflict_gap %.2f is less than the board's hole rules (%.2f hole to hole, %.2f "
                              "hole clearance) need a check to reach" % (self._gap, geometry.hole_to_hole,
                                                                          geometry.hole_clearance))
-        if self._gap < self.rules.largest():
-            raise ValueError("[place] conflict_gap %.2f is less than the %.2f mm a clearance rule asks of copper, "
-                             "which a check must reach" % (self._gap, self.rules.largest()))
         self._copper_reach = max(self._gap, 1.0)        # how far from a box another's copper is looked for
         self.edge_margin = edge_margin
         self.vias_block_courtyards = vias_block_courtyards
@@ -465,7 +467,7 @@ class Occupancy:
             for poly in c.outlines:
                 self.copper.append(Shape(c.owner or "", "through" if c.kind == "via" else "copper",
                                          faces, c.layers, c.net, poly, Box.of_points(poly), circle=circle,
-                                         carried=tag, points=points))
+                                         carried=tag, points=points, wire=c.kind in ("track", "via")))
             if c.kind == "via" and c.drill_mm:
                 at = Location(*c.anchors[0]) if c.anchors else c.box.center
                 hole = hole_shape(c.owner or "", at, c.drill_mm, c.net, layers=span)
@@ -645,10 +647,10 @@ class Occupancy:
             if s.carried or s.given:
                 out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label,
                                  carried=s.carried, points=tuple(t.apply(p) for p in s.points), given=s.given,
-                                 claims=s.claims))
+                                 claims=s.claims, wire=s.wire))
             else:
                 out.append(Shape(s.owner, s.kind, faces, layers, s.net, poly, Box.of_points(poly), s.label,
-                                 claims=s.claims))
+                                 claims=s.claims, wire=s.wire))
         return out
 
     def _flipped_layers(self, s: Shape) -> frozenset[CopperLayer]:
@@ -813,6 +815,30 @@ class Occupancy:
             if why:
                 out.append(why)
         return out
+
+    def copper_through(self, shape: Shape) -> list:
+        """The copper of other nets `shape` overlaps or touches: placed pads and planned copper that have a net, as shapes. Not a
+        clearance question: where `copper_conflicts` asks how near, this asks whether it is a short."""
+        out = []
+        pools = [g.shapes for owner, g in self.items.items() if owner not in self.pending] + [self.copper]
+        for pool in pools:
+            for o in pool:
+                if o is shape or o.kind not in ("pad", "through", "copper") or not o.net or not shape.net \
+                        or not shape.box.overlaps(o.box, gap=_THROUGH_MM):
+                    continue            # copper of no net is a clearance question, not another net's
+                if self._conflict(shape, o, _THROUGH_MM, exact=True, say=False):
+                    out.append(o)
+        return out
+
+    def name_copper(self, o: Shape) -> str:
+        """Copper as a finding names it: a part's pad by its part and number, else what kind it is."""
+        if o.kind in ("pad", "through") and o.label and self.geometry.has_footprint(o.owner):
+            return "%s pad %s (%s)" % (self.who(o.owner), o.label, o.net or "no net")
+        if o.kind == "through":
+            return "a %s via" % (o.net or "unnetted")
+        if o.wire:
+            return "a %s track" % (o.net or "unnetted")
+        return "%s copper" % (o.net or "unnetted")
 
     def hole_conflicts(self, hole: Shape) -> list[str]:
         """Every pad or copper of another net within the hole clearance of
@@ -1498,7 +1524,7 @@ class Occupancy:
             o = native_shapes[oi]
             s = origin_shapes[si]
             moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
-                         tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label, claims=s.claims)
+                         tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label, claims=s.claims, wire=s.wire)
             why = self._conflict(moved, o, clearance)
             if why is None and o.owner in self._tie_refs:
                 native_entry = None         # a net tie's exclusion: the rest of the check is Python's
@@ -1527,7 +1553,7 @@ class Occupancy:
             if not close:
                 continue
             moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
-                          tuple((x + dx, y + dy) for x, y in s.poly), sb, s.label, claims=s.claims)
+                          tuple((x + dx, y + dy) for x, y in s.poly), sb, s.label, claims=s.claims, wire=s.wire)
             for o in close:
                 why = self._conflict(moved, o, clearance)
                 if why:
@@ -1614,7 +1640,7 @@ class Occupancy:
             why = self.legal(item, placement, clearance, others=others, blame=blame)   # a net tie's exclusion
             return None if why is None else (_reason_key(why), (lambda why=why: why))
         moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net,
-                     tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label, claims=s.claims)
+                     tuple((x + dx, y + dy) for x, y in s.poly), s.box.moved(dx, dy), s.label, claims=s.claims, wire=s.wire)
         if blame is not None:
             blame.append(Blocker(_blocker_kind(o.kind), self.blame_owner(o), frozenset(o.faces)))
 
@@ -1846,7 +1872,7 @@ class Occupancy:
         """The item's shapes at `placement`, from the turned shapes at the origin."""
         dx, dy = placement.location.x, placement.location.y
         return [Shape(s.owner, s.kind, s.faces, s.layers, s.net, tuple((x + dx, y + dy) for x, y in s.poly),
-                      s.box.moved(dx, dy), s.label, claims=s.claims)
+                      s.box.moved(dx, dy), s.label, claims=s.claims, wire=s.wire)
                 for s in self._origin_shapes(item, self._geometry(item), placement)]
 
     def shifted_yards(self, item, placement: Placement) -> list:
@@ -1874,11 +1900,13 @@ class Occupancy:
             cache[key] = hit
         return hit[1]
 
-    def pair_clearance(self, net_a: str, net_b: str, owner_a: str = "", owner_b: str = ""):
+    def pair_clearance(self, net_a: str, net_b: str, owner_a: str = "", owner_b: str = "",
+                       wire_a: bool = False, wire_b: bool = False):
         """(clearance, rule) between copper of two nets: the last of the script's clearance rules that
-        matches the pair (`owner_*` for a rule within a cell), else the netclass pair's figure, or the
-        board default where either has no net; `rule` is the rule that decided, or None."""
-        rule = self.rules.match(net_a, net_b, owner_a, owner_b) if self.rules else None
+        matches the pair (`owner_*` for a rule within a cell; `wire_*`, whether a side is a track or a via,
+        for a rule of a part), else the netclass pair's figure, or the board default where either has no
+        net; `rule` is the rule that decided, or None."""
+        rule = self.rules.match(net_a, net_b, owner_a, owner_b, wire_a, wire_b) if self.rules else None
         if rule is not None:
             return rule.min_mm, rule
         nets = self.geometry.nets
@@ -1966,7 +1994,8 @@ class Occupancy:
                 return None
             if s.net and s.net == o.net:
                 return None
-            clr, rule = (clearance, None) if clearance is not None else self.pair_clearance(s.net, o.net, s.owner, o.owner)
+            clr, rule = (clearance, None) if clearance is not None else self.pair_clearance(
+                s.net, o.net, s.owner, o.owner, s.wire, o.wire)
             need = "%.2f%s" % (clr, ", rule: %s" % rule.why if rule is not None else "")
             # Two boxes this far apart hold two polygons at least as far
             # apart, so the walk round both outlines is only worth its cost
@@ -2219,7 +2248,7 @@ class Occupancy:
         testPadAgainstItem); anything else by either, at the same position
         (testSingleLayerItemAgainstItem)."""
         if clearance is None:
-            clearance = self.pair_clearance(s.net, o.net, s.owner, o.owner)[0]
+            clearance = self.pair_clearance(s.net, o.net, s.owner, o.owner, s.wire, o.wire)[0]
         clr = max(0, _kc.to_nm(clearance) - _NET_TIE_EPSILON_NM)          # sub_e()
         padded = s.kind in ("pad", "through") and o.kind in ("pad", "through") \
             and self.geometry.has_footprint(s.owner) and self.geometry.has_footprint(o.owner)
@@ -2621,7 +2650,7 @@ class NativeSweeper:
 
         def reason(s=s, o=o, x=x, y=y, clearance=clearance):
             moved = Shape(s.owner, s.kind, s.faces, s.layers, s.net, tuple((px + x, py + y) for px, py in s.poly),
-                          s.box.moved(x, y), s.label, claims=s.claims)
+                          s.box.moved(x, y), s.label, claims=s.claims, wire=s.wire)
             why = occ._conflict(moved, o, clearance)
             if why is None:
                 raise AssertionError("native found a conflict between a %s and a %s that _conflict disagrees with; "

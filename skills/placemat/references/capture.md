@@ -78,12 +78,24 @@ Pm.KeepOut: <distance>mm [pads=<net>[,<net>...]] [away=<net>[,<net>...]]; <citat
 - The citation after `;` is required: the datasheet and where in it the
   distance is stated or drawn. An annotation without one is refused, and so is
   one whose distance does not read.
-- It acts as a clearance between the copper on the `away=` nets and this
-  part's `pads=` pads, held by the planner (a fitted pour, a track, a via,
-  another part's pad) and judged by `keep-out` alike. The part's own pads are
-  not held to it: their spacing is the footprint's. Other copper on the same
-  nets, another part's pads and copper that leaves this part's own pads keep
-  the netclass figure.
+- It acts as a clearance between this part's `pads=` pads and the copper on
+  the `away=` nets that is a pour or another part's pad, held by the planner
+  and written to the `.kicad_dru` for KiCad's DRC. The part's own pads are not
+  held to it (their spacing is the footprint's), and nor are the tracks and
+  vias of the `away=` nets: those are the part's own pad escapes, which leave
+  the package where its pins are, and KiCad's rule language cannot tell them
+  from other tracks of the net. Other copper on the same nets keeps the
+  netclass figure.
+- `keep-out` judges the same nets as a pair: any copper on an `away=` net
+  against any copper on a `pads=` net (the part's pads, and the tracks, vias
+  and pours of those nets) at the cited distance, and its note says so. Not
+  judged against it: a pair of the part's own pads; a track or via of an
+  `away=` net that is joined to the part's own pad on it; the nets of the
+  part's other pads that `away=` does not name, which are the package's (the
+  boot pin of a regulator whose datasheet runs boot copper at the package gap
+  is left out of `away=`). The part's own pad against copper of a `pads=` net
+  is held to the cited distance or to the gap the package puts between those
+  pads, whichever is less.
 
 ## Sources and limits
 
@@ -159,8 +171,8 @@ runs the same checks on the board it wrote.
   extent; `--limit switch-node=<mm2>`
 - `keep-out`: the nearest sensitive-net copper to each switch node,
   against `--keep-out` (default 2 mm), naming the two pieces of copper; a
-  part's own pins are its package and are not judged. Where a pad of the
-  pair is a part's `Pm.KeepOut` pad against copper on its `away` net, the
+  part's own pins are its package and are not judged. Where the pair is
+  copper on a part's `Pm.KeepOut` `away` net and copper on its `pads` net, the
   part's cited distance is the limit instead, and the note says so
 - `crossings-under`: other nets' copper on another layer under a
   sensitive net's tracks, unless a plane fill on a layer between them

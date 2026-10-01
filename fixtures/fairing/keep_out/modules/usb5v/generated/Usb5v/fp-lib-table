@@ -1,0 +1,10 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "stdlib_generics_footprints") (type "KiCad") (uri "${KIPRJMOD}/../../../../../.pcb/stdlib/generics/footprints") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Capacitor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../../../.pcb/stdlib/kicad-footprints/Capacitor_SMD.pretty") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Resistor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../../../.pcb/stdlib/kicad-footprints/Resistor_SMD.pretty") (options "") (descr ""))
+  (lib (name "workspace_adapted_parts_APV_APH404012C2R2MP01") (type "KiCad") (uri "${KIPRJMOD}/../../../../../adapted/parts/APV_APH404012C2R2MP01") (options "") (descr ""))
+  (lib (name "workspace_parts_KEMET_T520T107M006APE070") (type "KiCad") (uri "${KIPRJMOD}/../../../../../parts/KEMET_T520T107M006APE070") (options "") (descr ""))
+  (lib (name "workspace_parts_Texas_Instruments_LM61440AASQRJRRQ1") (type "KiCad") (uri "${KIPRJMOD}/../../../../../parts/Texas_Instruments_LM61440AASQRJRRQ1") (options "") (descr ""))
+  (lib (name "workspace_parts_Texas_Instruments_SN74LVC1G08DRYR") (type "KiCad") (uri "${KIPRJMOD}/../../../../../parts/Texas_Instruments_SN74LVC1G08DRYR") (options "") (descr ""))
+)

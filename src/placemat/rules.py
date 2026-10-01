@@ -16,7 +16,7 @@ class Rule:
     within: str | None = None           # a cell (a KiCad group)
     between: tuple[str, str] | None = None
     on: str | None = None               # one net
-    of: str | None = None               # with `between=(a, b)`: only where the copper on `b` is a pad of this part and the copper on `a` is not
+    of: str | None = None               # with `between=(a, b)`: only where the copper on `b` is a pad of this part and the copper on `a` is neither its pad nor a track or a via
 
     def condition(self) -> str:
         if self.within is not None:
@@ -24,11 +24,13 @@ class Rule:
         if self.between is not None:
             a, b = self.between
             if self.of is not None:
-                # a pad of the part on b, and not a pad of the part on a (A.Reference is empty on a track or a via);
-                # KiCad matches a rule in both orders, written out as `between` is
+                # x on `a`; y a pad of the part on `b`. x is not the part's pad, and not a track or a via: the
+                # part's own pad escapes are tracks and vias of its own nets, which no condition can tell from
+                # other tracks of those nets. A.Reference is empty on a track or a via. KiCad matches a rule in
+                # both orders, written out as `between` is
                 def side(x, y):
-                    return "%s.NetName == '%s' && %s.NetName == '%s' && %s.Reference == '%s' && !(%s.Reference == '%s')" % (
-                        x, a, y, b, y, self.of, x, self.of)
+                    return ("%s.NetName == '%s' && %s.NetName == '%s' && %s.Reference == '%s' && !(%s.Reference == '%s')"
+                            " && %s.Type != 'Track' && %s.Type != 'Via'") % (x, a, y, b, y, self.of, x, self.of, x, x)
                 return "(%s) || (%s)" % (side("A", "B"), side("B", "A"))
             return "(A.NetName == '%s' && B.NetName == '%s') || (A.NetName == '%s' && B.NetName == '%s')" % (a, b, b, a)
         return "A.NetName == '%s'" % self.on
@@ -54,8 +56,10 @@ class ClearanceRules:
     def __bool__(self) -> bool:
         return bool(self.rules)
 
-    def match(self, net_a: str, net_b: str, owner_a: str = "", owner_b: str = ""):
-        """The last rule that matches the pair, or None."""
+    def match(self, net_a: str, net_b: str, owner_a: str = "", owner_b: str = "",
+              wire_a: bool = False, wire_b: bool = False):
+        """The last rule that matches the pair, or None. `wire_*`: whether that side is a track or a via,
+        which a rule of a part does not hold."""
         for r in reversed(self.rules):
             if r.within is not None:
                 owners = self.cell_owners.get(r.within, ())
@@ -64,9 +68,9 @@ class ClearanceRules:
             elif r.between is not None:
                 a, b = r.between
                 if r.of is not None:
-                    # the part's pad on b, with the copper of a that is not its own pad
-                    if (net_a == a and net_b == b and owner_b == r.of and owner_a != r.of) \
-                            or (net_b == a and net_a == b and owner_a == r.of and owner_b != r.of):
+                    # the part's pad on b, with the copper of a that is not its pad, a track or a via
+                    if (net_a == a and net_b == b and owner_b == r.of and owner_a != r.of and not wire_a) \
+                            or (net_b == a and net_a == b and owner_a == r.of and owner_b != r.of and not wire_b):
                         return r
                 elif (net_a == a and net_b == b) or (net_a == b and net_b == a):
                     return r

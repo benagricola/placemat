@@ -380,9 +380,9 @@ def _kept_shape(op):
     from .occupancy import Shape
     if isinstance(op, Via):
         return Shape("", "through", frozenset((Face.FRONT, Face.BACK)), frozenset(CopperLayer),
-                    op.net, op.polygon, op.box)
+                    op.net, op.polygon, op.box, wire=True)
     faces = frozenset([op.layer.face]) if op.layer.face else frozenset()
-    return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.polygon, op.box)
+    return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.polygon, op.box, wire=True)
 
 
 def drawn_now(entries, geometry, tolerance: float) -> list:

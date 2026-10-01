@@ -37,6 +37,40 @@ section for each hand-written pattern a newer form replaces.
   was refused or cost drops may now keep its vias, and a search may take a
   spot it had passed over. `api.md`, "Carried vias give way".
 
+### Fixed
+
+- A part's `Pm.KeepOut` no longer holds the part's own pad escapes. The rule
+  written to the `.kicad_dru` and held by the planner applied to every track
+  and via of the `away=` nets, so the track leaving a boot or switch pin,
+  nearer a feedback pin than the package's own gap, was a KiCad clearance
+  error and a planner finding, and the planner bent it round the part, once
+  through another net's pad. The rule now holds a fitted pour and another
+  part's pad against the part's pads on `pads=`, and no track or via of the
+  `away=` nets (`api.md`, "A part's keep-out").
+- `keep-out` judges the nets a `Pm.KeepOut` names as a pair at its distance:
+  the feedback track and pour leaving the part's pad are held at it, not at
+  the board-wide `check.keep_out_mm`. A track or via joined to the part's own
+  pad on an `away=` net is its pad escape and is not judged, and a net of the
+  part's other pads that `away=` does not name is not judged against its
+  `pads=` nets: the package's gap to them is not the layout's. Another part's
+  pad on a `pads=` net is held at the cited distance too, where it was held at
+  the board-wide one.
+- `[place] conflict_gap` is a floor. A conflict reaches as far as the largest
+  clearance a rule asks, so a script or a `placemat.toml` that copied a rule's
+  figure into it can drop the setting; a run no longer refuses to start where
+  the setting is under a rule.
+- A track or a via is not drawn through another net's copper. Where a declared
+  track would run through a pad, a via, a track or a pour of another net, or a
+  via stand on one, it is left out whole and a finding says which copper it met;
+  before, it was drawn and the finding named the overlap, which KiCad reports as
+  a short. Two tracks that cross where neither may bridge leave the one that
+  should yield out. Copper nearer than its clearance but not touching is still a
+  finding and drawn. A script that declared such copper and lived with the
+  finding loses that copper: route it clear, or let it bridge (`bridge=True`).
+- A part with a `Pm.KeepOut` no longer widens `Beside`'s gap to every neighbour
+  on the nets it names: the keep-out holds pads and pours where they stand,
+  and `Beside(copper=True)` reads it for the pad pairs it faces.
+
 ## To 0.73.0
 
 ### New

@@ -14,7 +14,7 @@ def _sq(cx, cy, half):
 
 
 def _shape(kind, poly, net, owner="o"):
-    return (kind, 1, _COPPER, net, tuple(poly), owner, False, False, 0.0)
+    return (kind, 1, _COPPER, net, tuple(poly), owner, False, False, 0.0, False)
 
 
 def _index(shapes):

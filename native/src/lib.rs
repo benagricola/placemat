@@ -57,10 +57,10 @@ fn largest_rectangle(
 /// just hashed/bucketed. `margin` is Occupancy._margins.get(owner, 0.0) -
 /// only meaningful for a courtyard shape, but carried on every shape for a
 /// uniform tuple shape.
-type PyShape = (String, u8, u32, String, Vec<Point>, String, bool, bool, f64);
+type PyShape = (String, u8, u32, String, Vec<Point>, String, bool, bool, f64, bool);
 
 fn build_shape(t: &PyShape) -> PyResult<shapes::Shape> {
-    let (kind_s, faces, layers, net, poly, owner, owner_is_footprint, is_lead, margin) = t;
+    let (kind_s, faces, layers, net, poly, owner, owner_is_footprint, is_lead, margin, wire) = t;
     let kind = shapes::Kind::from_str(kind_s)
         .ok_or_else(|| PyValueError::new_err(format!("unknown shape kind {kind_s:?}")))?;
     let bbox = geometry_bounds(poly);
@@ -75,6 +75,7 @@ fn build_shape(t: &PyShape) -> PyResult<shapes::Shape> {
         owner_is_footprint: *owner_is_footprint,
         is_lead: *is_lead,
         margin: *margin,
+        wire: *wire,
     })
 }
 

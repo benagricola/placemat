@@ -1017,6 +1017,7 @@ class Board:
                      [self._clearance_reach(n) for n in nets])
         return max(float(gap), widest)
 
+
     def envelope(self, item, rotation: float = 0.0, face: Face = Face.FRONT) -> Box:
         """What the placer keeps for the item at `rotation`, at the origin, as
         `[place] envelope` claims it: its courtyard and pads (courtyard), its
@@ -3553,7 +3554,7 @@ class Board:
         """The most a net's copper can be asked to keep from another's: its
         class's figure, or a rule that raises it."""
         base = self.geometry.clearance(net) if net in self.geometry.nets else self.geometry.default_clearance
-        return max([base] + [r.min_mm for r in self._rules if r.kind == "clearance"
+        return max([base] + [r.min_mm for r in self._rules if r.kind == "clearance" and r.of is None
                              and (r.on == net or (r.between is not None and net in r.between))])
 
     def _plane_nets(self) -> set:
@@ -4158,7 +4159,11 @@ class Board:
                 shape = _shape_of(Track(name, layer, w, a, b))
                 return not ctx.occ.copper_conflicts(shape)
 
-            pts = octilinear(located, pads, clear, bend, lanes, self.settings.copper_straight_tolerance)
+            def runs_through(a, b):   # a leg that runs through copper of another net: a short, whatever the clearance
+                return any(not (bridge and o.wire and o.kind == "copper")
+                           for o in ctx.occ.copper_through(_shape_of(Track(name, layer, w, a, b))))
+
+            pts = octilinear(located, pads, clear, bend, lanes, self.settings.copper_straight_tolerance, runs_through)
             cut_pts, diagonals = chamfer_cuts(pts, chamfer)
             ops = polyline_tracks(name, layer, w, cut_pts)
             for p in corners:
@@ -4197,6 +4202,10 @@ class Board:
                                      "so drop the waypoint(s) unless the route must go there" % name)
             if begins is not None:
                 self._release_lane(ctx.occ, begins)     # what is judged from here is what this track draws
+            met = self._through(ctx, ops, bridge)
+            if met is not None:
+                ctx.notes.append("track %s: not drawn, it would run through %s" % (name, met))
+                return []
             return ops
         intent = self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge)
         return intent
@@ -4464,6 +4473,11 @@ class Board:
                     ctx.planned_tails.append(gave.tail)
                     return [gave.tail]
             via = Via(name, where, d, s, span)
+            if not isinstance(at, FreeSpot) and carried is None:      # a spot the script gave, not one searched for
+                met = self._through(ctx, [via])
+                if met is not None:
+                    ctx.notes.append("via %s at (%.2f, %.2f): not drawn, it would stand on %s" % (name, where.x, where.y, met))
+                    return []
             ctx.planned_vias.append(via)        # a later FreeSpot in this batch sees it
             ctx.via_at[intent.index] = where    # a track may end on it
             return [via] + ops
@@ -4797,7 +4811,7 @@ class Board:
         elif occ.board_box is not None and not occ.board_box.inflate(-self.keep_in).contains(box):
             return "within %.2f mm of the board edge" % self.keep_in
         hits = occ.copper_conflicts(Shape("via", "copper", frozenset(), frozenset(span or self.geometry.layers),
-                                          net, ring, box))
+                                          net, ring, box, wire=True))
         if hits:
             return "copper " + hits[0]
         # its drill keeps the hole clearance from other nets' copper, which a net tie's bar does not lift
@@ -4864,6 +4878,28 @@ class Board:
                 return "inside a keepout, which forbids vias"
         return None
 
+    def _through(self, ctx, ops, bridge: bool = False) -> str | None:
+        """What `ops` (a track's or a via's copper) would be drawn through, or None: copper of another net that
+        they overlap, placed, or planned before them in this or an earlier batch. A track that may bridge crosses
+        a track (the bridging passes it under); two tracks of one batch that cross are the bridging's to settle."""
+        occ = ctx.occ
+        for op in ops:
+            if not isinstance(op, (Track, Via)):
+                continue
+            shape = _shape_of(op)
+            for o in occ.copper_through(shape):
+                if bridge and isinstance(op, Track) and o.wire and o.kind == "copper":
+                    continue
+                return occ.name_copper(o)
+            for earlier in ctx.batch_ops:
+                if isinstance(earlier, Track) and isinstance(op, Track):
+                    continue
+                other = _shape_of(earlier)
+                if other is not None and other.net and shape.net and other.net != shape.net and shape.layers & other.layers \
+                        and shape.box.overlaps(other.box) and occ._conflict(shape, other, 1e-4, exact=True, say=False):
+                    return occ.name_copper(other)
+        return None
+
     def _tail_why(self, ctx, tail) -> str | None:
         """Why `tail` cannot be drawn - within clearance of another net's via
         or track planned before it, or of copper already on the board - or
@@ -4879,7 +4915,7 @@ class Board:
                     and poly_distance(tail.polygon, t.polygon) < self._clearance(net, t.net) - 1e-9):
                 return "tail crosses a %s track planned before it" % t.net
         hits = ctx.occ.copper_conflicts(Shape("via", "copper", frozenset(), frozenset([layer]),
-                                              net, tail.polygon, Box.of_points(tail.polygon)))
+                                              net, tail.polygon, Box.of_points(tail.polygon), wire=True))
         return "tail " + hits[0] if hits else None
 
     def _free_spot(self, ctx, spot, net: str, drill: float, size: float, span: tuple = ()):
@@ -4933,7 +4969,7 @@ class Board:
                         and poly_distance(tail, t.polygon) < self._clearance(net, t.net) - 1e-9):
                     return "tail crosses a %s track planned before it" % t.net
             tail_hits = occ.copper_conflicts(Shape("via", "copper", frozenset(), frozenset([layer]),
-                                                   net, tail, Box.of_points(tail)))
+                                                   net, tail, Box.of_points(tail), wire=True))
             return "tail " + tail_hits[0] if tail_hits else None
 
         def tail_path(c):
@@ -6572,10 +6608,32 @@ class Board:
                 (tracks if isinstance(op, Track) else others).append((c, op))
                 if isinstance(op, Track):
                     ctx.batch_tracks.append(op)     # a later FreeSpot in this batch judges against it
-        entries = [(op, c.priority.rank, c.bridge) for c, op in tracks]
-        ops, notes, findings = resolve_bridges(entries, ctx.fixed_tracks, self.via_drill, self.via_size,
-                                               self.settings.copper_bridge_half)
-        plan.findings += findings + [Finding("copper", n) for n in ctx.notes]
+        # A crossing the track that must yield may not bridge is not drawn at all: the yielding track is left out
+        # whole, and the crossings are settled again without it.
+        dropped, said = set(), []
+        while True:
+            live = [(c, op) for c, op in tracks if c.index not in dropped]
+            entries = [(op, c.priority.rank, c.bridge) for c, op in live]
+            refused = []
+            ops, notes, findings = resolve_bridges(entries, ctx.fixed_tracks, self.via_drill, self.via_size,
+                                                   self.settings.copper_bridge_half, drop=refused)
+            fresh = {live[i][0].index for i in refused} - dropped
+            if not fresh:
+                break
+            said += [f for f in findings if f not in said]
+            ctx.notes += ["%s: not drawn, it crosses another net's track and may not bridge" % c.key
+                          for c in intents if c.index in fresh]
+            dropped |= fresh
+        if dropped:
+            for c in intents:
+                if c.index in dropped:
+                    ctx.ops_at[c.index] = []
+            gone = {id(op) for c, op in tracks if c.index in dropped}
+            ctx.batch_tracks = [t for t in ctx.batch_tracks if id(t) not in gone]
+            ctx.batch_ops = [o for o in ctx.batch_ops if id(o) not in gone]
+            tracks = live
+            others = [(c, op) for c, op in others if c.index not in dropped]
+        plan.findings += said + [f for f in findings if f not in said] + [Finding("copper", n) for n in ctx.notes]
         ctx.notes = []
         ctx.planned_tracks += [op for op in ops if isinstance(op, Track)]
         for c in deferred:
@@ -8856,11 +8914,11 @@ def _shape_of(op) -> Shape | None:
     if isinstance(op, Track):
         faces = frozenset([op.layer.face]) if op.layer.face else frozenset()
         return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.polygon, op.box,
-                    ends=((op.start.x, op.start.y), (op.end.x, op.end.y)))
+                    ends=((op.start.x, op.start.y), (op.end.x, op.end.y)), wire=True)
     if isinstance(op, Via):
         faces = frozenset(l.face for l in op.layers if l.face is not None) if op.layers else both
         return Shape("", "through", faces, _op_layers(op), op.net, op.polygon, op.box,
-                     circle=(op.at.x, op.at.y, op.size / 2.0))
+                     circle=(op.at.x, op.at.y, op.size / 2.0), wire=True)
     if isinstance(op, Pour):
         faces = frozenset([op.layer.face]) if op.layer.face else frozenset()
         poly = op.polygon

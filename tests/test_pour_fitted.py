@@ -139,7 +139,7 @@ def test_four_pads_round_a_pin_and_its_track_reach_both_at_the_clearance():
         assert r - 1e-3 <= d <= r + SAG + 1e-3, (v, d)
 
 
-def test_a_track_declared_across_a_fitted_pour_is_a_finding_and_the_pour_stays():
+def test_a_track_declared_across_a_fitted_pour_is_not_drawn_and_the_pour_stays():
     def plan_with(track):
         pads = [_part("A%d" % i, "A", x, y) for i, (x, y) in enumerate(((10, 10), (16, 10), (13, 14)))]
         far = _part("C0", "C", 30.0, 12.0)
@@ -151,7 +151,7 @@ def test_a_track_declared_across_a_fitted_pour_is_a_finding_and_the_pour_stays()
         return b.resolve()
     bare, crossed = plan_with(False), plan_with(True)
     assert _outline(crossed).points == _outline(bare).points
-    assert any("copper C" in f for f in declared_findings(crossed)), crossed.findings
+    assert any("track C" in f and "not drawn" in f for f in declared_findings(crossed)), crossed.findings
     assert not any("copper C" in f for f in declared_findings(bare))
 
 

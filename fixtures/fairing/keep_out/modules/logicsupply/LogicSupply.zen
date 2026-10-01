@@ -1,0 +1,88 @@
+# LogicSupply: retained Main connectivity, source lines recorded in retained-circuits.json.
+# Component values remain subject to the core electrical review.
+# Layout facts (placemat-design Pm.*): roles, hot loops, aggressors, sensitive nets,
+# full-load currents and dissipation, worked in
+# ../../../../docs/decisions/schematics/power-stage-facts-2026-09-27.md.
+#
+# Layout rules, TPS62933 datasheet SLUSEA4D section 12.1:
+#  1. The inductor, the input and output capacitors and the IC on one layer.
+#  2. The input and output capacitors as close to the IC as they go; VIN and
+#     GND wide, with enough vias to keep their impedance low.
+#  3. A 0.1 uF decoupling capacitor (c_3v3_hf) as close to the VIN and GND
+#     pins as it goes: the key to low EMI.
+#  4. SW short and wide.
+#  5. The BST capacitor by the BST pin and the SW node, on tracks wider
+#     than 10 mil.
+#  6. The feedback divider as close to FB as it goes; a separate VOUT
+#     trace to the upper feedback resistor; the feedback loop away from the
+#     switching traces, preferably shielded by ground.
+#  7. The SS capacitor (and RT's resistor, here RT to GND) by the IC on the
+#     shortest tracks.
+# The divider's top and bottom are sense nets of their own (V3V3_SENSE,
+# FB_3V3_GND), joined by net ties at an output capacitor's 3V3 pad and at
+# the GND pin, so DRC keeps both off the rail and ground copper (rule 6's
+# separate VOUT trace):
+# ../../../../docs/decisions/schematics/regulator-feedback-sense-2026-10-01.md.
+
+# The TPS62933 and its values: ../../../../docs/decisions/schematics/logic-buck-tps62933-2026-09-27.md.
+BUCK3V3 = Module("../../../../adapted/parts/Texas_Instruments_TPS62933DRLR.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+# 2.2 uH, 6.0 A saturation (the TPS62933 limit is 5.8 A max), 1.2 mm tall, on APV's land.
+L_BUCK = Module("../../../../adapted/parts/APV_APH404012C2R2MP01.zen")
+NET_TIE = Module("@stdlib/generics/NetTie.zen")
+
+gnd = io("GND", Net)
+shunt = io("VSHUNT", Net)
+v3v3 = io("V3V3", Net)
+
+bst_3v3 = Net("BST_3V3")
+sw_3v3 = Net("SW_3V3")
+fb_3v3 = Net("FB_3V3")
+ss_3v3 = Net("SS_3V3")
+v3v3_sense = Net("V3V3_SENSE")
+fb_gnd = Net("FB_3V3_GND")
+
+# The load currents (Pm.I) are the rail's worst coincident load, 0.91 A, and
+# the buck's input and inductor peak at that load:
+# ../../../../docs/decisions/schematics/v3v3-load-budget-2026-10-01.md.
+# EN is rated 6 V, so it cannot take VSHUNT; floating enables it (TI pin
+# table), with no track on it. RT to GND sets 1.2 MHz.
+BUCK3V3(name = "buck3v3", VIN = shunt, GND = gnd, EN = NotConnected(), RT = gnd,
+        SW = sw_3v3, BST = bst_3v3, FB = fb_3v3, SS = ss_3v3,
+        annotations = {"Pm.KeepOut": "1.22mm pads=FB_3V3 away=SW_3V3; TPS62933 ZHCSO99D fig. 12-2: SW copper leaves the package beside FB at its own FB to SW pad gap (1.22 mm); BST copper runs at the package gap, so BST is not held", "Pm.Role": "switcher", "Pm.Loop": "buck", "Pm.Aggressor": "true", "Pm.I": "VSHUNT:0.28A SW_3V3:1.43A GND:0.91A V3V3:0.01A", "Pm.Pd": "0.45W", "Pm.ThetaJb": "19.3C/W", "Pm.TjMax": "150C"})
+# 0.8 V x (1 + 31.6k / 10k) = 3.328 V; TI Table 10-2 gives 31.3k / 10.0k for 3.3 V.
+NET_TIE(name = "nt_v3v3_sense", variant = "2_SMD_0.3mm", P1 = v3v3, P2 = v3v3_sense)
+NET_TIE(name = "nt_fb_gnd", variant = "2_SMD_0.3mm", P1 = gnd, P2 = fb_gnd)
+R(name = "r_fb_top", mpn = "ERJ-2RKF3162X", manufacturer = "Panasonic Industry", value = "31.6kohm", package = "0402", P1 = v3v3_sense, P2 = fb_3v3,
+  annotations = {"Pm.Role": "sense", "Pm.Sensitive": "FB_3V3"})
+R(name = "r_fb_bottom", mpn = "0402WGF1002TCE", manufacturer = "UNI-ROYAL(Uniroyal Elec)", value = "10kohm", package = "0402", P1 = fb_3v3, P2 = fb_gnd,
+  annotations = {"Pm.Role": "sense", "Pm.Sensitive": "FB_3V3"})
+# 33 nF sets about 5 ms soft start (TI 10.2.2.4; 6.8 nF minimum, never floating).
+C(name = "c_ss", mpn = "GRM155R71H333KE14D", manufacturer = "Murata Electronics", value = "33nF", package = "0402", voltage = "16V", dielectric = "X7R", P1 = ss_3v3, P2 = gnd)
+L_BUCK(name = "l_3v3", P_1 = sw_3v3, P_2 = v3v3,
+       annotations = {"Pm.Role": "inductor", "Pm.Aggressor": "true", "Pm.I": "0.91A"})
+C(name = "c_bst", value = "100nF", package = "0402", voltage = "16V", dielectric = "X7R", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = bst_3v3, P2 = sw_3v3,
+  annotations = {"LCSC": "C307331", "Pm.Aggressor": "true"})
+C(name = "c_3v3_in", value = "10uF", package = "0805", voltage = "50V", mpn = "GRM21BR61H106KE43L", manufacturer = "Murata Electronics", P1 = shunt, P2 = gnd,
+  annotations = {"LCSC": "C440198", "Pm.Role": "bypass", "Pm.Loop": "buck"})
+C(name = "c_3v3_hf", value = "100nF", package = "0402", voltage = "50V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = shunt, P2 = gnd,
+  annotations = {"LCSC": "C307331", "Pm.Role": "bypass", "Pm.Loop": "buck"})
+# TPS62933 Table 10-2 at 3.3 V and 1.2 MHz: 2.2 uH, 30 uF typical and 10 uF
+# minimum effective output capacitance.
+C(name = "c_3v3_out", value = "22uF", package = "0805", voltage = "10V", dielectric = "X7R",
+  mpn = "GRM21BZ71A226ME15L", manufacturer = "Murata Electronics", annotations = {"LCSC": "C907991", "Pm.Role": "output"}, P1 = v3v3, P2 = gnd)
+C(name = "c_3v3_out2", value = "22uF", package = "0805", voltage = "10V", dielectric = "X7R",
+  mpn = "GRM21BZ71A226ME15L", manufacturer = "Murata Electronics", annotations = {"LCSC": "C907991", "Pm.Role": "output"}, P1 = v3v3, P2 = gnd)
+# Laid out once by LogicSupply_layout.py into logicsupply/ and stamped onto the core as a
+# cell: the 3.3 V buck with its input, boot and output capacitors and its inductor.
+load("../../board_rules.zen", "CONFIG", "LAYERS")
+
+# A Board() rather than a Layout(), so the fragment is laid out by the core's
+# design rules (board_rules.zen). Its project registers only when this file
+# is built on its own.
+stamp_layout = config("stamp_layout", bool, default = True)
+if stamp_layout:
+    Board(name = "LogicSupply", layout_path = "layout", layers = LAYERS, config = CONFIG)
+
+Project(name = "LogicSupply", path = "kicad", schematic = True, layout = False)

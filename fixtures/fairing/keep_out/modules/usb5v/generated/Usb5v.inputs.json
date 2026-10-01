@@ -1,0 +1,18 @@
+{
+ "(generate arguments)": "",
+ "../../../../adapted/parts/APV_APH404012C1R5MP01.zen": "f1077a9eb43270fc1a6214a323ea51f7a782eedad3c929540e8f85e51c1d081f",
+ "../../../../adapted/parts/APV_APH404012C1R5MP01/APH404012C1R5MP01.kicad_sym": "3a903be1dbec389c59451ebae452070a658e44b062e48e9b116887f036026580",
+ "../../../../adapted/parts/APV_APH404012C2R2MP01/APH404012_APV_land.kicad_mod": "2d2492e8e3688b66605cafb12bc0962cb6754d911191ab866d1c854371860203",
+ "../../../../adapted/parts/KEMET_T520T107M006APE070.zen": "f71f7edade0b68a97d1796f77003ca9765d82dba7cd61026cda7384555649d7c",
+ "../../../../adapted/parts/KEMET_T520T107M006APE070/T520T107M006APE070.kicad_sym": "37e65367eaf952d8b537a6861981da028959781fdd5a043e36ce84747097d33d",
+ "../../../../adapted/parts/Texas_Instruments_LM61440AASQRJRRQ1.zen": "b09d68f80232b82d6039b958c96bdc9a396cf79a73f682e499ce7e10c3afc3c1",
+ "../../../../adapted/parts/Texas_Instruments_LM61440AASQRJRRQ1/LM61440AASQRJRRQ1.kicad_sym": "12a6b93ce7688332526c57d5bce1556ce47f71ad2a1f6f61e6e1bd04247fe6ee",
+ "../../../../adapted/parts/UMW_Youtai_Semiconductor_Co_Ltd_SN74LVC1G07DRYR_UMW.zen": "bd594c07e2f5d3ca921fd79b72a16fe0f8d333f2b109f51478a072b3af710fed",
+ "../../../../adapted/parts/UMW_Youtai_Semiconductor_Co_Ltd_SN74LVC1G07DRYR_UMW/SN74LVC1G07DRYR_UMW.kicad_sym": "2c8f6172bd9a7b6c6f3d0ade6c66ef806380623268be4466905277fb83998698",
+ "../../../../parts/KEMET_T520T107M006APE070/CP_EIA-3528-12_Kemet-T.kicad_mod": "440bcb040c6b0c985317bf7518aa12f47558e45d3d73e058e3ae6e6650ec5ab0",
+ "../../../../parts/Texas_Instruments_LM61440AASQRJRRQ1/VQFN-14_L4.0-W3.5-P0.5-BL-RJR0014A.kicad_mod": "02684236093ab62acafae4417fb509329b45df29401e23104e78e2dcb17408cb",
+ "../../../../parts/Texas_Instruments_SN74LVC1G08DRYR/SON-6_L1.5-W1.0-P0.50-BL.kicad_mod": "aba881806a5af513012d92fcd9f984ab364b169e0220c3944a128830032deb10",
+ "../../../../pcb.toml": "1b757ff291b97d434047ef16a35c19b06009d5502ee3ee0e9332fb32498d26dd",
+ "../../board_rules.zen": "9751402d44ded0920275bb9f00ca213e2c732bee30233279df07f9f94557ca54",
+ "Usb5v.zen": "748cbaff79b75f0e06d37c18a2088decb89ceda5730acb045b51f718b810a49e"
+}

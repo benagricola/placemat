@@ -210,8 +210,10 @@ def test_a_track_ends_on_a_via_at_a_past_and_another_turns_past_the_vias():
             layer=CopperLayer.F, chamfer=0)
     plan = b.resolve()
     assert (11.0, 21.0) in _points(plan, "SIG_N")               # the track ends on v3
-    # the vias' rings reach 21.305878: + 0.2 + 0.1 = 21.605878, centred between them (11.0 and 12.0)
-    assert (11.5, 21.605878) in _points(plan, "SIG_P")
+    # the other track's 45 down to the point past the vias (centred between them, 11.5, their rings' reach 21.305878
+    # + 0.2 + 0.1 = 21.605878) runs over v3, and across the first track: it is not drawn
+    assert not _points(plan, "SIG_P")
+    assert any("track SIG_P" in f and "not drawn" in f for f in plan.findings), plan.findings
 
 
 def test_a_via_at_a_past_naming_a_via_that_found_no_spot_is_a_finding():

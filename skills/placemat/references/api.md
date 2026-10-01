@@ -1732,9 +1732,10 @@ its own copper (copper the script declares belongs to no cell). A track's
 legs, `Past`, `Between`, `FreeSpot`, a via's spot and a fitted pour's
 outline all read it, so a rule that holds a net off another needs no
 waypoint. A copper finding under a rule names it: `(needs 0.30, rule: the
-rule's why)`. `[place] conflict_gap` must be at least the largest rule
-clearance, or the run refuses to start. The CLI's queries on a read board
-have no script and judge by net classes.
+rule's why)`. A conflict reaches as far as the largest rule clearance, or
+`[place] conflict_gap` where that is more: the setting is a floor, and a rule
+needs no matching number in it. The CLI's queries on a read board have no
+script and judge by net classes.
 
 ## Accepting a check verdict
 
@@ -1787,22 +1788,36 @@ citation after `;` is required.
 The plan holds it as a clearance, and the check judges by it:
 
 - between each `away` net's copper and each of the part's `pads` net's pads: a
-  fitted pour's outline, a declared track, a via and another part's pad keep
-  the distance from that pad (`rules.Rule.of`, written to the `.kicad_dru`
-  beside the board for KiCad's DRC, and in native), where the netclass or a
-  script's `board.rule` for the pair would not ask for more - a datasheet
-  distance never lowers a clearance;
+  fitted pour's outline and another part's pad keep the distance from that pad
+  (`rules.Rule.of`, written to the `.kicad_dru` beside the board for KiCad's
+  DRC, and in native), where the netclass or a script's `board.rule` for the
+  pair would not ask for more - a datasheet distance never lowers a clearance;
 - the part's own pads are exempt, whichever nets they are on: the footprint
   sets that gap, and nothing a layout does changes it (the check says when it
   is nearer than the verdict's pair);
-- other copper on the same nets, another part's pads on `pads=` nets, and
-  copper leaving the part's own pads keep the netclass figure: the datasheet
-  states the part's pins, not the net;
+- the tracks and vias of the `away` nets are exempt too. They are the part's
+  own pad escapes, which leave the package where its pins are and stand nearer
+  a neighbouring pin than the distance whenever the package's own gap does.
+  KiCad's rule language cannot say "a track connected to this part's pad"
+  (its conditions read an item's net, type, reference and layer, and whether
+  it touches an area or a courtyard, not what it is joined to), and a
+  courtyard test would hold the stretch of an escape just outside it, so the
+  rule is written `A.Type != 'Track' && A.Type != 'Via'`: it holds pours and
+  other parts' pads and never an escape. A track of an `away` net that is
+  nobody's escape is not held by the planner; `keep-out` judges it (below);
+- other copper on the same nets, and another part's pads on `pads=` nets,
+  keep the netclass figure in the plan;
 - a `Pm.KeepOut` that does not read (no citation, a distance that does not
   parse or is not above zero, a net no pad of the part carries) refuses the
   run at `resolve()` naming the part, and `placemat check` reports it as a
-  failed verdict; `[place] conflict_gap` must be at least the distance, as for
-  any clearance rule.
+  failed verdict.
+
+`keep-out` judges the nets the annotation names as a pair, in the check
+(`references/capture.md`): copper on an `away` net against copper on a `pads`
+net, tracks, vias, pours and pads alike, at the cited distance, less the pairs
+the plan leaves out: the part's own pads from each other, a track or via of an
+`away` net joined to the part's own pad, and the nets of the part's other pads
+that `away=` does not name.
 
 `board.accept("keep-out", ...)` stays for a one-off verdict. A datasheet fact
 about a part belongs on the part.
@@ -1958,8 +1973,14 @@ lower `priority` passes under; at equal priority the shorter one does; a
 track planned before the search (every endpoint decided) never yields to
 copper planned after it. Only a track declared `bridge=True` may pass
 under; a crossing where the track that should yield may not is a finding,
-and both tracks are drawn as declared. The order of the declarations never
+and that track is not drawn (the other is). The order of the declarations never
 enters into it. Fingers always yield to tracks.
+
+**Never through another net's copper.** A track or a via that would run
+through, or stand on, a pad, a via, a track or a pour of another net is left
+out whole, and a finding names the copper it met; a track that ends on a via
+left out is left out with it. Copper that stands nearer than its clearance
+without touching is a finding and is drawn.
 
 A script that needs a word of its own (a "corridor", a "spine") defines it
 where it first uses it, in these terms.
@@ -2391,8 +2412,8 @@ so. It needs pcbnew at plan time, as `reach=mm` does.
 It is written as a graphic copper polygon (a filled `PCB_SHAPE`), never as a
 zone: nothing refills it round later copper, and nothing is cut from it once
 it is planned. Copper of another net planned after it keeps its clearance
-from it like any copper; a track declared across one is a copper finding,
-and the pour stays as it was fitted. A pour sees the copper planned before
+from it like any copper; a track declared across one is not drawn and
+a finding says so, and the pour stays as it was fitted. A pour sees the copper planned before
 it, so declare a pour after the tracks and vias it must go round.
 
 Where other copper stands where the outline cannot go round it - between two
@@ -3177,7 +3198,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.escape_cell` | 0.05 | mm: the grid a pad's path out is searched on |
 | `place.courtyard_touch` | 0.0 | how far two courtyards may overlap at least; each pair may also overlap by the two parts' margins (how far KiCad's courtyard polygon lies inside the drawn box) less 0.001 mm, which keeps KiCad's courtyards apart - it counts touching as overlapping |
 | `place.courtyard_polygon_share` | 0.98 | a courtyard whose polygon covers less of the box round it than this (a slice of a disc, an L, a rectangle turned off the axes) is claimed as KiCad draws it, with no margin; one that covers more is claimed as its box |
-| `place.conflict_gap` | 1.0 | how far outside a box a conflict can still reach |
+| `place.conflict_gap` | 1.0 | how far outside a box a conflict can still reach; a floor under the largest clearance a rule asks |
 | `place.fit_room` | 10.0 | on a fit frame, how far round the decided content a searched item may go |
 | `place.via_share` | 1.0 | how near a via of its net a carried via that meets another net's copper may be to share it instead; 0 never shares |
 | `place.via_move` | 0.5 | how far such a via may move to clear it; 0 never moves |

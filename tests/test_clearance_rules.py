@@ -134,10 +134,10 @@ def test_the_router_takes_a_leg_the_netclass_refuses_under_a_lowering_rule():
 
 def test_a_copper_finding_under_a_rule_quotes_its_why():
     u1 = footprint("U1", 10, 10, nets=("A", "A"))
-    near = _one_pad("R1", 18, 10.4, "B")
+    near = _one_pad("R1", 18, 10.7, "B")
     b = Board(board_geometry([u1, near], width=40, height=40), edge_margin=0.5, keep_going=True)
     b.place(Part("u1"), at=Location(10, 10))
-    b.place(Part("r1"), at=Location(18, 10.4))
+    b.place(Part("r1"), at=Location(18, 10.7))
     b.rule(clearance=0.4, between=(Net("A"), Net("B")), why="a kept off b")
     b.track(Net("A"), [PadRef(Part("u1"), 2), Location(25, 10)], layer=F, width=0.2, chamfer=0)
     hits = [str(f) for f in b.resolve().findings if f.kind == "copper" and "mm from" in f]
@@ -202,13 +202,15 @@ def test_a_rule_within_a_cell_that_raises_the_figure_holds_between_its_members_o
     assert "rule" not in occ._conflict(u1, x1, None, exact=True)
 
 
-def test_a_conflict_gap_under_a_rules_clearance_is_refused():
+def test_a_conflict_gap_is_a_floor_under_the_largest_clearance_a_rule_asks():
+    """`[place] conflict_gap` is how far a conflict reaches; a rule that asks for more than it raises the reach by
+    itself, so the setting never has to copy a rule's number."""
     from placemat.rules import Rule
     g = board_geometry([footprint("U1", 10, 10)], width=40, height=40)
     settings = dataclasses.replace(Settings(), place_conflict_gap=0.5)
-    with pytest.raises(ValueError, match="clearance rule"):
-        Occupancy(g, 0.5, settings=settings, rules=[Rule("clearance", 0.8, "wide", on="A")])
-    Occupancy(g, 0.5, settings=settings, rules=[Rule("clearance", 0.5, "just", on="A")])
+    assert Occupancy(g, 0.5, settings=settings, rules=[Rule("clearance", 0.8, "wide", on="A")])._gap == 0.8
+    assert Occupancy(g, 0.5, settings=settings, rules=[Rule("clearance", 0.3, "narrow", on="A")])._gap == 0.5
+    assert Occupancy(g, 0.5, settings=settings)._gap == 0.5
 
 
 def test_a_free_spot_holds_its_via_off_a_fixed_via_by_the_rules_clearance():

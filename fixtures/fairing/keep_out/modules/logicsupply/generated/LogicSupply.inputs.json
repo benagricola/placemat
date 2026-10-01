@@ -1,0 +1,12 @@
+{
+ "(generate arguments)": "",
+ "../../../../adapted/parts/APV_APH404012C2R2MP01.zen": "eb628fe186a08364fa3b5c3f47a4aafd6585fa664eadb2edcbc1c1cc8babf168",
+ "../../../../adapted/parts/APV_APH404012C2R2MP01/APH404012C2R2MP01.kicad_sym": "fafce247ba4bfcf7f90888e5129b150692cfc51dfe698bfbb7790b063767fb8c",
+ "../../../../adapted/parts/APV_APH404012C2R2MP01/APH404012_APV_land.kicad_mod": "2d2492e8e3688b66605cafb12bc0962cb6754d911191ab866d1c854371860203",
+ "../../../../adapted/parts/Texas_Instruments_TPS62933DRLR.zen": "cbaa4defd7bb373a4d3aee762daa47cac6ceb2309b6db80369ee0bac5f9d8b9f",
+ "../../../../adapted/parts/Texas_Instruments_TPS62933DRLR/TPS62933DRLR.kicad_sym": "a6c5ad754ce5f0c3f9e94852ecebcdfae40ca49df87dbd1f023fd831263b8e6d",
+ "../../../../parts/Texas_Instruments_TPS62933DRLR/SOT-583-8_L2.1-W1.2-P0.50-LS1.6-BR.kicad_mod": "ba4f15f6cefe7ad5a8d6904ddad3361d9ac6185c51f0c7175816497114e5f3b4",
+ "../../../../pcb.toml": "1b757ff291b97d434047ef16a35c19b06009d5502ee3ee0e9332fb32498d26dd",
+ "../../board_rules.zen": "9751402d44ded0920275bb9f00ca213e2c732bee30233279df07f9f94557ca54",
+ "LogicSupply.zen": "ac41133c7388583193e0a56c8b225f83341b04fbc56675f27292e7704f586506"
+}

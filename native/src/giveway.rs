@@ -163,7 +163,7 @@ mod tests {
     fn copper(kind: Kind, poly: Vec<Point>, net: &str) -> Shape {
         let bbox = bounds(&poly);
         Shape { kind, faces: 1, layers: 1, net: net.into(), poly, bbox, owner: "o".into(), owner_is_footprint: false,
-                is_lead: false, margin: 0.0 }
+                is_lead: false, margin: 0.0, wire: false }
     }
 
     #[test]

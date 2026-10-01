@@ -270,7 +270,7 @@ def test_copper_at_a_riders_pad_waits_for_it():
     b = _board()
     b.place(Part("u1"))
     _pin_c1(b)
-    b.track(Net("GND"), [PadRef(Part("c1"), 2), PadRef(Part("j1"), 2)], layer=CopperLayer.F)
+    b.track(Net("VIN"), [PadRef(Part("c1"), 1), PadRef(Part("j1"), 1)], layer=CopperLayer.F)
     plan = b.resolve()
-    tracks = [op for op in plan.copper if getattr(op, "net", None) == "GND" and hasattr(op, "start")]
-    assert tracks and _near(tracks[0].start, _pad(plan, "C1", 2))
+    tracks = [op for op in plan.copper if getattr(op, "net", None) == "VIN" and hasattr(op, "start")]
+    assert tracks and _near(tracks[0].start, _pad(plan, "C1", 1))
