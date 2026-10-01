@@ -6,12 +6,6 @@ file. An item cites its source as "a board's session, <date>".
 
 ## In progress
 
-- **facts --confirm writes beside a module; a side at a pin row's end** (a
-  board's session, 2026-10-01): `--confirm` created a placemat.toml beside a
-  module script, which broke its imports; [facts] holds one digest for all
-  boards. `SideOf` gives a row's normal, not the row end where a pin lies.
-  Being built.
-
 ## Open
 
 - **Current shared between a load's pins** (a board's session, 2026-10-01):
@@ -256,6 +250,16 @@ file. An item cites its source as "a board's session, <date>".
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Neck length, a part's keep-out, the ring cell, per-layer corners,
+  facts per board, a row end's side** (0.73.0; spec
+  `2026-10-01-neck-length-and-part-keep-out-design.md`): current-path credits
+  a short neck by a cited conduction rule and prints its length;
+  `Pm.KeepOut` on a part sets its keep-out limit and a planning clearance
+  from its sensitive pads; a decided cell's copper corners allow for arc
+  flattening, so an arc-sector cell at the keep-in places; the corner-45
+  check judges only the track's own layer; `facts --confirm` writes the
+  nearest placemat.toml, one digest per script; `SideOf(pad, along=True)`.
 
 - **Pours to their current, Facing everywhere, either face, KiCad's edge
   rule, labels that never cost a place** (0.72.0; specs
