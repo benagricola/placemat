@@ -191,3 +191,13 @@ def test_stitch_edge_rows_vias_along_a_regions_outline():
         assert abs(dist - inset) < 1e-6, (v.at, dists)          # sits the inset in from its own side, not scattered
         sides.add(nearest)
     assert len(sides) >= 2                                      # it goes around the outline, not just one side
+
+
+def test_stitch_over_a_keepout_that_lets_its_net_in_is_not_refused():
+    """A keepout that excludes vias but allows the stitching net (allow=
+    holds Net(...)s) lets the stitch stand: the check compared the net's
+    name with the Net objects and never matched."""
+    b = Board(board_geometry([], width=60, height=60, extra_nets=["GND"]), edge_margin=1.0, keep_going=True)
+    b.keepout(Circle(6.0), "shield", at=Location(30, 30), allow=(Net("GND"),), why="probe")
+    b.stitch(Net("GND"), "shield", size=0.6, drill=0.3, pitch=1.5)
+    assert _vias(b.resolve())

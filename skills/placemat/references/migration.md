@@ -7,6 +7,11 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+`board.stitch(net, keepout_name)` over a keepout that excludes vias but lets
+the net in (`allow=(Net("GND"),)`) stitches it. It was refused ("excludes
+vias ... add 'GND' to its allow="), and once past that check no via was let
+stand in it.
+
 `Pin(key, Polar(radius, bearing, about=PadRef(...)))` places the pad a
 mechanical pitch from another pad along a bearing (0 north, 90 east), said
 as one point: two contacts at a part's tab pitch, with no offset typed into

@@ -4155,7 +4155,7 @@ class Board:
             if region not in self._keepouts:
                 raise KeyError("no keepout named %r on this board" % (region,))
             k = self._keepouts[region]
-            if "vias" in k.excludes and name not in k.allow:
+            if "vias" in k.excludes and name not in {self.geometry.require_net(a) for a in k.allow if isinstance(a, Net)}:
                 raise ValueError("%s: keepout %r excludes vias (excludes=%s), so no via could stand anywhere "
                                  "in it; add %r to its allow=, or narrow its excludes=" % (
                                      name, region, list(k.excludes), name))
@@ -4336,11 +4336,12 @@ class Board:
         # clearance from the hole's edge as well as the hole-to-hole rule
         bare = [(sh.box.center, sh.box.width) for o, g in occ.items.items() if o not in occ.pending
                 for sh in g.shapes if sh.kind == "npth"]
-        forbidding = [(k.poly, k.layers) for k in (ctx.plan.keepouts.values() if ctx.plan else ())
+        # (polygon, layers, the nets it lets through): a keepout's allow= lets its nets' vias stand in it
+        forbidding = [(k.poly, k.layers, frozenset(k.allow)) for k in (ctx.plan.keepouts.values() if ctx.plan else ())
                       if "vias" in k.excludes]
-        forbidding += [(poly, ra.layers) for pairs in occ._cell_rule_areas.values() for ra, poly in pairs
+        forbidding += [(poly, ra.layers, frozenset()) for pairs in occ._cell_rule_areas.values() for ra, poly in pairs
                        if "vias" in ra.excludes]
-        forbidding += [(ra.polygon, ra.layers) for ra in self.geometry.rule_areas
+        forbidding += [(ra.polygon, ra.layers, frozenset()) for ra in self.geometry.rule_areas
                        if ra.cell is None and "vias" in ra.excludes]
         return holes, bare, forbidding
 
@@ -4397,8 +4398,8 @@ class Board:
             edge = c.distance(at) - (size + dia) / 2.0
             if edge < self.geometry.hole_clearance - 1e-9:
                 return "copper %.2f mm from an unplated hole (needs %.2f)" % (max(edge, 0.0), self.geometry.hole_clearance)
-        for poly, layers in forbidding:
-            if polys_overlap(ring, poly) and not apart(layers):
+        for poly, layers, allowed in forbidding:
+            if net not in allowed and polys_overlap(ring, poly) and not apart(layers):
                 return "inside a keepout, which forbids vias"
         return None
 
