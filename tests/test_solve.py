@@ -2,6 +2,7 @@
 import pytest
 
 from placemat import solve
+from placemat.settings import Settings
 
 
 def test_conjugate_gradient_solves_a_small_system_exactly():
@@ -76,6 +77,8 @@ def test_a_bigger_item_gets_a_bigger_cell():
     got = solve.bisect_spread({"big": 3.0, "small": 1.0}, pos, (0.0, 0.0, 40.0, 10.0))
     assert got["big"][0] == pytest.approx(15.0) and got["small"][0] == pytest.approx(35.0)
 
+PULLS = (Settings().solve_pull, Settings().solve_spread_pull, Settings().solve_spread_growth)
+
 
 def _board_nets():
     return {"A": [_pin(None, 0.0, 10.0), _pin("a")], "B": [_pin("a"), _pin("b")],
@@ -84,13 +87,13 @@ def _board_nets():
 
 def test_the_same_input_solves_to_the_same_numbers_twice():
     args = (list("abc"), _board_nets(), lambda a, b: 1.0, {k: 4.0 for k in "abc"},
-            (0.0, 0.0, 40.0, 20.0), {k: (200.0, 200.0) for k in "abc"}, 6, 200, 1e-9)
+            (0.0, 0.0, 40.0, 20.0), {k: (200.0, 200.0) for k in "abc"}, 6, 200, 1e-9, *PULLS)
     assert solve.global_solve(*args) == solve.global_solve(*args)
 
 
 def test_the_solve_spreads_a_chain_along_its_anchors_inside_the_board():
     r = solve.global_solve(list("abc"), _board_nets(), lambda a, b: 1.0, {k: 4.0 for k in "abc"},
-                           (0.0, 0.0, 40.0, 20.0), {k: (200.0, 200.0) for k in "abc"}, 6, 200, 1e-9)
+                           (0.0, 0.0, 40.0, 20.0), {k: (200.0, 200.0) for k in "abc"}, 6, 200, 1e-9, *PULLS)
     xs = [r.hints[k][0] for k in "abc"]
     assert xs == sorted(xs) and all(0.0 <= x <= 40.0 for x in xs)
     assert all(0.0 <= r.hints[k][1] <= 20.0 for k in "abc")
@@ -100,5 +103,5 @@ def test_the_solve_spreads_a_chain_along_its_anchors_inside_the_board():
 def test_an_anchored_pad_never_moves():
     nets = {"A": [_pin(None, 7.0, 3.0), _pin("a")]}
     r = solve.global_solve(["a"], nets, lambda a, b: 1.0, {"a": 1.0}, (0.0, 0.0, 20.0, 20.0),
-                           {"a": (0.0, 0.0)}, 3, 100, 1e-9)
+                           {"a": (0.0, 0.0)}, 3, 100, 1e-9, *PULLS)
     assert set(r.hints) == {"a"}

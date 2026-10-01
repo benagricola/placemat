@@ -1353,7 +1353,8 @@ class Board:
         Near() freedom is a search round a hint, the same as a part's."""
         at, box = cutout.at, self._outline
 
-        def out_from(mid, lo, hi, step=0.2):
+        def out_from(mid, lo, hi):
+            step = self.settings.place_cutout_step
             n = int((hi - lo) / step) + 1
             for k in range(2 * n):
                 v = mid + (k + 1) // 2 * step * (1 if k % 2 else -1)
@@ -1371,8 +1372,9 @@ class Board:
         if isinstance(at, Polar) and at.angle is None:
             r = float(_coord(self, occ, at.radius, "x")) if not isinstance(at.radius, (int, float)) \
                 else float(at.radius)
-            for k in range(720):
-                b = ((k + 1) // 2 * (1 if k % 2 else -1)) * 0.5
+            turn = self.settings.place_cutout_angle_step
+            for k in range(int(round(360.0 / turn))):
+                b = ((k + 1) // 2 * (1 if k % 2 else -1)) * turn
                 centre = polar_point(self.centre, b % 360.0, r)
                 yield centre, self._region_rotation(occ, cutout, centre)
             return
@@ -3462,7 +3464,8 @@ class Board:
         areas = {i.key: occ._geometry(i.item).body.area for i in movable}
         result = solve.global_solve([i.key for i in movable], nets, weight_of, areas, region, {},
                                     self.settings.solve_rounds, self.settings.solve_iterations,
-                                    self.settings.solve_tolerance)
+                                    self.settings.solve_tolerance, self.settings.solve_pull,
+                                    self.settings.solve_spread_pull, self.settings.solve_spread_growth)
         self._solve_hints = {k: Location(x, y) for k, (x, y) in result.hints.items() if k in pulled}
         plan.solve = {"seeded": len(self._solve_hints), "rounds": result.rounds,
                       "iterations": result.iterations, "residual": result.residual}
@@ -5038,7 +5041,7 @@ class Board:
                 w = 2.0 * _pad_half_across(self, ctx.occ, width_pad, ctx.locate(width_pad), dx / n, dy / n)
             segs = [((t.start.x, t.start.y), (t.end.x, t.end.y)) for t in ctx.tracks_on(layer) if t.net != name]
             return finger_ops(name, layer, a, b, w, segs, self.via_drill, self.via_size, bridge_width,
-                              self.settings.copper_bridge_half)
+                              self.settings.copper_bridge_half, self.settings.copper_finger_min_piece)
         return self._copper_intent("finger %s" % name, net, priority, plan, refs, why)
 
     # ------------------------------------------------------------ resolution
@@ -5803,7 +5806,7 @@ class Board:
         riders = {}             # a rider's refusal, the first each time it refused a candidate
         for rot in rots:
             env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, i.face))
-            for pocket in pockets(occ, env.width, env.height, i.face, step=max(i.step, 0.5)):
+            for pocket in pockets(occ, env.width, env.height, i.face, step=max(i.step, self.settings.place_pocket_step)):
                 hint = box_centered_placement(occ, i.item, pocket.box.center, rot, i.face)
                 result = scan(occ, i.item, hint, max(pocket.box.width, pocket.box.height) / 2, i.step, (rot,), clr,
                               accept=self._accept(i))
@@ -5830,7 +5833,7 @@ class Board:
         seen = []
         for rot in rotations:
             env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, i.face))
-            for pocket in pockets(occ, env.width, env.height, i.face, step=max(i.step, 0.5)):
+            for pocket in pockets(occ, env.width, env.height, i.face, step=max(i.step, self.settings.place_pocket_step)):
                 if all(pocket.box != p.box for p, _ in seen):
                     seen.append((pocket, rot))
         at = hint.location
@@ -6148,7 +6151,7 @@ class Board:
         ring the freedom is a bearing, so `step` and `units` are in degrees."""
         geom = occ._geometry(i.item)
         others = occ.obstacles(geom, occ.board_box.inflate(2.0))
-        step = step if step is not None else max(i.step, 0.2)
+        step = step if step is not None else max(i.step, self.settings.place_freedom_min_step)
         n = int((hi - lo) / step) + 1
         candidates = sorted({min(max(ideal + d * step * sgn, lo), hi) for d in range(n) for sgn in (1, -1)},
                             key=lambda a: (abs(a - ideal), a))
@@ -6194,7 +6197,7 @@ class Board:
         """_slide, for a block: a candidate is legal only once the whole
         block lays out from the anchor `anchor_at(along)` gives, so each is
         checked with layout_block rather than occ.legal on one item."""
-        step = step if step is not None else max(i.step, 0.2)
+        step = step if step is not None else max(i.step, self.settings.place_freedom_min_step)
         n = int((hi - lo) / step) + 1
         candidates = sorted({min(max(ideal + d * step * sgn, lo), hi) for d in range(n) for sgn in (1, -1)},
                             key=lambda a: (abs(a - ideal), a))
@@ -6250,7 +6253,7 @@ class Board:
             return disc_placement(occ, spec.anchor, disc, angle, i.clearance, rot, i.face, bore=bore)
         return self._slide_block(occ, i, plan, clr, spec, ideal, ideal - 180.0, ideal + 180.0, at,
                                  "round the %s" % ("bore" if bore else "rim"),
-                                 step=math.degrees(max(i.step, 0.2) / r), units="deg")
+                                 step=math.degrees(max(i.step, self.settings.place_freedom_min_step) / r), units="deg")
 
     def _settle_block_round_ring(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, spec) -> Step:
         centre = self.centre if i.about is None else _locate(self, occ, i.about)
@@ -6260,7 +6263,7 @@ class Board:
         def at(angle):
             return box_centered_placement(occ, spec.anchor, polar_point(centre, angle, r), i.rotation, i.face)
         return self._slide_block(occ, i, plan, clr, spec, ideal, ideal - 180.0, ideal + 180.0, at,
-                                 "round the %.2f mm ring" % r, step=math.degrees(max(i.step, 0.2) / r), units="deg")
+                                 "round the %.2f mm ring" % r, step=math.degrees(max(i.step, self.settings.place_freedom_min_step) / r), units="deg")
 
     def _settle_block_along_spoke(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, spec) -> Step:
         centre = self.centre if i.about is None else _locate(self, occ, i.about)
@@ -6406,7 +6409,7 @@ class Board:
             return disc_placement(occ, i.item, disc, angle, i.clearance, rot, i.face, bore=bore)
         return self._slide(occ, i, plan, clr, ideal, ideal - 180.0, ideal + 180.0, at,
                            "round the %s" % ("bore" if bore else "rim"),
-                           step=math.degrees(max(i.step, 0.2) / r), units="deg")
+                           step=math.degrees(max(i.step, self.settings.place_freedom_min_step) / r), units="deg")
 
     def _settle_round_ring(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
         """One degree of freedom: the item slides round the ring it was given."""
@@ -6417,7 +6420,7 @@ class Board:
         def at(angle):
             return box_centered_placement(occ, i.item, polar_point(centre, angle, r), i.rotation, i.face)
         return self._slide(occ, i, plan, clr, ideal, ideal - 180.0, ideal + 180.0, at,
-                           "round the %.2f mm ring" % r, step=math.degrees(max(i.step, 0.2) / r), units="deg")
+                           "round the %.2f mm ring" % r, step=math.degrees(max(i.step, self.settings.place_freedom_min_step) / r), units="deg")
 
     def _settle_along_spoke(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr) -> Step:
         """One degree of freedom: the item slides out along its bearing, from
@@ -6564,7 +6567,7 @@ class Board:
         envs = []
         for rot in (self._turns(i)):
             env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, i.face))
-            if pockets(occ, env.width, env.height, i.face, step=max(i.step, 0.5), limit=1, covered=True):
+            if pockets(occ, env.width, env.height, i.face, step=max(i.step, self.settings.place_pocket_step), limit=1, covered=True):
                 return ""
             envs.append(env)
         env = envs[0]
@@ -6577,7 +6580,7 @@ class Board:
         would have to move."""
         item = obj.item.anchor if obj.kind == "block" else obj.item
         env = occ.body_box(item, Placement(Location(0, 0), obj.rotation, obj.face))
-        free = pockets(occ, 2.0, 2.0, obj.face, step=0.5, limit=4)
+        free = pockets(occ, 2.0, 2.0, obj.face, step=self.settings.place_pocket_step, limit=4)
         rects = "; ".join("%.1f x %.1f at (%.1f, %.1f)" % (p.box.width, p.box.height, p.box.center.x, p.box.center.y)
                           for p in free) or "none"
         return ("%s (required) found no place for its %.1f x %.1f envelope on the %s face: %s. "
@@ -7734,16 +7737,12 @@ def _pad_shapes(board: "Board", occ: Occupancy, ref) -> list:
     return occ.pad_shapes(owner, number, board._pad_land(ref))
 
 
-_EDGE_OVERLAP = 0.005
-"""How far a tap's copper reaches over its pad's edge: copper that only
-meets the pad along a line may not read as joined to KiCad's connectivity."""
-
 
 def _edge_point(board: "Board", occ: Occupancy, width: float, ref: PadRef,
                 along_width: float | None = None) -> Location:
     """A point on `ref.edge` of its pad (the side of the pad's copper box,
     board frame) for copper `width` across the edge: half the width outside
-    the edge, less `_EDGE_OVERLAP`, so the copper lies against it. A track's
+    the edge, less `[copper] tap_overlap`, so the copper lies against it. A track's
     copper is as wide along the edge as across it; a placed pad's is
     `along_width`. Along the edge, `ref.along`: MID the middle, START the
     west or north end, END the other, half the copper's width along in from
@@ -7767,7 +7766,7 @@ def _edge_point(board: "Board", occ: Occupancy, width: float, ref: PadRef,
         raise ValueError("%s pad %s: its %s edge has no copper at its %s (a round pad, or one turned off the "
                          "right angle); use Along.MID" % (occ.who(owner), number, ref.edge.name.lower(),
                                                                 along.name.lower()))
-    out = half - _EDGE_OVERLAP
+    out = half - board.settings.copper_tap_overlap
     if ref.edge is Edge.EAST:
         return Location(round(line + out, 6), round(at, 6))
     if ref.edge is Edge.WEST:

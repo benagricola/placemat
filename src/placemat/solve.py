@@ -167,13 +167,12 @@ class SolveResult:
     residual: float
 
 
-_REG = 0.01                 # the weak pull toward the middle of the board, per unit spring
-
-
 def global_solve(movable: list, nets: dict, weight_of, areas: dict, region: tuple, start: dict,
-                 rounds: int, iterations: int, tolerance: float) -> SolveResult:
+                 rounds: int, iterations: int, tolerance: float, pull: float, spread_pull: float,
+                 growth: float) -> SolveResult:
     """Solve, spread, re-solve with each item pulled toward its spread cell,
-    `rounds` times, the pull rising each round. The last solve's positions,
+    `rounds` times, the pull rising each round: `spread_pull * growth ** n`
+    in round n; `pull` is the weak pull toward the middle of the board. The last solve's positions,
     clamped inside the region, are the hints."""
     movable = sorted(movable)
     left, top, right, bottom = region
@@ -186,13 +185,13 @@ def global_solve(movable: list, nets: dict, weight_of, areas: dict, region: tupl
         got, residual = [], 0.0             # the residual reported is the last round's worst axis
         for axis, pulls in ((0, pulls_x), (1, pulls_y)):
             springs = axis_springs(nets, pos, axis, weight_of, unit)
-            coords, u, res = solve_axis(movable, springs, axis, pos, centre[axis], _REG, pulls,
+            coords, u, res = solve_axis(movable, springs, axis, pos, centre[axis], pull, pulls,
                                         iterations, tolerance)
             used, residual = used + u, max(residual, res)
             got.append(coords)
         pos = {k: (got[0][k], got[1][k]) for k in movable}
         spread = bisect_spread({k: areas.get(k, 1.0) for k in movable}, pos, region)
-        weight = 0.01 * (2.0 ** n)
+        weight = spread_pull * (growth ** n)
         pulls_x = {k: (spread[k][0], weight) for k in movable}
         pulls_y = {k: (spread[k][1], weight) for k in movable}
     hints = {k: (round(min(max(pos[k][0], left), right), 4), round(min(max(pos[k][1], top), bottom), 4))

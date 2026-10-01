@@ -45,7 +45,7 @@ def test_first_move_redraws_the_tail_at_each_offset():
     board = _index([_shape("copper", _sq(0.0, 1.0, 0.3), "B")])
     proto = _shape("copper", _sq(0.0, 0.0, 0.1), "A")
     offsets = [(0.0, 1.0), (2.0, 0.0)]
-    tail = (proto, (0.0, -1.0), 0.2)
+    tail = (proto, (0.0, -1.0), 0.2, 8)
     assert board.first_move([ring], offsets, 0.2, [], [], (0.0, 0.0), None, None, tail, 0) == 1
     assert board.first_move([ring], offsets, 0.2, [0], [], (0.0, 0.0), None, None, tail, 0) == 0
 

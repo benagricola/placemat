@@ -2813,6 +2813,12 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.escape_pads` | 1 | a part's pads keep escapes when it has at least this many (3 leaves two-pad parts out) |
 | `place.escape_via_step` | 0.05 | mm: the step a `board.escape` lane's via is searched along its lane at, from the row's end, before it is bisected back to the nearest nanometre |
 | `place.escape_via_reach` | 5.0 | mm: how far along its lane, or its axis, a `board.escape` via is searched before it has no legal spot |
+| `place.edge_step` | 0.05 | mm: the step a part on a curved board edge is stepped in from the edge at until the keep-in holds it, before it is bisected back |
+| `place.pocket_step` | 0.5 | mm: the least raster a free-rectangle search blocks the board at; an item's own step is used when coarser |
+| `place.freedom_min_step` | 0.2 | mm: the least step a part's one-freedom search (along an edge, round a ring) walks at; an item's own step is used when coarser |
+| `place.cutout_step` | 0.2 | mm: the step a cutout is slid along a free axis at |
+| `place.cutout_angle_step` | 0.5 | degrees: the step a cutout is turned round its centre at |
+| `place.escape_cell` | 0.05 | mm: the grid a pad's path out is searched on |
 | `place.courtyard_touch` | 0.0 | how far two courtyards may overlap at least; each pair may also overlap by the two parts' margins (how far KiCad's courtyard polygon lies inside the drawn box) less 0.001 mm, which keeps KiCad's courtyards apart - it counts touching as overlapping |
 | `place.courtyard_polygon_share` | 0.98 | a courtyard whose polygon covers less of the box round it than this (a slice of a disc, an L, a rectangle turned off the axes) is claimed as KiCad draws it, with no margin; one that covers more is claimed as its box |
 | `place.conflict_gap` | 1.0 | how far outside a box a conflict can still reach |
@@ -2828,6 +2834,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `copper.pair_via_step` | 0.4 | how far clear of its partner a pair's lead vias |
 | `copper.bridge_half` | 1.1 | half the gap a bridge leaves round a crossed track |
 | `copper.finger_bridge_width` | 1.0 | the width of a finger's bridge under a track |
+| `copper.finger_min_piece` | 0.05 | mm: a finger's piece between two bridges no longer than this is not drawn |
+| `copper.tap_overlap` | 0.005 | mm: how far a tap's copper reaches over its pad's edge; copper that only meets the pad along a line may not read as joined |
 | `copper.plane_inset` | 0.4 | how far a plane is inset from the board edge |
 | `copper.plane_clearance` | 0.2 | a zone's pullback from foreign copper |
 | `copper.plane_min_thickness` | 0.2 | a zone's minimum filled width |
@@ -2845,9 +2853,11 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `geometry.arc_sag` | 0.02 | how far a flattened arc may cut the corner off the real one |
 | `geometry.index_cells` | 16 | buckets across the longer side of the spatial index |
 | `geometry.arc_error_nm` | 5000 | arc approximation error when reading pad outlines |
+| `geometry.cap_steps` | 8 | segments round each half-circle end of a track's polygon, in Python and in native |
 | `check.ambient_c` | 100.0 | board temperature the junction estimate starts from (`--ambient`) |
 | `check.keep_out_mm` | 2.0 | how far sense copper stays from a switch node (`--keep-out`) |
 | `check.rise_c` | 10.0 | the rise a current path is sized for (`--rise`) |
+| `check.neck_band` | 0.1 | a current path's neck runs as far as its track stays within this fraction of the narrowest width |
 | `check.zone_step` | 0.05 | the cell a zone fill is rasterised at to measure its width along a load's route; the width reads within one step |
 | `check.limits` | none | a bound per check, e.g. `"hot-loop" = 20.0` (`--limit`) |
 | `parts.order_fields` | `["Lcsc", "LCSC", "Mpn", "MPN"]` | a footprint field naming an order code (an LCSC number, an MPN); `parts` warns when a placed part (not `dnp`) has none of them present and non-empty |
@@ -2907,7 +2917,10 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `solve.enabled` | false | give the searched tier its hints from a global solve of the whole netlist, before any item is scanned |
 | `solve.iterations` | 200 | the solve's conjugate-gradient cap per axis per round |
 | `solve.tolerance` | 1e-06 | the residual the solve stops at |
-| `solve.rounds` | 8 | solve-then-spread rounds, the pull toward the spread doubling each round |
+| `solve.rounds` | 8 | solve-then-spread rounds, the pull toward the spread rising by `solve.spread_growth` each round |
+| `solve.pull` | 0.01 | the weak pull of every part toward the middle of the board, per unit spring |
+| `solve.spread_pull` | 0.01 | the first round's pull of each part toward its spread cell |
+| `solve.spread_growth` | 2.0 | the pull's growth each round after: round n pulls with `spread_pull * growth ** n` |
 | `preview.converter` | "rsvg-convert --width {width} -o {png} {svg}" | the command `placemat preview` runs to turn its SVG into a PNG; `{svg}`, `{png}` and `{width}` are filled in |
 | `preview.px_per_mm` | 40.0 | the preview PNG's resolution, pixels per millimetre of the drawing |
 | `preview.model_edge` | 1568 | the long edge, in pixels, an image is scaled to before the model reading it sees it - an assumption about that model, which placemat cannot know; the preview reports the resolution the model would then see. 0 reports nothing |

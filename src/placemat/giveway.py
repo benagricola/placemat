@@ -363,7 +363,7 @@ def _native_first_move(judge: "_Judge", g: "Group", mine: list, span: Box, offse
     if g.tail is not None:
         _, proto = _tail_shape(g.owner, g.net, next(iter(g.tail.layers)), width, g.far, g.centre,
                                carried=g.id, given=g.id)
-        tail = (_native_shape(judge, proto), tuple(g.far), width)
+        tail = (_native_shape(judge, proto), tuple(g.far), width, occ.settings.geometry_cap_steps)
     first_arg = None if met is None else (met[0], met[1], r)
     pad_arg = None if pad is None else (pad.poly, r - 1e-5)
     start = 0
