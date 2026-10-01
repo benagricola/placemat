@@ -649,7 +649,7 @@ def _existing_board_copper(board, geometry) -> list:
     return out
 
 
-def _foreign_pour_obstacles(board, op: Pour, geometry, other_ops, existing, drawn=None) -> list:
+def _foreign_pour_obstacles(board, op: Pour, geometry, other_ops, existing, drawn=None, rules=None) -> list:
     """(polygon in mm, clearance in nm) for every other net's copper on
     `op`'s layer: every other net's pad (its real shape - pcbnew's own
     TransformShapeToPolygon, not its bounding box), every Track, Via and
@@ -662,21 +662,25 @@ def _foreign_pour_obstacles(board, op: Pour, geometry, other_ops, existing, draw
     The clearance each carries is grown by half `op`'s own stroke: a filled
     poly with a stroke draws copper that far past the vertices too (as
     `copper_outlines` in read.py already accounts for, reading one back for
-    DRC)."""
+    DRC). The script's clearance rules (`rules`, a rules.ClearanceRules) replace the netclass figure for
+    a pair they match, as KiCad's DRC reads them; a pour is in no cell, so a rule within one never does."""
     from .read import outlines_of
     out = []
     layer_id = _layer_id(board, op.layer)
     code = _netcode(board, op.net)
     half_stroke = op.stroke / 2.0
 
-    def clearance_to(other_net: str) -> float:
+    def clearance_to(other_net: str, owner: str = "") -> float:
+        rule = rules.match(op.net, other_net, "", owner) if rules else None
+        if rule is not None:
+            return rule.min_mm
         return geometry.clearance(op.net, other_net) if other_net in geometry.nets else geometry.default_clearance
 
     for fp in board.GetFootprints():
         for p in fp.Pads():
             if p.GetNetCode() == code or not p.IsOnLayer(layer_id):
                 continue
-            clr_nm = nm(clearance_to(p.GetNetname()) + half_stroke + _PULLBACK_MARGIN)
+            clr_nm = nm(clearance_to(p.GetNetname(), fp.GetReference()) + half_stroke + _PULLBACK_MARGIN)
             for poly in outlines_of(p, layer_id):
                 out.append((poly, clr_nm))
     for other in other_ops:
@@ -802,12 +806,12 @@ def _overlaps(a, b) -> bool:
     return c.OutlineCount() > 0
 
 
-def _draw_pour(board, op: Pour, geometry=None, other_ops=(), findings=None, existing=(), drawn=None):
+def _draw_pour(board, op: Pour, geometry=None, other_ops=(), findings=None, existing=(), drawn=None, rules=None):
     code = _netcode(board, op.net)
     ps, joined = _swallow_grown(board, op)
     if op.swallow_pads:
         if geometry is not None:
-            obstacles = _foreign_pour_obstacles(board, op, geometry, other_ops, existing, drawn)
+            obstacles = _foreign_pour_obstacles(board, op, geometry, other_ops, existing, drawn, rules)
             if obstacles:
                 ps = _pulled_back(ps, obstacles)
                 if joined:
@@ -905,11 +909,13 @@ def _draw_zone(board, op: Zone):
     return z
 
 
-def draw_copper(board, ops, geometry=None, findings=None):
+def draw_copper(board, ops, geometry=None, findings=None, rules=()):
     # read once, before anything below adds to the board: a stamped cell's own copper, already on
     # the board and never one of `ops` (this run's own plan), that a swallow pour's pull-back must
     # keep clear of too
     existing = _existing_board_copper(board, geometry) if geometry is not None else ()
+    from ..rules import ClearanceRules
+    clearance_rules = ClearanceRules.of(geometry, rules) if geometry is not None else None
     zones = []
     drawn = {}                  # id(swallow pour) -> its outline as written, for the pours drawn after it
     for op in ops:
@@ -918,7 +924,7 @@ def draw_copper(board, ops, geometry=None, findings=None):
         elif isinstance(op, Via):
             _draw_via(board, op)
         elif isinstance(op, Pour):
-            _draw_pour(board, op, geometry, ops, findings, existing, drawn)
+            _draw_pour(board, op, geometry, ops, findings, existing, drawn, clearance_rules)
         elif isinstance(op, Text):
             _draw_text(board, op)
         elif isinstance(op, Zone):
@@ -1086,7 +1092,7 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     _draw_outline(board, plan)
     _draw_keepouts(board, plan)
     _draw_keepout_drawings(board, plan)
-    draw_copper(board, plan.copper, plan.geometry, plan.findings)
+    draw_copper(board, plan.copper, plan.geometry, plan.findings, plan.rules)
     plan.group_notes = _write_groups(board, plan)
     out = str(out_path or pcb_path)
     plan.models = _reanchor_models(board, Path(out).parent)
