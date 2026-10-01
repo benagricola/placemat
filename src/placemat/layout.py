@@ -31,10 +31,10 @@ from .outline import Outline, Run, rect_outline
 from . import exposure
 from .placement import Placement
 from .settings import Settings
-from .placer import BlockSpec, _grid, _pin_normal, facing_rotation, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
+from .placer import BlockSpec, _grid, _pin_normal, facing_rotation, pad_way_out, way_out_side, parallel_rotation, _reason_key, box_centered_placement, cell_pad_anchored_placement, pad_box_at, cell_origin_anchored_placement, disc_placement, pad_anchored_placement, sweep_standoff, edge_placement, layout_block, pockets, run_placement, scan, scan_block
 from .board_geometry import BoardGeometry, CellGeom, Footprint, members_of, part_height, stackup_order
 from .lanes import Escape, EscapeDecl, EscapeError, Lane, LanePoint, Layouter, row_way, turn_direction
-from .values import (Turned, Turns, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
+from .values import (Turned, Turns, Axis, Bearing, Bend, Corner, Cover, Beside, Between, Cutout, CutoutEdge, Drops, Freedom, Keepout, bearing_of, Along, Box, Cell, CellPadRef, Centre, Disc, Facing, SideOf, Line, OnBore, OnRim, Origin, Parallel, Past, Pin, Polar, bearing, bearing_vector, box_support, polar_point, CopperLayer, Edge, Face, Fraction, FreeSpot, Inside, Land, LinkWeight, Location, Mid, Near, Net, OnEdge, PadRef, Part,
                      PinName, Priority, X, Y, pad_key)
 from .values import Figure, FigurePoint
 
@@ -43,6 +43,7 @@ RANK_FIXED, RANK_EDGE, RANK_CELL, RANK_FIXED_COPPER, RANK_BLOCK, RANK_LOOSE, RAN
 
 # A cell generated with its connector's body bulk on local +Y ("outward")
 # faces out of each edge at this rotation.
+_OPPOSITE = {Edge.NORTH: Edge.SOUTH, Edge.SOUTH: Edge.NORTH, Edge.EAST: Edge.WEST, Edge.WEST: Edge.EAST}
 _OUTWARD_ROTATION = {Edge.SOUTH: 0.0, Edge.EAST: 90.0, Edge.NORTH: 180.0, Edge.WEST: 270.0}
 
 # What envelope.drawn_envelope unions for a single footprint - pads, mask
@@ -62,6 +63,10 @@ class RowCoord:
         return RowCoord(self.row, "%s%+g" % (self.what, dx))
 
 
+_ROW_TIE = 1e-6
+"""mm: how near two pads' coordinates along a row are to equal before `over=` cannot order by them."""
+
+
 class Row:
     """Items down one edge, in order, `gap` apart, each flush to the edge with
     its outward side out. Along-edge numbers (start, end, length, centre of
@@ -74,6 +79,10 @@ class Row:
     # A declaration's digest names every attribute a Row holds, so a pitch is
     # set on the instance only when given: a row without one digests as before.
     pitch: float | None = None
+    # over= (the row ordered by where pads land): set on the instance only then, for the same reason
+    over = None
+    declared = None       # the items' claims in the order given; `alongs` is them in the order the pads put them
+    position = None       # each item's place in the row, by its index in the order given
 
     def __init__(self, edge: Edge, standoff: float, gap: float, start: float | None, keys, alongs, depth: float,
                  pitch: float | None = None):
@@ -99,6 +108,8 @@ class Row:
             return
         kind, value = self.anchor
         axis = "x" if self.edge in (Edge.NORTH, Edge.SOUTH) else "y"
+        if self.over is not None:
+            self._order_by(board, occ, axis)
         if kind == "outline":
             self.begin(self.centre_of(occ.board_box))
         elif kind == "outline_end":
@@ -123,6 +134,21 @@ class Row:
         else:
             value.begin_from(board, occ)
             self.begin(value.end + self.gap)
+
+    def _order_by(self, board, occ, axis: str) -> None:
+        """Put the items in the order their `over` pads lie along the row, increasing."""
+        at = [_coord(board, occ, ref, axis) for ref in self.over]
+        order = sorted(range(len(at)), key=lambda k: at[k])
+        for a, b in zip(order, order[1:]):
+            if abs(at[a] - at[b]) < _ROW_TIE:
+                raise ValueError("a row over pads: %s and %s lie at the same %s (%.3f), so the pads do not order "
+                                 "them; the row runs along %s" % (self.keys[a], self.keys[b], axis, at[a], axis))
+        self.position = [order.index(k) for k in range(len(at))]
+        self.alongs = [self.declared[k] for k in order]
+        if self.pitch is not None:
+            self.length = self.alongs[0] / 2.0 + self.pitch * (len(self.alongs) - 1) + self.alongs[-1] / 2.0
+        else:
+            self.length = sum(self.alongs) + self.gap * (len(self.alongs) - 1)
 
     def begin(self, start: float):
         """Fix where the row starts along its edge (a centred row learns this
@@ -160,7 +186,7 @@ class Row:
             raise ValueError("this row starts at a reference: its numbers exist once it is placed; "
                              "refer to its items' pads instead")
         i = self.items.index(item) if item in self.items else self.keys.index(item)
-        return self.centres[i]
+        return self.centres[i if self.position is None else self.position[i]]
 
     @property
     def inner(self) -> RowCoord:
@@ -234,7 +260,7 @@ class _RowSlot:
 
     def resolve(self, board, occ) -> float:
         self.row.begin_from(board, occ)
-        return self.row.centres[self.index]
+        return self.row.centres[self.index if self.row.position is None else self.row.position[self.index]]
 
 
 @dataclass
@@ -2033,6 +2059,13 @@ class Board:
                             "returns), or an escape (board.escape(...)) or the via of one of its lanes, not %r"
                             % (key, at.item))
         align = at.align
+        if isinstance(at.side, SideOf):
+            self._pad_ref(at.side.pads[0])              # a real pad, checked now
+            self._facing_numbers(key, self._item(at.side.pads[0].part)[0], at.side)
+            if isinstance(align, tuple) and len(align) == 2 and isinstance(align[1], (Past, Lane, X, Y)):
+                raise TypeError("%s: a Beside on a SideOf side is settled when that part is placed; a %s in its "
+                                "align checks the side now, so give an Edge or align a pad or an Along"
+                                % (key, type(align[1]).__name__))
         if align is None:
             norm = ("along", Along.MID)
         elif isinstance(align, Along):
@@ -2196,6 +2229,9 @@ class Board:
         """Where `Beside(...)` puts the item: its own drawn envelope `gap`
         off `item`'s, on `side`, aligned across it."""
         b = i.beside
+        if isinstance(b.side, SideOf):
+            b = dataclasses.replace(b, side=self._side_of(occ, i.key, b.side))
+            i = dataclasses.replace(i, beside=b)
         if isinstance(b.item, KeepoutIntent):
             pk = plan.keepouts.get(b.item.keepout.name)
             if pk is None:
@@ -2360,7 +2396,8 @@ class Board:
 
         `rotation=` is a number, `Turned(part, degrees)`, `Parallel(a, b, degrees)`
         (the item's x axis along the line between two points) or `Facing(pads,
-        edge)` (the right-angle turn where those pads' row points at the edge).
+        edge)` (the right-angle turn where those pads' row points at the edge;
+        `Facing(pads, toward=pad)` faces them toward another part's pad).
 
         `required=True` says that failing to place this item stops the run,
         with the board as it stood and the biggest free rectangles on its
@@ -2538,15 +2575,18 @@ class Board:
                 raise TypeError("%s: rotation=Facing(...) turns a part by its pads; a %s has none of its own" % (key, kind))
             if rotations:
                 raise ValueError("%s: rotation=Facing(...) settles the rotation; rotations= would override it" % key)
-            rotation = self._facing_rotation(key, geom, rotation, face)     # of the part alone: settled now
-        turned = rotation if isinstance(rotation, (Turned, Parallel)) else None
+            if rotation.toward is None:
+                rotation = self._facing_rotation(key, geom, rotation, face)     # of the part alone: settled now
+            else:
+                self._facing_numbers(key, geom, rotation)       # real pads of this part, checked now
+        turned = rotation if isinstance(rotation, (Turned, Parallel, Facing)) else None
         if turned is not None and rotations:
             raise ValueError("%s: rotation=%s(...) settles the rotation; rotations= would override it"
                              % (key, type(turned).__name__))
         if isinstance(turned, Parallel) and kind == "block":
             raise TypeError("%s: a block is turned by its anchor, not rotation=Parallel(...)" % key)
         if turned is not None:
-            rotation = float(turned.degrees)        # provisional: the ranking measures by it until the part is down
+            rotation = float(getattr(turned, "degrees", 0.0))        # provisional: the ranking measures by it until the part is down
         rotation_given = rotation is not None
         if rotation is None:
             if isinstance(run, CutoutEdge):
@@ -2570,6 +2610,8 @@ class Board:
             needs |= along.row.needs
         if isinstance(turned, Turned):
             needs.add(self._pad_ref(turned.part)[0])   # turned by it: placed after it
+        elif isinstance(turned, Facing):
+            needs.add(self._pad_ref(turned.toward)[0])  # turned toward its pad: placed after its part
         elif turned is not None:
             line = {self._pad_ref(ref)[0] for ref in _refs_in([turned.a, turned.b])}
             if line & {fp.ref for fp in members_of(geom)}:
@@ -2579,6 +2621,8 @@ class Board:
         if beside is not None:
             needs.add(cutout_token(beside.item.keepout.name) if isinstance(beside.item, KeepoutIntent)
                       else self._pad_ref(beside.item)[0])
+            if isinstance(beside.side, SideOf):
+                needs.add(self._pad_ref(beside.side.pads[0])[0])       # its side is where that part's pad lands
             if beside.align[0] == "pads":
                 needs |= {self._pad_ref(ref)[0] for ref in _refs_in([beside.align[2]])}
             elif beside.align[0] == "lane":
@@ -2611,27 +2655,83 @@ class Board:
             return tuple(round(k * float(step), 6) for k in range(int(math.ceil(360.0 / step - 1e-9))))
         return tuple(rotations)
 
+    def _facing_numbers(self, key: str, geom, facing) -> list:
+        """The pad numbers `facing`'s (or a `SideOf`'s) pads name on the part `geom`: a `PadRef`'s
+        must be of that part, a bare key names the part's own pad."""
+        me = Part(geom.inst)
+        if any(isinstance(p, PadRef) and p.part != me for p in facing.pads):
+            raise TypeError("%s: %s turns the part by its own pads, not by %s" % (
+                key, type(facing).__name__,
+                ", ".join("%s pad %s" % (p.part, p.key) for p in facing.pads
+                          if isinstance(p, PadRef) and p.part != me)))
+        return [self.geometry.pad(me, p.key if isinstance(p, PadRef) else p).number for p in facing.pads]
+
     def _facing_rotation(self, key: str, geom, facing: Facing, face: Face) -> float:
         """The turn `Facing(pads, edge)` says for the part `geom` on `face`: refused, naming the
-        pads, where no right-angle turn points their row's way out at the edge."""
-        if any(p.part != Part(geom.inst) for p in facing.pads):
-            raise TypeError("%s: Facing turns the part by its own pads, not by %s" % (
-                key, ", ".join("%s pad %s" % (p.part, p.key) for p in facing.pads if p.part != Part(geom.inst))))
-        numbers = [self.geometry.pad(p.part, p.key).number for p in facing.pads]
+        pads, where no right-angle turn points their way out at the edge."""
+        numbers = self._facing_numbers(key, geom, facing)
         try:
             return facing_rotation(self._bare_occupancy(), geom, numbers, facing.edge, face)
         except ValueError as e:
             raise ValueError("%s: Facing(%s, %s): %s" % (
                 key, ", ".join("pad %s" % n for n in numbers), facing.edge.name, e)) from None
 
+    def _side_of(self, occ: Occupancy, key: str, side: SideOf) -> Edge:
+        """The side `SideOf(pads)` names, read off `occ` where the pads' part stands now: their way out
+        at its placed turn and face."""
+        part = side.pads[0].part
+        geom, _, kind = self._item(part)
+        ref = self._pad_ref(part)[0]
+        placed = occ.items[ref].reference
+        numbers = self._facing_numbers(key, geom, side)
+        try:
+            way = pad_way_out(self._bare_occupancy(), geom, numbers, placed.face)
+            return way_out_side(way, placed.rotation)
+        except ValueError as e:
+            raise ValueError("%s: SideOf(%s): %s" % (key, ", ".join("pad %s" % n for n in numbers), e)) from None
+
+    def _given_rotations(self, items, rotation, face: Face = Face.FRONT) -> list | None:
+        """A row's, ring's or run row's `rotation=` as one number per item: a number, a `Facing` (each
+        item resolves it for itself) or a list of either, one per item. None when not given."""
+        if rotation is None:
+            return None
+        if isinstance(rotation, (list, tuple)):
+            if len(rotation) != len(items):
+                raise ValueError("rotation= as a list gives one turn per item: %d items, %d turns"
+                                 % (len(items), len(rotation)))
+            given = list(rotation)
+        else:
+            given = [rotation] * len(items)
+        out = []
+        for item, r in zip(items, given):
+            if isinstance(r, Facing):
+                geom, key, kind = self._item(item)
+                if kind != "part":
+                    raise TypeError("%s: rotation=Facing(...) turns a part by its pads; a %s has none of its own"
+                                    % (key, kind))
+                if r.toward is not None:
+                    raise ValueError("%s: Facing(toward=) is settled when the part is placed, after the pad it turns "
+                                     "toward; a row measures its items first - place the part, or give Facing an "
+                                     "edge" % key)
+                r = self._facing_rotation(key, geom, r, face)
+            out.append(float(r))
+        return out
+
+    def _toward_rotation(self, occ: Occupancy, i: "PlaceIntent") -> float:
+        """The turn of `Facing(pads, toward=pad)`: the pads' way out opposite the target pad's, where
+        that part stands now."""
+        t = i.turned
+        edge = _OPPOSITE[self._side_of(occ, i.key, SideOf((t.toward,)))]
+        return self._facing_rotation(i.key, i.item, Facing(t.pads, edge), i.face)
+
     def row(self, items, edge: Edge, *, of=None, gap: float | None = None, start=None, align=Along.START,
-            rotation: float | None = None, line=Line.CENTRE, behind: Row | None = None, inboard: float | None = None,
-            overhang: float = 0.0, pitch: float | None = None,
+            rotation=None, line=Line.CENTRE, behind: Row | None = None, inboard: float | None = None,
+            overhang: float = 0.0, pitch: float | None = None, over=None,
             centre=None, end=None, before: Row | None = None, after: Row | None = None, why: str = "") -> Row:
         """Items down `edge` in order, `gap` apart (default: courtyards
         touching), with their outward sides
-        out (`rotation=`, one value or one per item, overrides that turn for
-        parts with no outward side). The row's outer line is the board's
+        out (`rotation=`, a number or a `Facing(pad_key, edge)`, one value or
+        one per item, overrides that turn for parts with no outward side). The row's outer line is the board's
         keep-in, or `inboard` (default `gap`) behind the inner line of the
         row it is `behind=`; `overhang=` puts a face that far past the edge. Across the row the items align
         on one line: `line=Line.CENTRE` (the default) puts their centres on
@@ -2659,8 +2759,23 @@ class Board:
         placed, and accepts a fit frame, unlike a row on the board's own
         edge; `start=`, `end=`, `before=`, `after=`, `behind=` and
         `inboard=` are not said relative to a part, so they are refused
-        together with it. Returns the Row."""
+        together with it.
+
+        `over=[pad, ...]` (one `PadRef` per item, in the items' order) orders
+        the row by where those pads lie along it, increasing, once they are
+        placed: each item stands among its neighbours as its pad does among
+        theirs. Equal coordinates are refused. Returns the Row."""
         align = _as_align(align, "a row's align")
+        if over is not None:
+            over = list(over)
+            if len(over) != len(items):
+                raise ValueError("a row's over= gives one pad per item: %d items, %d pads" % (len(items), len(over)))
+            for ref in over:
+                if not isinstance(ref, (PadRef, CellPadRef)):
+                    raise TypeError("a row's over= is a PadRef for each item, not %r" % (ref,))
+                self._pad_ref(ref)
+            if isinstance(edge, Run):
+                raise ValueError("a row along a run is not ordered by over= yet")
         if pitch is not None:
             if of is None:
                 raise ValueError("pitch= spaces a row of= a part; a row on the board's edge is spaced by gap=")
@@ -2700,8 +2815,8 @@ class Board:
         if of is None and isinstance(self._shape, Outline):
             raise ValueError("a shaped board's sides are chosen, not named: "
                              "board.row(items, board.edge(facing=Edge.NORTH))")
-        rots = [self.outward_rotation(it, edge)[0] for it in items] if rotation is None else \
-            ([float(r) for r in rotation] if isinstance(rotation, (list, tuple)) else [float(rotation)] * len(items))
+        given = self._given_rotations(items, rotation)
+        rots = [self.outward_rotation(it, edge)[0] for it in items] if given is None else given
         if of is not None:
             clr = -float(overhang) if overhang else gap
         elif behind is not None:
@@ -2728,6 +2843,8 @@ class Board:
         if pitch is not None:
             self._check_row_pitch(items, keys, rots, along_axis, float(pitch), gap)
         row = Row(edge, clr, gap, None, keys, alongs, max(depths), pitch=pitch)
+        if over is not None:
+            row.over, row.declared, row.position = over, list(alongs), list(range(len(items)))
         if of is not None:
             row.anchor = ("of", (of, align)) if centre is None else ("of", (of, align, centre))
             row.needs = frozenset([self._pad_ref(of)[0]] + ([self._pad_ref(centre)[0]] if centre is not None else []))
@@ -2746,17 +2863,23 @@ class Board:
                 else:
                     row.needs = frozenset(self._pad_ref(ref)[0] for ref in _refs_in([value]))
             elif align is Along.MID:
-                if self._sized:                     # the script's own size, not the generator's frame
+                if self._sized and over is None:    # the script's own size, not the generator's frame
                     row.begin(row.centre_of(self._outline))
                 else:
                     row.anchor = ("outline", None)
             elif align is Along.END:
-                if self._sized:
+                if self._sized and over is None:
                     row.begin(row.end_of(self._outline, self.keep_in))
                 else:
                     row.anchor = ("outline_end", None)
+            elif over is not None:
+                row.anchor = ("start", float(self.keep_in if start is None else start))
             else:
                 row.begin(float(self.keep_in if start is None else start))
+            if over is not None:
+                row.needs = row.needs | frozenset(self._pad_ref(ref)[0] for ref in over)
+        if over is not None and of is not None:
+            row.needs = row.needs | frozenset(self._pad_ref(ref)[0] for ref in over)
         row.items = list(items)
         try:
             line = Line(line)
@@ -2806,9 +2929,7 @@ class Board:
         disc = self._disc("give ring() a radius, or board.row(items, board.edge(facing=...)) "
                           "puts them along a stretch of the edge") if radius is None else None
         b0 = bearing(start)
-        given = None
-        if rotation is not None:
-            given = [float(r) for r in rotation] if isinstance(rotation, (list, tuple)) else [float(rotation)] * len(items)
+        given = self._given_rotations(items, rotation)
         n = max(len(items), 1)
         angles, rots, depths = [], [], []
         angle, half_prev = b0, 0.0
@@ -2847,9 +2968,7 @@ class Board:
             if value is not None:
                 raise ValueError("a row along a run does not take %s= yet: it starts at start=, or align=\"center\", "
                                  "and every item's reach sits at the keep-in" % name)
-        given = None
-        if rotation is not None:
-            given = [float(r) for r in rotation] if isinstance(rotation, (list, tuple)) else [float(rotation)] * len(items)
+        given = self._given_rotations(items, rotation)
         claims = []
         for k, item in enumerate(items):
             base = given[k] if given is not None else self.outward_rotation(item, Edge.SOUTH)[0]
@@ -7089,8 +7208,11 @@ class Board:
 
     def _turned_rotation(self, occ, i: PlaceIntent) -> float:
         """The rotation a `Turned` or a `Parallel` settles to, read off `occ` as it stands:
-        the part's own plus its degrees, or the turn that lies the item's x axis along the line."""
+        the part's own plus its degrees, the turn that lies the item's x axis along the line, or
+        the turn that faces its pads toward another's."""
         t = i.turned
+        if isinstance(t, Facing):
+            return self._toward_rotation(occ, i)
         if isinstance(t, Parallel):
             a, b = _locate(self, occ, t.a), _locate(self, occ, t.b)
             return parallel_rotation(a, b, i.face, t.degrees)

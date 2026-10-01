@@ -271,6 +271,10 @@ class Beside:
       one track of it between them;
     - an `Along` of `item`'s side (default `Along.MID`).
 
+    `side` may be a `SideOf(pads)`: the side where those pads' way out points
+    once their part is placed, with its turn and face applied. Not with a
+    `Past`, a lane or an `X`/`Y` point in `align`, which check the side now.
+
     `copper=True` measures the standoff from copper, not envelopes: the part
     stands as near `item` on `side` as its pads allow, every pad of it
     keeping, from every pad of `item` (a cell's members') of another net,
@@ -288,8 +292,8 @@ class Beside:
     copper: bool = field(default=False, kw_only=True, metadata={"omit_default": True})
 
     def __post_init__(self):
-        if not isinstance(self.side, Edge):
-            raise TypeError("Beside's side is an Edge, not %r" % (self.side,))
+        if not isinstance(self.side, (Edge, SideOf)):
+            raise TypeError("Beside's side is an Edge or a SideOf, not %r" % (self.side,))
         if self.align is not None and not isinstance(self.align, (Along, PadRef, tuple)):
             raise TypeError("Beside's align is a PadRef, an (own_pad, their_pad) pair, Along.START/MID/END, "
                             "or nothing (Along.MID), not %r" % (self.align,))
@@ -597,25 +601,71 @@ class Parallel:
         _check_degrees("Parallel", self.degrees)
 
 
+def _pads_of_one_part(what: str, pads) -> tuple:
+    """The pads a `Facing` or a `SideOf` names, as a tuple: `PadRef`s of one part, or bare pad
+    keys (a number, a net, `PinName`) that name a pad of whichever part is being turned."""
+    if isinstance(pads, (PadRef, int, str, Net, PinName)):
+        pads = (pads,)
+    pads = tuple(pads) if isinstance(pads, (list, tuple)) else (pads,)
+    if not pads:
+        raise TypeError("%s's pads are a PadRef of the part, or a list of them, not %r" % (what, pads))
+    refs = [isinstance(p, PadRef) for p in pads]
+    if any(refs) and not all(refs):
+        raise TypeError("%s's pads are PadRefs or bare pad keys, not a mix of both" % what)
+    if all(refs):
+        if len({p.part for p in pads}) != 1:
+            raise TypeError("%s's pads are all of one part, the part it turns" % what)
+    else:
+        for p in pads:
+            pad_key(p)
+    return pads
+
+
 @dataclass(frozen=True)
 class Facing:
     """A rotation chosen by pads: of the part's four right-angle turns, the
-    one where the pad's way out (its row's outward axis, as fanouts and
-    escapes read it) points at `edge`. `pads` is a `PadRef` of the part, or
-    a list of them, which must lie in one row. On the back face it is the
-    turn that faces the side as seen from the front."""
+    one where the pads' way out points at `edge`. A pad's way out is its
+    row's outward axis, as fanouts and escapes read it; pads with no row (a
+    grid, a corner pad) take the direction from the pad field's centre
+    through the named pads' centroid, snapped to an axis, and are refused
+    where that is ambiguous. `pads` is a `PadRef` of the part, or a list of
+    them, which must share a way out; or bare pad keys (`Facing(1, edge)`),
+    each part resolving them for itself, as `row(rotation=)` takes it. On the
+    back face it is the turn that faces the side as seen from the front.
+
+    `toward=PadRef(other, key)` in place of `edge` turns the pads' way out
+    opposite the way out of that pad: the pads face it, for a part that
+    stands on the side of `other` where the pad lands. It is settled when
+    the part is placed, which waits for `other`."""
     pads: object
-    edge: Edge
+    edge: Edge | None = None
+    toward: object = field(default=None, kw_only=True, metadata={"omit_default": True})
 
     def __post_init__(self):
-        pads = (self.pads,) if isinstance(self.pads, PadRef) else self.pads
-        pads = tuple(pads) if isinstance(pads, (list, tuple)) else (pads,)
-        if not pads or not all(isinstance(p, PadRef) for p in pads):
-            raise TypeError("Facing's pads are a PadRef of the part, or a list of them, not %r" % (self.pads,))
-        if len({p.part for p in pads}) != 1:
-            raise TypeError("Facing's pads are all of one part, the part it turns")
-        if not isinstance(self.edge, Edge):
+        object.__setattr__(self, "pads", _pads_of_one_part("Facing", self.pads))
+        if (self.edge is None) == (self.toward is None):
+            raise TypeError("Facing turns the pads to an Edge, or toward a PadRef: give one of edge= and toward=")
+        if self.edge is not None and not isinstance(self.edge, Edge):
             raise TypeError("Facing's edge is an Edge, not %r" % (self.edge,))
+        if self.toward is not None:
+            if not isinstance(self.toward, PadRef):
+                raise TypeError("Facing's toward is a PadRef, not %r" % (self.toward,))
+            if any(isinstance(p, PadRef) and p.part == self.toward.part for p in self.pads):
+                raise TypeError("Facing's toward is a pad of another part than the one it turns")
+
+
+@dataclass(frozen=True)
+class SideOf:
+    """The side of the board a part's pads face once it is placed: their way
+    out (as `Facing` reads it) with the part's turn and face applied,
+    snapped to the nearest axis. For `Beside`'s side, which waits for the
+    pads' part. `pads` is a `PadRef` or a list of them."""
+    pads: object
+
+    def __post_init__(self):
+        pads = _pads_of_one_part("SideOf", self.pads)
+        if not all(isinstance(p, PadRef) for p in pads):
+            raise TypeError("SideOf's pads are PadRefs of the part placed, not bare keys")
         object.__setattr__(self, "pads", pads)
 
 
