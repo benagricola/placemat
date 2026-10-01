@@ -105,23 +105,26 @@ The forms that most often answer "placemat can't say this":
 ### When no form says it
 
 When that search finds no form and no composition that says the relation,
-do not hand-compute it. Write it up in the board's `PLACEMAT_GAPS.md`:
+do not hand-compute it. Send it as a request to the agent working on
+placemat itself (the session in placemat's own repository), which files it
+in placemat's `BACKLOG.md` and replies. The request gives:
 - what was needed;
 - the forms looked at, and why each does not fit;
 - what placemat could offer.
 
-A gap entry that names no forms searched is not finished.
+A request that names no forms searched is not finished. Do not keep a gaps
+file of your own; if no placemat session is running, tell the user.
 
 A coordinate is an escape hatch, and only the user opens it. Before writing
 one, ask with AskUserQuestion:
-- name the gap entry and the forms searched;
+- name the request and the forms searched;
 - give the number you would write and what it pins;
 - offer the alternatives: leave the item searched as declared, or leave it
   unplaced until placemat can say it.
 
 Write the coordinate only on the user's explicit yes. That yes covers that
 one declaration, not the next one, and not the same gap on another item.
-Then name the gap in a comment beside it, and use the smallest number that
+Then name the request (its backlog title) in a comment beside it, and use the smallest number that
 works.
 
 A coordinate with no comment naming a gap, or with no approval behind it,

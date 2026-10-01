@@ -20,8 +20,8 @@ a via row one call returns is a track point in the next, and those or a
 track are `Past` items. When no row fits, grep this file for the words of
 the relation, try a composition, and read the newest sections of
 `migration.md`, which name the hand-computed pattern each new form
-replaces. Only a relation that search cannot say goes in the board's
-`PLACEMAT_GAPS.md` (SKILL.md, "When no form says it").
+replaces. Only a relation that search cannot say goes to placemat as a
+request (SKILL.md, "When no form says it").
 
 | you want to say | write | section |
 |---|---|---|

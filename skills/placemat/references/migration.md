@@ -5,6 +5,16 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Migration steps
+
+- A board no longer keeps a placemat gaps file. When no form says a
+  relation, send it as a request to the agent working on placemat itself;
+  it files the request in placemat's `BACKLOG.md` and replies (SKILL.md,
+  "When no form says it"). A comment beside an approved coordinate names
+  the request's backlog title instead of a gap entry.
+
 ## To 0.68.0
 
 ### New
