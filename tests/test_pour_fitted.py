@@ -567,3 +567,21 @@ def test_two_declared_pours_of_different_nets_too_close_are_a_finding():
     b.pour(Net("C"), [Location(8.1, 4), Location(12, 4), Location(12, 6), Location(8.1, 6)], layer=F)
     plan = b.resolve()
     assert any("copper C" in f and "from A copper" in f for f in declared_findings(plan)), plan.findings
+
+
+def test_a_stitch_planned_after_a_fitted_pour_keeps_its_vias_clear_of_it():
+    """A fitted pour is drawn when it is planned, so the vias a later stitch
+    of another net lays in the same batch keep the clearance from it, as
+    they do from tracks planned before them."""
+    from placemat.copper import Via
+    from placemat.cutouts import Circle
+    b = _board(_row(), extra_nets=["B"])
+    b.pour(Net("A"), _a_pads(), layer=F, swallow_pads=True)
+    b.keepout(Circle(4.0), "field", at=Location(14, 10), excludes=["parts"], why="a stitch region over the pour")
+    b.stitch(Net("B"), "field", size=0.6, drill=0.3, pitch=1.0)
+    plan = b.resolve()
+    pour = _outline(plan)
+    vias = [v for v in plan.copper if isinstance(v, Via) and v.net == "B"]
+    assert vias
+    for v in vias:
+        assert _gap(pour, v.polygon) >= CLEARANCE - 1e-6, (v.at, _gap(pour, v.polygon))

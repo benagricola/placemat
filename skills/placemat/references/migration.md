@@ -65,6 +65,12 @@ placemat datasheet d.pdf --show p3 --out page.png
 
 ### Fixed
 
+- A via laid after a fitted pour of another net in the same batch (a
+  `board.stitch` grid, a `FreeSpot` via) keeps its clearance from the pour.
+  In 0.67.0 it could land inside the pour: a stitch over a grown pour beside
+  a fitted one put its vias in the fitted pour ("via VBUS ... is 0.00 mm from
+  PP5V copper").
+
 ## To 0.67.0
 
 ### New

@@ -4455,6 +4455,17 @@ class Board:
                 continue
             if t.net != net and poly_distance(ring, t.polygon) < self._clearance(net, t.net) - 1e-9:
                 return "copper %.2f mm from a %s track planned before it" % (poly_distance(ring, t.polygon), t.net)
+        # a pour planned before it in this batch: a fitted pour is drawn as planned, so it is copper now,
+        # held as the occupancy will hold it (its outline and half its stroke)
+        for op in getattr(ctx, "batch_ops", ()):
+            if not isinstance(op, Pour) or op.net == net or (own and op.layer not in own):
+                continue
+            shape = _shape_of(op)
+            if shape is None or not shape.box.overlaps(box, gap=self._clearance(net, op.net)):
+                continue
+            gap = poly_distance(ring, shape.poly)
+            if gap < self._clearance(net, op.net) - 1e-9:
+                return "copper %.2f mm from a %s pour planned before it" % (max(gap, 0.0), op.net)
         for at, dia, layers in holes:
             if apart(layers):
                 continue
