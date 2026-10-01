@@ -344,3 +344,24 @@ def test_two_pours_on_adjacent_fine_pitch_pins_each_stay_joined_to_their_pin(tmp
     # and each still runs out to its far end, one piece with its pin
     assert any(point_in_polygon((10.0, 6.0), o) for o in a), a
     assert any(point_in_polygon((10.5, 14.0), o) for o in bb), bb
+
+
+def test_a_swallow_pour_pulls_back_by_a_clearance_rule_not_the_netclass(tmp_path):
+    """The pull-back keeps the clearance KiCad's DRC will judge: the plan's rule between the two nets,
+    higher or lower than the netclass figure, over the netclass one."""
+    from placemat.copper import Pour
+    from placemat.kicad import write as W
+    from placemat.rules import ClearanceRules, Rule
+    pcb = _board(tmp_path, _THREE_AND_A_NEIGHBOUR, clearance=0.16)
+    geometry = read_board(pcb)
+    board = pcbnew.LoadBoard(str(pcb))
+    op = Pour("PROBE_A", CopperLayer.F, ((9.0, 9.4), (11.0, 9.4), (11.0, 10.6), (9.0, 10.6)), stroke=0.2)
+
+    def clearances(*rules):
+        obstacles = W._foreign_pour_obstacles(board, op, geometry, other_ops=(), existing=(),
+                                              rules=ClearanceRules.of(geometry, rules))
+        return {round(pcbnew.ToMM(c), 3) for _, c in obstacles}
+    stroke_and_margin = 0.1 + W._PULLBACK_MARGIN
+    assert clearances() == {round(0.16 + stroke_and_margin, 3)}
+    assert clearances(Rule("clearance", 0.4, "wide", between=("PROBE_A", "PROBE_B"))) == {round(0.4 + stroke_and_margin, 3)}
+    assert clearances(Rule("clearance", 0.1, "narrow", on="PROBE_B")) == {round(0.1 + stroke_and_margin, 3)}

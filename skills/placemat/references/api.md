@@ -1314,6 +1314,20 @@ A rule is one scope and a `why`; it is written as a KiCad custom rule in
 `layout.kicad_dru` beside the board, named by its `why`, and the run's
 DRC judges by it. A plan with no rules removes the file.
 
+The router and the copper findings keep the rules as KiCad does. The
+clearance between two items is that of the last rule declared that matches
+them, whether it raises or lowers the net class figure, else the net class
+pair's (the larger of the two classes'). `between=(a, b)` matches one item
+on `a` and the other on `b`; `on=n` matches either item on `n`;
+`within=cell` matches two items that are both the cell's members' pads or
+its own copper (copper the script declares belongs to no cell). A track's
+legs, `Past`, `Between`, `FreeSpot`, a via's spot and a swallowing pour's
+pull-back all read it, so a rule that holds a net off another needs no
+waypoint. A copper finding under a rule names it: `(needs 0.30, rule: the
+rule's why)`. `[place] conflict_gap` must be at least the largest rule
+clearance, or the run refuses to start. The CLI's queries on a read board
+have no script and judge by net classes.
+
 ## Blocks
 
 ```python
@@ -1708,8 +1722,8 @@ counts as given under HULL and BOX too.
 
 **A swallowing pour pulls back too.** `swallow_pads` both grows the pour
 over the same-net pads its outline touches and pulls it back, to the
-netclass clearance (the larger of the two nets' classes; a `board.rule`
-clearance is not applied to it), from every other net's copper on its layer - every
+netclass clearance (the larger of the two nets' classes, or a `board.rule`
+clearance that matches the pair), from every other net's copper on its layer - every
 pad, at its real shape rather than its bounding box; every track, via and
 pour this run plans (two swallow pours settle as KiCad's zone priority
 does: the one the plan draws first - the one declared first, when both

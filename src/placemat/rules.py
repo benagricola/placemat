@@ -30,6 +30,57 @@ class Rule:
         return '(rule "%s"\n  (condition "%s")\n  (constraint %s (min %gmm)))' % (name, self.condition(), self.kind, self.min_mm)
 
 
+class ClearanceRules:
+    """The script's clearance rules as KiCad judges them: the clearance
+    between two items is that of the LAST declared rule whose condition
+    matches them, higher or lower than the netclass pair's; none matching,
+    the netclass figure stands (the caller's). A `within=` rule matches when
+    both items' owners are among its cell's `owners` (the cell's members'
+    refs and the cell's own name, the owner of the copper it carries); an
+    item with no owner, a script's declared copper, is in no cell."""
+
+    def __init__(self, rules, cell_owners: dict):
+        self.rules = tuple(r for r in rules if r.kind == "clearance")
+        self.cell_owners = cell_owners          # cell name -> frozenset of owners
+
+    def __bool__(self) -> bool:
+        return bool(self.rules)
+
+    def match(self, net_a: str, net_b: str, owner_a: str = "", owner_b: str = ""):
+        """The last rule that matches the pair, or None."""
+        for r in reversed(self.rules):
+            if r.within is not None:
+                owners = self.cell_owners.get(r.within, ())
+                if owner_a and owner_b and owner_a in owners and owner_b in owners:
+                    return r
+            elif r.between is not None:
+                a, b = r.between
+                if (net_a == a and net_b == b) or (net_a == b and net_b == a):
+                    return r
+            elif r.on in (net_a, net_b):
+                return r
+        return None
+
+    def native(self) -> list:
+        """The rules as the native module takes them, in declaration order: (on, between, within owners, min)."""
+        return [(r.on, r.between, sorted(self.cell_owners[r.within]) if r.within is not None else None, r.min_mm)
+                for r in self.rules]
+
+    def largest(self) -> float:
+        """The most any rule asks for: what a conflict reach must cover."""
+        return max((r.min_mm for r in self.rules), default=0.0)
+
+    @classmethod
+    def of(cls, geometry, rules) -> "ClearanceRules":
+        """The rules over `geometry`'s cells."""
+        owners = {}
+        for r in rules:
+            if r.kind == "clearance" and r.within is not None and r.within not in owners:
+                cell = geometry.cell(r.within)
+                owners[r.within] = frozenset([cell.name] + [fp.ref for fp in cell.members])
+        return cls(rules, owners)
+
+
 @dataclass(frozen=True)
 class KeepoutRule:
     """A keepout that admits parts by name or height, said to KiCad: its

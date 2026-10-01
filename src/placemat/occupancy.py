@@ -22,6 +22,7 @@ from .geometry import (_clean, PolyRaster, Polygon, Transform, box_polygon, circ
 from .placement import Placement
 from .settings import Settings
 from .board_geometry import CellGeom, Footprint, BoardGeometry, stackup_order
+from .rules import ClearanceRules
 from .values import Box, CopperLayer, Face, Location
 
 
@@ -335,7 +336,7 @@ def _is_lead(fp, pad) -> bool:
 class Occupancy:
     def __init__(self, geometry: BoardGeometry, edge_margin: float = 0.0, board_box: Box | None = None,
                  vias_block_courtyards: bool = False, board_shape=None, board_cutouts=None,
-                 settings: Settings | None = None, component_spacing: float = 0.2):
+                 settings: Settings | None = None, component_spacing: float = 0.2, rules=()):
         self.settings = settings if settings is not None else Settings()
         self._gap = self.settings.place_conflict_gap
         self._touch = self.settings.place_courtyard_touch
@@ -355,6 +356,8 @@ class Occupancy:
         # are kept as yards, which meet nothing else. A board with no plated leads keeps none.
         self._yard_refs = frozenset(fp.ref for fp in geometry.footprints if fp.silk or fp.fab) \
             if self.envelope == "physical" and self._leads else frozenset()
+        # the script's clearance rules: a pair they match is judged by the last of them, not the netclass figure
+        self.rules = ClearanceRules.of(geometry, rules)
         self._drawn_gap = max(component_spacing, self.silk_clearance)   # the furthest a silk, mask or body check reaches
         if self.envelope != "courtyard" and self._gap < max(component_spacing, self.silk_clearance):
             raise ValueError("[place] conflict_gap %.2f is less than the %.2f mm the %s envelope needs a check to reach"
@@ -363,6 +366,10 @@ class Occupancy:
             raise ValueError("[place] conflict_gap %.2f is less than the board's hole rules (%.2f hole to hole, %.2f "
                              "hole clearance) need a check to reach" % (self._gap, geometry.hole_to_hole,
                                                                          geometry.hole_clearance))
+        if self._gap < self.rules.largest():
+            raise ValueError("[place] conflict_gap %.2f is less than the %.2f mm a clearance rule asks of copper, "
+                             "which a check must reach" % (self._gap, self.rules.largest()))
+        self._copper_reach = max(self._gap, 1.0)        # how far from a box another's copper is looked for
         self.edge_margin = edge_margin
         self.vias_block_courtyards = vias_block_courtyards
         # The board a script declared, when it is not a rectangle (a Disc or an Outline):
@@ -748,13 +755,13 @@ class Occupancy:
             if owner in self.pending:
                 continue                        # not placed yet: its pads are nowhere
             for o in g.shapes:                  # its pads, and its own copper graphics (a net-tie's winding)
-                if o.kind not in ("pad", "through", "copper") or not shape.box.overlaps(o.box, gap=1.0):
+                if o.kind not in ("pad", "through", "copper") or not shape.box.overlaps(o.box, gap=self._copper_reach):
                     continue
                 why = self._conflict(shape, o, None, exact=True)
                 if why:
                     out.append(why)
         for o in self.copper:
-            if o is shape or not shape.box.overlaps(o.box, gap=1.0):
+            if o is shape or not shape.box.overlaps(o.box, gap=self._copper_reach):
                 continue
             why = self._conflict(shape, o, None, exact=True)
             if why:
@@ -1168,7 +1175,8 @@ class Occupancy:
                         silk_clearance=self.silk_clearance, component_spacing=self.component_spacing,
                         default_clearance=self.geometry.default_clearance, net_clearance=net_clearance,
                         gap=self._gap, drawn_gap=self._drawn_gap,
-                        hole_to_hole=self.geometry.hole_to_hole, hole_clearance=self.geometry.hole_clearance)
+                        hole_to_hole=self.geometry.hole_to_hole, hole_clearance=self.geometry.hole_clearance,
+                        rules=self.rules.native())
             self.__dict__["_native_kwargs"] = cache
         return cache
 
@@ -1649,6 +1657,18 @@ class Occupancy:
             cache[key] = hit
         return hit[1]
 
+    def pair_clearance(self, net_a: str, net_b: str, owner_a: str = "", owner_b: str = ""):
+        """(clearance, rule) between copper of two nets: the last of the script's clearance rules that
+        matches the pair (`owner_*` for a rule within a cell), else the netclass pair's figure, or the
+        board default where either has no net; `rule` is the rule that decided, or None."""
+        rule = self.rules.match(net_a, net_b, owner_a, owner_b) if self.rules else None
+        if rule is not None:
+            return rule.min_mm, rule
+        nets = self.geometry.nets
+        if net_a in nets and net_b in nets:
+            return self.geometry.clearance(net_a, net_b), None
+        return self.geometry.default_clearance, None
+
     def _conflict(self, s: Shape, o: Shape, clearance: float | None, exact: bool = False,
                   say: bool = True) -> str | None:
         """The DRC rules, in occupancy terms. A via under a body is legal to
@@ -1726,10 +1746,8 @@ class Occupancy:
                 return None
             if s.net and s.net == o.net:
                 return None
-            clr = clearance
-            if clr is None:
-                clr = self.geometry.clearance(s.net, o.net) if (s.net in self.geometry.nets and o.net in self.geometry.nets) \
-                    else self.geometry.default_clearance
+            clr, rule = (clearance, None) if clearance is not None else self.pair_clearance(s.net, o.net, s.owner, o.owner)
+            need = "%.2f%s" % (clr, ", rule: %s" % rule.why if rule is not None else "")
             # Two boxes this far apart hold two polygons at least as far
             # apart, so the walk round both outlines is only worth its cost
             # when the boxes themselves are close enough to fail.
@@ -1745,17 +1763,17 @@ class Occupancy:
             if gap < clr - 1e-9:
                 if s.kind == "through" and not self.geometry.has_footprint(s.owner):
                     c = s.box.center            # a via: the script's, planned, or one a part carries at its pad
-                    return "via %s at (%.2f, %.2f)%s is %.2f mm from %s copper on %s (needs %.2f)" % (
+                    return "via %s at (%.2f, %.2f)%s is %.2f mm from %s copper on %s (needs %s)" % (
                         s.net or "-", c.x, c.y, " (%s)" % s.owner[len("via "):] if s.owner.startswith("via at ") else "",
-                        gap, o.net or self.who(o.owner), self._layers_text(common), clr)
+                        gap, o.net or self.who(o.owner), self._layers_text(common), need)
                 if s.kind == "copper" and s.ends:      # a declared track: name the segment, not its owner
                     who = "track %s (%.2f, %.2f)-(%.2f, %.2f)" % (
                         s.net or "-", s.ends[0][0], s.ends[0][1], s.ends[1][0], s.ends[1][1])
                 else:
                     what = "pad" if s.kind in ("pad", "through") else "copper"
                     who = "%s %s %s" % (self.who(s.owner), what, s.net or "-")
-                return "%s is %.2f mm from %s copper on %s (needs %.2f)" % (
-                    who, gap, o.net or self.who(o.owner), self._layers_text(common), clr)
+                return "%s is %.2f mm from %s copper on %s (needs %s)" % (
+                    who, gap, o.net or self.who(o.owner), self._layers_text(common), need)
             return None
         if (ks == "npth" and ko in _COPPERISH) or (ko == "npth" and ks in _COPPERISH):
             hole, metal = (s, o) if ks == "npth" else (o, s)

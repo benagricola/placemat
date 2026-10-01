@@ -67,7 +67,7 @@ def _native_legal(occ: Occupancy, item, placement: Placement, clearance=None):
     index = placemat_native.NativeObstacles(
         [_py_shape_tuple(occ, o) for o in others], cfg["touch"], cfg["vias_block_courtyards"],
         cfg["silk_clearance"], cfg["component_spacing"], cfg["default_clearance"], cfg["net_clearance"],
-        occ._gap, occ._drawn_gap, cfg["hole_to_hole"], cfg["hole_clearance"],
+        occ._gap, occ._drawn_gap, cfg["hole_to_hole"], cfg["hole_clearance"], cfg["rules"],
     )
     dx, dy = placement.location.x, placement.location.y
     candidates = []
@@ -176,6 +176,25 @@ def test_native_assisted_legal_agrees_with_python_on_a_synthetic_board(envelope)
         clearance = rnd.choice([None, None, 0.1, 0.3])
         placement = Placement(Location(x, y), rot, Face.FRONT)
         _compare(occ, item, placement, clearance, mismatches)
+    assert not mismatches, mismatches[:5]
+
+
+@pytest.mark.parametrize("envelope", ["courtyard", "physical", "union"])
+def test_native_assisted_legal_agrees_with_python_under_clearance_rules(envelope):
+    from tests.test_native_conflict import _rich_occupancy, _rules
+    occ = _rich_occupancy(envelope=envelope, rules=_rules())
+    item = footprint("PROBE", 15, 15, w=3, h=2)
+    rnd = random.Random(20261001)
+    mismatches = []
+    for _ in range(400):
+        x, y = rnd.uniform(2, 58), rnd.uniform(2, 58)
+        rot = rnd.choice([0, 90, 180, 270])
+        clearance = rnd.choice([None, None, 0.1, 0.3])
+        placement = Placement(Location(x, y), rot, Face.FRONT)
+        _compare(occ, item, placement, clearance, mismatches)
+        (why_n, _), (why_p, _) = _legal_both_ways(occ, item, placement, clearance)
+        if why_n != why_p:
+            mismatches.append((placement, why_n, why_p))
     assert not mismatches, mismatches[:5]
 
 
