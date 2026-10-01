@@ -6,12 +6,6 @@ file. An item cites its source as "a board's session, <date>".
 
 ## In progress
 
-- **Searched cells turned to a circle's tangent, in a radial band** (a
-  board's session, 2026-10-01; from the user's hand placement): cells along
-  a disc on a shaped board want their long side tangent at their own
-  bearing, inboard of a rim band; the four right-angle turns cannot follow
-  the curve and a 5 degree search costs 72x. Being built.
-
 ## Open
 
 - **Current shared between a load's pins** (a board's session, 2026-10-01):
@@ -246,6 +240,12 @@ file. An item cites its source as "a board's session, <date>".
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Tangent turns in a band of radii** (0.76.0; spec
+  `2026-10-01-tangent-turns-design.md`): `rotations=Turns.TANGENT` turns a
+  searched item to the tangent at its bearing about a centre (two turns a
+  spot, binned by `place.tangent_bin`); `Polar((r_min, r_max), None,
+  about=)` searches a band of radii, on a disc or an outline board.
 
 - **board.vias() grids give way; stamped faces notes left out** (0.75.0;
   spec `2026-10-01-carried-via-grids-design.md`): a part's pad grid is
