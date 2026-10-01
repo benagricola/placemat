@@ -2014,8 +2014,9 @@ chamfer= there keeps clear".
 **Carried vias give way.** A carried via is one a part or a cell brings
 with it: a via at a searched part's pad, as above, or one of a stamped
 cell's own. Its tail is the one track of the same owner and net that ends
-at its centre; a via that two of the cell's tracks meet, or whose track
-runs on to another of its vias, is part of a route and stays as drawn.
+at its centre. A via that two or more of the cell's tracks end on is a
+routed via, which moves with its tracks (below); a via whose track runs on
+to another of the cell's vias is part of a route and stays as drawn.
 Where a carried via meets another net's copper, on either face, the search
 does not refuse the spot at once. The via tries, in turn:
 
@@ -2031,6 +2032,20 @@ does not refuse the spot at once. The via tries, in turn:
   `place.via_move_step` (0.05 mm) grid nearest first, to a spot clear of
   every other net's copper on every layer and of every hole, its tail
   redrawn from its pad. A via inside its pad moves only within that pad;
+- a routed via (two or more of the cell's tracks end on it) has this one
+  step and no other: to move up to `place.via_route` (0.5 mm), on the
+  same grid, nearest first, with every track that ends on it rebuilt from
+  its far end, which stays, to the new centre. Each is drawn as a declared
+  track is: octilinear legs (0, 45 and 90 degrees, right angles chamfered
+  by `copper.chamfer`), the fewest turns and then the shortest, on its own
+  layer at its own width. The spot is used only when the ring, the hole
+  and every rebuilt track are clear of every other net's copper, every
+  hole and the item's own copper; a spot where one fails leaves the via and
+  all its tracks as drawn, and the next is tried. The track that continues
+  from a far end is not touched. A moved routed via is a routed via still,
+  and gives way again from the same far ends. `place.via_route` 0 leaves it
+  as drawn. The refusal says "no spot within 0.50 mm is clear with its 2
+  tracks rebuilt";
 - a via inside a pad of its own net with no tail, when no spot inside the
   pad is clear: to leave its pad, up to `place.via_leave` (1.0 mm) from
   where it stood, to the nearest spot clear of every other net's copper
@@ -2063,7 +2078,7 @@ each way failed: "via GND at (19.10, 21.90) is 0.00 mm from S copper on
 B.Cu (needs 0.20); it cannot give way: no GND via within 1.00 mm to share,
 no spot within 0.50 mm is clear, GND is not a plane net, so it is no drop".
 Each way has a cost the search adds to the spot's score - `score.via_share`
-(1), `score.via_move` (2), `score.via_leave` (4), `score.via_shorten` (5), `score.via_drop` (10) -
+(1), `score.via_move` (2), `score.via_route` (3), `score.via_leave` (4), `score.via_shorten` (5), `score.via_drop` (10) -
 so it prefers spots where the vias stay as drawn; a nearest-first search
 takes a spot where they give way only when no spot has them as drawn. A via
 already placed does the same for an item placed later whose own copper
@@ -2072,11 +2087,12 @@ firm item's carried vias, and a rider's, give way where it is put. An item
 searched along an edge, a run or a rim takes the nearest slot where its
 vias stay as drawn, and only when there is none the nearest where they
 give way. A block's members are judged as drawn. The write moves or
-removes a cell's via on the board and draws the tails; a via declared at a
+removes a cell's via on the board and draws the tails, and for a routed
+via deletes its old tracks and draws the rebuilt ones; a via declared at a
 pad is drawn where it went. What gave way is a note on the owner's step
 and a finding of kind `vias`, per owner and net: "m: 6 GND vias shared, 2
 moved up to 0.25 mm, 1 dropped under R9" (a via that left its pad: "1 GND via
-left its pad under R9").
+left its pad under R9"; a routed via: "1 SIG via re-routed 0.15 mm under R9").
 
 A placement refused for a via that could not give way is counted in the
 run's refusal tally as "vias that could not give way xN", apart from the
@@ -3139,6 +3155,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.via_share` | 1.0 | how near a via of its net a carried via that meets another net's copper may be to share it instead; 0 never shares |
 | `place.via_move` | 0.5 | how far such a via may move to clear it; 0 never moves |
 | `place.via_move_step` | 0.05 | the grid a via's move, or its leaving its pad, is searched on |
+| `place.via_route` | 0.5 | how far a via that two or more of a cell's tracks end on may move, its tracks rebuilt from their far ends; 0 leaves it as drawn |
 | `place.via_leave` | 1.0 | how far a via inside its pad, with no spot clear inside it, may leave it, joined by a new tail; 0 never leaves |
 | `place.via_clear_cache` | 4096 | how many placed vias' clear moves a scan keeps, each searched once for every candidate that meets it; a speed setting, results are the same |
 | `place.drops_keep` | 0.5 | the share of a pad's drops (vias of a `plane()` net in it) the pad keeps, rounded up and never fewer than one: what `drops=Drops.MIN` keeps of each field, and what a pad keeps when a carried drop is dropped to clear another net's copper (1 drops none there) |
@@ -3231,6 +3248,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.congestion` | 10 | explore: mm per `explore.congestion_step` of the worst RUDY cell |
 | `score.via_share` | 1 | mm the search adds to a spot for each carried via that shares a via of its net there |
 | `score.via_move` | 2 | mm for each carried via that moves there |
+| `score.via_route` | 3 | mm for each routed via that moves with its tracks rebuilt there, between move and leave |
 | `score.via_leave` | 4 | mm for each carried via that leaves its pad there, between move and shorten |
 | `score.via_drop` | 10 | mm for each plane drop dropped there |
 | `score.push` | 10 | mm-equivalent: `score.push` times a push's modelled value over its limit, at the search |
