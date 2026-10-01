@@ -260,7 +260,7 @@ def parser() -> argparse.ArgumentParser:
                                       "fab minimums) and whether they match the last confirmation")
     fa.add_argument("script", help="the board's layout script")
     fa.add_argument("--confirm", action="store_true",
-                    help="record the printed facts' digest in placemat.toml's [facts] confirmed")
+                    help="record the printed facts' digest in the nearest placemat.toml's [facts.boards], keyed by this script")
     fa.add_argument("--json", action="store_true")
 
     # One way to ask for the report's form and place, whatever the command.
@@ -1272,9 +1272,14 @@ def cmd_facts(args) -> int:
     geometry = board.geometry
     plane_layers = frozenset(l for l, _nets in board._plane_layers().items())
     doc = facts_mod.facts_of(geometry, fab, cfg.check_rise_c, plane_layers)
-    reasons = facts_mod.unconfirmed_reasons(doc, cfg.facts_confirmed)
+    reasons = facts_mod.unconfirmed_reasons(doc, facts_mod.confirmed_digest(cfg, script))
     if args.confirm:
-        facts_mod.write_confirmed(src.board_dir / "placemat.toml", doc.digest())
+        # the placemat.toml the run uses: the nearest one up from the board, never a new one beside a
+        # script when an ancestor has one (it would cut a module off from the board's shared helpers)
+        from .settings import _files
+        found = _files(src.board_dir)
+        toml = found[-1] if found else src.board_dir / "placemat.toml"
+        facts_mod.write_confirmed(toml, doc.digest(), key=facts_mod.script_key(script, toml))
         console.say("facts", "confirmed: %s" % doc.digest())
         return 0
     if args.json:

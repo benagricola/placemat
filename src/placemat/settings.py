@@ -202,7 +202,8 @@ class Settings:
     cleanup_swap_radius: float = 1.0    # how far round the other's old spot each part of a swap is searched
 
     # [facts] - placemat's own record, not a board fact: never part of a run's id
-    facts_confirmed: str = ""           # a digest of the facts last confirmed with `placemat facts --confirm`
+    facts_confirmed: str = ""           # the old single digest, read for any script with no entry of its own in facts_boards
+    facts_boards: dict = field(default_factory=dict)   # script path (relative to the placemat.toml holding this table) -> digest
 
     # Where each value came from: a file path, "flag", or "default". Never
     # part of equality or of the run id: it says where, not what.
@@ -217,12 +218,12 @@ class Settings:
 
     def json(self) -> str:
         """Canonical, for the run id: the values only, sorted, stable across
-        dict ordering. facts_confirmed is left out: it is placemat's own
+        dict ordering. facts_confirmed and facts_boards are left out: it is placemat's own
         record of a user's confirmation, not a fact that changes a run, so
         confirming never gives a script a new run id."""
         out = {}
         for name in self.keys():
-            if name == "facts_confirmed":
+            if name in ("facts_confirmed", "facts_boards"):
                 continue
             v = getattr(self, name)
             out[name] = sorted(v.items()) if isinstance(v, dict) else (
@@ -233,8 +234,8 @@ class Settings:
         return replace(self, sources=dict(sources))
 
 
-# `[check.limits]` is the one sub-table: its section is two words.
-_SUBTABLES = ("check.limits", "drc.severities")
+# `[check.limits]`, `[drc.severities]` and `[facts.boards]` are the sub-tables: each section is two words.
+_SUBTABLES = ("check.limits", "drc.severities", "facts.boards")
 
 
 def split_key(name: str) -> tuple:

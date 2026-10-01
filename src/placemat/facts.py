@@ -115,31 +115,101 @@ def render(doc: FactsDocument, reasons: list) -> list:
     return lines
 
 
-_FACTS_SECTION_RE = re.compile(r"^\[facts\]\s*$", re.M)
+_FACTS_SECTION_RE = re.compile(r"^\[facts\][ \t]*$", re.M)
+_BOARDS_SECTION_RE = re.compile(r"^\[facts\.boards\][ \t]*$", re.M)
 _CONFIRMED_LINE_RE = re.compile(r'^confirmed\s*=\s*"[^"]*"\s*$', re.M)
 
 
-def write_confirmed(path, digest: str) -> None:
-    """Write [facts] confirmed = "<digest>" into a placemat.toml,
-    replacing an existing value in place or adding a new [facts] section -
-    the only part of the file this touches. Never fed into a run's id:
-    this is placemat's own record, not a board fact."""
+def script_key(script, toml) -> str:
+    """The key a script's digest has in [facts.boards]: its path relative
+    to the folder of the placemat.toml that holds the table, with forward
+    slashes. The path is what the digest is computed from (the script's own
+    plane() calls, over the board it declares), and it is unique where a
+    board's name is not: variants of one board share a name."""
+    return Path(script).resolve().relative_to(Path(toml).resolve().parent).as_posix()
+
+
+def confirmed_digest(cfg, script) -> str:
+    """The digest last confirmed for `script`: its own entry in [facts.boards]
+    (keyed relative to the placemat.toml that holds the table), else the old
+    single `confirmed` key, else ""."""
+    boards = cfg.facts_boards
+    if boards:
+        try:
+            key = script_key(script, cfg.source_of("facts_boards"))
+        except ValueError:
+            key = None
+        if key in boards:
+            return boards[key]
+    return cfg.facts_confirmed
+
+
+def _section_bounds(text: str, header_re) -> tuple:
+    """(start, end) of a section's body: after its header line, up to the
+    next header or the end of the text; None when it has no header."""
+    m = header_re.search(text)
+    if m is None:
+        return None
+    nxt = re.search(r"^\[", text[m.end():], re.M)
+    return m.end(), (m.end() + nxt.start() if nxt else len(text))
+
+
+def write_confirmed(path, digest: str, key: str = None) -> None:
+    """Record a confirmed digest in a placemat.toml, touching only [facts].
+    With `key` (a script's path relative to the file's folder) it is
+    `[facts.boards] "<key>" = "<digest>"`, replacing that key's value or
+    adding it; the old single `confirmed = "<digest>"` is dropped when it
+    holds this same digest (it is this script's, now keyed) and left for
+    the other scripts it may belong to otherwise. Without `key`, the old
+    single `confirmed` key. Never fed into a run's id: this is placemat's
+    own record, not a board fact."""
     p = Path(path)
     text = p.read_text() if p.exists() else ""
+    if key is not None:
+        text = _drop_old_key(text, digest)
+        line = "%s = %s" % (json.dumps(key), json.dumps(digest))
+        b = _section_bounds(text, _BOARDS_SECTION_RE)
+        if b is None:
+            if text and not text.endswith("\n"):
+                text += "\n"
+            text += "%s[facts.boards]\n%s\n" % ("\n" if text else "", line)
+        else:
+            body = text[b[0]:b[1]]
+            entry = re.compile(r"^%s[ \t]*=.*$" % re.escape(json.dumps(key)), re.M)
+            body = entry.sub(lambda _m: line, body, count=1) if entry.search(body) else "\n" + line + body
+            text = text[:b[0]] + body + text[b[1]:]
+        p.write_text(text)
+        return
     m = _FACTS_SECTION_RE.search(text)
     if m is None:
         if text and not text.endswith("\n"):
             text += "\n"
         text += "%s[facts]\nconfirmed = \"%s\"\n" % ("\n" if text else "", digest)
     else:
-        section_start = m.end()
-        next_section = re.search(r"^\[", text[section_start:], re.M)
-        section_end = section_start + next_section.start() if next_section else len(text)
-        section = text[section_start:section_end]
+        b = _section_bounds(text, _FACTS_SECTION_RE)
+        section = text[b[0]:b[1]]
         line = 'confirmed = "%s"\n' % digest
         if _CONFIRMED_LINE_RE.search(section):
             section = _CONFIRMED_LINE_RE.sub(line.rstrip("\n"), section, count=1)
         else:
-            section = "\n" + line + section.lstrip("\n")
-        text = text[:section_start] + section + text[section_end:]
+            section = "\n" + line.rstrip("\n") + section
+        text = text[:b[0]] + section + text[b[1]:]
     p.write_text(text)
+
+
+def _drop_old_key(text: str, digest: str) -> str:
+    """`text` without its [facts] confirmed line when that line holds
+    `digest`, and without the [facts] header if nothing else is left under
+    it."""
+    b = _section_bounds(text, _FACTS_SECTION_RE)
+    if b is None:
+        return text
+    section = text[b[0]:b[1]]
+    m = _CONFIRMED_LINE_RE.search(section)
+    if m is None or '"%s"' % digest not in m.group(0):
+        return text
+    section = section[:m.start()] + section[m.end():].lstrip("\n")
+    head = _FACTS_SECTION_RE.search(text)
+    if not section.strip():
+        return text[:head.start()] + text[b[1]:].lstrip("\n")
+    return text[:b[0]] + section + text[b[1]:]

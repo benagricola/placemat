@@ -7,7 +7,48 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **`SideOf(pad, along=True)`**: the side where a pad lies along its row,
+  the row's end it is nearer, for `Beside`'s side and for `Facing`'s
+  `toward=`. `SideOf(pad)` is the row's outward normal; `along=True` is the
+  row's end, for a part standing past the end of a package, on the side where
+  pin 1 or a supply pin lands, whichever way the package is turned or
+  flipped. It names one pad, and refuses a pad exactly mid-row (neither end
+  is nearer) and a pad with no row. `Facing(pads, toward=SideOf(pad,
+  along=True))` turns the pads to face the part whose row end that is.
+  `api.md`, "`Beside`" and "`Facing`".
+
+### Migration steps
+
+**A side picked by which end of a pin row a pad lies at becomes `SideOf(..., along=True)`.**
+
+```python
+# before: a flag for which end pin 1 lands at, kept in step with the part's turn
+PIN1_END = +1                                   # +1: pin 1 at the south end, -1: the north end
+board.place(Part("u"), at=Location(X, Y), rotation=TURN)
+board.place(Part("bypass"), at=Beside(Part("u"), Edge.SOUTH if PIN1_END > 0 else Edge.NORTH))
+
+# after: the side is where the pad lies along its row
+board.place(Part("bypass"), at=Beside(Part("u"), SideOf(PadRef(Part("u"), 1), along=True)),
+            rotation=Facing(PadRef(Part("bypass"), "SUPPLY"), toward=SideOf(PadRef(Part("u"), 1), along=True)))
+```
+
 ### Fixed
+
+- `placemat facts --confirm` writes into the nearest `placemat.toml` that
+  already exists above the board, the one the run uses, and creates one
+  beside the script only when none exists. A new one beside a module script
+  became the project root, so the runner stopped adding the board's folder to
+  the import path and the module's imports of the board's shared helpers
+  failed. The digest is recorded per script, in `[facts.boards]`, keyed by the
+  script's path relative to that file (`"modules/m/M_layout.py" = "..."`), so a
+  module and its parent board each keep their own. A file with the old single
+  `[facts] confirmed = "..."` still reads, for every script with no entry of
+  its own; the next `--confirm` of a script whose digest it holds moves it
+  into the table. Nothing in a script changes; a `placemat.toml` made beside
+  a module by the old `--confirm` can be deleted, and the module confirmed
+  again.
 
 - The "allow no 45" finding for a `Past(..., Corner.X)` waypoint is judged
   against copper on the track's own layer only: pads on that layer, vias whose

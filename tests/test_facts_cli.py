@@ -41,7 +41,7 @@ def test_facts_confirm_writes_placemat_toml(tmp_path, capsys):
     rc = cli.main(["facts", str(script), "--confirm"])
     assert rc == 0
     toml = (tmp_path / "placemat.toml").read_text()
-    assert "[facts]" in toml and "confirmed" in toml
+    assert "[facts.boards]" in toml and "Widget_layout.py" in toml
     capsys.readouterr()
     rc2 = cli.main(["facts", str(script)])
     out2 = capsys.readouterr().out

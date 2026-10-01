@@ -647,8 +647,11 @@ class Facing:
 
     `toward=PadRef(other, key)` in place of `edge` turns the pads' way out
     opposite the way out of that pad: the pads face it, for a part that
-    stands on the side of `other` where the pad lands. It is settled when
-    the part is placed, which waits for `other`."""
+    stands on the side of `other` where the pad lands. `toward=SideOf(
+    PadRef(other, key), along=True)` turns them opposite the row end that
+    pad lies at, for a part standing there (as `Beside(other, SideOf(...))`
+    stands it). It is settled when the part is placed, which waits for
+    `other`."""
     pads: object
     edge: Edge | None = None
     toward: object = field(default=None, kw_only=True, metadata={"omit_default": True})
@@ -660,9 +663,10 @@ class Facing:
         if self.edge is not None and not isinstance(self.edge, Edge):
             raise TypeError("Facing's edge is an Edge, not %r" % (self.edge,))
         if self.toward is not None:
-            if not isinstance(self.toward, PadRef):
-                raise TypeError("Facing's toward is a PadRef, not %r" % (self.toward,))
-            if any(isinstance(p, PadRef) and p.part == self.toward.part for p in self.pads):
+            if not isinstance(self.toward, (PadRef, SideOf)):
+                raise TypeError("Facing's toward is a PadRef or a SideOf, not %r" % (self.toward,))
+            target = self.toward if isinstance(self.toward, PadRef) else self.toward.pads[0]
+            if any(isinstance(p, PadRef) and p.part == target.part for p in self.pads):
                 raise TypeError("Facing's toward is a pad of another part than the one it turns")
 
 
@@ -671,13 +675,24 @@ class SideOf:
     """The side of the board a part's pads face once it is placed: their way
     out (as `Facing` reads it) with the part's turn and face applied,
     snapped to the nearest axis. For `Beside`'s side, which waits for the
-    pads' part. `pads` is a `PadRef` or a list of them."""
+    pads' part. `pads` is a `PadRef` or a list of them.
+
+    `along=True` takes the side where one pad lies along its row instead: the
+    row's end that pad is nearer, with the part's turn and face applied. It
+    names one pad, whose row's middle is no end: a pad exactly mid-row is
+    refused. `Facing(pads, toward=SideOf(pad, along=True))` turns the pads to
+    face that end's part, as `toward=` a pad does for the pad's way out."""
     pads: object
+    along: bool = field(default=False, kw_only=True, metadata={"omit_default": True})
 
     def __post_init__(self):
         pads = _pads_of_one_part("SideOf", self.pads)
         if not all(isinstance(p, PadRef) for p in pads):
             raise TypeError("SideOf's pads are PadRefs of the part placed, not bare keys")
+        if not isinstance(self.along, bool):
+            raise TypeError("SideOf's along is True or False, not %r" % (self.along,))
+        if self.along and len(pads) != 1:
+            raise TypeError("SideOf(along=True) names one pad, the one whose end of its row is wanted, not %d" % len(pads))
         object.__setattr__(self, "pads", pads)
 
 

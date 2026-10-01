@@ -402,7 +402,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         from . import facts as facts_mod
         facts_geometry = read_board(src.pcb, courtyard_excess_mm=fab.courtyard_excess)
         facts_doc = facts_mod.facts_of(facts_geometry, fab, cfg.check_rise_c)
-        facts_reasons = facts_mod.unconfirmed_reasons(facts_doc, cfg.facts_confirmed)
+        facts_reasons = facts_mod.unconfirmed_reasons(facts_doc, facts_mod.confirmed_digest(cfg, script))
         if facts_reasons:
             say("facts", facts_mod.unconfirmed_line(facts_reasons))
 
