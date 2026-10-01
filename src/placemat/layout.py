@@ -4675,8 +4675,8 @@ class Board:
         for v in vias:
             self._check_pour_via(name, v)
         if vias and not swallow_pads:
-            raise ValueError("pour %s: a via is a member of a fitted pour (swallow_pads=True), not of one drawn as "
-                             "declared" % name)
+            raise TypeError("pour %s: a via may be a track's end point, one of a Past's items or a member of a fitted "
+                            "pour (swallow_pads=True), and only that" % name)
         all_pads = all(isinstance(p, (PadRef, CellPadRef)) for p in points)
         neck = len(points) == 2 and all_pads
         if len(points) < 3 and not neck and not vias:

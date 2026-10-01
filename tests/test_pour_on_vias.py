@@ -171,7 +171,7 @@ def test_the_pour_waits_for_a_free_spot_via_and_the_part_it_is_found_from(pour_b
 def test_a_via_member_without_swallow_pads_is_refused():
     b = _board(extra_nets=["A"])
     members = [_via(b, x, 10.0) for x in (10.0, 13.0, 16.0)]
-    with pytest.raises(ValueError, match="swallow_pads"):
+    with pytest.raises(TypeError, match="swallow_pads"):
         b.pour(Net("A"), members, layer=IN2)
 
 
