@@ -5,6 +5,29 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A label gives way to a firm part**: a `board.label()` is a user's mark,
+  so a part placed firmly (`Location`, `Pin`, `Beside`, `OnEdge`, `row`)
+  within the silk clearance of its text, or on its box, no longer collides
+  with it: the part stays where it was put and the label moves, along its
+  declared side, then to the item's other sides, always next to its item.
+  The label's step note says where it moved from and to; with no clear spot
+  it stays and a `label` finding names it. `label.slide_step` (0.25 mm) is
+  the step along a side. A `Location` or `Beside` that was nudged off a
+  label to clear it can go back to where it belongs, and a label's declared
+  `side=` and `align=` are now where it prefers to stand, not where it
+  must.
+
+### Fixed
+
+- A `Beside` (or any firm placement) next to a cell with a labelled member
+  stopped the run with "silk is 0.17 mm from label ... silk (needs 0.20)"
+  when the label's text stood slightly past the member's end. The label now
+  slides clear of the placed part.
+
 ## To 0.68.0
 
 ### New

@@ -89,6 +89,7 @@ class Settings:
     label_size: float = 1.0
     label_thickness: float = 0.15
     label_gap: float = 0.0
+    label_slide_step: float = 0.25       # the step a label gives way by along its item's side
     # [geometry]
     geometry_arc_sag: float = 0.02
     geometry_index_cells: int = 16
@@ -298,7 +299,7 @@ _ABOVE_ZERO = frozenset((
     "place_refine_around", "place_block_gap_step", "place_block_gap_reach", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "score_escape_depth", "place_via_move_step", "place_via_clear_cache",
     "place_conflict_gap", "place_fit_room", "copper_bridge_half", "copper_finger_bridge_width",
     "copper_plane_min_thickness", "copper_pour_stroke", "copper_microvia_drill", "label_size",
-    "label_thickness", "geometry_arc_sag", "geometry_index_cells",
+    "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_zone_step",
     "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm",
