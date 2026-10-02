@@ -78,14 +78,14 @@ const mk = sel => new Proxy({
   getBoundingClientRect() { return {x: 0, y: 0, width: 412, height: 600, left: 0, top: 0}; },
 }, {get: (o, k) => k in o ? o[k] : undefined});
 const stub = sel => els[sel] || (els[sel] = mk(sel));
-const listeners = {}, frames = [];
+const listeners = {}, frames = [], fetched = [];
 const flush = () => { while (frames.length) frames.shift()(); };
 const flushOnce = () => { frames.splice(0).forEach(f => f()); };
 const ctx = {
   document: {querySelector: stub, querySelectorAll: () => [], body: {dataset: {}}, elementFromPoint: () => null},
   window: {addEventListener() {}}, location: {search: "?t=x"}, matchMedia: () => ({matches: true}), Date: FakeDate,
   EventSource: class { constructor() { this.addEventListener = (n, f) => { listeners[n] = f; }; } },
-  requestAnimationFrame: f => { frames.push(f); }, setInterval() {}, clearInterval() {}, setTimeout() {}, fetch: () => Promise.reject(new Error("no")),
+  requestAnimationFrame: f => { frames.push(f); }, setInterval() {}, clearInterval() {}, setTimeout() {}, fetch: (u, o) => { fetched.push([u, o]); return Promise.reject(new Error("no")); },
   URLSearchParams, console,
 };
 vm.createContext(ctx);
@@ -316,3 +316,208 @@ def test_the_page_follows_the_colour_scheme_and_draws_with_stylesheet_colours():
     assert "prefers-color-scheme: dark" in text
     script = text[text.index("<script>"):]
     assert not re.search(r'(?:fill|stroke)="#[0-9a-fA-F]{3,6}"', script)          # no colour fixed in the drawing code
+
+
+# ---------------------------------------------------------------- the second pass: legend, units, links, modules, severity, script list
+SETUP = r"""
+const cellItem = (key, cell, refs, x) => ({key, kind: "cell", placed: true, face: "front", rotation: 90, note: "rides X; slid 0.5 mm from its slot", how: "decided", freedom: "fixed", why: "the module's reason",
+  members: refs.map((r, i) => ({ref: r, value: "10 nF", cell, shapes: [shape("courtyard", [[x + 3 * i, 1], [x + 3 * i + 2, 1], [x + 3 * i + 2, 3]]), shape("pad", [[x + 3 * i, 1], [x + 3 * i + 1, 1], [x + 3 * i + 1, 2]])]}))});
+const emptyKeepoutStep = key => ({key, kind: "keepout", placed: true, face: "front", rotation: 0, note: "", how: "decided", freedom: "fixed", members: []});
+const LINK = {a: ["Ra", "1"], b: ["Rb", "2"], pa: [1, 1], pb: [5, 1], length: 0.812, limit: 2.5, state: "ok", kind: "SHORT", weight: 8, why: "at the pin"};
+const KO = {name: "antenna_clear", poly: [[0, 0], [3, 0], [3, 3]], why: "no copper here", layers: ["F.Cu"], excludes: ["tracks", "vias"], allow: ["GND"], max_height: null};
+const RES = {poly: [[4, 4], [6, 4], [6, 6]], why: "fanout of mcu (north side)", face: "front", source: "fanout", allow: [], rule_area: false};
+const full = (items, steps, extra = {}) => {
+  hello(); started(1);
+  send("board", Object.assign({}, BOARD, {keepouts: [KO], reservations: [RES]}));
+  send("links", {id: 1, links: [LINK]});
+  send("copper", {id: 1, copper: [{t: "track", layer: "F.Cu", face: "front", width: 0.2, a: [0, 0], b: [1, 1], net: "N"}, {t: "plane", layer: "In1.Cu", face: "inner", points: [[0, 0], [4, 0], [4, 4]], net: "G"},
+    {t: "via", at: [2, 2], size: 0.45, drill: 0.2, net: "N", layers: []}]});
+  send("findings", {id: 1, findings: extra.findings || []});
+  send("items", {id: 1, items, steps, unplaced: [], pocketed: [], board: BOARD.board, keepouts: [KO], reservations: [RES]});
+  send("finished", {id: 1, counts: {placed: items.length, findings: 0}, score: {total: 3}, timing: {total_s: 1, first_step_s: 0.1}, reused: "", notes: [], history: [{id: 1, at: 0, changed: [], timing: {}, counts: {}}]});
+};
+const st = (item, kind = "part", placed = true) => ({item, kind, placed, note: "", freedom: "fixed"});
+"""
+
+
+def run_more(tmp_path, tail):
+    return run_page(tmp_path, SETUP + tail)
+
+
+@needs_node
+def test_keepout_and_setup_steps_are_not_positions_of_the_replay(tmp_path):
+    """A step that settled a keepout (or any region) draws no part of its own: it is not on the slider or in the
+    placement list, and a board whose first steps are keepouts replays from its first part."""
+    out = run_more(tmp_path, r"""
+full([emptyKeepoutStep("k1"), emptyKeepoutStep("k2"), item("a", 1), item("b", 5)], [st("k1", "keepout"), st("k2", "keepout"), st("a"), st("b")]);
+out.order = ev("placementSteps(plan())").map(s => s.item);
+out.max = els["#slider"].max; out.other = ev("otherSteps(plan())").map(s => s.item); out.items = ev("itemsOf(plan())").map(i => i.key);
+out.rows = (els["#tab-steps"].innerHTML.match(/data-n="/g) || []).length;
+out.stat = els["#stats"].innerHTML;
+""")
+    assert out["order"] == ["a", "b"] and out["max"] == 2 and out["items"] == ["a", "b"] and out["rows"] == 2
+    assert out["other"] == ["k1", "k2"] and "<b>2</b>placed" in out["stat"]
+
+
+@needs_node
+def test_python_is_highlighted_line_by_line(tmp_path):
+    out = run_more(tmp_path, r"""
+out.lines = ev('highlightPython("def f(x):\\n    \\"\\"\\"doc\\n    more\\"\\"\\"\\n    return g(x, 1.5)  # note <b>\\n")');
+""")
+    ls = out["lines"]
+    assert ls[0] == '<span class="tk">def</span> <span class="tf">f</span>(x):'
+    assert ls[1].count('class="ts"') == 1 and ls[2].count('class="ts"') == 1       # a string over two lines, closed on each
+    assert '<span class="tk">return</span> <span class="tf">g</span>(x, <span class="tn">1.5</span>)' in ls[3]
+    assert '<span class="tc"># note &lt;b&gt;</span>' in ls[3] and len(ls) == 5
+
+
+@needs_node
+def test_the_legend_switches_each_kind_by_a_stylesheet_rule_and_designators_start_off(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+out.start = els["#visrules"].textContent;
+out.legend = els["#legend"].innerHTML;
+const click = id => els["#legend"].onclick({target: {closest: s => s === "[data-id]" ? {dataset: {id}} : null}});
+click("via"); click("labels"); click("link:over"); click("cu:In1.Cu"); click("res:fanout of mcu (north side)");
+out.rules = els["#visrules"].textContent;
+els["#legend"].onclick({target: {closest: s => s === "[data-exp]" ? {dataset: {exp: "ko"}} : null}});
+out.expanded = els["#legend"].innerHTML;
+click("ko:antenna_clear");
+out.ko = els["#visrules"].textContent;
+out.rules2 = ev('visRules(new Set(["cy", "ko", "cu:F.Cu", "link:ok"]))');
+""")
+    assert out["start"] == "#board .ref { display: none; }"                      # designators are off until asked for
+    for row in ('data-id="cy"', 'data-id="cu:F.Cu"', 'data-id="via"', 'data-id="link:ok"', 'data-id="link:over"', 'data-id="ko"', 'data-id="res"', 'data-id="findings"'):
+        assert row in out["legend"]
+    assert '<em>1</em>' in out["legend"] and "within its limit" in out["legend"]
+    assert "#board .viag { display: none; }" in out["rules"] and ".ref" not in out["rules"]               # via off, designators on
+    assert '#board .lkg[data-st="over"]' in out["rules"] and '#board [data-l="In1.Cu"]' in out["rules"] and '[data-res="fanout of mcu (north side)"]' in out["rules"]
+    assert 'data-id="ko:antenna_clear"' in out["expanded"]                          # a keepout has its own row
+    assert '[data-ko="antenna_clear"]' in out["ko"]
+    assert out["rules2"].split("\n") == ["#board .cy { display: none; }", "#board .ko { display: none; }", '#board [data-l="F.Cu"] { display: none; }', '#board .lkg[data-st="ok"] { display: none; }']
+
+
+@needs_node
+def test_units_follow_every_figure(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1), item("b", 5)], [st("a"), st("b")]);
+out.area = ev('esc("rank 3/9 (12.3 mm2, 2 pins)")'); out.deg = ev("deg(90)");
+ev('selectItem("a", {})'); flush();
+out.card = els["#card"].innerHTML;
+out.tip = ev('fmtUnits("12.3 mm2")');
+out.code = ev('highlightPython("x = mm2")').join("");
+""")
+    assert out["area"] == "rank 3/9 (12.3 mm\u00b2, 2 pins)" and out["deg"] == "90\u00b0" and out["tip"] == "12.3 mm\u00b2"
+    assert "rotated 0\u00b0" in out["card"]
+    assert "mm2" in out["code"]                                                   # source code is shown as written
+
+
+@needs_node
+def test_a_part_card_lists_its_links_with_their_kind_and_the_links_are_drawn_with_a_direction(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1), item("b", 5)], [st("a"), st("b")]);
+out.board = board().innerHTML;
+ev('selectItem("a", {ref: "Ra"})'); flush();
+out.card = els["#card"].innerHTML;
+out.tip = ev("linkLine(plan().links[0], null)");
+""")
+    assert 'marker-end="url(#ar-ok)"' in out["board"] and 'data-a="Ra"' in out["board"] and 'data-b="Rb"' in out["board"] and "lkdot" in out["board"]
+    assert "SHORT" in out["card"] and "Ra.1 -&gt; Rb.2" in out["card"] and "0.812 / 2.5 mm" in out["card"] and "1 link" in out["card"]
+    assert out["tip"] == "SHORT  Ra.1 -> Rb.2  0.812 mm of 2.5 allowed"
+
+
+@needs_node
+def test_a_keepouts_card_names_its_layers_excludes_and_allow(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+ev('selectRegion("ko", "antenna_clear")'); flush();
+out.card = els["#card"].innerHTML;
+out.tip = ev('regionLines("ko", "antenna_clear", plan())'); out.res = ev('regionLines("res", "fanout of mcu (north side)", plan())');
+ev("renderBoard()"); out.board = board().innerHTML;
+""")
+    assert "antenna_clear" in out["card"] and "F.Cu" in out["card"] and "tracks, vias" in out["card"] and "GND" in out["card"] and "no copper here" in out["card"]
+    assert out["tip"][0] == "keepout antenna_clear" and "excludes: tracks, vias" in out["tip"] and out["res"][0] == "reserved area"
+    assert 'class="ko sel" data-ko="antenna_clear"' in out["board"] and 'data-res="fanout of mcu (north side)"' in out["board"]
+
+
+@needs_node
+def test_selecting_a_part_offers_its_module_and_selecting_that_lights_all_its_parts(tmp_path):
+    out = run_more(tmp_path, r"""
+full([cellItem("psu", "psu", ["C1", "C2"], 1), Object.assign(item("b", 12), {members: [{ref: "Rb", value: "", cell: "", shapes: item("b", 12).members[0].shapes}]})], [st("psu", "cell"), st("b")]);
+out.keys = [...ev('moduleKeys(plan(), "psu")')]; out.refs = ev('moduleRefs(plan(), "psu")');
+ev('selectItem("psu", {ref: "C2"})'); flush();
+out.part = els["#card"].innerHTML;
+els["#card"].onclick({target: {closest: s => s === "[data-act]" ? {dataset: {act: "module", id: "psu"}} : null}}); flush();
+out.module = els["#card"].innerHTML; out.sel = ev("[S.sel, S.selRef, S.module]");
+out.single = ev('moduleOf(Object.assign({}, plan().items.find(i => i.key === "b"), {kind: "part"}), "Rb")');
+""")
+    assert out["keys"] == ["psu"] and out["refs"] == ["C1", "C2"]
+    assert "C2" in out["part"] and "select its module" in out["part"] and "psu" in out["part"]
+    assert "module psu" in out["module"] and 'data-ref="C1"' in out["module"] and 'data-ref="C2"' in out["module"]
+    assert out["sel"] == ["psu", None, "psu"] and out["single"] == ""
+
+
+@needs_node
+def test_how_a_step_was_placed_is_said_in_words(tmp_path):
+    out = run_more(tmp_path, r"""
+const w = (s, it) => ev("howText(" + JSON.stringify(s) + ", " + JSON.stringify(it) + ")");
+out.rides = w({note: "rides l_match"}, null);
+out.decided = w({freedom: "fixed", note: ""}, null);
+out.edge = w({freedom: "edge", note: "slid 0.50 mm from its slot: x"}, null);
+out.searched = w({freedom: "searched", note: "rank 3/9 (4 mm2); seeded on VDD)"}, null);
+out.pocket = w({}, {how: "pocket"});
+out.step = els["#tab-steps"].innerHTML;
+full([item("a", 1)], [Object.assign(st("a"), {note: "rank 1/2; the whole note", why: "because"})], {findings: [{text: "a (fixed): sits close", kind: "k", at: null, item: "a", severity: "critical"}]});
+out.row = els["#tab-steps"].innerHTML;
+""")
+    assert out["rides"] == "rides l_match" and out["decided"] == "decided at a point" and out["edge"] == "decided along an edge, slid 0.50 mm"
+    assert out["searched"] == "searched: rank 3 of 9, seeded on VDD" and out["pocket"].startswith("pocket")
+    assert "Each row is one step" in out["row"] and 'class="fdot critical"' in out["row"] and "the whole note" in out["row"] and 'class="full"' in out["row"]
+
+
+@needs_node
+def test_findings_default_to_warning_group_by_severity_when_given_and_keep_room_for_a_fix(tmp_path):
+    out = run_more(tmp_path, r"""
+const f = (text, severity) => Object.assign({text, kind: "kind_a", at: null, item: ""}, severity ? {severity} : {});
+full([item("a", 1)], [st("a")], {findings: [f("one"), f("two")]});
+out.plain = els["#tab-findings"].innerHTML;
+full([item("a", 1)], [st("a")], {findings: [f("n1", "notice"), f("w1", "warning"), f("c1", "critical"), f("old")]});
+out.mixed = els["#tab-findings"].innerHTML;
+els["#tab-findings"].onclick({target: {closest: s => s === "[data-sev]" ? {dataset: {sev: "critical"}} : null}});
+out.filtered = els["#tab-findings"].innerHTML;
+""")
+    assert 'class="sev warning"' in out["plain"] and 'class="gh" data-kind="kind_a"' in out["plain"] and "filters" not in out["plain"]
+    assert out["mixed"].index('data-kind="critical"') < out["mixed"].index('data-kind="warning"') < out["mixed"].index('data-kind="notice"')
+    assert "all 4" in out["mixed"] and "critical 1" in out["mixed"] and out["mixed"].count('class="fixslot"') == 4     # an old finding is a warning
+    assert 'data-kind="warning"' not in out["filtered"] and "c1" in out["filtered"] and "w1" not in out["filtered"]
+
+
+@needs_node
+def test_silk_text_is_drawn_with_its_own_justification_rotation_and_mirroring(tmp_path):
+    out = run_more(tmp_path, r"""
+out.a = ev('silkText({text: "TOP <1>", at: [5, 6], size: 0.8, rotation: 90, hjust: "left", vjust: "bottom", mirrored: false})');
+out.b = ev('silkText({text: "X", at: [1, 2], size: 1, rotation: 0, hjust: "centre", vjust: "centre", mirrored: true})');
+out.size = [ev('labelSize("R12", 0.6)'), ev('labelSize("R1", 6)')];
+""")
+    assert 'transform="translate(5 6) rotate(-90)"' in out["a"] and 'text-anchor="start"' in out["a"] and 'dominant-baseline="text-after-edge"' in out["a"] and "TOP &lt;1&gt;" in out["a"]
+    assert 'scale(-1 1)' in out["b"] and 'text-anchor="middle"' in out["b"] and 'dominant-baseline="central"' in out["b"]
+    assert out["size"][0] == 0 and out["size"][1] == 0.9                        # a designator that does not fit its part is not drawn
+
+
+@needs_node
+def test_the_script_list_is_the_layout_scripts_and_choosing_one_asks_the_server_to_switch(tmp_path):
+    out = run_page(tmp_path, r"""
+const scripts = [{id: "m/A_layout.py", title: "A", subtitle: "first", current: true}, {id: "m/B_layout.py", title: "B", subtitle: "", current: false}];
+send("hello", {script: "A_layout.py", title: "A", subtitle: "first board", scripts, keep: 5, history: [], resolving: null, error: null});
+send("started", {id: 1, script: "A_layout.py", at: 0, texts: {"A_layout.py": "board.place()\n", "core_geometry.py": "def f(): pass\n", "placemat.toml": ""}, changed: [], stale_files: []});
+out.title = [els["#board-title"].textContent, els["#board-sub"].textContent];
+out.options = els["#file"].innerHTML;
+els["#file"].handlers.change[0]({target: {value: "L:m/B_layout.py"}});
+out.fetched = fetched.map(([u, o]) => [u, o.method, o.body]);
+send("switched", {script: "B_layout.py", title: "B", subtitle: "", scripts: scripts.map(s => Object.assign({}, s, {current: !s.current})), keep: 5, history: [], resolving: null, error: null});
+out.after = [els["#board-title"].textContent, ev("S.docs.size"), ev("S.live"), ev("S.status")];
+""")
+    assert out["title"] == ["A", "first board"]
+    assert "m/A_layout.py" in out["options"] and "m/B_layout.py" in out["options"] and "core_geometry" not in out["options"] and "placemat.toml" not in out["options"]
+    assert out["fetched"] == [["/switch?t=x", "POST", '{"script":"m/B_layout.py"}']]
+    assert out["after"] == ["B", 0, None, "waiting"]

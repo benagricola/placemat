@@ -96,12 +96,34 @@ dependency.
   placed and its note. Clicking a step zooms to its item. The slider and the
   list share one set of positions: the placement steps, one per item the
   board draws, in order. Copper steps (fanouts, escapes, vias, pours) and
-  steps that placed nothing are listed apart and are not positions. Dragging
+  steps that placed nothing, such as a keepout's, are listed apart and are not positions. Dragging
   shows steps 1..k, changing only the items between the old and the new
   position; play advances at a steady rate from the clock and stops when a
   new resolve starts.
 - **Findings**, grouped by kind with counts, with a click to zoom to each
-  one's place.
+  one's place. A finding's `severity` (notice, warning, critical; absent
+  means warning) groups them and filters them when any carries one; each row
+  keeps a slot for a fix action.
+- **The legend** beside the board (a sheet from a button on a phone) is the
+  colour key and the switch for each kind of thing: parts, copper per layer
+  (with "only"), vias drawn as rings with their drill, links within / over /
+  without a limit, keepouts and reserved areas (each expandable to one row
+  per region), findings, congestion, changes. A link is drawn from the pad of
+  the part it was declared on to its partner pad with an arrow, coloured by
+  its limit. Designators are off until switched on; the tooltip and the
+  selected-item card carry the name, value, kind, module, face, rotation, how
+  it was placed, links with their kind and limit, findings, and for a keepout
+  its layers, excludes and allow. A part offers "select its module", which
+  lights all the module's parts. Distances, areas and angles show units.
+- **The board's name** is the one placemat knows it by (the `.zen` name), the
+  first line of the script's docstring is its subtitle (a leading "<name>:"
+  removed), the folder's name stands in when there is no name.
+- **The script** has a view of its own at the full width, with Python syntax
+  colours. Its selector lists the project's layout scripts: Python files that
+  call `board.` as they load and that `find_board` resolves; helper modules
+  are not listed, their changes still show in the Compare line diff. Choosing
+  one POSTs `/switch` (token required, a listed script only) and the studio
+  watches and resolves that script.
 - **Hover a part**: its name, value, cell, face, rotation, how it was placed
   (decided, searched, slide), its links and their lengths.
 - **Script, linked**: the script beside the board, read only in phase 1.

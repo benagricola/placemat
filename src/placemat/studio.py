@@ -12,9 +12,14 @@ files and their diffs, a `step` for each item as it settles, then `copper`,
 it; the page is told at once (`changed`), so a plan that no longer matches the
 files is never shown as current.
 
-The last `keep` resolves are kept so the page can compare any two (`/diff`)."""
+The last `keep` resolves are kept so the page can compare any two (`/diff`).
+
+The page lists the project's layout scripts (files that call `board.` at module
+level and that the runner can run) and POST /switch makes the studio watch
+another of them: only a layout script under the project root is accepted."""
 from __future__ import annotations
 
+import ast
 from collections import deque
 from dataclasses import dataclass, field
 import hmac
@@ -23,6 +28,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import re
 import secrets
 import subprocess
 import sys
@@ -152,6 +158,95 @@ class WorkerProcess:
         self.kill()
 
 
+_SKIP_DIRS = {".git", ".placemat", "__pycache__", "node_modules", ".venv", "venv", "generated"}
+_SCAN_LIMIT = 20000         # files looked at when listing the layout scripts
+
+
+def project_root(board_dir) -> Path:
+    """The project a board belongs to: the folder of the outermost placemat.toml above it (what settings and script
+    imports treat as the root), else the workspace pcb.toml's, else the board's own folder."""
+    from .settings import _files
+    board_dir = Path(board_dir).resolve()
+    found = _files(board_dir)
+    if found:
+        return found[0].parent.resolve()
+    d = board_dir
+    while True:
+        pt = d / "pcb.toml"
+        if pt.is_file() and "[workspace]" in pt.read_text(errors="replace"):
+            return d
+        if d.parent == d:
+            return board_dir
+        d = d.parent
+
+
+def _module_level(node):
+    """The nodes that run when a module loads: everything but the bodies of functions, classes and lambdas."""
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        yield child
+        yield from _module_level(child)
+
+
+def declares_board(path) -> bool:
+    """Whether a Python file lays a board out: it calls `board.<something>(...)` as it loads, which a helper module
+    of functions does not. Not the file's name."""
+    try:
+        text = Path(path).read_text(errors="replace")
+        if "board." not in text:
+            return False
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError, OSError):
+        return False
+    for node in _module_level(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) \
+                and node.func.value.id == "board":
+            return True
+    return False
+
+
+def script_titles(path, src) -> tuple:
+    """(title, subtitle) of a layout script: the name placemat knows the board or module by (the .zen's name), and
+    the first line of the script's docstring, without a leading "<name>:"; the folder's name when there is no name."""
+    title = src.name or src.board_dir.name
+    sub = ""
+    try:
+        doc = ast.get_docstring(ast.parse(Path(path).read_text(errors="replace")))
+    except (SyntaxError, ValueError, OSError):
+        doc = None
+    if doc and doc.strip():
+        sub = doc.strip().splitlines()[0].strip()
+        m = re.match(r"%s\s*[:\-]\s*(.*)" % re.escape(title), sub, re.I)
+        if m:
+            sub = m.group(1).strip()
+    return title, sub
+
+
+def layout_scripts(root) -> list:
+    """The layout scripts under a project root, sorted: Python files that declare a board and that find_board can
+    resolve (so `placemat run` can run them)."""
+    from .project import find_board
+    root, out, seen = Path(root), [], 0
+    for folder, dirs, files in os.walk(root):
+        dirs[:] = sorted(d for d in dirs if d not in _SKIP_DIRS and not d.startswith("."))
+        for name in sorted(files):
+            seen += 1
+            if seen > _SCAN_LIMIT:
+                return out
+            if not name.endswith(".py"):
+                continue
+            path = Path(folder, name)
+            if not declares_board(path):
+                continue
+            try:
+                src = find_board(path)
+            except (FileNotFoundError, ValueError, OSError):
+                continue
+            out.append((path.resolve(), src))
+    return out
+
+
 class Studio:
     def __init__(self, script, port: int | None = None, open_browser: bool | None = None, host: str = "127.0.0.1", **settings):
         self.host = host            # the address listened on: 127.0.0.1 unless --host widens it
@@ -161,6 +256,8 @@ class Studio:
         if not self.script.is_file():
             raise ValueError("%s is not a file" % script)
         self.src = find_board(self.script)
+        self.root = project_root(self.src.board_dir)
+        self._scripts = None
         cfg = settings_mod.load(self.src.board_dir, script=self.script)
         get = lambda name, given: given if given is not None else settings.get(name, getattr(cfg, "studio_" + name))
         self.port = get("port", port)
@@ -188,6 +285,54 @@ class Studio:
         self._error = None
         views = self.src.board_dir / ".placemat" / "views" / "studio"
         self.worker = WorkerProcess(self._on_worker, views / "worker.log")
+
+    # ------------------------------------------------------------ the layout scripts
+    def scripts(self) -> list:
+        """The project's layout scripts as the page lists them, scanned once and kept."""
+        if self._scripts is None:
+            found = layout_scripts(self.root)
+            with self.lock:
+                if self.script not in {p for p, _ in found}:
+                    found.append((self.script, self.src))
+                self._scripts = [{"id": Path(os.path.relpath(p, self.root)).as_posix(), "path": p, "src": s} for p, s in sorted(found, key=lambda x: str(x[0]))]
+        return self._scripts
+
+    def _scan_scripts(self) -> None:
+        """The listing, made off the request threads and sent to the pages when it is ready."""
+        try:
+            self.scripts()
+        except Exception as e:                  # a project the scan cannot read leaves the list at the current script
+            print("studio: listing the layout scripts: %s: %s" % (type(e).__name__, e), file=sys.stderr)
+            return
+        with self.lock:
+            self.hub.emit("scripts", {"scripts": self.script_list()})
+
+    def script_list(self) -> list:
+        out = []
+        for s in self._scripts or [{"id": self.script.name, "path": self.script, "src": self.src}]:
+            title, sub = script_titles(s["path"], s["src"])
+            out.append({"id": s["id"], "title": title, "subtitle": sub, "current": s["path"] == self.script})
+        return out
+
+    def switch(self, rel: str) -> None:
+        """Watch and resolve another layout script of the project. Only one the listing offers is accepted."""
+        from .project import find_board
+        target = next((s for s in self.scripts() if s["id"] == rel), None)
+        if target is None:
+            raise ValueError("%s is not a layout script of this project" % rel)
+        with self.lock:
+            if target["path"] == self.script:
+                return
+            self.worker.kill()                  # whatever it was resolving is of the old script
+            self.script, self.src = target["path"], find_board(target["path"])
+            self.history.clear()
+            self._cur, self._cancel_at, self._error, self._dirty = None, None, None, False
+            self.debounce.stopped()
+            self.hub.log.clear()
+            self._files = self.watched()
+            self._poller = Poller(lambda: self._files)
+            self._initial = True                # the next tick resolves it
+            self.hub.emit("switched", self._hello_data())
 
     # ------------------------------------------------------------ files
     def name_of(self, path) -> str:
@@ -245,7 +390,7 @@ class Studio:
         self.url = "http://%s:%d/?t=%s" % (_url_host(self.host), self.port, self.token)
         self._files = self.watched()
         self._poller = Poller(lambda: self._files)
-        for target in (self.server.serve_forever, self._watch):
+        for target in (self.server.serve_forever, self._watch, self._scan_scripts):
             t = threading.Thread(target=target, daemon=True)
             t.start()
             self._threads.append(t)
@@ -398,7 +543,7 @@ class Studio:
         emit("findings", {"id": rid, "findings": doc["findings"]}, keep=True)
         emit("items", {"id": rid, "items": doc["items"], "steps": doc["steps"], "unplaced": doc["unplaced"],
                        "pocketed": doc["pocketed"], "board": doc["board"], "keepouts": doc["keepouts"],
-                       "reservations": doc["reservations"]}, keep=True)
+                       "reservations": doc["reservations"], "layers": doc["layers"]}, keep=True)
         emit("finished", {"id": rid, "counts": doc["counts"], "timing": rec.timing, "reused": rec.reused, "notes": rec.notes,
                           "score": doc.get("score"), "history": [r.summary() for r in self.history]}, keep=True)
         if previous is not None:
@@ -419,14 +564,17 @@ class Studio:
         with self.lock:
             return next((r for r in self.history if r.id == rid), None)
 
+    def _hello_data(self) -> dict:
+        title, sub = script_titles(self.script, self.src)
+        return {"script": self.script.name, "keep": self.keep, "title": title, "subtitle": sub,
+                "scripts": self.script_list(), "history": [r.summary() for r in self.history],
+                "resolving": self._cur["id"] if self._cur else None, "error": self._error}
+
     def hello(self) -> list:
         """What a page that connects now is told before the live stream: the
         studio's state, and the latest finished resolve whole."""
         with self.lock:
-            out = [("hello", json.dumps({"script": self.script.name, "keep": self.keep,
-                                         "history": [r.summary() for r in self.history],
-                                         "resolving": self._cur["id"] if self._cur else None,
-                                         "error": self._error}, separators=(",", ":")))]
+            out = [("hello", json.dumps(self._hello_data(), separators=(",", ":")))]
             if self.history:
                 last = self.history[-1]
                 prev = self.history[-2] if len(self.history) > 1 else None
@@ -487,7 +635,22 @@ def _handler(studio: Studio):
         def _no(self):
             self._refuse(405, "this server only answers GET")
 
-        do_POST = do_PUT = do_DELETE = do_PATCH = _no
+        def do_POST(self):
+            """Only /switch, with the token: it changes which layout script is watched, nothing else."""
+            url = urlparse(self.path)
+            if url.path != "/switch":
+                return self._no()
+            if not self._allowed(parse_qs(url.query)):
+                return self._refuse(403, "forbidden: open the address `placemat studio` printed")
+            try:
+                n = min(int(self.headers.get("Content-Length") or 0), 4096)
+                body = json.loads(self.rfile.read(n) or b"{}")
+                studio.switch(str(body.get("script", "")))
+            except (ValueError, FileNotFoundError, TypeError) as e:
+                return self._refuse(400, str(e))
+            return self._json({"ok": True})
+
+        do_PUT = do_DELETE = do_PATCH = _no
 
         def _send(self, code, ctype, body: bytes):
             self.send_response(code)
