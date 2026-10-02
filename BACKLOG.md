@@ -8,6 +8,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Open
 
+- **Arc corners on a pair** (the arc-bends work, 2026-10-02): `board.pair`
+  keeps its 45 chamfers; a pair of arc corners needs two concentric arcs, R
+  plus and minus half the pitch, and a radius above half the pitch plus the
+  width.
+
 - **Current shared between a load's pins** (a board's session, 2026-10-01):
   `current-path` judges a load by the widest route to any one of its pins at
   the full current. Where the routes to two pins have separate necks, the

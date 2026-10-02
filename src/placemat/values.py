@@ -162,10 +162,18 @@ class Bend(str, Enum):
     that pad end, a straight run carries the rest of the leg; BOTH puts a
     45 at each end with a straight between. Unset (the default), the
     planner picks: the fewest turns against the legs either side, then the
-    shortest, then its own tie-break (the 45 at the pad end)."""
+    shortest, then its own tie-break (the 45 at the pad end).
+
+    ARC and ARC_FREE are not about a 45: every corner of the track is a
+    circular arc tangent to both legs, of `radius=` or `copper.arc_radius_widths`
+    times the track's width. ARC plans the legs as an unset `bend` does
+    (octilinear); ARC_FREE draws the straight line between each pair of points,
+    at any angle."""
     START = "start"
     END = "end"
     BOTH = "both"
+    ARC = "arc"
+    ARC_FREE = "arc-free"
 
 
 class Land(str, Enum):

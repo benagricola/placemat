@@ -14,7 +14,7 @@ import dataclasses
 import functools
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from . import geometry as _geometry_module
 from . import kicad_collide as _kc
@@ -42,6 +42,7 @@ class Shape:
     box: Box
     label: str = ""                 # pad number for a pad shape
     ends: tuple = ()                # a track's own two endpoints, for a finding that names the segment
+    arc: tuple = field(default=(), metadata={"omit_default": True})   # an arc track's mid point: its poly is the arc's, not the segment's
     circle: tuple = ()              # a via's (x, y, radius): its copper as the circle it is, for a finding
     # A carried via (giveway.py): its ring, its hole and its tail carry its id, and `points`
     # its centre (and a tail's far end after it), moved as the shape moves. `given` names the
@@ -2020,8 +2021,8 @@ class Occupancy:
                         s.net or "-", c.x, c.y, " (%s)" % s.owner[len("via "):] if s.owner.startswith("via at ") else "",
                         got, o.net or self.who(o.owner), self._layers_text(common), need)
                 if s.kind == "copper" and s.ends:      # a declared track: name the segment, not its owner
-                    who = "track %s (%.2f, %.2f)-(%.2f, %.2f)" % (
-                        s.net or "-", s.ends[0][0], s.ends[0][1], s.ends[1][0], s.ends[1][1])
+                    who = "%s %s (%.2f, %.2f)-(%.2f, %.2f)" % (
+                        "arc track" if s.arc else "track", s.net or "-", s.ends[0][0], s.ends[0][1], s.ends[1][0], s.ends[1][1])
                 else:
                     what = "pad" if s.kind in ("pad", "through") else "copper"
                     who = "%s %s %s" % (self.who(s.owner), what, s.net or "-")

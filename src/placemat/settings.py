@@ -83,6 +83,7 @@ class Settings:
     place_split_min_group: int = 2      # the least members a group needs to count, in a cell's split finding (splits.py)
     # [copper]
     copper_chamfer: float = 1.0
+    copper_arc_radius_widths: float = 4.0   # the radius of a track's arc corners (bend=Bend.ARC), as a multiple of the track's width; radius= on the call is in mm
     copper_pair_chamfer: float = 0.5
     copper_pair_via_step: float = 0.4
     copper_bridge_half: float = 1.1
@@ -331,7 +332,7 @@ _CHOICES = {"place_envelope": ("courtyard", "physical", "union"), "place_rotatio
 _ABOVE_ZERO = frozenset((
     "place_radius", "place_step", "place_bearing_step", "place_tangent_bin", "place_lookahead_step", "place_coarse_from", "place_coarse_steps",
     "place_refine_around", "place_block_gap_step", "place_block_gap_reach", "place_escape_depth", "place_escape_via_step", "place_escape_via_reach", "place_edge_step", "place_pocket_step", "place_freedom_min_step", "place_cutout_step", "place_cutout_angle_step", "place_escape_cell", "geometry_cap_steps", "solve_spread_growth", "solve_pull", "score_escape_depth", "place_via_move_step", "place_via_clear_cache",
-    "place_conflict_gap", "place_fit_room", "copper_bridge_half", "copper_finger_bridge_width", "copper_finger_min_piece",
+    "place_conflict_gap", "place_fit_room", "copper_arc_radius_widths", "copper_bridge_half", "copper_finger_bridge_width", "copper_finger_min_piece",
     "copper_plane_min_thickness", "copper_pour_stroke", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_size",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_neck_resistivity", "check_neck_conductivity",

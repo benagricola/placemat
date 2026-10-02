@@ -113,6 +113,7 @@ request (SKILL.md, "When no form says it").
 | **copper** | | |
 | a track from a pad to a pad | `board.track(net, [PadRef(a), PadRef(b)], layer=)` | Copper calls |
 | which end of an off-grid leg takes the 45 | `board.track(..., bend=Bend.START/END/BOTH)` | Copper vocabulary |
+| corners drawn as tangent arcs (a curved trace) | `board.track(..., bend=Bend.ARC)`, `radius=` | Copper vocabulary |
 | a track through the gap between two pads | `Between(PadRef(a), PadRef(b))` as a track point | Copper vocabulary (Lane waypoints) |
 | a track held the clearance off pads, vias or tracks | `Past([PadRef(...), via, track], Edge.EAST, across=)` as a track point | Copper vocabulary (Lane waypoints) |
 | a track's 45 held the clearance off a pad's corner | `Past([PadRef(...)], Corner.NE)` as a track point | Copper vocabulary (Lane waypoints) |
@@ -2014,6 +2015,38 @@ knows is there. Every right angle between axis legs is cut back `chamfer`
 that must return is written as one chain: `..., (band, Y(pin)), pin,
 (X(pin, -2), Y(pin, 2)), (band, Y(pin, 2)), ...`.
 
+**Arc corners.** `bend=Bend.ARC` draws every corner of the track as a circular
+arc tangent to both legs, written to KiCad as arc tracks joined end to end
+with the legs: for a trace whose impedance matters, as an RF run. The legs are
+planned as for an unset `bend` (octilinear, the fewest turns, then the
+shortest); `bend=Bend.ARC_FREE` instead draws the straight line between each
+pair of points at any angle, so `placemat measure --copper` flags those
+legs as off 0/45/90 (the arcs are never flagged). The arc replaces the
+chamfer, so `chamfer=` is refused with either, as is `bridge=True` (a bridge
+cuts a straight leg) and a `Lane` as first point.
+
+The arcs' radius is `radius=` mm on the call, a stated design fact such as a
+stackup's bend rule, or else `copper.arc_radius_widths` (default 4) times the
+track's width, so it scales with the trace. A radius not above half the
+width is refused. An arc at a corner of turn `d` takes `radius * tan(d / 2)`
+of each leg. A leg shorter than what the arcs at its two ends take is a corner
+the arc does not fit: the track is not drawn, and a finding (kind `copper`)
+names the leg, its length and what each arc takes of it, never a sharp
+corner or a smaller radius in its place. A smaller `radius=`, points further
+apart, or `Bend.ARC_FREE` where the octilinear legs made the short leg, fixes
+it.
+
+```python
+board.track(Net("RF"), [PadRef(Part("j1"), 1), Location(30, 12), PadRef(Part("u2"), 3)],
+            layer=CopperLayer.F, width=0.3, bend=Bend.ARC)              # corners of radius 1.2 mm
+```
+
+An arc is copper as KiCad has it: a conflict is judged at the arc's true
+distance (its polygon stands no further than `geometry.arc_error_nm` outside
+it), and a finding against one ends "; the arc of its corner (radius R mm) at
+(x, y); a smaller radius= there keeps clear". `board.pair` keeps its 45
+chamfers.
+
 **Lane waypoints.** `Between(PadRef(a), PadRef(b))` is a point in the
 middle of the gap between two pads - halfway between their facing edges,
 centred across where they face each other - resolved once both are placed: the
@@ -2119,7 +2152,7 @@ same pad in a `PadRef`, a `Pin`, a link and `board.part(x).pad(net)`; a
 placement on it says which pad that was. Name the number to pick another.
 
 ```python
-board.track(net, [p1, p2, ...], layer=CopperLayer.F, width=None, chamfer=None, bend=None, priority=Priority.DEFAULT, bridge=False)
+board.track(net, [p1, p2, ...], layer=CopperLayer.F, width=None, chamfer=None, bend=None, radius=None, priority=Priority.DEFAULT, bridge=False)
 board.via(net, at, drill=None, size=None, layers=None)                # at= a point; the board's via size unless given; layers= a span
 board.via(net, at=FreeSpot(near=PadRef(...), radius=2.0))            # the nearest legal spot to a pad, joined to it by its tail
 board.via(net, at=Past([PadRef(...), ...], Edge.SOUTH, across=None)) # its radius plus its clearance off the items' side
@@ -3357,6 +3390,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.drops_keep` | 0.5 | the share of a pad's drops (vias of a `plane()` net in it) the pad keeps, rounded up and never fewer than one: what `drops=Drops.MIN` keeps of each field, and what a pad keeps when a carried drop is dropped to clear another net's copper (1 drops none there) |
 | `place.split_min_group` | 2 | the least members a group needs to count as one, in a cell's `split` finding |
 | `copper.chamfer` | 1.0 | how far a right angle is cut back into two 45s |
+| `copper.arc_radius_widths` | 4.0 | the radius of a track's arc corners (`bend=Bend.ARC`), as a multiple of the track's width; `radius=` on the call is in mm and takes precedence |
 | `copper.pair_chamfer` | 0.5 | the same, for a differential pair |
 | `copper.pair_via_step` | 0.4 | how far clear of its partner a pair's lead vias |
 | `copper.bridge_half` | 1.1 | half the gap a bridge leaves round a crossed track |

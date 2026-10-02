@@ -5,6 +5,20 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A track's corners as tangent arcs: `bend=Bend.ARC`.** `board.track(net,
+  points, layer=, bend=Bend.ARC)` draws every corner as a circular arc
+  tangent to both legs (the legs planned as for an unset `bend`), written as
+  KiCad arc tracks; `Bend.ARC_FREE` draws the straight line between the points
+  at any angle with arcs at the corners. The radius is `radius=` mm on the call,
+  else `copper.arc_radius_widths` (default 4) times the track's width. A corner
+  an arc does not fit is a finding and the track is not drawn. `chamfer=` and
+  `bridge=` are refused with an arc bend. Scripts change nothing. `api.md`,
+  "Arc corners".
+
 ## To 0.79.0
 
 ### New
