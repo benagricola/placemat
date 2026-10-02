@@ -11,10 +11,6 @@ file. An item cites its source as "a board's session, <date>".
   labels does not give way to a searched cell; a keepout passed two parts
   under the physical envelope that KiCad's rule area flags. Being fixed.
 
-- **Escape vias at a fine pitch** (a board's session, 2026-10-02): two
-  escape vias on adjacent 0.4 mm pitch pins refused, "pad 9 of its own part,
-  0.000 mm off"; near and far rows should take them. Being fixed.
-
 ## Open
 
 - **Arc corners on a pair** (the arc-bends work, 2026-10-02): `board.pair`
@@ -254,6 +250,10 @@ file. An item cites its source as "a board's session, <date>".
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Escape vias at a fine pitch** (0.80.1): a lane with no straight spot
+  jogs at 45 to its via; a lane without a via counts as its stub; the refusal
+  names the real blocker. Three vias on consecutive pins still refuse.
 
 - **Turned escapes fixed, handoff pins reported, per-script settings, arc
   bends, fragment notes out of sight** (0.80.0; specs
