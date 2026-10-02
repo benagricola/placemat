@@ -11,17 +11,9 @@ file. An item cites its source as "a board's session, <date>".
   labels does not give way to a searched cell; a keepout passed two parts
   under the physical envelope that KiCad's rule area flags. Being fixed.
 
-- **Per-script settings; arc bends on tracks** (a board's session,
-  2026-10-02): one shared placemat.toml needs a setting that differs per
-  script (`[solve] enabled`); an RF trace wanted curved, not in 45s. Being
-  built.
-
-- **A turned escape's lanes overlap; a handoff pin's way out kept open**
-  (a board's session, 2026-10-02): two lanes of `escape(..., turn=Corner.X)`
-  drawn on top of each other and one 0.08 mm from a neighbour's pad; a
-  module's own copper must never box in a pin it leaves for the parent; a
-  searched part misses a clean spot at its link limit. (A fan-to-target form
-  was rejected: tracks with a `Past` waypoint already say it.) Being fixed.
+- **Escape vias at a fine pitch** (a board's session, 2026-10-02): two
+  escape vias on adjacent 0.4 mm pitch pins refused, "pad 9 of its own part,
+  0.000 mm off"; near and far rows should take them. Being fixed.
 
 ## Open
 
@@ -262,6 +254,17 @@ file. An item cites its source as "a board's session, <date>".
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Turned escapes fixed, handoff pins reported, per-script settings, arc
+  bends, fragment notes out of sight** (0.80.0; specs
+  `2026-10-02-fan-lanes-to-targets-design.md` (the fan form rejected),
+  `2026-10-02-per-script-settings-design.md`, `2026-10-02-arc-bends-design.md`,
+  `2026-10-02-fragment-notes-out-of-sight-design.md`): a turned escape's
+  lanes stagger from the row end and keep clear; a pin a module hands off
+  boxed in is a finding (the user's choice, no reservation); a scan seeds
+  its fine pass past rider refusals; `[scripts."<path>".<section>]`
+  overrides; `bend=Bend.ARC`/`ARC_FREE`; stamped notes stripped as soon as
+  read.
 
 - **Slides first, stamped allow= and rules, clearance by order, a dropped
   look-ahead reported** (0.79.0; specs
