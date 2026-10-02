@@ -216,7 +216,7 @@ class Escapes:
                 self._cgrid.add(c, c.box)
                 self._open[id(c)] = self._clear(c)
         if copper:
-            metal = [s for s in occ.copper if s.kind in ("copper", "through")]
+            metal = [s for s in occ.copper if s.kind in ("copper", "through") and s.owner not in occ.pending]
             self._blockers[":copper"] = metal
             for s in metal:
                 self._bgrid.add(s, s.box)
@@ -233,6 +233,26 @@ class Escapes:
                     touched.append(c)
         if self.mirror is not None:
             self._sync(refs, copper, touched)
+        if not copper:
+            self._sync_cell_copper(refs)
+
+    def _sync_cell_copper(self, names) -> None:
+        """A cell's own copper (its tracks and vias) stands where the cell stands: when the cell is placed, moved or
+        lifted, the copper kept here from where it stood before is taken out and what the occupancy holds now put in.
+        Without it a stamped cell's tracks and vias are not seen: a corridor a track crosses reads open, and a pad a
+        track leaves reads unjoined."""
+        occ = self.occ
+        for name in names:
+            if name not in occ.geometry.cells:
+                continue
+            now = [] if name in occ.pending else [s for s in occ.copper if s.owner == name and s.kind in ("copper", "through")]
+            held = [s for s in self._blockers.get(":copper", ()) if s.owner == name]
+            if len(now) == len(held) and all(a is b for a, b in zip(now, held)):
+                continue
+            if held:
+                self.remove_copper(held)
+            if now:
+                self.add_copper(now)
 
     def _sync(self, refs, copper: bool, touched) -> None:
         """Hand the mirror what `refresh` changed: the parts' corridors and

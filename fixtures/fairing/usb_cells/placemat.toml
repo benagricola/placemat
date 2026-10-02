@@ -1,0 +1,14 @@
+# The search and the report's escape depth are one, as a board's escape_depth sets them.
+[place]
+envelope = "physical"
+escape_depth = 1.5
+
+[cleanup]
+enabled = false
+
+[drc]
+real_kinds = ["clearance", "shorting_items", "track_width", "annular_width",
+              "hole_clearance", "hole_to_hole", "copper_edge_clearance"]
+
+[drc.severities]
+courtyards_overlap = "ignore"

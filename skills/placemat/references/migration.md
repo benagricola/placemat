@@ -5,6 +5,19 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A stamped cell's drawn track or via no longer leaves a pad reported
+  walled off.** The escape check kept a stamped cell's copper where the
+  cell stood before it was placed, so a pad joined by a track (to a pad
+  holding a plane via, for one) read as unjoined and was reported
+  `escape_walled`, a finding the module alone did not give. The check now
+  holds the cell's copper where the cell stands. Findings that went away
+  with it need no script change; a board whose cells were placed with these
+  findings in the score may place them differently.
+
 ## To 0.82.0
 
 ### New
