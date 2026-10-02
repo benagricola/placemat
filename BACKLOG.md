@@ -11,6 +11,11 @@ file. An item cites its source as "a board's session, <date>".
   priority as a larger searched cell goes after it by area and is stopped
   mid-board by it. Fewer freedoms first. Being built.
 
+- **A stamped cell's keepout allow= and its clearance rules** (a board's
+  session, 2026-10-02): a module keepout's `allow=` is lost on the parent
+  and written `(vias not_allowed)` for KiCad; a module's `board.rule`
+  clearances do not travel with its cell. Being built.
+
 ## Open
 
 - **Current shared between a load's pins** (a board's session, 2026-10-01):
