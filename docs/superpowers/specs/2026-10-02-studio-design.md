@@ -87,11 +87,21 @@ dependency.
 - **The board, 2D**, drawn from the same model `preview` draws (preview.py
   becomes the shared drawing source: the page draws the model's JSON, not an
   SVG file). Front, back (mirrored as seen from the front) or both. Pan, zoom,
-  layer toggles (keepouts, courtyards, copper, links, congestion, labels) as
-  `preview` offers.
-- **The step list**, in placement order, with each step's note. Clicking a
-  step zooms to its item; a slider replays the placement step by step.
-- **Findings**, with a click to zoom to each one's place.
+  layer toggles (keepouts, courtyards, copper, links, congestion, findings,
+  labels) as `preview` offers. Mouse: wheel zoom, drag pan. Touch: one finger
+  pans, two pinch, a double tap fits; the board takes the gestures, the page
+  does not zoom. A millimetre grid (major lines every 10 mm, labelled on the
+  edges) covers the whole visible area at any pan and zoom.
+- **The step list**, in placement order, with each step's item, how it was
+  placed and its note. Clicking a step zooms to its item. The slider and the
+  list share one set of positions: the placement steps, one per item the
+  board draws, in order. Copper steps (fanouts, escapes, vias, pours) and
+  steps that placed nothing are listed apart and are not positions. Dragging
+  shows steps 1..k, changing only the items between the old and the new
+  position; play advances at a steady rate from the clock and stops when a
+  new resolve starts.
+- **Findings**, grouped by kind with counts, with a click to zoom to each
+  one's place.
 - **Hover a part**: its name, value, cell, face, rotation, how it was placed
   (decided, searched, slide), its links and their lengths.
 - **Script, linked**: the script beside the board, read only in phase 1.
