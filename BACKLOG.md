@@ -6,6 +6,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## In progress
 
+- **A grouped label under a later cell's pad; keepout parts judged on
+  another shape than KiCad's** (a board's session, 2026-10-02): a list of
+  labels does not give way to a searched cell; a keepout passed two parts
+  under the physical envelope that KiCad's rule area flags. Being fixed.
+
 ## Open
 
 - **Current shared between a load's pins** (a board's session, 2026-10-01):
