@@ -348,6 +348,8 @@ the script.
   pin count (every step prints `rank 4/64 (31.5 mm2, 12th of 64; 2 pins,
   41st)`): read it before reaching for `priority=Priority.HIGH`/`LOW`, and
   give a reason beside one.
+  Within a tier an item with one freedom left (a slide: `Centre(x, None,
+  toward=)`, `OnEdge(edge)`, a ring or spoke) goes before one searched in two.
 - `required=True` is the only thing that stops a run for a placement; use
   it for an item with nowhere else to go. Firm only what is mechanical.
   Furniture (test points, LEDs, buttons) is `OnEdge(edge)` alone and
