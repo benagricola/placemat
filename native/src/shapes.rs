@@ -36,6 +36,9 @@ pub enum Kind {
     Silk,
     Body,
     Yard,
+    // a rule area that forbids vias: met only by a via's ring (`Occupancy.ban_shape`); its `net` lists the
+    // nets it lets through, joined by ALLOW_SEP
+    ViaBan,
     // a courtyard claimed as the part itself (Shape.claims): a courtyard that also keeps
     // another footprint's drawn shapes and pads out
     Keepclear,
@@ -54,6 +57,7 @@ impl Kind {
             "silk" => Some(Kind::Silk),
             "body" => Some(Kind::Body),
             "yard" => Some(Kind::Yard),
+            "viaban" => Some(Kind::ViaBan),
             "keepclear" => Some(Kind::Keepclear),
             _ => None,
         }
@@ -250,6 +254,15 @@ pub(crate) fn may_meet(a: Kind, b: Kind) -> bool {
 
 /// `Occupancy._conflict`: the DRC rules in occupancy terms.
 pub fn conflict(s: &Shape, o: &Shape, explicit_clearance: Option<f64>, cfg: &ConflictConfig) -> bool {
+    if s.kind == Kind::ViaBan || o.kind == Kind::ViaBan {
+        // `Occupancy._conflict`'s via-ban rule: a via of a net the area does not let through, on a layer it
+        // covers, whose ring overlaps its outline
+        let (ban, other) = if s.kind == Kind::ViaBan { (s, o) } else { (o, s) };
+        return other.kind == Kind::Through && !other.owner_is_footprint
+            && !ban.net.split('\u{1f}').any(|n| n == other.net)
+            && !(ban.layers != 0 && other.layers != 0 && ban.layers & other.layers == 0)
+            && polys_overlap(&ban.poly, &other.poly);
+    }
     if s.kind == Kind::Yard || o.kind == Kind::Yard {
         // Occupancy's yard: a drawn part's courtyard under the physical
         // envelope, judged only against another part's plated lead.

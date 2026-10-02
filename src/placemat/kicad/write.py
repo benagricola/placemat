@@ -162,6 +162,29 @@ def _given_way(board, plan: Plan, groups: dict) -> None:
             board.Delete(via)
 
 
+def _group_given_way_tracks(board, plan: Plan, groups: dict) -> None:
+    """The tracks a via's giving way drew (a tail, a move's redrawn tail, a routed via's rebuilt tracks) join the
+    group of the cell the via belongs to. They are the cell's copper, and KiCad applies a clearance rule that
+    holds within a cell (`A.memberOf('cell') && B.memberOf('cell')`) only to the items of its group: left outside,
+    the tail was judged against the cell's rule here and by the board's netclass there."""
+    def at(v, p):
+        return abs(v.x / 1e6 - p[0]) <= _ON_MM and abs(v.y / 1e6 - p[1]) <= _ON_MM
+    loose = [t for t in board.GetTracks() if not isinstance(t, pcbnew.PCB_VIA) and t.GetParentGroup() is None]
+    for a in plan.given_way:
+        g = groups.get(a.home)
+        if g is None or getattr(a, "field", ""):
+            continue
+        for op in ([a.tail] if a.tail is not None else []) + list(a.tracks):
+            ends = ((op.start.x, op.start.y), (op.end.x, op.end.y))
+            for t in loose:
+                if t.GetNetname() == op.net and t.GetLayerName() == op.layer.value \
+                        and ((at(t.GetStart(), ends[0]) and at(t.GetEnd(), ends[1]))
+                             or (at(t.GetStart(), ends[1]) and at(t.GetEnd(), ends[0]))):
+                    g.AddItem(t)
+                    loose.remove(t)
+                    break
+
+
 def _merge_cell_zones(board, plan: Plan) -> list:
     """Leave out a stamped cell's zone on each layer where the board's own
     plane has the same net and wholly covers it: the plane fills that area
@@ -884,6 +907,7 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     if not plan.draw_outline:
         write_rule_notes(board, plan.rules)         # a fragment: its clearance rules ride with the cell
     draw_copper(board, plan.copper)
+    _group_given_way_tracks(board, plan, groups)
     plan.group_notes = _write_groups(board, plan)
     out = str(out_path or pcb_path)
     plan.models = _reanchor_models(board, Path(out).parent)

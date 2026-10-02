@@ -5,6 +5,64 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A carried via's track is held to the board's edge, and a move is not taken at a tail width that is not
+  clear.** The search judges an item less its carried vias, and the give-way judged a via's ring against the
+  board's edge but not its track, so a stamped cell could land with a via's track across a cutout or inside the
+  edge keep-in (KiCad: `copper_edge_clearance`). A via's own track, and any track giving way draws (a tail, a moved
+  via's redrawn tail, a routed via's rebuilt tracks), now keeps the edge keep-in as the item's own copper does, so
+  the via moves, shares or leaves its pad as for any other conflict, or the spot is refused. A move whose
+  narrowest tail the native search found clear but that no width clears in the full judgement was taken at the
+  narrowest width anyway; it now goes on to the next spot. Placements can move.
+
+- **A tail giving way draws joins the cell's group.** A cell's clearance rule (`A.memberOf('cell') &&
+  B.memberOf('cell')`) holds in KiCad for the items of the cell's group. The tail a via's giving way drew was
+  written outside the group, so placemat judged it against the cell's rule and KiCad's DRC against the netclass
+  figure (`clearance`, 0.147 mm against 0.16 mm on one board). The tails and rebuilt tracks join the group of the
+  cell the via belongs to.
+
+- **A carried via is held out of a keepout that excludes vias.** A keepout
+  that excludes vias but not parts, a rule area on the generated board that
+  forbids vias, and one a placed cell brings were not tested against a part's
+  or a cell's carried vias, so a via could be placed inside one and KiCad
+  reported `items_not_allowed` (one board had three). A via whose ring meets
+  such a region on a layer it covers, and whose net is not in `allow=`, now
+  counts as meeting copper: it shares, moves, leaves its pad or is dropped as
+  for any other conflict, and where none of those clears it the spot is
+  refused ("keepout 'name' forbids vias: the GND via at ... is inside it").
+  A via placed earlier that a cell's region covers gives way when the cell
+  lands. Scripts change nothing; placements next to such a region can move.
+  `api.md`, "Carried vias give way".
+
+- **A line of labels gives way as one.** A list of labels, or `line=`, was
+  left out of the labels that give way (0.71, 0.72): a part placed after it
+  could land on a text, the line neither moved nor was avoided, and KiCad
+  reported `silk_over_copper` ("Silkscreen clipped by solder mask") for a pad
+  under the text. A text of the line that a firm item, or a searched item once
+  it is down, would stand on or within the silk clearance of now moves the whole
+  line: along its side, then to another side of its items, the texts keeping
+  their spacing and order and each staying beside its own item, every text on
+  the board and clear. With no clear spot the line stays, a `label` finding
+  names it, and the part is placed all the same. Scripts change nothing; a
+  board with a line of labels can place a later item, or end with the line, in
+  a different spot. `api.md`, "Labels", which now also says a searched item does
+  not see a declared label.
+
+- **A keepout that excludes parts is judged on the courtyard KiCad tests.**
+  KiCad's DRC tests each footprint's courtyard polygon against a rule area
+  (`items_not_allowed`), never the body; placemat judged the part's body box
+  (its courtyard less `courtyard_excess`, with its pads), so a part could stand
+  up to 0.1 mm into a keepout and KiCad flagged it, under any `[place]
+  envelope`. A keepout, a rule area on a generated board and one a stamped
+  cell brings now refuse a part by its courtyard polygon, and a part that draws
+  no courtyard by its claimed courtyard box. The envelope does not change it.
+  Placements next to a keepout that excludes parts can move, by up to the
+  courtyard excess and more where a courtyard is not a box. `api.md`,
+  "Keepouts".
+
 ## To 0.80.1
 
 ### Fixed

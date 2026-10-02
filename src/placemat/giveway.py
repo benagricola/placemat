@@ -380,6 +380,9 @@ def _native_tail_clear(judge: "_Judge", shape, own):
 
 def _tail_hit(judge: "_Judge", shape, own) -> bool:
     """Whether `shape` meets the board less the vias set aside, `own` or what earlier actions left."""
+    occ = judge.occ
+    if _is_tail(shape) and occ.edge_margin is not None and occ._edge_why(shape.box):
+        return True                         # the native test is of copper only: the edge is judged here
     clear = _native_tail_clear(judge, shape, own)
     if clear is not None:
         return not clear
@@ -427,6 +430,17 @@ def _native_first_move(judge: "_Judge", g: "Group", mine: list, span: Box, offse
         return True, (dx, dy)
 
 
+def _is_tail(s) -> bool:
+    """Whether a shape is a track of a carried via, or one giving way drew: copper the board's edge is held off,
+    which the search does not judge of an item's carried vias (it judges the item less them)."""
+    return s.kind == "copper" and s.wire and bool(s.carried or s.given)
+
+
+def _where(s) -> str:
+    (ax, ay), (bx, by) = s.points if len(s.points) == 2 else ((s.box.left, s.box.top), (s.box.right, s.box.bottom))
+    return "%s track from (%.2f, %.2f) to (%.2f, %.2f)" % (s.net or "-", ax, ay, bx, by)
+
+
 class _Judge:
     """The board a give-way is judged against: `others` (the obstacles of the
     item being placed) less the vias hidden because they gave way, plus the
@@ -467,6 +481,10 @@ class _Judge:
                 if why:
                     c = _centre(s)
                     return "via %s at (%.2f, %.2f): its ring %s" % (s.net or "-", c[0], c[1], why), None
+            if _is_tail(s) and occ.edge_margin is not None:
+                why = occ._edge_why(s.box)
+                if why:
+                    return "%s: its track %s" % (_where(s), why), None
         return None
 
     def vias(self, net: str, centre: tuple, reach: float, home: str) -> list:
@@ -686,13 +704,19 @@ def _find_move(occ, g: Group, judge: "_Judge", own, first, limit: float, pad, ta
     native_clear = _native_move_offsets(judge, g.ring, g.hole, all_offsets)
     candidates = native_clear if native_clear is not None else all_offsets
     narrow = None if tail is None else (tail[0], tail[1], widths[-1])
-    used, at = _native_first_move(judge, g, mine, span, candidates, first, pad, r, narrow) \
-        if native_clear is not None else (False, None)
-    if used:
+    used = False
+    while native_clear is not None:
+        used, at = _native_first_move(judge, g, mine, span, candidates, first, pad, r, narrow)
+        if not used:
+            break
         if at is None:
             return None
         width = _widest(judge, g, mine, at, tail)
-        return at[0], at[1], width if width is not None else widths[-1]
+        if width is not None:
+            return at[0], at[1], width
+        # a spot native accepted that no width of the tail clears here (the board's edge is judged in Python
+        # only): on to the next offset, and not the narrowest tail at a spot where it is not clear either
+        candidates = candidates[candidates.index(at) + 1:]
     pool = judge.near(span, occ._gap)
     still = _still_meets(occ, g, first, judge.clearance, r)
     for dx, dy in candidates:
@@ -870,7 +894,7 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
         others = occ.obstacles(geom, extent.inflate(reach(s)))
     judge = _Judge(occ, others, clearance)
     # what a via may not sit on: copper and holes, and a courtyard where the board's house rule says so
-    kinds = _COPPER_AND_HOLES | ({"courtyard"} if occ.vias_block_courtyards else frozenset())
+    kinds = _COPPER_AND_HOLES | {"viaban"} | ({"courtyard"} if occ.vias_block_courtyards else frozenset())
     fixed = [x for x in mine if not x.carried and x.kind in kinds]
     own = groups(occ, mine)
     # 1. the vias already placed that the item's own copper meets
@@ -1141,7 +1165,8 @@ def _rebuilt(occ, g: Group, judge: "_Judge", mine: list, chains: list, to: tuple
             return None
 
         def clear(a, b, layer=layer, width=width) -> bool:
-            return not _tail_hit(judge, _tail_shape(g.owner, g.net, layer, width, (a.x, a.y), (b.x, b.y))[1], mine)
+            return not _tail_hit(judge, _tail_shape(g.owner, g.net, layer, width, (a.x, a.y), (b.x, b.y),
+                                                    given=g.id)[1], mine)
         path = octilinear([Location(*far), Location(*to)], [False, False], clear, tolerance=s.copper_straight_tolerance)
         cut, diagonals = chamfer_cuts(path, s.copper_chamfer)
         cuts = {(round(a.x, 6), round(a.y, 6), round(b.x, 6), round(b.y, 6)) for a, b in diagonals}

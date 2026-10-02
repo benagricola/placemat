@@ -1302,7 +1302,14 @@ area is a ValueError naming it.
 the `Forbid` enum: `PARTS`, `FILL`, `TRACKS`, `VIAS`, `PADS` (the strings
 `"parts"`, `"fill"`, `"tracks"`, `"vias"`, `"pads"` still work). Each is one
 KiCad rule-area flag, and `Forbid.PARTS` is what the placer enforces itself,
-before anything is written.
+before anything is written. It judges a part as KiCad's DRC does: each
+footprint's courtyard polygon against the region (`items_not_allowed` when
+they overlap), not the part's body, pads or silk, and whatever `[place]
+envelope` says - the envelope sets the spacing between parts, not what a rule
+area tests. A part that draws no courtyard is not tested by KiCad; placemat
+holds its claimed courtyard box out of the region all the same. A cell's own
+tracks, vias and pours have no courtyard and are judged by their box, as
+before.
 
 **Where.** `layers=` defaults to every copper layer the board has, whatever the
 count. Narrow it with a list of `CopperLayer`. It narrows what is CHECKED as
@@ -2225,7 +2232,17 @@ at its centre. A via that two or more of the cell's tracks end on is a
 routed via, which moves with its tracks (below); a via whose track runs on
 to another of the cell's vias is part of a route and stays as drawn.
 Where a carried via meets another net's copper, on either face, the search
-does not refuse the spot at once. The via tries, in turn:
+does not refuse the spot at once. A keepout, or a rule area on the generated
+board or one a placed cell brought, that excludes vias is met the same way:
+KiCad's DRC flags a via whose ring on a layer the area covers overlaps it
+(`items_not_allowed`), unless its net is in `allow=`, so such a via is held
+out of the region, and a via placed earlier that a cell's own region of that
+kind covers gives way to it when the cell lands. A via that no way below gets
+out refuses the spot ("keepout 'name' forbids vias: the GND via at ... is
+inside it; it cannot give way"). A via's own track, and a track giving way
+draws, keeps the board's edge keep-in and the cutouts' as the item's own
+copper does, and is written into the cell's group, so a clearance rule that
+holds within the cell holds for it in KiCad too. The via tries, in turn:
 
 - to share a via of its net from any other item, on either face, within
   `place.via_share` (1.0 mm): the via is taken out and a straight tail at
@@ -2702,7 +2719,9 @@ over their pads but past the part's outline;
 `knockout` cuts it out of a filled box, which reads better over a busy
 board. `size` and `thickness` default to 1.0 and 0.15 mm. A label is
 worked out the moment its item is placed and the text's own box on
-its face is reserved. A label is a user's
+its face is reserved: the box and the text's silk keep a firm item (and a
+block or cell member) off it, and are not seen by a searched item (below). A
+label is a user's
 mark, not part of what makes the board work, so it gives way: where an
 item would stand within the silk clearance of the text, or on its box, the
 item stays where it is put and the label moves. A firm item (`Location`,
@@ -2723,8 +2742,14 @@ The step's note says so ("moved from north END to north MID: U20 was
 there"). With no clear spot it stays, a `label` finding names it and what
 is in the way, and a firm item's collision stops the run as before; a
 searched item is placed all the same.
-A line of labels (a list, or `line=`) keeps its line and does not move.
-`label.slide_step` is the step along a side. `reserve=False` keeps the
+A line of labels (a list, or `line=`) gives way as one unit, by the same
+rules: the whole line slides along its side, then moves to another side of
+its items, its texts keeping their spacing and order and each staying beside
+its own item (a text keeps overlapping its item's extent along the side).
+Every text of the line must be clear. With no clear spot the line stays, and
+one `label` finding names it and what is in the way; the item is placed all
+the same. A step's note says "moved from north MID to south MID" or "north
+MID, line shifted +0.50 mm". `label.slide_step` is the step along a side. `reserve=False` keeps the
 label out of the way of placement and only reports what lands on it. Mark what a user handles:
 every connector, jumper, switch and LED, by what it does, not its refdes.
 

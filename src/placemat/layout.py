@@ -25,7 +25,7 @@ from .copper import (Pour, Text, Track, Via, Zone, arc_circle, arc_tracks, board
 from .geometry import Transform, box_polygon, circle_polygon, circle_poly_gap, gap_texts, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
 from .findings import Finding, Findings
 from .giveway import FIELD_PREFIX, enabled as giveway_enabled, field_via_id, pad_via_id
-from .occupancy import LABEL_SOURCE, VIA_BUCKET, Occupancy, Shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
+from .occupancy import LABEL_SOURCE, VIA_BUCKET, Occupancy, Shape, ban_shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
 from .cutouts import Cutouts, Path, _turned, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from . import exposure
@@ -4366,8 +4366,10 @@ class Board:
         instead, so pin labels sit over their pads but clear of the part;
         `knockout` cuts it out of a filled box. The label is worked out the
         moment its item is placed and, unless `reserve=False`, the text's
-        own box on its face is reserved, so nothing placed later lands on
-        it."""
+        own box on its face is reserved against the items placed firmly
+        afterwards; a searched item does not see it, and a label that is
+        landed on gives way (a line of labels as one), staying beside its
+        item."""
         gap = self.settings.label_gap if gap is None else gap
         size = self.settings.label_size if size is None else size
         thickness = self.settings.label_thickness if thickness is None else thickness
@@ -6048,7 +6050,9 @@ class Board:
                             % k.max_height) if k.max_height is not None else ""
                     occ.reserve(poly, "keepout %r (%s%s)" % (k.name, k.why, tall), allow=nets, owners=owners,
                                 layer=layer, admitted=admitted, barred=barred,
-                                copper=bool({"tracks", "fill", "vias", "pads"} & set(k.excludes)))
+                                copper=bool({"tracks", "fill", "vias", "pads"} & set(k.excludes)), courtyard=True)
+                if "vias" in k.excludes:        # a via is held out of it as KiCad's DRC holds it
+                    occ.add_copper([ban_shape("keepout %r" % k.name, poly, k.layers, nets)])
                 plan.keepouts[k.name] = PlacedKeepout(k.name, poly, centre, turn, k.excludes,
                                                       k.layers, nets, owners | (admitted or frozenset()), k.why,
                                                       k.max_height, admitted or frozenset(), barred)
@@ -6951,46 +6955,140 @@ class Board:
         `item`, firm at `placement`, would stand within silk clearance of the
         text of a label declared on another item, or in its reserved box, the
         label moves - along its side, then to the item's other sides - and
-        the item does not. True when one did. A label with no clear spot
-        stays, and is a finding; a line of labels keeps its line."""
+        the item does not. A line of labels (a list, or `line=`) moves as one.
+        True when one did. A label with no clear spot stays, and is a
+        finding."""
         parts = plan.__dict__.get("_label_parts")
         if not parts:
             return False
         done = plan._labelled
         mine = sorted({occ.who(fp.ref) for fp in members_of(item)})
         moved = False
+        seen = set()
         for entry in self._labels:
             key = entry[0]
-            if key not in parts or key not in done or entry[12]:
+            if key in seen or key not in parts or key not in done:
                 continue
-            op, own, face = done[key]
-            shape, reservation = parts[key]
-            if own & set(mine) or not self._label_in_the_way(occ, shape, reservation, item, placement, committed):
+            group = entry[12]
+            unit = [e for e in self._labels if e[12] is group and e[0] in parts and e[0] in done] if group else [entry]
+            seen |= {e[0] for e in unit}
+            hit = [e for e in unit
+                   if not done[e[0]][1] & set(mine)
+                   and self._label_in_the_way(occ, parts[e[0]][0], parts[e[0]][1], item, placement, committed)]
+            if not hit:
                 continue
-            box = self._label_item_box(occ, entry[1])[0]
-            theirs = ({self._pad_ref(entry[1])[0]} if isinstance(entry[1], (PadRef, CellPadRef))
-                      else set(self._label_refs(entry[1])) | {self._item(entry[1])[1]})
-            obstacles = occ._obstacle_shapes(frozenset(occ.pending) | theirs | {key})
-            labels = [d[0].box for k, d in parts.items() if k != key]
-            for side, word, cand in self._label_candidates(entry, box, op):
+            if self._unit_gives_way(occ, plan, unit, item, placement, committed, mine):
+                moved = True
+                continue
+            if group:
+                said = "%s: no clear spot beside %s for it and the rest of its line to move to, and %s is in the way" % (
+                    hit[0][0], hit[0][0].split(" ", 2)[1], ", ".join(mine))
+            else:
+                said = "%s: no clear spot beside %s for it to move to, and %s is in the way" % (
+                    key, key.split(" ", 2)[1], ", ".join(mine))
+            if said not in plan.findings:
+                plan.findings.append(Finding("label", said))
+        return moved
+
+    def _unit_gives_way(self, occ, plan: Plan, unit: list, item, placement: Placement, committed: bool,
+                        mine: list) -> bool:
+        """Move a label (or a line of them, as one) to the first spot where
+        every text is clear of `item` and of the board. True when it moved."""
+        parts, done = plan._label_parts, plan._labelled
+        keys = {e[0] for e in unit}
+        boxes = {e[0]: self._label_item_box(occ, e[1])[0] for e in unit}
+        theirs = set()
+        for e in unit:
+            theirs |= ({self._pad_ref(e[1])[0]} if isinstance(e[1], (PadRef, CellPadRef))
+                       else set(self._label_refs(e[1])) | {self._item(e[1])[1]})
+        for one in unit[0][12] or ():
+            theirs |= ({self._pad_ref(one)[0]} if isinstance(one, (PadRef, CellPadRef))
+                       else set(self._label_refs(one)) | {self._item(one)[1]})
+        obstacles = occ._obstacle_shapes(frozenset(occ.pending) | theirs | keys)
+        labels = [d[0].box for k, d in parts.items() if k not in keys]
+        was = {e[0]: done[e[0]][0].box for e in unit}
+        together = {(a, b) for a in keys for b in keys if a < b and was[a].overlaps(was[b])}
+        for side, word, cands in self._unit_candidates(occ, unit, boxes, done):
+            ok = True
+            shapes = {}
+            for e, cand in zip(unit, cands):
+                op, own, face = done[e[0]]
                 cb = cand.box
-                silk = Shape(key, "silk", frozenset([face]), frozenset(), "", box_polygon(cb), cb)
-                held = dataclasses.replace(reservation, poly=box_polygon(cb))
-                if (self._label_off_board(occ, cb) or self._label_in_the_way(occ, silk, held, item, placement, committed)
+                silk = Shape(e[0], "silk", frozenset([face]), frozenset(), "", box_polygon(cb), cb)
+                held = dataclasses.replace(parts[e[0]][1], poly=box_polygon(cb))
+                shapes[e[0]] = (silk, held)
+                if (self._label_off_board(occ, cb)
+                        or (not own & set(mine) and self._label_in_the_way(occ, silk, held, item, placement, committed))
                         or _label_hits(occ, cb, face, set(own)) or any(cb.overlaps(b) for b in labels)
                         or (occ.envelope == "physical" and any(
                             o.box.overlaps(cb, gap=occ._drawn_gap) and occ._conflict(silk, o, None)
                             for o in obstacles))):
-                    continue
-                self._move_label(occ, plan, entry, cand, silk, held, side, word, ", ".join(mine))
-                moved = True
-                break
-            else:
-                said = "%s: no clear spot beside %s for it to move to, and %s is in the way" % (
-                    key, key.split(" ", 2)[1], ", ".join(mine))
-                if said not in plan.findings:
-                    plan.findings.append(Finding("label", said))
-        return moved
+                    ok = False
+                    break
+            if ok and any(cands[i].box.overlaps(cands[j].box) for i in range(len(unit)) for j in range(i + 1, len(unit))
+                          if (unit[i][0], unit[j][0]) not in together and (unit[j][0], unit[i][0]) not in together):
+                ok = False
+            if not ok:
+                continue
+            for e, cand in zip(unit, cands):
+                silk, held = shapes[e[0]]
+                self._move_label(occ, plan, e, cand, silk, held, side, word, ", ".join(mine))
+            return True
+        return False
+
+    def _unit_candidates(self, occ, unit: list, boxes: dict, done: dict):
+        """[(side, where on it, the unit's texts there)] for the spots a label
+        or a line of them may move to, nearest first. A line moves rigidly: its
+        texts keep their spacing and order, and each keeps standing beside its
+        own item. Along the side it stands on, shifted by `label.slide_step`
+        from where it is; then on the other sides, nearest first, redrawn as
+        declared and shifted the same way. A lone label slides from flush to
+        flush instead (`_label_candidates`)."""
+        if len(unit) == 1 and not unit[0][12]:
+            e = unit[0]
+            op = done[e[0]][0]
+            for side, word, cand in self._label_candidates(e, boxes[e[0]], op):
+                yield side, word, [cand]
+            return
+        step = self.settings.label_slide_step
+        said = {"centre": "MID"}.get(unit[0][5], unit[0][5].upper())
+        group = unit[0][12]
+        line = Box.union([self._label_item_box(occ, one)[0] for one in group])
+        ops = [done[e[0]][0] for e in unit]
+        here = ops[0].side
+        centre = Box.union([o.box for o in ops]).center
+
+        def drawn(s):
+            out = []
+            for e in unit:
+                key, item, text, side, gap, align, size, thick, knockout, rotation = e[:10]
+                out.append(_label_op(text, boxes[key], ops[0].face, s, max(gap, self.geometry.silk_clearance), align,
+                                     size, thick, knockout, rotation, line))
+            return out
+
+        def far(s):
+            c = Box.union([o.box for o in drawn(s)]).center
+            return math.hypot(c.x - centre.x, c.y - centre.y)
+
+        for s in [here] + sorted((s for s in Edge if s is not here), key=far):
+            base = ops if s is here else drawn(s)
+            along_x = s in (Edge.NORTH, Edge.SOUTH)
+            lo, hi = -math.inf, math.inf
+            for e, o in zip(unit, base):                        # a text keeps overlapping its own item along the side
+                it = boxes[e[0]]
+                a0, a1 = (it.left, it.right) if along_x else (it.top, it.bottom)
+                b0, b1 = (o.box.left, o.box.right) if along_x else (o.box.top, o.box.bottom)
+                lo, hi = max(lo, a0 - b1 + 1e-3), min(hi, a1 - b0 - 1e-3)
+            lo, hi = min(lo, 0.0), max(hi, 0.0)
+            shifts = {0.0, round(lo, 6), round(hi, 6)}
+            k = 1
+            while k * step <= max(-lo, hi) + 1e-9:
+                shifts |= {round(k * step, 6), round(-k * step, 6)}
+                k += 1
+            for d in sorted((d for d in shifts if lo - 1e-6 <= d <= hi + 1e-6), key=lambda d: (abs(d), d)):
+                at = (lambda o: Location(o.at.x + d, o.at.y)) if along_x else (lambda o: Location(o.at.x, o.at.y + d))
+                word = said if abs(d) < 1e-9 else "%s, line shifted %+.2f mm" % (said, d)
+                yield s, word, [o if abs(d) < 1e-9 else dataclasses.replace(o, at=at(o)) for o in base]
 
     def _move_label(self, occ, plan: Plan, entry, op: Text, shape: Shape, reservation, side: Edge, word: str,
                     because: str) -> None:

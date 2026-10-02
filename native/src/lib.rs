@@ -580,11 +580,11 @@ impl NativeBoard {
 
     /// Add a reservation: its polygon and, for one of 24 points or more,
     /// its `PolyRaster` as (x0, y0, cell, nx, ny, state rows).
-    #[pyo3(signature = (poly, raster=None))]
-    fn add_reservation(&mut self, poly: Vec<Point>, raster: Option<(f64, f64, f64, i64, i64, Vec<Vec<u8>>)>) {
+    #[pyo3(signature = (poly, raster=None, courtyard=false))]
+    fn add_reservation(&mut self, poly: Vec<Point>, raster: Option<(f64, f64, f64, i64, i64, Vec<Vec<u8>>)>, courtyard: bool) {
         let bbox = board::B::of_points(&poly);
         let raster = raster.map(|(x0, y0, cell, nx, ny, state)| board::Raster { x0, y0, cell, nx, ny, state });
-        self.reservations.push(board::Reservation { poly, bbox, raster });
+        self.reservations.push(board::Reservation { poly, bbox, raster, courtyard });
     }
 
     fn reservation_count(&self) -> usize {
@@ -889,7 +889,7 @@ fn pymax3(a: f64, b: f64, c: f64) -> f64 {
 /// the edge judges, as `Occupancy._item_edge_why` does: the courtyard and
 /// body box, and the copper's box or None for no copper.
 #[pyfunction]
-#[pyo3(signature = (board, reservations, obstacles, origins, bodies, edges, points, clearance, stop_at_first, scoring=None, parts=None, judged=None, edge_parts=None))]
+#[pyo3(signature = (board, reservations, obstacles, origins, bodies, edges, points, clearance, stop_at_first, scoring=None, parts=None, judged=None, edge_parts=None, yards=None))]
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn sweep(
     py: Python<'_>,
@@ -906,7 +906,9 @@ fn sweep(
     parts: Option<Vec<Vec<PyBox>>>,
     judged: Option<Vec<Vec<usize>>>,
     edge_parts: Option<Vec<Vec<(PyBox, Option<PyBox>)>>>,
+    yards: Option<Vec<Vec<Option<Vec<Point>>>>>,
 ) -> PyResult<(Vec<usize>, Vec<f64>, Vec<(u8, i64, i64, usize, usize)>)> {
+    let yards = yards.unwrap_or_default();
     let parts = parts.unwrap_or_default();
     let edge_parts = edge_parts.unwrap_or_default();
     let mut search: Option<PyRefMut<'_, NativeScoring>> = None;
@@ -1004,6 +1006,31 @@ fn sweep(
         // `Occupancy.judged` order); 0 for an item with no parts
         if let Some((ri, k)) = reservations.iter().enumerate().find_map(|(pos, ri)| {
             let r = &board.reservations[*ri];
+            if r.courtyard {
+                // A KiCad rule area: each part's courtyard polygon against it
+                // (`Occupancy._courtyard_hit`). A cell's own copper, past its members,
+                // has no courtyard and is judged by its box.
+                let ys: &[Option<Vec<Point>>] = yards.get(turn).map(|v| v.as_slice()).unwrap_or(&[]);
+                let yard_hit = |k: usize| -> bool {
+                    match ys.get(k) {
+                        Some(Some(poly)) => {
+                            let moved: Vec<Point> = poly.iter().map(|p| (p.0 + x, p.1 + y)).collect();
+                            r.bbox.overlaps(&board::B::of_points(&moved)) && geometry::polys_overlap(&r.poly, &moved)
+                        }
+                        _ => false,
+                    }
+                };
+                if members.is_empty() {
+                    return if yard_hit(0) { Some((*ri, 0usize)) } else { None };
+                }
+                let idx: Vec<usize> = match judged.as_ref() {
+                    Some(j) => j[pos].clone(),
+                    None => (0..members.len()).collect(),
+                };
+                return idx.into_iter().find(|&k| k < members.len()
+                    && if k < ys.len() { yard_hit(k) } else { r.overlaps(&members[k]) })
+                    .map(|k| (*ri, k + 1));
+            }
             if !r.overlaps(&body) {
                 return None;
             }
