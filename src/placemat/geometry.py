@@ -536,3 +536,25 @@ def via_ring(center: Location, size: float, n: int = 16) -> Polygon:
     """A via's copper as a polygon with every edge on or outside its circle,
     as a track's round end is drawn: the copper is never less than it."""
     return circle_polygon(center, size / 2.0 / math.cos(math.pi / n), n)
+
+
+def gap_texts(gap: float, need: float, places: int = 2) -> tuple[str, str]:
+    """A gap and the clearance it falls short of, as a finding prints them: two decimals, and as many more as it
+    takes for a shortfall not to read as equal to the limit ("0.099 (needs 0.100)", not "0.10 (needs 0.10)").
+    A gap that meets the limit, to a nanometre, prints as `places` decimals; a negative one as 0."""
+    gap = max(gap, 0.0)
+    if gap >= need - 1e-9:
+        return "%.*f" % (places, gap), "%.*f" % (places, need)
+    for d in range(places, 7):
+        g, n = "%.*f" % (d, gap), "%.*f" % (d, need)
+        if float(g) < float(n):
+            break
+    return g, n
+
+
+def circle_poly_gap(centre: Location, radius: float, poly: Polygon) -> float:
+    """How far the polygon lies from the edge of the circle (negative when it reaches in): a hole or a via's
+    copper measured as the circle KiCad judges, not as the polygon drawn for it."""
+    if point_in_polygon((centre.x, centre.y), poly):
+        return -radius
+    return min(point_segment_distance((centre.x, centre.y), a, b) for a, b in _edges(poly)) - radius

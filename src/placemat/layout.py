@@ -22,7 +22,7 @@ import types
 
 from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
                      pair_ops, polyline_tracks, resolve_bridges, _point_seg)
-from .geometry import Transform, box_polygon, circle_polygon, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
+from .geometry import Transform, box_polygon, circle_polygon, circle_poly_gap, gap_texts, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
 from .findings import Finding, Findings
 from .giveway import FIELD_PREFIX, enabled as giveway_enabled, field_via_id, pad_via_id
 from .occupancy import LABEL_SOURCE, VIA_BUCKET, Occupancy, Shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
@@ -4770,6 +4770,11 @@ class Board:
             ctx.via_at[intent.index] = where    # a track may end on it
             return [via] + ops
         intent = self._copper_intent("via %s" % name, net, priority, plan, refs, why)
+        if isinstance(at, FreeSpot):
+            # a searched spot keeps clear of the tracks declared before it, whenever those are planned: a track
+            # that waits for a searched part is drawn after a decided via is, and has no way round it
+            self._copper_after[intent.index] = tuple(
+                c.index for c in self._copper[:intent.index] if c.key.startswith("track ") and c.net != name)
         return intent
 
     def stitch(self, net, region, *, pitch: float | None = None, size: float | None = None,
@@ -5094,7 +5099,6 @@ class Board:
         def apart(layers):              # a span that shares no layer with these: nothing between them
             return bool(own) and bool(layers) and not (own & set(layers))
         ring = via_ring(c, size)
-        drilled = circle_polygon(c, drill / 2.0)
         box = Box.of_points(ring)
         if occ.board_shape is not None:
             if occ.board_shape.why_not(box, self.keep_in):
@@ -5114,25 +5118,28 @@ class Board:
                 continue
             gap = c.distance(v.at) - (drill + v.drill) / 2.0
             if gap < self.geometry.hole_to_hole - 1e-9:
-                return "hole %.2f mm from the %s via's hole" % (max(gap, 0.0), v.net)
+                got, want = gap_texts(gap, self.geometry.hole_to_hole)
+                return "hole %s mm from the %s via's hole (needs %s)" % (got, v.net, want)
             if v.net != net:
                 clr = self._clearance(net, v.net)
                 if c.distance(v.at) - (size + v.size) / 2.0 < clr - 1e-9:
-                    return "copper %.2f mm from the %s via" % (c.distance(v.at) - (size + v.size) / 2.0, v.net)
+                    got, want = gap_texts(c.distance(v.at) - (size + v.size) / 2.0, clr)
+                    return "copper %s mm from the %s via (needs %s)" % (got, v.net, want)
                 dist = c.distance(v.at)         # a drill against the other's ring, each way
                 for gap, whose in ((dist - (drill + v.size) / 2.0, "the %s via's" % v.net),
                                    (dist - (size + v.drill) / 2.0, "its")):
                     if gap < self.geometry.hole_clearance - 1e-9:
-                        return "copper %.2f mm from %s hole (needs %.2f)" % (
-                            max(gap, 0.0), whose, self.geometry.hole_clearance)
+                        return "copper %s mm from %s hole (needs %s)" % (
+                            *gap_texts(gap, self.geometry.hole_clearance), whose)
         for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
             if own and t.layer not in own:
                 continue
             if t.net != net and poly_distance(ring, t.polygon) < self._clearance(net, t.net) - 1e-9:
-                return "copper %.2f mm from a %s track planned before it" % (poly_distance(ring, t.polygon), t.net)
-            if t.net != net and poly_distance(drilled, t.polygon) < self.geometry.hole_clearance - 1e-9:
-                return "copper %.2f mm from its hole (needs %.2f)" % (
-                    max(poly_distance(drilled, t.polygon), 0.0), self.geometry.hole_clearance)
+                got, want = gap_texts(poly_distance(ring, t.polygon), self._clearance(net, t.net))
+                return "copper %s mm from a %s track planned before it (needs %s)" % (got, t.net, want)
+            if t.net != net and circle_poly_gap(c, drill / 2.0, t.polygon) < self.geometry.hole_clearance - 1e-9:
+                return "copper %s mm from its hole (needs %s)" % gap_texts(
+                    circle_poly_gap(c, drill / 2.0, t.polygon), self.geometry.hole_clearance)
         # a pour planned before it in this batch: a fitted pour is drawn as planned, so it is copper now,
         # held as the occupancy will hold it (its outline and half its stroke)
         for op in getattr(ctx, "batch_ops", ()):
@@ -5144,26 +5151,27 @@ class Board:
                 continue
             gap = poly_distance(ring, shape.poly)
             if gap < self._clearance(net, op.net) - 1e-9:
-                return "copper %.2f mm from a %s pour planned before it" % (max(gap, 0.0), op.net)
-            hole_gap = poly_distance(drilled, shape.poly)
+                got, want = gap_texts(gap, self._clearance(net, op.net))
+                return "copper %s mm from a %s pour planned before it (needs %s)" % (got, op.net, want)
+            hole_gap = circle_poly_gap(c, drill / 2.0, shape.poly)
             if hole_gap < self.geometry.hole_clearance - 1e-9:
-                return "copper %.2f mm from its hole (needs %.2f)" % (max(hole_gap, 0.0), self.geometry.hole_clearance)
+                return "copper %s mm from its hole (needs %s)" % gap_texts(hole_gap, self.geometry.hole_clearance)
         for at, dia, layers, hole_net in holes:
             if apart(layers):
                 continue
             gap = c.distance(at) - (drill + dia) / 2.0
             if gap < self.geometry.hole_to_hole - 1e-9:
-                return "hole %.2f mm from a pad's hole" % max(gap, 0.0)
+                return "hole %s mm from a pad's hole (needs %s)" % gap_texts(gap, self.geometry.hole_to_hole)
             edge = c.distance(at) - (size + dia) / 2.0          # its ring against their drill
             if hole_net != net and edge < self.geometry.hole_clearance - 1e-9:
-                return "copper %.2f mm from a pad's hole (needs %.2f)" % (max(edge, 0.0), self.geometry.hole_clearance)
+                return "copper %s mm from a pad's hole (needs %s)" % gap_texts(edge, self.geometry.hole_clearance)
         for at, dia in bare:
             gap = c.distance(at) - (drill + dia) / 2.0
             if gap < self.geometry.hole_to_hole - 1e-9:
-                return "hole %.2f mm from an unplated hole" % max(gap, 0.0)
+                return "hole %s mm from an unplated hole (needs %s)" % gap_texts(gap, self.geometry.hole_to_hole)
             edge = c.distance(at) - (size + dia) / 2.0
             if edge < self.geometry.hole_clearance - 1e-9:
-                return "copper %.2f mm from an unplated hole (needs %.2f)" % (max(edge, 0.0), self.geometry.hole_clearance)
+                return "copper %s mm from an unplated hole (needs %s)" % gap_texts(edge, self.geometry.hole_clearance)
         for poly, layers, allowed in forbidding:
             if net not in allowed and polys_overlap(ring, poly) and not apart(layers):
                 return "inside a keepout, which forbids vias"
@@ -5200,7 +5208,8 @@ class Board:
             if v.layers and layer not in v.layers:
                 continue
             if v.net != net and poly_distance(tail.polygon, v.polygon) < self._clearance(net, v.net) - 1e-9:
-                return "tail %.2f mm from the %s via" % (poly_distance(tail.polygon, v.polygon), v.net)
+                got, want = gap_texts(poly_distance(tail.polygon, v.polygon), self._clearance(net, v.net))
+                return "tail %s mm from the %s via (needs %s)" % (got, v.net, want)
         for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
             if (t.net != net and t.layer is layer
                     and poly_distance(tail.polygon, t.polygon) < self._clearance(net, t.net) - 1e-9):
@@ -5254,7 +5263,8 @@ class Board:
                 if v.layers and layer not in v.layers:
                     continue
                 if v.net != net and poly_distance(tail, v.polygon) < self._clearance(net, v.net) - 1e-9:
-                    return "tail %.2f mm from the %s via" % (poly_distance(tail, v.polygon), v.net)
+                    got, want = gap_texts(poly_distance(tail, v.polygon), self._clearance(net, v.net))
+                    return "tail %s mm from the %s via (needs %s)" % (got, v.net, want)
             for t in ctx.planned_tails + [t for t in ctx.batch_tracks if t not in ctx.planned_tails]:
                 if (t.net != net and t.layer is layer
                         and poly_distance(tail, t.polygon) < self._clearance(net, t.net) - 1e-9):

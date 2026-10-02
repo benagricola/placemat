@@ -13,7 +13,7 @@ import heapq
 import math
 import re
 
-from .geometry import (circle_polygon, via_ring, distance_to_boundary, point_in_polygon, point_segment_distance,
+from .geometry import (circle_polygon, gap_texts, via_ring, distance_to_boundary, point_in_polygon, point_segment_distance,
                        poly_distance, polys_overlap)
 from .copper import _segment_polygon
 from .values import Box, Location
@@ -58,7 +58,7 @@ def judge_via(geometry, at: Location, net: str, size: float, drill: float) -> Vi
     elif rings:
         gap = min(distance_to_boundary(poly, r) for r in rings)
         if gap < geometry.edge_clearance - 1e-9:
-            hard.append("%.2f mm from the board edge (needs %.2f)" % (gap, geometry.edge_clearance))
+            hard.append("%s mm from the board edge (needs %s)" % gap_texts(gap, geometry.edge_clearance))
     for c in geometry.copper:
         if c.net == net or not c.outlines:
             continue
@@ -73,25 +73,27 @@ def judge_via(geometry, at: Location, net: str, size: float, drill: float) -> Vi
         if c.kind == "zone":
             soft.append("the %s pour on %s would give way" % (c.net, where))
         elif c.kind in _HARD:
-            hard.append("%.2f mm from %s %s on %s (needs %.2f)" % (gap, c.net or "-", c.kind, where, reach))
+            got, want = gap_texts(gap, reach)
+            hard.append("%s mm from %s %s on %s (needs %s)" % (got, c.net or "-", c.kind, where, want))
     for fp in geometry.footprints:                   # a footprint's own copper graphics: copper of no net
         for layer, art in fp.copper:
             if not box.overlaps(Box.of_points(art), gap=geometry.default_clearance):
                 continue
             gap = poly_distance(poly, art)
             if gap < geometry.default_clearance - 1e-9:
-                hard.append("%.2f mm from %s's own copper on %s (needs %.2f)" % (gap, fp.ref, layer.value,
-                                                                              geometry.default_clearance))
+                got, want = gap_texts(gap, geometry.default_clearance)
+                hard.append("%s mm from %s's own copper on %s (needs %s)" % (got, fp.ref, layer.value, want))
     for centre, dia, what in _holes(geometry):
         gap = at.distance(centre) - (drill + dia) / 2.0
         if gap < geometry.hole_to_hole - 1e-9:
-            hard.append("hole %.2f mm from the %s hole (needs %.2f)" % (max(gap, 0.0), what, geometry.hole_to_hole))
+            got, want = gap_texts(gap, geometry.hole_to_hole)
+            hard.append("hole %s mm from the %s hole (needs %s)" % (got, what, want))
     for fp in geometry.footprints:                   # an unplated hole has no copper: the via's copper keeps off its edge
         for centre, dia in fp.npth:
             edge = at.distance(centre) - (size + dia) / 2.0
             if edge < geometry.hole_clearance - 1e-9:
-                hard.append("copper %.2f mm from %s's unplated hole (needs %.2f)" % (max(edge, 0.0), fp.ref,
-                                                                                    geometry.hole_clearance))
+                got, want = gap_texts(edge, geometry.hole_clearance)
+                hard.append("copper %s mm from %s's unplated hole (needs %s)" % (got, fp.ref, want))
     for ra in geometry.rule_areas:
         if "vias" in ra.excludes and ra.layers and polys_overlap(poly, ra.polygon):
             hard.append("inside %s, which forbids vias" % ra.base)
@@ -142,7 +144,8 @@ def judge_tail(geometry, start: Location, end: Location, net: str, width: float,
             continue
         gap = min(poly_distance(poly, o) for o in c.outlines)
         if gap < reach - 1e-9:
-            out.append("tail %.2f mm from %s %s on %s (needs %.2f)" % (gap, c.net or "-", c.kind, layer.value, reach))
+            got, want = gap_texts(gap, reach)
+            out.append("tail %s mm from %s %s on %s (needs %s)" % (got, c.net or "-", c.kind, layer.value, want))
     return tuple(out)
 
 

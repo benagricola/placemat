@@ -11,6 +11,8 @@ from pathlib import Path
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "fairing" / "keep_out"
 MODULES = {"usb5v": "Usb5v", "logicsupply": "LogicSupply", "usbconverter": "UsbConverter"}
+# a module of another fixture folder: (folder, generated name)
+OTHER = {"usbtcpc": (FIXTURES.parent / "via_clearance", "UsbTcpc")}
 
 # The annotation each module's capture carries now (only the switch nodes in `away=`) ...
 SWITCH_ONLY = {
@@ -25,12 +27,12 @@ WITH_BOOT = None
 def stage(tmp_path: Path, module: str, keep_out: str | None = None) -> Path:
     """A copy of the fixture under `tmp_path` laid out as a board folder, with the module's cached generation
     in `.placemat/generated`; returns the layout script's path."""
-    name = MODULES[module]
+    folder, name = OTHER[module] if module in OTHER else (FIXTURES, MODULES[module])
     root = tmp_path / "board"
-    shutil.copytree(FIXTURES, root, ignore=shutil.ignore_patterns("generated"))
+    shutil.copytree(folder, root, ignore=shutil.ignore_patterns("generated"))
     cache = root / "modules" / module / ".placemat" / "generated"
     cache.mkdir(parents=True)
-    shutil.copytree(FIXTURES / "modules" / module / "generated" / name, cache / name)
+    shutil.copytree(folder / "modules" / module / "generated" / name, cache / name)
     if keep_out is not None:
         for fname, pattern in (("default.net", r'(\(property \(name "Pm\.KeepOut"\) \(value ")[^"]*("\)\))'),
                                ("layout.kicad_pcb", r'(\(property "Pm\.Keepout" ")[^"]*(")')):
