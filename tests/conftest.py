@@ -18,6 +18,19 @@ def _has_pcbnew():
 needs_kicad = pytest.mark.skipif(not _has_pcbnew(), reason="pcbnew not importable")
 
 
+if not _has_pcbnew():
+    @pytest.hookimpl(hookwrapper=True)
+    def pytest_make_collect_report(collector):
+        """Without KiCad (a CI runner), a test module that imports pcbnew at
+        its top is skipped, as a `needs_kicad` test is, not an error that
+        stops the whole collection."""
+        outcome = yield
+        report = outcome.get_result()
+        if report.failed and "No module named 'pcbnew'" in str(report.longrepr):
+            report.outcome = "skipped"
+            report.longrepr = (str(collector.path), 0, "Skipped: pcbnew not importable")
+
+
 def _placemat_native() -> bool:
     from placemat import geometry
     return geometry._native is not None
