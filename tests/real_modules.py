@@ -24,12 +24,13 @@ SWITCH_ONLY = {
 WITH_BOOT = None
 
 
-def stage(tmp_path: Path, module: str, keep_out: str | None = None) -> Path:
+def stage(tmp_path: Path, module: str, keep_out: str | None = None, script: str | None = None, edit=None) -> Path:
     """A copy of the fixture under `tmp_path` laid out as a board folder, with the module's cached generation
-    in `.placemat/generated`; returns the layout script's path."""
+    in `.placemat/generated`; returns the layout script's path. `script` is a layout script of the fixture folder
+    (relative to it) laid out in place of the module's own, and `edit` a function on the script's text."""
     folder, name = OTHER[module] if module in OTHER else (FIXTURES, MODULES[module])
     root = tmp_path / "board"
-    shutil.copytree(folder, root, ignore=shutil.ignore_patterns("generated"))
+    shutil.copytree(folder, root, ignore=shutil.ignore_patterns("generated", "scripts"))
     cache = root / "modules" / module / ".placemat" / "generated"
     cache.mkdir(parents=True)
     shutil.copytree(folder / "modules" / module / "generated" / name, cache / name)
@@ -40,13 +41,19 @@ def stage(tmp_path: Path, module: str, keep_out: str | None = None) -> Path:
             text, n = re.subn(pattern, lambda m: m.group(1) + keep_out + m.group(2), path.read_text())
             assert n == 1, "%s carries one Pm.KeepOut" % fname
             path.write_text(text)
-    return root / "modules" / module / (name + "_layout.py")
+    layout = root / "modules" / module / (name + "_layout.py")
+    if script is not None:
+        shutil.copy(folder / script, layout)
+    if edit is not None:
+        layout.write_text(edit(layout.read_text()))
+    return layout
 
 
-def run(tmp_path: Path, module: str, keep_out: str | None = None, overrides: dict | None = None, keep_going: bool = False):
+def run(tmp_path: Path, module: str, keep_out: str | None = None, overrides: dict | None = None, keep_going: bool = False,
+        script: str | None = None, edit=None):
     """The module's layout run (no renders), as `(RunResult, DRC report as a dict, the written board's path)`."""
     from placemat import runner
-    script = stage(tmp_path, module, keep_out)
+    script = stage(tmp_path, module, keep_out, script, edit)
     src = runner.find_board(script)
 
     def restore(src, run_dir, fresh, quiet, timeout=900, keep_renders=False):

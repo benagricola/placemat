@@ -613,10 +613,19 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
     return False
 
 
+_CLEAR_EPS = 1e-9       # mm: a gap that short of the clearance is a tie, as occupancy judges one (`gap < clr - 1e-9`)
+
+
 def _path_out_exact(occ, start_shapes, foes, layers, win: Box, track: float, via: float, toward) -> bool:
     """`path_out`'s search on the shapes themselves: from every cell on `start_shapes` (the pad and the pad's own copper) over
     the cells of `win` a track keeps `track` (half its width and the clearance) from every foe on its layers, to the window's
-    edge or to a cell a via fits at, `via` from every foe."""
+    edge or to a cell a via fits at, `via` from every foe. A gap short of that by under a nanometre is a tie, which holds, as
+    in occupancy.
+
+    A track runs at 0, 45 and 90 degrees, so a second search walks those directions from where the pad's copper can be carried
+    on: each end of its tracks and the pad's centre, on a lattice of `place.escape_cell` steps through that point. A lane
+    laid at the least pitch from its neighbours has no room to spare, and the free-form cells above, off its line, cannot
+    follow it."""
     cell = occ.settings.place_escape_cell
     nx = max(1, int(math.ceil(win.width / cell)))
     ny = max(1, int(math.ceil(win.height / cell)))
@@ -627,7 +636,8 @@ def _path_out_exact(occ, start_shapes, foes, layers, win: Box, track: float, via
         return win.left + (i + 0.5) * cw, win.top + (j + 0.5) * ch
 
     def near(shapes, x, y, r):
-        """The least distance from (x, y) to the shapes, 0 inside one, only where it is under `r`."""
+        """Whether the least distance from (x, y) to the shapes is under `r`, 0 inside one."""
+        r -= _CLEAR_EPS
         for sh in shapes:
             b = sh.box
             if b.left - r >= x or x >= b.right + r or b.top - r >= y or y >= b.bottom + r:
@@ -667,6 +677,39 @@ def _path_out_exact(occ, start_shapes, foes, layers, win: Box, track: float, via
             if 0 <= a < nx and 0 <= b < ny and (a, b) not in seen and not walled(a, b):
                 seen.add((a, b))
                 todo.append((a, b))
+    # along the octilinear lattices
+    anchors = []
+    for sh in start_shapes:
+        pts = sh.ends or ((sh.box.center.x, sh.box.center.y),)
+        anchors += [tuple(p) for p in pts if tuple(p) not in anchors]
+    for ax, ay in anchors:
+        if _walk_lattice(ax, ay, win, cell, toward, (cx, cy), lambda x, y: near(walls, x, y, track), on_start,
+                         lambda x, y: not near(foes, x, y, via)):
+            return True
+    return False
+
+
+def _walk_lattice(ax, ay, win: Box, step: float, toward, centre: tuple, walled, on_start, via_fits) -> bool:
+    """Whether a track from (ax, ay) gets out of `win` moving by `step` at 0, 45 and 90 degrees: to a node within a step of
+    the window's edge (facing `toward`, when it is given), or to one a via fits at."""
+    seen = {(0, 0)}
+    todo = [(0, 0)]
+    while todo:
+        i, j = todo.pop()
+        x, y = ax + i * step, ay + j * step
+        if (x - win.left <= step or win.right - x <= step or y - win.top <= step or win.bottom - y <= step):
+            if toward is None or toward[0] * (x - centre[0]) + toward[1] * (y - centre[1]) > 0:
+                return True
+        if not on_start(x, y) and via_fits(x, y):
+            return True
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                k = (i + di, j + dj)
+                if (di or dj) and k not in seen:
+                    seen.add(k)
+                    nxt = (ax + k[0] * step, ay + k[1] * step)
+                    if win.left <= nxt[0] <= win.right and win.top <= nxt[1] <= win.bottom and not walled(*nxt):
+                        todo.append(k)
     return False
 
 

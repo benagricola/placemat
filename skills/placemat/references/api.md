@@ -694,9 +694,17 @@ not along a board axis is refused.
   pair gap apart (else the clearance) instead of a step. Their pins must be
   neighbours along the row; `pairs=` needs `turn=`.
 
-The escape is settled as soon as its part is placed, as a fanout is, and its
-risers, lanes and vias stand in the occupancy as copper of their own nets. A
-part placed later may stand over a lane with its body, and with a pad of the
+The escape is settled when its part is placed, as a fanout is, and its
+risers, lanes and vias stand in the occupancy as copper of their own nets. It
+waits for the firm parts the script places relative to its part (`Beside` it, a
+`Pin` or any position said in terms of its pads), so a bypass beside the chip
+is down when the lanes are laid out and they keep clear of it: one escape over
+a whole row, with a part standing beside the chip at the row's middle, starts
+the lanes past that part without a `depth=`. A part placed relative to the
+escape itself (`Beside(esc, ...)`, a lane's end or via), or to a part that is,
+waits for the lanes instead, and an escape and a part that would wait for each
+other are laid out as soon as nothing else can be placed. A searched part, and
+the parts that ride it, are placed after the lanes. A part placed later may stand over a lane with its body, and with a pad of the
 lane's own net on it, but not with a pad, a hole or other copper of another
 net within the clearance; the parts a fanout lets in (linked at
 `LinkWeight.SHORT`) are judged the same. Vias placed later (`FreeSpot`,
