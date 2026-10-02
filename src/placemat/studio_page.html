@@ -101,6 +101,7 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: 224px minma
 #card .cl > div { padding: 1px 0; overflow-wrap: anywhere; }
 #card .pills { display: flex; flex-wrap: wrap; gap: 4px; }
 #card .facts { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 0; }
+#card .fndrow.go { cursor: pointer; } #card .fndrow.go:hover { text-decoration: underline; }
 #card .num.ok { color: var(--good); }
 #card a { color: var(--accent); cursor: pointer; text-decoration: none; }
 #card .src a { font-family: var(--mono); font-size: 12px; }
@@ -264,6 +265,9 @@ svg text { user-select: none; font-family: var(--sans); }
 .arrowhead.ok { fill: var(--ok); } .arrowhead.over { fill: var(--over); } .arrowhead.free { fill: var(--free); }
 #board.hassel .lkg:not(.mine) { opacity: 0.2; }
 .lkg.mine .lk { stroke-width: 0.22; }
+.mem.fhl .cy { stroke: var(--finding); stroke-width: 0.4; stroke-dasharray: none; fill: var(--finding); fill-opacity: 0.22; }
+.mem.fhl .bd { stroke: var(--finding); stroke-width: 0.3; }
+.pad.fpad, .thru.fpad { stroke: var(--finding); stroke-width: 0.3; fill: var(--finding); fill-opacity: 0.55; }
 .pocket { fill: none; stroke: var(--pocket); stroke-width: 0.12; stroke-dasharray: 0.4 0.25; }
 .worst { fill: none; stroke: var(--bad); stroke-width: 0.15; }
 .fmark { fill: var(--sev-warning); fill-opacity: 0.18; stroke: var(--sev-warning); stroke-width: 0.2; }
@@ -403,6 +407,7 @@ const S = {
   cmp: null,                   // {a, b, diff, files, trace}
   follow: true,                // shown follows the latest resolve
   sel: null, marked: new Set(), selLine: null,
+  focus: null,                 // the finding being looked at: {refs, pads}, lit on the board
   replay: null,                // null: every placement step shown; k: the first k placement steps
   play: null,                  // the running replay: {t0, k0, rate, n}
   liveQ: [],                   // streamed items waiting to be added to the drawing
@@ -682,7 +687,7 @@ function itemSVG(it, f, pn, p, n) {
       if (s.kind === "courtyard") ms.push('<polygon class="cy" points="' + polyPts(s.poly) + '"/>');
       else if (s.kind === "body") ms.push('<polygon class="bd" points="' + polyPts(s.poly) + '"/>');
       else if (s.kind === "silk") ms.push('<polygon class="sk" points="' + polyPts(s.poly) + '"/>');
-      else if (s.kind === "pad" || s.kind === "through") ms.push('<polygon class="' + (s.kind === "pad" ? "pad" : "thru") + '" points="' + polyPts(s.poly) + '"/>');
+      else if (s.kind === "pad" || s.kind === "through") ms.push('<polygon class="' + (s.kind === "pad" ? "pad" : "thru") + '" data-pad="' + esc(s.number == null ? "" : s.number) + '" points="' + polyPts(s.poly) + '"/>');
     }
     const c = m.shapes.filter(s => s.kind === "courtyard" && s.faces.includes(f));
     const b = bboxOf((c.length ? c : m.shapes.filter(s => s.faces.includes(f))).map(s => s.poly));
@@ -892,6 +897,11 @@ function applyMarks() {
   for (const r of B.regions) {
     const id = r.dataset.ko !== undefined ? r.dataset.ko : r.dataset.res, kind = r.dataset.ko !== undefined ? "ko" : "res";
     r.classList.toggle("sel", !!S.selRegion && S.selRegion.kind === kind && S.selRegion.id === id);
+  }
+  const fr = S.focus ? new Set(S.focus.refs) : new Set(), fp = new Set(S.focus ? S.focus.pads.map(x => x[0] + "\n" + x[1]) : []);
+  for (const [ref, ms] of B.mems) for (const m of ms) {
+    m.classList.toggle("fhl", fr.has(ref));
+    for (const pd of m.querySelectorAll ? m.querySelectorAll("[data-pad]") : []) pd.classList.toggle("fpad", fp.has(ref + "\n" + pd.dataset.pad));
   }
   const refs = selRefs(p);
   for (const l of B.links) l.classList.toggle("mine", refs.has(l.dataset.a) || refs.has(l.dataset.b));
@@ -1261,10 +1271,37 @@ function pickAt(x, y) {                      // a tap or a click on the board: a
   selectItem(null);
 }
 function selectRegion(kind, id) {
-  S.sel = null; S.selRef = null; S.module = null; S.selLine = null; S.cardOff = null; S.marked = new Set(); S.selRegion = {kind, id};
+  S.sel = null; S.selRef = null; S.module = null; S.selLine = null; S.cardOff = null; S.marked = new Set(); S.focus = null; S.selRegion = {kind, id};
   schedule("marks", "script", "compare", "card");
 }
+// A finding looked at: the parts and pads it names light up on the board, and the board scrolls to them if they are not in view.
+function focusFinding(f) {
+  const p = plan(), m = itemMap(p), owner = ref => itemsOf(p).find(i => i.members.some(x => x.ref === ref));
+  const have = new Set(itemsOf(p).flatMap(i => i.members.map(x => x.ref)));
+  let refs = (f.refs || []).filter(r => have.has(r));
+  const it = f.item && m.get(f.item);
+  if (!refs.length && it) refs = it.members.map(x => x.ref);
+  const pads = (f.pads || []).filter(x => have.has(x[0]));
+  const first = refs.length ? owner(refs[0]) : it;
+  if (first) selectItem(first.key, {ref: refs.length === 1 ? refs[0] : null});
+  S.focus = refs.length || pads.length ? {refs, pads} : null;
+  const boxes = refs.map(r => { const o = owner(r); return o && itemBox(o, r); }).filter(Boolean);
+  if (f.at) boxes.push([f.at[0] - 1, f.at[1] - 1, f.at[0] + 1, f.at[1] + 1]);
+  if (boxes.length) {
+    const box = [Math.min(...boxes.map(b => b[0])), Math.min(...boxes.map(b => b[1])), Math.max(...boxes.map(b => b[2])), Math.max(...boxes.map(b => b[3]))];
+    if (!inView(box)) zoomTo(box);
+  }
+  schedule("marks", "card");
+}
+// Whether a box (board mm) is wholly inside what the board shows, on its first panel.
+function inView(box) {
+  if (!S.vb || !lay) return false;
+  const pn = lay.panels[0], a = panelPt(pn, box[0], box[1]), b = panelPt(pn, box[2], box[3]), v = S.vb;
+  const x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]), y0 = Math.min(a[1], b[1]), y1 = Math.max(a[1], b[1]);
+  return x0 >= v.x && x1 <= v.x + v.w && y0 >= v.y && y1 <= v.y + v.h;
+}
 function selectItem(key, opt = {}) {
+  S.focus = null;
   S.sel = key; S.selRef = key ? opt.ref || null : null; S.module = null; S.selRegion = null; S.selLine = null; S.cardOff = null;
   if (key) {
     const p = plan(), it = itemMap(p).get(key);
@@ -1277,13 +1314,13 @@ function selectItem(key, opt = {}) {
 }
 function selectModule(id) {                 // the module the selected part belongs to: all its parts light up
   const p = plan(), keys = [...moduleKeys(p, id)];
-  S.module = id; S.selRef = null; S.selRegion = null; S.cardOff = null;
+  S.focus = null; S.module = id; S.selRef = null; S.selRegion = null; S.cardOff = null;
   if (!keys.includes(S.sel)) S.sel = keys[0] || S.sel;
   zoomItems(keys);
   schedule("marks", "card");
 }
 function markItems(keys, zoom) {
-  S.marked = new Set(keys); S.sel = keys[0] || null; S.selRef = null; S.module = null; S.selRegion = null; S.cardOff = null;
+  S.focus = null; S.marked = new Set(keys); S.sel = keys[0] || null; S.selRef = null; S.module = null; S.selRegion = null; S.cardOff = null;
   if (zoom) zoomItems(keys);
   schedule("marks", "script", "compare", "card");
 }
@@ -1335,7 +1372,7 @@ const pushLine = s => {
   const m = /^push from (.+?): ([\d.e+-]+) at ([\d.]+) mm \(limit ([\d.e+-]+)\)$/.exec(s);
   return m ? pill(m[1], "net") + " " + esc(m[2] + " at " + m[3] + " mm, limit " + m[4]) : esc(s);
 };
-const sevPills = fs => listOf(fs.map(f => '<span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + esc(f.text)));
+const sevPills = fs => listOf(fs.map(f => { const i = ((plan() || {}).findings || []).indexOf(f); return '<span class="fndrow' + (i >= 0 ? " go" : "") + '"' + (i >= 0 ? ' data-act="finding" data-fi="' + i + '"' : "") + '><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + esc(f.text) + "</span>"; }));
 function linkRows(p, refs, all) {
   const ls = (p.links || []).map((l, i) => [l, i]).filter(([l]) => refs.has(l.a[0]) || refs.has(l.b[0])).sort((a, b) => (b[0].state === "over") - (a[0].state === "over"));
   if (!ls.length) return "";
@@ -1394,6 +1431,7 @@ $("#card").onclick = e => {
   if (act === "close") { S.cardOff = cardKey(); renderCard(); }
   else if (act === "module") selectModule(a.dataset.id);
   else if (act === "part") { const ref = a.dataset.ref, owner = itemsOf(p).find(i => i.members.some(m => m.ref === ref)); if (owner) { S.module = null; selectItem(owner.key, {ref, zoom: true}); } }
+  else if (act === "finding") { const f = (p.findings || [])[+a.dataset.fi]; if (f) focusFinding(f); }
   else if (act === "links") { S.cardLinks = !S.cardLinks; renderCard(); }
   else if (act === "link") { const l = (p.links || [])[+a.dataset.i]; if (l) zoomTo([Math.min(l.pa[0], l.pb[0]) - 1, Math.min(l.pa[1], l.pb[1]) - 1, Math.max(l.pa[0], l.pb[0]) + 1, Math.max(l.pa[1], l.pb[1]) + 1]); }
   else if (act === "src") { const it = itemMap(p).get(S.sel); if (it) { goTab("script"); gotoLine(it.file, it.line); } }
@@ -1527,9 +1565,7 @@ function renderFindings() {
     if (e.target.closest(".fixslot")) return;
     const r = e.target.closest(".row"); if (!r) return;
     const f = all[+r.dataset.i];
-    if (f.at) zoomTo([f.at[0] - 2, f.at[1] - 2, f.at[0] + 2, f.at[1] + 2]);
-    if (f.item) selectItem(f.item, {zoom: !f.at});
-    if (f.at || f.item) goTab("board");
+    if (f.at || f.item || (f.refs || []).length) { focusFinding(f); goTab("board"); }
   };
 }
 

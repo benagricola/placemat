@@ -8,6 +8,7 @@ Faces are named, never mirrored: the page mirrors the back."""
 from __future__ import annotations
 
 import math
+import re
 
 from .board_geometry import members_of, stackup_order
 from .copper import Pour, Text, Track, Via, Zone, arc_circle
@@ -157,14 +158,39 @@ def _congestion(plan) -> dict | None:
             "worst_at": _pt(r.worst_at), "cells": cells}
 
 
+_PIN_LIST = re.compile(r"(?:\.(?P<dot>[A-Za-z0-9_']+)|\s+(?:pins?|pads?)\s+(?P<list>[A-Za-z0-9_']+(?:\s*[/,]\s*[A-Za-z0-9_']+)*))")
+
+
+def finding_targets(text: str, refs) -> tuple:
+    """The parts and pads a finding's sentence names: ([ref, ...], [[ref, pad], ...]),
+    in the order named. A ref is one the plan placed; a pad follows it as `REF.PAD`
+    or `REF pin 4/5`, `REF pads 1, 2`."""
+    known = sorted(refs, key=len, reverse=True)
+    if not known:
+        return [], []
+    rx = re.compile(r"(?<![\w.!'])(" + "|".join(re.escape(r) for r in known) + r")(?![\w!])")
+    out_refs, out_pads = [], []
+    for m in rx.finditer(text):
+        ref = m.group(1)
+        if ref not in out_refs:
+            out_refs.append(ref)
+        pm = _PIN_LIST.match(text, m.end())
+        if pm:
+            for pad in ([pm.group("dot")] if pm.group("dot") else re.split(r"\s*[/,]\s*", pm.group("list"))):
+                if [ref, pad] not in out_pads:
+                    out_pads.append([ref, pad])
+    return out_refs, out_pads
+
+
 def _findings(plan, keys) -> list:
-    out = []
+    out, refs = [], set(plan.occupancy.items)
     for f in plan.findings:
         text = str(f)
         m = _AT.search(text)
         first = text.split(" ", 1)[0]
+        named, pads = finding_targets(text, refs)
         out.append({"text": text, "kind": getattr(f, "kind", ""), "severity": getattr(f, "severity", "warning"), "at": [float(m.group(1)), float(m.group(2))] if m else None,
-                    "item": first if first in keys else ""})
+                    "item": first if first in keys else "", "refs": named, "pads": pads})
     return out
 
 

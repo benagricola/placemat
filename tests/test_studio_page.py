@@ -588,3 +588,22 @@ out.solo = els["#card"].innerHTML;
     assert "GND via shared" in c and "left its pad" in c and '<span class="chip net">L1</span> 2.5 at 3.0 mm, limit 8' in c
     assert "critical" in c and "x_layout.py:358" in c
     assert 'data-act="module"' not in out["solo"]
+
+
+@needs_node
+def test_clicking_a_finding_lights_its_parts_and_pads_and_clears_with_the_next_selection(tmp_path):
+    out = run_more(tmp_path, r"""
+const f = {text: "link Ra.1 to Rb.2 is 5 mm", kind: "link_over", at: null, item: "", refs: ["Ra", "Rb"], pads: [["Ra", "1"], ["Rb", "2"]], severity: "warning"};
+const g = {text: "a: sits close", kind: "fixed", at: null, item: "a", refs: ["Ra"], pads: [], severity: "critical"};
+full([item("a", 1), item("b", 5)], [st("a"), st("b")], {findings: [f, g]});
+out.pad = /data-pad="/.test(board().innerHTML);
+els["#tab-findings"].onclick({target: {closest: s => s === ".row" ? {dataset: {i: "0"}} : null}}); flush();
+out.focus = ev("S.focus"); out.sel = ev("[S.sel, S.selRef]");
+out.card = els["#card"].innerHTML;
+ev('selectItem("b", {})'); out.cleared = ev("S.focus");
+els["#card"].onclick({target: {closest: s => s === "[data-act]" ? {dataset: {act: "finding", fi: "1"}} : null}});
+out.again = ev("S.focus && S.focus.refs");
+""")
+    assert out["pad"] and out["focus"] == {"refs": ["Ra", "Rb"], "pads": [["Ra", "1"], ["Rb", "2"]]}
+    assert out["sel"] == ["a", None] and out["cleared"] is None and out["again"] == ["Ra"]
+    assert 'data-act="finding" data-fi="1"' in out["card"]
