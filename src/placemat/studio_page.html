@@ -92,11 +92,17 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: 224px minma
 #card .x { border: 0; background: none; color: var(--dim); font-size: 18px; line-height: 1; padding: 2px 6px; }
 #card .sub { color: var(--dim); margin: 1px 0 4px; }
 #card .note { margin: 4px 0 0; overflow-wrap: anywhere; }
-#card .facts { margin: 2px 0 0; }
+.facts { margin: 2px 0 0; }
 #card .src { margin-top: 5px; }
 #card .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; margin: 3px 0 0; font-size: 12px; }
 #card .kv span:nth-child(odd) { color: var(--dim); }
-#card .fnd { color: var(--warn); margin-top: 3px; }
+.cs { margin-top: 8px; padding-top: 5px; border-top: 1px solid var(--line); }
+.cst { font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin-bottom: 3px; }
+.cl > div { padding: 1px 0; overflow-wrap: anywhere; }
+.pills { display: flex; flex-wrap: wrap; gap: 4px; }
+.facts { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 0; }
+.fndrow.go { cursor: pointer; } .fndrow.go:hover { text-decoration: underline; }
+.num.ok { color: var(--good); }
 #card a { color: var(--accent); cursor: pointer; text-decoration: none; }
 #card .src a { font-family: var(--mono); font-size: 12px; }
 #replay { display: flex; gap: 10px; align-items: center; width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 4px 12px 4px 4px; }
@@ -153,9 +159,13 @@ body[data-view="script"] #script { display: flex; position: absolute; inset: 0; 
 .lg .sw { width: 26px; height: 14px; flex: none; overflow: visible; }
 .lg .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lg em { font-style: normal; color: var(--dim); font-size: 12px; }
+.lg.grp.none { opacity: 0.55; } .lg.grp.none span.nm { text-decoration: line-through; } .lg.grp.some .sw { opacity: 0.6; }
 .lg .car { width: 14px; color: var(--dim); text-align: center; flex: none; }
 .lg .only { border: 1px solid var(--line); background: var(--surface2); border-radius: 6px; font-size: 11px; padding: 0 6px; color: var(--dim); }
-.lgnote { margin: 2px 12px 4px 12px; color: var(--dim); font-size: 12px; line-height: 1.4; }
+.info { width: 16px; height: 16px; padding: 0; margin: 0 0 0 7px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface2); color: var(--dim); font: italic 700 10.5px/14px Georgia, serif; text-transform: none; letter-spacing: 0; vertical-align: middle; cursor: help; }
+.info:hover { color: var(--accent); border-color: var(--accent); }
+#infopop { position: fixed; z-index: 60; max-width: min(320px, calc(100vw - 16px)); background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 8px 11px; font-size: 12px; line-height: 1.45; }
+#infopop[hidden] { display: none; }
 #keybtn { display: none; }
 
 /* lists */
@@ -170,11 +180,14 @@ body[data-view="script"] #script { display: flex; position: absolute; inset: 0; 
 .row.open .n, .row .n.wrap { white-space: normal; }
 .row .go { display: none; border: 1px solid var(--line); background: var(--surface2); border-radius: 6px; padding: 1px 8px; flex: none; }
 .chip { font-size: 11px; line-height: 17px; padding: 0 7px; border-radius: 999px; background: var(--surface2); color: var(--dim); flex: none; font-weight: 600; }
-.chip.decided { background: var(--accent-soft); color: var(--accent); }
-.chip.searched { background: var(--surface2); color: var(--dim); }
-.chip.pocket { background: var(--warn-soft); color: var(--warn); }
-.chip.unplaced { background: var(--bad-soft); color: var(--bad); }
-.chip.copper { background: var(--surface2); color: var(--dim); }
+/* a step's kind has its own colour from the board's palette: a tint of it behind the colour itself */
+.chip.decided, .chip.searched, .chip.pocket, .chip.rides, .chip.track, .chip.via, .chip.plane, .chip.label, .chip.escape, .chip.cutout, .chip.copper, .chip.keepout, .chip.unplaced { background: color-mix(in srgb, var(--c) 17%, var(--surface)); color: var(--c); }
+.chip.decided { --c: var(--accent); } .chip.searched { --c: var(--courtyard); } .chip.pocket { --c: var(--pocket); } .chip.rides { --c: var(--good); }
+.chip.track { --c: var(--copper); } .chip.via { --c: var(--via); } .chip.plane { --c: var(--copperIn); } .chip.label { --c: var(--ref); } .chip.escape { --c: var(--finding); } .chip.cutout { --c: var(--keepout); } .chip.copper { --c: var(--copper); }
+.chip.keepout { --c: var(--keepout); } .chip.unplaced { --c: var(--bad); }
+.chip.bad { background: var(--bad-soft); color: var(--bad); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); } .chip.good { background: var(--good-soft); color: var(--good); }
+.chip.net { background: var(--accent-soft); color: var(--accent); font-family: var(--mono); font-size: 11.5px; }
 h3 { margin: 0; padding: 12px 12px 5px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); font-weight: 650; }
 h3.fold { cursor: pointer; display: flex; gap: 6px; }
 h3 .c { font-weight: 500; }
@@ -196,13 +209,14 @@ table.diff tr.hunk td { background: var(--accent-soft); color: var(--dim); }
 table.diff td.link { color: var(--mark); width: 14px; }
 
 
-.explain { padding: 10px 12px 2px; color: var(--dim); font-size: 12px; line-height: 1.4; }
 .row.step { align-items: flex-start; }
 .row.step .sb { flex: 1; min-width: 0; }
 .row.step .l1 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .row.step .l1 b { overflow-wrap: anywhere; }
 .row.step .l2 { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row.step .full { display: none; color: var(--dim); margin-top: 3px; white-space: normal; overflow-wrap: anywhere; }
+.row.step .full { display: none; margin-top: 3px; white-space: normal; overflow-wrap: anywhere; cursor: auto; }
+.row.step .full .cs:first-child { margin-top: 4px; }
+.row.step .full .fndrow.go { cursor: pointer; }
 .row.step.open .l2 { display: none; }
 .row.step.open .full { display: block; }
 .fdot { display: inline-flex; align-items: center; justify-content: center; min-width: 17px; height: 17px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #fff; background: var(--sev-warning); padding: 0 4px; }
@@ -214,14 +228,15 @@ table.diff td.link { color: var(--mark); width: 14px; }
 .filters button.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; font-weight: 600; }
 .fixslot { flex: none; }
 .fixslot:empty { display: none; }
-#card .kvl { display: grid; grid-template-columns: 5.5em 1fr; gap: 1px 8px; margin: 4px 0 0; }
-#card .kvl > span:nth-child(odd) { color: var(--dim); }
+.kvl { display: grid; grid-template-columns: 5.5em 1fr; gap: 1px 8px; margin: 4px 0 0; }
+.kvl > span:nth-child(odd) { color: var(--dim); }
 #card .lrow { display: flex; gap: 6px; align-items: baseline; padding: 2px 0; cursor: pointer; font-size: 12px; }
 #card .lrow .num { margin-left: auto; white-space: nowrap; }
 #card .chip.SHORT { background: var(--warn-soft); color: var(--warn); } #card .chip.PREFER { background: var(--accent-soft); color: var(--accent); }
 #card .mods { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 #card .mods button, #card .act { border: 1px solid var(--line); background: var(--surface2); border-radius: 999px; padding: 0 9px; }
 #card .act { color: var(--accent); }
+#card a.chip.act { padding: 0 9px; line-height: 17px; }
 
 /* the board drawing: every colour is a variable, so it follows the theme */
 svg text { user-select: none; font-family: var(--sans); }
@@ -246,12 +261,20 @@ svg text { user-select: none; font-family: var(--sans); }
 .lk { stroke-width: 0.1; }
 .lk.ok { stroke: var(--ok); } .lk.over { stroke: var(--over); stroke-width: 0.16; } .lk.free { stroke: var(--free); stroke-dasharray: 0.5 0.3; }
 .lkdot.ok { fill: var(--ok); } .lkdot.over { fill: var(--over); } .lkdot.free { fill: var(--free); }
-.lk, .lkdot { pointer-events: none; }
+.lk, .lkdot, .lkend, .lklabel { pointer-events: none; }
+.lkend { fill: none; stroke-width: 0.1; } .lkend.ok { stroke: var(--ok); } .lkend.over { stroke: var(--over); } .lkend.free { stroke: var(--free); }
+.lklabel { fill: var(--ink); stroke: var(--substrate); stroke-width: 0.2px; paint-order: stroke; stroke-linejoin: round; }
+.lkg[data-st="over"] .lk { stroke-width: 0.16; }
 .bd, .cy { pointer-events: all; }
 .lkhit { stroke: transparent; stroke-width: 0.5; fill: none; }   /* the middle of a link takes the pointer, its ends leave the parts under them to it */
 .arrowhead.ok { fill: var(--ok); } .arrowhead.over { fill: var(--over); } .arrowhead.free { fill: var(--free); }
 #board.hassel .lkg:not(.mine) { opacity: 0.2; }
 .lkg.mine .lk { stroke-width: 0.22; }
+.mem.fhl .cy { stroke: var(--finding); stroke-width: 0.4; stroke-dasharray: none; fill: var(--finding); fill-opacity: 0.22; }
+.mem.fhl .bd { stroke: var(--finding); stroke-width: 0.3; }
+.pad.fpad, .thru.fpad { stroke: var(--finding); stroke-width: 0.3; fill: var(--finding); fill-opacity: 0.55; }
+.cutoutg { fill: var(--canvas); stroke: var(--outline); stroke-width: 0.15; }
+.fring { fill: none; stroke: var(--finding); stroke-width: 2.5px; vector-effect: non-scaling-stroke; pointer-events: none; }
 .pocket { fill: none; stroke: var(--pocket); stroke-width: 0.12; stroke-dasharray: 0.4 0.25; }
 .worst { fill: none; stroke: var(--bad); stroke-width: 0.15; }
 .fmark { fill: var(--sev-warning); fill-opacity: 0.18; stroke: var(--sev-warning); stroke-width: 0.2; }
@@ -277,7 +300,7 @@ svg text { user-select: none; font-family: var(--sans); }
 .arrowhead { fill: var(--accent); }
 #board.replaying .copper, #board.replaying .links, #board.replaying .heat, #board.replaying .changes, #board.replaying .fnds { display: none; }
 #board.lowzoom .ref, #board.lowzoom .silktxt { display: none; }
-#board.lowzoom .lkdot { display: none; }
+#board.lowzoom .lkdot, #board.lowzoom .lklabel { display: none; }
 #grid .minor { stroke: var(--grid-minor); fill: none; }
 #grid .major { stroke: var(--grid-major); fill: none; }
 #grid text { fill: var(--grid-ink); font-family: var(--sans); }
@@ -327,6 +350,7 @@ svg text { user-select: none; font-family: var(--sans); }
 <style id="visrules"></style>
 </head>
 <body>
+<div id="infopop" role="tooltip" hidden></div>
 <header>
   <div class="brand"><b id="board-title">placemat studio</b><span id="board-sub"></span></div>
   <span class="pill" id="status"><i></i><span id="statustext">connecting</span></span>
@@ -391,10 +415,11 @@ const S = {
   cmp: null,                   // {a, b, diff, files, trace}
   follow: true,                // shown follows the latest resolve
   sel: null, marked: new Set(), selLine: null,
+  focus: null,                 // the finding being looked at: {refs, pads}, lit on the board
   replay: null,                // null: every placement step shown; k: the first k placement steps
   play: null,                  // the running replay: {t0, k0, rate, n}
   liveQ: [],                   // streamed items waiting to be added to the drawing
-  face: "both", off: new Set(["labels"]), exp: new Set(),   // off: what the legend has switched off; exp: its expanded rows
+  face: "both", off: new Set(["labels"]), exp: new Set(["ko", "res"]), seenRegions: new Set(),   // off: what the legend has switched off; exp: its expanded rows
   selRef: null, selRegion: null, module: null, sevFilter: "",
   view: null, tab: "steps", file: null, cmpFile: null, sbs: false, openRows: new Set(), showOther: false, closedKinds: new Set(), cardOff: null, cardLinks: false, sliding: false,
 };
@@ -410,29 +435,28 @@ const isDrawn = it => (it.members || []).some(m => (m.shapes || []).length);
 const itemsOf = p => ((p && p.items) || []).filter(isDrawn);
 const itemMap = p => new Map(itemsOf(p).map(i => [i.key, i]));
 
-// The replay's positions: the placement steps, in order, one for each item the board draws. Copper steps (fanouts,
-// escapes, vias, pours) and steps that placed nothing draw nothing as a step of their own, so they are not positions;
-// an item named by two steps is shown at the first. The slider, the step list and the drawing all index this list.
-function placementSteps(p) {
+// The replay's positions, in the order the layout made them: each item the board draws (at its first step), each
+// copper step and each cutout. Keepouts and the other setup steps draw nothing of their own and are not positions.
+// The slider, the step list and the drawing all index this list.
+function replaySteps(p) {
   const drawn = new Set(itemsOf(p).map(i => i.key)), seen = new Set(), out = [];
   (p && p.steps || []).forEach((s, i) => {
-    if (!drawn.has(s.item) || seen.has(s.item)) return;
-    seen.add(s.item);
-    out.push(Object.assign({}, s, {n: out.length, at: i}));
+    if (drawn.has(s.item) && !seen.has(s.item)) { seen.add(s.item); out.push(Object.assign({}, s, {n: out.length, at: i, type: "place"})); }
+    else if (!drawn.has(s.item) && (s.kind === "copper" || s.kind === "cutout")) out.push(Object.assign({}, s, {n: out.length, at: i, type: s.kind}));
   });
   return out;
 }
 // The steps that are not positions, for the step list's second section.
 function otherSteps(p) {
-  const pos = new Set(placementSteps(p).map(s => s.at));
+  const pos = new Set(replaySteps(p).map(s => s.at));
   return (p && p.steps || []).map((s, i) => Object.assign({}, s, {at: i})).filter(s => !pos.has(s.at) && !((p.unplaced || []).some(u => u.item === s.item) && s.kind !== "copper"));
 }
 // The item keys the drawing shows at slider position k (null: all of them): the first k placement steps' items.
 function itemsAtStep(p, k) {
-  const order = placementSteps(p);
-  return (k == null ? order : order.slice(0, clamp(k, 0, order.length))).map(s => s.item);
+  const order = replaySteps(p);
+  return (k == null ? order : order.slice(0, clamp(k, 0, order.length))).filter(s => s.type === "place").map(s => s.item);
 }
-const replayCount = () => placementSteps(plan()).length;
+const replayCount = () => replaySteps(plan()).length;
 
 // ---------------------------------------------------------------- scheduling
 const dirty = new Set();
@@ -611,7 +635,7 @@ function renderStatus() {
   $("#boardwrap").classList.toggle("stale", S.stale && !S.resolving);
 }
 function renderCounts() {
-  const p = plan(), c = {steps: placementSteps(p).length, findings: ((p && p.findings) || []).length, compare: S.cmp && !S.cmp.diff.empty ? S.cmp.diff.moved.length + S.cmp.diff.added.length + S.cmp.diff.removed.length : 0};
+  const p = plan(), c = {steps: replaySteps(p).length, findings: ((p && p.findings) || []).length, compare: S.cmp && !S.cmp.diff.empty ? S.cmp.diff.moved.length + S.cmp.diff.added.length + S.cmp.diff.removed.length : 0};
   document.querySelectorAll("[data-count]").forEach(e => { const v = c[e.dataset.count]; e.textContent = v || ""; e.style.display = v ? "" : "none"; });
 }
 
@@ -670,7 +694,7 @@ function itemSVG(it, f, pn, p, n) {
       if (s.kind === "courtyard") ms.push('<polygon class="cy" points="' + polyPts(s.poly) + '"/>');
       else if (s.kind === "body") ms.push('<polygon class="bd" points="' + polyPts(s.poly) + '"/>');
       else if (s.kind === "silk") ms.push('<polygon class="sk" points="' + polyPts(s.poly) + '"/>');
-      else if (s.kind === "pad" || s.kind === "through") ms.push('<polygon class="' + (s.kind === "pad" ? "pad" : "thru") + '" points="' + polyPts(s.poly) + '"/>');
+      else if (s.kind === "pad" || s.kind === "through") ms.push('<polygon class="' + (s.kind === "pad" ? "pad" : "thru") + '" data-pad="' + esc(s.number == null ? "" : s.number) + '" points="' + polyPts(s.poly) + '"/>');
     }
     const c = m.shapes.filter(s => s.kind === "courtyard" && s.faces.includes(f));
     const b = bboxOf((c.length ? c : m.shapes.filter(s => s.faces.includes(f))).map(s => s.poly));
@@ -693,7 +717,9 @@ function panelSVG(p, pn, first, order, diffLayer) {
   const tr = pn.mirror ? "translate(" + num(pn.dx + lay.L + lay.R) + " 0) scale(-1 1)" : "translate(" + num(pn.dx) + " 0)";
   o.push('<g class="panel ' + f + '" transform="' + tr + '">');
   if (p.board && p.board.loops.length) {
-    o.push('<path class="outline' + (p.board.drawn ? "" : " undrawn") + '" fill-rule="evenodd" d="' + p.board.loops.map(l => "M " + polyPts(l).replace(/ /g, " L ") + " Z").join(" ") + '"/>');
+    const cut = S.loopStep || new Map();             // a cutout's loop is drawn when its step is reached, not as part of the edge
+    o.push('<path class="outline' + (p.board.drawn ? "" : " undrawn") + '" fill-rule="evenodd" d="' + p.board.loops.filter((l, i) => !cut.has(i)).map(l => "M " + polyPts(l).replace(/ /g, " L ") + " Z").join(" ") + '"/>');
+    p.board.loops.forEach((l, i) => { if (cut.has(i)) o.push('<polygon class="cutoutg" data-s="' + cut.get(i) + '" points="' + polyPts(l) + '"/>'); });
   }
   if (first && p.congestion && p.congestion.cells) {
     const c = p.congestion, cs = c.cell;
@@ -711,15 +737,23 @@ function panelSVG(p, pn, first, order, diffLayer) {
     if (r.face && r.face !== f) continue;
     o.push('<polygon class="res' + (r.why === selR ? " sel" : "") + '" data-res="' + esc(r.why) + '" points="' + polyPts(r.poly) + '"/>');
   }
-  o.push(copperSVG(p.copper || [], f, pn, ""));
+  const mapped = S.opStep && S.opStep.size ? i => S.opStep.has(i) ? S.opStep.get(i) : S.lastStep : null;     // copper no step laid shows with the last
+  o.push(copperSVG(p.copper || [], f, pn, "", mapped));
   o.push('<g class="items">');
   for (const s of order) { const it = S.itemAt.get(s.item); if (it) o.push(itemSVG(it, f, pn, p, s.n)); }
   o.push("</g>");
   o.push('<g class="links">');
   (p.links || []).forEach((l, i) => {
     const x1 = l.pa[0], y1 = l.pa[1], x2 = l.pb[0], y2 = l.pb[1];
+    // a link over its limit is green as far as the limit reaches along it, red beyond
+    const k = l.state === "over" && l.length > 0 && l.limit != null ? clamp(l.limit / l.length, 0, 1) : 0, sx = num(x1 + (x2 - x1) * k), sy = num(y1 + (y2 - y1) * k);
+    const body = k > 0 ? '<line class="lk ok" x1="' + x1 + '" y1="' + y1 + '" x2="' + sx + '" y2="' + sy + '"/><line class="lk over" x1="' + sx + '" y1="' + sy + '" x2="' + x2 + '" y2="' + y2 + '" marker-end="url(#ar-over)"/>'
+      : '<line class="lk ' + l.state + '" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" marker-end="url(#ar-' + l.state + ')"/>';
+    // each end is marked with its pad's name, whichever face its part is on
+    const ends = '<circle class="lkend ' + (l.state === "over" ? "ok" : l.state) + '" cx="' + x1 + '" cy="' + y1 + '" r="0.45"/><circle class="lkend ' + l.state + '" cx="' + x2 + '" cy="' + y2 + '" r="0.45"/>' +
+      textAt(pn, x1, y1 - 1, l.a.join("."), 0.7, "lklabel") + textAt(pn, x2, y2 + 1, l.b.join("."), 0.7, "lklabel");
     o.push('<g class="lkg" data-st="' + l.state + '" data-i="' + i + '" data-a="' + esc(l.a[0]) + '" data-b="' + esc(l.b[0]) + '"><line class="lkhit" x1="' + num(x1 + (x2 - x1) * 0.3) + '" y1="' + num(y1 + (y2 - y1) * 0.3) + '" x2="' + num(x1 + (x2 - x1) * 0.7) + '" y2="' + num(y1 + (y2 - y1) * 0.7) + '"/>' +
-      '<line class="lk ' + l.state + '" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" marker-end="url(#ar-' + l.state + ')"/><circle class="lkdot ' + l.state + '" cx="' + x1 + '" cy="' + y1 + '" r="0.2"/></g>');
+      body + '<circle class="lkdot ' + l.state + '" cx="' + x1 + '" cy="' + y1 + '" r="0.2"/>' + ends + "</g>");
   });
   o.push("</g>");
   o.push('<g class="fnds">');
@@ -737,20 +771,21 @@ function silkText(c) {
   const tf = "translate(" + num(c.at[0]) + " " + num(c.at[1]) + ")" + (c.rotation ? " rotate(" + num(-c.rotation) + ")" : "") + (c.mirrored ? " scale(-1 1)" : "");
   return '<text class="silktxt" transform="' + tf + '" font-size="' + num(Math.max(c.size || 0.5, 0.3)) + '" text-anchor="' + anchor + '" dominant-baseline="' + base + '">' + esc(c.text) + "</text>";
 }
-function copperSVG(ops, f, pn, mode) {
+function copperSVG(ops, f, pn, mode, stepOf) {
   const o = ['<g class="copper">'];
   const cls = mode === "added" ? " d-cadd" : mode === "removed" ? " d-cdel" : "";
-  for (const c of ops) {
+  for (let i = 0; i < ops.length; i++) {
+    const c = ops[i], sn = stepOf ? stepOf(i) : null, ds = sn != null && sn >= 0 ? ' data-s="' + sn + '"' : "";   // the replay step that laid it
     if (c.t === "track" && (c.face === f || c.face === "inner")) {
-      const op = c.face === "inner" ? "0.6" : "1", at = ' data-l="' + esc(c.layer) + '" stroke-width="' + c.width + '" stroke-opacity="' + op + '"';
+      const op = c.face === "inner" ? "0.6" : "1", at = ds + ' data-l="' + esc(c.layer) + '" stroke-width="' + c.width + '" stroke-opacity="' + op + '"';
       if (c.arc) o.push('<path class="trk ' + layerClass(c.layer) + cls + '" d="M ' + c.a[0] + " " + c.a[1] + " A " + c.arc[0] + " " + c.arc[0] + " 0 " + c.arc[1] + " " + c.arc[2] + " " + c.b[0] + " " + c.b[1] + '" fill="none"' + at + "/>");
       else o.push('<line class="trk ' + layerClass(c.layer) + cls + '" x1="' + c.a[0] + '" y1="' + c.a[1] + '" x2="' + c.b[0] + '" y2="' + c.b[1] + '"' + at + "/>");
     } else if (c.t === "via") {      // a ring with its drill hole, on every panel: a via goes through
-      o.push('<g class="viag"><circle class="via' + cls + '" cx="' + c.at[0] + '" cy="' + c.at[1] + '" r="' + num(c.size / 2) + '"/><circle class="vhole" cx="' + c.at[0] + '" cy="' + c.at[1] + '" r="' + num(c.drill / 2) + '"/></g>');
+      o.push('<g class="viag"' + ds + '><circle class="via' + cls + '" cx="' + c.at[0] + '" cy="' + c.at[1] + '" r="' + num(c.size / 2) + '"/><circle class="vhole" cx="' + c.at[0] + '" cy="' + c.at[1] + '" r="' + num(c.drill / 2) + '"/></g>');
     } else if ((c.t === "plane" || c.t === "pour") && (c.face === f || c.face === "inner") && !mode) {
-      o.push('<polygon class="plane ' + layerClass(c.layer) + '" data-l="' + esc(c.layer) + '" points="' + polyPts(c.points) + '"/>');
+      o.push('<polygon class="plane ' + layerClass(c.layer) + '"' + ds + ' data-l="' + esc(c.layer) + '" points="' + polyPts(c.points) + '"/>');
     } else if (c.t === "text" && c.face === f && !mode) {
-      o.push(silkText(c));
+      o.push(ds ? silkText(c).replace("<text ", "<text" + ds + " ") : silkText(c));
     }
   }
   o.push("</g>");
@@ -792,9 +827,12 @@ function renderBoard() {
   B = {byStep: [], layers: [], groups: new Map(), mems: new Map(), regions: [], links: [], k: 0, n: 0, plan: p};
   if (!p || !p.board) { svg.innerHTML = ""; return; }
   lay = layout(p);
-  const order = placementSteps(p);
+  const order = replaySteps(p);
   S.itemAt = itemMap(p);
-  S.stepNo = new Map(order.map(s => [s.item, s.n]));
+  S.stepNo = new Map(order.filter(s => s.type === "place").map(s => [s.item, s.n]));
+  S.opStep = new Map(); S.loopStep = new Map();
+  for (const s of order) { for (const c of s.copper || []) S.opStep.set(c, s.n); if (s.loop != null) S.loopStep.set(s.loop, s.n); }
+  S.lastStep = order.length - 1;
   const showDiff = S.cmp && !S.resolving && S.cmp.b === S.shownId && !S.cmp.diff.empty;
   const itemsA = showDiff && S.docs.get(S.cmp.a) ? itemMap(S.docs.get(S.cmp.a).doc) : new Map();
   const diffLayer = showDiff ? (f, pn) => diffLayerSVG(S.cmp.diff, itemsA, S.itemAt, f, pn) : () => "";
@@ -813,6 +851,7 @@ function indexBoard(svg, n) {
     (B.byStep[s] || (B.byStep[s] = [])).push(g);
     pushTo(B.groups, g.dataset.key, g);
   }
+  for (const g of svg.querySelectorAll(".copper [data-s], .cutoutg")) (B.byStep[+g.dataset.s] || (B.byStep[+g.dataset.s] = [])).push(g);
   for (const m of svg.querySelectorAll(".mem")) pushTo(B.mems, m.dataset.ref, m);
   B.regions = [...svg.querySelectorAll(".ko, .res")];
   B.links = [...svg.querySelectorAll(".lkg")];
@@ -849,7 +888,7 @@ function flushLive() {
   }
   const el = $("#steplist");
   if (el) {
-    const order = placementSteps(p);
+    const order = replaySteps(p);
     el.insertAdjacentHTML("beforeend", order.slice(B.n - q.length).map(s => stepRow(s, p)).join(""));
     collectRows();
     $("#stepcount").textContent = B.n;
@@ -861,6 +900,18 @@ function flushLive() {
 function selRefs(p) {
   const it = S.sel && p ? itemMap(p).get(S.sel) : null;
   return new Set(!it ? [] : S.selRef ? [S.selRef] : it.members.map(m => m.ref));
+}
+// A finding's parts get a ring that keeps its size on screen, so they can be found when the board is fitted.
+function drawFocusRings(p) {
+  if (!B.svg || !B.svg.querySelectorAll) return;
+  for (const e of B.svg.querySelectorAll(".fring")) e.remove();
+  if (!S.focus) return;
+  const owner = ref => itemsOf(p).find(i => i.members.some(m => m.ref === ref));
+  for (const panel of B.svg.querySelectorAll(".panel")) {
+    const face = panel.classList.contains("back") ? "back" : "front";
+    const html = S.focus.refs.map(ref => { const o = owner(ref), b = o && o.face === face && itemBox(o, ref); return b ? '<circle class="fring" cx="' + num((b[0] + b[2]) / 2) + '" cy="' + num((b[1] + b[3]) / 2) + '" r="' + num(Math.max(b[2] - b[0], b[3] - b[1]) / 2 + 1) + '"/>' : ""; }).join("");
+    if (html) panel.insertAdjacentHTML("beforeend", html);
+  }
 }
 function applyMarks() {
   if (!B.groups) return;
@@ -874,6 +925,12 @@ function applyMarks() {
     const id = r.dataset.ko !== undefined ? r.dataset.ko : r.dataset.res, kind = r.dataset.ko !== undefined ? "ko" : "res";
     r.classList.toggle("sel", !!S.selRegion && S.selRegion.kind === kind && S.selRegion.id === id);
   }
+  const fr = S.focus ? new Set(S.focus.refs) : new Set(), fp = new Set(S.focus ? S.focus.pads.map(x => x[0] + "\n" + x[1]) : []);
+  for (const [ref, ms] of B.mems) for (const m of ms) {
+    m.classList.toggle("fhl", fr.has(ref));
+    for (const pd of m.querySelectorAll ? m.querySelectorAll("[data-pad]") : []) pd.classList.toggle("fpad", fp.has(ref + "\n" + pd.dataset.pad));
+  }
+  drawFocusRings(p);
   const refs = selRefs(p);
   for (const l of B.links) l.classList.toggle("mine", refs.has(l.dataset.a) || refs.has(l.dataset.b));
   if (B.svg) B.svg.classList.toggle("hassel", refs.size > 0);
@@ -885,6 +942,35 @@ function setHover(keys) {
   B.hov = keys;
   for (const k of keys) for (const g of B.groups.get(k) || []) g.classList.add("modhov");
 }
+
+// ---------------------------------------------------------------- info popups: one component for every explanatory note
+const INFO = {
+  links: "A link is a pull the script declared between two pads. The arrow runs from the pad of the part it was declared on to its partner pad. A link with a limit is green as far as the limit reaches and red beyond it. Hover one for its length and limit.",
+  steps: "Each row is one step of the layout, in the order it was made: items placed, copper laid, cutouts cut. A row says how the step was decided and why. Tap a row for the whole note. The slider on the board replays these steps.",
+  other: "These put nothing of their own on the board, so they are not replayed. Keepouts and reserved areas are in the legend.",
+};
+const infoBtn = id => '<button class="info" data-info="' + id + '" aria-label="about this" draggable="false">i</button>';
+(function () {
+  const pop = $("#infopop");
+  let pinned = null;
+  const show = btn => {
+    pop.textContent = INFO[btn.dataset.info] || ""; pop.hidden = false;
+    const r = btn.getBoundingClientRect(), w = pop.offsetWidth || 280, h = pop.offsetHeight || 80, vw = window.innerWidth || 800, vh = window.innerHeight || 600;
+    pop.style.left = Math.max(8, Math.min(r.left, vw - w - 8)) + "px";
+    pop.style.top = (r.bottom + 6 + h > vh ? Math.max(8, r.top - h - 6) : r.bottom + 6) + "px";
+  };
+  const hide = () => { pop.hidden = true; pinned = null; };
+  const infoOf = e => e.target && e.target.closest && e.target.closest(".info");
+  document.addEventListener("click", e => {
+    const b = infoOf(e);
+    if (b) { e.preventDefault(); if (pinned === b.dataset.info && !pop.hidden) hide(); else { pinned = b.dataset.info; show(b); } return; }
+    if (!(e.target && e.target.closest && e.target.closest("#infopop"))) hide();
+  });
+  document.addEventListener("pointerover", e => { const b = infoOf(e); if (b && e.pointerType === "mouse" && !pinned) show(b); });
+  document.addEventListener("pointerout", e => { if (infoOf(e) && e.pointerType === "mouse" && !pinned) pop.hidden = true; });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") hide(); });
+  document.addEventListener("dragstart", e => e.preventDefault());       // a mouse drag never starts a native drag-and-drop
+})();
 
 // ---------------------------------------------------------------- the legend: the colour key and a switch for each kind of thing
 // What is switched off is a set of ids; one stylesheet rule hides each, so a switch redraws nothing.
@@ -905,6 +991,24 @@ function visRules(off) {
   return out.join("\n");
 }
 function applyVisibility() { $("#visrules").textContent = visRules(S.off); }
+// Keepouts and reserved areas start hidden: a region the page has not seen yet is switched off once, so the choice
+// to show one stays through later resolves.
+const REGION_GROUPS = {ko: p => ((p && p.keepouts) || []).map(k => k.name), res: p => [...new Set(((p && p.reservations) || []).map(r => r.why))]};
+function seedRegions(p) {
+  let changed = false;
+  for (const g of Object.keys(REGION_GROUPS)) for (const n of REGION_GROUPS[g](p)) {
+    const id = g + ":" + n;
+    if (!S.seenRegions.has(id)) { S.seenRegions.add(id); S.off.add(id); changed = true; }
+  }
+  if (changed) applyVisibility();
+}
+// A group header's state from its children: all shown, none shown, or some.
+const groupState = (g, p) => { const ids = REGION_GROUPS[g](p).map(n => g + ":" + n), off = ids.filter(id => S.off.has(id)).length; return off === 0 ? "all" : off === ids.length ? "none" : "some"; };
+function toggleGroup(g) {
+  const p = plan(), ids = REGION_GROUPS[g](p).map(n => g + ":" + n), hide = groupState(g, p) === "all";
+  for (const id of ids) { if (hide) S.off.add(id); else S.off.delete(id); }
+  applyVisibility(); renderLegend();
+}
 function toggleOff(id) { if (S.off.has(id)) S.off.delete(id); else S.off.add(id); applyVisibility(); renderLegend(); }
 
 const SW = {   // the legend's swatches draw with the board's own classes, so the key is the colours the board uses
@@ -915,7 +1019,8 @@ const SW = {   // the legend's swatches draw with the board's own classes, so th
   silk: '<text x="13" y="11" text-anchor="middle" class="silktxt" style="font-size:10px">TXT</text>',
   track: cls => '<line x1="2" y1="7" x2="24" y2="7" class="trk ' + cls + '" style="stroke-width:3.5"/>',
   via: '<circle cx="13" cy="7" r="6" class="via" style="stroke:none"/><circle cx="13" cy="7" r="2.6" class="vhole" style="stroke-width:1"/>',
-  link: cls => '<line x1="2" y1="7" x2="19" y2="7" class="lk ' + cls + '" style="stroke-width:1.8"/><circle cx="2.5" cy="7" r="2.2" class="lkdot ' + cls + '"/><path d="M 17 3 L 24 7 L 17 11 z" class="arrowhead ' + cls + '"/>',
+  link: cls => (cls === "over" ? '<line x1="2" y1="7" x2="10" y2="7" class="lk ok" style="stroke-width:1.8"/><line x1="10" y1="7" x2="19" y2="7" class="lk over" style="stroke-width:1.8"/>' : '<line x1="2" y1="7" x2="19" y2="7" class="lk ' + cls + '" style="stroke-width:1.8"/>') +
+    '<circle cx="2.5" cy="7" r="2.2" class="lkdot ' + cls + '"/><path d="M 17 3 L 24 7 L 17 11 z" class="arrowhead ' + cls + '"/>',
   ko: '<rect x="3" y="2" width="20" height="10" class="ko" style="stroke-width:1.2;fill-opacity:0.3"/>',
   res: '<rect x="3" y="2" width="20" height="10" class="res" style="stroke-width:1.2;stroke-dasharray:3 2;fill-opacity:0.25"/>',
   findings: '<circle cx="13" cy="7" r="5.5" class="fmark" style="stroke-width:1.6"/>',
@@ -943,17 +1048,21 @@ function legendHTML(p) {
     o.push(row("cu:" + l, SW.track(layerClass(l)), l + (other ? " (other face)" : ""), n, {only: true, title: other ? "drawn on the " + face + " face" : ""}));
   }
   o.push(row("via", SW.via, "vias (ring, drill hole)", copper.filter(c => c.t === "via").length));
-  o.push("<h4>Links</h4>");
+  o.push("<h4>Links" + infoBtn("links") + "</h4>");
   for (const [st, name] of [["ok", "within its limit"], ["over", "over its limit"], ["free", "no limit"]]) o.push(row("link:" + st, SW.link(st), name, links.filter(l => l.state === st).length));
-  o.push('<div class="lgnote">A link is a pull the script declared between two pads. The arrow runs from the pad of the part it was declared on to its partner pad. Hover one for its length and limit.</div>');
-  o.push("<h4>Regions</h4>", row("ko", SW.ko, "keepouts", kos.length, {exp: "ko"}));
+  const head = (g, sw, name, n) => {
+    const st = groupState(g, p), shown = n - REGION_GROUPS[g](p).filter(x => S.off.has(g + ":" + x)).length;
+    return '<div class="lg grp ' + st + (n === 0 ? " zero" : "") + '" data-grp="' + g + '" title="' + (st === "all" ? "hide all" : "show all") + '"><span class="car" data-exp="' + g + '">' + (S.exp.has(g) ? "&#9662;" : "&#9656;") + "</span>" +
+      '<svg class="sw" viewBox="0 0 26 14">' + sw + '</svg><span class="nm">' + name + "</span><em>" + (st === "some" ? shown + " of " + n : n) + "</em></div>";
+  };
+  o.push("<h4>Regions</h4>", head("ko", SW.ko, "keepouts", kos.length));
   if (S.exp.has("ko")) for (const k of kos) o.push(row("ko:" + k.name, SW.ko, k.name, null, {sub: true, title: k.why}));
-  o.push(row("res", SW.res, "reserved areas", resNames.length, {exp: "res"}));
+  o.push(head("res", SW.res, "reserved areas", resNames.length));
   if (S.exp.has("res")) for (const w of resNames) o.push(row("res:" + w, SW.res, w, null, {sub: true}));
   o.push("<h4>Marks</h4>", row("findings", SW.findings, "findings", ((p && p.findings) || []).filter(f => f.at).length), row("heat", SW.heat, "congestion", p && p.congestion ? p.congestion.cells.length : 0), row("changes", SW.changes, "changes since the last resolve", null));
   return o.join("");
 }
-function renderLegend() { $("#legend").innerHTML = legendHTML(plan()); }
+function renderLegend() { seedRegions(plan()); $("#legend").innerHTML = legendHTML(plan()); }
 function soloLayer(id) {
   const p = plan(), all = copperLayers(p).map(l => "cu:" + l), others = all.filter(x => x !== id);
   const alone = others.every(x => S.off.has(x)) && !S.off.has(id);
@@ -964,6 +1073,7 @@ $("#legend").onclick = e => {
   if (e.target.closest("[data-close]")) { $("#legend").classList.remove("open"); return; }
   const only = e.target.closest("[data-only]"); if (only) { soloLayer(only.dataset.only); return; }
   const car = e.target.closest("[data-exp]"); if (car) { const k = car.dataset.exp; if (S.exp.has(k)) S.exp.delete(k); else S.exp.add(k); renderLegend(); return; }
+  const g = e.target.closest("[data-grp]"); if (g) { toggleGroup(g.dataset.grp); return; }
   const r = e.target.closest("[data-id]"); if (r) toggleOff(r.dataset.id);
 };
 
@@ -996,9 +1106,10 @@ function setView(v) {                 // a gesture's view, applied once a frame
   S.view = v;
   if (!viewQueued) { viewQueued = true; requestAnimationFrame(() => { viewQueued = false; applyView(); }); }
 }
-function zoomTo(box) {
+const panelOf = face => lay.panels.find(x => x.face === face) || lay.panels[0];
+function zoomTo(box, face) {
   if (!box || !lay) return;
-  const pn = lay.panels[0];
+  const pn = panelOf(face);
   const a = panelPt(pn, box[0], box[1]), b = panelPt(pn, box[2], box[3]);
   const pad = Math.max(5, 0.5 * Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1])));
   const x0 = Math.min(a[0], b[0]) - pad, y0 = Math.min(a[1], b[1]) - pad, x1 = Math.max(a[0], b[0]) + pad, y1 = Math.max(a[1], b[1]) + pad;
@@ -1147,6 +1258,8 @@ function howText(s, it) {
   }
   return (fr === "edge" ? "decided along an edge" : "decided at a point") + (slid ? ", slid " + slid[1] : "");
 }
+// howText without the rank and seeds, which a card or a step row gives its own lines.
+const howWord = (s, it) => howText(s, it).replace(/^(searched): rank \d+ of \d+/, "$1").replace(/, seeded on .*?(?=, slid|$)/, "");
 const howClass = (s, it) => /^rides/.test(howText(s, it)) ? "rides" : /^pocket/.test(howText(s, it)) ? "pocket" : /^searched/.test(howText(s, it)) ? "searched" : "decided";
 // The findings that name an item.
 function findingsOf(p, key, it) {
@@ -1217,10 +1330,38 @@ function pickAt(x, y) {                      // a tap or a click on the board: a
   selectItem(null);
 }
 function selectRegion(kind, id) {
-  S.sel = null; S.selRef = null; S.module = null; S.selLine = null; S.cardOff = null; S.marked = new Set(); S.selRegion = {kind, id};
+  S.sel = null; S.selRef = null; S.module = null; S.selLine = null; S.cardOff = null; S.marked = new Set(); S.focus = null; S.selRegion = {kind, id};
   schedule("marks", "script", "compare", "card");
 }
+// A finding looked at: the parts and pads it names light up on the board, and the board scrolls to them if they are not in view.
+function focusFinding(f) {
+  const p = plan(), m = itemMap(p), owner = ref => itemsOf(p).find(i => i.members.some(x => x.ref === ref));
+  const have = new Set(itemsOf(p).flatMap(i => i.members.map(x => x.ref)));
+  let refs = (f.refs || []).filter(r => have.has(r));
+  const it = f.item && m.get(f.item);
+  if (!refs.length && it) refs = it.members.map(x => x.ref);
+  const pads = (f.pads || []).filter(x => have.has(x[0]));
+  const first = refs.length ? owner(refs[0]) : it;
+  if (first) selectItem(first.key, {ref: refs.length === 1 ? refs[0] : null});
+  S.focus = refs.length || pads.length ? {refs, pads} : null;
+  const boxes = refs.map(r => { const o = owner(r); return o && itemBox(o, r); }).filter(Boolean);
+  if (f.at) boxes.push([f.at[0] - 1, f.at[1] - 1, f.at[0] + 1, f.at[1] + 1]);
+  if (boxes.length) {
+    const box = [Math.min(...boxes.map(b => b[0])), Math.min(...boxes.map(b => b[1])), Math.max(...boxes.map(b => b[2])), Math.max(...boxes.map(b => b[3]))];
+    const face = first && first.face;
+    if (!inView(box, face)) zoomTo(box, face);
+  }
+  schedule("marks", "card");
+}
+// Whether a box (board mm) is wholly inside what the board shows, on its first panel.
+function inView(box, face) {
+  if (!S.vb || !lay) return false;
+  const pn = panelOf(face), a = panelPt(pn, box[0], box[1]), b = panelPt(pn, box[2], box[3]), v = S.vb;
+  const x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]), y0 = Math.min(a[1], b[1]), y1 = Math.max(a[1], b[1]);
+  return x0 >= v.x && x1 <= v.x + v.w && y0 >= v.y && y1 <= v.y + v.h;
+}
 function selectItem(key, opt = {}) {
+  S.focus = null;
   S.sel = key; S.selRef = key ? opt.ref || null : null; S.module = null; S.selRegion = null; S.selLine = null; S.cardOff = null;
   if (key) {
     const p = plan(), it = itemMap(p).get(key);
@@ -1233,13 +1374,13 @@ function selectItem(key, opt = {}) {
 }
 function selectModule(id) {                 // the module the selected part belongs to: all its parts light up
   const p = plan(), keys = [...moduleKeys(p, id)];
-  S.module = id; S.selRef = null; S.selRegion = null; S.cardOff = null;
+  S.focus = null; S.module = id; S.selRef = null; S.selRegion = null; S.cardOff = null;
   if (!keys.includes(S.sel)) S.sel = keys[0] || S.sel;
   zoomItems(keys);
   schedule("marks", "card");
 }
 function markItems(keys, zoom) {
-  S.marked = new Set(keys); S.sel = keys[0] || null; S.selRef = null; S.module = null; S.selRegion = null; S.cardOff = null;
+  S.focus = null; S.marked = new Set(keys); S.sel = keys[0] || null; S.selRef = null; S.module = null; S.selRegion = null; S.cardOff = null;
   if (zoom) zoomItems(keys);
   schedule("marks", "script", "compare", "card");
 }
@@ -1247,34 +1388,94 @@ function markItems(keys, zoom) {
 // The card on the board for what is selected: a part or item, a module, or a region.
 const cardKey = () => [S.sel, S.selRef, S.module, S.selRegion && S.selRegion.kind + S.selRegion.id].join("|");
 function kvl(rows) { return '<div class="kvl">' + rows.filter(r => r[1] != null && r[1] !== "").map(([k, v]) => "<span>" + esc(k) + "</span><span>" + v + "</span>").join("") + "</div>"; }
-function cardHead(title, chip, chipCls) { return '<div class="h"><b>' + esc(title) + "</b>" + (chip ? '<span class="chip ' + esc(chipCls || "") + '">' + esc(chip) + "</span>" : "") + '<button class="x" data-act="close" aria-label="close">&times;</button></div>'; }
+function cardHead(title, chip, chipCls, extra) { return '<div class="h"><b>' + esc(title) + "</b>" + (chip ? '<span class="chip ' + esc(chipCls || "") + '">' + esc(chip) + "</span>" : "") + (extra || "") + '<button class="x" data-act="close" aria-label="close">&times;</button></div>'; }
+const pill = (text, cls) => '<span class="chip ' + (cls || "") + '">' + esc(text) + "</span>";
+const sect = (title, body, aside) => body ? '<div class="cs"><div class="cst">' + esc(title) + (aside ? " " + aside : "") + "</div>" + body + "</div>" : "";
+const listOf = lines => lines.length ? '<div class="cl">' + lines.map(l => "<div>" + l + "</div>").join("") + "</div>" : "";
+// A step's note is "; "-separated, though a part can hold a "; " in brackets. Its known parts get their own lines; whatever else it says is kept as it is.
+function splitTop(s, sep) {
+  const out = []; let depth = 0, from = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "(") depth++; else if (c === ")") depth = Math.max(0, depth - 1);
+    else if (depth === 0 && s.startsWith(sep, i)) { out.push(s.slice(from, i)); from = i + sep.length; i += sep.length - 1; }
+  }
+  out.push(s.slice(from));
+  return out.map(x => x.trim()).filter(Boolean);
+}
+function noteParts(note) {
+  const o = {rank: null, seeded: [], moved: null, vias: [], push: [], other: []};
+  for (const part of splitTop(note || "", "; ")) {
+    let m;
+    if ((m = /^rank (\d+)\/(\d+)\b/.exec(part))) {
+      let rest = part.slice(m[0].length).trim(), facts = "", tail = [];
+      if (rest[0] === "(") { let d = 0, i = 0; for (; i < rest.length; i++) { if (rest[i] === "(") d++; else if (rest[i] === ")" && --d === 0) break; } facts = rest.slice(1, i); rest = rest.slice(i + 1).trim(); }
+      if (rest) tail = [rest.replace(/^\(|\)$/g, "")];
+      o.rank = {n: m[1], of: m[2], facts: facts ? splitTop(facts, "; ") : [], tail};
+    }
+    else if ((m = /^seeded on (.+)$/.exec(part))) o.seeded.push(...m[1].split(/,\s*/));
+    else if ((m = /^moved ([\d.]+) mm off the hint[:\s]*(.*)$/.exec(part))) o.moved = {mm: m[1], why: m[2]};
+    else if ((m = /^vias: (.+)$/.exec(part))) o.vias.push(...m[1].split(/,\s+/));
+    else if (o.vias.length && /^\d+ /.test(part)) o.vias.push(...part.split(/,\s+/));        // the vias' own "; "-separated entries
+    else if (/^push from /.test(part)) o.push.push(part);
+    else if (!/^rides /.test(part)) o.other.push(part);
+  }
+  return o;
+}
+const rankRows = r => {
+  const rows = [["rank", pill(r.n + " of " + r.of)]];
+  for (const f of r.facts) {
+    const m = /^([\d.]+) (mm2|pins?)(?:, (.+))?$/.exec(f);
+    if (m) rows.push([m[2] === "mm2" ? "area" : "pins", pill(m[1] + (m[2] === "mm2" ? " mm2" : "")) + (m[3] ? ' <span class="dim">' + esc(m[3]) + "</span>" : "")]);
+    else rows.push(["", esc(f)]);
+  }
+  for (const x of r.tail || []) rows.push(["", '<span class="dim">' + esc(x) + "</span>"]);
+  return rows;
+};
+// "N what ..." starts a via line; a fragment without a count continues the line before it (a list of owners).
+const joinVias = vs => vs.reduce((o, v) => { if (/^\d+ /.test(v) || !o.length) o.push(v); else o[o.length - 1] += ", " + v; return o; }, []);
+const viaLine = v => { const m = /^(\d+) (.*)$/.exec(v); return m ? pill(m[1], /drop|cannot|refus/.test(m[2]) ? "warn" : "") + " " + esc(m[2]) : esc(v); };
+const pushLine = s => {
+  const m = /^push from (.+?): ([\d.e+-]+) at ([\d.]+) mm \(limit ([\d.e+-]+)\)$/.exec(s);
+  return m ? pill(m[1], "net") + " " + esc(m[2] + " at " + m[3] + " mm, limit " + m[4]) : esc(s);
+};
+const sevPills = fs => listOf(fs.map(f => { const i = ((plan() || {}).findings || []).indexOf(f); return '<span class="fndrow' + (i >= 0 ? " go" : "") + '"' + (i >= 0 ? ' data-act="finding" data-fi="' + i + '"' : "") + '><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + esc(f.text) + "</span>"; }));
 function linkRows(p, refs, all) {
   const ls = (p.links || []).map((l, i) => [l, i]).filter(([l]) => refs.has(l.a[0]) || refs.has(l.b[0])).sort((a, b) => (b[0].state === "over") - (a[0].state === "over"));
   if (!ls.length) return "";
-  const shown = all ? ls : ls.slice(0, 5);
-  return '<div class="facts">' + ls.length + (ls.length === 1 ? " link" : " links") + ", " + ls.filter(([l]) => l.state === "over").length + " over its limit</div>" +
+  const shown = all ? ls : ls.slice(0, 5), over = ls.filter(([l]) => l.state === "over").length;
+  return sect("Links", '<div class="facts">' + pill(ls.length + (ls.length === 1 ? " link" : " links")) + (over ? " " + pill(over + " over its limit", "bad") : "") + "</div>" +
     shown.map(([l, i]) => '<div class="lrow" data-act="link" data-i="' + i + '"><span class="chip ' + esc(l.kind || "") + '">' + esc(l.kind || "link") + "</span><span>" + esc(l.a.join(".") + (refs.has(l.a[0]) ? " -> " : " <- ") + l.b.join(".")) +
-      '</span><span class="num ' + (l.state === "over" ? "del" : "") + '">' + l.length + (l.limit != null ? " / " + l.limit : "") + " mm</span></div>").join("") +
-    (ls.length > 5 ? '<a class="act" data-act="links">' + (all ? "fewer" : "all " + ls.length) + "</a>" : "");
+      '</span><span class="num ' + (l.state === "over" ? "del" : l.state === "ok" ? "ok" : "") + '">' + l.length + (l.limit != null ? " / " + l.limit : "") + " mm</span></div>").join("") +
+    (ls.length > 5 ? '<a class="act" data-act="links">' + (all ? "fewer" : "all " + ls.length) + "</a>" : ""));
+}
+// What a placed item's note says, as card sections: its rank and seeds (rows of the Placement section), and why it
+// moved, the pushes on it, its vias and whatever else.
+const noteRows = np => [...(np.rank ? rankRows(np.rank) : []), ["seeded on", np.seeded.length ? '<span class="pills">' + np.seeded.map(n => pill(n, "net")).join("") + "</span>" : ""]];
+function noteExtra(np, movedMm, why) {
+  const moved = np.moved || (movedMm ? {mm: movedMm, why: ""} : null);
+  return sect("Why it moved", moved ? '<div class="facts">' + pill(moved.mm + " mm", "warn") + " off the hint</div>" + (moved.why ? '<div class="note">' + esc(moved.why) + "</div>" : "") : "") +
+    sect("Pushes", listOf(np.push.map(pushLine))) + sect("Vias", listOf(joinVias(np.vias).map(viaLine))) +
+    sect("Notes", listOf(np.other.map(esc).concat(why ? ['<span class="dim">' + esc(why) + "</span>"] : [])));
 }
 function partCard(p, it) {
   const m = it.members.find(x => x.ref === S.selRef) || (it.members.length === 1 ? it.members[0] : null);
-  const mod = moduleOf(it, m && m.ref), step = (S.stepNo && S.stepNo.get(it.key)), refs = new Set(m ? [m.ref] : it.members.map(x => x.ref));
-  const fs = findingsOf(p, it.key, it), s = (p.steps || []).find(x => x.item === it.key);
-  return cardHead(m ? m.ref : it.key, it.kind, "") +
+  const title = m ? m.ref : it.key, mod = moduleOf(it, m && m.ref), step = (S.stepNo && S.stepNo.get(it.key)), refs = new Set(m ? [m.ref] : it.members.map(x => x.ref));
+  const fs = findingsOf(p, it.key, it), s = (p.steps || []).find(x => x.item === it.key), np = noteParts(it.note);
+  const modPill = mod && S.module !== mod ? '<a class="chip act" data-act="module" data-id="' + esc(mod) + '">select module</a>' : "";
+  const place = kvl([["module", mod && mod !== title ? esc(mod) : ""], ["face", esc(it.face + ", rotated " + deg(it.rotation))], ["placed", esc(howWord(s, it))], ["step", step != null ? (step + 1) + " of " + replaySteps(p).length : ""], ...noteRows(np)]);
+  return cardHead(title, it.kind, "", modPill) +
     (m && m.value ? '<div class="sub">' + esc(m.value) + (it.key !== m.ref ? "  (item " + esc(it.key) + ")" : "") + "</div>" : "") +
-    kvl([["module", mod ? esc(mod) + (S.module !== mod ? ' <a class="act" data-act="module" data-id="' + esc(mod) + '">select its module</a>' : "") : ""], ["face", esc(it.face + ", rotated " + deg(it.rotation))],
-      ["placed", esc(howText(s, it))], ["step", step != null ? (step + 1) + " of " + placementSteps(p).length : ""], ["moved", it.moved_mm ? it.moved_mm + " mm" : ""]]) +
-    (it.note ? '<div class="note">' + esc(it.note) + "</div>" : "") + (it.why ? '<div class="note dim">' + esc(it.why) + "</div>" : "") +
-    fs.map(f => '<div class="fnd"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + esc(f.text) + "</div>").join("") +
-    linkRows(p, refs, S.cardLinks) + (it.file ? '<div class="src"><a data-act="src">' + esc(it.file + ":" + it.line) + "</a></div>" : "");
+    sect("Placement", place) + noteExtra(np, it.moved_mm, it.why) +
+    sect("Findings", sevPills(fs)) + linkRows(p, refs, S.cardLinks) +
+    (it.file ? '<div class="src"><a data-act="src">' + esc(it.file + ":" + it.line) + "</a></div>" : "");
 }
 function moduleCard(p) {
   const id = S.module, keys = moduleKeys(p, id), refs = moduleRefs(p, id);
   const fs = [...keys].flatMap(k => findingsOf(p, k, itemMap(p).get(k)));
   return cardHead("module " + id, "module", "") + '<div class="sub">' + refs.length + (refs.length === 1 ? " part" : " parts") + "</div>" +
     '<div class="mods">' + refs.map(r => '<button data-act="part" data-ref="' + esc(r) + '">' + esc(r) + "</button>").join("") + "</div>" +
-    fs.map(f => '<div class="fnd"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + esc(f.text) + "</div>").join("") + linkRows(p, new Set(refs), S.cardLinks);
+    sect("Findings", sevPills(fs)) + linkRows(p, new Set(refs), S.cardLinks);
 }
 function regionCard(p) {
   const {kind, id} = S.selRegion;
@@ -1300,6 +1501,7 @@ $("#card").onclick = e => {
   if (act === "close") { S.cardOff = cardKey(); renderCard(); }
   else if (act === "module") selectModule(a.dataset.id);
   else if (act === "part") { const ref = a.dataset.ref, owner = itemsOf(p).find(i => i.members.some(m => m.ref === ref)); if (owner) { S.module = null; selectItem(owner.key, {ref, zoom: true}); } }
+  else if (act === "finding") { const f = (p.findings || [])[+a.dataset.fi]; if (f) focusFinding(f); }
   else if (act === "links") { S.cardLinks = !S.cardLinks; renderCard(); }
   else if (act === "link") { const l = (p.links || [])[+a.dataset.i]; if (l) zoomTo([Math.min(l.pa[0], l.pb[0]) - 1, Math.min(l.pa[1], l.pb[1]) - 1, Math.max(l.pa[0], l.pb[0]) + 1, Math.max(l.pa[1], l.pb[1]) + 1]); }
   else if (act === "src") { const it = itemMap(p).get(S.sel); if (it) { goTab("script"); gotoLine(it.file, it.line); } }
@@ -1315,7 +1517,7 @@ function setReplay(k) {
   schedule("replay");
 }
 function renderReplay() {
-  const p = plan(), order = placementSteps(p), n = order.length, k = S.replay == null ? n : clamp(S.replay, 0, n);
+  const p = plan(), order = replaySteps(p), n = order.length, k = S.replay == null ? n : clamp(S.replay, 0, n);
   const slider = $("#slider");
   if (+slider.max !== n) slider.max = n;
   if (!S.sliding && +slider.value !== k) slider.value = k;          // not while a finger is on it: the thumb follows the finger
@@ -1370,33 +1572,59 @@ $("#play").addEventListener("click", togglePlay);
 // A row says plainly: the step's number, the item, how it was placed, the reason in one line (the whole note on
 // opening the row), and a marker when findings name the item.
 const oneLine = (text, n = 140) => { const s = String(text || "").split(/;\s+/)[0].trim(); return s.length > n ? s.slice(0, n - 3) + "..." : s; };
+const COPPER_WORDS = {track: "track", via: "via", plane: "plane", pour: "plane", fill: "plane", zone: "plane", label: "label", faces: "label", fanout: "escape", escape: "escape", bridge: "track"};
+// What kind of step a row is: its colour class, the word on its pill and the name it is listed under.
+function stepKind(s, it) {
+  const item = String(s.item);
+  if (s.kind === "cutout") return {cls: "cutout", word: "cutout", name: item.replace(/^cutout /, "")};
+  if (s.kind === "copper") { const w = item.split(" ")[0], cls = COPPER_WORDS[w] || "copper"; return {cls, word: COPPER_WORDS[w] ? w : "copper", name: COPPER_WORDS[w] && item.includes(" ") ? item.slice(w.length + 1) : item}; }
+  return {cls: howClass(s, it), word: howWord(s, it), name: item};
+}
+// One line for a collapsed row: what the pill does not already say.
+function stepSummary(s, it, np) {
+  const bits = [];
+  if (np.rank) bits.push("rank " + np.rank.n + " of " + np.rank.of);
+  if (np.seeded.length) bits.push("seeded on " + np.seeded.slice(0, 3).join(", ") + (np.seeded.length > 3 ? " +" + (np.seeded.length - 3) : ""));
+  if (np.moved) bits.push("moved " + np.moved.mm + " mm");
+  if (np.vias.length) bits.push(joinVias(np.vias).length === 1 ? "1 via note" : joinVias(np.vias).length + " via notes");
+  if (np.push.length) bits.push(np.push.length + (np.push.length === 1 ? " push" : " pushes"));
+  const why = s.why || (it && it.why) || "";
+  if (!bits.length) return np.other[0] || why;
+  return bits.join(", ") + (why ? " - " + why : "");
+}
+// A row opened: the same labelled sections as a part's card.
+function stepDetail(s, it, np, fs) {
+  const placed = s.type === "place" && it;
+  const rows = placed ? kvl([["placed", esc(howWord(s, it))], ["face", esc(it.face + ", rotated " + deg(it.rotation))], ...noteRows(np)]) : "";
+  return sect("Placement", rows) +
+    noteExtra(np, placed ? it.moved_mm : 0, s.why || (it && it.why)) + sect("Findings", sevPills(fs));
+}
 function stepRow(s, p) {
-  const it = S.itemAt && S.itemAt.get(s.item), how = howText(s, it), cls = howClass(s, it);
+  const it = S.itemAt && S.itemAt.get(s.item), kind = stepKind(s, it), np = noteParts(s.note || (it && it.note) || "");
   const fs = findingsOf(p, s.item, it), worst = fs.some(f => sevOf(f) === "critical") ? "critical" : fs.some(f => sevOf(f) === "warning") ? "warning" : fs.length ? "notice" : "";
-  const reason = s.note || s.why || (it && it.why) || "", full = [s.note, s.why || (it && it.why)].filter(Boolean).join("\n");
-  return '<div class="row step' + (S.sel === s.item ? " sel" : "") + (S.openRows.has(s.at) ? " open" : "") + '" data-n="' + s.n + '" data-at="' + s.at + '" data-item="' + esc(s.item) + '">' +
-    '<span class="i">' + (s.n + 1) + '</span><div class="sb"><div class="l1"><b>' + esc(s.item) + '</b><span class="chip ' + cls + '">' + esc(how) + "</span>" +
+  return '<div class="row step k-' + kind.cls + (S.sel === s.item ? " sel" : "") + (S.openRows.has(s.at) ? " open" : "") + '" data-n="' + s.n + '" data-at="' + s.at + '" data-item="' + esc(s.item) + '">' +
+    '<span class="i">' + (s.n + 1) + '</span><div class="sb"><div class="l1"><b>' + esc(kind.name) + '</b><span class="chip ' + esc(kind.cls) + '">' + esc(kind.word) + "</span>" +
     (fs.length ? '<span class="fdot ' + worst + '" title="' + esc(fs.map(f => f.text).join("\n")) + '">' + fs.length + "</span>" : "") + "</div>" +
-    '<div class="l2">' + esc(oneLine(reason)) + '</div><div class="full">' + esc(full || "no note") + (fs.length ? "\n" + esc(fs.map(f => sevOf(f) + ": " + f.text).join("\n")) : "") + '</div></div><button class="go">show</button></div>';
+    '<div class="l2">' + esc(stepSummary(s, it, np)) + '</div><div class="full">' + stepDetail(s, it, np, fs) + '</div></div><button class="go">show</button></div>';
 }
 function renderSteps() {
   const p = plan(), el = $("#tab-steps");
   if (!p) { el.innerHTML = '<div class="empty">Waiting for the first resolve</div>'; R.rows = []; return; }
   S.itemAt = itemMap(p);
-  const order = placementSteps(p), other = otherSteps(p);
+  const order = replaySteps(p), other = otherSteps(p);
   const unplaced = p.unplaced || [];
-  const head = (title, n, id) => "<h3>" + title + ' <span class="c"' + (id ? ' id="' + id + '"' : "") + ">" + n + "</span></h3>";
-  let out = '<div class="explain">Each row is one step of the layout, in the order it placed things: the item, how its place was decided, and why. Tap a row for the whole note. The slider on the board replays these steps.</div>' +
-    head("Placement steps", order.length, "stepcount") + '<div id="steplist">' + order.map(s => stepRow(s, p)).join("") + "</div>";
+  const head = (title, n, id, info) => "<h3>" + title + (info ? infoBtn(info) : "") + ' <span class="c"' + (id ? ' id="' + id + '"' : "") + ">" + n + "</span></h3>";
+  let out = head("Steps", order.length, "stepcount", "steps") + '<div id="steplist">' + order.map(s => stepRow(s, p)).join("") + "</div>";
   if (unplaced.length) out += head("Not placed", unplaced.length) + unplaced.map(u => '<div class="row" data-item="' + esc(u.item) + '"><span class="k">' + esc(u.item) + '</span><span class="chip unplaced">unplaced</span><span class="n wrap">' + esc(u.why) + "</span></div>").join("");
   if (other.length) {
-    out += '<h3 class="fold" data-fold="other">' + (S.showOther ? "&#9662;" : "&#9656;") + " Regions, copper and setup steps <span class=\"c\">" + other.length + "</span></h3>" +
-      '<div class="explain">These put nothing of their own on the board as a part, so they are not replayed. Keepouts and reserved areas are in the legend.</div>';
-    if (S.showOther) out += other.map(s => '<div class="row" data-at="' + s.at + '"><span class="k">' + esc(s.item) + '</span><span class="chip ' + (s.kind === "copper" ? "copper" : "") + '">' + esc(s.kind) + '</span><span class="n wrap">' + esc(s.note) + "</span></div>").join("");
+    out += '<h3 class="fold" data-fold="other">' + (S.showOther ? "&#9662;" : "&#9656;") + " Keepouts and setup steps" + infoBtn("other") + ' <span class="c">' + other.length + "</span></h3>";
+    if (S.showOther) out += other.map(s => '<div class="row" data-at="' + s.at + '"><span class="k">' + esc(s.item) + '</span><span class="chip ' + esc(s.kind) + '">' + esc(s.kind) + '</span><span class="n wrap">' + esc(s.note) + "</span></div>").join("");
   }
   el.innerHTML = out;
   collectRows();
   el.onclick = e => {
+    if (e.target.closest(".info")) return;
+    const fr = e.target.closest("[data-act=finding]"); if (fr) { const f = (plan().findings || [])[+fr.dataset.fi]; if (f) focusFinding(f); return; }
     if (e.target.closest("[data-fold]")) { S.showOther = !S.showOther; renderSteps(); return; }
     const r = e.target.closest(".row"); if (!r) return;
     const key = r.dataset.item;
@@ -1433,9 +1661,7 @@ function renderFindings() {
     if (e.target.closest(".fixslot")) return;
     const r = e.target.closest(".row"); if (!r) return;
     const f = all[+r.dataset.i];
-    if (f.at) zoomTo([f.at[0] - 2, f.at[1] - 2, f.at[0] + 2, f.at[1] + 2]);
-    if (f.item) selectItem(f.item, {zoom: !f.at});
-    if (f.at || f.item) goTab("board");
+    if (f.at || f.item || (f.refs || []).length) { focusFinding(f); goTab("board"); }
   };
 }
 

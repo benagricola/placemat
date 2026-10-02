@@ -94,10 +94,14 @@ dependency.
   edges) covers the whole visible area at any pan and zoom.
 - **The step list**, in placement order, with each step's item, how it was
   placed and its note. Clicking a step zooms to its item. The slider and the
-  list share one set of positions: the placement steps, one per item the
-  board draws, in order. Copper steps (fanouts, escapes, vias, pours) and
-  steps that placed nothing, such as a keepout's, are listed apart and are not positions. Dragging
-  shows steps 1..k, changing only the items between the old and the new
+  list share one set of positions: the placement steps (one per item the
+  board draws), the copper steps and the cutouts, in order. A copper step
+  draws the copper ops it laid (the step's `copper` indexes) and a cutout step
+  the hole it cut (its `loop`); copper no step laid shows with the last
+  position. Keepouts and the other steps that draw nothing are listed apart
+  and are not positions. A step is coloured by its kind and opens into the
+  same labelled sections as a part's card. Dragging
+  shows steps 1..k, changing only the groups between the old and the new
   position; play advances at a steady rate from the clock and stops when a
   new resolve starts.
 - **Findings**, grouped by kind with counts, with a click to zoom to each
