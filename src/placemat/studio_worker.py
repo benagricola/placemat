@@ -86,9 +86,25 @@ class Session:
             d = e.details
             send({"ev": "error", "id": id, "message": "%s: %s" % (e, d.get("error", "")), "file": d.get("script", ""),
                   "line": d.get("line"), "source": d.get("source"), "detail": d.get("traceback", "")})
-        except (ValueError, PlacementCollision, CriticalUnplaced, EscapeError) as e:
-            send({"ev": "error", "id": id, "message": str(e).splitlines()[0] if str(e) else type(e).__name__,
-                  "file": "", "line": None, "source": None, "detail": str(e)})
+        except Exception as e:                  # a known failure or not, the page gets its type, message and the script's own line
+            send(error_event(id, e, script))
+
+
+def error_event(id, e, script) -> dict:
+    """An `error` event for an exception: its type and message, and the innermost frame that is in the script or a
+    module it imports (file, line, source line), the whole traceback as the detail."""
+    import traceback
+    from .project import script_files
+    try:
+        mine = {Path(f).resolve() for f in script_files(Path(script).resolve(), missing=True)} | {Path(script).resolve()}
+    except Exception:
+        mine = {Path(script).resolve()}
+    frames = [f for f in traceback.extract_tb(e.__traceback__) if Path(f.filename).resolve() in mine]
+    where = frames[-1] if frames else None
+    text = str(e).splitlines()[0] if str(e) else ""
+    return {"ev": "error", "id": id, "message": "%s: %s" % (type(e).__name__, text) if text else type(e).__name__,
+            "file": str(Path(where.filename).resolve()) if where else "", "line": where.lineno if where else None,
+            "source": where.line if where else None, "detail": "".join(traceback.format_exception(e))}
 
 
 def _score(r):
@@ -107,6 +123,8 @@ def _score(r):
 def main() -> int:
     """JSON lines in: {"cmd": "resolve", "id", "script"}, {"cmd": "cancel", "id"}, {"cmd": "quit"}.
     JSON lines out: the Session's events, and {"ev": "ready"} once placemat is loaded."""
+    import faulthandler
+    faulthandler.enable()                       # a crash that kills the process leaves a Python traceback in the log
     out = os.fdopen(os.dup(1), "w", buffering=1)
     os.dup2(2, 1)                               # whatever else prints goes to stderr, not into the protocol
     sys.stdout = sys.stderr
