@@ -663,7 +663,9 @@ not along a board axis is refused.
   lanes parallel and a lane does not move when another pin is named. A named
   lane is no nearer the tips than where its riser and 45 keep the clearance
   from the row's other pads and from the copper placed and reserved when it is
-  laid out (a bypass beside the row); where no offset within
+  laid out (a bypass beside the row, and the firm tracks declared from a pad of the part that is not one
+  of the escape's pins to placed pads, as they would be planned), judged out to the row's depth and a track and a
+  clearance whatever `run=` leaves of the lane; where no offset within
   `place.escape_via_reach` is clear it keeps the offset that is clear of the
   row, and it is an `escape_lane` finding. `depth=` sets the innermost lane's
   offset as given, and the stagger follows it. A track that begins with a lane

@@ -896,6 +896,7 @@ class Board:
         self._rank_note: dict = {}
         self._waited: dict = {}                # item key -> the linked partner it waited for
         self._copper: list[CopperIntent] = []
+        self._pad_tracks: set = set()      # indices of the tracks whose points are all pads: their way is known before they are planned
         self._pad_vias: list = []          # (pad ref, net, drill, size, span) of each via declared at a pad: its part carries it
         self._pad_fields: list = []        # (pad ref, net, drill, size, span, inset, pitch, step) of each board.vias() grid: its part carries it
         self._field_notes: dict = {}       # grid index -> why none of its vias is drawn, said when it is planned
@@ -3531,7 +3532,11 @@ class Board:
                 continue
             if not force and not self._escape_wait_sets()[decl.index] <= self._settled:
                 continue
-            laid = self._escape_layout(occ, decl)
+            ways = self._reserve_ways(occ, decl)
+            try:
+                laid = self._escape_layout(occ, decl)
+            finally:
+                occ.remove_copper(ways)
             self._escape_laid[decl.index] = laid
             shapes = []
             for n in laid.order:
@@ -3554,6 +3559,29 @@ class Board:
             plan.steps.append(Step(decl.key, "copper", Priority.DEFAULT, None, 0.0, note, decl.why, len(laid.order)))
             if progress:
                 progress("%-28s copper  escape   %s" % (decl.key, note))
+
+    def _reserve_ways(self, occ, decl: EscapeDecl) -> list:
+        """The copper, as planned now, of the firm tracks declared from a pad of the escape's part that is not one of its
+        pins to pads that are placed (a bypass's track from the pin beside the row): it stands in the occupancy while the
+        lanes are laid out, so that they leave room for it as they do for a placed part, and is taken out again, as the track
+        is planned later with the lanes in place. A track whose plan does not draw is left out."""
+        ctx = self.__dict__.get("_escape_ctx")
+        shapes = []
+        for c in self._copper:
+            if c.index not in self._pad_tracks or not c.freedom.decided or decl.ref not in c.owners or ctx is None:
+                continue
+            pads = [self._pad_ref(r)[:2] for r in c.refs]
+            if any(o not in occ.items or o in occ.pending for o, _ in pads):
+                continue
+            if any(o == decl.ref and n in decl.pins for o, n in pads) or not any(o == decl.ref for o, _ in pads):
+                continue
+            said = len(ctx.notes)
+            ops = c.plan(ctx)
+            del ctx.notes[said:]
+            shapes += [sh for sh in (_shape_of(op) for op in ops if isinstance(op, Track)) if sh is not None]
+        if shapes:
+            occ.add_copper(shapes)
+        return shapes
 
     def _release_lane(self, occ, lane: Lane) -> None:
         """A track begins with `lane`: its reserved riser and lane leave the occupancy, and the
@@ -4652,6 +4680,8 @@ class Board:
                 return []
             return ops
         intent = self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge)
+        if begins is None and len(points) >= 2 and all(isinstance(p, (PadRef, CellPadRef)) and getattr(p, "edge", None) is None for p in points):
+            self._pad_tracks.add(intent.index)
         return intent
 
     def _check_past(self, p: Past, what: str, lane: bool = False):
