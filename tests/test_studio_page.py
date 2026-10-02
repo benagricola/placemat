@@ -42,3 +42,11 @@ def test_the_command_takes_a_script_a_port_and_no_open():
     args = parser().parse_args(["studio", "layout.py", "--port", "8123", "--no-open"])
     assert (args.command, args.script, args.port, args.no_open) == ("studio", "layout.py", 8123, True)
     assert parser().parse_args(["studio", "layout.py"]).port is None
+
+
+def test_a_script_with_no_board_beside_it_is_refused(tmp_path, capsys):
+    from placemat.cli import main
+    script = tmp_path / "x_layout.py"
+    script.write_text("")
+    assert main(["studio", str(script), "--no-open"]) == 2
+    assert "no .zen" in capsys.readouterr().out

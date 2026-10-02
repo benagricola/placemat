@@ -530,7 +530,7 @@ def _int(text: str) -> int:
 def run(script, port: int | None = None, open_browser: bool | None = None) -> int:
     try:
         studio = Studio(script, port=port, open_browser=open_browser)
-    except ValueError as e:
+    except (ValueError, FileNotFoundError) as e:
         console.say("studio", str(e), level="fail")
         return 2
     url = studio.start()
