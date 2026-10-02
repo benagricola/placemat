@@ -426,8 +426,11 @@ class Layouter:
                        for t in lay(h) for sh in others)
 
         def placed_clear(h: float) -> bool:
+            # judged out to the row's depth and a track and a clearance, as the row is, whatever `run=` leaves of the lane's
+            # own copper: a track goes on from a short lane, and the lane's start is no nearer than where it gets past a
+            # part standing beside the row
             lane.corner = self._snap_out(self.at(lane.s, self.tips + h))
-            end = self._end_at(lane, self._stub_a(lane, []))
+            end = self._end_at(lane, max(self._stub_a(lane, []), depth * _SQ2))
             ops = polyline_tracks(lane.net, self.env.layer, lane.width, [lane.centre, lane.corner, end])
             return not any(self.env.hits(op) for op in ops)
 

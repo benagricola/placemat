@@ -5,6 +5,22 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **An escape's lanes started at the row where a bypass stood beside it, with `run=` or a track from a pin beside the
+  row.** A lane's start was judged only over the copper `run=` leaves it (a short stub), so a lane whose track goes
+  on into a part did not see a bypass past the stub and stood at the row, through the bypass's pad. A lane is now
+  judged out to the row's depth and a track and a clearance, whatever `run=` is, and starts past what stands beside
+  the row. The firm tracks declared from a pad of the escape's part that is not one of its pins to placed pads (a
+  bypass's track from the pin between the fans) stand in the occupancy as planned while the lanes are laid out, so the
+  lanes leave room for them; before, such a track found the lanes across its way ("not drawn, it would run through a
+  track") or ran 0.14 mm from one. Scripts change nothing; a lane that had no clear start now keeps clear of the
+  bypass, where it was reported blocked or drawn through it. A bypass whose pad stands level with pin 46 (a 0402 pad
+  turned 135 reaches 0.36 mm across) overlaps pin 47's riser by 0.04 mm, whatever the offset: that lane cannot leave
+  west and is still reported blocked; the pad level with pin 45 leaves it. `api.md`, "An escape".
+
 ## To 0.81.1
 
 ### Fixed

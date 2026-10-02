@@ -106,3 +106,18 @@ are within 0.15 mm of the hand layout's (the lower risers 0.11 mm nearer the row
 south row's fan (pins 5-14, 45s at the least pitch) raises no `escape_walled` finding; a
 trial track of the net's width drawn along each reported pin's lane and out, with kicad-cli
 DRC on the board, adds no violation.
+
+## Follow-up: `run=` and a track from a pin beside the row
+
+A second report had the same escape over nine pins with `run=` a lane long and four tracks going on from their
+lanes. The wait was applied (the bypass was placed when the lanes were laid out), but `_near_h` judged a lane's start over
+the copper `run=` leaves it, a stub of one lane, which ends short of the bypass: the lower lanes stood at the row. The
+judged length is now at least the row's depth and a track and a clearance (the length the row's own clearance already uses),
+whatever `run=` is. The bypass's track from pin 46, declared pad to pad, was planned after the lanes and found them across
+its way; the firm tracks declared from a pad of the escape's part that is not one of its pins, between placed pads, are
+now planned when the lanes are laid out and stand in the occupancy while they are, then are taken out and planned again
+in their turn (`_reserve_ways`).
+
+The report's script aligned the bypass's V3V3 pad with pin 46 (its comment said pin 45). A pad there overlaps pin 47's riser by
+0.04 mm, so that lane cannot leave west and is reported blocked; the real-module test
+(`tests/test_escape_west_fan_real.py`) runs the script with the pad level with pin 45, as its comment says.
