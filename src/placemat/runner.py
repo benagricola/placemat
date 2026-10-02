@@ -317,14 +317,15 @@ def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None, geometry=N
     return board
 
 
-def reuse_parts(src, cfg, fab, pcb=None) -> dict:
+def reuse_parts(src, cfg, fab, pcb=None, board_digest: str | None = None) -> dict:
     """What a reuse record's context is made of beyond the script: digests
     of the tool version, the generated board, the settings and the fab
-    profile, kept apart so a run can say which of them changed."""
+    profile, kept apart so a run can say which of them changed.
+    `board_digest` is the board file's, when the caller already has it."""
     import hashlib
     from . import __version__
     from . import reuse as reuse_mod
-    return {"tool": __version__, "board": hashlib.sha256((pcb or src.pcb).read_bytes()).hexdigest(),
+    return {"tool": __version__, "board": board_digest or hashlib.sha256((pcb or src.pcb).read_bytes()).hexdigest(),
             "settings": hashlib.sha256(reuse_mod.placement_settings(cfg).encode()).hexdigest(),
             "fab": hashlib.sha256(fab.json().encode()).hexdigest()}
 

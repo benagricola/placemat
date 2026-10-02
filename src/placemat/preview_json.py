@@ -157,16 +157,10 @@ def _findings(plan, keys) -> list:
     return out
 
 
-def plan_json(plan, sites: dict | None = None, score: dict | None = None) -> dict:
-    """The whole plan: the board (outline, keepouts, reservations), every placed
-    item with its shapes, copper, links, congestion, findings and the steps in
-    order. `sites` is declared_sites(board); `score` the run score the caller
-    worked out, which needs the board and is left to it."""
-    items, seen = [], set()
-    for step, _ in _placed(plan):
-        if step.item not in seen:
-            seen.add(step.item)
-            items.append(item_json(plan, step, sites))
+def board_json(plan) -> dict:
+    """The board as drawn under the parts: its outline, keepouts and
+    reservations. Known as soon as a resolve is under way, so a page can draw
+    it before the first part settles."""
     keepouts = []
     for name in sorted(plan.keepouts):
         k = plan.keepouts[name]
@@ -177,6 +171,22 @@ def plan_json(plan, sites: dict | None = None, score: dict | None = None) -> dic
     for r in plan.occupancy.reservations:
         face = _face_of(r.layer) if r.layer is not None else None
         reservations.append({"poly": _poly(r.poly), "why": r.why, "face": face.value if face is not None else None})
+    ext = _extent(plan)
+    return {"board": {"loops": [_poly(l) for l in _board_loops(plan)], "drawn": bool(plan.draw_outline),
+                      "extent": [_r(ext.left), _r(ext.top), _r(ext.right), _r(ext.bottom)]},
+            "keepouts": keepouts, "reservations": reservations}
+
+
+def plan_json(plan, sites: dict | None = None, score: dict | None = None) -> dict:
+    """The whole plan: the board (outline, keepouts, reservations), every placed
+    item with its shapes, copper, links, congestion, findings and the steps in
+    order. `sites` is declared_sites(board); `score` the run score the caller
+    worked out, which needs the board and is left to it."""
+    items, seen = [], set()
+    for step, _ in _placed(plan):
+        if step.item not in seen:
+            seen.add(step.item)
+            items.append(item_json(plan, step, sites))
     steps = []
     for n, s in enumerate(plan.steps):
         steps.append({"i": n, "item": s.item, "kind": s.kind, "placed": s.placement is not None, "note": s.note,
@@ -184,13 +194,10 @@ def plan_json(plan, sites: dict | None = None, score: dict | None = None) -> dic
                       "rank": s.rank})
     unplaced = [{"item": s.item, "why": s.note.split("UNPLACED", 1)[-1].lstrip(": ") if "UNPLACED" in s.note else s.note}
                 for s in plan.steps if s.placement is None and s.kind in ("part", "cell", "block")]
-    ext = _extent(plan)
     copper = [c for c in (_copper(op) for op in plan.copper) if c is not None]
     return {
-        "version": VERSION,
-        "board": {"loops": [_poly(l) for l in _board_loops(plan)], "drawn": bool(plan.draw_outline),
-                  "extent": [_r(ext.left), _r(ext.top), _r(ext.right), _r(ext.bottom)]},
-        "keepouts": keepouts, "reservations": reservations, "items": items, "copper": copper, "links": _links(plan),
+        "version": VERSION, **board_json(plan),
+        "items": items, "copper": copper, "links": _links(plan),
         "congestion": _congestion(plan), "findings": _findings(plan, seen), "steps": steps, "unplaced": unplaced,
         "pocketed": list(plan.pocketed),
         "counts": {"placed": sum(1 for s in plan.steps if s.placement is not None), "findings": len(plan.findings),
