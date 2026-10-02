@@ -31,6 +31,22 @@ section for each hand-written pattern a newer form replaces.
   `bridge=` are refused with an arc bend. Scripts change nothing. `api.md`,
   "Arc corners".
 
+### Fixed
+
+- **A line of labels gives way as one.** A list of labels, or `line=`, was
+  left out of the labels that give way (0.71, 0.72): a part placed after it
+  could land on a text, the line neither moved nor was avoided, and KiCad
+  reported `silk_over_copper` ("Silkscreen clipped by solder mask") for a pad
+  under the text. A text of the line that a firm item, or a searched item once
+  it is down, would stand on or within the silk clearance of now moves the whole
+  line: along its side, then to another side of its items, the texts keeping
+  their spacing and order and each staying beside its own item, every text on
+  the board and clear. With no clear spot the line stays, a `label` finding
+  names it, and the part is placed all the same. Scripts change nothing; a
+  board with a line of labels can place a later item, or end with the line, in
+  a different spot. `api.md`, "Labels", which now also says a searched item does
+  not see a declared label.
+
 ## To 0.79.0
 
 ### New

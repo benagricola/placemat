@@ -2672,7 +2672,9 @@ over their pads but past the part's outline;
 `knockout` cuts it out of a filled box, which reads better over a busy
 board. `size` and `thickness` default to 1.0 and 0.15 mm. A label is
 worked out the moment its item is placed and the text's own box on
-its face is reserved. A label is a user's
+its face is reserved: the box and the text's silk keep a firm item (and a
+block or cell member) off it, and are not seen by a searched item (below). A
+label is a user's
 mark, not part of what makes the board work, so it gives way: where an
 item would stand within the silk clearance of the text, or on its box, the
 item stays where it is put and the label moves. A firm item (`Location`,
@@ -2693,8 +2695,14 @@ The step's note says so ("moved from north END to north MID: U20 was
 there"). With no clear spot it stays, a `label` finding names it and what
 is in the way, and a firm item's collision stops the run as before; a
 searched item is placed all the same.
-A line of labels (a list, or `line=`) keeps its line and does not move.
-`label.slide_step` is the step along a side. `reserve=False` keeps the
+A line of labels (a list, or `line=`) gives way as one unit, by the same
+rules: the whole line slides along its side, then moves to another side of
+its items, its texts keeping their spacing and order and each staying beside
+its own item (a text keeps overlapping its item's extent along the side).
+Every text of the line must be clear. With no clear spot the line stays, and
+one `label` finding names it and what is in the way; the item is placed all
+the same. A step's note says "moved from north MID to south MID" or "north
+MID, line shifted +0.50 mm". `label.slide_step` is the step along a side. `reserve=False` keeps the
 label out of the way of placement and only reports what lands on it. Mark what a user handles:
 every connector, jumper, switch and LED, by what it does, not its refdes.
 
