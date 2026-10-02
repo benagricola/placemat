@@ -1,12 +1,13 @@
 """A source placed before its limit partner is not left a spot with no room for the partner (and the
 other way round): the search looks ahead to the unplaced counterpart's legal spots. Pure: synthetic boards."""
 import dataclasses
+import re
 
 import pytest
 
 from placemat.layout import Board
 from placemat.settings import Settings
-from placemat.values import Face, Location, PadRef, Part, Polar, Priority
+from placemat.values import Face, Location, Near, PadRef, Part, Polar, Priority
 from tests.fixtures import board_geometry, footprint
 
 EMITS = "magnetic:3.2mT@13.5mm^3"
@@ -114,3 +115,48 @@ def test_the_native_sweep_and_the_python_sweep_choose_alike(monkeypatch):
     monkeypatch.setattr(placer, "NATIVE_SWEEP", False)
     python = _board().resolve()
     assert native.placement("m1") == python.placement("m1") and native.placement("u2") == python.placement("u2")
+
+
+def _said(plan, needle, kind=None):
+    return [f for f in plan.findings if needle in f and (kind is None or f.kind == kind)]
+
+
+def test_a_dropped_look_ahead_is_a_finding_naming_the_pair_and_the_shortfall():
+    plan = _board(band=(0.0, 0.5)).resolve()
+    assert plan.placement("u2") is None
+    found = _said(plan, "look-ahead was dropped")
+    assert len(found) == 1, plan.findings
+    text = str(found[0])
+    assert text.startswith("m1: ") and "M1" in text and "U2" in text
+    short, asked = [float(x) for x in re.search(r"left U2 ([\d.]+) mm short of ([\d.]+) mm", text).groups()]
+    assert short > 0 and abs(asked - REACH) < 0.2
+    step = next(s for s in plan.steps if s.item == "m1")
+    assert "look-ahead was dropped" in step.note
+
+
+def test_the_partner_that_then_fails_points_back_at_the_finding():
+    plan = _board(band=(0.0, 0.5)).resolve()
+    refusal = _said(plan, "see: no room was left for it when M1 was placed", "unplaced")
+    assert len(refusal) == 1 and refusal[0].startswith("u2: "), plan.findings
+    assert "see: no room was left for it when M1 was placed" in next(s for s in plan.steps if s.item == "u2").note
+
+
+def test_a_pair_with_room_has_no_such_finding():
+    plan = _board().resolve()
+    assert not _said(plan, "look-ahead") and not _said(plan, "no room was left")
+
+
+def test_a_partner_whose_room_was_taken_after_the_look_ahead_says_so():
+    """The look-ahead leaves U2 room near a point, then a part placed in between sits on it."""
+    spot = Near(Location(43.0, 24.0), radius=3.0, step=1.0)
+    fps = _fps() + [footprint("X1", 70, 40, w=6, h=6, inst="x1", nets=("Q", "GND"))]
+    b = Board(board_geometry(fps, width=80, height=80), edge_margin=0.4, keep_going=True)
+    b.disc(2 * R)
+    b.place(Part("m1"), at=Polar((0.0, 6.0), None, about=CENTRE), priority=Priority.HIGH, step=1.0)
+    b.place(Part("x1"), at=Near(Location(43.0, 24.0), radius=1.0, step=1.0), priority=Priority.DEFAULT)
+    b.place(Part("u2"), at=spot, priority=Priority.LOW)
+    plan = b.resolve()
+    assert plan.placement("m1") is not None
+    assert not _said(plan, "look-ahead was dropped"), plan.findings
+    refusal = _said(plan, "what was placed since took it")
+    assert refusal and refusal[0].startswith("u2: "), plan.findings

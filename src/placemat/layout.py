@@ -4022,6 +4022,22 @@ class Board:
                  self.clearance, accept=record, turns_at=turns_at, within=within)
         return spots, step
 
+    @staticmethod
+    def _room_lost_text(plan: Plan, i: PlaceIntent) -> str:
+        """What a part with no legal spot says of the look-ahead of a limit partner placed before it: that no room
+        was left for it (a finding on the partner's step), or that room was left and what was placed since took it."""
+        said = plan.__dict__.get("_room_lost", {}).get(i.key)
+        if not said:
+            return ""
+        gone = sorted(a for a, t in said.items() if t)
+        kept = sorted(a for a, t in said.items() if not t)
+        out = ""
+        if gone:
+            out += "; see: no room was left for it when %s was placed" % ", ".join(gone)
+        if kept:
+            out += "; the look-ahead left it room when %s was placed, but what was placed since took it" % ", ".join(kept)
+        return out
+
     def _lookahead(self, occ: Occupancy, i: PlaceIntent, placed):
         """A candidate refusal for the pairs of `i` (a Pm.Emits source, a Pm.Limit part) whose other
         part is still to be searched: refused where no legal spot of that part is at the distance its
@@ -4054,6 +4070,7 @@ class Board:
                             pairs.append((a, False, b, kind, limit, em))
         spots_of: dict = {}
         needs = []
+        margins = []        # the grid step each need's reaches were widened by
         for a, a_source, b, kind, limit, em in pairs:
             j = owner.get(b)
             if j is None or b not in occ.pending:
@@ -4088,6 +4105,7 @@ class Board:
                     pts.append(at)
             if not pts:
                 continue
+            margins.append(margin)
             if a_source:
                 disc = max(e.radius(limit) for e in em) * _DISC_INRADIUS + margin
                 needs.append((a, True, b, kind, limit, em, (pts, _hull([Location(x, y) for x, y, _, _ in pts]), disc,
@@ -4099,6 +4117,7 @@ class Board:
         names = sorted({b for _, _, b, *_ in needs})
         here = {a: self._role_point(occ, a, s) for a, s, *_ in needs}
         last: dict = {}
+        refused: list = []      # (need, where the candidate's own point was) for each refusal
 
         def accept(placement: Placement):
             pads = occ.candidate_pad_locations(i.item, placement)
@@ -4110,6 +4129,7 @@ class Board:
                 if a_source:
                     pts, hull, disc, nearest = far
                     if max(math.hypot(p.x - x, p.y - y) for x, y in hull) < nearest - 1e-9:
+                        refused.append((n, p))
                         return "%s: no legal spot of %s is far enough from here for its %s limit" % (accept.bucket, b, kind)
                     k = last.get(n, 0)
                     for m, (x, y, r, (l, t, rt, bt)) in enumerate(pts[k:] + pts[:k]):
@@ -4118,15 +4138,44 @@ class Board:
                             last[n] = (k + m) % len(pts)
                             break
                     else:
+                        refused.append((n, p))
                         return "%s: no legal spot of %s is far enough from here for its %s limit" % (accept.bucket, b, kind)
                 else:
                     left = limit - others_at(p)
                     if left > 0:
                         r = exposure.reach(em, left) + far[1]
                         if max(math.hypot(p.x - x, p.y - y) for x, y in far[0]) < r - 1e-9:
+                            refused.append((n, p))
                             return "%s: no legal spot of %s is %.3g mm from here" % (accept.bucket, b, r)
             return None
+        def misses():
+            """{(own ref, other ref): (mm short, mm asked)} for the refused candidate that came nearest, per pair:
+            how far short of the distance the limit asks the best spot of the other part fell. The grid step
+            the reaches were widened by is taken off again."""
+            out: dict = {}
+            for n, p in {(n, round(p.x, 2), round(p.y, 2)): (n, p) for n, p in refused}.values():
+                a, a_source, b, kind, limit, em, far, others_at = needs[n]
+                margin = margins[n]
+                if a_source:
+                    best = None
+                    for x, y, r, (l, t, rt, bt) in far[0]:
+                        by_point, by_body = r - math.hypot(p.x - x, p.y - y), far[2] - math.hypot(max(l - p.x, 0.0, p.x - rt), max(t - p.y, 0.0, p.y - bt))
+                        short, asked = (by_point, r) if by_point >= by_body else (by_body, far[2])
+                        if best is None or short < best[0]:
+                            best = (short, asked)
+                    short, asked = best
+                else:
+                    left = limit - others_at(p)
+                    asked = exposure.reach(em, left) + margin
+                    short = asked - max(math.hypot(p.x - x, p.y - y) for x, y in far[0])
+                got = (max(short - margin, 0.0), asked - margin)
+                if (a, b) not in out or got[0] < out[a, b][0]:
+                    out[a, b] = got
+            return out
+
         accept.partners = ", ".join(names)
+        accept.pairs = [(a, b, owner[b].key) for a, _, b, *_ in needs]
+        accept.misses = misses
         accept.bucket = "no room left for %s" % accept.partners
         return accept
 
@@ -8157,8 +8206,20 @@ class Board:
                                              reseed=(targets if i.near is None and solved is None else None),
                                              turns_at=bt, within=within,
                                              turns_on=lambda f: self._spot_turns(occ, i, placed, band, f))
+        if result.chosen is not None and ahead is not None:
+            lost = plan.__dict__.setdefault("_room_lost", {})
+            for a, b, key in ahead.pairs:
+                lost.setdefault(key, {})[a] = None        # room was left: the partner's refusal says so if it fails
         if result.chosen is None and ahead is not None and ahead.bucket in result.rejected:
             # No spot leaves the counterpart room, so the look-ahead cannot help: place it as before
+            lost = plan.__dict__.setdefault("_room_lost", {})
+            for (a, b), (short, asked) in sorted(ahead.misses().items()):
+                key = next(k for x, y, k in ahead.pairs if (x, y) == (a, b))
+                text = ("%s: no spot was left for %s at its limit distance from %s, so the look-ahead was dropped "
+                        "and %s is placed without it; the best spot for %s left %s %.2f mm short of %.1f mm"
+                        % (i.key, b, a, a, a, b, short, asked))
+                plan.findings.append(Finding("setup", text))
+                lost.setdefault(key, {})[a] = text
             step = self._settle(occ, i, plan, placed, solve=solve, look=False)
             step.note = "no spot left %s room, so the look-ahead was dropped; %s" % (ahead.partners, step.note)
             return step
@@ -8179,8 +8240,9 @@ class Board:
                 if step is not None:
                     return step
                 blame += "; no pocket took it (%d tried)" % tried
-            plan.findings.append(Finding("unplaced", "%s: %s" % (i.key, blame)))
-            return self._step(i, None, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()))
+            late = self._room_lost_text(plan, i)
+            plan.findings.append(Finding("unplaced", "%s: %s%s" % (i.key, blame, late)))
+            return self._step(i, None, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()) + late)
         note = seeded
         if face_note:
             note = (note + "; " if note else "") + face_note

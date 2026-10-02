@@ -5,6 +5,18 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A dropped `Pm.Emits` / `Pm.Limit` look-ahead is a finding.** When no
+  spot of the part placed first leaves its partner room at the limit
+  distance, the part is placed as before and now a finding (kind `setup`) at
+  its step names both parts, the limit distance and how far short the best
+  spot fell. The partner's refusal ends "see: no room was left for it when
+  M1 was placed", or says what was placed since took the room the look-ahead
+  had left. Scripts change nothing. `api.md`, "Look-ahead".
+
 ## To 0.78.0
 
 ### New
