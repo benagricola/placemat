@@ -105,9 +105,10 @@ pub struct Shape {
     pub wire: bool,     // a track or a via, which a rule of a part (`of`) does not hold
 }
 
-/// One of the script's clearance rules (`rules.ClearanceRules`): the first of `on`, `between`
-/// and `within` that is set is its condition. `within` holds the owners of the cell's members
-/// and of the copper it carries; a shape with no owner is in no cell.
+/// One of the script's clearance rules (`rules.ClearanceRules`): `within` holds the owners of the
+/// cell's members and of the copper it carries, and a shape with no owner is in no cell; with
+/// `between` or `on` set too (a fragment's rule over its nets) both hold. Without `within`, the
+/// first of `between` and `on` that is set is the condition.
 #[derive(Clone, Default)]
 pub struct ClearanceRule {
     pub on: Option<String>,
@@ -120,7 +121,12 @@ pub struct ClearanceRule {
 impl ClearanceRule {
     fn matches(&self, a: &Shape, b: &Shape) -> bool {
         if let Some(owners) = &self.within {
-            return !a.owner.is_empty() && !b.owner.is_empty() && owners.contains(&a.owner) && owners.contains(&b.owner);
+            if !(!a.owner.is_empty() && !b.owner.is_empty() && owners.contains(&a.owner) && owners.contains(&b.owner)) {
+                return false;
+            }
+            if self.between.is_none() && self.on.is_none() {
+                return true;
+            }
         }
         if let Some((x, y)) = &self.between {
             if let Some(part) = &self.of {
@@ -583,6 +589,21 @@ mod tests {
         assert!(conflict(&a, &b, None, &c)); // both owners in the cell
         let other = shape(Kind::Pad, "X1", rect(1.3, 0.0, 1.0, 1.0), 1, 1, "B", true);
         assert!(!conflict(&a, &other, None, &c)); // X1 is in no cell: the between= rule's 0.1 stands
+    }
+
+    #[test]
+    fn a_rule_within_a_cell_and_between_nets_holds_only_where_both_do() {
+        // two pads 0.3 mm apart: clear under the 0.2 netclass figure
+        let a = shape(Kind::Pad, "U1", rect(0.0, 0.0, 1.0, 1.0), 1, 1, "A", true);
+        let b = shape(Kind::Pad, "R1", rect(1.3, 0.0, 1.0, 1.0), 1, 1, "B", true);
+        let b_outside = shape(Kind::Pad, "X1", rect(1.3, 0.0, 1.0, 1.0), 1, 1, "B", true);
+        let other_net = shape(Kind::Pad, "R1", rect(1.3, 0.0, 1.0, 1.0), 1, 1, "C", true);
+        let mut c = cfg();
+        let owners: HashSet<String> = ["U1".to_string(), "R1".to_string()].into_iter().collect();
+        c.rules.push(ClearanceRule { within: Some(owners), between: Some(("A".into(), "B".into())), min: 0.5, ..Default::default() });
+        assert!(conflict(&a, &b, None, &c)); // in the cell, on A and B
+        assert!(!conflict(&a, &b_outside, None, &c)); // X1 is in no cell
+        assert!(!conflict(&a, &other_net, None, &c)); // net C is not the rule's
     }
 
     #[test]

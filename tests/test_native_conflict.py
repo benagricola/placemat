@@ -83,7 +83,8 @@ def _rules():
     return [Rule("clearance", 0.45, "on a", on="A"),
             Rule("clearance", 0.05, "b to the via", between=("B", "GND")),
             Rule("clearance", 0.12, "in the cell", within="grp"),
-            Rule("clearance", 0.3, "on b", on="B")]
+            Rule("clearance", 0.3, "on b", on="B"),
+            Rule("clearance", 0.08, "in the cell, a to ground", within="grp", between=("A", "GND"))]
 
 
 def _rich_occupancy(envelope="union", vias_block_courtyards=False, rules=()):

@@ -93,7 +93,7 @@ def judge_via(geometry, at: Location, net: str, size: float, drill: float) -> Vi
                 hard.append("copper %.2f mm from %s's unplated hole (needs %.2f)" % (max(edge, 0.0), fp.ref,
                                                                                     geometry.hole_clearance))
     for ra in geometry.rule_areas:
-        if "vias" in ra.excludes and ra.layers and polys_overlap(poly, ra.polygon):
+        if "vias" in ra.excludes and ra.layers and net not in ra.allow and polys_overlap(poly, ra.polygon):
             hard.append("inside %s, which forbids vias" % ra.base)
     return ViaVerdict(tuple(hard), tuple(dict.fromkeys(soft)))
 

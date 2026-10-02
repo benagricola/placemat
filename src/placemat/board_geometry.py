@@ -120,6 +120,7 @@ class CellGeom:
     copper_box: Box | None      # extent of the cell's own tracks/vias/polys, if any
     faces: dict = field(default_factory=dict)   # the module's declared sides: outward, quiet, handoff (N/S/E/W at rotation 0)
     parent: str | None = None   # the group this cell's group sits in (a module sheet's), if any
+    rules: tuple = ()           # the clearance rules its fragment declared (rules.Rule), as the fragment names things
 
     def member(self, suffix: str) -> Footprint:
         for fp in self.members:
@@ -145,10 +146,13 @@ class RuleArea:
     missing: tuple = ()
     holes: tuple = ()                    # polygons inside `polygon` the region does not cover (a ring's middle)
     # Nets its excludes let through (a keepout's own `allow=`, by name). KiCad
-    # writes a rule area with no such list (see api.md's occupancy section),
-    # so one read off a generated board always carries none; a query that
-    # builds its own geometry is the one place this is ever set.
+    # has no such list on a rule area: one read off a board carries what the
+    # area's name declares (`allow_marker`), as the board names those nets.
     allow: frozenset = frozenset()
+    # The types (of tracks, vias, pads) the area is written allowing, with `allow` the nets that keep them;
+    # every other net is forbidden them by a custom rule (rules.AllowRule). `excludes` holds them too:
+    # the area forbids them to all but `allow`.
+    relaxed: tuple = ()
 
     @property
     def base(self) -> str:
@@ -186,9 +190,54 @@ def layer_marker(declared, board_layers) -> str:
     return " [%s]" % ",".join(l.value for l in sorted(set(declared), key=stackup_order))
 
 
+# A keepout's `allow=` nets cannot be said to KiCad as a rule area has no list of them: the area is written
+# allowing the types it lets those nets keep (tracks, vias, pads) and a custom rule forbids them to every
+# other net (rules.AllowRule). The nets and the types travel in the name, so a board that stamps the
+# fragment can write the same rule: ` {allow GND,SIG | tracks,vias}`, then pcb's `_1`.
+_ALLOW = re.compile(r"\s*\{allow ([^|}]*) \| ([^}]*)\}(_\d+)?")
+_ESCAPES = (("%", "%25"), (",", "%2C"), ("|", "%7C"), ("}", "%7D"), ("]", "%5D"))
+
+
+def allow_marker(nets, types) -> str:
+    """What a keepout's zone name carries for the nets its `allow=` lets through `types` (tracks, vias, pads)."""
+    def esc(n):
+        for a, b in _ESCAPES:
+            n = n.replace(a, b)
+        return n
+    return " {allow %s | %s}" % (",".join(esc(n) for n in sorted(nets)), ",".join(types))
+
+
+def split_allow(name: str) -> tuple:
+    """(nets, types) a name's allow marker declares, as declared (not yet the stamped board's net names);
+    two empty tuples when it carries none."""
+    m = _ALLOW.search(name)
+    if not m:
+        return (), ()
+
+    def unesc(n):
+        for a, b in reversed(_ESCAPES):
+            n = n.replace(b, a)
+        return n
+    return (tuple(unesc(n) for n in m.group(1).split(",") if n),
+            tuple(t.strip() for t in m.group(2).split(",") if t.strip()))
+
+
+def stamped_net(name: str, cell: str | None, nets) -> str | None:
+    """The net a fragment calls `name`, as the board that stamped it does: pcb names a net inside a cell
+    `<cell>.<name>`, and one the cell's module takes from the sheet above it by that sheet's, so the most
+    particular of `<cell>.<name>`, `<parent>.<name>` ... and `<name>` that the board has. None when it has none."""
+    parts = cell.split(".") if cell else []
+    for i in range(len(parts), -1, -1):
+        cand = ".".join(parts[:i] + [name])
+        if cand in nets:
+            return cand
+    return None
+
+
 def split_marker(name: str) -> tuple:
     """(base name, declaration). The declaration is "*" for every copper
     layer, a tuple of layers, or None when the name carries no marker."""
+    name = _ALLOW.sub("", name, count=1)
     m = _MARKER.search(name)
     if not m:
         return name.strip(), None
@@ -382,7 +431,7 @@ def keepout_breaches(rule_areas, copper) -> list:
         if flag is None:
             continue
         for ra in rule_areas:
-            if flag not in ra.excludes or not (c.layers & ra.layers):
+            if flag not in ra.excludes or not (c.layers & ra.layers) or c.net in ra.allow:
                 continue
             if not Box.of_points(ra.polygon).overlaps(c.box):
                 continue

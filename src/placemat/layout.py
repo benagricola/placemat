@@ -895,7 +895,11 @@ class Board:
         self._escape_kept: dict = {}       # (escape index, pad number) -> the occupancy's copper shapes of a lane's riser and lane
         self._faces: tuple | None = None
         self._links: list[Link] = []
-        self._rules: list = []
+        # a stamped cell brings its fragment's clearance rules, first: a rule this script declares stands after
+        # them, and where both match a pair the later decides
+        from .rules import stamped_rules
+        stamped, self._stamped_rule_notes = stamped_rules(geometry)
+        self._rules: list = list(stamped)
         self._acceptances: list = []        # checks.Acceptance of each board.accept: read by the checks step alone, in no digest
         self._free_nets: set = set()
         self._outline: Box | None = geometry.outline_box
@@ -5060,9 +5064,9 @@ class Board:
         # (polygon, layers, the nets it lets through): a keepout's allow= lets its nets' vias stand in it
         forbidding = [(k.poly, k.layers, frozenset(k.allow)) for k in (ctx.plan.keepouts.values() if ctx.plan else ())
                       if "vias" in k.excludes]
-        forbidding += [(poly, ra.layers, frozenset()) for pairs in occ._cell_rule_areas.values() for ra, poly in pairs
+        forbidding += [(poly, ra.layers, ra.allow) for pairs in occ._cell_rule_areas.values() for ra, poly in pairs
                        if "vias" in ra.excludes]
-        forbidding += [(ra.polygon, ra.layers, frozenset()) for ra in self.geometry.rule_areas
+        forbidding += [(ra.polygon, ra.layers, ra.allow) for ra in self.geometry.rule_areas
                        if ra.cell is None and "vias" in ra.excludes]
         return holes, bare, forbidding
 
@@ -5798,6 +5802,7 @@ class Board:
         chain = {"key": context, "replaying": previous is not None}
         self._solve_hints = None            # the global solve runs once per resolve, when first asked
         self._report_lost_layers(plan)
+        plan.findings.extend(Finding("setup", note) for note in self._stamped_rule_notes)
         self._rank(occ)
         if occ.envelope == "courtyard":
             from .envelope import understatement

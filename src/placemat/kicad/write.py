@@ -19,10 +19,11 @@ from ..layout import MergedZone, Plan
 from ..copper import Pour, Text, Track, Via, Zone
 from ..geometry import Transform, poly_within
 from ..placement import Placement
-from ..board_geometry import (CellGeom, Footprint, layer_marker, resolve_marker, split_marker,
+from ..board_geometry import (CellGeom, Footprint, allow_marker, layer_marker, resolve_marker, split_marker,
                               stackup_order)
 from ..cutouts import closes_itself
 from .read import FACES_PREFIX
+from ..rules import RULE_PREFIX, rule_note
 from ..values import Box, CopperLayer, Face
 
 def nm(v: float) -> int:
@@ -331,15 +332,42 @@ def _draw_keepouts(board, plan):
         z.SetIsRuleArea(True)
         z.SetLayerSet(pcbnew.LSET.AllCuMask(board.GetCopperLayerCount()) if k.layers is None
                       else _layer_set(board, k.layers))
+        relaxed = _relaxed(k)
         for name, setter in _KEEPOUT_FLAGS.items():
-            # one that admits parts allows footprints: a .kicad_dru rule forbids the rest (keepout_rules)
-            getattr(z, setter)(name in k.excludes and not (name == "parts" and _admits_parts(k)))
+            # one that admits parts allows footprints: a .kicad_dru rule forbids the rest (keepout_rules); one
+            # that lets nets through allows what they keep, and a rule forbids it to the others (allow_rules)
+            getattr(z, setter)(name in k.excludes and not (name == "parts" and _admits_parts(k)) and name not in relaxed)
         o = z.Outline()
         o.NewOutline()
         for x, y in k.poly:
             o.Append(nm(x), nm(y))
-        z.SetZoneName("keepout %s%s" % (k.name, layer_marker(k.layers, stack)))
+        z.SetZoneName(_keepout_zone_name(k, stack))
         board.Add(z)
+
+
+_ALLOWED_TYPES = ("tracks", "vias", "pads")
+
+
+def _relaxed(k) -> tuple:
+    """What a keepout's rule area is written allowing because its `allow=` nets keep it: the copper types
+    it excludes, when it lets any net through."""
+    return tuple(t for t in _ALLOWED_TYPES if t in k.excludes) if k.allow else ()
+
+
+def _keepout_zone_name(k, stack) -> str:
+    name = "keepout %s%s" % (k.name, layer_marker(k.layers, stack))
+    return name + allow_marker(k.allow, _relaxed(k)) if _relaxed(k) else name
+
+
+def allow_rules(plan, stack) -> list:
+    """An AllowRule for each keepout of the plan that lets nets through, and for each stamped cell's rule
+    area that declares such a list (it arrives with the cell: board_geometry.allow_marker)."""
+    from ..rules import AllowRule
+    out = [AllowRule(_keepout_zone_name(k, stack), tuple(sorted(k.allow)), _relaxed(k))
+           for k in plan.keepouts.values() if _relaxed(k)]
+    out += [AllowRule(ra.name, tuple(sorted(ra.allow)), ra.relaxed)
+            for ra in plan.geometry.rule_areas if ra.cell is not None and ra.relaxed]
+    return out
 
 
 def _admits_parts(k) -> bool:
@@ -365,7 +393,7 @@ def keepout_rules(plan, refs, stack) -> list:
             continue
         faces = {l for l in (k.layers or ()) if l in (CopperLayer.F, CopperLayer.B)}
         layer = next(iter(faces)).value if k.layers and len(faces) == 1 and len(k.layers) == 1 else None
-        out.append(KeepoutRule("keepout %s%s" % (k.name, layer_marker(k.layers, stack)), forbid, layer))
+        out.append(KeepoutRule(_keepout_zone_name(k, stack), forbid, layer))
     return out
 
 
@@ -830,7 +858,7 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     with quiet_stderr():
         board = pcbnew.LoadBoard(pcb_path)
     seed_uuids()
-    _drop_stamped_faces_notes(board)
+    _drop_stamped_notes(board)
     groups = {g.GetName(): g for g in board.Groups()}
     by_ref = {fp.GetReference(): fp for fp in board.GetFootprints()}
     for name, gone in sorted(plan.thinned.items()):
@@ -850,6 +878,8 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     _draw_outline(board, plan)
     _draw_keepouts(board, plan)
     _draw_keepout_drawings(board, plan)
+    if not plan.draw_outline:
+        write_rule_notes(board, plan.rules)         # a fragment: its clearance rules ride with the cell
     draw_copper(board, plan.copper)
     plan.group_notes = _write_groups(board, plan)
     out = str(out_path or pcb_path)
@@ -858,12 +888,12 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     from ..rules import write_rules
     stack = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
     write_rules(out, list(plan.rules) + keepout_rules(plan, [fp.GetReference() for fp in board.GetFootprints()],
-                                                      stack))
+                                                      stack) + allow_rules(plan, stack))
     return out
 
 
-def _drop_stamped_faces_notes(board) -> None:
-    """Take a stamped fragment's faces note off the board. The note is the
+def _drop_stamped_notes(board) -> None:
+    """Take a stamped fragment's notes (its faces, its clearance rules) off the board. A note is the
     fragment's fact for the parent, read at load (read.board_geometry_of);
     stamped, it sits a fixed distance below the fragment's content, is a
     member of the cell's group, and stays behind when the cell is turned and
@@ -871,7 +901,7 @@ def _drop_stamped_faces_notes(board) -> None:
     is a fragment's own, opened on its own, and is kept."""
     for g in list(board.Groups()):
         for it in list(g.GetItems()):
-            if isinstance(it, pcbnew.PCB_TEXT) and it.GetText().startswith(FACES_PREFIX):
+            if isinstance(it, pcbnew.PCB_TEXT) and it.GetText().startswith((FACES_PREFIX, RULE_PREFIX)):
                 g.RemoveItem(it)
                 board.Delete(it)
 
@@ -1004,6 +1034,38 @@ def show_item(pcb_path, name: str, out_dir, quality: str = "basic") -> list:
     return done
 
 
+def write_rule_notes(board, rules) -> list:
+    """The clearance rules a fragment declares, as User.Comments texts (`rules.rule_note`) that pcb layout
+    stamps with the cell, replacing any the board has outside a group. A rule of a part (`of=`) is
+    the part's own annotation, which the stamped board reads off the part, so it has none. Returns the
+    texts written."""
+    for d in list(board.GetDrawings()):
+        if isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith(RULE_PREFIX) and d.GetParentGroup() is None:
+            board.Delete(d)
+    texts = [rule_note(r) for r in rules if r.kind == "clearance" and r.of is None]
+    if not texts:
+        return []
+    # in the margin below everything the fragment draws, under its faces note: never over a part
+    boxes = [fp.GetBoundingBox(True, True) for fp in board.GetFootprints()]
+    boxes += [d.GetBoundingBox() for d in board.GetDrawings()
+              if not (isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith((FACES_PREFIX, RULE_PREFIX)))]
+    boxes += [t.GetBoundingBox() for t in board.GetTracks()] + [z.GetBoundingBox() for z in board.Zones()]
+    left = min(b.GetLeft() for b in boxes) if boxes else 0
+    bottom = max(b.GetBottom() for b in boxes) if boxes else 0
+    for i, text in enumerate(texts):
+        t = pcbnew.PCB_TEXT(board)
+        t.SetText(text)
+        t.SetLayer(pcbnew.Cmts_User)
+        t.SetTextSize(pcbnew.VECTOR2I(nm(0.5), nm(0.5)))
+        t.SetTextThickness(nm(0.1))
+        t.SetHorizJustify(pcbnew.GR_TEXT_H_ALIGN_LEFT)
+        t.SetVertJustify(pcbnew.GR_TEXT_V_ALIGN_TOP)
+        t.SetPosition(pcbnew.VECTOR2I(left, bottom + nm(2.0 + 0.7 * i)))
+        _unique_uuid(board, t)
+        board.Add(t)
+    return texts
+
+
 def write_faces(pcb_path, faces: dict) -> str:
     """Put a module fragment's faces fact into it (replacing any it has):
     a User.Comments text `placemat faces outward=N ...` that pcb layout stamps
@@ -1019,7 +1081,7 @@ def write_faces(pcb_path, faces: dict) -> str:
         # Below everything the module draws (courtyards included), left-aligned with it:
         # a note in the margin, never over the module's origin or a part.
         boxes = [fp.GetBoundingBox(True, True) for fp in board.GetFootprints()]
-        boxes += [d.GetBoundingBox() for d in board.GetDrawings() if not (isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith("placemat faces "))]
+        boxes += [d.GetBoundingBox() for d in board.GetDrawings() if not (isinstance(d, pcbnew.PCB_TEXT) and d.GetText().startswith((FACES_PREFIX, RULE_PREFIX)))]
         boxes += [t.GetBoundingBox() for t in board.GetTracks()]
         boxes += [z.GetBoundingBox() for z in board.Zones()]
         left = min(b.GetLeft() for b in boxes) if boxes else 0

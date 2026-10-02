@@ -5,7 +5,7 @@ net; its `why` is the rule's name in KiCad, where a violation quotes it.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -19,6 +19,10 @@ class Rule:
     of: str | None = None               # with `between=(a, b)`: only where the copper on `b` is a pad of this part and the copper on `a` is neither its pad nor a track or a via
 
     def condition(self) -> str:
+        if self.within is not None and (self.between is not None or self.on is not None):
+            # a fragment's rule over its nets, held to its cell: both items are the cell's
+            return "A.memberOf('%s') && B.memberOf('%s') && (%s)" % (
+                self.within, self.within, replace(self, within=None).condition())
         if self.within is not None:
             return "A.memberOf('%s') && B.memberOf('%s')" % (self.within, self.within)
         if self.between is not None:
@@ -63,9 +67,11 @@ class ClearanceRules:
         for r in reversed(self.rules):
             if r.within is not None:
                 owners = self.cell_owners.get(r.within, ())
-                if owner_a and owner_b and owner_a in owners and owner_b in owners:
+                if not (owner_a and owner_b and owner_a in owners and owner_b in owners):
+                    continue
+                if r.between is None and r.on is None:
                     return r
-            elif r.between is not None:
+            if r.between is not None:
                 a, b = r.between
                 if r.of is not None:
                     # the part's pad on b, with the copper of a that is not its pad, a track or a via
@@ -115,6 +121,104 @@ class KeepoutRule:
         cond.append("(%s)" % " || ".join("A.Reference == '%s'" % r for r in self.refs))
         return '(rule "%s"\n  (constraint disallow footprint)\n  (condition "%s"))' % (
             self.area.replace('"', "'"), " && ".join(cond))
+
+
+RULE_PREFIX = "placemat rule "      # a User.Comments text a module fragment carries for each clearance rule it declares
+
+
+def rule_note(rule) -> str:
+    """A clearance rule as the text a fragment carries it in, which pcb layout stamps with the cell:
+    `placemat rule clearance=0.1 between=A,B why=...`. Every value is percent-escaped, since KiCad reads
+    braces and `$` in a text as markup. The rule's net and cell names are the fragment's own."""
+    from urllib.parse import quote
+
+    def q(v):
+        return quote(str(v), safe="._-")
+    words = ["clearance=%g" % rule.min_mm]
+    if rule.within is not None:
+        words.append("within=" + q(rule.within))
+    if rule.between is not None:
+        words.append("between=" + ",".join(q(n) for n in rule.between))
+    if rule.on is not None:
+        words.append("on=" + q(rule.on))
+    words.append("why=" + q(rule.why))
+    return RULE_PREFIX + " ".join(words)
+
+
+def parse_rule_note(text: str):
+    """The Rule a note says, or None for a text that is not one or does not read."""
+    from urllib.parse import unquote
+    if not text.startswith(RULE_PREFIX):
+        return None
+    fields = {}
+    for word in text[len(RULE_PREFIX):].split():
+        k, _, v = word.partition("=")
+        fields[k] = v
+    try:
+        min_mm = float(fields["clearance"])
+        why = unquote(fields["why"])
+        between = tuple(unquote(n) for n in fields["between"].split(",")) if "between" in fields else None
+        if between is not None and len(between) != 2:
+            return None
+        within = unquote(fields["within"]) if "within" in fields else None
+        on = unquote(fields["on"]) if "on" in fields else None
+    except (KeyError, ValueError):
+        return None
+    if (between is not None and on is not None) or (within is None and between is None and on is None):
+        return None
+    return Rule("clearance", min_mm, why, within=within, between=between, on=on)
+
+
+def stamped_rules(geometry) -> tuple:
+    """(rules, notes): the clearance rules the cells of `geometry` carry from their fragments, as this board
+    names things, and a sentence for each that could not be carried. Each is held to its cell
+    (`within=`, by group name) and takes the nets as pcb named them in the cell (`stamped_net`); a
+    rule `within=` a cell of the fragment takes that cell's stamped group. Cells in name order, each
+    fragment's rules in the order it declared them: a rule the board declares itself stands after
+    these, and the last that matches decides."""
+    from .board_geometry import stamped_net
+    rules, notes = [], []
+    for name in sorted(geometry.cells):
+        cell = geometry.cells[name]
+        for r in cell.rules:
+            why = "%s [%s]" % (r.why, name)
+            nets = [r.on] if r.on is not None else list(r.between or ())
+            mapped = [stamped_net(n, name, geometry.nets) for n in nets]
+            if any(m is None for m in mapped):
+                notes.append("rule '%s' from the %s cell is not carried: its net %s is not on this board"
+                             % (r.why, name, nets[mapped.index(None)]))
+                continue
+            within = name
+            if r.within is not None:
+                within = "%s.%s" % (name, r.within)
+                if within not in geometry.cells:
+                    notes.append("rule '%s' from the %s cell is not carried: its cell %s is not on this board"
+                                 % (r.why, name, r.within))
+                    continue
+            rules.append(replace(r, why=why, within=within,
+                                 on=mapped[0] if r.on is not None else None,
+                                 between=tuple(mapped) if r.between is not None else None))
+    return tuple(rules), tuple(notes)
+
+
+@dataclass(frozen=True)
+class AllowRule:
+    """A keepout that lets some nets through, said to KiCad: a rule area has no list of nets, so the area
+    is written allowing `types` (tracks, vias, pads) and this rule forbids them in it to every net but
+    `nets`. With no `nets` it forbids them to all. KiCad judges the area's own layers."""
+    area: str                   # the rule area's zone name, as written
+    nets: tuple                 # the nets let through
+    types: tuple                # what the area was written allowing: tracks, vias, pads
+
+    _ITEMS = {"tracks": "track", "vias": "via", "pads": "pad"}
+
+    def text(self) -> str:
+        from .board_geometry import split_marker
+        cond = ["A.intersectsArea('%s')" % self.area] + ["A.NetName != '%s'" % n for n in self.nets]
+        name = "%s allows %s" % (split_marker(self.area)[0], ", ".join(self.nets) or "no net")
+        items = " ".join(self._ITEMS[t] for t in self._ITEMS if t in self.types)
+        return '(rule "%s"\n  (constraint disallow %s)\n  (condition "%s"))' % (
+            name.replace('"', "'"), items, " && ".join(cond))
 
 
 def rules_text(rules) -> str:
