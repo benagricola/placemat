@@ -72,8 +72,8 @@ def _turn(dx: float, dy: float, degrees: float) -> tuple:
 
 
 # What a declaration says that can change where its item goes. Not where it
-# sits in the script (index, line), what it waits for (derived), nor its prose.
-_NOT_DECIDING = frozenset(("index", "line", "needs", "why", "faces_note", "priority_source"))
+# sits in the script (index, line, file), what it waits for (derived), nor its prose.
+_NOT_DECIDING = frozenset(("index", "line", "file", "needs", "why", "faces_note", "priority_source"))
 
 
 def declaration_digest(board, intent, legacy: bool = False, ordered: bool = True) -> str:

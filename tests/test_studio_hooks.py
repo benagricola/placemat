@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from placemat.layout import Board
-from placemat.values import Face, LinkWeight, Location, PadRef, Part
+from placemat.values import Face, Location, PadRef, Part
 from tests.fixtures import board_geometry, footprint
 
 
@@ -46,3 +46,14 @@ def test_an_item_knows_the_file_and_line_that_declared_it():
     assert Path(mine["u1"].file).name == "test_studio_hooks.py"
     assert mine["u1"].line > 0
     assert mine["c1"].line == mine["u1"].line + 2
+
+
+def test_where_an_item_was_declared_is_not_part_of_its_digest_or_its_reuse_key():
+    """A lock accepted before the file was recorded still holds."""
+    import dataclasses
+    from placemat import lock, reuse
+    b = _board()
+    i = next(i for i in b._intents if i.key == "u1")
+    moved = dataclasses.replace(i, file="/elsewhere/other.py", line=i.line + 40)
+    assert lock.declaration_digest(b, i) == lock.declaration_digest(b, moved)
+    assert reuse.canonical(i) == reuse.canonical(moved)

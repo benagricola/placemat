@@ -12,7 +12,6 @@ import math
 from .board_geometry import members_of
 from .copper import Pour, Text, Track, Via, Zone, arc_circle
 from .preview import HEAT_MIN, _AT, _board_loops, _drawn_at, _extent, _face_of, _placed
-from .values import Box
 
 VERSION = 1
 DIGITS = 3              # decimals kept: a micrometre, below any placement or copper tolerance

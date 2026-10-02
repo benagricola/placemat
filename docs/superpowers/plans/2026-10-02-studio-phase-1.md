@@ -46,3 +46,11 @@ Order is TDD: each task starts with its failing tests.
 12. Real boards: staged mcu module and, if a script exists, the larger core
     fixture: timings and the comparison with `placemat preview`; bench with
     `--jobs 2`; the full suite once.
+
+## Left for phase 2
+
+Watching an explore feeds the same compare: `studio_diff.diff_plans(a, b,
+partial=True)` takes any two documents with an `items` list of {key, at,
+rotation, face} (a partial set of placements compares only the items in
+both), and the page draws a diff with `diffLayerSVG(diff, itemsA, itemsB,
+face, text)`, which reads nothing but its arguments.

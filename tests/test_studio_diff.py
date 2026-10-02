@@ -5,7 +5,7 @@ from placemat.layout import Board
 from placemat.preview_json import declared_sites, plan_json
 from placemat.studio_diff import (declaration_span, diff_plans, line_diff, trace, unified_diff,
                                   with_spans)
-from placemat.values import CopperLayer, Face, Location, Net, PadRef, Part
+from placemat.values import CopperLayer, Location, Net, PadRef, Part
 from tests.fixtures import board_geometry, footprint
 
 
