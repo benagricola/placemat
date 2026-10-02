@@ -16,6 +16,12 @@ file. An item cites its source as "a board's session, <date>".
   script (`[solve] enabled`); an RF trace wanted curved, not in 45s. Being
   built.
 
+- **Fan lanes that run to their targets** (a board's session, 2026-10-02,
+  from the user's hand layout): 45-degree fans whose lanes run until level
+  with what they serve, risers staggered so parallel 45s keep clearance, a
+  group starting past a part; and a searched part that misses a clean spot
+  at its link limit. Being built.
+
 ## Open
 
 - **Arc corners on a pair** (the arc-bends work, 2026-10-02): `board.pair`
