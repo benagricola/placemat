@@ -37,6 +37,31 @@ section for each hand-written pattern a newer form replaces.
   drill is measured as its circle against a planned track or pour (it was an
   inscribed polygon, up to 2 um short).
 
+- **A stamped cell's keepout `allow=` is carried to the parent and to
+  KiCad.** A module's keepout that lets a net's copper through (`allow=(Net("GND"),)`
+  with `vias`, `tracks` or `pads` excluded) was written as a rule area that
+  forbids them to every net, so the module's own run set the allowed copper
+  aside as `permitted by their keepout N`, and the board that stamped it
+  counted the same copper as `items_not_allowed`, as did KiCad's DRC when the
+  board was opened. The area is now written allowing what the nets keep, with a
+  custom rule in `layout.kicad_dru` forbidding it to every other net, and its
+  name carries the nets: the parent reads them, writes the same rule, and its
+  vias, tracks and routes of those nets stand in the region. Run a module again
+  to put the nets in its fragment. `api.md`, "Keepouts".
+- **A stamped cell brings its module's `board.rule` clearances.** The parent's
+  DRC judged a cell's copper at the net class clearance even where the module
+  declared a lower one. A fragment now carries its rules and the parent adds
+  them to its own, held to the cell, ahead of its own rules. Run a module
+  again to put its rules in its fragment. `api.md`, "Rules".
+
+### Migration steps
+
+- A parent's `board.rule(..., within=Cell(...))` that repeats the clearance a
+  module declares for that cell can be removed once the module has been run
+  again; keep one that asks for something different, which stands after the
+  module's and decides.
+
+
 ## To 0.78.0
 
 ### New

@@ -1335,6 +1335,25 @@ routes of named pins, `board.escape()` keeps their lanes and vias. A cell's
 regions are read from the generated board, so a keepout whose name would
 collide with one is refused.
 
+A stamped keepout's `allow=` nets arrive with it, named as the parent names
+them (`SIG` in a module is `<cell>.SIG` in the cell, a net from
+the sheet above is that sheet's), so the parent's own vias, tracks and routes
+of those nets stand in the region, and the parent's `layout.kicad_dru` carries
+the rule that lets KiCad's DRC agree. A fragment written by a release before
+this one carries no allowed nets: run the module again. Parts named in a
+keepout's `allow=` are not carried.
+
+A stamped cell brings its module's clearance rules (`board.rule`) the same
+way: the fragment carries each as a note (a User.Comments text
+`placemat rule clearance=0.1 between=A,B why=...`, written when a fragment is
+run), and the parent judges and writes them held to the cell
+(`A.memberOf(<cell>) && B.memberOf(<cell>)`) over the nets as pcb named them
+in the cell. They stand before the parent's own `board.rule`s, so where both
+match a pair the parent's decides; a module's `within=` a cell of its own
+takes that cell's stamped group. A rule whose net or cell the parent lacks is
+not carried, and the run says so. A part's `Pm.KeepOut` is not a note: the
+parent reads it off the part. See Rules.
+
 **A stamped cell's zones under the board's own plane.** A module fragment's
 copper zone (its ground or supply fill) is merged into the parent's plane when
 the parent declares a `board.plane()` on the same net and layer that covers it
@@ -1439,11 +1458,16 @@ or the position it was given.
 rule area placemat writes. The router's part is checked, not assumed: every
 route compares the copper the router laid against the keepouts on the board it
 was given, and anything inside a region that forbids it is printed and kept in
-`route.json` under `keepout_breaches`. `allow=` is placemat's own: a KiCad rule
-area has no per-net exemption, so KiCad's DRC reports an allowed net's copper
-inside the region as `items_not_allowed`, and the router keeps that net out
-too. Draw an allowed net's copper in the script, where the allowance holds, and
-expect those DRC items.
+`route.json` under `keepout_breaches`. A KiCad rule area has
+no per-net exemption, so a keepout with `allow=` nets is written in two parts:
+the rule area allows the tracks, vias and pads it excludes, and a custom rule in
+`layout.kicad_dru` (`disallow track via pad` where `A.intersectsArea(<area>)
+&& A.NetName != <net>`) forbids them to every other net. KiCad's DRC then
+passes an allowed net's copper in the region and flags the rest as
+`items_not_allowed`. The zone's name carries the allowed nets and the types
+(` {allow GND,SIG | tracks,vias,pads}`, after the layer marker), which is how
+a board that stamps the cell writes the same rule. A pour is still kept out
+(`fill`): the allowance is for copper the script draws.
 
 ## Boards of any shape
 
@@ -1825,6 +1849,10 @@ rule's why)`. A conflict reaches as far as the largest rule clearance, or
 `[place] conflict_gap` where that is more: the setting is a floor, and a rule
 needs no matching number in it. The CLI's queries on a read board have no
 script and judge by net classes.
+
+A module's rules travel with its cell (see "A stamped cell brings its own"):
+the parent's `layout.kicad_dru` holds the module's rules scoped to the cell,
+and the parent need not repeat them with `within=Cell(...)`.
 
 ## Accepting a check verdict
 

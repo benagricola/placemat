@@ -15,7 +15,8 @@ from .quiet import import_pcbnew, quiet_stderr
 pcbnew = import_pcbnew()
 
 from ..board_geometry import (BoardGeometry, CellGeom, CopperItem, Footprint, NetClass, PadGeom, RuleArea,
-                              resolve_marker, split_marker)
+                              resolve_marker, split_allow, split_marker, stamped_net)
+from ..rules import RULE_PREFIX, parse_rule_note
 from ..values import Box, CopperLayer, Face, Location
 
 CLEAR_ERR_NM = 5000     # arc approximation error for TransformShapeToPolySet; [geometry] arc_error_nm
@@ -537,6 +538,7 @@ def _rule_areas(board, groups_of) -> tuple:
     """Every rule area on the board. A stamped module fragment's are members
     of the cell's group, which is how placemat tells them from its own."""
     out = []
+    nets = {str(n) for n in board.GetNetsByName().keys()}
     for i in range(board.GetAreaCount()):
         z = board.GetArea(i)
         if not z.GetIsRuleArea():
@@ -549,6 +551,11 @@ def _rule_areas(board, groups_of) -> tuple:
         holes = tuple(tuple((mm(h.CPoint(j).x), mm(h.CPoint(j).y)) for j in range(h.PointCount()))
                       for h in (outline.Hole(0, k) for k in range(outline.HoleCount(0))))
         excludes = frozenset(name for name, getter in _KEEPOUT_GETTERS if getattr(z, getter)())
+        declared_allow, relaxed = split_allow(z.GetZoneName())
+        relaxed = tuple(t for t in relaxed if t in ("tracks", "vias", "pads"))
+        excludes |= frozenset(relaxed)
+        cell = groups_of.get(_kiid(z))
+        allow = frozenset(n for n in (stamped_net(a, cell, nets) for a in declared_allow) if n)
         layers = _copper_layers(board, z.GetLayerSet())
         missing = ()
         declared = split_marker(z.GetZoneName())[1]
@@ -558,8 +565,7 @@ def _rule_areas(board, groups_of) -> tuple:
             stack = tuple(CopperLayer.of(board.GetLayerName(l))
                           for l in board.GetEnabledLayers().CuStack())
             layers, missing = resolve_marker(declared, stack)
-        out.append(RuleArea(z.GetZoneName(), groups_of.get(_kiid(z)), poly, layers,
-                            excludes, missing, holes))
+        out.append(RuleArea(z.GetZoneName(), cell, poly, layers, excludes, missing, holes, allow, relaxed))
     # A stamped cell's silk texts - its fragment's board.label() names - keep
     # parts out on their face as the fragment reserved them: read as a region
     # of the cell, so it moves and turns over with the cell.
@@ -813,7 +819,9 @@ def board_geometry_of(board, path: str, courtyard_excess_mm: float = 0.10,
                     k, _, v = word.partition("=")
                     if v:
                         faces[k] = v
-        cells[name] = CellGeom(name, members, box, phys, court, copper_box, faces, parent_of.get(name))
+        rules = tuple(r for r in (parse_rule_note(it.GetText()) for it in items
+                                  if isinstance(it, pcbnew.PCB_TEXT) and it.GetText().startswith(RULE_PREFIX)) if r)
+        cells[name] = CellGeom(name, members, box, phys, court, copper_box, faces, parent_of.get(name), rules)
     classes, default_clr = _netclasses(board)
     layers = tuple(CopperLayer.of(board.GetLayerName(l)) for l in board.GetEnabledLayers().CuStack())
     return BoardGeometry(path=path, footprints=fps, cells=cells, copper=copper, outline=_outline(board),

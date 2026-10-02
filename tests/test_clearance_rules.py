@@ -228,3 +228,27 @@ def test_a_free_spot_holds_its_via_off_a_fixed_via_by_the_rules_clearance():
         return fixed.at.distance(spot.at) - (fixed.size + spot.size) / 2.0
     assert gap([]) < 0.5 - 1e-6
     assert gap([dict(clearance=0.5, between=(Net("GND"), Net("SIG")), why="wide")]) >= 0.5 - 1e-6
+
+
+def test_a_rule_within_a_cell_and_between_nets_needs_both():
+    rules = ClearanceRules([Rule("clearance", 0.1, "in tmc, a to b", within="tmc", between=("A", "B"))],
+                           {"tmc": frozenset(["U1", "tmc"])})
+    assert rules.match("A", "B", "U1", "tmc").why == "in tmc, a to b"
+    assert rules.match("B", "A", "tmc", "U1").why == "in tmc, a to b"
+    assert rules.match("A", "C", "U1", "tmc") is None               # another pair of nets
+    assert rules.match("A", "B", "U1", "R9") is None                # not both in the cell
+    on = ClearanceRules([Rule("clearance", 0.1, "in tmc, on a", within="tmc", on="A")],
+                        {"tmc": frozenset(["U1", "tmc"])})
+    assert on.match("A", "C", "U1", "tmc") is not None and on.match("A", "C", "U1", "R9") is None
+
+
+def test_a_rule_within_a_cell_and_between_nets_judges_the_cells_pads_only_on_those_nets():
+    from placemat.rules import Rule
+    u1 = footprint("U1", 10, 10, cell="tmc", inst="tmc.u1", nets=("A", "A"))
+    r1 = footprint("R1", 13.95, 10, cell="tmc", inst="tmc.r1", nets=("B", "B"))
+    x1 = footprint("X1", 12.8, 8.85, inst="x1", nets=("B", "B"))
+    g = board_geometry([u1, r1, x1], cells=["tmc"], width=40, height=40)
+    occ = Occupancy(g, 0.5, rules=[Rule("clearance", 0.1, "tmc a to b", within="tmc", between=("A", "B"))])
+    s_u1, s_r1, s_x1 = _pad_shape(occ, "U1", 2), _pad_shape(occ, "R1", 1), _pad_shape(occ, "X1", 1)
+    assert occ._conflict(s_u1, s_r1, None, exact=True) is None          # in the cell, on A and B: 0.1 holds
+    assert occ._conflict(s_u1, s_x1, None, exact=True) is not None      # X1 is no member: the netclass 0.2
