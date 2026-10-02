@@ -1,0 +1,9 @@
+{
+ "(generate arguments)": "",
+ "../../../../adapted/parts/Richtek_Tech_RT1715WSC.zen": "7c2bd0051e0eb5da1f020ba69ba0122eb88f007b4a929229b23b6184f0587d68",
+ "../../../../adapted/parts/Richtek_Tech_RT1715WSC/RT1715WSC.kicad_sym": "d29b80cef9db5df969d0346ef830426556bd5949ccac26adf7bc85464b453ea2",
+ "../../../../parts/Richtek_Tech_RT1715WSC/WLCSP-9_L1.4-W1.4-R3-C3-P0.40-TL.kicad_mod": "cf9c5019839300f25a4b377f5c5fdb87770ede0e7dffce803fbb416b51c12ac0",
+ "../../../../pcb.toml": "1b757ff291b97d434047ef16a35c19b06009d5502ee3ee0e9332fb32498d26dd",
+ "../../board_rules.zen": "59ed5845b69228fbf6914f15ab5974d3d7ba0457321529d94d373780d1eb985d",
+ "UsbTcpc.zen": "a7d0c546e4151e2b0f91d4afb2245a62d3dedfa6210974bdd837103526bad850"
+}

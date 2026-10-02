@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from . import geometry as _geometry_module
 from . import kicad_collide as _kc
-from .geometry import (_clean, PolyRaster, Polygon, Transform, box_polygon, circle_polygon, poly_distance,
+from .geometry import (_clean, gap_texts, PolyRaster, Polygon, Transform, box_polygon, circle_polygon, poly_distance,
                        point_in_polygon, point_segment_distance, polys_overlap, transform_box,
                        transform_polygon)
 from .outline import Outline
@@ -1790,8 +1790,9 @@ class Occupancy:
             return None
         d = poly_distance(s.poly, o.poly)
         if d < gap - 1e-9:
-            return "%s %s is %.2f mm from %s %s (needs %.2f)" % (
-                self.who(s.owner), _NAMES[s.kind], d, self.who(o.owner), _NAMES[o.kind], gap)
+            got, want = gap_texts(d, gap)
+            return "%s %s is %s mm from %s %s (needs %s)" % (
+                self.who(s.owner), _NAMES[s.kind], got, self.who(o.owner), _NAMES[o.kind], want)
         return None
 
     def _origin_shapes(self, item, geom: ItemGeometry, placement: Placement) -> list:
@@ -1956,8 +1957,8 @@ class Occupancy:
             if gap < need - 1e-9:
                 if not say:
                     return "hole-to-hole"
-                return "%s %.2f mm from %s (hole-to-hole needs %.2f)" % (
-                    self._hole_name(s), max(gap, 0.0), self._hole_name(o), need)
+                got, want = gap_texts(gap, need)
+                return "%s %s mm from %s (hole-to-hole needs %s)" % (self._hole_name(s), got, self._hole_name(o), want)
             return None
         if ks == "hole" or ko == "hole":
             hole, metal = (s, o) if ks == "hole" else (o, s)
@@ -1997,7 +1998,7 @@ class Occupancy:
                 return None
             clr, rule = (clearance, None) if clearance is not None else self.pair_clearance(
                 s.net, o.net, s.owner, o.owner, s.wire, o.wire)
-            need = "%.2f%s" % (clr, ", rule: %s" % rule.why if rule is not None else "")
+            rule_note = ", rule: %s" % rule.why if rule is not None else ""
             # Two boxes this far apart hold two polygons at least as far
             # apart, so the walk round both outlines is only worth its cost
             # when the boxes themselves are close enough to fail.
@@ -2011,19 +2012,21 @@ class Occupancy:
             if gap < clr - 1e-9 and not say:
                 return "copper"
             if gap < clr - 1e-9:
+                got, want = gap_texts(gap, clr)
+                need = want + rule_note
                 if s.kind == "through" and not self.geometry.has_footprint(s.owner):
                     c = s.box.center            # a via: the script's, planned, or one a part carries at its pad
-                    return "via %s at (%.2f, %.2f)%s is %.2f mm from %s copper on %s (needs %s)" % (
+                    return "via %s at (%.2f, %.2f)%s is %s mm from %s copper on %s (needs %s)" % (
                         s.net or "-", c.x, c.y, " (%s)" % s.owner[len("via "):] if s.owner.startswith("via at ") else "",
-                        gap, o.net or self.who(o.owner), self._layers_text(common), need)
+                        got, o.net or self.who(o.owner), self._layers_text(common), need)
                 if s.kind == "copper" and s.ends:      # a declared track: name the segment, not its owner
                     who = "track %s (%.2f, %.2f)-(%.2f, %.2f)" % (
                         s.net or "-", s.ends[0][0], s.ends[0][1], s.ends[1][0], s.ends[1][1])
                 else:
                     what = "pad" if s.kind in ("pad", "through") else "copper"
                     who = "%s %s %s" % (self.who(s.owner), what, s.net or "-")
-                return "%s is %.2f mm from %s copper on %s (needs %s)" % (
-                    who, gap, o.net or self.who(o.owner), self._layers_text(common), need)
+                return "%s is %s mm from %s copper on %s (needs %s)" % (
+                    who, got, o.net or self.who(o.owner), self._layers_text(common), need)
             return None
         if (ks == "npth" and ko in _COPPERISH) or (ko == "npth" and ks in _COPPERISH):
             hole, metal = (s, o) if ks == "npth" else (o, s)
@@ -2033,8 +2036,9 @@ class Occupancy:
             if need > 0 and _box_gap(hole.box, metal.box) < need + _HOLE_SLACK * hole.box.width - 1e-9:
                 gap = _circle_distance(hole, metal.poly)
                 if gap < need - 1e-9:
-                    return "%s copper %.2f mm from %s's unplated hole (needs %.2f)" % (
-                        metal.net or self.who(metal.owner), gap, self.who(hole.owner), need)
+                    got, want = gap_texts(gap, need)
+                    return "%s copper %s mm from %s's unplated hole (needs %s)" % (
+                        metal.net or self.who(metal.owner), got, self.who(hole.owner), want)
         return None
 
     def _hole_conflict(self, hole: Shape, metal: Shape, say: bool = True) -> str | None:
@@ -2062,8 +2066,9 @@ class Occupancy:
             return None
         if not say:
             return "copper"
-        return "%s copper %.2f mm from %s (needs %.2f)" % (
-            metal.net or self.who(metal.owner), max(gap, 0.0), self._hole_name(hole, True), need)
+        got, want = gap_texts(gap, need)
+        return "%s copper %s mm from %s (needs %s)" % (
+            metal.net or self.who(metal.owner), got, self._hole_name(hole, True), want)
 
     def _hole_tie_exclusion(self, hole: Shape, metal: Shape) -> bool:
         """DRC_ENGINE::IsNetTieExclusion for a hole: the hole's net is not

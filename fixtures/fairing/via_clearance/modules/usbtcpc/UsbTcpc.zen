@@ -1,0 +1,52 @@
+# UsbTcpc: the RT1715 Type-C port controller (TCPCI) for the receptacle's
+# CC pair. The ESP32 runs the PD stack and talks to it on the power-side
+# I2C bus; it raises INT_N for the stack's attention.
+#
+# Richtek RT1715 DS1715-04 (March 2020):
+# 1. p3 Typical Application Circuit and Table 1: CC1 and CC2 short to the
+#    connector, each with 330 pF to ground; VDD with 100 nF.
+# 2. p4 Table 2 ("Unused VCONN"): VCONN 1k to ground. The port offers 3 A,
+#    which needs no e-marked cable, so it supplies no VCONN.
+# 3. p4 Table 2: VBUS through 4.7k to the connector's VBUS ("better for
+#    surge").
+# 4. p4 Table 2: INT_N, SDA and SCL pulled high to the host's supply. SDA_PWR
+#    and SCL_PWR carry their pull-ups in the powerpulls cell.
+# 5. Unpowered it shows Rd on CC (dead battery, p1), so a PC supplies 5 V
+#    with the core off; the sink path then starts itself (UsbSink.zen).
+TCPC = Module("../../../../adapted/parts/Richtek_Tech_RT1715WSC.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+
+gnd = io("GND", Net)
+v3v3 = io("V3V3", Net)
+vbus = io("VBUS", Net)
+cc1 = io("USB_CC1", Net)
+cc2 = io("USB_CC2", Net)
+scl = io("SCL_PWR", Net)
+sda = io("SDA_PWR", Net)
+irq = io("PD_IRQ", Net)
+vbus_sense = Net("TCPC_VBUS")
+vconn = Net("TCPC_VCONN")
+
+TCPC(name = "tcpc", CC1 = cc1, CC2 = cc2, VBUS = vbus_sense, GND = gnd, VCONN = vconn, VDD = v3v3,
+     SCL = scl, SDA = sda, INT_N = irq)
+C(name = "c_vdd", value = "100nF", package = "0402", voltage = "16V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics",
+  P1 = v3v3, P2 = gnd, annotations = {"LCSC": "C307331", "Pm.Role": "bypass"})
+R(name = "r_vbus", value = "4.7kohm", package = "0402", mpn = "0402WGF4701TCE", manufacturer = "UNI-ROYAL(Uniroyal Elec)",
+  P1 = vbus, P2 = vbus_sense, annotations = {"LCSC": "C25900"})
+R(name = "r_vconn", value = "1kohm", package = "0402", mpn = "0402WGF1001TCE", manufacturer = "UNI-ROYAL(Uniroyal Elec)",
+  P1 = vconn, P2 = gnd, annotations = {"LCSC": "C11702"})
+C(name = "c_cc1", value = "330pF", package = "0402", voltage = "50V", dielectric = "C0G", mpn = "CL05C331JB5NNNC",
+  manufacturer = "Samsung Electro-Mechanics", P1 = cc1, P2 = gnd,
+  annotations = {"LCSC": "C13533", "Pm.Sensitive": "USB_CC1"})
+C(name = "c_cc2", value = "330pF", package = "0402", voltage = "50V", dielectric = "C0G", mpn = "CL05C331JB5NNNC",
+  manufacturer = "Samsung Electro-Mechanics", P1 = cc2, P2 = gnd,
+  annotations = {"LCSC": "C13533", "Pm.Sensitive": "USB_CC2"})
+R(name = "r_irq", value = "10kohm", package = "0402", mpn = "0402WGF1002TCE", manufacturer = "UNI-ROYAL(Uniroyal Elec)",
+  P1 = irq, P2 = v3v3, annotations = {"LCSC": "C25744"})
+
+load("../../board_rules.zen", "CONFIG", "LAYERS")
+stamp_layout = config("stamp_layout", bool, default = True)
+if stamp_layout:
+    Board(name = "UsbTcpc", layout_path = "layout", layers = LAYERS, config = CONFIG)
+Project(name = "UsbTcpc", path = "kicad", schematic = True, layout = False)

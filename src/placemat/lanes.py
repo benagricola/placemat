@@ -15,7 +15,7 @@ import math
 from dataclasses import dataclass, field
 
 from .copper import Via, chamfer_cuts, polyline_tracks
-from .geometry import point_in_polygon, point_segment_distance
+from .geometry import gap_texts, point_in_polygon, point_segment_distance
 from .values import Box, Edge, Location, Part
 
 _DIR = {Edge.NORTH: (0.0, -1.0), Edge.SOUTH: (0.0, 1.0), Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0)}
@@ -424,21 +424,21 @@ class Layouter:
             segs = self._segments(other, other.a if other.via_at is not None else None)
             gap = min(point_segment_distance(qp, a, b) for a, b in segs) - other.width / 2.0 - size / 2.0
             if gap < need - _TOL:
-                return "the lane of pin %s, %.3f mm off (needs %.3f)" % (other.number, max(gap, 0.0), need)
+                return "the lane of pin %s, %s mm off (needs %s)" % ((other.number,) + gap_texts(gap, need, 3))
             if other.via_at is not None:
                 ov = other.via_at
                 dist = math.hypot(q.x - ov.x, q.y - ov.y)
                 if dist - (size + other.via[0]) / 2.0 < need - _TOL:
-                    return "the via of pin %s, %.3f mm off (needs %.3f)" % (
-                        other.number, max(dist - (size + other.via[0]) / 2.0, 0.0), need)
+                    return "the via of pin %s, %s mm off (needs %s)" % (
+                        (other.number,) + gap_texts(dist - (size + other.via[0]) / 2.0, need, 3))
         for other in self.lanes.values():
             if other is lane or other.via_at is None:
                 continue
             ov = other.via_at
             hole = math.hypot(q.x - ov.x, q.y - ov.y) - (drill + other.via[1]) / 2.0
             if hole < self.env.hole_to_hole - _TOL:
-                return "the hole of pin %s's via, %.3f mm off (hole to hole needs %.3f)" % (
-                    other.number, max(hole, 0.0), self.env.hole_to_hole)
+                return "the hole of pin %s's via, %s mm off (hole to hole needs %s)" % (
+                    (other.number,) + gap_texts(hole, self.env.hole_to_hole, 3))
         if others:
             return self.env.via_site(q, lane.net, size, drill)
         return None
@@ -450,7 +450,7 @@ class Layouter:
                 need = self.env.clearance(lane.net, sh.net, sh.owner)
                 gap = _point_poly_distance((q.x, q.y), sh.poly) - size / 2.0
                 if gap < need - _TOL:
-                    return "pad %s of its own part, %.3f mm off (needs %.3f)" % (number, max(gap, 0.0), need)
+                    return "pad %s of its own part, %s mm off (needs %s)" % ((number,) + gap_texts(gap, need, 3))
         return None
 
     def _first(self, lane: _Lane, why, a_from: float) -> float | None:
