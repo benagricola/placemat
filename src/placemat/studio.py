@@ -697,7 +697,7 @@ class Studio:
         for d in rec.findings_with_severity():
             sev[d["severity"]] = sev.get(d["severity"], 0) + 1
         fail = rec.failure or None
-        out = {"id": rec.run_id, "label": rec.paths.get("label", "") if isinstance(rec.paths, dict) else "", "status": rec.status, "at": mtime,
+        out = {"id": run_json.parent.name, "run_id": rec.run_id, "label": rec.paths.get("label", "") if isinstance(rec.paths, dict) else "", "status": rec.status, "at": mtime,
                "board": rec.board, "script": rec.paths.get("script", "") if isinstance(rec.paths, dict) else "",
                "score": score, "findings": len(rec.findings), "severities": sev,
                "drc": {k: m.get(k) for k in ("drc_real", "outstanding", "other", "permitted", "unconnected") if k in m},

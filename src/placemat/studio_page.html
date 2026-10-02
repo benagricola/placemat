@@ -527,7 +527,7 @@ es.onerror = () => { S.status = "disconnected"; schedule("status"); };
 function applyHello(d) {
   S.hello = d; S.history = d.history; S.error = d.error; S.resolving = d.resolving; S.scripts = d.scripts || [];
   S.runs = d.runs || []; S.run = d.run ? {id: d.run.id, lines: d.run.lines || [], t0: d.run.t0} : null; S.lastRun = null;
-  $("#board-title").textContent = d.picker ? "Choose a layout script" : (d.title || d.script);
+  $("#board-title").textContent = d.picker ? "placemat studio" : (d.title || d.script);
   $("#board-sub").textContent = d.picker ? (d.scripts || []).length + " found" : (d.subtitle || "");
   document.title = (d.picker ? "placemat studio" : (d.title || d.script) + " - placemat studio");
 }
@@ -661,6 +661,7 @@ function renderStatus() {
   const label = S.hello && S.hello.picker ? "choose a script" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
   $("#statustext").textContent = typeof label === "string" ? label : label;
   const rb = $("#runbtn"); rb.textContent = S.run ? "Running..." : "Run"; rb.disabled = !!S.run || !!(S.hello && S.hello.picker); rb.classList.toggle("busy", !!S.run);
+  rb.hidden = $("#srcbtn").hidden = !!(S.hello && S.hello.picker);
   b.className = "pill " + ({live: "live", resolving: "busy", stale: "stale", error: "error", disconnected: "error"}[S.status] || "");
   const rec = S.docs.get(S.shownId), p = plan();
   $("#stats").innerHTML = statNumbers(p, rec).map(([k, v, c]) => '<span class="stat ' + c + '"><b>' + v + "</b>" + (k === "s" ? "s" : k) + "</span>").join("");
@@ -1970,21 +1971,25 @@ $("#runbtn").onclick = startRun;
 // A file the server names by its full path, as the page's texts name it (relative to the script's folder).
 const relName = f => { const k = Object.keys(S.texts || {}).find(n => f === n || String(f).endsWith("/" + n)); return k || f; };
 const ago = at => { const s = Math.max(0, Date.now() / 1000 - at); return s < 90 ? "just now" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 129600 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago"; };
+const cnt = v => v && typeof v === "object" ? Object.values(v).reduce((a, b) => a + (+b || 0), 0) : (+v || 0);
+// A DRC bucket: its total, then the kinds in it.
+const drcBucket = (name, v, bad) => v == null ? "" : pill(cnt(v) + " " + name, cnt(v) && bad ? "bad" : cnt(v) ? "warn" : "good") + (v && typeof v === "object" ? " " + Object.keys(v).map(k => '<span class="dim">' + esc(k.replace(/_/g, " ")) + " " + v[k] + "</span>").join(", ") : "");
 function runDetail(r) {
   const drc = r.drc || {};
-  const rows = [["DRC", Object.keys(drc).filter(k => drc[k] != null).map(k => pill(String(drc[k]) + " " + k.replace("drc_", ""), k === "drc_real" || k === "outstanding" ? (drc[k] ? "bad" : "good") : "")).join(" ")],
+  const rows = [["DRC", [drcBucket("real", drc.drc_real, true), drcBucket("outstanding", drc.outstanding, true), drcBucket("other", drc.other, false), drcBucket("permitted", drc.permitted, false), drc.unconnected != null ? pill(cnt(drc.unconnected) + " unconnected", "warn") : ""].filter(Boolean).map(x => "<div>" + x + "</div>").join("")],
     ["findings", Object.keys(r.severities || {}).map(k => '<span class="sev ' + k + '">' + k + " " + r.severities[k] + "</span>").join(" ")],
-    ["airwire", r.airwire_mm != null ? pill(Math.round(r.airwire_mm) + " mm") + (r.open_nets ? " " + pill(r.open_nets + " open nets", "warn") : "") : ""],
+    ["airwire", r.airwire_mm != null ? pill(Math.round(r.airwire_mm) + " mm") + (r.open_nets ? " " + pill(cnt(r.open_nets) + " open nets", "warn") : "") : ""],
     ["checks", r.checks && r.checks.checks_failed != null ? pill(r.checks.checks_failed + " failed", r.checks.checks_failed ? "bad" : "good") + (r.checks.checks_unjudged ? " " + pill(r.checks.checks_unjudged + " unjudged") : "") : ""],
     ["time", Object.keys(r.timing || {}).map(k => pill(k + " " + r.timing[k] + " s")).join(" ")]];
   const failing = (r.verdicts || []).map(v => '<div>' + pill(v.check, "bad") + " " + esc(v.subject || "") + ' <span class="dim">' + esc(v.note || "") + "</span></div>").join("");
   const f = r.failure;
-  return '<div class="full" style="display:block">' + sect("Result", kvl(rows)) + (failing ? sect("Failed checks", '<div class="cl">' + failing + "</div>") : "") +
+  const rowsHtml = kvl(rows);
+  return '<div class="full" style="display:block">' + sect("Result", rowsHtml === '<div class="kvl"></div>' ? "" : rowsHtml) + (failing ? sect("Failed checks", '<div class="cl">' + failing + "</div>") : "") +
     (f ? sect("Failure", '<div class="note">' + esc(f.message || "") + "</div>" + (f.line ? '<div class="src"><a data-act="src" data-file="' + esc(relName(f.file)) + '" data-line="' + f.line + '">' + esc(relName(f.file) + ":" + f.line) + "</a>" + (f.source ? " <code>" + esc(String(f.source).trim()) + "</code>" : "") + "</div>" : "")) : "") + "</div>";
 }
 function runRow(r) {
   const open = S.openRuns.has(r.id);
-  const bits = [r.score != null ? "score " + r.score : "", r.drc && r.drc.drc_real != null ? "DRC " + r.drc.drc_real : "", r.findings + " findings", ago(r.at)].filter(Boolean).join(" - ");
+  const bits = [r.score != null ? "score " + r.score : "", r.drc && r.drc.drc_real != null ? "DRC " + cnt(r.drc.drc_real) + (cnt(r.drc.outstanding) ? " + " + cnt(r.drc.outstanding) + " outstanding" : "") : "", r.findings + " findings", ago(r.at)].filter(Boolean).join(" - ");
   return '<div class="row run step' + (open ? " open" : "") + '" data-run="' + esc(r.id) + '"><span class="chip ' + (r.status === "ok" ? "good" : "bad") + '">' + esc(r.status) + '</span><div class="sb"><div class="l1"><b>' + esc(r.id) + "</b>" +
     (r.label ? ' <span class="dim">' + esc(r.label) + "</span>" : "") + '</div><div class="l2">' + esc(bits) + "</div>" + (open ? runDetail(r) : "") + '</div><button class="go" data-cmp-run="' + esc(r.id) + '" title="compare the newest resolve with this run">compare</button></div>';
 }

@@ -538,7 +538,7 @@ send("switched", {script: "B_layout.py", title: "B", subtitle: "second", scripts
 out.after = [els["#picker"].hidden, els["#board-title"].textContent];
 """)
     assert out["picker"][0] is False and "2 found under" in out["picker"][1] and "/work/proj" in out["picker"][1] and "A_layout.py" in out["picker"][1] and "second" in out["picker"][1]
-    assert out["title"] == "Choose a layout script" and out["status"] == "choose a script" and out["run"] is True
+    assert out["title"] == "placemat studio" and out["status"] == "choose a script" and out["run"] is True
     assert out["fetched"] == ['{"script":"b/B_layout.py"}'] and out["after"] == [True, "B"]
 
 
