@@ -1,0 +1,207 @@
+# The ESP32-S3 and the RF chip-side match. The BLE antenna and its matching
+# positions are Ble.zen. Espressif ESP32-S3 hardware design guidelines,
+# schematic checklist, core figure. RF and crystal values are reference
+# starting values, requiring assembled tuning.
+#
+# `chip` chooses the part (ESP32-S3 datasheet v1.7, table 1-1):
+# - "S3FH4R2": 4 MB quad flash and 2 MB quad PSRAM in the package, -40 to
+#   85 C ambient. Its SPI pins belong to the in-package memory and stay
+#   unconnected, and there is no flash bus to route.
+# - "S3R8": 8 MB octal PSRAM in the package, -40 to 65 C ambient, with an
+#   external quad flash (the GD25Q64CWIGR below) on the SPI pins.
+#
+# Layout facts (placemat-design Pm.*), worked in
+# ../../../../docs/decisions/schematics/signal-layout-facts-2026-09-27.md:
+#  1. The 40 MHz crystal network (crystal, its load caps and the XTAL_P
+#     series inductor) is Pm.Sensitive on XTAL_1/XTAL_N: it must stay clear
+#     of any switch node placed nearby on the core.
+#  2. The RF chip-side match (post-match cap, match inductor, pre-antenna
+#     cap) is Pm.Sensitive on RF_CHIP/RF_50, the line Ble.zen runs across
+#     the seal to the antenna; the stdlib Inductor generic does not accept
+#     annotations, so only the two capacitors carry the tag.
+#  3. Every capacitor at a supply pin (VDDA/VDD3P3_CPU/VDD3P3_RTC, VDD_RF,
+#     VDD_SPI, and the S3R8 flash's VCC) is Pm.Role=bypass.
+chip = config("chip", str, default = "S3FH4R2", allowed = ["S3FH4R2", "S3R8"])
+EXTERNAL_FLASH = chip == "S3R8"
+MCU = Module("../../../../adapted/parts/Espressif_Systems_ESP32_S3FH4R2.zen" if chip == "S3FH4R2"
+             else "../../../../adapted/parts/C2913194.zen")
+FLASH = Module("../../../../adapted/parts/GigaDevice_Semicon_Beijing_GD25Q64CWIGR.zen")
+XTAL = Module("../../../../adapted/parts/C426988.zen")
+R = Module("@stdlib/generics/Resistor.zen")
+C = Module("@stdlib/generics/Capacitor.zen")
+L = Module("@stdlib/generics/Inductor.zen")
+load("@stdlib/interfaces.zen", "Usb2")
+
+gnd = io("GND", Net)
+v3v3 = io("V3V3", Net)
+sda = io("SDA", Net)
+scl = io("SCL", Net)
+sda_pwr = io("SDA_PWR", Net)
+scl_pwr = io("SCL_PWR", Net)
+disp_cs = io("DISP_CS", Net)
+disp_rst = io("DISP_RST", Net)
+spi_sck = io("DISP_SCK", Net)
+spi_mosi = io("DISP_MOSI", Net)
+disp_dc = io("DISP_DC", Net)
+disp_te = io("DISP_TE", Net)
+imu_int1 = io("IMU_INT1", Net)
+bl_pwm = io("BL_PWM", Net)
+gnss_tx = io("GNSS_TX", Net)
+gnss_rx = io("GNSS_RX", Net)
+gnss_pps = io("GNSS_PPS", Net)
+ring_int = io("RING_INT", Net)
+# The USB 2.0 data pair, a 90 ohm differential pair (stdlib Usb2).
+usb = io("USB", Usb2)
+ina_alert = io("INA_ALERT", Net)
+pd_irq = io("PD_IRQ", Net)
+ld1 = io("LD1", Net)
+ld2 = io("LD2", Net)
+excite = io("EXCITE", Net)
+vbus_disch = io("VBUS_DISCH", Net)
+wet = io("USB_WET", Net)
+vbus_en = io("VBUS_EN", Net)
+mcu_en = io("MCU_EN", Net)
+boot = io("BOOT_STRAP", Net)
+uart_tx = io("UART_TX", Net)
+uart_rx = io("UART_RX", Net)
+led_status = io("LED_STATUS", Net)
+rf_50 = io("RF_50", Net)
+led_status_drive = Net("LED_STATUS_DRIVE")
+
+vdd_rf = Net("VDD_RF")
+vdd_spi = Net("VDD_SPI")
+strap_jtag = Net("STRAP_JTAG")
+strap_vspi = Net("STRAP_VSPI")
+strap_download = Net("STRAP_DOWNLOAD")
+uart_tx_chip = Net("UART_TX_CHIP")
+xtal_p = Net("XTAL_P")
+xtal_n = Net("XTAL_N")
+xtal_1 = Net("XTAL_1")
+rf_chip = Net("RF_CHIP")
+
+# The chip's SPI pins: the external flash's bus on the S3R8, unconnected on
+# the S3FH4R2, whose in-package memory owns them (datasheet section 2.7).
+if EXTERNAL_FLASH:
+    flash_clk = Net("FLASH_CLK")
+    flash_cs = Net("FLASH_CS")
+    flash_d = Net("FLASH_D")
+    flash_q = Net("FLASH_Q")
+    flash_wp = Net("FLASH_WP")
+    flash_hd = Net("FLASH_HD")
+    flash_clk_chip = Net("FLASH_CLK_CHIP")
+    flash_d_chip = Net("FLASH_D_CHIP")
+    flash_q_chip = Net("FLASH_Q_CHIP")
+    flash_wp_chip = Net("FLASH_WP_CHIP")
+    flash_hd_chip = Net("FLASH_HD_CHIP")
+    spi_pins = dict(SPICLK = flash_clk_chip, SPICS0 = flash_cs, SPID = flash_d_chip,
+                    SPIQ = flash_q_chip, SPIWP = flash_wp_chip, SPIHD = flash_hd_chip)
+else:
+    spi_pins = dict(SPICLK = NotConnected(), SPICS0 = NotConnected(), SPID = NotConnected(),
+                    SPIQ = NotConnected(), SPIWP = NotConnected(), SPIHD = NotConnected())
+
+# SPICS1 is the in-package PSRAM's chip select and stays unconnected; GPIO33-37
+# are the S3R8's octal PSRAM lines and are deliberately unused on S3FH4R2.
+# Explicit NC declarations preserve that intent in the generated schematic.
+# Evidence: ../../../../docs/decisions/schematics/mcu-unused-memory-pins-2026-09-27.md.
+# GPIO47 is SPICLK_P (pin 37); GPIO48 is SPICLK_N (pin 36), at 3.3 V here.
+# GPIO15/16 are named XTAL_32K_P/N on the native symbol, not the 40 MHz pins.
+MCU(name = "mcu", GND = gnd, VDDA = v3v3, VDD3P3 = vdd_rf,
+    VDD3P3_CPU = v3v3, VDD3P3_RTC = v3v3, VDD_SPI = vdd_spi,
+    CHIP_PU = mcu_en, XTAL_P = xtal_p, XTAL_N = xtal_n, LNA_IN = rf_chip,
+    GPIO0 = boot, GPIO3 = strap_jtag, GPIO45 = strap_vspi, GPIO46 = strap_download,
+    GPIO1 = gnss_tx, GPIO2 = gnss_rx, GPIO4 = gnss_pps, GPIO5 = bl_pwm,
+    GPIO6 = ld1, GPIO7 = ld2, GPIO8 = sda, GPIO9 = scl,
+    GPIO10 = ring_int, GPIO11 = ina_alert, GPIO12 = disp_cs, GPIO13 = disp_rst,
+    GPIO14 = spi_sck, XTAL_32K_P = spi_mosi, XTAL_32K_N = disp_dc,
+    GPIO17 = disp_te, GPIO18 = excite, GPIO19 = usb.D.N, GPIO20 = usb.D.P,
+    GPIO21 = imu_int1, GPIO38 = led_status_drive, MTCK = vbus_disch,
+    MTDO = wet, MTDI = pd_irq, MTMS = sda_pwr,
+    SPICLK_P = scl_pwr, SPICLK_N = vbus_en,
+    U0TXD = uart_tx_chip, U0RXD = uart_rx,
+    SPICS1 = NotConnected(), GPIO33 = NotConnected(), GPIO34 = NotConnected(),
+    GPIO35 = NotConnected(), GPIO36 = NotConnected(), GPIO37 = NotConnected(), **spi_pins)
+
+# Supply filter: L1=2 nH, >=500 mA from Espressif's core schematic.
+L(name = "l_rf_supply", mpn = "LQG15HN2N0C02D", manufacturer = "Murata Electronics", value = "2nH", package = "0402", current = "500mA", P1 = v3v3, P2 = vdd_rf)
+C(name = "c_mcu_bulk", value = "10uF", package = "0805", voltage = "16V", mpn = "GRM21BR61H106KE43L", manufacturer = "Murata Electronics", P1 = v3v3, P2 = gnd,
+  annotations = {"LCSC": "C440198", "Pm.Role": "bypass"})
+C(name = "c_rf_pre_1u", value = "1uF", package = "0402", voltage = "16V", mpn = "CL05A105KA5NQNC", manufacturer = "Samsung Electro-Mechanics", P1 = v3v3, P2 = gnd,
+  annotations = {"LCSC": "C52923", "Pm.Role": "bypass"})
+C(name = "c_rf_pre_100n", value = "100nF", package = "0402", voltage = "16V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = v3v3, P2 = gnd,
+  annotations = {"LCSC": "C307331", "Pm.Role": "bypass"})
+C(name = "c_rf_post", value = "100nF", package = "0402", voltage = "16V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = vdd_rf, P2 = gnd,
+  annotations = {"LCSC": "C307331", "Pm.Role": "bypass"})
+C(name = "c_vdda_1u", value = "1uF", package = "0402", voltage = "16V", mpn = "CL05A105KA5NQNC", manufacturer = "Samsung Electro-Mechanics", P1 = v3v3, P2 = gnd,
+  annotations = {"LCSC": "C52923", "Pm.Role": "bypass"})
+C(name = "c_vdda_10n", value = "10nF", package = "0402", voltage = "16V", mpn = "CL05B103KB5NNNC", manufacturer = "Samsung Electro-Mechanics", P1 = v3v3, P2 = gnd,
+  annotations = {"LCSC": "C15195", "Pm.Role": "bypass"})
+C(name = "c_cpu", value = "100nF", package = "0402", voltage = "16V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = v3v3, P2 = gnd,
+  annotations = {"LCSC": "C307331", "Pm.Role": "bypass"})
+C(name = "c_rtc", value = "100nF", package = "0402", voltage = "16V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = v3v3, P2 = gnd,
+  annotations = {"LCSC": "C307331", "Pm.Role": "bypass"})
+C(name = "c_vspi_100n", value = "100nF", package = "0402", voltage = "16V", mpn = "CL05B104KB54PNC", manufacturer = "Samsung Electro-Mechanics", P1 = vdd_spi, P2 = gnd,
+  annotations = {"LCSC": "C307331", "Pm.Role": "bypass"})
+C(name = "c_vspi_1u", value = "1uF", package = "0402", voltage = "16V", mpn = "CL05A105KA5NQNC", manufacturer = "Samsung Electro-Mechanics", P1 = vdd_spi, P2 = gnd,
+  annotations = {"LCSC": "C52923", "Pm.Role": "bypass"})
+
+# The in-package memory runs at 3.3 V: GPIO45 low selects 3.3 V on VDD_SPI.
+R(name = "r_strap45", mpn = "0402WGF1002TCE", manufacturer = "UNI-ROYAL(Uniroyal Elec)", value = "10kohm", package = "0402", P1 = strap_vspi, P2 = gnd)
+R(name = "r_strap46", mpn = "0402WGF1002TCE", manufacturer = "UNI-ROYAL(Uniroyal Elec)", value = "10kohm", package = "0402", P1 = strap_download, P2 = gnd)
+R(name = "r_strap3", mpn = "0402WGF1002TCE", manufacturer = "UNI-ROYAL(Uniroyal Elec)", value = "10kohm", package = "0402", P1 = v3v3, P2 = strap_jtag)
+R(name = "r_boot", mpn = "0402WGF1002TCE", manufacturer = "UNI-ROYAL(Uniroyal Elec)", value = "10kohm", package = "0402", P1 = v3v3, P2 = boot)
+R(name = "r_en", mpn = "0402WGF1002TCE", manufacturer = "UNI-ROYAL(Uniroyal Elec)", value = "10kohm", package = "0402", P1 = v3v3, P2 = mcu_en)
+C(name = "c_en", value = "1uF", package = "0402", voltage = "16V", mpn = "CL05A105KA5NQNC", manufacturer = "Samsung Electro-Mechanics", annotations = {"LCSC": "C52923"}, P1 = mcu_en, P2 = gnd)
+R(name = "r_uart_tx", value = "510ohm", package = "0402", mpn = "0402WGF5100TCE", manufacturer = "UNI-ROYAL(Uniroyal Elec)", annotations = {"LCSC": "C25123"}, P1 = uart_tx_chip, P2 = uart_tx)
+
+# S3240000101040: 40 MHz, CL=10 pF, initial tolerance +/-10 ppm.
+# Two 16 pF loads give 8 pF in series, with 2 pF assumed stray. Measure and tune.
+XTAL(name = "xtal", OSC1 = xtal_1, OSC2 = xtal_n, GND = gnd,
+     annotations = {"Pm.Sensitive": "XTAL_1"})
+L(name = "l_xtal", mpn = "MLG1005S24NJT000", manufacturer = "TDK", value = "24nH", package = "0402", P1 = xtal_p, P2 = xtal_1)
+C(name = "c_xtal1", mpn = "GCM1555C1H160FA16D", manufacturer = "Murata Electronics", value = "16pF", package = "0402", voltage = "50V", dielectric = "C0G", P1 = xtal_1, P2 = gnd,
+  annotations = {"Pm.Sensitive": "XTAL_1"})
+C(name = "c_xtal2", mpn = "GCM1555C1H160FA16D", manufacturer = "Murata Electronics", value = "16pF", package = "0402", voltage = "50V", dielectric = "C0G", P1 = xtal_n, P2 = gnd,
+  annotations = {"Pm.Sensitive": "XTAL_N"})
+
+# The S3R8's external flash. Quad-flash signal mapping is the native SPI0/1
+# bus, shared with packaged PSRAM. GD25Q64CWIGR, 8 MB in WSON-8 6x5
+# (GD25Q64C rev 3.0). Its exposed pad is floating inside the package (section
+# 10.5 note 2) and is tied to ground.
+if EXTERNAL_FLASH:
+    FLASH(name = "flash", VCC = vdd_spi, VSS = gnd, EP = gnd, CS = flash_cs,
+          SCLK = flash_clk, SI_IO0 = flash_d, SO_IO1 = flash_q,
+          WP_IO2 = flash_wp, HOLD_IO3 = flash_hd)
+    R(name = "r_flash_clk", value = "0ohm", package = "0402", P1 = flash_clk_chip, P2 = flash_clk)
+    R(name = "r_flash_d", value = "0ohm", package = "0402", P1 = flash_d_chip, P2 = flash_d)
+    R(name = "r_flash_q", value = "0ohm", package = "0402", P1 = flash_q_chip, P2 = flash_q)
+    R(name = "r_flash_wp", value = "0ohm", package = "0402", P1 = flash_wp_chip, P2 = flash_wp)
+    R(name = "r_flash_hd", value = "0ohm", package = "0402", P1 = flash_hd_chip, P2 = flash_hd)
+    R(name = "r_flash_cs", value = "10kohm", package = "0402", P1 = vdd_spi, P2 = flash_cs)
+    R(name = "r_flash_wp_up", value = "10kohm", package = "0402", P1 = vdd_spi, P2 = flash_wp)
+    R(name = "r_flash_hd_up", value = "10kohm", package = "0402", P1 = vdd_spi, P2 = flash_hd)
+    C(name = "c_flash", value = "100nF", package = "0402", voltage = "16V", P1 = vdd_spi, P2 = gnd,
+      annotations = {"Pm.Role": "bypass"})
+
+# Espressif CLC ranges: 1.2-1.8 pF, 2-3 nH, 1.2-1.8 pF, in 0201.
+C(name = "c_rf_chip", mpn = "GRM0335C1H1R5CA01D", manufacturer = "Murata Electronics", value = "1.5pF", package = "0201", voltage = "50V", dielectric = "C0G", P1 = rf_chip, P2 = gnd,
+  annotations = {"Pm.Sensitive": "RF_CHIP"})
+L(name = "l_rf_match", mpn = "LQP03TN2N4B02D", manufacturer = "Murata Electronics", value = "2.4nH", package = "0201", P1 = rf_chip, P2 = rf_50)
+C(name = "c_rf_50", mpn = "GRM0335C1H1R5CA01D", manufacturer = "Murata Electronics", value = "1.5pF", package = "0201", voltage = "50V", dielectric = "C0G", P1 = rf_50, P2 = gnd,
+  annotations = {"Pm.Sensitive": "RF_50"})
+
+# Status light (the LED is on the debug panel) on a direct GPIO, so firmware
+# can show it has started before any bus is up. White: 2.6-3.1 V at 5 mA
+# (KT-0603W datasheet), 100 ohm from the 3.3 V pin gives about 2-7 mA.
+R(name = "r_led_status", mpn = "ERJ-2RKF1000X", manufacturer = "Panasonic Industry", value = "100ohm", package = "0402", P1 = led_status_drive, P2 = led_status)
+
+# Laid out once by Mcu_layout.py into mcu/ and stamped onto the core as the
+# cell `logic`: the chip (with its flash on the S3R8), crystal, RF match, supply filter,
+# decoupling and straps keep their geometry wherever the core puts them.
+load("../../board_rules.zen", "CONFIG", "LAYERS")
+
+# A Board() rather than a Layout(), so the fragment is laid out by the core's
+# design rules (board_rules.zen). Its project registers only when this file
+# is built on its own.
+Board(name = "Mcu", layout_path = "layout", layers = LAYERS, config = CONFIG)
+
+Project(name = "MCU, memory and radio", path = "kicad", schematic = True, layout = False)

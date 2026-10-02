@@ -24,11 +24,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+import re
 
-from .geometry import polys_overlap
+from .geometry import point_in_polygon, point_segment_distance, polys_overlap
 from .values import Box, CopperLayer, Location
 
 _CELL = 2.0     # mm: the grid corridors and blockers are bucketed into
+# A net a generator gives a pin the design leaves unconnected: Zener's `NC_<part>_<pin>`, a pin named under its instance
+# path (`mcu.GPIO35`), KiCad's `unconnected-(<ref>-<pad>)`. A net local to an instance (a dot in its name) with one pad
+# goes nowhere, so it is not a handoff: a module's own pins for the parent board have the bare name.
+_NO_CONNECT = re.compile(r"\.|^NC_|^unconnected-\(")
+
+
+def is_no_connect(net: str) -> bool:
+    return bool(_NO_CONNECT.search(net))
 
 
 @dataclass(frozen=True)
@@ -342,6 +351,55 @@ class Escapes:
                     closed.append((ref, c0.number, c0.net, by, self._joins(ref, c0.number, c0.net)))
         return closed, walled
 
+    def handoffs_walled(self) -> list:
+        """The pads of nets with no other pad on the board - the net leaves the board there, as a module's pin does for the
+        parent board - that no track or via gets out of: (ref, number, net, what closes it). Such a pad keeps no corridor in
+        the placement search (`pad_corridors`: it has nothing to join), so what walls it in is reported once the copper is
+        planned. Copper of the pad's own net that stands on it (a stub, an escape's lane) is part of it: the way out is
+        looked for from where that copper ends, and a via on it is a way out made."""
+        occ = self.occ
+        out = []
+        for ref, g in sorted(occ.items.items()):
+            if ref in occ.pending or not occ.geometry.has_footprint(ref):
+                continue
+            pads = _pads_of(g.shapes, ref)
+            if len(pads) < occ.settings.place_escape_pads:
+                continue
+            for number, (net, layers, box) in sorted(pads.items()):
+                if not net or _net_sizes(occ).get(net, 0) >= 2 or is_no_connect(net):
+                    continue
+                own = self._own_copper(ref, number, net)
+                if any(s.kind == "through" for s in own):
+                    continue                                # a via is on it: its way out is made
+                reach = Box.union([box] + [s.box for s in own])
+                near = list(self._bgrid.near(reach.inflate(self.depth + 1.0)))
+                if not own and path_out(occ, ref, number, self.depth, near=near):
+                    continue                    # not even the foes' boxes wall it
+                if path_out(occ, ref, number, self.depth, near=near, own=own, exact=True):
+                    continue
+                window = reach.inflate(self.depth)
+                by = sorted({sh.owner or occ.blame_owner(sh) for sh in near
+                             if (sh.net != net or not net) and not (sh.owner == ref and sh.label == number)
+                             and sh.layers & layers and sh.box.overlaps(window)})
+                out.append((ref, number, net, [b for b in by if b != ref] or by))
+        return out
+
+    def _own_copper(self, ref: str, number: str, net: str) -> list:
+        """The copper of the pad's own net that stands on it, and on that copper in turn: a chain of tracks (and vias) as
+        far as it goes, on the pad's layers."""
+        mine = [p for p in self._blockers.get(ref, ()) if p.label == number]
+        chain: list = []
+        todo = list(mine)
+        while todo:
+            at = todo.pop()
+            for s in self._bgrid.near(at.box):
+                if (s.net == net and s.kind in ("copper", "through") and not self.occ.geometry.has_footprint(s.owner)
+                        and not any(s is c for c in chain) and any(s.layers & p.layers for p in mine)
+                        and s.box.overlaps(at.box) and polys_overlap(s.poly, at.poly)):
+                    chain.append(s)
+                    todo.append(s)
+        return chain
+
     def _joined(self, ref: str, number: str, net: str) -> bool:
         """Whether copper of the pad's own net already leaves it: a track from it, a via in
         it, a pour over it. Its way out is made."""
@@ -483,7 +541,8 @@ class Escapes:
         return crossed, closed, walled
 
 
-def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None, near=None) -> bool:
+def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None, near=None, own=(),
+             exact: bool = False) -> bool:
     """Whether a track of the pad's net can get out of it: a path, at the
     net's track width and clearance from every other net's copper on the
     pad's layers, from the pad to the edge of a window `depth` round it or
@@ -491,7 +550,10 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
     `toward` (a direction), only an edge facing that way counts, and a via
     spot still does: the route leaves the layer there. `near` is the copper
     to judge against (default: every placed item's pads and the planned
-    copper). Obstacles are taken as their boxes."""
+    copper). Obstacles are taken as their boxes. `own` is copper of the pad's own net standing on it (a stub): the path
+    starts anywhere on it. `exact` takes the obstacles as the shapes they are, not their boxes (a diagonal track's box is
+    mostly empty): a cell is blocked by a track's own width and clearance, and the window is judged cell by cell as the
+    search reaches it."""
     depth = occ.settings.place_escape_depth if depth is None else depth
     g = occ.items[ref]
     mine = [s for s in g.shapes if s.kind in ("pad", "through") and s.owner == ref and s.label == number]
@@ -499,7 +561,7 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
         return True
     net = mine[0].net
     layers = frozenset().union(*(s.layers for s in mine))
-    pad = Box.union([s.box for s in mine])
+    pad = Box.union([s.box for s in mine] + [s.box for s in own])
     nc = occ.geometry.netclass(net)
     track, via = nc.track_width / 2.0 + nc.clearance, nc.via_diameter / 2.0 + nc.clearance
     win = pad.inflate(depth)
@@ -509,6 +571,8 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
                 if s.kind in ("pad", "through")] + [s for s in occ.copper if s.kind in ("copper", "through")]
     foes = [s for s in near if (s.net != net or not net) and not (s.owner == ref and s.label == number)
             and s.box.overlaps(reach)]
+    if exact:
+        return _path_out_exact(occ, mine + list(own), foes, layers, win, track, via, toward)
     walls = [s.box.inflate(track) for s in foes if s.layers & layers]
     vias = [s.box.inflate(via) for s in foes]
     cell = occ.settings.place_escape_cell
@@ -544,6 +608,63 @@ def path_out(occ, ref: str, number: str, depth: float | None = None, toward=None
             return True                     # a via fits here
         for a, b in ((i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1)):
             if 0 <= a < nx and 0 <= b < ny and (a, b) not in seen and not blocked[a][b]:
+                seen.add((a, b))
+                todo.append((a, b))
+    return False
+
+
+def _path_out_exact(occ, start_shapes, foes, layers, win: Box, track: float, via: float, toward) -> bool:
+    """`path_out`'s search on the shapes themselves: from every cell on `start_shapes` (the pad and the pad's own copper) over
+    the cells of `win` a track keeps `track` (half its width and the clearance) from every foe on its layers, to the window's
+    edge or to a cell a via fits at, `via` from every foe."""
+    cell = occ.settings.place_escape_cell
+    nx = max(1, int(math.ceil(win.width / cell)))
+    ny = max(1, int(math.ceil(win.height / cell)))
+    cw, ch = win.width / nx, win.height / ny
+    walls = [s for s in foes if s.layers & layers]
+
+    def centre(i, j):
+        return win.left + (i + 0.5) * cw, win.top + (j + 0.5) * ch
+
+    def near(shapes, x, y, r):
+        """The least distance from (x, y) to the shapes, 0 inside one, only where it is under `r`."""
+        for sh in shapes:
+            b = sh.box
+            if b.left - r >= x or x >= b.right + r or b.top - r >= y or y >= b.bottom + r:
+                continue
+            if point_in_polygon((x, y), sh.poly):
+                return True
+            n = len(sh.poly)
+            if any(point_segment_distance((x, y), sh.poly[k], sh.poly[(k + 1) % n]) < r for k in range(n)):
+                return True
+        return False
+    memo_wall: dict = {}
+
+    def walled(i, j):
+        k = (i, j)
+        if k not in memo_wall:
+            memo_wall[k] = near(walls, *centre(i, j), track)
+        return memo_wall[k]
+
+    def on_start(x, y):
+        return any(sh.box.left <= x <= sh.box.right and sh.box.top <= y <= sh.box.bottom and point_in_polygon((x, y), sh.poly)
+                   for sh in start_shapes)
+    top = Box.union([sh.box for sh in start_shapes])
+    todo = [(i, j) for i in range(max(0, int((top.left - win.left) / cw)), min(nx, int((top.right - win.left) / cw) + 1))
+            for j in range(max(0, int((top.top - win.top) / ch)), min(ny, int((top.bottom - win.top) / ch) + 1))
+            if on_start(*centre(i, j))]
+    seen = set(todo)
+    cx, cy = top.center.x, top.center.y
+    while todo:
+        i, j = todo.pop()
+        x, y = centre(i, j)
+        if i in (0, nx - 1) or j in (0, ny - 1):
+            if toward is None or toward[0] * (x - cx) + toward[1] * (y - cy) > 0:
+                return True
+        if not on_start(x, y) and not near(foes, x, y, via):
+            return True                     # a via fits here
+        for a, b in ((i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1)):
+            if 0 <= a < nx and 0 <= b < ny and (a, b) not in seen and not walled(a, b):
                 seen.add((a, b))
                 todo.append((a, b))
     return False
