@@ -21,6 +21,22 @@ section for each hand-written pattern a newer form replaces.
   order, and a script with no slide places as before. Placements can move on
   a board that has slides. `api.md`, "Degrees of freedom".
 
+- **A `FreeSpot` via keeps clear of the tracks declared before it, whenever
+  those are planned.** A track that waits for a searched part is drawn after a
+  via decided early, and a via placed just clear of a pad stood where that
+  pad's track (wider than the pad) could not leave: the leg ended 0.0986 mm
+  from the via under a 0.10 mm rule, a finding and a KiCad clearance error. A
+  `FreeSpot` via declared after a track of another net is now planned with
+  that track (after it, in declaration order) instead of before the search.
+  A script that declares the via first is planned as before. Declare the
+  track first where the via should give way to it.
+- **A finding never prints a shortfall as equal to the limit.** "is 0.10 mm
+  from GND copper (needs 0.10)" for a gap of 0.0986 now reads "is 0.099 mm
+  ... (needs 0.100)": more decimals, as many as it takes, when the gap is
+  under the limit. The same for the via-site, tail and lane reasons. A via's
+  drill is measured as its circle against a planned track or pour (it was an
+  inscribed polygon, up to 2 um short).
+
 ## To 0.78.0
 
 ### New
