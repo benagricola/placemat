@@ -86,6 +86,24 @@ section for each hand-written pattern a newer form replaces.
   run left in its layout folder from an older release still holds them: run
   it again. Scripts change nothing. `api.md`, "Faces" and "A stamped cell
   brings its own".
+- **Vias of an escape without a turn at a fine pitch.** `board.escape(part,
+  pins, vias=[...])` on neighbouring pins at 0.4 mm pitch with a 0.45 mm via
+  stopped the run ("no legal spot ... pad 9 of its own part, 0.075 mm off"):
+  a lane beside another pin's via needs 0.465 mm between the via's middle
+  and the lane (track 0.16, clearance 0.16), and straight lanes are 0.4 mm
+  apart. A lane that finds no spot straight out of its pin now runs out to
+  the least depth at which a 45 clears the row's pads and jogs along the row
+  to either side (the nearer via wins), its via where that 45 first clears
+  everything. A lane without a via no longer holds off the vias of the
+  escape as a line five millimetres long: it is its stub, so a via beside it
+  stands as near the row as the stub's end lets it (it was pushed out by the
+  full search reach). A lane's own copper is judged against the vias placed
+  before it. The message of a via with no spot names what stands in the way
+  at the spot nearest to legal, with its true distance (it named the pad the
+  search began at, 0.000 mm off for a via bigger than the pitch lets, whatever
+  stopped it). A track that begins with a jogged lane draws the jog. A via
+  size is the board's `via_size` (default 0.6) unless `via_size=` is
+  given. Scripts change nothing. `api.md`, "An escape", "No turn".
 
 ## To 0.79.0
 

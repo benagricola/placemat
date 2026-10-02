@@ -14,7 +14,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from .copper import Via, chamfer_cuts, polyline_tracks
+from .copper import Track, Via, chamfer_cuts, polyline_tracks
 from .geometry import gap_texts, point_in_polygon, point_segment_distance, poly_distance
 from .values import Box, Edge, Location, Part
 
@@ -26,6 +26,20 @@ _SQ2 = math.sqrt(2.0)
 class EscapeError(ValueError):
     """An escape that cannot be laid out whatever stands round it: a script
     error, named as such."""
+
+
+class NoViaSpot(EscapeError):
+    """A lane whose via has no legal spot. What stands nearest in its way is worked out when the message is read: a
+    search that lays an escape out at every candidate refuses most of them, and reads none."""
+
+    def __init__(self, head: str, why):
+        super().__init__(head)
+        self.head, self._why, self._text = head, why, None
+
+    def __str__(self) -> str:
+        if self._text is None:
+            self._text = self.head + self._why()
+        return self._text
 
 
 # ------------------------------------------------------------------ handles
@@ -178,6 +192,8 @@ class _Lane:
         self.via_at = None
         self.end_at = None
         self.blocked_why = None
+        self.jog = None                 # a lane without a turn that jogs at 45 past a neighbour: the unit vector it jogs along
+        self.ca = 0.0                   # where the jog starts, past the tips (the lane's corner)
 
 
 def turn_direction(turn, u: tuple, key: str) -> tuple:
@@ -456,7 +472,9 @@ class Layouter:
         return Location(round(p.x, 6), _away(p.y, self.u[1]))
 
     # ---- the lane's own line
-    def _direction(self) -> tuple:
+    def _direction(self, lane: _Lane | None = None) -> tuple:
+        if lane is not None and lane.jog is not None:
+            return ((lane.jog[0] + self.u[0]) / _SQ2, (lane.jog[1] + self.u[1]) / _SQ2)
         if self.decl.turn is None:
             return self.u
         if self.diagonal:
@@ -465,7 +483,14 @@ class Layouter:
 
     def _end_at(self, lane: _Lane, a: float) -> Location:
         """The point `a` along the lane, rounded to the nanometre the way the lane runs; a lane
-        at 45 moves a whole number of nanometres on both axes, so its leg stays a 45."""
+        at 45 moves a whole number of nanometres on both axes, so its leg stays a 45. A lane
+        that jogs runs straight out to its corner, `lane.ca` past the tips, and at 45 from there."""
+        if lane.jog is not None:
+            if a > lane.ca:
+                dx, dy = self._direction(lane)
+                m = math.ceil((a - lane.ca) / _SQ2 * 1e6 - 1e-3) / 1e6
+                return Location(round(lane.corner.x + math.copysign(m, dx), 6), round(lane.corner.y + math.copysign(m, dy), 6))
+            return self._snap(self.at(lane.s, self.tips + a))
         if self.decl.turn is None:
             return self._snap(self.at(lane.s, self.tips + a))
         dx, dy = self._direction()
@@ -489,7 +514,7 @@ class Layouter:
         what lies there (an inner lane's via). Where its via ends up the lane is cut no deeper
         than that (a short lane cuts less), so neither comes nearer than it is judged."""
         reach = self._a_min(lane) + self.env.reach if a is None else a
-        pts = [lane.centre] + ([lane.corner] if self.decl.turn is not None else []) + [self._end_at(lane, reach)]
+        pts = [lane.centre] + ([lane.corner] if self.decl.turn is not None or lane.jog is not None else []) + [self._end_at(lane, reach)]
         chamfer = self.decl.chamfer_of(lane.number)
         cuts = [chamfer_cuts(pts, chamfer)[0]]
         if a is None and chamfer > 0:
@@ -497,25 +522,45 @@ class Layouter:
         return [((p.x, p.y), (q.x, q.y)) for cut in cuts for p, q in zip(cut, cut[1:])]
 
     # ---- the vias
-    def _via_why(self, lane: _Lane, q: Location, others: bool) -> str | None:
+    def _others_segments(self, other: _Lane):
+        """The copper of another lane as a via keeps clear of it, as segments; None where it is not known yet. A lane
+        without a turn whose via is still to be placed is not: it finds its own way round what stands by then, past the
+        vias and lanes of the escape placed before it. One without a via is its stub, and a turned lane runs as far as
+        a via is searched."""
+        if other.via_at is not None:
+            return self._segments(other, other.a)
+        if self.decl.turn is not None:
+            return self._segments(other, None)
+        if other.via is not None:
+            return None
+        return self._segments(other, self._stub_a(other, []))
+
+    def _seg_tracks(self, lane: _Lane, segs) -> list:
+        return [Track(lane.net, self.env.layer, lane.width, Location(*a), Location(*b)) for a, b in segs]
+
+    def _via_fails(self, lane: _Lane, q: Location, others: bool):
+        """What is wrong with a via of `lane` at `q`, in the order it is judged: (the clearance it falls short of,
+        mm; infinite for a site the board refuses, a sentence)."""
         size, drill = lane.via
         qp = (q.x, q.y)
-        why = self._pads_why(lane, q)
-        if why is not None:
-            return why
+        yield from self._pads_fails(lane, q)
         for other in self.lanes.values():
             if other is lane or other.net == lane.net:
                 continue
             need = self.env.clearance(lane.net, other.net)
-            segs = self._segments(other, other.a if other.via_at is not None else None)
-            gap = min(point_segment_distance(qp, a, b) for a, b in segs) - other.width / 2.0 - size / 2.0
-            if gap < need - _TOL:
-                return "the lane of pin %s, %s mm off (needs %s)" % ((other.number,) + gap_texts(gap, need, 3))
+            segs = self._others_segments(other)
+            if segs is not None:
+                if self.decl.turn is None:         # the copper as it is drawn: a track's round end is a polygon outside its circle
+                    gap = min(_point_poly_distance(qp, t.polygon) for t in self._seg_tracks(other, segs)) - size / 2.0
+                else:
+                    gap = min(point_segment_distance(qp, a, b) for a, b in segs) - other.width / 2.0 - size / 2.0
+                if gap < need - _TOL:
+                    yield need - gap, "the lane of pin %s, %s mm off (needs %s)" % ((other.number,) + gap_texts(gap, need, 3))
             if other.via_at is not None:
                 ov = other.via_at
                 dist = math.hypot(q.x - ov.x, q.y - ov.y)
                 if dist - (size + other.via[0]) / 2.0 < need - _TOL:
-                    return "the via of pin %s, %s mm off (needs %s)" % (
+                    yield need - (dist - (size + other.via[0]) / 2.0), "the via of pin %s, %s mm off (needs %s)" % (
                         (other.number,) + gap_texts(dist - (size + other.via[0]) / 2.0, need, 3))
         for other in self.lanes.values():
             if other is lane or other.via_at is None:
@@ -523,21 +568,75 @@ class Layouter:
             ov = other.via_at
             hole = math.hypot(q.x - ov.x, q.y - ov.y) - (drill + other.via[1]) / 2.0
             if hole < self.env.hole_to_hole - _TOL:
-                return "the hole of pin %s's via, %s mm off (hole to hole needs %s)" % (
+                yield self.env.hole_to_hole - hole, "the hole of pin %s's via, %s mm off (hole to hole needs %s)" % (
                     (other.number,) + gap_texts(hole, self.env.hole_to_hole, 3))
+        if self.decl.turn is None:
+            yield from self._path_fails(lane, q, others)
         if others:
-            return self.env.via_site(q, lane.net, size, drill)
-        return None
+            why = self.env.via_site(q, lane.net, size, drill)
+            if why is not None:
+                yield math.inf, why
 
-    def _pads_why(self, lane: _Lane, q: Location) -> str | None:
+    def _via_why(self, lane: _Lane, q: Location, others: bool) -> str | None:
+        return next((text for _, text in self._via_fails(lane, q, others)), None)
+
+    def _path_fails(self, lane: _Lane, q: Location, others: bool):
+        """The lane's own copper out to a via at `q` (a lane without a turn): its riser, and its 45 where it jogs, past the
+        vias already placed and, where it jogs, beside the lanes and the part's pads and what is placed on the board."""
+        pts = [lane.centre] + ([lane.corner] if lane.jog is not None else []) + [q]
+        pts = [p for i, p in enumerate(pts) if i == 0 or (p.x, p.y) != (pts[i - 1].x, pts[i - 1].y)]
+        w = lane.width
+        mine = polyline_tracks(lane.net, self.env.layer, w, pts)
+        for other in self.lanes.values():
+            if other is lane or other.net == lane.net:
+                continue
+            need = self.env.clearance(lane.net, other.net)
+            if other.via_at is not None:
+                ov = other.via_at
+                gap = min(_point_poly_distance((ov.x, ov.y), t.polygon) for t in mine) - other.via[0] / 2.0
+                if gap < need - _TOL:
+                    yield need - gap, "the via of pin %s, passed by the lane %s mm off (needs %s)" % (
+                        (other.number,) + gap_texts(gap, need, 3))
+        if lane.jog is None:
+            return
+        tracks = mine
+        for other in self.lanes.values():
+            segs = None if other is lane or other.net == lane.net else self._others_segments(other)
+            if not segs:
+                continue
+            need = self.env.clearance(lane.net, other.net)
+            theirs = self._seg_tracks(other, segs)
+            gap = min(poly_distance(t.polygon, u.polygon) for t in tracks for u in theirs)
+            if gap < need - _TOL:
+                yield need - gap, "the lane of pin %s, passed by the jog %s mm off (needs %s)" % (
+                    (other.number,) + gap_texts(gap, need, 3))
+        for number, shapes in self.pads.items():
+            for sh in shapes:
+                if sh.net == lane.net:
+                    continue
+                need = self.env.clearance(lane.net, sh.net, sh.owner)
+                if not any(t.box.overlaps(sh.box, gap=need) for t in tracks):
+                    continue
+                gap = min(poly_distance(t.polygon, sh.poly) for t in tracks)
+                if gap < need - _TOL:
+                    yield need - gap, "pad %s of its own part, passed by the jog %s mm off (needs %s)" % (
+                        (number,) + gap_texts(gap, need, 3))
+        if others:
+            for t in tracks:
+                for why in self.env.hits(t):
+                    yield math.inf, why
+
+    def _pads_fails(self, lane: _Lane, q: Location):
         size = lane.via[0]
         for number, shapes in self.pads.items():
             for sh in shapes:
                 need = self.env.clearance(lane.net, sh.net, sh.owner)
                 gap = _point_poly_distance((q.x, q.y), sh.poly) - size / 2.0
                 if gap < need - _TOL:
-                    return "pad %s of its own part, %s mm off (needs %s)" % ((number,) + gap_texts(gap, need, 3))
-        return None
+                    yield need - gap, "pad %s of its own part, %s mm off (needs %s)" % ((number,) + gap_texts(gap, need, 3))
+
+    def _pads_why(self, lane: _Lane, q: Location) -> str | None:
+        return next((text for _, text in self._pads_fails(lane, q)), None)
 
     def _first(self, lane: _Lane, why, a_from: float) -> float | None:
         """The first `a` along the lane, from `a_from`, where `why(point)` finds nothing wrong:
@@ -564,15 +663,93 @@ class Layouter:
             a += self.env.step
         return None
 
-    def _scan(self, lane: _Lane, others: bool) -> float | None:
+    def _scan(self, lane: _Lane, others: bool, a_from: float | None = None) -> float | None:
         """The first `a` along the lane with a legal via there. Searched from where the via
-        first clears the part's own pads: a spot hemmed in between that and a neighbour's
-        via is a point, and a grid would step over it."""
-        a0 = self._a_min(lane)
+        first clears the part's own pads (from `a_from`, else the lane's start): a spot hemmed in between that and a
+        neighbour's via is a point, and a grid would step over it."""
+        a0 = self._a_min(lane) if a_from is None else a_from
         start = self._first(lane, lambda q: self._pads_why(lane, q), a0)
         if start is None:
             return None
         return self._first(lane, lambda q: self._via_why(lane, q, others), start)
+
+    # ---- a lane that jogs
+    def _set_corner(self, lane: _Lane, c: float) -> None:
+        lane.corner = self._snap_out(self.at(lane.s, self.tips + c))
+        lane.ca = self.h_of((lane.corner.x, lane.corner.y)) - self.tips
+
+    def _corner_least(self, lane: _Lane) -> float | None:
+        """How far out a lane that jogs (`lane.jog` set) runs straight before it does: the least at which its 45 keeps its
+        clearance from the row's other pads, to the nanometre; None where none within the search's reach does. Left set."""
+        others = [sh for n in self.row if n != lane.number for sh in self.pads[n] if sh.net != lane.net]
+        depth = (self.tips - min(self._extent(n)[0] for n in self.row) + lane.width + self._tip_clearance(lane)) * _SQ2
+        floor = self._a_min(lane)
+
+        def clear(c: float) -> bool:
+            self._set_corner(lane, c)
+            tracks = polyline_tracks(lane.net, self.env.layer, lane.width, [lane.centre, lane.corner, self._end_at(lane, lane.ca + depth)])
+            return all(poly_distance(t.polygon, sh.poly) >= self.env.clearance(lane.net, sh.net, sh.owner) - _TOL
+                       for t in tracks for sh in others)
+        if clear(floor):
+            return lane.ca
+        lo, hi = floor, max(floor, self.env.step)
+        while not clear(hi):
+            lo, hi = hi, hi * 2.0
+            if hi > self.env.reach:
+                return None
+        for _ in range(26):
+            mid = (lo + hi) / 2.0
+            if clear(mid):
+                hi = mid
+            else:
+                lo = mid
+        hi = math.ceil(hi * 1e6 - 1e-3) / 1e6
+        for _ in range(8):
+            if clear(hi):
+                return lane.ca
+            hi += 1e-6
+        return lane.ca
+
+    def _jogged(self, lane: _Lane, others: bool):
+        """The nearest via a lane without a turn finds by jogging at 45 along the row, to either side: (how far out it stands,
+        the way it jogs, its corner, where the corner is, and how far along the lane the via is), or None. The lane's own state
+        is left as it was."""
+        best = None
+        was = lane.jog, lane.corner, lane.ca
+        for sign in (1.0, -1.0):
+            lane.jog = (self.t[0] * sign, self.t[1] * sign)
+            if self._corner_least(lane) is not None:
+                a = self._scan(lane, others, lane.ca)
+                if a is not None:
+                    q = self._end_at(lane, a)
+                    h = self.h_of((q.x, q.y))
+                    if best is None or h < best[0] - 1e-9:
+                        best = (h, lane.jog, lane.corner, lane.ca, a)
+        lane.jog, lane.corner, lane.ca = was
+        return best
+
+    def _nearest_miss(self, lane: _Lane, others: bool) -> str:
+        """Why a lane's via has no spot: what stands in the way at the spot nearest to legal, among those along the lane
+        (and, without a turn, along either jog), and how far off it is."""
+        best = None
+        was = lane.jog, lane.corner, lane.ca
+        for sign in ((None, 1.0, -1.0) if self.decl.turn is None else (None,)):
+            lane.jog = None if sign is None else (self.t[0] * sign, self.t[1] * sign)
+            a0 = self._a_min(lane)
+            if sign is not None:
+                if self._corner_least(lane) is None:
+                    continue
+                a0 = lane.ca
+            a = a0
+            while a <= a0 + self.env.reach + 1e-9:
+                fails = list(self._via_fails(lane, self._end_at(lane, a), others))
+                if fails:
+                    worst = max(fails, key=lambda f: f[0])
+                    if best is None or worst[0] < best[0]:
+                        best = worst
+                a += self.env.step
+        lane.jog, lane.corner, lane.ca = was
+        return best[1] if best else "nothing stands in its way"
 
     def _place_vias(self) -> None:
         d = self.decl
@@ -580,14 +757,22 @@ class Layouter:
             lane = self.lanes[n]
             if lane.via is None:
                 continue
+            jogging = d.turn is None
             a = self._scan(lane, True)
-            if a is None:
+            jogged = self._jogged(lane, True) if a is None and jogging else None
+            if a is None and jogged is None:
                 a = self._scan(lane, False)
-                if a is None:
-                    raise EscapeError("%s: pin %s's via has no legal spot within %.1f mm along its lane or axis: %s" % (
-                        d.key, n, self.env.reach, self._via_why(lane, self._end_at(lane, self._a_min(lane)), False)))
+                jogged = self._jogged(lane, False) if a is None and jogging else None
+                if a is None and jogged is None:
+                    raise NoViaSpot("%s: pin %s's via has no legal spot within %.1f mm along its lane or axis: " % (
+                        d.key, n, self.env.reach), lambda lane=lane: self._nearest_miss(lane, False))
+                if jogged is not None:
+                    _, lane.jog, lane.corner, lane.ca, a = jogged
+                lane.a = a
                 lane.blocked_why = "its via has no legal spot within %.1f mm: %s" % (
                     self.env.reach, self._via_why(lane, self._end_at(lane, a), True))
+            elif jogged is not None:
+                _, lane.jog, lane.corner, lane.ca, a = jogged
             lane.a = a
             lane.via_at = self._end_at(lane, a)
 
@@ -625,12 +810,14 @@ class Layouter:
         out = {}
         for k, n in enumerate(self.order):
             lane = self.lanes[n]
-            pts = [lane.centre] + ([lane.corner] if d.turn is not None else []) + [lane.end_at]
+            pts = [lane.centre] + ([lane.corner] if d.turn is not None or lane.jog is not None else []) + [lane.end_at]
             pts = [p for i, p in enumerate(pts) if i == 0 or (p.x, p.y) != (pts[i - 1].x, pts[i - 1].y)]
             cut = chamfer_cuts(pts, d.chamfer_of(n))[0]
             tracks = tuple(polyline_tracks(lane.net, env.layer, lane.width, cut))
             via = Via(lane.net, lane.via_at, lane.via[1], lane.via[0]) if lane.via_at is not None else None
-            if d.turn is None:
+            if d.turn is None and lane.jog is not None:
+                line = None
+            elif d.turn is None:
                 line = ("x" if self.u[1] else "y", lane.centre.x if self.u[1] else lane.centre.y)
             elif self.diagonal:
                 line = None
