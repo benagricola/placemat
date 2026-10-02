@@ -364,12 +364,20 @@ class Escapes:
                 near = list(self._bgrid.near(pad.inflate(self.depth + 1.0)))
                 by = sorted({sh.owner or occ.blame_owner(sh) for c in group for sh in self._bgrid.near(c.box)
                              if self._closes_any(sh, c)})
-                if not open_ and not path_out(occ, ref, c0.number, self.depth, near=near):
+                if not open_ and not self._gets_out(ref, c0.number, near):
                     walled.append((ref, c0.number, c0.net, by, []))
                     continue
-                if targets and not any(path_out(occ, ref, c0.number, self.depth, toward=t, near=near) for t in targets):
+                if targets and not any(self._gets_out(ref, c0.number, near, toward=t) for t in targets):
                     closed.append((ref, c0.number, c0.net, by, self._joins(ref, c0.number, c0.net)))
         return closed, walled
+
+    def _gets_out(self, ref: str, number: str, near, toward=None) -> bool:
+        """Whether a track or via gets out of the pad: the path search on the obstacles' boxes, and when that finds none,
+        on the shapes themselves. A box says a pad is walled where a diagonal track or pour whose box covers it leaves it
+        room, and a finding is only made on what is there."""
+        occ = self.occ
+        return (path_out(occ, ref, number, self.depth, toward=toward, near=near)
+                or path_out(occ, ref, number, self.depth, toward=toward, near=near, exact=True))
 
     def handoffs_walled(self) -> list:
         """The pads of nets with no other pad on the board - the net leaves the board there, as a module's pin does for the

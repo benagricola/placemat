@@ -90,3 +90,21 @@ def test_the_switch_cells_of_a_real_board_are_not_walled_off_at_their_ground_pin
     result, _, _ = rm.run(tmp_path, "usbcells", keep_going=True)
     walled = [str(f) for f in json.loads((result.run_dir / "run.json").read_text())["findings"] if "walled off" in str(f)]
     assert not [w for w in walled if "(GND)" in w], walled
+
+
+def _ring_with_far_diagonal(track_ends):
+    """U9's IN pad ringed 0.6 mm off by R9's pads (a track still gets out between them), and a diagonal track of another net
+    well clear of the pad, whose box covers the window the way out is looked for in."""
+    from tests.test_escape_findings import _walled_in
+    fps = _walled_in(0.6)
+    cfg = dataclasses.replace(Settings(), cleanup_enabled=False)
+    b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0, settings=cfg, keep_going=True)
+    for fp in fps:
+        b.place(Part(fp.inst), at=fp.location)
+    b.track(Net("Z"), list(track_ends), layer=F, why="a diagonal track far from the pad")
+    return b.resolve()
+
+
+def test_a_diagonal_track_whose_box_covers_the_way_out_does_not_wall_a_pad_it_keeps_clear_of():
+    plan = _ring_with_far_diagonal([Location(20.0, 50.0), Location(50.0, 20.0)])
+    assert _walled(plan) == []
