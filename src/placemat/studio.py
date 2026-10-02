@@ -539,6 +539,8 @@ def run(script, port: int | None = None, open_browser: bool | None = None) -> in
     if studio.open_browser:
         import webbrowser
         webbrowser.open(url)
+    import signal
+    signal.signal(signal.SIGTERM, lambda *a: studio._stopping.set())      # stopped like Ctrl-C: the worker goes too
     try:
         studio.wait()
     except KeyboardInterrupt:
