@@ -5,6 +5,22 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A setting can differ per script.** A `placemat.toml` shared by a board
+  and its module scripts takes `[scripts."modules/m/M_layout.py".solve]
+  enabled = true`: any base section, keyed by the script's path relative to
+  the file, applied over the base for that script only and shown by
+  `placemat settings <script>`. `api.md`, "Per-script settings".
+- **A `placemat.toml` beside a module no longer hides the folders above it
+  from its imports.** A script's importable folders now run up to the
+  outermost `placemat.toml`, not the nearest, so a module folder with its own
+  file still reaches a helper in the board's folder. A project with a
+  `placemat.toml` above a script and a same-named module in a folder between
+  gets the nearer one first, as before.
+
 ## To 0.79.0
 
 ### New

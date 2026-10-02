@@ -65,7 +65,7 @@ def resolve_like_last_run(script, lock_entries=None) -> tuple:
     from . import settings as settings_mod
     script = Path(script).resolve()
     src = find_board(script)
-    cfg = settings_mod.load(src.board_dir)
+    cfg = settings_mod.load(src.board_dir, script=script)
     generated = cached_generation(src) / src.pcb.name
     last = latest_for(src.board_dir / ".placemat" / "runs", src.name)
     if not generated.exists() or last is None or not src.pcb.exists():
@@ -168,7 +168,7 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
     from .values import Box
     script = Path(script).resolve()
     src = find_board(script)
-    cfg = settings_mod.load(src.board_dir)
+    cfg = settings_mod.load(src.board_dir, script=script)
     out = Path(out) if out else src.board_dir / ".placemat" / "views" / "preview"
     out.mkdir(parents=True, exist_ok=True)
     note_views(out)

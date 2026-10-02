@@ -476,20 +476,59 @@ def _coerce(name: str, value):
     return value
 
 
-def load(start, overrides=None) -> Settings:
+def _script_tables(data: dict, path) -> dict:
+    """The `[scripts."<path>".<section>]` tables of a parsed document, as
+    {script path: {attribute name: value}}, each body validated like the base
+    sections. A path is relative to the folder of the file holding it and must
+    name a file there: a stale or mistyped one would quietly do nothing."""
+    tables = data.get("scripts", {})
+    if not isinstance(tables, dict):
+        raise SettingsError("%s: [scripts] holds one table per script path, e.g. "
+                            "[scripts.\"modules/m/M_layout.py\".solve]" % path)
+    out = {}
+    for key, body in tables.items():
+        label = "%s [scripts.%s]" % (path, json.dumps(key))
+        if not isinstance(body, dict):
+            raise SettingsError("%s must be a table of sections, e.g. [scripts.%s.solve]" % (label, json.dumps(key)))
+        if not (Path(path).parent / key).is_file():
+            raise SettingsError("%s: no script %s beside %s" % (label, key, path))
+        if "facts" in body:
+            raise SettingsError("%s: [facts] is placemat's own record and is not set per script" % label)
+        flat = _flatten(body, label)
+        for name, value in flat.items():
+            _validate(name, value, label)
+        out[key] = flat
+    return out
+
+
+def load(start, overrides=None, script=None) -> Settings:
     """The settings for a board: built-in defaults, then every placemat.toml
     from the filesystem root down to the board's own directory (so the nearest
-    wins per key), then the CLI overrides."""
-    values, sources = {}, {}
+    wins per key), then, for `script`, the `[scripts."<path>"]` tables of those
+    files that name it, then the CLI overrides."""
+    values, sources, per_script = {}, {}, []
     for path in _files(start):
         try:
             data = tomllib.loads(path.read_text())
         except tomllib.TOMLDecodeError as e:
             raise SettingsError("%s is not valid TOML: %s" % (path, e))
+        tables = _script_tables(data, path)
+        data = {k: v for k, v in data.items() if k != "scripts"}
+        per_script.append((path, tables))
         for name, value in _flatten(data, path).items():
             _validate(name, value, str(path))
             values[name] = value
             sources[name] = str(path)
+    if script is not None:
+        script = Path(script).resolve()
+        for path, tables in per_script:
+            try:
+                key = script.relative_to(path.parent.resolve()).as_posix()
+            except ValueError:
+                continue
+            for name, value in tables.get(key, {}).items():
+                values[name] = value
+                sources[name] = "%s [scripts.%s]" % (path, json.dumps(key))
     for name, value in (overrides or {}).items():
         if name not in set(Settings.keys()):
             raise SettingsError("%s is not a setting placemat has" % name)
