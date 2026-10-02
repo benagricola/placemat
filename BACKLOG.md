@@ -246,6 +246,12 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Escape walled check and an escape past a part** (0.81.1; spec
+  `2026-10-02-escape-past-a-part-design.md`): the way-out search walks
+  0/45/90 steps along a pin's own tracks, so a zero-slack 45 corridor is not
+  reported walled; an escape is laid out after the firm items placed
+  relative to its part, so its lanes clear them (no new form).
+
 - **Grouped labels give way, keepouts judged as KiCad does** (0.81.0; specs
   `2026-10-02-line-labels-give-way-design.md`,
   `2026-10-02-keepout-courtyard-design.md`,
