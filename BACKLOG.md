@@ -6,6 +6,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## In progress
 
+- **A one-freedom slide placed after a search in its tier** (a board's
+  session, 2026-10-02): a slide (`Centre(x, None, toward=)`) of the same
+  priority as a larger searched cell goes after it by area and is stopped
+  mid-board by it. Fewer freedoms first. Being built.
+
 ## Open
 
 - **Current shared between a load's pins** (a board's session, 2026-10-01):
