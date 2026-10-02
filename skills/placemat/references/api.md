@@ -3145,9 +3145,14 @@ wrong counted and weighted by a `[score]` setting (the table below):
   a declared escape lane that something blocks (`board.escape`), and a setup finding (the same every run, 0 by default);
 - each ratsnest crossing, with a plane's or free net's crossing at
   `score.crossing_plane` of it;
-- the airwire itself, a millimetre each.
+- the airwire itself, a millimetre each;
+- the carried vias that gave way, at the cost the search priced each action (`score.via_share`, `via_move`,
+  `via_leave`, `via_route`, `via_shorten`, `via_drop`, and a field relay's `score.via_relay*` once);
+- each push, `score.push` times the modelled value over its limit at the final placement, the whole value as the
+  search prices it, not only what is past the limit;
+- each item a `face=Face.EITHER` search put on the back, `score.back_face`.
 
-A run records these measures, not its score, so a weight changed in
+A finding's severity does not enter the score. A run records these measures, not its score, so a weight changed in
 placemat.toml re-ranks the recorded runs at once, the stored best included.
 Two scores tie within `best.airwire_noise` of the airwire plus
 `best.crossing_noise` of the crossings' term, because kicad-cli picks
@@ -3436,7 +3441,7 @@ its kind.
 | `fixed` | critical | a decided item (fixed, a cutout, a keepout) is not legal where it was put |
 | `copper` (conflicts: copper meets another net, crosses a keepout, passes a corner inside the clearance, two tracks cross and neither may bridge) | critical | the copper as declared breaks a rule |
 | `copper` (a declared track, via, pour or stitch not drawn) | warning | the copper the script declared is missing; a person decides whether the router can stand in |
-| `copper` (a waypoint drawn pad to pad, stitch vias outside the region left out, the side a stitch row took, a track left out whose crossing is already a finding) | notice | placemat's own choice, said |
+| `copper` (a waypoint drawn pad to pad, stitch vias outside the region left out, the side a stitch row took) | notice | placemat's own choice, said |
 | `escape_walled` | critical | a pad with no way out cannot be routed |
 | `escape_closed` | warning | the way toward what a pad joins is closed; other ways out remain |
 | `escape_crossed` | warning | two escapes cross near a pin row; the router can usually separate them |

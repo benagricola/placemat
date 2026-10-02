@@ -7,6 +7,30 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### Changed
+
+- **The run score prices what the placement search prices.** Three things the search weighs now count in a run's
+  score, at the same weights, so a run and its search agree: the carried vias that gave way (the sum of the
+  costs of the actions, `score.via_share`, `via_move`, `via_leave`, `via_route`, `via_shorten`, `via_drop`, and a
+  field relay's `score.via_relay*` once), each push (`score.push` times its value over its limit, the whole value
+  as the search prices it, at the final placement), and each item a `face=Face.EITHER` search put on the back
+  (`score.back_face`). New terms `giveway`, `push` and `back_face` show in the `score` line; a run record from
+  before has none of the three measures, which read as 0. A layout that gave way vias, was pushed or took the
+  back face scores higher than before, so a recorded best of such a family may now lose to a later run
+  that is no better. Finding severity is a display concern and does not enter the score. Scripts
+  change nothing. `api.md`, "run score".
+
+- **A track left out because it may not bridge is one finding, not two.** Where two tracks cross and the one that
+  must yield may not bridge, the track is left out and the crossing finding says so (`A and B cross
+  on F.Cu at (20.00, 30.00) and neither may bridge; track B is not drawn`); the separate `track X: not
+  drawn, it crosses another net's track and may not bridge` finding is gone, so the `copper` count and score for
+  such a layout fall by one per track left out.
+
+- **A copper plan's own notes are scored under their own kind.** Each note a declared track, via, pour, plane or
+  stitch raises is made as a finding of its own kind and severity where it is raised, instead of all being
+  counted as `copper` warnings afterwards. They stay `copper` warnings, except that a pour whose `reach=` needs
+  KiCad's pcbnew where it is absent is a `setup` finding.
+
 ### New
 
 - **`placemat studio --host ADDR`**: listen on another address than

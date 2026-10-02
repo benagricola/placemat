@@ -17,12 +17,18 @@ measures:
                  "pair" those of the signal crossings between a
                  differential pair's two halves (priced score.pair_crossing)
     airwire_mm   the ratsnest's length
+    giveway      the sum of the costs of the carried vias' actions (giveway.Action.cost: share, move,
+                 leave, route, shorten, drop, and a field relay's once), as the search priced them
+    pushes       the sum over placed pushes of value / limit at the final placement: the whole modelled
+                 value over its limit, not only the excess, as the search prices a push (priced score.push)
+    back_face    items a Face.EITHER search put on the back (priced score.back_face)
     rudy_steps   explore only: the worst RUDY cell, in explore.congestion_step steps
 """
 from __future__ import annotations
 
 TERMS = ("unplaced", "drc", "link_over", "fixed", "copper", "label", "escape_crossed", "escape_closed",
-         "escape_walled", "escape_lane", "setup", "crossings", "airwire", "congestion")
+         "escape_walled", "escape_lane", "setup", "crossings", "airwire", "giveway", "push", "back_face",
+         "congestion")
 
 # a finding kind -> the setting that weighs one; unplaced and link_over are
 # measured apart (by priority, and by how far over), not counted as findings
@@ -49,6 +55,9 @@ def terms(m: dict, cfg) -> dict:
     out["crossings"] = (cfg.score_crossing * (cross.get("signal", 0) - pair + cfg.score_crossing_plane * cross.get("plane", 0))
                         + cfg.score_pair_crossing * pair)
     out["airwire"] = float(m.get("airwire_mm") or 0.0)
+    out["giveway"] = float(m.get("giveway") or 0.0)         # costs already weighed by the search's score_via_* settings
+    out["push"] = cfg.score_push * float(m.get("pushes") or 0.0)
+    out["back_face"] = cfg.score_back_face * (m.get("back_face") or 0)
     out["congestion"] = cfg.score_congestion * (m.get("rudy_steps") or 0)
     return out
 
@@ -91,6 +100,7 @@ def plan_measures(board, plan, congestion_step: float | None = None) -> dict:
     cell in those steps (explore)."""
     from .board_geometry import members_of
     from .findings import Finding
+    from .values import Face
     from .ratsnest import Anchor, crossings, mst
     steps = {s.item: s for s in plan.steps}
     unplaced: dict = {}
@@ -129,9 +139,19 @@ def plan_measures(board, plan, congestion_step: float | None = None) -> dict:
                 if n not in quiet and m not in quiet}
     # only a pair's own crossings count here: every other crossing weighs 0
     pair = crossings(edges, weights={n: 0.0 for n in by_net}, partners=partners, pair_weight=1.0)[0]
+    # a push is placed once per item, but the same Push object may be recorded again by a re-settle
+    pushes, seen = 0.0, set()
+    for p in plan.pushes:
+        if id(p) in seen or p.achieved_value is None or not p.limit:
+            continue
+        seen.add(id(p))
+        pushes += p.achieved_value / p.limit
     out = {"unplaced": unplaced, "drc": 0, "link_excess": round(excess, 6), "findings": found,
            "crossings": {"signal": int(signal), "plane": int(every - signal), "pair": int(pair)},
-           "airwire_mm": round(sum(((e.a.x - e.b.x) ** 2 + (e.a.y - e.b.y) ** 2) ** 0.5 for e in edges), 3)}
+           "airwire_mm": round(sum(((e.a.x - e.b.x) ** 2 + (e.a.y - e.b.y) ** 2) ** 0.5 for e in edges), 3),
+           "giveway": round(sum(a.cost for a in plan.given_way), 6), "pushes": round(pushes, 6),
+           "back_face": sum(1 for s in plan.steps if s.back_face and s.placement is not None
+                            and s.placement.face is Face.BACK)}
     if congestion_step:
         worst = getattr(getattr(plan, "rudy", None), "worst", 0.0) or 0.0
         out["rudy_steps"] = int(worst / congestion_step + 1e-9)
