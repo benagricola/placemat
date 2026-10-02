@@ -1,0 +1,116 @@
+"""A source placed before its limit partner is not left a spot with no room for the partner (and the
+other way round): the search looks ahead to the unplaced counterpart's legal spots. Pure: synthetic boards."""
+import dataclasses
+
+import pytest
+
+from placemat.layout import Board
+from placemat.settings import Settings
+from placemat.values import Face, Location, PadRef, Part, Polar, Priority
+from tests.fixtures import board_geometry, footprint
+
+EMITS = "magnetic:3.2mT@13.5mm^3"
+LIMIT = "magnetic:0.5mT"
+REACH = 13.5 * (3.2 / 0.5) ** (1.0 / 3.0)       # 25.1 mm
+R = 24.0                                         # the disc's radius: no spot 25.1 mm from its centre is left on it
+CENTRE = Location(R, R)
+
+
+def _fps():
+    m1 = footprint("M1", 70, 10, w=4, h=4, inst="m1", nets=("A", "GND"), fields={"Pm.Emits": EMITS})
+    u2 = footprint("U2", 70, 20, w=2, h=2, inst="u2", nets=("SIG", "GND"), fields={"Pm.Limit": LIMIT})
+    return [m1, u2]
+
+
+def _board(settings=None, fps=None, band=(0.0, 6.0)):
+    fps = fps or _fps()
+    b = Board(board_geometry(fps, width=80, height=80), edge_margin=0.4, keep_going=True,
+              **({"settings": settings} if settings else {}))
+    b.disc(2 * R)
+    b.place(Part("m1"), at=Polar(band, None, about=CENTRE), priority=Priority.HIGH, step=1.0)
+    b.place(Part("u2"), priority=Priority.HIGH, face=Face.EITHER, step=1.0)
+    return b
+
+
+def _gap(plan, a="m1", b="u2"):
+    return plan.box(a).center.distance(plan.box(b).center)
+
+
+def test_a_source_leaves_its_partner_a_spot_when_the_centre_would_not():
+    plan = _board().resolve()
+    assert plan.placement("m1") is not None and plan.placement("u2") is not None, plan.findings
+    assert _gap(plan) >= REACH - 1e-6
+
+
+def test_without_the_look_ahead_the_centre_leaves_the_partner_nothing():
+    plan = _board(dataclasses.replace(Settings(), place_lookahead=False)).resolve()
+    assert plan.placement("m1") is not None
+    assert plan.placement("u2") is None
+    assert plan.placement("m1") != _board().resolve().placement("m1")
+
+
+def test_a_source_with_room_for_its_partner_is_placed_as_before():
+    wide = Board(board_geometry(_fps(), width=80, height=80), edge_margin=0.4, keep_going=True)
+    wide.disc(2 * 40.0)
+    wide.place(Part("m1"), at=Polar((0.0, 6.0), None, about=Location(40, 40)), priority=Priority.HIGH, step=1.0)
+    wide.place(Part("u2"), priority=Priority.HIGH, face=Face.EITHER, step=1.0)
+    off = Board(board_geometry(_fps(), width=80, height=80), edge_margin=0.4, keep_going=True,
+                settings=dataclasses.replace(Settings(), place_lookahead=False))
+    off.disc(2 * 40.0)
+    off.place(Part("m1"), at=Polar((0.0, 6.0), None, about=Location(40, 40)), priority=Priority.HIGH, step=1.0)
+    off.place(Part("u2"), priority=Priority.HIGH, face=Face.EITHER, step=1.0)
+    a, b = wide.resolve(), off.resolve()
+    assert a.placement("m1") == b.placement("m1") and a.placement("u2") == b.placement("u2")
+
+
+def _sensitive_first(settings=None):
+    """The sensitive part is the larger, so it is placed first; a link to a part at the disc's centre
+    pulls it there, and the source it leaves a spot for is searched wide."""
+    m1 = footprint("M1", 70, 10, w=2, h=1, inst="m1", nets=("A", "GND"), fields={"Pm.Emits": EMITS})
+    u2 = footprint("U2", 70, 20, w=2, h=3, inst="u2", nets=("SIG", "GND"), fields={"Pm.Limit": LIMIT})
+    j1 = footprint("J1", 70, 30, w=1, h=1, inst="j1", nets=("SIG", "PWR"))
+    b = Board(board_geometry([m1, u2, j1], width=80, height=80), edge_margin=0.4, keep_going=True,
+              **({"settings": settings} if settings else {}))
+    small = 23.0
+    mid = Location(small, small)
+    b.disc(2 * small)
+    b.place(Part("j1"), at=mid)
+    b.link(PadRef(Part("u2"), "SIG"), PadRef(Part("j1"), "SIG"), weight=10)
+    b.place(Part("u2"), at=Polar((0.0, 6.0), None, about=mid), priority=Priority.HIGH, step=1.0)
+    b.place(Part("m1"), priority=Priority.HIGH, face=Face.EITHER, step=1.0)
+    return b.resolve()
+
+
+def test_a_sensitive_part_placed_first_leaves_its_source_a_spot():
+    plan = _sensitive_first()
+    assert plan.placement("u2") is not None and plan.placement("m1") is not None, plan.findings
+    assert _gap(plan) >= REACH - 1e-6
+
+
+def test_a_sensitive_part_placed_first_needs_the_look_ahead():
+    plan = _sensitive_first(dataclasses.replace(Settings(), place_lookahead=False))
+    assert plan.placement("u2") is not None and plan.placement("m1") is None
+
+
+def test_a_partner_that_cannot_fit_whatever_the_source_does_leaves_the_source_placed():
+    """No spot of the disc is 25.1 mm from any spot the source may take: the source is still placed, as before."""
+    b = _board(band=(0.0, 0.5))
+    plan = b.resolve()
+    assert plan.placement("m1") is not None
+    assert plan.placement("u2") is None
+
+
+def test_an_explore_variant_draws_only_among_spots_that_leave_the_partner_room():
+    from placemat.explore import Explore
+    for seed in (1, 2, 3):
+        plan = _board().resolve(explore=Explore(seed, frozenset({"m1"})))
+        assert plan.placement("m1") is not None and plan.placement("u2") is not None, (seed, plan.findings)
+        assert _gap(plan) >= REACH - 1e-6
+
+
+def test_the_native_sweep_and_the_python_sweep_choose_alike(monkeypatch):
+    from placemat import placer
+    native = _board().resolve()
+    monkeypatch.setattr(placer, "NATIVE_SWEEP", False)
+    python = _board().resolve()
+    assert native.placement("m1") == python.placement("m1") and native.placement("u2") == python.placement("u2")

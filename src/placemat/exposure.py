@@ -48,6 +48,25 @@ class Emission:
             return float("inf")
 
 
+def reach(emissions, budget: float) -> float:
+    """The distance inside which the emissions' summed value exceeds `budget`; inf when none that is finite."""
+    if len(emissions) == 1:
+        return emissions[0].radius(budget)
+    total = lambda r: sum(e.at(r) for e in emissions)
+    hi = max(e.r_ref for e in emissions)
+    for _ in range(200):
+        if total(hi) <= budget:
+            break
+        hi *= 2.0
+    else:
+        return float("inf")
+    lo = 0.0
+    for _ in range(80):
+        mid = (lo + hi) / 2.0
+        lo, hi = (mid, hi) if total(mid) > budget else (lo, mid)
+    return hi
+
+
 @dataclass(frozen=True)
 class Source:
     ref: str

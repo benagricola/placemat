@@ -1718,6 +1718,24 @@ line, a ring or a spoke is held by the discs alone. A limit the sources placed b
 the source placed next (no place helps it); the price stays. Two parts that
 each emit and limit one kind (heat) are judged the same way.
 
+**Look-ahead.** A part searched while the other part of a pair is still to
+be searched is not left a spot that leaves the other none. The search finds
+the other part's legal spots once (its own search as it stands: its faces,
+turns, band and `Near`, on a grid of `place.lookahead_step`, or its own
+`step=` if that is coarser) and refuses a candidate with no spot of the
+other at the distance its limit asks, less what sources already placed add
+there, and a grid step to spare. A source's candidate is asked the distance
+from its emission point to the partner's sense points and its body to the
+partner's disc; a sensitive part's candidate, its sense point to the source's
+emission points. Nothing is declared: a source held near the middle of a
+small round board leaves its limit partner the far side of the board.
+When no candidate leaves room the part is placed as before (the other part
+then ends unplaced with its usual finding); the step's note says so. Only a
+partner that is a loose part or a cell searched in the open, in a band or
+`Near` is looked ahead for: a partner that is decided, on an edge, a run, a
+ring, a spoke or a line, in a block, or carried by another item is not.
+`place.lookahead = false` switches it off.
+
 `board.push` on an annotated item adds to its annotated pushes. A part
 placed to measure a source (a temperature sensor beside a converter)
 carries no limit for that kind; keep it close with `Near` or a link.
@@ -3266,6 +3284,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.rotations` | "all" | a searched part with no `rotation=` or `rotations=`: `all` four rotations, or only its `declared` one |
 | `place.bearing_step` | 5.0 | degrees between the turns of `rotations=Turns.ANY` |
 | `place.tangent_bin` | 10.0 | degrees of bearing a `Turns.TANGENT` search turns as one: a spot takes its bin's turn |
+| `place.lookahead` | true | a `Pm.Emits` / `Pm.Limit` part is placed where its still-unplaced partner keeps a legal spot at the limit distance |
+| `place.lookahead_step` | 1.0 | mm: the grid the partner's legal spots are found on for that (its own step if coarser) |
 | `place.envelope` | "courtyard" | what a part claims against another: `courtyard` (its courtyard and pads), `physical` (its pads, mask openings, silk and body, each at the board's own gap), or `union` (both) |
 | `place.coarse_steps` | 4 | how many steps apart a scored scan's first pass walks |
 | `place.coarse_from` | 12 | radius-to-step ratio from which a scan goes coarse first |

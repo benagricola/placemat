@@ -5,6 +5,19 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A `Pm.Emits` / `Pm.Limit` pair is not lost to the order its parts are
+  searched in.** A source placed first could take the spot nearest the middle
+  of a small round board and leave its limit partner no spot at the limit
+  distance, the pair then fitting or not by where an unrelated hint landed.
+  The part searched first is now refused the candidates that leave the other
+  no legal spot (and the source is placed as before where none does). Scripts
+  change nothing. New settings `place.lookahead` (true) and
+  `place.lookahead_step` (1.0 mm). `api.md`, "Push, annotated".
+
 ## To 0.77.0
 
 ### New
