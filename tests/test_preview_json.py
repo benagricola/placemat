@@ -107,3 +107,30 @@ def test_an_unplaced_step_has_no_shapes():
     seen = {}
     b.resolve(on_step=lambda p, s: seen.__setitem__(s.item, item_json(p, s, declared_sites(b))))
     assert seen["big"]["placed"] is False and seen["big"]["members"] == [] and seen["big"]["at"] is None
+
+
+def test_the_page_gets_a_keepouts_terms_a_links_kind_a_vias_layers_and_the_boards_copper_layers():
+    b, plan = _plan()
+    doc = plan_json(plan, declared_sites(b))
+    k = doc["keepouts"][0]
+    assert k["why"] == "a clearance" and k["layers"] is None and "tracks" in k["excludes"] and k["allow"] == []
+    assert [l["kind"] for l in doc["links"]] == ["SHORT", "DEFAULT"] and [l["weight"] for l in doc["links"]] == [8, 1]
+    via = [c for c in doc["copper"] if c["t"] == "via"][0]
+    assert via["layers"] == []                          # a through via spans every layer
+    assert doc["layers"][0] == "F.Cu" and doc["layers"][-1] == "B.Cu"
+
+
+def test_a_keepouts_step_places_no_part_so_it_has_no_shapes_to_draw():
+    b, plan = _plan()
+    doc = plan_json(plan, declared_sites(b))
+    drawn = [i["key"] for i in doc["items"] if any(m["shapes"] for m in i["members"])]
+    assert "clear" not in drawn and set(drawn) == {"j1", "k1", "u1", "r1"}
+    assert any(s["kind"] == "keepout" for s in doc["steps"])
+
+
+def test_silk_text_carries_its_justification_rotation_and_mirroring():
+    from placemat.copper import Text
+    b, plan = _plan()
+    plan.copper.append(Text("TOP", Location(5, 5), Face.BACK, 0.8, 0.12, 90.0, "left", "bottom", mirrored=True))
+    t = [c for c in plan_json(plan, declared_sites(b))["copper"] if c["t"] == "text"][-1]
+    assert (t["rotation"], t["hjust"], t["vjust"], t["mirrored"], t["thickness"], t["face"]) == (90.0, "left", "bottom", True, 0.12, "back")

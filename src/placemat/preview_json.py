@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 
-from .board_geometry import members_of
+from .board_geometry import members_of, stackup_order
 from .copper import Pour, Text, Track, Via, Zone, arc_circle
 from .preview import HEAT_MIN, _AT, _board_loops, _drawn_at, _extent, _face_of, _placed
 
@@ -105,13 +105,25 @@ def _copper(op) -> dict | None:
                 out["mid"] = _pt(op.mid)
         return out
     if isinstance(op, Via):
-        return {"t": "via", "net": op.net, "at": _pt(op.at), "size": _r(op.size), "drill": _r(op.drill)}
+        return {"t": "via", "net": op.net, "at": _pt(op.at), "size": _r(op.size), "drill": _r(op.drill),
+                "layers": [l.value for l in sorted(op.layers, key=stackup_order)]}
     if isinstance(op, (Zone, Pour)):
         return {"t": "plane" if isinstance(op, Zone) else "pour", "net": op.net, "layer": layer, "face": face,
                 "points": _poly(op.points)}
     if isinstance(op, Text):
-        return {"t": "text", "text": op.text, "at": _pt(op.at), "face": op.face.value, "size": _r(op.size)}
+        return {"t": "text", "text": op.text, "at": _pt(op.at), "face": op.face.value, "size": _r(op.size),
+                "rotation": _r(op.rotation), "hjust": op.hjust, "vjust": op.vjust, "mirrored": bool(op.mirrored),
+                "thickness": _r(op.thickness), "knockout": bool(op.knockout)}
     return None
+
+
+def _weight_name(weight) -> str:
+    """A link's weight as the script names it: FREE, DEFAULT, PREFER or SHORT, else the number."""
+    from .values import LinkWeight
+    try:
+        return LinkWeight(int(weight)).name
+    except ValueError:
+        return str(int(weight))
 
 
 def _links(plan) -> list:
@@ -127,7 +139,7 @@ def _links(plan) -> list:
         state = "free" if l.limit_mm is None else ("ok" if d <= l.limit_mm + 1e-9 else "over")
         out.append({"a": [l.a[0], str(l.a[1])], "b": [l.b[0], str(l.b[1])], "pa": _pt(a), "pb": _pt(b),
                     "length": _r(d), "limit": None if l.limit_mm is None else _r(l.limit_mm), "state": state,
-                    "why": l.why})
+                    "why": l.why, "weight": int(l.weight), "kind": _weight_name(l.weight)})
     return out
 
 
@@ -165,11 +177,15 @@ def board_json(plan) -> dict:
         k = plan.keepouts[name]
         poly = getattr(k, "poly", None) or getattr(k, "polygon", None)
         if poly:
-            keepouts.append({"name": name, "poly": _poly(poly)})
+            keepouts.append({"name": name, "poly": _poly(poly), "why": getattr(k, "why", ""),
+                             "layers": None if getattr(k, "layers", None) is None else [l.value for l in sorted(k.layers, key=stackup_order)],
+                             "excludes": list(getattr(k, "excludes", ())), "allow": sorted(getattr(k, "allow", ())),
+                             "max_height": getattr(k, "max_height", None)})
     reservations = []
     for r in plan.occupancy.reservations:
         face = _face_of(r.layer) if r.layer is not None else None
-        reservations.append({"poly": _poly(r.poly), "why": r.why, "face": face.value if face is not None else None})
+        reservations.append({"poly": _poly(r.poly), "why": r.why, "face": face.value if face is not None else None,
+                             "source": r.source, "allow": sorted(r.allow), "rule_area": bool(r.courtyard)})
     ext = _extent(plan)
     return {"board": {"loops": [_poly(l) for l in _board_loops(plan)], "drawn": bool(plan.draw_outline),
                       "extent": [_r(ext.left), _r(ext.top), _r(ext.right), _r(ext.bottom)]},
@@ -198,6 +214,7 @@ def plan_json(plan, sites: dict | None = None, score: dict | None = None) -> dic
         "version": VERSION, **board_json(plan),
         "items": items, "copper": copper, "links": _links(plan),
         "congestion": _congestion(plan), "findings": _findings(plan, seen), "steps": steps, "unplaced": unplaced,
+        "layers": [l.value for l in sorted(plan.geometry.layers, key=stackup_order)],
         "pocketed": list(plan.pocketed),
         "counts": {"placed": sum(1 for s in plan.steps if s.placement is not None), "findings": len(plan.findings),
                    "severities": plan.findings.by_severity(), "items": len(items), "copper": len(copper), "unplaced": len(unplaced)},
