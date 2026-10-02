@@ -27,6 +27,7 @@ FOOT = 3.0              # mm below the panels, for their axis labels
 GAP = 6.0               # mm between panels
 SIDE = 46.0             # mm of the column beside the panels
 FONT = 0.9              # mm, a reference's text
+HEAT_MIN = 0.05         # a congestion cell below this share of its capacity is not drawn
 TAG = 0.75              # mm, an annotation tag's radius: the tag on the image, its text from the command
 
 _COLOUR = {"pad": "#e8a33d", "through": "#c9a227", "courtyard": "#c03cc0", "body": "#4a7fc1", "silk": "#222222",
@@ -126,7 +127,7 @@ def _heat(panel: _Panel, rudy):
     panel.add('<g class="heat">')
     for j, row in enumerate(rudy.util):
         for i, u in enumerate(row):
-            if u <= 0.05:
+            if u <= HEAT_MIN:
                 continue
             t = min(u, 1.5) / 1.5
             colour = "#%02x%02x%02x" % (255, int(240 * (1 - t) + 15), int(160 * (1 - t)))

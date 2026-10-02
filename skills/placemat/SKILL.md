@@ -263,7 +263,8 @@ model into declarations.
    pixels a millimetre; for small passives draw `--around <part>` or
    `--zoom` and aim for 20 px/mm (40 for 0201s; set `[preview] model_edge`
    to what your model sees). Gaps are numbers - `measure`, `occupancy`, the
-   findings - not pixels.
+   findings - not pixels. To let the user watch a series of edits live, tell
+   them to run `placemat studio <script>` (`api.md`, "Studio").
 4. **Before reading a board's numbers, run `placemat settings`**: a
    `placemat.toml` anywhere from the board's directory up can change any
    value, and the command says which file each came from.

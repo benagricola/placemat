@@ -225,6 +225,13 @@ def parser() -> argparse.ArgumentParser:
     pv.add_argument("--accept", action="store_true",
                      help="with --explore: write the best variant's decisions to the lock and use them")
 
+    st = sub.add_parser("studio", help="a local page that shows the layout as it is made: the board re-resolved as the "
+                                        "script, its modules or placemat.toml change, each step as it settles, and what "
+                                        "the last edit moved")
+    st.add_argument("script", help="a layout script")
+    st.add_argument("--port", type=int, help="the port to listen on, 127.0.0.1 only (default [studio] port; 0: any free one)")
+    st.add_argument("--no-open", action="store_true", help="print the address without opening the browser")
+
     fz = sub.add_parser("freeze", help="move lock entries into the script's place() calls, if the script then "
                                        "places exactly as the lock did")
     fz.add_argument("script", help="the board's layout script")
@@ -1026,6 +1033,11 @@ def cmd_preview(args) -> int:
     return 0
 
 
+def cmd_studio(args) -> int:
+    from .studio import run
+    return run(args.script, port=args.port, open_browser=False if args.no_open else None)
+
+
 def cmd_occupancy(args) -> int:
     from . import queries
     from .kicad.read import read_board
@@ -1317,7 +1329,8 @@ def _dispatch(args) -> int:
     return {"run": cmd_run, "lock": cmd_lock, "freeze": cmd_freeze, "impact": cmd_impact, "drc": cmd_drc, "measure": cmd_measure,
             "route": cmd_route, "routes": cmd_routes, "check": cmd_check, "show": cmd_show, "layer": cmd_layer, "faces": cmd_faces,
             "settings": cmd_settings, "parts": cmd_parts, "nets": cmd_nets, "facts": cmd_facts,
-            "datasheet": cmd_datasheet, "occupancy": cmd_occupancy, "preview": cmd_preview}[args.command](args)
+            "datasheet": cmd_datasheet, "occupancy": cmd_occupancy, "preview": cmd_preview,
+            "studio": cmd_studio}[args.command](args)
 
 
 if __name__ == "__main__":

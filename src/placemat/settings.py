@@ -215,6 +215,14 @@ class Settings:
     cleanup_swap_neighbours: int = 4    # each part is offered a swap with this many of its nearest movable neighbours
     cleanup_swap_radius: float = 1.0    # how far round the other's old spot each part of a swap is searched
 
+    # [studio] - `placemat studio`'s server and watcher; not part of a run's id
+    studio_port: int = 0                # the port the server listens on (127.0.0.1 only); 0: any free one
+    studio_debounce_ms: int = 300       # a change starts a resolve after this long without another
+    studio_open: bool = True            # open the browser on the page
+    studio_keep: int = 10               # resolves kept for comparing any two
+    studio_poll_ms: int = 200           # how often the watched files' modification times are read
+    studio_cancel_grace_ms: int = 2000  # a resolve asked to stop that has not by then has its worker restarted
+
     # [facts] - placemat's own record, not a board fact: never part of a run's id
     facts_confirmed: str = ""           # the old single digest, read for any script with no entry of its own in facts_boards
     facts_boards: dict = field(default_factory=dict)   # script path (relative to the placemat.toml holding this table) -> digest
@@ -234,10 +242,11 @@ class Settings:
         """Canonical, for the run id: the values only, sorted, stable across
         dict ordering. facts_confirmed and facts_boards are left out: it is placemat's own
         record of a user's confirmation, not a fact that changes a run, so
-        confirming never gives a script a new run id."""
+        confirming never gives a script a new run id. The studio's settings are
+        left out too: they say how a view is served, not what is placed."""
         out = {}
         for name in self.keys():
-            if name in ("facts_confirmed", "facts_boards"):
+            if name in ("facts_confirmed", "facts_boards") or name.startswith("studio_"):
                 continue
             v = getattr(self, name)
             out[name] = sorted(v.items()) if isinstance(v, dict) else (
@@ -336,11 +345,11 @@ _ABOVE_ZERO = frozenset((
     "copper_plane_min_thickness", "copper_pour_stroke", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_size",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_neck_resistivity", "check_neck_conductivity",
-    "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
+    "studio_keep", "studio_poll_ms", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line", "write_keepout_text"))
 _AT_LEAST_ZERO = frozenset((
-    "rank_area", "rank_pins", "place_drops_keep", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge", "copper_chamfer", "best_airwire_noise",
+    "rank_area", "rank_pins", "place_drops_keep", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
     "best_crossing_noise", "score_unplaced", "score_priority_high", "score_priority_default", "score_priority_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",

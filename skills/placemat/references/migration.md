@@ -5,6 +5,21 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **`placemat studio <script>`: the layout live in a browser.** A local page
+  (127.0.0.1, a token in the address) that watches the script, its imports,
+  its lock and the board's `placemat.toml` files, re-resolves a moment after
+  each change with a warm worker (replaying what the edit did not change, as
+  `preview` does), and shows each step as it settles, the findings, the
+  script beside the board linked both ways, and a compare with the resolve
+  before: the changed lines and the items they moved, ghosts and arrows,
+  copper and findings gained and lost. Read only; edit the script elsewhere.
+  New settings `[studio] port`, `debounce_ms`, `open`, `keep`, `poll_ms` and
+  `cancel_grace_ms`. Scripts change nothing. `api.md`, "Studio".
+
 ## To 0.81.2
 
 ### Fixed

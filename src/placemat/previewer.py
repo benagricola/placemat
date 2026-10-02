@@ -5,6 +5,7 @@ rendering it. The PNG comes from an external converter, run here; without
 one the SVG is the preview."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 import math
 from pathlib import Path
@@ -121,15 +122,23 @@ def written_pads(pcb) -> dict:
     return {(fp.inst, n): (c.x, c.y) for fp in read_board(pcb).footprints for n, c in _pad_centres(fp).items()}
 
 
-def newest_record(candidates) -> tuple:
+def newest_record(candidates, memo: dict | None = None) -> tuple:
     """(record, where it came from) of the newest readable reuse record among
-    `candidates` - (path, label) pairs - or (None, None)."""
+    `candidates` - (path, label) pairs - or (None, None). `memo`, kept by the
+    caller, holds {path: (mtime_ns, record)}: a file not modified since it was
+    read is not read again."""
     best = None
     for path, label in candidates:
         path = Path(path)
         if not path.exists():
             continue
-        record = reuse_mod.read(path)
+        held = memo.get(str(path)) if memo is not None else None
+        if held is not None and held[0] == path.stat().st_mtime_ns:
+            record = held[1]
+        else:
+            record = reuse_mod.read(path)
+            if record is not None and memo is not None:
+                memo[str(path)] = (path.stat().st_mtime_ns, record)
         if record is None:
             continue
         stamp = path.stat().st_mtime
@@ -156,16 +165,36 @@ def svg_width_mm(svg_text: str) -> float:
     return float(m.group(1)) if m else 100.0
 
 
-def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, heat: bool = True,
-            links: bool = True, copper: bool = True, region=None, around: str | None = None,
-            margin: float = 5.0, quiet: bool = False, explore=None, tags: bool = True) -> Preview:
-    from .board_geometry import members_of
-    from .preview import draw_annotated
+@dataclass
+class Resolved:
+    """What resolving a script for a view leaves: the board it ran against,
+    the plan, the settings and fab profile bound for it, the record replayed
+    and where that came from, and what it wrote beside."""
+    src: object
+    cfg: object
+    board: object
+    plan: object
+    previous: object
+    source: object
+    parts: dict
+    out: Path
+    stale: str = ""
+
+
+@contextmanager
+def resolved(script, out=None, explore=None, quiet: bool = False, progress=None, on_step=None, cache=None,
+             on_board=None):
+    """Place the board as a run does - the cached generation, the settings,
+    the fab profile, the script, the newest of the last view's record and the
+    last run's replayed - and write nothing but this view's own record. The
+    settings are bound while the caller holds the result. `progress` and
+    `on_step` are `Board.resolve`'s; `on_board` is called with the board once the script has run on it, before it resolves. `cache`, a dict the caller keeps between
+    calls, holds the generation read and its digests: a view resolving again
+    does not read the board file again unless it changed."""
     from .project import fab_profile, find_board, note_views
     from .report import latest_for
     from .runner import cached_generation, reuse_parts, scripted_board, stale_inputs
     from . import settings as settings_mod
-    from .values import Box
     script = Path(script).resolve()
     src = find_board(script)
     cfg = settings_mod.load(src.board_dir, script=script)
@@ -184,9 +213,19 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
                              "`placemat run %s` generates it again" % (stale, script.name), level="finding")
     with settings_mod.bind(cfg):
         fab = fab_profile(src.board_dir)
-        board = scripted_board(script, src, cfg, fab, keep_going=True, pcb=generated)
-        parts = reuse_parts(src, cfg, fab, pcb=generated)
+        stamp = (generated.stat().st_mtime_ns, generated.stat().st_size, fab.courtyard_excess)
+        held = cache.get("generation") if cache is not None else None
+        geometry = held[1] if held is not None and held[0] == stamp else None
+        board = scripted_board(script, src, cfg, fab, keep_going=True, pcb=generated, geometry=geometry)
+        if cache is not None and geometry is None:
+            cache["generation"] = (stamp, board.geometry)
+        digest = cache.get("digest") if cache is not None else None
+        parts = reuse_parts(src, cfg, fab, pcb=generated, board_digest=digest[1] if digest and digest[0] == stamp else None)
+        if cache is not None:
+            cache["digest"] = (stamp, parts["board"])
         board.reuse_extra = "|".join(parts[k] for k in ("tool", "board", "settings", "fab"))
+        if on_board is not None:
+            on_board(board)
         runs = src.board_dir / ".placemat" / "runs"
         candidates = [(out / "reuse.json", "the last preview")]
         try:
@@ -195,14 +234,15 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
                 candidates.append((Path(last.paths.get("run_dir", "")) / "reuse.json", "run %s" % last.run_id))
         except (ValueError, TypeError, KeyError, OSError):
             pass
-        previous, source = newest_record(candidates)
+        previous, source = newest_record(candidates, memo=None if cache is None else cache.setdefault("records", {}))
         from . import explore as explore_mod
         say = (lambda stage, text: None) if quiet else (lambda stage, text: console.say(stage, text))
         lock_entries, explored = explore_mod.before_resolve(
             script, board, explore_mod.BoardFactory(script, src, cfg, fab, True, board.geometry),
             explore, say)
         from . import routes as routes_mod
-        plan = board.resolve(reuse=previous, lock=lock_entries, routes=routes_mod.read(routes_mod.path_for(script)))
+        plan = board.resolve(reuse=previous, lock=lock_entries, routes=routes_mod.read(routes_mod.path_for(script)),
+                             progress=progress, on_step=on_step)
         held = explore_mod.lock_summary(plan)
         if held and not quiet:
             console.say("lock", held)
@@ -211,6 +251,20 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
             console.say("adopted", kept)
         plan.reuse["parts"] = parts
         reuse_mod.write(out / "reuse.json", plan.reuse)
+        yield Resolved(src, cfg, board, plan, previous, source, parts, out, stale)
+
+
+def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, heat: bool = True,
+            links: bool = True, copper: bool = True, region=None, around: str | None = None,
+            margin: float = 5.0, quiet: bool = False, explore=None, tags: bool = True) -> Preview:
+    from .board_geometry import members_of
+    from .preview import draw_annotated
+    from .project import find_board
+    from .values import Box
+    script = Path(script).resolve()
+    out = Path(out) if out else find_board(script).board_dir / ".placemat" / "views" / "preview"
+    with resolved(script, out, explore=explore, quiet=quiet) as r:
+        src, cfg, plan, previous, source = r.src, r.cfg, r.plan, r.previous, r.source
         if around is not None:
             fps = [fp for s in plan.steps if s.item == around and s.placement is not None
                    for fp in members_of(plan._items[around])]
