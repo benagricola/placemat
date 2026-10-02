@@ -48,7 +48,7 @@ def run_script(path, real):
     module = importlib.util.module_from_spec(spec)
     sys.dont_write_bytecode = True
     # The script's own directory is importable while it runs, and so is each
-    # folder above it up to the one holding the nearest placemat.toml, so
+    # folder above it up to the one holding the outermost placemat.toml, so
     # helpers shared by the scripts of a board's modules can live in the
     # board's folder. What it imported from them is dropped afterwards: the
     # next run reads it again.
@@ -71,12 +71,17 @@ def run_script(path, real):
 
 
 def _import_dirs(path: Path) -> list:
-    """The script's folder, then each one above it up to and including the
-    one that holds the nearest placemat.toml; the script's folder alone when
-    no placemat.toml is above it."""
+    """The script's folder, then each one above it up to and including the one
+    that holds the outermost placemat.toml (the project root: the first file
+    settings merges); the script's folder alone when no placemat.toml is above
+    it. A placemat.toml beside a module does not cut it off from the helpers in
+    the folders above."""
+    from .settings import _files
+    found = _files(path.parent)
+    if not found:
+        return [path.parent]
+    top = found[0].parent
     out = [path.parent]
-    for d in path.parent.parents:
-        if (out[-1] / "placemat.toml").exists():
-            return out
-        out.append(d)
-    return [path.parent]
+    while out[-1] != top:
+        out.append(out[-1].parent)
+    return out

@@ -310,12 +310,18 @@ def _show(v) -> str:
     return "%s" % (v,)
 
 
+def _script_of(p):
+    """`p` when it is a layout script (so its [scripts.\"...\"] settings apply), else None."""
+    p = Path(p)
+    return p if p.is_file() and p.suffix == ".py" else None
+
+
 def cmd_settings(args) -> int:
     from .settings import load, Settings, split_key
     from .project import find_board
     p = Path(args.where)
     start = p if p.is_dir() else find_board(p).board_dir
-    s = load(start)
+    s = load(start, script=_script_of(p))
     if args.json:
         console.data(json.dumps({k: {"value": _plain(getattr(s, k)), "source": s.source_of(k)}
                                  for k in Settings.keys()}, indent=2, sort_keys=True))
@@ -551,7 +557,7 @@ def cmd_route(args) -> int:
     src = None if p.suffix == ".kicad_pcb" else find_board(p)
     pcb = p if src is None else src.pcb
     work = Path(args.out) if args.out else pcb.parent.parent.parent / ".placemat" / "route"
-    cfg = load(src.board_dir if src is not None else pcb.parent)       # the board's own [route] settings
+    cfg = load(src.board_dir if src is not None else pcb.parent, script=_script_of(p))       # the board's own [route] settings
     from .kicad.route import plane_nets_of
     planes = plane_nets_of(pcb)             # served by their pours, as run --route leaves them
     with bind(cfg):
@@ -721,7 +727,7 @@ def cmd_measure(args) -> int:
         return 0
     if getattr(args, "copper", None) is not None:
         from .settings import load
-        tol = load(find_board(p).board_dir if p.suffix != ".kicad_pcb" else pcb.parent).copper_straight_tolerance
+        tol = load(find_board(p).board_dir if p.suffix != ".kicad_pcb" else pcb.parent, script=_script_of(p)).copper_straight_tolerance
         if args.json:
             console.data(json.dumps({"segments": describe.copper_segments(snap, args.copper, tol),
                                      "polygons": describe.copper_polygons(snap, args.copper)}, indent=2))
@@ -776,7 +782,7 @@ def cmd_parts(args) -> int:
     src = None if p.suffix == ".kicad_pcb" else find_board(p)
     pcb = p if src is None else src.pcb
     snap = read_board(pcb)
-    cfg = load(src.board_dir if src is not None else pcb.parent)
+    cfg = load(src.board_dir if src is not None else pcb.parent, script=_script_of(p))
     warnings = describe.order_warnings(snap, cfg.parts_order_fields)
     fragments = None
     if getattr(args, "fragments", False):
@@ -1029,7 +1035,7 @@ def cmd_occupancy(args) -> int:
     p = Path(args.pcb)
     src = None if p.suffix == ".kicad_pcb" else find_board(p)
     pcb = p if src is None else src.pcb
-    with bind(load(src.board_dir if src is not None else pcb.parent)):
+    with bind(load(src.board_dir if src is not None else pcb.parent, script=_script_of(p))):
         g = read_board(pcb)
         adopt_tolerance = active().route_adopt_tolerance
 
@@ -1241,7 +1247,7 @@ def cmd_check(args) -> int:
     p = Path(args.pcb)
     src = None if p.suffix == ".kicad_pcb" else find_board(p)
     pcb = p if src is None else src.pcb
-    cfg = load(src.board_dir if src is not None else pcb.parent, overrides=overrides_from(args))
+    cfg = load(src.board_dir if src is not None else pcb.parent, overrides=overrides_from(args), script=_script_of(p))
     with bind(cfg):
         geometry = read.read_board(pcb)
         verdicts = checks.run_checks(geometry, **check_kwargs(cfg))
@@ -1262,7 +1268,7 @@ def cmd_facts(args) -> int:
     from .settings import bind, load
     script = Path(args.script).resolve()
     src = find_board(script)
-    cfg = load(src.board_dir)
+    cfg = load(src.board_dir, script=script)
     fab = fab_profile(src.board_dir)
     # the board as generated, as `run` reads it: the written layout carries the last run's own rule areas
     generated = cached_generation(src) / src.pcb.name

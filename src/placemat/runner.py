@@ -256,7 +256,7 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
     run and delete it."""
     script = Path(script).resolve()
     src = find_board(script)
-    cfg = settings.load(src.board_dir, overrides=overrides or {})
+    cfg = settings.load(src.board_dir, overrides=overrides or {}, script=script)
     with settings.bind(cfg):
         return _run(script, src, cfg, label=label, fresh=fresh, render=render, drc=drc,
                     quiet=quiet, verbose=verbose, route=route, route_quick=route_quick,

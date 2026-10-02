@@ -216,7 +216,7 @@ def freeze(script, keys, fixed: bool = False) -> dict:
     import time
     date = time.strftime("%Y-%m-%d")
     src = find_board(script)
-    cfg = settings_mod.load(src.board_dir)
+    cfg = settings_mod.load(src.board_dir, script=script)
     generated = cached_generation(src) / src.pcb.name
     with settings_mod.bind(cfg):
         fab = fab_profile(src.board_dir)

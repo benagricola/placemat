@@ -3025,7 +3025,9 @@ file changed; `--fresh` regenerates regardless. `placemat preview` never
 generates, and says when the cache it draws from is out of date.
 
 A script runs with its own directory importable, and each folder above it
-up to the one holding the nearest `placemat.toml`, innermost first: geometry
+up to the one holding the outermost `placemat.toml` (the project root),
+innermost first, so a `placemat.toml` beside a module does not cut it off from
+the folders above: geometry
 several scripts share can live in a module beside them, or in the board's
 folder when each module's script sits in a folder of its own
 (`import core_geometry`). A change to such a module changes the run id.
@@ -3305,7 +3307,29 @@ The resolved settings are part of a run's id, so changing one gives a new run
 rather than replacing the last one.
 
 `placemat settings [<script-or-dir>] [--json]` prints every resolved value and
-the file it came from.
+the file it came from; given a script, it shows that script's overrides too.
+
+### Per-script settings
+
+A project that keeps one `placemat.toml` for a board and its module scripts
+sets a value for one script in a `scripts` table keyed by the script's path
+relative to the file, the way `[facts.boards]` is, then the section:
+
+```toml
+[solve]
+enabled = false
+
+[scripts."modules/m/M_layout.py".solve]
+enabled = true
+```
+
+Sections and keys are the base ones, checked the same way: an unknown key, a
+wrong type, a path naming no script beside the file, or a `[facts]` section is
+an error naming the file and the table, whichever script is running. The
+override is applied over the base for that script only, after every file's base
+values and before a CLI flag; `placemat settings <script>` gives its source as
+`<file> [scripts."<path>"]`. The resolved settings include it, so the run id
+and the reuse digest differ from another script's.
 
 ```toml
 # electronics/placemat.toml
