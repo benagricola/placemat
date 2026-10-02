@@ -293,7 +293,13 @@ keep-in, and `along` the edge a number in mm, a reference, `Along.START`,
 every edge. `OnEdge(edge)` fixes one: it slides along the edge, midpoint
 alone, the k-th of n at (k+1)/(n+1) with its fellows. `Near(location)` and
 nothing fix none. Everything with a freedom left is searched, so it goes
-down with the searched items in rank order. With no `rotation=`, an item
+down with the searched items. Within a priority tier the item with fewer
+freedoms goes first: a slide (one freedom: `Centre`/`Location` with one
+axis `None`, `OnEdge(edge)`, a `Polar` ring or spoke, `OnRim()`, a stretch
+of `board.edge(facing=)`, a point whose turn is searched) before an item
+searched in two (nothing, `Near`, a `Polar` band), so a large item does not
+take the line a slide runs along. Items with the same number of freedoms
+go in rank order. With no `rotation=`, an item
 `OnEdge(edge)` with no `along=`, on a run from `board.edge(facing=)`, or on
 a rim is turned so its outward side faces out (a cell's declared
 `faces(outward=)`, a part's local +Y; see Faces); one at
@@ -461,7 +467,9 @@ down first and the small ones are fitted round them. Every step prints
 `rank 4/64 (31.5 mm2, 12th of 64; 2 pins, 41st)`, so the numbers behind
 the choice are in the log; no threshold is quoted because there is none.
 `priority=Priority.HIGH` or `LOW` is a tier ABOVE the rank, for when the
-rank is wrong, and the step then reads `(script: high)`. Items the rank
+rank is wrong, and the step then reads `(script: high)`. Within a tier a
+slide (one freedom left) goes before an item searched in two, then the rank
+orders. Items the rank
 cannot separate - a shelf of identical passives - fall through to the
 strongest link pull toward what is already placed. A place that leaves no
 freedom refuses a priority: `at=Location(...)` or `along=` goes down

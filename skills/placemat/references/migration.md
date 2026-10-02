@@ -5,6 +5,22 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A slide goes down before an item searched in two, within a tier.** A
+  `Centre(x, None, toward=Edge.SOUTH)`, an `OnEdge(edge)` with no `along=`, a
+  `Polar` ring or spoke, an `OnRim()` with no bearing, a stretch of
+  `board.edge(facing=)` with no `along=`, and a point whose turn is searched
+  have one freedom left. Such an item was ordered by courtyard area with the
+  fully searched items of its tier, so a larger item searched first could take
+  the line the slide runs along and stop it short of its end. Within a
+  priority tier the slides now go first, by rank among themselves, then the
+  items searched in two (`Near`, a `Polar` band, nothing). Tiers keep their
+  order, and a script with no slide places as before. Placements can move on
+  a board that has slides. `api.md`, "Degrees of freedom".
+
 ## To 0.78.0
 
 ### New

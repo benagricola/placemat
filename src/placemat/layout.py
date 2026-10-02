@@ -319,6 +319,19 @@ class PlaceIntent:
                 and (self.at is not None or self.center is not None))
 
     @property
+    def freedoms(self) -> int:
+        """How many freedoms the declaration leaves the search: 0 for a decided place, 1 for a slide
+        (a line, an edge, a run, a rim, a ring or a spoke, or a point whose turn is searched), 2 for
+        anything else. Read in the order `_settle` dispatches."""
+        if self.freedom.decided:
+            return 0
+        if (self.turns_on_point or self.run is not None or self.rim is not None or self.radius_at is not None
+                or self.angle is not None or self.edge is not None
+                or self.pin_x is not None or self.pin_y is not None):
+            return 1
+        return 2
+
+    @property
     def rank(self):
         if self.freedom is Freedom.FIXED:
             return (RANK_FIXED, self.index)
@@ -7509,8 +7522,9 @@ class Board:
 
     def _next_to_place(self, pending: list, occ: Occupancy, placed: set):
         """Which searched item goes next: the script's tier first, then the
-        rank (what the item IS), then the strongest pull toward what is
-        already placed, then the largest.
+        freedoms its place leaves (a slide before an item searched in two),
+        then the rank (what the item IS), then the strongest pull toward what
+        is already placed, then the largest.
 
         Pull is a TIE-BREAK. It counts an item's pads against the placed pads
         they share a net with, so it measures net fan-out, which tracks pin
@@ -7546,11 +7560,15 @@ class Board:
             self._waited.setdefault(k, partner)
         free = [o for o in ready if o.key not in waits] or ready
         scored = sorted(((measured[o.key], o) for o in free),
-                        key=lambda m: (-m[1].priority.rank, -m[0][0], -m[0][1], -m[0][2], m[1].key))
+                        key=lambda m: (-m[1].priority.rank, getattr(m[1], "freedoms", 2), -m[0][0], -m[0][1],
+                                       -m[0][2], m[1].key))
         (score, pull, area), obj = scored[0]
         # A ranked item's step is tagged with its rank already; only an unranked
         # one needs saying why it went next.
         why = "" if obj.key in self._rank_note else "next: largest (%.0f mm2)" % area
+        if getattr(obj, "freedoms", 2) == 1 and any(
+                o.priority is obj.priority and getattr(o, "freedoms", 2) > 1 for _, o in scored):
+            why = (why + "; " if why else "") + "one freedom: before the items of its tier searched in two"
         if obj.key in self._waited:
             partner = self._waited[obj.key]
             why = (why + "; " if why else "") + "waited for %s, the item it is linked to with more placed connections" % (
@@ -7561,8 +7579,9 @@ class Board:
         """{item key: the linked partner it waits for}, over declared links
         between two pending items: the one with less pull toward what is
         placed waits. Level pull waits for nothing, and nothing waits for a
-        partner of a lower priority tier: the wait orders items within a
-        tier, never across one."""
+        partner of a lower priority tier, and nothing with fewer freedoms waits
+        for a partner with more: the wait orders items within a tier and a
+        number of freedoms, never across one."""
         owner = {}
         for o in pending:
             for fp in (o.item.members if o.kind in ("block", "cell") else (o.item,)):
@@ -7577,7 +7596,8 @@ class Board:
             pa, pb = pull[a.key], pull[b.key]
             if abs(pa - pb) > 1e-9:
                 slow, fast = (a, b) if pa < pb else (b, a)
-                if fast.priority.rank >= slow.priority.rank:
+                if (fast.priority.rank >= slow.priority.rank
+                        and getattr(fast, "freedoms", 2) <= getattr(slow, "freedoms", 2)):
                     waits.setdefault(slow.key, fast.key)
         return waits
 
