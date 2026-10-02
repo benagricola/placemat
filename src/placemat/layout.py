@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 import math
 import types
 
-from .copper import (Pour, Text, Track, Via, Zone, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
+from .copper import (Pour, Text, Track, Via, Zone, arc_circle, arc_tracks, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
                      pair_ops, polyline_tracks, resolve_bridges, _point_seg)
 from .geometry import Transform, box_polygon, circle_polygon, circle_poly_gap, gap_texts, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
 from .findings import Finding, Findings
@@ -4396,7 +4396,7 @@ class Board:
         return float(width) if width is not None else self.geometry.netclass(net).track_width
 
     def track(self, net, points, *, layer: CopperLayer, width: float | None = None,
-              chamfer: float | None = None, bend: Bend | None = None,
+              chamfer: float | None = None, bend: Bend | None = None, radius: float | None = None,
               priority: Priority = Priority.DEFAULT, bridge: bool = False, why: str = ""):
         """Track segments through `points` in order, on one layer. A point is
         a Location, a pad reference, a Mid, a `Between(PadRef(a), PadRef(b))`
@@ -4408,12 +4408,27 @@ class Board:
         at the end(s) the script names, every off-grid leg of this track.
         Every corner is cut back `chamfer`
         along both legs (a right angle becomes two 45s; a short leg gets a
-        shorter cut; `chamfer=0` keeps sharp corners). `bridge=True`
+        shorter cut; `chamfer=0` keeps sharp corners). `bend=Bend.ARC` (the legs
+        as above) or `Bend.ARC_FREE` (the straight lines between the points, at any
+        angle) make every corner a circular arc tangent to both legs instead, of
+        `radius=` mm or else `copper.arc_radius_widths` times the width; a corner
+        the arc does not fit is a finding and the track is not drawn. `bridge=True`
         lets it pass under a same-layer track of another net it crosses (a
         via, a track on the opposite face, a via back) when it is the one
         that must yield: the lower priority, or at equal priority the shorter."""
         if bend is not None and not isinstance(bend, Bend):
-            raise TypeError("bend is Bend.START, Bend.END or Bend.BOTH, not %r" % (bend,))
+            raise TypeError("bend is Bend.START, Bend.END, Bend.BOTH, Bend.ARC or Bend.ARC_FREE, not %r" % (bend,))
+        arc = bend in (Bend.ARC, Bend.ARC_FREE)
+        if radius is not None and not arc:
+            raise TypeError("%s: radius= is the radius of an arc corner; give bend=Bend.ARC or Bend.ARC_FREE with it" % net)
+        if arc and chamfer is not None:
+            raise TypeError("%s: an arc track has no chamfer, its corners are arcs; drop chamfer= (radius= sets the arc)" % net)
+        if arc and bridge:
+            raise TypeError("%s: a track with arc corners cannot bridge, a bridge cuts a straight leg; use straight legs "
+                            "(drop bend=) where it must pass under a track" % net)
+        if arc and any(isinstance(p, Lane) for p in points):
+            raise TypeError("%s: a lane is reserved with its own chamfer, so a track that starts on one cannot have "
+                            "arc corners" % net)
         layer = CopperLayer.of(layer)
         if any(isinstance(p, Lane) for p in points[1:]):
             raise TypeError("%s: a lane stands for its riser, its lane and its via, so it is a track's first "
@@ -4440,6 +4455,12 @@ class Board:
         refs = _refs_in(points, via_ends=True)
         name = self.geometry.require_net(net)
         w = self._width(name, width)
+        arc_r = None
+        if arc:
+            arc_r = float(radius) if radius is not None else self.settings.copper_arc_radius_widths * w
+            if not arc_r > w / 2.0:
+                raise ValueError("%s: an arc's radius (%.3f mm) must be above half the track's width (%.3f mm); give "
+                                 "radius= or set copper.arc_radius_widths" % (name, arc_r, w / 2.0))
 
         def plan(ctx):
             lost = [p for p in points if isinstance(p, CopperIntent) and p.index not in ctx.via_at]
@@ -4480,9 +4501,21 @@ class Board:
                 return any(not (bridge and o.wire and o.kind == "copper")
                            for o in ctx.occ.copper_through(_shape_of(Track(name, layer, w, a, b))))
 
-            pts = octilinear(located, pads, clear, bend, lanes, self.settings.copper_straight_tolerance, runs_through)
-            cut_pts, diagonals = chamfer_cuts(pts, chamfer)
-            ops = polyline_tracks(name, layer, w, cut_pts)
+            if arc:
+                pts = octilinear(located, pads, clear, None, lanes, self.settings.copper_straight_tolerance,
+                                 runs_through) if bend is Bend.ARC else located
+                ops, misfits = arc_tracks(name, layer, w, pts, arc_r)
+                if misfits:
+                    ctx.notes += ["track %s: not drawn, an arc of radius %.2f mm does not fit: %s; a smaller radius=, "
+                                  "points further apart%s" % (
+                                      name, arc_r, m, ", or Bend.ARC_FREE where the octilinear legs made the short leg"
+                                      if bend is Bend.ARC else "") for m in misfits]
+                    return []
+                diagonals = []
+            else:
+                pts = octilinear(located, pads, clear, bend, lanes, self.settings.copper_straight_tolerance, runs_through)
+                cut_pts, diagonals = chamfer_cuts(pts, chamfer)
+                ops = polyline_tracks(name, layer, w, cut_pts)
             for p in corners:
                 # the lane runs past every item named, but only copper on this track's layer can be passed too close
                 on = _past_reach(self, ctx, name, w, p, intent.key, intent.index, layer)
@@ -4490,13 +4523,14 @@ class Board:
                     continue
                 box, off, names = on
                 c = _box_corner(box, p.edge)
-                near = min((_point_seg(c, t.start, t.end)[0] for t in ops), default=math.inf)
+                near = min((_point_seg(c, Location(*a), Location(*b))[0] for t in ops for a, b in t.chords()),
+                           default=math.inf)
                 if near < off - 1e-6:
                     ctx.notes.append("track %s: the points either side of its 45 past the %s corner of %s allow "
                                      "no 45 through it; the track passes that corner at %.3f mm, under the "
                                      "%.3f mm clearance" % (name, p.edge.value, ", ".join(names),
                                                             near - w / 2.0, off - w / 2.0))
-            if chamfer > 0:
+            if chamfer > 0 and not arc:
                 # the 45 a corner's own cut emits, not a straight leg that merely
                 # happens to run between two separate corners' cuts
                 import dataclasses
@@ -4504,17 +4538,23 @@ class Board:
                 ops = [dataclasses.replace(t, chamfer_cut=(
                     round(t.start.x, 6), round(t.start.y, 6), round(t.end.x, 6), round(t.end.y, 6)) in diag)
                       for t in ops]
-            if len(points) > 2 and any(not clear(t.start, t.end) for t in ops):
+            def op_clear(t):          # a drawn piece, a straight or an arc, that touches no pad of another net
+                return not ctx.occ.copper_conflicts(_shape_of(t))
+            if len(points) > 2 and any(not op_clear(t) for t in ops):
                 # the script's waypoints steer this track into a pad: would pad to pad clear?
-                direct = polyline_tracks(name, layer, w, chamfered(octilinear([located[0], located[-1]], [pads[0], pads[-1]], clear, bend,
-                                                                           tolerance=self.settings.copper_straight_tolerance), chamfer))
+                ends_only = octilinear([located[0], located[-1]], [pads[0], pads[-1]], clear, None if arc else bend,
+                                       tolerance=self.settings.copper_straight_tolerance)
+                if arc:
+                    direct, _ = arc_tracks(name, layer, w, ends_only, arc_r)
+                else:
+                    direct = polyline_tracks(name, layer, w, chamfered(ends_only, chamfer))
                 others = [t for t in ctx.planned_tracks + ctx.batch_tracks
                           if t.net != name and t.layer is layer]     # tracks not in the occupancy yet count too
 
                 def clear_of_tracks(t):
                     return all(poly_distance(t.polygon, o.polygon) >= self._clearance(name, o.net) - 1e-9
                                for o in others)
-                if all(clear(t.start, t.end) and clear_of_tracks(t) for t in direct):
+                if all(op_clear(t) and clear_of_tracks(t) for t in direct) and (direct or not arc):
                     ctx.notes.append("track %s: a waypoint steers it into another net's pad; drawn pad to pad it clears, "
                                      "so drop the waypoint(s) unless the route must go there" % name)
             if begins is not None:
@@ -5565,7 +5605,7 @@ class Board:
             r = clr + half + slack * (2 if sh.kind == "copper" and not sh.ends and not sh.owner else 1)
             if not sh.box.overlaps(span, gap=r):
                 return
-            pieces.extend(pourfit.pieces_of(sh.poly, r, sag, what, sh.circle, sh.ends))
+            pieces.extend(pourfit.pieces_of(sh.poly, r, sag, what, sh.circle, () if sh.arc else sh.ends))
 
         shapes = []
         for owner, g in occ.items.items():
@@ -5782,7 +5822,7 @@ class Board:
                 w = 2.0 * _pad_half_across(self, ctx.occ, width_pad, a, 1.0, 0.0)
             else:
                 w = 2.0 * _pad_half_across(self, ctx.occ, width_pad, ctx.locate(width_pad), dx / n, dy / n)
-            segs = [((t.start.x, t.start.y), (t.end.x, t.end.y)) for t in ctx.tracks_on(layer) if t.net != name]
+            segs = [chord for t in ctx.tracks_on(layer) if t.net != name for chord in t.chords()]
             return finger_ops(name, layer, a, b, w, segs, self.via_drill, self.via_size, bridge_width,
                               self.settings.copper_bridge_half, self.settings.copper_finger_min_piece)
         return self._copper_intent("finger %s" % name, net, priority, plan, refs, why)
@@ -7058,9 +7098,8 @@ class Board:
                 for earlier, o in batch:
                     if o.net == shape.net or not shape.box.overlaps(o.box, gap=occ._copper_reach):
                         continue
-                    if isinstance(op, Track) and isinstance(earlier, Track) and segments_intersect(
-                            (op.start.x, op.start.y), (op.end.x, op.end.y),
-                            (earlier.start.x, earlier.start.y), (earlier.end.x, earlier.end.y)):
+                    if isinstance(op, Track) and isinstance(earlier, Track) and any(
+                            segments_intersect(p1, p2, q1, q2) for p1, p2 in op.chords() for q1, q2 in earlier.chords()):
                         continue
                     why = occ._conflict(shape, o, None, exact=True)
                     if why:
@@ -7070,6 +7109,9 @@ class Board:
                     if isinstance(op, Track) and op.chamfer_cut:
                         mx, my = (op.start.x + op.end.x) / 2.0, (op.start.y + op.end.y) / 2.0
                         note += "; the 45 of its chamfer at (%.2f, %.2f); a smaller chamfer= there keeps clear" % (mx, my)
+                    elif isinstance(op, Track) and op.mid is not None:
+                        note += "; the arc of its corner (radius %.2f mm) at (%.2f, %.2f); a smaller radius= there keeps clear" % (
+                            arc_circle(op.start, op.mid, op.end)[2], op.mid.x, op.mid.y)
                     plan.findings.append(Finding("copper", note))
             batch.append((op, shape))
             shapes.append(shape)
@@ -8958,7 +9000,8 @@ def _copper_name(occ: Occupancy, sh: Shape) -> str:
     if sh.circle:
         return "via %s at (%.2f, %.2f)" % (sh.net or "-", sh.circle[0], sh.circle[1])
     if sh.ends:
-        return "track %s (%.2f, %.2f)-(%.2f, %.2f)" % (sh.net or "-", sh.ends[0][0], sh.ends[0][1], sh.ends[1][0], sh.ends[1][1])
+        return "%s %s (%.2f, %.2f)-(%.2f, %.2f)" % ("arc track" if sh.arc else "track", sh.net or "-",
+                                                    sh.ends[0][0], sh.ends[0][1], sh.ends[1][0], sh.ends[1][1])
     if sh.owner:
         return "%s copper %s" % (occ.who(sh.owner), sh.net or "-")
     return "pour %s" % sh.net if sh.net else "copper"
@@ -9438,7 +9481,8 @@ def _shape_of(op) -> Shape | None:
     if isinstance(op, Track):
         faces = frozenset([op.layer.face]) if op.layer.face else frozenset()
         return Shape("", "copper", faces, frozenset([op.layer]), op.net, op.polygon, op.box,
-                    ends=((op.start.x, op.start.y), (op.end.x, op.end.y)), wire=True)
+                    ends=((op.start.x, op.start.y), (op.end.x, op.end.y)), wire=True,
+                    arc=() if op.mid is None else (op.mid.x, op.mid.y))
     if isinstance(op, Via):
         faces = frozenset(l.face for l in op.layers if l.face is not None) if op.layers else both
         return Shape("", "through", faces, _op_layers(op), op.net, op.polygon, op.box,

@@ -574,12 +574,15 @@ def _layer_id(board, layer) -> int:
 
 
 def _draw_track(board, op: Track):
-    t = pcbnew.PCB_TRACK(board)
+    """A segment, or - with a mid point - KiCad's arc track through start, mid and end."""
+    t = pcbnew.PCB_ARC(board) if op.mid is not None else pcbnew.PCB_TRACK(board)
     t.SetLayer(_layer_id(board, op.layer))
     t.SetNetCode(_netcode(board, op.net))
     t.SetWidth(nm(op.width))
     t.SetStart(vec(op.start.x, op.start.y))
     t.SetEnd(vec(op.end.x, op.end.y))
+    if op.mid is not None:
+        t.SetMid(vec(op.mid.x, op.mid.y))
     board.Add(t)
 
 

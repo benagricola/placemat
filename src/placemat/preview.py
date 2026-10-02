@@ -10,11 +10,12 @@ whoever turns it into pixels chooses the size."""
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import re
 from types import SimpleNamespace
 
 from .board_geometry import members_of
-from .copper import Pour, Text, Track, Via, Zone
+from .copper import Pour, Text, Track, Via, Zone, arc_circle
 from .geometry import circle_polygon
 from .placement import Placement
 from .values import Box, Face, Location
@@ -195,10 +196,19 @@ def _panel(plan, face: Face, mirrored: bool, box: Box, heat: bool, links: bool, 
         for op in plan.copper:
             if isinstance(op, Track) and _face_of(op.layer) in (None, face):
                 inner = _face_of(op.layer) is None
-                p.add('<line class="track" x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s" '
-                      'stroke-linecap="round"%s/>' % (_n(op.start.x), _n(op.start.y), _n(op.end.x), _n(op.end.y),
-                                                     _COLOUR["track"], _n(op.width),
-                                                     ' stroke-opacity="0.4"' if inner else ""))
+                circle = arc_circle(op.start, op.mid, op.end) if op.mid is not None else None
+                if circle is not None:
+                    cx, cy, r, a0, sweep = circle
+                    p.add('<path class="track" d="M %s %s A %s %s 0 %d %d %s %s" fill="none" stroke="%s" '
+                          'stroke-width="%s" stroke-linecap="round"%s/>' % (
+                              _n(op.start.x), _n(op.start.y), _n(r), _n(r), 1 if abs(sweep) > math.pi else 0,
+                              1 if sweep > 0 else 0, _n(op.end.x), _n(op.end.y), _COLOUR["track"], _n(op.width),
+                              ' stroke-opacity="0.4"' if inner else ""))
+                else:
+                    p.add('<line class="track" x1="%s" y1="%s" x2="%s" y2="%s" stroke="%s" stroke-width="%s" '
+                          'stroke-linecap="round"%s/>' % (_n(op.start.x), _n(op.start.y), _n(op.end.x), _n(op.end.y),
+                                                         _COLOUR["track"], _n(op.width),
+                                                         ' stroke-opacity="0.4"' if inner else ""))
             elif isinstance(op, Via):
                 p.add('<circle class="via" cx="%s" cy="%s" r="%s" fill="%s" stroke="#ffffff" stroke-width="%s"/>' % (
                     _n(op.at.x), _n(op.at.y), _n(op.size / 2), _COLOUR["via"], _n(max(op.size - op.drill, 0.05) / 4)))

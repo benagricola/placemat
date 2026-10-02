@@ -5,6 +5,7 @@ round tracks, and the board-sized zone outline."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import lru_cache
 import math
 
 from .findings import Finding
@@ -21,17 +22,43 @@ BRIDGE_HALF = 1.1
 # ------------------------------------------------------------------ concrete ops
 @dataclass(frozen=True)
 class Track:
-    """One straight trace segment of `width` on one copper layer."""
+    """One trace segment of `width` on one copper layer: straight from `start`
+    to `end`, or - with a `mid` - the arc from `start` through `mid` to `end`,
+    as KiCad's arc track is."""
     net: str
     layer: CopperLayer
     width: float
     start: Location
     end: Location
     chamfer_cut: bool = False        # a 45 `track()` cut from a right-angle corner, not a leg the script asked for
+    mid: Location | None = field(default=None, metadata={"omit_default": True})   # an arc: a point of it between its ends
 
     @property
     def polygon(self) -> Polygon:
+        if self.mid is not None and arc_circle(self.start, self.mid, self.end) is not None:
+            s = active()
+            return _arc_polygon(self.start.x, self.start.y, self.mid.x, self.mid.y, self.end.x, self.end.y,
+                                self.width, s.geometry_cap_steps, s.geometry_arc_error_nm)
         return _segment_polygon(self.start, self.end, self.width)
+
+    @property
+    def length(self) -> float:
+        """Along the track: its ends' distance, or an arc's length."""
+        c = arc_circle(self.start, self.mid, self.end) if self.mid is not None else None
+        return self.start.distance(self.end) if c is None else c[2] * abs(c[4])
+
+    def chords(self) -> list:
+        """The track as straight (a, b) pairs of points: itself, or an arc's
+        centreline as chords no further than `[geometry] arc_error_nm` from it."""
+        c = arc_circle(self.start, self.mid, self.end) if self.mid is not None else None
+        if c is None:
+            return [((self.start.x, self.start.y), (self.end.x, self.end.y))]
+        cx, cy, r, a0, sweep = c
+        n = _arc_steps(r, abs(sweep), active().geometry_arc_error_nm / 1e6)
+        pts = [(self.start.x, self.start.y)] + [
+            (cx + r * math.cos(a0 + sweep * k / n), cy + r * math.sin(a0 + sweep * k / n)) for k in range(1, n)
+        ] + [(self.end.x, self.end.y)]
+        return list(zip(pts, pts[1:]))
 
     @property
     def box(self) -> Box:
@@ -175,9 +202,137 @@ def _segment_polygon(a: Location, b: Location, width: float) -> Polygon:
     return tuple(cap(b, base - math.pi / 2) + cap(a, base + math.pi / 2))
 
 
+def arc_circle(start: Location, mid: Location, end: Location):
+    """The circle through an arc track's three points, as KiCad reads them:
+    (centre x, centre y, radius, angle of `start`, signed sweep to `end`
+    through `mid`, radians), or None where they lie in a line."""
+    bx, by = mid.x - start.x, mid.y - start.y
+    cx, cy = end.x - start.x, end.y - start.y
+    d = 2.0 * (bx * cy - by * cx)
+    if abs(d) < 1e-12:
+        return None
+    b2, c2 = bx * bx + by * by, cx * cx + cy * cy
+    ux, uy = (cy * b2 - by * c2) / d, (bx * c2 - cx * b2) / d
+    r = math.hypot(ux, uy)
+    a0 = math.atan2(-uy, -ux)
+    a1 = math.atan2(cy - uy, cx - ux)
+    ccw = bx * (cy - by) - by * (cx - bx) > 0
+    sweep = (a1 - a0) % (2.0 * math.pi) if ccw else -((a0 - a1) % (2.0 * math.pi))
+    return (start.x + ux, start.y + uy, r, a0, sweep)
+
+
+def _arc_steps(radius: float, sweep: float, error: float) -> int:
+    """Chords to cut an arc of `radius` into so that none stands further than
+    `error` from it."""
+    if radius <= 0 or sweep <= 0:
+        return 1
+    each = 2.0 * math.acos(radius / (radius + error))
+    return max(1, math.ceil(sweep / each - 1e-9))
+
+
+@lru_cache(maxsize=8192)
+def _arc_polygon(sx, sy, mx, my, ex, ey, width, cap_steps, error_nm) -> Polygon:
+    """An arc track as KiCad draws it: the ribbon between its centreline's radius
+    less and plus half the width, with a round end at each end. As `_segment_polygon`
+    is, never less than the copper: the outer edge's vertices stand on or outside
+    the true edge, no further than `error_nm`, and the inner edge's chords on or
+    inside it."""
+    c = arc_circle(Location(sx, sy), Location(mx, my), Location(ex, ey))
+    cx, cy, r, a0, sweep = c
+    h = width / 2.0
+    sgn = 1.0 if sweep > 0 else -1.0
+    outer, inner = r + h, max(r - h, 0.0)
+    n = _arc_steps(outer, abs(sweep), error_nm / 1e6)
+    step = sweep / n
+    far = outer / math.cos(abs(step) / 2.0)
+    a1 = a0 + sweep
+    pts = [(cx + outer * math.cos(a0), cy + outer * math.sin(a0))]
+    pts += [(cx + far * math.cos(a0 + (k + 0.5) * step), cy + far * math.sin(a0 + (k + 0.5) * step)) for k in range(n)]
+    pts.append((cx + outer * math.cos(a1), cy + outer * math.sin(a1)))
+
+    def cap(centre, begin):             # the round end: from the outer edge's end round to the inner edge's
+        cstep = math.pi / cap_steps
+        capfar = h / math.cos(cstep / 2.0)
+        return [(centre[0] + capfar * math.cos(begin + sgn * (j + 0.5) * cstep),
+                 centre[1] + capfar * math.sin(begin + sgn * (j + 0.5) * cstep)) for j in range(cap_steps)]
+    pts += cap((ex, ey), a1)
+    pts += [(cx + inner * math.cos(a1 - k * step), cy + inner * math.sin(a1 - k * step)) for k in range(n + 1)]
+    pts += cap((sx, sy), a0 + math.pi)
+    return tuple(pts)
+
+
 def polyline_tracks(net: str, layer: CopperLayer, width: float, points) -> list[Track]:
     pts = [p if isinstance(p, Location) else Location(*p) for p in points]
     return [Track(net, layer, width, a, b) for a, b in zip(pts, pts[1:]) if a != b]
+
+
+def _degrees(radians: float) -> str:
+    return ("%.1f" % math.degrees(radians)).rstrip("0").rstrip(".")
+
+
+def round_corners(pts, radius: float):
+    """`pts` as a path whose every corner is an arc of `radius` tangent to
+    both legs: ([(start, mid, end), ...], misfits). A piece with a `mid` is an
+    arc, one without is a straight; points in a line are not corners. An arc
+    takes `radius * tan(turn / 2)` of each leg at its corner, so a leg
+    shorter than what its two ends take is a misfit, a sentence naming the
+    leg and what its arcs take; with any misfit the pieces are not to be
+    drawn. Every point is whole nanometres, so an arc's end is its leg's."""
+    path = []
+    for p in pts:
+        p = p if isinstance(p, Location) else Location(*p)
+        if not path or p.distance(path[-1]) > 1e-9:
+            path.append(p)
+    corners = {}                        # index -> (turn in radians, the arc's tangent length, left of travel)
+    misfits = []
+    for i in range(1, len(path) - 1):
+        a, v, b = path[i - 1], path[i], path[i + 1]
+        u1, u2 = _unit(a, v), _unit(v, b)
+        cross = u1[0] * u2[1] - u1[1] * u2[0]
+        turn = math.atan2(abs(cross), u1[0] * u2[0] + u1[1] * u2[1])
+        if turn < 1e-6:
+            continue
+        if turn > math.pi - 1e-6:
+            misfits.append("the track turns back on itself at (%.2f, %.2f)" % (v.x, v.y))
+            continue
+        corners[i] = (turn, radius * math.tan(turn / 2.0), cross > 0)
+    for i in range(len(path) - 1):
+        a, b = path[i], path[i + 1]
+        ends = [(j, a if j == i else b) for j in (i, i + 1) if j in corners]
+        take = sum(corners[j][1] for j, _ in ends)
+        if take > a.distance(b) + 1e-9:
+            first = ("the arc of radius %.2f mm at its corner (%.2f, %.2f), a turn of %s degrees, takes %.2f mm of it"
+                     % (radius, ends[0][1].x, ends[0][1].y, _degrees(corners[ends[0][0]][0]), corners[ends[0][0]][1]))
+            rest = "".join(" and the one at (%.2f, %.2f), a turn of %s degrees, %.2f mm" % (
+                q.x, q.y, _degrees(corners[j][0]), corners[j][1]) for j, q in ends[1:])
+            misfits.append("the leg (%.2f, %.2f)-(%.2f, %.2f) is %.2f mm, and %s%s" % (
+                a.x, a.y, b.x, b.y, a.distance(b), first, rest))
+    if misfits:
+        return [], misfits
+    nm = lambda x, y: Location(round(x, 6), round(y, 6))
+    pieces = []
+    cursor = path[0]
+    for i in sorted(corners):
+        a, v, b = path[i - 1], path[i], path[i + 1]
+        turn, t, left = corners[i]
+        u1, u2 = _unit(a, v), _unit(v, b)
+        p1, p2 = nm(v.x - u1[0] * t, v.y - u1[1] * t), nm(v.x + u2[0] * t, v.y + u2[1] * t)
+        side = 1.0 if left else -1.0
+        cx, cy = v.x - u1[0] * t - u1[1] * radius * side, v.y - u1[1] * t + u1[0] * radius * side
+        ux, uy = _unit(Location(cx, cy), v)
+        if cursor != p1:
+            pieces.append((cursor, None, p1))
+        pieces.append((p1, nm(cx + ux * radius, cy + uy * radius), p2))
+        cursor = p2
+    if cursor != path[-1]:
+        pieces.append((cursor, None, path[-1]))
+    return pieces, []
+
+
+def arc_tracks(net: str, layer: CopperLayer, width: float, pts, radius: float):
+    """`round_corners` as tracks: (tracks, misfits)."""
+    pieces, misfits = round_corners(pts, radius)
+    return [Track(net, layer, width, a, b, mid=m) for a, m, b in pieces], misfits
 
 
 # ------------------------------------------------------------------ bridges
@@ -198,7 +353,12 @@ def _seg_intersection(p1, p2, q1, q2):
 def _crossing_point(a: Track, b: Track):
     if a.layer is not b.layer or a.net == b.net:
         return None
-    return _seg_intersection((a.start.x, a.start.y), (a.end.x, a.end.y), (b.start.x, b.start.y), (b.end.x, b.end.y))
+    for p1, p2 in a.chords():
+        for q1, q2 in b.chords():
+            pt = _seg_intersection(p1, p2, q1, q2)
+            if pt is not None:
+                return pt
+    return None
 
 
 def bridge_track(track: Track, points, via_drill: float, via_size: float, half: float = BRIDGE_HALF) -> list:
@@ -242,7 +402,7 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
         (ta, pa, _), (tb, pb, _) = entries[i], entries[j]
         if pa != pb:
             return (i, "") if pa < pb else (j, "")
-        la, lb = ta.start.distance(ta.end), tb.start.distance(tb.end)
+        la, lb = ta.length, tb.length
         if abs(la - lb) > 1e-9:
             return (i, "shorter") if la < lb else (j, "shorter")
         return (i, "first by name") if (ta.net, ta.start) < (tb.net, tb.start) else (j, "first by name")
