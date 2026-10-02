@@ -8,6 +8,8 @@ import time
 
 import pytest
 
+from tests.conftest import needs_kicad
+
 from placemat.studio import Studio
 from tests import real_modules
 
@@ -116,6 +118,7 @@ def _edit(studio, align):
     studio.script.write_text(text.replace(LED % "@@", LED % align))
 
 
+@needs_kicad
 def test_the_stream_shows_a_resolve_then_an_edit_with_what_it_moved(studio):
     s = Stream(studio)
     try:
@@ -155,6 +158,7 @@ def test_the_stream_shows_a_resolve_then_an_edit_with_what_it_moved(studio):
         s.close()
 
 
+@needs_kicad
 def test_a_page_that_connects_later_is_given_the_latest_resolve_whole(studio):
     s = Stream(studio)
     try:
@@ -166,6 +170,7 @@ def test_a_page_that_connects_later_is_given_the_latest_resolve_whole(studio):
         s.close()
 
 
+@needs_kicad
 def test_a_change_during_a_resolve_cancels_it_and_the_last_edit_is_what_finishes(studio):
     s = Stream(studio)
     try:
@@ -188,6 +193,7 @@ def test_a_change_during_a_resolve_cancels_it_and_the_last_edit_is_what_finishes
         s.close()
 
 
+@needs_kicad
 def test_a_script_that_fails_is_an_error_event_and_the_next_good_edit_recovers(studio):
     s = Stream(studio)
     try:
@@ -202,6 +208,7 @@ def test_a_script_that_fails_is_an_error_event_and_the_next_good_edit_recovers(s
         s.close()
 
 
+@needs_kicad
 def test_stop_leaves_no_worker_behind(tmp_path):
     script = real_modules.stage(tmp_path, "mcu")
     s = Studio(script, port=0, open_browser=False, debounce_ms=50, poll_ms=50)

@@ -3,8 +3,12 @@ import json
 
 import pytest
 
+from tests.conftest import needs_kicad
+
 from placemat.studio_worker import Cancelled, Session
 from tests import real_modules
+
+pytestmark = needs_kicad     # every test here resolves or writes through pcbnew
 
 
 @pytest.fixture(scope="module")

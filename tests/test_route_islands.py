@@ -26,6 +26,7 @@ def test_the_islands_pass_names_its_nets_and_their_widths():
     assert cmd[j + 1] == "VIN" and cmd[cmd.index("--power-nets-widths") + 1] == "0.5"
 
 
+@needs_kicad
 def test_the_route_command_passes_the_setting_and_the_flag(tmp_path, monkeypatch):
     from placemat import cli
     import placemat.kicad.route as route_mod
@@ -105,6 +106,7 @@ def test_a_malformed_island_entry_is_refused_when_the_settings_load(tmp_path):
             load(tmp_path)
 
 
+@needs_kicad
 def test_a_bare_flag_keeps_the_width_the_setting_gives(tmp_path, monkeypatch):
     from placemat import cli
     import placemat.kicad.route as route_mod

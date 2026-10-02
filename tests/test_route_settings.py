@@ -15,6 +15,7 @@ def test_route_layers_in_placemat_toml_is_refused(tmp_path):
         load(tmp_path)
 
 
+@needs_kicad
 def test_the_route_command_s_layers_flag_overrides_for_one_run(tmp_path, monkeypatch):
     from placemat import cli
     import placemat.kicad.route as route_mod

@@ -9,6 +9,8 @@ from placemat.values import CopperLayer, Location, Part
 from tests.conftest import needs_kicad
 from tests.fixtures import board_geometry, footprint
 
+pytestmark = needs_kicad     # every test here resolves or writes through pcbnew
+
 
 def _plan(outright=False):
     fps = [footprint("C1", 20, 20, w=2, h=1, inst="c1", nets=("A", "GND"), fields={"Pm.Height": "1.1mm"}),

@@ -7,6 +7,8 @@ from placemat.values import CopperLayer, Location, Part
 from tests.conftest import needs_kicad
 from tests.fixtures import board_geometry, footprint
 
+pytestmark = needs_kicad     # every test here resolves or writes through pcbnew
+
 STACK = (CopperLayer.F, CopperLayer.B)
 REFS = ["J1", "J2", "M1", "N1", "T1"]
 
