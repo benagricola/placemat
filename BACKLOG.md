@@ -11,6 +11,11 @@ file. An item cites its source as "a board's session, <date>".
   labels does not give way to a searched cell; a keepout passed two parts
   under the physical envelope that KiCad's rule area flags. Being fixed.
 
+- **Per-script settings; arc bends on tracks** (a board's session,
+  2026-10-02): one shared placemat.toml needs a setting that differs per
+  script (`[solve] enabled`); an RF trace wanted curved, not in 45s. Being
+  built.
+
 ## Open
 
 - **Current shared between a load's pins** (a board's session, 2026-10-01):
