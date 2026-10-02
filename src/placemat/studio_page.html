@@ -1071,13 +1071,21 @@ function zoomAbout(vb, r, cx, cy, k) {                // vb scaled by k (width),
   }, {passive: false});
   svg.addEventListener("pointerdown", e => {
     if (!S.vb) return;
-    ptrs.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    if (e.pointerType === "mouse") {
+      if (e.button !== 0) return;                      // only the main button pans: a right press may open a menu that keeps its release
+      for (const [id, q] of ptrs) if (q.mouse) { ptrs.delete(id); try { svg.releasePointerCapture(id); } catch (_) {} }
+      if (!ptrs.size) g = null;
+    }
+    ptrs.set(e.pointerId, {x: e.clientX, y: e.clientY, mouse: e.pointerType === "mouse"});
     try { svg.setPointerCapture(e.pointerId); } catch (_) {}
     if (ptrs.size === 1) startPan(e);
     else if (ptrs.size === 2) { const t = two(); g = {mode: "pinch", d: t.d, x: t.x, y: t.y, vb: S.vb, moved: true}; hideTip(); svg.classList.add("drag"); }
   });
   svg.addEventListener("pointermove", e => {
     const q = ptrs.get(e.pointerId);
+    if (e.pointerType === "mouse" && !(e.buttons & 1) && [...ptrs.values()].some(x => x.mouse)) {   // a press whose release went elsewhere (a menu, another window)
+      for (const [id, x] of [...ptrs]) if (x.mouse) up({pointerId: id, type: "pointercancel"});
+    }
     if (q) { q.x = e.clientX; q.y = e.clientY; }
     if (!g) { if (e.pointerType === "mouse") hover(e); return; }
     const r = svg.getBoundingClientRect();
@@ -1091,7 +1099,7 @@ function zoomAbout(vb, r, cx, cy, k) {                // vb scaled by k (width),
     if (!g.moved && Math.abs(dx) + Math.abs(dy) > (g.type === "touch" ? 8 : 3)) { g.moved = true; svg.classList.add("drag"); hideTip(); }
     if (g.moved) setView({x: g.vb.x - dx / r.width * g.vb.w, y: g.vb.y - dy / r.height * g.vb.h, w: g.vb.w, h: g.vb.h});
   });
-  const up = e => {
+  function up(e) {
     if (!ptrs.has(e.pointerId)) return;
     ptrs.delete(e.pointerId);
     const was = g;
@@ -1106,9 +1114,10 @@ function zoomAbout(vb, r, cx, cy, k) {                // vb scaled by k (width),
       const [rest] = [...ptrs.values()];
       startPan({clientX: rest.x, clientY: rest.y, pointerType: "touch"}, S.vb);
     }
-  };
+  }
   svg.addEventListener("pointerup", up);
   svg.addEventListener("pointercancel", up);
+  svg.addEventListener("lostpointercapture", e => { if (ptrs.has(e.pointerId)) up({pointerId: e.pointerId, type: "pointercancel"}); });
   svg.addEventListener("pointerleave", e => { if (e.pointerType === "mouse") hideTip(); });
 })();
 
