@@ -5,6 +5,34 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A handoff pin reported walled in when its own lane gets out.** The
+  `escape_walled` finding judged the way out on a grid of cells, which cannot
+  follow a 45 laid between neighbours at the least pitch (the lanes of
+  `escape(..., turn=Corner.X)` are): a pin whose lane could be carried on
+  between its neighbours' lanes, or past their ends, was reported walled off
+  by them. The search now also walks octilinear paths from where the pin's
+  own copper ends (each end of its tracks, and its pad), on a lattice through
+  that point, and a gap short of the clearance by under a nanometre is a tie,
+  as it is for the occupancy's clearance. The finding is raised for fewer
+  pins; a pin that really is closed in is still reported. Scripts change
+  nothing.
+
+- **An escape's lanes ran through a part placed beside its own part.** The
+  lanes were laid out when the part was placed, before a bypass or similar
+  placed beside it, so one escape over a row with such a part at its middle
+  laid the lanes under it through the part (the way round was two escapes
+  with a typed `depth=`). An escape is now laid out after the firm parts
+  placed relative to its part, so its lanes keep clear of them and the lower
+  ones start past them. A part placed relative to the escape (`Beside(esc,
+  ...)`, a lane's end or via) still waits for the lanes. Scripts change
+  nothing; a run whose firm parts stood where the lanes were reserved reports
+  the lane as blocked (`escape_lane`) where it reported the part as colliding
+  with the lane. `api.md`, "An escape".
+
 ## To 0.81.0
 
 ### Fixed

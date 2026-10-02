@@ -25,17 +25,10 @@ MARKER = 'board.link(PadRef(Part("c_rf_post"), "VDD_RF")'
 @pytest.fixture
 def run(tmp_path_factory):
     if not _run:
-        staged = rm.stage
-
-        def stage(tmp_path, module, keep_out=None):
-            script = staged(tmp_path, module, keep_out)
-            text = script.read_text()
+        def edit(text):
             assert MARKER in text
-            script.write_text(text.replace(MARKER, DECLARATION + MARKER, 1))
-            return script
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(rm, "stage", stage)
-            _run["r"] = rm.run(tmp_path_factory.mktemp("mcu"), "mcu", keep_going=True)
+            return text.replace(MARKER, DECLARATION + MARKER, 1)
+        _run["r"] = rm.run(tmp_path_factory.mktemp("mcu"), "mcu", keep_going=True, edit=edit)
     return _run["r"]
 
 

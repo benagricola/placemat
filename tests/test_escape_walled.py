@@ -92,3 +92,40 @@ def test_an_escape_lane_that_walls_a_pad_is_named_by_its_pin():
     plan = b.resolve()
     lanes = {plan.occupancy.blame_owner(s) for s in plan.occupancy.copper if s.lane}
     assert lanes == {"the escape lane of U1 pin 32", "the escape lane of U1 pin 31", "the escape lane of U1 pin 30"}
+
+
+# A pad's own lane may run between two other nets' 45 lines laid at the least pitch the clearance allows (an escape's
+# lanes are): the way out is the lane carried on, with no room to spare on either side.
+def _pitch(net_width, clearance):
+    """How far apart (x - y) two parallel 45 lines of `net_width` tracks stand when their edges are `clearance` apart."""
+    return (net_width + clearance) * 2 ** 0.5
+
+
+def _one_pad(ref, net, cx, cy, w, h):
+    box = Box(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
+    return Footprint(ref, ref.lower(), None, ref, Location(cx, cy), 0.0, Face.FRONT, box, box, box,
+                     (pad(ref, ref.lower(), 1, net, cx, cy, w, h),))
+
+
+def _between_two_45s(pitch):
+    fps = [_one_pad("U9", "IN", 30, 30, 0.2, 0.2), _one_pad("X1", "D", 30, 29.2, 0.4, 0.2),
+           footprint("T1", 50, 50, inst="t1", nets=("B", "C"))]
+    b = _board(fps)
+    line = -0.6                                                            # x - y along the pad's own lane
+    b.track(Net("IN"), [IN, Location(30.0, 30.6), Location(31.4, 32.0)], layer=F, width=0.2, why="the pad's lane")
+    # the neighbours' lines run from a riser each side of the pad to well past the lane, and the north is shut
+    for net, x, off in (("B", 29.5, -pitch), ("C", 30.5, pitch)):
+        y = x - (line + off)
+        b.track(Net(net), [Location(x, 28.0), Location(x, y), Location(x + 2.4, y + 2.4)], layer=F, width=0.2,
+                why="the neighbour's line")
+    return b
+
+
+def test_a_lane_between_two_45_lines_at_the_least_pitch_has_its_way_out():
+    b = _between_two_45s(_pitch(0.2, 0.2))
+    assert _walled(b.resolve()) == []
+
+
+def test_a_lane_between_two_45_lines_a_hair_too_close_is_walled():
+    b = _between_two_45s(_pitch(0.2, 0.2) - 0.01)
+    assert _walled(b.resolve())

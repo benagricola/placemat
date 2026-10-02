@@ -906,6 +906,9 @@ class Board:
         self._escapes: list = []           # the EscapeDecl of each board.escape() (lanes.py)
         self._escape_laid: dict = {}       # escape index -> its Layout, once its part is placed
         self._escape_kept: dict = {}       # (escape index, pad number) -> the occupancy's copper shapes of a lane's riser and lane
+        self._escape_waits: dict | None = None   # escape index -> keys of the firm items its lanes wait for (`_escape_wait_sets`)
+        self._escape_named: dict = {}      # item key -> the escapes its position names
+        self._settled: set = set()         # keys of the items the resolve has settled, placed or not
         self._faces: tuple | None = None
         self._links: list[Link] = []
         # a stamped cell brings its fragment's clearance rules, first: a rule this script declares stands after
@@ -3459,12 +3462,74 @@ class Board:
             return n
         return price
 
-    def _place_escapes(self, occ, plan: Plan, placed: set, progress):
+    def _escapes_named(self, obj, seen: set | None = None) -> set:
+        """The indices of the escapes a position names: an escape, a lane, a point of a lane or a lane's via, anywhere in it."""
+        seen = set() if seen is None else seen
+        if id(obj) in seen:
+            return set()
+        seen.add(id(obj))
+        if isinstance(obj, (Escape, Lane)):
+            return {obj.index}
+        if isinstance(obj, LanePoint):
+            return {obj.lane.index}
+        if isinstance(obj, CopperIntent):
+            return {d.index for d in self._escapes if any(v is obj for v in d.via_intents.values())}
+        if isinstance(obj, dict):
+            obj = list(obj.values())
+        if isinstance(obj, (tuple, list, set, frozenset)):
+            return set().union(*(self._escapes_named(v, seen) for v in obj)) if obj else set()
+        if isinstance(obj, _BesideSpec) or (dataclasses.is_dataclass(obj) and not isinstance(obj, type)
+                                            and type(obj).__module__ == "placemat.values"):
+            return set().union(*(self._escapes_named(getattr(obj, f.name), seen) for f in dataclasses.fields(obj)))
+        return set()
+
+    def _escapes_of(self, i: PlaceIntent) -> set:
+        """The escapes an item's place is said in terms of: it waits until their lanes are laid out."""
+        if not isinstance(i, PlaceIntent):
+            return set()                    # a hole or a keepout names no escape
+        if i.key not in self._escape_named:
+            self._escape_named[i.key] = self._escapes_named([i.at, i.center, i.along, i.near, i.about, i.pin_x, i.pin_y, i.pin,
+                                                             i.beside, i.turned, i.tangent])
+        return self._escape_named[i.key]
+
+    def _escape_wait_sets(self) -> dict:
+        """For each escape, the keys of the firm items its lanes are laid out after: those said relative to its part (Beside
+        it, a pin of it, a point on its pads) and decided, so that the lanes keep clear of them and do not run through where
+        they land. An item that is said in terms of the escape itself, or of an item that is, is left out: it waits for the
+        lanes, and the lanes cannot wait for it. A searched item, and a rider with it, is placed after the lanes are laid, and
+        sees them."""
+        if self._escape_waits is None:
+            intents = [i for i in self._placements() if isinstance(i, PlaceIntent)]
+            refs = {i.key: {fp.ref for fp in (i.item.members if i.kind == "block" else members_of(i.item))} for i in intents}
+            self._escape_waits = {}
+            for decl in self._escapes:
+                after = {i.key for i in intents if decl.index in self._escapes_of(i)}
+                grew = True
+                while grew:
+                    grew = False
+                    held = set().union(*(refs[k] for k in after)) if after else set()
+                    for i in intents:
+                        if i.key not in after and i.needs & held:
+                            after.add(i.key)
+                            grew = True
+                self._escape_waits[decl.index] = {i.key for i in intents if i.freedom.decided and i.key not in self._rider_of
+                                                  and decl.ref in i.needs and i.key not in after}
+        return self._escape_waits
+
+    def _lanes_ready(self, i: PlaceIntent) -> bool:
+        """Whether every escape an item's place is said in terms of has its lanes laid out."""
+        return all(n in self._escape_laid for n in self._escapes_of(i))
+
+    def _place_escapes(self, occ, plan: Plan, placed: set, progress, force: bool = False):
         """Every escape whose part is down and not yet laid out: its risers,
         lanes and vias stand in the occupancy as copper of their own nets from
-        here on, and each lane something already placed blocks is a finding."""
+        here on, and each lane something already placed blocks is a finding.
+        The lanes are laid after the firm items placed relative to the part
+        (`_escape_wait_sets`), unless `force`, so that they keep clear of them."""
         for decl in self._escapes:
             if decl.index in self._escape_laid or decl.ref not in placed or decl.ref not in occ.items:
+                continue
+            if not force and not self._escape_wait_sets()[decl.index] <= self._settled:
                 continue
             laid = self._escape_layout(occ, decl)
             self._escape_laid[decl.index] = laid
@@ -5901,6 +5966,7 @@ class Board:
             self._order_rng = _random.Random("%d:order" % self._explore.seed)
         self._escape_laid = {}              # every escape is laid out again, when its part is placed
         self._escape_kept = {}
+        self._escape_waits, self._escape_named, self._settled = None, {}, set()
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
                         board_cutouts=self._cutouts, settings=self.settings,
                         component_spacing=self.component_spacing, rules=self._rules)
@@ -6156,6 +6222,7 @@ class Board:
                         self._cell_placements[r.key] = rs.placement
                 if progress:
                     progress(_fmt(rs))
+            self._settled.add(obj.key)
             self._place_fanouts(occ, plan, placed, progress)
             self._place_escapes(occ, plan, placed, progress)
             self._place_labels(occ, plan, placed, progress)
@@ -6167,7 +6234,10 @@ class Board:
             firm = [obj for obj in placements if lo <= obj.rank[0] <= hi and obj.freedom.decided
                     and getattr(obj, "key", None) not in self._rider_of]      # a rider goes with its item
             while firm:                     # declaration order, except that a position said in terms of a pad waits for it
-                ready = [obj for obj in firm if obj.needs <= placed]
+                ready = [obj for obj in firm if obj.needs <= placed and self._lanes_ready(obj)]
+                if not ready and any(d.index not in self._escape_laid and d.ref in placed for d in self._escapes):
+                    self._place_escapes(occ, plan, placed, progress, force=True)    # waits that wait on each other: as before
+                    continue
                 if not ready:
                     raise ValueError("%s is placed relative to %s, which is not placed by then (only FIXED and EDGE "
                                      "items may be referred to)" % (firm[0].key, ", ".join(sorted(firm[0].needs - placed))))
@@ -6200,6 +6270,7 @@ class Board:
                 place_one(obj, why_now)
 
         place_ranked(RANK_FIXED, RANK_EDGE)
+        self._place_escapes(occ, plan, placed, progress, force=True)     # whatever the firm items did not release
         self._check_web(plan)
         self._check_pitch(plan)
         self._plan_copper(occ, ctx, fixed_copper, plan, progress)
