@@ -21,7 +21,9 @@ section for each hand-written pattern a newer form replaces.
   `preview` does), and shows each step as it settles, the findings, the
   script beside the board linked both ways, and a compare with the resolve
   before: the changed lines and the items they moved, ghosts and arrows,
-  copper and findings gained and lost. Read only; edit the script elsewhere.
+  copper and findings gained and lost. The page lists the layout scripts in
+  the script's folder and switches between them. Read only; edit the script
+  elsewhere.
   New settings `[studio] port`, `debounce_ms`, `open`, `keep`, `poll_ms` and
   `cancel_grace_ms`. Scripts change nothing. `api.md`, "Studio".
 
