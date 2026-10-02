@@ -5,6 +5,25 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Fixed
+
+- **A stamped fragment's notes never show on the board that stamps it.**
+  A fragment's faces and clearance rules reach the parent as User.Comments
+  texts (`placemat faces ...`, `placemat rule ...`). The parent's run read them
+  and took them off its written board only when they were members of a
+  group; one that was not stayed on the board. And while a run works, the
+  layout folder holds the generated board: a run stopped before it wrote
+  showed every note, each a few millimetres from its cell, stretching the
+  cell's group box. Now the written board has none of them whichever way they
+  sit, and a run takes them off the generated board as soon as it has read the
+  facts they carry. A fragment run alone keeps the faces text it was stamped
+  with and writes its own faces and rules afresh each run. A board the last
+  run left in its layout folder from an older release still holds them: run
+  it again. Scripts change nothing. `api.md`, "Faces" and "A stamped cell
+  brings its own".
+
 ## To 0.79.0
 
 ### New

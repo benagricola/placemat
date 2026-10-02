@@ -1354,6 +1354,13 @@ takes that cell's stamped group. A rule whose net or cell the parent lacks is
 not carried, and the run says so. A part's `Pm.KeepOut` is not a note: the
 parent reads it off the part. See Rules.
 
+The notes are transport. A board that stamps a fragment reads them and
+writes none: its faces and rule notes come off the generated board as soon as
+the run has read them, and again from the written board, in a group or
+loose. A fragment keeps its own: a script's `board.faces()` and
+`board.rule()` are written afresh each run, and the faces text
+`placemat faces` stamped into a fragment stays on a fragment run alone.
+
 **A stamped cell's zones under the board's own plane.** A module fragment's
 copper zone (its ground or supply fill) is merged into the parent's plane when
 the parent declares a `board.plane()` on the same net and layer that covers it
