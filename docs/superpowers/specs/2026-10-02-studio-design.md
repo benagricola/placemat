@@ -100,14 +100,24 @@ dependency.
 - **Who changed what**: each resolve is listed with the files that changed
   and their diff, so an agent's edit is seen as an edit, with what it moved.
 
-### Runs from elsewhere (phase 2)
+### A checked run, on request (phase 2)
 
 No editing in the page for now (the user, 2026-10-02: not needed straight
 away): edits come from the user's editor and from agents, and the page
-watches. Runs started elsewhere (an agent's `placemat run`) are picked up
-from `.placemat/runs` and shown with their result (DRC by kind, the render)
-and compared like any resolve. No Run button: a full run stays with agents
-and the terminal.
+watches and previews on every change. A preview already gives the placement,
+each step's note, placemat's placement findings, and its own reuse record
+(kept between previews, so the next one replays). What only a run gives:
+the design checks (current-path, keep-out, loops; they read the written
+board and its fills), KiCad's DRC, the score (it counts both), and a run
+record (history, `best`, `placemat impact`).
+
+So a **Run** button (the user, 2026-10-02: "a button to run properly is the
+way to go with default behaviour being to watch the file and preview on any
+change") runs `placemat run` on the script without the render (seconds plus
+DRC), and the page shows DRC by kind, the checks and the score, and compares
+the run with the last one as it compares resolves. Runs started elsewhere
+(an agent's `placemat run`) are picked up from `.placemat/runs` and shown
+the same way.
 
 ### 3D (phase 3)
 
@@ -156,7 +166,8 @@ normal run, on request.
 1. Watch, warm resolve, streamed steps, the 2D board, steps, findings, hover,
    the linked read-only script, and the compare: a line diff and a diagram
    diff, linked.
-2. Runs from elsewhere picked up and compared.
+2. The Run button (a run without the render) and runs from elsewhere,
+   shown with DRC, checks and score, and compared.
 3. 3D with the parts' real models.
 4. The agent note channel.
 
@@ -169,8 +180,8 @@ placemat is doing".
 - A diff of lines and a diff in the diagram between the previous and the
   latest resolve.
 - 3D only with real models.
-- No Run button (a full run stays with agents and the terminal) and no
-  access from other machines; both can be revisited.
+- Watch and preview on every change by default; a Run button for a checked
+  run (no render). No access from other machines.
 
 ## Verification
 
