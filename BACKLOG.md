@@ -6,11 +6,6 @@ file. An item cites its source as "a board's session, <date>".
 
 ## In progress
 
-- **An emitter placed first leaves its limit partner no room** (a board's
-  session, 2026-10-02): a `Pm.Emits` source searched before its `Pm.Limit`
-  partner can take a spot that leaves the partner nothing at the limit
-  distance; neither the search, the solve nor explore sees it. Being built.
-
 ## Open
 
 - **Current shared between a load's pins** (a board's session, 2026-10-01):
@@ -245,6 +240,12 @@ file. An item cites its source as "a board's session, <date>".
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **An emitter leaves its limit partner room** (0.78.0; spec
+  `2026-10-02-emitter-limit-lookahead-design.md`): when one of a
+  `Pm.Emits`/`Pm.Limit` pair is placed before the other, its spots are kept
+  to those that leave the partner a legal spot at the limit distance
+  (`place.lookahead`, `place.lookahead_step`).
 
 - **Either face with tangent turns** (0.77.0; a board's session,
   2026-10-02): `face=Face.EITHER` with `Tangent` scans each face with its
