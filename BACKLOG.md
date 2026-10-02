@@ -6,6 +6,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## In progress
 
+- **An emitter placed first leaves its limit partner no room** (a board's
+  session, 2026-10-02): a `Pm.Emits` source searched before its `Pm.Limit`
+  partner can take a spot that leaves the partner nothing at the limit
+  distance; neither the search, the solve nor explore sees it. Being built.
+
 ## Open
 
 - **Current shared between a load's pins** (a board's session, 2026-10-01):
