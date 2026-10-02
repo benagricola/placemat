@@ -241,6 +241,10 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Either face with tangent turns** (0.77.0; a board's session,
+  2026-10-02): `face=Face.EITHER` with `Tangent` scans each face with its
+  own tangent turns, the back's derived for the mirrored item.
+
 - **Tangent turns in a band of radii** (0.76.0; spec
   `2026-10-01-tangent-turns-design.md`): `rotations=Turns.TANGENT` turns a
   searched item to the tangent at its bearing about a centre (two turns a
