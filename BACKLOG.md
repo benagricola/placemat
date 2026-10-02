@@ -16,11 +16,12 @@ file. An item cites its source as "a board's session, <date>".
   script (`[solve] enabled`); an RF trace wanted curved, not in 45s. Being
   built.
 
-- **Fan lanes that run to their targets** (a board's session, 2026-10-02,
-  from the user's hand layout): 45-degree fans whose lanes run until level
-  with what they serve, risers staggered so parallel 45s keep clearance, a
-  group starting past a part; and a searched part that misses a clean spot
-  at its link limit. Being built.
+- **A turned escape's lanes overlap; a handoff pin's way out kept open**
+  (a board's session, 2026-10-02): two lanes of `escape(..., turn=Corner.X)`
+  drawn on top of each other and one 0.08 mm from a neighbour's pad; a
+  module's own copper must never box in a pin it leaves for the parent; a
+  searched part misses a clean spot at its link limit. (A fan-to-target form
+  was rejected: tracks with a `Past` waypoint already say it.) Being fixed.
 
 ## Open
 
