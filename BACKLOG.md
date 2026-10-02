@@ -6,11 +6,6 @@ file. An item cites its source as "a board's session, <date>".
 
 ## In progress
 
-- **A grouped label under a later cell's pad; keepout parts judged on
-  another shape than KiCad's** (a board's session, 2026-10-02): a list of
-  labels does not give way to a searched cell; a keepout passed two parts
-  under the physical envelope that KiCad's rule area flags. Being fixed.
-
 ## Open
 
 - **Arc corners on a pair** (the arc-bends work, 2026-10-02): `board.pair`
@@ -250,6 +245,14 @@ file. An item cites its source as "a board's session, <date>".
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Grouped labels give way, keepouts judged as KiCad does** (0.81.0; specs
+  `2026-10-02-line-labels-give-way-design.md`,
+  `2026-10-02-keepout-courtyard-design.md`,
+  `2026-10-02-vias-and-given-way-copper-design.md`): a line of labels gives
+  way as one; a keepout that excludes parts is judged on the courtyard; a
+  carried via keeps out of a keepout that excludes vias; give-way tails join
+  the cell's group; a carried via's track keeps the edge and cutouts.
 
 - **Escape vias at a fine pitch** (0.80.1): a lane with no straight spot
   jogs at 45 to its via; a lane without a via counts as its stub; the refusal
