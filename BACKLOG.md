@@ -6,21 +6,6 @@ file. An item cites its source as "a board's session, <date>".
 
 ## In progress
 
-- **A one-freedom slide placed after a search in its tier** (a board's
-  session, 2026-10-02): a slide (`Centre(x, None, toward=)`) of the same
-  priority as a larger searched cell goes after it by area and is stopped
-  mid-board by it. Fewer freedoms first. Being built.
-
-- **A stamped cell's keepout allow= and its clearance rules** (a board's
-  session, 2026-10-02): a module keepout's `allow=` is lost on the parent
-  and written `(vias not_allowed)` for KiCad; a module's `board.rule`
-  clearances do not travel with its cell. Being built.
-
-- **Copper planned 1.4 um under a rule; a finding rounded to the limit**
-  (a board's session, 2026-10-02): a track leg planned 0.0986 mm from a via
-  under a 0.10 mm rule (KiCad fails it) and the finding reads "0.10 mm
-  (needs 0.10)". Being fixed.
-
 ## Open
 
 - **Current shared between a load's pins** (a board's session, 2026-10-01):
@@ -255,6 +240,15 @@ file. An item cites its source as "a board's session, <date>".
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Slides first, stamped allow= and rules, clearance by order, a dropped
+  look-ahead reported** (0.79.0; specs
+  `2026-10-02-slides-before-searches-design.md`,
+  `2026-10-02-stamped-allow-and-rules-design.md`): within a tier one-freedom
+  items go before items searched in two; a stamped keepout's `allow=` and a
+  module's clearance rules reach the parent and KiCad; a `FreeSpot` via is
+  planned after the tracks declared before it; shortfalls print below the
+  limit; a dropped emitter look-ahead is a finding the partner points to.
 
 - **An emitter leaves its limit partner room** (0.78.0; spec
   `2026-10-02-emitter-limit-lookahead-design.md`): when one of a
