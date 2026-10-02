@@ -1761,8 +1761,13 @@ from its emission point to the partner's sense points and its body to the
 partner's disc; a sensitive part's candidate, its sense point to the source's
 emission points. Nothing is declared: a source held near the middle of a
 small round board leaves its limit partner the far side of the board.
-When no candidate leaves room the part is placed as before (the other part
-then ends unplaced with its usual finding); the step's note says so. Only a
+When no candidate leaves room the part is placed as before and the other
+part then ends unplaced; the step's note says so, and so does a finding
+(kind `setup`) at the first part's step, naming both parts and the best
+spot's miss ("the best spot for M1 left U31 0.35 mm short of 25.1 mm"). The
+other part's refusal then ends "see: no room was left for it when M1 was
+placed". When the look-ahead did leave room and the part still has none, its
+refusal says what was placed since took it. Only a
 partner that is a loose part or a cell searched in the open, in a band or
 `Near` is looked ahead for: a partner that is decided, on an edge, a run, a
 ring, a spoke or a line, in a block, or carried by another item is not.
