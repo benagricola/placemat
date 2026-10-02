@@ -96,7 +96,12 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: 224px minma
 #card .src { margin-top: 5px; }
 #card .kv { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; margin: 3px 0 0; font-size: 12px; }
 #card .kv span:nth-child(odd) { color: var(--dim); }
-#card .fnd { color: var(--warn); margin-top: 3px; }
+#card .cs { margin-top: 8px; padding-top: 5px; border-top: 1px solid var(--line); }
+#card .ct { font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin-bottom: 3px; }
+#card .cl > div { padding: 1px 0; overflow-wrap: anywhere; }
+#card .pills { display: flex; flex-wrap: wrap; gap: 4px; }
+#card .facts { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 0; }
+#card .num.ok { color: var(--good); }
 #card a { color: var(--accent); cursor: pointer; text-decoration: none; }
 #card .src a { font-family: var(--mono); font-size: 12px; }
 #replay { display: flex; gap: 10px; align-items: center; width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 4px 12px 4px 4px; }
@@ -153,6 +158,7 @@ body[data-view="script"] #script { display: flex; position: absolute; inset: 0; 
 .lg .sw { width: 26px; height: 14px; flex: none; overflow: visible; }
 .lg .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lg em { font-style: normal; color: var(--dim); font-size: 12px; }
+.lg.grp.none { opacity: 0.55; } .lg.grp.none span.nm { text-decoration: line-through; } .lg.grp.some .sw { opacity: 0.6; }
 .lg .car { width: 14px; color: var(--dim); text-align: center; flex: none; }
 .lg .only { border: 1px solid var(--line); background: var(--surface2); border-radius: 6px; font-size: 11px; padding: 0 6px; color: var(--dim); }
 .lgnote { margin: 2px 12px 4px 12px; color: var(--dim); font-size: 12px; line-height: 1.4; }
@@ -173,7 +179,9 @@ body[data-view="script"] #script { display: flex; position: absolute; inset: 0; 
 .chip.decided { background: var(--accent-soft); color: var(--accent); }
 .chip.searched { background: var(--surface2); color: var(--dim); }
 .chip.pocket { background: var(--warn-soft); color: var(--warn); }
-.chip.unplaced { background: var(--bad-soft); color: var(--bad); }
+.chip.unplaced, .chip.bad { background: var(--bad-soft); color: var(--bad); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); } .chip.good { background: var(--good-soft); color: var(--good); }
+.chip.net { background: var(--accent-soft); color: var(--accent); font-family: var(--mono); font-size: 11.5px; }
 .chip.copper { background: var(--surface2); color: var(--dim); }
 h3 { margin: 0; padding: 12px 12px 5px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); font-weight: 650; }
 h3.fold { cursor: pointer; display: flex; gap: 6px; }
@@ -222,6 +230,7 @@ table.diff td.link { color: var(--mark); width: 14px; }
 #card .mods { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 #card .mods button, #card .act { border: 1px solid var(--line); background: var(--surface2); border-radius: 999px; padding: 0 9px; }
 #card .act { color: var(--accent); }
+#card a.chip.act { padding: 0 9px; line-height: 17px; }
 
 /* the board drawing: every colour is a variable, so it follows the theme */
 svg text { user-select: none; font-family: var(--sans); }
@@ -246,7 +255,10 @@ svg text { user-select: none; font-family: var(--sans); }
 .lk { stroke-width: 0.1; }
 .lk.ok { stroke: var(--ok); } .lk.over { stroke: var(--over); stroke-width: 0.16; } .lk.free { stroke: var(--free); stroke-dasharray: 0.5 0.3; }
 .lkdot.ok { fill: var(--ok); } .lkdot.over { fill: var(--over); } .lkdot.free { fill: var(--free); }
-.lk, .lkdot { pointer-events: none; }
+.lk, .lkdot, .lkend, .lklabel { pointer-events: none; }
+.lkend { fill: none; stroke-width: 0.1; } .lkend.ok { stroke: var(--ok); } .lkend.over { stroke: var(--over); } .lkend.free { stroke: var(--free); }
+.lklabel { fill: var(--ink); stroke: var(--substrate); stroke-width: 0.2px; paint-order: stroke; stroke-linejoin: round; }
+.lkg[data-st="over"] .lk { stroke-width: 0.16; }
 .bd, .cy { pointer-events: all; }
 .lkhit { stroke: transparent; stroke-width: 0.5; fill: none; }   /* the middle of a link takes the pointer, its ends leave the parts under them to it */
 .arrowhead.ok { fill: var(--ok); } .arrowhead.over { fill: var(--over); } .arrowhead.free { fill: var(--free); }
@@ -277,7 +289,7 @@ svg text { user-select: none; font-family: var(--sans); }
 .arrowhead { fill: var(--accent); }
 #board.replaying .copper, #board.replaying .links, #board.replaying .heat, #board.replaying .changes, #board.replaying .fnds { display: none; }
 #board.lowzoom .ref, #board.lowzoom .silktxt { display: none; }
-#board.lowzoom .lkdot { display: none; }
+#board.lowzoom .lkdot, #board.lowzoom .lklabel { display: none; }
 #grid .minor { stroke: var(--grid-minor); fill: none; }
 #grid .major { stroke: var(--grid-major); fill: none; }
 #grid text { fill: var(--grid-ink); font-family: var(--sans); }
@@ -394,7 +406,7 @@ const S = {
   replay: null,                // null: every placement step shown; k: the first k placement steps
   play: null,                  // the running replay: {t0, k0, rate, n}
   liveQ: [],                   // streamed items waiting to be added to the drawing
-  face: "both", off: new Set(["labels"]), exp: new Set(),   // off: what the legend has switched off; exp: its expanded rows
+  face: "both", off: new Set(["labels"]), exp: new Set(["ko", "res"]), seenRegions: new Set(),   // off: what the legend has switched off; exp: its expanded rows
   selRef: null, selRegion: null, module: null, sevFilter: "",
   view: null, tab: "steps", file: null, cmpFile: null, sbs: false, openRows: new Set(), showOther: false, closedKinds: new Set(), cardOff: null, cardLinks: false, sliding: false,
 };
@@ -718,8 +730,15 @@ function panelSVG(p, pn, first, order, diffLayer) {
   o.push('<g class="links">');
   (p.links || []).forEach((l, i) => {
     const x1 = l.pa[0], y1 = l.pa[1], x2 = l.pb[0], y2 = l.pb[1];
+    // a link over its limit is green as far as the limit reaches along it, red beyond
+    const k = l.state === "over" && l.length > 0 && l.limit != null ? clamp(l.limit / l.length, 0, 1) : 0, sx = num(x1 + (x2 - x1) * k), sy = num(y1 + (y2 - y1) * k);
+    const body = k > 0 ? '<line class="lk ok" x1="' + x1 + '" y1="' + y1 + '" x2="' + sx + '" y2="' + sy + '"/><line class="lk over" x1="' + sx + '" y1="' + sy + '" x2="' + x2 + '" y2="' + y2 + '" marker-end="url(#ar-over)"/>'
+      : '<line class="lk ' + l.state + '" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" marker-end="url(#ar-' + l.state + ')"/>';
+    // each end is marked with its pad's name, whichever face its part is on
+    const ends = '<circle class="lkend ' + (l.state === "over" ? "ok" : l.state) + '" cx="' + x1 + '" cy="' + y1 + '" r="0.45"/><circle class="lkend ' + l.state + '" cx="' + x2 + '" cy="' + y2 + '" r="0.45"/>' +
+      textAt(pn, x1, y1 - 1, l.a.join("."), 0.7, "lklabel") + textAt(pn, x2, y2 + 1, l.b.join("."), 0.7, "lklabel");
     o.push('<g class="lkg" data-st="' + l.state + '" data-i="' + i + '" data-a="' + esc(l.a[0]) + '" data-b="' + esc(l.b[0]) + '"><line class="lkhit" x1="' + num(x1 + (x2 - x1) * 0.3) + '" y1="' + num(y1 + (y2 - y1) * 0.3) + '" x2="' + num(x1 + (x2 - x1) * 0.7) + '" y2="' + num(y1 + (y2 - y1) * 0.7) + '"/>' +
-      '<line class="lk ' + l.state + '" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" marker-end="url(#ar-' + l.state + ')"/><circle class="lkdot ' + l.state + '" cx="' + x1 + '" cy="' + y1 + '" r="0.2"/></g>');
+      body + '<circle class="lkdot ' + l.state + '" cx="' + x1 + '" cy="' + y1 + '" r="0.2"/>' + ends + "</g>");
   });
   o.push("</g>");
   o.push('<g class="fnds">');
@@ -905,6 +924,24 @@ function visRules(off) {
   return out.join("\n");
 }
 function applyVisibility() { $("#visrules").textContent = visRules(S.off); }
+// Keepouts and reserved areas start hidden: a region the page has not seen yet is switched off once, so the choice
+// to show one stays through later resolves.
+const REGION_GROUPS = {ko: p => ((p && p.keepouts) || []).map(k => k.name), res: p => [...new Set(((p && p.reservations) || []).map(r => r.why))]};
+function seedRegions(p) {
+  let changed = false;
+  for (const g of Object.keys(REGION_GROUPS)) for (const n of REGION_GROUPS[g](p)) {
+    const id = g + ":" + n;
+    if (!S.seenRegions.has(id)) { S.seenRegions.add(id); S.off.add(id); changed = true; }
+  }
+  if (changed) applyVisibility();
+}
+// A group header's state from its children: all shown, none shown, or some.
+const groupState = (g, p) => { const ids = REGION_GROUPS[g](p).map(n => g + ":" + n), off = ids.filter(id => S.off.has(id)).length; return off === 0 ? "all" : off === ids.length ? "none" : "some"; };
+function toggleGroup(g) {
+  const p = plan(), ids = REGION_GROUPS[g](p).map(n => g + ":" + n), hide = groupState(g, p) === "all";
+  for (const id of ids) { if (hide) S.off.add(id); else S.off.delete(id); }
+  applyVisibility(); renderLegend();
+}
 function toggleOff(id) { if (S.off.has(id)) S.off.delete(id); else S.off.add(id); applyVisibility(); renderLegend(); }
 
 const SW = {   // the legend's swatches draw with the board's own classes, so the key is the colours the board uses
@@ -915,7 +952,8 @@ const SW = {   // the legend's swatches draw with the board's own classes, so th
   silk: '<text x="13" y="11" text-anchor="middle" class="silktxt" style="font-size:10px">TXT</text>',
   track: cls => '<line x1="2" y1="7" x2="24" y2="7" class="trk ' + cls + '" style="stroke-width:3.5"/>',
   via: '<circle cx="13" cy="7" r="6" class="via" style="stroke:none"/><circle cx="13" cy="7" r="2.6" class="vhole" style="stroke-width:1"/>',
-  link: cls => '<line x1="2" y1="7" x2="19" y2="7" class="lk ' + cls + '" style="stroke-width:1.8"/><circle cx="2.5" cy="7" r="2.2" class="lkdot ' + cls + '"/><path d="M 17 3 L 24 7 L 17 11 z" class="arrowhead ' + cls + '"/>',
+  link: cls => (cls === "over" ? '<line x1="2" y1="7" x2="10" y2="7" class="lk ok" style="stroke-width:1.8"/><line x1="10" y1="7" x2="19" y2="7" class="lk over" style="stroke-width:1.8"/>' : '<line x1="2" y1="7" x2="19" y2="7" class="lk ' + cls + '" style="stroke-width:1.8"/>') +
+    '<circle cx="2.5" cy="7" r="2.2" class="lkdot ' + cls + '"/><path d="M 17 3 L 24 7 L 17 11 z" class="arrowhead ' + cls + '"/>',
   ko: '<rect x="3" y="2" width="20" height="10" class="ko" style="stroke-width:1.2;fill-opacity:0.3"/>',
   res: '<rect x="3" y="2" width="20" height="10" class="res" style="stroke-width:1.2;stroke-dasharray:3 2;fill-opacity:0.25"/>',
   findings: '<circle cx="13" cy="7" r="5.5" class="fmark" style="stroke-width:1.6"/>',
@@ -946,14 +984,19 @@ function legendHTML(p) {
   o.push("<h4>Links</h4>");
   for (const [st, name] of [["ok", "within its limit"], ["over", "over its limit"], ["free", "no limit"]]) o.push(row("link:" + st, SW.link(st), name, links.filter(l => l.state === st).length));
   o.push('<div class="lgnote">A link is a pull the script declared between two pads. The arrow runs from the pad of the part it was declared on to its partner pad. Hover one for its length and limit.</div>');
-  o.push("<h4>Regions</h4>", row("ko", SW.ko, "keepouts", kos.length, {exp: "ko"}));
+  const head = (g, sw, name, n) => {
+    const st = groupState(g, p), shown = n - REGION_GROUPS[g](p).filter(x => S.off.has(g + ":" + x)).length;
+    return '<div class="lg grp ' + st + (n === 0 ? " zero" : "") + '" data-grp="' + g + '" title="' + (st === "all" ? "hide all" : "show all") + '"><span class="car" data-exp="' + g + '">' + (S.exp.has(g) ? "&#9662;" : "&#9656;") + "</span>" +
+      '<svg class="sw" viewBox="0 0 26 14">' + sw + '</svg><span class="nm">' + name + "</span><em>" + (st === "some" ? shown + " of " + n : n) + "</em></div>";
+  };
+  o.push("<h4>Regions</h4>", head("ko", SW.ko, "keepouts", kos.length));
   if (S.exp.has("ko")) for (const k of kos) o.push(row("ko:" + k.name, SW.ko, k.name, null, {sub: true, title: k.why}));
-  o.push(row("res", SW.res, "reserved areas", resNames.length, {exp: "res"}));
+  o.push(head("res", SW.res, "reserved areas", resNames.length));
   if (S.exp.has("res")) for (const w of resNames) o.push(row("res:" + w, SW.res, w, null, {sub: true}));
   o.push("<h4>Marks</h4>", row("findings", SW.findings, "findings", ((p && p.findings) || []).filter(f => f.at).length), row("heat", SW.heat, "congestion", p && p.congestion ? p.congestion.cells.length : 0), row("changes", SW.changes, "changes since the last resolve", null));
   return o.join("");
 }
-function renderLegend() { $("#legend").innerHTML = legendHTML(plan()); }
+function renderLegend() { seedRegions(plan()); $("#legend").innerHTML = legendHTML(plan()); }
 function soloLayer(id) {
   const p = plan(), all = copperLayers(p).map(l => "cu:" + l), others = all.filter(x => x !== id);
   const alone = others.every(x => S.off.has(x)) && !S.off.has(id);
@@ -964,6 +1007,7 @@ $("#legend").onclick = e => {
   if (e.target.closest("[data-close]")) { $("#legend").classList.remove("open"); return; }
   const only = e.target.closest("[data-only]"); if (only) { soloLayer(only.dataset.only); return; }
   const car = e.target.closest("[data-exp]"); if (car) { const k = car.dataset.exp; if (S.exp.has(k)) S.exp.delete(k); else S.exp.add(k); renderLegend(); return; }
+  const g = e.target.closest("[data-grp]"); if (g) { toggleGroup(g.dataset.grp); return; }
   const r = e.target.closest("[data-id]"); if (r) toggleOff(r.dataset.id);
 };
 
@@ -1247,34 +1291,84 @@ function markItems(keys, zoom) {
 // The card on the board for what is selected: a part or item, a module, or a region.
 const cardKey = () => [S.sel, S.selRef, S.module, S.selRegion && S.selRegion.kind + S.selRegion.id].join("|");
 function kvl(rows) { return '<div class="kvl">' + rows.filter(r => r[1] != null && r[1] !== "").map(([k, v]) => "<span>" + esc(k) + "</span><span>" + v + "</span>").join("") + "</div>"; }
-function cardHead(title, chip, chipCls) { return '<div class="h"><b>' + esc(title) + "</b>" + (chip ? '<span class="chip ' + esc(chipCls || "") + '">' + esc(chip) + "</span>" : "") + '<button class="x" data-act="close" aria-label="close">&times;</button></div>'; }
+function cardHead(title, chip, chipCls, extra) { return '<div class="h"><b>' + esc(title) + "</b>" + (chip ? '<span class="chip ' + esc(chipCls || "") + '">' + esc(chip) + "</span>" : "") + (extra || "") + '<button class="x" data-act="close" aria-label="close">&times;</button></div>'; }
+const pill = (text, cls) => '<span class="chip ' + (cls || "") + '">' + esc(text) + "</span>";
+const sect = (title, body, aside) => body ? '<div class="cs"><div class="ct">' + esc(title) + (aside ? " " + aside : "") + "</div>" + body + "</div>" : "";
+const listOf = lines => lines.length ? '<div class="cl">' + lines.map(l => "<div>" + l + "</div>").join("") + "</div>" : "";
+// A step's note is "; "-separated, though a part can hold a "; " in brackets. Its known parts get their own lines; whatever else it says is kept as it is.
+function splitTop(s, sep) {
+  const out = []; let depth = 0, from = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === "(") depth++; else if (c === ")") depth = Math.max(0, depth - 1);
+    else if (depth === 0 && s.startsWith(sep, i)) { out.push(s.slice(from, i)); from = i + sep.length; i += sep.length - 1; }
+  }
+  out.push(s.slice(from));
+  return out.map(x => x.trim()).filter(Boolean);
+}
+function noteParts(note) {
+  const o = {rank: null, seeded: [], moved: null, vias: [], push: [], other: []};
+  for (const part of splitTop(note || "", "; ")) {
+    let m;
+    if ((m = /^rank (\d+)\/(\d+)(?: \((.*)\))?$/.exec(part))) o.rank = {n: m[1], of: m[2], facts: m[3] ? splitTop(m[3], "; ") : []};
+    else if ((m = /^seeded on (.+)$/.exec(part))) o.seeded.push(...m[1].split(/,\s*/));
+    else if ((m = /^moved ([\d.]+) mm off the hint[:\s]*(.*)$/.exec(part))) o.moved = {mm: m[1], why: m[2]};
+    else if ((m = /^vias: (.+)$/.exec(part))) o.vias.push(...m[1].split(/,\s+/));
+    else if (/^push from /.test(part)) o.push.push(part);
+    else if (!/^rides /.test(part)) o.other.push(part);
+  }
+  return o;
+}
+const rankRows = r => {
+  const rows = [["rank", pill(r.n + " of " + r.of)]];
+  for (const f of r.facts) {
+    const m = /^([\d.]+) (mm2|pins?)(?:, (.+))?$/.exec(f);
+    if (m) rows.push([m[2] === "mm2" ? "area" : "pins", pill(m[1] + (m[2] === "mm2" ? " mm2" : "")) + (m[3] ? ' <span class="dim">' + esc(m[3]) + "</span>" : "")]);
+    else rows.push(["", esc(f)]);
+  }
+  return rows;
+};
+// "N what ..." starts a via line; a fragment without a count continues the line before it (a list of owners).
+const joinVias = vs => vs.reduce((o, v) => { if (/^\d+ /.test(v) || !o.length) o.push(v); else o[o.length - 1] += ", " + v; return o; }, []);
+const viaLine = v => { const m = /^(\d+) (.*)$/.exec(v); return m ? pill(m[1], /drop|cannot|refus/.test(m[2]) ? "warn" : "") + " " + esc(m[2]) : esc(v); };
+const pushLine = s => {
+  const m = /^push from (.+?): ([\d.e+-]+) at ([\d.]+) mm \(limit ([\d.e+-]+)\)$/.exec(s);
+  return m ? pill(m[1], "net") + " " + esc(m[2] + " at " + m[3] + " mm, limit " + m[4]) : esc(s);
+};
+const sevPills = fs => listOf(fs.map(f => '<span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + esc(f.text)));
 function linkRows(p, refs, all) {
   const ls = (p.links || []).map((l, i) => [l, i]).filter(([l]) => refs.has(l.a[0]) || refs.has(l.b[0])).sort((a, b) => (b[0].state === "over") - (a[0].state === "over"));
   if (!ls.length) return "";
-  const shown = all ? ls : ls.slice(0, 5);
-  return '<div class="facts">' + ls.length + (ls.length === 1 ? " link" : " links") + ", " + ls.filter(([l]) => l.state === "over").length + " over its limit</div>" +
+  const shown = all ? ls : ls.slice(0, 5), over = ls.filter(([l]) => l.state === "over").length;
+  return sect("Links", '<div class="facts">' + pill(ls.length + (ls.length === 1 ? " link" : " links")) + (over ? " " + pill(over + " over its limit", "bad") : "") + "</div>" +
     shown.map(([l, i]) => '<div class="lrow" data-act="link" data-i="' + i + '"><span class="chip ' + esc(l.kind || "") + '">' + esc(l.kind || "link") + "</span><span>" + esc(l.a.join(".") + (refs.has(l.a[0]) ? " -> " : " <- ") + l.b.join(".")) +
-      '</span><span class="num ' + (l.state === "over" ? "del" : "") + '">' + l.length + (l.limit != null ? " / " + l.limit : "") + " mm</span></div>").join("") +
-    (ls.length > 5 ? '<a class="act" data-act="links">' + (all ? "fewer" : "all " + ls.length) + "</a>" : "");
+      '</span><span class="num ' + (l.state === "over" ? "del" : l.state === "ok" ? "ok" : "") + '">' + l.length + (l.limit != null ? " / " + l.limit : "") + " mm</span></div>").join("") +
+    (ls.length > 5 ? '<a class="act" data-act="links">' + (all ? "fewer" : "all " + ls.length) + "</a>" : ""));
 }
 function partCard(p, it) {
   const m = it.members.find(x => x.ref === S.selRef) || (it.members.length === 1 ? it.members[0] : null);
-  const mod = moduleOf(it, m && m.ref), step = (S.stepNo && S.stepNo.get(it.key)), refs = new Set(m ? [m.ref] : it.members.map(x => x.ref));
-  const fs = findingsOf(p, it.key, it), s = (p.steps || []).find(x => x.item === it.key);
-  return cardHead(m ? m.ref : it.key, it.kind, "") +
+  const title = m ? m.ref : it.key, mod = moduleOf(it, m && m.ref), step = (S.stepNo && S.stepNo.get(it.key)), refs = new Set(m ? [m.ref] : it.members.map(x => x.ref));
+  const fs = findingsOf(p, it.key, it), s = (p.steps || []).find(x => x.item === it.key), np = noteParts(it.note);
+  const how = howText(s, it).replace(/^(searched): rank \d+ of \d+/, "$1").replace(/, seeded on .*?(?=, slid|$)/, "");
+  const modPill = mod && S.module !== mod ? '<a class="chip act" data-act="module" data-id="' + esc(mod) + '">select module</a>' : "";
+  const moved = np.moved || (it.moved_mm ? {mm: it.moved_mm, why: ""} : null);
+  const place = kvl([["module", mod && mod !== title ? esc(mod) : ""], ["face", esc(it.face + ", rotated " + deg(it.rotation))], ["placed", esc(how)], ["step", step != null ? (step + 1) + " of " + placementSteps(p).length : ""],
+    ...(np.rank ? rankRows(np.rank) : []), ["seeded on", np.seeded.length ? '<span class="pills">' + np.seeded.map(n => pill(n, "net")).join("") + "</span>" : ""]]);
+  return cardHead(title, it.kind, "", modPill) +
     (m && m.value ? '<div class="sub">' + esc(m.value) + (it.key !== m.ref ? "  (item " + esc(it.key) + ")" : "") + "</div>" : "") +
-    kvl([["module", mod ? esc(mod) + (S.module !== mod ? ' <a class="act" data-act="module" data-id="' + esc(mod) + '">select its module</a>' : "") : ""], ["face", esc(it.face + ", rotated " + deg(it.rotation))],
-      ["placed", esc(howText(s, it))], ["step", step != null ? (step + 1) + " of " + placementSteps(p).length : ""], ["moved", it.moved_mm ? it.moved_mm + " mm" : ""]]) +
-    (it.note ? '<div class="note">' + esc(it.note) + "</div>" : "") + (it.why ? '<div class="note dim">' + esc(it.why) + "</div>" : "") +
-    fs.map(f => '<div class="fnd"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + esc(f.text) + "</div>").join("") +
-    linkRows(p, refs, S.cardLinks) + (it.file ? '<div class="src"><a data-act="src">' + esc(it.file + ":" + it.line) + "</a></div>" : "");
+    sect("Placement", place) +
+    sect("Why it moved", moved ? '<div class="facts">' + pill(moved.mm + " mm", "warn") + " off the hint</div>" + (moved.why ? '<div class="note">' + esc(moved.why) + "</div>" : "") : "") +
+    sect("Pushes", listOf(np.push.map(pushLine))) + sect("Vias", listOf(joinVias(np.vias).map(viaLine))) +
+    sect("Notes", listOf(np.other.map(esc).concat(it.why ? ['<span class="dim">' + esc(it.why) + "</span>"] : []))) +
+    sect("Findings", sevPills(fs)) + linkRows(p, refs, S.cardLinks) +
+    (it.file ? '<div class="src"><a data-act="src">' + esc(it.file + ":" + it.line) + "</a></div>" : "");
 }
 function moduleCard(p) {
   const id = S.module, keys = moduleKeys(p, id), refs = moduleRefs(p, id);
   const fs = [...keys].flatMap(k => findingsOf(p, k, itemMap(p).get(k)));
   return cardHead("module " + id, "module", "") + '<div class="sub">' + refs.length + (refs.length === 1 ? " part" : " parts") + "</div>" +
     '<div class="mods">' + refs.map(r => '<button data-act="part" data-ref="' + esc(r) + '">' + esc(r) + "</button>").join("") + "</div>" +
-    fs.map(f => '<div class="fnd"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + esc(f.text) + "</div>").join("") + linkRows(p, new Set(refs), S.cardLinks);
+    sect("Findings", sevPills(fs)) + linkRows(p, new Set(refs), S.cardLinks);
 }
 function regionCard(p) {
   const {kind, id} = S.selRegion;

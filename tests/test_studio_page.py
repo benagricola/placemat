@@ -378,7 +378,7 @@ full([item("a", 1)], [st("a")]);
 out.start = els["#visrules"].textContent;
 out.legend = els["#legend"].innerHTML;
 const click = id => els["#legend"].onclick({target: {closest: s => s === "[data-id]" ? {dataset: {id}} : null}});
-click("via"); click("labels"); click("link:over"); click("cu:In1.Cu"); click("res:fanout of mcu (north side)");
+click("via"); click("labels"); click("link:over"); click("cu:In1.Cu");
 out.rules = els["#visrules"].textContent;
 els["#legend"].onclick({target: {closest: s => s === "[data-exp]" ? {dataset: {exp: "ko"}} : null}});
 out.expanded = els["#legend"].innerHTML;
@@ -386,14 +386,14 @@ click("ko:antenna_clear");
 out.ko = els["#visrules"].textContent;
 out.rules2 = ev('visRules(new Set(["cy", "ko", "cu:F.Cu", "link:ok"]))');
 """)
-    assert out["start"] == "#board .ref { display: none; }"                      # designators are off until asked for
-    for row in ('data-id="cy"', 'data-id="cu:F.Cu"', 'data-id="via"', 'data-id="link:ok"', 'data-id="link:over"', 'data-id="ko"', 'data-id="res"', 'data-id="findings"'):
+    assert out["start"].split("\n") == ["#board .ref { display: none; }", '#board [data-ko="antenna_clear"] { display: none; }', '#board [data-res="fanout of mcu (north side)"] { display: none; }']   # designators, keepouts and reserved areas start hidden
+    for row in ('data-id="cy"', 'data-id="cu:F.Cu"', 'data-id="via"', 'data-id="link:ok"', 'data-id="link:over"', 'data-grp="ko"', 'data-grp="res"', 'data-id="findings"'):
         assert row in out["legend"]
     assert '<em>1</em>' in out["legend"] and "within its limit" in out["legend"]
     assert "#board .viag { display: none; }" in out["rules"] and ".ref" not in out["rules"]               # via off, designators on
-    assert '#board .lkg[data-st="over"]' in out["rules"] and '#board [data-l="In1.Cu"]' in out["rules"] and '[data-res="fanout of mcu (north side)"]' in out["rules"]
-    assert 'data-id="ko:antenna_clear"' in out["expanded"]                          # a keepout has its own row
-    assert '[data-ko="antenna_clear"]' in out["ko"]
+    assert '#board .lkg[data-st="over"]' in out["rules"] and '#board [data-l="In1.Cu"]' in out["rules"]
+    assert 'data-id="ko:antenna_clear"' in out["legend"] and 'data-id="ko:antenna_clear"' not in out["expanded"]    # a keepout has its own row, shown until its group is folded
+    assert out["ko"].count('[data-ko="antenna_clear"]') == 0                         # a click on its row showed it
     assert out["rules2"].split("\n") == ["#board .cy { display: none; }", "#board .ko { display: none; }", '#board [data-l="F.Cu"] { display: none; }', '#board .lkg[data-st="ok"] { display: none; }']
 
 
@@ -452,7 +452,7 @@ out.module = els["#card"].innerHTML; out.sel = ev("[S.sel, S.selRef, S.module]")
 out.single = ev('moduleOf(Object.assign({}, plan().items.find(i => i.key === "b"), {kind: "part"}), "Rb")');
 """)
     assert out["keys"] == ["psu"] and out["refs"] == ["C1", "C2"]
-    assert "C2" in out["part"] and "select its module" in out["part"] and "psu" in out["part"]
+    assert "C2" in out["part"] and "select module" in out["part"] and "psu" in out["part"]
     assert "module psu" in out["module"] and 'data-ref="C1"' in out["module"] and 'data-ref="C2"' in out["module"]
     assert out["sel"] == ["psu", None, "psu"] and out["single"] == ""
 
@@ -521,3 +521,70 @@ out.after = [els["#board-title"].textContent, ev("S.docs.size"), ev("S.live"), e
     assert "m/A_layout.py" in out["options"] and "m/B_layout.py" in out["options"] and "core_geometry" not in out["options"] and "placemat.toml" not in out["options"]
     assert out["fetched"] == [["/switch?t=x", "POST", '{"script":"m/B_layout.py"}']]
     assert out["after"] == ["B", 0, None, "waiting"]
+
+
+@needs_node
+def test_a_region_group_row_switches_all_its_children_and_reads_all_none_or_some(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+ev('plan().keepouts.push({name: "second", poly: [[7, 7], [9, 7], [9, 9]], why: "", layers: null, excludes: [], allow: [], max_height: null})');
+ev("renderLegend()");
+const rules = () => els["#visrules"].textContent, legend = () => els["#legend"].innerHTML;
+const grp = id => els["#legend"].onclick({target: {closest: s => s === "[data-grp]" ? {dataset: {grp: id}} : null}});
+const row = id => els["#legend"].onclick({target: {closest: s => s === "[data-id]" ? {dataset: {id}} : null}});
+const head = () => (legend().match(/<div class="lg[^"]*" data-grp="ko"[^>]*>/) || [""])[0];
+out.start = [rules(), head()];
+grp("ko"); out.shown = [rules(), head()];
+grp("ko"); out.hidden = [rules(), head()];
+row("ko:second"); out.one = [rules(), head()];
+row("ko:antenna_clear"); out.both = [rules(), head()];
+grp("res"); out.res = rules();
+""")
+    ko = lambda r: [l for l in r.split("\n") if "data-ko" in l]
+    assert len(ko(out["start"][0])) == 2 and "none" in out["start"][1]               # a keepout the page has not seen yet starts hidden
+    assert ko(out["shown"][0]) == [] and "all" in out["shown"][1]
+    assert len(ko(out["hidden"][0])) == 2 and "none" in out["hidden"][1]
+    assert len(ko(out["one"][0])) == 1 and "second" not in ko(out["one"][0])[0] and "some" in out["one"][1]
+    assert ko(out["both"][0]) == [] and "all" in out["both"][1]
+    assert "data-res" not in out["res"]
+
+
+@needs_node
+def test_a_link_is_green_up_to_its_limit_and_red_beyond_and_both_ends_are_marked_on_any_face(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1), item("b", 5)], [st("a"), st("b")]);
+ev('plan().links.push({a: ["Ra", "3"], b: ["Rb", "4"], pa: [1, 1], pb: [5, 1], length: 4, limit: 1, state: "over", kind: "SHORT", weight: 8, why: ""})');
+ev("renderBoard()"); out.board = board().innerHTML;
+ev('S.face = "back"'); ev("renderBoard()"); out.back = board().innerHTML;
+""")
+    b = out["board"]
+    assert 'class="lk ok" x1="1" y1="1" x2="2" y2="1"' in b and 'class="lk over" x1="2" y1="1" x2="5" y2="1"' in b
+    assert 'class="lk ok" x1="1" y1="1" x2="5" y2="1"' in b.split('data-i="0"')[1].split("</g>")[0]      # the one within its limit stays whole
+    assert 'class="lk ok" x1="1" y1="1" x2="5" y2="1"' not in b.split('data-i="1"')[1]                    # the over link has no all-green line
+    for text in ("Ra.1", "Rb.2", "Ra.3", "Rb.4"):
+        assert text in out["back"] and 'class="lkend' in out["back"]
+
+
+@needs_node
+def test_the_part_card_is_in_sections_with_the_note_split_into_its_parts(tmp_path):
+    note = ("rank 20/24 (22.4 mm2, 19th of 24; 17 pins, 15th); seeded on USB_CC1, USB_CC2; moved 10.48 mm off the hint: cell X's U40 silk is 0.00 mm from cell Y's U9 mask opening (needs 0.20); "
+            "vias: 1 GND via shared, 5 left its pad, 1 dropped under cell Z's C72; push from L1: 2.5 at 3.0 mm (limit 8)")
+    out = run_more(tmp_path, r"""
+const it = Object.assign(cellItem("psu", "psu", ["Ra", "C2"], 1), {freedom: "searched", how: "searched", moved_mm: 10.48, note: %s, why: "", file: "x_layout.py", line: 358});
+const lone = Object.assign(cellItem("solo", "", ["R1"], 20), {kind: "part", note: "", why: ""});
+full([it, lone], [st("psu", "cell"), st("solo")], {findings: [{text: "psu: sits close", kind: "k", at: null, item: "psu", severity: "critical"}]});
+ev('selectItem("psu", {})'); flush();
+out.card = els["#card"].innerHTML;
+ev('selectItem("solo", {})'); flush();
+out.solo = els["#card"].innerHTML;
+""" % json.dumps(note))
+    c = out["card"]
+    assert "<span>module</span>" not in c and 'data-act="module"' in c and c.index('data-act="module"') < c.index('data-act="close"')   # the module is the item: a pill by the title
+    for title in ("Placement", "Why it moved", "Vias", "Links", "Findings"):
+        assert '<div class="ct">' + title + "</div>" in c, title
+    assert '<span class="chip net">USB_CC1</span>' in c and '<span class="chip net">USB_CC2</span>' in c
+    assert "20 of 24" in c and "22.4 mm\u00b2" in c and "17 pins" not in c
+    assert '<span class="chip warn">10.48 mm</span>' in c and "silk is 0.00 mm from" in c
+    assert "GND via shared" in c and "left its pad" in c and '<span class="chip net">L1</span> 2.5 at 3.0 mm, limit 8' in c
+    assert "critical" in c and "x_layout.py:358" in c
+    assert 'data-act="module"' not in out["solo"]
