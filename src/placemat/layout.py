@@ -2653,7 +2653,8 @@ class Board:
         if either:
             self._refuse_either(key, kind, rotation, at=at, center=center, edge=edge, along=along, pin_x=pin_x,
                                 pin_y=pin_y, rim=rim, angle=angle, radius_at=radius_at, run=run, beside=beside,
-                                cell_pin=cell_pin, pin=pin, about=about, row_of=_row_of)
+                                cell_pin=cell_pin, pin=pin, row_of=_row_of,
+                                about=None if band is not None else about)      # a band's about= is its centre
         faces_note = ""
         if isinstance(rotation, Facing):
             if kind != "part":
@@ -2761,8 +2762,6 @@ class Board:
             raise TypeError("%s: a block is turned by its anchor; Tangent turns are for a part or a cell" % key)
         if rotation is not None:
             raise ValueError("%s: rotation= settles the rotation; Tangent turns would override it" % key)
-        if either:
-            raise ValueError("%s: Tangent turns are taken on one face; drop face=Face.EITHER or the Tangent" % key)
         decided = sorted(k for k, v in place.items() if v is not None and k not in ("near", "band"))
         if place["band"] is not None and place["angle"] is not None:
             decided = sorted(set(decided) | {"a bearing"})
@@ -7952,7 +7951,8 @@ class Board:
         within = None
         if band is not None:
             hint = self._band_hint(i, band, hint)
-            slack = max((math.hypot(dx, dy) for dx, dy in bt.offset.values()), default=0.0)
+            slack = max((math.hypot(dx, dy) for s in self._spots_of(occ, i, placed, band, bt)
+                         for dx, dy in s.offset.values()), default=0.0)
             within = lambda x, y, c=band[0], lo=band[1] - slack, hi=band[2] + slack: lo <= math.hypot(x - c.x, y - c.y) <= hi
         # A board still finding its own frame (board.size(fit=True), before anything is placed)
         # has no centre or outline to search wide against yet: a push there falls back to a pocket,
@@ -7993,7 +7993,8 @@ class Board:
             return self._step(i, None, 0.0, "UNPLACED: " + hopeless)
         result, face_note = self._scan_faces(occ, i, hint, radius, clr, score, accept,
                                              reseed=(targets if i.near is None and solved is None else None),
-                                             turns_at=bt, within=within)
+                                             turns_at=bt, within=within,
+                                             turns_on=lambda f: self._spot_turns(occ, i, placed, band, f))
         if result.chosen is None and solved is not None:
             # The solve spreads items without seeing what is already placed, so
             # its hint can land where nothing is legal. That must not cost a
@@ -8038,19 +8039,21 @@ class Board:
         return "front or back" if i.either else i.face.value
 
     def _scan_faces(self, occ: Occupancy, i: PlaceIntent, hint: Placement, radius: float, clr, score, accept,
-                    reseed=None, turns_at=None, within=None):
+                    reseed=None, turns_at=None, within=None, turns_on=None):
         """(the scan's result, a note on the face taken) for `i`. A fixed face is one scan. Face.EITHER
         scans the front and then the back, each at its own turn of the hint (`reseed`: the targets a
         seeded hint was made from, laid again for the back's pads), and takes the back only where
         its score plus `score.back_face` is less than the front's, or the front has no legal spot.
         An unscored search takes the front when it has a spot: the back costs more and nothing else
-        tells them apart. A failure carries both faces' refusals."""
+        tells them apart. A failure carries both faces' refusals. `turns_at` is the front's SpotTurns and
+        `turns_on(face)` makes the back's: a tangent turn depends on the face, as the item is mirrored there."""
         turns, pick = self._turns(i), self._pick(i)
         if not i.either:
             return scan(occ, i.item, hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
                         turns_at=turns_at, within=within), ""
         cost = self.settings.score_back_face
-        front = scan(occ, i.item, hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept)
+        front = scan(occ, i.item, hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
+                     turns_at=turns_at, within=within)
         if front.chosen is not None and score is None:
             return front, ""
         if hint.face is Face.BACK:
@@ -8061,7 +8064,9 @@ class Board:
             back_hint = Placement(hint.location, hint.rotation, Face.BACK)
         if front.chosen is not None and hasattr(score, "best"):
             score.best[0] = min(score.best[0], front.score - cost)      # a back spot must beat the front's by it
-        back = scan(occ, i.item, back_hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept)
+        back_turns = turns_on(Face.BACK) if turns_at is not None and turns_on is not None else turns_at
+        back = scan(occ, i.item, back_hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
+                    turns_at=back_turns, within=within)
         if back.chosen is not None and (front.chosen is None or back.score + cost < front.score):
             if front.chosen is None:
                 why = "the front has no legal spot (%s)" % _blame_text(front)
@@ -8092,14 +8097,27 @@ class Board:
         bits += self._exposure_notes(occ, i, placement, push_sources)
         return "; ".join(bits)
 
-    def _spot_turns(self, occ: Occupancy, i: PlaceIntent, placed, band: tuple | None) -> SpotTurns | None:
+    def _spots_of(self, occ: Occupancy, i: PlaceIntent, placed, band, front: SpotTurns | None) -> list:
+        """The SpotTurns of each face a search of `i` tries, `front` being the front's (or the fixed face's)."""
+        if front is None:
+            return []
+        if not i.either:
+            return [front]
+        return [front, self._spot_turns(occ, i, placed, band, Face.BACK)]
+
+    def _spot_turns(self, occ: Occupancy, i: PlaceIntent, placed, band: tuple | None,
+                    face: Face | None = None) -> SpotTurns | None:
         """The turns a scan takes at each spot when they depend on it (placer.SpotTurns): a tangent
         search's, taken from the spot's bearing about the Tangent's `about`, else that of the Polar
         band the item is in, else the board's centre; or a band's fixed turns, kept where the
-        item's body centre is in the band. None when neither applies."""
+        item's body centre is in the band. None when neither applies. `face` is the face the turns are for
+        (the declaration's, by default). On the back the item is mirrored about the vertical axis before it
+        turns, so the turn that points its outward side away from the centre is the back's own
+        (`outward_rotation(..., Face.BACK)`: a declared east or west side swap, north and south stay), and
+        the offset of its body centre is that of the mirrored body."""
         if i.tangent is None and band is None:
             return None
-        face = i.face
+        face = i.face if face is None else face
         if i.tangent is not None:
             ref = i.tangent.about if i.tangent.about is not None else i.about
             centre = self.centre if ref is None else _locate(self, occ, ref)

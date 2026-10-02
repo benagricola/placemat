@@ -526,7 +526,7 @@ An item that must face something keeps a fixed face: `Face.EITHER` is refused
 with a decided position (`Location`, `Centre`, `Pin`, `Beside`...), a line, an
 edge, a rim or a ring, a block, and `rotation=Facing(...)`. A label follows the
 face chosen; a keepout with `layers=` is judged against it, and a
-through-hole lead is refused by either face's keepout.
+through-hole lead is refused by either face's keepout. `rotations=Tangent(...)` and a `Polar` band are allowed with it; each face takes its own tangent turns ("Round boards").
 
 **A cell's flip keeps its inner layers, which KiCad's does not.** A cell
 flipped to the back swaps its own F and B copper and keeps its inner copper
@@ -1574,15 +1574,28 @@ board.place(Cell("winding2"), at=Near(Location(10, 12), radius=4), rotations=Tan
 ```
 
 It needs a searched spot - seeded from links, `Near`, or a band; a decided
-place, a point, a ring, a spoke, an edge, a rim, a `Beside`, a block, `face=
-Face.EITHER` and `rotation=` are refused, with `board.outward_rotation(item,
+place, a point, a ring, a spoke, an edge, a rim, a `Beside`, a block and
+`rotation=` are refused, with `board.outward_rotation(item,
 bearing)[0]` for the turn at one bearing. The bearing of a spot is that of
 the item's body centre, cut into bins of `place.tangent_bin` degrees (10.0): a
 spot takes the turn of its bin's middle bearing, so the item lies within about
 half a bin of the tangent, and a candidate costs two turns (four with
 quarters), not a step's 72. Of equal cost the outward turn wins, then the
 quarters, then the half turn; a link or a push that favours another turn still
-wins it. The global solve, the cleanup pass and explore leave such an item
+wins it.
+
+With `face=Face.EITHER` each face the search scans takes its own tangent turns.
+A part on the back is mirrored about the vertical axis before it turns (a flip to the back,
+above), so the turn that points its outward side away from the centre is
+the back's own: a declared east or west side swaps, north and south do not,
+and `board.outward_rotation(item, bearing, Face.BACK)[0]` is that turn. As seen
+from the front the tangent line is the same, the half turn and quarters are
+kept, and a spot is judged and scored as above, the back costing
+`score.back_face`.
+
+```python
+board.place(Cell("c"), face=Face.EITHER, at=Polar((0.0, 19.0), None, about=CENTRE), rotations=Tangent(about=CENTRE, quarters=True))
+``` The global solve, the cleanup pass and explore leave such an item
 where its scan puts it.
 
 **A disc with cutouts is still a disc.** A slot in a round board does not make

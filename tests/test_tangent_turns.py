@@ -279,8 +279,6 @@ def test_tangent_turns_are_refused_with_a_declared_rotation_and_on_a_block_and_o
         b.place(Cell("c0"), at=OnEdge(b.edge(facing=Edge.NORTH)), rotations=Turns.TANGENT)
     with pytest.raises((ValueError, TypeError), match="tangent|Tangent"):
         b.place(Cell("c0"), at=OnRim(30.0), rotations=Turns.TANGENT)
-    with pytest.raises(ValueError, match="face"):
-        b.place(Cell("c0"), at=Polar(BAND, None, about=CENTRE), rotations=Turns.TANGENT, face=Face.EITHER)
 
 
 # ------------------------------------------------------------------ the scan
@@ -358,3 +356,83 @@ def test_timing_against_the_four_turn_search():
         assert _placed(plan, 3) == [0, 1, 2]
     print("tangent %.2fs, four turns %.2fs" % (times["tangent"], times["four"]))
     assert times["tangent"] < 6.0 * times["four"] + 2.0
+
+
+# ------------------------------------------------------------------ Face.EITHER
+
+def _either_board(n=1, front_blocked=False, faces=None, **kw):
+    from placemat.values import CopperLayer
+    b = _board(n, faces=faces, **kw)
+    if front_blocked:
+        b.keepout(Circle(60.0), "front only", at=CENTRE, excludes=("parts",), layers=(CopperLayer.F,),
+                  why="kept off the front")
+    return b
+
+
+def _either(b, n=1):
+    for k in range(n):
+        b.place(Cell("c%d" % k), face=Face.EITHER, at=Polar(BAND, None, about=CENTRE),
+                rotations=Tangent(about=CENTRE, quarters=True))
+    return b.resolve()
+
+
+def test_either_with_tangent_turns_lies_tangent_and_outward_on_the_front():
+    plan = _either(_either_board(3), 3)
+    assert _placed(plan, 3) == [0, 1, 2]
+    for k in range(3):
+        assert plan.placement("c%d" % k).face is Face.FRONT
+        assert _tangent_error(plan, k) <= 6.0 and _outward(plan, k)
+
+
+def test_either_with_tangent_turns_forced_to_the_back_lies_tangent_and_outward_as_seen_from_the_front():
+    pinned = _either_board(1, front_blocked=True)
+    pinned.place(Cell("c0"), face=Face.FRONT, at=Polar(BAND, None, about=CENTRE), rotations=Turns.TANGENT)
+    assert pinned.resolve().placement("c0") is None
+    plan = _either(_either_board(3, front_blocked=True), 3)
+    assert _placed(plan, 3) == [0, 1, 2]
+    for k in range(3):
+        assert plan.placement("c%d" % k).face is Face.BACK
+        assert _tangent_error(plan, k) <= 6.0 and _outward(plan, k), k
+        assert BAND[0] - 0.01 <= plan.box("c%d" % k).center.distance(CENTRE) <= BAND[1] + 0.01
+
+
+def test_either_on_the_back_turns_a_declared_east_side_out():
+    """Mirrored, the declared east side is on the west until turned: the back's turn is not the front's."""
+    plan = _either(_either_board(1, front_blocked=True, faces={"c0": {"outward": Edge.EAST.value}}))
+    assert plan.placement("c0").face is Face.BACK
+    p1, p2 = plan.occupancy.pad_location("W0", "1"), plan.occupancy.pad_location("W0", "2")
+    assert p2.distance(CENTRE) > p1.distance(CENTRE) + 3.0
+
+
+def test_either_with_tangent_turns_native_and_python_agree(monkeypatch):
+    if not placer.NATIVE_SWEEP:
+        pytest.skip("no native sweep")
+    out = []
+    for native in (True, False):
+        monkeypatch.setattr(placer, "NATIVE_SWEEP", native)
+        plan = _either(_either_board(2, front_blocked=True), 2)
+        out.append([(plan.placement("c%d" % k), [s.note for s in plan.steps if s.item == "c%d" % k])
+                    for k in range(2)])
+    assert out[0] == out[1]
+
+
+def test_either_with_tangent_turns_replays_the_face_and_the_turn():
+    first = _either(_either_board(2, front_blocked=True), 2)
+    again = _either_board(2, front_blocked=True)
+    for k in range(2):
+        again.place(Cell("c%d" % k), face=Face.EITHER, at=Polar(BAND, None, about=CENTRE),
+                    rotations=Tangent(about=CENTRE, quarters=True))
+    again = again.resolve(reuse=first.reuse)
+    assert again.reuse["reused"] == len(first.reuse["steps"])
+    for k in range(2):
+        assert again.placement("c%d" % k) == first.placement("c%d" % k)
+        assert again.placement("c%d" % k).face is Face.BACK
+
+
+def test_either_with_a_band_from_the_centre_out_and_tangent_turns():
+    b = _either_board(2)
+    for k in range(2):
+        b.place(Cell("c%d" % k), face=Face.EITHER, at=Polar((0.0, R - 3.0), None, about=CENTRE),
+                rotations=Tangent(about=CENTRE, quarters=True))
+    plan = b.resolve()
+    assert _placed(plan, 2) == [0, 1]

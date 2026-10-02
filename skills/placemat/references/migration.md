@@ -5,6 +5,19 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **`Face.EITHER` with tangent turns.** `board.place(item, face=Face.EITHER,
+  at=Polar((r_min, r_max), None, about=c), rotations=Tangent(about=c))` was
+  refused; each face the search scans now takes its own tangent turns, the
+  outward side away from the centre on the back as on the front (the back's
+  turn follows the mirrored item, so a declared east or west side swaps). The
+  back costs `score.back_face` as for any `Face.EITHER` search. A cell
+  pinned to a face only to turn it to a curve can drop the pin. `api.md`,
+  "Round boards" and "Either face".
+
 ## To 0.76.0
 
 ### New
