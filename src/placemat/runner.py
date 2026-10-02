@@ -425,6 +425,10 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         from .lanes import EscapeError
         parts = reuse_parts(src, cfg, fab)
         board.reuse_extra = "|".join(parts[k] for k in ("tool", "board", "settings", "fab"))
+        from .kicad.write import strip_stamped_notes
+        # Their facts are read, and the reuse record has the generation's digest: the board the run leaves
+        # in the folder while it works shows none
+        strip_stamped_notes(src.pcb, keep_loose_faces=not board._draw_outline)
         from . import explore as explore_mod, routes as routes_mod
         try:
             lock_entries, explored = explore_mod.before_resolve(

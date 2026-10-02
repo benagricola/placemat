@@ -861,7 +861,7 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     with quiet_stderr():
         board = pcbnew.LoadBoard(pcb_path)
     seed_uuids()
-    _drop_stamped_notes(board)
+    _drop_stamped_notes(board, plan)
     groups = {g.GetName(): g for g in board.Groups()}
     by_ref = {fp.GetReference(): fp for fp in board.GetFootprints()}
     for name, gone in sorted(plan.thinned.items()):
@@ -895,18 +895,50 @@ def apply_plan(pcb_path, plan: Plan, out_path=None) -> str:
     return out
 
 
-def _drop_stamped_notes(board) -> None:
+def _is_note(item) -> bool:
+    return isinstance(item, pcbnew.PCB_TEXT) and item.GetText().startswith((FACES_PREFIX, RULE_PREFIX))
+
+
+def _delete_note(board, note) -> None:
+    group = note.GetParentGroup()
+    if group is not None:
+        group.RemoveItem(note)
+    board.Delete(note)
+
+
+def _loose_faces(item) -> bool:
+    return item.GetParentGroup() is None and item.GetText().startswith(FACES_PREFIX)
+
+
+def _drop_stamped_notes(board, plan: Plan) -> None:
     """Take a stamped fragment's notes (its faces, its clearance rules) off the board. A note is the
-    fragment's fact for the parent, read at load (read.board_geometry_of);
-    stamped, it sits a fixed distance below the fragment's content, is a
-    member of the cell's group, and stays behind when the cell is turned and
-    placed, stretching the group's box across the gap. A note not in a group
-    is a fragment's own, opened on its own, and is kept."""
-    for g in list(board.Groups()):
-        for it in list(g.GetItems()):
-            if isinstance(it, pcbnew.PCB_TEXT) and it.GetText().startswith((FACES_PREFIX, RULE_PREFIX)):
-                g.RemoveItem(it)
-                board.Delete(it)
+    fragment's fact for the parent, read at load (read.board_geometry_of), so it does not stay: stamped,
+    it sits below the fragment's content, stays behind when the cell is turned and placed, and stretches
+    the group's box across the gap. Every note goes, in a group or loose on the board. The board's own
+    are written again below from its plan (`board.faces()`, `board.rule()` on a fragment); the one
+    exception is the faces text a fragment was stamped with by `placemat faces`, loose on a fragment
+    that declares none of its own: that is the fragment's fact, and is kept."""
+    declares = any(isinstance(op, Text) and op.text.startswith(FACES_PREFIX) for op in plan.copper)
+    keep_loose_faces = not plan.draw_outline and not declares
+    for d in list(board.GetDrawings()):
+        if _is_note(d) and not (keep_loose_faces and _loose_faces(d)):
+            _delete_note(board, d)
+
+
+def strip_stamped_notes(pcb_path, keep_loose_faces: bool = False) -> int:
+    """Take the stamped notes off the board at `pcb_path` and save it (a fragment keeps the faces text
+    it was stamped with, loose on the board: `keep_loose_faces`). A run does this once it has read
+    the facts the notes carry, so the generated board it leaves in the layout folder while it works
+    does not show them. Returns how many were taken off."""
+    with quiet_stderr():
+        board = pcbnew.LoadBoard(str(pcb_path))
+        notes = [d for d in board.GetDrawings() if _is_note(d) and not (keep_loose_faces and _loose_faces(d))]
+        if not notes:
+            return 0
+        for d in notes:
+            _delete_note(board, d)
+        save(board, str(pcb_path))
+    return len(notes)
 
 
 def _write_groups(board, plan: Plan) -> list:
