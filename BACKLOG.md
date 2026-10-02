@@ -246,6 +246,12 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Escape lanes start past a part beside the row, and leave a pad-to-pad
+  track its way** (0.81.2): a lane's start is judged out to the row's depth
+  whatever `run=` leaves; firm pad-to-pad tracks from the part's unescaped
+  pins are planned while the lanes are laid out. Tested on a generic row and
+  on a real module.
+
 - **Escape walled check and an escape past a part** (0.81.1; spec
   `2026-10-02-escape-past-a-part-design.md`): the way-out search walks
   0/45/90 steps along a pin's own tracks, so a zero-slack 45 corridor is not
