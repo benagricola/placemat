@@ -1,0 +1,18 @@
+{
+ "(generate arguments)": "",
+ "../../../../adapted/parts/C2913194.zen": "86952e2826be396267743e59e1c71667e47e46cbc8f31aa0de900e1729c2ed26",
+ "../../../../adapted/parts/C2913194/C2913194.kicad_sym": "37e9604815e428fb16c36d575979dcfbab18ab19fb5dddebe1d86580830e8ff5",
+ "../../../../adapted/parts/C426988.zen": "33110fcea1f0750a8c59db73fb19e33705d55691826bf3df7beda7933af93540",
+ "../../../../adapted/parts/C426988/C426988.kicad_sym": "995e5e2db9f149a30ac49adf64ce4fba4171d089dea705b01a8a5dc5c581943b",
+ "../../../../adapted/parts/Espressif_Systems_ESP32_S3FH4R2.zen": "2cf22578ec5b39787d0c970f72b2713a12369a0352c0af9b1cd59f62ecbe7234",
+ "../../../../adapted/parts/Espressif_Systems_ESP32_S3FH4R2/ESP32_S3FH4R2.kicad_sym": "380cd44ccdaf4e85740481e7c8edae1ffca60aca221f938655ea5f731089cf9a",
+ "../../../../adapted/parts/GigaDevice_Semicon_Beijing_GD25Q64CWIGR.zen": "92b754130a06b3450be115aeac868dcbc6759f026f12fe4fe79464b60b1ccfb8",
+ "../../../../adapted/parts/GigaDevice_Semicon_Beijing_GD25Q64CWIGR/GD25Q64CWIGR.kicad_sym": "28ef55d099d8ec9ca6fdd9e5c3a55adfb0ce39332a8b4e6eedd1182e4e81cf2d",
+ "../../../../parts/C2913194/QFN-56_L7_0-W7_0-P0_40-TL-EP4_0.kicad_mod": "c9be314e3fffcc832b2283867da6ed28e58e5669195fe87a202f9fe76b791373",
+ "../../../../parts/C426988/CRYSTAL-SMD_4P-L3_2-W2_5-BL.kicad_mod": "6695fa6f0371bf43e768512dcb30902eb4f98137fd741a5c628adcd2f1af611d",
+ "../../../../parts/Espressif_Systems_ESP32_S3FH4R2/QFN-56_L7.0-W7.0-P0.40-BL-EP5.7.kicad_mod": "e629552510ba3b91355c188c34da75a42633b1b540d1be2182d5cd70b4b8689d",
+ "../../../../parts/GigaDevice_Semicon_Beijing_GD25Q64CWIGR/WSON-8_L6.0-W5.0-P1.27-BL-EP.kicad_mod": "95be2ae876671a8c7cbb8200fee76af03f5ff14bb470bb88289090a4f2ceee68",
+ "../../../../pcb.toml": "1b757ff291b97d434047ef16a35c19b06009d5502ee3ee0e9332fb32498d26dd",
+ "../../board_rules.zen": "59ed5845b69228fbf6914f15ab5974d3d7ba0457321529d94d373780d1eb985d",
+ "Mcu.zen": "e8323381dc4215930f50c3789baeb053c4d340497d87ba4a8ad417c932fb1bc7"
+}

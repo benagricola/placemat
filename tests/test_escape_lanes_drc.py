@@ -23,9 +23,10 @@ def _mm(v):
     return pcbnew.FromMM(v)
 
 
-def _violations(tmp_path, plan, name, extra=()):
-    """The violations of kinds CHECKED that kicad-cli reports on a board carrying `plan`'s parts' pads and
-    copper (and the tracks of `extra`), judged by the default 0.2 mm netclass."""
+def _violations(tmp_path, plan, name, extra=(), kinds=CHECKED, clearance=None):
+    """The violations of `kinds` (CHECKED unless said; "unconnected_items" reads that section) that kicad-cli reports on a
+    board carrying `plan`'s parts' pads and copper (and the tracks of `extra`), judged by the default 0.2 mm netclass or by
+    `clearance` (mm) as the default class's."""
     board = pcbnew.CreateEmptyBoard()
     nets = {}
 
@@ -69,10 +70,14 @@ def _violations(tmp_path, plan, name, extra=()):
         board.Add(kv)
     pcb = tmp_path / ("%s.kicad_pcb" % name)
     board.Save(str(pcb))
+    if clearance is not None:
+        (tmp_path / ("%s.kicad_dru" % name)).write_text(
+            '(version 1)\n(rule "clearance" (constraint clearance (min %smm)))\n' % clearance)
     report = tmp_path / ("%s.json" % name)
     subprocess.run(["kicad-cli", "pcb", "drc", "--format", "json", "--output", str(report), str(pcb)],
                    capture_output=True, timeout=120)
-    return [v for v in json.loads(report.read_text()).get("violations", []) if v.get("type") in CHECKED]
+    data = json.loads(report.read_text())
+    return [v for v in data.get("violations", []) + data.get("unconnected_items", []) if v.get("type") in kinds]
 
 
 def _north_row_plan():

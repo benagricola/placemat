@@ -5,6 +5,49 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **A turned escape's 45 lanes keep clear and stagger from the row's end.**
+  `board.escape(part, pins, turn=Corner.NW)` (and the other corners) no longer
+  stands the first lane a track and a clearance past the pad tips. A 45 moves
+  away from its row, so the risers are staggered from the row's turn-side end:
+  the pad there at the tips, each next pad of the row, named or not, one
+  stagger further out (0.0526 mm at 0.4 mm pitch and a 0.32 mm step), and a
+  named lane no nearer than where its riser and 45 keep the clearance from the
+  row's other pads and from the copper placed when it is laid out. A lane does
+  not move when another pin is named, and two escapes of one row lay their
+  lanes parallel. A lane that cannot keep clear is an `escape_lane` finding.
+  `depth=` is as before. `api.md`, "An escape".
+- **A track that begins with a lane draws the lane.** A leg of the lane is not
+  rerouted round copper that stands too near it (the reroute ran over the lane
+  beside it); a leg that runs through another net's copper is not drawn, and
+  the track's finding says what it would run through.
+- **A handoff pin boxed in is a finding.** A pad whose net has no other pad on
+  the board (a pin a module hands off to the parent board; not a no-connect
+  net) that no track or via gets out of is an `escape_walled` finding naming
+  what closes it, judged from the end of its own net's copper on it where it
+  has some (a stub, an escape's lane). `api.md`, `score.escape_walled`.
+- **A scored scan seeds its fine pass from the spots a rider takes too.** A
+  searched part with riders (parts placed beside it) could miss a legal,
+  better spot a fine step from a coarse spot the riders refuse; the fine pass
+  now also refines round the best coarse spots by score, not only those the
+  riders take. Placements of such parts can move to a better spot.
+
+### Migration steps
+
+- **Hand-staggered or coordinate fan lanes.** A fan of 45 lanes written as risers
+  `depth=` values, or as `Past(...)` waypoints and coordinates that stagger each
+  pin's riser by hand, is one `board.escape(part, pins, turn=Corner.X)`: the
+  stagger from the row's end and the least depth that clears the row and the
+  parts beside it are the escape's. Delete the arithmetic (a riser length
+  `0.32 * sqrt(2) - pitch` per pin, a depth counted off the pad tips), name the
+  pins, and draw each pin's track from `esc[pin]` to its part (a pad-to-pad
+  track with one `Past(...)` waypoint and `bend=Bend.START` where the 45 must
+  pass a corner). A pin the module hands off keeps its lane in an escape; one
+  that is not named is only reported when it is boxed in.
+
 ## To 0.79.0
 
 ### New

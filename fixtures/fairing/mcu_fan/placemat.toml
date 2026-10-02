@@ -1,0 +1,53 @@
+# Parts claim what they draw (pads, mask, silk, body) at the board's own gaps,
+# including the 0.2 mm silk clearance, rather than their courtyards: the
+# footprints are what must not overlap (Ben, 2026-09-23).
+[place]
+envelope = "physical"
+# Escape corridors 1.5 mm out from each pad: of the depths tried, the one that
+# routes both the MCU cell (100%) and the core (84.2%) best on a full route
+# (tuning sweep, 2026-09-24).
+escape_depth = 1.5
+
+# Preserve routed endpoints in fixed blocks. Cleanup currently moves block
+# satellites after fixed copper is planned (reported to placemat).
+[cleanup]
+enabled = false
+
+# With parts spaced by what they draw, courtyards meet and overlap by design,
+# so a courtyard overlap does not count against a run. The default list less
+# courtyards_overlap.
+[drc]
+real_kinds = ["clearance", "shorting_items", "track_width", "annular_width",
+              "hole_clearance", "hole_to_hole", "copper_edge_clearance"]
+
+# The same for KiCad's own DRC: the generated project reports courtyard
+# overlaps as ignored rather than as errors.
+[drc.severities]
+courtyards_overlap = "ignore"
+
+# Crossings weigh twice the default in the search and the ranking: with
+# escape_depth 1.5 it routed best of the 25 settings tried (2026-09-24).
+[score]
+crossing = 8.0
+
+# VSHUNT and VBIKE are pour nets with taps no pour reaches (the PC sink
+# switch's output, the bike light's resistor, the supervisor's sense divider
+# and enable pull-up): they are routed as islands first, joining only what
+# their pours leave apart. GND is one too: routed tracks carve the outer
+# fills, and the pads left on a carved piece need joining back. V3V3 too:
+# where a pad's plane drop finds no free spot, the router joins it.
+[route]
+islands = ["VSHUNT=0.3", "VBIKE", "GND", "V3V3"]    # 0.3 mm: the sink switch's 0.5 A; VBIKE's taps carry microamps
+
+# The rise the current-path widths are sized for: 10 C, IPC-2221's usual
+# figure, for a sealed case with no airflow (Ben, 2026-09-30).
+[check]
+rise_c = 10.0
+
+# Each searched cell is seeded one at a time from what is placed. With the
+# RT1715 core on placemat 0.79 this places every cell and scores best of the
+# runs of these parts; the whole-netlist solve left the buck-boost without
+# room (2026-10-02).
+[solve]
+enabled = false
+

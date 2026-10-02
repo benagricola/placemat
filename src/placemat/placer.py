@@ -447,7 +447,14 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             legal += sweep(((x, y) for _, x, y in grid(hint.location, radius, step)), False)
         if legal:
             legal.sort(key=lambda k: k[:3])
-            for _, _, _, cand in counted(legal, cfg.place_refine_around):
+            # The best coarse spots by score seed the refinement, and so do the best `accept` takes: a coarse spot
+            # that `accept` (the riders) refuses can have a neighbour a fine step away that it takes, and a score
+            # better than any spot near the ones it does take.
+            seeds = [cand for _, _, _, cand in legal[:cfg.place_refine_around]]
+            if accept is not None:
+                seeds += [cand for _, _, _, cand in counted(legal, cfg.place_refine_around)
+                          if not any(cand is seed for seed in seeds)]
+            for cand in seeds:
                 # The fine grid is centred on a coarse candidate, which can sit at
                 # the edge of the radius: keep only what is still inside it, so
                 # "within radius of the hint" is what a script gets.

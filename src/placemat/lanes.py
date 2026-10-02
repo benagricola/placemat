@@ -15,7 +15,7 @@ import math
 from dataclasses import dataclass, field
 
 from .copper import Via, chamfer_cuts, polyline_tracks
-from .geometry import gap_texts, point_in_polygon, point_segment_distance
+from .geometry import gap_texts, point_in_polygon, point_segment_distance, poly_distance
 from .values import Box, Edge, Location, Part
 
 _DIR = {Edge.NORTH: (0.0, -1.0), Edge.SOUTH: (0.0, 1.0), Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0)}
@@ -351,6 +351,9 @@ class Layouter:
         ordered = [self.lanes[n] for n in self.order]
         if d.turn is None:
             return
+        if self.diagonal and d.depth is None:
+            self._staggered(ordered)
+            return
         prev = None
         for lane in ordered:
             if prev is None:
@@ -362,6 +365,89 @@ class Layouter:
             lane.corner = self._snap_out(self.at(lane.s, self.tips + lane.h))
             lane.h = self.h_of((lane.corner.x, lane.corner.y)) - self.tips
             prev = lane
+
+    def _staggered(self, ordered: list) -> None:
+        """The risers of lanes at 45, a step apart across their direction counted from the row's turn-side end: each pad of the
+        row, named or not, is one stagger further out than the pad nearer that end, so a lane stands where it would among
+        lanes for every pin of the row, and two escapes of one row lay their lanes parallel. A named lane is no nearer the
+        row than its clearance from the row's pads and from what is placed asks (`_near_h`)."""
+        last = ordered[-1].s
+        chain = []
+        for n in sorted(self.row, key=lambda n: -self.s_of((self._centre(n).x, self._centre(n).y))):
+            c = self._centre(n)
+            if n in self.lanes:
+                chain.append(self.lanes[n])
+            elif self.s_of((c.x, c.y)) >= last - 1e-9:
+                net = self.pads[n][0].net
+                width = self.env.width(net) if net else ordered[0].width
+                chain.append(_Lane(n, net, width, None, c, self.s_of((c.x, c.y))))
+        prev = None
+        for lane in chain:
+            h = 0.0 if prev is None else prev.h + self._step(prev, lane) * _SQ2 - (prev.s - lane.s)
+            if lane.number in self.lanes:
+                h = self._near_h(lane, h)
+            # each lane is rounded outward from the one inside it as it stands, never short of its step
+            lane.corner = self._snap_out(self.at(lane.s, self.tips + h))
+            lane.h = self.h_of((lane.corner.x, lane.corner.y)) - self.tips
+            prev = lane
+
+    def _near_h(self, lane: _Lane, floor: float) -> float:
+        """The offset past the tips of a lane at 45, from `floor` (the least the lane inside it leaves): the least at which it
+        keeps its clearance from the row's other pads, and then from the copper placed and reserved. A 45 moves away from the
+        row, so it needs less than a lane parallel to it (its copper and a clearance past the tips); it is taken to the
+        nanometre. Where no offset within the lane's reach is clear of what is placed, the one that is clear of the row."""
+        others = [sh for n in self.row if n != lane.number for sh in self.pads[n] if sh.net != lane.net]
+        depth = self.tips - min(self._extent(n)[0] for n in self.row) + lane.width + self._tip_clearance(lane)     # the row's depth and a track and a clearance more
+
+        def lay(h: float) -> list:
+            c = self._snap_out(self.at(lane.s, self.tips + h))
+            lane.corner = c
+            end = self._end_at(lane, depth * _SQ2)
+            return polyline_tracks(lane.net, self.env.layer, lane.width, [lane.centre, c, end])
+
+        def row_clear(h: float) -> bool:
+            return all(poly_distance(t.polygon, sh.poly) >= self.env.clearance(lane.net, sh.net, sh.owner) - _TOL
+                       for t in lay(h) for sh in others)
+
+        def placed_clear(h: float) -> bool:
+            lane.corner = self._snap_out(self.at(lane.s, self.tips + h))
+            end = self._end_at(lane, self._stub_a(lane, []))
+            ops = polyline_tracks(lane.net, self.env.layer, lane.width, [lane.centre, lane.corner, end])
+            return not any(self.env.hits(op) for op in ops)
+
+        def nm(h: float, ok) -> float:
+            h = math.ceil(h * 1e6 - 1e-3) / 1e6
+            for _ in range(8):
+                if ok(h):
+                    return h
+                h += 1e-6
+            return h
+
+        def least(lo: float, hi: float, ok) -> float:
+            """The least h in (lo, hi] where `ok`, which holds at hi."""
+            for _ in range(26):
+                mid = (lo + hi) / 2.0
+                if ok(mid):
+                    hi = mid
+                else:
+                    lo = mid
+            return nm(hi, ok)
+        own = lane.copper + self._tip_clearance(lane)           # what a lane parallel to the row needs
+        if others and not row_clear(floor):
+            hi = max(floor, own)
+            while not row_clear(hi):
+                hi *= 2.0
+                if hi > self.env.reach:
+                    return max(floor, own)                      # no offset clears the row: the lane's own, and a finding
+            floor = least(floor, hi, row_clear)
+        if placed_clear(floor):
+            return floor
+        prev, h = floor, floor + self.env.step
+        while h <= floor + self.env.reach + 1e-9:
+            if placed_clear(h):
+                return least(prev, h, placed_clear)
+            prev, h = h, h + self.env.step
+        return floor
 
     def _snap_out(self, p: Location) -> Location:
         """A lane's corner: its coordinate along the way out rounded outward, the other kept."""
@@ -505,27 +591,31 @@ class Layouter:
             lane.a = a
             lane.via_at = self._end_at(lane, a)
 
+    def _stub_a(self, lane: _Lane, placed: list) -> float:
+        """How far a lane with no via runs along its lane: without a turn, the depth; with one, level with the outermost
+        via, or one step past the row's turn-side end where there is none; `run=` says it instead."""
+        d = self.decl
+        if d.turn is None:
+            return d.depth if d.depth is not None else lane.copper + self._tip_clearance(lane)
+        if self.diagonal and d.run is not None:
+            return d.run
+        if d.run is not None:
+            level = self.row_end + d.run
+        elif placed:
+            level = max(self.s_of((p.via_at.x, p.via_at.y)) for p in placed)
+        else:
+            level = self.row_end + self._lane_step(lane)
+        return max(0.0, (level - lane.s) * (_SQ2 if self.diagonal else 1.0))
+
     def _ends(self) -> None:
         """A lane with no via ends level with the outermost via, or one step past the row's
         turn-side end where there is none; `run=` says it instead."""
-        d = self.decl
         placed = [lane for lane in self.lanes.values() if lane.via_at is not None]
         for n in self.order:
             lane = self.lanes[n]
             if lane.via_at is not None:
                 continue
-            if d.turn is None:
-                lane.a = d.depth if d.depth is not None else lane.copper + self._tip_clearance(lane)
-            elif self.diagonal and d.run is not None:
-                lane.a = d.run
-            else:
-                if d.run is not None:
-                    level = self.row_end + d.run
-                elif placed:
-                    level = max(self.s_of((p.via_at.x, p.via_at.y)) for p in placed)
-                else:
-                    level = self.row_end + self._lane_step(lane)
-                lane.a = max(0.0, (level - lane.s) * (_SQ2 if self.diagonal else 1.0))
+            lane.a = self._stub_a(lane, placed)
             lane.end_at = self._end_at(lane, lane.a)
         for lane in placed:
             lane.end_at = lane.via_at

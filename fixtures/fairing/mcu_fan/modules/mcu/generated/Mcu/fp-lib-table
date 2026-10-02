@@ -1,0 +1,8 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "stdlib_kicad-footprints_Capacitor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../../../.pcb/stdlib/kicad-footprints/Capacitor_SMD.pretty") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Inductor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../../../.pcb/stdlib/kicad-footprints/Inductor_SMD.pretty") (options "") (descr ""))
+  (lib (name "stdlib_kicad-footprints_Resistor_SMD") (type "KiCad") (uri "${KIPRJMOD}/../../../../../.pcb/stdlib/kicad-footprints/Resistor_SMD.pretty") (options "") (descr ""))
+  (lib (name "workspace_parts_C426988") (type "KiCad") (uri "${KIPRJMOD}/../../../../../parts/C426988") (options "") (descr ""))
+  (lib (name "workspace_parts_Espressif_Systems_ESP32_S3FH4R2") (type "KiCad") (uri "${KIPRJMOD}/../../../../../parts/Espressif_Systems_ESP32_S3FH4R2") (options "") (descr ""))
+)

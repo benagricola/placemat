@@ -650,9 +650,24 @@ not along a board axis is refused.
   chamfer's 45 runs across the inside of the turn, nearer an inner lane's via
   than a square corner is, so each via is searched clear of the 45 and of the
   square corner of every lane still to be placed; a larger `chamfer=` can
-  therefore stand the vias farther along their lanes. `turn=` a `Corner` (a
-  north row: `NW` or `NE`) runs the lanes at 45, a step apart across their
-  direction.
+  therefore stand the vias farther along their lanes.
+- **Lanes at 45.** `turn=` a `Corner` (a north row: `NW` or `NE`) runs the
+  lanes at 45, a step apart across their direction. A 45 moves away from its
+  row, so it stands as near the row as it may, not a lane's depth past the
+  tips: the risers are staggered from the row's turn-side end, the pad there
+  at the tips and each next pad of the row, named or not, one stagger (the
+  step times the square root of 2, less the pitch along the row: 0.0526 mm
+  for a 0.32 mm step at 0.4 mm pitch) further out. A lane is where it would be
+  among lanes for every pin of the row, so two escapes of one row lay their
+  lanes parallel and a lane does not move when another pin is named. A named
+  lane is no nearer the tips than where its riser and 45 keep the clearance
+  from the row's other pads and from the copper placed and reserved when it is
+  laid out (a bypass beside the row); where no offset within
+  `place.escape_via_reach` is clear it keeps the offset that is clear of the
+  row, and it is an `escape_lane` finding. `depth=` sets the innermost lane's
+  offset as given, and the stagger follows it. A track that begins with a lane
+  draws the lane's own legs: a leg is never rerouted round copper that stands
+  too near it, and a leg that runs through another net's copper is not drawn.
 - **Vias.** A lane with a via ends at it, its via `via_size=` and `via_drill=`
   (default the board's, as `board.via()`'s `size=` and `drill=`; the lane's
   steps use that size). The vias are placed innermost lane first, each at the first spot along its lane, from the row's turn-side end,
@@ -953,7 +968,8 @@ says "took the pocket" and how far off that is; one with an explicit `Near`
 is left unplaced instead. An unplaced item pulls nothing and blocks
 nothing, and the finding says what stopped it. A scored scan over a wide
 radius is coarse first (`place.coarse_steps` apart) and fine only round its
-best spots, so a wide `radius=` costs little. A part the script places
+best spots (the best `place.refine_around` by score, and, where riders
+constrain the spot, the best that they take), so a wide `radius=` costs little. A part the script places
 later is not an obstacle where the generator left it, only once it is
 placed. The step note says which of these happened.
 
@@ -3330,7 +3346,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.envelope` | "courtyard" | what a part claims against another: `courtyard` (its courtyard and pads), `physical` (its pads, mask openings, silk and body, each at the board's own gap), or `union` (both) |
 | `place.coarse_steps` | 4 | how many steps apart a scored scan's first pass walks |
 | `place.coarse_from` | 12 | radius-to-step ratio from which a scan goes coarse first |
-| `place.refine_around` | 3 | how many of the best coarse spots get a fine pass |
+| `place.refine_around` | 3 | how many of the best coarse spots get a fine pass: this many by score, and, where the part's riders refuse some spots, this many of those they take |
 | `place.block_gap_step` | 0.05 | how finely a block's tightest gap is searched |
 | `place.block_gap_reach` | 2.0 | how far a satellite may stand off its pin |
 | `place.escape_depth` | 1.0 | how far each corridor out of a pad runs in the search: it weighs a candidate that crosses, closes or walls off a pad's corridors (`score.escape_*`); the run score measures them at `score.escape_depth` |
@@ -3438,7 +3454,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.pair_crossing` | 100 | mm a differential pair (a net class's own, board_pairs) crossing itself costs, in place of `score.crossing`: such a pair has to exchange sides to route coupled, so a swap of two identical parts or a turned part is worth wire |
 | `score.escape_crossed` | 20 | mm two escapes from one part's pins crossing near its pin row cost |
 | `score.escape_closed` | 50 | mm a pad whose last route toward what it connects to is closed costs |
-| `score.escape_walled` | 400 | mm a pad with no route out at all costs. A pad that copper of its own net already leaves (a track from it, a via in it, a pour over it) is not counted, closed or walled; what walls one is named by owner, "track NET", "via NET", "pour NET" or "the escape lane of U1 pin 53" |
+| `score.escape_walled` | 400 | mm a pad with no route out at all costs. A pad that copper of its own net already leaves (a track from it, a via in it, a pour over it) is not counted, closed or walled; what walls one is named by owner, "track NET", "via NET", "pour NET" or "the escape lane of U1 pin 53". A pad whose net has no other pad on the board (a pin the module hands off to the parent board; not a no-connect net: `NC_...`, `unconnected-(...)`, or a net named under an instance, with a dot) is reported at the end of the run when no track or via gets out of it, from the end of its own net's copper on it (a stub, an escape's lane) where it has any: "no other pad is on the net, so it leaves the board here, and it is walled off by ...". Such a pin keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept |
 | `score.escape_lane` | 400 | mm a declared `board.escape` lane costs that another net's pad, hole or copper already placed blocks, or whose via has no legal spot: in the search at each candidate, and in the run score as the `escape_lane` finding |
 | `score.escape_depth` | 1.5 | mm: the corridor length the escape findings, and so the run score, are measured at, whatever `place.escape_depth` the search used, so runs at different search depths compare |
 | `score.congestion` | 10 | explore: mm per `explore.congestion_step` of the worst RUDY cell |

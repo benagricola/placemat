@@ -12,7 +12,7 @@ from pathlib import Path
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "fairing" / "keep_out"
 MODULES = {"usb5v": "Usb5v", "logicsupply": "LogicSupply", "usbconverter": "UsbConverter"}
 # a module of another fixture folder: (folder, generated name)
-OTHER = {"usbtcpc": (FIXTURES.parent / "via_clearance", "UsbTcpc")}
+OTHER = {"usbtcpc": (FIXTURES.parent / "via_clearance", "UsbTcpc"), "mcu": (FIXTURES.parent / "mcu_fan", "Mcu")}
 
 # The annotation each module's capture carries now (only the switch nodes in `away=`) ...
 SWITCH_ONLY = {
@@ -43,7 +43,7 @@ def stage(tmp_path: Path, module: str, keep_out: str | None = None) -> Path:
     return root / "modules" / module / (name + "_layout.py")
 
 
-def run(tmp_path: Path, module: str, keep_out: str | None = None, overrides: dict | None = None):
+def run(tmp_path: Path, module: str, keep_out: str | None = None, overrides: dict | None = None, keep_going: bool = False):
     """The module's layout run (no renders), as `(RunResult, DRC report as a dict, the written board's path)`."""
     from placemat import runner
     script = stage(tmp_path, module, keep_out)
@@ -56,7 +56,7 @@ def run(tmp_path: Path, module: str, keep_out: str | None = None, overrides: dic
     was = runner.generate
     runner.generate = restore
     try:
-        result = runner.run(script, render=False, quiet=True, reuse=False, overrides=overrides or {})
+        result = runner.run(script, render=False, quiet=True, reuse=False, overrides=overrides or {}, keep_going=keep_going)
     finally:
         runner.generate = was
         from placemat import console

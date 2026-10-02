@@ -4286,6 +4286,9 @@ class Board:
         for ref, number, net, by, _ in walled:
             plan.findings.append(Finding("escape_walled", "%s pin %s (%s): walled off by %s" % (
                 ref, number, net, ", ".join(by) or "copper")))
+        for ref, number, net, by in esc.handoffs_walled():
+            plan.findings.append(Finding("escape_walled", "%s pin %s (%s): no other pad is on the net, so it leaves the board "
+                                         "here, and it is walled off by %s" % (ref, number, net, ", ".join(by) or "copper")))
 
     def _report_links(self, occ: Occupancy, plan: Plan, placed: set):
         for l in self._links:
@@ -4419,6 +4422,7 @@ class Board:
             raise TypeError("%s: a lane stands for its riser, its lane and its via, so it is a track's first "
                             "point; a track goes on from it, it does not come back to one" % net)
         begins = None
+        lane_points = ()
         if points and isinstance(points[0], Lane):
             begins = points[0]
             decl = self._escapes[begins.index]
@@ -4428,7 +4432,8 @@ class Board:
                 chamfer = decl.chamfer                  # drawn as the escape laid and reserved it
             else:
                 decl.chamfers[begins.number] = float(chamfer)       # and laid and reserved as it is to be drawn
-            points = self._lane_points(net, begins) + list(points[1:])
+            lane_points = self._lane_points(net, begins)
+            points = lane_points + list(points[1:])
         chamfer = self.settings.copper_chamfer if chamfer is None else chamfer
         for p in points:
             if isinstance(p, CopperIntent) and not p.key.startswith("via "):
@@ -4472,7 +4477,13 @@ class Board:
             # a tap is a point beside its pad, not a pad end a track may leave at any angle
             pads = [isinstance(p, (PadRef, CellPadRef)) and getattr(p, "edge", None) is None for p in points]
 
+            # a lane's own legs are the lane as it was laid out and reserved, whatever stands near it: a detour round
+            # copper that is too near runs over the lane beside it, and a lane that cannot keep clear is a finding
+            frozen = {(a.x, a.y, b.x, b.y) for a, b in zip(located[:len(lane_points)], located[1:len(lane_points)])}
+
             def clear(a, b):          # a leg that touches no pad of another net
+                if (a.x, a.y, b.x, b.y) in frozen:
+                    return True
                 shape = _shape_of(Track(name, layer, w, a, b))
                 return not ctx.occ.copper_conflicts(shape)
 
@@ -4504,7 +4515,7 @@ class Board:
                 ops = [dataclasses.replace(t, chamfer_cut=(
                     round(t.start.x, 6), round(t.start.y, 6), round(t.end.x, 6), round(t.end.y, 6)) in diag)
                       for t in ops]
-            if len(points) > 2 and any(not clear(t.start, t.end) for t in ops):
+            if len(points) > 2 and begins is None and any(not clear(t.start, t.end) for t in ops):
                 # the script's waypoints steer this track into a pad: would pad to pad clear?
                 direct = polyline_tracks(name, layer, w, chamfered(octilinear([located[0], located[-1]], [pads[0], pads[-1]], clear, bend,
                                                                            tolerance=self.settings.copper_straight_tolerance), chamfer))

@@ -115,3 +115,23 @@ def test_a_failed_scan_tallies_who_blocked_it():
                   Placement(Location(20.0, 20.0), 0.0, Face.FRONT), radius=1.0, step=0.5)
     assert result.chosen is None
     assert any(owner == "BIG" for (_, owner, _) in result.blockers)
+
+
+def test_a_scored_scan_refines_round_the_best_coarse_spots_whether_or_not_the_item_s_riders_take_them():
+    """`accept` (the items riding the one scanned) refuses by the spot, and a coarse spot it refuses can have a neighbour
+    it takes. The refinement is seeded by the best coarse spots by score, not only those `accept` counts: a spot a rider
+    refuses on the coarse lattice must not hide the better, accepted spot a fine step from it."""
+    occ = Occupancy(board_geometry([footprint("R1", 5, 5)], width=80, height=80), edge_margin=1.0)
+    r2 = footprint("R2", 30, 30)
+    hint = Placement(Location(30, 30), 0, Face.FRONT)
+    target = Location(30.4, 30.4)
+    score = lambda p: p.location.distance(target)
+
+    def on_coarse_lattice(p):                       # 0.8 mm from the hint in both axes: the scan's coarse lattice
+        gx, gy = (p.location.x - 30.0) / 0.8, (p.location.y - 30.0) / 0.8
+        return abs(gx - round(gx)) < 1e-6 and abs(gy - round(gy)) < 1e-6
+
+    def accept(p):
+        return "a rider does not fit" if on_coarse_lattice(p) and p.location.distance(target) < 1.2 else None
+    result = scan(occ, r2, hint=hint, radius=3.0, step=0.2, score=score, accept=accept)
+    assert result.chosen is not None and result.chosen.location.distance(target) < 0.15
