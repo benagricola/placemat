@@ -141,6 +141,17 @@ measures) on a queue, and only the best is reported or kept today.
     items' ghosts at their plain spots, arrows to where the variant put
     them), and a step through the variants in order or by score;
   - the variant the explore kept (`--accept`) marked, and what it moved.
+  - **live, while it runs** (the user: "show a diagram of explore placements
+    as it goes ... obviously not all of them"): the board shows the latest
+    variant's focused items over the plain placement, replaced as new ones
+    arrive, at most a few a second (a setting, `[studio] explore_fps`,
+    default 2), so the drawing is watchable; variants that arrive between
+    frames are logged and plotted, not drawn. The best so far stays drawn
+    in its own colour beside the latest. A small strip of thumbnails keeps
+    the last few drawn variants and the best, each clickable.
+  - **where it tried**: a density layer over the board marking where each
+    focused item landed across all variants so far, so the spread of what
+    was tried is seen at a glance even when most variants are never drawn.
 - Seeing what was tried and rejected needs nothing from the agent beyond
   running explore; the log is written whoever runs it.
 
