@@ -3407,6 +3407,59 @@ exactly as the lock did; otherwise freeze says what would have moved (an
 entry that drifted is refused: accept it again where it now stands). A call inside a loop or a helper function
 declares more than one item and is refused with its line.
 
+## Findings and severities
+
+A finding is one sentence saying what a resolve could not do as declared, with a `kind` (what sort of thing
+it is, and what the score counts) and a `severity` (how much it matters to the board being built and routed):
+
+| Severity | Means |
+|---|---|
+| `notice` | placemat did something by design that the user may want to know: a via shared or moved, an adopted route routed again |
+| `warning` | a quality issue the board can live with, or one a person should judge: a link over its limit, a label on a part, a declared track not drawn |
+| `critical` | the board cannot be built or fully routed as it is: an item unplaced, copper that conflicts, a pad walled in, a rule below the fab's minimum |
+
+`run` and `preview` print each finding as `[severity] sentence`, the most serious first, and the line that counts
+them says how many of each (`7 finding(s) (1 critical, 2 warning, 4 notice)`). `run.json` keeps `findings` (the
+sentences) and `finding_details` (`kind`, `severity`, `text` per finding, in the same order); a record from before
+severities has no `finding_details`, and its findings read as `warning`. `preview --format json` has the same
+`finding_details`, and the studio's plan JSON gives each of its `findings` a `severity` and has
+`counts.severities`. The studio's Findings tab lists the most serious first.
+
+A kind has one severity, listed below, except where the finding says its own at the place it is made. The
+severity is a classification of what the finding means, kept in code (`findings.SEVERITY`), not a tunable and not
+a scoring weight: `score.*` still weighs findings by kind, and a notice counts as much as any other finding of
+its kind.
+
+| Kind | Severity | Why |
+|---|---|---|
+| `unplaced` | critical | an item with no place is not on the board |
+| `fixed` | critical | a decided item (fixed, a cutout, a keepout) is not legal where it was put |
+| `copper` (conflicts: copper meets another net, crosses a keepout, passes a corner inside the clearance, two tracks cross and neither may bridge) | critical | the copper as declared breaks a rule |
+| `copper` (a declared track, via, pour or stitch not drawn) | warning | the copper the script declared is missing; a person decides whether the router can stand in |
+| `copper` (a waypoint drawn pad to pad, stitch vias outside the region left out, the side a stitch row took, a track left out whose crossing is already a finding) | notice | placemat's own choice, said |
+| `escape_walled` | critical | a pad with no way out cannot be routed |
+| `escape_closed` | warning | the way toward what a pad joins is closed; other ways out remain |
+| `escape_crossed` | warning | two escapes cross near a pin row; the router can usually separate them |
+| `escape_lane` | warning | a declared lane is blocked by another net's pad, hole or copper |
+| `pair_crossed` | warning | a differential pair's halves cross |
+| `link_over` | warning | a link longer than its limit |
+| `label` | warning | a label with a part on it, or with no spot |
+| `label` (not drawn because its item found no place) | notice | the item's own `unplaced` finding is the fault |
+| `split` | warning | a cell whose members form groups joined only by board-level nets |
+| `facts` | warning | the board's facts differ from the last `placemat facts --confirm` |
+| `fab` | critical | a net class's track, clearance or via is below the fab profile's minimum, so the fab would refuse it |
+| `setup` (a web round a cutout under the minimum; a net class that does not fit the pads' pitch) | critical | the board cannot be milled, or the router cannot escape the pads |
+| `setup` (an undeclared part, a lane reserved that no track uses, a part outside its frame's declared reach, an `accept` that matched no verdict) | warning | the script is incomplete or wrong |
+| `setup` (a layer a keepout or rule names that the board lacks, a rule not carried to this board, a look-ahead dropped for want of room, an `accept` that was not needed) | notice | placemat carried on without it |
+| `route` | notice | an adopted route dropped because a part it joins moved; the router routes it again |
+| `vias` (shared, moved, re-routed, left its pad, shortened, a field re-laid) | notice | carried vias gave way as designed |
+| `vias` (a via dropped, or a field drawn with fewer vias than declared) | warning | fewer vias than were declared |
+| `needs` | notice | an if-needed fab option would have cleared a spot; the item's `unplaced` finding is the fault |
+
+A failed design check is a verdict, not a finding, and has its own severity in the checks output and in
+`run.json`'s `verdicts`: `critical` for `keep-out` and `current-path`, `warning` for `crossings-under`, `heat`,
+`exposure`, `hot-loop` and `switch-node`. A passing or accepted verdict has none.
+
 ## Report form and the files placemat writes
 
 Every command takes `--format text|json` (text by default; `--json` is the

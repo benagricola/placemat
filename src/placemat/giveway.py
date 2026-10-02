@@ -1089,8 +1089,10 @@ def undo(occ, via: str) -> None:
 
 
 def report(occ) -> list:
-    """(home, sentence) per item whose carried vias gave way, a clause per
-    net: "6 GND vias shared, 2 moved up to 0.25 mm, 1 dropped under U3"."""
+    """(home, sentence, severity) per item whose carried vias gave way, a clause per
+    net: "6 GND vias shared, 2 moved up to 0.25 mm, 1 dropped under U3". The
+    severity is a notice (placemat did it by design) unless a via was dropped,
+    which leaves fewer vias than were declared: a warning."""
     from . import giveway_field
     by: dict = {}
     for a in occ.given_way.values():
@@ -1100,6 +1102,7 @@ def report(occ) -> list:
     out = []
     for home in sorted(by):
         said = []
+        severity = "warning" if any(a.kind == "drop" for acts in by[home].values() for a in acts) else "notice"
         for net in sorted(by[home]):
             acts = by[home][net]
             parts = []
@@ -1116,7 +1119,7 @@ def report(occ) -> list:
             under = sorted({a.under for a in acts if a.under})
             said.append(", ".join(parts) + (" under %s" % ", ".join(under) if under else "")
                         + giveway_field.held_note(occ, home, acts))
-        out.append((home, "; ".join(said)))
+        out.append((home, "; ".join(said), severity))
     return giveway_field.merged(out, occ)
 
 

@@ -200,13 +200,15 @@ def read(path):
 
 
 def finding_to_json(f) -> list:
-    return [f.kind, str(f)]
+    return [f.kind, str(f), f.severity]
 
 
 def finding_from_json(v):
-    """A stored finding: [kind, text]; a bare sentence, as a cache from
-    before findings had kinds kept it, reads as a setup finding."""
+    """A stored finding: [kind, text, severity]; without the severity, as a
+    cache from before findings had one kept it, it is the kind's own; a bare
+    sentence, as a cache from before findings had kinds kept it, reads as a
+    setup finding."""
     from .findings import Finding
     if isinstance(v, str):
         return Finding("setup", v)
-    return Finding(v[0], v[1])
+    return Finding(v[0], v[1], v[2] if len(v) > 2 else None)

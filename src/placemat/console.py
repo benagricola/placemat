@@ -12,6 +12,7 @@ _COLOURS = {
     "run": "1;36", "board": "36", "id": "1", "script": "36", "step": "2", "bridge": "35",
     "check": "36", "route": "36", "render": "36", "impact": "33", "record": "2",
     "finding": "33", "fail": "1;31", "note": "2", "kicad": "2",
+    "critical": "1;31", "warning": "33", "notice": "2",
     "drc": "36", "measure": "36",
 }
 
@@ -37,8 +38,12 @@ class Console:
         stamp = self._paint("2", time.strftime("%H:%M:%S"))
         code = _COLOURS.get(level or stage, "")
         label = self._paint(code, "%-7s" % stage)
-        body = self._paint(code, message) if level in ("finding", "fail", "impact") else message
+        body = self._paint(code, message) if level in ("finding", "fail", "impact", "critical", "warning", "notice") else message
         print("%s  %s %s" % (stamp, label, body), file=self.stream, flush=True)
+
+    def finding(self, f, stage: str = "finding"):
+        """One finding as `[severity] sentence`, coloured by its severity."""
+        self.say(stage, f.line(), level=f.severity)
 
     def lines(self, stage: str, text: str, *, level: str | None = None):
         """A multi-line message, every line stamped and labelled."""

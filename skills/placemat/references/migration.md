@@ -25,6 +25,16 @@ section for each hand-written pattern a newer form replaces.
   New settings `[studio] port`, `debounce_ms`, `open`, `keep`, `poll_ms` and
   `cancel_grace_ms`. Scripts change nothing. `api.md`, "Studio".
 
+- **Every finding has a severity: `notice`, `warning` or `critical`.** `run` and `preview` print `[critical] U1
+  pin 8 (GND): walled off by R2, U1` and `[notice] vias environment: 1 GND via shared, 1 moved 0.35 mm under cell
+  X's U2`, the most serious first, and the finding count says how many of each. A notice is placemat doing what it
+  is built to do, a warning a quality issue to judge, a critical finding a board that cannot be built or fully routed
+  as it is (an unplaced item, copper that conflicts, a pad walled in, a rule below the fab's minimum). The kinds with
+  mixed cases (`vias`, `copper`, `setup`, `label`) set it per case. `run.json` gains `finding_details` (`kind`,
+  `severity`, `text`), and a record without it reads as warnings; `preview --format json` has `finding_details`, the
+  studio's plan JSON a `severity` on each finding and `counts.severities`, and a failed check verdict has a severity
+  (`critical` for `keep-out` and `current-path`). Scores do not change. `api.md`, "Findings and severities".
+
 ## To 0.81.2
 
 ### Fixed

@@ -21,6 +21,7 @@ class RunRecord:
     cutouts: dict = field(default_factory=dict)      # where the board was milled, and which way each hole ran
     metrics: dict = field(default_factory=dict)
     findings: list = field(default_factory=list)
+    finding_details: list = field(default_factory=list)   # {"kind", "severity", "text"} per finding, in the order of `findings`
     steps: list = field(default_factory=list)
     timing_s: dict = field(default_factory=dict)
     paths: dict = field(default_factory=dict)
@@ -32,6 +33,19 @@ class RunRecord:
         path = Path(path)
         path.write_text(json.dumps(asdict(self), indent=2, sort_keys=True) + "\n")
         return path
+
+    def add_finding(self, text: str, kind: str = "", severity: str = "warning") -> None:
+        """A finding put on the record after the plan's were: the sentence and its detail together."""
+        self.findings = [*self.findings, text]
+        self.finding_details = [*self.finding_details, {"kind": kind, "severity": severity, "text": text}]
+
+    def findings_with_severity(self) -> list:
+        """[{"kind", "severity", "text"}, ...]: each finding with its severity. A record from before
+        findings had one has only the sentences, and each reads as a warning."""
+        if len(self.finding_details) == len(self.findings):
+            return [dict(d) for d in self.finding_details]
+        from .findings import DEFAULT_SEVERITY
+        return [{"kind": "", "severity": DEFAULT_SEVERITY, "text": str(t)} for t in self.findings]
 
     @staticmethod
     def load(path) -> "RunRecord":

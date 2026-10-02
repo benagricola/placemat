@@ -629,7 +629,8 @@ def undo_field(occ, field_id: str, undo) -> None:
 
 
 def report(occ) -> dict:
-    """{home: [sentence, ...]} for each field a relay re-laid, from what is in `occ.given_way`."""
+    """{home: [(sentence, severity), ...]} for each field a relay re-laid, from what is in
+    `occ.given_way`: a warning where fewer vias were drawn than the field was declared with."""
     by: dict = {}
     for a in occ.given_way.values():
         if getattr(a, "field", ""):
@@ -642,7 +643,8 @@ def report(occ) -> dict:
             a.net, a.pad[0], a.pad[1], a.way, a.before, a.after)
         if a.after < a.want:
             text += " (%d drawn)" % a.want
-        out.setdefault(home, []).append(text + (" under %s" % ", ".join(under) if under else ""))
+        out.setdefault(home, []).append((text + (" under %s" % ", ".join(under) if under else ""),
+                                         "warning" if a.after < a.want else "notice"))
     return out
 
 
@@ -663,12 +665,15 @@ def held_note(occ, home: str, acts: list) -> str:
 
 
 def merged(out: list, occ) -> list:
-    """`out` ((home, sentence), as `giveway.report` builds it) with each home's field sentences
-    joined to its own: one finding per item."""
-    by = dict(out)
-    for home, texts in report(occ).items():
-        by[home] = "; ".join(([by[home]] if home in by else []) + texts)
-    return sorted(by.items())
+    """`out` ((home, sentence, severity), as `giveway.report` builds it) with each home's field
+    sentences joined to its own: one finding per item, as serious as its most serious part."""
+    from .findings import RANK
+    by = {home: (text, sev) for home, text, sev in out}
+    for home, found in report(occ).items():
+        texts = [t for t, _ in found]
+        sev = max([s for _, s in found] + ([by[home][1]] if home in by else []), key=RANK.__getitem__)
+        by[home] = ("; ".join(([by[home][0]] if home in by else []) + texts), sev)
+    return [(home, text, sev) for home, (text, sev) in sorted(by.items())]
 
 
 def write(board, steps: list, groups: dict) -> None:

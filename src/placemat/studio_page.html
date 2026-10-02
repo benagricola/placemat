@@ -61,6 +61,7 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1
 .row.open .n { white-space: normal; }
 .chip { font-size: 11px; padding: 0 6px; border-radius: 8px; background: #e9ecef; flex: none; }
 .chip.decided { background: #d0ebff; } .chip.pocket { background: #ffe8cc; } .chip.unplaced { background: #ffc9c9; } .chip.copper { background: #f3d9fa; }
+.chip.sev-critical { background: #ffc9c9; color: #c92a2a; } .chip.sev-warning { background: #ffec99; } .chip.sev-notice { background: #e9ecef; color: #868e96; }
 h3 { margin: 10px 8px 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); }
 .pad8 { padding: 4px 8px; }
 .sum { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 6px 8px; }
@@ -641,9 +642,10 @@ $("#play").addEventListener("click", () => {
 // ---------------------------------------------------------------- findings
 function renderFindings() {
   const p = plan(), el = $("#tab-findings");
-  const fs = (p && p.findings) || [];
+  const rank = {critical: 0, warning: 1, notice: 2};
+  const fs = ((p && p.findings) || []).slice().sort((a, b) => (rank[a.severity] ?? 1) - (rank[b.severity] ?? 1));
   if (!fs.length) { el.innerHTML = '<div class="pad8 dim">no findings</div>'; return; }
-  el.innerHTML = fs.map((f, i) => '<div class="row" data-i="' + i + '"><span class="chip">' + esc(f.kind || "finding") + '</span><span class="n" style="white-space:normal">' + esc(f.text) + "</span></div>").join("");
+  el.innerHTML = fs.map((f, i) => '<div class="row" data-i="' + i + '"><span class="chip sev-' + esc(f.severity || "warning") + '">' + esc(f.severity || "warning") + '</span><span class="chip">' + esc(f.kind || "finding") + '</span><span class="n" style="white-space:normal">' + esc(f.text) + "</span></div>").join("");
   el.onclick = e => {
     const r = e.target.closest(".row"); if (!r) return;
     const f = fs[+r.dataset.i];

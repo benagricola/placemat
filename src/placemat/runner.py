@@ -469,16 +469,18 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             plan.findings.append(Finding("facts", "; ".join(facts_reasons)))
         n_place = sum(1 for s in plan.steps if s.placement is not None)
         n_copper = sum(s.ops for s in plan.steps)
-        say("script", "%d placed, %d copper op(s), %d finding(s)  (%.1fs)" % (
-            n_place, n_copper, len(plan.findings), rec.timing_s["resolve"]))
+        from .findings import summary
+        say("script", "%d placed, %d copper op(s), %d finding(s)%s  (%.1fs)" % (
+            n_place, n_copper, len(plan.findings), " (%s)" % summary(plan.findings) if plan.findings else "",
+            rec.timing_s["resolve"]))
         from .report import extent_of
         ext = extent_of(plan)
         extent_metrics = {}
         if ext is not None:
             say("script", "extent %.2f x %.2f mm, %.0f%% of it empty" % (ext.width, ext.height, 100 * ext.empty))
             extent_metrics = {"extent": [round(ext.width, 3), round(ext.height, 3)], "empty": round(ext.empty, 3)}
-        for f in plan.findings[: (50 if verbose else 8)]:
-            say("finding", f, level="finding")
+        for f in plan.findings.most_serious_first()[: (50 if verbose else 8)]:
+            console.finding(f)
         if len(plan.findings) > 8 and not verbose:
             say("finding", "... %d more in %s" % (len(plan.findings) - 8, run_dir / "run.json"), level="finding")
 
@@ -570,7 +572,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         stale = checks.findings_of(outcomes)            # after the finding lines printed above: said here, kept in run.json
         plan.findings.extend(stale)
         for f in stale:
-            say("finding", f, level="finding")
+            console.finding(f)
         rec.timing_s["checks"] = round(time.time() - t0, 1)
         if route:
             from .kicad.route import route_board
@@ -611,6 +613,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                       "rank": s.rank, "rank_of": s.rank_of, "note": s.note,
                       "why": s.why, "moved_mm": round(s.moved_mm, 3), "ops": s.ops} for s in plan.steps]
         rec.findings = list(plan.findings)
+        rec.finding_details = [{"kind": f.kind, "severity": f.severity, "text": str(f)} for f in plan.findings]
         rec.status = "ok"
     except RunFailure as e:
         rec.status = "failed"
@@ -678,7 +681,7 @@ def _against_best(rec: RunRecord, best_path: Path, say, cfg) -> str | None:
     say("score", score_line(rec, prior if prior is not None and prior.run_id != rec.run_id else None, cfg))
     said, prior = against_best(best_path, rec, cfg)
     if said:
-        rec.findings.append("worse than the best run of these parts: %s" % said)
+        rec.add_finding("worse than the best run of these parts: %s" % said)
         say("best", "worse than %s: %s" % (prior.run_id, said), level="fail")
     elif prior is None:
         say("best", "the first run of these parts, so the best so far")
