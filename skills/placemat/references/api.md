@@ -2202,7 +2202,17 @@ at its centre. A via that two or more of the cell's tracks end on is a
 routed via, which moves with its tracks (below); a via whose track runs on
 to another of the cell's vias is part of a route and stays as drawn.
 Where a carried via meets another net's copper, on either face, the search
-does not refuse the spot at once. The via tries, in turn:
+does not refuse the spot at once. A keepout, or a rule area on the generated
+board or one a placed cell brought, that excludes vias is met the same way:
+KiCad's DRC flags a via whose ring on a layer the area covers overlaps it
+(`items_not_allowed`), unless its net is in `allow=`, so such a via is held
+out of the region, and a via placed earlier that a cell's own region of that
+kind covers gives way to it when the cell lands. A via that no way below gets
+out refuses the spot ("keepout 'name' forbids vias: the GND via at ... is
+inside it; it cannot give way"). A via's own track, and a track giving way
+draws, keeps the board's edge keep-in and the cutouts' as the item's own
+copper does, and is written into the cell's group, so a clearance rule that
+holds within the cell holds for it in KiCad too. The via tries, in turn:
 
 - to share a via of its net from any other item, on either face, within
   `place.via_share` (1.0 mm): the via is taken out and a straight tail at

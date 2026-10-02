@@ -33,6 +33,34 @@ section for each hand-written pattern a newer form replaces.
 
 ### Fixed
 
+- **A carried via's track is held to the board's edge, and a move is not taken at a tail width that is not
+  clear.** The search judges an item less its carried vias, and the give-way judged a via's ring against the
+  board's edge but not its track, so a stamped cell could land with a via's track across a cutout or inside the
+  edge keep-in (KiCad: `copper_edge_clearance`). A via's own track, and any track giving way draws (a tail, a moved
+  via's redrawn tail, a routed via's rebuilt tracks), now keeps the edge keep-in as the item's own copper does, so
+  the via moves, shares or leaves its pad as for any other conflict, or the spot is refused. A move whose
+  narrowest tail the native search found clear but that no width clears in the full judgement was taken at the
+  narrowest width anyway; it now goes on to the next spot. Placements can move.
+
+- **A tail giving way draws joins the cell's group.** A cell's clearance rule (`A.memberOf('cell') &&
+  B.memberOf('cell')`) holds in KiCad for the items of the cell's group. The tail a via's giving way drew was
+  written outside the group, so placemat judged it against the cell's rule and KiCad's DRC against the netclass
+  figure (`clearance`, 0.147 mm against 0.16 mm on one board). The tails and rebuilt tracks join the group of the
+  cell the via belongs to.
+
+- **A carried via is held out of a keepout that excludes vias.** A keepout
+  that excludes vias but not parts, a rule area on the generated board that
+  forbids vias, and one a placed cell brings were not tested against a part's
+  or a cell's carried vias, so a via could be placed inside one and KiCad
+  reported `items_not_allowed` (one board had three). A via whose ring meets
+  such a region on a layer it covers, and whose net is not in `allow=`, now
+  counts as meeting copper: it shares, moves, leaves its pad or is dropped as
+  for any other conflict, and where none of those clears it the spot is
+  refused ("keepout 'name' forbids vias: the GND via at ... is inside it").
+  A via placed earlier that a cell's region covers gives way when the cell
+  lands. Scripts change nothing; placements next to such a region can move.
+  `api.md`, "Carried vias give way".
+
 - **A line of labels gives way as one.** A list of labels, or `line=`, was
   left out of the labels that give way (0.71, 0.72): a part placed after it
   could land on a text, the line neither moved nor was avoided, and KiCad

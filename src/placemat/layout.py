@@ -25,7 +25,7 @@ from .copper import (Pour, Text, Track, Via, Zone, arc_circle, arc_tracks, board
 from .geometry import Transform, box_polygon, circle_polygon, circle_poly_gap, gap_texts, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
 from .findings import Finding, Findings
 from .giveway import FIELD_PREFIX, enabled as giveway_enabled, field_via_id, pad_via_id
-from .occupancy import LABEL_SOURCE, VIA_BUCKET, Occupancy, Shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
+from .occupancy import LABEL_SOURCE, VIA_BUCKET, Occupancy, Shape, ban_shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
 from .cutouts import Cutouts, Path, _turned, loop_gap, signed_area
 from .outline import Outline, Run, rect_outline
 from . import exposure
@@ -6031,6 +6031,8 @@ class Board:
                     occ.reserve(poly, "keepout %r (%s%s)" % (k.name, k.why, tall), allow=nets, owners=owners,
                                 layer=layer, admitted=admitted, barred=barred,
                                 copper=bool({"tracks", "fill", "vias", "pads"} & set(k.excludes)), courtyard=True)
+                if "vias" in k.excludes:        # a via is held out of it as KiCad's DRC holds it
+                    occ.add_copper([ban_shape("keepout %r" % k.name, poly, k.layers, nets)])
                 plan.keepouts[k.name] = PlacedKeepout(k.name, poly, centre, turn, k.excludes,
                                                       k.layers, nets, owners | (admitted or frozenset()), k.why,
                                                       k.max_height, admitted or frozenset(), barred)

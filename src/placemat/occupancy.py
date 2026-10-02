@@ -100,6 +100,20 @@ LABEL_SOURCE = "label"
 """The `source` of the reservation a user label keeps for its text."""
 
 
+ALLOW_SEP = "\x1f"
+"""Joins the nets a `viaban` shape lets through into its `net`."""
+
+
+def ban_shape(name: str, poly, layers, allow, tag: str = "") -> "Shape":
+    """A rule area that forbids vias, as an obstacle only a via ring meets: KiCad's DRC flags a via whose ring on a
+    layer the area covers overlaps its outline (pcbexpr_functions.cpp `collidesWithArea`, reported as
+    `items_not_allowed` by drc_test_provider_disallow.cpp), unless the via's net is let through. `layers` None:
+    every layer. `tag` is what a re-commit of the cell that brought it replaces it by."""
+    poly = tuple(tuple(p) for p in poly)
+    return Shape(name, "viaban", _BOTH, frozenset(layers or ()), ALLOW_SEP.join(sorted(allow)), poly,
+                 Box.of_points(poly), tag)
+
+
 def is_label_silk(shape) -> bool:
     """Whether a shape is the silk obstacle a user label's text stands as."""
     return shape.kind == "silk" and shape.owner.startswith("label ")
@@ -485,6 +499,10 @@ class Occupancy:
         # re-transforming the original polygon would compound.
         self._cell_rule_areas: dict = {}
         for ra in geometry.rule_areas:
+            if "vias" in ra.excludes:
+                self.copper.append(ban_shape("rule area %r on the generated board" % ra.name if ra.cell is None
+                                             else ra.cell, ra.polygon, ra.layers, ra.allow,
+                                             "" if ra.cell is None else "rule area %r from the %s cell" % (ra.name, ra.cell)))
             if "parts" not in ra.excludes:
                 continue
             if ra.cell is None:
@@ -556,7 +574,7 @@ class Occupancy:
         if geom.part_refs:
             n = len(geom.part_refs)
             name = next(o for o in geom.owners if o not in geom.part_refs and o not in self._footprint_refs)
-            parts = tuple(geom.parts[:n]) + tuple(s.box for s in shapes if s.owner == name)
+            parts = tuple(geom.parts[:n]) + tuple(s.box for s in shapes if s.owner == name and s.kind != "viaban")
         less = dataclasses.replace(geom, shapes=shapes, parts=parts)
         cache[id(item)] = (geom, less)
         return less
@@ -928,7 +946,8 @@ class Occupancy:
         through by its own net, and is not judged by a region that keeps
         out parts only."""
         n = len(geom.part_refs)
-        own = [s for s in geom.shapes if s.owner in geom.owners and s.owner not in geom.part_refs]
+        own = [s for s in geom.shapes if s.owner in geom.owners and s.owner not in geom.part_refs
+               and s.kind != "viaban"]
         out = [k for k in range(n) if not self._member_let_in(r, geom.part_refs[k])]
         if r.admitted is None and r.copper:
             out += [n + j for j, s in enumerate(own[:len(geom.parts) - n]) if not (s.net and s.net in r.allow)]
@@ -1113,7 +1132,7 @@ class Occupancy:
         """A cell's geometry from its members' ({refdes: ItemGeometry}) and
         its own copper, as _geometry builds it from what is committed."""
         shapes = tuple(s for fp in item.members for s in members[fp.ref].shapes) + tuple(own)
-        mine = [s.box for s in shapes if s.owner == item.name]
+        mine = [s.box for s in shapes if s.owner == item.name and s.kind != "viaban"]
         body = Box.union([members[fp.ref].body for fp in item.members] + mine)
         reach = Box.union([members[fp.ref].reach or members[fp.ref].body for fp in item.members] + mine)
         return ItemGeometry(frozenset(m for fp in item.members for m in members[fp.ref].owners) | {item.name},
@@ -1356,42 +1375,48 @@ class Occupancy:
         """The courtyard polygons KiCad tests of an item's parts - one per member of a cell, in
         `part_refs` order; one for a lone part - turned and faced at the origin; None for a part that
         draws none."""
-        cache = self.__dict__.setdefault("_origin_yard_cache", {})
+        return self._origin_yard_cache(geom, rotation, face)[1]
+
+    def _origin_yard_cache(self, geom: ItemGeometry, rotation: float, face) -> tuple:
+        """(geom, the polygons of `origin_yards`, the box round each or None)."""
+        cache = self.__dict__.setdefault("_origin_yard_cache_", {})
         key = (id(geom), rotation, face)
         hit = cache.get(key)
         if hit is None or hit[0] is not geom:
             at = Placement(Location(0.0, 0.0), rotation, face)
-            out = []
+            polys = []
             for ref in geom.part_refs or sorted(geom.owners):
                 y = self._kicad_yard(ref) if self.geometry.has_footprint(ref) else None
-                out.append(None if y is None else self._moved(geom, (y,), at)[0].poly)
-            hit = (geom, out)
+                polys.append(None if y is None else self._moved(geom, (y,), at)[0].poly)
+            hit = (geom, polys, [None if p is None else Box.of_points(p) for p in polys])
             cache[key] = hit
-        return hit[1]
+        return hit
 
     def _courtyard_hit(self, r: Reservation, geom: ItemGeometry, placement: Placement) -> tuple:
         """(whether a rule area refuses the item, the cell's part it refuses or None): KiCad's test,
         each footprint's courtyard polygon against the area. A cell's own copper, which has no
         courtyard, is judged by its box as before."""
-        yards = self.origin_yards(geom, placement.rotation, placement.face)
+        _, yards, boxes = self._origin_yard_cache(geom, placement.rotation, placement.face)
         dx, dy = placement.location.x, placement.location.y
+        rb = r.box
 
-        def hit(poly) -> bool:
-            if poly is None:
+        def hit(k) -> bool:
+            poly, b = yards[k], boxes[k]
+            if poly is None or not (b.left + dx < rb.right and rb.left < b.right + dx
+                                    and b.top + dy < rb.bottom and rb.top < b.bottom + dy):
                 return False
-            moved = tuple((x + dx, y + dy) for x, y in poly)
-            return Box.of_points(moved).overlaps(r.box) and polys_overlap(r.poly, moved)
+            return polys_overlap(r.poly, tuple((x + dx, y + dy) for x, y in poly))
         if not geom.parts:
-            return hit(yards[0]), None
+            return hit(0), None
         n = len(yards)
-        boxes = None
+        parts = None
         for k in self.judged(r, geom):
             if k < n:
-                if hit(yards[k]):
+                if hit(k):
                     return True, k
             else:
-                boxes = self._shifted_parts(geom, placement) if boxes is None else boxes
-                if r.overlaps(boxes[k]):
+                parts = self._shifted_parts(geom, placement) if parts is None else parts
+                if r.overlaps(parts[k]):
                     return True, k
         return False, None
 
@@ -1484,7 +1509,7 @@ class Occupancy:
                     flat_parts.append(Box.union([geom.parts[k]] + [s.box for s in mine if s.kind in flat_kinds]))
                     cu = [s.box for s in mine if s.kind in _COPPERISH]
                     copper_parts.append(Box.union(cu) if cu else None)
-                own = [s for s in geom.shapes if s.owner == name]
+                own = [s for s in geom.shapes if s.owner == name and s.kind != "viaban"]
                 for k, s in enumerate(own):
                     flat_parts.append(geom.parts[n + k])
                     copper_parts.append(s.box if s.kind in _COPPERISH else None)
@@ -1806,6 +1831,9 @@ class Occupancy:
         conflict kind alone - but that was already true of `_reason_key`
         before this method existed, and no fixture or real board comes
         close to it.)"""
+        if s.kind == "viaban" or o.kind == "viaban":
+            ban = s if s.kind == "viaban" else o
+            return (ban.label or ban.owner).split(" ")[0]
         if s.kind == "yard" or o.kind == "yard":
             return "courtyard"
         if s.kind in _DRAWN or o.kind in _DRAWN:
@@ -2001,6 +2029,15 @@ class Occupancy:
         `say=False` answers a copper or hole conflict with its kind alone,
         not the sentence: for a search that only asks whether."""
         ks, ko = s.kind, o.kind
+        if ks == "viaban" or ko == "viaban":
+            ban, other = (s, o) if ks == "viaban" else (o, s)
+            if other.kind != "through" or other.owner in self._footprint_refs or other.net in ban.net.split(ALLOW_SEP) \
+                    or (ban.layers and other.layers and not ban.layers & other.layers) \
+                    or not polys_overlap(ban.poly, other.poly):
+                return None
+            c = other.box.center
+            return "%s forbids vias: the %s via at (%.2f, %.2f) is inside it" % (
+                ban.label or ban.owner, other.net or "unnetted", c.x, c.y)
         if ks == "yard" or ko == "yard":
             yard, other = (s, o) if ks == "yard" else (o, s)
             if other.kind == "through" and other.owner != yard.owner and (other.owner, other.label) in self._leads \
