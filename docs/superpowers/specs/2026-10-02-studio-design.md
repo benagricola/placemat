@@ -1,7 +1,7 @@
 # placemat studio: a live view of a layout as it is made
 
 Date: 2026-10-02
-Status: design, for the user's review
+Status: design, revised with the user's answers (2026-10-02)
 Source: the user, 2026-10-02: "I never really see what placemat is actually
 doing or how it's called because agents just adjust the layout files in the
 back end and then eventually I see a kicad PCB file or a render. I'd love an
@@ -65,9 +65,18 @@ One studio serves one script; a second script is a second studio.
    findings, and its declaring line. Copper, links, congestion and the score
    follow when planned. The page draws each event as it arrives, so a resolve
    is watched, not waited for.
-4. **Compare.** When a resolve ends, the page holds the previous plan beside
-   it: moved items are marked with a ghost of their old place and an arrow,
-   new and lost findings are listed, and the score's change is shown.
+4. **Compare.** When a resolve ends, the page compares it with the previous
+   one it showed, both ways the user asked for:
+   - **lines**: a diff of the script (and of each changed file it depends
+     on) between the two resolves, side by side, changed lines marked;
+   - **the diagram**: moved items drawn as a ghost at their old place with an
+     arrow to the new one, added and removed items marked, copper that
+     changed drawn in both states, new and lost findings listed, and the
+     score's change shown.
+   The two halves are linked: selecting a changed line marks what it moved
+   on the board, and selecting a moved item marks the lines that changed its
+   declaration. The page keeps the last few resolves so any two can be
+   compared, not only the last two.
 
 Transport: Server-Sent Events from the Python standard library's HTTP server
 (one direction is enough; edits go back by plain POST). No new Python
@@ -91,27 +100,29 @@ dependency.
 - **Who changed what**: each resolve is listed with the files that changed
   and their diff, so an agent's edit is seen as an edit, with what it moved.
 
-### Editing (phase 2)
+### Runs from elsewhere (phase 2)
 
-The script pane becomes an editor (a vendored CodeMirror build, no build
-step). Saving writes the file; the watcher sees it as it sees any edit, so a
-user's edit and an agent's edit take the same path and land in the same view.
-If the file changes on disk while the pane holds unsaved text, the pane says
-so and shows the difference before anything is overwritten; it never
-overwrites an agent's edit silently.
-
-A **Run** button runs `placemat run` on the script (write, DRC, render, a run
-record), and its result (DRC by kind, the render) appears in the page. Runs
-started elsewhere (an agent's `placemat run`) are picked up from
-`.placemat/runs` and shown the same way.
+No editing in the page for now (the user, 2026-10-02: not needed straight
+away): edits come from the user's editor and from agents, and the page
+watches. Runs started elsewhere (an agent's `placemat run`) are picked up
+from `.placemat/runs` and shown with their result (DRC by kind, the render)
+and compared like any resolve. No Run button: a full run stays with agents
+and the terminal.
 
 ### 3D (phase 3)
 
-A 3D view built from the model: the board as a slab of its stackup thickness,
-each part as its body box at its height (`Pm.Height` or its model's box),
-copper as thin layers. three.js, vendored. The full 3D models stay
-kicad-cli's job: a button exports and shows the written board's GLB on
-demand, since that takes seconds to tens of seconds.
+3D only with the parts' real 3D models (the user: it "only really makes
+sense when we import models"); no box-only view. The models are the ones
+the footprints name (`Footprint.models`: file, offset, rotation, scale),
+resolved through KiCad's model paths. Two ways in, to decide when phase 3 is
+specced in detail:
+- the written board exported by kicad-cli as GLB (models included), shown in
+  three.js: exact, but needs a written board and takes seconds to tens of
+  seconds, so it follows a run, not each resolve;
+- placemat loading each model once (STEP or WRL converted to a mesh, cached
+  by file) and placing it at the resolve's position and turn, so 3D follows
+  the live 2D view; needs a model converter, which may be a dependency.
+The 3D view also gets the compare: a moved part shown at both places.
 
 ### Agents (phase 4)
 
@@ -143,23 +154,23 @@ normal run, on request.
 ## Phases
 
 1. Watch, warm resolve, streamed steps, the 2D board, steps, findings, hover,
-   the linked read-only script, the compare and the change log.
-2. The editor and the Run button; runs from elsewhere picked up.
-3. The 3D view from the model; kicad-cli GLB on demand.
+   the linked read-only script, and the compare: a line diff and a diagram
+   diff, linked.
+2. Runs from elsewhere picked up and compared.
+3. 3D with the parts' real models.
 4. The agent note channel.
 
 Each phase is usable on its own. Phase 1 alone answers "I never see what
 placemat is doing".
 
-## Open questions for the user
+## Decided with the user (2026-10-02)
 
-1. Editing in the page, or keep your own editor and have the page watch?
-   (Phase 2 can be left out.)
-2. How soon is 3D worth it over a good 2D view?
-3. Should the Run button be there, or should a full run stay an agent's or
-   the terminal's?
-4. Any need to view from another machine (another host on the LAN, a tablet)?
-   That needs authentication beyond a local token.
+- No editing in the page for now; the page watches.
+- A diff of lines and a diff in the diagram between the previous and the
+  latest resolve.
+- 3D only with real models.
+- No Run button (a full run stays with agents and the terminal) and no
+  access from other machines; both can be revisited.
 
 ## Verification
 
@@ -170,8 +181,9 @@ placemat is doing".
   same script (same items, places, findings).
 - A change mid-resolve cancels it; no stale plan is shown as current.
 - Moved items in the compare equal the differences between the two plans.
-- A file changed on disk under unsaved editor text is never overwritten
-  silently.
+- The line diff and the diagram diff of two resolves agree: every moved item
+  traces to a changed line or a changed file, and selecting one marks the
+  other.
 - Clicking a part selects its declaring line, and the reverse, on a real
   board's script.
 - The server binds only to 127.0.0.1 and refuses requests without the token.
