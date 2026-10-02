@@ -54,6 +54,10 @@ def _shapes(plan, fp) -> list:
     for kind, polys in (("body", fp.fab), ("silk", fp.silk)):
         for face, poly in _drawn_at(plan, fp, polys):
             out.append({"kind": kind, "faces": [face.value], "poly": _poly(poly)})
+    for s in g.shapes:          # the footprint's own copper graphics (a printed winding): copper of no net, on its layer
+        if s.kind == "copper" and s.owner == fp.ref and not getattr(s, "carried", ""):
+            out.append({"kind": "copper", "faces": sorted(f.value for f in s.faces), "layers": sorted(l.value for l in s.layers),
+                        "poly": _poly(s.poly)})
     for s in g.shapes:
         if s.kind in ("pad", "through"):
             out.append({"kind": s.kind, "faces": sorted(f.value for f in s.faces), "poly": _poly(s.poly),

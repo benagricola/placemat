@@ -648,3 +648,17 @@ out.legend = els["#legend"].innerHTML; out.steps = els["#tab-steps"].innerHTML; 
     assert '<h4>Links<button class="info" data-info="links"' in out["legend"] and "lgnote" not in out["legend"] and "A link is a pull" not in out["legend"]
     assert 'data-info="steps"' in out["steps"] and "Each row is one step" not in out["steps"]
     assert {"links", "steps", "other"} <= set(out["info"])
+
+
+@needs_node
+def test_congestion_is_a_ramp_with_a_scale_and_a_footprints_copper_is_drawn(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+out.cols = [0.05, 0.3, 0.7, 1.0, 1.25, 3].map(u => ev("heatColour(" + u + ")"));
+const it = ev("plan().items[0]"); it.members[0].shapes.push({kind: "copper", faces: ["front"], layers: ["F.Cu"], poly: [[1, 1], [2, 1], [2, 1.2]]}, {kind: "copper", faces: [], layers: ["In1.Cu"], poly: [[1, 1], [2, 1], [2, 1.3]]});
+ev("renderBoard()"); out.board = board().innerHTML;
+ev("plan().congestion = {cell: 0.5, origin: [0, 0], worst: 1.4, worst_at: [2, 2], cells: [[1, 1, 0.9]]}"); ev("renderLegend()"); out.legend = els["#legend"].innerHTML;
+""")
+    assert len(set(out["cols"])) == 5 and out["cols"][-1] == out["cols"][-2]                       # distinct hues up to the top of the scale
+    assert 'class="fcu l-F" data-l="F.Cu"' in out["board"] and 'class="fcu l-In" data-l="In1.Cu"' in out["board"]
+    assert 'class="lgscale"' in out["legend"] and 'data-info="marks"' in out["legend"]

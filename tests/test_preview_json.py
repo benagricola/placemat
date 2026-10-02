@@ -163,3 +163,18 @@ def test_a_copper_step_says_which_of_the_documents_copper_it_laid_and_a_cutout_s
     cut = next(s for s in doc["steps"] if s["kind"] == "cutout")
     assert cut["loop"] is not None and len(doc["board"]["loops"][cut["loop"]]) > 4
     assert all(s["loop"] is None for s in doc["steps"] if s["kind"] != "cutout")
+
+
+def test_a_footprints_own_copper_graphics_are_in_its_shapes_with_their_layer():
+    import dataclasses
+    from placemat.values import CopperLayer
+    fps = [footprint("K1", 13, 10, w=6, h=6, inst="k1", nets=("A", "B"))]
+    fps[0] = dataclasses.replace(fps[0], copper=((CopperLayer.F, ((12.0, 9.0), (14.0, 9.0), (14.0, 9.2), (12.0, 9.2))),
+                                                 (CopperLayer.B, ((12.0, 11.0), (14.0, 11.0), (14.0, 11.2), (12.0, 11.2)))))
+    b = Board(board_geometry(fps, width=30, height=20), edge_margin=0.5, keep_going=True)
+    b.place(Part("k1"), at=Location(13, 10))
+    plan = b.resolve()
+    doc = plan_json(plan, declared_sites(b))
+    shapes = [s for it in doc["items"] for m in it["members"] for s in m["shapes"] if s["kind"] == "copper"]
+    assert sorted(s["layers"][0] for s in shapes) == ["B.Cu", "F.Cu"]
+    assert all(s["faces"] and len(s["poly"]) == 4 for s in shapes)
