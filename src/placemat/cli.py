@@ -231,6 +231,9 @@ def parser() -> argparse.ArgumentParser:
     st.add_argument("script", help="a layout script")
     st.add_argument("--port", type=int, help="the port to listen on, 127.0.0.1 only (default [studio] port; 0: any free one)")
     st.add_argument("--no-open", action="store_true", help="print the address without opening the browser")
+    st.add_argument("--host", default="127.0.0.1",
+                    help="the address to listen on (default 127.0.0.1); 0.0.0.0 or a LAN address lets another device "
+                         "on the network open the page, still only with the printed token")
 
     fz = sub.add_parser("freeze", help="move lock entries into the script's place() calls, if the script then "
                                        "places exactly as the lock did")
@@ -1035,7 +1038,7 @@ def cmd_preview(args) -> int:
 
 def cmd_studio(args) -> int:
     from .studio import run
-    return run(args.script, port=args.port, open_browser=False if args.no_open else None)
+    return run(args.script, port=args.port, open_browser=False if args.no_open else None, host=args.host)
 
 
 def cmd_occupancy(args) -> int:

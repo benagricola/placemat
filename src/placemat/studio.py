@@ -153,7 +153,8 @@ class WorkerProcess:
 
 
 class Studio:
-    def __init__(self, script, port: int | None = None, open_browser: bool | None = None, **settings):
+    def __init__(self, script, port: int | None = None, open_browser: bool | None = None, host: str = "127.0.0.1", **settings):
+        self.host = host            # the address listened on: 127.0.0.1 unless --host widens it
         from . import settings as settings_mod
         from .project import find_board
         self.script = Path(script).resolve()
@@ -226,13 +227,22 @@ class Studio:
                 pass
         return out
 
+    def allowed_hosts(self) -> set:
+        """The Host headers a request may carry: localhost always, and with --host the address listened on and,
+        listening on all addresses, this machine's own names and LAN addresses (the token still guards every
+        request)."""
+        hosts = {"127.0.0.1", "localhost"}
+        if self.host not in ("127.0.0.1", "localhost"):
+            hosts |= {self.host} | _own_addresses()
+        return {"%s:%d" % (h.lower(), self.port) for h in hosts}
+
     # ------------------------------------------------------------ lifecycle
     def start(self) -> str:
         handler = _handler(self)
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", self.port), handler)
+        self.server = http.server.ThreadingHTTPServer((self.host, self.port), handler)
         self.server.daemon_threads = True
         self.port = self.server.server_address[1]
-        self.url = "http://127.0.0.1:%d/?t=%s" % (self.port, self.token)
+        self.url = "http://%s:%d/?t=%s" % (_url_host(self.host), self.port, self.token)
         self._files = self.watched()
         self._poller = Poller(lambda: self._files)
         for target in (self.server.serve_forever, self._watch):
@@ -444,7 +454,7 @@ def _handler(studio: Studio):
 
         def _allowed(self, query: dict) -> bool:
             host = (self.headers.get("Host") or "").lower()
-            if host not in ("127.0.0.1:%d" % studio.port, "localhost:%d" % studio.port):
+            if host not in studio.allowed_hosts():
                 return False
             given = (query.get("t") or [self.headers.get("X-Studio-Token") or ""])[0]
             return hmac.compare_digest(given.encode(), studio.token.encode())
@@ -527,9 +537,34 @@ def _int(text: str) -> int:
 
 
 # ------------------------------------------------------------------ command
-def run(script, port: int | None = None, open_browser: bool | None = None) -> int:
+def _own_addresses() -> set:
+    """This machine's host name and the addresses it is reached on."""
+    import socket
+    names = {socket.gethostname(), socket.getfqdn()}
     try:
-        studio = Studio(script, port=port, open_browser=open_browser)
+        names |= set(socket.gethostbyname_ex(socket.gethostname())[2])
+    except OSError:
+        pass
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sk:
+            sk.connect(("192.0.2.1", 9))      # no packet is sent: this only picks the outward interface
+            names.add(sk.getsockname()[0])
+    except OSError:
+        pass
+    return {n.lower() for n in names if n}
+
+
+def _url_host(host: str) -> str:
+    """The address to print for a listening address: the LAN address when listening on all of them."""
+    if host in ("0.0.0.0", ""):
+        own = sorted(a for a in _own_addresses() if a[:1].isdigit() and not a.startswith("127."))
+        return own[0] if own else "127.0.0.1"
+    return host
+
+
+def run(script, port: int | None = None, open_browser: bool | None = None, host: str = "127.0.0.1") -> int:
+    try:
+        studio = Studio(script, port=port, open_browser=open_browser, host=host)
     except (ValueError, FileNotFoundError) as e:
         console.say("studio", str(e), level="fail")
         return 2

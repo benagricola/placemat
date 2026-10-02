@@ -9,6 +9,11 @@ section for each hand-written pattern a newer form replaces.
 
 ### New
 
+- **`placemat studio --host ADDR`**: listen on another address than
+  127.0.0.1 (0.0.0.0 for every one), so a phone or another machine on the
+  network can open the page; the printed address carries the token, which
+  every request still needs.
+
 - **`placemat studio <script>`: the layout live in a browser.** A local page
   (127.0.0.1, a token in the address) that watches the script, its imports,
   its lock and the board's `placemat.toml` files, re-resolves a moment after
