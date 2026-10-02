@@ -246,6 +246,20 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Studio** (0.82.0; spec `2026-10-02-studio-design.md`, phase 1):
+  `placemat studio <script>` watches the script and re-resolves on change,
+  showing the steps, findings, the script linked both ways, and a compare
+  with the previous resolve; `--host` listens on the LAN, the token still
+  required; the page works on a phone, lists the folder's layout scripts and
+  switches between them.
+
+- **Finding severities** (0.82.0; spec `2026-10-02-finding-severity-design.md`):
+  every finding is a notice, warning or critical; display only, scores
+  unchanged.
+
+- **CI without KiCad** (0.82.0): a test module or test that needs pcbnew is
+  skipped on a runner without KiCad instead of failing collection.
+
 - **Escape lanes start past a part beside the row, and leave a pad-to-pad
   track its way** (0.81.2): a lane's start is judged out to the row's depth
   whatever `run=` leaves; firm pad-to-pad tracks from the part's unescaped
