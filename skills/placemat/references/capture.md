@@ -131,7 +131,11 @@ Y1  (a crystal)      Pm.Limit: heat:5C
 
 The layout holds each pair apart by the same model `board.push` uses
 (`references/api.md`, "Push, annotated"), and `placemat check` judges each
-sensitive part's value at its final place against its limit.
+sensitive part's value at its final place against its limit. Whichever of the
+two is searched first is placed where the other keeps a legal spot at the
+limit distance, so a pair does not fail for the order the parts are searched
+in; where no such spot exists for any candidate, the second part is
+unplaced and its finding names the push.
 
 ## How the checks find their nets
 

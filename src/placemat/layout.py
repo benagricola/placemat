@@ -3977,6 +3977,159 @@ class Board:
             return None
         return accept
 
+    def _role_point(self, occ: Occupancy, ref: str, source: bool) -> Push:
+        """A Push carrying only how to find a part's own measured point at a candidate placement
+        (`_push_at`): a source's emission point, a sensitive part's sense point."""
+        if source:
+            at = self._annotations.sources[ref].at
+            key = (ref, at[1]) if at is not None and at[0] == "pad" else None
+            return Push(None, 1.0, 1.0, 1.0, 1.0, key, ref, target_point=None if key is not None else self._emission_point(occ, ref))
+        pad = self._annotations.sensitives[ref].senses
+        return Push(None, 1.0, 1.0, 1.0, 1.0, (ref, pad) if pad is not None else None, ref)
+
+    def _lookahead_spots(self, occ: Occupancy, j: PlaceIntent, placed) -> tuple | None:
+        """(every legal placement of the searched item `j` as things stand, the grid step they were found on):
+        what its search would be offered, before any push of the part being placed now. The step is
+        `place.lookahead_step`, or its own if that is coarser. None for an item whose search is not the generic one
+        (a decided place, an edge, a run, a ring, a spoke, a line, a block, a rider), or on a board
+        with no frame yet."""
+        if (j.kind == "block" or j.freedom.decided or j.key in self._rider_of or j.turns_on_point
+                or any(x is not None for x in (j.run, j.rim, j.radius_at, j.angle, j.edge, j.pin_x, j.pin_y))
+                or self._fit or self._outline is None):
+            return None
+        frame = self._outline
+        hint = Placement(_locate(self, occ, j.near), j.rotation, j.face) if j.near is not None else None
+        hint, band, bt, within = self._band_frame(occ, j, placed, hint)
+        if band is not None:
+            radius = band[2] + hint.location.distance(band[0])
+        elif j.near is not None:
+            radius = j.radius
+        else:
+            if hint is None:
+                hint = Placement(self.centre if bt is None else bt.centre, j.rotation, j.face)
+            radius = max(math.hypot(x - hint.location.x, y - hint.location.y)
+                         for x in (frame.left, frame.right) for y in (frame.top, frame.bottom))
+            within = lambda x, y, f=frame: f.left <= x <= f.right and f.top <= y <= f.bottom
+        spots: list = []
+
+        def record(cand):
+            spots.append(cand)
+            return "lookahead"
+        step = max(j.step, self.settings.place_lookahead_step)
+        for face in self._faces_of(j):
+            turns_at = None if bt is None else self._spot_turns(occ, j, placed, band, face)
+            scan(occ, j.item, Placement(hint.location, hint.rotation, face), radius, step, self._turns(j),
+                 self.clearance, accept=record, turns_at=turns_at, within=within)
+        return spots, step
+
+    def _lookahead(self, occ: Occupancy, i: PlaceIntent, placed):
+        """A candidate refusal for the pairs of `i` (a Pm.Emits source, a Pm.Limit part) whose other
+        part is still to be searched: refused where no legal spot of that part is at the distance its
+        limit asks. The pair is judged by whichever part is placed second, so the part placed first
+        can take a spot that leaves the second none (the first spot the search likes best is the one
+        nearest the middle of a small round board, and nothing is left at the limit distance from it).
+        Each partner's legal spots are found once, as its own search would find them; a candidate is
+        then asked only the distance to them (`exposure.reach`: the distance the limit asks, less
+        what the sources placed already add at that spot), with a grid step to spare: a spot found
+        on this grid stands for the one the partner's own search meets on its. None when no pair needs it."""
+        ann = self._annotations
+        if not ann or i.kind == "block" or not self.settings.place_lookahead:
+            return None
+        own = {fp.ref for fp in members_of(i.item)}
+        owner = {fp.ref: x for x in self._placements() for fp in members_of(x.item)} if own & (ann.sources.keys() | ann.sensitives.keys()) else {}
+        placed_sources = sorted(r for r in ann.sources if r not in own and r not in occ.pending)
+        pairs = []          # (own ref, own is the source, other ref, kind, limit, emissions of the source)
+        for a in sorted(own):
+            if a in ann.sources:
+                for b in sorted(ann.sensitives):
+                    for kind, limit, _ in ann.sensitives[b].limits:
+                        em = tuple(e for e in ann.sources[a].emissions if e.kind == kind)
+                        if b != a and b not in own and em:
+                            pairs.append((a, True, b, kind, limit, em))
+            if a in ann.sensitives:
+                for kind, limit, _ in ann.sensitives[a].limits:
+                    for b in sorted(ann.sources):
+                        em = tuple(e for e in ann.sources[b].emissions if e.kind == kind)
+                        if b != a and b not in own and em:
+                            pairs.append((a, False, b, kind, limit, em))
+        spots_of: dict = {}
+        needs = []
+        for a, a_source, b, kind, limit, em in pairs:
+            j = owner.get(b)
+            if j is None or b not in occ.pending:
+                continue
+            if j.key not in spots_of:
+                spots_of[j.key] = self._lookahead_spots(occ, j, placed)
+            if not spots_of[j.key] or not spots_of[j.key][0]:    # not a generic search, or no spot at all: nothing to keep room for
+                continue
+            spots, margin = spots_of[j.key]
+            others_at = lambda p, skip=(a, b), k=kind: sum(
+                e.at(self._emission_point(occ, o).distance(p)) for o in placed_sources if o not in skip
+                for e in ann.sources[o].emissions if e.kind == k)
+            there = self._role_point(occ, b, not a_source)
+            geom = occ._geometry(j.item)
+            pts, seen = [], set()
+            for spot in spots:
+                at = _push_at(occ, j.item, spot, there, occ.candidate_pad_locations(j.item, spot), {})
+                if at is None:
+                    continue
+                if a_source:
+                    # b is sensitive and placed second: its whole body is held outside each emission's disc
+                    # (the push's reservation), and its sense point has what the sources placed leave of its limit
+                    span = geom.body if occ.envelope == "courtyard" else occ._extent(geom)
+                    box = transform_box(span, occ._transform(geom, spot))
+                    key = (round(at.x, 2), round(at.y, 2), round(box.left, 2), round(box.top, 2))
+                    left = limit - others_at(at)
+                    if key not in seen and left > 0:
+                        seen.add(key)
+                        pts.append((at.x, at.y, exposure.reach(em, left) + margin, (box.left, box.top, box.right, box.bottom)))
+                elif (round(at.x, 2), round(at.y, 2)) not in seen:
+                    seen.add((round(at.x, 2), round(at.y, 2)))
+                    pts.append(at)
+            if not pts:
+                continue
+            if a_source:
+                disc = max(e.radius(limit) for e in em) * _DISC_INRADIUS + margin
+                needs.append((a, True, b, kind, limit, em, (pts, _hull([Location(x, y) for x, y, _, _ in pts]), disc,
+                                                           min(r for _, _, r, _ in pts)), others_at))
+            else:
+                needs.append((a, False, b, kind, limit, em, (_hull(pts), margin), others_at))
+        if not needs:
+            return None
+        names = sorted({b for _, _, b, *_ in needs})
+        here = {a: self._role_point(occ, a, s) for a, s, *_ in needs}
+        last: dict = {}
+
+        def accept(placement: Placement):
+            pads = occ.candidate_pad_locations(i.item, placement)
+            points: dict = {}
+            for n, (a, a_source, b, kind, limit, em, far, others_at) in enumerate(needs):
+                p = _push_at(occ, i.item, placement, here[a], pads, points)
+                if p is None:
+                    continue
+                if a_source:
+                    pts, hull, disc, nearest = far
+                    if max(math.hypot(p.x - x, p.y - y) for x, y in hull) < nearest - 1e-9:
+                        return "%s: no legal spot of %s is far enough from here for its %s limit" % (accept.bucket, b, kind)
+                    k = last.get(n, 0)
+                    for m, (x, y, r, (l, t, rt, bt)) in enumerate(pts[k:] + pts[:k]):
+                        if (math.hypot(p.x - x, p.y - y) >= r - 1e-9
+                                and math.hypot(max(l - p.x, 0.0, p.x - rt), max(t - p.y, 0.0, p.y - bt)) >= disc - 1e-9):
+                            last[n] = (k + m) % len(pts)
+                            break
+                    else:
+                        return "%s: no legal spot of %s is far enough from here for its %s limit" % (accept.bucket, b, kind)
+                else:
+                    left = limit - others_at(p)
+                    if left > 0:
+                        r = exposure.reach(em, left) + far[1]
+                        if max(math.hypot(p.x - x, p.y - y) for x, y in far[0]) < r - 1e-9:
+                            return "%s: no legal spot of %s is %.3g mm from here" % (accept.bucket, b, r)
+            return None
+        accept.partners = ", ".join(names)
+        accept.bucket = "no room left for %s" % accept.partners
+        return accept
+
     def _reserve_pushes(self, occ: Occupancy, plan: Plan, i: PlaceIntent) -> list:
         """Each push's source point, resolved now (it is placed by then,
         `needs` sees to that), and its hard-limit disc reserved against
@@ -7889,8 +8042,21 @@ class Board:
             plan.steps.append(self._step(r, p, 0.0, note))
             occ.commit(r.item, p)
 
+    def _band_frame(self, occ: Occupancy, i: PlaceIntent, placed, hint: Placement | None) -> tuple:
+        """(hint, band, turns, within) for a search of `i`: its radial band and the spot turns that
+        go with it, `hint` brought into the band, and the filter that keeps the scan's grid to it."""
+        band = self._band_of(occ, i, placed)
+        bt = self._spot_turns(occ, i, placed, band)
+        within = None
+        if band is not None:
+            hint = self._band_hint(i, band, hint)
+            slack = max((math.hypot(dx, dy) for s in self._spots_of(occ, i, placed, band, bt)
+                         for dx, dy in s.offset.values()), default=0.0)
+            within = lambda x, y, c=band[0], lo=band[1] - slack, hi=band[2] + slack: lo <= math.hypot(x - c.x, y - c.y) <= hi
+        return hint, band, bt, within
+
     def _settle(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set = frozenset(),
-                solve: bool = True) -> Step:
+                solve: bool = True, look: bool = True) -> Step:
         if i.kind == "block":
             return self._settle_block(occ, i, plan, placed)
         clr = self.clearance
@@ -7946,14 +8112,7 @@ class Board:
                 plan.seeded_by_net[n] += 1
         else:
             hint = None
-        band = self._band_of(occ, i, placed)
-        bt = self._spot_turns(occ, i, placed, band)
-        within = None
-        if band is not None:
-            hint = self._band_hint(i, band, hint)
-            slack = max((math.hypot(dx, dy) for s in self._spots_of(occ, i, placed, band, bt)
-                         for dx, dy in s.offset.values()), default=0.0)
-            within = lambda x, y, c=band[0], lo=band[1] - slack, hi=band[2] + slack: lo <= math.hypot(x - c.x, y - c.y) <= hi
+        hint, band, bt, within = self._band_frame(occ, i, placed, hint)
         # A board still finding its own frame (board.size(fit=True), before anything is placed)
         # has no centre or outline to search wide against yet: a push there falls back to a pocket,
         # the same as an unpushed item with nothing else to seed it.
@@ -7972,6 +8131,9 @@ class Board:
         exposed = self._exposure_accept(occ, i, push_sources)
         if exposed is not None:
             accept = exposed if accept is None else (lambda c, a=accept, b=exposed: a(c) or b(c))
+        ahead = self._lookahead(occ, i, placed) if look else None
+        if ahead is not None:
+            accept = ahead if accept is None else (lambda c, a=accept, b=ahead: a(c) or b(c))
         lanes = self._lane_pricer(occ, plan, i)
         score = self._scorer(i.item, occ, targets, prune=self._pick(i) is None and accept is None,
                              pushes=push_sources, lanes=lanes) if targets or push_sources or lanes else None
@@ -7995,6 +8157,11 @@ class Board:
                                              reseed=(targets if i.near is None and solved is None else None),
                                              turns_at=bt, within=within,
                                              turns_on=lambda f: self._spot_turns(occ, i, placed, band, f))
+        if result.chosen is None and ahead is not None and ahead.bucket in result.rejected:
+            # No spot leaves the counterpart room, so the look-ahead cannot help: place it as before
+            step = self._settle(occ, i, plan, placed, solve=solve, look=False)
+            step.note = "no spot left %s room, so the look-ahead was dropped; %s" % (ahead.partners, step.note)
+            return step
         if result.chosen is None and solved is not None:
             # The solve spreads items without seeing what is already placed, so
             # its hint can land where nothing is legal. That must not cost a
@@ -8341,6 +8508,26 @@ def _push_source_label(push) -> str:
     if isinstance(source, Location):
         return _loc(source)
     return str(source)          # Part or Cell: their own __str__ is their key
+
+
+_DISC_INRADIUS = math.cos(math.pi / 72)       # a push's reservation is a 72-sided polygon (`_circle`): its flats are this much of the radius off its centre
+
+
+def _hull(points: list) -> list:
+    """The convex hull of some points, as (x, y) pairs: the farthest point from anywhere is one of them."""
+    pts = sorted({(p.x, p.y) for p in points})
+    if len(pts) <= 2:
+        return pts
+
+    def half(seq):
+        out = []
+        for q in seq:
+            while len(out) >= 2 and (out[-1][0] - out[-2][0]) * (q[1] - out[-2][1]) - (out[-1][1] - out[-2][1]) * (q[0] - out[-2][0]) <= 0:
+                out.pop()
+            out.append(q)
+        return out
+    lower, upper = half(pts), half(reversed(pts))
+    return lower[:-1] + upper[:-1]
 
 
 def _push_value(source_point: Location, point: Location, push: "Push") -> tuple:
