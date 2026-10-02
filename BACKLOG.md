@@ -16,6 +16,11 @@ file. An item cites its source as "a board's session, <date>".
   and written `(vias not_allowed)` for KiCad; a module's `board.rule`
   clearances do not travel with its cell. Being built.
 
+- **Copper planned 1.4 um under a rule; a finding rounded to the limit**
+  (a board's session, 2026-10-02): a track leg planned 0.0986 mm from a via
+  under a 0.10 mm rule (KiCad fails it) and the finding reads "0.10 mm
+  (needs 0.10)". Being fixed.
+
 ## Open
 
 - **Current shared between a load's pins** (a board's session, 2026-10-01):
