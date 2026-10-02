@@ -6030,7 +6030,7 @@ class Board:
                             % k.max_height) if k.max_height is not None else ""
                     occ.reserve(poly, "keepout %r (%s%s)" % (k.name, k.why, tall), allow=nets, owners=owners,
                                 layer=layer, admitted=admitted, barred=barred,
-                                copper=bool({"tracks", "fill", "vias", "pads"} & set(k.excludes)))
+                                copper=bool({"tracks", "fill", "vias", "pads"} & set(k.excludes)), courtyard=True)
                 plan.keepouts[k.name] = PlacedKeepout(k.name, poly, centre, turn, k.excludes,
                                                       k.layers, nets, owners | (admitted or frozenset()), k.why,
                                                       k.max_height, admitted or frozenset(), barred)

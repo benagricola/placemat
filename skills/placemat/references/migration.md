@@ -47,6 +47,18 @@ section for each hand-written pattern a newer form replaces.
   a different spot. `api.md`, "Labels", which now also says a searched item does
   not see a declared label.
 
+- **A keepout that excludes parts is judged on the courtyard KiCad tests.**
+  KiCad's DRC tests each footprint's courtyard polygon against a rule area
+  (`items_not_allowed`), never the body; placemat judged the part's body box
+  (its courtyard less `courtyard_excess`, with its pads), so a part could stand
+  up to 0.1 mm into a keepout and KiCad flagged it, under any `[place]
+  envelope`. A keepout, a rule area on a generated board and one a stamped
+  cell brings now refuse a part by its courtyard polygon, and a part that draws
+  no courtyard by its claimed courtyard box. The envelope does not change it.
+  Placements next to a keepout that excludes parts can move, by up to the
+  courtyard excess and more where a courtyard is not a box. `api.md`,
+  "Keepouts".
+
 ## To 0.79.0
 
 ### New

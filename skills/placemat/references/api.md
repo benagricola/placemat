@@ -1279,7 +1279,14 @@ area is a ValueError naming it.
 the `Forbid` enum: `PARTS`, `FILL`, `TRACKS`, `VIAS`, `PADS` (the strings
 `"parts"`, `"fill"`, `"tracks"`, `"vias"`, `"pads"` still work). Each is one
 KiCad rule-area flag, and `Forbid.PARTS` is what the placer enforces itself,
-before anything is written.
+before anything is written. It judges a part as KiCad's DRC does: each
+footprint's courtyard polygon against the region (`items_not_allowed` when
+they overlap), not the part's body, pads or silk, and whatever `[place]
+envelope` says - the envelope sets the spacing between parts, not what a rule
+area tests. A part that draws no courtyard is not tested by KiCad; placemat
+holds its claimed courtyard box out of the region all the same. A cell's own
+tracks, vias and pours have no courtyard and are judged by their box, as
+before.
 
 **Where.** `layers=` defaults to every copper layer the board has, whatever the
 count. Narrow it with a list of `CopperLayer`. It narrows what is CHECKED as

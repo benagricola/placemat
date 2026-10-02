@@ -121,6 +121,7 @@ class Reservation:
     admitted: frozenset | None = None   # a height-limited region: the parts short enough to sit in it
     copper: bool = True             # whether it keeps copper out too: a parts-only keepout leaves a cell's own be
     barred: frozenset = frozenset() # the parts a `bars=` keepout names: refused whatever their height, and said so
+    courtyard: bool = False         # a KiCad rule area: it judges each part by the courtyard polygon KiCad tests, whatever the envelope
 
     @functools.cached_property
     def box(self) -> Box:
@@ -489,7 +490,8 @@ class Occupancy:
             if ra.cell is None:
                 claims, layer = parts_claim(ra.layers)
                 if claims:
-                    self.reserve(ra.polygon, "rule area %r on the generated board" % ra.name, layer=layer)
+                    self.reserve(ra.polygon, "rule area %r on the generated board" % ra.name, layer=layer,
+                                 courtyard=True)
             else:
                 self._cell_rule_areas.setdefault(ra.cell, []).append([ra, tuple(ra.polygon)])
 
@@ -890,7 +892,7 @@ class Occupancy:
 
     # ------------------------------------------------------------ mutation
     def reserve(self, region, why: str, allow=(), layer: CopperLayer | None = None, owners=(),
-                source: str = "", admitted=None, copper: bool = True, barred=()):
+                source: str = "", admitted=None, copper: bool = True, barred=(), courtyard: bool = False):
         """Keep a region clear. `region` is a Box or a polygon. `source` names
         what put it there, so committing that thing again replaces its own
         regions instead of leaving the old ones behind."""
@@ -898,7 +900,7 @@ class Occupancy:
         self.reservations.append(Reservation(poly, why, frozenset(str(n) for n in allow),
                                              layer, frozenset(str(o) for o in owners), source,
                                              None if admitted is None else frozenset(admitted), copper,
-                                             frozenset(barred)))
+                                             frozenset(barred), courtyard))
 
     def _parts_of(self, geom) -> set:
         """The parts an item is: its own refdes, or a cell's members'."""
@@ -1175,7 +1177,8 @@ class Occupancy:
             claims, layer = parts_claim(ra.layers, flip=placement.face != geom.reference.face)
             if claims:
                 what = ("label %r" % ra.name[len("label "):]) if ra.name.startswith("label ") else "rule area %r" % ra.name
-                self.reserve(poly, "%s from the %s cell" % (what, ra.cell), source=tag, layer=layer)
+                self.reserve(poly, "%s from the %s cell" % (what, ra.cell), source=tag, layer=layer,
+                             courtyard=not ra.name.startswith("label "))
         self.copper = [c for c in self.copper if c.owner != item.name] + own
 
     # ------------------------------------------------------------ measures
@@ -1305,6 +1308,16 @@ class Occupancy:
                 continue                                   # named, carrying a net let through, or short enough
             if self.labels_yield and r.source == LABEL_SOURCE:
                 continue                                   # a label gives way to a searched item
+            if r.courtyard:
+                # a KiCad rule area: DRC tests each footprint's courtyard polygon against it, never the body
+                # (pcbexpr_functions.cpp collidesWithArea), so the envelope does not change what it judges
+                refused, k = self._courtyard_hit(r, geom, placement)
+                if refused:
+                    why, owner = self.reservation_hit(r, geom, k)
+                    if blame is not None:
+                        blame.append(Blocker("reservation", owner, frozenset()))
+                    return why
+                continue
             # the box first because it is cheap, and the placer asks this tens of thousands of times
             if r.overlaps(body):
                 hit = None
@@ -1318,6 +1331,69 @@ class Occupancy:
                     blame.append(Blocker("reservation", owner, frozenset()))
                 return why
         return None
+
+    def _kicad_yard(self, ref: str):
+        """A part's courtyard where it stands now, as KiCad's DRC tests a rule area against it: the
+        courtyard polygon it draws (`Footprint.courtyard_poly`; pcbexpr_functions.cpp
+        `collidesWithArea`), as a `yard` shape. A part that draws none is not tested by KiCad; here
+        its claimed courtyard box stands in, as it does for the lead check, so a part with no
+        courtyard still keeps out of a keepout."""
+        fp = self.geometry.footprint(ref)
+        ref_at = self.geometry_of(ref).reference
+        cache = self.__dict__.setdefault("_kicad_yard_cache", {})
+        hit = cache.get(ref)
+        if hit is not None and hit[0] == ref_at:
+            return hit[1]
+        ct = tuple(fp.courtyard_poly) if len(fp.courtyard_poly) >= 3 else box_polygon(fp.courtyard_box)
+        read = ItemGeometry(frozenset([ref]), Placement(fp.location, fp.rotation, fp.face), (), fp.body_box,
+                            frozenset())
+        yard = self._moved(read, (Shape(ref, "yard", frozenset([fp.face]), frozenset(), "", ct,
+                                        Box.of_points(ct)),), ref_at)[0]
+        cache[ref] = (ref_at, yard)
+        return yard
+
+    def origin_yards(self, geom: ItemGeometry, rotation: float, face) -> list:
+        """The courtyard polygons KiCad tests of an item's parts - one per member of a cell, in
+        `part_refs` order; one for a lone part - turned and faced at the origin; None for a part that
+        draws none."""
+        cache = self.__dict__.setdefault("_origin_yard_cache", {})
+        key = (id(geom), rotation, face)
+        hit = cache.get(key)
+        if hit is None or hit[0] is not geom:
+            at = Placement(Location(0.0, 0.0), rotation, face)
+            out = []
+            for ref in geom.part_refs or sorted(geom.owners):
+                y = self._kicad_yard(ref) if self.geometry.has_footprint(ref) else None
+                out.append(None if y is None else self._moved(geom, (y,), at)[0].poly)
+            hit = (geom, out)
+            cache[key] = hit
+        return hit[1]
+
+    def _courtyard_hit(self, r: Reservation, geom: ItemGeometry, placement: Placement) -> tuple:
+        """(whether a rule area refuses the item, the cell's part it refuses or None): KiCad's test,
+        each footprint's courtyard polygon against the area. A cell's own copper, which has no
+        courtyard, is judged by its box as before."""
+        yards = self.origin_yards(geom, placement.rotation, placement.face)
+        dx, dy = placement.location.x, placement.location.y
+
+        def hit(poly) -> bool:
+            if poly is None:
+                return False
+            moved = tuple((x + dx, y + dy) for x, y in poly)
+            return Box.of_points(moved).overlaps(r.box) and polys_overlap(r.poly, moved)
+        if not geom.parts:
+            return hit(yards[0]), None
+        n = len(yards)
+        boxes = None
+        for k in self.judged(r, geom):
+            if k < n:
+                if hit(yards[k]):
+                    return True, k
+            else:
+                boxes = self._shifted_parts(geom, placement) if boxes is None else boxes
+                if r.overlaps(boxes[k]):
+                    return True, k
+        return False, None
 
     def standing_faces(self, geom: ItemGeometry, face) -> set:
         """The faces an item stands on, for a reservation that keeps parts
@@ -2508,7 +2584,7 @@ class NativeSweeper:
         geom = occ._geometry(item)
         self.geom = geom
         self.handles, self.origin, self.bodies, self.parts = [], [], [], []
-        self.edges, self.edge_parts = [], []
+        self.edges, self.edge_parts, self.yards = [], [], []
         for rot in self.rots:
             at = Placement(Location(0.0, 0.0), rot, face)
             if leave_out:               # the item's own net ties: judged in Python, on the candidates this pass accepts
@@ -2522,6 +2598,7 @@ class NativeSweeper:
             b = occ.origin_body_box(item, rot, face)
             self.bodies.append((b.left, b.top, b.right, b.bottom))
             self.parts.append([(p.left, p.top, p.right, p.bottom) for p in occ.origin_parts(geom, rot, face)])
+            self.yards.append([None if y is None else [tuple(p) for p in y] for y in occ.origin_yards(geom, rot, face)])
             flat, flat_parts, copper, copper_parts = occ.origin_edge_boxes(geom, rot, face)
             self.edges.append((_ltrb(flat), None if copper is None else _ltrb(copper)))
             self.edge_parts.append([(_ltrb(f), None if c is None else _ltrb(c))
@@ -2581,7 +2658,7 @@ class NativeSweeper:
                                                   self.bodies, self.edges, triples, self.clearance, stop_at_first,
                                                   scoring, self.parts if self.geom.parts else None,
                                                   self.judged if self.geom.parts else None,
-                                                  self.edge_parts if self.geom.parts else None)
+                                                  self.edge_parts if self.geom.parts else None, self.yards)
         out = []
         for kind, a, b, count, first in refused:
             bucket, blocker, reason = self._decode(kind, a, b, triples[first])
@@ -2707,7 +2784,7 @@ def native_board(occ):
         if len(r.poly) >= 24:
             ras = r._raster
             raster = (ras.x0, ras.y0, ras.cell, ras.nx, ras.ny, ras.state)
-        board.add_reservation([tuple(p) for p in r.poly], raster)
+        board.add_reservation([tuple(p) for p in r.poly], raster, r.courtyard)
     occ.__dict__["_native_board"] = (key, board, len(occ.reservations))
     return board
 

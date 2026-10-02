@@ -301,6 +301,8 @@ pub struct Reservation {
     pub poly: Vec<Point>,
     pub bbox: B,
     pub raster: Option<Raster>,
+    /// A KiCad rule area: judged by each part's courtyard polygon, not its body box.
+    pub courtyard: bool,
 }
 
 impl Reservation {
