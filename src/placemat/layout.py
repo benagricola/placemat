@@ -1663,7 +1663,7 @@ class Board:
         gap, which = holes.web_against([shape.loops[0]])
         if gap < self.web - 1e-9:
             plan.findings.append(Finding("setup", "web %.2f mm round %s is under the %.2f mm minimum"
-                                 % (gap, self._cutout_label(which), self.web)))
+                                 % (gap, self._cutout_label(which), self.web), "critical"))
 
     def _check_pitch(self, plan: "Plan"):
         """A net class whose clearance does not fit its pads' pitch. A track
@@ -1705,7 +1705,7 @@ class Board:
                 "of pad %s past pad %s is %.3f mm for a %.2f mm clearance (%d lane(s) short), so the router "
                 "cannot escape them; a clearance of %.2f mm or less fits"
                 % (fp.ref, nc.name, nc.clearance, nc.track_width, p.number, q.number, lane, need, short,
-                   math.floor(lane * 100 + 1e-6) / 100)))
+                   math.floor(lane * 100 + 1e-6) / 100), "critical"))
 
     def _cutout_label(self, n: int) -> str:
         """Which hole a measurement was taken on. Named cutouts come first,
@@ -1855,13 +1855,13 @@ class Board:
                     "setup",
                     "keepout %s declares %s, which this %d-layer board does not have: recorded "
                     "in its name, and honoured by a board that has it"
-                    % (k.name, ", ".join(l.value for l in lost), len(self.geometry.layers))))
+                    % (k.name, ", ".join(l.value for l in lost), len(self.geometry.layers)), "notice"))
         for r in self.geometry.rule_areas:
             if r.missing:
                 plan.findings.append(Finding(
                     "setup",
                     "%s from the %s cell declares %s, which this board does not have either"
-                    % (r.base, r.cell or "board", ", ".join(l.value for l in r.missing))))
+                    % (r.base, r.cell or "board", ", ".join(l.value for l in r.missing)), "notice"))
 
     def cutout(self, name: str) -> CutoutHandle:
         """A named cutout, so something can be placed against its boundary."""
@@ -4642,10 +4642,11 @@ class Board:
                 near = min((_point_seg(c, Location(*a), Location(*b))[0] for t in ops for a, b in t.chords()),
                            default=math.inf)
                 if near < off - 1e-6:
-                    ctx.notes.append("track %s: the points either side of its 45 past the %s corner of %s allow "
-                                     "no 45 through it; the track passes that corner at %.3f mm, under the "
-                                     "%.3f mm clearance" % (name, p.edge.value, ", ".join(names),
-                                                            near - w / 2.0, off - w / 2.0))
+                    ctx.notes.append(Finding(
+                        "copper", "track %s: the points either side of its 45 past the %s corner of %s allow "
+                        "no 45 through it; the track passes that corner at %.3f mm, under the "
+                        "%.3f mm clearance" % (name, p.edge.value, ", ".join(names), near - w / 2.0, off - w / 2.0),
+                        "critical"))
             if chamfer > 0 and not arc:
                 # the 45 a corner's own cut emits, not a straight leg that merely
                 # happens to run between two separate corners' cuts
@@ -4671,8 +4672,9 @@ class Board:
                     return all(poly_distance(t.polygon, o.polygon) >= self._clearance(name, o.net) - 1e-9
                                for o in others)
                 if all(op_clear(t) and clear_of_tracks(t) for t in direct) and (direct or not arc):
-                    ctx.notes.append("track %s: a waypoint steers it into another net's pad; drawn pad to pad it clears, "
-                                     "so drop the waypoint(s) unless the route must go there" % name)
+                    ctx.notes.append(Finding(
+                        "copper", "track %s: a waypoint steers it into another net's pad; drawn pad to pad it clears, "
+                        "so drop the waypoint(s) unless the route must go there" % name, "notice"))
             if begins is not None:
                 self._release_lane(ctx.occ, begins)     # what is judged from here is what this track draws
             met = self._through(ctx, ops, bridge)
@@ -5131,16 +5133,17 @@ class Board:
                     kept.append(t)
             standing.append((side, kept, points[-1][0]))
         if left_out:
-            ctx.notes.append("stitch %s: %d via(s) outside the region left out: %s" % (name, len(left_out), "; ".join(left_out)))
+            ctx.notes.append(Finding("copper", "stitch %s: %d via(s) outside the region left out: %s" % (
+                name, len(left_out), "; ".join(left_out)), "notice"))
         for side, kept, length in standing:
             reach = [kept[i + 1] - kept[i] for i in range(len(kept) - 1)] if kept else [length]
             if max(reach, default=0.0) > step + 1e-6:
                 ctx.notes.append("stitch %s: the %s side's row has a %.2f mm gap, over its %.2f mm pitch"
                                  % (name, _SIDE_WORD[side], max(reach), step))
         if wanted is not None and rows:
-            ctx.notes.append("stitch %s: rows by the region's side as turned -> the board's side: %s" % (
+            ctx.notes.append(Finding("copper", "stitch %s: rows by the region's side as turned -> the board's side: %s" % (
                 name, ", ".join("%s side -> board %s" % (_SIDE_WORD[side], _SIDE_WORD[board_side])
-                                for side, board_side, _ in rows)))
+                                for side, board_side, _ in rows)), "notice"))
         if not rows:
             ctx.notes.append("stitch %s: no edge of the region faces the sides asked for" % name)
         elif not vias:
@@ -6033,7 +6036,7 @@ class Board:
         chain = {"key": context, "replaying": previous is not None}
         self._solve_hints = None            # the global solve runs once per resolve, when first asked
         self._report_lost_layers(plan)
-        plan.findings.extend(Finding("setup", note) for note in self._stamped_rule_notes)
+        plan.findings.extend(Finding("setup", note, "notice") for note in self._stamped_rule_notes)
         self._rank(occ)
         if occ.envelope == "courtyard":
             from .envelope import understatement
@@ -6384,9 +6387,9 @@ class Board:
             said = occ.needs.get(occ._geometry(it).owners) if step is not None and step.placement is None else None
             if said:
                 plan.findings.append(Finding("needs", "%s: no spot; one would clear with %s" % (key, said)))
-        for home, text in report(occ):
+        for home, text, severity in report(occ):
             key = step_of.get(home, home)
-            plan.findings.append(Finding("vias", "%s: %s" % (key, text)))
+            plan.findings.append(Finding("vias", "%s: %s" % (key, text), severity))
             step = next((s for s in plan.steps if s.item == key), None)
             if step is not None:
                 step.note = (step.note + "; " if step.note else "") + "vias: " + text
@@ -6915,7 +6918,7 @@ class Board:
                 if final:               # its item found no place: the label is not drawn, as the item is not
                     said = "%s: not drawn: %s found no place" % (key, occ.who(waiting[0]))
                     if said not in plan.findings:
-                        plan.findings.append(Finding("label", said))
+                        plan.findings.append(Finding("label", said, "notice"))      # its item's own finding is the fault
                 continue
             box, face = box_of(item)
             line = Box.union([box_of(one)[0] for one in group]) if group else None
@@ -7272,7 +7275,8 @@ class Board:
             if not fresh:
                 break
             said += [f for f in findings if f not in said]
-            ctx.notes += ["%s: not drawn, it crosses another net's track and may not bridge" % c.key
+            ctx.notes += [Finding("copper", "%s: not drawn, it crosses another net's track and may not bridge" % c.key,
+                                  "notice")          # the crossing's own finding is the fault
                           for c in intents if c.index in fresh]
             dropped |= fresh
         if dropped:
@@ -7284,7 +7288,8 @@ class Board:
             ctx.batch_ops = [o for o in ctx.batch_ops if id(o) not in gone]
             tracks = live
             others = [(c, op) for c, op in others if c.index not in dropped]
-        plan.findings += said + [f for f in findings if f not in said] + [Finding("copper", n) for n in ctx.notes]
+        plan.findings += said + [f for f in findings if f not in said] + [n if isinstance(n, Finding) else Finding("copper", n, "warning")
+                                                          for n in ctx.notes]       # declared copper not drawn: a person's call
         ctx.notes = []
         ctx.planned_tracks += [op for op in ops if isinstance(op, Track)]
         for c in deferred:
@@ -8519,7 +8524,7 @@ class Board:
                 text = ("%s: no spot was left for %s at its limit distance from %s, so the look-ahead was dropped "
                         "and %s is placed without it; the best spot for %s left %s %.2f mm short of %.1f mm"
                         % (i.key, b, a, a, a, b, short, asked))
-                plan.findings.append(Finding("setup", text))
+                plan.findings.append(Finding("setup", text, "notice"))
                 lost.setdefault(key, {})[a] = text
             step = self._settle(occ, i, plan, placed, solve=solve, look=False)
             step.note = "no spot left %s room, so the look-ahead was dropped; %s" % (ahead.partners, step.note)

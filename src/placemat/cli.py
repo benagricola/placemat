@@ -1004,7 +1004,9 @@ def cmd_preview(args) -> int:
     if args.json:
         console.data(json.dumps({
             "svg": str(result.svg), "png": str(result.png) if result.png else None,
-            "png_problem": result.png_problem or None, "placed": placed, "findings": plan.findings,
+            "png_problem": result.png_problem or None, "placed": placed,
+            "findings": plan.findings,
+            "finding_details": [{"kind": f.kind, "severity": f.severity, "text": str(f)} for f in plan.findings],
             "reused": result.reused or None,
             "congestion": None if plan.rudy is None else {"worst": plan.rudy.worst,
                                                           "at": [plan.rudy.worst_at.x, plan.rudy.worst_at.y]},
@@ -1013,14 +1015,16 @@ def cmd_preview(args) -> int:
                        "at": None if n.at is None else [round(n.at.x, 3), round(n.at.y, 3)], "text": n.text}
                       for n in result.notes]}, indent=2))
         return 0
-    console.say("script", "%d placed, %d finding(s)" % (placed, len(plan.findings)))
+    from .findings import summary
+    console.say("script", "%d placed, %d finding(s)%s" % (
+        placed, len(plan.findings), " (%s)" % summary(plan.findings) if plan.findings else ""))
     if result.reused:
         console.say("reused", result.reused[len("reused "):])
     if plan.rudy is not None:
         console.say("congestion", "worst cell %.2f of capacity at (%.1f, %.1f)" % (
             plan.rudy.worst, plan.rudy.worst_at.x, plan.rudy.worst_at.y))
-    for f in plan.findings:
-        console.say("finding", f, level="finding")
+    for f in plan.findings.most_serious_first():
+        console.finding(f)
     for line in note_lines(result.notes):
         console.say("tag", line)
     console.say("preview", "svg %s" % result.svg)

@@ -102,13 +102,30 @@ class Verdict:
     note: str = ""
     accepted: str = ""                  # a failed verdict inside a script's acceptance: "accepted (>= 0.35): why"
 
+    @property
+    def severity(self) -> str:
+        """How much a failed verdict matters (CHECK_SEVERITY); "" for one that did not fail or was accepted."""
+        if self.ok is not False or self.accepted:
+            return ""
+        return CHECK_SEVERITY.get(self.check, "warning")
+
     def line(self) -> str:
         judged = "" if self.ok is None else (" ok" if self.ok else " FAIL")
+        if self.severity:
+            judged += " [%s]" % self.severity
         if self.accepted:
             judged = " " + self.accepted
         lim = "" if self.limit is None else " (limit %g)" % self.limit
         note = " - " + self.note if self.note else ""
         return "%-15s %-12s %8.3g %s%s%s%s" % (self.check, self.subject, self.value, self.unit, lim, judged, note)
+
+
+CHECK_SEVERITY = {"keep-out": "critical", "current-path": "critical",
+                  "crossings-under": "warning", "heat": "warning", "exposure": "warning",
+                  "hot-loop": "warning", "switch-node": "warning"}
+"""The severity of a failed verdict, as a finding's (findings.SEVERITIES). A keep-out or a
+current path that fails is copper the board cannot carry as drawn; the rest are quality limits
+a person judges, and `board.accept` takes one with its reason."""
 
 
 # ------------------------------------------------------------ acceptances
@@ -220,7 +237,8 @@ def findings_of(outcomes) -> list:
         if o.outcome == "unmatched":
             out.append(Finding("setup", "accept %s %s: no verdict by that check and subject on this board" % (a.check, a.subject)))
         elif o.outcome == "not needed":
-            out.append(Finding("setup", "accept %s %s: not needed: the check %s" % (a.check, a.subject, o.why_not)))
+            out.append(Finding("setup", "accept %s %s: not needed: the check %s" % (a.check, a.subject, o.why_not),
+                               "notice"))
     return out
 
 
@@ -1566,7 +1584,7 @@ def record(rec, verdicts, outcomes=()) -> list:
     check needs is missing - and it is counted as such rather than as a pass:
     a check that passes because a footprint lacks `Pm.Pd` is worse than none.
     An accepted verdict is counted as accepted, not as failed."""
-    rec.verdicts = [dict(v.__dict__) for v in verdicts]
+    rec.verdicts = [{**v.__dict__, "severity": v.severity} for v in verdicts]
     rec.acceptances = [o.record() for o in outcomes]
     accepted = [v for v in verdicts if v.accepted]
     failed = [v for v in verdicts if v.ok is False and not v.accepted]

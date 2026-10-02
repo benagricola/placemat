@@ -151,7 +151,7 @@ def _findings(plan, keys) -> list:
         text = str(f)
         m = _AT.search(text)
         first = text.split(" ", 1)[0]
-        out.append({"text": text, "kind": getattr(f, "kind", ""), "at": [float(m.group(1)), float(m.group(2))] if m else None,
+        out.append({"text": text, "kind": getattr(f, "kind", ""), "severity": getattr(f, "severity", "warning"), "at": [float(m.group(1)), float(m.group(2))] if m else None,
                     "item": first if first in keys else ""})
     return out
 
@@ -200,6 +200,6 @@ def plan_json(plan, sites: dict | None = None, score: dict | None = None) -> dic
         "congestion": _congestion(plan), "findings": _findings(plan, seen), "steps": steps, "unplaced": unplaced,
         "pocketed": list(plan.pocketed),
         "counts": {"placed": sum(1 for s in plan.steps if s.placement is not None), "findings": len(plan.findings),
-                   "items": len(items), "copper": len(copper), "unplaced": len(unplaced)},
+                   "severities": plan.findings.by_severity(), "items": len(items), "copper": len(copper), "unplaced": len(unplaced)},
         "score": score,
     }
