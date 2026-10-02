@@ -106,6 +106,11 @@ The agent asks the user first:
   pushes), and deleting files on the real disk to free space;
 - a new form whose fit with the charter is unclear.
 
+A new form must earn its place: before building one, check that existing
+forms cannot already compose what is asked (a track with a `Past`
+waypoint, an escape, a relation). A form that only saves a few lines in one
+script is declined, with the composition that says it.
+
 ## Scope
 
 placemat owns this repository: the Python package, `native/`, the
