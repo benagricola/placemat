@@ -78,7 +78,37 @@ svg text { user-select: none; }
 .item.sel .courtyard { stroke: var(--sel) !important; stroke-width: 0.3 !important; stroke-dasharray: none !important; }
 .item.marked .courtyard { stroke: var(--mark) !important; stroke-width: 0.35 !important; stroke-dasharray: none !important; }
 .item.faded { opacity: 0.25; }
-@media (max-width: 900px) { main { grid-template-columns: 1fr; grid-template-rows: 55vh auto; overflow: auto; } #side { border-left: 0; } }
+#ntabs, #layerbtn { display: none; }
+#replay input { min-width: 0; }
+@media (max-width: 900px) {
+  /* a phone: one panel at a time, each the full width and the rest of the height, chosen from the bar under the header */
+  body { font-size: 15px; }
+  header { padding: 6px 10px; }
+  header button, header select { font-size: 15px; padding: 4px 8px; }
+  #layerbtn { display: inline-block; }
+  #layers { display: none; width: 100%; }
+  #layers.open { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  #ntabs { display: flex; background: var(--panel); border-bottom: 1px solid var(--line); }
+  #ntabs button { flex: 1; min-width: 0; border: 0; background: none; padding: 9px 2px; font: inherit; cursor: pointer; border-bottom: 3px solid transparent; }
+  #ntabs button.on { border-bottom-color: var(--accent); font-weight: 600; }
+  main { display: block; position: relative; overflow: hidden; }
+  #boardwrap, #side { position: absolute; inset: 0; width: auto; height: auto; }
+  #side { border-left: 0; }
+  body[data-nv="board"] #side, body:not([data-nv="board"]) #boardwrap { display: none; }
+  .tabs { display: none; }
+  body[data-nv] .tab { display: none; }
+  body[data-nv="steps"] #tab-steps, body[data-nv="findings"] #tab-findings, body[data-nv="compare"] #tab-compare { display: block; flex: 1 1 auto; }
+  #script { display: none; }
+  body[data-nv="script"] #script { display: flex; flex: 1 1 auto; border-top: 0; }
+  .row { padding: 8px 10px; gap: 10px; }
+  .row .n { white-space: normal; overflow: visible; word-break: break-word; }
+  .chip { font-size: 12px; }
+  .ln .no { width: 36px; }
+  #scriptbody { font-size: 13px; }
+  #scripthead select { min-width: 0; max-width: 55%; }
+  #tip { max-width: 70vw; }
+  #replay { left: 4px; right: 4px; bottom: 4px; }
+}
 </style>
 </head>
 <body>
@@ -90,7 +120,9 @@ svg text { user-select: none; }
   <label>face <select id="face"><option value="both">both</option><option value="front">front</option><option value="back">back</option></select></label>
   <span id="layers"></span>
   <button id="fit" title="fit the board to the window">fit</button>
+  <button id="layerbtn">layers</button>
 </header>
+<nav id="ntabs"><button data-nv="board" class="on">Board</button><button data-nv="steps">Steps</button><button data-nv="findings">Findings</button><button data-nv="compare">Compare</button><button data-nv="script">Script</button></nav>
 <div id="notice"></div>
 <main>
   <div id="boardwrap">
@@ -478,7 +510,9 @@ function fit() {
 function applyView() {
   const svg = $("#board"), v = S.view;
   if (!v) return;
-  const r = svg.getBoundingClientRect(), aspect = r.width && r.height ? r.width / r.height : 1;
+  const r = svg.getBoundingClientRect();
+  if (!r.width || !r.height) return;                 // hidden: the view is applied when it is shown again
+  const aspect = r.width / r.height;
   let w = v.w, h = v.h;
   if (w / h < aspect) w = h * aspect; else h = w / aspect;
   svg.setAttribute("viewBox", [v.x - (w - v.w) / 2, v.y - (h - v.h) / 2, w, h].map(num).join(" "));
@@ -629,8 +663,11 @@ function declIndex(p) {
   }
   return out;
 }
+// What the file select lists: the layout script and the Python modules it imports, the files the line diff and the
+// line links apply to; the toml, lock and board files that are watched too are not shown.
+function scriptFiles(texts) { return Object.keys(texts || {}).filter(n => /\.py$/.test(n)); }
 function renderScript() {
-  const names = Object.keys(S.texts);
+  const names = scriptFiles(S.texts);
   const sel = $("#file");
   if (!names.includes(S.file)) S.file = (S.hello && names.includes(S.hello.script)) ? S.hello.script : names[0];
   if (sel.dataset.names !== names.join("|")) { sel.innerHTML = names.map(n => "<option>" + esc(n) + "</option>").join(""); sel.dataset.names = names.join("|"); }
@@ -781,7 +818,19 @@ $("#layers").innerHTML = Object.keys(LAYER_NAMES).map(k => '<label><input type="
 $("#layers").addEventListener("change", e => { const k = e.target.dataset.layer; if (k) { S.layers[k] = e.target.checked; schedule("board"); } });
 $("#face").addEventListener("change", e => { S.face = e.target.value; lay = null; schedule("board"); setTimeout(fit, 0); });
 $("#fit").onclick = fit;
+$("#layerbtn").onclick = () => $("#layers").classList.toggle("open");
+function showNarrow(v) {
+  document.body.dataset.nv = v;
+  document.querySelectorAll("#ntabs button").forEach(x => x.classList.toggle("on", x.dataset.nv === v));
+  if (v !== "board") { S.tab = v === "script" ? S.tab : v; document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x.dataset.tab === S.tab)); document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.id === "tab-" + S.tab)); }
+  schedule("all");
+  if (v === "board") requestAnimationFrame(applyView);
+}
+document.querySelectorAll("#ntabs button").forEach(b => b.onclick = () => showNarrow(b.dataset.nv));
+if (matchMedia("(max-width: 900px)").matches) { S.face = "front"; $("#face").value = "front"; }   // one face fills a narrow screen
+showNarrow("board");
 window.addEventListener("resize", applyView);
+if (window.ResizeObserver) new ResizeObserver(() => applyView()).observe($("#boardwrap"));   // the notice and the tab bar change its height
 schedule("all");
 </script>
 </body>
