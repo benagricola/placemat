@@ -45,7 +45,7 @@ class Session:
         from .layout import CriticalUnplaced, PlacementCollision
         from .lanes import EscapeError
         from .previewer import resolved
-        from .preview_json import board_json, declared_sites, item_json, plan_json
+        from .preview_json import board_json, declared_sites, item_json, plan_json, step_extras
         from .project import find_board
         from .runner import RunFailure
         send, t0 = self.send, time.monotonic()
@@ -62,7 +62,7 @@ class Session:
             if not state["board"]:
                 state["board"] = True
                 send({"ev": "board", "id": id, **board_json(plan)})
-            send({"ev": "item", "id": id, "item": item_json(plan, step, state["sites"])})
+            send({"ev": "item", "id": id, "item": item_json(plan, step, state["sites"]), **step_extras(plan, step)})
 
         try:
             out = _views(find_board(Path(script).resolve()))

@@ -178,3 +178,17 @@ def test_a_footprints_own_copper_graphics_are_in_its_shapes_with_their_layer():
     shapes = [s for it in doc["items"] for m in it["members"] for s in m["shapes"] if s["kind"] == "copper"]
     assert sorted(s["layers"][0] for s in shapes) == ["B.Cu", "F.Cu"]
     assert all(s["faces"] and len(s["poly"]) == 4 for s in shapes)
+
+
+def test_copper_and_cutout_steps_are_told_to_on_step_as_they_settle_with_what_they_draw():
+    from placemat.preview_json import step_extras
+    b = _board()
+    b.size(width=60.0, height=20.0, holes=[Cutout(Circle(1.0), "vent", at=Centre(40.0, 4.0), why="air")])
+    seen = []
+    b.resolve(on_step=lambda p, s: seen.append((s.kind, s.item, step_extras(p, s))))
+    kinds = [k for k, _, _ in seen]
+    assert "cutout" in kinds and "copper" in kinds
+    cu = [e for k, _, e in seen if k == "copper" and e["ops"]]
+    assert cu and {op["t"] for e in cu for op in e["ops"]} >= {"track", "via"}
+    cut = next(e for k, _, e in seen if k == "cutout")
+    assert cut["cutout"] and len(cut["cutout"]) > 4

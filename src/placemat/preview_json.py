@@ -122,6 +122,21 @@ def _copper(op) -> dict | None:
     return None
 
 
+def step_extras(plan, step) -> dict:
+    """What a copper or cutout step has to draw, for a viewer that is sent steps as they settle: the copper ops it laid
+    (as plan_json writes them) and the hole it cut."""
+    out = {}
+    if step.kind == "copper":
+        out["ops"] = [c for c in (_copper(plan.copper[i]) for i in step.laid if i < len(plan.copper)) if c is not None]
+    elif step.kind == "cutout":
+        placed = plan.cutouts_placed.get(step.item[len("cutout "):] if step.item.startswith("cutout ") else step.item)
+        if placed is not None:
+            loops = [_poly(l) for l in _board_loops(plan)]
+            at = _cutout_loop(plan, step, loops)
+            out["cutout"] = loops[at] if at is not None else None
+    return out
+
+
 def _weight_name(weight) -> str:
     """A link's weight as the script names it: FREE, DEFAULT, PREFER or SHORT, else the number."""
     from .values import LinkWeight

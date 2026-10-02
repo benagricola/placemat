@@ -138,7 +138,9 @@ send("step", {id: 1, item: item("a", 1)});
 out.one = board().innerHTML;
 send("step", {id: 1, item: item("b", 5)});
 out.two = board().innerHTML;
-out.steps = els["#steplist"].innerHTML;
+out.steps = els["#tab-steps"].innerHTML;
+send("finished", {id: 1, counts: {placed: 2, findings: 0}, score: null, timing: {}, reused: "", notes: [], history: []});
+ev('openScript("x_layout.py", 1)'); flush();
 out.files = els["#file"].innerHTML;
 """)
     assert "<path" not in out["before_board"]
@@ -505,22 +507,110 @@ out.size = [ev('labelSize("R12", 0.6)'), ev('labelSize("R1", 6)')];
 
 
 @needs_node
-def test_the_script_list_is_the_layout_scripts_and_choosing_one_asks_the_server_to_switch(tmp_path):
+def test_the_header_menu_lists_the_layout_scripts_and_choosing_one_asks_the_server_to_switch(tmp_path):
     out = run_page(tmp_path, r"""
 const scripts = [{id: "m/A_layout.py", title: "A", subtitle: "first", current: true}, {id: "m/B_layout.py", title: "B", subtitle: "", current: false}];
 send("hello", {script: "A_layout.py", title: "A", subtitle: "first board", scripts, keep: 5, history: [], resolving: null, error: null});
 send("started", {id: 1, script: "A_layout.py", at: 0, texts: {"A_layout.py": "board.place()\n", "core_geometry.py": "def f(): pass\n", "placemat.toml": ""}, changed: [], stale_files: []});
 out.title = [els["#board-title"].textContent, els["#board-sub"].textContent];
-out.options = els["#file"].innerHTML;
-els["#file"].handlers.change[0]({target: {value: "L:m/B_layout.py"}});
-out.fetched = fetched.map(([u, o]) => [u, o.method, o.body]);
+els["#menu"].hidden = true; els["#brandbtn"].onclick();
+out.menu = els["#menu"].innerHTML; out.open = els["#menu"].hidden === false;
+els["#menu"].onclick({target: {closest: s => s === "[data-script]" ? {dataset: {script: "m/B_layout.py"}} : null}});
+out.fetched = fetched.map(([u, o]) => [u, o.method, o.body]); out.closed = els["#menu"].hidden;
 send("switched", {script: "B_layout.py", title: "B", subtitle: "", scripts: scripts.map(s => Object.assign({}, s, {current: !s.current})), keep: 5, history: [], resolving: null, error: null});
 out.after = [els["#board-title"].textContent, ev("S.docs.size"), ev("S.live"), ev("S.status")];
 """)
-    assert out["title"] == ["A", "first board"]
-    assert "m/A_layout.py" in out["options"] and "m/B_layout.py" in out["options"] and "core_geometry" not in out["options"] and "placemat.toml" not in out["options"]
+    assert out["title"] == ["A", "first board"] and out["open"] and out["closed"] is True
+    assert "m/A_layout.py" in out["menu"] and "m/B_layout.py" in out["menu"] and 'class="cur"' in out["menu"] and "core_geometry" not in out["menu"]
     assert out["fetched"] == [["/switch?t=x", "POST", '{"script":"m/B_layout.py"}']]
     assert out["after"] == ["B", 0, None, "waiting"]
+
+
+@needs_node
+def test_with_no_script_the_page_is_a_picker_and_choosing_goes_through_the_same_switch(tmp_path):
+    out = run_page(tmp_path, r"""
+const scripts = [{id: "a/A_layout.py", title: "A", subtitle: "first", current: false}, {id: "b/B_layout.py", title: "B", subtitle: "second", current: false}];
+send("hello", {script: "", picker: true, root: "/work/proj", scripts, keep: 5, history: [], resolving: null, error: null, runs: [], run: null});
+out.picker = [els["#picker"].hidden, els["#picker"].innerHTML]; out.title = els["#board-title"].textContent; out.status = els["#statustext"].textContent; out.run = els["#runbtn"].disabled;
+els["#picker"].onclick({target: {closest: s => s === "[data-script]" ? {dataset: {script: "b/B_layout.py"}} : null}});
+out.fetched = fetched.map(([u, o]) => o.body);
+send("switched", {script: "B_layout.py", title: "B", subtitle: "second", scripts: scripts.map(s => Object.assign({}, s, {current: s.id[0] === "b"})), keep: 5, history: [], resolving: null, error: null, runs: [], run: null});
+out.after = [els["#picker"].hidden, els["#board-title"].textContent];
+""")
+    assert out["picker"][0] is False and "2 found under" in out["picker"][1] and "/work/proj" in out["picker"][1] and "A_layout.py" in out["picker"][1] and "second" in out["picker"][1]
+    assert out["title"] == "Choose a layout script" and out["status"] == "choose a script" and out["run"] is True
+    assert out["fetched"] == ['{"script":"b/B_layout.py"}'] and out["after"] == [True, "B"]
+
+
+@needs_node
+def test_the_script_is_a_dialog_opened_on_a_line_with_its_context_and_a_full_screen_button(tmp_path):
+    out = run_more(tmp_path, r"""
+const text = Array.from({length: 60}, (_, i) => "line_" + (i + 1) + " = 1").join("\n") + "\n";
+full([Object.assign(item("a", 1), {file: "x_layout.py", line: 30, span: [30, 30]})], [st("a")]);
+ev('S.texts = {"x_layout.py": ' + JSON.stringify(text) + '}');
+out.closed = [ev("S.scriptOpen"), els["#script"].classList];
+ev('openScript("x_layout.py", 30)'); flush();
+const rows = () => (els["#scriptbody"].innerHTML.match(/data-n="(\d+)"/g) || []).map(s => +s.match(/\d+/)[0]);
+out.ctx = [ev("S.scriptOpen"), rows()[0], rows().slice(-1)[0], rows().length, (els["#scriptbody"].innerHTML.match(/more line/g) || []).length];
+els["#scriptbody"].onclick({target: {closest: s => s === "[data-more]" ? {} : null}}); flush();
+out.whole = rows().length;
+els["#scriptfull"].onclick(); flush(); out.full = [ev("S.scriptFull"), els["#scriptfull"].textContent];
+els["#scriptclose"].onclick(); flush(); out.after = [ev("S.scriptOpen"), ev("S.scriptFull")];
+ev('S.sel = "a"; plan().items.find(i => i.key === "a").file = "x_layout.py"'); ev("renderCard()");
+ev('selectItem("a", {})'); flush();
+els["#card"].onclick({target: {closest: s => s === "[data-act]" ? {dataset: {act: "src"}} : null}}); flush();
+out.fromcard = [ev("S.scriptOpen"), ev("S.selLine")];
+""")
+    assert out["closed"][0] is False
+    assert out["ctx"] == [True, 20, 40, 21, 2]                       # ten lines either side of line 30, and where the rest is
+    assert out["whole"] == 60 and out["full"] == [True, "Restore"] and out["after"] == [False, False]
+    assert out["fromcard"][0] is True and out["fromcard"][1] == {"file": "x_layout.py", "n": 30}
+
+
+@needs_node
+def test_the_steps_timeline_grows_as_steps_stream_and_the_slider_stays_where_it_is_put(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD);
+send("step", {id: 1, item: item("a", 1)});
+send("step", {id: 1, item: {key: "track N", kind: "copper", placed: false, note: "1 op(s)", why: "", freedom: null, how: "decided", members: []}, ops: [{t: "track", net: "N", layer: "F.Cu", face: "front", width: 0.2, a: [1, 1], b: [3, 1], arc: null}]});
+out.two = [ev("replaySteps(plan()).map(s => s.item)"), els["#slider"].max, els["#slider"].disabled, els["#steplabel"].textContent, ev("plan().copper.length"), ev("plan().steps[1].copper")];
+out.rows = (els["#tab-steps"].innerHTML.match(/data-n="/g) || []).length;
+ev("setReplay(1)"); flush(); out.back = [ev("S.replay"), els["#follow"].hidden];
+send("step", {id: 1, item: item("b", 5)});
+out.still = [ev("S.replay"), els["#steplabel"].textContent, els["#slider"].max];
+els["#follow"].handlers.click[0](); flush(); out.follow = [ev("S.replay"), els["#follow"].hidden];
+ev("setReplay(1)"); flush();
+finish(1, ["a", "b", "c"]);
+out.done = [ev("S.replay"), els["#steplabel"].textContent.indexOf("so far")];
+""")
+    assert out["two"][0] == ["a", "track N"] and out["two"][1] == 2 and out["two"][2] is False and out["two"][3] == "2 / 2 so far"
+    assert out["two"][4] == 1 and out["two"][5] == [0] and out["rows"] == 2
+    assert out["back"] == [1, False] and out["still"][0] == 1 and out["still"][1] == "1 / 3 so far" and out["still"][2] == 3
+    assert out["follow"] == [None, True]
+    assert out["done"][0] == 1 and out["done"][1] == -1                  # the final plan replaced the streamed one with the slider where it was left
+
+
+@needs_node
+def test_a_run_is_started_from_the_button_listed_with_its_result_and_compared_with_the_newest_resolve(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+send("run_started", {id: 1, at: 1});
+out.btn = [els["#runbtn"].textContent, els["#runbtn"].disabled];
+send("run_line", {id: 1, text: "resolve  ok"}); send("run_line", {id: 1, text: "drc  2 real"});
+out.log = els["#tab-compare"].innerHTML;
+const run = {id: "r1", label: "try", status: "ok", at: Date.now() / 1000, score: 12.5, findings: 3, severities: {warning: 2, notice: 1}, drc: {drc_real: 2, unconnected: 0}, airwire_mm: 50, open_nets: 1, checks: {checks_failed: 1}, verdicts: [{check: "hot-loop", subject: "buck", ok: false, note: "too long"}], timing: {drc: 4.8}, failure: null};
+send("run_done", {id: 1, code: 0, run, tail: [], runs: [run]});
+out.done = [els["#runbtn"].textContent, els["#runbtn"].disabled, els["#tab-compare"].innerHTML];
+const click = sel => els["#tab-compare"].onclick({target: {closest: s => s === sel ? {dataset: {run: "r1", cmpRun: "r1"}} : null}});
+click(".row.run"); out.open = els["#tab-compare"].innerHTML;
+els["#runbtn"].onclick(); out.post = fetched.map(([u, o]) => [u, o && o.method]);
+""")
+    assert out["btn"] == ["Running...", True] and "resolve  ok" in out["log"] and "drc  2 real" in out["log"]
+    assert out["done"][0] == "Run" and out["done"][1] is False
+    d = out["done"][2]
+    assert 'data-run="r1"' in d and "score 12.5" in d and "DRC 2" in d and 'data-cmp-run="r1"' in d and 'data-info="runs"' in d
+    assert "Failed checks" in out["open"] and "hot-loop" in out["open"] and "2 real" in out["open"]
+    assert out["post"][-1] == ["/run?t=x", "POST"]
 
 
 @needs_node

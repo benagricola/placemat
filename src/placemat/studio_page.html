@@ -46,9 +46,23 @@ code, .mono { font-family: var(--mono); font-size: 0.92em; }
 .add { color: var(--good); } .del { color: var(--bad); }
 
 /* header */
-#viewseg { margin-left: 6px; box-shadow: none; }
 header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 8px 14px; background: var(--surface); border-bottom: 1px solid var(--line); }
-.brand { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 0 1 auto; }
+.brand { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 0 1 auto; background: none; border: 0; padding: 2px 6px; margin: 0 -6px; border-radius: 6px; text-align: left; }
+.brand:hover, .brand[aria-expanded="true"] { background: var(--surface2); }
+.brand .chev { color: var(--dim); font-size: 11px; }
+#menu { position: fixed; z-index: 55; min-width: 280px; max-width: min(520px, calc(100vw - 16px)); max-height: 70vh; overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 4px; }
+#menu[hidden] { display: none; }
+#menu button, #picker button.pick { display: grid; grid-template-columns: 1fr; gap: 1px; width: 100%; text-align: left; background: none; border: 0; border-radius: 7px; padding: 7px 10px; }
+#menu button:hover, #picker button.pick:hover { background: var(--hover); }
+#menu button.cur { background: var(--accent-soft); }
+#menu .sub, #picker .sub { color: var(--dim); font-size: 12px; }
+#menu code, #picker code { color: var(--dim); font-size: 11.5px; overflow-wrap: anywhere; }
+#picker { position: absolute; inset: 0; z-index: 15; overflow: auto; background: var(--bg); padding: 24px 16px; }
+#picker[hidden] { display: none; }
+#picker .box { max-width: 640px; margin: 0 auto; }
+#picker h2 { margin: 0 0 4px; font-size: 18px; } #picker p { margin: 0 0 14px; color: var(--dim); }
+#picker button.pick { border: 1px solid var(--line); background: var(--surface); margin-bottom: 8px; padding: 10px 12px; }
+#runbtn.busy { opacity: 0.7; }
 .brand b { font-weight: 650; letter-spacing: 0.01em; }
 #board-sub { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px 2px 8px; border-radius: 999px; background: var(--surface2); color: var(--dim); font-size: 12px; font-weight: 600; white-space: nowrap; }
@@ -126,13 +140,20 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: fit-content
 #script { display: none; flex-direction: column; min-height: 0; background: var(--surface); }
 #linechips { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--line); min-height: 38px; align-items: center; color: var(--dim); }
 #linechips button { border: 1px solid var(--line); background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 1px 10px; font-weight: 600; }
-body[data-view="script"] main { display: block; position: relative; }
-body[data-view="script"] main > #boardwrap, body[data-view="script"] main > #side, body[data-view="script"] main > #legend { display: none; }
-body[data-view="script"] #script { display: flex; position: absolute; inset: 0; }
+main { position: relative; }
+/* the script is a dialog over the board, opened on a line; "full screen" widens it over the legend and the board and leaves the panel at the right */
+#script { --hh: 56px; display: none; flex-direction: column; position: fixed; z-index: 30; left: var(--dlgl, 240px); top: calc(var(--hh) + 12px); width: min(780px, calc(100vw - var(--dlgl, 240px) - 470px));
+  max-height: calc(100vh - var(--hh) - 96px); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+#script.open { display: flex; }
+#script.full { left: 0; right: 440px; top: var(--hh); bottom: 0; width: auto; max-height: none; border-radius: 0; }
+#scriptbody { min-height: 140px; }
 .tk { color: var(--tk); } .ts { color: var(--ts); } .tc { color: var(--tc); font-style: italic; } .tn { color: var(--tn); } .tf { color: var(--tf); } .td { color: var(--td); }
 #scripthead { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--surface); }
 #scripthead select { background: var(--surface2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; min-width: 0; }
 #scripthead button { border: 1px solid var(--line); background: var(--surface2); border-radius: 6px; padding: 2px 9px; }
+#scripthead #scriptclose { font-size: 18px; line-height: 1; padding: 0 8px; }
+.ln.more { color: var(--dim); font-style: italic; cursor: pointer; padding: 2px 0 2px 56px; }
+.ln.more:hover { background: var(--hover); }
 #scriptbody { flex: 1; overflow: auto; font: 13px/1.55 var(--mono); tab-size: 4; }
 .ln { display: flex; white-space: pre; }
 .ln:hover { background: var(--hover); }
@@ -229,6 +250,12 @@ table.diff td.link { color: var(--mark); width: 14px; }
 .filters button { border: 1px solid var(--line); background: var(--surface2); border-radius: 999px; padding: 1px 10px; }
 .filters button.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; font-weight: 600; }
 .fixslot { flex: none; }
+.runbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.runlog { margin: 0; padding: 8px 12px; max-height: 190px; overflow: auto; font: 11.5px/1.45 var(--mono); color: var(--dim); background: var(--surface2); white-space: pre-wrap; }
+.notice-run { padding: 6px 12px; color: var(--warn); }
+.row.run .go { display: inline-block; }
+.row.run .full { display: block; }
+a.srcl { color: var(--accent); font-family: var(--mono); font-size: 11.5px; cursor: pointer; }
 .fixslot:empty { display: none; }
 .kvl { display: grid; grid-template-columns: 5.5em 1fr; gap: 1px 8px; margin: 4px 0 0; }
 .kvl > span:nth-child(odd) { color: var(--dim); }
@@ -313,7 +340,8 @@ svg text { user-select: none; font-family: var(--sans); }
   body { font-size: 15px; }
   header { padding: 8px 12px 6px; gap: 2px 10px; }
   .brand { flex: 1 1 0; }
-  #viewseg { display: none; }
+  #script, #script.full { left: 0; right: 0; top: var(--hh); bottom: 0; width: auto; max-height: none; border-radius: 0; border-width: 1px 0 0; }
+  #script #scriptfull { display: none; }
   #stats { margin-left: 0; width: 100%; gap: 14px; font-size: 13px; }
   #ntabs { display: flex; }
   #ntabs button { padding: 10px 1px 9px; border-bottom-width: 3px; font-size: 14px; }
@@ -355,12 +383,14 @@ svg text { user-select: none; font-family: var(--sans); }
 <body>
 <div id="infopop" role="tooltip" hidden></div>
 <header>
-  <div class="brand"><b id="board-title">placemat studio</b><span id="board-sub"></span></div>
+  <button class="brand" id="brandbtn" aria-haspopup="menu" aria-expanded="false" title="switch to another layout script"><b id="board-title">placemat studio</b><span id="board-sub"></span><span class="chev">&#9662;</span></button>
   <span class="pill" id="status"><i></i><span id="statustext">connecting</span></span>
-  <div class="seg" id="viewseg"><button data-view="board" class="on">Board</button><button data-view="script">Script</button></div>
+  <button class="tool" id="runbtn" title="a checked run: the design checks, KiCad's DRC and the score, recorded (no render)">Run</button>
+  <button class="tool" id="srcbtn" title="the layout script, at the selected item's line">Source</button>
   <div id="stats"></div>
 </header>
-<nav id="ntabs"><button data-nv="board" class="on">Board</button><button data-nv="steps">Steps<em data-count="steps"></em></button><button data-nv="findings">Findings<em data-count="findings"></em></button><button data-nv="compare">Compare<em data-count="compare"></em></button><button data-nv="script">Script</button></nav>
+<div id="menu" role="menu" hidden></div>
+<nav id="ntabs"><button data-nv="board" class="on">Board</button><button data-nv="steps">Steps<em data-count="steps"></em></button><button data-nv="findings">Findings<em data-count="findings"></em></button><button data-nv="compare">Compare<em data-count="compare"></em></button></nav>
 <div id="notice"></div>
 <main>
   <aside id="legend"></aside>
@@ -375,7 +405,7 @@ svg text { user-select: none; font-family: var(--sans); }
     <div id="dock">
       <div id="card"></div>
       <div id="stepnow"></div>
-      <div id="replay"><button id="play" title="replay the placement, one item at a time">Play</button><input type="range" id="slider" min="0" max="0" value="0"><span id="steplabel" class="dim"></span></div>
+      <div id="replay"><button id="play" title="replay the placement, one item at a time">Play</button><input type="range" id="slider" min="0" max="0" value="0"><span id="steplabel" class="dim"></span><button id="follow" hidden title="back to the newest step">Follow</button></div>
     </div>
     <div id="tip"></div>
   </div>
@@ -385,8 +415,9 @@ svg text { user-select: none; font-family: var(--sans); }
     <div class="tab" id="tab-findings"></div>
     <div class="tab" id="tab-compare"></div>
   </div>
-  <div id="script">
-    <div id="scripthead"><select id="file"></select><span class="dim" id="scriptinfo"></span><span style="flex:1"></span><button id="prevchg" title="previous changed line">&uarr;</button><button id="nextchg" title="next changed line">&darr;</button></div>
+  <div id="picker" hidden></div>
+  <div id="script" role="dialog" aria-label="the layout script">
+    <div id="scripthead"><select id="file"></select><span class="dim" id="scriptinfo"></span><span style="flex:1"></span><button id="prevchg" title="previous changed line">&uarr;</button><button id="nextchg" title="next changed line">&darr;</button><button id="scriptfull" title="over the legend and the board">Full screen</button><button id="scriptclose" aria-label="close">&times;</button></div>
     <div id="linechips"></div>
     <div id="scriptbody"></div>
   </div>
@@ -419,6 +450,8 @@ const S = {
   follow: true,                // shown follows the latest resolve
   sel: null, marked: new Set(), selLine: null,
   focus: null,                 // the finding being looked at: {refs, pads}, lit on the board
+  scriptOpen: false, scriptFull: false, scriptWhole: false,     // the script dialog
+  runs: [], run: null, lastRun: null, openRuns: new Set(),      // recorded runs of the script, the run in progress, the one that just ended
   replay: null,                // null: every placement step shown; k: the first k placement steps
   play: null,                  // the running replay: {t0, k0, rate, n}
   liveQ: [],                   // streamed items waiting to be added to the drawing
@@ -471,7 +504,7 @@ function schedule(...parts) {
 function render(parts) {
   const all = parts.includes("all");
   const has = p => all || parts.includes(p);
-  if (has("status")) renderStatus();
+  if (has("status") || has("scripts")) { renderStatus(); renderPicker(); }
   if (has("board")) renderBoard();
   if (has("steps")) renderSteps();
   if (has("findings")) renderFindings();
@@ -493,12 +526,16 @@ es.onerror = () => { S.status = "disconnected"; schedule("status"); };
 
 function applyHello(d) {
   S.hello = d; S.history = d.history; S.error = d.error; S.resolving = d.resolving; S.scripts = d.scripts || [];
-  $("#board-title").textContent = d.title || d.script;
-  $("#board-sub").textContent = d.subtitle || "";
-  document.title = (d.title || d.script) + " - placemat studio";
+  S.runs = d.runs || []; S.run = d.run ? {id: d.run.id, lines: d.run.lines || [], t0: d.run.t0} : null; S.lastRun = null;
+  $("#board-title").textContent = d.picker ? "Choose a layout script" : (d.title || d.script);
+  $("#board-sub").textContent = d.picker ? (d.scripts || []).length + " found" : (d.subtitle || "");
+  document.title = (d.picker ? "placemat studio" : (d.title || d.script) + " - placemat studio");
 }
 on("hello", d => { applyHello(d); schedule("all"); });
-on("scripts", d => { S.scripts = d.scripts; schedule("script"); });
+on("scripts", d => { S.scripts = d.scripts; schedule("script", "scripts"); });
+on("run_started", d => { S.run = {id: d.id, lines: [], t0: d.at}; S.lastRun = null; schedule("status", "compare"); });
+on("run_line", d => { if (S.run) { S.run.lines.push(d.text); if (S.run.lines.length > 200) S.run.lines.shift(); schedule("compare"); } });
+on("run_done", d => { S.run = null; S.lastRun = d; S.runs = d.runs || S.runs; if (d.run) S.openRuns.add(d.run.id); schedule("status", "compare"); });
 on("switched", d => {                     // the studio now watches another layout script: nothing of the old one stays
   stopPlay();
   S.docs.clear(); S.live = null; S.shownId = null; S.latestId = null; S.cmp = null; S.baseId = null; S.texts = {}; S.changed = [];
@@ -526,15 +563,17 @@ on("started", d => {
   schedule("all");
 });
 on("board", d => { if (!S.live || d.id !== S.live.id) return; S.live.board = d.board; S.live.keepouts = d.keepouts; S.live.reservations = d.reservations; if (!S.view) fit(); schedule("board"); });
-on("step", d => {
+on("step", d => {                          // a step as it settles: it joins the timeline, the list and the drawing at once
   if (!S.live || d.id !== S.live.id) return;
   const it = d.item, L = S.live;
   const at = L.items.findIndex(i => i.key === it.key);
-  L.steps.push({i: L.steps.length, item: it.key, kind: it.kind, placed: it.placed, note: it.note, why: it.why, freedom: it.freedom, how: it.how});
-  if (it.placed && isDrawn(it)) {
-    if (at >= 0) { L.items[at] = it; schedule("board"); } else { L.items.push(it); S.liveQ.push(it); schedule("live"); }
-  } else if (!it.placed) { L.unplaced.push({item: it.key, why: it.note}); schedule("steps"); }
-  else schedule("steps");
+  const entry = {i: L.steps.length, item: it.key, kind: it.kind, placed: it.placed, note: it.note, why: it.why, freedom: it.freedom, how: it.how, copper: [], loop: null};
+  if (d.ops && d.ops.length) { entry.copper = d.ops.map((_, j) => L.copper.length + j); L.copper = L.copper.concat(d.ops); }
+  if (d.cutout && L.board) { L.board.loops = L.board.loops.concat([d.cutout]); entry.loop = L.board.loops.length - 1; }
+  L.steps.push(entry);
+  if (it.placed && isDrawn(it)) { if (at >= 0) L.items[at] = it; else L.items.push(it); }
+  else if (!it.placed && (it.kind === "part" || it.kind === "cell" || it.kind === "block")) L.unplaced.push({item: it.key, why: it.note});
+  schedule("board", "steps", "replay", "counts");
 });
 on("copper", d => { if (S.live && d.id === S.live.id) { S.live.copper = d.copper; schedule("board"); } });
 on("links", d => { if (S.live && d.id === S.live.id) { S.live.links = d.links; schedule("board"); } });
@@ -554,7 +593,7 @@ on("finished", d => {
   S.docs.set(d.id, rec);
   S.latestId = d.id; S.history = d.history; S.resolving = null; S.stale = false; S.status = "live";
   trimDocs();
-  if (S.follow) showResolve(d.id, null); else schedule("status", "compare");
+  if (S.follow) showResolve(d.id, null, true); else schedule("status", "compare");
 });
 on("compare", d => {
   if (S.follow && S.shownId === d.b) { setCompare(d); }
@@ -574,14 +613,15 @@ function trimDocs() {
   for (const id of [...S.docs.keys()]) if (!keep.has(id)) S.docs.delete(id);
 }
 
-function showResolve(id, cmp) {
+function showResolve(id, cmp, keepReplay) {            // keepReplay: the slider stays where a viewer left it as the final plan replaces the streamed one
   const rec = S.docs.get(id);
   if (!rec) return;
+  const was = keepReplay ? S.replay : null;
   stopPlay();
   S.shownId = id; S.live = null; S.resolving = S.resolving === id ? null : S.resolving; S.liveQ = [];
   S.texts = rec.texts; S.changed = rec.changed;
   S.stale = false; S.error = null; S.status = S.latestId === id ? "live" : "history";
-  S.replay = null; S.sel = null; S.marked = new Set();
+  S.replay = was; S.sel = null; S.marked = new Set();
   const hist = S.history.slice().sort((a, b) => a.id - b.id);
   const at = hist.findIndex(h => h.id === id);
   S.baseId = at > 0 ? hist[at - 1].id : null;
@@ -618,8 +658,9 @@ function statNumbers(p, rec) {
 }
 function renderStatus() {
   const b = $("#status");
-  const label = {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
-  $("#statustext").textContent = label;
+  const label = S.hello && S.hello.picker ? "choose a script" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
+  $("#statustext").textContent = typeof label === "string" ? label : label;
+  const rb = $("#runbtn"); rb.textContent = S.run ? "Running..." : "Run"; rb.disabled = !!S.run || !!(S.hello && S.hello.picker); rb.classList.toggle("busy", !!S.run);
   b.className = "pill " + ({live: "live", resolving: "busy", stale: "stale", error: "error", disconnected: "error"}[S.status] || "");
   const rec = S.docs.get(S.shownId), p = plan();
   $("#stats").innerHTML = statNumbers(p, rec).map(([k, v, c]) => '<span class="stat ' + c + '"><b>' + v + "</b>" + (k === "s" ? "s" : k) + "</span>").join("");
@@ -628,7 +669,7 @@ function renderStatus() {
     n.className = "err"; n.style.display = "block";
     n.innerHTML = "<b>" + esc(S.error.message) + "</b>" + (S.error.line ? ' <a href="#" id="goerr">' + esc(S.error.file || "") + " line " + S.error.line + "</a>" : "") + (S.error.source ? ' <code>' + esc(String(S.error.source).trim()) + "</code>" : "") + " (showing the last good plan)";
     const a = $("#goerr");
-    if (a) a.onclick = e => { e.preventDefault(); goTab("script"); gotoLine(S.error.file || S.file, S.error.line); };
+    if (a) a.onclick = e => { e.preventDefault(); openScript(S.error.file || S.file, S.error.line); };
   } else if (S.stale && !S.resolving) {
     n.className = ""; n.style.display = "block";
     n.textContent = "Waiting to resolve" + (S.changedFiles.length ? ": " + S.changedFiles.join(", ") + " changed" : "");
@@ -879,36 +920,8 @@ function showSteps(k) {
   B.k = k;
   if (B.svg) B.svg.classList.toggle("replaying", k < B.n);
 }
-// Streamed items join the drawing without a redraw: each is added to every panel's item layer.
-function flushLive() {
-  const q = S.liveQ; S.liveQ = [];
-  const p = plan();
-  if (!q.length || !p || !p.board) return;
-  if (!B.layers.length || B.plan !== p) { renderBoard(); renderSteps(); return; }
-  for (const it of q) {
-    const n = B.n++;
-    S.itemAt.set(it.key, it); S.stepNo.set(it.key, n);
-    B.layers.forEach((layer, k) => {
-      const pn = lay.panels[k], html = itemSVG(it, pn.face, pn, p, n);
-      if (!html) return;
-      layer.insertAdjacentHTML("beforeend", html);
-      const g = layer.lastElementChild;
-      if (g) {
-        (B.byStep[n] || (B.byStep[n] = [])).push(g); pushTo(B.groups, it.key, g);
-        for (const m of g.querySelectorAll ? g.querySelectorAll(".mem") : []) pushTo(B.mems, m.dataset.ref, m);
-      }
-    });
-    B.k = B.n;
-  }
-  const el = $("#steplist");
-  if (el) {
-    const order = replaySteps(p);
-    el.insertAdjacentHTML("beforeend", order.slice(B.n - q.length).map(s => stepRow(s, p)).join(""));
-    collectRows();
-    $("#stepcount").textContent = B.n;
-  }
-  schedule("status", "counts", "legend");
-}
+// A streamed step redraws the board and the lists: the timeline's positions index every step, copper and cutouts too.
+function flushLive() { renderBoard(); renderSteps(); schedule("status", "counts", "legend"); }
 
 // The marks on the drawing for what is selected: the item or its part, its module, a region, and the links it holds.
 function selRefs(p) {
@@ -962,6 +975,7 @@ const INFO = {
   links: "A link is a pull the script declared between two pads. The arrow runs from the pad of the part it was declared on to its partner pad. A link with a limit is green as far as the limit reaches and red beyond it. Hover one for its length and limit.",
   steps: "Each row is one step of the layout, in the order it was made: items placed, copper laid, cutouts cut. A row says how the step was decided and why. Tap a row for the whole note. The slider on the board replays these steps.",
   marks: "Congestion is a routing-demand estimate made before any routing (RUDY), for the whole board: every routing layer together, not one face, so both faces show the same map. Each net's wire length (the half-perimeter of its pad centres) is spread evenly over the box of its pads, summed on a grid of 0.5 mm cells and set against what a cell can carry (the layers times tracks per mm). Plane and free nets are left out. The colour is the share of capacity, from blue (a few percent) through yellow (full) to red (over). A net whose pads line up (a feed to an antenna, a straight pair) has a box one cell wide, so it shows as a thin strip: that is its straight route, not copper. The red ring marks the single most congested cell. Changes marks what moved since the last resolve; finding marks are circles at a finding's place.",
+  runs: "A run is placemat run without the render: the script is laid out and written, KiCad's DRC and the design checks are judged on the written board, the run score is worked out and a record is kept in .placemat/runs. It takes longer than a preview (the DRC is the slow part). Runs started elsewhere, by you or an agent, are listed the same way. Compare puts the newest resolve against a run: the items that moved, were added or removed, the findings gained and lost and the score. A run records no copper or links, so those are not compared.",
   other: "These put nothing of their own on the board, so they are not replayed. Keepouts and reserved areas are in the legend.",
 };
 const infoBtn = id => '<button class="info" data-info="' + id + '" aria-label="about this" draggable="false">i</button>';
@@ -1519,7 +1533,7 @@ $("#card").onclick = e => {
   else if (act === "finding") { const f = (p.findings || [])[+a.dataset.fi]; if (f) focusFinding(f); }
   else if (act === "links") { S.cardLinks = !S.cardLinks; renderCard(); }
   else if (act === "link") { const l = (p.links || [])[+a.dataset.i]; if (l) zoomTo([Math.min(l.pa[0], l.pb[0]) - 1, Math.min(l.pa[1], l.pb[1]) - 1, Math.max(l.pa[0], l.pb[0]) + 1, Math.max(l.pa[1], l.pb[1]) + 1]); }
-  else if (act === "src") { const it = itemMap(p).get(S.sel); if (it) { goTab("script"); gotoLine(it.file, it.line); } }
+  else if (act === "src") { const it = itemMap(p).get(S.sel); if (it) openScript(it.file, it.line); }
 };
 
 // ---------------------------------------------------------------- the replay
@@ -1536,7 +1550,7 @@ function renderReplay() {
   const slider = $("#slider");
   if (+slider.max !== n) slider.max = n;
   if (!S.sliding && +slider.value !== k) slider.value = k;          // not while a finger is on it: the thumb follows the finger
-  slider.disabled = !!S.resolving;
+  slider.disabled = false;                                          // usable while a resolve runs: it follows the newest step unless moved back
   if (B.svg && B.plan === p) showSteps(k);
   const rows = R.rows;
   if (R.k !== k || R.n !== rows.length) {
@@ -1547,7 +1561,8 @@ function renderReplay() {
     if (S.replay != null && rows[k - 1]) rows[k - 1].classList.add("now");
     R.k = k; R.n = rows.length;
   }
-  $("#steplabel").textContent = n ? k + " / " + n : S.resolving ? "..." : "0";
+  $("#steplabel").textContent = n ? k + " / " + n + (S.resolving ? " so far" : "") : S.resolving ? "..." : "0";
+  const fb = $("#follow"); fb.hidden = !(S.resolving && S.replay != null);
   const now = S.replay != null && order[k - 1], sn = $("#stepnow");
   sn.style.display = now ? "block" : "none";
   if (now) sn.textContent = "Step " + k + ": " + now.item + (now.note || now.why ? " - " + (now.note || now.why) : "");
@@ -1582,6 +1597,7 @@ $("#slider").addEventListener("input", e => { stopPlay(); setReplay(+e.target.va
 for (const t of ["pointerdown"]) $("#slider").addEventListener(t, () => { S.sliding = true; });
 for (const t of ["pointerup", "pointercancel", "blur"]) $("#slider").addEventListener(t, () => { S.sliding = false; schedule("replay"); });
 $("#play").addEventListener("click", togglePlay);
+$("#follow").addEventListener("click", () => setReplay(replayCount()));
 
 // ---------------------------------------------------------------- steps
 // A row says plainly: the step's number, the item, how it was placed, the reason in one line (the whole note on
@@ -1612,7 +1628,7 @@ function stepDetail(s, it, np, fs) {
   const placed = s.type === "place" && it;
   const rows = placed ? kvl([["placed", esc(howWord(s, it))], ["face", esc(it.face + ", rotated " + deg(it.rotation))], ...noteRows(np)]) : "";
   return sect("Placement", rows) +
-    noteExtra(np, placed ? it.moved_mm : 0, s.why || (it && it.why)) + sect("Findings", sevPills(fs));
+    noteExtra(np, placed ? it.moved_mm : 0, s.why || (it && it.why)) + sect("Findings", sevPills(fs)) + (it && it.file ? '<div class="src"><a data-act="src" data-file="' + esc(it.file) + '" data-line="' + it.line + '">' + esc(it.file + ":" + it.line) + "</a></div>" : "");
 }
 function stepRow(s, p) {
   const it = S.itemAt && S.itemAt.get(s.item), kind = stepKind(s, it), np = noteParts(s.note || (it && it.note) || "");
@@ -1629,16 +1645,19 @@ function renderSteps() {
   const order = replaySteps(p), other = otherSteps(p);
   const unplaced = p.unplaced || [];
   const head = (title, n, id, info) => "<h3>" + title + (info ? infoBtn(info) : "") + ' <span class="c"' + (id ? ' id="' + id + '"' : "") + ">" + n + "</span></h3>";
-  let out = head("Steps", order.length, "stepcount", "steps") + '<div id="steplist">' + order.map(s => stepRow(s, p)).join("") + "</div>";
+  let out = head("Steps", order.length + (S.resolving ? " so far" : ""), "stepcount", "steps") + '<div id="steplist">' + order.map(s => stepRow(s, p)).join("") + "</div>";
   if (unplaced.length) out += head("Not placed", unplaced.length) + unplaced.map(u => '<div class="row" data-item="' + esc(u.item) + '"><span class="k">' + esc(u.item) + '</span><span class="chip unplaced">unplaced</span><span class="n wrap">' + esc(u.why) + "</span></div>").join("");
   if (other.length) {
     out += '<h3 class="fold" data-fold="other">' + (S.showOther ? "&#9662;" : "&#9656;") + " Keepouts and setup steps" + infoBtn("other") + ' <span class="c">' + other.length + "</span></h3>";
     if (S.showOther) out += other.map(s => '<div class="row" data-at="' + s.at + '"><span class="k">' + esc(s.item) + '</span><span class="chip ' + esc(s.kind) + '">' + esc(s.kind) + '</span><span class="n wrap">' + esc(s.note) + "</span></div>").join("");
   }
+  const near = el.scrollHeight - el.scrollTop - el.clientHeight < 60, top = el.scrollTop;
   el.innerHTML = out;
+  el.scrollTop = S.resolving && S.replay == null && near ? el.scrollHeight : top;                    // following the newest step, or where the viewer was
   collectRows();
   el.onclick = e => {
     if (e.target.closest(".info")) return;
+    const sl = e.target.closest("[data-act=src]"); if (sl) { openScript(sl.dataset.file, +sl.dataset.line); return; }
     const fr = e.target.closest("[data-act=finding]"); if (fr) { const f = (plan().findings || [])[+fr.dataset.fi]; if (f) focusFinding(f); return; }
     if (e.target.closest("[data-fold]")) { S.showOther = !S.showOther; renderSteps(); return; }
     const r = e.target.closest(".row"); if (!r) return;
@@ -1653,6 +1672,8 @@ function renderSteps() {
 // Grouped by severity once any finding carries one (a missing severity is a warning), by kind otherwise; a filter
 // by severity; each row keeps a slot for a fix action to come.
 const SEVERITIES = ["critical", "warning", "notice"];
+// A finding that names an item with a declaring line links to it.
+const srcLink = (f, p) => { const it = f.item && itemMap(p).get(f.item); return it && it.file ? ' <a class="srcl" data-act="src" data-file="' + esc(it.file) + '" data-line="' + it.line + '">' + esc(it.file + ":" + it.line) + "</a>" : ""; };
 function renderFindings() {
   const p = plan(), el = $("#tab-findings");
   const all = (p && p.findings) || [];
@@ -1667,13 +1688,14 @@ function renderFindings() {
   el.innerHTML = filters + order.map(kind => {
     const list = groups.get(kind), closed = S.closedKinds.has(kind), worst = hasSev ? kind : list.some(([f]) => sevOf(f) === "critical") ? "critical" : list.some(([f]) => sevOf(f) === "notice") && !list.some(([f]) => sevOf(f) === "warning") ? "notice" : "warning";
     return '<div class="gh" data-kind="' + esc(kind) + '"><span class="dim">' + (closed ? "&#9656;" : "&#9662;") + "</span>" + esc(kind) + '<span class="ct">' + list.length + "</span></div>" +
-      (closed ? "" : list.map(([f, i]) => '<div class="row" data-i="' + i + '"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + '</span><span class="n wrap" style="color:var(--ink)">' + (hasSev && f.kind ? '<span class="dim">' + esc(f.kind) + "</span> " : "") + esc(f.text) + '</span><span class="fixslot" data-fix="' + i + '"></span></div>').join(""));
+      (closed ? "" : list.map(([f, i]) => '<div class="row" data-i="' + i + '"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + '</span><span class="n wrap" style="color:var(--ink)">' + (hasSev && f.kind ? '<span class="dim">' + esc(f.kind) + "</span> " : "") + esc(f.text) + srcLink(f, p) + '</span><span class="fixslot" data-fix="' + i + '"></span></div>').join(""));
   }).join("");
   el.onclick = e => {
     const sv = e.target.closest("[data-sev]"); if (sv) { S.sevFilter = sv.dataset.sev; renderFindings(); return; }
     const gh = e.target.closest(".gh");
     if (gh) { const k = gh.dataset.kind; if (S.closedKinds.has(k)) S.closedKinds.delete(k); else S.closedKinds.add(k); renderFindings(); return; }
     if (e.target.closest(".fixslot")) return;
+    const sl = e.target.closest("[data-act=src]"); if (sl) { openScript(sl.dataset.file, +sl.dataset.line); return; }
     const r = e.target.closest(".row"); if (!r) return;
     const f = all[+r.dataset.i];
     if (f.at || f.item || (f.refs || []).length) { focusFinding(f); goTab("board"); }
@@ -1725,16 +1747,20 @@ function declIndex(p) {
 // line links apply to; the toml, lock and board files that are watched too are not shown.
 function scriptFiles(texts) { return Object.keys(texts || {}).filter(n => /\.py$/.test(n)); }
 let hlCache = {text: null, lines: []};
+const CONTEXT_LINES = 10;                      // the lines either side of the one a dialog opens on, until it is shown whole
 function renderScript() {
+  const dlg = $("#script");
+  dlg.classList.toggle("open", !!S.scriptOpen);
+  dlg.classList.toggle("full", !!S.scriptOpen && !!S.scriptFull);
+  $("#scriptfull").textContent = S.scriptFull ? "Restore" : "Full screen";
+  if (!S.scriptOpen) return;
+  layoutScript();
   const names = scriptFiles(S.texts), own = S.hello && S.hello.script;
   const sel = $("#file");
   if (!names.includes(S.file)) S.file = (own && names.includes(own)) ? own : names[0];
-  // The select lists the project's layout scripts (choosing one switches the studio to it); a helper module shows
-  // only when a line or a changed file links to it.
-  const opts = scriptOptions(), helper = S.file && S.file !== own ? [["F:" + S.file, S.file + " (helper)"]] : [];
-  const key = JSON.stringify([opts, helper]);
-  if (sel.dataset.names !== key) { sel.innerHTML = opts.concat(helper).map(([v, l]) => '<option value="' + esc(v) + '">' + esc(l) + "</option>").join(""); sel.dataset.names = key; }
-  sel.value = S.file === own || !S.file ? "L:" + currentScriptId() : "F:" + S.file;
+  const key = JSON.stringify(names);
+  if (sel.dataset.names !== key) { sel.innerHTML = names.map(n => '<option value="' + esc(n) + '">' + esc(n) + (n === own ? "" : " (helper)") + "</option>").join(""); sel.dataset.names = key; }
+  sel.value = S.file || "";
   const body = $("#scriptbody");
   const text = S.texts[S.file];
   if (text == null) { body.innerHTML = ""; return; }
@@ -1748,17 +1774,26 @@ function renderScript() {
   if (hlCache.text !== text) hlCache = {text, lines: highlightPython(text)};
   const lines = hlCache.lines.slice();
   if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
-  body.innerHTML = lines.map((l, i) => {
+  const at0 = S.selLine && S.selLine.file === S.file ? S.selLine.n : 0;
+  const whole = S.scriptFull || S.scriptWhole || !at0;
+  const lo = whole ? 1 : Math.max(1, at0 - CONTEXT_LINES), hi = whole ? lines.length : Math.min(lines.length, at0 + CONTEXT_LINES);
+  const row = i => {
     const n = i + 1;
     const cls = "ln" + (chgDecl.has(n) ? " chgdecl" : span && n >= span[0] && n <= span[1] ? " decl" : "") + (chg.has(n) ? " chg" : "") + (S.selLine && S.selLine.file === S.file && S.selLine.n === n ? " sel" : "");
-    return '<div class="' + cls + '" data-n="' + n + '"><span class="no">' + n + '</span><span class="dot">' + (idx[n] ? "&#9679;" : "") + '</span><span class="tx">' + l + "</span></div>";
-  }).join("");
+    return '<div class="' + cls + '" data-n="' + n + '"><span class="no">' + n + '</span><span class="dot">' + (idx[n] ? "&#9679;" : "") + '</span><span class="tx">' + lines[i] + "</span></div>";
+  };
+  const more = (n, dir) => n > 0 ? '<div class="ln more" data-more="1">' + n + " more line" + (n > 1 ? "s " : " ") + dir + " (show the whole file)</div>" : "";
+  const out = [more(lo - 1, "above")];
+  for (let i = lo - 1; i < hi; i++) out.push(row(i));
+  out.push(more(lines.length - hi, "below"));
+  body.innerHTML = out.join("");
   $("#scriptinfo").textContent = cmpf ? "+" + cmpf.added + " -" + cmpf.removed + " since #" + S.cmp.a : "";
   const keysAt = n => { const k = new Set(idx[n] || []); const t = S.cmp && S.cmp.trace.lines[S.file] && S.cmp.trace.lines[S.file].new[String(n)]; (t || []).forEach(x => k.add(x)); return k; };
   const at = S.selLine && S.selLine.file === S.file ? [...keysAt(S.selLine.n)] : [];
   $("#linechips").innerHTML = at.length ? "<span>Line " + S.selLine.n + " declares</span>" + at.map(k => '<button data-key="' + esc(k) + '">' + esc(k) + "</button>").join("") : '<span>Tap a line to see what it declares; a dot marks lines that declare something.</span>';
-  $("#linechips").onclick = e => { const b = e.target.closest("button[data-key]"); if (b) { selectItem(b.dataset.key, {zoom: true}); goTab("board"); } };
+  $("#linechips").onclick = e => { const b = e.target.closest("button[data-key]"); if (b) selectItem(b.dataset.key, {zoom: true}); };
   body.onclick = e => {
+    if (e.target.closest("[data-more]")) { S.scriptWhole = true; schedule("script"); return; }
     const r = e.target.closest(".ln"); if (!r) return;
     const n = +r.dataset.n;
     S.selLine = {file: S.file, n};
@@ -1767,26 +1802,37 @@ function renderScript() {
     schedule("marks", "script", "compare", "card");
   };
 }
-const currentScriptId = () => ((S.scripts || []).find(s => s.current) || {id: S.hello && S.hello.script}).id;
-function scriptOptions() {
-  const list = (S.scripts && S.scripts.length) ? S.scripts : [{id: S.hello && S.hello.script, title: S.hello && S.hello.title, current: true}];
-  return list.map(s => ["L:" + s.id, (s.title ? s.title + "  " : "") + s.id]);
+// The dialog's room: below the header (and the phone's tab bar), beside the legend.
+function layoutScript() {
+  const m = $("main"), l = $("#legend"), root = document.documentElement && document.documentElement.style;
+  if (!m || !m.getBoundingClientRect || !root || !root.setProperty) return;
+  const r = m.getBoundingClientRect();
+  root.setProperty("--hh", Math.round(r.top) + "px");
+  root.setProperty("--dlgl", Math.round((l && l.getBoundingClientRect ? l.getBoundingClientRect().right : 0) + 12) + "px");
 }
-$("#file").addEventListener("change", e => {
-  const v = e.target.value;
-  if (v.startsWith("F:")) { S.file = v.slice(2); schedule("script"); return; }
-  const id = v.slice(2);
-  if (id === currentScriptId()) { S.file = S.hello && S.hello.script; schedule("script"); return; }
+// A source link was followed (from a card, a step, a finding, an error): the script opens on that line.
+function openScript(file, n) {
+  S.scriptOpen = true; S.scriptWhole = false;
+  if (file && S.texts[file] != null) S.file = file;
+  if (n) S.selLine = {file: S.file, n};
+  schedule("script");
+  setTimeout(() => { const l = $('#scriptbody .ln[data-n="' + n + '"]'); if (l && l.scrollIntoView) l.scrollIntoView({block: "center"}); }, 30);
+}
+function closeScript() { S.scriptOpen = false; S.scriptFull = false; schedule("script"); }
+$("#scriptclose").onclick = closeScript;
+$("#scriptfull").onclick = () => { S.scriptFull = !S.scriptFull; schedule("script"); };
+$("#srcbtn").onclick = () => { const it = S.sel ? itemMap(plan()).get(S.sel) : null; openScript(it && it.file ? it.file : (S.hello && S.hello.script), it && it.line); };
+const currentScriptId = () => ((S.scripts || []).find(s => s.current) || {id: S.hello && S.hello.script}).id;
+$("#file").addEventListener("change", e => { S.file = e.target.value; S.scriptWhole = false; schedule("script"); });
+// Switching to another layout script: the same request from the header menu and from the picker.
+function switchTo(id) {
+  closeMenu();
+  if (id === currentScriptId() && !(S.hello && S.hello.picker)) return;
   fetch("/switch?t=" + encodeURIComponent(T), {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({script: id})})
     .then(r => { if (!r.ok) return r.text().then(m => { throw new Error(m); }); })
-    .catch(err => { const n = $("#notice"); n.className = "err"; n.style.display = "block"; n.textContent = "Could not switch: " + err.message; schedule("script"); });
-});
-function gotoLine(file, n) {
-  if (file && S.texts[file] != null) S.file = file;
-  S.selLine = {file: S.file, n};
-  schedule("script");
-  setTimeout(() => { const l = $('#scriptbody .ln[data-n="' + n + '"]'); if (l) l.scrollIntoView({block: "center"}); }, 30);
+    .catch(err => { const n = $("#notice"); n.className = "err"; n.style.display = "block"; n.textContent = "Could not switch: " + err.message; });
 }
+function gotoLine(file, n) { openScript(file, n); }
 function stepChange(dir) {
   const c = S.cmp && S.cmp.files[S.file]; if (!c || !c.changed_new.length) return;
   const cur = S.selLine && S.selLine.file === S.file ? S.selLine.n : 0;
@@ -1803,14 +1849,14 @@ function renderCompare() {
   const hist = S.history.slice().sort((a, b) => a.id - b.id);
   const opt = (sel, none) => (none ? '<option value="">none</option>' : "") + hist.map(h => '<option value="' + h.id + '"' + (h.id === sel ? " selected" : "") + ">#" + h.id + " " + new Date(h.at * 1000).toLocaleTimeString() + (h.changed.length ? " (" + h.changed.length + " file" + (h.changed.length > 1 ? "s" : "") + " changed)" : "") + "</option>").join("");
   const head = '<div class="cmpbar"><span class="dim">compare</span><select id="cmpA">' + opt(S.baseId, true) + '</select><span class="dim">with</span><select id="cmpB">' + opt(S.shownId, false) + "</select></div>";
-  let out = head;
+  let out = runsHTML() + head;
   if (S.changed && S.changed.length) {
     out += "<h3>Changed since the resolve before</h3>" + S.changed.map(c => '<div class="row" data-file="' + esc(c.file) + '"><span class="k">' + esc(c.file) + '</span><span class="n"><span class="add">+' + c.added + '</span> <span class="del">-' + c.removed + "</span> " + esc(c.status) + "</span></div>").join("");
   }
   const c = S.cmp;
   if (!c) { el.innerHTML = out + '<div class="empty">' + (hist.length < 2 ? "One resolve so far: nothing to compare yet" : "Pick two resolves") + "</div>"; wireCompare(el); return; }
   const d = c.diff;
-  out += '<div class="sum"><b>#' + c.a + " to #" + c.b + "</b>" + (d.empty ? '<span class="dim">no change in the plan</span>' : "") +
+  out += '<div class="sum"><b>' + (typeof c.a === "number" ? "#" + c.a : esc(c.a)) + " to #" + c.b + "</b>" + (d.empty ? '<span class="dim">no change in the plan</span>' : "") +
     (d.moved.length ? "<span>" + d.moved.length + " moved</span>" : "") + (d.added.length ? '<span class="add">' + d.added.length + " added</span>" : "") + (d.removed.length ? '<span class="del">' + d.removed.length + " removed</span>" : "") +
     (d.copper.added.length || d.copper.removed.length ? '<span>copper <span class="add">+' + d.copper.added.length + '</span> <span class="del">-' + d.copper.removed.length + "</span></span>" : "") +
     (d.findings.gained.length || d.findings.lost.length ? '<span>findings <span class="del">+' + d.findings.gained.length + '</span> <span class="add">-' + d.findings.lost.length + "</span></span>" : "") +
@@ -1870,7 +1916,12 @@ function wireCompare(el) {
   if (b) b.onchange = async () => { const id = +b.value; await pickShown(id); if (a && a.value) loadCompare(+a.value, id); };
   el.querySelectorAll(".fbtn").forEach(x => x.onclick = () => { S.cmpFile = x.dataset.f; schedule("compare"); });
   const sbs = $("#sbs"); if (sbs) sbs.onchange = () => { S.sbs = sbs.checked; schedule("compare"); };
+  const rn = $("#runnow"); if (rn) rn.onclick = startRun;
   el.onclick = e => {
+    if (e.target.closest(".info")) return;
+    const sl = e.target.closest("[data-act=src]"); if (sl) { openScript(sl.dataset.file, +sl.dataset.line); return; }
+    const cr = e.target.closest("[data-cmp-run]"); if (cr) { loadRunCompare(cr.dataset.cmpRun); return; }
+    const rr = e.target.closest(".row.run"); if (rr) { const id = rr.dataset.run; if (S.openRuns.has(id)) S.openRuns.delete(id); else S.openRuns.add(id); schedule("compare"); return; }
     const td = e.target.closest("td[data-n]");
     if (td && td.dataset.n) {
       const side = td.dataset.side, n = td.dataset.n, c = S.cmp, keys = c && c.trace.lines[S.cmpFile] ? (c.trace.lines[S.cmpFile][side][n] || []) : [];
@@ -1886,23 +1937,82 @@ function wireCompare(el) {
   };
 }
 
+// ---------------------------------------------------------------- the script menu, the picker and the checked run
+const scriptEntry = (s, cls) => '<button role="menuitem" class="' + cls + '" data-script="' + esc(s.id) + '"><b>' + esc(s.title || s.id) + '</b>' + (s.subtitle ? '<span class="sub">' + esc(s.subtitle) + "</span>" : "") + "<code>" + esc(s.id) + "</code></button>";
+function openMenu() {
+  const m = $("#menu"), b = $("#brandbtn"), list = S.scripts || [];
+  m.innerHTML = list.length ? list.map(s => scriptEntry(s, s.current ? "cur" : "")).join("") : '<div class="pad8 dim">The layout scripts are being listed ...</div>';
+  m.hidden = false; b.setAttribute("aria-expanded", "true");
+  const r = b.getBoundingClientRect();
+  m.style.left = Math.max(8, Math.min(r.left, (window.innerWidth || 800) - 300)) + "px"; m.style.top = (r.bottom + 4) + "px";
+}
+function closeMenu() { const m = $("#menu"); m.hidden = true; $("#brandbtn").setAttribute("aria-expanded", "false"); }
+$("#brandbtn").onclick = () => { if ($("#menu").hidden) openMenu(); else closeMenu(); };
+$("#menu").onclick = e => { const b = e.target.closest("[data-script]"); if (b) switchTo(b.dataset.script); };
+document.addEventListener("click", e => { if ($("#menu").hidden) return; if (!(e.target.closest && (e.target.closest("#menu") || e.target.closest("#brandbtn")))) closeMenu(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") { closeMenu(); if (S.scriptOpen && $("#infopop").hidden) closeScript(); } });
+// With no script given, the page opens on this list and nothing resolves until one is chosen.
+function renderPicker() {
+  const el = $("#picker"), pick = !!(S.hello && S.hello.picker);
+  el.hidden = !pick;
+  if (!pick) return;
+  const list = S.scripts || [];
+  el.innerHTML = '<div class="box"><h2>Choose a layout script</h2><p>' + list.length + " found under <code>" + esc(S.hello.root || "") + "</code>. Nothing is resolved until you choose one.</p>" + list.map(s => scriptEntry(s, "pick")).join("") + "</div>";
+  el.onclick = e => { const b = e.target.closest("[data-script]"); if (b) switchTo(b.dataset.script); };
+}
+function startRun() {
+  if (S.run) return;
+  fetch("/run?t=" + encodeURIComponent(T), {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"})
+    .then(r => { if (!r.ok) return r.text().then(m => { throw new Error(m); }); })
+    .catch(err => { const n = $("#notice"); n.className = "err"; n.style.display = "block"; n.textContent = "Could not start a run: " + err.message; });
+}
+$("#runbtn").onclick = startRun;
+// A file the server names by its full path, as the page's texts name it (relative to the script's folder).
+const relName = f => { const k = Object.keys(S.texts || {}).find(n => f === n || String(f).endsWith("/" + n)); return k || f; };
+const ago = at => { const s = Math.max(0, Date.now() / 1000 - at); return s < 90 ? "just now" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 129600 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago"; };
+function runDetail(r) {
+  const drc = r.drc || {};
+  const rows = [["DRC", Object.keys(drc).filter(k => drc[k] != null).map(k => pill(String(drc[k]) + " " + k.replace("drc_", ""), k === "drc_real" || k === "outstanding" ? (drc[k] ? "bad" : "good") : "")).join(" ")],
+    ["findings", Object.keys(r.severities || {}).map(k => '<span class="sev ' + k + '">' + k + " " + r.severities[k] + "</span>").join(" ")],
+    ["airwire", r.airwire_mm != null ? pill(Math.round(r.airwire_mm) + " mm") + (r.open_nets ? " " + pill(r.open_nets + " open nets", "warn") : "") : ""],
+    ["checks", r.checks && r.checks.checks_failed != null ? pill(r.checks.checks_failed + " failed", r.checks.checks_failed ? "bad" : "good") + (r.checks.checks_unjudged ? " " + pill(r.checks.checks_unjudged + " unjudged") : "") : ""],
+    ["time", Object.keys(r.timing || {}).map(k => pill(k + " " + r.timing[k] + " s")).join(" ")]];
+  const failing = (r.verdicts || []).map(v => '<div>' + pill(v.check, "bad") + " " + esc(v.subject || "") + ' <span class="dim">' + esc(v.note || "") + "</span></div>").join("");
+  const f = r.failure;
+  return '<div class="full" style="display:block">' + sect("Result", kvl(rows)) + (failing ? sect("Failed checks", '<div class="cl">' + failing + "</div>") : "") +
+    (f ? sect("Failure", '<div class="note">' + esc(f.message || "") + "</div>" + (f.line ? '<div class="src"><a data-act="src" data-file="' + esc(relName(f.file)) + '" data-line="' + f.line + '">' + esc(relName(f.file) + ":" + f.line) + "</a>" + (f.source ? " <code>" + esc(String(f.source).trim()) + "</code>" : "") + "</div>" : "")) : "") + "</div>";
+}
+function runRow(r) {
+  const open = S.openRuns.has(r.id);
+  const bits = [r.score != null ? "score " + r.score : "", r.drc && r.drc.drc_real != null ? "DRC " + r.drc.drc_real : "", r.findings + " findings", ago(r.at)].filter(Boolean).join(" - ");
+  return '<div class="row run step' + (open ? " open" : "") + '" data-run="' + esc(r.id) + '"><span class="chip ' + (r.status === "ok" ? "good" : "bad") + '">' + esc(r.status) + '</span><div class="sb"><div class="l1"><b>' + esc(r.id) + "</b>" +
+    (r.label ? ' <span class="dim">' + esc(r.label) + "</span>" : "") + '</div><div class="l2">' + esc(bits) + "</div>" + (open ? runDetail(r) : "") + '</div><button class="go" data-cmp-run="' + esc(r.id) + '" title="compare the newest resolve with this run">compare</button></div>';
+}
+function runsHTML() {
+  const run = S.run, last = S.lastRun;
+  let o = '<div class="runbar"><button class="tool" id="runnow"' + (run ? " disabled" : "") + ">" + (run ? "Running..." : "Run") + "</button>" + infoBtn("runs") +
+    '<span class="dim">' + (run ? "a checked run is in progress" : "design checks, DRC and the score, recorded") + "</span></div>";
+  if (run) o += '<pre class="runlog">' + esc(run.lines.slice(-14).join("\n") || "starting ...") + "</pre>";
+  else if (last && !last.run) o += '<div class="notice-run">The run ended' + (last.code != null ? " (exit " + last.code + ")" : "") + " without a record.</div><pre class=\"runlog\">" + esc((last.tail || []).slice(-8).join("\n")) + "</pre>";
+  o += '<h3>Runs <span class="c">' + S.runs.length + "</span></h3>";
+  o += S.runs.length ? S.runs.map(runRow).join("") : '<div class="pad8 dim">No recorded run of this script yet. Run records the first.</div>';
+  return o;
+}
+async function loadRunCompare(id) {
+  try { setCompare(await getJSON("/runcompare?run=" + encodeURIComponent(id))); }
+  catch (e) { const n = $("#notice"); n.className = "err"; n.style.display = "block"; n.textContent = "Could not compare with run " + id + ": " + e.message; }
+}
+
 // ---------------------------------------------------------------- chrome
 const narrow = () => matchMedia("(max-width: 900px)").matches;
-function setMode(v) {                          // wide: the board with its panels, or the script at the full width
-  document.body.dataset.view = v;
-  document.querySelectorAll("#viewseg button").forEach(x => x.classList.toggle("on", x.dataset.view === v));
-  if (v === "script") schedule("script"); else requestAnimationFrame(applyView);
-}
 function goTab(name) {                         // the board, or a panel: the bar on a phone, the sidebar's tabs on a wide screen
   if (narrow()) { showNarrow(name); return; }
-  if (name === "board" || name === "script") { setMode(name); return; }
-  setMode("board");
+  if (name === "board") return;
   S.tab = name;
   document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x.dataset.tab === name));
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.id === "tab-" + name));
 }
 document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => goTab(b.dataset.tab));
-document.querySelectorAll("#viewseg button").forEach(b => b.onclick = () => setMode(b.dataset.view));
 function setFace(f) {
   S.face = f; lay = null;
   document.querySelectorAll("#facebar button").forEach(x => x.classList.toggle("on", x.dataset.face === f));
@@ -1913,19 +2023,18 @@ $("#fit").onclick = fit;
 $("#keybtn").onclick = () => $("#legend").classList.toggle("open");
 function showNarrow(v) {
   document.body.dataset.nv = v;
-  document.body.dataset.view = v === "script" ? "script" : "board";
   document.querySelectorAll("#ntabs button").forEach(x => x.classList.toggle("on", x.dataset.nv === v));
-  if (v !== "board" && v !== "script") S.tab = v;
+  if (v !== "board") S.tab = v;
   if (v !== "board") $("#legend").classList.remove("open");
   schedule("all");
   if (v === "board") requestAnimationFrame(applyView);
+  layoutScript();
 }
 document.querySelectorAll("#ntabs button").forEach(b => b.onclick = () => showNarrow(b.dataset.nv));
 applyVisibility();
 setFace(narrow() ? "front" : "both");            // one face fills a narrow screen
-document.body.dataset.view = "board";
 showNarrow("board");
-window.addEventListener("resize", applyView);
+window.addEventListener("resize", () => { applyView(); layoutScript(); });
 if (window.ResizeObserver) new ResizeObserver(() => applyView()).observe($("#boardwrap"));   // the notice and the tab bar change its height
 schedule("all");
 </script>

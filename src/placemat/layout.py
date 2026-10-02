@@ -492,6 +492,20 @@ class Push:
     slack: float = field(default=0.0, metadata={"omit_default": True})   # how far the item reaches from its own emission point: the disc is drawn that much smaller
 
 
+class _FedSteps(list):
+    """A plan's steps that tell `on_step` of each copper and cutout step as it is added (a placement is told as it is
+    committed), so a viewer sees them as they settle."""
+
+    def __init__(self, plan, on_step):
+        super().__init__()
+        self._plan, self._on_step = plan, on_step
+
+    def append(self, step):
+        super().append(step)
+        if step.kind in ("copper", "cutout"):
+            self._on_step(self._plan, step)
+
+
 @dataclass
 class Step:
     item: str
@@ -6025,6 +6039,8 @@ class Board:
                     cell_zones_under_planes=self.settings.copper_cell_zones_under_planes,
                     split_groups=self.settings.write_split_groups, groups=list(self._groups.values()),
                     thinned=thinned)
+        if on_step:
+            plan.steps = _FedSteps(plan, on_step)
         ctx = _CopperContext(self, occ)
         ctx.plan = plan
         self._escape_ctx = ctx              # what a lane's via is judged by (_LaneEnv)
