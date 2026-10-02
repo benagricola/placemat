@@ -682,7 +682,14 @@ not along a board axis is refused.
   copper plus the clearance), and a pin in `vias=` ends in a via at the first
   spot out along its own axis that keeps the clearance from the part's pads
   and the vias already placed, taken in the order `pins` lists them. At a
-  fine pitch alternate pins fall into a near and a far row.
+  fine pitch alternate pins fall into a near and a far row. Where the pitch
+  leaves no room beside a placed via (a lane passes it a pitch off, and the
+  via needs its size and a clearance), the lane runs out to the least depth
+  at which a 45 keeps the clearance from the row's pads, jogs along the row
+  to the side that puts its via nearer the row, and ends in its via there: a
+  0.45 mm via at 0.4 mm pitch (clearance 0.16) takes its neighbour's lane
+  round at 45. A lane that finds no spot says what stands nearest in its way
+  and how far off it is.
 - **`pairs=[(a, b)]`** runs two neighbouring lanes together, the net class's
   pair gap apart (else the clearance) instead of a step. Their pins must be
   neighbours along the row; `pairs=` needs `turn=`.

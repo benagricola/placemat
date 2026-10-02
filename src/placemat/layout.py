@@ -3364,7 +3364,8 @@ class Board:
         end = self._lane_via(lane) if lane.number in decl.vias else LanePoint(lane, "end")
         key = int(lane.number) if lane.number.isdigit() else lane.number
         land = dict(decl.lands).get(lane.number)         # a pin drawn as several lands starts at the one in the row
-        return [PadRef(decl.part, key, land=land)] + ([LanePoint(lane, "corner")] if decl.turn is not None else []) + [end]
+        corner = decl.turn is not None or lane.number in decl.vias       # a lane without a turn may jog on its way to its via
+        return [PadRef(decl.part, key, land=land)] + ([LanePoint(lane, "corner")] if corner else []) + [end]
 
     def _lane_layout(self, occ, decl: EscapeDecl):
         """The escape's layout: as settled when its part was placed, else as
@@ -4495,12 +4496,20 @@ class Board:
                     at = ctx.locate(p)
                 located.append(at)
                 lanes.append(lane)
+            n_lane = len(lane_points)
+            kept = list(points)
+            if begins is not None and decl.turn is None:
+                # a lane without a turn has a corner only where it jogs: where it has none the point is its end's
+                for i in range(n_lane - 2, -1, -1):
+                    if isinstance(points[i], LanePoint) and points[i].which == "corner" and located[i] == located[i + 1]:
+                        del located[i], lanes[i], kept[i]
+                        n_lane -= 1
             # a tap is a point beside its pad, not a pad end a track may leave at any angle
-            pads = [isinstance(p, (PadRef, CellPadRef)) and getattr(p, "edge", None) is None for p in points]
+            pads = [isinstance(p, (PadRef, CellPadRef)) and getattr(p, "edge", None) is None for p in kept]
 
             # a lane's own legs are the lane as it was laid out and reserved, whatever stands near it: a detour round
             # copper that is too near runs over the lane beside it, and a lane that cannot keep clear is a finding
-            frozen = {(a.x, a.y, b.x, b.y) for a, b in zip(located[:len(lane_points)], located[1:len(lane_points)])}
+            frozen = {(a.x, a.y, b.x, b.y) for a, b in zip(located[:n_lane], located[1:n_lane])}
 
             def clear(a, b):          # a leg that touches no pad of another net
                 if (a.x, a.y, b.x, b.y) in frozen:
