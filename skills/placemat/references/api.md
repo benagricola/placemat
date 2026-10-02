@@ -163,6 +163,7 @@ a `.kicad_mod` or loading pcbnew.
 | each DRC violation, with the parts' instance paths | `placemat drc <layout.kicad_pcb>` | Commands |
 | what changed between two runs | `placemat impact <run> <run>` | Commands |
 | the placement drawn, in seconds | `placemat preview <script>` | Commands |
+| the layout live in a browser: each step as it settles, what an edit moved | `placemat studio <script>` | Studio |
 | a cell on its own, its pads by net and side | `placemat show <board> <cell>` | Faces |
 | the settings in force and where each came from | `placemat settings <board-dir>` | Settings |
 | which datasheet page has the land pattern | `placemat datasheet <pdf>` | Commands |
@@ -3259,6 +3260,74 @@ so a route leaves it alone and counts its net closed. `placemat routes
 <script>` lists what is kept (net, tracks, vias, the parts it joins, when)
 and `--release NET ...` stops keeping a net.
 
+## Studio
+
+`placemat studio` shows a layout as it is made, in a browser, and keeps it
+current as the script changes, whoever changes it: the user's editor or an
+agent.
+
+```
+placemat studio <script> [--port N] [--no-open]
+```
+
+It prints an address (`http://127.0.0.1:PORT/?t=TOKEN`) and opens it unless
+`--no-open`. The server listens on 127.0.0.1 only, answers only GET, and
+refuses any request without the token in the address; stop it with Ctrl-C.
+One studio serves one script. It needs the board's cached generation, as
+`preview` does: `placemat run` the script once first.
+
+**What it watches.** The script, every module it imports (the files
+`script_fingerprint` reads), its `.lock.json` and `.routes.json`, every
+`placemat.toml` above the board, the fab profile and the cached generation.
+Modification times are polled (`[studio] poll_ms`). After `[studio]
+debounce_ms` without another change it resolves; a change while a resolve
+runs stops that one at its next step and starts again, so a plan that does
+not match the files on disk is never shown as current: the page marks the
+board stale the moment a file changes.
+
+**What it resolves with.** A worker process that stays warm between resolves
+(imports, the cached generation and the last record loaded) and resolves as
+`placemat preview` does, replaying the steps the edit did not change from
+its own previous resolve (`.placemat/views/studio/reuse.json`). It writes
+nothing to the board and runs no DRC and no render. A script that fails is
+shown as an error with its line, over the last good plan, marked stale.
+
+**What the page shows.**
+
+- The board from placemat's own model, the same one `preview` draws:
+  outline, keepouts, parts by face (the back mirrored), copper, links,
+  congestion. Pan and zoom, a toggle for each layer, a face switch.
+- Each step as it settles, in placement order with its note; the slider
+  replays the placement step by step. A click on a step zooms to its item.
+- The findings; a click zooms to the place a finding names.
+- Hover a part: name, value, cell, face, rotation, how it was placed
+  (decided, searched, pocket), its note and findings, its links with their
+  lengths.
+- The script beside the board, read only, with line numbers. Clicking a part
+  marks the statement that declared it, and clicking a line selects the
+  items that statement declares.
+- Compare. After each resolve the page compares it with the one before (or
+  any two of the last `[studio] keep`): the lines of the script and of each
+  changed file (unified or side by side, changed lines marked), and the
+  diagram - items that moved drawn at their old place with an arrow to the
+  new one, items added and removed, copper that changed in both states,
+  findings gained and lost, the run score's change. The two are linked:
+  selecting a changed line marks the items it moved, and selecting a moved
+  item marks the changed lines of its declaration. A moved item whose own
+  declaration did not change was moved by something else the edit did; the
+  page says so.
+
+The compare is also the server's: `/diff?a=ID&b=ID`, `/resolve/ID` and
+`/history` answer with JSON (token required), and `/events` is the stream
+(Server-Sent Events: `started` with the changed files and their diffs, a
+`step` per item, `copper`, `links`, `congestion`, `findings`, `items`,
+`finished`, `compare`; `changed`, `cancelled`, `superseded` and `error` as
+they happen).
+
+The script is read only in the page; edit it in an editor, or let an agent
+edit it, and the page follows. An agent may tell the user to run `placemat
+studio` to watch its work.
+
 ## Exploring a placement
 
 Once the declarations are right, the placer can search its own choices for
@@ -3354,6 +3423,7 @@ in a place of its own:
 | `run` | the run: `run.json`, `script.log`, a copy of the board, renders, `drc.json`, `impact.txt`, `reuse.json` (what the next run replays) | `.placemat/runs/<id>/` |
 | `run` | `latest.json` (the last run of any board), `latest-<board>.json` (the last of each board: what a run compares with and reuses), `best.json`, and with `--label` an alias | `.placemat/runs/` |
 | `preview` | `preview.svg`, `preview.png`, and `reuse.json` (what the next preview replays) | `.placemat/views/preview/`, or `--out DIR` |
+| `studio` | `reuse.json` (what the next resolve replays) and `worker.log` | `.placemat/views/studio/` |
 | `run` / `preview` with `--explore --accept`, `lock --current`, `route --adopt` | the lock: accepted decisions | `<script stem>.lock.json` beside the script |
 | `freeze` | the script's frozen `place()` calls, and the lock less those entries | the script, and its lock |
 | `route --adopt` / `routes --release` | the kept routes | `<script stem>.routes.json` beside the script |
@@ -3585,6 +3655,12 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `preview.converter` | "rsvg-convert --width {width} -o {png} {svg}" | the command `placemat preview` runs to turn its SVG into a PNG; `{svg}`, `{png}` and `{width}` are filled in |
 | `preview.px_per_mm` | 40.0 | the preview PNG's resolution, pixels per millimetre of the drawing |
 | `preview.model_edge` | 1568 | the long edge, in pixels, an image is scaled to before the model reading it sees it - an assumption about that model, which placemat cannot know; the preview reports the resolution the model would then see. 0 reports nothing |
+| `studio.port` | 0 | the port `placemat studio` listens on, on 127.0.0.1 only; 0 is any free one. Not part of a run's id |
+| `studio.debounce_ms` | 300 | a change to a watched file starts a resolve after this long without another |
+| `studio.open` | true | open the browser on the page; `--no-open` overrides |
+| `studio.keep` | 10 | resolves kept, so the page can compare any two |
+| `studio.poll_ms` | 200 | how often the watched files' modification times are read |
+| `studio.cancel_grace_ms` | 2000 | a resolve asked to stop that has not stopped by then has its worker restarted |
 | `cleanup.enabled` | true | after the searched tier, move and swap plain searched parts where that shortens their wire and declared links |
 | `cleanup.passes` | 2 | passes over the movable parts; one that changes nothing ends it |
 | `cleanup.radius` | 3.0 | how far round its optimal region, and round where it stands, a part is searched |
