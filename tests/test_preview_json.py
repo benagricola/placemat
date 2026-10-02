@@ -6,7 +6,7 @@ from placemat.cutouts import Circle
 from placemat.layout import Board
 from placemat.preview import draw
 from placemat.preview_json import declared_sites, finding_targets, item_json, plan_json
-from placemat.values import CopperLayer, Face, LinkWeight, Location, Net, PadRef, Part
+from placemat.values import Centre, CopperLayer, Cutout, Face, LinkWeight, Location, Net, PadRef, Part
 from tests.fixtures import board_geometry, footprint
 
 
@@ -148,3 +148,18 @@ def test_the_plan_gives_each_finding_its_refs_and_pads():
     b, plan = _plan()
     doc = plan_json(plan, declared_sites(b))
     assert all(isinstance(f["refs"], list) and isinstance(f["pads"], list) for f in doc["findings"])
+
+
+def test_a_copper_step_says_which_of_the_documents_copper_it_laid_and_a_cutout_step_which_loop_it_cut():
+    b = _board()
+    b.size(width=60.0, height=20.0, holes=[Cutout(Circle(1.0), "vent", at=Centre(40.0, 4.0), why="air")])
+    plan = b.resolve()
+    doc = plan_json(plan, declared_sites(b))
+    steps = {s["item"]: s for s in doc["steps"]}
+    laid = [i for s in doc["steps"] if s["kind"] == "copper" for i in s["copper"]]
+    assert laid and all(0 <= i < len(doc["copper"]) for i in laid) and len(laid) == len(set(laid))
+    kinds = {doc["copper"][i]["t"] for i in laid}
+    assert "track" in kinds and "via" in kinds
+    cut = next(s for s in doc["steps"] if s["kind"] == "cutout")
+    assert cut["loop"] is not None and len(doc["board"]["loops"][cut["loop"]]) > 4
+    assert all(s["loop"] is None for s in doc["steps"] if s["kind"] != "cutout")

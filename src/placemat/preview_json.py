@@ -194,6 +194,29 @@ def _findings(plan, keys) -> list:
     return out
 
 
+def _inside(pt, loop) -> bool:
+    x, y, hit = pt[0], pt[1], False
+    for (x1, y1), (x2, y2) in zip(loop, loop[1:] + loop[:1]):
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            hit = not hit
+    return hit
+
+
+def _cutout_loop(plan, step, loops):
+    """Which of the board's loops a cutout step cut, or None: the smallest loop round the place it was cut at."""
+    if step.kind != "cutout":
+        return None
+    placed = plan.cutouts_placed.get(step.item[len("cutout "):] if step.item.startswith("cutout ") else step.item)
+    if placed is None:
+        return None
+    def area(l):
+        xs, ys = [p[0] for p in l], [p[1] for p in l]
+        return (max(xs) - min(xs)) * (max(ys) - min(ys))
+    outer = max(range(len(loops)), key=lambda i: area(loops[i]), default=None)       # the board's own edge is never a hole
+    around = [(i, l) for i, l in enumerate(loops) if i != outer and _inside(_pt(placed.centre), l)]
+    return min(around, key=lambda il: area(il[1]))[0] if around else None
+
+
 def board_json(plan) -> dict:
     """The board as drawn under the parts: its outline, keepouts and
     reservations. Known as soon as a resolve is under way, so a page can draw
@@ -228,14 +251,19 @@ def plan_json(plan, sites: dict | None = None, score: dict | None = None) -> dic
         if step.item not in seen:
             seen.add(step.item)
             items.append(item_json(plan, step, sites))
+    copper = [c for c in (_copper(op) for op in plan.copper) if c is not None]
+    at, k = {}, 0
+    for n, op in enumerate(plan.copper):                  # a step's ops by where they are in the document's copper
+        if _copper(op) is not None:
+            at[n], k = k, k + 1
+    loops = [_poly(l) for l in _board_loops(plan)]
     steps = []
     for n, s in enumerate(plan.steps):
         steps.append({"i": n, "item": s.item, "kind": s.kind, "placed": s.placement is not None, "note": s.note,
                       "why": s.why, "freedom": s.freedom.value if s.freedom is not None else None,
-                      "rank": s.rank})
+                      "rank": s.rank, "copper": [at[i] for i in s.laid if i in at], "loop": _cutout_loop(plan, s, loops)})
     unplaced = [{"item": s.item, "why": s.note.split("UNPLACED", 1)[-1].lstrip(": ") if "UNPLACED" in s.note else s.note}
                 for s in plan.steps if s.placement is None and s.kind in ("part", "cell", "block")]
-    copper = [c for c in (_copper(op) for op in plan.copper) if c is not None]
     return {
         "version": VERSION, **board_json(plan),
         "items": items, "copper": copper, "links": _links(plan),

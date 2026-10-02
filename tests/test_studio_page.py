@@ -82,7 +82,7 @@ const listeners = {}, frames = [], fetched = [];
 const flush = () => { while (frames.length) frames.shift()(); };
 const flushOnce = () => { frames.splice(0).forEach(f => f()); };
 const ctx = {
-  document: {querySelector: stub, querySelectorAll: () => [], body: {dataset: {}}, elementFromPoint: () => null},
+  document: {querySelector: stub, querySelectorAll: () => [], addEventListener() {}, body: {dataset: {}}, elementFromPoint: () => null},
   window: {addEventListener() {}}, location: {search: "?t=x"}, matchMedia: () => ({matches: true}), Date: FakeDate,
   EventSource: class { constructor() { this.addEventListener = (n, f) => { listeners[n] = f; }; } },
   requestAnimationFrame: f => { frames.push(f); }, setInterval() {}, clearInterval() {}, setTimeout() {}, fetch: (u, o) => { fetched.push([u, o]); return Promise.reject(new Error("no")); },
@@ -150,28 +150,28 @@ out.files = els["#file"].innerHTML;
 
 
 @needs_node
-def test_the_slider_has_one_position_for_each_placement_step(tmp_path):
-    """The positions are the steps that placed an item the board draws, in order: copper steps, a part that was not
-    placed and a repeated step are not positions, and the count the page shows is the slider's maximum."""
+def test_the_slider_has_one_position_for_each_placement_and_copper_step(tmp_path):
+    """The positions are the steps that placed an item the board draws and the copper and cutout steps, in order: a
+    part that was not placed and a repeated step are not positions, and the count the page shows is the slider's maximum."""
     out = run_page(tmp_path, r"""
 hello(); started(1); send("board", BOARD);
 for (const [k, x] of [["a", 1], ["b", 5], ["c", 9]]) send("step", {id: 1, item: item(k, x)});
 finish(1, ["a", "b", "c"]);
-out.order = ev("placementSteps(plan())").map(s => s.item);
+out.order = ev("replaySteps(plan())").map(s => s.item);
 out.nsteps = ev("plan().steps.length");
 out.max = els["#slider"].max;
 out.label = els["#steplabel"].textContent;
-out.at = [0, 1, 2, 3, 4].map(k => ev("itemsAtStep(plan(), " + k + ")"));
+out.at = [0, 1, 4, 6, 7].map(k => ev("itemsAtStep(plan(), " + k + ")"));
 out.all = ev("itemsAtStep(plan(), null)");
 out.other = ev("otherSteps(plan())").map(s => s.item);
 out.tab = els["#tab-steps"].innerHTML;
 """)
-    assert out["nsteps"] == 8 and out["order"] == ["a", "b", "c"]
-    assert out["max"] == 3 and out["label"] == "3 / 3"
+    assert out["nsteps"] == 8 and out["order"] == ["a", "fanout a", "escape U1", "b", "escape U1", "c"]
+    assert out["max"] == 6 and out["label"] == "6 / 6"
     assert out["at"] == [[], ["a"], ["a", "b"], ["a", "b", "c"], ["a", "b", "c"]]     # steps 1..k, and no position past the last
     assert out["all"] == ["a", "b", "c"]
-    assert out["other"] == ["fanout a", "escape U1", "escape U1", "a"]        # "gone" is listed as not placed
-    assert out["tab"].count('data-n="') == 3
+    assert out["other"] == ["a"]                                              # "gone" is listed as not placed
+    assert out["tab"].count('data-n="') == 6 and 'class="chip escape">escape' in out["tab"] and 'class="chip decided">decided' in out["tab"]
 
 
 @needs_node
@@ -185,21 +185,21 @@ const writes = [];
 for (const g of ev("B.byStep").flat()) { let d = g.style.display; Object.defineProperty(g.style, "display", {get: () => d, set: v => { writes.push(g.dataset.key); d = v; }}); }
 ev("setReplay(1)"); flush();
 out.k1 = shown(); out.w1 = writes.splice(0);
-ev("setReplay(2)"); flush();
+ev("setReplay(4)"); flush();
 out.k2 = shown(); out.w2 = writes.splice(0);
 ev("setReplay(1)"); flush();
 out.back = shown(); out.w3 = writes.splice(0);
 ev("setReplay(0)"); flush();
 out.k0 = shown(); out.label0 = els["#steplabel"].textContent;
-ev("setReplay(3)"); flush();
+ev("setReplay(6)"); flush();
 out.end = shown(); out.replay = ev("S.replay");
 """)
     hidden = lambda state: [i for i, gs in enumerate(state) if gs and all(d == "none" for d in gs)]
     assert hidden(out["start"]) == []
-    assert hidden(out["k1"]) == [1, 2] and set(out["w1"]) == {"b", "c"}       # at 1 only a shows
-    assert hidden(out["k2"]) == [2] and out["w2"] == ["b"]                      # a step forward touches one item
-    assert hidden(out["back"]) == [1, 2] and out["w3"] == ["b"]
-    assert hidden(out["k0"]) == [0, 1, 2] and out["label0"] == "0 / 3"
+    assert hidden(out["k1"]) == [3, 5] and set(out["w1"]) == {"b", "c"}       # at 1 only a shows (b is the fourth step, c the sixth)
+    assert hidden(out["k2"]) == [5] and out["w2"] == ["b"]                      # a step forward touches one item
+    assert hidden(out["back"]) == [3, 5] and out["w3"] == ["b"]
+    assert hidden(out["k0"]) == [0, 3, 5] and out["label0"] == "0 / 6"
     assert hidden(out["end"]) == [] and out["replay"] is None
 
 
@@ -350,7 +350,7 @@ def test_keepout_and_setup_steps_are_not_positions_of_the_replay(tmp_path):
     placement list, and a board whose first steps are keepouts replays from its first part."""
     out = run_more(tmp_path, r"""
 full([emptyKeepoutStep("k1"), emptyKeepoutStep("k2"), item("a", 1), item("b", 5)], [st("k1", "keepout"), st("k2", "keepout"), st("a"), st("b")]);
-out.order = ev("placementSteps(plan())").map(s => s.item);
+out.order = ev("replaySteps(plan())").map(s => s.item);
 out.max = els["#slider"].max; out.other = ev("otherSteps(plan())").map(s => s.item); out.items = ev("itemsOf(plan())").map(i => i.key);
 out.rows = (els["#tab-steps"].innerHTML.match(/data-n="/g) || []).length;
 out.stat = els["#stats"].innerHTML;
@@ -472,7 +472,7 @@ out.row = els["#tab-steps"].innerHTML;
 """)
     assert out["rides"] == "rides l_match" and out["decided"] == "decided at a point" and out["edge"] == "decided along an edge, slid 0.50 mm"
     assert out["searched"] == "searched: rank 3 of 9, seeded on VDD" and out["pocket"].startswith("pocket")
-    assert "Each row is one step" in out["row"] and 'class="fdot critical"' in out["row"] and "the whole note" in out["row"] and 'class="full"' in out["row"]
+    assert 'data-info="steps"' in out["row"] and 'class="fdot critical"' in out["row"] and "the whole note" in out["row"] and 'class="full"' in out["row"]
 
 
 @needs_node
@@ -581,7 +581,7 @@ out.solo = els["#card"].innerHTML;
     c = out["card"]
     assert "<span>module</span>" not in c and 'data-act="module"' in c and c.index('data-act="module"') < c.index('data-act="close"')   # the module is the item: a pill by the title
     for title in ("Placement", "Why it moved", "Vias", "Links", "Findings"):
-        assert '<div class="ct">' + title + "</div>" in c, title
+        assert '<div class="cst">' + title + "</div>" in c, title
     assert '<span class="chip net">USB_CC1</span>' in c and '<span class="chip net">USB_CC2</span>' in c
     assert "20 of 24" in c and "22.4 mm\u00b2" in c and "17 pins" not in c
     assert '<span class="chip warn">10.48 mm</span>' in c and "silk is 0.00 mm from" in c
@@ -607,3 +607,44 @@ out.again = ev("S.focus && S.focus.refs");
     assert out["pad"] and out["focus"] == {"refs": ["Ra", "Rb"], "pads": [["Ra", "1"], ["Rb", "2"]]}
     assert out["sel"] == ["a", None] and out["cleared"] is None and out["again"] == ["Ra"]
     assert 'data-act="finding" data-fi="1"' in out["card"]
+
+
+@needs_node
+def test_copper_and_cutouts_are_drawn_at_their_step_and_the_rest_with_the_last(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+const ops = ev("plan().copper").length;
+ev('plan().steps = [{item: "a", kind: "part", placed: true, note: ""}, {item: "track N", kind: "copper", placed: false, note: "1 op(s)", copper: [0]}, {item: "cutout hole", kind: "cutout", placed: false, note: "", loop: 1, copper: []}]');
+ev('plan().board.loops.push([[30, 20], [34, 20], [34, 24]])');
+ev("renderBoard()");
+out.board = board().innerHTML; out.steps = ev("replaySteps(plan())").map(s => [s.item, s.type, s.n]);
+""")
+    b = out["board"]
+    assert out["steps"] == [["a", "place", 0], ["track N", "copper", 1], ["cutout hole", "cutout", 2]]
+    assert re.search(r'<line class="trk l-F"[^>]*data-s="1"', b)                            # the track the step laid
+    assert 'class="plane l-In" data-s="2"' in b and 'class="viag" data-s="2"' in b        # the rest of the copper shows with the last step
+    assert re.search(r'<polygon class="cutoutg" data-s="2" points="30,20', b) and b.count("M 30,20") == 0        # the hole is no part of the edge
+
+
+@needs_node
+def test_a_step_opens_into_the_cards_sections_and_says_each_thing_once(tmp_path):
+    out = run_more(tmp_path, r"""
+const note = "rank 7/24 (81.1 mm2, 7th of 24; 27 pins, 10th); seeded on USB_HV, USB_WET, VBUS, VBUS_DISCH; vias: 1 GND via shared, 2 left its pad";
+full([Object.assign(item("a", 1), {how: "searched", freedom: "searched", note})], [Object.assign(st("a"), {note, freedom: "searched"})]);
+out.row = els["#tab-steps"].innerHTML;
+""")
+    r = out["row"]
+    assert r.count("rank 7 of 24") == 1 and ">7 of 24<" in r and 'class="chip searched">searched</span>' in r      # the pill says searched, the line the rank, the opened row the rank as a pill
+    assert 'class="cst">Placement</div>' in r and 'class="cst">Vias</div>' in r and '<span class="chip net">VBUS_DISCH</span>' in r
+    assert "seeded on USB_HV, USB_WET, VBUS +1" in r                                          # the one line keeps the first nets
+
+
+@needs_node
+def test_each_explanatory_note_is_an_info_icon_on_its_heading(tmp_path):
+    out = run_more(tmp_path, r"""
+full([item("a", 1)], [st("a")]);
+out.legend = els["#legend"].innerHTML; out.steps = els["#tab-steps"].innerHTML; out.info = ev("Object.keys(INFO)");
+""")
+    assert '<h4>Links<button class="info" data-info="links"' in out["legend"] and "lgnote" not in out["legend"] and "A link is a pull" not in out["legend"]
+    assert 'data-info="steps"' in out["steps"] and "Each row is one step" not in out["steps"]
+    assert {"links", "steps", "other"} <= set(out["info"])
