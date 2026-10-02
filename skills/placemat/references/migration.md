@@ -5,6 +5,26 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **`placemat studio` with no script.** The command lists the layout scripts under the current directory's project (the
+  folder of the outermost `placemat.toml` above it, else the current directory), and the page opens on that list: title,
+  subtitle and path of each, nothing resolving until one is chosen. The header's board name is the same list as a menu,
+  so a studio can move between scripts in place. With no layout script found it exits naming the folder it searched.
+- **The studio's Run button.** A checked run (`placemat run --no-render`: the design checks, KiCad's DRC and the score, a
+  run record) from the page, with its progress and result shown; the runs recorded for the script (this one's or
+  another's, from `.placemat/runs`) are listed with their score, DRC, checks and findings and can be compared with the
+  newest resolve. `/runs`, `/runcompare?run=ID` and `POST /run` serve it.
+- **The studio shows what happens to its worker.** A worker stopped by a signal is reported by name ("stopped by
+  SIGTERM"), a crash with the signal and the line of the script or module that was running (from faulthandler), and a
+  script's exception with its type and its own innermost line, including a line in a module it imports. Nothing is
+  reported when the studio itself is stopping.
+- **The studio streams copper and cutout steps** as they settle, so the timeline and the steps list grow during a
+  resolve and the slider can be used; a footprint's own copper graphics (a printed winding) are drawn, planes are
+  visible and congestion is a colour ramp with a scale.
+
 ## To 0.82.0
 
 ### New
