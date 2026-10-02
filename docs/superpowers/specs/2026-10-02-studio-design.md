@@ -119,6 +119,31 @@ the run with the last one as it compares resolves. Runs started elsewhere
 (an agent's `placemat run`) are picked up from `.placemat/runs` and shown
 the same way.
 
+### Watching an explore (phase 2)
+
+The user (2026-10-02): "I wonder if it's possible to view an explore session
+as well to see what the agent is actually trying". An explore resolves
+seeded variants of the focused items' spots and order in worker processes
+(explore.py `explore`, `_work`): each variant comes back as (seed, score,
+measures) on a queue, and only the best is reported or kept today.
+
+- **A progress log.** Every explore (from `placemat run --explore`, `preview
+  --explore`, by an agent or the user) appends one line per finished variant
+  to `.placemat/views/explore/<id>.jsonl`: the seed, its score and measures,
+  and the focused items' placements (key, position, turn, face) and the
+  order they were placed in; the first line holds the plain placement (seed
+  0), the focus, the time budget and the job count. Regenerable output,
+  under `.placemat/views/` like the other views.
+- **The page tails the log**, live while the explore runs and afterwards:
+  - the variants as they finish, with a plot of score against time and the
+    best so far marked;
+  - each variant as a diagram diff against the plain placement (the focused
+    items' ghosts at their plain spots, arrows to where the variant put
+    them), and a step through the variants in order or by score;
+  - the variant the explore kept (`--accept`) marked, and what it moved.
+- Seeing what was tried and rejected needs nothing from the agent beyond
+  running explore; the log is written whoever runs it.
+
 ### 3D (phase 3)
 
 3D only with the parts' real 3D models (the user: it "only really makes
@@ -167,7 +192,8 @@ normal run, on request.
    the linked read-only script, and the compare: a line diff and a diagram
    diff, linked.
 2. The Run button (a run without the render) and runs from elsewhere,
-   shown with DRC, checks and score, and compared.
+   shown with DRC, checks and score, and compared; an explore's variants
+   logged and watched as they finish.
 3. 3D with the parts' real models.
 4. The agent note channel.
 
