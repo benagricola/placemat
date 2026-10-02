@@ -305,6 +305,7 @@ class PlaceIntent:
     drops: Drops = field(default=Drops.ALL, metadata={"omit_default": True})   # a cell's via fields as stamped, or thinned when it is placed
     pushes: tuple = field(default=(), metadata={"omit_default": True})   # Push declarations on this item, from board.push()
     line: int = field(default=0, metadata={"reuse": False})   # the script line that declared it: not what it decides
+    file: str = field(default="", metadata={"reuse": False})  # and the file that line is in (a module the script imports, or the script)
     toward: object = field(default=None, metadata={"omit_default": True})   # Centre(toward=): an end of the free line
     pin_land: object = field(default=None, metadata={"omit_default": True})   # Pin(land=): the land of `pin` that lands on the point
     either: bool = field(default=False, metadata={"omit_default": True})   # face=Face.EITHER: `face` is FRONT, and the search also tries the back
@@ -2745,7 +2746,7 @@ class Board:
                              standoff, near, radius, step, tuple(rotations), why, len(self._intents), frozenset(needs),
                              pin_x, pin_y, source, faces_note, pinned, pin, rim, angle, radius_at, outward, about, run,
                              freedom, required, rotation_given, turned=turned, beside=beside, row_of=_row_of,
-                             cell_pin=cell_pin, drops=drops, line=_script_line(),
+                             cell_pin=cell_pin, drops=drops, file=_script_site()[0], line=_script_site()[1],
                              toward=getattr(_centre_toward, "toward", None), pin_land=pin_land, either=either,
                              tangent=tangent, band=band)
         self._intents.append(intent)
@@ -5950,7 +5951,7 @@ class Board:
 
     reuse_extra = ""        # what the runner adds to the reuse context: tool version, board file, settings, fab profile
 
-    def resolve(self, progress=None, reuse=None, explore=None, lock=None, routes=None) -> Plan:
+    def resolve(self, progress=None, reuse=None, explore=None, lock=None, routes=None, on_step=None) -> Plan:
         self._check_groups()                # what a declared group may hold, before the search
         self._annotations = exposure.read(self.geometry)    # sources and sensitive parts (Pm.Emits, Pm.Limit); refuses a unit mismatch
         self._part_keep_outs()              # the clearances the parts' Pm.KeepOut ask of other nets' copper; refuses one with no citation
@@ -6209,6 +6210,8 @@ class Board:
                             "its stamped regions keep parts off %.1f mm2 of board beyond its own parts" % taken
             if progress:
                 progress(_fmt(step))
+            if on_step:
+                on_step(plan, step)
             for r in self._ride_groups.get(obj.key, ()):        # committed with it, in its settle
                 rs = next(s for s in reversed(plan.steps) if s.item == r.key)
                 if rs.placement is None and r.required and not self.keep_going:
@@ -6222,6 +6225,8 @@ class Board:
                         self._cell_placements[r.key] = rs.placement
                 if progress:
                     progress(_fmt(rs))
+                if on_step:
+                    on_step(plan, rs)
             self._settled.add(obj.key)
             self._place_fanouts(occ, plan, placed, progress)
             self._place_escapes(occ, plan, placed, progress)
@@ -8796,8 +8801,8 @@ def _label_op(text, box: Box, face: Face, side: Edge, gap: float, align: str, si
     vj, x = across[align]; return T(text, Location(x, off.bottom + gap), face, size, thick, 90.0, "right", vj, knockout, mirrored)
 
 
-def _script_line() -> int:
-    """The line of the script (or test) that made the declaration being
+def _script_site() -> tuple:
+    """(file, line) of the script (or test) that made the declaration being
     built: the first frame outside the placemat package."""
     import inspect
     import os
@@ -8805,9 +8810,14 @@ def _script_line() -> int:
     f = inspect.currentframe()
     while f is not None:
         if not os.path.abspath(f.f_code.co_filename).startswith(here + os.sep):
-            return f.f_lineno
+            return os.path.abspath(f.f_code.co_filename), f.f_lineno
         f = f.f_back
-    return 0
+    return "", 0
+
+
+def _script_line() -> int:
+    """The line of the script (or test) that made the declaration being built."""
+    return _script_site()[1]
 
 
 def _run_along(board: "Board", occ: Occupancy, i: PlaceIntent) -> float:

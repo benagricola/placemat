@@ -289,27 +289,26 @@ def generator_inputs(src: BoardSource) -> dict:
     return dict(sorted(out.items()))
 
 
-def script_fingerprint(script) -> str:
-    """The script's text, that of every module it imports from beside it or
-    from the folders above it that run_script adds (followed through their
-    own imports) and its lock file: what the run id
-    hashes, so a change to shared geometry in a sibling module, or an
-    accepted explore result, is a different run."""
+def script_files(script, missing: bool = False) -> list:
+    """The files a script's run depends on, in the order script_fingerprint
+    reads them: the script, every module it imports from beside it or from
+    the folders above it that run_script adds (followed through their own
+    imports), then its lock file and its adopted routes. Only those that
+    exist, unless `missing`: a lock or routes file not written yet is named
+    too, for a watcher that should see it appear."""
     import ast
     from .context import _import_dirs
     script = Path(script).resolve()
-    here = script.parent
     dirs = _import_dirs(script)
-    parts, seen, todo = [], set(), [script]
+    found, seen, todo = [], set(), [script]
     while todo:
         path = todo.pop(0)
         if path in seen or not path.is_file():
             continue
         seen.add(path)
-        text = path.read_text(errors="replace")
-        parts.append("%s\0%s" % (os.path.relpath(path, here) if path != script else "", text))
+        found.append(path)
         try:
-            tree = ast.parse(text)
+            tree = ast.parse(path.read_text(errors="replace"))
         except SyntaxError:
             continue
         for node in ast.walk(tree):
@@ -318,14 +317,36 @@ def script_fingerprint(script) -> str:
             for name in names:
                 rel = Path(*name.split("."))
                 for d in dirs:                  # where run_script lets it import from, innermost first
-                    found = [c for c in (d / rel.with_suffix(".py"), d / rel / "__init__.py") if c.is_file()]
-                    if found:
-                        todo.append(found[0].resolve())
+                    hit = [c for c in (d / rel.with_suffix(".py"), d / rel / "__init__.py") if c.is_file()]
+                    if hit:
+                        todo.append(hit[0].resolve())
                         break
-    lock = script.with_name(script.stem + ".lock.json")      # accepted decisions decide placements too
-    if lock.is_file():
-        parts.append("lock\0%s" % lock.read_text(errors="replace"))
-    kept = script.with_name(script.stem + ".routes.json")    # adopted routes are copper the run draws
-    if kept.is_file():
-        parts.append("routes\0%s" % kept.read_text(errors="replace"))
+    for beside in (script.with_name(script.stem + ".lock.json"),     # accepted decisions decide placements too
+                   script.with_name(script.stem + ".routes.json")):  # adopted routes are copper the run draws
+        if missing or beside.is_file():
+            found.append(beside)
+    return found
+
+
+def script_fingerprint(script) -> str:
+    """The script's text, that of every module it imports from beside it or
+    from the folders above it that run_script adds (followed through their
+    own imports) and its lock file: what the run id
+    hashes, so a change to shared geometry in a sibling module, or an
+    accepted explore result, is a different run."""
+    script = Path(script).resolve()
+    here = script.parent
+    parts, lock, kept = [], None, None
+    for path in script_files(script):
+        text = path.read_text(errors="replace")
+        if path == script.with_name(script.stem + ".lock.json"):
+            lock = text
+        elif path == script.with_name(script.stem + ".routes.json"):
+            kept = text
+        else:
+            parts.append("%s\0%s" % (os.path.relpath(path, here) if path != script else "", text))
+    if lock is not None:
+        parts.append("lock\0%s" % lock)
+    if kept is not None:
+        parts.append("routes\0%s" % kept)
     return "\0\0".join(parts)
