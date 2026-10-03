@@ -78,3 +78,44 @@ def test_an_item_meeting_another_items_net_tie_is_accepted_and_chosen_as_the_pyt
     assert py[4], "the part has somewhere to go"
     assert nat[:5] == py[:5]
     assert nat[5] < py[5] / 2
+
+
+def _searched_board(envelope):
+    """Parts that search for a place beside a net tie they do not own, on nets the placed parts carry:
+    the scorer weighs each legal candidate."""
+    from placemat.layout import Board
+    from placemat.values import Part
+    tie = dataclasses.replace(_tie("NT", NETS), ref="NT", location=Location(30.0, 30.0))
+    fixed = [footprint("P1", 24, 30, w=3.0, h=1.0, nets=NETS), footprint("P2", 36, 30, w=3.0, h=1.0, nets=NETS)]
+    movers = [footprint("Q%d" % i, 10, 10 + 3 * i, w=3.0, h=1.0, nets=NETS) for i in range(3)]
+    geom = board_geometry(fixed + movers + [tie], width=60, height=60, clearance=0.2)
+    b = Board(geom, edge_margin=1.0, keep_going=True, settings=dataclasses.replace(Settings(), place_envelope=envelope))
+    b.place(Part("p1"), at=Location(24, 30), rotation=0)
+    b.place(Part("p2"), at=Location(36, 30), rotation=0)
+    b.place(Part("nt"), at=Location(30, 30), rotation=0)
+    for m in movers:
+        b.place(Part(m.inst))
+    return b
+
+
+@pytest.mark.parametrize("envelope", ["courtyard", "physical"])
+def test_a_search_beside_a_net_tie_places_as_the_python_path_does_and_scores_natively(monkeypatch, envelope):
+    from placemat import occupancy
+    scored = []
+    real = occupancy.NativeSweeper._sweep
+
+    def spy(self, index, triples, stop_at_first, scoring):
+        scored.append(scoring is not None)
+        return real(self, index, triples, stop_at_first, scoring)
+
+    def run(native):
+        monkeypatch.setattr(placer, "NATIVE_SWEEP", native)
+        plan = _searched_board(envelope).resolve()
+        return ([(s.item, s.placement and (s.placement.location.x, s.placement.location.y, s.placement.rotation))
+                 for s in plan.steps], sorted(plan.findings))
+    py = run(False)
+    monkeypatch.setattr(occupancy.NativeSweeper, "_sweep", spy)
+    nat = run(True)
+    assert nat == py
+    assert any(s[1] for s in py[0] if s[0].startswith("q")), "the searched parts are placed"
+    assert any(scored), "a sweep past a net tie it does not own scores natively"

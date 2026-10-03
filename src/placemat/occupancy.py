@@ -1841,13 +1841,15 @@ class Occupancy:
         board = native_board(self)
         if board is None:
             return None
-        leave_out, recheck = frozenset(), None
+        leave_out, recheck, full = frozenset(), None, None
         if self._tie_refs:
             owned = self._tie_refs & self._geometry(item).owners
             lean = self._without_ties(entry)
             if owned or lean is not entry:
-                entry, leave_out, recheck = lean, owned, (item, others)
-        return NativeSweeper(self, item, face, rots, entry, board, clearance, leave_out, recheck)
+                # An item that owns no tie also has its pass over the obstacles with their ties in (`full`):
+                # a candidate that passes it passes `legal`, where an exclusion can only excuse a conflict.
+                entry, leave_out, recheck, full = lean, owned, (item, others), (None if owned else entry)
+        return NativeSweeper(self, item, face, rots, entry, board, clearance, leave_out, recheck, full)
 
     def _without_ties(self, entry):
         """A native obstacle entry (index, shapes) less the shapes of the net
@@ -2660,10 +2662,12 @@ class NativeSweeper:
     the first; this turns a detail into what `legal_bucket` gives: the
     bucket, the sentence (for the first candidate only) and the blocker."""
 
-    def __init__(self, occ, item, face, rots, entry, board, clearance, leave_out=frozenset(), recheck=None):
+    def __init__(self, occ, item, face, rots, entry, board, clearance, leave_out=frozenset(), recheck=None,
+                 full=None):
         from .placement import Placement
         self.occ, self.item, self.face, self.rots = occ, item, face, tuple(rots)
         self.recheck = recheck              # (item, obstacles): what a candidate the native pass accepts is judged by, in full
+        self.full = full                    # the obstacle entry with the net ties in, when the item owns none (see `run`)
         self.index, self.shapes = entry
         self.board, self.clearance = board, clearance
         geom = occ._geometry(item)
@@ -2713,19 +2717,29 @@ class NativeSweeper:
         reason, blocker key), in the order first met. With `scoring` (a
         NativeScoring for these turns) each legal candidate is scored as the
         scan's scorer would score it; else its score is 0. A sweep with net
-        ties left out (`recheck`) is not scored natively: each candidate the
-        native pass accepts is judged in full here, and kept or refused."""
+        ties left out (`recheck`) judges what its native pass accepts in full:
+        a candidate that also passes with the ties in (`full`) is legal as it
+        stands, since KiCad's net-tie exclusion only excuses a conflict, and
+        the rest are judged here and kept or refused. Its scores are None
+        (the caller scores each candidate) unless every candidate it keeps
+        passed with the ties in and `scoring` is given, when they are scored
+        natively."""
         if self.recheck is None:
             return self._native_run(triples, stop_at_first, scoring)
-        legal, refused, start = [], {}, 0
+        legal, refused, start, judged = [], {}, 0, False
         while start < len(triples):
             found, _, refusals = self._native_run(triples[start:], stop_at_first, None)
             for bucket, count, first, reason, blocker in refusals:
                 self._merge(refused, bucket, count, start + first, reason, blocker)
             if not found:
                 break
-            for j in found:
+            sure = self._with_ties([triples[start + j] for j in found])
+            for at, j in enumerate(found):
                 i = start + j
+                if at in sure:
+                    legal.append(i)
+                    continue
+                judged = True
                 hit, blame = self._judge(triples[i])
                 if hit is None:
                     legal.append(i)
@@ -2735,15 +2749,33 @@ class NativeSweeper:
                 break
             start = start + found[-1] + 1       # the one accepted was refused: on to the next
         out = sorted(((b, c, f, r, k) for (b, k), (c, f, r) in refused.items()), key=lambda e: e[2])
-        return legal, [0.0] * len(legal), out
+        scores = None
+        if scoring is not None and legal and not judged and not stop_at_first:
+            floor = scoring.floor
+            sweep = self._sweep(self.full[0], [triples[i] for i in legal], False, scoring)
+            if len(sweep[0]) == len(legal):
+                scores = sweep[1]
+            else:
+                scoring.floor = floor
+        return legal, scores, out
+
+    def _with_ties(self, triples) -> frozenset:
+        """Which of `triples`, accepted without the net ties, the native pass accepts with them: the
+        positions in `triples`. None when the item owns a tie (`full` is None)."""
+        if self.full is None:
+            return frozenset()
+        return frozenset(self._sweep(self.full[0], triples, False, None)[0])
+
+    def _sweep(self, index, triples, stop_at_first: bool, scoring):
+        from . import geometry as _g
+        return _g._native.sweep(self.board, self.reservations, index, self.handles,
+                                self.bodies, self.edges, triples, self.clearance, stop_at_first,
+                                scoring, self.parts if self.geom.parts else None,
+                                self.judged if self.geom.parts else None,
+                                self.edge_parts if self.geom.parts else None, self.yards)
 
     def _native_run(self, triples, stop_at_first: bool, scoring=None):
-        from . import geometry as _g
-        legal, scores, refused = _g._native.sweep(self.board, self.reservations, self.index, self.handles,
-                                                  self.bodies, self.edges, triples, self.clearance, stop_at_first,
-                                                  scoring, self.parts if self.geom.parts else None,
-                                                  self.judged if self.geom.parts else None,
-                                                  self.edge_parts if self.geom.parts else None, self.yards)
+        legal, scores, refused = self._sweep(self.index, triples, stop_at_first, scoring)
         out = []
         for kind, a, b, count, first in refused:
             bucket, blocker, reason = self._decode(kind, a, b, triples[first])
