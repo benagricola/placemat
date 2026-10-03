@@ -137,6 +137,9 @@ class Settings:
     explore_rank_power: float = 1.0    # a drawn spot at rank r is weighted 1 / r ** this: higher keeps nearer the best
     explore_congestion_step: float = 0.05   # the worst RUDY cell ranks variants in steps of this; 0 leaves it out
     explore_jobs: int = 0              # worker processes; 0: the CPU count less one
+    explore_stall_variants: int = 0    # stop an explore after this many variants without an improvement (0: not)
+    explore_stall_seconds: float = 0.0  # ... or after this many seconds without one (0: not)
+    explore_stop_hard_clear: bool = False   # ... or when a variant clears the hard terms the plain placement had (score.hard_clear)
     explore_checkpoint_max_variants: int = 100000   # finished variants a checkpoint records; past it a resume tries those again
     drc_severities: dict = field(default_factory=dict)   # KiCad rule -> error|warning|ignore, written into the board's project
     # [route]
@@ -223,6 +226,8 @@ class Settings:
     studio_keep: int = 10               # resolves kept for comparing any two
     studio_poll_ms: int = 200           # how often the watched files' modification times are read
     studio_explore_fps: float = 2.0     # an explore's latest variant is redrawn at most this often (the rest are plotted, not drawn)
+    studio_note_age_s: int = 3600       # a note left in the studio is hidden after this long; 0 keeps it
+    studio_notes_keep: int = 100        # notes kept in a board's notes file
     studio_cancel_grace_ms: int = 2000  # a resolve asked to stop that has not by then has its worker restarted
     studio_suggestions_per_lever: int = 3   # a finding's suggestions for one lever (which side to place beside): the best this many
     studio_suggest_factor: float = 2.0  # a suggestion that widens a limit or reach (a search radius, via_move) multiplies it by this
@@ -351,11 +356,11 @@ _ABOVE_ZERO = frozenset((
     "copper_plane_min_thickness", "copper_pour_stroke", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_size",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_neck_resistivity", "check_neck_conductivity",
-    "studio_keep", "studio_poll_ms", "studio_explore_fps", "studio_suggestions_per_lever", "studio_try_timeout_s", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
+    "studio_keep", "studio_poll_ms", "studio_explore_fps", "studio_notes_keep", "studio_suggestions_per_lever", "studio_try_timeout_s", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line", "write_keepout_text"))
 _AT_LEAST_ZERO = frozenset((
-    "rank_area", "rank_pins", "place_drops_keep", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
+    "rank_area", "rank_pins", "place_drops_keep", "route_turn_cost", "place_courtyard_touch", "cleanup_passes", "cleanup_swap_neighbours", "preview_model_edge", "studio_note_age_s", "studio_port", "studio_debounce_ms", "studio_cancel_grace_ms", "copper_chamfer", "best_airwire_noise",
     "best_crossing_noise", "score_unplaced", "score_priority_high", "score_priority_default", "score_priority_low",
     "score_drc", "score_link_over", "score_fixed", "score_copper", "score_label", "score_setup", "score_crossing",
     "score_crossing_plane", "score_escape_crossed", "score_escape_closed", "score_escape_walled", "score_escape_lane", "score_congestion",

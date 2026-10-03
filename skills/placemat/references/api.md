@@ -3529,6 +3529,26 @@ takes the finished result without searching again. `best.json` stays until the
 lock is written from it or the explore starts over. `[explore]
 checkpoint_max_variants` bounds the lines.
 
+**The curve and the stopping rules.** Each finished variant is a point
+`{i, seed, t, score, best}` (`i` the order it finished in, plain placement 0;
+`t` seconds since the explore began, over every session of a resumed one;
+`best` true when it beat all before it). The report (`metrics.explore`, the
+record in `.placemat/views/explore/`, the channel's `variant` events) keeps
+`curve`, `found` (`{i, seed, t, score, of_variants, of_seconds}`, the last
+improvement: the time-to-best) and `ended` (`{rule: "budget" | "stall_count" |
+"stall_time" | "hard_clear" | "signal", ...}`). The console says `best found at
+variant 7 of 34, 5 min 12 s in (of 43 min)` and, when a rule ended it, `ended
+by a stall: 20 variants without improvement`. `[explore] stall_variants`,
+`stall_seconds` and `stop_hard_clear` end an explore early (all off; the
+workers finish the variant in hand); an explore so ended is complete, so
+`--accept` applies. Hard terms: parts unplaced and critical-by-default findings
+the plan measures (`fixed`, `copper`, `escape_walled`); the rule fires only when
+the plain placement had some and a variant has none. Measured on four small
+modules (one or two focused items), the last improvement came at variant 8, 8,
+35 and never in 150: a count of 40 would have kept every best and ended after
+about a third of those variants, but no large board was measured, so the
+defaults stay off.
+
 For a long explore run it detached (`setsid nohup placemat run ... >
 explore.log 2>&1 &`) and do not chain it with `;`, which hides its exit
 status.
@@ -3571,6 +3591,27 @@ script and lock are written only when the edited script places every item
 exactly as the lock did; otherwise freeze says what would have moved (an
 entry that drifted is refused: accept it again where it now stands). A call inside a loop or a helper function
 declares more than one item and is refused with its line.
+
+## Studio notes
+
+```
+placemat studio note "<text>" [--at X,Y | --item NAME | --pad REF.N] [--from NAME] [--script PATH]
+```
+
+A note is a short remark left where the user is looking at the studio: "trying c_cpu further west". The command appends one record to
+`<board>/.placemat/views/studio/notes.jsonl` and returns; any studio watching that script reads the file as it changes (so a note
+reaches an open page within `[studio] poll_ms`, and a studio or page started later is given the ones that have not expired).
+`--script` names the layout script; without it the one under the current folder, else the project's only one.
+
+A record is `{"v": 1, "id", "at" (epoch s), "from", "script" (the script's file name), "description", "target"}` with `target` null or
+`{"kind": "point", "x", "y"}` (mm on the board: a place to look at, never a placement), `{"kind": "item", "name"}` or
+`{"kind": "pad", "ref", "pad"}`. `from` is `--from`, else `$PLACEMAT_FROM`, else the login name. The description is one line of at most
+1000 characters. The file is bounded to the last `[studio] notes_keep` records.
+
+The page draws each note as a pin at its target (an item or a pad is found in the plan every time, so the pin follows it when it
+moves), a line in the Notes list (who, how long ago, where; it opens when there is a note, and a tap on the line or the pin goes to the
+place), and a toast when one arrives. Dismiss hides a note in that browser only; a note is hidden after `[studio] note_age_s` seconds
+(0 keeps it). Nothing here changes the layout: a note is read by the user, and the script stays the only way a position is set.
 
 ## Findings and severities
 
@@ -3877,6 +3918,9 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `explore.rank_power` | 1.0 | an explored item's spot at rank r among its candidates is drawn with weight 1 / r to this power: higher keeps it nearer its best |
 | `explore.congestion_step` | 0.05 | variants are ranked by the run score, with the worst congestion cell counted in steps of this at `score.congestion` each (0 leaves it out) |
 | `explore.jobs` | 0 | worker processes for `--explore`; 0 is the CPU count less one |
+| `explore.stall_variants` | 0 | end an explore after this many finished variants without an improvement; 0 is off |
+| `explore.stall_seconds` | 0 | end an explore this many seconds after its last improvement; 0 is off |
+| `explore.stop_hard_clear` | false | end an explore when a variant has none of the hard terms (unplaced parts, critical findings) the plain placement had |
 | `explore.checkpoint_max_variants` | 100000 | finished variants an explore's checkpoint records; past it a resume tries those again |
 | `drc.severities` | none | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
 | `drc.real_kinds` | `clearance`, `shorting_items`, `track_width`, `annular_width`, `hole_clearance`, `hole_to_hole`, `courtyards_overlap`, `copper_edge_clearance` | which violations mean the board is not done: the `real` buckets |
@@ -3954,6 +3998,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `studio.try_timeout_s` | 60 | a try of a suggestion (a resolve of the edited script) is stopped after this long |
 | `studio.apply` | true | false: the studio shows suggestions and their diffs but refuses to write one |
 | `studio.explore_fps` | 2.0 | how many times a second the Runs view redraws the latest variant of a live explore (above 0) |
+| `studio.note_age_s` | 3600 | a note left with `placemat studio note` is hidden by the page after this many seconds; 0 keeps it |
+| `studio.notes_keep` | 100 | notes kept in a board's `.placemat/views/studio/notes.jsonl` (above 0) |
 | `cleanup.enabled` | true | after the searched tier, move and swap plain searched parts where that shortens their wire and declared links |
 | `cleanup.passes` | 2 | passes over the movable parts; one that changes nothing ends it |
 | `cleanup.radius` | 3.0 | how far round its optimal region, and round where it stands, a part is searched |

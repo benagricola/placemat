@@ -1254,3 +1254,71 @@ out.pref = ev("JSON.stringify(legendPref)");
     assert 'data-id="ko:ko0"' in out["three"] and 'data-exp="ko" data-n="3">&#9662;' in out["three"]                     # three: expanded
     assert out["shown"] == "none" and out["after_toggle"][1] is False and out["after_toggle"][2] == "all"       # all five start hidden; the header, though collapsed, shows them all
     assert 'data-id="ko:ko0"' in out["opened"] and out["pref"] == '{"ko":true}'
+
+
+# ---------------------------------------------------------------- notes
+NOTES = r"""
+const NT = {point: {id: "n1", at: 0.5, from: "agent-1", script: "x_layout.py", description: "look at this corner", target: {kind: "point", x: 5, y: 6}},
+            item: {id: "n2", at: 0.6, from: "agent-2", script: "x_layout.py", description: "trying a further west", target: {kind: "item", name: "a"}},
+            pad: {id: "n3", at: 0.7, from: "", script: "x_layout.py", description: "pad one is tight", target: {kind: "pad", ref: "Ra", pad: "1"}},
+            none: {id: "n4", at: 0.8, from: "agent-1", script: "x_layout.py", description: "no place", target: null}};
+const withNotes = (list, age) => { send("hello", {script: "x_layout.py", keep: 5, history: [], resolving: null, error: null, notes: list, note_age_s: age == null ? 3600 : age}); };
+"""
+
+
+@needs_node
+def test_a_note_is_a_pin_where_it_points_and_a_line_in_the_notes_list(tmp_path):
+    out = run_more(tmp_path, NOTES + r"""
+full([item("a", 1)], [st("a")]);
+ev("plan().items[0].members[0].shapes[1].number = '1'");
+withNotes([NT.point, NT.item, NT.pad, NT.none]);
+ev("renderNotes()"); out.list = els["#tab-notes"].innerHTML;
+out.pins = ev("notePins(plan())");
+out.where = [ev("notePlace(plan(), NT_)".replace("NT_", JSON.stringify(NT.point))), ev("notePlace(plan(), NT_)".replace("NT_", JSON.stringify(NT.item))), ev("notePlace(plan(), NT_)".replace("NT_", JSON.stringify(NT.pad))), ev("notePlace(plan(), NT_)".replace("NT_", JSON.stringify(NT.none)))];
+ev("renderCounts()"); out.count = els["#ntabs"] && 1;
+out.legend = (ev("renderLegend()"), els["#legend"].innerHTML);
+""")
+    lst = out["list"]
+    assert lst.count('class="row note') == 4 and "agent-1" in lst and "look at this corner" in lst and "at (5, 6) mm" in lst
+    assert '<span class="chip ">item</span> a' in lst and '<span class="chip ">pad</span> Ra.1' in lst and "no place named" in lst
+    assert 'data-notedismiss="n1"' in out["list"] and 'data-notedismiss="*"' in lst
+    pins = out["pins"]
+    assert pins.count('class="npin') == 3 and 'data-note="n4"' not in pins and 'translate(5 6)' in pins                 # a pin for each note that points somewhere
+    assert out["where"][0] == [5, 6] and out["where"][3] is None and len(out["where"][1]) == 2 and len(out["where"][2]) == 2
+    assert 'data-id="notes"' in out["legend"]
+
+
+@needs_node
+def test_an_items_pin_follows_it_when_it_moves(tmp_path):
+    out = run_more(tmp_path, NOTES + r"""
+full([item("a", 1)], [st("a")]);
+ev("plan().items[0].members[0].shapes[1].number = '1'");
+const moved = {items: [item("a", 9)]}; moved.items[0].members[0].shapes[1].number = "1";
+const before = ev("notePlace")(ev("plan()"), NT.item), padBefore = ev("notePlace")(ev("plan()"), NT.pad);
+out.moved = [before, ev("notePlace")(moved, NT.item), padBefore, ev("notePlace")(moved, NT.pad)];
+""")
+    a, b, c, d = out["moved"]
+    assert b[0] - a[0] == pytest.approx(8) and d[0] - c[0] == pytest.approx(8)
+
+
+@needs_node
+def test_a_new_note_raises_a_toast_dismissing_hides_it_for_this_viewer_and_old_ones_expire(tmp_path):
+    out = run_more(tmp_path, NOTES + r"""
+full([item("a", 1)], [st("a")]);
+withNotes([]);
+const store = {}; ctx.localStorage = {getItem: k => store[k] || null, setItem: (k, v) => { store[k] = v; }};
+send("note", NT.point);
+out.toast = [els["#toast"].textContent, els["#toast"].hidden];
+send("note", NT.point);                                                    // told twice: one note
+out.count = ev("S.notes.length");
+ev("dismissNote('n1')"); out.after = [ev("liveNotes().length"), store["placemat.notesDismissed"]];
+withNotes([NT.item, NT.pad], 10);                                          // the clock is at 1 s: both are under a second old
+out.live = ev("liveNotes().map(n => n.id)");
+clock += 12000;                                                            // 12 s on: neither is within 10 s any more
+out.expired = ev("liveNotes().map(n => n.id)");
+out.pins = ev("notePins(plan())");
+""")
+    assert out["toast"] == ["agent-1: look at this corner", False] and out["count"] == 1
+    assert out["after"] == [0, '["n1"]']
+    assert out["live"] == ["n2", "n3"] and out["expired"] == []
+    assert out["pins"] == ""

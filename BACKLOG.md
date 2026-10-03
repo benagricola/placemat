@@ -246,6 +246,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Explore curve, stopping rules, studio notes** (0.89.0): an explore keeps
+  its score curve and says when the best was found, with stall and hard-clear
+  stopping rules (off by default); `placemat studio note`; board.size refused;
+  arc corners default to 3 track widths.
+
 - **Stopping and resuming long commands** (0.88.0): a stop by signal writes
   the best so far and run.json "stopped" and tells live readers; explore
   checkpoints and resumes untried seeds; a resolve replays the steps a dead
