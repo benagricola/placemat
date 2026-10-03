@@ -675,13 +675,13 @@ applied the usual way, with the digest check, so a script that changed since the
 
 ## Edit operations added
 
-- **Never a coordinate.** No suggestion edits `Centre(...)`, `Location(...)` or a `Pin` with numbers, or writes a coordinate:
-  they are the escape-hatch forms, and a suggestion edits intent. "Slide C4 along its line" is dropped. A decided part that
-  is not legal gets "Let C4 be searched" (its `at=` removed), another face, or a relation (`Beside`, `OnEdge`).
+- **Coordinates and intent.** See "`Centre` and `Location`" below: a suggestion never writes a number into a `Centre` or
+  a `Location` axis, never sets `coordinates=True`, and edits a `Centre` only when it is all intent; it may turn a
+  coordinate placement into an intent one, never the reverse.
 - **Nested edits.** The edit names the argument whose value is a call and the operation on that call: `into` is a path of
   a keyword or a positional index, repeated to go further, and any of `set_kwarg`, `set_arg`, `remove_kwarg` and
   `edit_list` then act on the inner call (a `Beside(...)` inside `at=`: its `gap=`; an intent relation inside a call;
-  a `Past(...)` inside the points list: its `across=`; a `Cutout(...)` inside `holes=`: its `at=`). Located the same way
+  a `Past(...)` inside the points list: its `across=`; a `Cutout(...)` inside `holes=`: its `at=`; an intent `Centre(...)`: one axis's reference). Located the same way
   (exactly one inner call of that function name at that place), replaced as a node, checked by masking the inner call. About
   100 lines in `script_edit.py` and its tests.
 - **Multi-edit suggestions.** A suggestion has `edits`, a list (of one for most), and `how`; there is no `edit` field: the
@@ -691,6 +691,51 @@ applied the usual way, with the digest check, so a script that changed since the
 - **Sites.** `rect`, `disc`, `outline` (key: the board; refused where a script declares two), `row` (key: its first
   member; its members list is the argument), `block` (key: its anchor). Added to `layout._SITED`.
 
+## `Centre` and `Location`
+
+A small API change, and the rule suggestions follow about coordinates.
+
+**The flag.** `Centre(...)` gains a keyword-only `coordinates=False` (values.py:207, `Centre.__post_init__`).
+
+- With the default, each axis is a reference (`X()` or `Y()` of a pad, a `Part`, a `Mid`, ...) or `None`. A plain number is
+  refused with a message that names the flag: "Centre(30, 12): an axis is a reference or None; a number is a coordinate:
+  write `coordinates=True` to say so, or place by a relation (`Beside`, `OnEdge`, a pad's `X()`)".
+- With `coordinates=True`, numbers are allowed. It is the marked escape hatch: the charter's "Intent, not coordinates"
+  exception, visible at the site. The flag is part of the declaration's digest (`reuse.canonical` reads the dataclass
+  fields), so adding it to an existing script changes nothing but the flag.
+- `Location(...)` is coordinates only; it takes no flag and is the escape hatch by its name.
+
+**Migration.** Scripts today write numeric `Centre` axes (the references show 68 uses across 21 test files; the fixture
+scripts use none). A refusal at once would break board scripts without notice, so:
+
+- *Release n* (the phase below): a numeric axis without the flag is accepted and gives a `setup` finding of severity
+  `warning`, cause `setup.centre_coordinates`, facts `{item, axes: ["x"|"y"], values: [..]}`, rendered "c4: Centre(30, 12)
+  places by coordinates: write coordinates=True, or place by a relation". The warning is made where `board.place` reads the
+  declaration (not in `Centre.__post_init__`, which has no board). A suggestion for it (instant): `coordinates=True` is not
+  offered (a suggestion never sets it); the offered suggestion is "Place C4 by a relation" where a relation can be measured
+  (below), otherwise none.
+- *Release n+1*: the refusal. `migration.md` gets a "To <n>" section under "### Changed" naming the warning and the flag with
+  the before and after of one declaration, and a line in "Patterns in older scripts" ("a numeric `Centre`: write
+  `coordinates=True`, or a relation"); the next release's section says the refusal. `api.md`'s `Centre` entry and the
+  skill's placement text say the flag and the rule. The tests that use numeric `Centre` axes (21 files) take
+  `coordinates=True` in the same commit as the refusal, and one test per behaviour covers the warning in release n.
+
+**What suggestions may do.**
+
+- A suggestion edits a `Centre` only when it has no `coordinates=True`, that is, when every axis is already intent. It never
+  sets `coordinates=True` and never writes a number into any `Centre` or `Location` axis. It never edits a `Location`.
+- One direction is allowed, toward intent: a suggestion may turn a coordinate placement (a `Centre(..., coordinates=True)`
+  or a `Location`) into an intent form: references to other items or pads (`Centre(X(pad), Y(pad))`), a `Mid`, the board's
+  edges or middle, or a `Beside` / `OnEdge` relation, removing the flag. Never the reverse. The relation is chosen from
+  facts the sites record (the item's nearest placed neighbour and the side it stands on, the edge it is nearest, the measured
+  offset only if it is a clearance that a rule names), and where none can be measured the suggestion is not offered.
+- **"Slide C4 along its line" is restored for an intent `Centre` only.** For `at=Centre(X(pad), Y(pad))` (or one axis a
+  reference and the other `None`), the lever sets one axis to `None` (`set_arg` inside the `Centre`, value `None`), leaving
+  the item free along that line, with the other axis's reference unchanged. It needs the nested edit (phase 5). It makes
+  sense under this rule because it writes no number and removes a reference's pin rather than adding a coordinate; it is
+  offered for `fixed.part` where the part is pinned on both axes by references. It is not offered for a `Centre` with the
+  flag or for a `Location(x, y)`.
+
 ## Cases, instant and searched
 
 The tables under "Cases and suggestions" keep their wording. Their levers are classified here by what they need. "Facts"
@@ -699,7 +744,7 @@ is phase 1; "ops" is phase 2; "search" is phase 3.
 | Lever | Needs |
 |---|---|
 | `board.rule` clearance from the shortfall (`copper.meets`, `setup.pitch`); the via at a free spot near the met pad; a `Past`/`Between` waypoint on the declared leg; a pad out of a pour; a rider let be searched; thin the drops of the owning cell; `swallow_pads=True`; `fixed.keepout` and `fixed.cutout` figures | facts (instant), with the ops that exist |
-| the frame's size (`setup.frame_reach`); the web from the measured gap; "Take R6 out of the row"; a satellite on its own; the back layer through a via | facts, plus a site or a nested or multi-edit op |
+| the frame's size (`setup.frame_reach`); the web from the measured gap; "Take R6 out of the row"; a satellite on its own; the back layer through a via; slide along its line (an intent `Centre` only) | facts, plus a site or a nested or multi-edit op |
 | a blocker's gap or side; the search radius; a fanout depth; a turn; a chamfer or arc radius; a label size; a stitch pitch; `bend=`; the tuning limits | search |
 
 ## Charter fit, added
@@ -823,8 +868,15 @@ a measured shortfall (`copper.meets`, `setup.pitch`), the via at a free spot nea
 leg, a pad out of a pour, a rider let be searched, thin the drops of the owning cell, `swallow_pads`, and the `how` field
 (all are `instant` here; the searched ones are listed but have no probe yet).
 
+**Phase 4b: the `Centre` flag and its migration** (a small phase of its own, before phase 5). It is an API change with a
+two-release migration, independent of the structured data and of the edit operations, so it ships as its own change and
+can ship before phase 4 is finished; its release n is the warning, n+1 the refusal. Phase 5's rules about editing a
+`Centre` need only that the flag exists (a suggestion tells an intent `Centre` from a coordinate one by the flag), so
+phase 5 starts after release n. Contents: `Centre(coordinates=False)`, the `setup.centre_coordinates` warning, the refusal
+in the following release, the migration text, the tests' flag, `api.md` and the skill.
+
 **Phase 5: edit operations.** Nested edits, multi-edit suggestions, the sites for `rect`, `disc`, `outline`, `row` and
-`block`. Enables: the frame size (`setup.frame_reach`), the web from the measured gap (`fixed.cutout`),
+`block`. Enables: the frame size (`setup.frame_reach`), the web from the measured gap (`fixed.cutout`), slide along its line (an intent `Centre` only),
 "Take R6 out of the row", a satellite on its own, the back layer through a via, and the nested figures the probe sets (a
 `Beside`'s gap, a `Past`'s `across=`).
 
@@ -976,6 +1028,10 @@ rest) as well as changing keywords. `board.rect` (renamed from `board.size` in
 - The suggestion record has `edits` and `how` and no `edit`.
 - Phase 4 converts every site before release; no mixed state ships, enforced by a test.
 - Sentence templates in one `finding_text.py`; a changed facts schema invalidates the reuse record.
+- `Centre(..., coordinates=False)`: a plain number is refused unless `coordinates=True`; a warning for one release, then the
+  refusal; `Location` is coordinates only and never edited; suggestions never write a coordinate or set the flag, and may
+  turn a coordinate placement into an intent one (see "`Centre` and `Location`"). "Slide along its line" returns for an
+  intent `Centre` only.
 
 ## Open questions
 
