@@ -222,16 +222,26 @@ The six questions of the first draft, as the user answered them.
 
 Where the build differs from the draft above:
 
-- The passes run the firm phase of `_resolve` on the same Board with its state saved and restored between
-  passes (`firm_only`): the mutable parts of a Board are rebound or are intent fields (rotation, run, along), which
-  are restored. The last run is the ordinary resolve with the settled rooms present.
-- The rooms are a separate list on the Occupancy (`occ.rooms`), not in `occ.copper`: nothing that plans or checks
-  copper sees them. They reach the collision rule through `Occupancy.obstacles` only while `occ.rooms_apply` is
-  set, as label silk is left out while `labels_yield` is: set during the search and during `Beside`'s move out,
-  clear while a firm item is judged, so a firm item over a provisional track is the copper finding it is today and
-  not a new refusal.
-- Settings: `place.copper_room` (true), `place.firm_passes` (the most firm passes, one of them the settled run;
-  `place.copper_room_passes` of the draft became this), `place.copper_room_tolerance` (mm).
-- Findings: `fixed.room` (a Beside part that no place within reach clears of provisional copper, facts: item, copper key,
-  net, clearance, distance, side) and `fixed.room_unsettled` (facts: the copper keys still moving and by how much,
-  passes).
+- There is no separate dry pass. A resolve runs; right after its firm items and their escapes it plans the declared copper
+  between them without drawing it (`CopperIntent.plan`, a scratch context), and decides whether it is the run
+  (`Board._redo_check`). If it is not, it stops there (`_Redo`), the Board is put back from a snapshot of its attributes and
+  its declarations' fields, and the next run starts with what this one found. The run that finds nothing to change goes
+  on and is the resolve, so a script with nothing to change costs the one dry plan. What a run reports while it goes
+  (progress, steps, begins, the partial reuse log) is held in `_Out` until it is known to stand.
+- What a run changes the next one by: the provisional copper it planned (`_room_seed`); the pairs of Beside parts to take the
+  other way round (`_swaps`, with the step note); the Beside parts to place at the box's distance (`_loose`).
+- A provisional shape is a copper shape of owner `room <key>`, labelled with the parts its copper is planned from. It is held
+  in `Occupancy.rooms`, not in `copper`, so nothing that plans or checks copper sees it. The search sees it (`rooms_apply`,
+  set after the fixed copper is planned) and `Beside`'s move out sees it through an explicit list, but for the copper planned
+  from the item itself: that is planned round the item, and holding the item off it made the plan chase the part.
+- A rider is laid as before (the standoff from the box): its host's copper is not known when it is judged.
+- The loose fallback: a Beside part nearer than the box put it (`_tight`) goes back to the box where the declared copper, as
+  planned, meets another declaration's or a placed part's pad and the copper is planned from it, or the part is aligned
+  with the part that was refused; where no part is named, all of them go back.
+- `Occupancy`-free helpers: the measuring occupancy the placer builds for an item's envelope is kept per settings
+  (`_bare_occupancy`), which it was rebuilt for at every call.
+- Settings: `place.copper_room` (true), `place.firm_passes` (8: the most runs, the last one the resolve),
+  `place.copper_room_tolerance` (0.001 mm). The pass count is from measurement: the slowest of the fixture scripts
+  settles in four runs.
+- Findings: `fixed.room` (item, copper key, net, side, reach) and `fixed.room_unsettled` (copper key, the distance it moved,
+  passes). Neither is a collision, neither stops a run.
