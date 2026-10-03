@@ -33,7 +33,7 @@ def test_tracks_vias_pours_and_a_plane_round_trip(breakout_pcb, tmp_path):
     pcb = _copy(breakout_pcb, tmp_path)
     before = read_board(pcb)
     b = Board(before, edge_margin=0.0)
-    b.size(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
+    b.rect(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
     b.track(Net("TERM_NEAR_MID"), [PadRef(Part("term_near_ra"), "TERM_NEAR_MID"), PadRef(Part("term_near_rb"), "TERM_NEAR_MID")],
             layer=CopperLayer.F, width=0.3)
     b.via(Net("GND"), Location(5.0, 100.0))
@@ -66,7 +66,7 @@ def test_a_declared_clearance_is_written_beside_the_board_and_its_drc_reads_it(b
     pcb = _copy(breakout_pcb, tmp_path)
     before = read_board(pcb)
     b = Board(before, edge_margin=0.0)
-    b.size(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
+    b.rect(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
     b.rule(clearance=0.9, on=Net("GND"), why="a wide clearance, to prove the rule is read")
     apply_plan(pcb, b.resolve())
     assert (tmp_path / "layout.kicad_dru").read_text().startswith("(version 1)")
@@ -85,7 +85,7 @@ def test_a_knockout_label_is_written_as_silk_text_beside_its_part(breakout_pcb, 
     pcb = _copy(breakout_pcb, tmp_path)
     before = read_board(pcb)
     b = Board(before, edge_margin=0.0, keep_going=True)
-    b.size(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
+    b.rect(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
     b.label(Part("trunk_pwr"), "TRUNK IN", side=Edge.SOUTH, gap=0.5, knockout=True, size=1.2)
     plan = b.resolve()
     apply_plan(pcb, plan)
@@ -172,7 +172,7 @@ def test_an_undrawn_frame_writes_no_outline(breakout_pcb, tmp_path):
     pcb = _copy(breakout_pcb, tmp_path)
     before = read_board(pcb)
     b = Board(before, edge_margin=0.0, keep_going=True)
-    b.size(width=before.outline_box.width + 5.0, height=before.outline_box.height, chamfer=2.0, draw=False)
+    b.rect(width=before.outline_box.width + 5.0, height=before.outline_box.height, chamfer=2.0, draw=False)
     n_before = len([d for d in pcbnew.LoadBoard(str(pcb)).GetDrawings() if d.GetLayer() == pcbnew.Edge_Cuts])
     apply_plan(pcb, b.resolve())
     board = pcbnew.LoadBoard(str(pcb))
@@ -227,7 +227,7 @@ SLOT_AT = Location(21.0, 30.0)
 
 
 @pytest.mark.parametrize("name,declare", [
-    ("a rectangle", lambda b, holes: b.size(width=42.0, height=42.0, holes=holes)),
+    ("a rectangle", lambda b, holes: b.rect(width=42.0, height=42.0, holes=holes)),
     ("a disc", lambda b, holes: b.disc(diameter=42.0, hole=8.0, holes=holes)),
     ("a shaped board", lambda b, holes: b.outline(Circle(42.0).path_at(Location(21.0, 21.0)), holes=holes)),
 ])
@@ -273,7 +273,7 @@ def test_every_placed_cutout_reaches_edge_cuts(breakout_pcb, tmp_path):
     # A freedom, so the hole goes through the placement queue and slides to
     # board the generated parts left clear. That is the path on which the
     # plan's shape has to grow as each hole is cut.
-    b.size(width=box.width, height=box.height,
+    b.rect(width=box.width, height=box.height,
            holes=[Cutout(Slot(13.0, 3.0), "ffc", at=Centre(None, 20.0), why="the cable")])
     plan = b.resolve()
     assert set(plan.cutouts_placed) == {"ffc"}, plan.findings

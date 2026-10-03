@@ -177,7 +177,7 @@ def test_the_written_board_passes_kicads_drc(tmp_path):
     board.Save(str(pcb))
 
     layout = Board(read_board(str(pcb)), edge_margin=0.5, keep_going=True)
-    layout.size(width=40.0, height=40.0)
+    layout.rect(width=40.0, height=40.0)
     layout.place(Part("RS"), at=Location(10, 30), rotation=0)
     layout.place(Part("NT"), at=Beside(Part("RS"), Edge.NORTH, copper=True, align=(1, PadRef(Part("RS"), 1))),
                  rotation=0)

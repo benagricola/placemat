@@ -78,7 +78,7 @@ Each entry gives its form and how many sites need it today.
    replaces a hand-built polygon.
 9. **Against a keepout's edge** (6). `Beside(keepout, Edge.SOUTH)`, as
    item 1: a keepout takes the same side handle a cutout already has.
-10. **A fit frame in one axis** (11). `board.size(fit=Axis.X)`: the frame
+10. **A fit frame in one axis** (11). `board.rect(fit=Axis.X)`: the frame
     fits its content across x, and y stays as declared.
 
 ## Order

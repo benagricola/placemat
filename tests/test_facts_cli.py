@@ -73,7 +73,7 @@ def test_facts_reads_the_generated_board_not_the_last_runs_output(tmp_path, caps
     board.Add(z)
     board.Save(str(layout / "layout.kicad_pcb"))
     script.write_text("from placemat import board, Location\nfrom placemat.cutouts import Circle\n"
-                      "board.size(width=40, height=40)\n"
+                      "board.rect(width=40, height=40)\n"
                       "board.keepout(Circle(2.0), 'k', at=Location(15, 15), why='test')\n")
     rc = cli.main(["facts", str(script)])
     out = capsys.readouterr().out

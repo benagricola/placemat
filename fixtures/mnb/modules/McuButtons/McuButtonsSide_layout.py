@@ -69,7 +69,7 @@ LABEL_BAND = LABEL_SIZE * 1.6                                  # a knockout labe
 controls = board.row([SW_BOOT, SW_RUN, LED], Edge.NORTH, gap=ROW_GAP, align="center", line="centre",
                      rotation=[SW_ROT, SW_ROT, LED_ROT],
                      why="both plates and the light on one line at the cell's north face, courtyards touching")
-board.size(width=controls.length + 2 * (board.keep_in + MARGIN),
+board.rect(width=controls.length + 2 * (board.keep_in + MARGIN),
            height=2 * board.keep_in + controls.depth + LABEL_DOWN + LABEL_BAND + MARGIN, draw=False)
 
 # ---------------------------------------------------------------- the passives under their controls

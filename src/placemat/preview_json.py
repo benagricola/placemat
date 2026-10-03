@@ -8,6 +8,7 @@ Faces are named, never mirrored: the page mirrors the back."""
 from __future__ import annotations
 
 import math
+import re
 
 from .board_geometry import members_of, stackup_order
 from .copper import Pour, Text, Track, Via, Zone, arc_circle
@@ -53,6 +54,10 @@ def _shapes(plan, fp) -> list:
     for kind, polys in (("body", fp.fab), ("silk", fp.silk)):
         for face, poly in _drawn_at(plan, fp, polys):
             out.append({"kind": kind, "faces": [face.value], "poly": _poly(poly)})
+    for s in g.shapes:          # the footprint's own copper graphics (a printed winding): copper of no net, on its layer
+        if s.kind == "copper" and s.owner == fp.ref and not getattr(s, "carried", ""):
+            out.append({"kind": "copper", "faces": sorted(f.value for f in s.faces), "layers": sorted(l.value for l in s.layers),
+                        "poly": _poly(s.poly)})
     for s in g.shapes:
         if s.kind in ("pad", "through"):
             out.append({"kind": s.kind, "faces": sorted(f.value for f in s.faces), "poly": _poly(s.poly),
@@ -117,6 +122,21 @@ def _copper(op) -> dict | None:
     return None
 
 
+def step_extras(plan, step) -> dict:
+    """What a copper or cutout step has to draw, for a viewer that is sent steps as they settle: the copper ops it laid
+    (as plan_json writes them) and the hole it cut."""
+    out = {}
+    if step.kind == "copper":
+        out["ops"] = [c for c in (_copper(plan.copper[i]) for i in step.laid if i < len(plan.copper)) if c is not None]
+    elif step.kind == "cutout":
+        placed = plan.cutouts_placed.get(step.item[len("cutout "):] if step.item.startswith("cutout ") else step.item)
+        if placed is not None:
+            loops = [_poly(l) for l in _board_loops(plan)]
+            at = _cutout_loop(plan, step, loops)
+            out["cutout"] = loops[at] if at is not None else None
+    return out
+
+
 def _weight_name(weight) -> str:
     """A link's weight as the script names it: FREE, DEFAULT, PREFER or SHORT, else the number."""
     from .values import LinkWeight
@@ -157,15 +177,63 @@ def _congestion(plan) -> dict | None:
             "worst_at": _pt(r.worst_at), "cells": cells}
 
 
+_PIN_LIST = re.compile(r"(?:\.(?P<dot>[A-Za-z0-9_']+)|\s+(?:pins?|pads?)\s+(?P<list>[A-Za-z0-9_']+(?:\s*[/,]\s*[A-Za-z0-9_']+)*))")
+
+
+def finding_targets(text: str, refs) -> tuple:
+    """The parts and pads a finding's sentence names: ([ref, ...], [[ref, pad], ...]),
+    in the order named. A ref is one the plan placed; a pad follows it as `REF.PAD`
+    or `REF pin 4/5`, `REF pads 1, 2`."""
+    known = sorted(refs, key=len, reverse=True)
+    if not known:
+        return [], []
+    rx = re.compile(r"(?<![\w.!'])(" + "|".join(re.escape(r) for r in known) + r")(?![\w!])")
+    out_refs, out_pads = [], []
+    for m in rx.finditer(text):
+        ref = m.group(1)
+        if ref not in out_refs:
+            out_refs.append(ref)
+        pm = _PIN_LIST.match(text, m.end())
+        if pm:
+            for pad in ([pm.group("dot")] if pm.group("dot") else re.split(r"\s*[/,]\s*", pm.group("list"))):
+                if [ref, pad] not in out_pads:
+                    out_pads.append([ref, pad])
+    return out_refs, out_pads
+
+
 def _findings(plan, keys) -> list:
-    out = []
+    out, refs = [], set(plan.occupancy.items)
     for f in plan.findings:
         text = str(f)
         m = _AT.search(text)
         first = text.split(" ", 1)[0]
+        named, pads = finding_targets(text, refs)
         out.append({"text": text, "kind": getattr(f, "kind", ""), "severity": getattr(f, "severity", "warning"), "at": [float(m.group(1)), float(m.group(2))] if m else None,
-                    "item": first if first in keys else ""})
+                    "item": first if first in keys else "", "refs": named, "pads": pads})
     return out
+
+
+def _inside(pt, loop) -> bool:
+    x, y, hit = pt[0], pt[1], False
+    for (x1, y1), (x2, y2) in zip(loop, loop[1:] + loop[:1]):
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            hit = not hit
+    return hit
+
+
+def _cutout_loop(plan, step, loops):
+    """Which of the board's loops a cutout step cut, or None: the smallest loop round the place it was cut at."""
+    if step.kind != "cutout":
+        return None
+    placed = plan.cutouts_placed.get(step.item[len("cutout "):] if step.item.startswith("cutout ") else step.item)
+    if placed is None:
+        return None
+    def area(l):
+        xs, ys = [p[0] for p in l], [p[1] for p in l]
+        return (max(xs) - min(xs)) * (max(ys) - min(ys))
+    outer = max(range(len(loops)), key=lambda i: area(loops[i]), default=None)       # the board's own edge is never a hole
+    around = [(i, l) for i, l in enumerate(loops) if i != outer and _inside(_pt(placed.centre), l)]
+    return min(around, key=lambda il: area(il[1]))[0] if around else None
 
 
 def board_json(plan) -> dict:
@@ -202,14 +270,19 @@ def plan_json(plan, sites: dict | None = None, score: dict | None = None) -> dic
         if step.item not in seen:
             seen.add(step.item)
             items.append(item_json(plan, step, sites))
+    copper = [c for c in (_copper(op) for op in plan.copper) if c is not None]
+    at, k = {}, 0
+    for n, op in enumerate(plan.copper):                  # a step's ops by where they are in the document's copper
+        if _copper(op) is not None:
+            at[n], k = k, k + 1
+    loops = [_poly(l) for l in _board_loops(plan)]
     steps = []
     for n, s in enumerate(plan.steps):
         steps.append({"i": n, "item": s.item, "kind": s.kind, "placed": s.placement is not None, "note": s.note,
                       "why": s.why, "freedom": s.freedom.value if s.freedom is not None else None,
-                      "rank": s.rank})
+                      "rank": s.rank, "copper": [at[i] for i in s.laid if i in at], "loop": _cutout_loop(plan, s, loops)})
     unplaced = [{"item": s.item, "why": s.note.split("UNPLACED", 1)[-1].lstrip(": ") if "UNPLACED" in s.note else s.note}
                 for s in plan.steps if s.placement is None and s.kind in ("part", "cell", "block")]
-    copper = [c for c in (_copper(op) for op in plan.copper) if c is not None]
     return {
         "version": VERSION, **board_json(plan),
         "items": items, "copper": copper, "links": _links(plan),

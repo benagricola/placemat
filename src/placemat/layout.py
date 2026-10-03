@@ -492,6 +492,20 @@ class Push:
     slack: float = field(default=0.0, metadata={"omit_default": True})   # how far the item reaches from its own emission point: the disc is drawn that much smaller
 
 
+class _FedSteps(list):
+    """A plan's steps that tell `on_step` of each copper and cutout step as it is added (a placement is told as it is
+    committed), so a viewer sees them as they settle."""
+
+    def __init__(self, plan, on_step):
+        super().__init__()
+        self._plan, self._on_step = plan, on_step
+
+    def append(self, step):
+        super().append(step)
+        if step.kind in ("copper", "cutout"):
+            self._on_step(self._plan, step)
+
+
 @dataclass
 class Step:
     item: str
@@ -505,6 +519,8 @@ class Step:
     freedom: Freedom | None = None       # None for a copper step and for a bridge note
     rank: int | None = None              # a searched item's place in the queue
     rank_of: int | None = None
+    back_face: bool = False              # a Face.EITHER search put the item on the back (score.back_face prices it)
+    laid: tuple = ()                     # a copper step: where in plan.copper the ops it laid are
 
 
 class CutoutHandle:
@@ -855,7 +871,7 @@ class Board:
     def _refuse_on_fit(self, what: str):
         if not self._fit:
             return
-        # fit=Axis.X/Y's declared axis is a number from board.size() on, but its
+        # fit=Axis.X/Y's declared axis is a number from board.rect() on, but its
         # edges are refused here too: the row and edge machinery reads the
         # board's own outline for both axes together, which a fit frame in one
         # axis does not have until content is placed even on the axis it
@@ -917,6 +933,7 @@ class Board:
         # them, and where both match a pair the later decides
         from .rules import stamped_rules
         stamped, self._stamped_rule_notes = stamped_rules(geometry)
+        self._size_alias_used = False       # board.size(...), the old name of board.rect(...), was called
         self._rules: list = list(stamped)
         self._acceptances: list = []        # checks.Acceptance of each board.accept: read by the checks step alone, in no digest
         self._free_nets: set = set()
@@ -933,9 +950,9 @@ class Board:
         self.web = 0.0                      # least material a hole may leave; 0: unchecked
         self._cached_outline = None         # this board as an outline, for reading runs off
         self._sized = False                 # the script has declared the board size
-        self._fit = False                   # board.size(fit=True): the frame is the placed content plus a margin
+        self._fit = False                   # board.rect(fit=True): the frame is the placed content plus a margin
         self._fit_margin = 0.0
-        self._fit_axis: Axis | None = None  # board.size(fit=Axis.X/Y): only that axis fits; the other is declared
+        self._fit_axis: Axis | None = None  # board.rect(fit=Axis.X/Y): only that axis fits; the other is declared
         self._frame_planes: set = set()     # planes with no outline of their own: on a fit board, planned once the frame is fitted
         self._draw_outline = True
         self._chamfer = 0.0
@@ -1905,7 +1922,7 @@ class Board:
         self._named_cutouts = named
         return tuple(named_paths) + tuple(raw)
 
-    def size(self, width: float | None = None, height: float | None = None, chamfer: float = 0.0, radius: float = 0.0,
+    def rect(self, width: float | None = None, height: float | None = None, chamfer: float = 0.0, radius: float = 0.0,
              holes=(), web: float = 0.0, draw: bool | None = None, *, fit: bool | Axis = False,
              margin: float | None = None):
         """The board outline: a rectangle at the origin, chamfered or rounded.
@@ -1958,6 +1975,11 @@ class Board:
         self.width, self.height = float(width), float(height)
         self._sized = True
         self._draw_outline = draw          # a fragment's frame is for placement only, never written
+
+    def size(self, *args, **kwargs):
+        """The old name of `rect`: does what it does, and a `setup` notice says so."""
+        self._size_alias_used = True
+        return self.rect(*args, **kwargs)
 
     def disc(self, diameter: float, hole: float = 0.0, holes=(), web: float = 0.0, draw: bool = True):
         """The board outline: a round board at the origin, `hole` wide through
@@ -2053,7 +2075,7 @@ class Board:
                 rect = rect_outline(self._outline, self._chamfer, self._radius)
                 self._cached_outline = Outline.of(rect.paths[0], self._cutouts.paths)
             else:
-                raise ValueError("the board has no size yet: board.size(), board.disc() or board.outline() says what it is")
+                raise ValueError("the board has no size yet: board.rect(), board.disc() or board.outline() says what it is")
         return self._cached_outline
 
     @property
@@ -2069,7 +2091,7 @@ class Board:
         `board.centroid` is the area centre instead."""
         self._refuse_on_fit("board.centre")
         if self._outline is None:
-            raise ValueError("the board has no size yet: board.size() or board.disc() says what it is")
+            raise ValueError("the board has no size yet: board.rect() or board.disc() says what it is")
         return self._outline.center
 
     @property
@@ -4567,7 +4589,7 @@ class Board:
         def plan(ctx):
             lost = [p for p in points if isinstance(p, CopperIntent) and p.index not in ctx.via_at]
             if lost:
-                ctx.notes.append("track %s: its end on %s is not drawn, because that via found no spot" % (
+                ctx.note("track %s: its end on %s is not drawn, because that via found no spot" % (
                     name, ", ".join(p.key for p in lost)))
                 return []
             located = []
@@ -4580,7 +4602,7 @@ class Board:
                 elif isinstance(p, Past):
                     at = _past_point(self, ctx, name, w, p, intent.key, intent.index)
                     if isinstance(at, str):
-                        ctx.notes.append("%s: its point past %s is not drawn, because %s" % (
+                        ctx.note("%s: its point past %s is not drawn, because %s" % (
                             intent.key, ", ".join(_past_names(self, p)), at))
                         return []
                     if isinstance(p.edge, Corner):
@@ -4622,10 +4644,11 @@ class Board:
                                  runs_through) if bend is Bend.ARC else located
                 ops, misfits = arc_tracks(name, layer, w, pts, arc_r)
                 if misfits:
-                    ctx.notes += ["track %s: not drawn, an arc of radius %.2f mm does not fit: %s; a smaller radius=, "
-                                  "points further apart%s" % (
-                                      name, arc_r, m, ", or Bend.ARC_FREE where the octilinear legs made the short leg"
-                                      if bend is Bend.ARC else "") for m in misfits]
+                    for m in misfits:
+                        ctx.note("track %s: not drawn, an arc of radius %.2f mm does not fit: %s; a smaller radius=, "
+                                 "points further apart%s" % (
+                                     name, arc_r, m, ", or Bend.ARC_FREE where the octilinear legs made the short leg"
+                                     if bend is Bend.ARC else ""))
                     return []
                 diagonals = []
             else:
@@ -4679,7 +4702,7 @@ class Board:
                 self._release_lane(ctx.occ, begins)     # what is judged from here is what this track draws
             met = self._through(ctx, ops, bridge)
             if met is not None:
-                ctx.notes.append("track %s: not drawn, it would run through %s" % (name, met))
+                ctx.note("track %s: not drawn, it would run through %s" % (name, met))
                 return []
             return ops
         intent = self._copper_intent("track %s" % name, net, priority, plan, refs, why, bridge)
@@ -4757,7 +4780,7 @@ class Board:
             else:
                 centre = own_centreline(start, end)
                 if centre is None:
-                    ctx.notes.append("pair %s/%s: its pad pairs are too close for a centreline of its own; give "
+                    ctx.note("pair %s/%s: its pad pairs are too close for a centreline of its own; give "
                                      "the centreline's points" % (p_name, n_name))
                     return []
             return pair_ops(p_name, n_name, layer, w, g, start, centre, end, self.via_drill, self.via_size,
@@ -4824,7 +4847,7 @@ class Board:
                 # as unconnected: a tail at the net's width joins the pad to the farthest via
                 layer = sorted((l for sh in shapes for l in sh.layers), key=stackup_order)[0]
                 if span and layer not in span:
-                    ctx.notes.append("vias %s: a span of %s does not reach %s.%s on %s" % (
+                    ctx.note("vias %s: a span of %s does not reach %s.%s on %s" % (
                         name, _span_text(span), owner, number, layer.value))
                     return []
                 width = queries.tail_width(nc.track_width if nc else 0.2, [sh.poly for sh in shapes])
@@ -4837,7 +4860,7 @@ class Board:
                     if why_not is None:
                         why_not = self._tail_why(ctx, Track(name, layer, width, start, at))
                     if why_not is not None:
-                        ctx.notes.append("vias %s: %d of %d along %s.%s's axis, the next stands %s" % (
+                        ctx.note("vias %s: %d of %d along %s.%s's axis, the next stands %s" % (
                             name, len(vias), n, owner, number, why_not))
                         break
                     via = Via(name, at, d, s, span)
@@ -4863,7 +4886,7 @@ class Board:
             occ = ctx.occ
             said = self._field_notes.get(k)
             if said:
-                ctx.notes.append(said)
+                ctx.note(said)
                 return []
             held = [sh for sh in ctx.fields.get(owner, ()) if sh.kind == "through" and sh.carried.startswith(prefix)]
             shortened = {a.via: a for a in occ.given_way.values() if a.kind == "shorten" and a.via.startswith(prefix)}
@@ -4955,7 +4978,7 @@ class Board:
             elif isinstance(at, Past):
                 where = _past_point(self, ctx, name, s, at, intent.key, intent.index)     # s: the via's radius out
                 if isinstance(where, str):
-                    ctx.notes.append("%s: its point past %s is not drawn, because %s" % (
+                    ctx.note("%s: its point past %s is not drawn, because %s" % (
                         intent.key, ", ".join(_past_names(self, at)), where))
                     return []
             else:
@@ -4977,7 +5000,7 @@ class Board:
             if not isinstance(at, FreeSpot) and carried is None:      # a spot the script gave, not one searched for
                 met = self._through(ctx, [via])
                 if met is not None:
-                    ctx.notes.append("via %s at (%.2f, %.2f): not drawn, it would stand on %s" % (name, where.x, where.y, met))
+                    ctx.note("via %s at (%.2f, %.2f): not drawn, it would stand on %s" % (name, where.x, where.y, met))
                     return []
             ctx.planned_vias.append(via)        # a later FreeSpot in this batch sees it
             ctx.via_at[intent.index] = where    # a track may end on it
@@ -5087,7 +5110,7 @@ class Board:
         def plan(ctx):
             poly = _stitch_region(self, ctx, region, pour_intent)
             if poly is None:
-                ctx.notes.append("stitch %s: its region is not drawn, so there is nothing to stitch over" % name)
+                ctx.note("stitch %s: its region is not drawn, so there is nothing to stitch over" % name)
                 return []
             obstacles = self._via_obstacles(ctx)
             if outside:
@@ -5102,7 +5125,7 @@ class Board:
                     vias.append(via)
                     ctx.planned_vias.append(via)
             if not vias:
-                ctx.notes.append("stitch %s: no via fits in the region at a %.2f mm pitch" % (name, step))
+                ctx.note("stitch %s: no via fits in the region at a %.2f mm pitch" % (name, step))
             return vias
         intent = self._copper_intent("stitch %s" % name, net, priority, plan, refs, why, extra_owners=extra_owners)
         if pour_intent is not None:
@@ -5138,16 +5161,16 @@ class Board:
         for side, kept, length in standing:
             reach = [kept[i + 1] - kept[i] for i in range(len(kept) - 1)] if kept else [length]
             if max(reach, default=0.0) > step + 1e-6:
-                ctx.notes.append("stitch %s: the %s side's row has a %.2f mm gap, over its %.2f mm pitch"
+                ctx.note("stitch %s: the %s side's row has a %.2f mm gap, over its %.2f mm pitch"
                                  % (name, _SIDE_WORD[side], max(reach), step))
         if wanted is not None and rows:
             ctx.notes.append(Finding("copper", "stitch %s: rows by the region's side as turned -> the board's side: %s" % (
                 name, ", ".join("%s side -> board %s" % (_SIDE_WORD[side], _SIDE_WORD[board_side])
                                 for side, board_side, _ in rows)), "notice"))
         if not rows:
-            ctx.notes.append("stitch %s: no edge of the region faces the sides asked for" % name)
+            ctx.note("stitch %s: no edge of the region faces the sides asked for" % name)
         elif not vias:
-            ctx.notes.append("stitch %s: no via fits outside the region at a %.2f mm pitch" % (name, step))
+            ctx.note("stitch %s: no via fits outside the region at a %.2f mm pitch" % (name, step))
         return vias
 
     def _via_span(self, name: str, layers) -> tuple:
@@ -5450,11 +5473,11 @@ class Board:
         layer = CopperLayer.of(spot.layer) if spot.layer is not None else (
             sorted((l for sh in own for l in sh.layers), key=stackup_order) or [CopperLayer.F])[0]
         if spot.tail and not spot.in_pad and own and not any(layer in sh.layers for sh in own):
-            ctx.notes.append("via %s: its tail on %s would not join %s.%s, which is not on that layer" % (
+            ctx.note("via %s: its tail on %s would not join %s.%s, which is not on that layer" % (
                 net, layer.value, owner, number))
             return None
         if span and layer not in span:
-            ctx.notes.append("via %s: a span of %s does not reach its tail on %s" % (net, _span_text(span), layer.value))
+            ctx.note("via %s: a span of %s does not reach its tail on %s" % (net, _span_text(span), layer.value))
             return None
         nc = self.geometry.netclasses.get(net)
         width = queries.tail_width(nc.track_width if nc else 0.2, [sh.poly for sh in own])
@@ -5510,7 +5533,7 @@ class Board:
 
         found, tally, tried = queries.free_spot(start, judge, spot.radius, spot.step)
         if found is None:
-            ctx.notes.append("via %s: nowhere within %.2f mm of %s.%s, %d spot(s) tried: %s" % (
+            ctx.note("via %s: nowhere within %.2f mm of %s.%s, %d spot(s) tried: %s" % (
                 net, spot.radius, owner, number, tried,
                 ", ".join("%s x%d" % kv for kv in tally.most_common())))
             return None
@@ -5688,16 +5711,16 @@ class Board:
             if isinstance(p, CopperIntent):
                 ops = ctx.ops_at.get(p.index)
                 if ops is None or not any(isinstance(op, Via) for op in ops):
-                    ctx.notes.append("pour %s: %s" % (net, _past_unplanned(ctx.ops_at, p, "the pour", None)))
+                    ctx.note("pour %s: %s" % (net, _past_unplanned(ctx.ops_at, p, "the pour", None)))
                     return []
                 for op in (op for op in ops if isinstance(op, Via)):
                     label = "via at (%.2f, %.2f)" % (op.at.x, op.at.y)
                     if op.net != net:
-                        ctx.notes.append("pour %s: %s is on net %s, and a fitted pour holds only its own net's "
+                        ctx.note("pour %s: %s is on net %s, and a fitted pour holds only its own net's "
                                          "copper" % (net, label, op.net))
                         return []
                     if op.layers and layer not in op.layers:
-                        ctx.notes.append("pour %s: %s does not span %s (it spans %s)"
+                        ctx.note("pour %s: %s does not span %s (it spans %s)"
                                          % (net, label, layer.value, _span_text(op.layers)))
                         return []
                     holds.append((label, pourfit.hull(op.polygon)))
@@ -5708,11 +5731,11 @@ class Board:
             label = "%s.%s" % (owner, number)
             for sh in _pad_shapes(self, occ, p):
                 if sh.net != net:
-                    ctx.notes.append("pour %s: pad %s is on net %s, and a fitted pour holds only its own net's pads"
+                    ctx.note("pour %s: pad %s is on net %s, and a fitted pour holds only its own net's pads"
                                      % (net, label, sh.net or "-"))
                     return []
                 if layer not in sh.layers:
-                    ctx.notes.append("pour %s: pad %s has no copper on %s" % (net, label, layer.value))
+                    ctx.note("pour %s: pad %s has no copper on %s" % (net, label, layer.value))
                     return []
                 holds.append((label, pourfit.hull(sh.poly)))
                 boxes.append(sh.box)
@@ -5749,16 +5772,16 @@ class Board:
             noun = "pad" if not any(l.startswith("via ") for l in res.pads) else "member"
             what = res.piece.what if res.piece is not None else "other copper"
             if res.problem == "too close":
-                ctx.notes.append("pour %s: %s is within its clearance of %s %s, so no pour can hold the %s clear; "
+                ctx.note("pour %s: %s is within its clearance of %s %s, so no pour can hold the %s clear; "
                                  "the pour is not drawn" % (net, what, noun, between, noun))
             elif res.problem == "enclosed":
-                ctx.notes.append("pour %s: %s stands between %ss %s with no way round it; the pour is not drawn"
+                ctx.note("pour %s: %s stands between %ss %s with no way round it; the pour is not drawn"
                                  % (net, what, noun, between))
             elif res.problem == "no way":
-                ctx.notes.append("pour %s: %s leaves no way between %ss %s; the pour is not drawn"
+                ctx.note("pour %s: %s leaves no way between %ss %s; the pour is not drawn"
                                  % (net, what, noun, between))
             else:
-                ctx.notes.append("pour %s: its pads leave no area to fit; the pour is not drawn" % net)
+                ctx.note("pour %s: its pads leave no area to fit; the pour is not drawn" % net)
             return []
         if reach is Reach.CURRENT:
             return self._reached_to_current(ctx, net, layer, stroke, res.outline, pieces, sag, member_pads, member_vias)
@@ -5767,7 +5790,7 @@ class Board:
         need = self._width(net, None)
         for gap, (x, y) in sorted(res.necks):
             if gap + stroke < need - 1e-6:
-                ctx.notes.append("pour %s: narrows to %.2f mm at (%.2f, %.2f), under its net's %.2f mm track"
+                ctx.note("pour %s: narrows to %.2f mm at (%.2f, %.2f), under its net's %.2f mm track"
                                  % (net, gap + stroke, x, y, need))
         return [res.outline]
 
@@ -5786,12 +5809,12 @@ class Board:
         joined to the pour's own. Arcs lie no more than `geometry.arc_sag` off."""
         from .kicad import polyops
         if not polyops.available():
-            ctx.notes.append("pour %s: reach= needs KiCad's pcbnew at plan time, for its polygon booleans; the pour "
-                             "is not drawn" % net)
+            ctx.note("pour %s: reach= needs KiCad's pcbnew at plan time, for its polygon booleans; the pour "
+                     "is not drawn" % net, "setup")
             return []
         got = self._grown(outline, reach, pieces)
         if not got:
-            ctx.notes.append("pour %s: reach= leaves no copper joined to its pads; the pour is not drawn" % net)
+            ctx.note("pour %s: reach= leaves no copper joined to its pads; the pour is not drawn" % net)
         return got
 
     def _reached_to_current(self, ctx, net: str, layer: CopperLayer, stroke: float, outline, pieces, sag: float,
@@ -5805,13 +5828,13 @@ class Board:
         from .kicad import polyops
         s = self.settings
         if not polyops.available():
-            ctx.notes.append("pour %s: reach=Reach.CURRENT needs KiCad's pcbnew at plan time, for its polygon "
-                             "booleans; the pour is not drawn" % net)
+            ctx.note("pour %s: reach=Reach.CURRENT needs KiCad's pcbnew at plan time, for its polygon "
+                     "booleans; the pour is not drawn" % net, "setup")
             return []
         have = {p[0] for p in member_pads}
         carriers = {r: a for r, a in checks.carriers_of(self.geometry).get(net, {}).items() if r in have}
         if len(carriers) < 2:
-            ctx.notes.append("pour %s: reach=Reach.CURRENT sizes the pour for the current between two of its parts, "
+            ctx.note("pour %s: reach=Reach.CURRENT sizes the pour for the current between two of its parts, "
                              "and %s of its pads' parts carries current on %s (Pm.I); the pour is not drawn"
                              % (net, "none" if not carriers else "only %s" % next(iter(carriers)), net))
             return []
@@ -5856,7 +5879,7 @@ class Board:
             near = min(((poly_distance(pc.poly, ((x, y), (x + 1e-6, y), (x, y + 1e-6))), pc.what) for pc in pieces),
                        default=(math.inf, ""))
             blocked = "; %s stands there" % near[1] if near[0] <= reading.width else ""
-            ctx.notes.append(
+            ctx.note(
                 "pour %s: the room runs out at %.2f mm of reach (up to %.2f mm tried): it narrows to %.2f mm at "
                 "(%.2f, %.2f), where %g A between %s and %s needs %.2f mm at a %g C rise%s; drawn at that width"
                 % (net, k * step, s.copper_pour_reach_max, reading.width, x, y, reading.amps, reading.start,
@@ -5896,7 +5919,7 @@ class Board:
                     box = Box(max(box.left, f.left), max(box.top, f.top),
                               min(box.right, f.right), min(box.bottom, f.bottom))
                 if box.width <= 0 or box.height <= 0:
-                    ctx.notes.append("plane %s: its items lie outside the frame, so it is not drawn" % name)
+                    ctx.note("plane %s: its items lie outside the frame, so it is not drawn" % name)
                     return []
                 pts = box_polygon(box)
             elif outline is not None:
@@ -6024,6 +6047,8 @@ class Board:
                     cell_zones_under_planes=self.settings.copper_cell_zones_under_planes,
                     split_groups=self.settings.write_split_groups, groups=list(self._groups.values()),
                     thinned=thinned)
+        if on_step:
+            plan.steps = _FedSteps(plan, on_step)
         ctx = _CopperContext(self, occ)
         ctx.plan = plan
         self._escape_ctx = ctx              # what a lane's via is judged by (_LaneEnv)
@@ -6037,6 +6062,9 @@ class Board:
         self._solve_hints = None            # the global solve runs once per resolve, when first asked
         self._report_lost_layers(plan)
         plan.findings.extend(Finding("setup", note, "notice") for note in self._stamped_rule_notes)
+        if self._size_alias_used:
+            plan.findings.append(Finding("setup", "board.size(...) is board.rect(...) now; the old name will be removed",
+                                         "notice"))
         self._rank(occ)
         if occ.envelope == "courtyard":
             from .envelope import understatement
@@ -6358,7 +6386,8 @@ class Board:
             box = Box.union(drawn)                                                       # below everything the module draws
             plan.copper.append(Text(text, Location(box.left, box.bottom + 1.0), Face.FRONT, 0.5, 0.1, 0.0, "left", "top",
                                     layer="User.Comments"))
-            plan.steps.append(Step("faces", "copper", Priority.DEFAULT, None, 0.0, text[len("placemat faces "):], why, 1))
+            plan.steps.append(Step("faces", "copper", Priority.DEFAULT, None, 0.0, text[len("placemat faces "):], why, 1,
+                                   laid=(len(plan.copper) - 1,)))
         return plan
 
     def _give_way_copper(self, occ: Occupancy, plan: Plan) -> None:
@@ -6955,7 +6984,7 @@ class Board:
                 occ.add_copper([silk])
                 plan.__dict__.setdefault("_label_parts", {})[key] = (silk, occ.reservations[-1])
                 note += "; reserved"
-            plan.steps.append(Step(key, "copper", Priority.DEFAULT, None, 0.0, note, why, 1))
+            plan.steps.append(Step(key, "copper", Priority.DEFAULT, None, 0.0, note, why, 1, laid=(len(plan.copper) - 1,)))
             done[key] = (op, own, face)
             if progress:
                 progress("%-28s copper  label    %s" % (key, note))
@@ -7270,14 +7299,12 @@ class Board:
             entries = [(op, c.priority.rank, c.bridge) for c, op in live]
             refused = []
             ops, notes, findings = resolve_bridges(entries, ctx.fixed_tracks, self.via_drill, self.via_size,
-                                                   self.settings.copper_bridge_half, drop=refused)
+                                                   self.settings.copper_bridge_half, drop=refused,
+                                                   labels=[c.key for c, _ in live])
             fresh = {live[i][0].index for i in refused} - dropped
             if not fresh:
                 break
             said += [f for f in findings if f not in said]
-            ctx.notes += [Finding("copper", "%s: not drawn, it crosses another net's track and may not bridge" % c.key,
-                                  "notice")          # the crossing's own finding is the fault
-                          for c in intents if c.index in fresh]
             dropped |= fresh
         if dropped:
             for c in intents:
@@ -7288,9 +7315,8 @@ class Board:
             ctx.batch_ops = [o for o in ctx.batch_ops if id(o) not in gone]
             tracks = live
             others = [(c, op) for c, op in others if c.index not in dropped]
-        plan.findings += said + [f for f in findings if f not in said] + [n if isinstance(n, Finding) else Finding("copper", n, "warning")
-                                                          for n in ctx.notes]       # declared copper not drawn: a person's call
-        ctx.notes = []
+        plan.findings += said + [f for f in findings if f not in said] + list(ctx.notes)
+        ctx.notes = Findings()
         ctx.planned_tracks += [op for op in ops if isinstance(op, Track)]
         for c in deferred:
             ctx.ops_at[c.index] = c.plan(ctx)
@@ -7312,7 +7338,14 @@ class Board:
             all_ops.append(op)
             by_key[c.key][1] += 1
         shapes, batch = [], []
+        owner = {id(op): c.key for c, op in others}
+        net_key = {}
+        for c, _ in tracks:
+            net_key.setdefault(c.net, c.key)               # a track's pieces after bridging are told by their net
+        laid = {}
         for op in all_ops:
+            key = owner.get(id(op)) or net_key.get(getattr(op, "net", None)) or next(iter(by_key), "")
+            laid.setdefault(key, []).append(len(plan.copper))
             plan.copper.append(op)
             shape = _shape_of(op)
             if shape is None:
@@ -7351,7 +7384,7 @@ class Board:
             ctx.fixed_tracks += [op for op in ops if isinstance(op, Track)]     # a bridge's vias are not tracks
         for key, (prio, n, why, freedom) in by_key.items():
             note = "%d op(s)" % n + ("; in the pad: filled or plugged at the fab" if key.startswith("vias ") else "")
-            step = Step(key, "copper", prio, None, 0.0, note, why, n, freedom=freedom)
+            step = Step(key, "copper", prio, None, 0.0, note, why, n, freedom=freedom, laid=tuple(laid.get(key, ())))
             plan.steps.append(step)
             if progress:
                 progress(_fmt(step))
@@ -8468,7 +8501,7 @@ class Board:
         else:
             hint = None
         hint, band, bt, within = self._band_frame(occ, i, placed, hint)
-        # A board still finding its own frame (board.size(fit=True), before anything is placed)
+        # A board still finding its own frame (board.rect(fit=True), before anything is placed)
         # has no centre or outline to search wide against yet: a push there falls back to a pocket,
         # the same as an unpushed item with nothing else to seed it.
         wide_push = bool(push_sources) and not self._fit and self._outline is not None
@@ -8562,7 +8595,9 @@ class Board:
             note = (note + "; " if note else "") + moved
         if push_sources:
             note = (note + "; " if note else "") + self._push_notes(occ, plan, i, result.chosen, push_sources)
-        return self._step(i, result.chosen, result.moved_mm, note)
+        step = self._step(i, result.chosen, result.moved_mm, note)
+        step.back_face = bool(face_note) and result.chosen.face is Face.BACK
+        return step
 
     @staticmethod
     def _faces_of(i: PlaceIntent) -> tuple:
@@ -9155,7 +9190,8 @@ class _CopperContext:
         self.planned_tracks: list = []     # every track planned so far (any batch)
         self.fields: dict = {}             # part -> the carried vias of its grids, lifted off the board while a batch is planned
         self.fixed_tracks: list = []       # tracks from the FIXED batch: never yield
-        self.notes: list = []              # findings a copper plan raises about itself
+        self.notes = Findings()            # findings a copper plan raises about itself, each of its own kind
+
         self.planned_vias: list = []       # every via planned so far, for a FreeSpot's hole rule
         self.planned_tails: list = []      # every FreeSpot tail planned so far: not in the occupancy until the batch ends
         self.batch_tracks: list = []       # tracks planned so far in the batch being planned: not in the occupancy yet
@@ -9164,6 +9200,10 @@ class _CopperContext:
         self.pour_at: dict = {}            # pour intent index -> its drawn points, for a stitch over it
         self.ops_at: dict = {}             # copper intent index -> the ops its plan gave, for a Past over it
         self.plan = None                   # the plan being built: its keepouts, for a FreeSpot
+
+    def note(self, text: str, kind: str = "copper", severity: str = "warning") -> None:
+        """A finding about a declaration that is not drawn as asked, a person's call."""
+        self.notes.append(Finding(kind, text, severity))
 
     def locate(self, ref) -> Location:
         if isinstance(ref, CopperIntent):
@@ -9347,7 +9387,7 @@ def _between_point(board: "Board", ctx: "_CopperContext", net: str, width: float
     if gap < need - 1e-6:
         oa, na, _, _ = board._pad_ref(p.a)
         ob, nb, _, _ = board._pad_ref(p.b)
-        ctx.notes.append("track %s: the gap between %s.%s and %s.%s is %.3f mm, not enough for a %.2f mm "
+        ctx.note("track %s: the gap between %s.%s and %s.%s is %.3f mm, not enough for a %.2f mm "
                          "track with clearance to each (%.3f mm needed)" % (net, oa, na, ob, nb, gap, width, need))
     # the middle of the gap, between the pads' facing edges on the axis they stand apart on,
     # centred across where they face each other on the other

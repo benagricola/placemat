@@ -382,7 +382,7 @@ def bridge_track(track: Track, points, via_drill: float, via_size: float, half: 
 
 
 def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
-                    bridge_half: float = BRIDGE_HALF, drop: list | None = None):
+                    bridge_half: float = BRIDGE_HALF, drop: list | None = None, labels: list | None = None):
     """Decide every same-layer crossing between tracks of different nets.
 
     `entries` are (Track, priority_rank, may_bridge) for the copper being
@@ -391,12 +391,16 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
     priority the shorter one does. A crossing where the track that should
     yield may not bridge is returned as a finding and both tracks are drawn
     as declared, unless `drop` is a list: then the index of the entry that
-    should yield is appended to it, for the caller not to draw it. Returns
+    should yield is appended to it, for the caller not to draw it, and the finding names it
+    (`labels[k]`, what the caller calls entry k) as left out. Returns
     (ops, notes, findings). The result does not depend on the order of
     `entries`."""
     entries = list(entries)
     cuts = {i: [] for i in range(len(entries))}
     notes, findings = [], []
+
+    def left_out(k):
+        return "; %s is not drawn" % labels[k] if drop is not None and labels is not None else ""
 
     def yielder(i, j):
         (ta, pa, _), (tb, pb, _) = entries[i], entries[j]
@@ -420,8 +424,8 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
                     notes.append("%s passes under %s at (%.2f, %.2f): %s" % (
                         entries[k][0].net, entries[other][0].net, pt[0], pt[1], why))
             else:
-                findings.append(Finding("copper", "%s and %s cross on %s at (%.2f, %.2f) and neither may bridge" % (
-                    entries[i][0].net, entries[j][0].net, entries[i][0].layer.value, pt[0], pt[1])))
+                findings.append(Finding("copper", "%s and %s cross on %s at (%.2f, %.2f) and neither may bridge%s" % (
+                    entries[i][0].net, entries[j][0].net, entries[i][0].layer.value, pt[0], pt[1], left_out(k))))
                 if drop is not None:
                     drop.append(k)
         for ft in fixed_tracks:
@@ -431,8 +435,8 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
             if entries[i][2]:
                 cuts[i].append(pt)
             else:
-                findings.append(Finding("copper", "%s crosses FIXED %s on %s at (%.2f, %.2f) and may not bridge" % (
-                    entries[i][0].net, ft.net, ft.layer.value, pt[0], pt[1])))
+                findings.append(Finding("copper", "%s crosses FIXED %s on %s at (%.2f, %.2f) and may not bridge%s" % (
+                    entries[i][0].net, ft.net, ft.layer.value, pt[0], pt[1], left_out(i))))
                 if drop is not None:
                     drop.append(i)
     ops = []

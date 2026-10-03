@@ -66,7 +66,7 @@ switches = board.row([SW_BOOT, SW_RUN], Edge.NORTH, gap=COLUMN_GAP, line="centre
                      why="both plungers on one line at the cell's north face, the passive column between them")
 light = board.row([LED], Edge.NORTH, gap=LED_STANDOFF, after=switches, rotation=LED_ROT,
                   why="the light on the plungers' line, its resistor's width off RUN")
-board.size(width=switches.length + LED_STANDOFF + max(light.length, r_led_claim.width) + 2 * board.keep_in,
+board.rect(width=switches.length + LED_STANDOFF + max(light.length, r_led_claim.width) + 2 * board.keep_in,
            height=2 * board.keep_in + switches.depth + LABEL_SIZE * 1.6, draw=False)
 
 # ---------------------------------------------------------------- the passive column between the switches, the LED's resistor under it

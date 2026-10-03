@@ -206,7 +206,7 @@ def test_a_disc_has_no_edges_and_a_rectangle_has_no_rim():
     with pytest.raises(ValueError, match="rim"):
         b.place(Part("d1"), at=OnEdge(Edge.NORTH))
     flat = make_board("d1")
-    flat.size(40.0, 40.0)
+    flat.rect(40.0, 40.0)
     with pytest.raises(ValueError, match="disc"):
         flat.place(Part("d1"), at=OnRim(Edge.NORTH))
     with pytest.raises(ValueError, match="disc"):
@@ -244,7 +244,7 @@ def test_a_round_board_still_takes_plain_coordinates():
 
 def test_polar_measures_from_a_centre_so_it_works_on_any_board():
     b = make_board("d1", "d2")
-    b.size(40.0, 40.0)
+    b.rect(40.0, 40.0)
     b.place(Part("d1"), at=Polar(10.0, Edge.EAST))                  # about the board's centre
     b.place(Part("d2"), at=Polar(5.0, Edge.NORTH, about=Location(10.0, 30.0)))
     plan = b.resolve()
@@ -255,7 +255,7 @@ def test_polar_measures_from_a_centre_so_it_works_on_any_board():
 
 def test_a_ring_may_sit_about_a_point_on_a_square_board():
     b = make_board("d1", "d2", "d3", "d4")
-    b.size(40.0, 40.0)
+    b.rect(40.0, 40.0)
     ring = b.ring([Part("d1"), Part("d2"), Part("d3"), Part("d4")], radius=8.0,
                   about=Location(12.0, 12.0), spread=True)
     plan = b.resolve()
@@ -270,7 +270,7 @@ def test_polar_about_a_part_is_resolved_when_the_polar_item_is_placed():
     placed, and settled once the Polar-placed item is, the same as any
     other reference."""
     b = make_board("d1", "u1")
-    b.size(40.0, 40.0)
+    b.rect(40.0, 40.0)
     b.place(Part("d1"), at=Polar(5.0, Edge.NORTH, about=Part("u1")))     # declared before u1
     b.place(Part("u1"), at=Location(10.0, 30.0))
     plan = b.resolve()
@@ -280,7 +280,7 @@ def test_polar_about_a_part_is_resolved_when_the_polar_item_is_placed():
 
 def test_polar_about_a_pad():
     b = make_board("d1", "u1")
-    b.size(40.0, 40.0)
+    b.rect(40.0, 40.0)
     b.place(Part("u1"), at=Location(10.0, 30.0))
     b.place(Part("d1"), at=Polar(5.0, Edge.NORTH, about=PadRef(Part("u1"), 1)))
     plan = b.resolve()
@@ -294,7 +294,7 @@ def test_a_polar_radius_with_a_freedom_may_be_about_a_reference():
     """Polar(radius) with no angle: one freedom left (slides round the
     ring), and the ring's own centre is still a reference."""
     b = make_board("u1", "r1")
-    b.size(40.0, 40.0)
+    b.rect(40.0, 40.0)
     b.place(Part("u1"), at=Location(10.0, 30.0))
     b.place(Part("r1"), at=Polar(12.0, about=Part("u1")))
     plan = b.resolve()
@@ -304,7 +304,7 @@ def test_a_polar_radius_with_a_freedom_may_be_about_a_reference():
 
 def test_a_ring_may_sit_about_a_part():
     b = make_board("u1", "d1", "d2", "d3", "d4")
-    b.size(40.0, 40.0)
+    b.rect(40.0, 40.0)
     b.place(Part("u1"), at=Location(12.0, 12.0))
     ring = b.ring([Part("d1"), Part("d2"), Part("d3"), Part("d4")], radius=8.0,
                   about=Part("u1"), spread=True)

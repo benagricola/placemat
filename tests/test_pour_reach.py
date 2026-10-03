@@ -214,7 +214,7 @@ def _written_node(tmp_path, clearance=0.16, foreign=()):
 
 def _declared(pcb, reach):
     board = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
-    board.size(width=40.0, height=40.0)
+    board.rect(width=40.0, height=40.0)
     board.pour(Net("SW"), [PadRef(Part("Q1"), 1), PadRef(Part("L1"), 1)], layer=F, swallow_pads=True, reach=reach)
     return board
 
@@ -358,7 +358,7 @@ def test_kicad_flags_a_polygon_edge_on_a_pads_edge_but_not_a_pour_held_clear(tmp
         return [i["description"] for v in json.load(open(path))["violations"] for i in v["items"]]
     pcb = _fine_board(tmp_path / "held", pads)
     board = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
-    board.size(width=40.0, height=40.0)
+    board.rect(width=40.0, height=40.0)
     board.pour(Net("VBUS"), [PadRef(Part("U1"), n) for n in (26, 27, 28)], layer=F, swallow_pads=True)
     plan = board.resolve()
     assert not [f for f in declared_findings(plan) if f.startswith("pour")], plan.findings

@@ -216,7 +216,7 @@ class Escapes:
                 self._cgrid.add(c, c.box)
                 self._open[id(c)] = self._clear(c)
         if copper:
-            metal = [s for s in occ.copper if s.kind in ("copper", "through")]
+            metal = [s for s in occ.copper if s.kind in ("copper", "through") and s.owner not in occ.pending]
             self._blockers[":copper"] = metal
             for s in metal:
                 self._bgrid.add(s, s.box)
@@ -233,6 +233,26 @@ class Escapes:
                     touched.append(c)
         if self.mirror is not None:
             self._sync(refs, copper, touched)
+        if not copper:
+            self._sync_cell_copper(refs)
+
+    def _sync_cell_copper(self, names) -> None:
+        """A cell's own copper (its tracks and vias) stands where the cell stands: when the cell is placed, moved or
+        lifted, the copper kept here from where it stood before is taken out and what the occupancy holds now put in.
+        Without it a stamped cell's tracks and vias are not seen: a corridor a track crosses reads open, and a pad a
+        track leaves reads unjoined."""
+        occ = self.occ
+        for name in names:
+            if name not in occ.geometry.cells:
+                continue
+            now = [] if name in occ.pending else [s for s in occ.copper if s.owner == name and s.kind in ("copper", "through")]
+            held = [s for s in self._blockers.get(":copper", ()) if s.owner == name]
+            if len(now) == len(held) and all(a is b for a, b in zip(now, held)):
+                continue
+            if held:
+                self.remove_copper(held)
+            if now:
+                self.add_copper(now)
 
     def _sync(self, refs, copper: bool, touched) -> None:
         """Hand the mirror what `refresh` changed: the parts' corridors and
@@ -344,12 +364,20 @@ class Escapes:
                 near = list(self._bgrid.near(pad.inflate(self.depth + 1.0)))
                 by = sorted({sh.owner or occ.blame_owner(sh) for c in group for sh in self._bgrid.near(c.box)
                              if self._closes_any(sh, c)})
-                if not open_ and not path_out(occ, ref, c0.number, self.depth, near=near):
+                if not open_ and not self._gets_out(ref, c0.number, near):
                     walled.append((ref, c0.number, c0.net, by, []))
                     continue
-                if targets and not any(path_out(occ, ref, c0.number, self.depth, toward=t, near=near) for t in targets):
+                if targets and not any(self._gets_out(ref, c0.number, near, toward=t) for t in targets):
                     closed.append((ref, c0.number, c0.net, by, self._joins(ref, c0.number, c0.net)))
         return closed, walled
+
+    def _gets_out(self, ref: str, number: str, near, toward=None) -> bool:
+        """Whether a track or via gets out of the pad: the path search on the obstacles' boxes, and when that finds none,
+        on the shapes themselves. A box says a pad is walled where a diagonal track or pour whose box covers it leaves it
+        room, and a finding is only made on what is there."""
+        occ = self.occ
+        return (path_out(occ, ref, number, self.depth, toward=toward, near=near)
+                or path_out(occ, ref, number, self.depth, toward=toward, near=near, exact=True))
 
     def handoffs_walled(self) -> list:
         """The pads of nets with no other pad on the board - the net leaves the board there, as a module's pin does for the

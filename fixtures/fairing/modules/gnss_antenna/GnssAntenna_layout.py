@@ -332,7 +332,7 @@ NET_BOTTOM = FEED_Y + max(
 # (Main.zen: it is 2.5 tall and has to stand where the case allows it); the
 # frame ends at the network's bottom or the clearance's, whichever is lower.
 FRAME_H = max(EDGE_Y + CLEARANCE_D, EDGE_Y + DETAIL_C_D, NET_BOTTOM) + FRAME_MARGIN + COURTYARD_TOUCH
-board.size(FRAME_W, FRAME_H, draw=False)
+board.rect(FRAME_W, FRAME_H, draw=False)
 
 # --- the 50 ohm feed ---------------------------------------------------------
 # FINGERS, not tracks. A finger is a rectangular pour of a set width along a

@@ -65,7 +65,7 @@ def pin(n):
     return pad("buck3v3", n)
 
 
-board.size(fit=True)   # the frame is the content plus the keep-in
+board.rect(fit=True)   # the frame is the content plus the keep-in
 board.place(Part("buck3v3"), at=Location(0, 0), rotation=BUCK_ROTATION,
             why="the regulator at the frame's origin; the rest from its pads")
 

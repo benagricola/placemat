@@ -11,7 +11,7 @@ reads the stamped cell's box, and the fragment's planes are bounded to the
 frame. A frame larger than the parts costs the parent board; a smaller one
 cuts the parts off.
 
-`board.size()` takes numbers, and nothing gives the extent of parts placed
+`board.rect()` takes numbers, and nothing gives the extent of parts placed
 from each other's pads before they are placed. `board.reach()` refuses a
 block, and a searched part cannot be sized from at all. So the board's
 fragments carry a helper module (`fragment_frame.py`: `Content`, `frame()`,
@@ -23,7 +23,7 @@ whenever a footprint, a rotation or the envelope setting changes.
 
 ## The change
 
-1. **`board.size(fit=True, margin=None, chamfer=0.0, radius=0.0, draw=False)`.**
+1. **`board.rect(fit=True, margin=None, chamfer=0.0, radius=0.0, draw=False)`.**
    The frame is the box round everything placed, plus `margin` on every side
    (default: the board's keep-in, `edge_margin`). What counts is what the
    placer keeps: each part's envelope as `[place] envelope` claims it, labels,
@@ -49,7 +49,7 @@ whenever a footprint, a rotation or the envelope setting changes.
    edge (`OnEdge`, `Edge.*` rows, `edge(facing=)`), a `Centre()` of the board
    and `board.width`/`board.height` before resolve have no meaning until the
    frame exists. Each raises a clear error naming fit.
-5. **Docs.** api.md's `board.size` entry and the fragment section, a SKILL.md
+5. **Docs.** api.md's `board.rect` entry and the fragment section, a SKILL.md
    line under module fragments (size a fragment's frame with `fit=True`;
    never compute it by hand), and the migration note, which points at
    helpers that compute a frame and says they can go.

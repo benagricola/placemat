@@ -94,9 +94,10 @@ request (SKILL.md, "When no form says it").
 | **the board and its regions** | | |
 | a board of any shape | `board.outline(path, holes=)` | Boards of any shape |
 | a stretch of edge chosen by which way it faces | `board.edge(facing=Edge.NORTH)` | Boards of any shape |
+| a rectangular board | `board.rect(width, height, chamfer=, radius=, holes=)` | Setup |
 | a round board | `board.disc(diameter, hole=)` | Round boards |
-| a module frame sized to its own content | `board.size(fit=True)` | Setup |
-| a module frame fitted in one axis, the other a declared number | `board.size(fit=Axis.X, height=)` | Setup |
+| a module frame sized to its own content | `board.rect(fit=True)` | Setup |
+| a module frame fitted in one axis, the other a declared number | `board.rect(fit=Axis.X, height=)` | Setup |
 | a hole in the board | `Cutout(shape, name, at=)` in `holes=` | Cutouts |
 | a hole placed from the connector it serves | `at=Centre(X(Part(j)), Y(Part(j), d))` | Cutouts |
 | a region that forbids parts, fill, tracks, vias or pads | `board.keepout(shape, name, at=)` | Keepouts |
@@ -193,14 +194,14 @@ The same answers from the command line, for when no script is running, are
 
 ## Setup
 
-`board.size(width, height, chamfer=0.0, radius=0.0, holes=(), web=0.0, draw=None)` - the
+`board.rect(width, height, chamfer=0.0, radius=0.0, holes=(), web=0.0, draw=None)` - the
 outline, origin top-left, y down; `draw=False` gives a fragment a frame that
-is never drawn.
-`board.size(fit=True, margin=None, chamfer=0.0, radius=0.0)` - a fragment's
+is never drawn. The old name, `board.size(...)`, still works and raises a `setup` notice.
+`board.rect(fit=True, margin=None, chamfer=0.0, radius=0.0)` - a fragment's
 frame (never drawn) sized to its content: the box round everything placed (each
 part as the placer claims it, labels, tracks, vias, pours) plus `margin`
 (default the keep-in), set once everything is placed.
-`board.size(fit=Axis.X, height=, margin=None)` or `fit=Axis.Y, width=` - a frame
+`board.rect(fit=Axis.X, height=, margin=None)` or `fit=Axis.Y, width=` - a frame
 fitted in one axis only: the frame fits its content across x (or y) the same
 way `fit=True` does, and the other axis is the declared number, origin at 0
 the same as a sized board's - a mechanical fact the content must fit inside,
@@ -886,7 +887,7 @@ trunk = board.row([CN, U13], Edge.NORTH, gap=2.5, align=Along.MID, line=Line.OUT
 pair = board.row([RB, RA], Edge.NORTH, gap=1.5, behind=trunk, inboard=2.0, rotation=180, centre=X(Mid(pin_n, pin_p)))
 board.row([JUMPER], Edge.NORTH, gap=1.5, rotation=180, before=pair)   # on the resistors' centre line
 legs = board.row(LEGS, Edge.SOUTH, gap=1.0, behind=aux_row, start=Y(PadRef(MH3, 1), 4.0))   # after the hole
-board.size(width=board.keep_in + power.depth + 4 + bus.depth + board.keep_in, height=max(power.end, bus.end) + TOP)
+board.rect(width=board.keep_in + power.depth + 4 + bus.depth + board.keep_in, height=max(power.end, bus.end) + TOP)
 ```
 `overhang=` stands the row's outward faces that far past the edge, as
 `OnEdge(edge, overhang=)` does. Where a row sits along its edge, one of: `start=` a number or a
@@ -958,11 +959,11 @@ beside it, generates the fragment and applies the script. A zen may
 declare one Layout per variant (an `if` on a `config()`), each with its
 own script named for it; the script's first line `# placemat generate:
 --config key=value` tells the generator which. A fragment has no outline
-to write, but its script may give it a frame, `board.size(w, h,
+to write, but its script may give it a frame, `board.rect(w, h,
 draw=False)`, sized from its own rows, so the controls that must meet
 a board edge are a `row` on the frame's edge; the board supplies the
 real outline. What is not on an edge is said in terms of parts and pads.
-A fragment with no edge to meet takes `board.size(fit=True)`:
+A fragment with no edge to meet takes `board.rect(fit=True)`:
 its main part at the origin, the rest from its pads, and the frame is what
 they fill plus the margin - no frame or anchor position computed by hand. A
 searched item on a fit board searches round what is placed so far, by
@@ -1526,7 +1527,7 @@ where it starts; each one after it is a point (a straight leg to it) or an
 Three points fix a circle and the way round it, so an arc needs no flag for
 which way it bulges. `holes=` are cutouts (above), each a path of its own.
 Use this when the board's EDGE is not a rectangle or a circle; a hole in an
-otherwise ordinary board is `holes=` on `size()` or `disc()`.
+otherwise ordinary board is `holes=` on `rect()` or `disc()`.
 
 ```python
 board.outline([(0, 40), (0, 20), Arc(to=(40, 20), via=(20, 0)), (40, 40)])   # a square with a rounded top
@@ -3145,9 +3146,14 @@ wrong counted and weighted by a `[score]` setting (the table below):
   a declared escape lane that something blocks (`board.escape`), and a setup finding (the same every run, 0 by default);
 - each ratsnest crossing, with a plane's or free net's crossing at
   `score.crossing_plane` of it;
-- the airwire itself, a millimetre each.
+- the airwire itself, a millimetre each;
+- the carried vias that gave way, at the cost the search priced each action (`score.via_share`, `via_move`,
+  `via_leave`, `via_route`, `via_shorten`, `via_drop`, and a field relay's `score.via_relay*` once);
+- each push, `score.push` times the modelled value over its limit at the final placement, the whole value as the
+  search prices it, not only what is past the limit;
+- each item a `face=Face.EITHER` search put on the back, `score.back_face`.
 
-A run records these measures, not its score, so a weight changed in
+A finding's severity does not enter the score. A run records these measures, not its score, so a weight changed in
 placemat.toml re-ranks the recorded runs at once, the stored best included.
 Two scores tie within `best.airwire_noise` of the airwire plus
 `best.crossing_noise` of the crossings' term, because kicad-cli picks
@@ -3269,14 +3275,21 @@ current as the script changes, whoever changes it: the user's editor or an
 agent.
 
 ```
-placemat studio <script> [--port N] [--no-open]
+placemat studio [<script>] [--port N] [--no-open] [--host ADDR]
 ```
 
 It prints an address (`http://127.0.0.1:PORT/?t=TOKEN`) and opens it unless
 `--no-open`. The server listens on 127.0.0.1 only, answers only GET, and
 refuses any request without the token in the address; stop it with Ctrl-C.
-One studio serves one script. It needs the board's cached generation, as
+One studio serves one script at a time. It needs the board's cached generation, as
 `preview` does: `placemat run` the script once first.
+
+With no `<script>` the studio finds the layout scripts under the current
+directory's project (the folder of the outermost `placemat.toml` above it, else
+the current directory) and the page opens on a list of them, resolving nothing
+until one is chosen; with none found it exits naming the folder it searched.
+The board's name in the page's header is the same list as a menu, to switch
+script in place.
 
 **What it watches.** The script, every module it imports (the files
 `script_fingerprint` reads), its `.lock.json` and `.routes.json`, every
@@ -3318,6 +3331,22 @@ shown as an error with its line, over the last good plan, marked stale.
   item marks the changed lines of its declaration. A moved item whose own
   declaration did not change was moved by something else the edit did; the
   page says so.
+
+**Run.** The Run button runs `placemat run <script> --no-render` (the design
+checks, KiCad's DRC and the score, a run record in `.placemat/runs`) and shows
+its progress and result; the Compare panel lists the runs recorded for the
+script, from here or elsewhere, each with its score, DRC by kind, failed checks
+and findings by severity, and compares the newest resolve with one: items moved,
+added and removed, findings gained and lost, the score. A run records no copper
+or links, so those are not compared. `GET /runs`, `GET /runcompare?run=ID` and
+`POST /run` (token required) serve it; `run_started`, `run_line` and `run_done`
+are its events.
+
+**When the worker dies.** A worker stopped by a signal is reported by name; a
+crash is reported with the signal and, from the Python traceback `faulthandler`
+leaves in `worker.log`, the innermost frame in the script or a module it imports
+(file, line, source line) as the `error` event's `file`, `line` and `source`.
+A script's exception gives its type and message and the same innermost frame.
 
 The compare is also the server's: `/diff?a=ID&b=ID`, `/resolve/ID` and
 `/history` answer with JSON (token required), and `/events` is the stream
@@ -3436,7 +3465,7 @@ its kind.
 | `fixed` | critical | a decided item (fixed, a cutout, a keepout) is not legal where it was put |
 | `copper` (conflicts: copper meets another net, crosses a keepout, passes a corner inside the clearance, two tracks cross and neither may bridge) | critical | the copper as declared breaks a rule |
 | `copper` (a declared track, via, pour or stitch not drawn) | warning | the copper the script declared is missing; a person decides whether the router can stand in |
-| `copper` (a waypoint drawn pad to pad, stitch vias outside the region left out, the side a stitch row took, a track left out whose crossing is already a finding) | notice | placemat's own choice, said |
+| `copper` (a waypoint drawn pad to pad, stitch vias outside the region left out, the side a stitch row took) | notice | placemat's own choice, said |
 | `escape_walled` | critical | a pad with no way out cannot be routed |
 | `escape_closed` | warning | the way toward what a pad joins is closed; other ways out remain |
 | `escape_crossed` | warning | two escapes cross near a pin row; the router can usually separate them |

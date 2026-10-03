@@ -72,7 +72,7 @@ def _kicad_board(tmp_path, pads, tracks=(), vias=(), clearance=0.2, rules=None, 
 def _plan(pcb, declare):
     from placemat.kicad.read import read_board
     b = Board(read_board(pcb), edge_margin=0.5, keep_going=True)
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     declare(b)
     return b.resolve()
 

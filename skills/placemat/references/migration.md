@@ -5,7 +5,80 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.85.0
+
+### Changed
+
+- **`board.size(...)` is `board.rect(...)`.** The rectangular board form is named for its shape, beside
+  `board.disc(...)` and `board.outline(...)`. The signature and behaviour are the same. `board.size(...)` still
+  works and raises one `setup` notice saying so; the old name will be removed.
+
+  ```python
+  board.size(width=60, height=40, chamfer=2.0)    # before
+  board.rect(width=60, height=40, chamfer=2.0)    # now
+  ```
+
+## To 0.84.0
+
+### Changed
+
+- **The run score prices what the placement search prices.** Three things the search weighs now count in a run's
+  score, at the same weights, so a run and its search agree: the carried vias that gave way (the sum of the
+  costs of the actions, `score.via_share`, `via_move`, `via_leave`, `via_route`, `via_shorten`, `via_drop`, and a
+  field relay's `score.via_relay*` once), each push (`score.push` times its value over its limit, the whole value
+  as the search prices it, at the final placement), and each item a `face=Face.EITHER` search put on the back
+  (`score.back_face`). New terms `giveway`, `push` and `back_face` show in the `score` line; a run record from
+  before has none of the three measures, which read as 0. A layout that gave way vias, was pushed or took the
+  back face scores higher than before, so a recorded best of such a family may now lose to a later run
+  that is no better. Finding severity is a display concern and does not enter the score. Scripts
+  change nothing. `api.md`, "run score".
+
+- **A track left out because it may not bridge is one finding, not two.** Where two tracks cross and the one that
+  must yield may not bridge, the track is left out and the crossing finding says so (`A and B cross
+  on F.Cu at (20.00, 30.00) and neither may bridge; track B is not drawn`); the separate `track X: not
+  drawn, it crosses another net's track and may not bridge` finding is gone, so the `copper` count and score for
+  such a layout fall by one per track left out.
+
+- **A copper plan's own notes are scored under their own kind.** Each note a declared track, via, pour, plane or
+  stitch raises is made as a finding of its own kind and severity where it is raised, instead of all being
+  counted as `copper` warnings afterwards. They stay `copper` warnings, except that a pour whose `reach=` needs
+  KiCad's pcbnew where it is absent is a `setup` finding.
+
+## To 0.83.0
+
+### New
+
+- **`placemat studio` with no script.** The command lists the layout scripts under the current directory's project (the
+  folder of the outermost `placemat.toml` above it, else the current directory), and the page opens on that list: title,
+  subtitle and path of each, nothing resolving until one is chosen. The header's board name is the same list as a menu,
+  so a studio can move between scripts in place. With no layout script found it exits naming the folder it searched.
+- **The studio's Run button.** A checked run (`placemat run --no-render`: the design checks, KiCad's DRC and the score, a
+  run record) from the page, with its progress and result shown; the runs recorded for the script (this one's or
+  another's, from `.placemat/runs`) are listed with their score, DRC, checks and findings and can be compared with the
+  newest resolve. `/runs`, `/runcompare?run=ID` and `POST /run` serve it.
+- **The studio shows what happens to its worker.** A worker stopped by a signal is reported by name ("stopped by
+  SIGTERM"), a crash with the signal and the line of the script or module that was running (from faulthandler), and a
+  script's exception with its type and its own innermost line, including a line in a module it imports. Nothing is
+  reported when the studio itself is stopping.
+- **The studio streams copper and cutout steps** as they settle, so the timeline and the steps list grow during a
+  resolve and the slider can be used; a footprint's own copper graphics (a printed winding) are drawn, planes are
+  visible and congestion is a colour ramp with a scale.
+
+### Fixed
+
+- **A stamped cell's drawn track or via no longer leaves a pad reported
+  walled off.** The escape check kept a stamped cell's copper where the
+  cell stood before it was placed, so a pad joined by a track (to a pad
+  holding a plane via, for one) read as unjoined and was reported
+  `escape_walled`, a finding the module alone did not give. The check now
+  holds the cell's copper where the cell stands. A pad is also no longer
+  reported walled off or closed when only the boxes of a diagonal track or
+  pour leave it no room: the path search falls back to their shapes before a
+  finding is made. Findings that went away
+  with it need no script change; a board whose cells were placed with these
+  findings in the score may place them differently.
+
+## To 0.82.0
 
 ### New
 
@@ -2900,3 +2973,4 @@ that says what replaces it.
 | parts placed at coordinates worked out from a lane or a via's position | To 0.65.0 |
 | a searched cell or part pinned to `face=Face.BACK` (or `FRONT`) by hand only because one face was full | To 0.72.0 |
 | a cell or part turned by a hand-picked constant (45 or similar) to follow a circle, at a typed point | To 0.76.0 |
+| `board.size(...)`, the rectangular board form | To 0.85.0 |

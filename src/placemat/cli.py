@@ -228,7 +228,8 @@ def parser() -> argparse.ArgumentParser:
     st = sub.add_parser("studio", help="a local page that shows the layout as it is made: the board re-resolved as the "
                                         "script, its modules or placemat.toml change, each step as it settles, and what "
                                         "the last edit moved")
-    st.add_argument("script", help="a layout script")
+    st.add_argument("script", nargs="?", help="a layout script (default: the page lists the layout scripts under the "
+                                               "project of the current directory and you choose one)")
     st.add_argument("--port", type=int, help="the port to listen on, 127.0.0.1 only (default [studio] port; 0: any free one)")
     st.add_argument("--no-open", action="store_true", help="print the address without opening the browser")
     st.add_argument("--host", default="127.0.0.1",

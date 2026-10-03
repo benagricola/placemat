@@ -574,6 +574,10 @@ def _action(occ, lay: _Layouts, g, c: _Cand, met: str) -> Relaid:
         new = tuple(replace(x, carried=vid, given=vid) for x in lay.shapes_at(g, to))
         parts.append(FieldStep(kind="relay-add", via=vid, at=to, to=to, shapes=new, under=met, **common))
         shapes += list(new)
+    # the field's cost is the search's, once: shared out over its steps, so the cost of the actions on the plan
+    # (plan.given_way) sums to what the search priced
+    each = c.cost / len(parts) if parts else 0.0
+    parts = [replace(x, cost=each) for x in parts]
     return Relaid(kind="relay", via=g.id, owner=g.owner, home=g.home, net=g.net, at=g.centre, pad=lay.pad_key,
                   under=met, cost=c.cost, shapes=tuple(shapes), parts=tuple(parts), gone=frozenset(gone))
 

@@ -252,7 +252,7 @@ def test_a_fragment_opened_on_its_own_keeps_its_faces_note(breakout_pcb, tmp_pat
     brd.Save(str(pcb))
 
     def fragment(b):
-        b.size(fit=True)                                     # a fragment: its frame is for placement only
+        b.rect(fit=True)                                     # a fragment: its frame is for placement only
         b.place(Cell("power_drop0"), at=Location(30, 80))
     _write(pcb, fragment)
     texts = [d.GetText() for d in pcbnew.LoadBoard(str(pcb)).GetDrawings() if isinstance(d, pcbnew.PCB_TEXT)]

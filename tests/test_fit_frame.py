@@ -11,14 +11,14 @@ def _board(**kw):
            footprint("C1", 30, 30, w=2, h=1, inst="c1", nets=("A", "GND")),
            footprint("R1", 34, 34, w=2, h=1, inst="r1", nets=("B", "GND"))]
     b = Board(board_geometry(fps, width=60, height=60), edge_margin=0.5)
-    b.size(fit=True, draw=False, **kw)
+    b.rect(fit=True, draw=False, **kw)
     return b
 
 
 def test_fit_is_for_a_fragments_frame_only():
     b = Board(board_geometry([footprint("U1", 20, 20, inst="u1")], width=60, height=60))
     with pytest.raises(ValueError, match="fit"):
-        b.size(fit=True, draw=True)
+        b.rect(fit=True, draw=True)
 
 
 def test_what_needs_the_frame_is_refused_on_a_fit_board():
@@ -95,7 +95,7 @@ def _big(*extra):
            footprint("J1", 40, 40, w=30, h=4, inst="j1", nets=("A", "GND")),
            footprint("M1", 10, 50, w=24, h=12, inst="m1", nets=("B", "GND"))] + list(extra)
     b = Board(board_geometry(fps, width=80, height=80), edge_margin=0.5)
-    b.size(fit=True, draw=False)
+    b.rect(fit=True, draw=False)
     return b
 
 
@@ -133,7 +133,7 @@ def test_a_cells_own_copper_counts_toward_the_frame():
     track = ((19.0, 20.0), (21.0, 20.0), (21.0, 29.0), (19.0, 29.0))
     copper = [CopperItem("track", "A", frozenset([CopperLayer.F]), (track,), Box(19.0, 20.0, 21.0, 29.0), "mod")]
     b = Board(board_geometry(fps, cells=["mod"], copper=copper, width=60, height=60), edge_margin=0.5)
-    b.size(fit=True, draw=False, margin=0.0)
+    b.rect(fit=True, draw=False, margin=0.0)
     b.place(Cell("mod"), at=Location(20, 24.5))
     plan = b.resolve()
     assert plan.outline.bottom - plan.outline.top >= 9.0 - 1e-6
@@ -143,7 +143,7 @@ def test_a_plane_declared_before_the_fit_size_follows_the_frame():
     fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "GND"))]
     b = Board(board_geometry(fps, width=60, height=60), edge_margin=0.5)
     b.plane(Net("GND"), layers=(CopperLayer.B,))
-    b.size(fit=True, draw=False)
+    b.rect(fit=True, draw=False)
     b.place(Part("u1"), at=Location(0, 0))
     plan = b.resolve()
     (z,) = [c for c in plan.copper if isinstance(c, Zone)]
@@ -152,16 +152,16 @@ def test_a_plane_declared_before_the_fit_size_follows_the_frame():
 
 def test_a_sized_frame_after_fit_is_a_sized_frame():
     b = _board()
-    b.size(30, 20)
+    b.rect(30, 20)
     assert b.width == 30
 
 
 def test_fit_needs_no_draw_and_a_negative_margin_is_refused():
     fps = [footprint("U1", 20, 20, inst="u1")]
     b = Board(board_geometry(fps, width=60, height=60))
-    b.size(fit=True)
+    b.rect(fit=True)
     with pytest.raises(ValueError, match="margin"):
-        Board(board_geometry(fps, width=60, height=60)).size(fit=True, margin=-1.0)
+        Board(board_geometry(fps, width=60, height=60)).rect(fit=True, margin=-1.0)
 
 
 def test_an_unreserved_label_counts_toward_the_frame():
@@ -186,7 +186,7 @@ def _axis_board(axis, **kw):
            footprint("C1", 30, 30, w=2, h=1, inst="c1", nets=("A", "GND")),
            footprint("R1", 34, 34, w=2, h=1, inst="r1", nets=("B", "GND"))]
     b = Board(board_geometry(fps, width=60, height=60), edge_margin=0.5)
-    b.size(fit=axis, draw=False, **kw)
+    b.rect(fit=axis, draw=False, **kw)
     return b
 
 
@@ -225,7 +225,7 @@ def test_fit_axis_x_content_outside_the_declared_height_is_a_finding():
     fit, not a suggestion the frame silently grows (or clips) round."""
     fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B"))]
     b = Board(board_geometry(fps, width=60, height=60), edge_margin=0.5)
-    b.size(fit=Axis.X, height=5.0, draw=False)
+    b.rect(fit=Axis.X, height=5.0, draw=False)
     b.place(Part("u1"), at=Location(0, 20))
     plan = b.resolve()
     assert [f for f in plan.findings if "u1" in f]
@@ -234,7 +234,7 @@ def test_fit_axis_x_content_outside_the_declared_height_is_a_finding():
 def test_fit_axis_y_content_outside_the_declared_width_is_a_finding():
     fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B"))]
     b = Board(board_geometry(fps, width=60, height=60), edge_margin=0.5)
-    b.size(fit=Axis.Y, width=5.0, draw=False)
+    b.rect(fit=Axis.Y, width=5.0, draw=False)
     b.place(Part("u1"), at=Location(20, 0))
     plan = b.resolve()
     assert [f for f in plan.findings if "u1" in f]
@@ -265,20 +265,20 @@ def test_fit_axis_y_refuses_an_edge_naming_which_ones_are_fixed():
 def test_fit_axis_refuses_the_number_for_its_own_dimension():
     fps = [footprint("U1", 20, 20, inst="u1")]
     with pytest.raises(ValueError, match="give height="):
-        Board(board_geometry(fps, width=60, height=60)).size(fit=Axis.X, width=10.0, height=20.0)
+        Board(board_geometry(fps, width=60, height=60)).rect(fit=Axis.X, width=10.0, height=20.0)
     with pytest.raises(ValueError, match="give width="):
-        Board(board_geometry(fps, width=60, height=60)).size(fit=Axis.Y, width=10.0, height=20.0)
+        Board(board_geometry(fps, width=60, height=60)).rect(fit=Axis.Y, width=10.0, height=20.0)
 
 
 def test_fit_axis_needs_a_positive_declared_number():
     fps = [footprint("U1", 20, 20, inst="u1")]
     with pytest.raises(ValueError, match="declared height"):
-        Board(board_geometry(fps, width=60, height=60)).size(fit=Axis.X)
+        Board(board_geometry(fps, width=60, height=60)).rect(fit=Axis.X)
     with pytest.raises(ValueError, match="declared width"):
-        Board(board_geometry(fps, width=60, height=60)).size(fit=Axis.Y)
+        Board(board_geometry(fps, width=60, height=60)).rect(fit=Axis.Y)
 
 
 def test_fit_true_has_nothing_to_size_with_width_or_height():
     fps = [footprint("U1", 20, 20, inst="u1")]
     with pytest.raises(ValueError, match="nothing to size"):
-        Board(board_geometry(fps, width=60, height=60)).size(fit=True, width=10.0)
+        Board(board_geometry(fps, width=60, height=60)).rect(fit=True, width=10.0)

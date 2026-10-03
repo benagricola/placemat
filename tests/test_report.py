@@ -79,9 +79,9 @@ def test_impact_shows_congestion_when_it_changes():
 
 def test_a_run_id_is_a_short_hash_of_the_inputs():
     from placemat.report import run_id
-    a = run_id(script_text="board.size(1, 1)\n", board_bytes=b"pcb", tool_version="0.2.0-dev")
-    b = run_id(script_text="board.size(1, 1)\n", board_bytes=b"pcb", tool_version="0.2.0-dev")
-    c = run_id(script_text="board.size(2, 1)\n", board_bytes=b"pcb", tool_version="0.2.0-dev")
+    a = run_id(script_text="board.rect(1, 1)\n", board_bytes=b"pcb", tool_version="0.2.0-dev")
+    b = run_id(script_text="board.rect(1, 1)\n", board_bytes=b"pcb", tool_version="0.2.0-dev")
+    c = run_id(script_text="board.rect(2, 1)\n", board_bytes=b"pcb", tool_version="0.2.0-dev")
     assert a == b and a != c
     assert len(a) == 8 and all(ch in "0123456789abcdef" for ch in a)
 
@@ -113,7 +113,7 @@ def test_the_settings_change_the_run_id():
     previous run's route/."""
     from placemat.report import run_id
     from placemat.settings import Settings
-    same = dict(script_text="board.size(1, 1)\n", board_bytes=b"pcb", tool_version="0.2.0-dev")
+    same = dict(script_text="board.rect(1, 1)\n", board_bytes=b"pcb", tool_version="0.2.0-dev")
     a = run_id(**same, settings_json=Settings().json())
     b = run_id(**same, settings_json=Settings().json())
     c = run_id(**same, settings_json=Settings(place_step=0.05).json())
@@ -154,7 +154,7 @@ def test_a_copper_step_says_which_batch_planned_it():
     fps = [footprint("U1", 10, 10, inst="u1", nets=("A", "GND")),
            footprint("R1", 30, 10, inst="r1", nets=("GND", "C"))]
     b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
-    b.size(width=60, height=60)
+    b.rect(width=60, height=60)
     b.place(Part("u1"), at=Location(10, 10))
     b.place(Part("r1"))
     b.track(Net("GND"), [Location(5, 58), Location(50, 58)], layer=CopperLayer.F)
@@ -171,7 +171,7 @@ def test_the_fab_profile_changes_the_run_id(tmp_path):
     import json
     from placemat.project import fab_profile
     from placemat.report import run_id
-    same = dict(script_text="board.size(1, 1)\n", board_bytes=b"pcb", tool_version="0.2.0-dev")
+    same = dict(script_text="board.rect(1, 1)\n", board_bytes=b"pcb", tool_version="0.2.0-dev")
     (tmp_path / "fab-profile.json").write_text(json.dumps({"courtyard": {"excess_mm": 0.10}}))
     a = run_id(**same, fab_json=fab_profile(tmp_path).json())
     (tmp_path / "fab-profile.json").write_text(json.dumps({"courtyard": {"excess_mm": 0.25}}))

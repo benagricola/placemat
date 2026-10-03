@@ -35,7 +35,7 @@ def _geom():
 
 def _plan(drops=None, plane=True, **settings):
     b = Board(_geom(), edge_margin=0.5, settings=Settings(**settings))
-    b.size(width=80, height=80)
+    b.rect(width=80, height=80)
     if plane:
         b.plane(Net("GND"), layers=(CopperLayer.B,))
     extra = {} if drops is None else {"drops": drops}
@@ -171,7 +171,7 @@ def test_the_written_board_carries_the_thinned_field(tmp_path):
     _kicad_board(pcb)
     shutil.copy(pcb, tmp_path / "generated.kicad_pcb")
     b = Board(read_board(pcb), edge_margin=0.5)
-    b.size(width=80, height=80)
+    b.rect(width=80, height=80)
     b.plane(Net("GND"), layers=(CopperLayer.B,))
     b.place(Cell("m"), at=Location(20, 20), drops=Drops.HALF)
     apply_plan(pcb, b.resolve())

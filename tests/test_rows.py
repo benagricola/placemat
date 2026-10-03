@@ -120,7 +120,7 @@ def test_a_centred_row_may_be_declared_before_the_board_size():
     b = make_board()
     row = b.row([Part("j1")], Edge.SOUTH, gap=3.0, align="center")
     assert row.depth == pytest.approx(3.0)
-    b.size(width=80, height=60)
+    b.rect(width=80, height=60)
     plan = b.resolve()
     box = plan.box("j1")
     assert box.center.x == pytest.approx(40.0) and box.bottom == pytest.approx(58.0)

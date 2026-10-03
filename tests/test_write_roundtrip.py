@@ -29,7 +29,7 @@ def test_moving_a_cell_and_a_part_lands_them_exactly(breakout_pcb, tmp_path):
     before = read_board(pcb)
     pd0 = before.cell("power_drop0")
     b = Board(before, edge_margin=0.0, keep_going=True)     # re-placing cells on a board that already carries their copper
-    b.size(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
+    b.rect(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
     target = pd0.box.center.offset(0, 5.0)
     b.place(Cell("power_drop0"), at=Centre(target.x, target.y), rotation=0)
     b.place(Part("trunk_pwr"), at=Location(30.0, 12.0), rotation=180)
@@ -65,13 +65,13 @@ def test_writing_the_same_plan_twice_is_byte_identical(breakout_pcb, tmp_path):
     pcb = _copy(breakout_pcb, tmp_path)
     before = read_board(pcb)
     b = Board(before, edge_margin=0.0, keep_going=True)     # re-placing cells on a board that already carries their copper
-    b.size(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
+    b.rect(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
     b.place(Part("trunk_pwr"), at=Location(30.0, 12.0), rotation=180)
     plan = b.resolve()
     apply_plan(pcb, plan)
     first = pcb.read_bytes()
     plan2 = Board(read_board(pcb), edge_margin=0.0, keep_going=True)
-    plan2.size(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
+    plan2.rect(width=before.outline_box.width, height=before.outline_box.height, chamfer=2.0)
     plan2.place(Part("trunk_pwr"), at=Location(30.0, 12.0), rotation=180)
     apply_plan(pcb, plan2.resolve())
     assert pcb.read_bytes() == first

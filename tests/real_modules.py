@@ -12,7 +12,8 @@ from pathlib import Path
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "fairing" / "keep_out"
 MODULES = {"usb5v": "Usb5v", "logicsupply": "LogicSupply", "usbconverter": "UsbConverter"}
 # a module of another fixture folder: (folder, generated name)
-OTHER = {"usbtcpc": (FIXTURES.parent / "via_clearance", "UsbTcpc"), "mcu": (FIXTURES.parent / "mcu_fan", "Mcu")}
+OTHER = {"usbtcpc": (FIXTURES.parent / "via_clearance", "UsbTcpc"), "mcu": (FIXTURES.parent / "mcu_fan", "Mcu"),
+         "usbcells": (FIXTURES.parent / "usb_cells", "UsbCells")}
 
 # The annotation each module's capture carries now (only the switch nodes in `away=`) ...
 SWITCH_ONLY = {

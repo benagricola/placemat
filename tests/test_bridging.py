@@ -55,8 +55,10 @@ def test_a_crossing_nobody_may_bridge_is_a_finding_and_the_yielding_track_is_not
     b.track(Net("CANH_S0"), [(40.0, 30.0), (12.0, 30.0)], layer=F)
     plan = b.resolve()
     assert not vias(plan, "CANH_S0") and not vias(plan, "PERMIT_B")
-    assert any("PERMIT_B" in f and "CANH_S0" in f and "cross" in f for f in plan.findings)
-    assert any("CANH_S0" in f and "not drawn" in f for f in plan.findings)
+    crossing = [f for f in plan.findings if "PERMIT_B" in f and "CANH_S0" in f and "cross" in f]
+    assert len(crossing) == 1 and "track CANH_S0 is not drawn" in crossing[0]      # names the track left out
+    assert not [f for f in plan.findings if "may not bridge" in f and "not drawn" in f.split(";")[0]]
+    assert len([f for f in plan.findings if f.kind == "copper"]) == 1       # one conflict, one finding
     assert [o.net for o in plan.copper if isinstance(o, Track)] == ["PERMIT_B"]
 
 

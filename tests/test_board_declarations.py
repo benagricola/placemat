@@ -79,7 +79,7 @@ def test_a_fixed_part_that_collides_stops_the_run_or_is_reported_not_moved():
 
 def test_the_board_size_is_a_declaration_and_bounds_the_search():
     b = make_board()
-    b.size(width=40.0, height=30.0, chamfer=2.0)
+    b.rect(width=40.0, height=30.0, chamfer=2.0)
     b.place(Part("r1"), at=Near(Location(39, 15), radius=3.0, step=0.5))
     plan = b.resolve()
     assert plan.outline == Box(0, 0, 40.0, 30.0) and plan.chamfer == 2.0
@@ -105,11 +105,11 @@ def test_placing_the_same_item_twice_is_an_error():
 
 def test_a_fragment_may_have_a_frame_for_rows_and_edges_that_is_not_drawn():
     """A module fragment has no outline of its own, but its script may
-    still want rows against an edge: size(..., draw=False) gives the
+    still want rows against an edge: rect(..., draw=False) gives the
     placer a frame and writes no Edge.Cuts."""
     from placemat.values import OnEdge
     b = make_board()
-    b.size(width=40.0, height=30.0, draw=False)
+    b.rect(width=40.0, height=30.0, draw=False)
     b.place(Part("j_in"), at=OnEdge(Edge.NORTH))
     plan = b.resolve()
     assert plan.outline is not None and plan.draw_outline is False

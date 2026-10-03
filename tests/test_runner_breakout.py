@@ -29,7 +29,7 @@ EDGE, INNER, GAP, TOP = 3.0, 2.0, 3.0, 44.0
 STATION = PD_ALONG + INNER + BD_ALONG
 W = 140.0
 H = TOP + 3 * STATION + 2 * GAP + 30.0
-board.size(width=W, height=H, chamfer=2.0)
+board.rect(width=W, height=H, chamfer=2.0)
 board.place(Part("trunk_pwr"), at=OnEdge(Edge.NORTH, along=W / 2 - 14.0), rotation=180)
 board.place(Part("trunk_sig"), at=OnEdge(Edge.NORTH, along=W / 2 + 14.0), rotation=180)
 for d in range(3):

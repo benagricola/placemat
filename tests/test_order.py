@@ -191,7 +191,7 @@ def test_a_declared_plane_net_never_seeds_anything():
     fps += [footprint("C%d" % i, 20 + i * 3, 20, w=1, h=0.5, inst="c%d" % i, nets=("BUS", "GND"))
             for i in range(4)]
     b = Board(board_geometry(fps, width=60, height=60), edge_margin=1.0)
-    b.size(width=60, height=60)
+    b.rect(width=60, height=60)
     b.plane(Net("GND"), layers=(CopperLayer.B,))
     b.place(Part("j1"), at=Location(10, 10))
     for i in range(4):

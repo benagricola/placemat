@@ -70,7 +70,7 @@ def pour(net, pads, layer=CopperLayer.F, width=None):
     board.pour(Net(net), pads, layer=layer, swallow_pads=True, width=width)
 
 
-board.size(fit=True)   # the frame is the content plus the keep-in
+board.rect(fit=True)   # the frame is the content plus the keep-in
 board.place(Part("buck"), why="the regulator at the frame's origin; the rest from its pads")
 
 # --- input pairs, one at each VIN/PGND corner -------------------------------------

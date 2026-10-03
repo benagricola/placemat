@@ -115,7 +115,7 @@ def test_excludes_takes_the_forbid_enum_or_its_string_spelling():
     strings a script already writes keep working."""
     from placemat.values import Forbid
     b = make_board("u1")
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0),
               excludes=(Forbid.PARTS, "fill"), why="the clearance")
     plan = b.resolve()
@@ -125,7 +125,7 @@ def test_excludes_takes_the_forbid_enum_or_its_string_spelling():
 
 def test_excludes_refuses_an_unknown_kind():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     with pytest.raises(ValueError):
         b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0),
                   excludes=("aliens",), why="the clearance")
@@ -136,7 +136,7 @@ def test_a_keepout_may_be_placed_near_a_hint():
     is a region on the same place vocabulary as a cutout."""
     from placemat.values import Near
     b = make_board("u1")
-    b.size(width=60.0, height=60.0)
+    b.rect(width=60.0, height=60.0)
     b.place(Part("u1"), at=Location(20.0, 20.0))
     b.keepout(Circle(4.0), "clr", at=Near(Location(30.0, 30.0), radius=6.0, step=0.5), why="probe")
     plan = b.resolve()
@@ -168,7 +168,7 @@ def test_a_keepout_at_a_pad_turns_with_the_part_when_rotation_is_turned():
 
 def test_a_part_may_not_sit_in_a_keepout():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), why="the clearance")
     b.place(Part("u1"), at=Location(20.0, 20.0))
     with pytest.raises(PlacementCollision, match="antenna"):
@@ -177,7 +177,7 @@ def test_a_part_may_not_sit_in_a_keepout():
 
 def test_a_part_named_in_allow_may():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0),
               allow=(Part("u1"),), why="its own matching network lives here")
     b.place(Part("u1"), at=Location(20.0, 20.0))
@@ -188,7 +188,7 @@ def test_a_part_named_in_allow_may():
 
 def test_a_keepout_is_placed_from_the_part_it_serves():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(6.0), "antenna", at=Centre(X(Part("u1")), Y(Part("u1"), 6.0)),
               why="the clearance sits inboard of the antenna")
     b.place(Part("u1"), at=Location(20.0, 10.0))
@@ -198,7 +198,7 @@ def test_a_keepout_is_placed_from_the_part_it_serves():
 
 def test_a_keepout_from_a_searched_part_is_refused():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(6.0), "antenna", at=Centre(X(Part("u1")), Y(Part("u1"), 6.0)), why="a")
     b.place(Part("u1"))
     with pytest.raises(ValueError, match="only FIXED and EDGE"):
@@ -207,7 +207,7 @@ def test_a_keepout_from_a_searched_part_is_refused():
 
 def test_two_keepouts_may_not_share_a_name():
     b = make_board()
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(4.0), "a", at=Location(10.0, 10.0), why="x")
     with pytest.raises(ValueError, match="already a keepout named"):
         b.keepout(Circle(4.0), "a", at=Location(30.0, 10.0), why="y")
@@ -215,7 +215,7 @@ def test_two_keepouts_may_not_share_a_name():
 
 def test_a_keepout_says_why():
     b = make_board()
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     with pytest.raises(ValueError, match="why"):
         b.keepout(Circle(4.0), "a", at=Location(10.0, 10.0))
 
@@ -245,7 +245,7 @@ def _rule_areas(plan, copper_layers=4):
 @needs_kicad
 def test_a_keepout_writes_a_rule_area_on_every_copper_layer():
     b = make_board()
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(8.0), "antenna", at=Location(20.0, 20.0), why="the clearance")
     plan = b.resolve()
     for n in (2, 6, 32):
@@ -259,7 +259,7 @@ def test_a_keepout_writes_a_rule_area_on_every_copper_layer():
 @needs_kicad
 def test_excludes_narrows_what_the_rule_area_forbids():
     b = make_board()
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(8.0), "screw", at=Location(20.0, 20.0),
               excludes=("parts",), why="the screw head sweeps here")
     (z,) = _rule_areas(b.resolve())
@@ -271,7 +271,7 @@ def test_excludes_narrows_what_the_rule_area_forbids():
 def test_layers_narrows_where():
     import pcbnew
     b = make_board()
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(8.0), "shield", at=Location(20.0, 20.0),
               layers=[CopperLayer.F], why="under the can")
     (z,) = _rule_areas(b.resolve(), copper_layers=6)
@@ -311,7 +311,7 @@ def test_a_plane_fills_round_a_keepout():
     b.Add(z)
 
     board = make_board()
-    board.size(width=40.0, height=40.0)
+    board.rect(width=40.0, height=40.0)
     board.keepout(Path([(-6.0, -6.0), (6.0, -6.0), (6.0, 6.0), (-6.0, 6.0)]),
                   "antenna", at=Location(31.0, 31.0), why="the clearance")
     _draw_keepouts(b, board.resolve())
@@ -324,7 +324,7 @@ def test_a_pour_crossing_a_keepout_is_a_finding():
     """A rule area does not touch a pour - a pour keeps exactly the shape it
     is given - so it is reported rather than silently reshaped."""
     b = make_board("u1", keep_going=True)
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), why="the clearance")
     b.pour(Net("GND"), [Location(15, 15), Location(35, 15), Location(35, 35), Location(15, 35)],
            layer=CopperLayer.F)
@@ -334,7 +334,7 @@ def test_a_pour_crossing_a_keepout_is_a_finding():
 
 def test_a_track_crossing_a_keepout_is_a_finding():
     b = make_board("u1", keep_going=True)
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), why="the clearance")
     b.track(Net("GND"), [Location(5, 20), Location(35, 20)], layer=CopperLayer.F)
     plan = b.resolve()
@@ -343,7 +343,7 @@ def test_a_track_crossing_a_keepout_is_a_finding():
 
 def test_an_allowed_net_may_cross():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0),
               allow=(Net("GND"),), why="the feed crosses its own clearance")
     b.track(Net("GND"), [Location(5, 20), Location(35, 20)], layer=CopperLayer.F)
@@ -352,7 +352,7 @@ def test_an_allowed_net_may_cross():
 
 def test_a_keepout_that_excludes_nothing_of_the_kind_is_quiet():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(10.0), "screw", at=Location(20.0, 20.0),
               excludes=("parts",), why="the screw head sweeps here")
     b.track(Net("GND"), [Location(5, 20), Location(35, 20)], layer=CopperLayer.F)
@@ -361,7 +361,7 @@ def test_a_keepout_that_excludes_nothing_of_the_kind_is_quiet():
 
 def test_a_track_clear_of_a_keepout_is_quiet():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(6.0), "antenna", at=Location(20.0, 20.0), why="the clearance")
     b.track(Net("GND"), [Location(5, 35), Location(35, 35)], layer=CopperLayer.F)
     assert not declared_findings(b.resolve())
@@ -369,7 +369,7 @@ def test_a_track_clear_of_a_keepout_is_quiet():
 
 def test_a_track_on_another_layer_than_the_region_is_quiet():
     b = make_board("u1", keep_going=True)
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), layers=(CopperLayer.F,),
               why="the clearance on F")
     b.track(Net("GND"), [Location(5, 20), Location(35, 20)], layer=CopperLayer.B)
@@ -378,7 +378,7 @@ def test_a_track_on_another_layer_than_the_region_is_quiet():
 
 def test_a_track_on_the_region_s_own_layer_is_still_a_finding():
     b = make_board("u1", keep_going=True)
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), layers=(CopperLayer.F,),
               why="the clearance on F")
     b.track(Net("GND"), [Location(5, 20), Location(35, 20)], layer=CopperLayer.F)
@@ -388,7 +388,7 @@ def test_a_track_on_the_region_s_own_layer_is_still_a_finding():
 def test_a_region_with_no_layers_still_catches_every_layer():
     for layer in (CopperLayer.F, CopperLayer.B):
         b = make_board("u1", keep_going=True)
-        b.size(width=40.0, height=40.0)
+        b.rect(width=40.0, height=40.0)
         b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), why="every layer")
         b.track(Net("GND"), [Location(5, 20), Location(35, 20)], layer=layer)
         assert any("antenna" in f for f in b.resolve().findings), layer
@@ -397,7 +397,7 @@ def test_a_region_with_no_layers_still_catches_every_layer():
 def test_a_via_is_caught_by_a_region_on_any_single_layer():
     """A via joins every copper layer, so a region on one of them contains it."""
     b = make_board("u1", keep_going=True)
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), layers=(CopperLayer.B,),
               why="the clearance on B")
     b.via(Net("GND"), Location(20.0, 20.0))
@@ -409,7 +409,7 @@ def test_a_region_partly_off_the_board_is_still_enforced():
     sampled into chords, and a chord across an arc bulges past the true curve.
     The region must still fence the parts it was written to fence."""
     b = make_board("u1", keep_going=True)
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(10.0), "seal", at=Location(38.0, 20.0), why="the gland")
     plan = b.resolve()
     assert "seal" in plan.keepouts
@@ -418,7 +418,7 @@ def test_a_region_partly_off_the_board_is_still_enforced():
 
 def test_that_region_s_step_counts_the_points_that_fell_outside():
     b = make_board("u1", keep_going=True)
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(10.0), "seal", at=Location(38.0, 20.0), why="the gland")
     note = b.resolve().step("keepout seal").note
     assert "off the board" in note and "of its" in note
@@ -426,14 +426,14 @@ def test_that_region_s_step_counts_the_points_that_fell_outside():
 
 def test_a_region_wholly_inside_says_nothing_about_the_board_edge():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(4.0), "mid", at=Location(20.0, 20.0), why="the middle")
     assert "off the board" not in b.resolve().step("keepout mid").note
 
 
 def test_a_region_wholly_off_the_board_raises():
     b = make_board("u1", keep_going=True)
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(4.0), "nowhere", at=Location(200.0, 200.0), why="forbids nothing")
     with pytest.raises(ValueError) as e:
         b.resolve()
@@ -444,7 +444,7 @@ def test_a_wholly_off_board_region_raises_even_with_keep_going():
     """A script error, of the same class as two keepouts sharing one name.
     --keep-going carries on past board conditions, not past those."""
     b = make_board("u1", keep_going=True)
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(4.0), "nowhere", at=Location(200.0, 200.0), why="forbids nothing")
     with pytest.raises(ValueError):
         b.resolve()
@@ -460,7 +460,7 @@ def test_a_keepout_may_not_take_a_name_a_rule_area_on_the_board_already_has():
         RuleArea("keepout antenna_1", "ant_rf", ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0)),
                  frozenset([CopperLayer.F]), frozenset(["parts"])),))
     b = Board(g, edge_margin=1.0)
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     with pytest.raises(ValueError) as e:
         b.keepout(Circle(4.0), "antenna_1", at=Location(20, 20), why="clashes")
     assert "antenna_1" in str(e.value) and "ant_rf" in str(e.value)
@@ -473,7 +473,7 @@ def test_an_unrelated_name_is_fine():
         RuleArea("keepout antenna_1", "ant_rf", ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0)),
                  frozenset([CopperLayer.F]), frozenset(["parts"])),))
     b = Board(g, edge_margin=1.0)
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Circle(4.0), "my_own", at=Location(20, 20), why="fine")     # no raise
 
 
@@ -542,7 +542,7 @@ def test_a_free_region_is_not_judged_by_a_hole_s_rules():
     allows. A hole may do none of those, so a sliding region must not be
     tested as a hole: it would be pushed inboard, or refused outright."""
     b = make_board("u1", keep_going=True)
-    b.size(width=40.0, height=40.0, web=2.0)
+    b.rect(width=40.0, height=40.0, web=2.0)
     # free in x, so it slides; wide enough that every candidate touches the edge
     b.keepout(Circle(38.0), "band", at=Centre(None, 20.0), why="the seal band")
     plan = b.resolve()
@@ -554,7 +554,7 @@ def test_a_free_region_may_sit_over_a_part_that_is_already_placed():
     """A hole through a placed part is refused; a region over one is ordinary
     - that is what allow= is for."""
     b = make_board("u1", keep_going=True)
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.place(Part("u1"), at=Location(20.0, 20.0))
     b.keepout(Circle(12.0), "over_it", at=Centre(None, 20.0),
               allow=(Part("u1"),), why="its own matching network lives here")
@@ -582,7 +582,7 @@ def test_committing_a_cell_again_replaces_its_regions_rather_than_piling_them_up
 def test_a_parts_keepout_blocks_only_the_faces_its_layers_name(layers, blocked):
     for face in (Face.FRONT, Face.BACK):
         b = make_board("u1")
-        b.size(width=40.0, height=40.0)
+        b.rect(width=40.0, height=40.0)
         b.keepout(Circle(10.0), "band", at=Location(20.0, 20.0), excludes=("parts",), layers=layers,
                   why="a fanout band on one face")
         b.place(Part("u1"), at=Location(20.0, 20.0), face=face)
@@ -618,7 +618,7 @@ def test_a_cell_s_front_only_rule_area_goes_to_the_back_with_the_cell():
 def test_a_strip_across_the_board_with_its_corners_off_it_still_covers_it():
     """All four corners past the edges, the middle over the board: it is on it."""
     b = make_board("u1")
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Path([(0.0, 0.0), (42.0, 0.0), (42.0, 2.0), (0.0, 2.0)]), "band", at=Location(20.0, 11.0),
               excludes=("parts",), why="a band across")
     b.place(Part("u1"), at=Location(20.0, 30.0))
@@ -628,7 +628,7 @@ def test_a_strip_across_the_board_with_its_corners_off_it_still_covers_it():
 
 def test_a_region_wholly_past_the_edge_is_still_an_error():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     b.keepout(Path([(0.0, 0.0), (4.0, 0.0), (4.0, 2.0), (0.0, 2.0)]), "gone", at=Location(50.0, 11.0),
               excludes=("parts",), why="off to the side")
     b.place(Part("u1"), at=Location(20.0, 30.0))
@@ -682,7 +682,7 @@ def test_a_keepout_with_no_area_is_refused():
     onto the band it was a gap across) keeps nothing out, and KiCad reads
     its rule area as malformed: it is refused where it is declared."""
     b = make_board("u1")
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     with pytest.raises(ValueError, match="keepout 'gap'.*no area"):
         b.keepout(Path([(0.0, 5.0), (2.0, 5.0), (2.0, 5.0), (0.0, 5.0)]), "gap", at=Location(20.0, 20.0),
                   why="the feed gap")
@@ -693,7 +693,7 @@ def test_an_allowed_net_lets_its_copper_through_not_its_parts():
     through: a part carrying an allowed net still needs naming, or an
     antenna clearance allowing its feed would admit every part on it."""
     b = make_board("u1")
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     net = b.part(Part("u1")).pads[0].net
     b.keepout(Circle(10.0), "antenna", at=Location(20.0, 20.0), allow=(Net(net),), why="the feed crosses")
     b.place(Part("u1"), at=Location(20.0, 20.0))
@@ -706,7 +706,7 @@ def test_a_cutout_at_a_location_turns_with_a_part_when_rotation_is_turned():
     Turned rotation waits for its part like any other."""
     from placemat.values import Cutout, Turned
     b = make_board("u1")
-    b.size(width=40.0, height=40.0, holes=[Cutout(Slot(8.0, 2.0), "slot", at=Location(10.0, 30.0),
+    b.rect(width=40.0, height=40.0, holes=[Cutout(Slot(8.0, 2.0), "slot", at=Location(10.0, 30.0),
                                                   rotation=Turned(Part("u1"), 0))])
     b.place(Part("u1"), at=Location(20.0, 10.0), rotation=90)
     plan = b.resolve()
@@ -851,7 +851,7 @@ def test_a_keepout_shaped_by_an_item_refuses_rotation():
 
 def test_margin_is_refused_on_a_shape_keepout():
     b = make_board("u1")
-    b.size(width=40.0, height=40.0)
+    b.rect(width=40.0, height=40.0)
     with pytest.raises(ValueError, match="margin= grows an item's own envelope"):
         b.keepout(Circle(10.0), "clr", at=Location(20.0, 20.0), margin=0.5, why="x")
 
@@ -876,7 +876,7 @@ def test_a_turned_keepout_turns_the_way_its_part_does():
     and so does the arrow."""
     from placemat.values import Turned
     b = make_board("u1")
-    b.size(width=60.0, height=60.0)
+    b.rect(width=60.0, height=60.0)
     b.place(Part("u1"), at=Location(30.0, 30.0), rotation=90)
     arrow = Path([(0.0, -1.0), (4.0, 0.0), (0.0, 1.0)])
     b.keepout(arrow, "arrow", at=PadRef(Part("u1"), 1), rotation=Turned(Part("u1"), 0), excludes=("fill",), why="p")
