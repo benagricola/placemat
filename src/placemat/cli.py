@@ -236,6 +236,11 @@ def parser() -> argparse.ArgumentParser:
                     help="the address to listen on (default 127.0.0.1); 0.0.0.0 or a LAN address lets another device "
                          "on the network open the page, still only with the printed token")
 
+    wt = sub.add_parser("watch", help="follow a placemat command running in this project (run, preview, an explore) as it works: "
+                                       "a line per step, per variant, until it ends; exit 0 done, 1 error, 2 died or not found")
+    wt.add_argument("which", nargs="?", help="the command's pid or label (default: every command running in the project)")
+    wt.add_argument("--json", action="store_true", help="the events as the command sends them, one JSON object per line")
+
     fz = sub.add_parser("freeze", help="move lock entries into the script's place() calls, if the script then "
                                        "places exactly as the lock did")
     fz.add_argument("script", help="the board's layout script")
@@ -1046,6 +1051,12 @@ def cmd_studio(args) -> int:
     return run(args.script, port=args.port, open_browser=False if args.no_open else None, host=args.host)
 
 
+def cmd_watch(args) -> int:
+    from . import channel
+    from .studio import project_root
+    return channel.watch(project_root(Path.cwd()), args.which, args.json)
+
+
 def cmd_occupancy(args) -> int:
     from . import queries
     from .kicad.read import read_board
@@ -1338,7 +1349,7 @@ def _dispatch(args) -> int:
             "route": cmd_route, "routes": cmd_routes, "check": cmd_check, "show": cmd_show, "layer": cmd_layer, "faces": cmd_faces,
             "settings": cmd_settings, "parts": cmd_parts, "nets": cmd_nets, "facts": cmd_facts,
             "datasheet": cmd_datasheet, "occupancy": cmd_occupancy, "preview": cmd_preview,
-            "studio": cmd_studio}[args.command](args)
+            "studio": cmd_studio, "watch": cmd_watch}[args.command](args)
 
 
 if __name__ == "__main__":

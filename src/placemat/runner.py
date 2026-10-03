@@ -411,6 +411,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             say("facts", facts_mod.unconfirmed_line(facts_reasons))
 
         t0 = time.time()
+        from . import channel
+        channel.hint_progress(run_dir / "progress.jsonl")      # the run's crash trail sits in its folder
         board = scripted_board(script, src, cfg, fab, keep_going)
         for note in rule_notes(board.geometry):
             say("note", note)

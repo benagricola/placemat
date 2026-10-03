@@ -409,15 +409,14 @@ def test_an_explore_streamed_over_the_channel_keeps_its_variants_and_a_record_li
     assert s.explore_record("/etc/passwd") is None and s.explore_record(str(folder / "other.json")) is None
 
 
-def test_a_listening_studio_is_found_and_told_by_a_command_in_its_project(project):
+def test_the_studio_finds_the_sockets_of_commands_in_its_project_and_a_dead_one_is_shown_from_its_progress_file(project):
+    from placemat import channel
     s = Studio(project, port=0, open_browser=False)
     s.start()
     try:
-        entry = json.loads(next((s.root / ".placemat" / "studio").glob("*.json")).read_text())
-        assert entry["pid"] == os.getpid() and entry["address"] == s.url and os.path.exists(entry["socket"])
-        from placemat import channel
         channel.reset()
         rep = channel.reporter(project)
+        assert channel.sockets_dir(s.root) == rep.directory
         rep.send({"ev": "item", "item": {"key": "u1", "file": ""}})
         deadline = time.monotonic() + 10
         while not s.commands() or s.commands()[0]["items"] < 1:
@@ -425,9 +424,19 @@ def test_a_listening_studio_is_found_and_told_by_a_command_in_its_project(projec
             time.sleep(0.02)
         assert s.commands()[0]["pid"] == os.getpid() and s.commands()[0]["script"] == str(project)
         channel.reset()
+        d = channel.sockets_dir(s.root)
+        log = s.root / "dead.jsonl"
+        log.write_text(json.dumps({"ev": "hello", "pid": 999999999}) + "\n" + json.dumps({"ev": "item", "key": "u7"}) + "\n")
+        (d / "999999999.json").write_text(json.dumps({"pid": 999999999, "command": "preview", "script": str(project), "socket": str(d / "s.sock"),
+                                                     "progress": str(log)}))
+        deadline = time.monotonic() + 10
+        while not any(c["pid"] == 999999999 for c in s.commands()):
+            assert time.monotonic() < deadline
+            time.sleep(0.02)
+        dead = next(c for c in s.commands() if c["pid"] == 999999999)
+        assert dead["state"] == "lost" and dead["last"] == "u7" and "u7" in dead["message"]
     finally:
         s.stop()
-    assert not list((s.root / ".placemat" / "studio").glob("*"))                       # gone with the studio
 
 
 def test_a_crashed_worker_is_a_lost_connection_and_the_last_step_it_reported(project):

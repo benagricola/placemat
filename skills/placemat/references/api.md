@@ -3278,8 +3278,9 @@ agent.
 placemat studio [<script>] [--port N] [--no-open] [--host ADDR]
 ```
 
-Commands in the project report to the studios running there over a Unix socket (`.placemat/studio/<pid>.sock`, with
-`<pid>.json` as the registry entry) - see "The live channel" in the studio spec; an explore's variants are kept in
+Each command that resolves a board listens on a Unix socket of its own (`<project root>/.placemat/sockets/<pid>.sock`,
+with `<pid>.json` beside it) that the studio, `placemat watch [pid|label] [--json]` or an agent can read - see "The
+live channel" in the studio spec; an explore's variants are kept in
 `.placemat/views/explore/*.json`, and `GET /cmd/ID` and `GET /explore?f=PATH` serve a command's events and an
 explore's record.
 

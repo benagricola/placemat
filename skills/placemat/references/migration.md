@@ -9,18 +9,28 @@ section for each hand-written pattern a newer form replaces.
 
 ### New
 
-- **The studio shows every placemat command of its project, live.** A studio listens on a Unix socket in the project
-  (`<project root>/.placemat/studio/<pid>.sock`, with `<pid>.json` beside it); any command that resolves a board
-  (`run`, `preview`, an explore, whoever started it) finds the studio the first time it resolves and sends it newline
-  JSON: the steps and phases the studio's own worker sends, the finished plan, and for an explore the plain placement,
-  each variant (seed, score, measures, the focused items' placements and order) and the end; then `done` with the
-  record's path, or `error`. A command is never slowed: with no studio there is one directory check, with one a
-  sender thread with a bounded queue drops what does not fit, and a studio that goes away is dropped silently.
-  The page's new Runs view lists the live commands (command, script, pid, elapsed, state), a toast announces a new one,
-  and opening one draws its steps on the board in place of the studio's own plan. An explore is shown with a plot of
-  score against time and the best so far, the latest variant (at most `[studio] explore_fps` times a second, default 2)
-  and the best drawn over the plain placement, thumbnails, a step through the variants by order or score, and where
-  each item landed across them. Linux and macOS only.
+- **A running command streams what it does on a socket it owns, and `placemat watch` and the studio follow it.** A
+  command that resolves a board (`run`, `preview`, an explore, whoever started it) listens from its first resolve on
+  `<project root>/.placemat/sockets/<pid>.sock`, with `<pid>.json` beside it (pid, command, script, arguments, started,
+  label, progress file); both go when it exits, and readers remove the entries of dead pids. A reader that connects
+  mid-run is first sent a catch-up (`hello`, the board, the steps and plan so far), then newline JSON as it happens:
+  the steps and phases the studio's own worker sends, the finished plan, and for an explore the plain placement, each
+  variant (seed, score, measures, the focused items' placements and order) and the end; then `done` with the record's
+  path, or `error`. A command is never slowed by a reader: each has a bounded queue that drops what does not fit, and
+  one that goes away is dropped. A board resolved with no script (a bench, a test) listens on nothing. Linux and macOS only.
+- **A crash trail.** A command also mirrors its events, in short form, into an append-only `progress.jsonl`
+  (`.placemat/runs/<id>/progress.jsonl` for a run, else `.placemat/views/<command>/progress-<pid>.jsonl`), flushed as it
+  goes, so a command that dies leaves its last state. A command that starts deletes the progress files that earlier
+  commands of its script left once those are no longer running. It is read only for a command that has ended or died.
+- **`placemat watch [pid|label] [--json]`** follows one command of the project, or every running one: a line per step,
+  per variant, until it ends. Exit 0 done, 1 error, 2 died (its last state is printed from its progress file) or not
+  found.
+- **The studio shows every placemat command of its project, live.** It reads every socket in the project's folder.
+  The page's new Runs view lists the commands (command, script, pid, elapsed, state), a toast announces a new one,
+  and opening one draws its steps on the board in place of the studio's own plan; a command found dead is listed
+  as lost with its last state. An explore is shown with a plot of score against time and the best so far, the latest
+  variant (at most `[studio] explore_fps` times a second, default 2) and the best drawn over the plain placement,
+  thumbnails, a step through the variants by order or score, and where each item landed across them.
 - **An explore keeps its variants.** `.placemat/views/explore/<time>-<pid>.json` holds every variant (seed, score,
   measures, the focused items' placements and the order they were placed in) and which was kept; the studio lists and
   replays finished explores from it. `run.json`'s `metrics.explore` names it as `record`.

@@ -349,7 +349,7 @@ class Studio:
         self._error = None
         self._fresh_next = False                # the next resolve replays nothing from an earlier one
         self.cmds: dict = {}                    # the commands of the project that report over the channel, by connection id
-        self.listener = None
+        self.watcher = None
         self._run = None                        # the checked run in progress: {"id", "lines"}
         self._run_cache: dict = {}              # run.json path -> (mtime, summary)
         self.worker = WorkerProcess(self._on_worker, self._views() / "worker.log")
@@ -470,12 +470,8 @@ class Studio:
         self.url = "http://%s:%d/?t=%s" % (_url_host(self.host), self.port, self.token)
         self._files = self.watched()
         self._poller = Poller(lambda: self._files)
-        try:
-            self.listener = channel.Listener(self.root, self._on_channel, address=self.url, script=str(self.script or ""))
-            self.listener.start()
-        except OSError as e:                    # a project whose folder cannot hold a socket still has a studio
-            print("studio: no live channel: %s" % e, file=sys.stderr)
-            self.listener = None
+        self.watcher = channel.Watcher(self.root, self._on_channel, self._on_dead)
+        self.watcher.start()
         for target in (self.server.serve_forever, self._watch, self._scan_scripts):
             t = threading.Thread(target=target, daemon=True)
             t.start()
@@ -484,8 +480,8 @@ class Studio:
 
     def stop(self) -> None:
         self._stopping.set()
-        if self.listener is not None:
-            self.listener.stop()
+        if self.watcher is not None:
+            self.watcher.stop()
         if self.server is not None:
             self.server.shutdown()
             self.server.server_close()
@@ -814,6 +810,26 @@ class Studio:
                     self._run_note = ev.get("message", "")
             elif c.get("own_run") is not None and kind in ("item", "begin"):
                 self.hub.emit("run_progress", {"id": c["own_run"], "item": c.get("last") or "", "n": c["items"]})
+
+    def _on_dead(self, cid: int, entry: dict, events: list) -> None:
+        """A command found dead (its pid gone, its entry left behind): shown with the last state in its progress file."""
+        done = next((e for e in reversed(events) if e.get("ev") in ("done", "error")), None)
+        items = [e for e in events if e.get("ev") == "item"]
+        last = items[-1].get("key") if items else None
+        c = {"id": cid, "pid": entry.get("pid"), "command": entry.get("command", ""), "script": entry.get("script", ""),
+             "args": entry.get("args", []), "started": entry.get("started") or time.time(), "ended": time.time(), "items": len(items),
+             "variants": sum(1 for e in events if e.get("ev") == "variant"), "resolves": sum(1 for e in events if e.get("ev") == "resolve"),
+             "log": [], "plan": None, "explore": None, "last": last, "own_run": None}
+        if done is not None and done.get("ev") == "done":
+            c.update(state="done", record=done.get("record"))
+        elif done is not None:
+            c.update(state="error", message=done.get("message", ""))
+        else:
+            c.update(state="lost", message="the command stopped without saying it was done" +
+                     ((" (the last step it reported: %s)" % last) if last else ""))
+        with self.lock:
+            self.cmds[cid] = c
+        self.hub.emit("cmd", self._cmd_summary(c))
 
     def cmd_detail(self, cid: int):
         """A command's events so far, its latest plan and, for an explore, its variants: what a page that opens it is given."""
