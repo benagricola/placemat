@@ -248,3 +248,11 @@ def test_a_begin_notice_from_the_worker_reaches_the_pages_without_being_kept(pro
     got = [(n, json.loads(t)) for n, t in drain()]
     assert got == [("begin", {"id": 3, "kind": "begin", "item": "u1", "what": "searched", "rank": 2, "of": 9})]
     assert s.hub.log == []
+
+
+def test_the_size_of_the_queue_is_kept_for_a_page_that_joins_part_way(project):
+    s = _fresh(project)
+    s._cur = {"id": 3, "texts": {}, "changed": [], "t0": 0}
+    s._on_worker({"ev": "begin", "id": 3, "kind": "total", "items": 9, "searched": 4, "copper": 2, "replay": 0}, s.worker.serial)
+    s._on_worker({"ev": "begin", "id": 3, "kind": "begin", "item": "u1", "what": "decided"}, s.worker.serial)
+    assert [json.loads(x)["kind"] for n, x in s.hub.log if n == "begin"] == ["total"]

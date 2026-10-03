@@ -274,8 +274,16 @@ table.diff td.link { color: var(--mark); width: 14px; }
 .row.run .full { display: block; }
 a.srcl { color: var(--accent); font-family: var(--mono); font-size: 11.5px; cursor: pointer; }
 .fixslot:empty { display: none; }
-.kvl { display: grid; grid-template-columns: 5.5em 1fr; gap: 1px 8px; margin: 4px 0 0; }
-.kvl > span:nth-child(odd) { color: var(--dim); }
+.kvl { margin: 4px 0 0; }
+.kr { display: grid; grid-template-columns: 6.5em minmax(0, 1fr); gap: 0 8px; position: relative; padding: 0.5px 0; }
+.kk { color: var(--dim); }
+.kvv { overflow-wrap: anywhere; }
+.sep { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: pre; }      /* copied as "label: value", not seen */
+.val { font-weight: 600; } .val.bad { color: var(--bad); } .val.warn { color: var(--warn); } .val.good { color: var(--good); }
+.chip.prio-high { --c: var(--bad); background: color-mix(in srgb, var(--c) 17%, var(--surface)); color: var(--c); }
+.chip.prio-low { --c: var(--dim); }
+.chip.face-front, .chip.face-back { background: color-mix(in srgb, var(--c) 17%, var(--surface)); color: var(--c); }
+.chip.face-front { --c: var(--copper); } .chip.face-back { --c: var(--copperB); }
 #card .lrow { display: flex; gap: 6px; align-items: baseline; padding: 2px 0; cursor: pointer; font-size: 12px; }
 #card .lrow .num { margin-left: auto; white-space: nowrap; }
 #card .chip.SHORT { background: var(--warn-soft); color: var(--warn); } #card .chip.PREFER { background: var(--accent-soft); color: var(--accent); }
@@ -308,8 +316,7 @@ svg text { user-select: none; font-family: var(--sans); }
 .lk { stroke-width: 0.1; }
 .lk.ok { stroke: var(--ok); } .lk.over { stroke: var(--over); stroke-width: 0.16; } .lk.free { stroke: var(--free); stroke-dasharray: 0.5 0.3; }
 .lkdot.ok { fill: var(--ok); } .lkdot.over { fill: var(--over); } .lkdot.free { fill: var(--free); }
-.lk, .lkdot, .lkend, .lklabel { pointer-events: none; }
-.lkend { fill: none; stroke-width: 0.1; } .lkend.ok { stroke: var(--ok); } .lkend.over { stroke: var(--over); } .lkend.free { stroke: var(--free); }
+.lk, .lkdot, .lklabel { pointer-events: none; }
 .lklabel { fill: var(--ink); stroke: var(--substrate); stroke-width: 0.2px; paint-order: stroke; stroke-linejoin: round; }
 .lkg[data-st="over"] .lk { stroke-width: 0.16; }
 .bd, .cy { pointer-events: all; }
@@ -888,10 +895,10 @@ function panelSVG(p, pn, first, order, diffLayer) {
     const body = k > 0 ? '<line class="lk ok" x1="' + x1 + '" y1="' + y1 + '" x2="' + sx + '" y2="' + sy + '"/><line class="lk over" x1="' + sx + '" y1="' + sy + '" x2="' + x2 + '" y2="' + y2 + '" marker-end="url(#ar-over)"/>'
       : '<line class="lk ' + l.state + '" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" marker-end="url(#ar-' + l.state + ')"/>';
     // each end is marked with its pad's name, whichever face its part is on
-    const ends = '<circle class="lkend ' + (l.state === "over" ? "ok" : l.state) + '" cx="' + x1 + '" cy="' + y1 + '" r="0.45"/><circle class="lkend ' + l.state + '" cx="' + x2 + '" cy="' + y2 + '" r="0.45"/>' +
-      textAt(pn, x1, y1 - 1, l.a.join("."), 0.7, "lklabel") + textAt(pn, x2, y2 + 1, l.b.join("."), 0.7, "lklabel");
+    const ends = textAt(pn, x1, y1 - 1, l.a.join("."), 0.7, "lklabel") + textAt(pn, x2, y2 + 1, l.b.join("."), 0.7, "lklabel");     // each end named, whichever face its part is on
+    const startCls = k > 0 ? "ok" : l.state;                       // the dot is where the line starts: green while the line is within its limit
     o.push('<g class="lkg" data-st="' + l.state + '" data-i="' + i + '" data-a="' + esc(l.a[0]) + '" data-b="' + esc(l.b[0]) + '"><line class="lkhit" x1="' + num(x1 + (x2 - x1) * 0.3) + '" y1="' + num(y1 + (y2 - y1) * 0.3) + '" x2="' + num(x1 + (x2 - x1) * 0.7) + '" y2="' + num(y1 + (y2 - y1) * 0.7) + '"/>' +
-      body + '<circle class="lkdot ' + l.state + '" cx="' + x1 + '" cy="' + y1 + '" r="0.2"/>' + ends + "</g>");
+      body + '<circle class="lkdot ' + startCls + '" cx="' + x1 + '" cy="' + y1 + '" r="0.2"/>' + ends + "</g>");
   });
   o.push("</g>");
   o.push('<g class="fnds">');
@@ -1372,7 +1379,7 @@ function howText(s, it) {
   return (fr === "edge" ? "decided along an edge" : "decided at a point") + (slid ? ", slid " + slid[1] : "");
 }
 // howText without the rank and seeds, which a card or a step row gives its own lines.
-const howWord = (s, it) => howText(s, it).replace(/^(searched): rank \d+ of \d+/, "$1").replace(/, seeded on .*?(?=, slid|$)/, "");
+const howWord = (s, it) => howText(s, it).replace(/^(searched): rank \d+ of \d+/, "$1").replace(/, seeded on .*?(?=, slid|$)/, "").replace(/, slid [\d.]+ \S+$/, "");
 const howClass = (s, it) => /^rides/.test(howText(s, it)) ? "rides" : /^pocket/.test(howText(s, it)) ? "pocket" : /^searched/.test(howText(s, it)) ? "searched" : "decided";
 // The findings that name an item.
 function findingsOf(p, key, it) {
@@ -1500,9 +1507,20 @@ function markItems(keys, zoom) {
 
 // The card on the board for what is selected: a part or item, a module, or a region.
 const cardKey = () => [S.sel, S.selRef, S.module, S.selRegion && S.selRegion.kind + S.selRegion.id].join("|");
-function kvl(rows) { return '<div class="kvl">' + rows.filter(r => r[1] != null && r[1] !== "").map(([k, v]) => "<span>" + esc(k) + "</span><span>" + v + "</span>").join("") + "</div>"; }
+// How the card, the step rows and the findings write things down. One set of rules; follow it for anything new.
+//  1. A pill is a categorical tag: a kind, face, how it was placed, a priority, a severity, a link's kind, a net, a
+//     layer. Measured values and sentences are plain text; a value that is bad or worth a look is coloured text (val),
+//     not a pill.
+//  2. Every length, position and size carries its unit: "16.5 x 22.0 mm", "(26.6, 36.4) mm", areas mm2 (esc shows
+//     mm\u00b2), angles in degrees (deg).
+//  3. A place in the queue is "rank k of n". A place by a measure is "kth largest of n" (area) or "kth most of n"
+//     (pins), always with the total.
+//  4. A note's known forms are parsed into labelled values (noteParts); only what is not known is shown as written.
+//  5. A labelled line copies as "label: value", one line to a row: kvl writes an invisible ": " between them.
+function kvl(rows) { return '<div class="kvl">' + rows.filter(r => r[1] != null && r[1] !== "").map(([k, v]) => '<div class="kr"><span class="kk">' + esc(k) + '</span><span class="sep">: </span><span class="kvv">' + v + "</span></div>").join("") + "</div>"; }
 function cardHead(title, chip, chipCls, extra) { return '<div class="h"><b>' + esc(title) + "</b>" + (chip ? '<span class="chip ' + esc(chipCls || "") + '">' + esc(chip) + "</span>" : "") + (extra || "") + '<button class="x" data-act="close" aria-label="close">&times;</button></div>'; }
 const pill = (text, cls) => '<span class="chip ' + (cls || "") + '">' + esc(text) + "</span>";
+const val = (text, cls) => '<span class="val ' + (cls || "") + '">' + esc(text) + "</span>";            // a measured value: plain text, coloured when it matters
 const sect = (title, body, aside) => body ? '<div class="cs"><div class="cst">' + esc(title) + (aside ? " " + aside : "") + "</div>" + body + "</div>" : "";
 const listOf = lines => lines.length ? '<div class="cl">' + lines.map(l => "<div>" + l + "</div>").join("") + "</div>" : "";
 // A step's note is "; "-separated, though a part can hold a "; " in brackets. Its known parts get their own lines; whatever else it says is kept as it is.
@@ -1517,16 +1535,20 @@ function splitTop(s, sep) {
   return out.map(x => x.trim()).filter(Boolean);
 }
 function noteParts(note) {
-  const o = {rank: null, seeded: [], moved: null, vias: [], push: [], other: []};
+  const o = {rank: null, seeded: [], moved: null, vias: [], push: [], pocket: null, slid: null, stopped: null, line: null, other: []};
   for (const part of splitTop(note || "", "; ")) {
     let m;
     if ((m = /^rank (\d+)\/(\d+)\b/.exec(part))) {
       let rest = part.slice(m[0].length).trim(), facts = "", tail = [];
       if (rest[0] === "(") { let d = 0, i = 0; for (; i < rest.length; i++) { if (rest[i] === "(") d++; else if (rest[i] === ")" && --d === 0) break; } facts = rest.slice(1, i); rest = rest.slice(i + 1).trim(); }
-      if (rest) tail = [rest.replace(/^\(|\)$/g, "")];
+      if (rest) tail = rest.replace(/^\(/, "").replace(/\)(?=,|$)/, "").split(/,\s*/).filter(Boolean);       // "(script: high), required"
       o.rank = {n: m[1], of: m[2], facts: facts ? splitTop(facts, "; ") : [], tail};
     }
     else if ((m = /^seeded on (.+)$/.exec(part))) o.seeded.push(...m[1].split(/,\s*/));
+    else if ((m = /^pocket ([\d.]+) x ([\d.]+) at \((-?[\d.]+), (-?[\d.]+)\)(?:: (.*))?$/.exec(part))) o.pocket = {w: m[1], h: m[2], x: m[3], y: m[4], why: m[5] || ""};
+    else if ((m = /^slid ([\d.]+) mm from its slot(?:: (.*))?$/.exec(part))) o.slid = {mm: m[1], why: m[2] || ""};
+    else if ((m = /^stopped ([\d.]+) mm short of the (\w+) end by: (.*)$/.exec(part))) o.stopped = {mm: m[1], side: m[2], why: m[3]};
+    else if ((m = /^on the line (x|y) = (-?[\d.]+)$/.exec(part))) o.line = {axis: m[1], at: m[2]};
     else if ((m = /^moved ([\d.]+) mm off the hint[:\s]*(.*)$/.exec(part))) o.moved = {mm: m[1], why: m[2]};
     else if ((m = /^vias: (.+)$/.exec(part))) o.vias.push(...m[1].split(/,\s+/));
     else if (o.vias.length && /^\d+ /.test(part)) o.vias.push(...part.split(/,\s+/));        // the vias' own "; "-separated entries
@@ -1536,38 +1558,48 @@ function noteParts(note) {
   return o;
 }
 const rankRows = r => {
-  const rows = [["rank", pill(r.n + " of " + r.of)]];
+  const rows = [["rank", esc(r.n + " of " + r.of)]];
   for (const f of r.facts) {
-    const m = /^([\d.]+) (mm2|pins?)(?:, (.+))?$/.exec(f);
-    if (m) rows.push([m[2] === "mm2" ? "area" : "pins", pill(m[1] + (m[2] === "mm2" ? " mm2" : "")) + (m[3] ? ' <span class="dim">' + esc(m[3]) + "</span>" : "")]);
+    const m = /^([\d.]+) (mm2|pins?)(?:, (\S+?)(?: of \d+)?)?$/.exec(f);
+    if (m) rows.push(m[2] === "mm2" ? ["area", esc(m[1] + " mm2") + (m[3] ? esc(", " + m[3] + " largest of " + r.of) : "")]
+                                   : ["pins", esc(m[1] + (m[2] === "pin" || m[1] === "1" ? " pin" : " pins")) + (m[3] ? esc(", " + m[3] + " most of " + r.of) : "")]);
     else rows.push(["", esc(f)]);
   }
-  for (const x of r.tail || []) rows.push(["", '<span class="dim">' + esc(x) + "</span>"]);
+  for (const x of r.tail || []) {
+    const pr = /^script: (\w+)$/.exec(x);
+    if (pr) rows.push(["priority", pill(pr[1], "prio-" + pr[1]) + ' <span class="dim">from the script</span>']);
+    else if (x === "required") rows.push(["required", pill("required", "bad")]);
+    else rows.push(["", '<span class="dim">' + esc(x) + "</span>"]);
+  }
   return rows;
 };
 // "N what ..." starts a via line; a fragment without a count continues the line before it (a list of owners).
 const joinVias = vs => vs.reduce((o, v) => { if (/^\d+ /.test(v) || !o.length) o.push(v); else o[o.length - 1] += ", " + v; return o; }, []);
-const viaLine = v => { const m = /^(\d+) (.*)$/.exec(v); return m ? pill(m[1], /drop|cannot|refus/.test(m[2]) ? "warn" : "") + " " + esc(m[2]) : esc(v); };
+const viaLine = v => { const m = /^(\d+) (.*)$/.exec(v); return m ? val(m[1], /drop|cannot|refus/.test(m[2]) ? "warn" : "") + " " + esc(m[2]) : esc(v); };
 const pushLine = s => {
   const m = /^push from (.+?): ([\d.e+-]+) at ([\d.]+) mm \(limit ([\d.e+-]+)\)$/.exec(s);
-  return m ? pill(m[1], "net") + " " + esc(m[2] + " at " + m[3] + " mm, limit " + m[4]) : esc(s);
+  return m ? "<b>" + esc(m[1]) + "</b> " + esc(m[2] + " at " + m[3] + " mm, limit " + m[4]) : esc(s);
 };
-const sevPills = fs => listOf(fs.map(f => { const i = ((plan() || {}).findings || []).indexOf(f); return '<span class="fndrow' + (i >= 0 ? " go" : "") + '"' + (i >= 0 ? ' data-act="finding" data-fi="' + i + '"' : "") + '><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + esc(f.text) + "</span>"; }));
+const sevPills = fs => listOf(fs.map(f => { const i = ((plan() || {}).findings || []).indexOf(f); return '<span class="fndrow' + (i >= 0 ? " go" : "") + '"' + (i >= 0 ? ' data-act="finding" data-fi="' + i + '"' : "") + '><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + (f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + esc(f.text) + "</span>"; }));
 function linkRows(p, refs, all) {
   const ls = (p.links || []).map((l, i) => [l, i]).filter(([l]) => refs.has(l.a[0]) || refs.has(l.b[0])).sort((a, b) => (b[0].state === "over") - (a[0].state === "over"));
   if (!ls.length) return "";
   const shown = all ? ls : ls.slice(0, 5), over = ls.filter(([l]) => l.state === "over").length;
-  return sect("Links", '<div class="facts">' + pill(ls.length + (ls.length === 1 ? " link" : " links")) + (over ? " " + pill(over + " over its limit", "bad") : "") + "</div>" +
+  return sect("Links", '<div class="facts">' + esc(ls.length + (ls.length === 1 ? " link" : " links")) + (over ? ", " + val(over + " over its limit", "bad") : "") + "</div>" +
     shown.map(([l, i]) => '<div class="lrow" data-act="link" data-i="' + i + '"><span class="chip ' + esc(l.kind || "") + '">' + esc(l.kind || "link") + "</span><span>" + esc(l.a.join(".") + (refs.has(l.a[0]) ? " -> " : " <- ") + l.b.join(".")) +
       '</span><span class="num ' + (l.state === "over" ? "del" : l.state === "ok" ? "ok" : "") + '">' + l.length + (l.limit != null ? " / " + l.limit : "") + " mm</span></div>").join("") +
     (ls.length > 5 ? '<a class="act" data-act="links">' + (all ? "fewer" : "all " + ls.length) + "</a>" : ""));
 }
 // What a placed item's note says, as card sections: its rank and seeds (rows of the Placement section), and why it
 // moved, the pushes on it, its vias and whatever else.
-const noteRows = np => [...(np.rank ? rankRows(np.rank) : []), ["seeded on", np.seeded.length ? '<span class="pills">' + np.seeded.map(n => pill(n, "net")).join("") + "</span>" : ""]];
+const noteRows = np => [...(np.rank ? rankRows(np.rank) : []), ["seeded on", np.seeded.length ? '<span class="pills">' + np.seeded.map(n => pill(n, "net")).join("") + "</span>" : ""],
+  ["on the line", np.line ? esc(np.line.axis + " = " + np.line.at + " mm") : ""],
+  ["slid", np.slid ? val(np.slid.mm + " mm", "warn") + " from its slot" + (np.slid.why ? ' <span class="dim">' + esc(np.slid.why) + "</span>" : "") : ""],
+  ["stopped short", np.stopped ? val(np.stopped.mm + " mm", "warn") + " before the " + esc(np.stopped.side) + " end" : ""], ["because", np.stopped ? esc(np.stopped.why) : ""]];
 function noteExtra(np, movedMm, why) {
   const moved = np.moved || (movedMm ? {mm: movedMm, why: ""} : null);
-  return sect("Why it moved", moved ? '<div class="facts">' + pill(moved.mm + " mm", "warn") + " off the hint</div>" + (moved.why ? '<div class="note">' + esc(moved.why) + "</div>" : "") : "") +
+  return sect("Why it moved", moved ? '<div class="facts">' + val(moved.mm + " mm", "warn") + " off the hint</div>" + (moved.why ? '<div class="note">' + esc(moved.why) + "</div>" : "") : "") +
+    sect("Pocket", np.pocket ? kvl([["size", esc(np.pocket.w + " x " + np.pocket.h + " mm")], ["at", esc("(" + np.pocket.x + ", " + np.pocket.y + ") mm")], ["because", esc(np.pocket.why)]]) : "") +
     sect("Pushes", listOf(np.push.map(pushLine))) + sect("Vias", listOf(joinVias(np.vias).map(viaLine))) +
     sect("Notes", listOf(np.other.map(esc).concat(why ? ['<span class="dim">' + esc(why) + "</span>"] : [])));
 }
@@ -1576,7 +1608,7 @@ function partCard(p, it) {
   const title = m ? m.ref : it.key, mod = moduleOf(it, m && m.ref), step = (S.stepNo && S.stepNo.get(it.key)), refs = new Set(m ? [m.ref] : it.members.map(x => x.ref));
   const fs = findingsOf(p, it.key, it), s = (p.steps || []).find(x => x.item === it.key), np = noteParts(it.note);
   const modPill = mod && S.module !== mod ? '<a class="chip act" data-act="module" data-id="' + esc(mod) + '">select module</a>' : "";
-  const place = kvl([["module", mod && mod !== title ? esc(mod) : ""], ["face", esc(it.face + ", rotated " + deg(it.rotation))], ["placed", esc(howWord(s, it))], ["step", step != null ? (step + 1) + " of " + replaySteps(p).length : ""], ...noteRows(np)]);
+  const place = kvl([["module", mod && mod !== title ? esc(mod) : ""], ["face", pill(it.face, "face-" + it.face)], ["rotation", esc(deg(it.rotation))], ["placed", pill(howWord(s, it), howClass(s, it))], ["step", step != null ? esc((step + 1) + " of " + replaySteps(p).length) : ""], ...noteRows(np)]);
   return cardHead(title, it.kind, "", modPill) +
     (m && m.value ? '<div class="sub">' + esc(m.value) + (it.key !== m.ref ? "  (item " + esc(it.key) + ")" : "") + "</div>" : "") +
     sect("Placement", place) + noteExtra(np, it.moved_mm, it.why) +
@@ -1595,7 +1627,8 @@ function regionCard(p) {
   if (kind === "ko") {
     const k = (p.keepouts || []).find(x => x.name === id); if (!k) return "";
     return cardHead(k.name, "keepout", "pocket") + (k.why ? '<div class="sub">' + esc(k.why) + "</div>" : "") +
-      kvl([["layers", esc(k.layers ? k.layers.join(", ") : "every copper layer")], ["excludes", esc((k.excludes || []).join(", ") || "nothing")], ["allows", esc((k.allow || []).join(", ") || "nothing")], ["max height", k.max_height != null ? k.max_height + " mm" : ""]]);
+      kvl([["layers", k.layers ? '<span class="pills">' + k.layers.map(l => pill(l)).join("") + "</span>" : "every copper layer"], ["excludes", (k.excludes || []).length ? '<span class="pills">' + k.excludes.map(x => pill(x)).join("") + "</span>" : "nothing"],
+        ["allows", (k.allow || []).length ? '<span class="pills">' + k.allow.map(x => pill(x, "net")).join("") + "</span>" : "nothing"], ["max height", k.max_height != null ? esc(k.max_height + " mm") : ""]]);
   }
   const r = (p.reservations || []).find(x => x.why === id); if (!r) return "";
   return cardHead("reserved area", r.rule_area ? "rule area" : "reserved", "pocket") + '<div class="sub">' + esc(r.why) + "</div>" +
@@ -1710,7 +1743,7 @@ function stepSummary(s, it, np) {
 // A row opened: the same labelled sections as a part's card.
 function stepDetail(s, it, np, fs) {
   const placed = s.type === "place" && it;
-  const rows = placed ? kvl([["placed", esc(howWord(s, it))], ["face", esc(it.face + ", rotated " + deg(it.rotation))], ...noteRows(np)]) : "";
+  const rows = placed ? kvl([["placed", pill(howWord(s, it), howClass(s, it))], ["face", pill(it.face, "face-" + it.face)], ["rotation", esc(deg(it.rotation))], ...noteRows(np)]) : "";
   return sect("Placement", rows) +
     noteExtra(np, placed ? it.moved_mm : 0, s.why || (it && it.why)) + sect("Findings", sevPills(fs)) + (it && it.file ? '<div class="src"><a data-act="src" data-file="' + esc(it.file) + '" data-line="' + it.line + '">' + esc(it.file + ":" + it.line) + "</a></div>" : "");
 }
@@ -1772,7 +1805,7 @@ function renderFindings() {
   el.innerHTML = filters + order.map(kind => {
     const list = groups.get(kind), closed = S.closedKinds.has(kind), worst = hasSev ? kind : list.some(([f]) => sevOf(f) === "critical") ? "critical" : list.some(([f]) => sevOf(f) === "notice") && !list.some(([f]) => sevOf(f) === "warning") ? "notice" : "warning";
     return '<div class="gh" data-kind="' + esc(kind) + '"><span class="dim">' + (closed ? "&#9656;" : "&#9662;") + "</span>" + esc(kind) + '<span class="ct">' + list.length + "</span></div>" +
-      (closed ? "" : list.map(([f, i]) => '<div class="row" data-i="' + i + '"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + '</span><span class="n wrap" style="color:var(--ink)">' + (hasSev && f.kind ? '<span class="dim">' + esc(f.kind) + "</span> " : "") + esc(f.text) + srcLink(f, p) + '</span><span class="fixslot" data-fix="' + i + '"></span></div>').join(""));
+      (closed ? "" : list.map(([f, i]) => '<div class="row" data-i="' + i + '"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + '</span><span class="n wrap" style="color:var(--ink)">' + (hasSev && f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + esc(f.text) + srcLink(f, p) + '</span><span class="fixslot" data-fix="' + i + '"></span></div>').join(""));
   }).join("");
   el.onclick = e => {
     const sv = e.target.closest("[data-sev]"); if (sv) { S.sevFilter = sv.dataset.sev; renderFindings(); return; }
@@ -2056,15 +2089,15 @@ const relName = f => { const k = Object.keys(S.texts || {}).find(n => f === n ||
 const ago = at => { const s = Math.max(0, Date.now() / 1000 - at); return s < 90 ? "just now" : s < 5400 ? Math.round(s / 60) + " min ago" : s < 129600 ? Math.round(s / 3600) + " h ago" : Math.round(s / 86400) + " days ago"; };
 const cnt = v => v && typeof v === "object" ? Object.values(v).reduce((a, b) => a + (+b || 0), 0) : (+v || 0);
 // A DRC bucket: its total, then the kinds in it.
-const drcBucket = (name, v, bad) => v == null ? "" : pill(cnt(v) + " " + name, cnt(v) && bad ? "bad" : cnt(v) ? "warn" : "good") + (v && typeof v === "object" ? " " + Object.keys(v).map(k => '<span class="dim">' + esc(k.replace(/_/g, " ")) + " " + v[k] + "</span>").join(", ") : "");
+const drcBucket = (name, v, bad) => v == null ? "" : val(cnt(v) + " " + name, cnt(v) && bad ? "bad" : cnt(v) ? "warn" : "good") + (v && typeof v === "object" ? " " + Object.keys(v).map(k => '<span class="dim">' + esc(k.replace(/_/g, " ")) + " " + v[k] + "</span>").join(", ") : "");
 function runDetail(r) {
   const drc = r.drc || {};
-  const rows = [["DRC", [drcBucket("real", drc.drc_real, true), drcBucket("outstanding", drc.outstanding, true), drcBucket("other", drc.other, false), drcBucket("permitted", drc.permitted, false), drc.unconnected != null ? pill(cnt(drc.unconnected) + " unconnected", "warn") : ""].filter(Boolean).map(x => "<div>" + x + "</div>").join("")],
+  const rows = [["DRC", [drcBucket("real", drc.drc_real, true), drcBucket("outstanding", drc.outstanding, true), drcBucket("other", drc.other, false), drcBucket("permitted", drc.permitted, false), drc.unconnected != null ? val(cnt(drc.unconnected) + " unconnected", "warn") : ""].filter(Boolean).map(x => "<div>" + x + "</div>").join("")],
     ["findings", Object.keys(r.severities || {}).map(k => '<span class="sev ' + k + '">' + k + " " + r.severities[k] + "</span>").join(" ")],
-    ["airwire", r.airwire_mm != null ? pill(Math.round(r.airwire_mm) + " mm") + (r.open_nets ? " " + pill(cnt(r.open_nets) + " open nets", "warn") : "") : ""],
-    ["checks", r.checks && r.checks.checks_failed != null ? pill(r.checks.checks_failed + " failed", r.checks.checks_failed ? "bad" : "good") + (r.checks.checks_unjudged ? " " + pill(r.checks.checks_unjudged + " unjudged") : "") : ""],
-    ["time", Object.keys(r.timing || {}).map(k => pill(k + " " + r.timing[k] + " s")).join(" ")]];
-  const failing = (r.verdicts || []).map(v => '<div>' + pill(v.check, "bad") + " " + esc(v.subject || "") + ' <span class="dim">' + esc(v.note || "") + "</span></div>").join("");
+    ["airwire", r.airwire_mm != null ? esc(Math.round(r.airwire_mm) + " mm") + (r.open_nets ? ", " + val(cnt(r.open_nets) + " open nets", "warn") : "") : ""],
+    ["checks", r.checks && r.checks.checks_failed != null ? val(r.checks.checks_failed + " failed", r.checks.checks_failed ? "bad" : "good") + (r.checks.checks_unjudged ? esc(", " + r.checks.checks_unjudged + " unjudged") : "") : ""],
+    ["time", esc(Object.keys(r.timing || {}).map(k => k + " " + r.timing[k] + " s").join(", "))]];
+  const failing = (r.verdicts || []).map(v => '<div>' + pill(v.check) + " " + esc(v.subject || "") + ' <span class="dim">' + esc(v.note || "") + "</span></div>").join("");
   const f = r.failure;
   const rowsHtml = kvl(rows);
   return '<div class="full" style="display:block">' + sect("Result", rowsHtml === '<div class="kvl"></div>' ? "" : rowsHtml) + (failing ? sect("Failed checks", '<div class="cl">' + failing + "</div>") : "") +

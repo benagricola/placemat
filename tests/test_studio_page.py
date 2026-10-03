@@ -410,7 +410,7 @@ out.tip = ev('fmtUnits("12.3 mm2")');
 out.code = ev('highlightPython("x = mm2")').join("");
 """)
     assert out["area"] == "rank 3/9 (12.3 mm\u00b2, 2 pins)" and out["deg"] == "90\u00b0" and out["tip"] == "12.3 mm\u00b2"
-    assert "rotated 0\u00b0" in out["card"]
+    assert '<span class="kk">rotation</span><span class="sep">: </span><span class="kvv">0\u00b0</span>' in out["card"]
     assert "mm2" in out["code"]                                                   # source code is shown as written
 
 
@@ -437,7 +437,7 @@ out.card = els["#card"].innerHTML;
 out.tip = ev('regionLines("ko", "antenna_clear", plan())'); out.res = ev('regionLines("res", "fanout of mcu (north side)", plan())');
 ev("renderBoard()"); out.board = board().innerHTML;
 """)
-    assert "antenna_clear" in out["card"] and "F.Cu" in out["card"] and "tracks, vias" in out["card"] and "GND" in out["card"] and "no copper here" in out["card"]
+    assert "antenna_clear" in out["card"] and '<span class="chip ">F.Cu</span>' in out["card"] and '<span class="chip ">tracks</span>' in out["card"] and '<span class="chip net">GND</span>' in out["card"] and "no copper here" in out["card"]
     assert out["tip"][0] == "keepout antenna_clear" and "excludes: tracks, vias" in out["tip"] and out["res"][0] == "reserved area"
     assert 'class="ko sel" data-ko="antenna_clear"' in out["board"] and 'data-res="fanout of mcu (north side)"' in out["board"]
 
@@ -652,7 +652,10 @@ ev('S.face = "back"'); ev("renderBoard()"); out.back = board().innerHTML;
     assert 'class="lk ok" x1="1" y1="1" x2="5" y2="1"' in b.split('data-i="0"')[1].split("</g>")[0]      # the one within its limit stays whole
     assert 'class="lk ok" x1="1" y1="1" x2="5" y2="1"' not in b.split('data-i="1"')[1]                    # the over link has no all-green line
     for text in ("Ra.1", "Rb.2", "Ra.3", "Rb.4"):
-        assert text in out["back"] and 'class="lkend' in out["back"]
+        assert text in out["back"]
+    assert "lkend" not in b and "lkend" not in out["back"]                                                       # no ring round an end
+    assert 'class="lkdot ok" cx="1" cy="1"' in b.split('data-i="1"')[1]                                      # the start of a link over its limit is green
+    assert re.search(r'class="lkdot over"', b.split('data-i="1"')[1]) is None
 
 
 @needs_node
@@ -673,9 +676,10 @@ out.solo = els["#card"].innerHTML;
     for title in ("Placement", "Why it moved", "Vias", "Links", "Findings"):
         assert '<div class="cst">' + title + "</div>" in c, title
     assert '<span class="chip net">USB_CC1</span>' in c and '<span class="chip net">USB_CC2</span>' in c
-    assert "20 of 24" in c and "22.4 mm\u00b2" in c and "17 pins" not in c
-    assert '<span class="chip warn">10.48 mm</span>' in c and "silk is 0.00 mm from" in c
-    assert "GND via shared" in c and "left its pad" in c and '<span class="chip net">L1</span> 2.5 at 3.0 mm, limit 8' in c
+    assert '<span class="kvv">20 of 24</span>' in c and "22.4 mm\u00b2, 19th largest of 24" in c and "17 pins, 15th most of 24" in c
+    assert '<span class="val warn">10.48 mm</span>' in c and "silk is 0.00 mm from" in c
+    assert '<span class="chip face-front">front</span>' in c and '<span class="chip searched">searched</span>' in c
+    assert "GND via shared" in c and "left its pad" in c and "<b>L1</b> 2.5 at 3.0 mm, limit 8" in c
     assert "critical" in c and "x_layout.py:358" in c
     assert 'data-act="module"' not in out["solo"]
 
@@ -795,3 +799,26 @@ out.after = els["#tab-steps"].innerHTML;
     assert out["replayed"] == 1 and "replaying unchanged steps" in out["row"] and "1 of 3 steps replayed" in out["row"] and out["row"].count('id="pendrow"') == 1
     assert "replaying unchanged steps" in out["text"]
     assert "replaying unchanged steps" not in out["after"] and "searching" in out["after"]
+
+
+@needs_node
+def test_the_note_forms_are_parsed_into_labelled_values_with_units_and_orders_one_way(tmp_path):
+    out = run_more(tmp_path, r"""
+const note = "rank 8/24 (204.8 mm2, 4th of 24; 3 pins, 23rd) (script: high), required; pocket 16.5 x 22.0 at (26.6, 36.4): nothing it connects to is placed; on the line x = 26.50; slid 0.50 mm from its slot: x; stopped 19.40 mm short of the south end by: its member U8 sits in a keepout";
+const it = Object.assign(cellItem("psu", "psu", ["Ra", "C2"], 1), {freedom: "searched", how: "searched", note, why: ""});
+full([it], [st("psu", "cell")]);
+ev('selectItem("psu", {})'); flush();
+out.card = els["#card"].innerHTML; out.parts = ev("noteParts(" + JSON.stringify(note) + ")");
+out.row = els["#tab-steps"].innerHTML;
+""")
+    c = out["card"]
+    assert '<span class="kvv">8 of 24</span>' in c and "204.8 mm\u00b2, 4th largest of 24" in c and "3 pins, 23rd most of 24" in c
+    assert '<span class="chip prio-high">high</span> <span class="dim">from the script</span>' in c and '<span class="chip bad">required</span>' in c
+    assert '<div class="cst">Pocket</div>' in c and "16.5 x 22.0 mm" in c and "(26.6, 36.4) mm" in c and "nothing it connects to is placed" in c
+    assert "x = 26.50 mm" in c and '<span class="val warn">0.50 mm</span> from its slot' in c and "19.40 mm</span> before the south end" in c
+    assert "script: high" not in c and "pocket 16.5" not in c
+    assert out["parts"]["pocket"] == {"w": "16.5", "h": "22.0", "x": "26.6", "y": "36.4", "why": "nothing it connects to is placed"}
+    assert "rank 8 of 24" in out["row"]
+    import re as _re
+    text = _re.sub(r"<[^>]+>", "", c.replace('<span class="sep">: </span>', ": "))      # what copying the card gives: label: value
+    assert "rank: 8 of 24" in text and "face: front" in text and "rotation: 90" in text and "area: 204.8 mm" in text
