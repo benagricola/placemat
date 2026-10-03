@@ -137,7 +137,7 @@ def test_a_tail_may_not_cross_a_neighbouring_pin_of_the_same_part():
     past_sig = Location(23.0, 20.0)                     # straight across the SIG pad
     judge = queries.via_judge(g, gnd.box.center, "GND", 0.6, 0.3, 0.2, F)
     why, _ = judge(past_sig)
-    assert why is not None and "SIG" in why
+    assert why is not None and "SIG" in str(why)
 
 
 def test_a_via_stands_clear_of_its_own_pad_unless_asked_to_sit_in_it():

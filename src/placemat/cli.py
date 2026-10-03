@@ -1342,7 +1342,7 @@ def cmd_occupancy(args) -> int:
                                            args.radius, args.step)
     if args.json:
         console.data(json.dumps({"spot": None if spot is None else {
-            "at": [spot.at.x, spot.at.y], "distance": spot.distance, "soft": list(spot.soft)},
+            "at": [spot.at.x, spot.at.y], "distance": spot.distance, "soft": [str(s) for s in spot.soft]},
             "tally": dict(tally), "tried": tried, "net": net, "size": size, "drill": drill,
             "layer": layer.value, "tail_width": width}, indent=2))
     else:

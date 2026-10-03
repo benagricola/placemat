@@ -398,7 +398,7 @@ def drawn_now(entries, geometry, tolerance: float) -> list:
     while left:
         also = [_kept_shape(op) for op in drawn]
         now = {i: resolve(entries[i], occ, tolerance, also) for i in left}
-        held = [i for i in left if not isinstance(now[i], str)]
+        held = [i for i in left if not isinstance(now[i], Refusal)]
         if not held:
             break
         for i in held:

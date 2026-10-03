@@ -80,7 +80,7 @@ def test_two_slices_of_a_disc_that_overlap_are_refused():
     a, b = _sector("L1", "l1"), _sector("L2", "l2")
     occ = _occupancy(a, b)
     why = occ.legal(b, Placement(Location(20, 20), 20.0, Face.FRONT))
-    assert why is not None and "courtyard" in why
+    assert why is not None and "courtyard" in str(why)
 
 
 def test_a_rectangular_courtyard_keeps_its_box():

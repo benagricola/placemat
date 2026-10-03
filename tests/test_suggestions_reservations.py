@@ -44,5 +44,5 @@ def test_the_source_of_a_reservation_is_read_from_the_text_that_names_it():
 
 def test_the_text_a_keepout_reservation_names_it_by_is_what_the_source_reader_expects(tmp_path):
     board, plan, path = resolve(tmp_path, KEEPOUT, imports=HEAD)
-    why = [r.why for r in plan.occupancy.reservations if "ant" in r.why]
+    why = [r.why for r in plan.occupancy.reservations if "ant" in str(r.why)]
     assert why and sf.reservation_source(why[0]) == {"keepout": "ant"}

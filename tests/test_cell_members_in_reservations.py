@@ -35,7 +35,7 @@ def test_its_tall_member_in_the_band_is_refused_and_named():
     g, occ = _occ()
     occ.reserve(Box(8, 5, 30, 15), "a height band", admitted=LOW)
     why = occ.legal(g.cells["k"], AT)
-    assert why is not None and "L1" in why and "1.8 mm" in why and "C1" not in why, why
+    assert why is not None and "L1" in str(why) and "1.8 mm" in str(why) and "C1" not in str(why), why
 
 
 def test_a_named_member_does_not_admit_the_others():
@@ -44,7 +44,7 @@ def test_a_named_member_does_not_admit_the_others():
     assert occ.legal(g.cells["k"], AT) is None
     occ.reserve(Box(12.5, 5, 30, 15), "the feed", owners=("C1",))
     why = occ.legal(g.cells["k"], AT)
-    assert why is not None and "C2" in why, why
+    assert why is not None and "C2" in str(why), why
 
 
 def test_a_members_net_admits_no_member():
@@ -52,7 +52,7 @@ def test_a_members_net_admits_no_member():
     g, occ = _occ()
     occ.reserve(Box(12.5, 5, 30, 15), "the feed", allow=("C",))
     why = occ.legal(g.cells["k"], AT)
-    assert why is not None and "C1" in why, why
+    assert why is not None and "C1" in str(why), why
 
 
 def test_every_member_named_admits_the_cell():
@@ -113,7 +113,7 @@ def test_a_cells_own_track_elsewhere_is_named_as_its_copper():
     g, occ = _with_track("D")
     occ.reserve(Box(15.2, 5, 16.8, 15), "the gap")
     why = occ.legal(g.cells["k"], AT)
-    assert why is not None and "its own copper" in why and "L1" not in why, why
+    assert why is not None and "its own copper" in str(why) and "L1" not in str(why), why
 
 
 def test_the_sweep_counts_each_refused_member_as_its_own():

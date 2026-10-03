@@ -68,7 +68,7 @@ def test_a_free_spot_via_keeps_its_hole_clear_of_the_net_ties_bar():
 def test_a_hole_too_near_a_net_ties_bar_is_a_conflict_of_the_hole():
     occ = _board().resolve().occupancy
     (why,) = occ.hole_conflicts(hole_shape("", Location(19.5, 20.45), 0.3, "B"))[:1]    # 0.15 mm from the bar
-    assert "copper 0.15 mm from a via's hole (needs 0.20)" in why and why.startswith("NT1"), why
+    assert "copper 0.15 mm from a via's hole (needs 0.20)" in str(why) and why.startswith("NT1"), why
     assert not occ.hole_conflicts(hole_shape("", Location(19.5, 20.5), 0.3, "B"))       # 0.20 mm
 
 

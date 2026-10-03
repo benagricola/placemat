@@ -334,6 +334,8 @@ _SUBREFUSALS = frozenset(("base", "why_not", "edge", "note", "why", "nearest"))
 
 
 def _unjson(key: str, v):
+    if key == "by" and isinstance(v, dict):
+        return ReservedBy.from_json(v)
     if key in _SUBREFUSALS:
         if isinstance(v, dict):
             return Refusal.from_json(v)

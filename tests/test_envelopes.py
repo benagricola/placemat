@@ -38,7 +38,7 @@ def test_silk_past_the_courtyard_cannot_meet_another_parts_silk_in_physical():
     fps = [_wide_silk("A1", 10, "a1"), _wide_silk("B1", 16, "b1")]      # courtyards 1.8 mm apart, silk touching
     assert _why(fps, "courtyard") is None
     why = _why(fps, "physical")
-    assert why is not None and "silk" in why and "needs 0.10" in why
+    assert why is not None and "silk" in str(why) and "needs 0.10" in str(why)
     clear = [_wide_silk("A1", 10, "a1"), _wide_silk("B1", 16.15, "b1")]  # silk 0.15 apart
     assert _why(clear, "physical") is None
 
@@ -48,7 +48,7 @@ def test_silk_by_another_parts_mask_opening_keeps_the_silk_clearance():
     near = footprint("B1", 10, 13, inst="b1", silk_boxes=[(8.0, 10.6, 9.0, 10.62)])      # 0.05 below it
     far = footprint("B1", 10, 13, inst="b1", silk_boxes=[(8.0, 10.66, 9.0, 10.68)])      # 0.11 below it
     why = _why([a, near], "physical")
-    assert why is not None and "mask" in why
+    assert why is not None and "mask" in str(why)
     assert _why([a, far], "physical") is None
 
 
@@ -61,7 +61,7 @@ def test_bodies_keep_the_component_spacing_from_each_other_and_from_pads():
     pad_near = [footprint("A1", 10, 10, inst="a1", fab=(8, 9, 12, 11)),
                 footprint("B1", 14.0, 10, inst="b1", silk_boxes=[(15.9, 9, 16, 11)])]      # its pad 0.1 from the body
     why = _why(pad_near, "physical")
-    assert why is not None and "body" in why
+    assert why is not None and "body" in str(why)
 
 
 def test_silk_may_touch_another_body_but_not_sit_inside_it():
