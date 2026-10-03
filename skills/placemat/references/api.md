@@ -3814,6 +3814,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `studio.keep` | 10 | resolves kept, so the page can compare any two |
 | `studio.poll_ms` | 200 | how often the watched files' modification times are read |
 | `studio.cancel_grace_ms` | 2000 | a resolve asked to stop that has not stopped by then has its worker restarted |
+| `studio.explore_fps` | 2.0 | how many times a second the Runs view redraws the latest variant of a live explore (above 0) |
 | `cleanup.enabled` | true | after the searched tier, move and swap plain searched parts where that shortens their wire and declared links |
 | `cleanup.passes` | 2 | passes over the movable parts; one that changes nothing ends it |
 | `cleanup.radius` | 3.0 | how far round its optimal region, and round where it stands, a part is searched |
