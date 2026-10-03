@@ -1,6 +1,6 @@
 """BoardGeometry: everything geometric about one generated KiCad board,
 read once from its .kicad_pcb: footprints with their boxes and pads, the
-cells (module groups), the copper, the outline and the net classes.
+cells (stamped groups), the copper, the outline and the net classes.
 Immutable; placement and copper planning query this instead of pcbnew."""
 from __future__ import annotations
 
@@ -118,7 +118,7 @@ class CellGeom:
     phys_box: Box               # union of member phys boxes (graphics included) and the cell's copper
     courtyard_box: Box          # what the cell claims for assembly
     copper_box: Box | None      # extent of the cell's own tracks/vias/polys, if any
-    faces: dict = field(default_factory=dict)   # the module's declared sides: outward, quiet, handoff (N/S/E/W at rotation 0)
+    faces: dict = field(default_factory=dict)   # the cell's declared sides: outward, quiet, handoff (N/S/E/W at rotation 0)
     parent: str | None = None   # the group this cell's group sits in (a module sheet's), if any
     rules: tuple = ()           # the clearance rules its fragment declared (rules.Rule), as the fragment names things
 
@@ -224,7 +224,7 @@ def split_allow(name: str) -> tuple:
 
 def stamped_net(name: str, cell: str | None, nets) -> str | None:
     """The net a fragment calls `name`, as the board that stamped it does: pcb names a net inside a cell
-    `<cell>.<name>`, and one the cell's module takes from the sheet above it by that sheet's, so the most
+    `<cell>.<name>`, and one the cell's fragment takes from the sheet above it by that sheet's, so the most
     particular of `<cell>.<name>`, `<parent>.<name>` ... and `<name>` that the board has. None when it has none."""
     parts = cell.split(".") if cell else []
     for i in range(len(parts), -1, -1):

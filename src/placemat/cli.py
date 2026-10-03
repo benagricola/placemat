@@ -187,14 +187,14 @@ def parser() -> argparse.ArgumentParser:
     ly.add_argument("--json", action="store_true")
 
     sh = sub.add_parser("show", help="one cell or part on its own: a render from above and below, its pads by net, "
-                                     "and the sides its module declared (outward, quiet, handoff)")
+                                     "and the sides its cell declared (outward, quiet, handoff)")
     sh.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
     sh.add_argument("item", help="a cell name, a part instance or a refdes")
     sh.add_argument("--out", help="where the PNGs go (default: <board dir>/.placemat/views/show)")
 
-    fc = sub.add_parser("faces", help="write a module fragment's sides into it: outward=N (faces the board edge), "
+    fc = sub.add_parser("faces", help="write a fragment's sides into it: outward=N (faces the board edge), "
                                       "quiet=S (away from aggressors), handoff=E (where its signals leave)")
-    fc.add_argument("fragment", help="the module's layout/layout.kicad_pcb")
+    fc.add_argument("fragment", help="the fragment's layout/layout.kicad_pcb")
     fc.add_argument("sides", nargs="+", metavar="SIDE=N|S|E|W", help="outward=, quiet=, handoff=")
 
     pv = sub.add_parser("preview", help="place the board (reusing the previous run) and draw it - "

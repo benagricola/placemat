@@ -476,7 +476,7 @@ class KeepOut:
 def _net_named(name: str, net: str) -> bool:
     """Whether `net` is the net `name` (case-insensitive) names: the whole
     name, or its last part where the board's net carries the path of the
-    module it sits in (`BUCK1.SW`, `BUCK1/SW`), so one annotation reads in a
+    cell it sits in (`BUCK1.SW`, `BUCK1/SW`), so one annotation reads in a
     module and in every parent that stamps it."""
     n, w = net.lower(), name.lower()
     return n == w or n.endswith("." + w) or n.endswith("/" + w)

@@ -1,11 +1,11 @@
 """A cell of several jobs (docs/superpowers/specs/2026-09-30-split-modules-
 for-placement-design.md, section 2).
 
-A cell is placed as one rigid piece, so a module that holds two or more
+A cell is placed as one rigid piece, so a cell that holds two or more
 jobs joined only through board-level nets carries every job to wherever its
 tightest one lands. This finds those cells from the generated board's
 geometry, once a run has it, and reports it back: the capture decides a
-module's parts from what must sit close together; the layout can only say
+cell's parts from what must sit close together; the layout can only say
 that a cell, as captured, does not hold one job.
 
 A net is local to a cell when every pad the whole board has on it sits on
@@ -98,7 +98,7 @@ def cell_text(geometry: BoardGeometry, cell: CellGeom, plane_nets, min_group: in
                 "it: a bypass capacitor stays with the IC it serves, a sensing part at what it senses)" % (
                     len(unjoined), "" if len(unjoined) == 1 else "s", ", ".join(fp.ref for fp in unjoined)))
     return ("its parts form %d groups joined only by board-level nets: %s%s. Parts with no close placement "
-            "requirement in common may be split into modules of their own." % (
+            "requirement in common may be split into cells of their own." % (
                 len(counted), "; ".join(", ".join(fp.ref for fp in g) for g in counted), tail))
 
 

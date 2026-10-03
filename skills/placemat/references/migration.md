@@ -5,6 +5,15 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **Findings and docs say "cell" for a placed module.** Finding and note text, CLI help and the skill's docs used
+  "module" for a stamped cell in places; they say "cell" now (for example the `split` finding ends "may be split into
+  cells of their own"). "Module" stays for the source on disk: a module's layout script, its fragment, the
+  `modules/` folder. A script or tool that matches finding text containing "module" should match "cell".
+
 ## To 0.85.0
 
 ### Changed

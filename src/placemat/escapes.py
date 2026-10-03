@@ -32,7 +32,7 @@ from .values import Box, CopperLayer, Location
 _CELL = 2.0     # mm: the grid corridors and blockers are bucketed into
 # A net a generator gives a pin the design leaves unconnected: Zener's `NC_<part>_<pin>`, a pin named under its instance
 # path (`mcu.GPIO35`), KiCad's `unconnected-(<ref>-<pad>)`. A net local to an instance (a dot in its name) with one pad
-# goes nowhere, so it is not a handoff: a module's own pins for the parent board have the bare name.
+# goes nowhere, so it is not a handoff: a cell's own pins for the parent board have the bare name.
 _NO_CONNECT = re.compile(r"\.|^NC_|^unconnected-\(")
 
 
@@ -380,7 +380,7 @@ class Escapes:
                 or path_out(occ, ref, number, self.depth, toward=toward, near=near, exact=True))
 
     def handoffs_walled(self) -> list:
-        """The pads of nets with no other pad on the board - the net leaves the board there, as a module's pin does for the
+        """The pads of nets with no other pad on the board - the net leaves the board there, as a cell's pin does for the
         parent board - that no track or via gets out of: (ref, number, net, what closes it). Such a pad keeps no corridor in
         the placement search (`pad_corridors`: it has nothing to join), so what walls it in is reported once the copper is
         planned. Copper of the pad's own net that stands on it (a stub, an escape's lane) is part of it: the way out is
