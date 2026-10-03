@@ -92,7 +92,8 @@ is fine where the data really is free text (a user's note, an external
 tool's message), but never as the whole content, and never a sentence that
 carries values a reader would want on their own. A sentence built from
 values is rendered only where it is shown to a person: the console,
-`placemat watch`, the studio page.
+`placemat watch`, the studio. The studio server may send the page text it
+rendered from structured events; the page is its own edge.
 
 - **Why:** a sentence can't be filtered, counted, compared or rendered
   another way, and a reader that parses one breaks when the wording changes.
