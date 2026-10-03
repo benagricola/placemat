@@ -2155,6 +2155,28 @@ class Occupancy:
                         metal.net or self.who(metal.owner), got, self.who(hole.owner), want)
         return None
 
+    def vias_matter(self, item) -> bool:
+        """Whether a through via can refuse `item` where they overlap: some
+        shape of the item conflicts with a via lying on it, by `_conflict`
+        itself. Its pads, copper and holes do; its courtyard does only with
+        `vias_block_courtyards`, and its body, mask openings and silk never.
+        A search that rasters the board (`placer.pockets`) asks this, so it
+        refuses room under a via exactly where a scan would."""
+        cache = self.__dict__.setdefault("_vias_matter", {})
+        geom = self._geometry(item)
+        hit = cache.get(id(geom))
+        if hit is None or hit[0] is not geom:
+            matters = False
+            for s in geom.shapes:
+                if s.kind in ("viaban", "yard") or not s.poly:
+                    continue
+                via = Shape("", "through", _BOTH, self._all_layers, "", s.poly, s.box)
+                if self._conflict(s, via, None, say=False) is not None:
+                    matters = True
+                    break
+            hit = cache[id(geom)] = (geom, matters)       # the geometry is held so its id cannot be reused
+        return hit[1]
+
     def _hole_conflict(self, hole: Shape, metal: Shape, say: bool = True) -> str | None:
         """A plated hole against copper of another net: the board's hole
         clearance from the drill's edge to the copper, netless copper (a net

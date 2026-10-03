@@ -192,7 +192,7 @@ def test_the_router_directory_prefers_the_settings_over_the_environment(monkeypa
 def test_the_router_directory_falls_back_to_the_built_in(monkeypatch):
     from placemat.kicad import route
     monkeypatch.delenv("KRT_DIR", raising=False)
-    assert route.router_dir(Settings()).endswith("KiCadRoutingTools")
+    assert route.router_dir(Settings()).endswith("KRT-upstream")
 
 
 def test_the_check_constants_come_from_the_settings():

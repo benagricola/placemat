@@ -6810,28 +6810,39 @@ class Board:
             rots = list(self._turns(i))
         tried = []
         riders = {}             # a rider's refusal, the first each time it refused a candidate
-        for face in self._faces_of(i):
-          for rot in rots:
-            env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, face))
-            for pocket in pockets(occ, env.width, env.height, face, step=max(i.step, self.settings.place_pocket_step)):
-                hint = box_centered_placement(occ, i.item, pocket.box.center, rot, face)
-                result = scan(occ, i.item, hint, max(pocket.box.width, pocket.box.height) / 2, i.step, (rot,), clr,
-                              accept=self._accept(i))
-                for k, why in result.reasons.items():
-                    if k.startswith("rider "):
-                        riders.setdefault(k, why)
-                if result.chosen is not None:
-                    note = "pocket %.1f x %.1f at (%.1f, %.1f): nothing it connects to is placed" % (
-                        pocket.box.width, pocket.box.height, pocket.box.center.x, pocket.box.center.y)
-                    if face is not i.face:
-                        note += "; on the %s face, where the %s has no pocket it fits" % (face.value, i.face.value)
-                    return self._step(i, result.chosen, 0.0, note)
-                tried.append(pocket)
+        for vias in self._via_passes(occ, i):
+            for face in self._faces_of(i):
+                for rot in rots:
+                    env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, face))
+                    for pocket in pockets(occ, env.width, env.height, face, item=i.item, vias=vias,
+                                          step=max(i.step, self.settings.place_pocket_step)):
+                        hint = box_centered_placement(occ, i.item, pocket.box.center, rot, face)
+                        result = scan(occ, i.item, hint, max(pocket.box.width, pocket.box.height) / 2, i.step, (rot,), clr,
+                                      accept=self._accept(i))
+                        for k, why in result.reasons.items():
+                            if k.startswith("rider "):
+                                riders.setdefault(k, why)
+                        if result.chosen is not None:
+                            note = "pocket %.1f x %.1f at (%.1f, %.1f): nothing it connects to is placed" % (
+                                pocket.box.width, pocket.box.height, pocket.box.center.x, pocket.box.center.y)
+                            if face is not i.face:
+                                note += "; on the %s face, where the %s has no pocket it fits" % (face.value, i.face.value)
+                            return self._step(i, result.chosen, 0.0, note)
+                        tried.append(pocket)
         plan.findings.append(Finding("unplaced", "%s: no pocket fits its %s envelope on the %s face (%d pocket(s) tried)" % (
             i.key, "%.1f x %.1f" % (occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).width,
                                     occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).height),
             self._face_text(i), len(tried)) + "".join("; %s" % why for why in riders.values())))
         return self._step(i, None, 0.0, "UNPLACED: no pocket fits" + "".join("; %s" % why for why in riders.values()))
+
+    def _via_passes(self, occ: Occupancy, i: PlaceIntent) -> tuple:
+        """How a pocket search treats the board's through vias, in turn. An
+        item a via cannot refuse ignores them (`Occupancy.vias_matter`). One
+        with pads, copper or holes is first given the pockets that leave
+        every via clear; failing those, the ones that do not, for the scan to
+        place its pads between the vias, as the raster cannot see where they
+        fall."""
+        return (True, False) if occ.vias_matter(i.item) else (True,)
 
     def _seeded_pocket(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, hint: Placement, score,
                        rotations, why: str):
@@ -6845,26 +6856,28 @@ class Board:
             b = pocket.box
             return math.hypot(max(b.left - at.x, 0.0, at.x - b.right), max(b.top - at.y, 0.0, at.y - b.bottom))
         total = 0
-        for face in self._faces_of(i):          # the front's pockets first, then the back's
-            seen = []
-            for rot in rotations:
-                env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, face))
-                for pocket in pockets(occ, env.width, env.height, face, step=max(i.step, self.settings.place_pocket_step)):
-                    if all(pocket.box != p.box for p, _ in seen):
-                        seen.append((pocket, rot))
-            total += len(seen)
-            for k in sorted(range(len(seen)), key=lambda k: (round(gap(seen[k][0]), 6), k)):
-                pocket, rot = seen[k]
-                start = box_centered_placement(occ, i.item, pocket.box.center, rot, face)
-                result = scan(occ, i.item, start, max(pocket.box.width, pocket.box.height) / 2, i.step,
-                              tuple(rotations), clr, score=score, accept=self._accept(i))
-                if result.chosen is not None:
-                    plan.pocketed.append(i.key)
-                    note = "%s; took the pocket %.1f x %.1f at (%.1f, %.1f), %.1f mm from the seed" % (
-                        why, pocket.box.width, pocket.box.height, pocket.box.center.x, pocket.box.center.y, gap(pocket))
-                    if face is not i.face:
-                        note += ", on the %s face" % face.value
-                    return self._step(i, result.chosen, result.moved_mm, note), total
+        for vias in self._via_passes(occ, i):
+            for face in self._faces_of(i):          # the front's pockets first, then the back's
+                seen = []
+                for rot in rotations:
+                    env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, face))
+                    for pocket in pockets(occ, env.width, env.height, face, item=i.item, vias=vias,
+                                          step=max(i.step, self.settings.place_pocket_step)):
+                        if all(pocket.box != p.box for p, _ in seen):
+                            seen.append((pocket, rot))
+                total += len(seen)
+                for k in sorted(range(len(seen)), key=lambda k: (round(gap(seen[k][0]), 6), k)):
+                    pocket, rot = seen[k]
+                    start = box_centered_placement(occ, i.item, pocket.box.center, rot, face)
+                    result = scan(occ, i.item, start, max(pocket.box.width, pocket.box.height) / 2, i.step,
+                                  tuple(rotations), clr, score=score, accept=self._accept(i))
+                    if result.chosen is not None:
+                        plan.pocketed.append(i.key)
+                        note = "%s; took the pocket %.1f x %.1f at (%.1f, %.1f), %.1f mm from the seed" % (
+                            why, pocket.box.width, pocket.box.height, pocket.box.center.x, pocket.box.center.y, gap(pocket))
+                        if face is not i.face:
+                            note += ", on the %s face" % face.value
+                        return self._step(i, result.chosen, result.moved_mm, note), total
         return None, total
 
     def _placements(self) -> list:
@@ -7910,7 +7923,7 @@ class Board:
         for face in self._faces_of(i):
             for rot in (self._turns(i)):
                 env = occ.body_box(i.item, Placement(Location(0.0, 0.0), rot, face))
-                if pockets(occ, env.width, env.height, face, step=max(i.step, self.settings.place_pocket_step), limit=1, covered=True):
+                if pockets(occ, env.width, env.height, face, item=i.item, vias=False, step=max(i.step, self.settings.place_pocket_step), limit=1, covered=True):
                     return ""
                 envs.append(env)
         env = envs[0]
@@ -7924,7 +7937,7 @@ class Board:
         item = obj.item.anchor if obj.kind == "block" else obj.item
         env = occ.body_box(item, Placement(Location(0, 0), obj.rotation, obj.face))
         free = [p for face in self._faces_of(obj) for p in
-                pockets(occ, 2.0, 2.0, face, step=self.settings.place_pocket_step, limit=4)][:4]
+                pockets(occ, 2.0, 2.0, face, item=item, step=self.settings.place_pocket_step, limit=4)][:4]
         rects = "; ".join("%.1f x %.1f at (%.1f, %.1f)" % (p.box.width, p.box.height, p.box.center.x, p.box.center.y)
                           for p in free) or "none"
         return ("%s (required) found no place for its %.1f x %.1f envelope on the %s face: %s. "

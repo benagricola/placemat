@@ -3184,7 +3184,7 @@ matches, better than, worse than, or not judged. **A run that comes out
 worse is a finding naming the score and the term that moved it most, and
 `placemat run` exits 1**, so a regression cannot pass unnoticed in a loop. Adding or removing a
 part starts a new family. Routing needs
-KiCadRoutingTools at `[route] router_dir`, else `$KRT_DIR` (default `~/work/KiCadRoutingTools`) with
+KiCadRoutingTools at `[route] router_dir`, else `$KRT_DIR` (default `~/work/KRT-upstream`) with
 its own venv; quick mode is one routing round with the router's post-route
 smoothing off (a measurement: a small two-layer board routes in about 10 s), `--full`
 is the router's whole run. The search budget per net is the router's own
@@ -3243,12 +3243,11 @@ island nets count in the closure, and `--adopt NET` keeps their routes like
 any other net's.
 
 A footprint's own copper graphics (a net-tie's winding, a copper logo) are
-not obstacles to the router, and its writer moves net-less ones on the
-outer layers to silk. So the router's input copy carries a rule area over
-each, on its own layer, forbidding tracks and vias (a route through one is
-a keepout breach naming its footprint), and the routed copy gets every
-footprint's graphics back as they were before its DRC is run; the report's
-`restored_graphics` counts them.
+guarded in the router's input copy: a rule area over each, on its own layer,
+forbidding tracks and vias (a route through one is a keepout breach naming
+its footprint). The guards are deleted from the routed copy before its DRC
+is run. The router keeps a footprint's copper graphics on every layer, so
+nothing is put back.
 
 **Stages and resume.** A route works in three stages - the differential
 pairs, the islands, the main pass - and keeps each in its work folder
@@ -3865,7 +3864,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `explore.stop_hard_clear` | `false` | bool | end an explore when a variant has none of the hard terms (unplaced parts, critical findings) the plain placement had |
 | `explore.checkpoint_max_variants` | `100000` | count | finished variants an explore's checkpoint records; past it a resume tries those again |
 | `drc.severities` | `{}` | table | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
-| `route.router_dir` | `""` | path | the KiCadRoutingTools checkout; empty: `$KRT_DIR`, else `~/work/KiCadRoutingTools` |
+| `route.router_dir` | `""` | path | the KiCadRoutingTools checkout; empty: `$KRT_DIR`, else `~/work/KRT-upstream` |
 | `route.quick` | `true` | bool | one routing round rather than the router's full run |
 | `route.max_iterations` | `unset` | count | cap on the router's search per net; unset: the router's own default |
 | `route.plane_share` | `0.9` | share | how much of the board's own outline a pour must cover to be guarded whole from other nets' tracks while routing (the router's default layers come from each layer's declared role, not this) |
@@ -3900,7 +3899,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.escape_crossed` | `20.0` | mm | mm two escapes from one part's pins crossing near its pin row cost |
 | `score.escape_depth` | `1.5` | mm | the corridor length the escape findings, and so the run score, are measured at, whatever `place.escape_depth` the search used, so runs at different search depths compare |
 | `score.escape_closed` | `50.0` | mm | mm a pad whose last route toward what it connects to is closed costs |
-| `score.escape_walled` | `400.0` | mm | mm a pad with no route out at all costs. A pad that copper of its own net already leaves (a track from it, a via in it, a pour over it) is not counted, closed or walled; what walls one is named by owner, "track NET", "via NET", "pour NET" or "the escape lane of U1 pin 53". A pad whose net has no other pad on the board (a pin the cell hands off to the board above it; not a no-connect net: `NC_...`, `unconnected-(...)`, or a net named under an instance, with a dot) is reported at the end of the run when no track or via gets out of it, from the end of its own net's copper on it (a stub, an escape's lane) where it has any: "no other pad is on the net, so it leaves the board here, and it is walled off by ...". Such a pin keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept |
+| `score.escape_walled` | `400.0` | mm | mm a pad with no route out at all costs. A pad that copper of its own net already leaves with a way on (a track that reaches another pad of the net, a via in it, a pour over it) is not counted, closed or walled; a track or an escape's lane that ends in the air is the pad's way out only as far as it goes, and the pad is walled when no track or via gets on from where the copper ends. What walls a pad (pads on a layer the pad shares, a through-hole pad on every layer it spans, unplated holes, copper, and where a via is wanted the rule areas that forbid vias) is named by owner, "track NET", "via NET", "pour NET" or "the escape lane of U1 pin 53". A pad whose net has no other pad on the board (a pin the cell hands off to the board above it; not a no-connect net: `NC_...`, `unconnected-(...)`, or a net named under an instance, with a dot) is reported at the end of the run when no track or via gets out of it, from the end of its own net's copper on it (a stub, an escape's lane) where it has any: "no other pad is on the net, so it leaves the board here, and it is walled off by ...". Such a pin keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept |
 | `score.escape_lane` | `400.0` | mm | mm a declared `board.escape` lane costs that another net's pad, hole or copper already placed blocks, or whose via has no legal spot: in the search at each candidate, and in the run score as the `escape_lane` finding |
 | `score.congestion` | `10.0` | mm | explore: mm per `explore.congestion_step` of the worst RUDY cell |
 | `score.via_share` | `1.0` | mm | mm the search adds to a spot for each carried via that shares a via of its net there |

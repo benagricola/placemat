@@ -246,6 +246,16 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Walled lanes and pockets over vias** (0.91.1; a board's session,
+  2026-10-03): a pin whose own copper ends against another part is reported
+  walled; NPTH holes close corridors; a pocket judges a through via as the
+  collision rule does for the item fitted.
+
+- **The router moves to current upstream** (0.91.0): ~/work/KRT-upstream with the
+  filled-copper work ported (footprint fills too), corner guards chosen by
+  measurement, the footprint-graphics restore removed, route_spread reading
+  structured DRC.
+
 - **Settings documented as data, renamed where unclear** (0.90.0): every
   setting's unit and meaning in settings.py, the api.md table generated from
   it, `placemat settings --example`, 31 renames (old names accepted for one
