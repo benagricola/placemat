@@ -17,7 +17,7 @@ from .board_geometry import CellGeom, Footprint, members_of
 from .placement import Placement
 from .values import Face, Freedom, Location, Priority
 
-VERSION = 2                 # of the record's format: 2 records the items a step names (a block's members)
+VERSION = 3                 # of the record's format: 2 records the items a step names (a block's members); 3 stores findings as facts
 
 
 def omitted(obj, f) -> bool:
@@ -102,7 +102,8 @@ def context_key(board, extra: str = "") -> str:
     board file digest, settings and fab profile), the generated board, and
     every declaration that is not a placement - or, with the solve on, every
     placement and link too, because the solve reads them all."""
-    parts = [extra, _geometry_digest(board.geometry), placement_settings(board.settings),
+    from .finding_text import schemas_digest
+    parts = [extra, schemas_digest(), _geometry_digest(board.geometry), placement_settings(board.settings),
              canonical([board.courtyard_excess, board.component_spacing, board.edge_margin, board.clearance,
                         board.via_drill, board.via_size, board.keep_going]),
              canonical([board._copper, board._labels, board._rules, sorted(board._free_nets), board._outline,
@@ -201,26 +202,28 @@ def read(path):
 
 
 def finding_to_json(f) -> list:
-    """[kind, text, severity, case, suggestions]: the suggestions as the raising site made them, before
-    suggestions.bind gives them a file, a line and an id from the script as it is when they are shown. A finding
-    whose suggestions are built when the resolve ends (bind) has none yet, so its facts go on the end of the entry."""
-    out = [f.kind, str(f), f.severity, f.case, [s.to_json() for s in f.suggestions]]
-    if f.facts and not f.suggestions:
-        out.append(f.facts)
-    return out
+    """[kind, cause, severity, facts_v, facts], the kind and the cause in their string forms. The suggestions are not kept:
+    they are a function of the facts and the script, and are built again at the end of every resolve (suggestions.bind).
+    A finding made from a sentence (a step on the way to structured findings) keeps it as `{"text": ...}`."""
+    cause = f.cause.value if f.cause else None
+    if f.facts_v == 0:
+        return [f.kind.value, cause, f.severity, 0, {"text": str(f), "facts": f.facts}]
+    return [f.kind.value, cause, f.severity, f.facts_v, f.facts]
 
 
 def finding_from_json(v):
-    """A stored finding: [kind, text, severity, case, suggestions]; without the case and the suggestions, as
-    a cache from before findings had them kept it, it has none; without the severity, as a cache from before
-    findings had one kept it, it is the kind's own; a bare sentence, as a cache from before findings had kinds
-    kept it, reads as a setup finding."""
-    from .findings import Finding
-    if isinstance(v, str):
-        return Finding("setup", v)
-    from .suggestions import Suggestion
-    return Finding(v[0], v[1], v[2] if len(v) > 2 else None, v[3] if len(v) > 3 else None,
-                   v[5] if len(v) > 5 else None, [Suggestion.from_json(s) for s in v[4]] if len(v) > 4 else ())
+    """A stored finding: [kind, cause, severity, facts_v, facts]. A cause or a schema version this release does not
+    have cannot be rendered, and reads as no finding: the record is under a context that holds the schema digest, so
+    it is not loaded at all by a release whose schemas differ."""
+    from . import finding_text
+    from .findings import Finding, FindingCause
+    kind, cause_text, severity, facts_v, facts = v
+    cause = FindingCause.parse(cause_text) if cause_text else None
+    if facts_v == 0:
+        return Finding.plain(kind, facts["text"], severity, cause=cause, facts=facts.get("facts"))
+    if cause is None or facts_v != finding_text.facts_version(cause):
+        raise ValueError("a finding of %r under schema %r cannot be rendered by this release" % (cause_text, facts_v))
+    return Finding(cause, facts, severity)
 
 
 # ------------------------------------------------------------ the partial log

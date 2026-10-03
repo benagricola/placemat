@@ -16,7 +16,7 @@ board.place(Part("j1"), at=Location(50, 10))
 
 
 def raise_limit(plan):
-    return [s for f in plan.findings if f.case == "link_over" for s in f.suggestions if s.lever == "limit"]
+    return [s for f in plan.findings if f.cause == "link_over" for s in f.suggestions if s.lever == "limit"]
 
 
 def test_a_call_that_already_reads_a_constant_gets_both_variants(tmp_path):
@@ -88,7 +88,7 @@ def test_a_settings_suggestion_writes_the_scripts_own_table_and_nothing_else(tmp
     script = ('board.place(Part("u1"), at=Location(30, 30))\nboard.place(Part("j1"), at=Location(30, 30), rotations=[0, 90])\n'
               'board.place(Part("c1"), at=Location(50, 50))\n')
     board, plan, path = resolve(tmp_path, script)
-    (f,) = [f for f in plan.findings if f.case == "unplaced.bearing"]
+    (f,) = [f for f in plan.findings if f.cause == "unplaced.bearing"]
     shown = sg.apply_suggestion(suggestions_of(plan), f.suggestions[0].id, dry_run=True)
     toml = str(tmp_path / "placemat.toml")
     after = shown.files[toml].after
@@ -105,7 +105,7 @@ def test_a_settings_suggestion_is_refused_as_stale_when_the_toml_changed(tmp_pat
     script = ('board.place(Part("u1"), at=Location(30, 30))\nboard.place(Part("j1"), at=Location(30, 30), rotations=[0, 90])\n'
               'board.place(Part("c1"), at=Location(50, 50))\n')
     board, plan, path = resolve(tmp_path, script)
-    (f,) = [f for f in plan.findings if f.case == "unplaced.bearing"]
+    (f,) = [f for f in plan.findings if f.cause == "unplaced.bearing"]
     (tmp_path / "placemat.toml").write_text('[place]\nenvelope = "union"\n')
     try:
         sg.apply_suggestion(suggestions_of(plan), f.suggestions[0].id, dry_run=True)

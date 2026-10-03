@@ -18,7 +18,7 @@ def over(plan):
 def test_a_link_over_its_limit_has_ranked_suggestions_bound_to_the_script(tmp_path):
     board, plan, path = resolve(tmp_path, SCRIPT)
     (f,) = over(plan)
-    assert f.case == "link_over"
+    assert f.cause == "link_over"
     got = f.suggestions
     assert got and [s.rank for s in got] == list(range(1, len(got) + 1))
     assert [s.id for s in got] == ["s%d%s" % (plan.findings.index(f) + 1, c) for c in "abcdefgh"[:len(got)]]

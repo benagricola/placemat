@@ -24,7 +24,7 @@ import types
 from .copper import (Pour, Text, Track, Via, Zone, arc_circle, arc_tracks, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
                      pair_ops, polyline_tracks, resolve_bridges, _point_seg)
 from .geometry import Transform, box_polygon, circle_polygon, circle_poly_gap, gap_texts, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
-from .findings import Finding, Findings
+from .findings import Finding, FindingCause as C, Findings
 from .giveway import FIELD_PREFIX, enabled as giveway_enabled, field_via_id, pad_via_id
 from .occupancy import LABEL_SOURCE, VIA_BUCKET, Occupancy, Shape, ban_shape, ShapeIndex, TOUCH, _polygon_area, hole_shape, parts_claim
 from .cutouts import Cutouts, Path, _turned, loop_gap, signed_area
@@ -922,6 +922,7 @@ class Board:
         self._late_copper: set = set()     # indexes of the copper intents planned after the search whatever their part (a part's grid)
         self._copper_after: dict = {}      # copper intent index -> the intents it is planned after, and so late when they are
         self._labels: list = []
+        self._label_ids: dict = {}         # label key -> (its item as the key names it, its text)
         self._fanouts: list = []           # (key, footprint, depth, sides or None, why)
         self._escapes: list = []           # the EscapeDecl of each board.escape() (lanes.py)
         self._escape_laid: dict = {}       # escape index -> its Layout, once its part is placed
@@ -1677,7 +1678,7 @@ class Board:
                 if gap < self.web - 1e-9:
                     why = "would leave a %.2f mm web, under the %.2f mm minimum" % (gap, self.web)
             if why:
-                plan.findings.append(Finding("fixed", "%s (cutout): %s" % (name, why), case="fixed.cutout"))
+                plan.findings.append(Finding.plain("fixed", "%s (cutout): %s" % (name, why), case="fixed.cutout"))
             plan.cutouts_placed[name] = settled
 
     def _check_keepouts(self, plan: Plan):
@@ -1703,17 +1704,13 @@ class Board:
                 if polys_overlap(k.poly, op.polygon):
                     layer = getattr(op, "layer", None)
                     have = self.geometry.layers
-                    facts = {"net": op.net, "keepout": k.name, "word": word, "excluded": excluded,
+                    facts = {"net": op.net, "keepout": k.name, "word": word, "excluded": excluded, "why": k.why,
                              "excludes": list(k.excludes), "bars": bool(k.barred),
                              "keepout_layers": [l.name for l in (k.layers if k.layers is not None else have)]}
                     if layer is not None:
                         facts["layer"] = layer.name
                         facts["layer_word"] = {"F": "front", "B": "back"}.get(layer.name, layer.value)
-                    plan.findings.append(Finding(
-                        "copper",
-                        "%s %s crosses keepout %r (%s): a %s goes exactly where it is put, so move it, "
-                        "reshape it, or name its net in the keepout's allow="
-                        % (word, op.net, k.name, k.why, word), case="copper.keepout", facts=facts))
+                    plan.findings.append(self._finding(C.COPPER_KEEPOUT, facts))
 
     def _check_web(self, plan: "Plan"):
         """How much board is left round every hole. A web under the declared
@@ -1726,8 +1723,9 @@ class Board:
             return
         gap, which = holes.web_against([shape.loops[0]])
         if gap < self.web - 1e-9:
-            plan.findings.append(Finding("setup", "web %.2f mm round %s is under the %.2f mm minimum"
-                                 % (gap, self._cutout_label(which), self.web), "critical"))
+            order = list(self._named_cutouts)
+            plan.findings.append(self._finding(C.SETUP_WEB, {
+                "cutout": order[which] if 0 <= which < len(order) else None, "gap_mm": gap, "web_mm": self.web}, "critical"))
 
     def _check_pitch(self, plan: "Plan"):
         """A net class whose clearance does not fit its pads' pitch. A track
@@ -1763,13 +1761,10 @@ class Board:
             if worst is None:
                 continue
             lane, need, p, q, nc = worst
-            plan.findings.append(Finding(
-                "setup",
-                "%s: net class %r (clearance %.2f mm, track %.2f mm) does not fit the pads' pitch: the lane out "
-                "of pad %s past pad %s is %.3f mm for a %.2f mm clearance (%d lane(s) short), so the router "
-                "cannot escape them; a clearance of %.2f mm or less fits"
-                % (fp.ref, nc.name, nc.clearance, nc.track_width, p.number, q.number, lane, need, short,
-                   math.floor(lane * 100 + 1e-6) / 100), "critical"))
+            plan.findings.append(self._finding(C.SETUP_PITCH, {
+                "ref": fp.ref, "net_class": nc.name, "clearance_mm": nc.clearance, "track_mm": nc.track_width,
+                "pad": p.number, "past_pad": q.number, "net": p.net, "past_net": q.net, "lane_mm": lane, "need_mm": need,
+                "short": short, "fits_mm": math.floor(lane * 100 + 1e-6) / 100}, "critical"))
 
     def _cutout_label(self, n: int) -> str:
         """Which hole a measurement was taken on. Named cutouts come first,
@@ -1915,17 +1910,13 @@ class Board:
         for k in self._keepouts.values():
             lost = sorted((l for l in (k.layers or ()) if l not in have), key=stackup_order)
             if lost:
-                plan.findings.append(Finding(
-                    "setup",
-                    "keepout %s declares %s, which this %d-layer board does not have: recorded "
-                    "in its name, and honoured by a board that has it"
-                    % (k.name, ", ".join(l.value for l in lost), len(self.geometry.layers)), "notice"))
+                plan.findings.append(Finding(C.SETUP_LAYER_LOST, {
+                    "variant": "keepout", "name": k.name, "layers": [l.value for l in lost],
+                    "board_layers": len(self.geometry.layers)}, "notice"))
         for r in self.geometry.rule_areas:
             if r.missing:
-                plan.findings.append(Finding(
-                    "setup",
-                    "%s from the %s cell declares %s, which this board does not have either"
-                    % (r.base, r.cell or "board", ", ".join(l.value for l in r.missing)), "notice"))
+                plan.findings.append(Finding(C.SETUP_LAYER_LOST, {
+                    "variant": "rule_area", "name": r.base, "cell": r.cell, "layers": [l.value for l in r.missing]}, "notice"))
 
     def cutout(self, name: str) -> CutoutHandle:
         """A named cutout, so something can be placed against its boundary."""
@@ -3622,10 +3613,9 @@ class Board:
             occ.add_copper(shapes)
             for n, lane in laid.blocked():
                 from . import suggest_facts
-                plan.findings.append(self._finding("escape_lane", "escape_lane", "%s pin %s (%s): its lane is blocked by %s" % (
-                    decl.ref, n, lane.net, "; ".join(dict.fromkeys(lane.blocked))),
-                    {"part": suggest_facts.inst_of(self, decl.ref), "pin": n,
-                     "reach": self.settings.place_escape_via_reach}))
+                plan.findings.append(self._finding(C.ESCAPE_LANE, {
+                    "ref": decl.ref, "part": suggest_facts.inst_of(self, decl.ref), "pin": n, "net": lane.net,
+                    "blocked": list(dict.fromkeys(lane.blocked))}))
             note = "%d lane%s kept for pins %s" % (len(laid.order), "" if len(laid.order) == 1 else "s", ", ".join(decl.pins))
             if laid.blocked():
                 note += "; %d blocked" % len(laid.blocked())
@@ -3672,9 +3662,8 @@ class Board:
             for n in decl.pins:
                 if n not in decl.drawn:
                     from . import suggest_facts
-                    plan.findings.append(self._finding("setup", "setup.lane_unused", "%s pin %s: its lane is reserved and no track begins with "
-                                                       "it, so its room is kept for nothing" % (decl.ref, n),
-                                                       {"part": suggest_facts.inst_of(self, decl.ref), "pin": n}))
+                    plan.findings.append(self._finding(C.SETUP_LANE_UNUSED, {
+                        "ref": decl.ref, "part": suggest_facts.inst_of(self, decl.ref), "pin": n}))
 
     def link(self, a, b, weight=LinkWeight.DEFAULT, limit_mm: float | None = None, why: str = "") -> Link:
         """Price one connection between two pads. `weight` is a LinkWeight or
@@ -4406,10 +4395,8 @@ class Board:
         for fp in sorted(self.geometry.footprints, key=lambda f: f.inst):
             if fp.ref not in declared:
                 from . import suggest_facts
-                plan.findings.append(self._finding("setup", "setup.undeclared",
-                                                   "%s (%s): no declaration places it, so it stays where the generator put it"
-                                                   % (fp.inst, fp.ref),
-                                                   {"item": fp.inst, "anchor": suggest_facts.last_place(self)}))
+                plan.findings.append(self._finding(C.SETUP_UNDECLARED, {
+                    "item": fp.inst, "ref": fp.ref, "anchor": suggest_facts.last_place(self)}))
 
     def _report_splits(self, plan: Plan) -> None:
         """A cell whose members form two or more groups of
@@ -4420,7 +4407,7 @@ class Board:
         cells = [it for it in plan._items.values() if isinstance(it, CellGeom)]
         plane_nets = {net for net, _ in self._planes_declared}
         for name, text in splits.report(self.geometry, cells, plane_nets, self.settings.place_split_min_group):
-            plan.findings.append(Finding("split", "%s: %s" % (name, text)))
+            plan.findings.append(Finding.plain("split", "%s: %s" % (name, text)))
             step = next((s for s in plan.steps if s.item == name), None)
             if step is not None:
                 step.note = (step.note + "; " if step.note else "") + "split: " + text
@@ -4440,9 +4427,7 @@ class Board:
         for e, f in rn.pair_crossings():
             parts = sorted({v.ref for v in (e.a, e.b, f.a, f.b) if v.ref})
             pos, neg = (e.net, f.net) if (pair_key(e.net) or (0, True))[1] else (f.net, e.net)
-            plan.findings.append(Finding("pair_crossed", "%s/%s cross between %s: swap two interchangeable parts on "
-                                         "the pair, or turn a part whose pinout is mirrored 180 degrees"
-                                         % (pos, neg, ", ".join(parts)), case="pair_crossed"))
+            plan.findings.append(Finding(C.PAIR_CROSSED, {"pos": pos, "neg": neg, "parts": parts}))
         for n, e, f in rn.crossed_pair_list(esc.depth):
             ends = []
             for edge in (e, f):
@@ -4450,48 +4435,34 @@ class Board:
                 ends.append((mine.number, other.ref or "copper", edge.net))
             ends.sort(key=lambda t: (int(t[0]) if t[0].isdigit() else 1 << 30, t[0]))
             (pa, xa, na), (pb, xb, nb) = ends
-            plan.findings.append(Finding("escape_crossed", "%s pins %s/%s: %s %s crosses %s %s" % (n, pa, pb, xa, na, xb, nb),
-                                         case="escape_crossed"))
+            plan.findings.append(Finding(C.ESCAPE_CROSSED, {"ref": n, "pins": [pa, pb], "targets": [[xa, na], [xb, nb]]}))
         closed, walled = esc.confirmed()
         from . import suggest_facts
         for ref, number, net, by, joins in closed:
-            plan.findings.append(self._finding("escape_closed", "escape_closed", "%s pin %s (%s): closed toward %s by %s" % (
-                ref, number, net, ", ".join(joins) or "what it joins", ", ".join(by) or "copper"),
-                suggest_facts.escape_facts(self, occ, plan, ref, number, net, by)))
+            plan.findings.append(self._finding(C.ESCAPE_CLOSED, dict(
+                suggest_facts.escape_facts(self, occ, plan, ref, number, net, by), joins=list(joins))))
         for ref, number, net, by, _ in walled:
-            plan.findings.append(self._finding("escape_walled", "escape_walled", "%s pin %s (%s): walled off by %s" % (
-                ref, number, net, ", ".join(by) or "copper"),
-                suggest_facts.escape_facts(self, occ, plan, ref, number, net, by)))
+            plan.findings.append(self._finding(C.ESCAPE_WALLED, dict(
+                suggest_facts.escape_facts(self, occ, plan, ref, number, net, by), variant="walled")))
         for ref, number, net, by in esc.handoffs_walled():
-            plan.findings.append(self._finding("escape_walled", "escape_walled",
-                                               "%s pin %s (%s): no other pad is on the net, so it leaves the board "
-                                               "here, and it is walled off by %s" % (ref, number, net, ", ".join(by) or "copper"),
-                                               suggest_facts.escape_facts(self, occ, plan, ref, number, net, by)))
+            plan.findings.append(self._finding(C.ESCAPE_WALLED, dict(
+                suggest_facts.escape_facts(self, occ, plan, ref, number, net, by), variant="handoff")))
 
     def _report_links(self, occ: Occupancy, plan: Plan, placed: set):
         for l in self._links:
             if l.a[0] in placed and l.b[0] in placed:
                 l.achieved_mm = round(occ.pad_location(*l.a).distance(occ.pad_location(*l.b)), 3)
                 if not l.within_limit:
-                    plan.findings.append(Finding("link_over", "link %s.%s to %s.%s is %.2f mm, over its %.2f mm limit%s" % (
-                        l.a[0], l.a[1], l.b[0], l.b[1], l.achieved_mm, l.limit_mm, (": " + l.why) if l.why else ""),
-                        case="link_over", facts=self._link_over_facts(l)))
+                    plan.findings.append(self._finding(C.LINK_OVER, self._link_over_facts(l)))
                     self._late_suggestions.append((plan.findings[-1], lambda f, l=l: self._measure_link_over(occ, plan, l, f)))
             plan.links.append(l)
 
     def _link_over_facts(self, l) -> dict:
-        try:
-            return self._link_over_facts_of(l)
-        except Exception:                           # a suggestion is best-effort: no facts, no suggestion
-            return {}
-
-    def _link_over_facts_of(self, l) -> dict:
-        from .suggest_facts import inst_of
+        from .suggest_facts import inst_of, intent_of
         a, b = inst_of(self, l.a[0]), inst_of(self, l.b[0])
         facts = {"link": _link_key(l), "a": {"key": a, "ref": l.a[0], "pad": l.a[1]},
-                 "b": {"key": b, "ref": l.b[0], "pad": l.b[1]}, "achieved": l.achieved_mm, "limit": l.limit_mm,
-                 "weight": int(l.weight)}
-        from .suggest_facts import intent_of
+                 "b": {"key": b, "ref": l.b[0], "pad": l.b[1]}, "achieved_mm": l.achieved_mm, "limit_mm": l.limit_mm,
+                 "weight": int(l.weight), "why": l.why}
         intent = intent_of(self, a)
         if intent is not None and intent.kind != "block":
             facts["a_searched"] = not intent.freedom.decided
@@ -4604,6 +4575,7 @@ class Board:
                 key = "label %s %s" % (self._pad_ref(one)[0], txt)
             else:
                 key = "label %s %s" % (self._item(one)[1], txt)
+            self._label_ids[key] = (key.split(" ", 2)[1], str(txt))
             self._labels.append((key, one, txt, Edge(side), float(gap), align, float(size), float(thickness),
                                  bool(knockout), float(rotation), why, bool(reserve), group))
             keys.append(key)
@@ -4762,7 +4734,7 @@ class Board:
                 near = min((_point_seg(c, Location(*a), Location(*b))[0] for t in ops for a, b in t.chords()),
                            default=math.inf)
                 if near < off - 1e-6:
-                    ctx.notes.append(Finding(
+                    ctx.notes.append(Finding.plain(
                         "copper", "track %s: the points either side of its 45 past the %s corner of %s allow "
                         "no 45 through it; the track passes that corner at %.3f mm, under the "
                         "%.3f mm clearance" % (name, p.edge.value, ", ".join(names), near - w / 2.0, off - w / 2.0),
@@ -4792,7 +4764,7 @@ class Board:
                     return all(poly_distance(t.polygon, o.polygon) >= self._clearance(name, o.net) - 1e-9
                                for o in others)
                 if all(op_clear(t) and clear_of_tracks(t) for t in direct) and (direct or not arc):
-                    ctx.notes.append(Finding(
+                    ctx.notes.append(Finding.plain(
                         "copper", "track %s: a waypoint steers it into another net's pad; drawn pad to pad it clears, "
                         "so drop the waypoint(s) unless the route must go there" % name, "notice", case="copper.note",
                         facts={"key": copper_id(intent), "net": name, "waypoints": len(points) - 2}))
@@ -5258,7 +5230,7 @@ class Board:
                     kept.append(t)
             standing.append((side, kept, points[-1][0]))
         if left_out:
-            ctx.notes.append(Finding("copper", "stitch %s: %d via(s) outside the region left out: %s" % (
+            ctx.notes.append(Finding.plain("copper", "stitch %s: %d via(s) outside the region left out: %s" % (
                 name, len(left_out), "; ".join(left_out)), "notice"))
         for side, kept, length in standing:
             reach = [kept[i + 1] - kept[i] for i in range(len(kept) - 1)] if kept else [length]
@@ -5266,7 +5238,7 @@ class Board:
                 ctx.note("stitch %s: the %s side's row has a %.2f mm gap, over its %.2f mm pitch"
                                  % (name, _SIDE_WORD[side], max(reach), step))
         if wanted is not None and rows:
-            ctx.notes.append(Finding("copper", "stitch %s: rows by the region's side as turned -> the board's side: %s" % (
+            ctx.notes.append(Finding.plain("copper", "stitch %s: rows by the region's side as turned -> the board's side: %s" % (
                 name, ", ".join("%s side -> board %s" % (_SIDE_WORD[side], _SIDE_WORD[board_side])
                                 for side, board_side, _ in rows)), "notice"))
         if not rows:
@@ -6190,10 +6162,9 @@ class Board:
         chain = {"key": context, "replaying": previous is not None}
         self._solve_hints = None            # the global solve runs once per resolve, when first asked
         self._report_lost_layers(plan)
-        plan.findings.extend(Finding("setup", note, "notice") for note in self._stamped_rule_notes)
+        plan.findings.extend(Finding.plain("setup", note, "notice") for note in self._stamped_rule_notes)
         if self._size_alias_used:
-            plan.findings.append(Finding("setup", "board.size(...) is board.rect(...) now; the old name will be removed",
-                                         "notice"))
+            plan.findings.append(Finding(C.SETUP_SIZE_ALIAS, {}, "notice"))
         self._rank(occ)
         if occ.envelope == "courtyard":
             from .envelope import understatement
@@ -6234,7 +6205,7 @@ class Board:
             path = c.shape.path_at(centre, turn)
             step = Step(intent.key, "cutout", None, why=intent.why)
             if why:
-                plan.findings.append(Finding("fixed", "%s (cutout): %s" % (c.name, why), case="fixed.cutout"))
+                plan.findings.append(Finding.plain("fixed", "%s (cutout): %s" % (c.name, why), case="fixed.cutout"))
                 step.note = why
             else:
                 self._add_cutout(occ, c.name, PlacedCutout(c.name, tuple(path), centre, turn))
@@ -6284,7 +6255,7 @@ class Board:
                 why = None
             step = Step(intent.key, "keepout", None, why=intent.why)
             if why:
-                plan.findings.append(Finding("fixed", "%s (keepout): %s" % (k.name, why), case="fixed.keepout"))
+                plan.findings.append(Finding.plain("fixed", "%s (keepout): %s" % (k.name, why), case="fixed.keepout"))
                 step.note = why
             else:
                 path = (region_shape or k.shape).path_at(centre, turn)
@@ -6568,10 +6539,10 @@ class Board:
             step = next((s for s in plan.steps if s.item == key), None)
             said = occ.needs.get(occ._geometry(it).owners) if step is not None and step.placement is None else None
             if said:
-                plan.findings.append(Finding("needs", "%s: no spot; one would clear with %s" % (key, said)))
+                plan.findings.append(Finding.plain("needs", "%s: no spot; one would clear with %s" % (key, said)))
         for home, text, severity in report(occ):
             key = step_of.get(home, home)
-            plan.findings.append(Finding("vias", "%s: %s" % (key, text), severity, case="vias.dropped",
+            plan.findings.append(Finding.plain("vias", "%s: %s" % (key, text), severity, case="vias.dropped",
                                          facts={"item": key, "via_move": self.settings.place_via_move,
                                                 "via_leave": self.settings.place_via_leave}))
             step = next((s for s in plan.steps if s.item == key), None)
@@ -6680,7 +6651,7 @@ class Board:
             with _recording_commits(occ) as commits:
                 alone = self._riders_alone(occ, plan, obj) if riders else None
                 if alone:
-                    plan.findings.append(Finding("unplaced", "%s: %s" % (obj.key, alone), case="unplaced.rides"))
+                    plan.findings.append(Finding.plain("unplaced", "%s: %s" % (obj.key, alone), case="unplaced.rides"))
                     step = self._step(obj, None, 0.0, "UNPLACED: " + alone)
                 else:
                     step = self._settle(occ, obj, plan, placed)
@@ -6777,9 +6748,8 @@ class Board:
                 continue
             ilo, ihi = (box.top, box.bottom) if axis is Axis.X else (box.left, box.right)
             if ilo < lo - 1e-6 or ihi > hi + 1e-6:
-                plan.findings.append(Finding(
-                    "setup", "%s: reaches %.2f to %.2f mm, outside the frame's declared %s of %.2f to %.2f mm"
-                    % (step.item, ilo, ihi, which, lo, hi)))
+                plan.findings.append(self._finding(C.SETUP_FRAME_REACH, {
+                    "item": step.item, "from_mm": ilo, "to_mm": ihi, "axis": which, "frame_from_mm": lo, "frame_to_mm": hi}))
 
     def _fit_room(self, occ: Occupancy, plan: Plan, obj) -> Box:
         """Where a searched item may go on a fit board: round everything placed
@@ -6943,7 +6913,7 @@ class Board:
                     return self._step(i, result.chosen, 0.0, note)
                 tried.append(pocket)
         from . import suggest_facts
-        plan.findings.append(self._finding("unplaced", "unplaced.pocket",
+        plan.findings.append(self._finding_plain("unplaced", "unplaced.pocket",
             "%s: no pocket fits its %s envelope on the %s face (%d pocket(s) tried)" % (
             i.key, "%.1f x %.1f" % (occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).width,
                                     occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face)).height),
@@ -7091,8 +7061,9 @@ class Board:
         if final:                       # what landed on a label after it was worked out
             for key, (op, own, face) in done.items():
                 for h in _label_hits(occ, op.box, face, own):
-                    if not any(f.startswith("%s: sits on" % key) and h in f for f in plan.findings):
-                        plan.findings.append(self._label_finding("label.sits_on", key, "%s: sits on %s" % (key, h)))
+                    if not any(f.cause is C.LABEL_SITS_ON and f.facts["key"] == key and h in f.facts["hits"]
+                               for f in plan.findings):
+                        plan.findings.append(self._finding(C.LABEL_SITS_ON, self._label_facts(key, hits=[h])))
         box_of = lambda item: self._label_item_box(occ, item)
         for entry in self._labels:
             key, item, text, side, gap, align, size, thick, knockout, rotation, why, reserve, group = entry
@@ -7103,9 +7074,10 @@ class Board:
             waiting = [r for r in refs + group_refs if r in declared and r not in placed]
             if waiting:
                 if final:               # its item found no place: the label is not drawn, as the item is not
-                    said = "%s: not drawn: %s found no place" % (key, occ.who(waiting[0]))
-                    if said not in plan.findings:
-                        plan.findings.append(Finding("label", said, "notice", case="label.not_drawn"))     # its item's own finding is the fault
+                    facts = self._label_facts(key, waiting=occ.who(waiting[0]))
+                    if not any(f.cause is C.LABEL_NOT_DRAWN and f.facts["key"] == key and f.facts["waiting"] == facts["waiting"]
+                               for f in plan.findings):
+                        plan.findings.append(Finding(C.LABEL_NOT_DRAWN, facts, "notice"))     # its item's own finding is the fault
                 continue
             box, face = box_of(item)
             line = Box.union([box_of(one)[0] for one in group]) if group else None
@@ -7123,15 +7095,15 @@ class Board:
                 if spots:
                     side_, word, op = spots[0]
                     note = "%s %s of %s; moved from %s: it was %s" % (
-                        side_.name.lower(), word, key.split(" ", 2)[1], side.name.lower(), off)
+                        side_.name.lower(), word, self._label_ids[key][0], side.name.lower(), off)
                     plan.__dict__.setdefault("_label_at", {})[key] = "%s %s" % (side_.name.lower(), word)
                 else:
-                    plan.findings.append(self._label_finding("label.no_spot", key, "%s: no spot on the board for it beside %s: it is %s" % (
-                        key, key.split(" ", 2)[1], off)))
+                    plan.findings.append(Finding.plain("label", "%s: no spot on the board for it beside %s: it is %s" % (
+                        key, self._label_ids[key][0], off), cause=C.LABEL_NO_SPOT, facts=self._label_facts(key)))
             plan.copper.append(op)
             hits = _label_hits(occ, op.box, face, own)
             if hits:
-                plan.findings.append(self._label_finding("label.sits_on", key, "%s: sits on %s" % (key, ", ".join(hits))))
+                plan.findings.append(self._finding(C.LABEL_SITS_ON, self._label_facts(key, hits=list(hits))))
                 note += "; sits on " + ", ".join(hits)
             if reserve:
                 occ.reserve(op.box, "label %s" % key.split(" ", 1)[1], layer=face.copper, source=LABEL_SOURCE)     # the text's own box, no more
@@ -7147,20 +7119,26 @@ class Board:
             if progress:
                 progress("%-28s copper  label    %s" % (key, note))
 
-    def _finding(self, kind: str, case: str, text: str, facts: dict) -> Finding:
-        """A finding with its case and the facts it was raised on, and the suggestions built from them. Raised inside
-        a step, so a replayed step keeps them (reuse.py)."""
-        from . import suggestions
-        return Finding(kind, text, case=case, facts=facts, suggestions=suggestions.suggest(case, facts, self.settings))
+    def _finding(self, cause, facts: dict, severity: str | None = None) -> Finding:
+        """A finding of this cause from the facts its site measured. Its suggestions are built from the facts at the end
+        of the resolve (suggestions.bind), so a finding replayed from the reuse record has them too."""
+        return Finding(cause, facts, severity)
 
-    def _label_finding(self, case: str, key: str, text: str) -> Finding:
-        """A label finding with its case and what the label was declared as (its side and size), the facts the
-        suggestions to move or shrink it are built from."""
+    def _finding_plain(self, kind: str, case: str, text: str, facts: dict) -> Finding:
+        """A finding of a cause whose sentence is not yet rendered from facts (it embeds a refusal's text): made from the
+        sentence, with the facts for its suggestions. Removed when the last of them is converted."""
+        return Finding.plain(kind, text, cause=C(case), facts=facts)
+
+    def _label_facts(self, key: str, **more) -> dict:
+        """What a label finding is made of: the label (its item, its text), as declared (its side and size), the other
+        sides it could take, and what the site adds."""
+        item, text = self._label_ids[key]
         entry = next((e for e in self._labels if e[0] == key), None)
-        facts = {"key": key} if entry is None else {"key": key, "side": entry[3].name, "size": entry[6]}
+        facts = {"key": key, "item": item, "text": text}
         if entry is not None:
-            facts["sides"] = [s.name for s in Edge if s is not entry[3]]
-        return Finding("label", text, case=case, facts=facts)
+            facts.update(side=entry[3].name, size=entry[6], sides=[s.name for s in Edge if s is not entry[3]])
+        facts.update(more)
+        return facts
 
     def _label_item_box(self, occ, item) -> tuple:
         """(the reach a label stands off, its face): a pad's copper, or the
@@ -7293,12 +7271,15 @@ class Board:
                 continue
             if group:
                 said = "%s: no clear spot beside %s for it and the rest of its line to move to, and %s is in the way" % (
-                    hit[0][0], hit[0][0].split(" ", 2)[1], ", ".join(mine))
+                    hit[0][0], self._label_ids[hit[0][0]][0], ", ".join(mine))
+                at = hit[0][0]
             else:
                 said = "%s: no clear spot beside %s for it to move to, and %s is in the way" % (
-                    key, key.split(" ", 2)[1], ", ".join(mine))
+                    key, self._label_ids[key][0], ", ".join(mine))
+                at = key
             if said not in plan.findings:
-                plan.findings.append(self._label_finding("label.no_spot", key, said))
+                plan.findings.append(Finding.plain("label", said, cause=C.LABEL_NO_SPOT,
+                                                   facts=self._label_facts(at, line=bool(group), mine=list(mine))))
         return moved
 
     def _unit_gives_way(self, occ, plan: Plan, unit: list, item, placement: Placement, committed: bool,
@@ -7562,7 +7543,7 @@ class Board:
                              "chamfer_hit": isinstance(op, Track) and bool(op.chamfer_cut),
                              "arc_hit": isinstance(op, Track) and op.mid is not None,
                              "chamfer": declared.get("chamfer"), "radius": declared.get("radius")}
-                    plan.findings.append(Finding("copper", note, case="copper.meets", facts=facts))
+                    plan.findings.append(Finding.plain("copper", note, case="copper.meets", facts=facts))
             batch.append((op, shape))
             shapes.append(shape)
             if isinstance(op, Via):
@@ -7673,7 +7654,7 @@ class Board:
                 rejected[key] += 1
                 reasons.setdefault(key, why)
         from . import suggest_facts
-        plan.findings.append(self._finding("unplaced", "unplaced.slide", "%s: no room anywhere %s (%s)%s" % (
+        plan.findings.append(self._finding_plain("unplaced", "unplaced.slide", "%s: no room anywhere %s (%s)%s" % (
             i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3)),
             "".join("; %s" % why for k, why in reasons.items() if k.startswith("rider "))),
             suggest_facts.unplaced_slide(self, i)))
@@ -7704,7 +7685,7 @@ class Board:
             rejected[key] += 1
             reasons.setdefault(key, why)
         from . import suggest_facts
-        plan.findings.append(self._finding("unplaced", "unplaced.slide", "%s: no room anywhere %s (%s)" % (
+        plan.findings.append(self._finding_plain("unplaced", "unplaced.slide", "%s: no room anywhere %s (%s)" % (
             i.key, what, ", ".join("%s x%d" % kv for kv in rejected.most_common(3))),
             dict(suggest_facts.unplaced_slide(self, i), edge="")))
         return self._commit_block(occ, spec, {}, i, plan, "UNPLACED: " + "; ".join(reasons.values()))
@@ -8217,7 +8198,7 @@ class Board:
                                         and i.clearance < self.keep_in)
             if members is None:
                 from . import suggest_facts
-                plan.findings.append(self._finding("fixed", "fixed.part", "%s (%s): %s" % (i.key, i.freedom.value, why),
+                plan.findings.append(self._finding_plain("fixed", "fixed.part", "%s (%s): %s" % (i.key, i.freedom.value, why),
                                                    suggest_facts.fixed_part(self, i)))
                 members = {spec.anchor.inst: anchor}
             return self._commit_block(occ, spec, members, i, plan, why or "")
@@ -8276,14 +8257,14 @@ class Board:
                 best, tried, rejected, reasons = scan_block(occ, spec, hint, radius, i.step, i.rotations or (i.rotation,),
                                                             clr, score, pick=self._pick(i))
             if best is None and alone is not None:
-                plan.findings.append(self._finding("unplaced", "unplaced.block",
+                plan.findings.append(self._finding_plain("unplaced", "unplaced.block",
                                                    "%s: cannot be laid out on its own at any rotation it may "
                                                    "take, whatever room the board has (%s)" % (i.key, alone),
                                                    {"item": i.key, "gap_reach": self.settings.place_block_gap_reach}))
                 members = {}
                 note = "UNPLACED: " + alone
             elif best is None:
-                plan.findings.append(self._finding("unplaced", "unplaced.block",
+                plan.findings.append(self._finding_plain("unplaced", "unplaced.block",
                                                    "%s: no legal spot within %.1f mm of %s (%s)" % (
                     i.key, radius, _loc(hint.location), ", ".join("%s x%d" % kv for kv in rejected.most_common(3))),
                     {"item": i.key, "gap_reach": self.settings.place_block_gap_reach}))
@@ -8324,7 +8305,7 @@ class Board:
             key = keys[i]
             if isinstance(got[i], str):
                 plan.adopted[key] = "dropped: " + got[i]
-                plan.findings.append(Finding("route", "adopted route %s dropped: %s; the router routes it again"
+                plan.findings.append(Finding.plain("route", "adopted route %s dropped: %s; the router routes it again"
                                              % (key, got[i])))
                 continue
             plan.adopted[key] = "held"
@@ -8613,7 +8594,7 @@ class Board:
         if step.placement is None:
             for r in self._ride_groups[i.key]:
                 why = "rides %s, which found no place" % self._rider_of[r.key]
-                plan.findings.append(Finding("unplaced", "%s: %s" % (r.key, why), case="unplaced.rides"))
+                plan.findings.append(Finding.plain("unplaced", "%s: %s" % (r.key, why), case="unplaced.rides"))
                 plan.steps.append(self._step(r, None, 0.0, "UNPLACED: " + why))
             return
         laid = self._ride(occ, plan, i, step.placement, None, stop=False)
@@ -8623,7 +8604,7 @@ class Board:
             why = on_board or in_group
             if why:
                 from . import suggest_facts
-                plan.findings.append(self._finding("fixed", "fixed.part", "%s (%s): %s" % (r.key, r.freedom.value, why),
+                plan.findings.append(self._finding_plain("fixed", "fixed.part", "%s (%s): %s" % (r.key, r.freedom.value, why),
                                                    suggest_facts.fixed_part(self, r)))
             tags = ["rides %s" % self._rider_of[r.key]] + (["required"] if r.required else [])
             note = "; ".join(x for x in tags + [chose, why, r.faces_note] if x)
@@ -8659,7 +8640,7 @@ class Board:
             why = occ.legal_giving_way(i.item, p, clr, past_edge=self._firm_past_edge(i), by_corners=True)[0]
             if why:
                 from . import suggest_facts
-                plan.findings.append(self._finding("fixed", "fixed.part", "%s (%s): %s" % (i.key, i.freedom.value, why),
+                plan.findings.append(self._finding_plain("fixed", "fixed.part", "%s (%s): %s" % (i.key, i.freedom.value, why),
                                                    suggest_facts.fixed_part(self, i)))
             return self._step(i, p, 0.0, "; ".join(x for x in (chose, why) if x))
         if i.turns_on_point:
@@ -8746,7 +8727,7 @@ class Board:
         hopeless = "" if bt is not None or band is not None else self._no_pocket_note(occ, i)
         if hopeless:
             from . import suggest_facts
-            plan.findings.append(self._finding("unplaced", "unplaced.pocket", "%s: %s" % (i.key, hopeless),
+            plan.findings.append(self._finding_plain("unplaced", "unplaced.pocket", "%s: %s" % (i.key, hopeless),
                                                suggest_facts.unplaced_pocket(self, occ, plan, i)))
             return self._step(i, None, 0.0, "UNPLACED: " + hopeless)
         if self._on_begin is not None:
@@ -8767,7 +8748,7 @@ class Board:
                 text = ("%s: no spot was left for %s at its limit distance from %s, so the look-ahead was dropped "
                         "and %s is placed without it; the best spot for %s left %s %.2f mm short of %.1f mm"
                         % (i.key, b, a, a, a, b, short, asked))
-                plan.findings.append(Finding("setup", text, "notice"))
+                plan.findings.append(Finding.plain("setup", text, "notice"))
                 lost.setdefault(key, {})[a] = text
             step = self._settle(occ, i, plan, placed, solve=solve, look=False)
             step.note = "no spot left %s room, so the look-ahead was dropped; %s" % (ahead.partners, step.note)
@@ -8791,7 +8772,7 @@ class Board:
                 blame += "; no pocket took it (%d tried)" % tried
             late = self._room_lost_text(plan, i)
             from . import suggest_facts
-            plan.findings.append(self._finding("unplaced", "unplaced.search", "%s: %s%s" % (i.key, blame, late),
+            plan.findings.append(self._finding_plain("unplaced", "unplaced.search", "%s: %s%s" % (i.key, blame, late),
                                                suggest_facts.unplaced_search(self, occ, plan, i, placed, result, hint, radius)))
             return self._step(i, None, 0.0, "UNPLACED: " + "; ".join(result.reasons.values()) + late)
         note = seeded
@@ -8973,7 +8954,7 @@ class Board:
             away = abs((rot - declared + 180.0) % 360.0 - 180.0)
             found.append((cost, away, rot, p, chose))
         if not found:
-            plan.findings.append(self._finding("unplaced", "unplaced.bearing",
+            plan.findings.append(self._finding_plain("unplaced", "unplaced.bearing",
                                                "%s: no bearing of %d tried leaves it legal on its point (%s)" % (
                 i.key, len(turns), ", ".join("%s x%d" % kv for kv in rejected.most_common(3))),
                 {"item": i.key, "bearing_step": self.settings.place_bearing_step}))
@@ -9483,7 +9464,7 @@ class _CopperContext:
     def note(self, text: str, kind: str = "copper", severity: str = "warning", case: str | None = None,
              facts: dict | None = None) -> None:
         """A finding about a declaration that is not drawn as asked, a person's call."""
-        self.notes.append(Finding(kind, text, severity, case=case, facts=facts))
+        self.notes.append(Finding.plain(kind, text, severity, case=case, facts=facts))
 
     def locate(self, ref) -> Location:
         if isinstance(ref, CopperIntent):

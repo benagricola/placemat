@@ -5,8 +5,9 @@ import pytest
 
 from placemat import cli, suggestions as sg
 from placemat.console import Console
-from placemat.findings import Finding
+from placemat.findings import Finding, FindingCause as C
 from tests.suggest_support import resolve, suggestions_of
+from tests.test_finding_suggestions import FACTS
 from tests.test_suggestions_link_over import SCRIPT
 
 
@@ -33,7 +34,7 @@ def test_a_critical_or_warning_finding_prints_its_best_suggestion_and_the_ids_of
 
 def test_a_notice_prints_no_try_line():
     from tests.test_finding_suggestions import _suggestion
-    f = Finding("setup", "x", "notice", case="setup.accept", suggestions=[_suggestion()])
+    f = Finding(C.FAB_MINIMUM, FACTS, "notice", suggestions=[_suggestion()])
     assert f.try_lines() == []
 
 
@@ -48,7 +49,7 @@ def test_the_console_prints_the_try_lines_under_the_finding(tmp_path, planned, c
 
 def test_a_finding_without_suggestions_prints_one_line(capsys):
     out = Console()
-    out.finding(Finding("unplaced", "c4: no room"))
+    out.finding(Finding(C.FAB_MINIMUM, FACTS))
     assert capsys.readouterr().out.count("\n") == 1
 
 
@@ -56,11 +57,12 @@ def test_the_detail_of_a_finding_carries_its_case_and_suggestions(planned):
     plan, path = planned
     (f,) = [f for f in plan.findings if f.kind == "link_over"]
     d = f.detail()
-    assert d["kind"] == "link_over" and d["case"] == "link_over" and d["text"] == str(f)
+    assert d["kind"] == "link_over" and d["cause"] == "link_over" and d["text"] == str(f)
     assert [s["id"] for s in d["suggestions"]] == [s.id for s in f.suggestions]
     assert all(s["digests"] for s in d["suggestions"])
-    plain = Finding("setup", "x").detail()
-    assert plain == {"kind": "setup", "severity": "warning", "text": "x"}
+    plain = Finding(C.FAB_MINIMUM, FACTS).detail()
+    assert plain == {"kind": "fab", "cause": "fab.minimum", "severity": "critical", "text": str(Finding(C.FAB_MINIMUM, FACTS)),
+                     "facts_v": 1, "facts": FACTS}
 
 
 def test_apply_dry_run_prints_the_diff_and_writes_nothing(tmp_path, planned, capsys):
@@ -155,11 +157,11 @@ def test_the_studios_plan_json_carries_the_same_suggestions_as_the_run_record(tm
     from placemat.preview_json import plan_json
     plan, path = planned
     doc = plan_json(plan)
-    (row,) = [r for r in doc["findings"] if r["case"] == "link_over"]
+    (row,) = [r for r in doc["findings"] if r["cause"] == "link_over"]
     (f,) = [f for f in plan.findings if f.kind == "link_over"]
     assert row["suggestions"] == f.detail()["suggestions"]
     assert sg.from_json(row["suggestions"]) == list(f.suggestions)
-    assert [r["suggestions"] for r in doc["findings"] if r["case"] is None] == [[] for _ in doc["findings"] if _["case"] is None]
+    assert [r["suggestions"] for r in doc["findings"] if r["cause"] is None] == [[] for _ in doc["findings"] if _["cause"] is None]
 
 
 def test_a_finding_the_cli_prints_and_the_json_gives_agree(tmp_path, planned, capsys):

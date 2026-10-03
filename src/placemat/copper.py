@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 import math
 
-from .findings import Finding
+from .findings import Finding, FindingCause as C
 from .geometry import Polygon
 from .settings import active
 from .values import Box, CopperLayer, Face, Location
@@ -443,9 +443,10 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
                     notes.append("%s passes under %s at (%.2f, %.2f): %s" % (
                         entries[k][0].net, entries[other][0].net, pt[0], pt[1], why))
             else:
-                findings.append(Finding("copper", "%s and %s cross on %s at (%.2f, %.2f) and neither may bridge%s" % (
-                    entries[i][0].net, entries[j][0].net, entries[i][0].layer.value, pt[0], pt[1], left_out(k)),
-                    case="copper.cross", facts=_cross_facts(entries, ids, k, other)))
+                findings.append(Finding(C.COPPER_CROSS, dict(
+                    _cross_facts(entries, ids, k, other), variant="tracks", net_a=entries[i][0].net,
+                    net_b=entries[j][0].net, layer=entries[i][0].layer.value, at=[pt[0], pt[1]],
+                    left_out=labels[k] if drop is not None and labels is not None else "")))
                 if drop is not None:
                     drop.append(k)
         for ft in fixed_tracks:
@@ -455,9 +456,10 @@ def resolve_bridges(entries, fixed_tracks, via_drill: float, via_size: float,
             if entries[i][2]:
                 cuts[i].append(pt)
             else:
-                findings.append(Finding("copper", "%s crosses FIXED %s on %s at (%.2f, %.2f) and may not bridge%s" % (
-                    entries[i][0].net, ft.net, ft.layer.value, pt[0], pt[1], left_out(i)),
-                    case="copper.cross", facts=_cross_facts(entries, ids, i, None, fixed=ft)))
+                findings.append(Finding(C.COPPER_CROSS, dict(
+                    _cross_facts(entries, ids, i, None, fixed=ft), variant="fixed", net_a=entries[i][0].net,
+                    net_b=ft.net, layer=ft.layer.value, at=[pt[0], pt[1]],
+                    left_out=labels[i] if drop is not None and labels is not None else "")))
                 if drop is not None:
                     drop.append(i)
     ops = []

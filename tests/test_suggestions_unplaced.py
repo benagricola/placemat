@@ -10,7 +10,7 @@ board.place(Part("r1"), at=Location(50, 20))
 
 
 def unplaced(plan, case=None):
-    return [f for f in plan.findings if f.kind == "unplaced" and (case is None or f.case == case)]
+    return [f for f in plan.findings if f.kind == "unplaced" and (case is None or f.cause == case)]
 
 
 def test_a_search_with_no_legal_spot_offers_the_levers_the_declaration_leaves(tmp_path):

@@ -12,7 +12,7 @@ HEAD = IMPORTS + "from placemat import Path\n"
 
 
 def search(plan):
-    return [f for f in plan.findings if f.case == "unplaced.search"]
+    return [f for f in plan.findings if f.cause == "unplaced.search"]
 
 
 def test_a_search_refused_by_a_keepout_offers_to_let_the_item_in(tmp_path):

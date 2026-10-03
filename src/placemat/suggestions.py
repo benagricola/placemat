@@ -326,9 +326,8 @@ def bind(findings, board) -> None:
     after it."""
     binder = _Binder(board)
     for n, f in enumerate(findings, 1):
-        if f.case and f.facts and not f.suggestions and not getattr(f, "_built", False):
-            f.suggestions = tuple(suggest(f.case, f.facts, board.settings))
-            f._built = True
+        if f.cause and f.facts and not any(s.id for s in f.suggestions):
+            f.suggestions = tuple(suggest(f.cause, f.facts, board.settings))
         pending = [s for s in f.suggestions if not s.id]
         if not pending:
             continue
@@ -637,11 +636,11 @@ def link_over(f, settings):
     if f.get("a_searched", True) and f.get("a_priority") != "high":
         out.append(_set("place", a["key"], "priority", _enum("Priority.HIGH"),
                         "Place %s before the parts that crowd it" % a["key"], "priority"))
-    limit = math.ceil(f["achieved"] * 100 - 1e-9) / 100
+    limit = math.ceil(f["achieved_mm"] * 100 - 1e-9) / 100
     out.append(_set("link", f["link"], "limit_mm",
                     _const(_name(a["key"], "link", "limit", "mm"), limit,
                            "Measured by a run's finding (link_over): %s pad %s to %s pad %s was %s mm, over its %s mm limit."
-                           % (a["key"], a["pad"], b["key"], b["pad"], _mm(f["achieved"]), _mm(f["limit"]))),
+                           % (a["key"], a["pad"], b["key"], b["pad"], _mm(f["achieved_mm"]), _mm(f["limit_mm"]))),
                     "Raise the limit to %s mm" % _mm(limit), "limit"))
     return out
 
@@ -649,7 +648,7 @@ def link_over(f, settings):
 # ------------------------------------------------------------------ builders: label
 def _label_picks(f, settings):
     out = []
-    ref = f["key"].split(" ", 2)[1]
+    ref = f["item"]
     for side in f.get("sides", ()):
         out.append(_set("label", f["key"], "side", _enum("Edge.%s" % side),
                         "Move the label of %s to its %s side" % (ref, _side_word(side)), "side"))
@@ -659,19 +658,19 @@ def _label_picks(f, settings):
         out.append(_set("label", f["key"], "size",
                         _const(_name(ref, "label", "size", "mm"), smaller,
                                "A run's finding (%s) said the label of %s was in the way: %s mm is the label size %s "
-                               "mm divided by studio.suggest_factor." % (f["case"], ref, _mm(smaller), _mm(size))),
+                               "mm divided by studio.suggest_factor." % (f["cause"], ref, _mm(smaller), _mm(size))),
                         "Make the label of %s smaller" % ref, "size"))
     return out
 
 
 @case("label.sits_on")
 def label_sits_on(f, settings):
-    return _label_picks(dict(f, case="label.sits_on"), settings)
+    return _label_picks(dict(f, cause="label.sits_on"), settings)
 
 
 @case("label.no_spot")
 def label_no_spot(f, settings):
-    return _label_picks(dict(f, case="label.no_spot"), settings)
+    return _label_picks(dict(f, cause="label.no_spot"), settings)
 
 
 @case("label.not_drawn")
@@ -749,7 +748,7 @@ def unplaced_search(f, settings):
             out.append(_add_to("keepout", r["keepout"], "allow", _item(item),
                                "Let %s into keepout `%s`" % (item, r["keepout"]), "reservation"))
         elif "label" in r:
-            ref = r["label"].split(" ", 2)[1]
+            ref = r["label"].split(" ", 2)[1]      # until a reservation names its source as data
             out.append(_set("label", r["label"], "reserve", False,
                             "Stop the label of %s reserving room" % ref, "reservation"))
     if f.get("drawn") and f.get("envelope") != "courtyard":
@@ -1072,7 +1071,7 @@ def finding_key(f) -> tuple:
     cell, label or keepout it is about."""
     get = f.get if isinstance(f, dict) else (lambda k, d=None: getattr(f, k, d))
     text = str(get("text") if isinstance(f, dict) else f)
-    return (get("kind"), get("case"), (get("item") if isinstance(f, dict) and get("item") else "") or text.split(" ", 1)[0])
+    return (get("kind"), get("cause"), (get("item") if isinstance(f, dict) and get("item") else "") or text.split(" ", 1)[0])
 
 
 def cleared(finding, after) -> bool:

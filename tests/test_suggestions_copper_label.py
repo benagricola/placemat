@@ -16,7 +16,7 @@ board.track("VIN", [Location(5, 25), Location(45, 25)], layer=CopperLayer.F)
 
 
 def keepout_findings(plan):
-    return [f for f in plan.findings if f.case == "copper.keepout"]
+    return [f for f in plan.findings if f.cause == "copper.keepout"]
 
 
 def test_a_track_through_a_keepout_offers_the_net_the_layer_and_the_exclusions(tmp_path):
@@ -63,7 +63,7 @@ board.track("OUT", [Location(30, 5), Location(30, 45)], layer=CopperLayer.F)
 
 
 def cross_findings(plan):
-    return [f for f in plan.findings if f.case == "copper.cross"]
+    return [f for f in plan.findings if f.cause == "copper.cross"]
 
 
 def test_two_tracks_that_cross_and_neither_may_bridge_offer_a_bridge(tmp_path):
@@ -93,7 +93,7 @@ board.place(Part("j1"), at=Location(50, 20))
 
 def test_a_label_with_a_part_on_it_offers_the_other_sides_and_a_smaller_size(tmp_path):
     board, plan, path = resolve(tmp_path, LABEL, imports=IMPORTS)
-    fs = [f for f in plan.findings if f.case in ("label.sits_on", "label.no_spot")]
+    fs = [f for f in plan.findings if f.cause in ("label.sits_on", "label.no_spot")]
     assert fs
     texts = [s.text for s in fs[0].suggestions]
     assert any(t.startswith("Move the label of u1 to its ") for t in texts)
@@ -103,22 +103,22 @@ def test_a_label_with_a_part_on_it_offers_the_other_sides_and_a_smaller_size(tmp
 
 def test_moving_the_label_to_another_side_clears_its_finding(tmp_path):
     board, plan, path = resolve(tmp_path, LABEL, imports=IMPORTS)
-    f = next(f for f in plan.findings if f.case == "label.sits_on")
+    f = next(f for f in plan.findings if f.cause == "label.sits_on")
     s = next(s for s in f.suggestions if s.text.startswith("Move the label"))
     board2, plan2 = apply_and_resolve(tmp_path, plan, s.id, path)
-    assert not [f for f in plan2.findings if f.case == "label.sits_on"]
+    assert not [f for f in plan2.findings if f.cause == "label.sits_on"]
 
 
 def test_a_replayed_step_keeps_the_facts_of_a_finding_whose_suggestions_are_built_at_the_end(tmp_path):
     from placemat.context import run_script
     from tests.suggest_support import make_board
     board, plan, path = resolve(tmp_path, LABEL, imports=IMPORTS)
-    first = [f for f in plan.findings if f.case == "label.sits_on"]
+    first = [f for f in plan.findings if f.cause == "label.sits_on"]
     assert first and first[0].suggestions
     again = make_board()
     again.script_file = str(path)
     run_script(path, again)
     plan2 = again.resolve(reuse=plan.reuse)
     assert plan2.reuse["reused"] > 0
-    second = [f for f in plan2.findings if f.case == "label.sits_on"]
+    second = [f for f in plan2.findings if f.cause == "label.sits_on"]
     assert [s.text for s in second[0].suggestions] == [s.text for s in first[0].suggestions]

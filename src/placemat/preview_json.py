@@ -210,7 +210,8 @@ def _findings(plan, keys) -> list:
         named, pads = finding_targets(text, refs)
         out.append({"text": text, "kind": getattr(f, "kind", ""), "severity": getattr(f, "severity", "warning"), "at": [float(m.group(1)), float(m.group(2))] if m else None,
                     "item": first if first in keys else "", "refs": named, "pads": pads,
-                    "case": getattr(f, "case", None), "suggestions": [s.to_json() for s in getattr(f, "suggestions", ()) if s.id]})
+                    "cause": f.cause.value if f.cause else None, "facts_v": f.facts_v, "facts": f.facts,
+                    "suggestions": [s.to_json() for s in getattr(f, "suggestions", ()) if s.id]})
     return out
 
 

@@ -9,7 +9,7 @@ from tests.test_escape_findings import _walled_in
 
 
 def of(plan, case):
-    return [f for f in plan.findings if f.case == case]
+    return [f for f in plan.findings if f.cause == case]
 
 
 UNDECLARED = '''board.place(Part("u1"), at=Location(10, 10))

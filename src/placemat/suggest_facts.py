@@ -221,7 +221,6 @@ def fixed_part(board, i) -> dict:
     return facts
 
 
-@safe(dict)
 def escape_facts(board, occ, plan, ref, number, net, by) -> dict:
     """A pad closed or walled in: the part, the pin, what blocks it, and the side of the part its way out points at."""
     facts = {"ref": ref, "part": inst_of(board, ref), "pin": str(number), "net": net, "by": list(by)}

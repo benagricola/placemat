@@ -18,7 +18,7 @@ def layout_of(tmp_path):
 
 
 def cases(result, case):
-    return [f for f in result.plan.findings if f.case == case]
+    return [f for f in result.plan.findings if f.cause == case]
 
 
 def apply_first(tmp_path, result, finding, startswith):
