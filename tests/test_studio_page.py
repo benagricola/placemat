@@ -57,7 +57,7 @@ def test_a_script_with_no_board_beside_it_is_refused(tmp_path, capsys):
 # given, so the incremental updates (items added to a layer, groups shown and hidden) can be seen.
 PRELUDE = r"""
 const vm = require("vm"), fs = require("fs");
-const els = {};
+const els = {}; const ctxHistory = [];
 let clock = 1000;
 class FakeDate extends Date { static now() { return clock; } }
 const fakeGroup = (key, s) => { const g = {dataset: {key, s: String(s)}, style: {}, cls: new Set(["item"])};
@@ -83,7 +83,7 @@ const flush = () => { while (frames.length) frames.shift()(); };
 const flushOnce = () => { frames.splice(0).forEach(f => f()); };
 const ctx = {
   document: {querySelector: stub, querySelectorAll: () => [], __keys: [], addEventListener(t, f) { if (t === "keydown") this.__keys.push(f); }, body: {dataset: {}}, elementFromPoint: () => null},
-  window: {addEventListener() {}}, location: {search: "?t=x"}, matchMedia: () => ({matches: true}), Date: FakeDate,
+  window: {addEventListener() {}}, location: {search: "?t=x", hash: process.env.PAGE_HASH || "", pathname: "/"}, history: {replaceState(a, b, url) { ctxHistory.push(url); }}, matchMedia: () => ({matches: true}), Date: FakeDate,
   EventSource: class { constructor() { this.addEventListener = (n, f) => { listeners[n] = f; }; } },
   requestAnimationFrame: f => { frames.push(f); }, setInterval() {}, clearInterval() {}, setTimeout() {}, fetch: (u, o) => { fetched.push([u, o]); return Promise.reject(new Error("no")); },
   URLSearchParams, console,
@@ -114,12 +114,13 @@ const finish = (id, keys) => {
 needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
 
 
-def run_page(tmp_path, tail):
+def run_page(tmp_path, tail, hash=""):
     """Run the page's script against the DOM stub, then `tail` (JavaScript that fills `out`); `out` as a dict."""
     text = PAGE.read_text()
     (tmp_path / "page.js").write_text(text[text.index("<script>") + 8:text.index("</script>")])
     (tmp_path / "run.js").write_text(PRELUDE + tail + "\nconsole.log(JSON.stringify(out));\n")
-    done = subprocess.run(["node", str(tmp_path / "run.js"), str(tmp_path / "page.js")], capture_output=True, text=True, timeout=60)
+    import os
+    done = subprocess.run(["node", str(tmp_path / "run.js"), str(tmp_path / "page.js")], capture_output=True, text=True, timeout=60, env=dict(os.environ, PAGE_HASH=hash))
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout.strip().splitlines()[-1])
 
@@ -981,3 +982,58 @@ out.posts = fetched.filter(([u]) => u.startsWith("/resolve")).map(([u, o]) => [o
 """)
     assert "Resolve again" in out["menu"] and "Resolve from scratch" in out["menu"] and "no replay of unchanged steps" in out["menu"]
     assert out["posts"] == [["POST", '{"fresh":true}'], ["POST", '{"fresh":false}']]
+
+
+@needs_node
+def test_the_view_is_written_to_the_address_and_an_address_opens_the_same_view(tmp_path):
+    out = run_page(tmp_path, r"""
+const scripts = [{id: "m/A_layout.py", title: "A", subtitle: "", current: true}];
+send("hello", {script: "A_layout.py", title: "A", subtitle: "", scripts, keep: 5, history: [], resolving: null, error: null, now: 1000, origin: null, port: 40191});
+started(1); send("board", BOARD);
+for (const [k, x] of [["a", 1], ["b", 5]]) send("step", {id: 1, item: item(k, x)});
+finish(1, ["a", "b"]);
+out.restored = [ev("S.face"), ev("S.sel"), ev("S.selRef"), ev("S.view && [S.view.x, S.view.y, S.view.w, S.view.h]"), ev("S.restore")];
+ev("syncHash()"); out.hash = ev("viewHash()"); out.written = ctxHistory.slice();
+""", hash="#s=m%2FA_layout.py&f=back&v=2.5,3,20,12&sel=b&ref=Rb&tab=findings")
+    assert out["restored"] == ["back", "b", "Rb", [2.5, 3, 20, 12], None]
+    assert "f=back" in out["hash"] and "sel=b" in out["hash"] and "ref=Rb" in out["hash"] and "tab=" in out["hash"] and "s=m%2FA_layout.py" in out["hash"]
+    assert out["written"] and out["written"][-1].startswith("/?t=x#") and "f=back" in out["written"][-1]
+
+
+@needs_node
+def test_an_address_for_another_script_switches_to_it_first(tmp_path):
+    out = run_page(tmp_path, r"""
+const scripts = [{id: "m/A_layout.py", title: "A", subtitle: "", current: true}, {id: "m/B_layout.py", title: "B", subtitle: "", current: false}];
+send("hello", {script: "A_layout.py", title: "A", subtitle: "", scripts, keep: 5, history: [], resolving: null, error: null, now: 1000});
+out.posts = fetched.map(([u, o]) => [u, o && o.body]);
+""", hash="#s=m%2FB_layout.py&f=front")
+    assert out["posts"] == [["/switch?t=x", '{"script":"m/B_layout.py"}']]
+
+
+@needs_node
+def test_share_is_a_qr_of_the_address_with_the_port_the_server_bound_or_a_note_when_only_loopback(tmp_path):
+    out = run_page(tmp_path, r"""
+const scripts = [{id: "m/A_layout.py", title: "A", subtitle: "", current: true}];
+send("hello", {script: "A_layout.py", title: "A", subtitle: "", scripts, keep: 5, history: [], resolving: null, error: null, now: 1000, origin: "http://192.168.1.105:40191", port: 40191});
+els["#menu"].hidden = true; els["#sharebtn"].onclick(); out.wide = els["#menu"].innerHTML; out.url = ev("shareUrl()");
+send("hello", {script: "A_layout.py", title: "A", subtitle: "", scripts, keep: 5, history: [], resolving: null, error: null, now: 1000, origin: null, port: 40191});
+els["#menu"].hidden = true; els["#sharebtn"].onclick(); out.local = els["#menu"].innerHTML;
+""")
+    assert out["url"].startswith("http://192.168.1.105:40191/?t=x#") and "40191" in out["wide"] and 'src="/qr?t=x&u=http%3A%2F%2F192.168.1.105%3A40191%2F%3Ft%3Dx%23' in out["wide"]
+    assert 'id="shareurl"' in out["wide"] and "data-copy" in out["wide"]
+    assert "listens only on 127.0.0.1" in out["local"] and "--host 0.0.0.0" in out["local"] and "<img" not in out["local"]
+
+
+@needs_node
+def test_a_page_that_joins_late_counts_the_resolve_from_when_it_began_by_the_servers_clock(tmp_path):
+    out = run_page(tmp_path, r"""
+// the server says it is 5000 s on its clock; the resolve began at 4917, the item at 4996.8
+send("hello", {script: "x_layout.py", keep: 5, history: [], resolving: 1, error: null, scripts: [], now: 5000,
+  work: {t0: 4917, total: {kind: "total", items: 24, searched: 18, copper: 6, replay: 0}, replayed: 0, cur: {item: "psu", what: "searched", rank: 7, of: 18, replaying: false, n: 3, at: 4996.8, phase: "seeding from its connections"}}});
+send("started", {id: 1, script: "x_layout.py", at: 4917, texts: {"x_layout.py": "a\n"}, changed: [], stale_files: []});
+send("board", BOARD);
+ev("renderProgress()");
+out.el = els["#rs-el"].textContent; out.work = els["#rs-work"].innerHTML; out.total = ev("S.work.total && S.work.total.items");
+""")
+    assert out["el"] == "1:23"                                          # 83 s after the resolve began, though the page has just opened
+    assert "3.2 s" in out["work"] and "seeding" in out["work"] and out["total"] == 24
