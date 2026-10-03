@@ -797,6 +797,10 @@ def unplaced_slide(f, settings):
 def unplaced_block(f, settings):
     item = f["item"]
     out = [_set("place", item, "rotations", _enum("Turns.ANY"), "Let the block turn to any of its turns", "turns")]
+    block, sat = f.get("block"), _block_satellite(f)
+    if block and sat in block["satellites"]:
+        out.append(_out_of_a_list("Place %s on its own, not as a satellite of %s" % (sat, block["anchor"]),
+                                  Target("block", block["anchor"]), "satellites", block["satellites"].index(sat), sat, "satellite"))
     return out
 
 
@@ -811,10 +815,38 @@ def unplaced_rides(f, settings):
 
 
 # ------------------------------------------------------------------ builders: fixed
+def _block_satellite(f):
+    """The satellite a block could not lay out, from the refusal a finding carries, or None."""
+    turns = f.get("turns")
+    whys = [f["why"]] if isinstance(f.get("why"), dict) else [t[1] for t in turns] if isinstance(turns, list) else []
+    return next((w["sat"] for w in whys if w.get("code") in ("block_no_spot", "block_taken")), None)
+
+
+def _out_of_a_list(text, list_target, arg, index, then_place, lever) -> Pick:
+    """Take element `index` out of a list argument and put a bare `board.place(Part(...))` after the declaration: a
+    row's member, a block's satellite, left to the search."""
+    return Pick(text, (Edit("edit_list", list_target, {"arg": arg, "action": "remove", "indices": [index]}),
+                       Edit("insert_statement", list_target, {}, _form("board.place", _form("Part", {"str": then_place})))),
+                lever)
+
+
 @case(C.FIXED_PART)
 def fixed_part(f, settings):
     item = f["item"]
-    out = [_unset("place", item, "at", "Let %s be searched" % item, "search")]
+    out = []
+    row = f.get("row")
+    if row:
+        out.append(_out_of_a_list("Take %s out of the row and let it be searched" % item, Target("row", row["first"]), "items",
+                                  row["index"], item, "row"))
+    block, sat = f.get("block"), _block_satellite(f)
+    if block and sat in block["satellites"]:
+        out.append(_out_of_a_list("Place %s on its own, not as a satellite of %s" % (sat, block["anchor"]),
+                                  Target("block", block["anchor"]), "satellites", block["satellites"].index(sat), sat, "satellite"))
+    out += [_unset("place", item, "at", "Let %s be searched" % item, "search")]
+    if f.get("centre"):
+        for free, axis, line in ((1, "y", "x"), (0, "x", "y")):
+            out.append(Pick("Let %s slide along its %s line" % (item, line),
+                            Edit("set_arg", Target("place", item), {"index": free, "into": [{"kw": "at"}]}, None), "slide"))
     if f.get("face") == "front":
         out.append(_set("place", item, "face", _enum("Face.BACK"), "Take %s on the back face" % item, "face"))
     elif f.get("face") == "back":
@@ -824,7 +856,10 @@ def fixed_part(f, settings):
 
 @case(C.FIXED_CUTOUT)
 def fixed_cutout(f, settings):
-    return []
+    why = f.get("why") or {}
+    if why.get("code") != "cutout_web":
+        return []
+    return _web_pick(f, why["gap_mm"], why["web_mm"], ("fixed.cutout", "%s would leave a %s mm web" % (f["name"], _mm(why["gap_mm"]))))
 
 
 @case(C.FIXED_KEEPOUT)
@@ -914,6 +949,41 @@ def setup_centre_flag_default(f, settings):
     item = f["item"]
     return [Pick("Leave coordinates=False out of the Centre of %s" % item,
                  Edit("remove_kwarg", Target("place", item), {"name": "coordinates", "into": [{"kw": "at"}]}), "flag")]
+
+
+@case(C.SETUP_FRAME_REACH)
+def setup_frame_reach(f, settings):
+    """The declared width or height of a fit frame, made the size that holds the item: the item's far reach, rounded up to
+    the hundredth. Not offered where the item reaches the frame's origin side, which a size cannot fix."""
+    if f["from_mm"] < f["frame_from_mm"] - 1e-6:
+        return []
+    need = math.ceil(f["to_mm"] * 100 - 1e-9) / 100
+    which = f["axis"]
+    return [_set("rect", "board", which,
+                 _const(_name("board", which, "mm"), need,
+                        "A run's finding (setup.frame_reach): %s reaches to %s mm, past the frame's declared %s of %s mm."
+                        % (f["item"], _mm(f["to_mm"]), which, _mm(f["frame_to_mm"]))),
+                 "Make the board's %s %s mm" % (which, _mm(need)), "frame")]
+
+
+def _web_pick(f, gap, web, what):
+    kind = f.get("outline_kind")
+    if not kind:
+        return []
+    least = math.floor(gap * 100 + 1e-9) / 100
+    if not 0 < least < web:
+        return []
+    return [_set(kind, "board", "web",
+                 _const(_name("board", "web", "mm"), least,
+                        "A run's finding (%s): %s; the web was %s mm, and %s mm is what the board has, to the hundredth."
+                        % (what[0], what[1], _mm(web), _mm(least))),
+                 "Lower the web minimum to %s mm" % _mm(least), "web")]
+
+
+@case(C.SETUP_WEB)
+def setup_web(f, settings):
+    return _web_pick(f, f["gap_mm"], f["web_mm"], ("setup.web", "a web round %s was %s mm" % (
+        "cutout %r" % f["cutout"] if f["cutout"] is not None else "an unnamed cutout", _mm(f["gap_mm"]))))
 
 
 @case(C.COPPER_STITCH)

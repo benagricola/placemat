@@ -968,6 +968,8 @@ class Board:
         self.width = self._outline.width if self._outline else None
         self.height = self._outline.height if self._outline else None
         self._late_suggestions: list = []   # (finding, measure) pairs: facts measured once the board is finished
+        self._row_members: dict = {}        # item key -> (the key of its row's first member, its place in the row's items)
+        self._outline_decl: str = ""        # which of rect, disc, outline the script declared the board with
         self._centres: list = []            # (item key, the Centre it was placed at): what a Centre's flag is judged by
         self._sites: list = []              # the Site of each declaration: where the script made it (suggestions.bind)
         self._file_digests: dict = {}       # file -> digest of its text when the first declaration in it was made
@@ -1682,7 +1684,8 @@ class Board:
                 if gap < self.web - 1e-9:
                     why = Refusal(Code.CUTOUT_WEB, gap_mm=gap, web_mm=self.web)
             if why:
-                plan.findings.append(self._finding(C.FIXED_CUTOUT, {"name": name, "why": why.to_json()}))
+                plan.findings.append(self._finding(C.FIXED_CUTOUT, {"name": name, "why": why.to_json(),
+                                                                    "outline_kind": self._outline_decl}))
             plan.cutouts_placed[name] = settled
 
     def _check_keepouts(self, plan: Plan):
@@ -1728,7 +1731,7 @@ class Board:
         gap, which = holes.web_against([shape.loops[0]])
         if gap < self.web - 1e-9:
             order = list(self._named_cutouts)
-            plan.findings.append(self._finding(C.SETUP_WEB, {
+            plan.findings.append(self._finding(C.SETUP_WEB, {"outline_kind": self._outline_decl,
                 "cutout": order[which] if 0 <= which < len(order) else None, "gap_mm": gap, "web_mm": self.web}, "critical"))
 
     def _check_pitch(self, plan: "Plan"):
@@ -3065,6 +3068,8 @@ class Board:
         if pitch is not None:
             self._check_row_pitch(items, keys, rots, along_axis, float(pitch), gap)
         row = Row(edge, clr, gap, None, keys, alongs, max(depths), pitch=pitch)
+        for n, k in enumerate(keys):
+            self._row_members[k] = (keys[0], n)
         if over is not None:
             row.over, row.declared, row.position = over, list(alongs), list(range(len(items)))
         if of is not None:
@@ -6227,7 +6232,8 @@ class Board:
             path = c.shape.path_at(centre, turn)
             step = Step(intent.key, "cutout", None, why=intent.why)
             if why:
-                plan.findings.append(self._finding(C.FIXED_CUTOUT, {"name": c.name, "why": why.to_json()}))
+                plan.findings.append(self._finding(C.FIXED_CUTOUT, {"name": c.name, "why": why.to_json(),
+                                                                    "outline_kind": self._outline_decl}))
                 step.note = str(why)
             else:
                 self._add_cutout(occ, c.name, PlacedCutout(c.name, tuple(path), centre, turn))
@@ -8275,8 +8281,9 @@ class Board:
                 best, tried, rejected, reasons = scan_block(occ, spec, hint, radius, i.step, i.rotations or (i.rotation,),
                                                             clr, score, pick=self._pick(i))
             if best is None and alone is not None:
-                facts = {"item": i.key, "variant": "alone", "turns": [[r, w.to_json()] for r, w in alone],
-                         }
+                from . import suggest_facts
+                facts = dict({"item": i.key, "variant": "alone", "turns": [[r, w.to_json()] for r, w in alone]},
+                             **suggest_facts.structure_facts(self, i))
                 plan.findings.append(self._finding(C.UNPLACED_BLOCK, facts))
                 members = {}
                 note, unplaced = "", finding_text.turns_text(facts["turns"])
@@ -9144,6 +9151,8 @@ def _sited(method: str, keys):
         def declared(self, *args, **kwargs):
             site = _script_site()
             out = fn(self, *args, **kwargs)
+            if method in ("rect", "disc", "outline"):
+                self._outline_decl = method
             for key in keys(self, out, args, kwargs):
                 self._record_site(method, key, site)
             return out

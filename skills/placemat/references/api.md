@@ -3718,10 +3718,11 @@ cleared.
 | `unplaced.search` | place it beside a part that pulls it, on a side measured free (up to `suggestions_per_lever`); before the parts that crowd it (`priority=`); on either face (`face=`); all four turns or any bearing (`rotations=`); into the keepout that refused it (`allow=`); without a label's reservation (`reserve=False`); judge parts by their courtyards (`place.envelope`) |
 | `unplaced.pocket` | place it beside a part that pulls it; a `board.link` toward a part it shares a net with; either face |
 | `unplaced.slide` | `at=OnEdge(...)` on each of the other edges |
-| `unplaced.block` | the block may turn to any of its turns |
+| `unplaced.block` | the block may turn to any of its turns; the satellite that did not fit placed on its own (out of the block's list, a bare `board.place` after it) |
 | `unplaced.bearing`, `unplaced.rides` | none |
-| `fixed.part` | drop its `at=` so it is searched; the other face |
-| `fixed.cutout`, `fixed.keepout` | none |
+| `fixed.part` | drop its `at=` so it is searched; the other face; a row's member taken out of the row and left to the search; a block's satellite placed on its own; an item at an intent `Centre` freed along one axis |
+| `fixed.cutout` | for a web too thin: the board's `web=` lowered to the web it has, to the hundredth, as a named constant |
+| `fixed.keepout` | none |
 | `copper.keepout` | `Net(...)` added to the keepout's `allow=`; the keepout kept off the layer the copper is on (`layers=`); the keepout forbidding only what the copper is not (`excludes=`) |
 | `copper.cross` | `bridge=True` on the track that yields; `priority=Priority.HIGH` on it where the other track may bridge |
 | `copper.meets` | the track's waypoints dropped (pad to pad); the other layer |
@@ -3735,6 +3736,8 @@ cleared.
 | `escape_lane`, `escape_crossed`, `pair_crossed` | none |
 | `setup.centre_coordinates` | place it beside the neighbour it stands next to, on the side it is on, where that is legal; never `coordinates=True` |
 | `setup.centre_flag_default` | the keyword removed |
+| `setup.frame_reach` | the fit frame's declared width or height made the size that holds the item (not where the item reaches the origin side) |
+| `setup.web` | the board's `web=` lowered to the web it has |
 | `setup.undeclared` | a `board.place(Part(...))` for the part, after the script's last placement |
 | `setup.lane_unused` | the pin taken out of the `board.escape(...)` |
 | `setup.accept` | the `board.accept(...)` removed |

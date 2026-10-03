@@ -80,7 +80,11 @@ ESCAPE = {"part": "u1", "pin": "3", "side": "NORTH", "reach": 5.0}
 FACTS = {
     C.UNPLACED_SEARCH: SEARCH, C.UNPLACED_POCKET: SEARCH, C.UNPLACED_SLIDE: dict(SEARCH, edge="NORTH"),
     C.UNPLACED_BLOCK: SEARCH, C.UNPLACED_BEARING: SEARCH, C.UNPLACED_RIDES: SEARCH,
-    C.FIXED_PART: SEARCH, C.FIXED_CUTOUT: {}, C.FIXED_KEEPOUT: {},
+    C.FIXED_PART: dict(SEARCH, row={"first": "c1", "index": 1}, centre={"intent": True},
+                       block={"anchor": "u1", "satellites": ["c1"]}, why={"code": "block_no_spot", "sat": "c1"}),
+    C.FIXED_CUTOUT: {"name": "slot", "outline_kind": "rect", "why": {"code": "cutout_web", "gap_mm": 0.9, "web_mm": 1.0}},
+    C.SETUP_FRAME_REACH: {"item": "c1", "from_mm": 1.0, "to_mm": 42.1, "axis": "width", "frame_from_mm": 0.0, "frame_to_mm": 30.0},
+    C.SETUP_WEB: {"cutout": "slot", "gap_mm": 0.9, "web_mm": 1.0, "outline_kind": "rect"}, C.FIXED_KEEPOUT: {},
     C.LINK_OVER: LINK, C.LABEL_SITS_ON: LABEL, C.LABEL_NO_SPOT: LABEL, C.LABEL_NOT_DRAWN: LABEL,
     C.COPPER_KEEPOUT: {"net": "SIG", "keepout": "ant", "word": "track", "layer": "F", "layer_word": "front",
                        "excluded": "tracks", "excludes": ["parts", "tracks"], "keepout_layers": ["F", "B"]},

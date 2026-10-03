@@ -559,7 +559,10 @@ def _stands_alone(src: Src, stmt) -> bool:
 
 
 def _find_calls(mod: _Mod, method: str) -> list:
-    own = {id(n.value): n for n in ast.walk(mod.tree) if isinstance(n, ast.Expr)}
+    # a call that is a statement of its own, bare or assigned to a name (`blk = board.block(...)`)
+    own = {id(n.value): n for n in ast.walk(mod.tree)
+           if isinstance(n, ast.Expr) or (isinstance(n, ast.Assign) and len(n.targets) == 1
+                                          and isinstance(n.targets[0], ast.Name))}
     found = []
     stack = [(mod.tree, (), 0)]
     while stack:
