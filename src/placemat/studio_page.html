@@ -393,6 +393,16 @@ svg text { user-select: none; font-family: var(--sans); }
 .fring { fill: none; stroke: var(--finding); stroke-width: 2.5px; vector-effect: non-scaling-stroke; pointer-events: none; }
 .pocket { fill: none; stroke: var(--pocket); stroke-width: 0.12; stroke-dasharray: 0.4 0.25; }
 .worst { fill: none; stroke: var(--bad); stroke-width: 2px; vector-effect: non-scaling-stroke; }
+/* a note's pin: its point is the tip; the head sits above it */
+.npin { cursor: pointer; }
+.npin path { fill: var(--accent); stroke: var(--surface); stroke-width: 0.15; }
+.npin circle { fill: var(--surface); }
+.npin.on path { fill: var(--sev-critical); }
+.row.note.on { background: var(--accent-soft); }
+.row.note .sb { flex: 1; min-width: 0; }
+.row.note .l1 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row.note .l2 { overflow-wrap: anywhere; white-space: normal; }
+.row.note .nd { margin-left: auto; border: 1px solid var(--line); background: var(--surface2); color: var(--ink); border-radius: 6px; padding: 0 9px; font-size: 12px; line-height: 20px; }
 .fmark { fill: var(--sev-warning); fill-opacity: 0.18; stroke: var(--sev-warning); stroke-width: 0.2; }
 .fmark.critical { fill: var(--sev-critical); stroke: var(--sev-critical); } .fmark.notice { fill: var(--sev-notice); stroke: var(--sev-notice); }
 .ko.sel, .res.sel { stroke-width: 0.35; fill-opacity: 0.35; }
@@ -440,7 +450,7 @@ svg text { user-select: none; font-family: var(--sans); }
   #side { border-left: 0; }
   body[data-nv="board"] #side, body:not([data-nv="board"]) #boardwrap { display: none; }
   body[data-nv] .tab { display: none; }
-  body[data-nv="steps"] #tab-steps, body[data-nv="findings"] #tab-findings, body[data-nv="compare"] #tab-compare, body[data-nv="runs"] #tab-runs { display: block; flex: 1 1 auto; }
+  body[data-nv="steps"] #tab-steps, body[data-nv="findings"] #tab-findings, body[data-nv="compare"] #tab-compare, body[data-nv="runs"] #tab-runs, body[data-nv="notes"] #tab-notes { display: block; flex: 1 1 auto; }
   #legend { position: absolute; left: 0; right: 0; bottom: 0; max-height: 70%; border-right: 0; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0; box-shadow: var(--shadow); transform: translateY(105%); transition: transform 0.2s ease; visibility: hidden; }
   #legend.open { transform: none; visibility: visible; }
   #legend .lgh { display: flex; }
@@ -481,7 +491,7 @@ svg text { user-select: none; font-family: var(--sans); }
   <div id="stats"></div>
 </header>
 <div id="menu" role="menu" hidden></div>
-<nav id="ntabs"><button data-nv="board" class="on">Board</button><button data-nv="steps">Steps<em data-count="steps"></em></button><button data-nv="findings">Findings<em data-count="findings"></em></button><button data-nv="compare">Compare<em data-count="compare"></em></button><button data-nv="runs">Runs<em data-count="runs"></em></button></nav>
+<nav id="ntabs"><button data-nv="board" class="on">Board</button><button data-nv="steps">Steps<em data-count="steps"></em></button><button data-nv="findings">Findings<em data-count="findings"></em></button><button data-nv="compare">Compare<em data-count="compare"></em></button><button data-nv="runs">Runs<em data-count="runs"></em></button><button data-nv="notes" hidden>Notes<em data-count="notes"></em></button></nav>
 <div id="cmdbar" hidden></div>
 <div id="toast" hidden></div>
 <div id="notice"></div>
@@ -504,11 +514,12 @@ svg text { user-select: none; font-family: var(--sans); }
     <div id="tip"></div>
   </div>
   <div id="side">
-    <div class="tabs"><button data-tab="steps" class="on">Steps<em data-count="steps"></em></button><button data-tab="findings">Findings<em data-count="findings"></em></button><button data-tab="compare">Compare<em data-count="compare"></em></button><button data-tab="runs">Runs<em data-count="runs"></em></button></div>
+    <div class="tabs"><button data-tab="steps" class="on">Steps<em data-count="steps"></em></button><button data-tab="findings">Findings<em data-count="findings"></em></button><button data-tab="compare">Compare<em data-count="compare"></em></button><button data-tab="runs">Runs<em data-count="runs"></em></button><button data-tab="notes" hidden>Notes<em data-count="notes"></em></button></div>
     <div class="tab on" id="tab-steps"></div>
     <div class="tab" id="tab-findings"></div>
     <div class="tab" id="tab-compare"></div>
     <div class="tab" id="tab-runs"></div>
+    <div class="tab" id="tab-notes"></div>
   </div>
   <div id="picker" hidden></div>
   <div id="script" role="dialog" aria-label="the layout script">
@@ -551,6 +562,7 @@ const S = {
   cmdView: null,               // a command's streamed plan shown in place of the studio's own: {id, plan, next}
   xv: null,                    // the explore being looked at: {source, id|file, start, variants, done, sel, mode, auto, drawn, thumbs, density, lastDraw}
   exploreFps: 2,
+  notes: [], noteAge: 0, noteFocus: null,    // notes left in the studio (notes.py records), their age limit in seconds, the one looked at
   work: null,                  // the resolve in progress: {t0, total, cur, replayed}, from the engine's begin notices
   scriptOpen: false, scriptFull: false, scriptWhole: false,     // the script dialog
   runs: [], run: null, lastRun: null, openRuns: new Set(),      // recorded runs of the script, the run in progress, the one that just ended
@@ -614,6 +626,7 @@ function render(parts) {
   if (has("compare")) renderCompare();
   if (has("runs") || all) renderRuns();
   if (has("script")) renderScript();
+  if (has("notes") || all) renderNotes();
   if (has("live")) flushLive();
   if (has("legend") || has("board") || all) renderLegend();
   if (S.restore) applyRestore();
@@ -631,6 +644,7 @@ es.onopen = () => { S.status = S.status === "connecting" ? "waiting" : S.status;
 es.onerror = () => { S.status = "disconnected"; schedule("status"); };
 
 function applyHello(d) {
+  S.notes = d.notes || []; S.noteAge = d.note_age_s || 0;
   S.hello = d; S.history = d.history; S.error = d.error; S.resolving = d.resolving; S.scripts = d.scripts || [];
   if (d.now) S.skew = d.now * 1000 - Date.now();                 // the server's clock less this page's: times are the server's
   if (d.resolving && d.work) {                                   // a resolve under way when this page joined: its time is since it began
@@ -909,7 +923,8 @@ function drawWorkMark() {
   for (const panel of B.svg.querySelectorAll(".panel")) panel.insertAdjacentHTML("beforeend", g);
 }
 function renderCounts() {
-  const p = plan(), c = {runs: [...S.cmds.values()].filter(x => x.state === "running").length, steps: replaySteps(p).length, findings: ((p && p.findings) || []).length, compare: S.cmp && !S.cmp.diff.empty ? S.cmp.diff.moved.length + S.cmp.diff.added.length + S.cmp.diff.removed.length : 0};
+  const p = plan(), c = {runs: [...S.cmds.values()].filter(x => x.state === "running").length, steps: replaySteps(p).length, findings: ((p && p.findings) || []).length, compare: S.cmp && !S.cmp.diff.empty ? S.cmp.diff.moved.length + S.cmp.diff.added.length + S.cmp.diff.removed.length : 0, notes: liveNotes().length};
+  document.querySelectorAll('[data-tab="notes"], [data-nv="notes"]').forEach(b => { b.hidden = !c.notes; });
   document.querySelectorAll("[data-count]").forEach(e => { const v = c[e.dataset.count]; e.textContent = v || ""; e.style.display = v ? "" : "none"; });
 }
 
@@ -1066,6 +1081,7 @@ function panelSVG(p, pn, first, order, diffLayer) {
   const places = findingPlaces(p);
   (p.findings || []).forEach((fd, i) => { const at = places[i]; if (at) o.push('<circle class="fmark ' + sevOf(fd) + '" cx="' + num(at[0]) + '" cy="' + num(at[1]) + '" r="0.9"/>'); });
   o.push("</g>");
+  o.push('<g class="npins">' + notePins(p) + "</g>");
   o.push(diffLayer(f, pn));
   o.push("</g>");
   return o.join("");
@@ -1258,7 +1274,7 @@ let infoHide = () => {};
 
 // ---------------------------------------------------------------- the legend: the colour key and a switch for each kind of thing
 // What is switched off is a set of ids; one stylesheet rule hides each, so a switch redraws nothing.
-const OFFCSS = {cy: ".cy", bd: ".bd, .sk", pad: ".pad, .thru", labels: ".ref", silk: ".silktxt", via: ".viag", ko: ".ko", res: ".res", findings: ".fnds", heat: ".heat, .worst", changes: ".changes"};
+const OFFCSS = {notes: ".npins", cy: ".cy", bd: ".bd, .sk", pad: ".pad, .thru", labels: ".ref", silk: ".silktxt", via: ".viag", ko: ".ko", res: ".res", findings: ".fnds", heat: ".heat, .worst", changes: ".changes"};
 function visRules(off) {
   const q = s => String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   const out = [];
@@ -1343,6 +1359,7 @@ const SW = {   // the legend's swatches draw with the board's own classes, so th
   ko: '<rect x="3" y="2" width="20" height="10" class="ko" style="stroke-width:1.2;fill-opacity:0.3"/>',
   res: '<rect x="3" y="2" width="20" height="10" class="res" style="stroke-width:1.2;stroke-dasharray:3 2;fill-opacity:0.25"/>',
   findings: '<circle cx="13" cy="7" r="5.5" class="fmark" style="stroke-width:1.6"/>',
+  note: '<g class="npin" transform="translate(13 12) scale(4)"><path d="M0 0 L-0.8 -1.8 A1 1 0 1 1 0.8 -1.8 Z"/><circle cx="0" cy="-2.3" r="0.35"/></g>',
   zone: cls => '<rect x="3" y="2" width="20" height="10" class="plane ' + cls + '" style="stroke-width:1.2"/>',
   heat: '<rect x="3" y="2" width="5" height="10" fill="rgb(59,76,192)"/><rect x="8" y="2" width="5" height="10" fill="rgb(53,176,171)"/><rect x="13" y="2" width="5" height="10" fill="rgb(253,231,37)"/><rect x="18" y="2" width="5" height="10" fill="rgb(249,142,9)"/>',
   changes: '<line x1="2" y1="11" x2="19" y2="3" style="stroke:var(--accent);stroke-width:1.8"/><path d="M 16 1 L 24 2 L 19 8 z" class="arrowhead" style="fill:var(--accent)"/>',
@@ -1381,7 +1398,7 @@ function legendHTML(p) {
   if (isExp("ko", kos.length)) for (const k of kos) o.push(row("ko:" + k.name, SW.ko, k.name, null, {sub: true, title: k.why}));
   o.push(head("res", SW.res, "reserved areas", resNames.length));
   if (isExp("res", resNames.length)) for (const w of resNames) o.push(row("res:" + w, SW.res, w, null, {sub: true}));
-  o.push("<h4>Marks" + infoBtn("marks") + "</h4>", row("findings", SW.findings, "findings", findingPlaces(p).filter(Boolean).length, {title: findingPlaces(p).filter(Boolean).length + " of " + ((p && p.findings) || []).length + " findings are placed on the board: where they say, else at the pad or part they name. The rest name no place."}), row("heat", SW.heat, "congestion", p && p.congestion ? p.congestion.cells.length : 0), p && p.congestion && !S.off.has("heat") ? heatScale() : "", row("changes", SW.changes, "changes since the last resolve", null));
+  o.push("<h4>Marks" + infoBtn("marks") + "</h4>", row("findings", SW.findings, "findings", findingPlaces(p).filter(Boolean).length, {title: findingPlaces(p).filter(Boolean).length + " of " + ((p && p.findings) || []).length + " findings are placed on the board: where they say, else at the pad or part they name. The rest name no place."}), row("notes", SW.note, "notes", liveNotes().length), row("heat", SW.heat, "congestion", p && p.congestion ? p.congestion.cells.length : 0), p && p.congestion && !S.off.has("heat") ? heatScale() : "", row("changes", SW.changes, "changes since the last resolve", null));
   return o.join("");
 }
 function renderLegend() { seedRegions(plan()); $("#legend").innerHTML = legendHTML(plan()); }
@@ -1671,6 +1688,8 @@ function hideTip() { tipKey = null; $("#tip").style.display = "none"; setHover([
 function pickAt(x, y) {                      // a tap or a click on the board: a part, a region, a link, or nothing
   const t = document.elementFromPoint(x, y);
   const m = t && t.closest(".mem"), it = t && t.closest(".item");
+  const pin = t && t.closest(".npin");
+  if (pin) { const n = S.notes.find(x => x.id === pin.dataset.note); if (n) { focusNote(n); return; } }
   if (it) { selectItem(it.dataset.key, {ref: m ? m.dataset.ref : null}); return; }
   const lk = t && t.closest(".lkg");
   if (lk) { const p = plan(), ref = lk.dataset.a, owner = itemsOf(p).find(i => i.members.some(mm => mm.ref === ref)); if (owner) { selectItem(owner.key, {ref}); return; } }
@@ -2450,6 +2469,86 @@ function renderCmdBar() {
   el.innerHTML = '<span>' + esc(V ? "Viewing " + c.command + " of " + (baseName(c.script) || "a board") + ", pid " + c.pid : "Viewing a recorded explore") + '</span><button id="cmdclose">Back to the studio\'s own view</button>';
   $("#cmdclose").onclick = closeCmd;
 }
+
+// ---------------------------------------------------------------- notes
+// A note (notes.py) is a record the studio sends: {id, at, from, script, description, target: null | {kind: "point", x, y} |
+// {kind: "item", name} | {kind: "pad", ref, pad}}. It is a pin where it points (an item or a pad is looked up in the plan each time it is
+// drawn, so the pin follows it when it moves), a line in the Notes list, and a toast when it arrives. A point is a place to look at,
+// never a placement. Dismissing a note hides it in this browser only; a note also expires after [studio] note_age_s.
+let noteDismissed = (() => { try { return new Set(JSON.parse(localStorage.getItem("placemat.notesDismissed") || "[]")); } catch (e) { return new Set(); } })();
+function saveDismissed() { try { localStorage.setItem("placemat.notesDismissed", JSON.stringify([...noteDismissed].slice(-300))); } catch (e) {} }
+const noteNow = () => Date.now() + (S.skew || 0);
+const liveNotes = () => S.notes.filter(n => !noteDismissed.has(n.id) && (!S.noteAge || noteNow() - n.at * 1000 <= S.noteAge * 1000));
+function notePlace(p, n) {
+  const t = n.target;
+  if (!t) return null;
+  const its = itemsOf(p), mid = b => b ? [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] : null;
+  if (t.kind === "point") return [t.x, t.y];
+  if (t.kind === "item") {
+    const it = its.find(i => i.key === t.name);
+    if (it) return mid(itemBox(it));
+    const o = its.find(i => i.members.some(m => m.ref === t.name));
+    return o ? mid(itemBox(o, t.name)) : null;
+  }
+  if (t.kind === "pad") {
+    for (const it of its) for (const m of it.members) if (m.ref === t.ref) {
+      const s = m.shapes.find(x => (x.kind === "pad" || x.kind === "through") && String(x.number) === String(t.pad));
+      if (s) return mid(bboxOf([s.poly]));
+    }
+  }
+  return null;
+}
+function notePins(p) {
+  return liveNotes().map(n => {
+    const at = notePlace(p, n);
+    return at ? '<g class="npin' + (S.noteFocus === n.id ? " on" : "") + '" data-note="' + esc(n.id) + '" transform="translate(' + num(at[0]) + " " + num(at[1]) + ')"><title>' + esc((n.from ? n.from + ": " : "") + n.description) +
+      '</title><path d="M0 0 L-0.8 -1.8 A1 1 0 1 1 0.8 -1.8 Z"/><circle cx="0" cy="-2.3" r="0.35"/></g>' : "";
+  }).join("");
+}
+function noteAgo(n) {
+  const s = Math.max(0, Math.round((noteNow() - n.at * 1000) / 1000));
+  return s < 60 ? s + " s ago" : s < 3600 ? Math.round(s / 60) + " min ago" : Math.round(s / 3600) + " h ago";
+}
+function noteWhere(p, n) {
+  const t = n.target;
+  if (!t) return '<span class="dim">no place named</span>';
+  const at = notePlace(p, n), what = t.kind === "point" ? "" : pill(t.kind, "") + " " + esc(t.kind === "item" ? t.name : t.ref + "." + t.pad);
+  return t.kind === "point" ? esc("at (" + t.x + ", " + t.y + ") mm") : what + (at ? "" : ' <span class="dim">not on the board</span>');
+}
+function renderNotes() {
+  const el = $("#tab-notes"), p = plan(), ns = liveNotes();
+  if (!el) return;
+  el.innerHTML = '<h3>Notes <span class="c">' + ns.length + "</span></h3>" + (ns.length ? '<div class="pad8"><button class="nd" data-notedismiss="*">Dismiss all</button></div>' : "") +
+    (ns.length ? ns.slice().reverse().map(n => '<div class="row note' + (S.noteFocus === n.id ? " on" : "") + '" data-note="' + esc(n.id) + '"><div class="sb"><div class="l1"><b>' + esc(n.from || "a note") + '</b><span class="dim">' + esc(noteAgo(n)) +
+      '</span><button class="nd" data-notedismiss="' + esc(n.id) + '">Dismiss</button></div><div class="l2">' + esc(n.description) + '</div><div class="l2">' + noteWhere(p, n) + "</div></div></div>").join("")
+      : '<div class="pad8 dim">No notes. An agent leaves one with <code>placemat studio note "..."</code>.</div>');
+  el.onclick = e => {
+    const d = e.target.closest("[data-notedismiss]");
+    if (d) { e.stopPropagation(); dismissNote(d.dataset.notedismiss); return; }
+    const r = e.target.closest("[data-note]"); if (r) { const n = S.notes.find(x => x.id === r.dataset.note); if (n) focusNote(n); }
+  };
+}
+function dismissNote(id) {
+  if (id === "*") liveNotes().forEach(n => noteDismissed.add(n.id)); else noteDismissed.add(id);
+  saveDismissed(); schedule("notes", "board", "counts");
+}
+// Looking at a note: the board goes to the place, and an item or a pad it names is selected.
+function focusNote(n) {
+  S.noteFocus = n.id;
+  const p = plan(), at = notePlace(p, n), t = n.target;
+  if (t && t.kind === "item" && itemMap(p).has(t.name)) selectItem(t.name, {zoom: true});
+  else if (t && t.kind === "pad") { const o = itemsOf(p).find(i => i.members.some(m => m.ref === t.ref)); if (o) selectItem(o.key, {ref: t.ref, zoom: true}); }
+  else if (at) zoomTo([at[0] - 4, at[1] - 4, at[0] + 4, at[1] + 4]);
+  if (narrow()) showNarrow("board");
+  schedule("notes", "board");
+}
+on("note", n => {
+  if (S.notes.some(x => x.id === n.id)) return;
+  S.notes.push(n);
+  if (liveNotes().some(x => x.id === n.id)) toast((n.from ? n.from + ": " : "note: ") + n.description, () => focusNote(n));
+  schedule("notes", "board", "counts");
+});
+setInterval(() => { if (S.notes.length) schedule("notes", "board", "counts"); }, 30000);
 
 // ---------------------------------------------------------------- the runs view
 const sinceMs = at => Date.now() + (S.skew || 0) - at * 1000;

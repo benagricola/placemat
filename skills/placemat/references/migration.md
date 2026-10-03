@@ -92,6 +92,10 @@ section for each hand-written pattern a newer form replaces.
   as lost with its last state. An explore is shown with a plot of score against time and the best so far, the latest
   variant (at most `[studio] explore_fps` times a second, default 2) and the best drawn over the plain placement,
   thumbnails, a step through the variants by order or score, and where each item landed across them.
+- **`placemat studio note "<text>" [--at X,Y | --item NAME | --pad REF.N]`** leaves a note where the user is looking at the studio:
+  a record appended to `.placemat/views/studio/notes.jsonl`, shown on the page as a pin that follows its item or pad, a line in a
+  Notes list (dismissable per browser), and a toast. Settings `[studio] note_age_s` (3600; 0 keeps notes) and `notes_keep` (100),
+  neither part of a run's id. A point is a place to look at, never a placement. Scripts change nothing.
 - **Studio page.** On a wide layout the running status is one line in the header (the strip above the timeline stays on
   narrow ones), and between two steps the step that just settled stays, dimmed, with its time. Unplaced items are shown
   as sections in the steps list, the card and the findings list: why, the radius searched around a point, and what

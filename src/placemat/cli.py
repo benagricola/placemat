@@ -252,6 +252,13 @@ def parser() -> argparse.ArgumentParser:
     st.add_argument("--host", default="127.0.0.1",
                     help="the address to listen on (default 127.0.0.1); 0.0.0.0 or a LAN address lets another device "
                          "on the network open the page, still only with the printed token")
+    st.add_argument("note_text", nargs="?", help="with `studio note`: the note's text")
+    st.add_argument("--at", help="with `studio note`: point at X,Y mm on the board (a place to look, never a placement)")
+    st.add_argument("--item", help="with `studio note`: point at an item")
+    st.add_argument("--pad", help="with `studio note`: point at a pad, REF.N")
+    st.add_argument("--from", dest="author", help="with `studio note`: who is leaving it (default $PLACEMAT_FROM, else the login name)")
+    st.add_argument("--script", dest="script_path", metavar="PATH", help="with `studio note`: the layout script the note is for "
+                    "(default: the project's only one)")
 
     wt = sub.add_parser("watch", help="follow a placemat command running in this project (run, preview, an explore) as it works: "
                                        "a line per step, per variant, until it ends; exit 0 done, 1 error, 2 died or not found")
@@ -1099,7 +1106,46 @@ def cmd_preview(args) -> int:
     return 0
 
 
+def cmd_note(args) -> int:
+    """`placemat studio note "text" [--at X,Y | --item NAME | --pad REF.N] [--script PATH]`: a note for the studio's page, appended
+    to the board's notes file (notes.py), which any studio watching the script shows as a pin and a line."""
+    from . import notes
+    from .project import find_board
+    from .settings import load
+    from .studio import layout_scripts, project_root
+    if not args.note_text:
+        console.say("note", "give the note's text: placemat studio note \"trying c_cpu further west\" [--at X,Y | --item NAME | --pad REF.N]")
+        return 2
+    try:
+        target = notes.target_of(args.at, args.item, args.pad)
+    except ValueError as e:
+        console.say("note", str(e))
+        return 2
+    if args.script_path:
+        script = Path(args.script_path).resolve()
+        if not script.is_file():
+            console.say("note", "%s is not a file" % args.script_path)
+            return 2
+        src = find_board(script)
+    else:
+        root = project_root(Path.cwd())
+        found = layout_scripts(Path.cwd())              # the one under the folder it is run in, else the project's only one
+        if len(found) != 1:
+            found = layout_scripts(root)
+        if len(found) != 1:
+            console.say("note", ("no layout script under %s" % root) if not found else
+                        "%d layout scripts under %s: say which with --script" % (len(found), root))
+            return 2
+        script, src = found[0]
+    cfg = load(src.board_dir, script=script)
+    record = notes.add(src.board_dir, script.name, args.note_text, target, notes.author(args.author), cfg.studio_notes_keep)
+    console.say("note", "%s for %s%s" % (record["id"], script.name, "" if target is None else " at " + json.dumps({k: v for k, v in target.items() if k != "kind"}, separators=(",", ":"))))
+    return 0
+
+
 def cmd_studio(args) -> int:
+    if args.script == "note":
+        return cmd_note(args)
     from .studio import run
     return run(args.script, port=args.port, open_browser=False if args.no_open else None, host=args.host)
 

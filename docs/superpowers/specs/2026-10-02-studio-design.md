@@ -242,9 +242,16 @@ The 3D view also gets the compare: a moved part shown at both places.
 - Agents keep editing files; the studio needs nothing from them to show
   their work.
 - An optional note channel: `placemat studio note "<text>" [--at X,Y |
-  --item NAME]` appends to `.placemat/views/studio/notes.jsonl`, which the
-  page shows as a pin on the board and a line in the log, so an agent can
-  say "trying c_cpu further west" where the user is looking.
+  --item NAME | --pad REF.N] [--from NAME] [--script PATH]` appends a record
+  (`notes.py`: id, time, author, script, description, target) to
+  `.placemat/views/studio/notes.jsonl`, bounded to `[studio] notes_keep`. The
+  file is the channel: the studio reads it when it changes (a note reaches an
+  open page within `poll_ms`), so a note survives a studio restart and a late
+  page is given the ones that have not expired (`note_age_s`). The command needs
+  no studio to be running and no socket (studios own none; the commands do).
+  The page shows each note as a pin that follows its item or pad, a line in a
+  Notes list with who and how long ago, and a toast; Dismiss hides it for that
+  browser. A point (`--at`) is a place to look at, never a placement.
 - Several agents on one script are seen as successive edits; the studio does
   not merge or lock.
 

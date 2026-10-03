@@ -3570,6 +3570,27 @@ exactly as the lock did; otherwise freeze says what would have moved (an
 entry that drifted is refused: accept it again where it now stands). A call inside a loop or a helper function
 declares more than one item and is refused with its line.
 
+## Studio notes
+
+```
+placemat studio note "<text>" [--at X,Y | --item NAME | --pad REF.N] [--from NAME] [--script PATH]
+```
+
+A note is a short remark left where the user is looking at the studio: "trying c_cpu further west". The command appends one record to
+`<board>/.placemat/views/studio/notes.jsonl` and returns; any studio watching that script reads the file as it changes (so a note
+reaches an open page within `[studio] poll_ms`, and a studio or page started later is given the ones that have not expired).
+`--script` names the layout script; without it the one under the current folder, else the project's only one.
+
+A record is `{"v": 1, "id", "at" (epoch s), "from", "script" (the script's file name), "description", "target"}` with `target` null or
+`{"kind": "point", "x", "y"}` (mm on the board: a place to look at, never a placement), `{"kind": "item", "name"}` or
+`{"kind": "pad", "ref", "pad"}`. `from` is `--from`, else `$PLACEMAT_FROM`, else the login name. The description is one line of at most
+1000 characters. The file is bounded to the last `[studio] notes_keep` records.
+
+The page draws each note as a pin at its target (an item or a pad is found in the plan every time, so the pin follows it when it
+moves), a line in the Notes list (who, how long ago, where; it opens when there is a note, and a tap on the line or the pin goes to the
+place), and a toast when one arrives. Dismiss hides a note in that browser only; a note is hidden after `[studio] note_age_s` seconds
+(0 keeps it). Nothing here changes the layout: a note is read by the user, and the script stays the only way a position is set.
+
 ## Findings and severities
 
 A finding is one sentence saying what a resolve could not do as declared, with a `kind` (what sort of thing
@@ -3881,6 +3902,8 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `studio.poll_ms` | 200 | how often the watched files' modification times are read |
 | `studio.cancel_grace_ms` | 2000 | a resolve asked to stop that has not stopped by then has its worker restarted |
 | `studio.explore_fps` | 2.0 | how many times a second the Runs view redraws the latest variant of a live explore (above 0) |
+| `studio.note_age_s` | 3600 | a note left with `placemat studio note` is hidden by the page after this many seconds; 0 keeps it |
+| `studio.notes_keep` | 100 | notes kept in a board's `.placemat/views/studio/notes.jsonl` (above 0) |
 | `cleanup.enabled` | true | after the searched tier, move and swap plain searched parts where that shortens their wire and declared links |
 | `cleanup.passes` | 2 | passes over the movable parts; one that changes nothing ends it |
 | `cleanup.radius` | 3.0 | how far round its optimal region, and round where it stands, a part is searched |
