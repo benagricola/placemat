@@ -98,8 +98,11 @@ The forms that most often answer "placemat can't say this":
   neck (`width=`); `board.finger(..., width=PadRef(...))`;
   `board.plane(net, layers, over=[parts])`; `board.stitch(net, region,
   edge=True)`; `board.keepout(Part(...), name, margin=)`.
-- `at=Pin(key, x, y)` or `Pin(key, point)`, the point a `PadRef(..., edge=)` to lie against a pad's edge (a cell by a member's pad too), `rotation=Turned(part,
-  deg)`, `bend=Bend.START`, `board.rect(fit=Axis.X, height=)`,
+- `at=Pin(key, x, y)` or `Pin(key, point)` stands a part's own pad `key` on a
+  point; the point may be a `PadRef(..., edge=)`, which puts the pad against
+  that pad's edge (a cell takes a member's pad as `key` too);
+  `rotation=Turned(part, deg)`; `bend=Bend.START`;
+  `board.rect(fit=Axis.X, height=)`;
   `board.pair(p, n, [(pP, pN), (pP2, pN2)])`.
 
 ### When no form says it
@@ -151,10 +154,12 @@ run. Never copy the shape of a frozen line into a new declaration: a
 ## An existing script
 
 Check it against the current API before touching it:
-`grep -nE "Priority\.(FIXED|EDGE)|priority=Priority\.(HIGH|LOW)|Occupancy\._transform" <script>`.
+`grep -nE "Priority\.(FIXED|EDGE)|priority=Priority\.(HIGH|LOW)|Occupancy\._transform|board\.size\(" <script>`.
 Any hit, or `AttributeError: type object 'Priority' has no attribute
 'FIXED'` at import, means it was written for an earlier placemat: fix those
-lines first. A monkeypatch of `Occupancy._transform` comes out. Read
+lines first. A monkeypatch of `Occupancy._transform` comes out, and
+`board.size(` becomes `board.rect(` (same arguments; the old name still works
+and raises a `setup` notice). Read
 `references/migration.md` from the script's version up; its last section,
 "Patterns in older scripts", names the section for each hand-written pattern
 a newer form replaces. A script with no hits still re-places on a newer
@@ -264,7 +269,9 @@ model into declarations.
    `--zoom` and aim for 20 px/mm (40 for 0201s; set `[preview] model_edge`
    to what your model sees). Gaps are numbers - `measure`, `occupancy`, the
    findings - not pixels. To let the user watch a series of edits live, tell
-   them to run `placemat studio <script>` (`api.md`, "Studio").
+   them to run `placemat studio <script>` (or `placemat studio` alone, to pick
+   a layout script in the page); it re-resolves as the script changes and has a
+   Run button for a checked run (`api.md`, "Studio").
 4. **Before reading a board's numbers, run `placemat settings`**: a
    `placemat.toml` anywhere from the board's directory up can change any
    value, and the command says which file each came from.
@@ -272,7 +279,11 @@ model into declarations.
    `unconnected` are the gate; `outstanding` is copper not yet drawn;
    `footprint issues` are defects in the fetched footprints (they do not
    block a board, but placemat's extent for those parts is then
-   untrusted). `airwires`, `crossings`, `crossings by net` and `congestion`
+   untrusted). Each finding prints as `[critical]`, `[warning]` or `[notice]`,
+   most serious first: critical means the board cannot be built or fully routed
+   as it is (an unplaced item, conflicting copper, a pad walled in); a warning
+   is a quality issue to fix or judge; a notice is something placemat did by
+   design (a via shared or moved) that you may want to know. `airwires`, `crossings`, `crossings by net` and `congestion`
    say how hard the board will be to route before any routing: keep the
    change that cuts crossings and congestion, and move the parts on the
    nets with most crossings. The `score` line weighs everything in
@@ -516,8 +527,8 @@ the script.
   rebuilt"; `place.via_route` sets the reach, 0 leaves it as drawn). The
   sentence names each step and why it failed. `place.via_move` and
   `place.via_share` set the reaches,
-  `place.via_leave` how far a via may leave its pad, `place.drops_keep` how
-  many of a pad's drops must stay, `place.via_relay` turns the re-lay off, and `drops=` on a cell thins its drops
+  `place.via_leave` how far a via may leave its pad, `place.drops_keep` what
+  share of a pad's drops must stay, `place.via_relay` turns the re-lay off, and `drops=` on a cell thins its drops
   before the search. Shorten runs only when the fab profile's micro, blind
   or buried tier for the shorter via is "yes"; the refusal says when one
   would have cleared it. api.md, "Carried vias give way", has the rest.
@@ -533,7 +544,7 @@ the script.
 ## Gates, in order
 
 `real` DRC buckets empty; `unconnected` 0 (or only the nets not drawn yet,
-by name); no findings; `outstanding` explained (a cell's frontier stubs
+by name); no critical findings, and every warning fixed or judged; `outstanding` explained (a cell's frontier stubs
 dangle until the board picks them up); the render reads as intended. A run
 that regenerated the board is compared against the committed board, not
 against the previous run.
