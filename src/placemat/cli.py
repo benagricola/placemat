@@ -1396,10 +1396,10 @@ def main(argv=None) -> int:
         return _main(args)
     except stop.Stopped as s:
         if not s.said:
-            line = "%s stopped by %s%s" % (args.command, s.name, " during %s" % s.stage if s.stage else "")
-            stop.say(line)
+            info = stop.record(s, command=args.command)
+            stop.say(stop.line(info))
             from . import channel
-            channel.error(line)
+            channel.stopped(info)
             channel.finish()
         return s.exit_code
     finally:

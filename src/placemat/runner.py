@@ -691,11 +691,11 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
     from . import channel
     if stopped is not None:
         say("record", str(run_dir / "run.json"))
-        line = "run %s stopped by %s during %s after %.0f s; the layout folder is as the last run left it; %s" % (
-            rec.run_id, stopped.name, stopped.stage, rec.failure["elapsed_s"], run_dir / "run.json")
-        stop.say(line)
+        info = stop.record(stopped, run_id=rec.run_id, elapsed_s=rec.failure["elapsed_s"], record=str(run_dir / "run.json"),
+                           explore=stopped.explore)
+        stop.say(stop.line(info))
         stopped.said = True
-        channel.error(line)                 # the studios and `placemat watch` are told it was stopped, not that it died
+        channel.stopped(info)               # the studios and `placemat watch` are told it was stopped, not that it died
         channel.finish(run_dir / "run.json")
         raise stopped
     channel.finish(run_dir / "run.json")                  # the studios are told where the record is

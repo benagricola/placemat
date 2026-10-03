@@ -82,6 +82,25 @@ def pid_alive(pid) -> bool:
     return True
 
 
+def record(s: "Stopped", command: str = "", **more) -> dict:
+    """What a stop was, as data: the signal, what was running, and what the caller adds (the run id, the record's path,
+    the seconds, the explore's partial report). Text is made from it by `line`, at the edge."""
+    return {"kind": "stopped", "signal": s.name, "stage": s.stage, "command": command, **more}
+
+
+def line(rec: dict) -> str:
+    """The one line a stop record says, for the console and `placemat watch`."""
+    who = ("run %s" % rec["run_id"]) if rec.get("run_id") else rec.get("command") or "the command"
+    out = "%s stopped by %s" % (who, rec["signal"])
+    if rec.get("stage"):
+        out += " during %s" % rec["stage"]
+    if rec.get("elapsed_s") is not None:
+        out += " after %.0f s" % rec["elapsed_s"]
+    if rec.get("run_id"):
+        out += "; the layout folder is as the last run left it; %s" % rec.get("record", "")
+    return out.rstrip("; ")
+
+
 def say(text: str, both: bool = True) -> None:
     """A stop's own words: never lost to -q or --json. On stderr always, and
     on stdout too unless the console is quiet; `both=False` leaves stderr

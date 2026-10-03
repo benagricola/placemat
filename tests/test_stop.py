@@ -153,6 +153,16 @@ def test_workers_do_not_outlive_a_parent_that_is_killed(tmp_path):
             proc.kill()
 
 
+def test_a_stop_record_is_rendered_to_a_line_at_the_edge_and_watch_describes_it_from_the_record():
+    from placemat import channel
+    rec = stop.record(stop.Stopped(signal.SIGTERM), command="run", stage="explore", run_id="abc", elapsed_s=7.2, record="/r/run.json")
+    assert rec["signal"] == "SIGTERM" and "message" not in rec
+    line = stop.line(rec)
+    assert line.startswith("run abc stopped by SIGTERM during explore after 7 s") and line.endswith("/r/run.json")
+    assert channel.describe({"ev": "error", **rec}) == line
+    assert stop.line(stop.record(stop.Stopped(signal.SIGHUP), command="route")) == "route stopped by SIGHUP"
+
+
 def test_a_record_still_running_whose_process_is_gone_is_reported_dead():
     from placemat.report import RunRecord, dead_note
     done = subprocess.Popen([sys.executable, "-c", "pass"])
