@@ -233,10 +233,10 @@ def test_a_run_is_started_on_request_reports_over_the_channel_and_its_result_rea
     assert s.start_run()["id"] == 1
     with pytest.raises(ValueError):
         s.start_run() if s._run is not None else (_ for _ in ()).throw(ValueError("busy"))
-    deadline = time.monotonic() + 10
-    while s._run is not None and time.monotonic() < deadline:
+    ev, deadline = [], time.monotonic() + 30
+    while not any(n == "run_done" for n, _ in ev) and time.monotonic() < deadline:       # the run clears itself, then says it is done: wait for the word
         time.sleep(0.02)
-    ev = drain()
+        ev += drain()
     names = [n for n, _ in ev]
     assert seen["stdout"] == subprocess.DEVNULL and seen["stderr"] == subprocess.DEVNULL          # its printed text is not read
     assert "run_started" in names and "run_line" not in names and names[-1] == "run_done"

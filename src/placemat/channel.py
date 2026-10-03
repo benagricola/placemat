@@ -139,7 +139,7 @@ class Watcher:
         return self._next
 
     def start(self) -> None:
-        self.thread = threading.Thread(target=self._loop, daemon=True)
+        self.thread = threading.Thread(target=self._loop, daemon=True, name="placemat-channel-watch")
         self.thread.start()
 
     def stop(self) -> None:
@@ -152,7 +152,7 @@ class Watcher:
             if key in self._seen:
                 continue
             self._seen.add(key)
-            threading.Thread(target=self._read, args=(e, self._new_id()), daemon=True).start()
+            threading.Thread(target=self._read, args=(e, self._new_id()), daemon=True, name="placemat-channel-follow").start()
         for e in dead:
             key = (e.get("pid"), e.get("started"))
             if key not in self._seen:
@@ -209,7 +209,7 @@ class _Reader:
         self.queue: queue.Queue = queue.Queue(maxsize=len(backlog) + QUEUE_SIZE)
         for ev in backlog:
             self.queue.put_nowait(ev)
-        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread = threading.Thread(target=self._run, daemon=True, name="placemat-channel-reader")
         self.thread.start()
 
     def put(self, ev) -> None:
@@ -283,7 +283,7 @@ class Beacon:
         self.entry = self.directory / ("%d.json" % self.pid)
         self.entry.write_text(json.dumps({k: self.hello.get(k) for k in ("pid", "command", "script", "args", "started", "label", "progress")} |
                                          {"socket": str(path)}))
-        threading.Thread(target=self._accept, daemon=True).start()
+        threading.Thread(target=self._accept, daemon=True, name="placemat-channel-accept").start()
 
     def _clean_progress(self) -> None:
         """Delete the progress files that earlier commands of this script left, once they are no longer running: what a

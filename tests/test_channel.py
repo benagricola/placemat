@@ -102,11 +102,12 @@ def test_a_reader_that_connects_mid_run_is_caught_up_then_given_the_live_events(
 
 
 def test_with_no_script_a_command_makes_no_socket_and_no_file(tmp_path):
-    threads = threading.active_count()
+    ours = lambda: {t for t in threading.enumerate() if t.name.startswith("placemat-channel")}      # not the process's other threads: a parallel worker has its own
+    before = ours()
     assert channel.reporter(None) is None
     b = _board()
     plan = b.resolve()
-    assert threading.active_count() == threads and channel.current() is None and not (tmp_path / ".placemat").exists()
+    assert ours() == before and channel.current() is None and not (tmp_path / ".placemat").exists()
     assert [(s.item, s.placement) for s in _board().resolve().steps] == [(s.item, s.placement) for s in plan.steps]
 
 
