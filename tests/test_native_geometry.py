@@ -94,6 +94,23 @@ def test_poly_distance_is_the_python_one_to_the_last_bit():
         assert placemat_native.poly_distance(a, b) == _reference_distance(a, b), (a, b)
 
 
+def test_transform_polygon_is_the_python_one_to_the_last_bit():
+    """transform_polygon's rounded path is native: the same vertices, signed zeros included."""
+    rnd = random.Random(3)
+    for i in range(3000):
+        t = g.Transform.translate(-rnd.uniform(0, 200), -rnd.uniform(0, 200))
+        if i % 3 == 0:
+            t = t.then(g.Transform.mirror_x(g.Location(0, 0)))
+        t = t.then(g.Transform.rotate(rnd.choice((0, 90, 180, 270, rnd.uniform(0, 360))))).then(
+            g.Transform.translate(rnd.uniform(0, 200), rnd.uniform(0, 200)))
+        poly = tuple((rnd.choice((0.0, -0.0, rnd.uniform(-5, 5), round(rnd.uniform(-5, 5), 3))),
+                      rnd.choice((0.0, rnd.uniform(-5, 5), round(rnd.uniform(-5, 5), 3)))) for _ in range(rnd.randrange(3, 40)))
+        want = tuple(t.apply(p) for p in poly)
+        got = g.transform_polygon(poly, t)
+        assert repr(got) == repr(want), (poly, t)
+    assert g.transform_polygon((), g.Transform()) == ()
+
+
 class _FakeNative:
     """A stand-in for placemat_native that counts calls, to prove the
     dispatch actually reaches it rather than merely existing unused."""
