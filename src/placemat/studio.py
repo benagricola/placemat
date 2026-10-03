@@ -676,6 +676,7 @@ class Studio:
                     cur["now"] = dict(info, phase="")
                 elif cur["now"] is not None:
                     cur["now"]["phase"] = info.get("text", "")
+                    cur["now"]["within"] = info.get("within")
                     if info.get("hint"):
                         cur["now"]["hint"] = info["hint"]
                 # the queue's size is kept for a page that joins part-way; what an item is doing is transient

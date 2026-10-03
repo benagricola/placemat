@@ -278,3 +278,15 @@ def test_the_plan_gives_a_step_its_rank_and_pocket_as_data():
     assert all({"rank", "rank_of", "pocket", "lock"} <= set(s) for s in doc["steps"])
     f = doc["findings"][0]
     assert f["cause"] == "unplaced.pocket" and f["facts"]["item"] == "big" and f["facts"]["w_mm"] > 0
+
+
+def test_a_refining_phase_says_how_far_through_its_spots_it_is():
+    from tests.test_reuse_replay import _board as replay_board
+    seen = []
+    replay_board(r2_radius=25.0).resolve(on_begin=lambda p, info: seen.append(info))
+    refining = [i for i in seen if i["kind"] == "phase" and i["text"].startswith("refining")]
+    assert refining, [i["text"] for i in seen if i["kind"] == "phase"]
+    for i in refining:
+        k, n = i["within"]
+        assert 1 <= k <= n and i["text"].endswith("%d of %d" % (k, n))
+    assert all("within" not in i for i in seen if i["kind"] == "phase" and not i["text"].startswith("refining"))

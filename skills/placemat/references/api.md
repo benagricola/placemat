@@ -3328,7 +3328,7 @@ socket for as long as it runs (Linux and macOS):
 - A reader connects and is sent a catch-up first, then live events: newline-delimited JSON, one object each, `ev` naming it.
   `hello` (the entry's fields), `resolve` (`n`: a new resolve; the board and steps before it are forgotten), `board`,
   `begin` (`kind` `total` with the counts, `begin` for the item now being worked on with its `what` and `rank`/`of`, or
-  `phase` with the engine's note), `item` (a settled step: the item, its copper or cutout ops; the item carries `seconds` and, for a replayed step, `first_seconds`), `plan` (`doc`: the whole
+  `phase` with the engine's note, and `within`, `[k, n]`, when the phase counts through its own work: the k-th of n spots being refined), `item` (a settled step: the item, its copper or cutout ops; the item carries `seconds` and, for a replayed step, `first_seconds`), `plan` (`doc`: the whole
   plan as the studio draws it), for an explore `explore` (focus, the plain placement and order, the baseline score, jobs),
   `variant` (`seed`, `score`, the focused items' `placements` and `order`) and `explore_done` (`best`, `baseline`, `tried`,
   `kept`, `record`), for a route the `route_*` events below, then `done` (`record`: the run's `run.json` or the explore's record) or `error` (`message`, `file`,

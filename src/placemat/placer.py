@@ -460,7 +460,7 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
                           if not any(cand is seed for seed in seeds)]
             for k, cand in enumerate(seeds):
                 if phase:
-                    phase("refining around the best spots: %d of %d" % (k + 1, len(seeds)))
+                    phase("refining around the best spots: %d of %d" % (k + 1, len(seeds)), within=[k + 1, len(seeds)])
                 # The fine grid is centred on a coarse candidate, which can sit at
                 # the edge of the radius: keep only what is still inside it, so
                 # "within radius of the hint" is what a script gets.

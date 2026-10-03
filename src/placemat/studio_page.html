@@ -137,13 +137,15 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 #runstrip { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 5px 10px; color: var(--accent); font-weight: 600; }
 #runstrip[hidden] { display: none; }
 /* wide layouts: the same fields on one line in the header (the strip above the timeline is for narrow ones) */
-#runhead { flex: 1 1 580px; min-width: 260px; flex-wrap: nowrap; overflow: hidden; color: var(--accent); font-weight: 600; container: rh / inline-size; }
+#runhead { flex: 1 1 300px; min-width: 260px; flex-wrap: nowrap; overflow: hidden; color: var(--accent); font-weight: 600; container: rh / inline-size; }
 #runhead[hidden] { display: none; }
 /* what gives way as the header narrows, in order: the phase, then the kind pill, then the item's name; the counters (the step's place in the
    resolve, the item's rank in the search) and the time never shrink */
 #runhead .f-steps { width: auto; flex: none; white-space: nowrap; }
-#runhead .f-phase { width: auto; flex: 0 1 9em; min-width: 0; overflow: hidden; }
+#runhead .f-phase { width: auto; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+#runhead .f-item { flex: 0 1 auto; max-width: 26ch; }               /* the step's fields stay together; the bar takes what is left */
 #runhead .info { flex: none; }
+#runhead > .bar { flex: 1 1 90px; min-width: 60px; max-width: 420px; }
 @container rh (max-width: 500px) { #runhead .f-phase { display: none; } }
 @container rh (max-width: 360px) { #runhead .chip { display: none; } }
 @container rh (max-width: 300px) { #runhead .f-item { display: none; } }
@@ -151,7 +153,7 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 #runhead .f-el { width: 2.8em; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
 #runhead:not(.settled) .f-time { display: none; }       /* the time on the step is the elapsed field's neighbour: shown only for the settled step */
 /* between one step settling and the next beginning, the step that settled stays, dimmed, with the time it took */
-.flds.settled > :not(.spin):not(.f-steps):not(.f-el) { opacity: 0.55; }
+.flds.settled > :not(.spin):not(.f-steps):not(.f-el):not(.bar) { opacity: 0.55; }
 .row.pending.settled .sb { opacity: 0.55; }
 #runstrip .f-el { width: 2.8em; font-variant-numeric: tabular-nums; }
 #runstrip .f-steps { width: 10.4em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -160,9 +162,11 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 #runstrip .mini { border: 1px solid var(--line); background: var(--surface2); color: var(--ink); border-radius: 6px; padding: 0 8px; font-size: 11.5px; line-height: 18px; flex: none; }
 .spin { display: inline-block; flex: none; width: 13px; height: 13px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.bar { height: 5px; border-radius: 3px; background: var(--surface2); overflow: hidden; }
-.bar b { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.3s; }
-.bar.ind b { width: 35%; animation: slide 1.3s ease-in-out infinite; }
+.bar { position: relative; height: 5px; border-radius: 3px; background: var(--surface2); overflow: hidden; }
+.bar b { position: absolute; top: 0; bottom: 0; left: 0; width: 0; background: var(--accent); transition: width 0.3s, left 0.3s; }
+.bar b.p-in { background: var(--sel); }                  /* the step under way: how far its phase has got, after the steps done */
+.bar.ind b.p-done { width: 35%; animation: slide 1.3s ease-in-out infinite; }
+.bar.ind b.p-in { display: none; }
 @keyframes slide { from { margin-left: -35%; } to { margin-left: 100%; } }
 .row.pending { cursor: default; align-items: flex-start; background: var(--accent-soft); }
 .row.pending .i { display: flex; justify-content: flex-end; padding-top: 4px; overflow: hidden; }
@@ -196,7 +200,7 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: fit-content
 .seg button, .tool { border: 0; background: none; padding: 6px 12px; min-height: 32px; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.tool { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
+.tool { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); white-space: nowrap; }
 .tool.on { background: var(--accent-soft); color: var(--accent); }
 #dock { position: absolute; left: 8px; right: 8px; bottom: 8px; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; pointer-events: none; z-index: 3; }
 #dock > * { pointer-events: auto; }
@@ -252,11 +256,23 @@ main { flex: 1; min-height: 0; display: grid; grid-template-columns: fit-content
 #linechips { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 12px; border-bottom: 1px solid var(--line); min-height: 38px; align-items: center; color: var(--dim); }
 #linechips button { border: 1px solid var(--line); background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 1px 10px; font-weight: 600; }
 main { position: relative; }
+/* the legend and the right panel each fold away on a wide screen; a phone has its own sheet and tabs */
+.edge { display: none; }
+@media (min-width: 901px) {
+  main.nolegend { grid-template-columns: minmax(0, 1fr) 440px; }
+  main.noside { grid-template-columns: fit-content(300px) minmax(0, 1fr); }
+  main.nolegend.noside { grid-template-columns: minmax(0, 1fr); }
+  main.nolegend #legend, main.noside #side { display: none; }
+  .edge { display: block; position: absolute; top: 50%; z-index: 5; width: 16px; height: 52px; margin-top: -26px; padding: 0; border: 1px solid var(--line); background: var(--surface); color: var(--dim); font-size: 14px; line-height: 1; box-shadow: var(--shadow); }
+  .edge:hover { color: var(--accent); border-color: var(--accent); }
+  #legtoggle { left: 0; border-left: 0; border-radius: 0 8px 8px 0; }
+  #sidetoggle { right: 0; border-right: 0; border-radius: 8px 0 0 8px; }
+}
 /* the script is a dialog over the board, opened on a line; "full screen" widens it over the legend and the board and leaves the panel at the right */
-#script { --hh: 56px; display: none; flex-direction: column; position: fixed; z-index: 30; left: var(--dlgl, 240px); top: calc(var(--hh) + 12px); width: min(780px, calc(100vw - var(--dlgl, 240px) - 470px));
-  max-height: calc(100vh - var(--hh) - 96px); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+#script { display: none; flex-direction: column; position: fixed; z-index: 30; left: var(--dlgl, 240px); top: calc(var(--hh, 56px) + 12px); width: min(780px, calc(100vw - var(--dlgl, 240px) - var(--sidew, 440px) - 30px));
+  max-height: calc(100vh - var(--hh, 56px) - 96px); background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
 #script.open { display: flex; }
-#script.full { left: 0; right: 440px; top: var(--hh); bottom: 0; width: auto; max-height: none; border-radius: 0; }
+#script.full { left: 0; right: var(--sidew, 440px); top: var(--hh, 56px); bottom: 0; width: auto; max-height: none; border-radius: 0; }
 #scriptbody { min-height: 140px; }
 .tk { color: var(--tk); } .ts { color: var(--ts); } .tc { color: var(--tc); font-style: italic; } .tn { color: var(--tn); } .tf { color: var(--tf); } .td { color: var(--td); }
 #scripthead { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--surface); }
@@ -493,7 +509,7 @@ svg text { user-select: none; font-family: var(--sans); }
   header { padding: 8px 12px 6px; gap: 2px 10px; }
   .brand { flex: 1 1 0; min-width: 0; }
   #runbtn, #resolvebtn, #sharebtn, #srcbtn { display: none; } #morebtn { display: inline-block; }       /* a phone: one button for the four, so the board's name stays readable */
-  #script, #script.full { left: 0; right: 0; top: var(--hh); bottom: 0; width: auto; max-height: none; border-radius: 0; border-width: 1px 0 0; }
+  #script, #script.full { left: 0; right: 0; top: var(--hh, 56px); bottom: 0; width: auto; max-height: none; border-radius: 0; border-width: 1px 0 0; }
   #script #scriptfull { display: none; }
   #stats { margin-left: 0; width: 100%; gap: 14px; font-size: 13px; }
   #ntabs { display: flex; }
@@ -564,11 +580,13 @@ svg text { user-select: none; font-family: var(--sans); }
     </div>
     <div id="dock">
       <div id="card"></div>
-      <div id="runstrip" hidden><div class="flds"><i class="spin"></i><span class="f-el" id="rs-el"></span><span class="f-steps" id="rs-steps"></span><button class="info" data-info="running" aria-label="about this" draggable="false">i</button><span class="bar" id="progbarbox"><b id="progbar"></b></span><button class="mini" id="rs-again" title="cancel this resolve and start another">Again</button></div><div class="flds" id="rs-work"></div></div>
+      <div id="runstrip" hidden><div class="flds"><i class="spin"></i><span class="f-el" id="rs-el"></span><span class="f-steps" id="rs-steps"></span><button class="info" data-info="running" aria-label="about this" draggable="false">i</button><span class="bar" id="progbarbox"><b class="p-done" id="progbar"></b><b class="p-in" id="proginn"></b></span><button class="mini" id="rs-again" title="cancel this resolve and start another">Again</button></div><div class="flds" id="rs-work"></div></div>
       <div id="stepnow"></div>
       <div id="replay"><button id="play" title="replay the placement, one item at a time">Play</button><input type="range" id="slider" min="0" max="0" value="0"><span id="steplabel" class="dim"></span><button id="follow" hidden title="back to the newest step">Follow</button></div>
     </div>
     <div id="tip"></div>
+    <button class="edge" id="legtoggle" aria-label="hide the legend" title="hide the legend panel"></button>
+    <button class="edge" id="sidetoggle" aria-label="hide the side panel" title="hide the side panel"></button>
   </div>
   <div id="side">
     <div class="tabs"><button data-tab="steps" class="on">Steps<em data-count="steps"></em></button><button data-tab="findings">Findings<em data-count="findings"></em></button><button data-tab="compare">Compare<em data-count="compare"></em></button><button data-tab="runs">Runs<em data-count="runs"></em></button><button data-tab="notes" hidden>Notes<em data-count="notes"></em></button></div>
@@ -715,7 +733,7 @@ function applyHello(d) {
   if (d.resolving && d.work) {                                   // a resolve under way when this page joined: its time is since it began
     const w = d.work, c = w.cur;
     S.work = {id: d.resolving, fromHello: true, t0: serverMs(w.t0), total: w.total, replayed: w.replayed || 0,
-      cur: c ? {item: c.item, what: c.what, rank: c.rank, of: c.of, replaying: c.replaying, n: c.n, t: serverMs(c.at), phase: c.phase || "", hint: c.hint || null} : null};
+      cur: c ? {item: c.item, what: c.what, rank: c.rank, of: c.of, replaying: c.replaying, n: c.n, t: serverMs(c.at), phase: c.phase || "", within: c.within || null, hint: c.hint || null} : null};
   }
   if (S.restore && S.restore.s && !S.restore.switched && S.restore.s !== currentScriptId()) { S.restore.switched = true; switchTo(S.restore.s); }    // the address names another script
   S.cmds = new Map((d.commands || []).map(c => [c.id, c])); S.explores = d.explores || []; S.routes = d.routes || []; S.exploreFps = d.explore_fps || 2;
@@ -762,8 +780,8 @@ on("begin", d => {                         // the engine is starting an item, or
   if (!S.live || d.id !== S.live.id || !ensureWork()) return;
   const w = S.work;
   if (d.kind === "total") { w.total = d; schedule("status"); return; }
-  if (d.kind === "begin") { w.cur = {item: d.item, what: d.what, rank: d.rank, of: d.of, replaying: d.replaying, n: d.n, t: d.at ? serverMs(d.at) : Date.now(), phase: "", hint: null}; schedule("status", "steps"); drawWorkMark(); return; }
-  if (w.cur) { w.cur.phase = d.text; if (d.hint) w.cur.hint = d.hint; updatePending(); if (d.hint) drawWorkMark(); }
+  if (d.kind === "begin") { w.cur = {item: d.item, what: d.what, rank: d.rank, of: d.of, replaying: d.replaying, n: d.n, t: d.at ? serverMs(d.at) : Date.now(), phase: "", within: null, hint: null}; schedule("status", "steps"); drawWorkMark(); return; }
+  if (w.cur) { w.cur.phase = d.text; w.cur.within = d.within || null; if (d.hint) w.cur.hint = d.hint; updatePending(); if (d.hint) drawWorkMark(); }
 });
 let liveTimer = null;
 const liveRender = () => { if (!liveTimer) liveTimer = setTimeout(() => { liveTimer = null; schedule("board", "steps", "replay", "counts"); }, 300); };
@@ -902,6 +920,20 @@ const fmtDur = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return Math
 const WHAT_WORD = {searched: "searching", decided: "deciding", copper: "copper", cutout: "cutting", keepout: "keepout"};
 // The queue's size as far as the engine knows it up front: the items to place and the copper declared.
 const workTotal = w => w && w.total ? w.total.items + w.total.copper : 0;
+// How far the step under way has got, 0 to 1, from the phase's own count ("refining k of n": k - 1 spots done of n); null for a phase
+// that has none, so the bar does not move for it.
+const withinOf = c => c && c.within && c.within[1] > 0 ? Math.max(0, Math.min(1, (c.within[0] - 1) / c.within[1])) : null;
+// The bar's two parts as percentages: the steps done of the total, and from there the share of the next step the phase has covered.
+function barParts(n, T, frac) {
+  if (!T) return {done: 0, within: 0};
+  const done = Math.min(100, 100 * n / T);
+  return {done, within: frac == null ? 0 : Math.max(0, Math.min(100 - done, 100 * frac / T))};
+}
+const barTitle = (n, T, frac) => T ? "steps done: " + n + " of about " + T + (frac != null ? "; the step under way is " + Math.round(100 * frac) + "% through its phase" : "") : "the total is not known yet";
+function barHTML(n, T, frac) {
+  const b = barParts(n, T, frac);
+  return '<span class="bar' + (T ? "" : " ind") + '" title="' + esc(barTitle(n, T, frac)) + '"><b class="p-done" style="width:' + (T ? Math.round(b.done * 10) / 10 + "%" : "") + '"></b><b class="p-in" style="left:' + Math.round(b.done * 10) / 10 + "%;width:" + Math.round(b.within * 10) / 10 + '%"></b></span>';
+}
 // What the step being worked on shows as fields: its kind and name, rank, phase and time; when none is under way the step that
 // last settled, dimmed, with the time it took (never a "waiting" line); a replay of unchanged steps says so.
 function workHTML(w) {
@@ -919,7 +951,7 @@ function renderProgress() {
   hd.hidden = !wide || !(on || S.done);
   if (!on) {
     if (S.done) {
-      $("#rs-el").textContent = ""; $("#rs-steps").textContent = S.done; $("#rs-work").innerHTML = ""; $("#progbarbox").classList.remove("ind"); $("#progbar").style.width = "100%";
+      $("#rs-el").textContent = ""; $("#rs-steps").textContent = S.done; $("#rs-work").innerHTML = ""; $("#progbarbox").classList.remove("ind"); $("#progbar").style.width = "100%"; $("#proginn").style.width = "0%";
       hd.className = "flds"; hd.innerHTML = '<span class="f-steps" style="width:auto">' + esc(S.done) + "</span>";
     }
     return;
@@ -930,10 +962,13 @@ function renderProgress() {
   $("#rs-el").textContent = el_;
   $("#rs-steps").textContent = steps; $("#rs-steps").title = stepsTitle;
   $("#progbarbox").classList.toggle("ind", !T);
-  $("#progbar").style.width = T ? Math.min(100, Math.round(100 * n / T)) + "%" : "";
+  const bp = barParts(n, T, withinOf(w.cur));
+  $("#progbar").style.width = T ? Math.min(100, Math.round(bp.done)) + "%" : "";
+  $("#proginn").style.left = Math.round(bp.done * 10) / 10 + "%"; $("#proginn").style.width = Math.round(bp.within * 10) / 10 + "%";
+  $("#progbarbox").title = barTitle(n, T, withinOf(w.cur));
   $("#rs-work").className = "flds" + (settled ? " settled" : "");
   $("#rs-work").innerHTML = work;
-  if (wide) { hd.className = "flds" + (settled ? " settled" : ""); hd.innerHTML = '<i class="spin"></i><span class="f-el" title="time since this resolve began">' + esc(el_) + '</span><span class="f-steps" title="' + esc(stepsTitle) + '">' + esc(steps) + "</span>" + work + infoBtn("running");
+  if (wide) { hd.className = "flds" + (settled ? " settled" : ""); hd.innerHTML = '<i class="spin"></i><span class="f-el" title="time since this resolve began">' + esc(el_) + '</span><span class="f-steps" title="' + esc(stepsTitle) + '">' + esc(steps) + "</span>" + work + infoBtn("running") + barHTML(n, T, withinOf(w.cur));
     const c = w.cur; hd.title = c ? (WHAT_WORD[c.what] || c.what) + " " + c.item + (c.phase ? ": " + c.phase : "") : "";      // what the narrow header leaves out
   }
 }
@@ -2427,9 +2462,27 @@ function layoutScript() {
   const m = $("main"), l = $("#legend"), root = document.documentElement && document.documentElement.style;
   if (!m || !m.getBoundingClientRect || !root || !root.setProperty) return;
   const r = m.getBoundingClientRect();
-  root.setProperty("--hh", Math.round(r.top) + "px");
+  root.setProperty("--hh", Math.floor(r.top) + "px");
   root.setProperty("--dlgl", Math.round((l && l.getBoundingClientRect ? l.getBoundingClientRect().right : 0) + 12) + "px");
+  const sd = $("#side");
+  root.setProperty("--sidew", Math.round(sd && sd.getBoundingClientRect && sd.offsetParent !== null ? sd.getBoundingClientRect().width : 0) + "px");      // folded or hidden: the dialog may take the whole width
 }
+// The legend and the side panel each fold away; the choice is kept per viewer.
+const panelPref = (() => { try { return JSON.parse(localStorage.getItem("placemat.panels") || "{}") || {}; } catch (e) { return {}; } })();
+function applyPanels() {
+  const m = $("main"), leg = !!panelPref.legend, sid = !!panelPref.side;
+  if (m && m.classList) { m.classList.toggle("nolegend", leg); m.classList.toggle("noside", sid); }
+  const set = (id, folded, what) => { const b = $(id); b.textContent = folded ? (id === "#legtoggle" ? "\u203a" : "\u2039") : (id === "#legtoggle" ? "\u2039" : "\u203a"); b.title = (folded ? "show the " : "hide the ") + what + " panel"; b.setAttribute("aria-label", b.title); };
+  set("#legtoggle", leg, "legend"); set("#sidetoggle", sid, "side");
+  requestAnimationFrame(() => { layoutScript(); applyView(); });
+}
+function togglePanel(which) {
+  panelPref[which] = !panelPref[which];
+  try { localStorage.setItem("placemat.panels", JSON.stringify(panelPref)); } catch (e) {}
+  applyPanels();
+}
+$("#legtoggle").onclick = () => togglePanel("legend");
+$("#sidetoggle").onclick = () => togglePanel("side");
 // A source link was followed (from a card, a step, a finding, an error): the script opens on that line.
 function openScript(file, n) {
   S.scriptOpen = true; S.scriptWhole = false;
@@ -3350,8 +3403,9 @@ document.querySelectorAll("#ntabs button").forEach(b => b.onclick = () => showNa
 applyVisibility();
 setFace(narrow() ? "front" : "both");            // one face fills a narrow screen
 showNarrow("board");
+applyPanels();
 window.addEventListener("resize", () => { applyView(); layoutScript(); renderProgress(); });
-if (window.ResizeObserver) new ResizeObserver(() => applyView()).observe($("#boardwrap"));   // the notice and the tab bar change its height
+if (window.ResizeObserver) new ResizeObserver(() => { applyView(); layoutScript(); }).observe($("#boardwrap"));   // the notice and the tab bar change its height
 schedule("all");
 </script>
 </body>

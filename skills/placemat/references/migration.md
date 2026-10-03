@@ -13,6 +13,10 @@ section for each hand-written pattern a newer form replaces.
   resolved, from the reuse record), are in the plan JSON, the live `item` events and `run.json`'s steps; `metrics.resolve_seconds` is the
   whole resolve's. The studio's step rows, the card's Placement section and the Steps heading show them. The studio's Run button and menu
   entry read "Full run"; the endpoint is the same. Nothing a script says changes.
+- **The studio's running status is one bar.** The step, its phase and the info icon sit together, with a progress bar of the steps
+  done and, in a second colour, how far the step under way has got where its phase counts (`begin` phase events carry `within`, `[k, n]`;
+  a phase with no count does not move the bar). The legend and the right panel each fold away (a handle on each edge, kept per
+  viewer), and the source dialog's full-screen view fills the page below the header with no canvas showing under it.
 
 ## To 0.94.1
 
