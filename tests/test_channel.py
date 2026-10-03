@@ -338,3 +338,9 @@ def test_the_project_root_is_the_outermost_placemat_toml_or_workspace_above_the_
     assert project_root(lone) == (tmp_path / "a").resolve()
     (tmp_path / "pcb.toml").write_text("[workspace]\n")
     assert project_root(lone) == tmp_path.resolve()
+
+
+def test_a_progress_file_keeps_each_steps_seconds():
+    ev = {"ev": "item", "item": {"key": "ble", "kind": "cell", "placed": True, "note": "", "seconds": 12.5, "first_seconds": None}}
+    kept = channel.compact(ev)
+    assert kept["seconds"] == 12.5 and kept["first_seconds"] is None

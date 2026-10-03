@@ -214,7 +214,8 @@ def compact(ev: dict):
         return {k: ev[k] for k in ("ev", "kind", "item", "what", "rank", "of", "replaying", "n", "items", "searched", "copper", "at") if k in ev}
     if kind == "item":
         it = ev.get("item") or {}
-        return {"ev": "item", "key": it.get("key"), "kind": it.get("kind"), "placed": it.get("placed"), "note": str(it.get("note", ""))[:160]}
+        return {"ev": "item", "key": it.get("key"), "kind": it.get("kind"), "placed": it.get("placed"),
+                "seconds": it.get("seconds"), "first_seconds": it.get("first_seconds"), "note": str(it.get("note", ""))[:160]}
     if kind == "plan":
         doc = ev.get("doc") or {}
         return {"ev": "plan", "items": len(doc.get("items", ())), "findings": len(doc.get("findings", ())), "copper": len(doc.get("copper", ()))}
