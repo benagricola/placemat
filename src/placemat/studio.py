@@ -781,10 +781,34 @@ class Studio:
             raise SuggestRefused(404, "no such resolve (the last %d are kept)" % self.keep)
         findings = rec.doc.get("findings", [])
         finding = next((f for f in findings if any(s.get("id") == sid for s in f.get("suggestions", ()))), None)
+        found = []
+        if finding is None and "." in sid:                  # `s3a.1`: what a probe of s3a found, kept in the store, not in the plan
+            parent = sid.rsplit(".", 1)[0]
+            finding = next((f for f in findings if any(s.get("id") == parent for s in f.get("suggestions", ()))), None)
+            found = [s for s in self._found_all() if s.id == sid] if finding is not None else []
+            if not found:
+                finding = None
         if finding is None:
             raise SuggestRefused(404, "resolve #%d has no suggestion %r" % (rec.id, sid))
-        pool = sg.from_json([s for f in findings for s in f.get("suggestions", ())])
+        pool = sg.from_json([s for f in findings for s in f.get("suggestions", ())]) + found
         return rec, pool, finding
+
+    def _found_all(self) -> list:
+        """The suggestions probes found for this script (`<id>.<n>`), from the store `placemat apply` reads."""
+        from . import suggestions as sg
+        with self.lock:
+            script, src = self.script, self.src
+        if script is None or src is None:
+            return []
+        plans = sg.recall(src.board_dir, script)
+        return [s for entry in plans.values() for s in entry["suggestions"] if "." in s.id]
+
+    def suggest_found(self, sid: str) -> dict:
+        """What a probe found for a searched suggestion, as an instant suggestion (the plan does not know it: the page asks)."""
+        s = next((x for x in self._found_all() if x.id == sid), None)
+        if s is None:
+            raise SuggestRefused(404, "no found suggestion %r" % sid)
+        return s.to_json()
 
     def _sg_refusal(self, e) -> SuggestRefused:
         from . import suggestions as sg
@@ -1547,6 +1571,11 @@ def _handler(studio: Studio):
             if path == "/build":
                 doc = studio.build_record(query.get("run", [""])[0])
                 return self._json(doc) if doc is not None else self._refuse(404, "no such run, or it did not route")
+            if path == "/suggest/found":
+                try:
+                    return self._json(studio.suggest_found(query.get("id", [""])[0]))
+                except SuggestRefused as e:
+                    return self._refuse(e.status, str(e))
             if path == "/routes":
                 return self._json(studio.routes())
             if path == "/explore":
