@@ -797,7 +797,21 @@ the script gives. `side` decides one axis and `align=` the other: beside a
 FIXED like `Pin`: `item` is placed firmly (FIXED or EDGE) before it, or is
 searched and this item rides it (see Riders); it keeps the rotation the
 script gave, or its default -
-`Beside` does not turn the item to face `item`. `align=` lines it up
+`Beside` does not turn the item to face `item`. The distance is from the shapes
+`item`'s envelope is made of (pads, mask, silk and body under a physical
+envelope, the courtyard under a courtyard one), not from the box round them: a
+mark drawn outside the body at one corner holds the item off only where it
+stands over it. Where that would put the item in the way of something else
+already placed (a part, a reservation, the edge) it is moved on out along its
+side to the first place the collision rule lets it stand (`place.beside_step`, up
+to `place.beside_reach`), and where a part placed before it is in its way and
+the two can be taken the other way round, it is placed first. The item also
+keeps clear of the copper the script declares (`board.track`, `board.via`)
+between parts placed by then: that copper is planned provisionally, and the part
+stands where it leaves the room (`place.copper_room`); a part that stands nearer
+than the box put it and is an end of copper that then meets other copper goes back
+to the box's distance. `fixed.room` says a part for which no place within reach
+keeps that room. `align=` lines it up
 across the side, flush as `OnEdge` and `row(of=)` are, never the placed
 part's body centre left overhanging the corner: a `PadRef` - the placed
 part's own pad on the same net lands level with the named pad -
@@ -3830,6 +3844,7 @@ does not give it and None where it is not in the builder's vocabulary (a coordin
 | `fixed.part` | drop its `at=` so it is searched; the other face; a row's member taken out of the row and left to the search; a block's satellite placed on its own; an item at an intent `Centre` freed along one axis |
 | `fixed.cutout` | for a web too thin: the board's `web=` lowered to the web it has, to the hundredth, as a named constant |
 | `fixed.keepout` | none |
+| `fixed.room`, `fixed.room_unsettled` | none |
 | `copper.keepout` | `Net(...)` added to the keepout's `allow=`; the keepout kept off the layer the copper is on (`layers=`); the keepout forbidding only what the copper is not (`excludes=`) |
 | `copper.cross` | `bridge=True` on the track that yields; `priority=Priority.HIGH` on it where the other track may bridge |
 | `copper.meets` | the track's waypoints dropped (pad to pad); the other layer |
@@ -3982,6 +3997,11 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `place.refine_spots` | `3` | count | how many of the best coarse spots get a fine pass: this many by score, and, where the part's riders refuse some spots, this many of those they take |
 | `place.block_gap_step` | `0.05` | mm | how finely a block's tightest gap is searched |
 | `place.block_gap_reach` | `2.0` | mm | how far a satellite may stand off its pin |
+| `place.copper_room` | `true` | bool | whether placement keeps room for the copper the script declares: a track or via declared between parts is planned provisionally, and a part standing Beside another moves out of its way. False places as before |
+| `place.firm_passes` | `8` | count | the most passes over the firm items, each placed against the copper the last pass planned (and, where a Beside part was refused by a firm part placed before it, with the two taken in the other order), the last one the settled run |
+| `place.copper_room_tolerance` | `0.001` | mm | how far a declared track or via may move between two passes and count as settled |
+| `place.beside_step` | `0.01` | mm | the step a part placed Beside is moved out at, when something already placed is in its way, until the collision rule lets it stand, then bisected back to the first spot that stands |
+| `place.beside_reach` | `2.0` | mm | how far past its standoff from the item a part placed Beside may be moved out to clear what is in its way; past it the part stays at the standoff and the collision is reported |
 | `place.escape_depth` | `1.0` | mm | how far each corridor out of a pad runs in the search: it weighs a candidate that crosses, closes or walls off a pad's corridors (`score.escape_*`); the run score measures them at `score.escape_depth` |
 | `place.escape_min_pads` | `1` | count | a part's pads keep escapes when it has at least this many (3 leaves two-pad parts out) |
 | `place.escape_via_step` | `0.05` | mm | the step a `board.escape` lane's via is searched along its lane at, from the row's end, before it is bisected back to the nearest nanometre |

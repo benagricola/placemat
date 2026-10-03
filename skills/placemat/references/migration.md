@@ -5,6 +5,29 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **A part stands tighter beside a part that draws a mark outside its body, and keeps room for declared copper.**
+  `Beside(item, side)` took the distance from the box round everything `item`'s envelope is made of, so a pin 1 dot or any
+  silk mark outside the body held the part off the whole side by the mark's reach. It now measures against the envelope's own
+  shapes (pads, mask, silk and body under a physical envelope, the courtyard under a courtyard one): the part stands the gap
+  off the nearest shape it faces, and a mark holds it off only where it stands over the mark. Where the nearer standoff would
+  put the part in the way of something else already placed (another part's silk, a reservation, the edge), the part is moved
+  on out along its side to the first place the collision rule allows (`place.beside_step`, up to `place.beside_reach`); with
+  none within reach it stays at the standoff and the collision is reported as before. A rider and `copper=True` are laid as
+  before, and so are a keepout or an escape item, a `Past` that turns a corner, and `row(of=)`.
+  Placement also allows for the copper a script declares (`place.copper_room`, on): the firm items are placed again, as many
+  times as it takes (`place.firm_passes`), against where the tracks and vias declared between them are planned to go, so a
+  `Beside` part stands where there is room for them; a track or via whose end is a searched part is planned as soon as that
+  part is placed, for the parts placed after it. A part that stands nearer than the box put it and is an end of copper that
+  then meets other copper goes back to the box's distance. A `Beside` part that a firm `Beside` part placed before it kept
+  from standing is placed before that part (its step says so). A track still moving at the last pass is `fixed.room_unsettled`;
+  a part for which no place within reach keeps the copper's room is `fixed.room`. `place.copper_room = false` places as before.
+  A script placing a part `Beside` one with a corner mark gets that part nearer; a later part aligned level with it follows. A
+  searched part can land elsewhere than it did, with what it is linked to at another distance.
+
 ## To 0.94.1
 
 ### New

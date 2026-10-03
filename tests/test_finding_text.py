@@ -43,6 +43,12 @@ SAMPLES = [
     (C.FIXED_CUTOUT, {"name": "slot", "why": Refusal(Code.CUTOUT_OUTSIDE).to_json()}, "slot (cutout): reaches outside the board"),
     (C.FIXED_KEEPOUT, {"name": "ant", "why": Refusal(Code.CUTOUT_NOWHERE, nearest=None).to_json()},
      "ant (keepout): has nowhere legal to go: nowhere on the board"),
+    (C.FIXED_ROOM, {"item": "c1", "copper": "track SIG", "net": "SIG", "side": "north", "reach_mm": 2.0},
+     "c1 (beside): no place within 2.00 mm of its standoff, on its north side, keeps clear of the planned track SIG (net SIG): "
+     "it stays at the standoff"),
+    (C.FIXED_ROOM_UNSETTLED, {"copper": "track SIG", "moved_mm": 0.2, "passes": 4},
+     "track SIG: the copper still moved by 0.200 mm between the last two of 4 passes over the firm items, so what stands beside "
+     "it was placed against its last plan"),
     (C.COPPER_KEEPOUT, {"word": "track", "net": "A", "keepout": "ant", "why": "an antenna"},
      "track A crosses keepout 'ant' (an antenna): a track goes exactly where it is put, so move it, reshape it, or name its "
      "net in the keepout's allow="),
