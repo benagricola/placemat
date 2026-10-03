@@ -83,6 +83,21 @@ laid later. Zones are for planes and ground fills only.
   named pads or vias; a pour written as a zone; pull-back, or converting a
   fitted polygon to a zone.
 
+### Structured data inside, text at the edge
+
+Functions return values and records, and every event or document sent over
+a socket or pipe (the live channel, the studio worker, router events, plan
+JSON) carries fields: enums, numbers, names, ids, facts. A sentence is
+rendered only where it is shown to a person: the console, `placemat watch`,
+the studio page.
+
+- **Why:** a sentence can't be filtered, counted, compared or rendered
+  another way, and a reader that parses one breaks when the wording changes.
+- **Breaking it looks like:** an event field holding prose (a phase "text",
+  a step "note" sentence, a refusal's "text"); a function returning a
+  formatted line its caller splits or matches; a reader that regexes a
+  message to recover a number or a name.
+
 ## Decide alone / ask first
 
 The agent decides alone:
