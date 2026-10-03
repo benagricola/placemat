@@ -182,7 +182,7 @@ class Resolved:
 
 
 @contextmanager
-def resolved(script, out=None, explore=None, quiet: bool = False, progress=None, on_step=None, cache=None,
+def resolved(script, out=None, explore=None, quiet: bool = False, progress=None, on_step=None, on_begin=None, cache=None,
              on_board=None):
     """Place the board as a run does - the cached generation, the settings,
     the fab profile, the script, the newest of the last view's record and the
@@ -242,7 +242,7 @@ def resolved(script, out=None, explore=None, quiet: bool = False, progress=None,
             explore, say)
         from . import routes as routes_mod
         plan = board.resolve(reuse=previous, lock=lock_entries, routes=routes_mod.read(routes_mod.path_for(script)),
-                             progress=progress, on_step=on_step)
+                             progress=progress, on_step=on_step, on_begin=on_begin)
         held = explore_mod.lock_summary(plan)
         if held and not quiet:
             console.say("lock", held)

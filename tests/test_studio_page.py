@@ -752,3 +752,46 @@ ev("plan().congestion = {cell: 0.5, origin: [0, 0], worst: 1.4, worst_at: [2, 2]
     assert len(set(out["cols"])) == 5 and out["cols"][-1] == out["cols"][-2]                       # distinct hues up to the top of the scale
     assert 'class="fcu l-F" data-l="F.Cu"' in out["board"] and 'class="fcu l-In" data-l="In1.Cu"' in out["board"]
     assert 'class="lgscale"' in out["legend"] and 'data-info="marks"' in out["legend"]
+
+
+@needs_node
+def test_a_resolve_in_progress_shows_a_spinner_the_time_the_steps_and_the_step_being_worked_on(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD);
+out.start = [els["#progress"].hidden, els["#progtext"].textContent];
+send("begin", {id: 1, kind: "total", items: 24, searched: 18, copper: 6, replay: 0});
+send("step", {id: 1, item: item("a", 1)});
+send("begin", {id: 1, kind: "begin", item: "psu", what: "searched", rank: 7, of: 18, replaying: false, n: 3});
+send("begin", {id: 1, kind: "phase", text: "scanning the front or back", hint: [6, 8], radius: 12});
+clock += 3200;
+out.prog = [els["#progress"].hidden, els["#progtext"].textContent, els["#progbar"].style.width, els["#progbarbox"].classList];
+ev("renderSteps()"); out.pending = els["#tab-steps"].innerHTML;
+out.mark = ev("S.work.cur");
+send("step", {id: 1, item: Object.assign(item("psu", 5), {key: "psu"})});
+out.after = [ev("S.work.cur"), els["#tab-steps"].innerHTML.indexOf("pendrow") < 0 || els["#tab-steps"].innerHTML.indexOf("waiting for the next step") > 0];
+finish(1, ["a", "b", "c"]);
+out.done = [els["#progress"].hidden, ev("S.work")];
+""")
+    assert out["start"][0] is False and "step 0" in out["start"][1] and "so far" in out["start"][1]
+    assert out["prog"][0] is False and "step 1 of about 30" in out["prog"][1] and "searching psu" in out["prog"][1] and out["prog"][2] == "3%"
+    assert 'id="pendrow"' in out["pending"] and "<b>psu</b>" in out["pending"] and "searching" in out["pending"] and "rank 7 of 18" in out["pending"] and "scanning the front or back" in out["pending"] and "3.2 s" in out["pending"]
+    assert out["mark"]["hint"] == [6, 8] and out["mark"]["rank"] == 7
+    assert out["after"][0] is None and out["done"] == [True, None]
+
+
+@needs_node
+def test_replayed_steps_are_one_pending_row_not_a_flicker_of_rows(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); send("board", BOARD);
+send("begin", {id: 1, kind: "total", items: 3, searched: 0, copper: 0, replay: 3});
+send("begin", {id: 1, kind: "begin", item: "a", what: "decided", rank: null, of: null, replaying: true, n: 0});
+send("step", {id: 1, item: item("a", 1)});
+send("begin", {id: 1, kind: "begin", item: "b", what: "decided", rank: null, of: null, replaying: true, n: 1});
+out.row = els["#tab-steps"].innerHTML; out.replayed = ev("S.work.replayed");
+out.text = els["#progtext"].textContent;
+send("begin", {id: 1, kind: "begin", item: "c", what: "searched", rank: 1, of: 1, replaying: false, n: 2});
+out.after = els["#tab-steps"].innerHTML;
+""")
+    assert out["replayed"] == 1 and "replaying unchanged steps" in out["row"] and "1 of 3 steps replayed" in out["row"] and out["row"].count('id="pendrow"') == 1
+    assert "replaying unchanged steps" in out["text"]
+    assert "replaying unchanged steps" not in out["after"] and "searching" in out["after"]

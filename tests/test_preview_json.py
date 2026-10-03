@@ -192,3 +192,25 @@ def test_copper_and_cutout_steps_are_told_to_on_step_as_they_settle_with_what_th
     assert cu and {op["t"] for e in cu for op in e["ops"]} >= {"track", "via"}
     cut = next(e for k, _, e in seen if k == "cutout")
     assert cut["cutout"] and len(cut["cutout"]) > 4
+
+
+def test_the_engine_tells_on_begin_the_queue_each_item_it_starts_and_what_a_long_step_is_doing():
+    b = _board()
+    seen = []
+    plan = b.resolve(on_begin=lambda p, info: seen.append(("begin", info)), on_step=lambda p, s: seen.append(("step", s.item)))
+    assert seen[0][1]["kind"] == "total" and seen[0][1]["items"] >= 5 and seen[0][1]["searched"] >= 1
+    begins = [i for k, i in seen if k == "begin" and i["kind"] == "begin"]
+    searched = [i for i in begins if i["what"] == "searched"]
+    assert searched and all(i["rank"] and i["of"] >= i["rank"] for i in searched)
+    assert {"decided", "copper"} <= {i["what"] for i in begins}
+    phases = [i["text"] for k, i in seen if k == "begin" and i["kind"] == "phase"]
+    assert any(x.startswith("scanning") for x in phases) and any(x.startswith("seeding") for x in phases)
+    hint = next(i for k, i in seen if k == "begin" and i.get("hint"))
+    assert len(hint["hint"]) == 2
+    order = [(k, i["item"] if k == "begin" else i) for k, i in seen if k == "step" or (k == "begin" and i["kind"] == "begin")]
+    for n, (k, item) in enumerate(order):
+        if k == "step" and item in {b_["item"] for b_ in begins if b_["what"] in ("searched", "decided")}:
+            assert ("begin", item) in order[:n]                         # a placement is announced before it settles
+    plain = _board().resolve()
+    assert [s.item for s in plain.steps] == [s.item for s in plan.steps]
+    assert [(s.item, s.placement) for s in plain.steps] == [(s.item, s.placement) for s in plan.steps]

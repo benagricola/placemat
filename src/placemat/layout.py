@@ -6001,7 +6001,16 @@ class Board:
 
     reuse_extra = ""        # what the runner adds to the reuse context: tool version, board file, settings, fab profile
 
-    def resolve(self, progress=None, reuse=None, explore=None, lock=None, routes=None, on_step=None) -> Plan:
+    def _phase(self, text: str, **info) -> None:
+        """Tell a viewer what the step being worked on is doing now (`on_begin`); nothing when none listens."""
+        f = self._on_begin
+        if f is not None:
+            f(self._begin_plan, {"kind": "phase", "text": text, **info})
+
+    _on_begin = None
+    _begin_plan = None
+
+    def resolve(self, progress=None, reuse=None, explore=None, lock=None, routes=None, on_step=None, on_begin=None) -> Plan:
         self._check_groups()                # what a declared group may hold, before the search
         self._annotations = exposure.read(self.geometry)    # sources and sensitive parts (Pm.Emits, Pm.Limit); refuses a unit mismatch
         self._part_keep_outs()              # the clearances the parts' Pm.KeepOut ask of other nets' copper; refuses one with no citation
@@ -6043,6 +6052,8 @@ class Board:
                     thinned=thinned)
         if on_step:
             plan.steps = _FedSteps(plan, on_step)
+        self._on_begin, self._begin_plan = on_begin, plan
+        occ.on_phase = (lambda text, **info: self._phase(text, **info)) if on_begin else None
         ctx = _CopperContext(self, occ)
         ctx.plan = plan
         self._escape_ctx = ctx              # what a lane's via is judged by (_LaneEnv)
@@ -6069,6 +6080,10 @@ class Board:
         fixed_copper = [c for c in self._copper if c.freedom.decided and c.index not in held]
         other_copper = [c for c in self._copper if not c.freedom.decided and c.index not in held]
         placed: set = set()
+        if on_begin:                        # what is ahead, as far as it is known now: the items, how many are searched, the copper
+            on_begin(plan, {"kind": "total", "items": sum(1 for i in placements if not isinstance(i, KeepoutIntent)),
+                            "searched": sum(1 for i in placements if not getattr(i.freedom, "decided", True)),
+                            "copper": len(self._copper), "replay": len(previous) if previous else 0})
         self._place_fanouts(occ, plan, placed, progress)
         self._place_escapes(occ, plan, placed, progress)
         self._place_labels(occ, plan, placed, progress)        # labels on parts the script never moves
@@ -6190,6 +6205,14 @@ class Board:
             position = len(record["steps"])
             if chain["replaying"] and not (position < len(previous) and previous[position]["key"] == key):
                 chain["replaying"] = False
+            if on_begin:
+                decided = getattr(obj.freedom, "decided", True)
+                on_begin(plan, {"kind": "begin", "item": getattr(obj, "key", None) or getattr(obj, "name", ""),
+                                "what": "keepout" if isinstance(obj, KeepoutIntent) else "cutout" if isinstance(obj, CutoutIntent)
+                                else "decided" if decided else "searched",
+                                "rank": self._rank_of.get(getattr(obj, "key", None)) if not decided else None,
+                                "of": len(self._rank_of) if not decided else None,
+                                "replaying": bool(chain["replaying"]), "n": position})
             if isinstance(obj, (KeepoutIntent, CutoutIntent)):
                 record["steps"].append({"key": key})
                 if chain["replaying"]:
@@ -7268,6 +7291,9 @@ class Board:
         """Plan a batch of copper together. Tracks are collected first and
         their crossings settled by priority; pours, zones, vias and fingers
         follow (a finger yields to every track already planned)."""
+        if self._on_begin is not None and intents:
+            self._on_begin(plan, {"kind": "begin", "item": "copper", "what": "copper", "rank": None, "of": None,
+                                  "replaying": False, "n": len(plan.steps), "count": len(intents)})
         tracks, others = [], []
         deferred = []
         ctx.batch_tracks = []
@@ -8442,6 +8468,8 @@ class Board:
         push_sources = self._reserve_pushes(occ, plan, i)
         if i.freedom.decided:
             p, chose = self._firm_placement(occ, plan, i)
+            if self._on_begin is not None:
+                self._phase("placing at its declared spot", hint=[round(p.location.x, 3), round(p.location.y, 3)])
             self._labels_give_way(occ, plan, i.item, p)     # a user's label moves, the part does not
             # its carried vias, and those of the items placed before it, may give way (giveway.py):
             # its commit does what this found
@@ -8466,6 +8494,8 @@ class Board:
         locked = self._settle_locked(occ, i, plan, clr)
         if locked is not None:
             return locked
+        if self._on_begin is not None:
+            self._phase("seeding from its connections")
         targets = self._targets(i.item, occ, placed)
         seeded = ""
         solved = None
@@ -8532,6 +8562,8 @@ class Board:
         if hopeless:
             plan.findings.append(Finding("unplaced", "%s: %s" % (i.key, hopeless)))
             return self._step(i, None, 0.0, "UNPLACED: " + hopeless)
+        if self._on_begin is not None:
+            self._phase("scanning the %s" % self._face_text(i), hint=[round(hint.location.x, 3), round(hint.location.y, 3)], radius=round(radius, 2))
         result, face_note = self._scan_faces(occ, i, hint, radius, clr, score, accept,
                                              reseed=(targets if i.near is None and solved is None else None),
                                              turns_at=bt, within=within,

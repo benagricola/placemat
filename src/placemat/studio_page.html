@@ -72,6 +72,23 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; pad
 .pill.busy i { animation: pulse 1s ease-in-out infinite; }
 .pill.stale { background: var(--warn-soft); color: var(--warn); }
 .pill.error { background: var(--bad-soft); color: var(--bad); }
+/* a resolve is running: a spinner, the time, the steps so far, and the step being worked on */
+.prog { display: inline-flex; align-items: center; gap: 8px; color: var(--accent); font-size: 12px; font-weight: 600; min-width: 0; }
+.prog[hidden] { display: none; }
+.spin { display: inline-block; flex: none; width: 13px; height: 13px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.prog .bar { width: 96px; height: 5px; border-radius: 3px; background: var(--surface2); overflow: hidden; flex: none; }
+.prog .bar b { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.3s; }
+.prog .bar.ind b { width: 35%; animation: slide 1.3s ease-in-out infinite; }
+@keyframes slide { from { margin-left: -35%; } to { margin-left: 100%; } }
+.row.pending { cursor: default; align-items: flex-start; background: var(--accent-soft); }
+.row.pending .i { display: flex; justify-content: flex-end; padding-top: 4px; }
+.row.pending .pbar { height: 3px; border-radius: 2px; background: var(--surface2); margin-top: 4px; overflow: hidden; }
+.row.pending .pbar b { display: block; height: 100%; background: var(--accent); }
+.workmark circle { fill: none; stroke: var(--accent); stroke-width: 2px; vector-effect: non-scaling-stroke; pointer-events: none; }
+.workmark .wm2 { animation: wm 1.2s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes wm { from { transform: scale(0.6); opacity: 0.9; } to { transform: scale(2.4); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .spin, .workmark .wm2, .prog .bar.ind b { animation-duration: 3s; } }
 @keyframes pulse { 50% { opacity: 0.25; } }
 #stats { display: flex; gap: 4px 16px; margin-left: auto; white-space: nowrap; overflow-x: auto; scrollbar-width: none; color: var(--dim); }
 #stats::-webkit-scrollbar { display: none; }
@@ -340,6 +357,8 @@ svg text { user-select: none; font-family: var(--sans); }
   body { font-size: 15px; }
   header { padding: 8px 12px 6px; gap: 2px 10px; }
   .brand { flex: 1 1 0; }
+  .prog { flex: 1 1 100%; order: 9; } .prog .bar { flex: 1; width: auto; }
+  #progtext { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #script, #script.full { left: 0; right: 0; top: var(--hh); bottom: 0; width: auto; max-height: none; border-radius: 0; border-width: 1px 0 0; }
   #script #scriptfull { display: none; }
   #stats { margin-left: 0; width: 100%; gap: 14px; font-size: 13px; }
@@ -385,6 +404,7 @@ svg text { user-select: none; font-family: var(--sans); }
 <header>
   <button class="brand" id="brandbtn" aria-haspopup="menu" aria-expanded="false" title="switch to another layout script"><b id="board-title">placemat studio</b><span id="board-sub"></span><span class="chev">&#9662;</span></button>
   <span class="pill" id="status"><i></i><span id="statustext">connecting</span></span>
+  <span class="prog" id="progress" hidden><i class="spin"></i><span id="progtext"></span><span class="bar" id="progbarbox"><b id="progbar"></b></span></span>
   <button class="tool" id="runbtn" title="a checked run: the design checks, KiCad's DRC and the score, recorded (no render)">Run</button>
   <button class="tool" id="srcbtn" title="the layout script, at the selected item's line">Source</button>
   <div id="stats"></div>
@@ -450,6 +470,7 @@ const S = {
   follow: true,                // shown follows the latest resolve
   sel: null, marked: new Set(), selLine: null,
   focus: null,                 // the finding being looked at: {refs, pads}, lit on the board
+  work: null,                  // the resolve in progress: {t0, total, cur, replayed}, from the engine's begin notices
   scriptOpen: false, scriptFull: false, scriptWhole: false,     // the script dialog
   runs: [], run: null, lastRun: null, openRuns: new Set(),      // recorded runs of the script, the run in progress, the one that just ended
   replay: null,                // null: every placement step shown; k: the first k placement steps
@@ -537,7 +558,7 @@ on("run_started", d => { S.run = {id: d.id, lines: [], t0: d.at}; S.lastRun = nu
 on("run_line", d => { if (S.run) { S.run.lines.push(d.text); if (S.run.lines.length > 200) S.run.lines.shift(); schedule("compare"); } });
 on("run_done", d => { S.run = null; S.lastRun = d; S.runs = d.runs || S.runs; if (d.run) S.openRuns.add(d.run.id); schedule("status", "compare"); });
 on("switched", d => {                     // the studio now watches another layout script: nothing of the old one stays
-  stopPlay();
+  stopPlay(); S.work = null;
   S.docs.clear(); S.live = null; S.shownId = null; S.latestId = null; S.cmp = null; S.baseId = null; S.texts = {}; S.changed = [];
   S.sel = null; S.selRef = null; S.module = null; S.selRegion = null; S.marked = new Set(); S.replay = null; S.liveQ = [];
   S.file = null; S.cmpFile = null; S.stale = false; S.status = "waiting"; S.follow = true; S.view = null; lay = null;
@@ -560,8 +581,19 @@ on("started", d => {
             congestion: null, findings: [], unplaced: [], pocketed: [], counts: {placed: 0, findings: 0}, score: null, fromStart: true};
   S.shownId = null; S.cmp = null; S.replay = null; S.liveQ = [];
   S.marked = new Set();
+  S.work = {t0: Date.now(), total: null, cur: null, replayed: 0};
   schedule("all");
 });
+const ensureWork = () => { if (S.resolving && !S.work) S.work = {t0: Date.now(), total: null, cur: null, replayed: 0}; return S.work; };
+on("begin", d => {                         // the engine is starting an item, or says what a long step is doing
+  if (!S.live || d.id !== S.live.id || !ensureWork()) return;
+  const w = S.work;
+  if (d.kind === "total") { w.total = d; schedule("status"); return; }
+  if (d.kind === "begin") { w.cur = {item: d.item, what: d.what, rank: d.rank, of: d.of, replaying: d.replaying, n: d.n, t: Date.now(), phase: "", hint: null}; schedule("status", "steps"); drawWorkMark(); return; }
+  if (w.cur) { w.cur.phase = d.text; if (d.hint) w.cur.hint = d.hint; updatePending(); if (d.hint) drawWorkMark(); }
+});
+let liveTimer = null;
+const liveRender = () => { if (!liveTimer) liveTimer = setTimeout(() => { liveTimer = null; schedule("board", "steps", "replay", "counts"); }, 300); };
 on("board", d => { if (!S.live || d.id !== S.live.id) return; S.live.board = d.board; S.live.keepouts = d.keepouts; S.live.reservations = d.reservations; if (!S.view) fit(); schedule("board"); });
 on("step", d => {                          // a step as it settles: it joins the timeline, the list and the drawing at once
   if (!S.live || d.id !== S.live.id) return;
@@ -573,7 +605,10 @@ on("step", d => {                          // a step as it settles: it joins the
   L.steps.push(entry);
   if (it.placed && isDrawn(it)) { if (at >= 0) L.items[at] = it; else L.items.push(it); }
   else if (!it.placed && (it.kind === "part" || it.kind === "cell" || it.kind === "block")) L.unplaced.push({item: it.key, why: it.note});
-  schedule("board", "steps", "replay", "counts");
+  const w = S.work, replaying = !!(w && w.cur && w.cur.replaying);
+  if (w) { if (replaying) w.replayed++; if (w.cur && (w.cur.item === it.key || it.kind === "copper")) w.cur = null; }
+  if (replaying) liveRender();                // a replay of unchanged steps is a quick run of them: drawn a few times a second
+  else schedule("board", "steps", "replay", "counts", "status");
 });
 on("copper", d => { if (S.live && d.id === S.live.id) { S.live.copper = d.copper; schedule("board"); } });
 on("links", d => { if (S.live && d.id === S.live.id) { S.live.links = d.links; schedule("board"); } });
@@ -588,6 +623,7 @@ on("items", d => {
 on("finished", d => {
   const L = S.live;
   if (!L || d.id !== L.id) return;
+  S.work = null;
   L.counts = d.counts; L.score = d.score;
   const rec = {id: d.id, doc: L, texts: S.texts, changed: S.changed, timing: d.timing, reused: d.reused, notes: d.notes};
   S.docs.set(d.id, rec);
@@ -598,11 +634,11 @@ on("finished", d => {
 on("compare", d => {
   if (S.follow && S.shownId === d.b) { setCompare(d); }
 });
-on("cancelled", d => { if (S.resolving === d.id) { S.resolving = null; S.status = "stale"; schedule("status", "board"); } });
-on("superseded", d => { if (S.resolving === d.id) { S.resolving = null; S.status = "stale"; schedule("status", "board"); } });
+on("cancelled", d => { if (S.resolving === d.id) { S.work = null; S.resolving = null; S.status = "stale"; schedule("status", "board"); } });
+on("superseded", d => { if (S.resolving === d.id) { S.work = null; S.resolving = null; S.status = "stale"; schedule("status", "board"); } });
 on("error", d => {
   stopPlay();
-  S.resolving = null; S.error = d; S.status = "error"; S.stale = true;
+  S.work = null; S.resolving = null; S.error = d; S.status = "error"; S.stale = true;
   const last = S.docs.get(S.latestId);
   if (last && S.follow) { S.shownId = last.id; S.texts = Object.assign({}, last.texts, S.texts); }
   schedule("all");
@@ -678,6 +714,52 @@ function renderStatus() {
     n.className = ""; n.style.display = "block"; n.textContent = rec.notes.join("; ") + (rec.reused ? "" : "");
   } else n.style.display = "none";
   $("#boardwrap").classList.toggle("stale", S.stale && !S.resolving);
+  renderProgress();
+}
+// ---------------------------------------------------------------- a resolve in progress
+const fmtDur = ms => { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+const WHAT_WORD = {searched: "searching", decided: "deciding", copper: "laying copper", cutout: "cutting", keepout: "keepout"};
+// The queue's size as far as the engine knows it up front: the items to place and the copper declared.
+const workTotal = w => w && w.total ? w.total.items + w.total.copper : 0;
+function renderProgress() {
+  const w = S.work, on = !!(S.resolving && w), el = $("#progress");
+  el.hidden = !on;
+  if (!on) return;
+  const p = plan(), n = p ? replaySteps(p).length : 0, T = workTotal(w), c = w.cur;
+  const bits = [fmtDur(Date.now() - w.t0), "step " + n + (T ? " of about " + T : " so far")];
+  if (w.replayed && (!c || c.replaying)) bits.push("replaying unchanged steps");
+  else if (c) bits.push((WHAT_WORD[c.what] || c.what) + " " + c.item);
+  $("#progtext").textContent = bits.join(" - ");
+  const box = $("#progbarbox"); box.classList.toggle("ind", !T);
+  $("#progbar").style.width = T ? Math.min(100, Math.round(100 * n / T)) + "%" : "";
+}
+function pendingRow() {
+  const w = S.work; if (!S.resolving || !w) return "";
+  const c = w.cur, R = w.total ? w.total.replay : 0;
+  if (w.replayed && (!c || c.replaying)) {
+    return '<div class="row pending" id="pendrow"><span class="i"><i class="spin"></i></span><div class="sb"><div class="l1"><b>replaying unchanged steps</b><span class="chip decided">replay</span></div><div class="l2" id="pendtext">' + w.replayed + (R ? " of " + R : "") + " steps replayed from the last resolve</div>" +
+      (R ? '<div class="pbar"><b style="width:' + Math.min(100, Math.round(100 * w.replayed / R)) + '%"></b></div>' : "") + "</div></div>";
+  }
+  if (!c) return '<div class="row pending" id="pendrow"><span class="i"><i class="spin"></i></span><div class="sb"><div class="l1"><b>working</b></div><div class="l2" id="pendtext">waiting for the next step</div></div></div>';
+  const cls = c.what === "searched" ? "searched" : c.what === "decided" ? "decided" : c.what === "copper" ? "copper" : c.what === "cutout" ? "cutout" : "keepout";
+  return '<div class="row pending" id="pendrow"><span class="i"><i class="spin"></i></span><div class="sb"><div class="l1"><b>' + esc(c.item) + '</b><span class="chip ' + cls + '">' + esc(WHAT_WORD[c.what] || c.what) + '</span></div><div class="l2" id="pendtext">' + esc(pendingText(c)) + "</div></div></div>";
+}
+const pendingText = c => [c.rank ? "rank " + c.rank + " of " + c.of : "", c.phase, ((Date.now() - c.t) / 1000).toFixed(1) + " s"].filter(Boolean).join(", ");
+// The pending row's own text and the header's, refreshed without drawing the lists again.
+function updatePending() {
+  const w = S.work, c = w && w.cur, el = $("#pendtext");
+  if (c && el && !c.replaying) el.textContent = pendingText(c);
+  renderProgress();
+}
+setInterval(() => { if (S.resolving && S.work) updatePending(); }, 500);
+// The item being worked on is marked where it is being tried: a pulsing ring at its hint, once the engine has one.
+function drawWorkMark() {
+  if (!B.svg || !B.svg.querySelectorAll) return;
+  for (const e of B.svg.querySelectorAll(".workmark")) e.remove();
+  const c = S.work && S.resolving && S.work.cur;
+  if (!c || !c.hint) return;
+  const g = '<g class="workmark"><circle class="wm1" cx="' + num(c.hint[0]) + '" cy="' + num(c.hint[1]) + '" r="1.2"/><circle class="wm2" cx="' + num(c.hint[0]) + '" cy="' + num(c.hint[1]) + '" r="1.2"/></g>';
+  for (const panel of B.svg.querySelectorAll(".panel")) panel.insertAdjacentHTML("beforeend", g);
 }
 function renderCounts() {
   const p = plan(), c = {steps: replaySteps(p).length, findings: ((p && p.findings) || []).length, compare: S.cmp && !S.cmp.diff.empty ? S.cmp.diff.moved.length + S.cmp.diff.added.length + S.cmp.diff.removed.length : 0};
@@ -895,6 +977,7 @@ function renderBoard() {
   const defs = "<defs>" + arrowMarker("arrow", "") + arrowMarker("ar-ok", "ok") + arrowMarker("ar-over", "over") + arrowMarker("ar-free", "free") + "</defs>";
   svg.innerHTML = defs + lay.panels.map((pn, k) => panelSVG(p, pn, k === 0, order, diffLayer)).join("");
   indexBoard(svg, order.length);
+  drawWorkMark();
   if (!S.view) fit(); else applyView();
 }
 const pushTo = (map, key, v) => { const l = map.get(key); if (l) l.push(v); else map.set(key, [v]); };
@@ -1646,7 +1729,7 @@ function renderSteps() {
   const order = replaySteps(p), other = otherSteps(p);
   const unplaced = p.unplaced || [];
   const head = (title, n, id, info) => "<h3>" + title + (info ? infoBtn(info) : "") + ' <span class="c"' + (id ? ' id="' + id + '"' : "") + ">" + n + "</span></h3>";
-  let out = head("Steps", order.length + (S.resolving ? " so far" : ""), "stepcount", "steps") + '<div id="steplist">' + order.map(s => stepRow(s, p)).join("") + "</div>";
+  let out = head("Steps", order.length + (S.resolving ? " so far" : ""), "stepcount", "steps") + '<div id="steplist">' + order.map(s => stepRow(s, p)).join("") + pendingRow() + "</div>";
   if (unplaced.length) out += head("Not placed", unplaced.length) + unplaced.map(u => '<div class="row" data-item="' + esc(u.item) + '"><span class="k">' + esc(u.item) + '</span><span class="chip unplaced">unplaced</span><span class="n wrap">' + esc(u.why) + "</span></div>").join("");
   if (other.length) {
     out += '<h3 class="fold" data-fold="other">' + (S.showOther ? "&#9662;" : "&#9656;") + " Keepouts and setup steps" + infoBtn("other") + ' <span class="c">' + other.length + "</span></h3>";

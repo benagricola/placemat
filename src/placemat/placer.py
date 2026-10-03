@@ -433,10 +433,13 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
         return pts if within is None else [p for p in pts if within(p[1], p[2])]
 
     cfg = occ.settings
+    phase = getattr(occ, "on_phase", None)             # a viewer's note of which pass a long scan is in
     if score is None or radius / step < cfg.place_coarse_from:
         legal = sweep(((x, y) for _, x, y in grid(hint.location, radius, step)), stop_at_first=score is None)
     else:
         coarse = step * cfg.place_coarse_steps
+        if phase:
+            phase("coarse pass over the radius")
         legal = sweep(((x, y) for _, x, y in grid(hint.location, radius, coarse)), False)
         if not any_counted(legal):
             legal += sweep(((x, y) for _, x, y in grid(hint.location, radius, coarse / 2)), False)
@@ -454,7 +457,9 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             if accept is not None:
                 seeds += [cand for _, _, _, cand in counted(legal, cfg.place_refine_around)
                           if not any(cand is seed for seed in seeds)]
-            for cand in seeds:
+            for k, cand in enumerate(seeds):
+                if phase:
+                    phase("refining around the best spots: %d of %d" % (k + 1, len(seeds)))
                 # The fine grid is centred on a coarse candidate, which can sit at
                 # the edge of the radius: keep only what is still inside it, so
                 # "within radius of the hint" is what a script gets.

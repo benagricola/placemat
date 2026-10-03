@@ -584,6 +584,8 @@ class Studio:
                 self.hub.emit("board", {k: v for k, v in ev.items() if k not in ("ev", "id")} | {"id": rid}, keep=True)
             elif kind == "item":
                 self.hub.emit("step", {"id": rid, "item": self._named(ev["item"]), **{k: ev[k] for k in ("ops", "cutout") if k in ev}}, keep=True)
+            elif kind == "begin":
+                self.hub.emit("begin", {k: v for k, v in ev.items() if k != "ev"})        # transient: a page that joins late hears the next
             elif kind == "cancelled":
                 self._finish_cancel()
             elif kind == "error":
