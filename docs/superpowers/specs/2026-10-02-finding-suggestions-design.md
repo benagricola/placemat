@@ -941,8 +941,21 @@ blocker's gap or side, the search radius, a fanout depth, a turn, a chamfer or a
 and the tuning limits (`via_move`, `via_leave`, `bearing_step`, `block_gap_reach`, `escape_via_reach`) where their bounds
 can be given.
 
-Until phase 6, the core's `suggest_factor` suggestions stay as built, marked in their comment as derived from a factor; phase
-6 replaces them.
+The core's `suggest_factor` suggestions are removed in phase 4, with the setting: a wider radius, a finer step, `via_move`,
+`via_leave`, `block_gap_reach`, `escape_via_reach`, `bearing_step` and the smaller label, chamfer and arc radius are not
+offered until phase 6 (or an instant lever) has a measurement behind them. The arc radius is offered where the misfit measures
+it (the radius times the leg's length over what its arcs take).
+
+### As built in phase 4
+
+`refusals.py` holds `Refusal` (a code and JSON facts; `str()` renders its sentence, `bucket` is what a scan counts it under),
+`Owner` (who a refusal blamed, hashable, so the scan's `blockers` counter keys on it) and `ReservedBy` (what a reservation was
+made by); `blame.py` turns a scan's counts into the facts of a blame, and `finding_text.py` renders every cause, a blame and
+the notes a step carries. Occupancy, the edge shapes (`EdgeWhy`, not a sentence), the give-way search, the lanes, the queries,
+the adopted routes and the cutout checks return them. A `Step` has `unplaced`, `lock` and `pocket` fields where consumers read
+the note. Not converted, because they are not findings and no consumer reads them: the `Step.note` log lines (rendered from
+the same data where a finding shares them), the plane-mismatch lines of `placemat facts`, and exception messages for script
+errors.
 
 ### The original phases
 
