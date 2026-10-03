@@ -16,6 +16,9 @@ file. An item cites its source as "a board's session, <date>".
   written, `2026-10-03-declared-copper-room-design.md`): room is kept for the
   tracks a script declares, so placement never squeezes them.
 
+- **Board builder** (spec `2026-10-03-studio-board-builder-design.md`): being
+  built, phases B0-B4, alongside studio round 10.
+
 ## Next, in order
 
 Specced work first, then the loose ends.
@@ -31,7 +34,6 @@ Specced work first, then the loose ends.
    spec, "Live channel"): per-net events from the router through hooks, the
    route record in laid order, the timeline running from first placement to
    last routed net.
-3. **Board builder** (spec `2026-10-03-studio-board-builder-design.md`).
 4. **Studio 3D with live models** (spec `2026-10-03-studio-3d-design.md`).
 5. **Suggestions phase 7: the improve loop** (recommended in the suggestions
    work; needs a short design): instant suggestions tried on an overlay,
