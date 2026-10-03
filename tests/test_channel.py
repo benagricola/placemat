@@ -306,3 +306,37 @@ def test_a_routes_events_reach_a_late_reader_in_order_and_describe_one_line_per_
         rep.send({"ev": "route_commit", "net": "B", "how": "route", "seg": [], "via": []})
     assert rep.route_truncated and len(rep.route_log) == 7 and rep.route_log[-1]["ev"] == "route_truncated"
     channel.finish()
+
+
+def test_a_command_in_a_board_folder_and_watch_from_the_workspace_root_use_one_sockets_folder(tmp_path):
+    from placemat.studio import project_root
+    (tmp_path / "pcb.toml").write_text('[workspace]\nname = "w"\n')
+    board = tmp_path / "boards" / "core"
+    board.mkdir(parents=True)
+    (board / "placemat.toml").write_text("")
+    script = board / "Core_layout.py"
+    script.write_text("")
+    rep = channel.reporter(script)
+    assert rep is not None
+    assert project_root(board) == project_root(tmp_path) == project_root(tmp_path / "boards") == tmp_path.resolve()
+    live, _ = channel.scan(channel.sockets_dir(project_root(tmp_path)))
+    assert [e["pid"] for e in live] == [os.getpid()]
+    assert not (board / ".placemat" / "sockets").exists()
+    out = io.StringIO()
+    t = threading.Thread(target=lambda: channel.watch(project_root(tmp_path), None, True, out), daemon=True)
+    t.start()
+    time.sleep(0.5)
+    channel.finish()
+    t.join(10)
+    assert "hello" in out.getvalue()
+
+
+def test_the_project_root_is_the_outermost_placemat_toml_or_workspace_above_the_board(tmp_path):
+    from placemat.studio import project_root
+    lone = tmp_path / "a" / "b"
+    lone.mkdir(parents=True)
+    assert project_root(lone) == lone.resolve()
+    (tmp_path / "a" / "placemat.toml").write_text("")
+    assert project_root(lone) == (tmp_path / "a").resolve()
+    (tmp_path / "pcb.toml").write_text("[workspace]\n")
+    assert project_root(lone) == tmp_path.resolve()

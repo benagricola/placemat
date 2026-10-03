@@ -3335,7 +3335,9 @@ and `--release NET ...` stops keeping a net.
 A command that resolves a board (`run`, `preview`, an explore inside them, `check`, `route`, whoever started it) owns a Unix
 socket for as long as it runs (Linux and macOS):
 
-- `<project root>/.placemat/sockets/<pid>.sock`, with `<pid>.json` beside it: `pid`, `command`, `script`, `args`,
+- `<project root>/.placemat/sockets/<pid>.sock` (the project root is the outermost folder above the board holding a
+  `placemat.toml` or a workspace `pcb.toml`, so `placemat watch` finds the command from any folder of the project), with
+  `<pid>.json` beside it: `pid`, `command`, `script`, `args`,
   `started`, `label` (from `--label`), `progress` (the trail's path) and `socket`. Both go when the command exits; a reader
   that finds an entry whose pid is gone removes it. A path too long for a socket address puts the socket under the
   temporary directory, named in the entry's `socket`.

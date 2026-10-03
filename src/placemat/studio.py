@@ -187,21 +187,25 @@ _SCAN_LIMIT = 20000         # files looked at when listing the layout scripts
 
 
 def project_root(board_dir) -> Path:
-    """The project a board belongs to: the folder of the outermost placemat.toml above it (what settings and script
-    imports treat as the root), else the workspace pcb.toml's, else the board's own folder."""
+    """The project a board belongs to: the outermost folder above it (or itself) holding a placemat.toml or a workspace
+    pcb.toml, else the board's own folder. One place per project: the command's socket (channel.py), `placemat watch`
+    and the studio all look under it, whichever folder of the project they start in."""
     from .settings import _files
     board_dir = Path(board_dir).resolve()
-    found = _files(board_dir)
-    if found:
-        return found[0].parent.resolve()
+    found = [f.parent.resolve() for f in _files(board_dir)]
+    outer = None
     d = board_dir
     while True:
         pt = d / "pcb.toml"
         if pt.is_file() and "[workspace]" in pt.read_text(errors="replace"):
-            return d
+            outer = d
         if d.parent == d:
-            return board_dir
+            break
         d = d.parent
+    candidates = found + ([outer] if outer else [])
+    if not candidates:
+        return board_dir
+    return min(candidates, key=lambda p: len(p.parts))
 
 
 def _module_level(node):
