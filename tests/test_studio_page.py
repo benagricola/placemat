@@ -607,7 +607,7 @@ click(".row.run"); out.open = els["#tab-compare"].innerHTML;
 els["#runbtn"].onclick(); out.post = fetched.map(([u, o]) => [u, o && o.method]);
 """)
     assert out["btn"] == ["Running...", True] and "step 12: usbpd.esd" in out["log"]            # the run's steps, from the channel, not its printed lines
-    assert out["done"][0] == "Run" and out["done"][1] is False
+    assert out["done"][0] == "Full run" and out["done"][1] is False
     d = out["done"][2]
     assert 'data-run="r1"' in d and "score 12.5" in d and "DRC 2" in d and 'data-cmp-run="r1"' in d and 'data-info="runs"' in d
     assert "Failed checks" in out["open"] and "hot-loop" in out["open"] and "2 real" in out["open"]
@@ -1056,7 +1056,7 @@ els["#menu"].hidden = true; els["#morebtn"].onclick();
 els["#menu"].onclick({target: {closest: s => s === "[data-more]" ? {dataset: {more: "share"}, disabled: false} : null}});
 out.share = els["#menu"].innerHTML;
 """)
-    for word in ("Run a checked run", "Resolve again", "Resolve from scratch", "Share this view", "Source"):
+    for word in ("Full run", "data-info=\"fullrun\"", "title=\"placemat run: writes the board", "Resolve again", "Resolve from scratch", "Share this view", "Source"):
         assert word in out["menu"]
     assert out["posts"] == ['{"fresh":true}'] and "listens only on 127.0.0.1" in out["share"]
 
@@ -1686,3 +1686,97 @@ out.both = [ev("S.face"), ev("S.pendingFrame && S.pendingFrame.face")]; flush();
     assert out["one"] == ["back", "back", True]          # one face shown, the part on the other: the view turns and frames it
     assert out["back"] == ["front", "front"]             # and back again for a front part
     assert out["both"] == ["both", "back"]               # both shown: stays on both, framed on the part's own panel
+
+
+@needs_node
+def test_a_duration_is_ms_below_a_second_tenths_of_a_second_and_minutes_above_a_minute(tmp_path):
+    out = run_page(tmp_path, r"""
+out.d = [0, 0.0004, 0.0123, 0.9994, 0.9996, 1, 4.23, 59.94, 59.96, 60, 65, 125.4, 3600].map(v => ev("dur(" + v + ")"));
+out.none = [ev("dur(null)"), ev("durOf(null, null)")];
+out.both = [ev("durOf({seconds: 0.01, first_seconds: 4.2}, null)"), ev("firstOf({seconds: 0.01, first_seconds: 4.2}, null)")];
+out.fresh = ev('durOf({seconds: 4.2, first_seconds: null}, null)');
+out.item = ev('durOf({}, {seconds: 0.5})');
+""")
+    assert out["d"] == ["0 ms", "0 ms", "12 ms", "999 ms", "1.0 s", "1.0 s", "4.2 s", "59.9 s", "1:00 min", "1:00 min", "1:05 min", "2:05 min", "60:00 min"]
+    assert out["none"] == ["", ""]
+    assert out["both"] == ["10 ms", "4.2 s"] and out["fresh"] == "4.2 s" and out["item"] == "500 ms"
+
+
+@needs_node
+def test_a_step_row_shows_its_time_and_the_total(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); finish(1, ["a", "b", "c"]);
+const L = ev("S.docs.get(1).doc");
+L.steps.forEach((s, i) => { s.seconds = 0.01 * (i + 1); if (i === 0) s.first_seconds = 4.2; });
+L.seconds = 12.34;
+ev("renderSteps()");
+out.steps = els["#tab-steps"].innerHTML;
+""")
+    s = out["steps"]
+    assert '<span class="dur" title="replayed in 10 ms; first took 4.2 s">10 ms</span>' in s
+    assert '<span class="dur" title="took 20 ms">20 ms</span>' in s
+    assert "resolved in 12.3 s" in s
+
+
+@needs_node
+def test_the_bar_shows_the_steps_done_and_the_share_of_the_step_under_way_only_where_a_phase_counts(tmp_path):
+    out = run_page(tmp_path, r"""
+WIDE = true;
+hello(); started(1); send("board", BOARD);
+send("begin", {id: 1, kind: "total", items: 8, searched: 4, copper: 0, replay: 0});
+send("step", {id: 1, item: item("a", 1)});
+send("step", {id: 1, item: item("b", 5)});
+send("begin", {id: 1, kind: "begin", item: "psu", what: "searched", rank: 1, of: 4, replaying: false, n: 2});
+const bar = () => [els["#progbar"].style.width, els["#proginn"].style.left, els["#proginn"].style.width];
+send("begin", {id: 1, kind: "phase", text: "coarse pass over the radius"});
+ev("renderProgress()"); out.coarse = bar();
+send("begin", {id: 1, kind: "phase", text: "refining around the best spots: 3 of 5", within: [3, 5]});
+ev("renderProgress()"); out.refining = bar(); out.head = els["#runhead"].innerHTML;
+send("begin", {id: 1, kind: "phase", text: "scanning the front"});
+ev("renderProgress()"); out.scan = bar();
+send("step", {id: 1, item: Object.assign(item("psu", 9), {key: "psu"})});
+ev("renderProgress()"); out.next = bar();
+out.parts = [ev("barParts(2, 8, 0.4)"), ev("barParts(2, 0, 0.4)"), ev("barParts(7.9, 8, 1)")];
+""")
+    assert out["coarse"] == ["25%", "25%", "0%"]                    # no fraction: the phase is shown, the bar does not move
+    assert out["refining"] == ["25%", "25%", "5%"]                  # 2 of 5 spots done, of one step in 8
+    assert 'class="p-in" style="left:25%;width:5%"' in out["head"] and 'class="p-done" style="width:25%"' in out["head"] and "refining 3 of 5" in out["head"]
+    assert out["scan"] == ["25%", "25%", "0%"]
+    assert out["next"][0] == "38%" and out["next"][2] == "0%"       # the step ended: the done part took its place
+    assert out["parts"][0] == {"done": 25, "within": 5} and out["parts"][1] == {"done": 0, "within": 0} and out["parts"][2]["within"] < 1.3
+
+
+@needs_node
+def test_the_legend_and_the_side_panel_fold_away_and_the_choice_is_kept(tmp_path):
+    out = run_page(tmp_path, r"""
+const saved = [];
+ctx.localStorage = {getItem: () => null, setItem: (k, v) => saved.push([k, v])};
+hello(); started(1); send("board", BOARD);
+ev("togglePanel('legend')"); flush();
+out.leg = [els["#legtoggle"].title, ev("panelPref.legend")];
+ev("togglePanel('side')"); flush();
+out.both = [els["#sidetoggle"].title, JSON.stringify(ev("panelPref"))];
+ev("togglePanel('legend')"); flush();
+out.back = [els["#legtoggle"].title, JSON.stringify(ev("panelPref"))];
+out.saved = saved.slice();
+ev("togglePanel('legend')"); flush(); out.unfold = [els["#srclegtoggle"].hidden, els["#srcsidetoggle"].hidden];
+""")
+    assert out["leg"] == ["show the legend panel", True]
+    assert out["both"] == ["show the side panel", '{"legend":true,"side":true}']
+    assert out["back"] == ["hide the legend panel", '{"legend":false,"side":true}']
+    assert out["saved"][-1] == ["placemat.panels", '{"legend":false,"side":true}']
+    assert out["unfold"] == [False, False]                           # the source dialog's own buttons, while a panel is folded
+
+
+def test_the_full_screen_source_view_is_measured_against_the_page_not_a_fixed_header():
+    css = PAGE.read_text()
+    assert "#script { --hh:" not in css                              # a local --hh hid the measured one and left a sliver of canvas
+    assert "#script.full { left: 0; right: var(--sidew, 440px); top: var(--hh, 56px); bottom: 0;" in css
+    assert "main.nolegend.noside { grid-template-columns: minmax(0, 1fr); }" in css
+
+
+def test_no_label_carries_a_bracketed_explanation():
+    text = PAGE.read_text()
+    for label in ("designators", "vias"):
+        assert '"%s"' % label in text
+    assert "(zoomed in)" not in text and "(ring, drill hole)" not in text and "(or double-tap" not in text

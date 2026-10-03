@@ -155,7 +155,7 @@ def step_to_json(s) -> dict:
             "placement": placement_to_json(s.placement), "moved_mm": s.moved_mm, "note": s.note, "why": s.why,
             "ops": s.ops, "freedom": s.freedom.value if s.freedom is not None else None,
             "rank": s.rank, "rank_of": s.rank_of, "back_face": s.back_face, "laid": list(s.laid),
-            "unplaced": s.unplaced, "lock": s.lock, "pocket": s.pocket}
+            "unplaced": s.unplaced, "lock": s.lock, "pocket": s.pocket, "seconds": round(s.seconds, 6)}
 
 
 def step_from_json(d):
@@ -164,7 +164,7 @@ def step_from_json(d):
                 placement_from_json(d["placement"]), d["moved_mm"], d["note"], d["why"], d["ops"],
                 Freedom(d["freedom"]) if d["freedom"] is not None else None, d["rank"], d["rank_of"],
                 back_face=d.get("back_face", False), laid=tuple(d.get("laid", ())), unplaced=d.get("unplaced"),
-                lock=d.get("lock", ""), pocket=d.get("pocket"))
+                lock=d.get("lock", ""), pocket=d.get("pocket"), first_seconds=d.get("seconds"))
 
 
 # ------------------------------------------------------------ the run

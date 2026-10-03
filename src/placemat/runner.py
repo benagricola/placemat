@@ -558,6 +558,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         kept = routes_mod.summary(plan)
         if kept:
             say("adopted", kept)
+        metrics["resolve_seconds"] = round(plan.seconds, 3)
         if previous_reuse:
             metrics["reused"] = {"steps": plan.reuse["reused"], "of": len(plan.reuse["steps"]),
                                  "from": previous_id, "first_change": plan.reuse["first_change"]}
@@ -650,7 +651,9 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                       "freedom": s.freedom.value if s.freedom else None,
                       "priority": s.priority.value if s.priority else None,
                       "rank": s.rank, "rank_of": s.rank_of, "note": s.note,
-                      "why": s.why, "moved_mm": round(s.moved_mm, 3), "ops": s.ops} for s in plan.steps]
+                      "why": s.why, "moved_mm": round(s.moved_mm, 3), "ops": s.ops,
+                      "seconds": round(s.seconds, 3), "first_seconds": None if s.first_seconds is None else round(s.first_seconds, 3)}
+                     for s in plan.steps]
         rec.findings = list(plan.findings)
         rec.finding_details = [f.detail() for f in plan.findings]
         rec.status = "ok"

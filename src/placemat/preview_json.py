@@ -75,6 +75,11 @@ def _how(plan, step) -> str:
     return "decided" if step.freedom is not None and step.freedom.decided else "searched"
 
 
+def _secs(v):
+    """A duration as the page reads it: seconds to a millisecond, None when there is none."""
+    return None if v is None else round(v, 3)
+
+
 def item_json(plan, step, sites: dict | None = None, models=None) -> dict:
     """One step's item as the page shows it: where it stands, how it was
     placed, its note and findings, the line that declared it and, when
@@ -99,6 +104,7 @@ def item_json(plan, step, sites: dict | None = None, models=None) -> dict:
         "rank": step.rank, "rank_of": step.rank_of, "pocket": step.pocket, "lock": step.lock,
         "findings": [str(f) for f in plan.findings if finding_text.subject(f.cause, f.facts) == step.item],
         "file": file, "line": line, "moved_mm": _r(step.moved_mm),
+        "seconds": _secs(step.seconds), "first_seconds": _secs(step.first_seconds),
     }
 
 
@@ -292,7 +298,8 @@ def plan_json(plan, sites: dict | None = None, score: dict | None = None, models
     for n, s in enumerate(plan.steps):
         steps.append({"i": n, "item": s.item, "kind": s.kind, "placed": s.placement is not None, "note": s.note,
                       "why": s.why, "freedom": s.freedom.value if s.freedom is not None else None,
-                      "rank": s.rank, "rank_of": s.rank_of, "pocket": s.pocket, "lock": s.lock, "copper": [at[i] for i in s.laid if i in at], "loop": _cutout_loop(plan, s, loops)})
+                      "rank": s.rank, "rank_of": s.rank_of, "pocket": s.pocket, "lock": s.lock,
+                      "seconds": _secs(s.seconds), "first_seconds": _secs(s.first_seconds), "copper": [at[i] for i in s.laid if i in at], "loop": _cutout_loop(plan, s, loops)})
     unplaced = [{"item": s.item, "why": s.unplaced if s.unplaced is not None else s.note}
                 for s in plan.steps if s.placement is None and s.kind in ("part", "cell", "block")]
     extra = {} if models is None else {"stackup": models.stackup(plan.geometry), "models": models.table()}
@@ -300,6 +307,7 @@ def plan_json(plan, sites: dict | None = None, score: dict | None = None, models
         "version": VERSION, **extra, **board_json(plan),
         "items": items, "copper": copper, "links": _links(plan),
         "congestion": _congestion(plan), "findings": _findings(plan, seen), "steps": steps, "unplaced": unplaced,
+        "seconds": _secs(plan.seconds),
         "layers": [l.value for l in sorted(plan.geometry.layers, key=stackup_order)],
         "pocketed": list(plan.pocketed),
         "counts": {"placed": sum(1 for s in plan.steps if s.placement is not None), "findings": len(plan.findings),

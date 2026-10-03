@@ -303,7 +303,9 @@ def test_a_page_that_joins_late_is_told_when_the_resolve_began_and_what_is_under
     w = hello["work"]
     assert 82.0 < hello["now"] - w["t0"] < 86.0                                       # since the resolve began, not since the page joined
     assert w["total"]["items"] == 24 and w["cur"]["item"] == "psu" and w["cur"]["phase"] == "scanning the front" and w["cur"]["hint"] == [1.0, 2.0]
-    assert 0 <= hello["now"] - w["cur"]["at"] < 2
+    assert 0 <= hello["now"] - w["cur"]["at"] < 2 and w["cur"]["within"] is None
+    s._on_worker({"ev": "begin", "id": 4, "kind": "phase", "text": "refining around the best spots: 2 of 5", "within": [2, 5]}, s.worker.serial)
+    assert json.loads(s.hello()[0][1])["work"]["cur"]["within"] == [2, 5]               # a page that joins part-way gets how far the step is
     s._on_worker({"ev": "item", "id": 4, "item": {"key": "psu", "file": ""}}, s.worker.serial)
     assert json.loads(s.hello()[0][1])["work"]["cur"] is None
 
