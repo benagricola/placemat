@@ -2500,7 +2500,62 @@ class Board:
                 ox = stand
             else:
                 oy = stand
-        return Placement(Location(round(ox, 6), round(oy, 6)), i.rotation, i.face)
+        placement = Placement(Location(round(ox, 6), round(oy, 6)), i.rotation, i.face)
+        if shaped and not b.copper:         # copper=True measures pad copper: a body over the item's is for the collision check to name
+            placement = self._beside_clear_of_others(occ, i, placement)
+        return placement
+
+    def _beside_clear_of_others(self, occ: Occupancy, i: PlaceIntent, placement: Placement) -> Placement:
+        """`_beside_clear` with a user's labels left out: they give way to a firm part, the part does not."""
+        real = getattr(occ, "_occ", occ)
+        was, real.labels_yield = real.labels_yield, True
+        try:
+            return self._beside_clear(occ, i, placement)
+        finally:
+            real.labels_yield = was
+
+    def _beside_clear(self, occ: Occupancy, i: PlaceIntent, placement: Placement) -> Placement:
+        """Beside's standoff from `item`, moved on out along its side's axis to the first place the collision
+        rule (`Occupancy.legal`: everything placed on the face, the reservations, the edge) lets the part stand,
+        when something else already placed lies in its way. Stepped out from the standoff, `place.beside_step` a
+        time up to `place.beside_reach`, then bisected back to the first spot that stands. The standoff itself
+        when it stands, and when nothing within reach does (the collision is then reported as any firm one is)."""
+        b = i.beside
+        u = {Edge.EAST: (1.0, 0.0), Edge.WEST: (-1.0, 0.0), Edge.SOUTH: (0.0, 1.0), Edge.NORTH: (0.0, -1.0)}[b.side]
+        real = getattr(occ, "_occ", occ)        # a rider is laid in a view: the host and riders before it stand in it
+        others = real.obstacles(real._geometry(i.item))
+        group = [x for g in list(occ._moved.values()) + list(occ._cells.values()) for x in g.shapes if not x.carried] \
+            if isinstance(occ, _Riding) else []
+        loc, clr = placement.location, self.clearance
+
+        def at(s: float) -> Placement:
+            return Placement(Location(round(loc.x + s * u[0], 6), round(loc.y + s * u[1], 6)), i.rotation, i.face)
+
+        def stands(s: float) -> bool:
+            p = at(s)
+            if group and real.legal(i.item, p, clr, others=ShapeIndex(group), board=False) is not None:
+                return False
+            return real.legal_giving_way(i.item, p, clr, others=others, past_edge=self._firm_past_edge(i),
+                                         by_corners=True)[0] is None
+
+        if stands(0.0):
+            return placement
+        step, reach = self.settings.place_beside_step, self.settings.place_beside_reach
+        lo, hi = 0.0, None
+        for k in range(1, int(reach / step + 1e-9) + 1):
+            if stands(k * step):
+                hi = k * step
+                break
+            lo = k * step
+        if hi is None:
+            return placement
+        while hi - lo > 1e-4:
+            mid = (lo + hi) / 2.0
+            lo, hi = (lo, mid) if stands(mid) else (mid, hi)
+        hi = math.ceil(hi * 1e6) / 1e6
+        while not stands(hi):
+            hi = round(hi + 1e-6, 6)
+        return at(hi)
 
     def _row_of_placement(self, occ: Occupancy, i: PlaceIntent, along: float) -> Placement:
         """Where one item of a `row(..., of=)` lands: its own drawn envelope

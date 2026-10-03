@@ -100,3 +100,37 @@ def test_the_capacitor_north_of_a_six_lead_package_stands_at_its_silk_line_not_t
     # not above the pin 1 dot (-7.645), which it does not stand over
     silk = [s for s in _shapes(plan, "C4") if s.kind == "silk"]
     assert max(s.box.bottom for s in silk) == pytest.approx(-7.29 - gap, abs=1e-3)
+
+
+def _walled_board(top, keep_going=False):
+    """U1 as in _marked_board, a third part T1 east of where R1 stands, its body 0.1 mm off R1's, its south end at y 18.7 and
+    its north end at `top`: R1 at the silk line's standoff is within the body spacing of it."""
+    fps = [footprint("U1", 20, 20, w=4, h=2, inst="u1", nets=("A", "B"), excess=0.0,
+                     silk_boxes=[(18.0, 18.8, 22.0, 18.9), (18.0, 17.9, 18.6, 18.9)]),
+           footprint("R1", 40, 40, w=2, h=1.3, inst="r1", nets=("A", "GND"), excess=0.0, fab=(39.0, 39.35, 41.0, 40.65)),
+           footprint("T1", 22.1, (top + 18.7) / 2, w=2, h=18.7 - top, inst="t1", nets=("C", "D"), excess=0.0,
+                     fab=(21.1, top, 23.1, 18.7))]
+    return Board(board_geometry(fps, width=60, height=60, silk_clearance=GAP), edge_margin=1.0, settings=_settings(),
+                 component_spacing=GAP, keep_going=keep_going)
+
+
+def _beside_with_third(top, keep_going=False):
+    b = _walled_board(top, keep_going)
+    b.place(Part("u1"), at=Location(20, 20))
+    b.place(Part("t1"), at=Location(22.1, (top + 18.7) / 2))
+    b.place(Part("r1"), at=Beside(Part("u1"), Edge.NORTH))
+    return b.resolve()
+
+
+def test_a_third_part_beside_the_path_holds_the_part_off_it():
+    plan = _beside_with_third(top=17.0)
+    assert _shape_gap(plan, "R1", "T1") >= GAP - 1e-4
+    assert _shape_gap(plan, "U1", "R1") >= GAP - 1e-4
+    assert plan.box("r1").bottom == pytest.approx(17.0 - (GAP ** 2 - 0.1 ** 2) ** 0.5, abs=2e-3)   # clear of its corner, no further
+    assert plan.box("r1").center.x == pytest.approx(20.0, abs=1e-6)          # still level with U1's middle
+
+
+def test_no_room_within_reach_leaves_the_part_at_the_item_s_standoff_and_the_collision_is_reported():
+    plan = _beside_with_third(top=2.0, keep_going=True)
+    assert plan.box("r1").bottom == pytest.approx(18.8 - GAP, abs=1e-4)
+    assert any("T1" in str(f) and "R1" in str(f) for f in plan.findings), plan.findings
