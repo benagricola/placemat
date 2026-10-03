@@ -3346,11 +3346,19 @@ socket for as long as it runs (Linux and macOS):
 - A reader connects and is sent a catch-up first, then live events: newline-delimited JSON, one object each, `ev` naming it.
   `hello` (the entry's fields), `resolve` (`n`: a new resolve; the board and steps before it are forgotten), `board`,
   `begin` (`kind` `total` with the counts, `begin` for the item now being worked on with its `what` and `rank`/`of`, or
-  `phase` with the engine's note, and `within`, `[k, n]`, when the phase counts through its own work: the k-th of n spots being refined), `item` (a settled step: the item, its copper or cutout ops; the item carries `seconds` and, for a replayed step, `first_seconds`), `plan` (`doc`: the whole
+  `phase` with the engine's note, and `within`, `[k, n]`, when the phase counts through its own work: the k-th of n spots being refined), `item` (a settled step: the item, its copper or cutout ops; the item carries `seconds` and, for a replayed step, `first_seconds`, `notes` and, for one with no place, `unplaced`), `plan` (`doc`: the whole
   plan as the studio draws it), for an explore `explore` (focus, the plain placement and order, the baseline score, jobs),
   `variant` (`seed`, `score`, the focused items' `placements` and `order`) and `explore_done` (`best`, `baseline`, `tried`,
-  `kept`, `record`), for a route the `route_*` events below, then `done` (`record`: the run's `run.json` or the explore's record) or `error` (`message`, `file`,
-  `line`). A command that dies sends neither: the connection closes.
+  `kept`, `record`), for a route the `route_*` events below, then `done` (`record`: the run's `run.json` or the explore's record) or `error` (`kind`, `file`,
+  `line` and the fields of its kind: `run_failure` has `failure` (the stage: `generation`, `script`, `placement`, `explore`, `escape`),
+  `item` and the free text `detail`; `exception` has `type` and `detail`; `probe_refused` has `code` and its facts; `stopped` is the
+  stop record). A command that dies sends neither: the connection closes.
+- What is sent is records, never sentences: a step's `notes` are `{"kind", ...facts}` (`step_text.py`; units in the field's name, a refusal
+  as `{"code", ...}`), an error is a `kind` and fields, and free text appears only where the data is free text (an exception's own message,
+  a script's `why=`), as a field beside the structured ones. `placemat watch` and the studio's page turn them into words with the same
+  renderers (`channel.describe`, `present.py`). `hello.format` is the version of this: 2 from this release, where format 1 (a `hello` with
+  no `format`) had a sentence for an item's `note`, an error's `message`, a route's `why` and a probe's `text`. Plan JSON is `version` 3
+  for the same reason. A reader outside the repository checks `format` and reads the fields above.
 - Step durations. `Step.seconds` is how long the step took in this resolve, measured with `time.perf_counter` from the previous step's end (the
   work between two steps, such as give-way and settling, is in the step it was for), so the steps add up to the resolve less the passes after
   the last step. A replayed step's `seconds` is its replay; `Step.first_seconds` is what it took when it was first resolved, from the reuse
@@ -3362,8 +3370,8 @@ socket for as long as it runs (Linux and macOS):
   `islands` or `main`, `resumed` when the stage was kept from an earlier route), `route_queue` (`nets`: the nets the stage will take, in
   order), `route_net_begin` / `route_net_end` (`net`, `ok`), `route_commit` (`net`, `how` `route` or `restore`, `seg` as
   `[x1, y1, x2, y2, layer, width]`, `via` as `[x, y, size, drill, layers]`: copper as it is laid), `route_rip` (the same shapes:
-  copper taken up again), `route_queue_end`, and `route_off` (`why`) when the hooks could not be installed - the route then runs with no
-  progress and says why. They come from a wrapper around the router's per-net functions (`kicad/route_events.py`, installed by
+  copper taken up again), `route_queue_end`, and `route_off` (`reason`: `{"code": "no_function" | "no_parameter" | "no_field" |
+  "import_failed" | "pipe_closed", ...}`) when the hooks could not be installed - the route then runs with no progress and says why. They come from a wrapper around the router's per-net functions (`kicad/route_events.py`, installed by
   `kicad/route_hooked.py` and `route_one_round.py`; each hook is anchored on the router's own function names, signatures and
   field names and installs nothing when one is missing), sent over a pipe the route opens for each stage
   (`PLACEMAT_ROUTE_EVENTS_FD` names its write end in the router's process; a full queue drops events, a closed pipe ends them), so no file
@@ -3377,7 +3385,7 @@ socket for as long as it runs (Linux and macOS):
 - The command never waits on a reader: each has a bounded queue and events that do not fit are dropped, a reader that goes
   away is dropped. A board resolved with no script (a bench, a test) listens on nothing, and `PLACEMAT_CHANNEL=off` turns
   it off.
-- The trail: the events are also written, in short form (no drawings), to an append-only `progress.jsonl`, flushed as it goes:
+- The trail: the events are also written, in short form (no drawings; an `item` keeps its `notes`), to an append-only `progress.jsonl`, flushed as it goes:
   `.placemat/runs/<id>/progress.jsonl` for a run, else `.placemat/views/<command>/progress-<pid>.jsonl`. When a command starts it
   deletes the trail files of its script that earlier commands left and that are no longer running. A trail is read for a
   command that ended or died, never as the live feed.

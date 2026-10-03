@@ -7,6 +7,32 @@ section for each hand-written pattern a newer form replaces.
 
 ## To 0.96.1
 
+### Changed
+
+- **The live channel, `placemat watch --json`, the studio worker's events and the router's events carry records, not sentences** (event
+  `format` 2; `hello` carries it, and a reader that finds none reads format 1; plan JSON `version` 3). A reader outside the repository
+  that parsed the old text needs the new fields:
+  - `item` events: the item has `notes`, a list of `{"kind", ...facts}` records (61 kinds, `step_text.py`: `rank`, `slid`,
+    `moved_off_hint`, `vias`, `push`, `pocket`, `lock_held`, ...), and `unplaced` (the reasons, refusal records, for an item that
+    found no place), where it had `note`, one "; "-joined sentence. `placemat watch` renders them; so does `Step.note` in a script's
+    own checks (a read-only property of `Step.notes`).
+  - `error` events: `kind` says which (`run_failure` with `failure` and the free text `detail`, `exception` with `type` and
+    `detail`, `probe_refused` with `code` and its facts, `stopped`, and from `watch` itself `lost`, `died`, `cannot_follow`), with
+    `file` and `line`; the `message` sentence is gone.
+  - `route_off` events: `reason`, `{"code", ...}` (`no_function`, `no_parameter`, `no_field`, `import_failed`, `pipe_closed`), where
+    `why` was a sentence. The router-side hooks (`kicad/route_events.py`) are version 2.
+  - `probe` events lose `text` (the suggestion's sentence; its `id` and `figure.finding` say which), `probe_done` has `refusal` (a
+    record) where it had `message`, and a `candidate`'s `error` is `{"kind": "timeout" | "exception", ...}`.
+  - Plan JSON (`done` and `plan` events, a run's `plan.json`): steps and items have `notes` and `unplaced`, an `unplaced` entry has
+    `reasons`, a finding has no `text` and its `facts` carry no rendered `text` fields, a reservation has `by` (a record) where it
+    had `why`, a model entry's `why` is a word (`not_found`, `vrml_only`, `no_checksum`, `unreadable`, `no_model`) with `text` and
+    `detail`. The studio server makes the sentences for its page (`present.py`) with the same renderers the console uses.
+  - The studio worker's `done` has `reused` as a record (`{"form": "none" | "all" | "some", ...}`) and `stale` where it had two
+    sentences, and its `error` and `try_error` events have `kind`, `type`/`failure` and `detail` where they had `message`.
+  - The reuse record is version 4: the first resolve after the upgrade replays nothing. `run.json`'s steps keep `note` and gain
+    `notes`.
+  A script is not affected.
+
 ### Removed
 
 - **`check.neck_band` is gone.** It has not been read since 0.72.0 (`check.neck_end_share` and the neck length replaced it). A

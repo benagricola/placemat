@@ -112,16 +112,16 @@ class Session:
                 t2 = time.monotonic()
                 from . import reuse as reuse_mod
                 send({"ev": "done", "id": id, "doc": doc,
-                      "reused": reuse_mod.summary(r.plan.reuse, r.previous, r.source),
-                      "notes": ["the cached generation is out of date (%s): this shows the old one" % r.stale] if r.stale else [],
+                      "reused": reuse_mod.summary_record(r.plan.reuse, r.previous, r.source),
+                      "stale": r.stale,
                       "timing": {"resolve_s": round(t1 - t0, 3), "first_step_s": round(state["first"] if state["first"] is not None else t1 - t0, 3),
                                  "plan_s": round(t2 - t1, 3), "total_s": round(t2 - t0, 3)}})
         except Cancelled:
             send({"ev": "cancelled", "id": id})
         except RunFailure as e:
             d = e.details
-            send({"ev": "error", "id": id, "message": "%s: %s" % (e, d.get("error", "")), "file": d.get("script", ""),
-                  "line": d.get("line"), "source": d.get("source"), "detail": d.get("traceback", "")})
+            send({"ev": "error", "id": id, "kind": "run_failure", **e.record(), "file": d.get("script", ""),
+                  "line": d.get("line"), "source": d.get("source"), "traceback": d.get("traceback", "")})
         except Exception as e:                  # a known failure or not, the page gets its type, message and the script's own line
             send(error_event(id, e, script))
 
@@ -155,15 +155,15 @@ class Session:
             send({"ev": "try_cancelled", "id": id})
         except RunFailure as e:
             d = e.details
-            send({"ev": "try_error", "id": id, "message": "%s: %s" % (e, d.get("error", "")), "file": d.get("script", ""), "line": d.get("line")})
+            send({"ev": "try_error", "id": id, "kind": "run_failure", **e.record(), "file": d.get("script", ""), "line": d.get("line")})
         except Exception as e:
             ev = error_event(id, e, script)
-            send({"ev": "try_error", "id": id, "message": ev["message"], "file": ev["file"], "line": ev["line"]})
+            send({"ev": "try_error", "id": id, **{k: ev[k] for k in ("kind", "type", "detail", "file", "line")}})
 
 
 def error_event(id, e, script) -> dict:
-    """An `error` event for an exception: its type and message, and the innermost frame that is in the script or a
-    module it imports (file, line, source line), the whole traceback as the detail."""
+    """An `error` event for an exception: its `type` and its own text (`detail`, the first line of it), and the innermost frame that
+    is in the script or a module it imports (file, line, source line), the whole traceback as `traceback`."""
     import traceback
     from .project import script_files
     try:
@@ -173,9 +173,9 @@ def error_event(id, e, script) -> dict:
     frames = [f for f in traceback.extract_tb(e.__traceback__) if Path(f.filename).resolve() in mine]
     where = frames[-1] if frames else None
     text = str(e).splitlines()[0] if str(e) else ""
-    return {"ev": "error", "id": id, "message": "%s: %s" % (type(e).__name__, text) if text else type(e).__name__,
+    return {"ev": "error", "id": id, "kind": "exception", "type": type(e).__name__, "detail": text,
             "file": str(Path(where.filename).resolve()) if where else "", "line": where.lineno if where else None,
-            "source": where.line if where else None, "detail": "".join(traceback.format_exception(e))}
+            "source": where.line if where else None, "traceback": "".join(traceback.format_exception(e))}
 
 
 def _score(r):

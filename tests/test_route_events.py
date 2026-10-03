@@ -99,7 +99,7 @@ class Pipe:
 def test_the_hooks_write_a_net_per_line_a_commit_a_rip_and_the_queue(router):
     pipe = Pipe()
     hooks = _hooks()
-    assert hooks.install(pipe.w) == ""
+    assert hooks.install(pipe.w) is None
     pm, ser, loop = router["pcb_modification"], router["single_ended_routing"], router["single_ended_loop"]
     pcb = PCB()
     loop.route_single_ended_nets(None, [("A", 1), ("B", 2)])
@@ -122,7 +122,7 @@ def test_a_net_search_inside_another_is_one_net_begin_and_one_net_end(router):
     ser = router["single_ended_routing"]
     inner = ser.route_net_with_obstacles
     ser.route_multipoint_main = lambda pcb_data, net_id, config=None, obstacles=None: (ser.route_net_with_obstacles(pcb_data, net_id), inner(pcb_data, net_id))[0]
-    assert hooks.install(pipe.w) == ""
+    assert hooks.install(pipe.w) is None
     ser.route_multipoint_main(PCB(), 1)
     assert [e["ev"] for e in pipe.events(hooks)] == ["net_begin", "net_end"]
 
@@ -134,8 +134,9 @@ def test_a_missing_hook_target_patches_nothing_and_says_why(router, what):
             delattr(mod, what)
     originals = {n: getattr(m, a) for n, m, a in (("add", router["pcb_modification"], "add_route_to_pcb_data"), ("net", router["single_ended_routing"], "route_net_with_obstacles")) if hasattr(m, a)}
     pipe = Pipe()
-    why = _hooks().install(pipe.w)
-    assert what in why
+    hooks = _hooks()
+    why = hooks.install(pipe.w)
+    assert why["code"] in ("no_function", "no_parameter") and what in hooks.reason_text(why)         # a record; the words come from reason_text
     os.close(pipe.w)
     assert os.read(pipe.r, 10) == b""                                        # nothing was written
     if "net" in originals:
@@ -145,32 +146,37 @@ def test_a_missing_hook_target_patches_nothing_and_says_why(router, what):
 def test_a_changed_signature_or_field_patches_nothing(router):
     router["single_ended_routing"].route_net_with_obstacles = lambda pcb, net: None            # no pcb_data parameter
     pipe = Pipe()
-    assert "pcb_data" in _hooks().install(pipe.w)
+    hooks = _hooks()
+    why = hooks.install(pipe.w)
+    assert why == {"code": "no_parameter", "module": "single_ended_routing", "name": "route_net_with_obstacles", "parameters": ["pcb_data", "net_id"]}
+    assert "pcb_data" in hooks.reason_text(why)
     router["single_ended_routing"].route_net_with_obstacles = lambda pcb_data, net_id: None
     router["kicad_parser"].Segment = dataclasses.make_dataclass("Segment", [("start_x", float)])
-    assert "Segment has no field" in _hooks().install(pipe.w)
+    why = _hooks().install(pipe.w)
+    assert why["code"] == "no_field" and why["class"] == "Segment" and "Segment has no field" in _hooks().reason_text(why)
 
 
 def test_without_a_pipe_or_with_events_off_the_hooks_do_nothing(router, monkeypatch):
     monkeypatch.delenv("PLACEMAT_ROUTE_EVENTS", raising=False)
     monkeypatch.delenv("PLACEMAT_ROUTE_EVENTS_FD", raising=False)
-    assert _hooks().install() == ""
+    assert _hooks().install() is None
     pipe = Pipe()
     monkeypatch.setenv("PLACEMAT_ROUTE_EVENTS_FD", str(pipe.w))
     monkeypatch.setenv("PLACEMAT_ROUTE_EVENTS", "off")
     original = router["pcb_modification"].add_route_to_pcb_data
-    assert _hooks().install() == "" and router["pcb_modification"].add_route_to_pcb_data is original
+    assert _hooks().install() is None and router["pcb_modification"].add_route_to_pcb_data is original
     monkeypatch.delenv("PLACEMAT_ROUTE_EVENTS")
     hooks = _hooks()
-    assert hooks.install() == "" and router["pcb_modification"].add_route_to_pcb_data is not original         # the descriptor from the environment
+    assert hooks.install() is None and router["pcb_modification"].add_route_to_pcb_data is not original         # the descriptor from the environment
     pipe.events(hooks)
-    assert "is not open" in _hooks().install(987654)
+    why = _hooks().install(987654)
+    assert why["code"] == "pipe_closed" and "is not open" in _hooks().reason_text(why)
 
 
 def test_a_router_that_outruns_its_reader_drops_events_and_one_that_lost_its_reader_goes_on_silently(router):
     hooks = _hooks()
     pipe = Pipe()
-    assert hooks.install(pipe.w) == ""
+    assert hooks.install(pipe.w) is None
     pm = router["pcb_modification"]
     hooks.QUEUE_MAX = 5
     os.close(pipe.r)                                                         # the reader has gone: writes fail, the route goes on

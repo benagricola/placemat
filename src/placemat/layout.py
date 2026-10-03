@@ -26,7 +26,7 @@ import types
 from .copper import (Pour, Text, Track, Via, Zone, arc_circle, arc_tracks, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
                      pair_ops, polyline_tracks, resolve_bridges, _point_seg)
 from .geometry import Transform, box_polygon, circle_polygon, circle_poly_gap, gap_texts, via_ring, point_in_polygon, poly_distance, poly_within, polys_overlap, segments_intersect, transform_box
-from . import blame, finding_text
+from . import blame, finding_text, step_text
 from .cutouts import EdgeWhy
 from .refusals import Code, Refusal, ReservedBy
 from .findings import Finding, FindingCause as C, Findings
@@ -292,7 +292,7 @@ class PlaceIntent:
     pin_x: object = None               # x pinned (a number or a reference), y free
     pin_y: object = None               # y pinned, x free
     priority_source: str = "auto"      # "script" when the declaration said, else worked out
-    faces_note: str = ""               # when the rotation fell back to the generic rule
+    faces_note: str = ""               # the kind of note (step_text.py) the step gets when the rotation fell back to the generic rule
     pinned_by: str = ""                # "at" (the origin sits on the line) or "center" (the body centre does)
     pin: object = None                 # a pad key: `center` is where that pad lands, not the body centre
     rim: str | None = None             # "rim" or "bore": a place against a round board's edge
@@ -537,19 +537,28 @@ class Step:
     priority: Priority | None            # None for a decided placement: it has none
     placement: Placement | None = None
     moved_mm: float = 0.0
-    note: str = ""
-    why: str = ""
+    notes: tuple = ()                    # what happened to it, as records (step_text.py): {"kind", ...facts}
+    why: str = ""                        # the declaration's own why=, as the script wrote it
     ops: int = 0
     freedom: Freedom | None = None       # None for a copper step and for a bridge note
     rank: int | None = None              # a searched item's place in the queue
     rank_of: int | None = None
     back_face: bool = False              # a Face.EITHER search put the item on the back (score.back_face prices it)
     laid: tuple = ()                     # a copper step: where in plan.copper the ops it laid are
-    unplaced: str | None = None          # None for an item that was placed; else why not, as the step's note says it
+    unplaced: tuple | None = None        # None for an item that was placed; else why not, as refusal records (step_text.unplaced_text)
     lock: str = ""                       # how the lock fared: "held", "drifted" or "released"; "" for an item with none
     pocket: dict | None = None           # a seeded item that took a pocket: its w_mm, h_mm, at, seed_mm and face
     seconds: float = field(default=0.0, compare=False)   # how long this step took in this resolve, a replayed one its replay (reuse.py)
     first_seconds: float | None = field(default=None, compare=False)   # a replayed step: how long it took when it was first resolved, from the reuse record
+
+    @property
+    def note(self) -> str:
+        """The notes as one line (step_text.render_all): for the console and the records' text, never read for data."""
+        return step_text.render_all(self.notes, self.unplaced)
+
+    def say(self, kind: str, **facts) -> None:
+        """Add a note of this kind (step_text.record)."""
+        self.notes = self.notes + (step_text.record(kind, **facts),)
 
 
 class CutoutHandle:
@@ -1379,9 +1388,8 @@ class Board:
                 kept = _checkerboard(local) if i.drops is Drops.HALF else \
                     _spread(local, max(1, math.ceil(keep_share * len(pts) - 1e-9)))
                 gone += [pts[k] for k in range(len(pts)) if k not in kept]
-                said.append("%d of %d in %s.%s" % (len(kept), len(pts), ref, number))
-            self._drops_notes[i.key] = ("drops %s: %s" % (i.drops.value, ", ".join(said)) if said else
-                                        "drops %s: no via field of a plane net" % i.drops.value)
+                said.append({"ref": ref, "pad": number, "kept": len(kept), "of": len(pts)})
+            self._drops_notes[i.key] = step_text.record("drops", mode=i.drops.value, fields=said)
             if not gone:
                 continue
             def at(s):
@@ -2627,7 +2635,7 @@ class Board:
         for p, q in self._beside_blocked:
             if not any(x in swaps + fresh for x in ((p, q), (q, p))):
                 fresh.append((p, q))
-                notes = dict(notes, **{p: "placed before %s: %s stood in its way, and now stands off it" % (q, q)})
+                notes = dict(notes, **{p: step_text.record("placed_before", other=q)})
         seed, loose, moved = self._room_seed, self._loose, []
         if fixed_copper is not None:
             rooms = self._dry_rooms(occ, plan, fixed_copper)
@@ -2721,8 +2729,7 @@ class Board:
         shapes = [sh for v in got.values() for sh in v]
         if shapes:
             occ.set_rooms(occ.rooms + shapes)
-            step.note = (step.note + "; " if step.note else "") + "room kept for %s" % ", ".join(
-                c.key for c in todo if got.get(c.index))
+            step.say("room_kept", **{"for": [c.key for c in todo if got.get(c.index)]})
 
     def _rooms_digest(self) -> str:
         """What the passes decided, for the reuse record: the planned copper and the orders turned."""
@@ -3977,12 +3984,11 @@ class Board:
                 plan.findings.append(self._finding(C.ESCAPE_LANE, {
                     "ref": decl.ref, "part": suggest_facts.inst_of(self, decl.ref), "pin": n, "net": lane.net,
                     "blocked": [w.to_json() for w in dict.fromkeys(lane.blocked)]}))
-            note = "%d lane%s kept for pins %s" % (len(laid.order), "" if len(laid.order) == 1 else "s", ", ".join(decl.pins))
-            if laid.blocked():
-                note += "; %d blocked" % len(laid.blocked())
-            plan.steps.append(Step(decl.key, "copper", Priority.DEFAULT, None, 0.0, note, decl.why, len(laid.order)))
+            notes = (step_text.record("lanes", n=len(laid.order), pins=list(decl.pins)),) + \
+                ((step_text.record("lanes_blocked", n=len(laid.blocked())),) if laid.blocked() else ())
+            plan.steps.append(Step(decl.key, "copper", Priority.DEFAULT, None, 0.0, notes, decl.why, len(laid.order)))
             if progress:
-                progress("%-28s copper  escape   %s" % (decl.key, note))
+                progress("%-28s copper  escape   %s" % (decl.key, step_text.render_all(notes)))
 
     def _reserve_ways(self, occ, decl: EscapeDecl) -> list:
         """The copper, as planned now, of the firm tracks declared from a pad of the escape's part that is not one of its
@@ -4478,8 +4484,8 @@ class Board:
                         if nearest is None or r < nearest[1]:
                             nearest = (ref, r)
             if nearest is not None:
-                bits.append("%s at %s: %.2g %s of %.3g %s limit, nearest source %s at %.1f mm" % (
-                    kind, sens, total, unit, limit, unit, nearest[0], nearest[1]))
+                bits.append(step_text.record("exposure", quantity=kind, sensitive=sens, total=total, unit=unit, limit=limit,
+                                           nearest=nearest[0], at_mm=nearest[1]))
         return bits
 
     def _exposure_accept(self, occ: Occupancy, i: PlaceIntent, pushes: list):
@@ -4706,6 +4712,7 @@ class Board:
                     out[a, b] = got
             return out
 
+        accept.names = list(names)
         accept.partners = ", ".join(names)
         accept.pairs = [(a, b, owner[b].key) for a, _, b, *_ in needs]
         accept.misses = misses
@@ -4783,7 +4790,7 @@ class Board:
             plan.findings.append(self._finding(C.SPLIT_GROUPS, dict(facts, cell=name)))
             step = next((s for s in plan.steps if s.item == name), None)
             if step is not None:
-                step.note = (step.note + "; " if step.note else "") + "split: " + finding_text.split_note(facts)
+                step.say("split", facts=facts)
 
     def _report_escapes(self, occ: Occupancy, plan: Plan):
         """Escapes left crossed at a pin row, and pads the path search finds
@@ -4910,19 +4917,19 @@ class Board:
         words = [k + "=" + Edge(v).value for k, v in (("outward", outward), ("quiet", quiet), ("handoff", handoff)) if v is not None]
         if not words:
             raise ValueError("faces() names at least one side")
-        self._faces = ("placemat faces " + " ".join(words), why)
+        self._faces = ("placemat faces " + " ".join(words), why, {k: Edge(v).value for k, v in (("outward", outward), ("quiet", quiet), ("handoff", handoff)) if v is not None})
 
     def outward_rotation(self, item, edge, face: Face = Face.FRONT) -> tuple[float, str]:
         """The rotation that turns the item's outward side to `edge` - a board
         edge, or a bearing on a round board's rim - when it is placed on
-        `face`, and a note when the item declared none (the generic rule:
+        `face`, and the kind of note (step_text.py) when the item declared none (the generic rule:
         local +Y out). A flip to the back mirrors the item about the vertical
         axis before it turns, so on the back a side declared east is its
         west until turned; north and south are unchanged."""
         face = Face.FRONT if face is None else face if isinstance(face, Face) else Face(face)   # "front"/"back", as place() takes
         geom, key, kind = self._item(item)
         declared = geom.faces.get("outward") if kind == "cell" else None
-        note = "" if kind != "cell" else "no faces declared: turned as if its outward side were local +Y"
+        note = "" if kind != "cell" else "no_faces_declared"
         side = Edge(declared) if declared else None
         if side is not None and face is Face.BACK:
             side = {Edge.EAST: Edge.WEST, Edge.WEST: Edge.EAST}.get(side, side)
@@ -5685,7 +5692,7 @@ class Board:
         return planes
 
     def _flip_notes(self, occ) -> dict:
-        """{cell: note} for each cell with a via that reaches a face and whose
+        """{cell: [note]} (step_text records) for each cell with a via that reaches a face and whose
         inner end, once the cell is flipped, may no longer join its net. A
         flip keeps a cell's inner copper on its layer but mirrors such a via
         (F-In1 becomes B-In4), so its inner end moves. It still joins when
@@ -5696,7 +5703,7 @@ class Board:
 
         def standing(layer, net):
             nets = planes.get(layer, set())
-            return "its own plane" if net in nets else ("another net's plane" if nets else "no plane")
+            return "own_plane" if net in nets else ("other_plane" if nets else "no_plane")
 
         def inner_end(span):
             inner = sorted((l for l in span if l.face is None), key=stackup_order)
@@ -5704,7 +5711,7 @@ class Board:
 
         def ends(span):
             ordered = sorted(span, key=stackup_order)
-            return "%s-%s" % (ordered[0].value, ordered[-1].value)
+            return [ordered[0].value, ordered[-1].value]
 
         stack = frozenset(self.geometry.layers)
         out: dict = {}
@@ -5717,18 +5724,17 @@ class Board:
             s_layer, d_layer = inner_end(c.layers), inner_end(flipped)
             ts, td = types.get(s_layer), types.get(d_layer)
             if ts and td and ts != td:
-                why = "a %s layer onto a %s one" % (ts, td)
-            elif standing(s_layer, c.net) != "its own plane" or standing(d_layer, c.net) != "its own plane":
-                why = "%s onto %s" % (standing(s_layer, c.net), standing(d_layer, c.net))
+                why = {"form": "types", "from": ts, "to": td}
+            elif standing(s_layer, c.net) != "own_plane" or standing(d_layer, c.net) != "own_plane":
+                why = {"form": "standing", "from": standing(s_layer, c.net), "to": standing(d_layer, c.net)}
             else:
                 continue
-            said = ("flipped, its %s via %s becomes %s: its inner end moves from %s to %s (%s), while the "
-                    "cell's own copper there stays" % (c.net, ends(c.layers), ends(flipped), s_layer.value,
-                                                       d_layer.value, why))
+            said = step_text.record("flip_via", net=c.net, span=ends(c.layers), flipped=ends(flipped), from_layer=s_layer.value,
+                                  to_layer=d_layer.value, why=why)
             notes = out.setdefault(c.owner, [])
             if said not in notes:
                 notes.append(said)
-        return {k: "; ".join(v) for k, v in out.items()}
+        return out
 
     def _check_stamped_via_types(self) -> None:
         """A via a stamped cell brings (or one already on the board) that
@@ -6628,12 +6634,12 @@ class Board:
             if why:
                 plan.findings.append(self._finding(C.FIXED_CUTOUT, {"name": c.name, "why": why.to_json(),
                                                                     "outline_kind": self._outline_decl}))
-                step.note = str(why)
+                step.say("refused", why=why.to_json())
             else:
                 self._add_cutout(occ, c.name, PlacedCutout(c.name, tuple(path), centre, turn))
                 plan.shape, plan.cutouts = self._shape, self._cutouts   # the fab gets the holes too
                 plan.cutouts_placed[c.name] = self._settled_cutouts[c.name]
-                step.note = "cut at %.2f, %.2f facing %.0f" % (centre.x, centre.y, turn)
+                step.say("cut", at=[centre.x, centre.y], turn=turn)
             plan.steps.append(step)
             placed.add(cutout_token(c.name))
 
@@ -6678,7 +6684,7 @@ class Board:
             step = Step(intent.key, "keepout", None, why=intent.why)
             if why:
                 plan.findings.append(self._finding(C.FIXED_KEEPOUT, {"name": k.name, "why": why.to_json()}))
-                step.note = str(why)
+                step.say("refused", why=why.to_json())
             else:
                 path = (region_shape or k.shape).path_at(centre, turn)
                 outside, total = self._points_off_board(path)
@@ -6708,13 +6714,13 @@ class Board:
                 plan.keepouts[k.name] = PlacedKeepout(k.name, poly, centre, turn, k.excludes,
                                                       k.layers, nets, owners | (admitted or frozenset()), k.why,
                                                       k.max_height, admitted or frozenset(), barred)
-                step.note = "kept clear at %.2f, %.2f" % (centre.x, centre.y)
+                step.say("kept_clear", at=[centre.x, centre.y])
                 if outside:
-                    step.note += "; %d of its %d points are off the board" % (outside, total)
+                    step.say("points_off_board", outside=outside, of=total)
             plan.steps.append(step)
             placed.add(cutout_token(k.name))
 
-        def place_one(obj, why_now=""):
+        def place_one(obj, why_now=()):
             # The key is taken before anything below changes the declaration.
             ex = self._explore
             key = _reuse.step_key(chain["key"], obj, _reuse.links_on(self, obj),
@@ -6780,26 +6786,27 @@ class Board:
                 step.seconds = lap.stamp()
             if partial is not None:
                 partial.append(record["steps"][-1])
-            if why_now:
-                step.note = (why_now + "; " + step.note) if step.note else why_now
+            step.notes = tuple(why_now) + step.notes
+            tier = []
             if not obj.freedom.decided:
-                tag = self._rank_note.get(obj.key, "")
+                if obj.key in self._rank_note:
+                    tier.append(self._rank_note[obj.key])
                 if obj.priority_source == "script":
-                    tag += " (script: %s)" % obj.priority.value
+                    tier.append(step_text.record("priority", source="script", value=obj.priority.value))
                 if obj.required:
-                    tag += ", required"
-                step.note = (tag + "; " + step.note) if step.note else tag
+                    tier.append(step_text.record("required"))
             elif getattr(obj, "required", False):
-                step.note = ("required; " + step.note) if step.note else "required"
+                tier.append(step_text.record("required"))
+            step.notes = tuple(tier) + step.notes
             if obj.faces_note:
-                step.note = (step.note + "; " if step.note else "") + obj.faces_note
+                step.say(obj.faces_note)
             plan.steps.append(step)
             if step.placement is None and getattr(obj, "required", False) and not self.keep_going:
                 raise CriticalUnplaced(obj.key, self._no_place_report(occ, obj, step), plan)
             if step.placement is not None and isinstance(obj, PlaceIntent) and not obj.freedom.decided:
                 plan.turns[obj.key] = dict(self._turn_of(occ, obj, step.placement, placed), order=len(plan.turns))
             if obj.key in self._lock_notes:
-                step.note = (step.note + "; " if step.note else "") + self._lock_notes.pop(obj.key)
+                step.notes += (self._lock_notes.pop(obj.key),)
                 step.lock = "released"
             if step.placement is None:
                 pass                    # unplaced: left off the board, pulls nothing, blocks nothing
@@ -6814,8 +6821,7 @@ class Board:
                     self._cell_placements[obj.key] = step.placement
                     taken = self._stamped_region_cost(occ, obj.item)
                     if taken >= 0.05:
-                        step.note = (step.note + "; " if step.note else "") + \
-                            "its stamped regions keep parts off %.1f mm2 of board beyond its own parts" % taken
+                        step.say("stamped_regions", area_mm2=taken)
             step.seconds += lap.stamp()                 # the commit and the labels' give-way are this step's work; the record, already
                                                         # logged, holds the settle's time alone
             if progress:
@@ -6860,7 +6866,7 @@ class Board:
                 if not ready:
                     raise ValueError("%s is placed relative to %s, which is not placed by then (only FIXED and EDGE "
                                      "items may be referred to)" % (firm[0].key, ", ".join(sorted(firm[0].needs - placed))))
-                place_one(ready[0], self._swap_notes.get(ready[0].key, ""))
+                place_one(ready[0], [self._swap_notes[ready[0].key]] if ready[0].key in self._swap_notes else ())
                 firm.remove(ready[0])
             collisions = [f for f in plan.findings
                           if f.cause in (C.FIXED_CUTOUT, C.FIXED_KEEPOUT)
@@ -6882,12 +6888,12 @@ class Board:
                                    if getattr(o, "key", None) in self._lock and self._locked(o) is not None
                                    and o.needs <= placed)
                     if ready and ready[0][2] is not obj:
-                        obj, why_now = ready[0][2], "locked order"
+                        obj, why_now = ready[0][2], [step_text.record("locked_order")]
                 ex = self._explore
                 if ex is not None and obj.key in ex.focus and len(pending) > 1 and self._order_rng.random() < self.settings.explore_swap_chance:
                     other, other_why = self._next_to_place([o for o in pending if o is not obj], occ, placed)
                     if other.key in ex.focus:           # two focused neighbours trade turns
-                        obj, why_now = other, (other_why + "; " if other_why else "") + "explore: before " + obj.key
+                        obj, why_now = other, list(other_why) + [step_text.record("explore_before", other=obj.key)]
                 pending.remove(obj)
                 place_one(obj, why_now)
 
@@ -6948,13 +6954,13 @@ class Board:
         self._report_splits(plan)
         self._place_labels(occ, plan, placed, progress, final=True)
         if self._faces is not None:
-            text, why = self._faces
+            text, why, sides = self._faces
             drawn = [fp.courtyard_box for fp in self.geometry.footprints] + [c.box for c in self.geometry.copper] + \
                     [op.box for op in plan.copper if hasattr(op, "box")]
             box = Box.union(drawn)                                                       # below everything the module draws
             plan.copper.append(Text(text, Location(box.left, box.bottom + 1.0), Face.FRONT, 0.5, 0.1, 0.0, "left", "top",
                                     layer="User.Comments"))
-            plan.steps.append(Step("faces", "copper", Priority.DEFAULT, None, 0.0, text[len("placemat faces "):], why, 1,
+            plan.steps.append(Step("faces", "copper", Priority.DEFAULT, None, 0.0, (step_text.record("faces", sides=sides),), why, 1,
                                    laid=(len(plan.copper) - 1,)))
         from . import suggestions
         for found, measure in self._late_suggestions:     # what needs the finished board's occupancy
@@ -6999,7 +7005,7 @@ class Board:
             plan.findings.append(self._finding(C.VIAS_DROPPED if severity == "warning" else C.VIAS_GAVE_WAY, facts, severity))
             step = next((s for s in plan.steps if s.item == key), None)
             if step is not None:
-                step.note = (step.note + "; " if step.note else "") + "vias: " + finding_text.vias_note(facts)
+                step.say("vias", facts=facts)
 
     def group(self, name: str, items, why: str = "") -> "DeclaredGroup":
         """A KiCad group on the written board holding `items` (Parts), at
@@ -7074,20 +7080,19 @@ class Board:
         return rudy(pads, box, max(1, len(self.geometry.layers)), pitch,
                     skip=self._plane_nets() | self._free_nets)
 
-    def _step(self, i: PlaceIntent, placement, moved_mm: float, note: str, unplaced: str | None = None) -> Step:
-        """A searched or decided item's step, with its priority, freedom and rank. `unplaced`: why the item has no place
-        (the note starts "UNPLACED" and says it)."""
-        if unplaced is not None:
-            note = "UNPLACED: " + unplaced if unplaced else "UNPLACED"
+    def _step(self, i: PlaceIntent, placement, moved_mm: float, notes=(), unplaced: list | None = None) -> Step:
+        """A searched or decided item's step, with its priority, freedom and rank. `notes` are step_text records. `unplaced`:
+        why the item has no place, as step_text.unplaced_text reads it; the step's notes then start with "unplaced" and
+        none of `notes` is kept."""
+        notes = [step_text.record("unplaced")] if unplaced is not None else list(notes)
         drops = self.__dict__.get("_drops_notes", {}).get(i.key)
         if drops:
-            note = "%s; %s" % (note, drops) if note else drops
-        flip = self.__dict__.get("_flip_said", {}).get(i.key)
-        if flip and getattr(placement, "face", None) is Face.BACK:
-            note = "%s; %s" % (note, flip) if note else flip
-        return Step(i.key, i.kind, None if i.freedom.decided else i.priority, placement, moved_mm, note, i.why,
+            notes.append(drops)
+        if getattr(placement, "face", None) is Face.BACK:
+            notes += self.__dict__.get("_flip_said", {}).get(i.key, ())
+        return Step(i.key, i.kind, None if i.freedom.decided else i.priority, placement, moved_mm, tuple(notes), i.why,
                     freedom=i.freedom, rank=self._rank_of.get(i.key), rank_of=len(self._rank_of) or None,
-                    unplaced=unplaced, lock=self.__dict__.setdefault("_lock_marks", {}).pop(i.key, ""))
+                    unplaced=None if unplaced is None else tuple(unplaced), lock=self.__dict__.setdefault("_lock_marks", {}).pop(i.key, ""))
 
     def _recorded_settle(self, occ: Occupancy, obj, plan: Plan, placed: set):
         """_settle, and what it did beyond the step it returns, for the next
@@ -7109,7 +7114,7 @@ class Board:
                 if alone:
                     facts = {"item": obj.key, "variant": "alone", "turns": [[r, w.to_json()] for r, w in alone]}
                     plan.findings.append(self._finding(C.UNPLACED_RIDES, facts))
-                    step = self._step(obj, None, 0.0, "", unplaced=finding_text.riders_alone_note(facts))
+                    step = self._step(obj, None, 0.0, unplaced=[{"form": "riders_alone", "turns": facts["turns"]}])
                 else:
                     step = self._settle(occ, obj, plan, placed)
                 occ.labels_yield = False
@@ -7131,11 +7136,11 @@ class Board:
         """The cleanup pass, and what it did: its commits in order, the steps
         whose placement or note it changed, and plan.cleanup."""
         from . import reuse as _reuse
-        was = [(s.placement, s.note) for s in plan.steps]
+        was = [(s.placement, s.notes) for s in plan.steps]
         with _recording_commits(occ) as commits:
             self._cleanup(occ, plan)
-        changed = [[k, _reuse.placement_to_json(s.placement), s.note] for k, s in enumerate(plan.steps)
-                   if k < len(was) and (s.placement, s.note) != was[k]]
+        changed = [[k, _reuse.placement_to_json(s.placement), list(s.notes)] for k, s in enumerate(plan.steps)
+                   if k < len(was) and (s.placement, s.notes) != was[k]]
         return {"commits": commits, "changed": changed, "cleanup": dict(plan.cleanup)}
 
     def _apply_commits(self, occ: Occupancy, commits):
@@ -7148,9 +7153,9 @@ class Board:
     def _replay_cleanup(self, occ: Occupancy, plan: Plan, entry: dict):
         from . import reuse as _reuse
         self._apply_commits(occ, entry["commits"])
-        for k, placement, note in entry["changed"]:
+        for k, placement, notes in entry["changed"]:
             plan.steps[k].placement = _reuse.placement_from_json(placement)
-            plan.steps[k].note = note
+            plan.steps[k].notes = tuple(notes)
         plan.cleanup = dict(entry["cleanup"])
 
     def _replay_settle(self, occ: Occupancy, plan: Plan, entry: dict, obj=None):
@@ -7330,15 +7335,12 @@ class Board:
                 continue
             was = step.placement
             step.placement = now
-            said = []
-            if step.item in swapped:
-                said.append("swapped with %s" % ", ".join(sorted(set(swapped[step.item]))))
+            swapped_with = sorted(set(swapped[step.item])) if step.item in swapped else None
             # A part's own cost is not comparable from one pass to the next -
             # its neighbours move too - so the step says how far it went, and
             # plan.cleanup the board's cost before and after.
-            if step.item in r.moves or not said:
-                said.append("moved %.2f mm" % was.location.distance(now.location))
-            step.note = (step.note + "; " if step.note else "") + "cleanup: " + "; ".join(said)
+            moved = was.location.distance(now.location) if step.item in r.moves or not swapped_with else None
+            step.say("cleanup", swapped_with=swapped_with, moved_mm=moved)
         plan.cleanup = {"moves": len(r.moves), "swaps": len(r.swaps), "passes": r.passes,
                         "cost_before": round(r.cost_before, 3), "cost_after": round(r.cost_after, 3)}
 
@@ -7365,18 +7367,18 @@ class Board:
                             if why.code is Code.RIDER:
                                 riders.setdefault(k, why)
                         if result.chosen is not None:
-                            note = "pocket %.1f x %.1f at (%.1f, %.1f): nothing it connects to is placed" % (
-                                pocket.box.width, pocket.box.height, pocket.box.center.x, pocket.box.center.y)
+                            notes = [step_text.record("pocket", w_mm=pocket.box.width, h_mm=pocket.box.height,
+                                                    at=[pocket.box.center.x, pocket.box.center.y])]
                             if face is not i.face:
-                                note += "; on the %s face, where the %s has no pocket it fits" % (face.value, i.face.value)
-                            return self._step(i, result.chosen, 0.0, note)
+                                notes.append(step_text.record("pocket_other_face", face=face.value, wanted=i.face.value))
+                            return self._step(i, result.chosen, 0.0, notes)
                         tried.append(pocket)
         from . import suggest_facts
         env = occ.body_box(i.item, Placement(Location(0, 0), i.rotation, i.face))
         facts = dict(suggest_facts.unplaced_pocket(self, occ, plan, i), variant="tried", w_mm=env.width, h_mm=env.height,
                      face=self._face_text(i), tried=len(tried), riders=[w.to_json() for w in riders.values()])
         plan.findings.append(self._finding(C.UNPLACED_POCKET, facts))
-        return self._step(i, None, 0.0, "", unplaced="no pocket fits" + "".join("; %s" % why for why in riders.values()))
+        return self._step(i, None, 0.0, unplaced=[{"form": "no_pocket"}] + [why.to_json() for why in riders.values()])
 
     def _via_passes(self, occ: Occupancy, i: PlaceIntent) -> tuple:
         """How a pocket search treats the board's through vias, in turn. An
@@ -7388,7 +7390,7 @@ class Board:
         return (True, False) if occ.vias_matter(i.item) else (True,)
 
     def _seeded_pocket(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, hint: Placement, score,
-                       rotations, why: str):
+                       rotations, why: dict):
         """A seeded item whose scan found nothing: the free pocket nearest the
         seed that it fits, scanned with the same link score, so it lands at
         the end nearest what it connects to. None when no pocket takes it;
@@ -7419,7 +7421,7 @@ class Board:
                         took = {"w_mm": pocket.box.width, "h_mm": pocket.box.height,
                                 "at": [pocket.box.center.x, pocket.box.center.y], "seed_mm": gap(pocket),
                                 "face": face.value if face is not i.face else ""}
-                        step = self._step(i, result.chosen, result.moved_mm, "%s; %s" % (why, finding_text.pocket_took_text(took)))
+                        step = self._step(i, result.chosen, result.moved_mm, [why, step_text.record("took_pocket", pocket=took)])
                         step.pocket = took
                         return step, total
         return None, total
@@ -7515,10 +7517,10 @@ class Board:
                     right = max(b.right for b in row); band = Box(right, min(b.top for b in row), right + depth, max(b.bottom for b in row))
                 occ.reserve(band, ReservedBy("fanout", key, side=side.name.lower()), owners=allowed, layer=face.copper)
                 notes.append(side.name.lower())
-            note = "%s side%s kept for its pins, %.2f mm deep" % (", ".join(notes) or "no", "" if len(notes) == 1 else "s", depth)
-            plan.steps.append(Step("fanout " + key, "copper", Priority.DEFAULT, None, 0.0, note, why, 1))
+            made = (step_text.record("fanout", sides=notes, depth_mm=depth),)
+            plan.steps.append(Step("fanout " + key, "copper", Priority.DEFAULT, None, 0.0, made, why, 1))
             if progress:
-                progress("%-28s copper  fanout   %s" % ("fanout " + key, note))
+                progress("%-28s copper  fanout   %s" % ("fanout " + key, step_text.render_all(made)))
 
     def _place_labels(self, occ, plan: Plan, placed: set, progress, final: bool = False):
         """Every label whose item is down and not yet labelled: its text op,
@@ -7555,7 +7557,7 @@ class Board:
             gap = max(gap, self.geometry.silk_clearance)
             op = _label_op(text, box, face, side, gap, align, size, thick, knockout, rotation, line)
             own = {occ.who(r) for r in refs}
-            note = "%s of %s" % (side.name.lower(), self._label_ids[key][0])
+            notes = [step_text.record("label_at", side=side.name.lower(), item=self._label_ids[key][0])]
             off = self._label_off_board(occ, op.box)
             if off:                     # silk off the board is not printed: another spot on it, if the label is not in a line
                 spots = [] if group else [c for c in self._label_candidates(entry, box, op)
@@ -7563,8 +7565,8 @@ class Board:
                 spots.sort(key=lambda c: bool(_label_hits(occ, c[2].box, face, own)))      # a clear one first
                 if spots:
                     side_, word, op = spots[0]
-                    note = "%s %s of %s; moved from %s: it was %s" % (
-                        side_.name.lower(), word, self._label_ids[key][0], side.name.lower(), off)
+                    notes = [step_text.record("label_at", side=side_.name.lower(), word=word, item=self._label_ids[key][0]),
+                             step_text.record("label_off_board", was=side.name.lower(), fault=off.to_json())]
                     plan.__dict__.setdefault("_label_at", {})[key] = "%s %s" % (side_.name.lower(), word)
                 else:
                     plan.findings.append(self._finding(C.LABEL_NO_SPOT, self._label_facts(
@@ -7573,7 +7575,7 @@ class Board:
             hits = _label_hits(occ, op.box, face, own)
             if hits:
                 plan.findings.append(self._finding(C.LABEL_SITS_ON, self._label_facts(key, hits=list(hits))))
-                note += "; sits on " + ", ".join(hits)
+                notes.append(step_text.record("sits_on", hits=list(hits)))
             if reserve:
                 occ.reserve(op.box, ReservedBy("label", "%s %s" % self._label_ids[key], item=self._label_ids[key][0]), layer=face.copper, source=LABEL_SOURCE)     # the text's own box, no more
                 # The reservation keeps bodies off the text; as silk it also keeps
@@ -7582,11 +7584,11 @@ class Board:
                 silk = Shape(key, "silk", frozenset([face]), frozenset(), "", box_polygon(op.box), op.box)
                 occ.add_copper([silk])
                 plan.__dict__.setdefault("_label_parts", {})[key] = (silk, occ.reservations[-1])
-                note += "; reserved"
-            plan.steps.append(Step(key, "copper", Priority.DEFAULT, None, 0.0, note, why, 1, laid=(len(plan.copper) - 1,)))
+                notes.append(step_text.record("reserved"))
+            plan.steps.append(Step(key, "copper", Priority.DEFAULT, None, 0.0, tuple(notes), why, 1, laid=(len(plan.copper) - 1,)))
             done[key] = (op, own, face)
             if progress:
-                progress("%-28s copper  label    %s" % (key, note))
+                progress("%-28s copper  label    %s" % (key, step_text.render_all(notes)))
 
     def _finding(self, cause, facts: dict, severity: str | None = None) -> Finding:
         """A finding of this cause from the facts its site measured. Its suggestions are built from the facts at the end
@@ -7782,7 +7784,7 @@ class Board:
                 continue
             for e, cand in zip(unit, cands):
                 silk, held = shapes[e[0]]
-                self._move_label(occ, plan, e, cand, silk, held, side, word, ", ".join(mine))
+                self._move_label(occ, plan, e, cand, silk, held, side, word, mine)
             return True
         return False
 
@@ -7841,7 +7843,7 @@ class Board:
                 yield s, word, [o if abs(d) < 1e-9 else dataclasses.replace(o, at=at(o)) for o in base]
 
     def _move_label(self, occ, plan: Plan, entry, op: Text, shape: Shape, reservation, side: Edge, word: str,
-                    because: str) -> None:
+                    because) -> None:
         """Take a label from where it stands to `op`: its text, its silk
         obstacle, its reserved box, and a note on its step."""
         key = entry[0]
@@ -7862,7 +7864,7 @@ class Board:
             at = plan.__dict__.setdefault("_label_at", {})
             was = at.get(key) or "%s %s" % (entry[3].name.lower(), {"centre": "MID"}.get(entry[5], entry[5].upper()))
             now = at[key] = "%s %s" % (side.name.lower(), word)
-            step.note = (step.note + "; " if step.note else "") + "moved from %s to %s: %s was there" % (was, now, because)
+            step.say("label_moved", **{"from": was, "to": now, "by": list(because)})
 
     def _plan_copper(self, occ, ctx, intents, plan: Plan, progress):
         """Plan a batch of copper together, with the vias of the parts' grids lifted off the board: a grid is
@@ -8010,15 +8012,15 @@ class Board:
         if any(c.freedom.decided for c in intents):
             ctx.fixed_tracks += [op for op in ops if isinstance(op, Track)]     # a bridge's vias are not tracks
         for key, (prio, n, why, freedom) in by_key.items():
-            note = "%d op(s)" % n + ("; in the pad: filled or plugged at the fab" if key.startswith("vias ") else "")
-            step = Step(key, "copper", prio, None, 0.0, note, why, n, freedom=freedom, laid=tuple(laid.get(key, ())))
+            made = (step_text.record("ops", n=n),) + ((step_text.record("in_pad_vias"),) if key.startswith("vias ") else ())
+            step = Step(key, "copper", prio, None, 0.0, made, why, n, freedom=freedom, laid=tuple(laid.get(key, ())))
             plan.steps.append(step)
             if progress:
                 progress(_fmt(step))
         for note in notes:
-            plan.steps.append(Step("bridge", "copper", Priority.DEFAULT, None, 0.0, note, "", 0))
+            plan.steps.append(Step("bridge", "copper", Priority.DEFAULT, None, 0.0, (note,), "", 0))
             if progress:
-                progress("   bridge: " + note)
+                progress("   bridge: " + step_text.render(note))
 
     def _rank(self, occ: Occupancy):
         """Every searched item's place in the queue, from what it is: the
@@ -8064,9 +8066,8 @@ class Board:
             area, pins = m[key]
             self._rank_score[key] = scores[key]
             self._rank_of[key] = position
-            self._rank_note[key] = "rank %d/%d (%.1f mm2, %s of %d; %d pins, %s)" % (
-                position, n, area, _ordinal(by_area.index(key) + 1), n,
-                pins, _ordinal(by_pins.index(key) + 1))
+            self._rank_note[key] = step_text.record("rank", rank=position, of=n, area_mm2=area, area_rank=by_area.index(key) + 1,
+                                                  pins=pins, pins_rank=by_pins.index(key) + 1)
 
     def _slide(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, ideal: float, lo: float, hi: float,
                placement_at, where: dict, step: float | None = None, units: str = "mm") -> Step:
@@ -8080,14 +8081,13 @@ class Board:
         candidates = sorted({min(max(ideal + d * step * sgn, lo), hi) for d in range(n) for sgn in (1, -1)},
                             key=lambda a: (abs(a - ideal), a))
         accept = self._accept(i)
-        what = finding_text.where_text(where)
         past = (i.edge is not None or i.run is not None or i.rim == "rim") and i.clearance < self.keep_in
         # as drawn first; only where no slot takes the item so, again with its carried vias, and those
         # placed before it, giving way (giveway.py): the nearest slot where they do
         for giving in (False, True) if giveway_enabled(self.settings) else (False,):
             rejected: Counter = Counter()
             reasons: dict = {}
-            last_why = ""
+            last_why = None
             for along in candidates:
                 p = placement_at(along)
                 why = occ.legal_giving_way(i.item, p, clr, others=others, past_edge=past)[0] if giving else \
@@ -8101,14 +8101,15 @@ class Board:
                         continue
                 if why is None:
                     moved = abs(along - ideal)
-                    note = what
+                    notes = [step_text.record("where", where=where)]
                     if moved > 1e-9 and getattr(i, "toward", None) is not None:
-                        note += "; stopped %.2f %s short of the %s end by: %s" % (moved, units, i.toward.name.lower(),
-                                                                               last_why)
+                        notes.append(step_text.record("stopped_short", mm=moved, units=units, toward=i.toward.name.lower(),
+                                                    why=None if last_why is None else last_why.to_json()))
                     elif moved > 1e-9:
-                        note += "; slid %.2f %s from its slot: %s" % (moved, units, str(next(iter(reasons.values()), "")))
-                    return self._step(i, p, moved, note)
-                last_why = str(why)
+                        first = next(iter(reasons.values()), None)
+                        notes.append(step_text.record("slid", mm=moved, units=units, why=None if first is None else first.to_json()))
+                    return self._step(i, p, moved, notes)
+                last_why = why
                 key = _reason_key(why)
                 rejected[key] += 1
                 reasons.setdefault(key, why)
@@ -8116,7 +8117,7 @@ class Board:
         plan.findings.append(self._finding(C.UNPLACED_SLIDE, dict(
             suggest_facts.unplaced_slide(self, i), where=where, counts=blame.counts_of(rejected),
             riders=[w.to_json() for k, w in reasons.items() if w.code is Code.RIDER])))
-        return self._step(i, None, 0.0, "", unplaced="; ".join(str(w) for w in reasons.values()))
+        return self._step(i, None, 0.0, unplaced=[w.to_json() for w in reasons.values()])
 
     def _slide_block(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, spec, ideal: float, lo: float, hi: float,
                      anchor_at, where: dict, step: float | None = None, units: str = "mm") -> Step:
@@ -8124,7 +8125,6 @@ class Board:
         block lays out from the anchor `anchor_at(along)` gives, so each is
         checked with layout_block rather than occ.legal on one item."""
         step = step if step is not None else max(i.step, self.settings.place_freedom_min_step)
-        what = finding_text.where_text(where)
         n = int((hi - lo) / step) + 1
         candidates = sorted({min(max(ideal + d * step * sgn, lo), hi) for d in range(n) for sgn in (1, -1)},
                             key=lambda a: (abs(a - ideal), a))
@@ -8136,17 +8136,17 @@ class Board:
                                         and i.clearance < self.keep_in)
             if members is not None:
                 moved = abs(along - ideal)
-                note = what
+                notes = [step_text.record("where", where=where)]
                 if moved > 1e-9:
-                    note += "; slid %.2f %s from its slot" % (moved, units)
-                return self._commit_block(occ, spec, members, i, plan, note)
+                    notes.append(step_text.record("slid", mm=moved, units=units))
+                return self._commit_block(occ, spec, members, i, plan, notes)
             key = _reason_key(why)
             rejected[key] += 1
             reasons.setdefault(key, why)
         from . import suggest_facts
         plan.findings.append(self._finding(C.UNPLACED_SLIDE, dict(
             suggest_facts.unplaced_slide(self, i), where=where, counts=blame.counts_of(rejected), riders=[], edge="")))
-        return self._commit_block(occ, spec, {}, i, plan, "", unplaced="; ".join(str(w) for w in reasons.values()))
+        return self._commit_block(occ, spec, {}, i, plan, (), unplaced=[w.to_json() for w in reasons.values()])
 
     def _settle_block_along_edge(self, occ: Occupancy, i: PlaceIntent, plan: Plan, clr, spec) -> Step:
         ideal = self._edge_slot(i, occ)
@@ -8437,11 +8437,11 @@ class Board:
         if entry.declaration != _lock.declaration_digest(self, i) and \
                 entry.declaration != _lock.declaration_digest(self, i, ordered=False) and \
                 entry.declaration != _lock.declaration_digest(self, i, legacy=True):
-            self._lock_notes[i.key] = "lock: released - its declaration changed since it was accepted"
+            self._lock_notes[i.key] = step_text.record("lock_released", reason={"form": "declaration_changed"})
             return None, None
         spot, why = _lock.placement_of(entry, occ)
         if spot is None:
-            self._lock_notes[i.key] = "lock: released - " + why
+            self._lock_notes[i.key] = step_text.record("lock_released", reason=why)
             return None, None
         return spot, spot
 
@@ -8456,18 +8456,18 @@ class Board:
         self._lock_held.add(i.key)
         if held.chosen is not None:
             self._lock_marks[i.key] = "held"
-            return self._step(i, held.chosen, 0.0, "held by lock")
+            return self._step(i, held.chosen, 0.0, [step_text.record("lock_held")])
         body = occ._geometry(i.item).body
         radius = max(i.radius, body.width, body.height)
         drift = scan(occ, i.item, spot, radius, i.step, (spot.rotation,), clr, accept=self._accept(i))
         if drift.chosen is None:
             self._lock_held.discard(i.key)
-            self._lock_notes[i.key] = "lock: released - no legal spot within %.1f mm of its locked spot" % radius
+            self._lock_notes[i.key] = step_text.record("lock_released", reason={"form": "no_spot_near", "radius_mm": radius})
             return None
         d = drift.chosen.location.distance(spot.location)
-        first = str(next(iter(held.reasons.values()), ""))
+        first = next(iter(held.reasons.values()), None)
         self._lock_marks[i.key] = "drifted"
-        return self._step(i, drift.chosen, d, "lock: drifted %.2f mm from its locked spot%s" % (d, (": " + first) if first else ""))
+        return self._step(i, drift.chosen, d, [step_text.record("lock_drifted", mm=d, why=None if first is None else first.to_json())])
 
     def _pick(self, i):
         """An explore variant's draw for a focused item, else None (the best)."""
@@ -8518,7 +8518,7 @@ class Board:
                           for p in free) or "none"
         return ("%s (required) found no place for its %.1f x %.1f envelope on the %s face: %s. "
                 "Biggest free rectangles there now: %s. The board as it stood is written; nothing was placed after it."
-                % (obj.key, env.width, env.height, self._face_text(obj), step.unplaced or "", rects))
+                % (obj.key, env.width, env.height, self._face_text(obj), step_text.unplaced_text(step.unplaced), rects))
 
     def _next_to_place(self, pending: list, occ: Occupancy, placed: set):
         """Which searched item goes next: the script's tier first, then the
@@ -8565,14 +8565,12 @@ class Board:
         (score, pull, area), obj = scored[0]
         # A ranked item's step is tagged with its rank already; only an unranked
         # one needs saying why it went next.
-        why = "" if obj.key in self._rank_note else "next: largest (%.0f mm2)" % area
+        why = [] if obj.key in self._rank_note else [step_text.record("next_largest", area_mm2=area)]
         if getattr(obj, "freedoms", 2) == 1 and any(
                 o.priority is obj.priority and getattr(o, "freedoms", 2) > 1 for _, o in scored):
-            why = (why + "; " if why else "") + "one freedom: before the items of its tier searched in two"
+            why.append(step_text.record("one_freedom"))
         if obj.key in self._waited:
-            partner = self._waited[obj.key]
-            why = (why + "; " if why else "") + "waited for %s, the item it is linked to with more placed connections" % (
-                partner)
+            why.append(step_text.record("waited_for", partner=self._waited[obj.key]))
         return obj, why
 
     def _link_waits(self, pending: list, pull: dict) -> dict:
@@ -8601,8 +8599,8 @@ class Board:
                     waits.setdefault(slow.key, fast.key)
         return waits
 
-    def _commit_block(self, occ: Occupancy, spec, members: dict, i: PlaceIntent, plan: Plan, note: str,
-                      unplaced: str | None = None) -> Step:
+    def _commit_block(self, occ: Occupancy, spec, members: dict, i: PlaceIntent, plan: Plan, notes=(),
+                      unplaced: list | None = None) -> Step:
         """A block's members once `members` is known (possibly {}: nothing
         legal). The satellites commit here; the anchor commits in the outer
         resolve loop, from the step this returns, the same as any item's."""
@@ -8611,13 +8609,13 @@ class Board:
         for fp in spec.members:
             if fp.inst in members and fp is not spec.anchor:
                 plan._items[fp.inst] = fp
-                member_note = "in %s" % i.key + ("; %s" % slid[fp.inst] if slid.get(fp.inst) else "")
-                plan.steps.append(Step(fp.inst, "part", i.priority, members[fp.inst], 0.0, member_note))
+                member_notes = (step_text.record("member_of", block=i.key),) + tuple(slid[fp.inst] or ())
+                plan.steps.append(Step(fp.inst, "part", i.priority, members[fp.inst], 0.0, member_notes))
                 occ.commit(fp, members[fp.inst])
         plan._items[spec.anchor.inst] = spec.anchor
         anchor_at = members.get(spec.anchor.inst)
-        plan.steps.append(Step(spec.anchor.inst, "part", i.priority, anchor_at, 0.0, "anchor of %s" % i.key))
-        return self._step(i, anchor_at, 0.0, note, unplaced=unplaced)
+        plan.steps.append(Step(spec.anchor.inst, "part", i.priority, anchor_at, 0.0, (step_text.record("anchor_of", block=i.key),)))
+        return self._step(i, anchor_at, 0.0, notes, unplaced=unplaced)
 
     def _settle_block(self, occ: Occupancy, i: PlaceIntent, plan: Plan, placed: set) -> Step:
         """A block honours every at= form a part does: the anchor's point is
@@ -8660,7 +8658,7 @@ class Board:
                 from . import suggest_facts
                 plan.findings.append(self._finding(C.FIXED_PART, dict(suggest_facts.fixed_part(self, i), why=why.to_json())))
                 members = {spec.anchor.inst: anchor}
-            return self._commit_block(occ, spec, members, i, plan, str(why) if why else "")
+            return self._commit_block(occ, spec, members, i, plan, [step_text.record("refused", why=why.to_json())] if why else ())
         if i.run is not None:
             return self._settle_block_along_run(occ, i, plan, clr, spec)
         if i.rim is not None:
@@ -8683,7 +8681,7 @@ class Board:
                 locked = scan_block(occ, spec, spot, max(i.radius, body.width, body.height), i.step,
                                     (spot.rotation,), clr)[0]
                 if locked is None:
-                    self._lock_notes[i.key] = "lock: released - no legal spot round its locked spot"
+                    self._lock_notes[i.key] = step_text.record("lock_released", reason={"form": "no_spot_round"})
         targets = self._targets(spec.anchor, occ, placed)
         current = occ._geometry(spec.anchor).reference
         unplaced = None
@@ -8692,8 +8690,8 @@ class Board:
             _, anchor, members = locked
             d = anchor.location.distance(spot.location)
             self._lock_marks[i.key] = "held" if d < 1e-9 else "drifted"
-            note = "block of %d laid out from the anchor's pads; %s" % (
-                len(members), "held by lock" if d < 1e-9 else "lock: drifted %.2f mm from its locked spot" % d)
+            notes = [step_text.record("block", members=len(members)),
+                     step_text.record("lock_held") if d < 1e-9 else step_text.record("lock_drifted", mm=d)]
         else:
             if i.near is not None:
                 hint = Placement(_locate(self, occ, i.near), i.rotation, i.face)
@@ -8723,23 +8721,22 @@ class Board:
                              **suggest_facts.structure_facts(self, i))
                 plan.findings.append(self._finding(C.UNPLACED_BLOCK, facts))
                 members = {}
-                note, unplaced = "", finding_text.turns_text(facts["turns"])
+                notes, unplaced = [], [{"form": "turns", "turns": facts["turns"]}]
             elif best is None:
                 plan.findings.append(self._finding(C.UNPLACED_BLOCK, {
                     "item": i.key, "variant": "scan", "radius_mm": radius,
                     "at": [hint.location.x, hint.location.y], "counts": blame.counts_of(rejected),
                     }))
                 members = {}
-                note, unplaced = "", ""
+                notes, unplaced = [], []
             else:
                 _, anchor, members = best
                 moved = anchor.location.distance(hint.location)
-                note = "block of %d laid out from the anchor's pads" % len(members)
+                notes = [step_text.record("block", members=len(members))]
                 if moved > 0:
-                    note += "; moved %.2f mm off the hint" % moved
-                    first = str(next(iter(reasons.values()), ""))
-                    note += (": " + first) if first else ""
-        return self._commit_block(occ, spec, members, i, plan, note, unplaced=unplaced)
+                    first = next(iter(reasons.values()), None)
+                    notes.append(step_text.record("moved_off_hint", mm=moved, why=None if first is None else first.to_json()))
+        return self._commit_block(occ, spec, members, i, plan, notes, unplaced=unplaced)
 
     def _draw_adopted(self, occ, ctx, plan: Plan, entries, progress):
         """Routed copper kept beside the script (routes.py): each net drawn
@@ -8820,8 +8817,9 @@ class Board:
 
     def _firm_placement(self, occ: Occupancy, plan: Plan, i: PlaceIntent) -> tuple:
         """(placement, note) where a firm declaration puts its item, read
-        against `occ` as it stands: the item is neither judged nor committed."""
-        chose = ""
+        against `occ` as it stands: the item is neither judged nor committed. The note, a step_text record or None, says which
+        pad a net named."""
+        chose = None
         if i.at is not None:
             p = Placement(_locate(self, occ, i.at), i.rotation, i.face)
         elif i.center is not None and i.cell_pin is not None:
@@ -8846,8 +8844,7 @@ class Board:
             if kind == "net":
                 same = i.item.pads_on(value)
                 if len(same) > 1:
-                    chose = "%s is %d pads on %s: pad %s is the one on the point" % (
-                        value, len(same), i.item.ref, i.item.pad(i.pin).number)
+                    chose = step_text.record("chose_pad", net=value, count=len(same), ref=i.item.ref, pad=i.item.pad(i.pin).number)
         elif i.center is not None:
             p = box_centered_placement(occ, i.item, _locate(self, occ, i.center), i.rotation, i.face)
         elif i.run is not None:
@@ -9054,7 +9051,7 @@ class Board:
             for r in self._ride_groups[i.key]:
                 facts = {"item": r.key, "variant": "rode", "rider_of": self._rider_of[r.key]}
                 plan.findings.append(self._finding(C.UNPLACED_RIDES, facts))
-                plan.steps.append(self._step(r, None, 0.0, "", unplaced=finding_text.rides_note(facts)))
+                plan.steps.append(self._step(r, None, 0.0, unplaced=[{"form": "rides", "rider_of": facts["rider_of"]}]))
             return
         laid = self._ride(occ, plan, i, step.placement, None, stop=False)
         if any([self._labels_give_way(occ, plan, r.item, p) for r, p, *_ in laid]):
@@ -9064,9 +9061,10 @@ class Board:
             if why:
                 from . import suggest_facts
                 plan.findings.append(self._finding(C.FIXED_PART, dict(suggest_facts.fixed_part(self, r), why=why.to_json())))
-            tags = ["rides %s" % self._rider_of[r.key]] + (["required"] if r.required else [])
-            note = "; ".join(str(x) for x in tags + [chose, why, r.faces_note] if x)
-            plan.steps.append(self._step(r, p, 0.0, note))
+            notes = [step_text.record("rides", of=self._rider_of[r.key])] + ([step_text.record("required")] if r.required else [])
+            notes += [x for x in (chose, step_text.record("refused", why=why.to_json()) if why else None,
+                                  step_text.record(r.faces_note) if r.faces_note else None) if x]
+            plan.steps.append(self._step(r, p, 0.0, notes))
             occ.commit(r.item, p)
 
     def _band_frame(self, occ: Occupancy, i: PlaceIntent, placed, hint: Placement | None) -> tuple:
@@ -9099,7 +9097,7 @@ class Board:
             if why:
                 from . import suggest_facts
                 plan.findings.append(self._finding(C.FIXED_PART, dict(suggest_facts.fixed_part(self, i), why=why.to_json())))
-            return self._step(i, p, 0.0, "; ".join(str(x) for x in (chose, why) if x))
+            return self._step(i, p, 0.0, [x for x in (chose, step_text.record("refused", why=why.to_json()) if why else None) if x])
         if i.turns_on_point:
             return self._settle_turns_on_point(occ, i, plan, placed, clr, push_sources)
         if i.run is not None:
@@ -9120,7 +9118,7 @@ class Board:
         if self._on_begin is not None:
             self._phase("seeding from its connections")
         targets = self._targets(i.item, occ, placed)
-        seeded = ""
+        seeded, seeded_nets = [], []
         solved = None
         if solve and i.near is None and self.settings.solve_enabled:
             solved = self._global_hints(occ, placed, plan).get(i.key)
@@ -9128,7 +9126,7 @@ class Board:
             hint = Placement(_locate(self, occ, i.near), i.rotation, i.face)
         elif solved is not None:
             hint = Placement(solved, i.rotation, i.face)
-            seeded = "seeded by the global solve"
+            seeded = [step_text.record("seeded_by_solve")]
         elif targets:
             hint = self._seed_hint(i.item, occ, targets, i.rotation, i.face)
             # k[1] here is always a raw pad NUMBER string from _targets() (never
@@ -9139,7 +9137,7 @@ class Board:
             nets = sorted({p.net for k, _, _ in targets
                            if k[0] in {fp.ref for fp in members_of(i.item)}
                            for p in self.geometry.footprint(k[0]).pads if p.number == k[1]})
-            seeded = "seeded on %s" % ", ".join(nets)
+            seeded, seeded_nets = [step_text.record("seeded", nets=nets)], nets
             for n in nets:
                 plan.seeded_by_net[n] += 1
         else:
@@ -9186,7 +9184,7 @@ class Board:
             from . import suggest_facts
             plan.findings.append(self._finding(C.UNPLACED_POCKET, dict(suggest_facts.unplaced_pocket(self, occ, plan, i),
                                                                        **hopeless)))
-            return self._step(i, None, 0.0, "", unplaced=finding_text.pocket_note(hopeless))
+            return self._step(i, None, 0.0, unplaced=[{"form": "pocket", **hopeless}])
         if self._on_begin is not None:
             self._phase("scanning the %s" % self._face_text(i), hint=[round(hint.location.x, 3), round(hint.location.y, 3)], radius=round(radius, 2))
         result, face_note = self._scan_faces(occ, i, hint, radius, clr, score, accept,
@@ -9206,23 +9204,21 @@ class Board:
                 plan.findings.append(self._finding(C.SETUP_LOOKAHEAD, facts, "notice"))
                 lost.setdefault(key, {})[a] = facts
             step = self._settle(occ, i, plan, placed, solve=solve, look=False)
-            step.note = "no spot left %s room, so the look-ahead was dropped; %s" % (ahead.partners, step.note)
+            step.notes = (step_text.record("lookahead_dropped", partners=list(ahead.names)),) + step.notes
             return step
         if result.chosen is None and solved is not None:
             # The solve spreads items without seeing what is already placed, so
             # its hint can land where nothing is legal. That must not cost a
             # placement the sequential seed would have made: drop the hint.
             step = self._settle(occ, i, plan, placed, solve=False)
-            step.note = "the global solve's hint had no legal spot within %.1f mm, so it was dropped; %s" % (
-                radius, step.note)
+            step.notes = (step_text.record("solve_hint_dropped", radius_mm=radius),) + step.notes
             return step
         if result.chosen is None:
             blamed = blame.blame_of(result)
             pocket_tried = None
             if i.near is None and bt is None and band is None:
                 step, tried = self._seeded_pocket(occ, i, plan, clr, hint, score, self._turns(i),
-                                                  "%s, but no legal spot within %.1f mm (%s)" % (
-                                                      seeded or "seeded", radius, finding_text.blame_text(blamed)))
+                                                  step_text.record("seeded_no_spot", nets=seeded_nets or None, radius_mm=radius, blame=blamed))
                 if step is not None:
                     return step
                 pocket_tried = tried
@@ -9233,22 +9229,18 @@ class Board:
             if pocket_tried is not None:
                 facts["pocket_tried"] = pocket_tried
             plan.findings.append(self._finding(C.UNPLACED_SEARCH, facts))
-            return self._step(i, None, 0.0, "", unplaced="; ".join(str(w) for w in result.reasons.values())
-                              + finding_text.room_lost_text(late))
-        note = seeded
+            return self._step(i, None, 0.0, unplaced=[w.to_json() for w in result.reasons.values()] +
+                              ([{"form": "room_lost", "room_lost": late}] if finding_text.room_lost_text(late) else []))
+        notes = list(seeded)
         if face_note:
-            note = (note + "; " if note else "") + face_note
+            notes.append(face_note)
         if result.moved_mm > 0:
-            first = str(next(iter(result.reasons.values()), ""))
-            moved = "moved %.2f mm off the hint" % result.moved_mm
-            if first:
-                moved += ": " + first
-            elif score:
-                moved += " for a better link score"
-            note = (note + "; " if note else "") + moved
+            first = next(iter(result.reasons.values()), None)
+            notes.append(step_text.record("moved_off_hint", mm=result.moved_mm, why=None if first is None else first.to_json(),
+                                        for_score=True if first is None and score else None))
         if push_sources:
-            note = (note + "; " if note else "") + self._push_notes(occ, plan, i, result.chosen, push_sources)
-        step = self._step(i, result.chosen, result.moved_mm, note)
+            notes += self._push_notes(occ, plan, i, result.chosen, push_sources)
+        step = self._step(i, result.chosen, result.moved_mm, notes)
         step.back_face = bool(face_note) and result.chosen.face is Face.BACK
         return step
 
@@ -9263,7 +9255,7 @@ class Board:
 
     def _scan_faces(self, occ: Occupancy, i: PlaceIntent, hint: Placement, radius: float, clr, score, accept,
                     reseed=None, turns_at=None, within=None, turns_on=None):
-        """(the scan's result, a note on the face taken) for `i`. A fixed face is one scan. Face.EITHER
+        """(the scan's result, a step_text note on the face taken or None) for `i`. A fixed face is one scan. Face.EITHER
         scans the front and then the back, each at its own turn of the hint (`reseed`: the targets a
         seeded hint was made from, laid again for the back's pads), and takes the back only where
         its score plus `score.back_face` is less than the front's, or the front has no legal spot.
@@ -9273,12 +9265,12 @@ class Board:
         turns, pick = self._turns(i), self._pick(i)
         if not i.either:
             return scan(occ, i.item, hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
-                        turns_at=turns_at, within=within), ""
+                        turns_at=turns_at, within=within), None
         cost = self.settings.score_back_face
         front = scan(occ, i.item, hint, radius, i.step, turns, clr, score=score, pick=pick, accept=accept,
                      turns_at=turns_at, within=within)
         if front.chosen is not None and score is None:
-            return front, ""
+            return front, None
         if hint.face is Face.BACK:
             back_hint = hint
         elif reseed:
@@ -9292,18 +9284,18 @@ class Board:
                     turns_at=back_turns, within=within)
         if back.chosen is not None and (front.chosen is None or back.score + cost < front.score):
             if front.chosen is None:
-                why = "the front has no legal spot (%s)" % finding_text.blame_text(blame.blame_of(front))
+                said = step_text.record("back_face", front_blame=blame.blame_of(front))
             else:
-                why = "%.2f and %.2f for the back face against %.2f on the front" % (back.score, cost, front.score)
-            return back, "on the back face: " + why
+                said = step_text.record("back_face", back=back.score, cost=cost, front=front.score)
+            return back, said
         if front.chosen is not None:
-            return front, ""
+            return front, None
         merged = ScanResult(None, hint, front.tried + back.tried, front.rejected + back.rejected,
                             {**back.reasons, **front.reasons}, front.blockers + back.blockers)
-        return merged, ""
+        return merged, None
 
-    def _push_notes(self, occ: Occupancy, plan: Plan, i: PlaceIntent, placement: Placement, push_sources: list) -> str:
-        """What each push comes to with `i` at `placement`, recorded on the plan and as the step's note."""
+    def _push_notes(self, occ: Occupancy, plan: Plan, i: PlaceIntent, placement: Placement, push_sources: list) -> list:
+        """What each push comes to with `i` at `placement`, recorded on the plan and as the step's notes."""
         points = {}
         bits = []
         pads = occ.candidate_pad_locations(i.item, placement)
@@ -9314,11 +9306,10 @@ class Board:
             value, r = _push_value(source_point, at, p)
             p.achieved_value, p.achieved_mm = round(value, 4), round(r, 3)
             if not p.sens:
-                bits.append("push from %s: %.2g at %.1f mm (limit %.2g)" % (
-                    _push_source_label(p), value, r, p.limit))
+                bits.append(step_text.record("push", source=_push_source_label(p), value=value, at_mm=r, limit=p.limit))
             plan.pushes.append(p)
         bits += self._exposure_notes(occ, i, placement, push_sources)
-        return "; ".join(bits)
+        return bits
 
     def _spots_of(self, occ: Occupancy, i: PlaceIntent, placed, band, front: SpotTurns | None) -> list:
         """The SpotTurns of each face a search of `i` tries, `front` being the front's (or the fixed face's)."""
@@ -9417,18 +9408,15 @@ class Board:
             plan.findings.append(self._finding(C.UNPLACED_BEARING, {
                 "item": i.key, "turns": len(turns), "counts": blame.counts_of(rejected),
                 }))
-            return self._step(i, None, 0.0, "", unplaced="; ".join(str(w) for w in reasons.values()))
+            return self._step(i, None, 0.0, unplaced=[w.to_json() for w in reasons.values()])
         cost, away, rot, p, chose = min(found, key=lambda f: f[:3])
-        note = "turned %g of %d bearings tried about its point" % (rot, len(turns))
-        if score is not None:
-            note += ", cost %.2f" % cost
+        notes = [chose] if chose else []
+        notes.append(step_text.record("turned", rot=rot, of=len(turns), cost=cost if score is not None else None))
         if rejected:
-            note += "; %d refused: %s" % (sum(rejected.values()), next(iter(reasons.values())))
-        if chose:
-            note = chose + "; " + note
+            notes.append(step_text.record("refused_count", n=sum(rejected.values()), why=next(iter(reasons.values())).to_json()))
         if push_sources:
-            note += "; " + self._push_notes(occ, plan, i, p, push_sources)
-        return self._step(i, p, 0.0, note)
+            notes += self._push_notes(occ, plan, i, p, push_sources)
+        return self._step(i, p, 0.0, notes)
 
 @contextlib.contextmanager
 def _recording_commits(occ: Occupancy):
@@ -10575,12 +10563,6 @@ def _shape_of(op) -> Shape | None:
             poly = offset(poly, op.stroke / 2.0)
         return Shape("", "copper", faces, frozenset([op.layer]), op.net, poly, Box.of_points(poly))
     return None            # a zone pulls back round everything; it is never an obstacle
-
-
-def _ordinal(n: int) -> str:
-    if 10 <= n % 100 <= 20:
-        return "%dth" % n
-    return "%d%s" % (n, {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
 
 
 def _loc(l: Location) -> str:

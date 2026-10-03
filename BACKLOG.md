@@ -49,11 +49,11 @@ Specced work first, then the loose ends.
 5. **Suggestions phase 7: the improve loop** (recommended in the suggestions
    work; needs a short design): instant suggestions tried on an overlay,
    kept when the score improves, before explore runs.
-6. **Step notes as data**: `Step.note` is still a log line; make it records
-   (why a part slid, stopped short or moved off its hint, vias taken, pushes,
-   pockets), give cleanup moves and swaps a cause and `moved_mm`, record a
-   cause for block slides and searched moves that have none, then remove the
-   studio's TEMPORARY parsers (noteParts, movedRows, joinVias, pushLine).
+6. **Causes for the moves a step note records** (`Step.notes` are records
+   now, `step_text.py`; the studio's parsers are gone): a cleanup move or swap
+   has a distance but no cause, and a block slide or a searched move that no
+   refusal explains has none; record one (a `why` refusal on the note) where
+   the engine knows it.
 7. **Studio: through-hole pads switch with the layer rows** of the legend.
 8. **`row(of=)` fits against envelope shapes** as Beside does.
 9. **The pure-Python refusal cost** (+20% measured once): build refusal facts
