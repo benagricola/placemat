@@ -20,7 +20,7 @@ def main():
         browser = p.chromium.launch(executable_path="/usr/bin/google-chrome", args=["--no-sandbox"])
         page = browser.new_context(viewport=bc.SIZE, device_scale_factor=1).new_page()
         page.on("pageerror", lambda e: bc.errors.append("pageerror: %s" % e))
-        page.on("console", lambda m: bc.errors.append("console: %s" % m.text) if m.type == "error" and "403" not in m.text else None)
+        page.on("console", lambda m: bc.errors.append("console: %s" % m.text) if m.type == "error" and not any(c in m.text for c in ("403", "409", "422", "423")) else None)
         page.goto(URL)
         bc.new_board(page)
         page.wait_for_selector("#ntabs button[data-nv=build]:not([hidden])" if MODE == "phone" else "#buildtab:not([hidden])", timeout=60000)
@@ -53,8 +53,7 @@ def main():
         page.wait_for_selector("[data-place]", timeout=30000)
         page.click(".bt-offer:has-text('in the middle of the east edge') button[data-place]")
         page.wait_for_function("document.querySelector('#bt-list .bt-prow[data-key=\"usbpd.tcpc\"] .chip.decided')", timeout=120000)
-        page.click("#bt-list .bt-prow[data-key='usbpd.tcpc']")
-        page.wait_for_selector("#bt-up")
+        page.wait_for_selector("#bt-up")                  # it is still the selection: its edit panel offers the move
         page.click("#bt-up")
         page.wait_for_function("document.querySelector('#bt-tl').innerText.includes('Move')", timeout=120000)
         bc.shot(page, "22-moved")

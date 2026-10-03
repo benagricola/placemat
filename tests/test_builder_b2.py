@@ -198,3 +198,13 @@ def test_every_offer_the_menu_can_make_holds_no_coordinate(tmp_path):
             assert coordinates_in(text) == [], (o.intent, text)
             seen += 1
     assert seen >= 12
+
+
+def test_a_decided_placement_moves_past_a_row_which_counts_as_one_statement(tmp_path):
+    s = Session(tmp_path, parts=parts6())
+    s.act(["j1", "j2"], EDGE("WEST"), "row_start")
+    s.act(["j3"], EDGE("EAST"), "on_edge_mid")
+    text = s.apply(list(bi.move_offer(s.ctx, "j3", "up").edits))
+    assert text.index("Part(\"j3\")") < text.index("board.row(")
+    with pytest.raises(BuilderRefused, match="already the first"):
+        bi.move_offer(s.ctx, "j3", "up")

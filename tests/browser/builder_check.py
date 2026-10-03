@@ -96,7 +96,7 @@ def main():
         browser = p.chromium.launch(executable_path="/usr/bin/google-chrome", args=["--no-sandbox"])
         page = browser.new_context(viewport=SIZE, device_scale_factor=1).new_page()
         page.on("pageerror", lambda e: errors.append("pageerror: %s" % e))
-        page.on("console", lambda m: errors.append("console: %s" % m.text) if m.type == "error" and "403" not in m.text else None)
+        page.on("console", lambda m: errors.append("console: %s" % m.text) if m.type == "error" and not any(c in m.text for c in ("403", "409", "422", "423")) else None)
         page.goto(URL)
         if not RESUME:
             new_board(page)

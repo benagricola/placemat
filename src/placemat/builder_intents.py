@@ -796,13 +796,20 @@ def move_offer(ctx: Ctx, key: str, direction: str) -> Suggestion:
     if row is None or row["status"] != "decided" or (row["relation"] or {}).get("kind") in ("row", "ring"):
         raise BuilderRefused("only a decided placement is moved among the decided ones")
     mine = _target_of(ctx, row)
-    decided = sorted((r for r in ctx.rows.values() if r["status"] == "decided" and r["line"] and r["file"] == row["file"]
-                      and (r["relation"] or {}).get("kind") not in ("row", "ring")), key=lambda r: r["line"])
+    seen, decided = set(), []                      # the decided statements in file order: a row is one statement whoever its members are
+    for r in sorted((r for r in ctx.rows.values() if r["status"] == "decided" and r["line"] and r["file"] == row["file"]), key=lambda r: r["line"]):
+        if r["line"] not in seen:
+            seen.add(r["line"])
+            decided.append(r)
     i = next(k for k, r in enumerate(decided) if r["key"] == key)
     j = i - 1 if direction == "up" else i + 1
     if not 0 <= j < len(decided):
         raise BuilderRefused("%s is already the %s of the decided placements" % (ctx.label(key), "first" if direction == "up" else "last"))
-    other = _target_of(ctx, decided[j])
+    nb = decided[j]
+    if (nb["relation"] or {}).get("kind") in ("row", "ring"):
+        other = Target(nb["relation"]["kind"], nb["key"], ctx.abs(nb["file"]), nb["line"], 1, se.digest(ctx.texts[nb["file"]]))
+    else:
+        other = _target_of(ctx, nb)
     e = Edit("move_statement", mine, {"before" if direction == "up" else "after": other.to_json()}, None, {}, str(ctx.script))
     return _suggestion(ctx, "Move %s %s" % (ctx.label(key), direction), [e])
 
