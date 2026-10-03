@@ -133,3 +133,9 @@ row text is "applied from a suggestion: <text>".
 - `placemat apply <id>` reads `<board>/.placemat/suggestions.json`, which `run` and `preview` write (`sg.remember`).
   The studio need not write it.
 - The `try` console lines come from `Finding.try_lines()` and `console.finding(f)`.
+- `runner.scripted_board` sets `board.script_file`; a worker that builds a `Board` another way should set it too (the
+  suggestions that edit `placemat.toml` or put a constant in a shared module read it).
+- Suggestions are best-effort: a builder or a measurement that fails gives no suggestion and the resolve goes on. A
+  finding the engine could not bind has `suggestions == []` in the JSON; the page shows an empty slot.
+- Findings replayed from the reuse cache keep their suggestions (stored unbound, bound again at the end of the resolve to
+  the script's lines as they are then), so a replaying resolve gives the same suggestions as a fresh one.
