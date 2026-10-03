@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.91.1
 
 ### New
 
@@ -32,6 +32,11 @@ section for each hand-written pattern a newer form replaces.
   unplated holes (the `hole_clearance`), copper, and for a via the rule areas that forbid vias. Unplated holes also close a
   pad's corridors in the search now, as pads do. `escape_walled` appears where it did not, and the run score and the search move
   with it. A script that drew a track to nowhere from a pad (a stub the core's router takes up) may now get the finding.
+- **A part searched in a pocket is no longer refused room under a through via it may sit over.** The free-rectangle raster
+  that places an item nothing pulls toward, and the check before a search, blocked every through via on both faces. A via
+  now blocks only an item that has something a via may not overlap (pads, copper, holes; its courtyard too under
+  `vias_block_courtyards`), the rule a scan applies. A part that draws nothing but a courtyard or a body, over a board
+  with vias spread across it, is placed where it was reported unplaced ("no pocket fits"). Scripts change nothing.
 
 ## To 0.91.0
 
