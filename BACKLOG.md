@@ -47,9 +47,9 @@ Specced work first, then the loose ends.
 8. **`row(of=)` fits against envelope shapes** as Beside does.
 9. **The pure-Python refusal cost** (+20% measured once): build refusal facts
    lazily on the pure-Python path.
-10. **A possibly flaky native parity test**
-    (`test_native_legal` SlotControl-physical failed once): find the cause or
-    show it cannot recur.
+10. **A flaky native parity test**: `test_native_legal` failed under the
+    two-process release suite twice (SlotControl-physical; MCU_RP2350B-union),
+    passing on rerun each time: find the cause.
 11. **Refresh `tests/slow_tests.txt`** from a full single-process run on a
     quiet machine.
 12. **Refuse numeric `Centre` axes** without `coordinates=True`, one release
