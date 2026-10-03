@@ -146,19 +146,30 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
     from . import stop
     from .console import console
     t0 = time.time()
+    prior = checkpoint.load() if checkpoint is not None else None
+    if prior is not None:
+        console.say("explore", "resuming a saved explore: %d variants in %.0f s so far%s" % (
+            len(prior.done) + 1, prior.spent, "" if not prior.best_seed else ", best seed %d" % prior.best_seed))
+    elif checkpoint is not None and checkpoint.discarded:
+        console.say("explore", "a saved explore was not continued: %s changed since it began" % " and ".join(
+            checkpoint.discarded))
     with _context_of(make_board):
         base_board = make_board()
         plain = base_board.resolve(lock=lock)
-        base_m = measure(base_board, plain)
-        baseline = _total(base_board, base_m)
+        if prior is None:
+            base_m = measure(base_board, plain)
+            baseline = _total(base_board, base_m)
+        else:                                   # the baseline is the saved one: it is the same board and settings
+            baseline, base_m = prior.baseline, prior.measures
     if jobs is None:
         jobs = base_board.settings.explore_jobs or max(1, (os.cpu_count() or 2) - 1)
-    done_before = {}
-    spent = 0.0
-    if checkpoint is not None:
-        done_before, spent = checkpoint.begin(baseline, base_m, seconds, seeds)
+    done_before = dict(prior.done) if prior is not None else {}
+    spent = prior.spent if prior is not None else 0.0
+    if checkpoint is not None and prior is None:
+        checkpoint.start(baseline, base_m, seconds, seeds)
     deadline = t0 + max(0.0, seconds - spent)
     order = [s for s in seeds if s != 0 and s not in done_before] if seeds is not None else None
+    nothing_left = (not order) if order is not None else deadline <= time.time()
     ctx = mp.get_context("spawn")
     counter = ctx.Value("l", 0)
     best_val = ctx.Value("d", min([baseline] + [r[1] for r in done_before.values()]))
@@ -166,9 +177,9 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
     untried = _untried(done_before)
     procs = [ctx.Process(target=_work, args=(k, make_board, frozenset(focus), lock, plain.reuse, order, deadline,
                                              counter, out, best_val, baseline, os.getpid(), untried), daemon=True)
-             for k in range(max(1, jobs))]
+             for k in range(0 if nothing_left else max(1, jobs))]
     results = {0: (0, baseline, base_m)}
-    results.update({s: (s, sc, m) for s, (_, sc, m) in done_before.items()})
+    results.update(done_before)
     failures, ended = [], set()
     partial = lambda: _result(results, baseline, base_m, spent + time.time() - t0, failures)
     try:
@@ -212,12 +223,17 @@ def explore(make_board, focus, seconds: float, jobs: int | None = None, seeds=No
     except stop.Stopped as s:
         s.partial = partial()
         s.partial.stopped = True
+        if checkpoint is not None:
+            checkpoint.stopped(s.name, s.partial.seconds)
         raise
     finally:
         _end(procs)
         out.close()
         out.cancel_join_thread()
-    return partial()
+    result = partial()
+    if checkpoint is not None:
+        checkpoint.done(result.seconds, result.best_seed)
+    return result
 
 
 def _signame(n: int) -> str:
@@ -357,9 +373,26 @@ def _script_digest(script) -> str:
     from . import checkpoint
     from .project import script_fingerprint
     try:
-        return checkpoint.sha(script_fingerprint(script))
+        return checkpoint.sha(script_fingerprint(script, with_lock=False))
     except OSError:
         return ""
+
+
+def _parts(script, base, make_board, entries, focus) -> dict:
+    """What a variant is made of, digested, by what each is called in a
+    checkpoint (checkpoint.PARTS): a saved explore continues only when every
+    one is the same."""
+    import json
+    from . import __version__, checkpoint
+    from . import reuse as _reuse
+    settings = json.loads(_reuse.placement_settings(base.settings))
+    for k in [k for k in settings if k in ("explore_jobs", "explore_checkpoint_max_variants")]:
+        del settings[k]                                 # how many workers, how long a checkpoint: not what a variant is
+    fab = getattr(make_board, "fab", None)
+    return {"script": _script_digest(script), "board": checkpoint.sha(_reuse._geometry_digest(base.geometry)),
+            "settings": checkpoint.sha(json.dumps(settings, sort_keys=True)),
+            "fab": checkpoint.sha(fab.json()) if fab is not None else "", "version": __version__,
+            "lock": checkpoint.lock_digest(entries), "focus": checkpoint.sha(",".join(sorted(focus)))}
 
 
 def _shown(script) -> str:
@@ -387,15 +420,21 @@ def _write_lock(path, entries, focus, new, plan) -> list:
 
 
 def search(make_board, script, seconds: float, jobs: int | None = None, keys=(), after_line=None, box=None,
-           accept: bool = False, seeds=None, release: str = "", run_id: str = "", checkpoint_dir=None) -> tuple:
+           accept: bool = False, seeds=None, release: str = "", run_id: str = "", checkpoint_dir=None,
+           resume: str = "auto", keep_state: bool = False) -> tuple:
     """What `--explore` does: read the script's lock, choose the focus, run
     the variants, and report what the best would move against the current
     placement. With `accept`, write the best's decisions for the focused
     items to the lock (merged with the entries for other items). Returns
     (report, entries): the entries a run should now resolve with.
 
-    `checkpoint_dir` is where the explore keeps its state (checkpoint.py).
-    When the process is stopped, the best so far is reported and kept there,
+    `checkpoint_dir` is where the explore keeps its state (checkpoint.py): a
+    saved explore of this script that is this one - the same script, board,
+    settings, fab profile, version, lock and focus - is continued
+    (`resume` "auto"; "yes" refuses when it is not this one, saying what
+    changed; "no" starts over). It is cleared when the explore is complete,
+    unless `keep_state`: the caller clears it (checkpoint.finish_dir) once
+    the result is recorded. When the process is stopped, the best so far is reported and kept there,
     nothing is written to the lock whatever `accept` says - the decision is
     the user's - and the stop goes on up with the report as `.explore`."""
     from . import checkpoint as _checkpoint
@@ -412,8 +451,8 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
                 "best_seed": 0, "moves": [], "accepted": False, "empty": True}, entries
     ck = None
     if checkpoint_dir is not None:
-        ck = _checkpoint.Checkpoint(checkpoint_dir, {"focus": sorted(focus), "script": _script_digest(script),
-                                                       "lock": _checkpoint.lock_digest(entries)})
+        ck = _checkpoint.Checkpoint(checkpoint_dir, _parts(script, base, make_board, entries, focus), focus, resume,
+                                    base.settings.explore_checkpoint_max_variants)
     try:
         result = explore(make_board, focus, seconds, jobs, seeds=seeds, lock=entries, checkpoint=ck)
     except stop.Stopped as s:
@@ -432,7 +471,11 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
               "terms": _moved_terms(base, result.baseline_measures, result.best_measures)}
     if result.failures:
         report["failures"] = result.failures
+    if ck is not None and result.best_seed and (_checkpoint.read_best(ck.dir) or {}).get("seed") == result.best_seed:
+        report["accept"] = accept_command(script, result.best_seed)
     if result.best_seed == 0:
+        if ck is not None and not keep_state:
+            ck.finish()
         return report, entries
     with _context_of(make_board):
         board = make_board()
@@ -452,6 +495,10 @@ def search(make_board, script, seconds: float, jobs: int | None = None, keys=(),
         new = _lock.entries(board, best, placed, release, run_id, round(result.best, 1))
         entries = _write_lock(path, entries, focus, new, best)
         report["accepted"] = True
+        if ck is not None:
+            ck.best_path.unlink(missing_ok=True)         # taken: it would not match the lock now
+    if ck is not None and not keep_state:
+        ck.finish()
     return report, entries
 
 
@@ -506,9 +553,10 @@ class ExploreOptions:
     box: object = None
     jobs: int | None = None
     accept: bool = False
+    resume: str = "auto"            # "yes": --resume, "no": --no-resume
 
 
-def before_resolve(script, board, make_board, options, say, run_id: str = "") -> tuple:
+def before_resolve(script, board, make_board, options, say, run_id: str = "", keep_state: bool = False) -> tuple:
     """The lock entries a run resolves with, and the explore report when
     --explore was given (else None): the search runs first, and with
     --accept its decisions are in the entries returned."""
@@ -521,7 +569,7 @@ def before_resolve(script, board, make_board, options, say, run_id: str = "") ->
     state = _state_dir(script, make_board)
     report, entries = search(make_board, script, options.seconds, options.jobs, options.keys,
                              options.after_line, options.box, options.accept, release=__version__,
-                             run_id=run_id, checkpoint_dir=state)
+                             run_id=run_id, checkpoint_dir=state, resume=options.resume, keep_state=keep_state)
     report["seconds"] = round(time.time() - t0, 1)
     for line in report_lines(report):
         say("explore", line)
@@ -568,7 +616,11 @@ def _report_lines(report) -> list:
         turn = "" if m["rotation"][0] == m["rotation"][1] else ", rotation %s -> %s" % tuple(
             "-" if r is None else "%g" % r for r in m["rotation"])
         lines.append("  %s: %s%s" % (m["key"], "placed/unplaced" if m["mm"] is None else "%.2f mm" % m["mm"], turn))
-    lines.append("accepted: written to the lock" if report["accepted"] else "not accepted: --accept writes it to the lock")
+    if report["accepted"]:
+        lines.append("accepted: written to the lock")
+    else:
+        lines.append("not accepted: --accept writes it to the lock%s" % (
+            ", or later: " + report["accept"] if report.get("accept") else ""))
     return lines
 
 

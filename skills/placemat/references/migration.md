@@ -21,6 +21,16 @@ section for each hand-written pattern a newer form replaces.
   on a stop, even with `--accept`. `placemat lock <script> --accept-seed N` writes the saved best (kept in
   `<board>/.placemat/explore/<script stem>/best.json`) to the lock without searching; it refuses when the lock or the
   script changed since the explore began.
+- **An explore resumes.** The parent appends a line per finished variant to
+  `<board>/.placemat/explore/<script stem>/checkpoint.jsonl` as it goes (the header holds the baseline, the budget and a
+  digest of the script, generated board, settings, fab profile, placemat version, lock and focus). A rerun of the same
+  explore (`placemat run|preview <script> --explore SECONDS ...`) finds it, says `resuming a saved explore: N variants
+  in T s so far`, reuses the baseline, tries only the untried seeds and spends SECONDS less the time already spent.
+  `--resume` insists on it and refuses, naming what changed ("the script and the lock changed since it began"), when the
+  saved explore is not this one; without `--resume` such a checkpoint is dropped with a note and the explore starts
+  over; `--no-resume` starts over regardless. The checkpoint is removed when the run that explored is recorded;
+  `best.json` stays, so `placemat lock <script> --accept-seed N` works after a finished explore too (the explore's
+  report ends with the command). `[explore] checkpoint_max_variants` (default 100000) bounds the file.
 - **An explore's workers are watched.** A worker that is killed from outside (the out-of-memory killer) or raises is
   reported with its exit signal or traceback, and the explore carries on with the others instead of waiting for it. A
   worker ends when its parent does.

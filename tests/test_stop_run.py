@@ -149,3 +149,56 @@ def test_a_real_sigterm_to_a_real_explore_run(tmp_path):
         again = subprocess.run([sys.executable, "-m", "placemat", "lock", m.group(1), "--accept-seed", "999999"],
                                cwd=ROOT, capture_output=True, text=True, timeout=120)
         assert again.returncode == 1 and "not 999999" in again.stdout
+
+
+def _run_explore(script, seconds, *flags):
+    return subprocess.Popen([sys.executable, "-m", "placemat", "run", str(script), "--no-render", "--keep-going",
+                             "--explore", str(seconds), "--jobs", "2", *flags], cwd=ROOT, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True)
+
+
+def _stop_after(proc, seconds):
+    t0 = time.time()
+    while len(_children(proc.pid)) < 3 and time.time() - t0 < 120 and proc.poll() is None:
+        time.sleep(0.2)
+    time.sleep(seconds)
+    proc.send_signal(signal.SIGTERM)
+    out, err = proc.communicate(timeout=60)
+    return proc.returncode, out, err
+
+
+def test_a_real_explore_stopped_twice_resumes_each_time_without_repeating_a_seed(tmp_path):
+    mod, script, src = _searched_module(tmp_path)
+    ck = mod / ".placemat" / "explore" / "UsbC_layout" / "checkpoint.jsonl"
+    from placemat import checkpoint
+    rc, out, err = _stop_after(_run_explore(script, 40), 5)
+    assert rc == 143
+    first = checkpoint.read_lines(ck)
+    s1 = [d["v"] for d in first if "v" in d]
+    assert first[0]["kind"] == "header" and first[-1]["stop"] == "SIGTERM" and len(s1) >= 3
+    rc, out, err = _stop_after(_run_explore(script, 40), 5)
+    assert rc == 143 and "resuming a saved explore: %d variants" % (len(s1) + 1) in out, out
+    second = checkpoint.read_lines(ck)
+    s2 = [d["v"] for d in second if "v" in d]
+    assert len(s2) == len(set(s2)) and set(s1) < set(s2)                      # no seed twice; what was done is kept
+    assert second[0] == first[0]                                              # the same header: the baseline is reused
+    assert sum(1 for d in second if "stop" in d) == 2 and max(d["t"] for d in second if "t" in d) > first[-1]["t"]
+    # finish it: the rest of a short budget (the time already spent counts against it)
+    spent = max(d["t"] for d in second if "t" in d)
+    proc = _run_explore(script, int(spent) + 4)
+    out, err = proc.communicate(timeout=300)
+    assert proc.returncode == 0, out + err
+    assert "resuming a saved explore: %d variants" % (len(s2) + 1) in out
+    assert not ck.exists()                                                    # recorded in the run: not needed
+    doc, _ = _only_run(src)
+    assert doc["status"] == "ok" and doc["metrics"]["explore"]["tried"] > len(s2) + 1
+
+
+def test_resume_refuses_a_saved_explore_of_another_script(tmp_path):
+    mod, script, src = _searched_module(tmp_path)
+    rc, out, err = _stop_after(_run_explore(script, 40), 3)
+    assert rc == 143
+    script.write_text(script.read_text() + "\n# edited\n")
+    proc = _run_explore(script, 10, "--resume")
+    out, err = proc.communicate(timeout=120)
+    assert proc.returncode == 1 and "the script changed since it began" in out, out

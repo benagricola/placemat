@@ -3370,7 +3370,7 @@ the items it was left to place:
 
 ```
 placemat run <script> --explore SECONDS [--focus ITEM ...] [--focus-after LINE]
-                      [--focus-box X0,Y0,X1,Y1] [--jobs N] [--accept]
+                      [--focus-box X0,Y0,X1,Y1] [--jobs N] [--accept] [--resume | --no-resume]
 placemat preview <script> --explore SECONDS [the same]
 placemat lock <script> [--current [--partial] | --release ITEM ... | --release-all | --accept-seed N]
 placemat freeze <script> ITEM ... | --all [--fixed]
@@ -3413,6 +3413,28 @@ stopped run's `run.json` has `status: "stopped"` and `failure: {kind:
 last run left it, a final line names the stage and the signal, and the exit
 status is 128 + the signal. While a run works its `run.json` says `status:
 "running"` and its `pid`; a record whose pid is gone died without finishing.
+**Checkpoint and resume.** An explore keeps its state in
+`<board>/.placemat/explore/<script stem>/`. `checkpoint.jsonl` is a header (the
+digest and the parts it is made of - script, generated board, settings, fab
+profile, placemat version, lock, focus - the baseline's score and measures, the
+budget), a line per finished variant `{"v": seed, "s": score, "t": seconds
+spent in all}` (a variant better than every one before it also has `"m"`, its
+measures), flushed as it goes, a `{"stop": signal}` line when it was stopped
+and `{"done": true}` when it finished; a line cut short by a kill is ignored.
+`best.json` holds the best variant's lock entries (replaced atomically at each
+new best) and what `placemat lock <script> --accept-seed N` writes. A rerun
+with the same digest continues: `resuming a saved explore: N variants in T s
+so far`, the baseline from the header, the untried seeds only, `SECONDS` less
+the time already spent (a fixed list of seeds: those not tried). `--resume`
+refuses a checkpoint with another digest, naming what changed; with no flag it
+is dropped with a note and the explore starts over; `--no-resume` starts over
+always. The checkpoint is removed when the run that explored is recorded (a
+`preview`, which records nothing, removes it when it has the result); a run
+that fails or is stopped after a complete explore leaves it, and the rerun
+takes the finished result without searching again. `best.json` stays until the
+lock is written from it or the explore starts over. `[explore]
+checkpoint_max_variants` bounds the lines.
+
 For a long explore run it detached (`setsid nohup placemat run ... >
 explore.log 2>&1 &`) and do not chain it with `;`, which hides its exit
 status.
@@ -3694,6 +3716,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `explore.rank_power` | 1.0 | an explored item's spot at rank r among its candidates is drawn with weight 1 / r to this power: higher keeps it nearer its best |
 | `explore.congestion_step` | 0.05 | variants are ranked by the run score, with the worst congestion cell counted in steps of this at `score.congestion` each (0 leaves it out) |
 | `explore.jobs` | 0 | worker processes for `--explore`; 0 is the CPU count less one |
+| `explore.checkpoint_max_variants` | 100000 | finished variants an explore's checkpoint records; past it a resume tries those again |
 | `drc.severities` | none | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
 | `drc.real_kinds` | `clearance`, `shorting_items`, `track_width`, `annular_width`, `hole_clearance`, `hole_to_hole`, `courtyards_overlap`, `copper_edge_clearance` | which violations mean the board is not done: the `real` buckets |
 | `drc.outstanding_kinds` | `via_dangling`, `track_dangling`, `isolated_copper` | which violations are copper not yet joined: `outstanding` |

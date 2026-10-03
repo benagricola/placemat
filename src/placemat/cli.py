@@ -47,6 +47,11 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--jobs", type=int, help="with --explore: worker processes (default [explore] jobs)")
     run.add_argument("--accept", action="store_true",
                      help="with --explore: write the best variant's decisions to the lock and use them")
+    run.add_argument("--resume", action="store_true",
+                     help="with --explore: continue the saved explore of this script (its untried seeds, the rest of "
+                          "its time) or refuse, saying what changed; without it a saved explore that is this one is "
+                          "continued anyway")
+    run.add_argument("--no-resume", action="store_true", help="with --explore: start over, dropping a saved explore")
 
     rt = sub.add_parser("route", help="route a copy of a placed board with KiCadRoutingTools and score closure")
     rt.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
@@ -227,6 +232,11 @@ def parser() -> argparse.ArgumentParser:
     pv.add_argument("--jobs", type=int, help="with --explore: worker processes (default [explore] jobs)")
     pv.add_argument("--accept", action="store_true",
                      help="with --explore: write the best variant's decisions to the lock and use them")
+    pv.add_argument("--resume", action="store_true",
+                     help="with --explore: continue the saved explore of this script (its untried seeds, the rest of "
+                          "its time) or refuse, saying what changed; without it a saved explore that is this one is "
+                          "continued anyway")
+    pv.add_argument("--no-resume", action="store_true", help="with --explore: start over, dropping a saved explore")
 
     st = sub.add_parser("studio", help="a local page that shows the layout as it is made: the board re-resolved as the "
                                         "script, its modules or placemat.toml change, each step as it settles, and what "
@@ -353,8 +363,9 @@ def cmd_settings(args) -> int:
 def _explore_options(args):
     """The ExploreOptions --explore and its flags ask for, or None."""
     if getattr(args, "explore", None) is None:
-        if any(getattr(args, k, None) for k in ("focus", "focus_after", "focus_box", "accept")):
-            raise SystemExit("--focus, --focus-after, --focus-box and --accept go with --explore SECONDS")
+        if any(getattr(args, k, None) for k in ("focus", "focus_after", "focus_box", "accept", "resume", "no_resume")):
+            raise SystemExit("--focus, --focus-after, --focus-box, --accept, --resume and --no-resume go with "
+                             "--explore SECONDS")
         return None
     from .explore import ExploreOptions
     from .values import Box
@@ -365,7 +376,10 @@ def _explore_options(args):
         except ValueError:
             raise SystemExit("--focus-box is X0,Y0,X1,Y1 in board millimetres, not %r" % args.focus_box)
         box = Box(min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
-    return ExploreOptions(args.explore, tuple(args.focus), args.focus_after, box, args.jobs, args.accept)
+    if args.resume and args.no_resume:
+        raise SystemExit("--resume and --no-resume say opposite things")
+    return ExploreOptions(args.explore, tuple(args.focus), args.focus_after, box, args.jobs, args.accept,
+                          "yes" if args.resume else "no" if args.no_resume else "auto")
 
 
 def cmd_lock(args) -> int:

@@ -15,6 +15,7 @@ from .console import configure, console
 from .layout import Board
 from .context import run_script
 from . import checks, settings, stop
+from .checkpoint import ResumeRefused
 from .project import BoardSource, fab_profile, find_board, generator_inputs, script_fingerprint
 from .report import (RunRecord, _drc_total, against_best, airwires_from_drc, best_for, comparable, congestion,
                      family_of, impact, is_better, latest_for, record_latest, run_id, score_line)
@@ -367,7 +368,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
     say("run", "%s: %s" % (src.name, script.relative_to(src.board_dir)))
     generated = False
     plan = None
-    stage, began, stopped = "generate", time.time(), None
+    stage, began, stopped, explored = "generate", time.time(), None, None
     # the layout folder as the last run left it: a run that fails before it
     # writes the board puts it back, rather than leave the unplaced generation
     before = staging / "before"
@@ -441,8 +442,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         try:
             lock_entries, explored = explore_mod.before_resolve(
                 script, board, explore_mod.BoardFactory(script, src, cfg, fab, keep_going, board.geometry),
-                explore, say, run_id=rid)
-        except explore_mod.FocusError as e:
+                explore, say, run_id=rid, keep_state=True)
+        except (explore_mod.FocusError, ResumeRefused) as e:
             raise RunFailure("explore", str(e), {"tail": str(e)})
         stage = "resolve"
         try:
@@ -691,6 +692,9 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         except (json.JSONDecodeError, TypeError):
             pass
         record_latest(run_dir.parent, run_dir / "run.json", rec.board)
+        if explored is not None:            # its result is in the record: the explore's checkpoint is not needed
+            from . import checkpoint
+            checkpoint.finish_dir(checkpoint.state_dir(src.board_dir, script))
     say("record", str(run_dir / "run.json"))
     return RunResult(rec, run_dir, generated, text, plan, regressed)
 

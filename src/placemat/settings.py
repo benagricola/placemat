@@ -137,6 +137,7 @@ class Settings:
     explore_rank_power: float = 1.0    # a drawn spot at rank r is weighted 1 / r ** this: higher keeps nearer the best
     explore_congestion_step: float = 0.05   # the worst RUDY cell ranks variants in steps of this; 0 leaves it out
     explore_jobs: int = 0              # worker processes; 0: the CPU count less one
+    explore_checkpoint_max_variants: int = 100000   # finished variants a checkpoint records; past it a resume tries those again
     drc_severities: dict = field(default_factory=dict)   # KiCad rule -> error|warning|ignore, written into the board's project
     # [route]
     route_router_dir: str = ""          # "": fall back to $KRT_DIR, then the built-in
