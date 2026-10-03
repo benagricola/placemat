@@ -19,6 +19,7 @@ import functools
 from collections import Counter
 from dataclasses import dataclass, field
 import math
+import time
 import types
 
 from .copper import (Pour, Text, Track, Via, Zone, arc_circle, arc_tracks, board_zone_outline, chamfer_cuts, chamfered, finger_ops, octilinear,
@@ -498,17 +499,34 @@ class Push:
 
 
 class _FedSteps(list):
-    """A plan's steps that tell `on_step` of each copper and cutout step as it is added (a placement is told as it is
-    committed), so a viewer sees them as they settle."""
+    """A plan's steps. Each one added is timed: its `seconds` is the time since the previous step was added or
+    its own tail work was stamped (`_Lap.stamp`), so the steps' times add up to the resolve's and the work between
+    two steps (give-way, settling, a fanout) is in the step it was for. With an `on_step`, each copper and cutout
+    step is also told as it is added (a placement is told as it is committed), so a viewer sees them as they settle."""
 
-    def __init__(self, plan, on_step):
+    def __init__(self, plan, on_step, lap=None):
         super().__init__()
-        self._plan, self._on_step = plan, on_step
+        self._plan, self._on_step, self._lap = plan, on_step, lap
 
     def append(self, step):
+        if self._lap is not None:
+            step.seconds += self._lap.stamp()
         super().append(step)
-        if step.kind in ("copper", "cutout"):
+        if self._on_step is not None and step.kind in ("copper", "cutout"):
             self._on_step(self._plan, step)
+
+
+class _Lap:
+    """The resolve's stopwatch: `stamp()` is the seconds since the last stamp (or the start) and starts the next lap."""
+    __slots__ = ("at",)
+
+    def __init__(self):
+        self.at = time.perf_counter()
+
+    def stamp(self) -> float:
+        now = time.perf_counter()
+        spent, self.at = now - self.at, now
+        return spent
 
 
 @dataclass
@@ -529,6 +547,8 @@ class Step:
     unplaced: str | None = None          # None for an item that was placed; else why not, as the step's note says it
     lock: str = ""                       # how the lock fared: "held", "drifted" or "released"; "" for an item with none
     pocket: dict | None = None           # a seeded item that took a pocket: its w_mm, h_mm, at, seed_mm and face
+    seconds: float = field(default=0.0, compare=False)   # how long this step took in this resolve, a replayed one its replay (reuse.py)
+    first_seconds: float | None = field(default=None, compare=False)   # a replayed step: how long it took when it was first resolved, from the reuse record
 
 
 class CutoutHandle:
@@ -652,6 +672,7 @@ class Plan:
     cleanup: dict = field(default_factory=dict)                   # what the cleanup pass did, when it ran
     rudy: object = None                                           # congestion.Rudy of the placed board
     reuse: dict = field(default_factory=dict)                     # this run's record, for the next run to replay
+    seconds: float = 0.0                                          # how long the resolve took, in all
     turns: dict = field(default_factory=dict, repr=False)        # each searched item's turn: where it went and the pad it depends on (lock.py)
     adopted: dict = field(default_factory=dict)                   # net -> "held", or {"dropped": a Refusal as JSON}: routed copper kept beside the script
     cell_zones_under_planes: str = "drop"                         # settings: a cell's zone under the board's own plane is merged into it
@@ -6172,8 +6193,9 @@ class Board:
                     cell_zones_under_planes=self.settings.copper_cell_zones_under_planes,
                     split_groups=self.settings.write_split_groups, groups=list(self._groups.values()),
                     thinned=thinned)
-        if on_step:
-            plan.steps = _FedSteps(plan, on_step)
+        lap = _Lap()
+        started = lap.at
+        plan.steps = _FedSteps(plan, on_step, lap)
         self._on_begin, self._begin_plan = on_begin, plan
         occ.on_phase = (lambda text, **info: self._phase(text, **info)) if on_begin else None
         ctx = _CopperContext(self, occ)
@@ -6338,9 +6360,8 @@ class Board:
                                 "of": len(self._rank_of) if not decided else None,
                                 "replaying": bool(chain["replaying"]), "n": position})
             if isinstance(obj, (KeepoutIntent, CutoutIntent)):
-                record["steps"].append({"key": key})
-                if partial is not None:
-                    partial.append(record["steps"][-1])
+                entry = {"key": key}
+                record["steps"].append(entry)
                 if chain["replaying"]:
                     record["reused"] += 1
                 elif record["first_change"] is None and previous is not None:
@@ -6349,6 +6370,13 @@ class Board:
                     settle_keepout(obj)
                 else:
                     settle_cutout(obj)
+                step = plan.steps[-1]
+                took = previous[position].get("seconds") if chain["replaying"] else None
+                entry["seconds"] = round(took if took is not None else step.seconds, 6)
+                if chain["replaying"]:
+                    step.first_seconds = took
+                if partial is not None:
+                    partial.append(entry)
                 return
             if getattr(obj, "turned", None) is not None:    # its part, or its line's points, are placed by now: needs said so
                 obj.rotation = self._turned_rotation(occ, obj)
@@ -6373,7 +6401,11 @@ class Board:
                     record["first_change"] = obj.key
                 step, entry = self._recorded_settle(occ, obj, plan, placed)
                 entry["key"] = key
+                step.seconds = lap.stamp()
+                entry["step"]["seconds"] = round(step.seconds, 6)
                 record["steps"].append(entry)
+            if chain["replaying"]:
+                step.seconds = lap.stamp()
             if partial is not None:
                 partial.append(record["steps"][-1])
             if why_now:
@@ -6412,6 +6444,8 @@ class Board:
                     if taken >= 0.05:
                         step.note = (step.note + "; " if step.note else "") + \
                             "its stamped regions keep parts off %.1f mm2 of board beyond its own parts" % taken
+            step.seconds += lap.stamp()                 # the commit and the labels' give-way are this step's work; the record, already
+                                                        # logged, holds the settle's time alone
             if progress:
                 progress(_fmt(step))
             if on_step:
@@ -6541,6 +6575,7 @@ class Board:
                 pass
         self._late_suggestions = []
         suggestions.bind(plan.findings, self)       # each suggestion to the lines of the script it edits
+        plan.seconds = time.perf_counter() - started
         return plan
 
     def _give_way_copper(self, occ: Occupancy, plan: Plan) -> None:

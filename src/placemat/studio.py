@@ -764,7 +764,7 @@ class Studio:
         emit("findings", {"id": rid, "findings": doc["findings"]}, keep=True)
         emit("items", {"id": rid, "items": doc["items"], "steps": doc["steps"], "unplaced": doc["unplaced"],
                        "pocketed": doc["pocketed"], "board": doc["board"], "keepouts": doc["keepouts"],
-                       "reservations": doc["reservations"], "layers": doc["layers"]}, keep=True)
+                       "reservations": doc["reservations"], "layers": doc["layers"], "seconds": doc.get("seconds")}, keep=True)
         emit("finished", {"id": rid, "counts": doc["counts"], "timing": rec.timing, "reused": rec.reused, "notes": rec.notes,
                           "score": doc.get("score"), "history": [r.summary() for r in self.history]}, keep=True)
         if previous is not None:

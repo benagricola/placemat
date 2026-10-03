@@ -607,7 +607,7 @@ click(".row.run"); out.open = els["#tab-compare"].innerHTML;
 els["#runbtn"].onclick(); out.post = fetched.map(([u, o]) => [u, o && o.method]);
 """)
     assert out["btn"] == ["Running...", True] and "step 12: usbpd.esd" in out["log"]            # the run's steps, from the channel, not its printed lines
-    assert out["done"][0] == "Run" and out["done"][1] is False
+    assert out["done"][0] == "Full run" and out["done"][1] is False
     d = out["done"][2]
     assert 'data-run="r1"' in d and "score 12.5" in d and "DRC 2" in d and 'data-cmp-run="r1"' in d and 'data-info="runs"' in d
     assert "Failed checks" in out["open"] and "hot-loop" in out["open"] and "2 real" in out["open"]
@@ -1056,7 +1056,7 @@ els["#menu"].hidden = true; els["#morebtn"].onclick();
 els["#menu"].onclick({target: {closest: s => s === "[data-more]" ? {dataset: {more: "share"}, disabled: false} : null}});
 out.share = els["#menu"].innerHTML;
 """)
-    for word in ("Run a checked run", "Resolve again", "Resolve from scratch", "Share this view", "Source"):
+    for word in ("Full run", "data-info=\"fullrun\"", "title=\"placemat run: writes the board", "Resolve again", "Resolve from scratch", "Share this view", "Source"):
         assert word in out["menu"]
     assert out["posts"] == ['{"fresh":true}'] and "listens only on 127.0.0.1" in out["share"]
 
@@ -1686,3 +1686,33 @@ out.both = [ev("S.face"), ev("S.pendingFrame && S.pendingFrame.face")]; flush();
     assert out["one"] == ["back", "back", True]          # one face shown, the part on the other: the view turns and frames it
     assert out["back"] == ["front", "front"]             # and back again for a front part
     assert out["both"] == ["both", "back"]               # both shown: stays on both, framed on the part's own panel
+
+
+@needs_node
+def test_a_duration_is_ms_below_a_second_tenths_of_a_second_and_minutes_above_a_minute(tmp_path):
+    out = run_page(tmp_path, r"""
+out.d = [0, 0.0004, 0.0123, 0.9994, 0.9996, 1, 4.23, 59.94, 59.96, 60, 65, 125.4, 3600].map(v => ev("dur(" + v + ")"));
+out.none = [ev("dur(null)"), ev("durOf(null, null)")];
+out.both = [ev("durOf({seconds: 0.01, first_seconds: 4.2}, null)"), ev("firstOf({seconds: 0.01, first_seconds: 4.2}, null)")];
+out.fresh = ev('durOf({seconds: 4.2, first_seconds: null}, null)');
+out.item = ev('durOf({}, {seconds: 0.5})');
+""")
+    assert out["d"] == ["0 ms", "0 ms", "12 ms", "999 ms", "1.0 s", "1.0 s", "4.2 s", "59.9 s", "1:00 min", "1:00 min", "1:05 min", "2:05 min", "60:00 min"]
+    assert out["none"] == ["", ""]
+    assert out["both"] == ["10 ms", "4.2 s"] and out["fresh"] == "4.2 s" and out["item"] == "500 ms"
+
+
+@needs_node
+def test_a_step_row_shows_its_time_and_the_total(tmp_path):
+    out = run_page(tmp_path, r"""
+hello(); started(1); finish(1, ["a", "b", "c"]);
+const L = ev("S.docs.get(1).doc");
+L.steps.forEach((s, i) => { s.seconds = 0.01 * (i + 1); if (i === 0) s.first_seconds = 4.2; });
+L.seconds = 12.34;
+ev("renderSteps()");
+out.steps = els["#tab-steps"].innerHTML;
+""")
+    s = out["steps"]
+    assert '<span class="dur" title="replayed in 10 ms; first took 4.2 s">10 ms</span>' in s
+    assert '<span class="dur" title="took 20 ms">20 ms</span>' in s
+    assert "resolved in 12.3 s" in s

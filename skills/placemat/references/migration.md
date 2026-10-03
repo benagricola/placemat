@@ -5,6 +5,15 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **Every step records how long it took.** `Step.seconds`, and for a replayed step `first_seconds` (the time it took when it was first
+  resolved, from the reuse record), are in the plan JSON, the live `item` events and `run.json`'s steps; `metrics.resolve_seconds` is the
+  whole resolve's. The studio's step rows, the card's Placement section and the Steps heading show them. The studio's Run button and menu
+  entry read "Full run"; the endpoint is the same. Nothing a script says changes.
+
 ## To 0.94.1
 
 ### New

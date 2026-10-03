@@ -3328,11 +3328,17 @@ socket for as long as it runs (Linux and macOS):
 - A reader connects and is sent a catch-up first, then live events: newline-delimited JSON, one object each, `ev` naming it.
   `hello` (the entry's fields), `resolve` (`n`: a new resolve; the board and steps before it are forgotten), `board`,
   `begin` (`kind` `total` with the counts, `begin` for the item now being worked on with its `what` and `rank`/`of`, or
-  `phase` with the engine's note), `item` (a settled step: the item, its copper or cutout ops), `plan` (`doc`: the whole
+  `phase` with the engine's note), `item` (a settled step: the item, its copper or cutout ops; the item carries `seconds` and, for a replayed step, `first_seconds`), `plan` (`doc`: the whole
   plan as the studio draws it), for an explore `explore` (focus, the plain placement and order, the baseline score, jobs),
   `variant` (`seed`, `score`, the focused items' `placements` and `order`) and `explore_done` (`best`, `baseline`, `tried`,
   `kept`, `record`), for a route the `route_*` events below, then `done` (`record`: the run's `run.json` or the explore's record) or `error` (`message`, `file`,
   `line`). A command that dies sends neither: the connection closes.
+- Step durations. `Step.seconds` is how long the step took in this resolve, measured with `time.perf_counter` from the previous step's end (the
+  work between two steps, such as give-way and settling, is in the step it was for), so the steps add up to the resolve less the passes after
+  the last step. A replayed step's `seconds` is its replay; `Step.first_seconds` is what it took when it was first resolved, from the reuse
+  record (`None` for a step that was resolved, or replayed from a record that has no times). `seconds` and `first_seconds` are in each `plan`
+  doc step and each `item` event's item, rounded to a millisecond; the plan doc's `seconds` is the whole resolve's. `run.json` keeps
+  `steps[i].seconds` and `first_seconds`, and `metrics.resolve_seconds`.
 - A route (`placemat route`, or `run --route`) streams per-net events from the router's own process: `route_board` (`doc`: the
   board and its parts as the studio draws them; with a run's plan the run's plan is used instead), `route_stage` (`stage`: `pairs`,
   `islands` or `main`, `resumed` when the stage was kept from an earlier route), `route_queue` (`nets`: the nets the stage will take, in

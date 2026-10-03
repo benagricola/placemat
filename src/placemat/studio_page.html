@@ -297,6 +297,7 @@ main { position: relative; }
 .lg .car { width: 14px; color: var(--dim); text-align: center; flex: none; }
 .lg .only { border: 1px solid var(--line); background: var(--surface2); border-radius: 6px; font-size: 11px; padding: 0 6px; color: var(--dim); }
 .info { width: 16px; height: 16px; padding: 0; margin: 0 0 0 7px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface2); color: var(--dim); font: italic 700 10.5px/14px Georgia, serif; text-transform: none; letter-spacing: 0; vertical-align: middle; cursor: help; }
+span.info { display: inline-block; text-align: center; }
 .info:hover { color: var(--accent); border-color: var(--accent); }
 #infopop { position: fixed; z-index: 60; max-width: min(320px, calc(100vw - 16px)); background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 8px 11px; font-size: 12px; line-height: 1.45; }
 #infopop[hidden] { display: none; }
@@ -317,6 +318,7 @@ main { position: relative; }
 .blk { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
 .chip.refusal { background: var(--surface2); color: var(--ink); }
 a.chip.act { cursor: pointer; }
+.row .dur { margin-left: auto; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .row .n { color: var(--dim); min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row.open .n, .row .n.wrap { white-space: normal; }
 .row .go { display: none; border: 1px solid var(--line); background: var(--surface2); border-radius: 6px; padding: 1px 8px; flex: none; }
@@ -537,7 +539,7 @@ svg text { user-select: none; font-family: var(--sans); }
   <button class="brand" id="brandbtn" aria-haspopup="menu" aria-expanded="false" title="switch to another layout script"><b id="board-title">placemat studio</b><span id="board-sub"></span><span class="chev">&#9662;</span></button>
   <span class="pill" id="status"><i></i><span id="statustext">connecting</span></span>
   <div class="flds" id="runhead" hidden></div>
-  <button class="tool" id="runbtn" title="a checked run: the design checks, KiCad's DRC and the score, recorded (no render)">Run</button>
+  <button class="tool" id="runbtn" title="placemat run: writes the board, runs the design checks and KiCad's DRC, scores and records the run; the live view is only a preview">Full run</button>
   <button class="tool" id="resolvebtn" title="cancel what is running and resolve again now: the menu offers a full resolve from scratch">Resolve</button>
   <button class="tool" id="sharebtn" title="open this view on another device: a QR code of its address">Share</button>
   <button class="tool" id="morebtn" aria-haspopup="menu" title="Run, Resolve, Share, Source">&#8943;</button>
@@ -770,7 +772,7 @@ on("board", d => { if (!S.live || d.id !== S.live.id) return; S.live.board = d.b
 function applyStepTo(L, d) {
   const it = d.item;
   const at = L.items.findIndex(i => i.key === it.key);
-  const entry = {i: L.steps.length, item: it.key, kind: it.kind, placed: it.placed, note: it.note, why: it.why, freedom: it.freedom, how: it.how, copper: [], loop: null};
+  const entry = {i: L.steps.length, item: it.key, kind: it.kind, placed: it.placed, note: it.note, why: it.why, freedom: it.freedom, how: it.how, seconds: it.seconds, first_seconds: it.first_seconds, copper: [], loop: null};
   if (d.ops && d.ops.length) { entry.copper = d.ops.map((_, j) => L.copper.length + j); L.copper = L.copper.concat(d.ops); }
   if (d.cutout && L.board) { L.board.loops = L.board.loops.concat([d.cutout]); entry.loop = L.board.loops.length - 1; }
   L.steps.push(entry);
@@ -792,7 +794,7 @@ on("congestion", d => { if (S.live && d.id === S.live.id) { S.live.congestion = 
 on("findings", d => { if (S.live && d.id === S.live.id) { S.live.findings = d.findings; schedule("findings", "status"); } });
 on("items", d => {
   if (!S.live || d.id !== S.live.id) return;
-  Object.assign(S.live, {items: d.items, steps: d.steps, unplaced: d.unplaced, pocketed: d.pocketed, board: d.board, keepouts: d.keepouts, reservations: d.reservations, layers: d.layers});
+  Object.assign(S.live, {items: d.items, steps: d.steps, unplaced: d.unplaced, pocketed: d.pocketed, board: d.board, keepouts: d.keepouts, reservations: d.reservations, layers: d.layers, seconds: d.seconds});
   S.liveQ = [];
   schedule("board", "steps");
 });
@@ -875,7 +877,7 @@ function renderStatus() {
   const b = $("#status");
   const label = S.hello && S.hello.picker ? "choose a script" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", try: "try, not written", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
   $("#statustext").textContent = typeof label === "string" ? label : label;
-  const rb = $("#runbtn"); rb.textContent = S.run ? "Running..." : "Run"; rb.disabled = !!S.run || !!(S.hello && S.hello.picker); rb.classList.toggle("busy", !!S.run);
+  const rb = $("#runbtn"); rb.textContent = S.run ? "Running..." : "Full run"; rb.disabled = !!S.run || !!(S.hello && S.hello.picker); rb.classList.toggle("busy", !!S.run);
   rb.hidden = $("#srcbtn").hidden = $("#resolvebtn").hidden = $("#sharebtn").hidden = !!(S.hello && S.hello.picker);
   b.className = "pill " + ({live: "live", resolving: "busy", stale: "stale", error: "error", try: "stale", disconnected: "error"}[S.status] || "");
   const rec = S.docs.get(S.shownId), p = plan();
@@ -1329,7 +1331,9 @@ function setHover(keys) {
 }
 
 // ---------------------------------------------------------------- info popups: one component for every explanatory note
+const FULL_RUN = "placemat run: writes the board, runs the design checks and KiCad's DRC, scores and records the run; the live view is only a preview";
 const INFO = {
+  fullrun: FULL_RUN,
   running: "The status of the resolve under way. 'step 24 of ~44' is the place of the item being worked on in the whole resolve: every step the engine makes, whether it places a part, lays copper or cuts a cutout. The total is what the engine knows up front, so it is approximate (the ~). The first pill says what the engine is doing with the item (searching a spot, deciding, laying copper), and the second, where the work takes a while, which phase of it it is in (scanning, refining around the best spots, ...). The time is since the resolve began. An item's rank in the search order is on its card and in its step's details.",
   links: "A link is a pull the script declared between two pads. The arrow runs from the pad of the part it was declared on to its partner pad. A link with a limit is green as far as the limit reaches and red beyond it. Hover one for its length and limit.",
   steps: "Each row is one step of the layout, in the order it was made: items placed, copper laid, cutouts cut. A row says how the step was decided and why. Tap a row for the whole note. The slider on the board replays these steps.",
@@ -1865,6 +1869,21 @@ const cardKey = () => [S.sel, S.selRef, S.module, S.selRegion && S.selRegion.kin
 //     (area), "kth by pin count" (pins).
 //  4. A note's known forms are parsed into labelled values (noteParts); only what is not known is shown as written.
 //  5. A labelled line copies as "label: value", one line to a row: kvl writes an invisible ": " between them.
+//  6. A duration (dur) is "n ms" below 1 s, "n.n s" from 1 s, "m:ss min" from 60 s. A replayed step shows the replay's time; what it took
+//     when it was first resolved is its own labelled value on the card ("first took") and in the row's tooltip.
+//  7. No brackets in a label: name the thing so it needs none, and put an explanation in a tooltip or an info icon.
+function dur(sec) {
+  if (sec == null || !isFinite(sec)) return "";
+  const ms = Math.round(sec * 1000);
+  if (ms < 1000) return ms + " ms";
+  const tenths = Math.round(sec * 10);
+  if (tenths < 600) return (tenths / 10).toFixed(1) + " s";
+  const whole = Math.round(sec);
+  return Math.floor(whole / 60) + ":" + String(whole % 60).padStart(2, "0") + " min";
+}
+const timeOf = (s, it) => { const v = s && s.seconds != null ? s : it; return v && v.seconds != null ? v : null; };
+const durOf = (s, it) => { const v = timeOf(s, it); return v ? dur(v.seconds) : ""; };
+const firstOf = (s, it) => { const v = timeOf(s, it); return v && v.first_seconds != null ? dur(v.first_seconds) : ""; };
 function kvl(rows) { return '<div class="kvl">' + rows.filter(r => r[1] != null && r[1] !== "").map(([k, v]) => '<div class="kr"><span class="kk">' + esc(k) + '</span><span class="sep">: </span><span class="kvv">' + v + "</span></div>").join("") + "</div>"; }
 function cardHead(title, chip, chipCls, extra) { return '<div class="h"><b>' + esc(title) + "</b>" + (chip ? '<span class="chip ' + esc(chipCls || "") + '">' + esc(chip) + "</span>" : "") + (extra || "") + '<button class="x" data-act="close" aria-label="close">&times;</button></div>'; }
 const pill = (text, cls) => '<span class="chip ' + (cls || "") + '">' + esc(text) + "</span>";
@@ -2050,7 +2069,7 @@ function partCard(p, it) {
   const title = m ? m.ref : it.key, mod = moduleOf(it, m && m.ref), step = (S.stepNo && S.stepNo.get(it.key)), refs = new Set(m ? [m.ref] : it.members.map(x => x.ref));
   const fs = findingsOf(p, it.key, it), s = (p.steps || []).find(x => x.item === it.key), np = withFacts(noteParts(it.note), it, s);
   const modPill = mod && S.module !== mod ? '<a class="chip act" data-act="module" data-id="' + esc(mod) + '">select cell</a>' : "";
-  const place = kvl([["cell", mod && mod !== title ? esc(mod) : ""], ["face", pill(it.face, "face-" + it.face)], ["rotation", esc(deg(it.rotation))], ["placed", pill(howWord(s, it), howClass(s, it))], ["step", step != null ? esc((step + 1) + " of " + replaySteps(p).length) : ""], ...noteRows(np)]);
+  const place = kvl([["cell", mod && mod !== title ? esc(mod) : ""], ["face", pill(it.face, "face-" + it.face)], ["rotation", esc(deg(it.rotation))], ["placed", pill(howWord(s, it), howClass(s, it))], ["step", step != null ? esc((step + 1) + " of " + replaySteps(p).length) : ""], ["time", esc(durOf(s, it))], ["first took", esc(firstOf(s, it))], ...noteRows(np)]);
   return cardHead(title, it.kind, "", modPill) +
     (m && m.value ? '<div class="sub">' + esc(m.value) + (it.key !== m.ref ? "  (item " + esc(it.key) + ")" : "") + "</div>" : "") +
     sect("Placement", place) + noteExtra(np, it.moved_mm, it.why, it.key) +
@@ -2210,7 +2229,7 @@ function stepSummary(s, it, np) {
 // A row opened: the same labelled sections as a part's card.
 function stepDetail(s, it, np, fs) {
   const placed = s.type === "place" && it;
-  const rows = placed ? kvl([["placed", pill(howWord(s, it), howClass(s, it))], ["face", pill(it.face, "face-" + it.face)], ["rotation", esc(deg(it.rotation))], ...noteRows(np)]) : "";
+  const rows = placed ? kvl([["placed", pill(howWord(s, it), howClass(s, it))], ["face", pill(it.face, "face-" + it.face)], ["rotation", esc(deg(it.rotation))], ["time", esc(durOf(s, it))], ["first took", esc(firstOf(s, it))], ...noteRows(np)]) : "";
   return sect("Placement", rows) +
     noteExtra(np, placed ? it.moved_mm : 0, s.why || (it && it.why), s.item) + sect("Findings", sevPills(np.unplaced ? fs.filter(f => !isUnplacedFinding(f)) : fs)) + (it && it.file ? '<div class="src"><a data-act="src" data-file="' + esc(it.file) + '" data-line="' + it.line + '">' + esc(it.file + ":" + it.line) + "</a></div>" : "");
 }
@@ -2219,7 +2238,8 @@ function stepRow(s, p) {
   const fs = findingsOf(p, s.item, it), worst = fs.some(f => sevOf(f) === "critical") ? "critical" : fs.some(f => sevOf(f) === "warning") ? "warning" : fs.length ? "notice" : "";
   return '<div class="row step k-' + kind.cls + (S.sel === s.item ? " sel" : "") + (S.openRows.has(s.at) ? " open" : "") + '" data-n="' + s.n + '" data-at="' + s.at + '" data-item="' + esc(s.item) + '">' +
     '<span class="i">' + (s.n + 1) + '</span><div class="sb"><div class="l1"><b>' + esc(kind.name) + '</b><span class="chip ' + esc(kind.cls) + '">' + esc(kind.word) + "</span>" +
-    (fs.length ? '<span class="fdot ' + worst + '" title="' + esc(fs.map(f => f.text).join("\n")) + '">' + fs.length + "</span>" : "") + "</div>" +
+    (fs.length ? '<span class="fdot ' + worst + '" title="' + esc(fs.map(f => f.text).join("\n")) + '">' + fs.length + "</span>" : "") +
+    (durOf(s, it) ? '<span class="dur" title="' + esc(firstOf(s, it) ? "replayed in " + durOf(s, it) + "; first took " + firstOf(s, it) : "took " + durOf(s, it)) + '">' + esc(durOf(s, it)) + "</span>" : "") + "</div>" +
     '<div class="l2">' + esc(stepSummary(s, it, np)) + '</div><div class="full">' + stepDetail(s, it, np, fs) + '</div></div><button class="go">show</button></div>';
 }
 function renderSteps() {
@@ -2229,7 +2249,7 @@ function renderSteps() {
   const order = replaySteps(p), other = otherSteps(p);
   const unplaced = p.unplaced || [];
   const head = (title, n, id, info) => "<h3>" + title + (info ? infoBtn(info) : "") + ' <span class="c"' + (id ? ' id="' + id + '"' : "") + ">" + n + "</span></h3>";
-  let out = head("Steps", order.length + (S.resolving ? " so far" : ""), "stepcount", "steps") + '<div id="steplist">' + order.map(s => stepRow(s, p)).join("") + pendingRow() + "</div>";
+  let out = head("Steps", order.length + (S.resolving ? " so far" : ""), "stepcount", "steps") + (p.seconds != null ? '<div class="dim" id="steptotal" style="padding:0 12px 4px;text-align:right">resolved in ' + esc(dur(p.seconds)) + "</div>" : "") + '<div id="steplist">' + order.map(s => stepRow(s, p)).join("") + pendingRow() + "</div>";
   if (unplaced.length) out += head("Not placed", unplaced.length) + unplaced.map(u => '<div class="row unp" data-item="' + esc(u.item) + '"><span class="k">' + esc(u.item) + '</span><span class="chip unplaced">unplaced</span><div class="n wrap unpbody">' + unplacedBlock(unplacedParts(splitTop(u.why, "; "), unplacedFindingOf(p, u.item))) + "</div></div>").join("");
   if (other.length) {
     out += '<h3 class="fold" data-fold="other">' + (S.showOther ? "&#9662;" : "&#9656;") + " Keepouts and setup steps" + infoBtn("other") + ' <span class="c">' + other.length + "</span></h3>";
@@ -2575,7 +2595,7 @@ function cmdEvent(ev, n) {
   else if (ev.ev === "board") { P.board = ev.board; P.keepouts = ev.keepouts || []; P.reservations = ev.reservations || []; if (!V.fitted) { V.fitted = true; S.view = null; lay = null; } }
   else if (ev.ev === "item") { applyStepTo(P, ev); }
   else if (ev.ev === "plan") { const doc = ev.doc || {}; Object.assign(P, {items: doc.items || [], steps: doc.steps || [], copper: doc.copper || [], links: doc.links || [], congestion: doc.congestion, findings: doc.findings || [], unplaced: doc.unplaced || [],
-      pocketed: doc.pocketed || [], keepouts: doc.keepouts || P.keepouts, reservations: doc.reservations || P.reservations, board: doc.board || P.board, layers: doc.layers, counts: doc.counts || P.counts}); }
+      pocketed: doc.pocketed || [], keepouts: doc.keepouts || P.keepouts, reservations: doc.reservations || P.reservations, board: doc.board || P.board, layers: doc.layers, counts: doc.counts || P.counts, seconds: doc.seconds}); }
   else if (ev.ev && ev.ev.startsWith("route_")) routeEvent(V, P, ev);
   else if (ev.ev === "explore") { xvStart("cmd", V.id, ev); }
   else if (ev.ev === "variant") { xvAdd(ev); }
@@ -3179,8 +3199,8 @@ function shareHTML() {
 // On a phone the four header buttons are one: its menu has what they do.
 $("#morebtn").onclick = () => {
   if (!$("#menu").hidden) { closeMenu(); return; }
-  const picker = !!(S.hello && S.hello.picker), item = (id, text, extra) => '<button role="menuitem" data-more="' + id + '"' + (extra || "") + "><b>" + text + "</b></button>";
-  openMenuAt($("#morebtn"), item("run", S.run ? "Running ..." : "Run a checked run", picker || S.run ? " disabled" : "") + item("again", "Resolve again", picker ? " disabled" : "") + item("fresh", "Resolve from scratch", picker ? " disabled" : "") +
+  const picker = !!(S.hello && S.hello.picker), item = (id, text, extra, tail, tip) => '<button role="menuitem" data-more="' + id + '"' + (extra || "") + (tip ? ' title="' + esc(tip) + '"' : "") + "><b>" + text + "</b>" + (tail || "") + "</button>";
+  openMenuAt($("#morebtn"), item("run", S.run ? "Running ..." : "Full run", picker || S.run ? " disabled" : "", '<span class="info" role="button" tabindex="0" data-info="fullrun" aria-label="about this">i</span>', FULL_RUN) + item("again", "Resolve again", picker ? " disabled" : "") + item("fresh", "Resolve from scratch", picker ? " disabled" : "") +
     item("share", "Share this view", picker ? " disabled" : "") + item("source", "Source", picker ? " disabled" : ""));
 };
 $("#sharebtn").onclick = () => { if (!$("#menu").hidden) { closeMenu(); return; } openMenuAt($("#sharebtn"), shareHTML()); };
@@ -3215,6 +3235,7 @@ function resolveNow(fresh) {
 $("#resolvebtn").onclick = () => resolveMenu($("#resolvebtn"));
 $("#rs-again").onclick = () => resolveMenu($("#rs-again"));
 $("#menu").onclick = e => {
+  if (e.target.closest(".info")) return;
   const b = e.target.closest("[data-script]"); if (b) { switchTo(b.dataset.script); return; }
   const r = e.target.closest("[data-resolve]"); if (r) { resolveNow(r.dataset.resolve === "fresh"); return; }
   const mo = e.target.closest("[data-more]");
@@ -3285,7 +3306,7 @@ function runRow(r) {
 }
 function runsHTML() {
   const run = S.run, last = S.lastRun;
-  let o = '<div class="runbar"><button class="tool" id="runnow"' + (run ? " disabled" : "") + ">" + (run ? "Running..." : "Run") + "</button>" + infoBtn("runs") +
+  let o = '<div class="runbar"><button class="tool" id="runnow"' + (run ? " disabled" : "") + ">" + (run ? "Running..." : "Full run") + "</button>" + infoBtn("runs") +
     '<span class="dim">' + (run ? "a checked run is in progress" : "design checks, DRC and the score, recorded") + "</span></div>";
   if (run) o += '<div class="runlog">' + esc(run.n ? "step " + run.n + ": " + run.step : "starting ...") + "</div>";
   else if (last && !last.run) o += '<div class="notice-run">The run ended' + (last.code != null ? " (exit " + last.code + ")" : "") + " without a record.</div><pre class=\"runlog\">" + esc((last.tail || []).slice(-8).join("\n")) + "</pre>";

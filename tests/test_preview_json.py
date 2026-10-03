@@ -39,11 +39,20 @@ def _cls(root, name):
     return [e for e in root.iter() if name in (e.get("class") or "").split()]
 
 
+def _untimed(doc):
+    """The document without its durations, which differ from one resolve to the next."""
+    for k in ("seconds", "first_seconds"):
+        doc.pop(k, None)
+        for s in doc["steps"] + doc["items"]:
+            s.pop(k, None)
+    return doc
+
+
 def test_it_is_plain_json_and_the_same_every_time():
     b, plan = _plan()
-    text = json.dumps(plan_json(plan, declared_sites(b)), sort_keys=True)
+    text = json.dumps(_untimed(plan_json(plan, declared_sites(b))), sort_keys=True)
     b2, plan2 = _plan()
-    assert json.dumps(plan_json(plan2, declared_sites(b2)), sort_keys=True) == text
+    assert json.dumps(_untimed(plan_json(plan2, declared_sites(b2))), sort_keys=True) == text
     assert json.loads(text)["version"] == 1
 
 
