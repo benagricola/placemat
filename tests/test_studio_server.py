@@ -220,3 +220,38 @@ def test_stop_leaves_no_worker_behind(tmp_path):
     st.close()
     s.stop()
     assert proc.poll() is not None
+
+
+@needs_kicad
+def test_a_script_that_raises_is_an_error_with_the_exception_type_and_its_own_line(studio):
+    s = Stream(studio)
+    try:
+        s.until("hello")
+        good = studio.script.read_text()
+        n = len(good.splitlines()) + 2
+        studio.script.write_text(good + "\nraise RuntimeError('boom here')\n")
+        err = s.until("error")
+        assert "RuntimeError" in err["message"] and "boom here" in err["message"]
+        assert err["file"] == studio.script.name and err["line"] == n and err["source"] == "raise RuntimeError('boom here')"
+        studio.script.write_text(good)
+        s.until("finished")
+    finally:
+        s.close()
+
+
+@needs_kicad
+def test_a_script_that_crashes_the_worker_is_a_crash_error_at_its_line_and_the_next_edit_recovers(studio):
+    s = Stream(studio)
+    try:
+        s.until("hello")
+        good = studio.script.read_text()
+        n = len(good.splitlines()) + 3
+        studio.script.write_text(good + "\nimport faulthandler\nfaulthandler._sigsegv()\n")
+        err = s.until("error", timeout=120)
+        assert "crashed" in err["message"] and "SIGSEGV" in err["message"] and "Segmentation fault" in err["message"]
+        assert err["file"] == studio.script.name and err["line"] == n and err["source"] == "faulthandler._sigsegv()"
+        assert err["detail"]
+        studio.script.write_text(good)
+        s.until("finished")
+    finally:
+        s.close()

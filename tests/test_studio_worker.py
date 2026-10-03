@@ -34,7 +34,8 @@ def test_a_resolve_streams_board_items_and_a_finished_plan(staged):
     assert kinds.count("item") >= 10
     done = events[-1]
     keys = [e["item"]["key"] for e in events if e["ev"] == "item"]
-    assert set(keys) <= {i["key"] for i in done["doc"]["items"]} | {u["item"] for u in done["doc"]["unplaced"]}
+    assert set(keys) <= {s["item"] for s in done["doc"]["steps"]}       # placements, copper and cutouts, as the plan records them
+    assert {i["key"] for i in done["doc"]["items"]} & set(keys)
     assert done["timing"]["resolve_s"] >= 0 and done["timing"]["first_step_s"] <= done["timing"]["resolve_s"]
     json.dumps(events)                                  # every event is plain JSON
 

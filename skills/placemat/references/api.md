@@ -3274,14 +3274,21 @@ current as the script changes, whoever changes it: the user's editor or an
 agent.
 
 ```
-placemat studio <script> [--port N] [--no-open]
+placemat studio [<script>] [--port N] [--no-open] [--host ADDR]
 ```
 
 It prints an address (`http://127.0.0.1:PORT/?t=TOKEN`) and opens it unless
 `--no-open`. The server listens on 127.0.0.1 only, answers only GET, and
 refuses any request without the token in the address; stop it with Ctrl-C.
-One studio serves one script. It needs the board's cached generation, as
+One studio serves one script at a time. It needs the board's cached generation, as
 `preview` does: `placemat run` the script once first.
+
+With no `<script>` the studio finds the layout scripts under the current
+directory's project (the folder of the outermost `placemat.toml` above it, else
+the current directory) and the page opens on a list of them, resolving nothing
+until one is chosen; with none found it exits naming the folder it searched.
+The board's name in the page's header is the same list as a menu, to switch
+script in place.
 
 **What it watches.** The script, every module it imports (the files
 `script_fingerprint` reads), its `.lock.json` and `.routes.json`, every
@@ -3323,6 +3330,22 @@ shown as an error with its line, over the last good plan, marked stale.
   item marks the changed lines of its declaration. A moved item whose own
   declaration did not change was moved by something else the edit did; the
   page says so.
+
+**Run.** The Run button runs `placemat run <script> --no-render` (the design
+checks, KiCad's DRC and the score, a run record in `.placemat/runs`) and shows
+its progress and result; the Compare panel lists the runs recorded for the
+script, from here or elsewhere, each with its score, DRC by kind, failed checks
+and findings by severity, and compares the newest resolve with one: items moved,
+added and removed, findings gained and lost, the score. A run records no copper
+or links, so those are not compared. `GET /runs`, `GET /runcompare?run=ID` and
+`POST /run` (token required) serve it; `run_started`, `run_line` and `run_done`
+are its events.
+
+**When the worker dies.** A worker stopped by a signal is reported by name; a
+crash is reported with the signal and, from the Python traceback `faulthandler`
+leaves in `worker.log`, the innermost frame in the script or a module it imports
+(file, line, source line) as the `error` event's `file`, `line` and `source`.
+A script's exception gives its type and message and the same innermost frame.
 
 The compare is also the server's: `/diff?a=ID&b=ID`, `/resolve/ID` and
 `/history` answer with JSON (token required), and `/events` is the stream

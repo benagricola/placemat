@@ -30,6 +30,7 @@ from pathlib import Path
 import queue
 import re
 import secrets
+import signal
 import subprocess
 import sys
 import threading
@@ -104,6 +105,7 @@ class WorkerProcess:
         self.on_event, self.log_path = on_event, log_path
         self.proc = None
         self.serial = 0
+        self.log_start = 0                      # where this process's lines begin in the log (it is appended to)
 
     def alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
@@ -112,6 +114,7 @@ class WorkerProcess:
         self.serial += 1
         serial = self.serial
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        self.log_start = self.log_path.stat().st_size if self.log_path.exists() else 0
         log = open(self.log_path, "ab")
         self.proc = subprocess.Popen([sys.executable, "-m", "placemat.studio_worker"], stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=log, text=True, bufsize=1)
@@ -126,6 +129,15 @@ class WorkerProcess:
                 continue
             self.on_event(ev, serial)
         self.on_event({"ev": "exited", "code": proc.wait()}, serial)
+
+    def log_text(self) -> str:
+        """What this process wrote to the log."""
+        try:
+            with open(self.log_path, "rb") as f:
+                f.seek(self.log_start)
+                return f.read().decode(errors="replace")
+        except OSError:
+            return ""
 
     def send(self, cmd: dict) -> bool:
         if not self.alive():
@@ -247,18 +259,69 @@ def layout_scripts(root) -> list:
     return out
 
 
+_FATAL = re.compile(r"^Fatal Python error: (.*)$", re.M)
+_FRAME = re.compile(r'^\s+File "(.*)", line (\d+) in (.*)$')
+
+
+def parse_fatal(text: str):
+    """The last fatal error faulthandler wrote in `text`: {"what": "Segmentation fault", "frames": [(file, line,
+    function), ...]} with the innermost frame first, or None. Frames are those of the current thread, else the first
+    thread listed."""
+    last = None
+    for last in _FATAL.finditer(text):
+        pass
+    if last is None:
+        return None
+    blocks, cur = [], None                  # (is_current, frames) for each thread listed
+    for line in text[last.end():].splitlines():
+        head = re.match(r"^(Current thread|Thread) .*\(most recent call first\):", line)
+        if head:
+            cur = (head.group(1) == "Current thread", [])
+            blocks.append(cur)
+            continue
+        m = _FRAME.match(line)
+        if cur is not None and m:
+            cur[1].append((m.group(1), int(m.group(2)), m.group(3)))
+        elif cur is not None and not line.strip() and cur[1]:
+            cur = None
+    chosen = next((b for b in blocks if b[0]), blocks[0] if blocks else (False, []))
+    frames = chosen[1]
+    return {"what": last.group(1).strip(), "frames": frames}
+
+
+def _source_line(frame) -> str | None:
+    try:
+        return Path(frame[0]).read_text(errors="replace").splitlines()[frame[1] - 1].strip()
+    except (OSError, IndexError):
+        return None
+
+
 class Studio:
-    def __init__(self, script, port: int | None = None, open_browser: bool | None = None, host: str = "127.0.0.1", **settings):
+    def __init__(self, script=None, port: int | None = None, open_browser: bool | None = None, host: str = "127.0.0.1",
+                 root=None, **settings):
+        """Watch `script`; with none, the studio is a picker over the layout scripts found under `root` (default the
+        current directory's project) and watches nothing until one is chosen."""
         self.host = host            # the address listened on: 127.0.0.1 unless --host widens it
         from . import settings as settings_mod
         from .project import find_board
-        self.script = Path(script).resolve()
-        if not self.script.is_file():
-            raise ValueError("%s is not a file" % script)
-        self.src = find_board(self.script)
-        self.root = project_root(self.src.board_dir)
         self._scripts = None
-        cfg = settings_mod.load(self.src.board_dir, script=self.script)
+        if script is None:
+            self.root = project_root(Path(root) if root else Path.cwd())
+            found = layout_scripts(self.root)
+            if not found:
+                raise ValueError("no layout scripts found under %s (a layout script is a Python file that calls board.<...> "
+                                 "as it loads, beside its board's .zen)" % self.root)
+            self.script, self.src = None, None
+            self._scripts = self._entries(found)
+            cfg = settings_mod.load(self.root)
+        else:
+            self.script = Path(script).resolve()
+            if not self.script.is_file():
+                raise ValueError("%s is not a file" % script)
+            self.src = find_board(self.script)
+            self.root = project_root(self.src.board_dir)
+            cfg = settings_mod.load(self.src.board_dir, script=self.script)
+        self.cfg = cfg
         get = lambda name, given: given if given is not None else settings.get(name, getattr(cfg, "studio_" + name))
         self.port = get("port", port)
         self.open_browser = get("open", open_browser)
@@ -281,20 +344,27 @@ class Studio:
         self._cur = None                        # the resolve in flight: {"id", "texts", "changed"}
         self._dirty = False                     # a file changed since the resolve in flight began
         self._cancel_at = None
-        self._initial = True
+        self._initial = self.script is not None
         self._error = None
-        views = self.src.board_dir / ".placemat" / "views" / "studio"
-        self.worker = WorkerProcess(self._on_worker, views / "worker.log")
+        self._run = None                        # the checked run in progress: {"id", "lines"}
+        self._run_cache: dict = {}              # run.json path -> (mtime, summary)
+        self.worker = WorkerProcess(self._on_worker, self._views() / "worker.log")
+
+    def _views(self) -> Path:
+        return (self.src.board_dir if self.src else self.root) / ".placemat" / "views" / "studio"
 
     # ------------------------------------------------------------ the layout scripts
+    def _entries(self, found) -> list:
+        return [{"id": Path(os.path.relpath(p, self.root)).as_posix(), "path": p, "src": s} for p, s in sorted(found, key=lambda x: str(x[0]))]
+
     def scripts(self) -> list:
         """The project's layout scripts as the page lists them, scanned once and kept."""
         if self._scripts is None:
             found = layout_scripts(self.root)
             with self.lock:
-                if self.script not in {p for p, _ in found}:
+                if self.script is not None and self.script not in {p for p, _ in found}:
                     found.append((self.script, self.src))
-                self._scripts = [{"id": Path(os.path.relpath(p, self.root)).as_posix(), "path": p, "src": s} for p, s in sorted(found, key=lambda x: str(x[0]))]
+                self._scripts = self._entries(found)
         return self._scripts
 
     def _scan_scripts(self) -> None:
@@ -309,7 +379,7 @@ class Studio:
 
     def script_list(self) -> list:
         out = []
-        for s in self._scripts or [{"id": self.script.name, "path": self.script, "src": self.src}]:
+        for s in self._scripts or ([{"id": self.script.name, "path": self.script, "src": self.src}] if self.script else []):
             title, sub = script_titles(s["path"], s["src"])
             out.append({"id": s["id"], "title": title, "subtitle": sub, "current": s["path"] == self.script})
         return out
@@ -325,7 +395,11 @@ class Studio:
                 return
             self.worker.kill()                  # whatever it was resolving is of the old script
             self.script, self.src = target["path"], find_board(target["path"])
+            from . import settings as settings_mod
+            self.cfg = settings_mod.load(self.src.board_dir, script=self.script)
+            self.worker.log_path = self._views() / "worker.log"
             self.history.clear()
+            self._run_cache.clear()
             self._cur, self._cancel_at, self._error, self._dirty = None, None, None, False
             self.debounce.stopped()
             self.hub.log.clear()
@@ -336,7 +410,7 @@ class Studio:
 
     # ------------------------------------------------------------ files
     def name_of(self, path) -> str:
-        return os.path.relpath(path, self.script.parent)
+        return os.path.relpath(path, self.script.parent if self.script else self.root)
 
     def watched(self) -> list:
         """What a resolve depends on: the script and what it imports, its lock
@@ -345,6 +419,8 @@ class Studio:
         from .project import fab_profile, script_files
         from .runner import cached_generation
         from .settings import _files
+        if self.script is None:
+            return []
         files = list(script_files(self.script, missing=True))
         files += _files(self.script.parent)
         try:
@@ -420,6 +496,8 @@ class Studio:
                 return
 
     def _tick(self, now: float) -> None:
+        if self.script is None:
+            return                              # a picker: nothing is watched until a script is chosen
         changed = self._poller.scan()
         if changed:
             self._files = self.watched()        # an import added or dropped changes what is watched
@@ -496,8 +574,8 @@ class Studio:
             kind = ev.get("ev")
             cur = self._cur
             if kind == "exited":
-                if cur is not None:
-                    self._fail(cur["id"], "the resolve worker stopped (exit %s); see %s" % (ev.get("code"), self.worker.log_path))
+                if cur is not None and not self._stopping.is_set():
+                    self._fail(cur["id"], **self.worker_death(ev.get("code")))
                 return
             if cur is None or ev.get("id") != cur["id"]:
                 return
@@ -505,7 +583,7 @@ class Studio:
             if kind == "board":
                 self.hub.emit("board", {k: v for k, v in ev.items() if k not in ("ev", "id")} | {"id": rid}, keep=True)
             elif kind == "item":
-                self.hub.emit("step", {"id": rid, "item": self._named(ev["item"])}, keep=True)
+                self.hub.emit("step", {"id": rid, "item": self._named(ev["item"]), **{k: ev[k] for k in ("ops", "cutout") if k in ev}}, keep=True)
             elif kind == "cancelled":
                 self._finish_cancel()
             elif kind == "error":
@@ -519,6 +597,44 @@ class Studio:
                     self.hub.log.clear()
                 else:
                     self._finish(cur, ev)
+
+    def worker_death(self, code) -> dict:
+        """The `error` fields for a worker that died with exit `code`: a signal by name, and for a crash the Python
+        traceback faulthandler left in the log, as the innermost frame of the user's own files (file, line, source
+        line) with the last frames inside placemat as the detail."""
+        sig = None
+        if isinstance(code, int) and code < 0:
+            try:
+                sig = signal.Signals(-code).name
+            except ValueError:
+                sig = "signal %d" % -code
+        fatal = parse_fatal(self.worker.log_text())
+        if fatal is None:
+            if sig in ("SIGTERM", "SIGKILL", "SIGINT", "SIGHUP"):
+                return {"message": "the resolve worker was stopped by %s from outside the studio; the next change resolves again" % sig}
+            if sig:
+                return {"message": "the resolve worker was stopped by %s" % sig}
+            return {"message": "the resolve worker exited (code %s) without an error; its log: %s" % (code, self.worker.log_path)}
+        mine = self.user_frame(fatal["frames"])
+        message = "the resolve worker crashed: %s%s" % (fatal["what"], " (%s)" % sig if sig else "")
+        extra = {"file": self.name_of(mine[0]) if mine else "", "line": mine[1] if mine else None, "source": _source_line(mine) if mine else None}
+        extra["detail"] = "\n".join('  File "%s", line %d in %s' % f for f in fatal["frames"][:12])
+        return {"message": message, **extra}
+
+    def user_frame(self, frames):
+        """The innermost of `frames` ((file, line, function), innermost first) that is in the script or a module it
+        imports, else in the project but not placemat's or the environment's own."""
+        mine = {str(Path(f).resolve()) for f in self.watched() if str(f).endswith(".py")}
+        for f in frames:
+            p = str(Path(f[0]).resolve()) if f[0].startswith("/") else f[0]
+            if p in mine:
+                return f
+        own = str(Path(__file__).resolve().parent)
+        for f in frames:
+            p = f[0]
+            if p.startswith(str(self.root)) and not p.startswith(own) and "site-packages" not in p and ".venv" not in p:
+                return f
+        return None
 
     def _named(self, item: dict) -> dict:
         if item.get("file"):
@@ -550,6 +666,156 @@ class Studio:
             emit("compare", self.compare(previous, rec), keep=True)
         self.hub.log.clear()                    # a page that connects now is given the whole of it by hello()
 
+    # ------------------------------------------------------------ checked runs
+    def runs_dir(self) -> Path:
+        return self.src.board_dir / ".placemat" / "runs"
+
+    def run_summary(self, run_json: Path) -> dict | None:
+        """One recorded run, as the page lists it: status, score, DRC by kind, the checks, the findings by severity and
+        the failure's line when it failed. Kept by modification time, so a listing re-reads only what changed."""
+        from .report import RunRecord
+        try:
+            mtime = run_json.stat().st_mtime
+        except OSError:
+            return None
+        hit = self._run_cache.get(run_json)
+        if hit is not None and hit[0] == mtime:
+            return hit[1]
+        try:
+            rec = RunRecord.load(run_json)
+        except (OSError, ValueError, TypeError, KeyError):
+            return None
+        m = rec.metrics or {}
+        score = None
+        if "measures" in m:
+            from . import score as score_mod
+            try:
+                score = round(score_mod.total(m["measures"], self.cfg), 3)
+            except Exception:
+                score = None
+        sev: dict = {}
+        for d in rec.findings_with_severity():
+            sev[d["severity"]] = sev.get(d["severity"], 0) + 1
+        fail = rec.failure or None
+        out = {"id": run_json.parent.name, "run_id": rec.run_id, "label": rec.paths.get("label", "") if isinstance(rec.paths, dict) else "", "status": rec.status, "at": mtime,
+               "board": rec.board, "script": rec.paths.get("script", "") if isinstance(rec.paths, dict) else "",
+               "score": score, "findings": len(rec.findings), "severities": sev,
+               "drc": {k: m.get(k) for k in ("drc_real", "outstanding", "other", "permitted", "unconnected") if k in m},
+               "airwire_mm": m.get("airwire_mm"), "open_nets": len(m.get("open_nets") or {}),
+               "checks": {k: m.get(k) for k in ("checks_failed", "checks_unjudged", "checks_accepted") if k in m},
+               "verdicts": [{"check": v.get("check"), "subject": v.get("subject"), "ok": v.get("ok"), "note": v.get("note", "")}
+                            for v in (rec.verdicts or []) if v.get("ok") is False][:20],
+               "timing": rec.timing_s,
+               "failure": {"message": fail.get("message", ""), "file": fail.get("script", ""), "line": fail.get("line"), "source": fail.get("source")} if fail else None}
+        self._run_cache[run_json] = (mtime, out)
+        return out
+
+    def runs(self, limit: int = 40) -> list:
+        """The recorded runs of the script being watched, newest first."""
+        if self.src is None:
+            return []
+        out = []
+        try:
+            dirs = sorted((d for d in self.runs_dir().iterdir() if (d / "run.json").is_file()), key=lambda d: -(d / "run.json").stat().st_mtime)
+        except OSError:
+            return []
+        for d in dirs:
+            s = self.run_summary(d / "run.json")
+            if s is None or (s["script"] and Path(s["script"]).resolve() != self.script):
+                continue
+            out.append(s)
+            if len(out) >= limit:
+                break
+        return out
+
+    def _run_state(self):
+        with self.lock:
+            r = self._run
+            return None if r is None else {"id": r["id"], "lines": r["lines"][-40:], "t0": r["t0"]}
+
+    def start_run(self) -> dict:
+        """A checked run of the script (`placemat run --no-render`: the design checks, KiCad's DRC and the score, a run
+        record), started on a thread; its progress and result go to the pages as `run_line` and `run_done`."""
+        with self.lock:
+            if self.script is None:
+                raise ValueError("choose a layout script first")
+            if self._run is not None:
+                raise ValueError("a run is already in progress")
+            self._next_run = getattr(self, "_next_run", 0) + 1
+            self._run = {"id": self._next_run, "lines": [], "t0": time.time()}
+            rid = self._run["id"]
+        self.hub.emit("run_started", {"id": rid, "at": self._run["t0"]})
+        threading.Thread(target=self._do_run, args=(rid,), daemon=True).start()
+        return {"id": rid}
+
+    def _do_run(self, rid: int) -> None:
+        t0 = time.time()
+        cmd = [sys.executable, "-m", "placemat", "run", str(self.script), "--no-render"]
+        code, tail = None, []
+        try:
+            proc = subprocess.Popen(cmd, cwd=str(self.src.board_dir), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            self._run_proc = proc
+            for line in proc.stdout:
+                line = line.rstrip("\n")
+                with self.lock:
+                    if self._run is not None:
+                        self._run["lines"].append(line)
+                tail.append(line)
+                self.hub.emit("run_line", {"id": rid, "text": line})
+            code = proc.wait()
+        except OSError as e:
+            tail.append("could not start the run: %s" % e)
+        newest = None
+        for r in self.runs(limit=5):
+            if r["at"] >= t0 - 1:
+                newest = r
+                break
+        with self.lock:
+            self._run = None
+        self.hub.emit("run_done", {"id": rid, "code": code, "run": newest, "tail": tail[-25:], "runs": self.runs()})
+
+    def run_doc(self, run_id: str) -> dict | None:
+        """A recorded run as a plan document for the compare: its placements as items, its findings and score."""
+        from .report import RunRecord
+        path = self.runs_dir() / run_id / "run.json"
+        if not path.is_file():
+            return None
+        rec = RunRecord.load(path)
+        summary = self.run_summary(path) or {}
+        items = [{"key": k, "at": [v["x"], v["y"]], "rotation": v["rotation"], "face": v["face"]} for k, v in rec.placements.items()]
+        findings = [{"text": d["text"], "kind": d.get("kind", ""), "severity": d.get("severity", "warning"), "at": None, "item": ""}
+                    for d in rec.findings_with_severity()]
+        return {"items": items, "findings": findings, "unplaced": [], "score": {"total": summary["score"]} if summary.get("score") is not None else None}
+
+    def compare_run(self, run_id: str) -> dict | None:
+        """The newest resolve against a recorded run: what moved, was added or removed among the items the run placed,
+        the findings gained and lost and the score. A run records no copper or links, so those are not compared."""
+        from .studio_diff import _findings, _texts
+        from collections import Counter
+        with self.lock:
+            b = self.history[-1] if self.history else None
+        a = self.run_doc(run_id)
+        if a is None or b is None:
+            return None
+        d = diff_plans(a, b.doc, partial=True)
+        ia = {i["key"] for i in a["items"]}
+        for it in b.doc.get("items", ()):
+            if it["key"] not in ia and it.get("placed"):
+                d["added"].append({"key": it["key"], "at": it.get("at"), "rotation": it.get("rotation"), "face": it.get("face"),
+                                   "file": it.get("file", ""), "line": it.get("line", 0), "was_unplaced": False})
+        ib = {i["key"] for i in b.doc.get("items", ())}
+        for it in a["items"]:
+            if it["key"] not in ib:
+                d["removed"].append({**it, "file": "", "line": 0, "now_unplaced": False})
+        ta, tb = _texts(a), _texts(b.doc)
+        d["findings"] = {"gained": _findings(b.doc, tb - ta), "lost": _findings(a, ta - tb)}
+        sa, sb = a.get("score"), b.doc.get("score")
+        if sa and sb and "total" in sa and "total" in sb:
+            d["score"] = {"a": sa["total"], "b": sb["total"], "delta": round(sb["total"] - sa["total"], 3)}
+        d["empty"] = not (d["moved"] or d["added"] or d["removed"] or d["findings"]["gained"] or d["findings"]["lost"]
+                          or d["score"] and d["score"]["delta"])
+        return {"a": "run " + run_id, "b": b.id, "diff": d, "files": {}, "trace": {"items": {}, "lines": {}}, "run": run_id}
+
     # ------------------------------------------------------------ comparing
     @staticmethod
     def compare(a: Record, b: Record) -> dict:
@@ -565,10 +831,14 @@ class Studio:
             return next((r for r in self.history if r.id == rid), None)
 
     def _hello_data(self) -> dict:
+        if self.script is None:
+            return {"script": "", "picker": True, "root": str(self.root), "keep": self.keep, "title": "", "subtitle": "",
+                    "scripts": self.script_list(), "history": [], "resolving": None, "error": None, "runs": [], "run": None}
         title, sub = script_titles(self.script, self.src)
         return {"script": self.script.name, "keep": self.keep, "title": title, "subtitle": sub,
                 "scripts": self.script_list(), "history": [r.summary() for r in self.history],
-                "resolving": self._cur["id"] if self._cur else None, "error": self._error}
+                "resolving": self._cur["id"] if self._cur else None, "error": self._error,
+                "runs": self.runs(), "run": self._run_state()}
 
     def hello(self) -> list:
         """What a page that connects now is told before the live stream: the
@@ -630,18 +900,30 @@ def _handler(studio: Studio):
                 return self._json(studio.compare(a, b))
             if path == "/history":
                 return self._json([r.summary() for r in studio.history])
+            if path == "/runs":
+                return self._json(studio.runs())
+            if path == "/runcompare":
+                out = studio.compare_run(query.get("run", [""])[0])
+                if out is None:
+                    return self._refuse(404, "no such run, or no resolve yet to compare it with")
+                return self._json(out)
             return self._refuse(404, "not found")
 
         def _no(self):
             self._refuse(405, "this server only answers GET")
 
         def do_POST(self):
-            """Only /switch, with the token: it changes which layout script is watched, nothing else."""
+            """/switch, with the token: it changes which layout script is watched; and /run, a checked run of it."""
             url = urlparse(self.path)
-            if url.path != "/switch":
+            if url.path not in ("/switch", "/run"):
                 return self._no()
             if not self._allowed(parse_qs(url.query)):
                 return self._refuse(403, "forbidden: open the address `placemat studio` printed")
+            if url.path == "/run":
+                try:
+                    return self._json(studio.start_run())
+                except ValueError as e:
+                    return self._refuse(409, str(e))
             try:
                 n = min(int(self.headers.get("Content-Length") or 0), 4096)
                 body = json.loads(self.rfile.read(n) or b"{}")
@@ -725,14 +1007,15 @@ def _url_host(host: str) -> str:
     return host
 
 
-def run(script, port: int | None = None, open_browser: bool | None = None, host: str = "127.0.0.1") -> int:
+def run(script=None, port: int | None = None, open_browser: bool | None = None, host: str = "127.0.0.1") -> int:
     try:
         studio = Studio(script, port=port, open_browser=open_browser, host=host)
     except (ValueError, FileNotFoundError) as e:
         console.say("studio", str(e), level="fail")
         return 2
     url = studio.start()
-    console.say("studio", "watching %s" % studio.script.name)
+    console.say("studio", "watching %s" % studio.script.name if studio.script else
+                "%d layout scripts under %s: choose one in the page" % (len(studio.scripts()), studio.root))
     console.say("studio", url)
     if studio.open_browser:
         import webbrowser

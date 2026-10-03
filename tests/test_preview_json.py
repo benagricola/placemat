@@ -5,8 +5,8 @@ import xml.etree.ElementTree as ET
 from placemat.cutouts import Circle
 from placemat.layout import Board
 from placemat.preview import draw
-from placemat.preview_json import declared_sites, item_json, plan_json
-from placemat.values import CopperLayer, Face, LinkWeight, Location, Net, PadRef, Part
+from placemat.preview_json import declared_sites, finding_targets, item_json, plan_json
+from placemat.values import Centre, CopperLayer, Cutout, Face, LinkWeight, Location, Net, PadRef, Part
 from tests.fixtures import board_geometry, footprint
 
 
@@ -134,3 +134,61 @@ def test_silk_text_carries_its_justification_rotation_and_mirroring():
     plan.copper.append(Text("TOP", Location(5, 5), Face.BACK, 0.8, 0.12, 90.0, "left", "bottom", mirrored=True))
     t = [c for c in plan_json(plan, declared_sites(b))["copper"] if c["t"] == "text"][-1]
     assert (t["rotation"], t["hjust"], t["vjust"], t["mirrored"], t["thickness"], t["face"]) == (90.0, "left", "bottom", True, 0.12, "back")
+
+
+def test_a_finding_names_the_parts_and_pads_its_sentence_mentions():
+    refs = {"U1", "U10", "R1", "J1"}
+    assert finding_targets("link R1.1 to U10.14 is 5.75 mm, over its 2.00 mm limit", refs) == (["R1", "U10"], [["R1", "1"], ["U10", "14"]])
+    assert finding_targets("U1 pins 4/5: J1 SCL crosses U10 ALS_INT", refs) == (["U1", "J1", "U10"], [["U1", "4"], ["U1", "5"]])
+    assert finding_targets("U1 pin 15 (RAIL): closed toward J1 by R1, U1", refs) == (["U1", "J1", "R1"], [["U1", "15"]])
+    assert finding_targets("a cell XU1 and U11 and SU1", refs) == ([], [])             # only whole refs
+
+
+def test_the_plan_gives_each_finding_its_refs_and_pads():
+    b, plan = _plan()
+    doc = plan_json(plan, declared_sites(b))
+    assert all(isinstance(f["refs"], list) and isinstance(f["pads"], list) for f in doc["findings"])
+
+
+def test_a_copper_step_says_which_of_the_documents_copper_it_laid_and_a_cutout_step_which_loop_it_cut():
+    b = _board()
+    b.size(width=60.0, height=20.0, holes=[Cutout(Circle(1.0), "vent", at=Centre(40.0, 4.0), why="air")])
+    plan = b.resolve()
+    doc = plan_json(plan, declared_sites(b))
+    steps = {s["item"]: s for s in doc["steps"]}
+    laid = [i for s in doc["steps"] if s["kind"] == "copper" for i in s["copper"]]
+    assert laid and all(0 <= i < len(doc["copper"]) for i in laid) and len(laid) == len(set(laid))
+    kinds = {doc["copper"][i]["t"] for i in laid}
+    assert "track" in kinds and "via" in kinds
+    cut = next(s for s in doc["steps"] if s["kind"] == "cutout")
+    assert cut["loop"] is not None and len(doc["board"]["loops"][cut["loop"]]) > 4
+    assert all(s["loop"] is None for s in doc["steps"] if s["kind"] != "cutout")
+
+
+def test_a_footprints_own_copper_graphics_are_in_its_shapes_with_their_layer():
+    import dataclasses
+    from placemat.values import CopperLayer
+    fps = [footprint("K1", 13, 10, w=6, h=6, inst="k1", nets=("A", "B"))]
+    fps[0] = dataclasses.replace(fps[0], copper=((CopperLayer.F, ((12.0, 9.0), (14.0, 9.0), (14.0, 9.2), (12.0, 9.2))),
+                                                 (CopperLayer.B, ((12.0, 11.0), (14.0, 11.0), (14.0, 11.2), (12.0, 11.2)))))
+    b = Board(board_geometry(fps, width=30, height=20), edge_margin=0.5, keep_going=True)
+    b.place(Part("k1"), at=Location(13, 10))
+    plan = b.resolve()
+    doc = plan_json(plan, declared_sites(b))
+    shapes = [s for it in doc["items"] for m in it["members"] for s in m["shapes"] if s["kind"] == "copper"]
+    assert sorted(s["layers"][0] for s in shapes) == ["B.Cu", "F.Cu"]
+    assert all(s["faces"] and len(s["poly"]) == 4 for s in shapes)
+
+
+def test_copper_and_cutout_steps_are_told_to_on_step_as_they_settle_with_what_they_draw():
+    from placemat.preview_json import step_extras
+    b = _board()
+    b.size(width=60.0, height=20.0, holes=[Cutout(Circle(1.0), "vent", at=Centre(40.0, 4.0), why="air")])
+    seen = []
+    b.resolve(on_step=lambda p, s: seen.append((s.kind, s.item, step_extras(p, s))))
+    kinds = [k for k, _, _ in seen]
+    assert "cutout" in kinds and "copper" in kinds
+    cu = [e for k, _, e in seen if k == "copper" and e["ops"]]
+    assert cu and {op["t"] for e in cu for op in e["ops"]} >= {"track", "via"}
+    cut = next(e for k, _, e in seen if k == "cutout")
+    assert cut["cutout"] and len(cut["cutout"]) > 4

@@ -1,6 +1,7 @@
 """placemat studio: which Python files are layout scripts, what a board is called, and switching the script watched."""
 import http.client
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -57,7 +58,8 @@ def test_a_board_is_named_by_what_placemat_knows_it_as_with_the_docstrings_first
 def studio(project):
     s = Studio(project, port=0, open_browser=False, debounce_ms=50, poll_ms=50)
     s._initial = False                          # no resolve: these tests are about which script is watched
-    s.worker.send = lambda cmd: True
+    s.sent = []
+    s.worker.send = lambda cmd: s.sent.append(cmd) or True
     s.start()
     yield s
     s.stop()
@@ -98,7 +100,11 @@ def test_switching_needs_the_token_and_a_listed_layout_script_and_changes_only_w
     q = studio.hub.subscribe(lambda: [])
     before = studio.script
     assert _post(studio, "/switch", {"script": other})[0] == 200
-    assert studio.script != before and studio.script.name == "Usb5v_layout.py" and studio._initial is True
+    assert studio.script != before and studio.script.name == "Usb5v_layout.py"
+    deadline = time.monotonic() + 5
+    while not studio.sent and time.monotonic() < deadline:     # the next tick resolves the new script
+        time.sleep(0.02)
+    assert studio.sent
     name, text = q.get(timeout=5)
     data = json.loads(text)
     assert name == "switched" and data["title"] == "Usb5v" and [s["current"] for s in data["scripts"]].count(True) == 1

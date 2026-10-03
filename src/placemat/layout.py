@@ -492,6 +492,20 @@ class Push:
     slack: float = field(default=0.0, metadata={"omit_default": True})   # how far the item reaches from its own emission point: the disc is drawn that much smaller
 
 
+class _FedSteps(list):
+    """A plan's steps that tell `on_step` of each copper and cutout step as it is added (a placement is told as it is
+    committed), so a viewer sees them as they settle."""
+
+    def __init__(self, plan, on_step):
+        super().__init__()
+        self._plan, self._on_step = plan, on_step
+
+    def append(self, step):
+        super().append(step)
+        if step.kind in ("copper", "cutout"):
+            self._on_step(self._plan, step)
+
+
 @dataclass
 class Step:
     item: str
@@ -506,6 +520,7 @@ class Step:
     rank: int | None = None              # a searched item's place in the queue
     rank_of: int | None = None
     back_face: bool = False              # a Face.EITHER search put the item on the back (score.back_face prices it)
+    laid: tuple = ()                     # a copper step: where in plan.copper the ops it laid are
 
 
 class CutoutHandle:
@@ -6026,6 +6041,8 @@ class Board:
                     cell_zones_under_planes=self.settings.copper_cell_zones_under_planes,
                     split_groups=self.settings.write_split_groups, groups=list(self._groups.values()),
                     thinned=thinned)
+        if on_step:
+            plan.steps = _FedSteps(plan, on_step)
         ctx = _CopperContext(self, occ)
         ctx.plan = plan
         self._escape_ctx = ctx              # what a lane's via is judged by (_LaneEnv)
@@ -6360,7 +6377,8 @@ class Board:
             box = Box.union(drawn)                                                       # below everything the module draws
             plan.copper.append(Text(text, Location(box.left, box.bottom + 1.0), Face.FRONT, 0.5, 0.1, 0.0, "left", "top",
                                     layer="User.Comments"))
-            plan.steps.append(Step("faces", "copper", Priority.DEFAULT, None, 0.0, text[len("placemat faces "):], why, 1))
+            plan.steps.append(Step("faces", "copper", Priority.DEFAULT, None, 0.0, text[len("placemat faces "):], why, 1,
+                                   laid=(len(plan.copper) - 1,)))
         return plan
 
     def _give_way_copper(self, occ: Occupancy, plan: Plan) -> None:
@@ -6957,7 +6975,7 @@ class Board:
                 occ.add_copper([silk])
                 plan.__dict__.setdefault("_label_parts", {})[key] = (silk, occ.reservations[-1])
                 note += "; reserved"
-            plan.steps.append(Step(key, "copper", Priority.DEFAULT, None, 0.0, note, why, 1))
+            plan.steps.append(Step(key, "copper", Priority.DEFAULT, None, 0.0, note, why, 1, laid=(len(plan.copper) - 1,)))
             done[key] = (op, own, face)
             if progress:
                 progress("%-28s copper  label    %s" % (key, note))
@@ -7311,7 +7329,14 @@ class Board:
             all_ops.append(op)
             by_key[c.key][1] += 1
         shapes, batch = [], []
+        owner = {id(op): c.key for c, op in others}
+        net_key = {}
+        for c, _ in tracks:
+            net_key.setdefault(c.net, c.key)               # a track's pieces after bridging are told by their net
+        laid = {}
         for op in all_ops:
+            key = owner.get(id(op)) or net_key.get(getattr(op, "net", None)) or next(iter(by_key), "")
+            laid.setdefault(key, []).append(len(plan.copper))
             plan.copper.append(op)
             shape = _shape_of(op)
             if shape is None:
@@ -7350,7 +7375,7 @@ class Board:
             ctx.fixed_tracks += [op for op in ops if isinstance(op, Track)]     # a bridge's vias are not tracks
         for key, (prio, n, why, freedom) in by_key.items():
             note = "%d op(s)" % n + ("; in the pad: filled or plugged at the fab" if key.startswith("vias ") else "")
-            step = Step(key, "copper", prio, None, 0.0, note, why, n, freedom=freedom)
+            step = Step(key, "copper", prio, None, 0.0, note, why, n, freedom=freedom, laid=tuple(laid.get(key, ())))
             plan.steps.append(step)
             if progress:
                 progress(_fmt(step))

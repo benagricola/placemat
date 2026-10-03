@@ -308,10 +308,12 @@ def scripted_board(script, src, cfg, fab, keep_going: bool, pcb=None, geometry=N
         run_script(script, board)
     except Exception as e:
         tb = traceback.extract_tb(e.__traceback__)
-        frames = [f for f in tb if Path(f.filename).resolve() == script]
+        from .project import script_files
+        mine = {Path(f).resolve() for f in script_files(script, missing=True)} | {script}      # the script and what it imports
+        frames = [f for f in tb if Path(f.filename).resolve() in mine]
         where = frames[-1] if frames else None
         raise RunFailure("script", "Layout script failed", {
-            "script": str(script), "line": where.lineno if where else None,
+            "script": str(Path(where.filename).resolve()) if where else str(script), "line": where.lineno if where else None,
             "source": where.line if where else None, "error": "%s: %s" % (type(e).__name__, e),
             "traceback": "".join(traceback.format_exception(e))})
     return board

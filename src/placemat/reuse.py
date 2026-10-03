@@ -153,7 +153,7 @@ def step_to_json(s) -> dict:
     return {"item": s.item, "kind": s.kind, "priority": s.priority.value if s.priority is not None else None,
             "placement": placement_to_json(s.placement), "moved_mm": s.moved_mm, "note": s.note, "why": s.why,
             "ops": s.ops, "freedom": s.freedom.value if s.freedom is not None else None,
-            "rank": s.rank, "rank_of": s.rank_of, "back_face": s.back_face}
+            "rank": s.rank, "rank_of": s.rank_of, "back_face": s.back_face, "laid": list(s.laid)}
 
 
 def step_from_json(d):
@@ -161,7 +161,7 @@ def step_from_json(d):
     return Step(d["item"], d["kind"], Priority(d["priority"]) if d["priority"] is not None else None,
                 placement_from_json(d["placement"]), d["moved_mm"], d["note"], d["why"], d["ops"],
                 Freedom(d["freedom"]) if d["freedom"] is not None else None, d["rank"], d["rank_of"],
-                d.get("back_face", False))
+                back_face=d.get("back_face", False), laid=tuple(d.get("laid", ())))
 
 
 # ------------------------------------------------------------ the run
