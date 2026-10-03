@@ -16,6 +16,14 @@ if not (Path(ROUTER_DEFAULT) / ".venv/bin/python").exists():
     pytest.skip("KiCadRoutingTools not at %s" % ROUTER_DEFAULT, allow_module_level=True)
 
 
+@pytest.fixture(autouse=True)
+def _console_loud():
+    """A run sets the console's quiet flag for the process: put it back for the tests that read the console."""
+    yield
+    from placemat import console
+    console.configure(quiet=False)
+
+
 def _run(script, monkeypatch, **kw):
     from placemat import runner
 

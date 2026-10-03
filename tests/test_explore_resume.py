@@ -81,10 +81,9 @@ def test_a_resumed_time_boxed_explore_spends_the_rest_of_the_budget(tmp_path):
     lines[-1]["t"] = 9.5                                                      # 9.5 s of 10 spent
     path.write_text("".join(json.dumps(d) + "\n" for d in lines))
     (tmp_path / "pids").unlink()
-    t0 = time.time()
     report, _ = _search(tmp_path, seconds=10)
-    assert time.time() - t0 < 8 + 5               # about half a second of search, not ten
-    assert report["tried"] >= 8
+    assert _calls(tmp_path / "pids") < 20      # half a second of budget is left, and a worker takes a while to start: a
+    assert report["tried"] >= 8                # whole budget spent again would be hundreds
 
 
 def test_nothing_left_to_do_starts_no_workers(tmp_path):

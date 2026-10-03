@@ -11,6 +11,14 @@ from placemat import reuse, stop
 from tests.test_stop_run import _only_run, _stage_and_patch
 
 
+@pytest.fixture(autouse=True)
+def _console_loud():
+    """A run sets the console's quiet flag for the process: put it back for the tests that read the console."""
+    yield
+    from placemat import console
+    console.configure(quiet=False)
+
+
 def test_a_rerun_after_a_death_replays_the_steps_that_were_done(tmp_path, monkeypatch):
     script, src, runner = _stage_and_patch(tmp_path, monkeypatch, "mcu")
     real = reuse.PartialLog.append

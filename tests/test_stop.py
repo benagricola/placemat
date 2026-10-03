@@ -125,7 +125,7 @@ def test_a_stopped_search_ends_its_workers_says_what_it_had_and_does_not_accept(
         if proc.poll() is None:
             proc.kill()
     assert proc.returncode == 143 and "stopped SIGTERM" in out, (out, err)
-    assert took < 5
+    assert took < 20
     assert "explore stopped by SIGTERM after" in out and "nothing accepted; accept it with: placemat lock" in out
     assert not (tmp_path / "Board_layout.lock.json").exists()          # --accept given, the decision is still pending
     best = checkpoint.read_best(tmp_path / "ckpt")

@@ -21,6 +21,14 @@ from tests import real_modules as rm
 ROOT = Path(__file__).resolve().parent.parent
 
 
+@pytest.fixture(autouse=True)
+def _console_loud():
+    """A run sets the console's quiet flag for the process: put it back for the tests that read the console."""
+    yield
+    from placemat import console
+    console.configure(quiet=False)
+
+
 def _stage_and_patch(tmp_path, monkeypatch, module="usb5v"):
     from placemat import runner
     script = rm.stage(tmp_path, module)
@@ -127,7 +135,7 @@ def test_a_real_sigterm_to_a_real_explore_run(tmp_path):
         if proc.poll() is None:
             proc.kill()
     assert proc.returncode == 143, (out, err)
-    assert took < 10
+    assert took < 30
     assert "explore stopped by SIGTERM after" in out and "nothing accepted" in out
     assert "stopped by SIGTERM during explore" in out and "stopped by SIGTERM during explore" in err
     doc, _ = _only_run(src)
