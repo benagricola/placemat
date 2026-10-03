@@ -811,7 +811,7 @@ def unplaced_block(f, settings):
         out.append(_setting("place", "block_gap_reach", wide,
                             "Let satellites stand further off: place.block_gap_reach %g" % wide,
                             "A run's finding (unplaced.block): %s could not be laid out; place.block_gap_reach was "
-                            "%g mm." % (item, reach), "reach"))
+                            "%g mm." % (item, reach), "wider"))
     return out
 
 
@@ -958,7 +958,7 @@ def escape_lane(f, settings):
     wide = _widened(reach, settings)
     return [_setting("place", "escape_via_reach", wide, "Allow the lane's via further: place.escape_via_reach %g" % wide,
                      "A run's finding (escape_lane): the lane of %s pin %s was blocked; place.escape_via_reach was %g mm."
-                     % (f["part"], f["pin"], reach), "reach")]
+                     % (f["part"], f["pin"], reach), "wider")]
 
 
 @case("pair_crossed")

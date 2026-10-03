@@ -2795,6 +2795,8 @@ placemat faces <fragment layout.kicad_pcb> outward=N [quiet=S] [handoff=E]
 placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise C] [--limit CHECK=VALUE ...] [--json]
 placemat facts <script> [--confirm] [--json]
 placemat settings [<script-or-board-dir>] [--json]
+placemat apply <id> [--script PATH] [--dry-run] [--json]
+placemat apply --undo [--script PATH] [--dry-run] [--json]
 ```
 
 `facts` prints the board's own facts - each copper layer's role and
@@ -3489,6 +3491,73 @@ its kind.
 A failed design check is a verdict, not a finding, and has its own severity in the checks output and in
 `run.json`'s `verdicts`: `critical` for `keep-out` and `current-path`, `warning` for `crossings-under`, `heat`,
 `exposure`, `hot-loop` and `switch-node`. A passing or accepted verdict has none.
+
+### Suggestions
+
+A finding may carry suggestions: changes to the layout script, worded in the board's own terms, that may clear it.
+`run` and `preview` print the best one under each critical or warning finding and the ids of the rest:
+
+```
+[critical] j1: no legal location within 3.0 mm of (30.00, 30.00) (courtyard x41)
+    try s2a: Place j1 beside r1, on its west side
+    or s2b, s2c, s2d, s2e
+```
+
+`run.json`'s `finding_details[i]` and `preview --json` give a finding its `case` and its `suggestions`:
+
+```
+{"id": "s2a", "text": "Place j1 beside r1, on its west side", "rank": 1, "lever": "beside",
+ "edit": {"op": "set_kwarg", "args": {"name": "at"},
+          "target": {"kind": "place", "key": "j1", "file": "/abs/path/layout.py", "line": 12, "shared": 1, "digest": "..."},
+          "value": {"form": "Beside", "args": [{"item": "r1"}, {"enum": "Edge.WEST"}]}},
+ "digests": {"/abs/path/layout.py": "..."}}
+```
+
+`id` is `s<finding number><letter>` and belongs to the plan that made it. `rank` 1 is the best; `lever` groups variants
+of one change (at most `[studio] suggestions_per_lever` of them). `edit` is data: the operation (`set_kwarg`,
+`remove_kwarg`, `set_arg`, `edit_list`, `insert_statement`, `remove_statement`, `set_constant`, `toml_set`), the
+declaration it changes by kind, key, file and line, and an intent expression for the value, never source and never a
+coordinate. A number an edit writes is a named constant with a comment saying where it came from. A suggestion whose
+declaration is made in a loop or a helper that runs for several items is not offered, since the edit would change
+them all. `digests` is the digest of each file the edit writes, as the plan saw it.
+
+`placemat apply <id> [--script PATH] [--dry-run] [--undo]` makes the edit. `--dry-run` prints the diff and writes
+nothing. Without it the file is written (atomically, under the project root) and the apply is logged in
+`.placemat/applied.jsonl`. If the script changed since the run that made the suggestion, nothing is written and the
+command says so: run again for suggestions that fit. `--undo` puts back the last apply that has not been undone, if
+the files are still as that apply left them. A suggestion is a candidate: the next run says whether the finding
+cleared.
+
+| Case | Suggestions |
+|---|---|
+| `unplaced.search` | place it beside a part that pulls it, on a side measured free (up to `suggestions_per_lever`); before the parts that crowd it (`priority=`); on either face (`face=`); all four turns or any bearing (`rotations=`); into the keepout that refused it (`allow=`); without a label's reservation (`reserve=False`); judge parts by their courtyards (`place.envelope`); a via that gave way, `place.via_move` or `place.via_leave` wider; a wider search radius, as a named constant |
+| `unplaced.pocket` | a `board.link` toward a part it shares a net with; either face; a finer search step, as a named constant |
+| `unplaced.slide` | `at=OnEdge(...)` on each of the other edges |
+| `unplaced.block` | the block may turn to any of its turns; `place.block_gap_reach` wider |
+| `unplaced.bearing` | `place.bearing_step` finer |
+| `unplaced.rides` | none: the item it rides has its own finding |
+| `fixed.part` | drop its `at=` so it is searched; the other face |
+| `fixed.cutout`, `fixed.keepout` | none |
+| `copper.keepout` | `Net(...)` added to the keepout's `allow=`; the keepout kept off the layer the copper is on (`layers=`); the keepout forbidding only what the copper is not (`excludes=`) |
+| `copper.cross` | `bridge=True` on the track that yields; `priority=Priority.HIGH` on it where the other track may bridge |
+| `copper.meets` | the track's waypoints dropped (pad to pad); a smaller `chamfer=` or `radius=`; the other layer |
+| `copper.not_drawn` | a smaller `radius=` for an arc that did not fit; for a track through an item, its waypoints dropped or the other layer |
+| `copper.corner` | a smaller `chamfer=` |
+| `copper.note` | the waypoints dropped |
+| `link_over` | place it beside the far part, on a free side; a heavier `weight=`; `priority=Priority.HIGH`; the limit raised to the measured length, as a named constant |
+| `label.sits_on`, `label.no_spot` | the label on each of its other sides; a smaller `size=`, as a named constant |
+| `label.not_drawn` | none |
+| `escape_walled`, `escape_closed` | a `board.fanout(part, sides=[...])` on the side the pad's way out points at; a `board.escape(...)` keeping the pin's lane clear |
+| `escape_lane` | `place.escape_via_reach` wider |
+| `escape_crossed`, `pair_crossed` | none |
+| `setup.undeclared` | a `board.place(Part(...))` for the part, after the script's last placement |
+| `setup.lane_unused` | the pin taken out of the `board.escape(...)` |
+| `setup.accept` | the `board.accept(...)` removed |
+| `vias.dropped` | `place.via_move` or `place.via_leave` wider |
+
+A setting is written into the script's own `[scripts."<path>".<section>]` table of the nearest `placemat.toml`,
+changing only that line. `[studio] suggest_factor` is how much a suggestion widens a limit.
+
 
 ## Report form and the files placemat writes
 

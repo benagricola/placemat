@@ -5,6 +5,26 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **Findings carry suggestions: changes to the layout script that may clear them.** `run` and `preview` print the
+  best one under each critical or warning finding (`try s3a: Place c4 beside c1, on its north side`) and the ids of
+  the others; `run.json`'s `finding_details[i]` and `preview --json` give each finding its `case` and its `suggestions`
+  (`id`, `text`, `rank`, `lever`, the `edit` as data, and the `digests` of the files it writes). Every suggestion is a
+  relation, a keyword or a setting, never a coordinate; a number it writes is a named constant with a comment. A
+  record without the fields reads as none. `api.md`, "Findings and severities", has the shape and the cases.
+- **`placemat apply <id> [--script PATH] [--dry-run] [--undo]`** makes a suggestion's edit: `--dry-run` prints the
+  diff and writes nothing; otherwise the file is written atomically and logged in `.placemat/applied.jsonl`, and
+  `--undo` puts back the last apply that has not been undone, if the files are still as it left them. It refuses,
+  and writes nothing, when the script changed since the run or preview that made the suggestion. `run` and `preview`
+  keep the plan's suggestions in `.placemat/suggestions.json` for it.
+- **`libcst` is a runtime dependency** (`libcst>=1.0`), for the script edits. A board project's environment installs
+  it with placemat.
+- Settings `[studio] suggestions_per_lever` (3), `try_timeout_s` (60), `apply` (true) and `suggest_factor` (2.0),
+  none part of a run's id. Scripts change nothing.
+
 ## To 0.86.2
 
 ### New
