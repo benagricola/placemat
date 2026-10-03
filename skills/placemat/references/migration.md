@@ -28,6 +28,15 @@ section for each hand-written pattern a newer form replaces.
   A script placing a part `Beside` one with a corner mark gets that part nearer; a later part aligned level with it follows. A
   searched part can land elsewhere than it did, with what it is linked to at another distance.
 
+## To 0.94.1
+
+### New
+
+- **The studio's "Search options" runs a searched suggestion.** The button under a searched suggestion (finding rows, the card and the step
+  rows) starts the probe, asks first where every candidate resolves the whole board, draws each candidate on the figure's range as it
+  arrives, can Stop it and Continue it, and shows the outcome and what it found (`<id>.1`) with Show, Try and Apply. `GET /suggest/found?id=`
+  returns a found suggestion; `/suggest/show`, `/try` and `/apply` accept its id.
+
 ## To 0.94.0
 
 ### New

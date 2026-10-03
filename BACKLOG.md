@@ -28,9 +28,6 @@ Specced work first, then the loose ends.
    limit (as a push's hard limit reserves a disc), so the search finds the best
    spot that meets it, or leaves the item unplaced with a finding naming the
    link. After the preview slowdown fix, which touches the same search code.
-1. **Searched suggestions in the studio** (phase 6's engine is built): the
-   "Search options" button starts a probe, shows its candidates live and the
-   found suggestion; after studio round 10.
 1a. **Measurements for the other searched levers**: blocker gap/side, search
    radius, fanout depth, turns, label size, stitch pitch and the tuning limits
    get a searched suggestion only once the sites that raise their findings
@@ -308,6 +305,9 @@ Specced work first, then the loose ends.
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **The studio's Search options** (0.94.1): a probe started from a searched
+  suggestion, its candidates live, Stop and Continue, the found suggestion.
 
 - **Routing progress and a whole-build replay** (0.94.0; studio round 10):
   per-net router events over a pipe, the route record in laid order, routes

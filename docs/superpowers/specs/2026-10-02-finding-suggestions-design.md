@@ -979,6 +979,17 @@ and `probe_candidates`; the results file `.placemat/probes/<id>.<key>.jsonl`; `s
 - A bisection's resolution is the figure's `resolution` (0.01 mm) and its steps are bounded by `probe_candidates`, which is
   `probe_steps` plus the far end and the neighbour check.
 
+### As built in the studio page (search options)
+
+Under a searched suggestion's row (finding rows, the card, the step rows) the page draws what the probe command reports, from the channel's
+`probe`, `candidate` and `probe_done` events kept in the command's summary: before it starts, the estimate's line on a confirmation
+(only when the probe is board-wide); while it runs, "n of up to N candidates", Stop, a strip chart of the figure's range (the declared value
+marked, each candidate a dot: cleared, not cleared, error) and a list of each candidate's value, result, findings gained, score and seconds
+(`saved` for one taken from an earlier probe); when it ends, the outcome worded from `state` and `best` and, for a best, the found
+suggestion `<id>.1` with Show, Try and Apply. The plan does not know `<id>.1`: the page reads it with `GET /suggest/found?id=`, and show, try
+and apply find it in the store beside the plan's own suggestions. A stopped, budget- or limit-ended probe offers Continue (the same start,
+confirmed). The probe is matched to its row by suggestion id and text, so a probe of an earlier plan is not shown on a new plan's row.
+
 ### The original phases
 
 1. `Finding.case` and `suggestions`; `script_edit.py` with `set_kwarg`,
