@@ -155,16 +155,10 @@ class BearingTurns(SpotTurns):
         return (rots.index(r) if r in rots else len(rots), r)
 
 
-COARSE_STEPS = 4
-"""A scored scan over a wide radius first walks a grid this many steps
-apart and refines to the step only around its best spots. The default for
-`[place] coarse_steps`; a board's own is carried on its Occupancy."""
 COARSE_FROM = 12
 """Radius-to-step ratio from which a scored scan goes coarse first: below
 it the fine grid is a few hundred points and not worth two passes.
 `[place] coarse_from`."""
-REFINE_AROUND = 3
-"""How many of the best coarse spots get a fine pass. `[place] refine_around`."""
 
 
 # Whether a scan judges its passes natively when it can: switched off to
@@ -1066,12 +1060,6 @@ class BlockSpec:
         return (self.anchor,) + tuple(fp for fp, _ in self.satellites)
 
 
-GAP_STEP = 0.05
-"""How finely a block's tightest gap is searched: the fab's placement grid.
-`[place] block_gap_step`."""
-GAP_REACH = 2.0
-"""How far a satellite may stand off its pin before the block gives up: past
-this the part is not at its pin. `[place] block_gap_reach`."""
 
 
 def layout_block(occ: Occupancy, spec: BlockSpec, anchor: Placement, clearance=None, others=None,

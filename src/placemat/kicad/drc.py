@@ -16,12 +16,6 @@ from ..settings import (DEFAULT_FOOTPRINT_KINDS, DEFAULT_OUTSTANDING_KINDS,
 # Clearance-class violations: a board with any of these is not done. The
 # defaults; a project says otherwise with `[drc] real_kinds`.
 REAL_KINDS = DEFAULT_REAL_KINDS
-# Copper that is not yet joined: not accepted, reported separately so the
-# missing plane or trace is named rather than counted with the shorts.
-OUTSTANDING_KINDS = DEFAULT_OUTSTANDING_KINDS
-# Footprint defects: not a board's fault and not a gate, but they make an
-# extent unreliable, so they are named rather than buried.
-FOOTPRINT_KINDS = DEFAULT_FOOTPRINT_KINDS
 
 
 @dataclass
