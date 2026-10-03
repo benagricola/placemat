@@ -1,0 +1,3417 @@
+[
+[
+"copper",
+"critical",
+"A and B cross on F.Cu at (19.00, 10.00) and neither may bridge; track B is not drawn"
+],
+[
+"copper",
+"critical",
+"N1 and N2 cross on F.Cu at (19.60, 10.00) and neither may bridge; track N2 is not drawn"
+],
+[
+"copper",
+"critical",
+"PERMIT_B and CANH_S0 cross on F.Cu at (20.00, 30.00) and neither may bridge; track CANH_S0 is not drawn"
+],
+[
+"copper",
+"critical",
+"copper A:  copper A is 0.00 mm from B copper on F.Cu (needs 0.16)"
+],
+[
+"copper",
+"critical",
+"copper A:  copper A is 0.00 mm from B copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper A:  copper A is 0.10 mm from B copper on F.Cu (needs 0.16)"
+],
+[
+"copper",
+"critical",
+"copper A: arc track A (18.80, 10.00)-(20.00, 11.20) is 0.21 mm from B copper on F.Cu (needs 0.30); the arc of its corner (radius 1.20 mm) at (19.65, 10.35); a smaller radius= there keeps clear"
+],
+[
+"copper",
+"critical",
+"copper A: arc track A (19.10, 10.00)-(20.00, 10.90) is 0.08 mm from B copper on F.Cu (needs 0.30); the arc of its corner (radius 0.90 mm) at (19.74, 10.26); a smaller radius= there keeps clear"
+],
+[
+"copper",
+"critical",
+"copper A: track A (11.40, 10.00)-(25.00, 10.00) is 0.10 mm from B copper on F.Cu (needs 0.40, rule: a kept off b)"
+],
+[
+"copper",
+"critical",
+"copper A: track A (19.00, 10.00)-(20.00, 11.00) is 0.10 mm from B copper on F.Cu (needs 0.20); the 45 of its chamfer at (19.50, 10.50); a smaller chamfer= there keeps clear"
+],
+[
+"copper",
+"critical",
+"copper A: track A (19.00, 10.00)-(20.00, 11.00) is 0.13 mm from B copper on F.Cu (needs 0.20); the 45 of its chamfer at (19.50, 10.50); a smaller chamfer= there keeps clear"
+],
+[
+"copper",
+"critical",
+"copper A: track A (20.00, 11.00)-(20.00, 19.00) is 0.15 mm from B copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper A: track A (8.60, 10.00)-(18.70, 10.00) is 0.15 mm from B copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper B: track B (29.50, 30.66)-(31.90, 33.06) is 0.19 mm from IN copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper C:  copper C is 0.00 mm from A copper on F.Cu (needs 0.16)"
+],
+[
+"copper",
+"critical",
+"copper C: track C (30.50, 28.00)-(30.50, 30.54) is 0.19 mm from IN copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper C: track C (30.50, 30.54)-(32.90, 32.94) is 0.19 mm from IN copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper COIL_A: track COIL_A (15.00, 20.00)-(19.60, 20.00) is 0.00 mm from L1 copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper D_N: track D_N (10.26, 10.24)-(16.09, 16.07) is 0.199999 mm from D_P copper on F.Cu (needs 0.200000)"
+],
+[
+"copper",
+"critical",
+"copper D_N: track D_N (10.46, 10.44)-(10.46, 10.44) is 0.199 mm from D_P copper on F.Cu (needs 0.200)"
+],
+[
+"copper",
+"critical",
+"copper D_N: track D_N (10.90, 10.00)-(10.46, 10.44) is 0.199999 mm from D_P copper on F.Cu (needs 0.200000)"
+],
+[
+"copper",
+"critical",
+"copper D_N: track D_N (16.09, 16.07)-(16.09, 29.62) is 0.200000 mm from D_P copper on F.Cu (needs 0.200000)"
+],
+[
+"copper",
+"critical",
+"copper GND:  copper GND is 0.00 mm from A copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper GND: keepout 'antenna' forbids vias: the GND via at (20.00, 20.00) is inside it"
+],
+[
+"copper",
+"critical",
+"copper GND: track GND (30.00, 30.00)-(32.40, 30.00) is 0.12 mm from SIG copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper GND: via GND at (12.00, 22.00) is 0.19 mm from SIG copper on In2.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper GND: via GND at (9.10, 10.00) is 0.00 mm from S copper on B.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper GND: via GND at (9.10, 10.00) is 0.00 mm from T copper on B.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper IN:  copper IN is 0.15 mm from RING copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper IN:  copper IN is 0.18 mm from RING copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper IN: track IN (30.00, 30.00)-(30.00, 30.10) is 0.15 mm from RING copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper IN: via IN at (30.00, 30.00) is 0.05 mm from RING copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper IN: via IN at (30.00, 30.00) is 0.19 mm from RING copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper N45: track N45 (25.88, 28.20)-(24.66, 26.98) is 0.02 mm from BYP copper on F.Cu (needs 0.16)"
+],
+[
+"copper",
+"critical",
+"copper N45: track N45 (25.88, 28.20)-(24.66, 26.98) is 0.02 mm from GND copper on F.Cu (needs 0.16)"
+],
+[
+"copper",
+"critical",
+"copper N45: track N45 (26.59, 28.20)-(25.88, 28.20) is 0.08 mm from BYP copper on F.Cu (needs 0.16)"
+],
+[
+"copper",
+"critical",
+"copper N45: track N45 (26.59, 28.20)-(25.94, 28.20) is 0.08 mm from N46 copper on F.Cu (needs 0.16)"
+],
+[
+"copper",
+"critical",
+"copper N5: via N5 at (30.00, 25.20) is 0.17 mm from N25 copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper N: track N (28.71, 26.48)-(27.80, 26.48) is 0.12 mm from P copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper N: via N at (20.00, 20.00) is 0.10 mm from P copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper N: via N at (20.00, 20.00) is 0.158 mm from P copper on F.Cu (needs 0.160)"
+],
+[
+"copper",
+"critical",
+"copper P: track P (28.75, 27.18)-(28.38, 26.80) is 0.18 mm from N32 copper on F.Cu (needs 0.20); the 45 of its chamfer at (28.56, 26.99); a smaller chamfer= there keeps clear"
+],
+[
+"copper",
+"critical",
+"copper P: via P at (20.70, 20.00) is 0.10 mm from N copper on F.Cu/B.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper PGOOD: track PGOOD (29.25, 27.18)-(29.62, 26.80) is 0.18 mm from N29 copper on F.Cu (needs 0.20); the 45 of its chamfer at (29.44, 26.99); a smaller chamfer= there keeps clear"
+],
+[
+"copper",
+"critical",
+"copper PROBE_A:  copper PROBE_A is 0.10 mm from PROBE_B copper on F.Cu (needs 0.16)"
+],
+[
+"copper",
+"critical",
+"copper SIG: track SIG (10.20, 20.00)-(10.20, 35.00) is 0.10 mm from GND copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper SIG: track SIG (10.20, 20.00)-(10.20, 35.00) is 0.10 mm from MID copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper SIG: track SIG (10.20, 5.00)-(10.20, 20.00) is 0.10 mm from GND copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper SIG: track SIG (10.20, 5.00)-(10.20, 20.00) is 0.10 mm from MID copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper SIG: track SIG (10.71, 19.29)-(10.71, 30.00) is 0.11 mm from MID copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper SIG: track SIG (10.71, 20.71)-(10.71, 5.00) is 0.11 mm from MID copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper SIG: track SIG (11.40, 10.00)-(26.60, 10.00) is 1.40 mm from WALL copper on F.Cu (needs 30.00, rule: nothing clears it)"
+],
+[
+"copper",
+"critical",
+"copper SIG: track SIG (26.60, 10.00)-(28.60, 12.00) is 5.79 mm from WALL copper on F.Cu (needs 30.00, rule: nothing clears it)"
+],
+[
+"copper",
+"critical",
+"copper SIG: track SIG (26.60, 10.00)-(28.60, 12.00) is 6.57 mm from WALL copper on F.Cu (needs 30.00, rule: nothing clears it)"
+],
+[
+"copper",
+"critical",
+"copper TERM_NEAR_MID: track TERM_NEAR_MID (49.40, 17.55)-(45.34, 15.20) is 0.00 mm from CAN_N copper on B.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper TERM_NEAR_MID: track TERM_NEAR_MID (49.40, 17.55)-(45.34, 15.20) is 0.00 mm from CAN_P copper on B.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper V48:  copper V48 is 0.00 mm from GND copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper V48:  copper V48 is 0.00 mm from MID copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"critical",
+"copper V48P:  copper V48P is 0.00 mm from CAN_S1_P copper on F.Cu (needs 0.40)"
+],
+[
+"copper",
+"critical",
+"copper V48P:  copper V48P is 0.00 mm from CAN_S2_N copper on F.Cu (needs 0.40)"
+],
+[
+"copper",
+"critical",
+"copper V48P:  copper V48P is 0.00 mm from CAN_S2_P copper on F.Cu (needs 0.40)"
+],
+[
+"copper",
+"critical",
+"copper X: track X (25.75, 28.00)-(25.75, 32.00) is 0.03 mm from N50 copper on F.Cu (needs 0.16)"
+],
+[
+"copper",
+"critical",
+"copper X: track X (4.00, 10.00)-(10.00, 10.00) is 0.15 mm from Y copper on F.Cu (needs 0.16)"
+],
+[
+"copper",
+"critical",
+"pour GND crosses keepout 'antenna' (the clearance): a pour goes exactly where it is put, so move it, reshape it, or name its net in the keepout's allow="
+],
+[
+"copper",
+"critical",
+"track GND crosses keepout 'antenna' (every layer): a track goes exactly where it is put, so move it, reshape it, or name its net in the keepout's allow="
+],
+[
+"copper",
+"critical",
+"track GND crosses keepout 'antenna' (the clearance on F): a track goes exactly where it is put, so move it, reshape it, or name its net in the keepout's allow="
+],
+[
+"copper",
+"critical",
+"track GND crosses keepout 'antenna' (the clearance): a track goes exactly where it is put, so move it, reshape it, or name its net in the keepout's allow="
+],
+[
+"copper",
+"critical",
+"track SIG: the points either side of its 45 past the NE corner of PA.1 allow no 45 through it; the track passes that corner at 0.112 mm, under the 0.200 mm clearance"
+],
+[
+"copper",
+"critical",
+"track SIG: the points either side of its 45 past the SE corner of PA.1 allow no 45 through it; the track passes that corner at 0.112 mm, under the 0.200 mm clearance"
+],
+[
+"copper",
+"critical",
+"track SIG: the points either side of its 45 past the SE corner of via GND allow no 45 through it; the track passes that corner at 0.189 mm, under the 0.200 mm clearance"
+],
+[
+"copper",
+"critical",
+"via GND crosses keepout 'antenna' (the clearance on B): a via goes exactly where it is put, so move it, reshape it, or name its net in the keepout's allow="
+],
+[
+"copper",
+"notice",
+"stitch GND: 1 via(s) outside the region left out: (0.50, 24.50) within 0.30 mm of the board edge"
+],
+[
+"copper",
+"notice",
+"stitch GND: 1 via(s) outside the region left out: (35.50, 29.17) copper via copper GND is 0.00 mm from OTHER copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"notice",
+"stitch GND: 1 via(s) outside the region left out: (35.50, 29.50) copper via copper GND is 0.00 mm from OTHER copper on F.Cu (needs 0.20)"
+],
+[
+"copper",
+"notice",
+"stitch GND: rows by the region's side as turned -> the board's side: east side -> board east"
+],
+[
+"copper",
+"notice",
+"stitch GND: rows by the region's side as turned -> the board's side: east side -> board east, south side -> board south"
+],
+[
+"copper",
+"notice",
+"stitch GND: rows by the region's side as turned -> the board's side: east side -> board north"
+],
+[
+"copper",
+"notice",
+"stitch GND: rows by the region's side as turned -> the board's side: east side -> board north, west side -> board south"
+],
+[
+"copper",
+"notice",
+"stitch GND: rows by the region's side as turned -> the board's side: west side -> board west"
+],
+[
+"copper",
+"notice",
+"track A: a waypoint steers it into another net's pad; drawn pad to pad it clears, so drop the waypoint(s) unless the route must go there"
+],
+[
+"copper",
+"notice",
+"track B: a waypoint steers it into another net's pad; drawn pad to pad it clears, so drop the waypoint(s) unless the route must go there"
+],
+[
+"copper",
+"notice",
+"track SIG: a waypoint steers it into another net's pad; drawn pad to pad it clears, so drop the waypoint(s) unless the route must go there"
+],
+[
+"copper",
+"notice",
+"track X: a waypoint steers it into another net's pad; drawn pad to pad it clears, so drop the waypoint(s) unless the route must go there"
+],
+[
+"copper",
+"warning",
+"pour A: W0 pad 1 (WALL) leaves no way between pads A0.1 and A1.1; the pour is not drawn"
+],
+[
+"copper",
+"warning",
+"pour A: narrows to 0.12 mm at (11.64, 10.16), under its net's 0.20 mm track"
+],
+[
+"copper",
+"warning",
+"pour A: pad A0.1 has no copper on In2.Cu"
+],
+[
+"copper",
+"warning",
+"pour A: pad B0.1 is on net B, and a fitted pour holds only its own net's pads"
+],
+[
+"copper",
+"warning",
+"pour A: via V at (13.00, 11.50) stands between pads A0.1 and A1.1 with no way round it; the pour is not drawn"
+],
+[
+"copper",
+"warning",
+"pour A: via at (14.00, 10.00) does not span In2.Cu (it spans F.Cu-In1.Cu)"
+],
+[
+"copper",
+"warning",
+"pour A: via at (14.00, 10.00) is on net B, and a fitted pour holds only its own net's copper"
+],
+[
+"copper",
+"warning",
+"pour SW1: the room runs out at 0.00 mm of reach (up to 5.00 mm tried): it narrows to 1.19 mm at (-6.99, -1.42), where 3.6 A between U1.1 and U2.10 needs 1.76 mm at a 10 C rise; U2 pad 8 (DR1L) stands there; drawn at that width"
+],
+[
+"copper",
+"warning",
+"pour SW: reach=Reach.CURRENT sizes the pour for the current between two of its parts, and only S0 of its pads' parts carries current on SW (Pm.I); the pour is not drawn"
+],
+[
+"copper",
+"warning",
+"pour SW: the room runs out at 0.10 mm of reach (up to 0.10 mm tried): it narrows to 1.65 mm at (11.18, 10.72), where 3.6 A between S0.1 and S1.1 needs 1.76 mm at a 10 C rise; drawn at that width"
+],
+[
+"copper",
+"warning",
+"pour SW: the room runs out at 0.55 mm of reach (up to 5.00 mm tried): it narrows to 1.45 mm at (11.12, 10.97), where 3.3 A between S0.1 and S1.1 needs 1.56 mm at a 10 C rise; B0 pad 1 (B) stands there; drawn at that width"
+],
+[
+"copper",
+"warning",
+"pour VBUS: U125 pad 1 (PROBE) is within its clearance of pad U126.1, so no pour can hold the pad clear; the pour is not drawn"
+],
+[
+"copper",
+"warning",
+"stitch GND: the east side's row has a 3.33 mm gap, over its 2.00 mm pitch"
+],
+[
+"copper",
+"warning",
+"stitch GND: the east side's row has a 4.00 mm gap, over its 2.00 mm pitch"
+],
+[
+"copper",
+"warning",
+"track A: not drawn, an arc of radius 1.20 mm does not fit: the leg (8.60, 10.00)-(9.50, 10.00) is 0.90 mm, and the arc of radius 1.20 mm at its corner (9.50, 10.00), a turn of 90 degrees, takes 1.20 mm of it; a smaller radius=, points further apart, or Bend.ARC_FREE where the octilinear legs made the short leg"
+],
+[
+"copper",
+"warning",
+"track B: not drawn, it would run through U1 pad 1 (A)"
+],
+[
+"copper",
+"warning",
+"track C: not drawn, it would run through A copper"
+],
+[
+"copper",
+"warning",
+"track C: not drawn, it would run through U2 pad 1 (A)"
+],
+[
+"copper",
+"warning",
+"track GND: its end on via GND is not drawn, because that via found no spot"
+],
+[
+"copper",
+"warning",
+"track N45: not drawn, it would run through C1 pad 1 (BYP)"
+],
+[
+"copper",
+"warning",
+"track SIG: its end on via SIG is not drawn, because that via found no spot"
+],
+[
+"copper",
+"warning",
+"track SIG: its point past via V is not drawn, because that via found no spot"
+],
+[
+"copper",
+"warning",
+"track SIG: its point past via V is not drawn, because via V is declared after track SIG; declare it first"
+],
+[
+"copper",
+"warning",
+"track SIG: not drawn, it would run through W6 pad 1 (WALL)"
+],
+[
+"copper",
+"warning",
+"track SIG: not drawn, it would run through WALL copper"
+],
+[
+"copper",
+"warning",
+"track SIG: the gap between PA.1 and PB.1 is 0.400 mm, not enough for a 0.20 mm track with clearance to each (0.600 mm needed)"
+],
+[
+"copper",
+"warning",
+"track SIG_P: not drawn, it would run through a SIG_N via"
+],
+[
+"copper",
+"warning",
+"track STRAP_VSPI: not drawn, it would run through R6 pad 1 (STRAP_DOWNLOAD)"
+],
+[
+"copper",
+"warning",
+"track UART_TX_CHIP: not drawn, it would run through R5 pad 1 (STRAP_VSPI)"
+],
+[
+"copper",
+"warning",
+"track X: not drawn, it would run through Z1 pad 1 (Z)"
+],
+[
+"copper",
+"warning",
+"track Z: not drawn, it would run through U9 pad 1 (IN)"
+],
+[
+"copper",
+"warning",
+"via GND at (9.50, 10.00): not drawn, it would stand on R9 pad 1 (S)"
+],
+[
+"copper",
+"warning",
+"via GND: its tail on B.Cu would not join U1.1, which is not on that layer"
+],
+[
+"copper",
+"warning",
+"via GND: nowhere within 0.05 mm of U1.1, 9 spot(s) tried: pad x9"
+],
+[
+"copper",
+"warning",
+"via N6: nowhere within 2.00 mm of U1.7, 5174 spot(s) tried: copper x3717, tail x832, pad x464, hole x161"
+],
+[
+"copper",
+"warning",
+"via N6: nowhere within 2.00 mm of U1.7, 5174 spot(s) tried: copper x3785, tail x737, pad x434, hole x218"
+],
+[
+"copper",
+"warning",
+"via SIG at (8.60, 10.00): not drawn, it would stand on A1 pad 1 (X1)"
+],
+[
+"copper",
+"warning",
+"via SIG: its point past via V is not drawn, because that via found no spot"
+],
+[
+"copper",
+"warning",
+"via V: nowhere within 0.05 mm of PA.1, 9 spot(s) tried: pad x9"
+],
+[
+"copper",
+"warning",
+"vias A: 5 of 6 along U1.1's axis, the next stands within 1.00 mm of the board edge"
+],
+[
+"copper",
+"warning",
+"vias GND: a span of In4.Cu-B.Cu does not reach U1.2 on F.Cu"
+],
+[
+"copper",
+"warning",
+"vias GND: no via fits in U1.1, or clears the copper and holes round it (0.45 mm via, 0.20 mm drill, 0.00 mm inset)"
+],
+[
+"copper",
+"warning",
+"vias GND: no via fits in U1.1, or clears the copper and holes round it (0.60 mm via, 0.30 mm drill, 0.00 mm inset)"
+],
+[
+"escape_closed",
+"warning",
+"C1 pin 2 (GND): closed toward C0, C2 by C0, C1"
+],
+[
+"escape_closed",
+"warning",
+"C2 pin 2 (GND): closed toward C1, C3 by C0, C1, C2"
+],
+[
+"escape_closed",
+"warning",
+"C3 pin 2 (GND): closed toward C2, C4 by C1, C2, C3"
+],
+[
+"escape_closed",
+"warning",
+"C4 pin 2 (GND): closed toward C3, C5 by C2, C3, C4"
+],
+[
+"escape_closed",
+"warning",
+"C5 pin 2 (GND): closed toward C4, C6 by C3, C4, C5"
+],
+[
+"escape_closed",
+"warning",
+"C5 pin 2 (GND): closed toward C4, C6 by C3, C4, C5, R1"
+],
+[
+"escape_closed",
+"warning",
+"C6 pin 2 (GND): closed toward C5, C7 by C4, C5, C6"
+],
+[
+"escape_closed",
+"warning",
+"C6 pin 2 (GND): closed toward C5, C7 by C4, C5, C6, R2"
+],
+[
+"escape_closed",
+"warning",
+"C7 pin 2 (GND): closed toward C6 by C5, C6, C7, R1"
+],
+[
+"escape_closed",
+"warning",
+"C7 pin 2 (GND): closed toward C6 by C5, C6, C7, R2"
+],
+[
+"escape_crossed",
+"warning",
+"C1 pins 1/2: C2 BUS crosses C0 GND"
+],
+[
+"escape_crossed",
+"warning",
+"C1 pins 1/2: U1 B crosses J1 GND"
+],
+[
+"escape_crossed",
+"warning",
+"C1 pins 1/2: U1 VIN crosses J1 GND"
+],
+[
+"escape_crossed",
+"warning",
+"C2 pins 1/2: C1 BUS crosses C8 GND"
+],
+[
+"escape_crossed",
+"warning",
+"C2 pins 1/2: C8 BUS crosses C8 GND"
+],
+[
+"escape_crossed",
+"warning",
+"C2 pins 1/2: J1 GND crosses U1 OUT"
+],
+[
+"escape_crossed",
+"warning",
+"CN1 pins 1/2: C2 GND crosses R11 V48P"
+],
+[
+"escape_crossed",
+"warning",
+"CN2 pins 1/2: F1 V48P crosses MH2 GND"
+],
+[
+"escape_crossed",
+"warning",
+"CN2 pins 1/2: R11 V48P crosses MH2 GND"
+],
+[
+"escape_crossed",
+"warning",
+"D1 pins 1/2: D2 M crosses D2 GND"
+],
+[
+"escape_crossed",
+"warning",
+"D1 pins 1/2: D4 M crosses D2 GND"
+],
+[
+"escape_crossed",
+"warning",
+"D1 pins 1/2: U1 M crosses U1 GND"
+],
+[
+"escape_crossed",
+"warning",
+"D2 pins 1/2: D1 M crosses D3 GND"
+],
+[
+"escape_crossed",
+"warning",
+"D2 pins 1/2: D3 M crosses D3 GND"
+],
+[
+"escape_crossed",
+"warning",
+"D3 pins 1/2: D2 M crosses D4 GND"
+],
+[
+"escape_crossed",
+"warning",
+"D4 pins 1/2: D3 M crosses D1 GND"
+],
+[
+"escape_crossed",
+"warning",
+"H3 pins 1/2: U2 CAN_S0_P crosses U2 CAN_S1_P"
+],
+[
+"escape_crossed",
+"warning",
+"H8 pins 1/2: R10 TERM_NEAR_JLEG crosses U1 CAN_N"
+],
+[
+"escape_crossed",
+"warning",
+"J1 pins 1/2: U1 A crosses R1 GND"
+],
+[
+"escape_crossed",
+"warning",
+"J1 pins 1/2: U1 B crosses C1 GND"
+],
+[
+"escape_crossed",
+"warning",
+"J1 pins 1/2: U1 VIN crosses C1 GND"
+],
+[
+"escape_crossed",
+"warning",
+"J2 pins 1/2: R2 C crosses J1 GND"
+],
+[
+"escape_crossed",
+"warning",
+"R1 pins 1/2: F1 A crosses J1 B"
+],
+[
+"escape_crossed",
+"warning",
+"R1 pins 1/2: H1 A crosses C1 M"
+],
+[
+"escape_crossed",
+"warning",
+"R1 pins 1/2: H1 A crosses R2 B"
+],
+[
+"escape_crossed",
+"warning",
+"R1 pins 1/2: J1 A crosses C1 M"
+],
+[
+"escape_crossed",
+"warning",
+"R1 pins 1/2: U1 GND crosses U1 SIG"
+],
+[
+"escape_crossed",
+"warning",
+"R10 pins 1/2: R9 TERM_NEAR_MID crosses H8 TERM_NEAR_JLEG"
+],
+[
+"escape_crossed",
+"warning",
+"R11 pins 1/2: CN2 V48P crosses R12 TRUNK_LED_MID"
+],
+[
+"escape_crossed",
+"warning",
+"R2 pins 1/2: F1 A crosses J1 B"
+],
+[
+"escape_crossed",
+"warning",
+"R2 pins 1/2: R1 A crosses J1 B"
+],
+[
+"escape_crossed",
+"warning",
+"R2 pins 1/2: R1 B crosses J1 GND"
+],
+[
+"escape_crossed",
+"warning",
+"R2 pins 1/2: U1 B crosses C1 GND"
+],
+[
+"escape_crossed",
+"warning",
+"U1 pins 1/2: D2 M crosses D3 GND"
+],
+[
+"escape_crossed",
+"warning",
+"U1 pins 1/2: D2 M crosses D4 GND"
+],
+[
+"escape_crossed",
+"warning",
+"U1 pins 1/2: D3 M crosses D4 GND"
+],
+[
+"escape_crossed",
+"warning",
+"U1 pins 1/2: R1 A crosses R2 B"
+],
+[
+"escape_crossed",
+"warning",
+"U2 pins 1/2: C1 B crosses U3 C"
+],
+[
+"escape_crossed",
+"warning",
+"U2 pins 1/2: J1 B crosses U3 GND"
+],
+[
+"escape_crossed",
+"warning",
+"U2 pins 3/4: L2 VDD_RF crosses C2 MCU_EN"
+],
+[
+"escape_crossed",
+"warning",
+"U3 pins 1/22: U2 DR1L crosses C1 BOOT1"
+],
+[
+"escape_crossed",
+"warning",
+"U3 pins 12/13: NT2 ISP crosses NT1 ISN"
+],
+[
+"escape_crossed",
+"warning",
+"U3 pins 2/22: U2 DR1H crosses C1 BOOT1"
+],
+[
+"escape_crossed",
+"warning",
+"U3 pins 3/5: H5 CAN_S1_P crosses U7 PERMIT_B"
+],
+[
+"escape_crossed",
+"warning",
+"U3 pins 4/5: H6 CAN_S1_N crosses U7 PERMIT_B"
+],
+[
+"escape_crossed",
+"warning",
+"U4 pins 1/3: F1 power_drop0.FUSE_OUT crosses D4 GND"
+],
+[
+"escape_crossed",
+"warning",
+"U4 pins 4/5: D4 GND crosses U8 PERMIT_A"
+],
+[
+"escape_crossed",
+"warning",
+"U5 pins 1/3: F2 power_drop1.FUSE_OUT crosses D4 GND"
+],
+[
+"escape_crossed",
+"warning",
+"U6 pins 4/5: D3 GND crosses U5 PERMIT_A"
+],
+[
+"escape_crossed",
+"warning",
+"U7 pins 2/3: U6 PERMIT_A crosses H7 CAN_S2_N"
+],
+[
+"escape_crossed",
+"warning",
+"U8 pins 2/3: H8 CAN_N crosses U4 PERMIT_A"
+],
+[
+"escape_lane",
+"warning",
+"U1 pin 30 (PGOOD): its lane is blocked by track PGOOD (29.25, 26.60)-(28.40, 25.75) is 0.15 mm from OTHER copper on F.Cu (needs 0.20); track PGOOD (29.25, 26.60)-(28.40, 25.75) is 0.15 mm from GND copper on F.Cu (needs 0.20); track PGOOD (28.40, 25.75)-(27.56, 25.75) is 0.15 mm from OTHER copper on F.Cu (needs 0.20); track PGOOD (28.40, 25.75)-(27.56, 25.75) is 0.15 mm from GND copper on F.Cu (needs 0.20)"
+],
+[
+"escape_lane",
+"warning",
+"U1 pin 30 (PGOOD): its lane is blocked by track PGOOD (29.25, 27.18)-(29.62, 26.80) is 0.18 mm from N29 copper on F.Cu (needs 0.20)"
+],
+[
+"escape_lane",
+"warning",
+"U1 pin 31 (P): its lane is blocked by track P (28.75, 27.18)-(28.38, 26.80) is 0.18 mm from N32 copper on F.Cu (needs 0.20)"
+],
+[
+"escape_walled",
+"critical",
+"B0 pin 1 (B): no other pad is on the net, so it leaves the board here, and it is walled off by A0, A1, pour A"
+],
+[
+"escape_walled",
+"critical",
+"B0 pin 1 (B): no other pad is on the net, so it leaves the board here, and it is walled off by S0, pour SW"
+],
+[
+"escape_walled",
+"critical",
+"B0 pin 1 (B): no other pad is on the net, so it leaves the board here, and it is walled off by pour A"
+],
+[
+"escape_walled",
+"critical",
+"C1 pin 1 (GND): walled off by U1, the escape lane of U1 pin 30, the escape lane of U1 pin 31, the escape lane of U1 pin 32"
+],
+[
+"escape_walled",
+"critical",
+"C2 pin 1 (N4): no other pad is on the net, so it leaves the board here, and it is walled off by C0, C1, C3, C4"
+],
+[
+"escape_walled",
+"critical",
+"C2 pin 1 (N4): no other pad is on the net, so it leaves the board here, and it is walled off by C0, C1, C3, C4, R1"
+],
+[
+"escape_walled",
+"critical",
+"C3 pin 1 (N5): no other pad is on the net, so it leaves the board here, and it is walled off by C1, C2, C4, C5"
+],
+[
+"escape_walled",
+"critical",
+"C3 pin 1 (N5): no other pad is on the net, so it leaves the board here, and it is walled off by C1, C2, C4, C5, R1"
+],
+[
+"escape_walled",
+"critical",
+"C4 pin 1 (N6): no other pad is on the net, so it leaves the board here, and it is walled off by C2, C3, C5, C6"
+],
+[
+"escape_walled",
+"critical",
+"C4 pin 1 (N6): no other pad is on the net, so it leaves the board here, and it is walled off by C2, C3, C5, C6, R1"
+],
+[
+"escape_walled",
+"critical",
+"C4 pin 1 (N6): no other pad is on the net, so it leaves the board here, and it is walled off by C2, C3, C5, C6, R1, R2"
+],
+[
+"escape_walled",
+"critical",
+"C5 pin 1 (N7): no other pad is on the net, so it leaves the board here, and it is walled off by C3, C4, C6, C7"
+],
+[
+"escape_walled",
+"critical",
+"C5 pin 1 (N7): no other pad is on the net, so it leaves the board here, and it is walled off by C3, C4, C6, C7, R1"
+],
+[
+"escape_walled",
+"critical",
+"C5 pin 1 (N7): no other pad is on the net, so it leaves the board here, and it is walled off by C3, C4, C6, C7, R1, R2"
+],
+[
+"escape_walled",
+"critical",
+"C6 pin 1 (N8): no other pad is on the net, so it leaves the board here, and it is walled off by C4, C5, C7"
+],
+[
+"escape_walled",
+"critical",
+"C6 pin 1 (N8): no other pad is on the net, so it leaves the board here, and it is walled off by C4, C5, C7, R1"
+],
+[
+"escape_walled",
+"critical",
+"C6 pin 1 (N8): no other pad is on the net, so it leaves the board here, and it is walled off by C4, C5, C7, R1, R2"
+],
+[
+"escape_walled",
+"critical",
+"C9 pin 1 (SIG): walled off by U1, via GND"
+],
+[
+"escape_walled",
+"critical",
+"C9 pin 2 (SIG): walled off by U1, via GND"
+],
+[
+"escape_walled",
+"critical",
+"CN2 pin 2 (GND): walled off by pour V48P"
+],
+[
+"escape_walled",
+"critical",
+"CV pin 1 (X): no other pad is on the net, so it leaves the board here, and it is walled off by NT1"
+],
+[
+"escape_walled",
+"critical",
+"CV pin 2 (Y): no other pad is on the net, so it leaves the board here, and it is walled off by NT1"
+],
+[
+"escape_walled",
+"critical",
+"D1 pin 1 (GND): walled off by pour V48P"
+],
+[
+"escape_walled",
+"critical",
+"J1 pin 2 (PWR): no other pad is on the net, so it leaves the board here, and it is walled off by J1"
+],
+[
+"escape_walled",
+"critical",
+"J1 pin 2 (PWR): no other pad is on the net, so it leaves the board here, and it is walled off by U2"
+],
+[
+"escape_walled",
+"critical",
+"K0 pin 1 (N0): no other pad is on the net, so it leaves the board here, and it is walled off by K0"
+],
+[
+"escape_walled",
+"critical",
+"K0 pin 1 (N0): no other pad is on the net, so it leaves the board here, and it is walled off by W0"
+],
+[
+"escape_walled",
+"critical",
+"K0 pin 2 (O0): no other pad is on the net, so it leaves the board here, and it is walled off by K0"
+],
+[
+"escape_walled",
+"critical",
+"K0 pin 2 (O0): no other pad is on the net, so it leaves the board here, and it is walled off by W0"
+],
+[
+"escape_walled",
+"critical",
+"K1 pin 1 (N1): no other pad is on the net, so it leaves the board here, and it is walled off by K1"
+],
+[
+"escape_walled",
+"critical",
+"K1 pin 1 (N1): no other pad is on the net, so it leaves the board here, and it is walled off by W1"
+],
+[
+"escape_walled",
+"critical",
+"K1 pin 2 (O1): no other pad is on the net, so it leaves the board here, and it is walled off by K1"
+],
+[
+"escape_walled",
+"critical",
+"K2 pin 1 (N2): no other pad is on the net, so it leaves the board here, and it is walled off by K2"
+],
+[
+"escape_walled",
+"critical",
+"K2 pin 2 (O2): no other pad is on the net, so it leaves the board here, and it is walled off by K2"
+],
+[
+"escape_walled",
+"critical",
+"L1 pin 2 (OUT): no other pad is on the net, so it leaves the board here, and it is walled off by J1, U1"
+],
+[
+"escape_walled",
+"critical",
+"L1 pin 2 (OUT): no other pad is on the net, so it leaves the board here, and it is walled off by L1"
+],
+[
+"escape_walled",
+"critical",
+"M1 pin 1 (X): no other pad is on the net, so it leaves the board here, and it is walled off by M1"
+],
+[
+"escape_walled",
+"critical",
+"M1 pin 2 (Y): no other pad is on the net, so it leaves the board here, and it is walled off by M1"
+],
+[
+"escape_walled",
+"critical",
+"NT1 pin 1 (A): no other pad is on the net, so it leaves the board here, and it is walled off by CV"
+],
+[
+"escape_walled",
+"critical",
+"NT1 pin 2 (B): no other pad is on the net, so it leaves the board here, and it is walled off by CV"
+],
+[
+"escape_walled",
+"critical",
+"R1 pin 1 (A): no other pad is on the net, so it leaves the board here, and it is walled off by L1"
+],
+[
+"escape_walled",
+"critical",
+"R1 pin 1 (B): no other pad is on the net, so it leaves the board here, and it is walled off by track A"
+],
+[
+"escape_walled",
+"critical",
+"R1 pin 2 (B): no other pad is on the net, so it leaves the board here, and it is walled off by R1"
+],
+[
+"escape_walled",
+"critical",
+"R1 pin 2 (MID): walled off by pour V48"
+],
+[
+"escape_walled",
+"critical",
+"R1 pin 2 (X): no other pad is on the net, so it leaves the board here, and it is walled off by U1"
+],
+[
+"escape_walled",
+"critical",
+"T1 pin 2 (V_HI_SENSE): no other pad is on the net, so it leaves the board here, and it is walled off by RS"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 1 (A): no other pad is on the net, so it leaves the board here, and it is walled off by pour GND"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 11 (LD1): no other pad is on the net, so it leaves the board here, and it is walled off by the escape lane of U1 pin 10, the escape lane of U1 pin 9, track BL_PWM, track GNSS_PPS, via BL_PWM, via GND, via GNSS_PPS"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 11 (N1_1): no other pad is on the net, so it leaves the board here, and it is walled off by U1"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 12 (N1_2): no other pad is on the net, so it leaves the board here, and it is walled off by U1"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 2 (N2): no other pad is on the net, so it leaves the board here, and it is walled off by U1"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 21 (N2_1): no other pad is on the net, so it leaves the board here, and it is walled off by U1"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 22 (N2_2): no other pad is on the net, so it leaves the board here, and it is walled off by U1"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 3 (N3): no other pad is on the net, so it leaves the board here, and it is walled off by U1"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 4 (N4): no other pad is on the net, so it leaves the board here, and it is walled off by U1"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 44 (N44): no other pad is on the net, so it leaves the board here, and it is walled off by X1, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 45 (N45): no other pad is on the net, so it leaves the board here, and it is walled off by C1, track N44, track N46"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 45 (N45): no other pad is on the net, so it leaves the board here, and it is walled off by X1, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 46 (N46): no other pad is on the net, so it leaves the board here, and it is walled off by X1, track N50, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 46 (N46): no other pad is on the net, so it leaves the board here, and it is walled off by X1, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 47 (N47): no other pad is on the net, so it leaves the board here, and it is walled off by X1, track N50, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 47 (N47): no other pad is on the net, so it leaves the board here, and it is walled off by X1, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 48 (N48): no other pad is on the net, so it leaves the board here, and it is walled off by X1, track N50, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 48 (N48): no other pad is on the net, so it leaves the board here, and it is walled off by X1, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 48 (SDA_PWR): no other pad is on the net, so it leaves the board here, and it is walled off by C1, track PD_IRQ, track STRAP_DOWNLOAD, track STRAP_VSPI, track UART_TX_CHIP, track USB_WET, track V3V3, track VBUS_DISCH, via GND, via V3V3"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 49 (N49): no other pad is on the net, so it leaves the board here, and it is walled off by track N50, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 49 (N49): no other pad is on the net, so it leaves the board here, and it is walled off by track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 5 (N4): no other pad is on the net, so it leaves the board here, and it is walled off by track N5, track N7, via N5, via N7"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 5 (N5): no other pad is on the net, so it leaves the board here, and it is walled off by U1"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 50 (N50): no other pad is on the net, so it leaves the board here, and it is walled off by track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 50 (N50): walled off by U1, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 51 (N51): no other pad is on the net, so it leaves the board here, and it is walled off by X2, track N50, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 51 (N51): no other pad is on the net, so it leaves the board here, and it is walled off by X2, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 52 (N52): no other pad is on the net, so it leaves the board here, and it is walled off by X2, track N50, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 52 (N52): no other pad is on the net, so it leaves the board here, and it is walled off by X2, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 53 (N53): no other pad is on the net, so it leaves the board here, and it is walled off by X2, track N50, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 53 (N53): no other pad is on the net, so it leaves the board here, and it is walled off by X2, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 54 (N54): no other pad is on the net, so it leaves the board here, and it is walled off by X2, track N50, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 54 (N54): no other pad is on the net, so it leaves the board here, and it is walled off by X2, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 55 (N55): no other pad is on the net, so it leaves the board here, and it is walled off by X2, track X"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 7 (N6): no other pad is on the net, so it leaves the board here, and it is walled off by track N5, track N7, via N5, via N7"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 8 (GND): walled off by R4, U1"
+],
+[
+"escape_walled",
+"critical",
+"U1 pin 9 (N8): no other pad is on the net, so it leaves the board here, and it is walled off by track N5, track N7, via N5, via N7"
+],
+[
+"escape_walled",
+"critical",
+"U4 pin 3 (GND): walled off by pour V48P"
+],
+[
+"escape_walled",
+"critical",
+"U4 pin 4 (GND): walled off by pour V48P"
+],
+[
+"escape_walled",
+"critical",
+"U4 pin 5 (PERMIT_A): walled off by pour V48P"
+],
+[
+"escape_walled",
+"critical",
+"U5 pin 4 (GND): walled off by power_drop1"
+],
+[
+"escape_walled",
+"critical",
+"U9 pin 1 (IN): no other pad is on the net, so it leaves the board here, and it is walled off by X1, track B, track C"
+],
+[
+"escape_walled",
+"critical",
+"U9 pin 1 (IN): walled off by R9"
+],
+[
+"escape_walled",
+"critical",
+"U9 pin 1 (IN): walled off by R9, pour RING"
+],
+[
+"escape_walled",
+"critical",
+"U9 pin 1 (IN): walled off by R9, track RING"
+],
+[
+"escape_walled",
+"critical",
+"U9 pin 1 (PROBE): no other pad is on the net, so it leaves the board here, and it is walled off by Q1, pour SW"
+],
+[
+"escape_walled",
+"critical",
+"U9 pin GND (GND): walled off by N1"
+],
+[
+"fab",
+"critical",
+"net class CAN_DIFF: track width 0.2 mm is below the fab's minimum 10 mm (fab-profile.json min.track_mm)"
+],
+[
+"fab",
+"critical",
+"net class Default: track width 0.1 mm is below the fab's minimum 0.12 mm (fab-profile.json min.track_mm)"
+],
+[
+"fab",
+"critical",
+"net class Default: track width 0.2 mm is below the fab's minimum 10 mm (fab-profile.json min.track_mm)"
+],
+[
+"fab",
+"critical",
+"net class GND_RET: track width 2 mm is below the fab's minimum 10 mm (fab-profile.json min.track_mm)"
+],
+[
+"fab",
+"critical",
+"net class HV_TRUNK: track width 2 mm is below the fab's minimum 10 mm (fab-profile.json min.track_mm)"
+],
+[
+"fab",
+"critical",
+"net class Thin: track width 0.1 mm is below the fab's minimum 0.5 mm (fab-profile.json min.track_mm)"
+],
+[
+"facts",
+"warning",
+"no confirmation record yet"
+],
+[
+"fixed",
+"critical",
+"a (cutout): would leave a 1.00 mm web, under the 2.00 mm minimum"
+],
+[
+"fixed",
+"critical",
+"a (fixed): body box -23.30,-10.80..-18.70,-9.20 crosses the board edge"
+],
+[
+"fixed",
+"critical",
+"b (cutout): would leave a 1.00 mm web, under the 2.00 mm minimum"
+],
+[
+"fixed",
+"critical",
+"b (fixed): B courtyard overlaps A courtyard"
+],
+[
+"fixed",
+"critical",
+"b1 (fixed): body box -10.10,-10.10..20.10,20.10 crosses the board edge"
+],
+[
+"fixed",
+"critical",
+"bus_drop1.conn (fixed): body box 40.25,58.67..67.30,71.03 crosses the board edge"
+],
+[
+"fixed",
+"critical",
+"bus_drop1.conn (fixed): body box 40.25,67.58..67.30,79.92 crosses the board edge"
+],
+[
+"fixed",
+"critical",
+"bus_drop1.conn (fixed): cell bus_drop1's U2 courtyard overlaps cell bus_drop1's H3 courtyard"
+],
+[
+"fixed",
+"critical",
+"bus_drop1.conn (fixed): cell bus_drop1's U2 courtyard sits over the through-hole lead of cell bus_drop1's H3 pad 1"
+],
+[
+"fixed",
+"critical",
+"bus_drop1.conn (fixed): cell bus_drop1's U2 pad CAN_S1_P is 0.00 mm from PERMIT_B copper on F.Cu (needs 0.20)"
+],
+[
+"fixed",
+"critical",
+"c1 (fixed): C1 courtyard overlaps U1 courtyard"
+],
+[
+"fixed",
+"critical",
+"c1 (fixed): C1 pad GND is 0.00 mm from PGOOD copper on F.Cu (needs 0.20)"
+],
+[
+"fixed",
+"critical",
+"c1 (fixed): C1 pad TANK is 0.00 mm from L1 copper on B.Cu (needs 0.20)"
+],
+[
+"fixed",
+"critical",
+"c1 (fixed): sits in the reservation for keepout 'cup' (a part mounted off the board sits over it): C1 is barred"
+],
+[
+"fixed",
+"critical",
+"c1 (fixed): sits in the reservation for keepout 'ring' (clear)"
+],
+[
+"fixed",
+"critical",
+"c1 (fixed): sits in the reservation for keepout 'ring' (the case leaves 1.9 mm here; parts up to 1.9 mm tall may sit here, and a part with no Pm.Height counts as taller): C1 has no Pm.Height"
+],
+[
+"fixed",
+"critical",
+"c1 (fixed): sits in the reservation for keepout 'ring' (the case leaves 1.9 mm here; parts up to 1.9 mm tall may sit here, and a part with no Pm.Height counts as taller): C1 is 2.5 mm"
+],
+[
+"fixed",
+"critical",
+"cap (fixed): C1 courtyard overlaps U1 courtyard"
+],
+[
+"fixed",
+"critical",
+"cap (fixed): C1 pad BYP is 0.03 mm from N45 copper on F.Cu (needs 0.16)"
+],
+[
+"fixed",
+"critical",
+"cap (fixed): C1 pad BYP is 0.08 mm from N45 copper on F.Cu (needs 0.16)"
+],
+[
+"fixed",
+"critical",
+"cap (fixed): C1 pad N46 is 0.08 mm from N45 copper on F.Cu (needs 0.16)"
+],
+[
+"fixed",
+"critical",
+"cv (fixed): CV courtyard overlaps NT1 courtyard"
+],
+[
+"fixed",
+"critical",
+"cv (fixed): CV pad X is 0.10 mm from V_HI_SENSE copper on F.Cu (needs 0.16)"
+],
+[
+"fixed",
+"critical",
+"j1 (fixed): sits in the reservation for keepout 'cup' (a part mounted off the board sits over it): J1 is barred"
+],
+[
+"fixed",
+"critical",
+"j1 (fixed): sits in the reservation for keepout 'cup' (a part mounted off the board sits over it; parts up to 2 mm tall may sit here, and a part with no Pm.Height counts as taller): J1 has no Pm.Height"
+],
+[
+"fixed",
+"critical",
+"j1 (fixed): sits in the reservation for keepout 'front only' (tall parts kept off the front here)"
+],
+[
+"fixed",
+"critical",
+"j2 (edge): J2 courtyard overlaps J1 courtyard"
+],
+[
+"fixed",
+"critical",
+"j2 (fixed): J2 courtyard overlaps J1 courtyard"
+],
+[
+"fixed",
+"critical",
+"j2 (fixed): sits in the reservation for keepout 'cup' (a part mounted off the board sits over it): J2 is barred"
+],
+[
+"fixed",
+"critical",
+"k (fixed): its own copper sits in the reservation for keepout 'roof' (low parts only)"
+],
+[
+"fixed",
+"critical",
+"l1 (fixed): body box 8.23,0.03..11.77,3.57 is past the rim edge"
+],
+[
+"fixed",
+"critical",
+"m1 (fixed): sits in the reservation for keepout 'cup' (a part mounted off the board sits over it): M1 is barred"
+],
+[
+"fixed",
+"critical",
+"m1 (fixed): sits in the reservation for keepout 'cup' (a part mounted off the board sits over it; parts up to 2 mm tall may sit here, and a part with no Pm.Height counts as taller): M1 is barred"
+],
+[
+"fixed",
+"critical",
+"mod (fixed): cell mod's CN2 courtyard overlaps R12 courtyard"
+],
+[
+"fixed",
+"critical",
+"mod (fixed): its member L1 sits in the reservation for keepout 'ring' (the case; parts up to 1.9 mm tall may sit here, and a part with no Pm.Height counts as taller): L1 has no Pm.Height"
+],
+[
+"fixed",
+"critical",
+"mod (fixed): its member L1 sits in the reservation for keepout 'ring' (the case; parts up to 1.9 mm tall may sit here, and a part with no Pm.Height counts as taller): L1 is 3 mm"
+],
+[
+"fixed",
+"critical",
+"mod (fixed): its member U1 sits in the reservation for keepout 'hole' (hole)"
+],
+[
+"fixed",
+"critical",
+"n1 (fixed): N1 courtyard overlaps U9 courtyard"
+],
+[
+"fixed",
+"critical",
+"n1 (fixed): sits in the reservation for keepout 'cup' (a part mounted off the board sits over it; parts up to 2 mm tall may sit here, and a part with no Pm.Height counts as taller): N1 has no Pm.Height"
+],
+[
+"fixed",
+"critical",
+"notch (cutout): reaches outside the board"
+],
+[
+"fixed",
+"critical",
+"nt1 (fixed): NT1 courtyard overlaps RS courtyard"
+],
+[
+"fixed",
+"critical",
+"nt1 (fixed): NT1 pad V_HI_SENSE is 0.00 mm from V_HI copper on F.Cu (needs 0.16)"
+],
+[
+"fixed",
+"critical",
+"other (fixed): its member U2 sits in the reservation for label conn.j1 USB-C"
+],
+[
+"fixed",
+"critical",
+"p1 (fixed): P1 body sits in K1 courtyard, which it claims as it draws nothing else"
+],
+[
+"fixed",
+"critical",
+"p1 (fixed): body box -0.10,8.50..4.90,11.50 crosses the board edge"
+],
+[
+"fixed",
+"critical",
+"p1 (fixed): body box -0.10,8.50..4.90,11.50 is past the board edge"
+],
+[
+"fixed",
+"critical",
+"power_drop0 (fixed): cell power_drop0's D1 pad GND is 0.00 mm from V48P copper on F.Cu (needs 0.40)"
+],
+[
+"fixed",
+"critical",
+"power_drop0 (fixed): cell power_drop0's F1 pad power_drop0.FUSE_OUT is 0.00 mm from V48P copper on F.Cu (needs 0.40)"
+],
+[
+"fixed",
+"critical",
+"power_drop0 (fixed): cell power_drop0's U4 courtyard overlaps cell power_drop1's U5 courtyard"
+],
+[
+"fixed",
+"critical",
+"power_drop0 (fixed): cell power_drop0's U4 pad GND is 0.00 mm from V48P copper on F.Cu (needs 0.40)"
+],
+[
+"fixed",
+"critical",
+"power_drop0 (fixed): cell power_drop0's U4 pad power_drop0.FUSE_OUT is 0.00 mm from PERMIT_A copper on B.Cu (needs 0.20)"
+],
+[
+"fixed",
+"critical",
+"power_drop0.conn (fixed): cell power_drop0's U4 courtyard sits over the through-hole lead of cell power_drop0's F1 pad 2"
+],
+[
+"fixed",
+"critical",
+"power_drop1.conn (fixed): body box -2.50,61.70..24.55,74.05 crosses the board edge"
+],
+[
+"fixed",
+"critical",
+"power_drop1.conn (fixed): body box -2.50,70.59..24.55,82.94 crosses the board edge"
+],
+[
+"fixed",
+"critical",
+"power_drop1.conn (fixed): cell power_drop1's U5 courtyard overlaps cell power_drop1's R3 courtyard"
+],
+[
+"fixed",
+"critical",
+"power_drop1.conn (fixed): cell power_drop1's U5 courtyard sits over the through-hole lead of cell power_drop1's F2 pad 2"
+],
+[
+"fixed",
+"critical",
+"power_drop1.conn (fixed): cell power_drop1's U5 pad power_drop1.FUSE_OUT is 0.00 mm from PERMIT_A copper on B.Cu (needs 0.20)"
+],
+[
+"fixed",
+"critical",
+"power_drop1.rled_a (fixed): cell power_drop1's R3 pad power_drop1.DROP_LED_MID is 0.38 mm from V48P copper on F.Cu (needs 0.40)"
+],
+[
+"fixed",
+"critical",
+"r1 (edge): copper to edge: box 58.70,29.10..59.70,30.90 crosses the board edge margin (1.00 mm)"
+],
+[
+"fixed",
+"critical",
+"r1 (fixed): R1 courtyard overlaps R2 courtyard"
+],
+[
+"fixed",
+"critical",
+"r9 (fixed): R9 courtyard overlaps U9 courtyard"
+],
+[
+"fixed",
+"critical",
+"r9 (fixed): R9 pad S is 0.00 mm from SIG2 copper on B.Cu (needs 0.20); the via SIG2 at (19.55, 19.55) (U1.1) cannot give way: no SIG2 via within 1.00 mm to share, no spot within 0.50 mm inside its pad is clear, SIG2 is not a plane net, so it is no drop"
+],
+[
+"fixed",
+"critical",
+"r9 (fixed): body box 59.40,59.40..60.60,60.60 crosses the board edge"
+],
+[
+"fixed",
+"critical",
+"rf (fixed): its member U1 sits in the reservation for keepout 'cup' (a part mounted off the board sits over it): U1 is barred"
+],
+[
+"fixed",
+"critical",
+"ring (fixed): body box -0.12,-0.12..18.52,18.52 is past the rim edge"
+],
+[
+"fixed",
+"critical",
+"ring (fixed): body box 0.30,0.30..22.31,22.31 is past the rim edge"
+],
+[
+"fixed",
+"critical",
+"ring (fixed): body box 0.60,0.60..22.27,22.27 is past the rim edge"
+],
+[
+"fixed",
+"critical",
+"ring (fixed): body box 1.35,8.34..13.56,20.55 is past the board edge"
+],
+[
+"fixed",
+"critical",
+"t1 (fixed): T1 pad V_HI_SENSE is 0.00 mm from V_HI copper on F.Cu (needs 0.16)"
+],
+[
+"fixed",
+"critical",
+"t1 (fixed): sits in the reservation for keepout 'clearance' (probe)"
+],
+[
+"fixed",
+"critical",
+"t1 (fixed): sits in the reservation for keepout 'cup' (a part mounted off the board sits over it; parts up to 2 mm tall may sit here, and a part with no Pm.Height counts as taller): T1 is 4 mm"
+],
+[
+"fixed",
+"critical",
+"t1 (fixed): sits in the reservation for keepout 'ring' (clear)"
+],
+[
+"fixed",
+"critical",
+"t1 (fixed): sits in the reservation for keepout 'ring' (the case leaves 1.9 mm here; parts up to 1.9 mm tall may sit here, and a part with no Pm.Height counts as taller): T1 is 3 mm"
+],
+[
+"fixed",
+"critical",
+"trunk2_sig (fixed): U7 courtyard overlaps C1 courtyard"
+],
+[
+"fixed",
+"critical",
+"trunk2_sig (fixed): U7 courtyard overlaps H7 courtyard"
+],
+[
+"fixed",
+"critical",
+"trunk2_sig (fixed): U7 courtyard sits over the through-hole lead of H7 pad 1"
+],
+[
+"fixed",
+"critical",
+"trunk2_sig (fixed): U7 pad PERMIT_B is 0.00 mm from CAN_S2_P copper on F.Cu (needs 0.20)"
+],
+[
+"fixed",
+"critical",
+"trunk_led_ra (fixed): cell mod's R11 pad TRUNK_LED_MID is 0.38 mm from V48P copper on F.Cu (needs 0.40)"
+],
+[
+"fixed",
+"critical",
+"trunk_pwr (fixed): CN2 courtyard overlaps U8 courtyard"
+],
+[
+"fixed",
+"critical",
+"trunk_pwr (fixed): cell mod's CN2 pad GND is 0.00 mm from V48P copper on F.Cu (needs 0.40)"
+],
+[
+"fixed",
+"critical",
+"trunk_sig (fixed): U8 courtyard overlaps H8 courtyard"
+],
+[
+"fixed",
+"critical",
+"trunk_sig (fixed): U8 courtyard overlaps R10 courtyard"
+],
+[
+"fixed",
+"critical",
+"trunk_sig (fixed): U8 courtyard sits over the through-hole lead of H8 pad 1"
+],
+[
+"fixed",
+"critical",
+"trunk_sig (fixed): U8 pad CAN_P is 0.00 mm from PERMIT_B copper on F.Cu (needs 0.20)"
+],
+[
+"fixed",
+"critical",
+"u1 (fixed): U1 courtyard overlaps R2 courtyard"
+],
+[
+"fixed",
+"critical",
+"u1 (fixed): body box 15.90,25.90..20.10,30.10 is inside a cutout"
+],
+[
+"fixed",
+"critical",
+"u1 (fixed): body box 17.90,-1.60..22.10,2.60 is past the rim edge"
+],
+[
+"fixed",
+"critical",
+"u1 (fixed): body box 17.90,17.90..22.10,22.10 is inside a cutout"
+],
+[
+"fixed",
+"critical",
+"u1 (fixed): body box 17.90,17.90..22.10,22.10 is into the bore edge"
+],
+[
+"fixed",
+"critical",
+"u1 (fixed): body box 17.90,25.90..22.10,30.10 is inside a cutout"
+],
+[
+"fixed",
+"critical",
+"u1 (fixed): body box 7.35,25.90..11.55,30.10 is past the cutout edge"
+],
+[
+"fixed",
+"critical",
+"u1 (fixed): copper to edge: box 7.40,27.50..11.20,28.50 is past the cutout's keep-in (0.50 mm)"
+],
+[
+"fixed",
+"critical",
+"u1 (fixed): sits in the reservation for keepout 'antenna' (the clearance)"
+],
+[
+"fixed",
+"critical",
+"u1 (fixed): sits in the reservation for keepout 'antenna' (the feed crosses)"
+],
+[
+"fixed",
+"critical",
+"u1 (fixed): sits in the reservation for keepout 'band' (a fanout band on one face)"
+],
+[
+"fixed",
+"critical",
+"u2 (fixed): U2 courtyard overlaps U1 courtyard"
+],
+[
+"fixed",
+"critical",
+"u2 (fixed): sits in the reservation for push from M1 magnetic (limit 0.3 at 29.7 mm)"
+],
+[
+"fixed",
+"critical",
+"u2 (fixed): sits in the reservation for push from M3 magnetic (limit 0.3 at 3.11 mm)"
+],
+[
+"fixed",
+"critical",
+"u2 (fixed): sits in the reservation for push from m1 (limit 0.3 at 144 mm)"
+],
+[
+"fixed",
+"critical",
+"u2 (fixed): sits in the reservation for push from m1 (limit 0.3 at 29.7 mm)"
+],
+[
+"fixed",
+"critical",
+"vent (cutout): has nowhere legal to go: would be milled through U1"
+],
+[
+"fixed",
+"critical",
+"vent (cutout): has nowhere legal to go: would leave a 0.50 mm web, under the 2.00 mm minimum"
+],
+[
+"fixed",
+"critical",
+"vent (cutout): would leave a 0.50 mm web, under the 1.50 mm minimum"
+],
+[
+"fixed",
+"critical",
+"vent (cutout): would leave a 0.50 mm web, under the 2.00 mm minimum"
+],
+[
+"fixed",
+"critical",
+"w0 (fixed): W0 pad WALL is 7.27 mm from SIG copper on F.Cu (needs 30.00, rule: nothing clears it)"
+],
+[
+"fixed",
+"critical",
+"x1 (fixed): X1 pad X is 0.11 mm from N44 copper on F.Cu (needs 0.16)"
+],
+[
+"fixed",
+"critical",
+"x2 (fixed): X2 pad X is 0.11 mm from N54 copper on F.Cu (needs 0.16)"
+],
+[
+"label",
+"notice",
+"label j1 MOTOR: not drawn: J1 found no place"
+],
+[
+"label",
+"notice",
+"label u1 BOOT: not drawn: U1 found no place"
+],
+[
+"label",
+"warning",
+"label conn.j1 USB-C: no clear spot beside conn.j1 for it to move to, and cell other's U2 is in the way"
+],
+[
+"label",
+"warning",
+"label conn.j1 USB-C: no spot on the board for it beside conn.j1: it is crosses the board edge margin (0.20 mm)"
+],
+[
+"label",
+"warning",
+"label conn.j1 USB-C: sits on cell other's U2"
+],
+[
+"label",
+"warning",
+"label j1 MOTOR: sits on M1"
+],
+[
+"label",
+"warning",
+"label j1 MOTOR: sits on R1"
+],
+[
+"label",
+"warning",
+"label j1 USB-C: no clear spot beside j1 for it to move to, and C1 is in the way"
+],
+[
+"label",
+"warning",
+"label j1 USB-C: sits on C1"
+],
+[
+"label",
+"warning",
+"label sw1 BOOT: no clear spot beside sw1 for it and the rest of its line to move to, and C1 is in the way"
+],
+[
+"label",
+"warning",
+"label sw1 BOOT: sits on C1"
+],
+[
+"label",
+"warning",
+"label u1 IN: sits on C1"
+],
+[
+"link_over",
+"warning",
+"link C1.1 to U1.1 is 29.00 mm, over its 2.00 mm limit"
+],
+[
+"link_over",
+"warning",
+"link C1.1 to U1.1 is 43.14 mm, over its 2.00 mm limit"
+],
+[
+"link_over",
+"warning",
+"link C1.1 to U1.1 is 57.28 mm, over its 2.00 mm limit: bypass at the pin"
+],
+[
+"link_over",
+"warning",
+"link C1.1 to U1.46 is 2.27 mm, over its 2.00 mm limit: VDD3P3_CPU's bypass at its own pin, not V3V3's first pad"
+],
+[
+"link_over",
+"warning",
+"link L1.1 to U1.1 is 1.52 mm, over its 1.50 mm limit: the match sits on the chip's own LNA_IN pad"
+],
+[
+"link_over",
+"warning",
+"link U1.1 to J1.1 is 19.30 mm, over its 1.00 mm limit"
+],
+[
+"needs",
+"notice",
+"m: no spot; one would clear with a micro via shortened to F-In1 (via.micro is if-needed in fab-profile.json)"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_P/CAN_N cross between H1, H2, R9, U1: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_P/CAN_N cross between H1, H2, U1, U8: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_P/CAN_N cross between H1, H8, R9, U1: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_P/CAN_N cross between H8, R9, U1, U8: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_P/CAN_N cross between H8, R9, U8: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_S0_P/CAN_S0_N cross between H1, H2, U1: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_S0_P/CAN_S0_N cross between H1, H4, U1: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_S0_P/CAN_S0_N cross between H3, H4, U1, U2: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_S0_P/CAN_S0_N cross between H3, H4, U2: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_S1_P/CAN_S1_N cross between H3, H4, H5, U3: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_S1_P/CAN_S1_N cross between H3, H4, U2: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_S1_P/CAN_S1_N cross between H3, H5, H6, U3: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_S1_P/CAN_S1_N cross between H5, H6, U2, U3: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_S2_P/CAN_S2_N cross between H5, H6, U3: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_S2_P/CAN_S2_N cross between H5, H7, U3: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_S2_P/CAN_S2_N cross between H5, U3, U7: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_S2_P/CAN_S2_N cross between H7, R7, U3, U7: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"CAN_S2_P/CAN_S2_N cross between H7, R7, U7: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"D_P/D_N cross between A1, A2, R1, R2: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"pair_crossed",
+"warning",
+"D_P/D_N cross between R1, R2, U1: swap two interchangeable parts on the pair, or turn a part whose pinout is mirrored 180 degrees"
+],
+[
+"route",
+"notice",
+"adopted route TERM_NEAR_MID dropped: term_near_ra (R9) has moved or turned relative to term_near_rb (R10) since it was adopted; the router routes it again"
+],
+[
+"route",
+"notice",
+"adopted route X dropped: u1 (U1) has moved or turned relative to r1 (R1) since it was adopted; the router routes it again"
+],
+[
+"setup",
+"critical",
+"NT1: net class 'Default' (clearance 0.16 mm, track 0.20 mm) does not fit the pads' pitch: the lane out of pad 1 past pad 2 is 0.350 mm for a 0.40 mm clearance (2 lane(s) short), so the router cannot escape them; a clearance of 0.35 mm or less fits"
+],
+[
+"setup",
+"critical",
+"U1: net class 'Fine' (clearance 0.18 mm, track 0.30 mm) does not fit the pads' pitch: the lane out of pad 1 past pad 2 is 0.150 mm for a 0.18 mm clearance (10 lane(s) short), so the router cannot escape them; a clearance of 0.15 mm or less fits"
+],
+[
+"setup",
+"critical",
+"U1: net class 'Fine' (clearance 0.20 mm, track 0.20 mm) does not fit the pads' pitch: the lane out of pad 1 past pad 2 is 0.150 mm for a 0.20 mm clearance (10 lane(s) short), so the router cannot escape them; a clearance of 0.15 mm or less fits"
+],
+[
+"setup",
+"critical",
+"U1: net class 'Fine' (clearance 0.20 mm, track 0.20 mm) does not fit the pads' pitch: the lane out of pad 1 past pad 2 is 0.188 mm for a 0.20 mm clearance (10 lane(s) short), so the router cannot escape them; a clearance of 0.18 mm or less fits"
+],
+[
+"setup",
+"critical",
+"web 0.50 mm round cutout 'vent' is under the 1.50 mm minimum"
+],
+[
+"setup",
+"critical",
+"web 1.00 mm round cutout 'a' is under the 2.00 mm minimum"
+],
+[
+"setup",
+"notice",
+"/tmp/pytest/test_the_notice_reaches_the_pl0/placemat.toml: copper.arc_radius_widths is now copper.arc_radius_track_widths (the old name still works for one release)"
+],
+[
+"setup",
+"notice",
+"accept current-path VIN: not needed: the check passes"
+],
+[
+"setup",
+"notice",
+"keepout antenna declares In1.Cu, which this 2-layer board does not have: recorded in its name, and honoured by a board that has it"
+],
+[
+"setup",
+"notice",
+"keepout clearance_c declares In2.Cu, which this 2-layer board does not have: recorded in its name, and honoured by a board that has it"
+],
+[
+"setup",
+"notice",
+"keepout shield from the rf cell declares In5.Cu, which this board does not have either"
+],
+[
+"setup",
+"notice",
+"m1: no spot was left for U2 at its limit distance from M1, so the look-ahead was dropped and M1 is placed without it; the best spot for M1 left U2 3.42 mm short of 25.0 mm"
+],
+[
+"setup",
+"notice",
+"rule 'gone' from the cell cell is not carried: its cell nope is not on this board"
+],
+[
+"setup",
+"notice",
+"rule 'gone' from the cell cell is not carried: its net NOPE is not on this board"
+],
+[
+"setup",
+"warning",
+"C1 (C1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"C2 (C2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"L1 (L1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"Q1 (Q1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"U1 (U1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"U1 pin 25: its lane is reserved and no track begins with it, so its room is kept for nothing"
+],
+[
+"setup",
+"warning",
+"U1 pin 30: its lane is reserved and no track begins with it, so its room is kept for nothing"
+],
+[
+"setup",
+"warning",
+"U1 pin 31: its lane is reserved and no track begins with it, so its room is kept for nothing"
+],
+[
+"setup",
+"warning",
+"U1 pin 32: its lane is reserved and no track begins with it, so its room is kept for nothing"
+],
+[
+"setup",
+"warning",
+"U1 pin 33: its lane is reserved and no track begins with it, so its room is kept for nothing"
+],
+[
+"setup",
+"warning",
+"U1 pin 34: its lane is reserved and no track begins with it, so its room is kept for nothing"
+],
+[
+"setup",
+"warning",
+"U1 pin 44: its lane is reserved and no track begins with it, so its room is kept for nothing"
+],
+[
+"setup",
+"warning",
+"U1 pin 45: its lane is reserved and no track begins with it, so its room is kept for nothing"
+],
+[
+"setup",
+"warning",
+"U9 (U9): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"a.u (U1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"a0 (A0): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"a1 (A1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"a2 (A2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"accept current-path NOPE: no verdict by that check and subject on this board"
+],
+[
+"setup",
+"warning",
+"b.u (U2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"b0 (B0): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"b1 (B1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"big.c (C1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"big.u (U1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"bus_drop0.bypass_h (H1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"bus_drop0.bypass_l (H2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"bus_drop0.conn (U1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"bus_drop1.bypass_h (H3): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"bus_drop1.bypass_l (H4): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"bus_drop1.conn (U2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"bus_drop2.bypass_h (H5): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"bus_drop2.bypass_l (H6): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"bus_drop2.conn (U3): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"bypass (C1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"c.u (U3): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"c0 (C0): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"c1 (C1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"c2 (C2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"c9 (C9): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"cap (C1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"cb (C2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"cell.c1 (C1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"cell.c2 (C2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"cell.sub.c1 (C1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"coil (L1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"cout (C2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"d1 (D1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"far (R2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"h1 (H1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"h2 (H2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"h3 (H3): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"j1 (J1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"j2 (J2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"j3 (J3): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"j_in (J1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"k.u1 (U1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"k/r1 (R1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"k/u1 (U1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"late (R9): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"ldo (U1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"lo (LO): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"m1 (M1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"mcu.c0 (C0): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"mcu.c1 (C1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"mcu.c2 (C2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"mcu.c3 (C3): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"mcu.c4 (C4): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"mcu.c5 (C5): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"mcu.c6 (C6): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"mcu.c7 (C7): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"mcu.u (U1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"mh (MH): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"mh1 (MH1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"mh2 (MH2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"mh3 (MH3): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"mh4 (MH4): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"other.u2 (U2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"p0 (P0): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"pa (PA): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"pb (PB): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"pd.c1 (C1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"pd.conn (U1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"pd.fuse (F1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"pd.jumper (H1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"pd.u1 (U1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"pf (PF): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"pour SW: reach= needs KiCad's pcbnew at plan time, for its polygon booleans; the pour is not drawn"
+],
+[
+"setup",
+"warning",
+"power_drop0.conn (U4): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"power_drop0.fuse (F1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"power_drop0.led_live (D1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"power_drop0.rled_a (R1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"power_drop0.rled_b (R2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"power_drop1.conn (U5): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"power_drop1.fuse (F2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"power_drop1.led_live (D2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"power_drop1.rled_a (R3): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"power_drop1.rled_b (R4): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"power_drop2.conn (U6): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"power_drop2.fuse (F3): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"power_drop2.led_live (D3): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"power_drop2.rled_a (R5): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"power_drop2.rled_b (R6): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"pull (R1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"pw (PW): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"r1 (R1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"r2 (R2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"r5 (R5): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"r9 (R9): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"re (RE): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"rs (RS): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"rw (RW): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"s0 (S0): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"s1 (S1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"s2 (S2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"s3 (S3): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"small.u (U2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"strip.u (U3): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"t1 (T1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"term_far_cap (C1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"term_far_jumper (H7): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"term_far_ra (R7): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"term_far_rb (R8): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"term_near_cap (C2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"term_near_jumper (H8): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"term_near_ra (R9): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"term_near_rb (R10): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"tmc.u (U1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"trunk2_pwr (CN1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"trunk2_sig (U7): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"trunk_led (D4): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"trunk_led_ra (R11): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"trunk_led_rb (R12): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"trunk_pwr (CN2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"trunk_sig (U8): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"u0 (U0): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"u1 (U1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"u125 (U125): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"u126 (U126): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"u127 (U127): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"u128 (U128): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"u1: reaches 17.90 to 22.10 mm, outside the frame's declared width of 0.00 to 5.00 mm"
+],
+[
+"setup",
+"warning",
+"u1: reaches 18.90 to 21.10 mm, outside the frame's declared height of 0.00 to 5.00 mm"
+],
+[
+"setup",
+"warning",
+"u2 (U2): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"u9 (U9): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"ui.sw (SW1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"w (W): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"w0 (W0): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"wall (W1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"x1 (X1): no declaration places it, so it stays where the generator put it"
+],
+[
+"setup",
+"warning",
+"x9 (X9): no declaration places it, so it stays where the generator put it"
+],
+[
+"split",
+"warning",
+"m: its parts form 2 groups joined only by board-level nets: U1, R1; U2, R2. Parts with no close placement requirement in common may be split into cells of their own."
+],
+[
+"unplaced",
+"critical",
+"C: cannot be laid out with its riders at any rotation it may take, whatever room the board has (0: rider NT: NT courtyard overlaps C courtyard; 90: rider NT: NT courtyard overlaps C courtyard; 180: rider NT: NT courtyard overlaps C courtyard; 270: rider NT: NT courtyard overlaps C courtyard)"
+],
+[
+"unplaced",
+"critical",
+"NT: rides C, which found no place"
+],
+[
+"unplaced",
+"critical",
+"b1: no pocket fits its 15.0 x 15.0 envelope on the front face at any rotation asked for"
+],
+[
+"unplaced",
+"critical",
+"big: no pocket fits its 80.0 x 80.0 envelope on the front face (0 pocket(s) tried)"
+],
+[
+"unplaced",
+"critical",
+"block ldo: cannot be laid out on its own at any rotation it may take, whatever room the board has (0: cin: no legal spot on the axis of U1 pad 1 (VIN), nor slid up to 2 mm along its row)"
+],
+[
+"unplaced",
+"critical",
+"block u1: cannot be laid out on its own at any rotation it may take, whatever room the board has (0: l2: no legal spot on the axis of U1 pad 2 (SW2), nor slid up to 2 mm along its row)"
+],
+[
+"unplaced",
+"critical",
+"c1: no legal location within 3.0 mm of (20.00, 20.00) (courtyard x1418: B1 front face x1418)"
+],
+[
+"unplaced",
+"critical",
+"c1: no legal location within 3.0 mm of (4.00, 3.00) (body, silk or mask x424: J1 front face x424; edge x285)"
+],
+[
+"unplaced",
+"critical",
+"c1: rides u1, which found no place"
+],
+[
+"unplaced",
+"critical",
+"c: no bearing of 72 tried leaves it legal on its point (reservation x72)"
+],
+[
+"unplaced",
+"critical",
+"j1: no legal location within 0.2 mm of (30.00, 30.00) (courtyard x20: J2 front face x20)"
+],
+[
+"unplaced",
+"critical",
+"j1: no legal location within 0.5 mm of (30.00, 30.00) (courtyard x84: U1 front face x84)"
+],
+[
+"unplaced",
+"critical",
+"j1: no legal location within 2.0 mm of (20.00, 20.00) (reservation x2536: keepout 'front only' (kept off the front here) x2536)"
+],
+[
+"unplaced",
+"critical",
+"m1: no legal location within 65.1 mm of (23.10, 20.60) (edge x94512; reservation x11832: push from U2 (limit on magnetic) (limit 0.5 at 23.6 mm) x11832); no pocket took it (18 tried)"
+],
+[
+"unplaced",
+"critical",
+"m: no legal location within 0.0 mm of (19.65, 20.00) (vias that could not give way x1)"
+],
+[
+"unplaced",
+"critical",
+"m: no legal location within 0.0 mm of (20.00, 20.00) (vias that could not give way x1)"
+],
+[
+"unplaced",
+"critical",
+"m: no legal location within 0.0 mm of (20.00, 20.81) (body, silk or mask x1)"
+],
+[
+"unplaced",
+"critical",
+"m: no legal location within 0.0 mm of (20.00, 20.81) (vias that could not give way x1)"
+],
+[
+"unplaced",
+"critical",
+"m: no legal location within 0.0 mm of (20.00, 20.96) (copper x1: R9 S back face x1)"
+],
+[
+"unplaced",
+"critical",
+"m: no legal location within 0.0 mm of (20.00, 20.96) (vias that could not give way x1)"
+],
+[
+"unplaced",
+"critical",
+"m: no legal location within 3.0 mm of (25.00, 25.00) (body, silk or mask x709: W1 front face x709)"
+],
+[
+"unplaced",
+"critical",
+"mcu: no pocket fits its 30.0 x 30.0 envelope on the front face at any rotation asked for"
+],
+[
+"unplaced",
+"critical",
+"nt1: rides rs, which found no place"
+],
+[
+"unplaced",
+"critical",
+"p1: no legal location within 0.0 mm of (2.40, 10.00) (edge x1)"
+],
+[
+"unplaced",
+"critical",
+"power_drop0: no legal location within 0.4 mm of (8.00, 8.00) (edge x13)"
+],
+[
+"unplaced",
+"critical",
+"q: no legal location within 0.0 mm of (20.00, 20.00) (vias that could not give way x1)"
+],
+[
+"unplaced",
+"critical",
+"r1: no legal location within 0.5 mm of (10.00, 10.00) (courtyard x84: U1 front face x84)"
+],
+[
+"unplaced",
+"critical",
+"r1: no legal location within 3.0 mm of (20.00, 20.00) (courtyard x2836: B1 front face x2836)"
+],
+[
+"unplaced",
+"critical",
+"r1: no legal location within 3.0 mm of (30.00, 30.00) (courtyard x2836: cell pd's U1 front face x1770, cell pd's F1 front face x1066)"
+],
+[
+"unplaced",
+"critical",
+"r1: no pocket fits its 6.0 x 3.0 envelope on the front face (0 pocket(s) tried)"
+],
+[
+"unplaced",
+"critical",
+"r2: no legal location within 0.0 mm of (19.50, 23.50) (vias that could not give way x1)"
+],
+[
+"unplaced",
+"critical",
+"r9: no legal location within 0.0 mm of (17.50, 19.30) (vias that could not give way x1)"
+],
+[
+"unplaced",
+"critical",
+"r9: no legal location within 0.0 mm of (19.50, 21.90) (vias that could not give way x1)"
+],
+[
+"unplaced",
+"critical",
+"r9: no legal location within 0.0 mm of (19.80, 20.00) (vias that could not give way x1)"
+],
+[
+"unplaced",
+"critical",
+"r: no legal location within 1.0 mm of (15.50, 20.00) (courtyard x81: W1 front face x64, W2 front face x17)"
+],
+[
+"unplaced",
+"critical",
+"rs: cannot be laid out with its riders at any rotation it may take, whatever room the board has (0: rider nt1: NT1 pad V_HI_SENSE is 0.00 mm from V_HI copper on F.Cu (needs 0.16); 90: rider nt1: NT1 pad V_HI_SENSE is 0.00 mm from V_HI copper on F.Cu (needs 0.16); 180: rider nt1: NT1 pad V_HI_SENSE is 0.00 mm from V_HI copper on F.Cu (needs 0.16); 270: rider nt1: NT1 pad V_HI_SENSE is 0.00 mm from V_HI copper on F.Cu (needs 0.16))"
+],
+[
+"unplaced",
+"critical",
+"small: no legal location within 1.0 mm of (25.00, 25.00) (courtyard x52: BIG front face x52)"
+],
+[
+"unplaced",
+"critical",
+"u1: cannot be laid out with its riders at any rotation it may take, whatever room the board has (0: rider c1: C1 courtyard overlaps U1 courtyard; 90: rider c1: C1 courtyard overlaps U1 courtyard; 180: rider c1: C1 courtyard overlaps U1 courtyard; 270: rider c1: C1 courtyard overlaps U1 courtyard)"
+],
+[
+"unplaced",
+"critical",
+"u1: no legal location within 2.0 mm of (15.00, 15.00) (copper x1268: pour GND front face x1268)"
+],
+[
+"unplaced",
+"critical",
+"u1: no legal location within 3.0 mm of (3.00, 15.00) (edge x1720; courtyard x1116: K1 front face x712, J1 front face x404)"
+],
+[
+"unplaced",
+"critical",
+"u1: no legal location within 6.0 mm of (5.00, 10.00) (courtyard x7758: K1 front face x4560, J1 front face x3198; edge x3526); no pocket took it (0 tried)"
+],
+[
+"unplaced",
+"critical",
+"u1: no pocket fits its 30.0 x 30.0 envelope on the front face at any rotation asked for"
+],
+[
+"unplaced",
+"critical",
+"u1: no pocket fits its 8.0 x 3.0 envelope on the front face (6 pocket(s) tried); rider c1: body box 7.90,-91.10..10.10,-89.90 crosses the board edge"
+],
+[
+"unplaced",
+"critical",
+"u2: no legal location within 28.3 mm of (5.00, 5.00) (edge x220408; reservation x30972: push from m1 (limit 0.01 at 46.4 mm) x30972); no pocket took it (4 tried)"
+],
+[
+"unplaced",
+"critical",
+"u2: no legal location within 3.0 mm of (43.00, 24.00) (reservation x100: push from M1 magnetic (limit 0.5 at 25.1 mm) x100; courtyard x16: X1 front face x16); the look-ahead left it room when M1 was placed, but what was placed since took it"
+],
+[
+"unplaced",
+"critical",
+"u2: no legal location within 67.9 mm of (25.00, 21.00) (edge x102750; reservation x12810: push from M1 magnetic (limit 0.5 at 25.1 mm) x12810); no pocket took it (16 tried)"
+],
+[
+"unplaced",
+"critical",
+"u2: no legal location within 67.9 mm of (25.00, 23.75) (edge x102776; reservation x12784: push from M1 magnetic (limit 0.5 at 25.1 mm) x12784); no pocket took it (16 tried); see: no room was left for it when M1 was placed"
+],
+[
+"unplaced",
+"critical",
+"u9: no pocket fits its 30.0 x 30.0 envelope on the front face at any rotation asked for"
+],
+[
+"vias",
+"notice",
+"c1: 1 GND via shared under R9"
+],
+[
+"vias",
+"notice",
+"m: 1 GND via moved 0.35 mm under k"
+],
+[
+"vias",
+"notice",
+"m: 1 GND via moved 0.43 mm under keepout 'nov'"
+],
+[
+"vias",
+"notice",
+"m: 1 GND via shared under R9"
+],
+[
+"vias",
+"notice",
+"m: 1 GND via shared under via at U1.1"
+],
+[
+"vias",
+"notice",
+"m: 1 GND via shortened under R9"
+],
+[
+"vias",
+"notice",
+"m: 1 SIG via left its pad under R9"
+],
+[
+"vias",
+"notice",
+"m: 1 SIG via moved 0.15 mm under R9"
+],
+[
+"vias",
+"notice",
+"m: 1 SIG via moved 0.20 mm under R9"
+],
+[
+"vias",
+"notice",
+"m: 1 SIG via re-routed 0.15 mm under R9"
+],
+[
+"vias",
+"notice",
+"m: 1 SIG via re-routed 0.18 mm under R9"
+],
+[
+"vias",
+"notice",
+"m: 1 SIG via shared under R9"
+],
+[
+"vias",
+"notice",
+"m: GND field in U1 pad 1 re-laid by close the pitch, 9 vias before, 9 after under R9"
+],
+[
+"vias",
+"notice",
+"m: GND field in U1 pad 1 re-laid by shift a row, 9 vias before, 9 after under R10, R9"
+],
+[
+"vias",
+"notice",
+"m: GND field in U1 pad 1 re-laid by shift vias, 5 vias before, 5 after under R9"
+],
+[
+"vias",
+"notice",
+"m: GND field in U1 pad 1 re-laid by shift vias, 9 vias before, 9 after under R9"
+],
+[
+"vias",
+"notice",
+"m: GND field in U1 pad 1 re-laid by uneven pitch, 9 vias before, 9 after under R9"
+],
+[
+"vias",
+"notice",
+"m: SIG field in U1 pad 1 re-laid by shift vias, 9 vias before, 9 after under R9"
+],
+[
+"vias",
+"notice",
+"p: 1 GND via left its pad under Q"
+],
+[
+"vias",
+"notice",
+"p: 1 GND via moved 0.15 mm under Q"
+],
+[
+"vias",
+"notice",
+"u1: 1 GND via shared under R9"
+],
+[
+"vias",
+"notice",
+"u1: 3 GND vias moved up to 0.05 mm under R9"
+],
+[
+"vias",
+"notice",
+"u1: 4 GND vias shared under a track"
+],
+[
+"vias",
+"notice",
+"u1: GND field in U1 pad 1 re-laid by close the pitch, 9 vias before, 9 after under R9"
+],
+[
+"vias",
+"notice",
+"u1: SIG2 field in U1 pad 1 re-laid by close the pitch, 9 vias before, 9 after under R9"
+],
+[
+"vias",
+"warning",
+"m: 1 GND via dropped under R11 (U1 pad 1 holds 8 of 9); GND field in U1 pad 1 re-laid by remove a row, 9 vias before, 6 after (9 drawn) under R10"
+],
+[
+"vias",
+"warning",
+"m: 1 GND via dropped under R9 (U1 pad 1 holds 2 of 3)"
+],
+[
+"vias",
+"warning",
+"m: 2 GND vias dropped under R10, R9 (U1 pad 1 holds 7 of 9)"
+],
+[
+"vias",
+"warning",
+"m: 3 GND vias dropped under R9 (U1 pad 1 holds 6 of 9)"
+],
+[
+"vias",
+"warning",
+"m: GND field in U1 pad 1 re-laid by remove a row, 9 vias before, 6 after (9 drawn) under R10, R9"
+],
+[
+"vias",
+"warning",
+"u1: 3 GND vias dropped under R9 (U1 pad 1 holds 6 of 9)"
+],
+[
+"vias",
+"warning",
+"u1: 9 GND vias dropped under C9 (U1 pad 1 holds 16 of 25)"
+]
+]

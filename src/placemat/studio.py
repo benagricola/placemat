@@ -57,10 +57,20 @@ class Record:
     timing: dict = field(default_factory=dict)
     reused: str = ""
     notes: list = field(default_factory=list)
+    applied: str = ""                           # the suggestion whose edit this resolve followed ("applied from a suggestion: ...")
 
     def summary(self) -> dict:
         return {"id": self.id, "at": self.at, "changed": [c["file"] for c in self.changed], "timing": self.timing,
-                "counts": self.doc["counts"], "score": (self.doc.get("score") or {}).get("total"), "reused": self.reused}
+                "counts": self.doc["counts"], "score": (self.doc.get("score") or {}).get("total"), "reused": self.reused,
+                "applied": self.applied}
+
+
+class SuggestRefused(Exception):
+    """A suggestion request the studio does not carry out: `status` is the HTTP status, the message a sentence for the page."""
+
+    def __init__(self, status: int, message: str, **extra):
+        super().__init__(message)
+        self.status, self.extra = status, extra
 
 
 class Hub:
@@ -348,6 +358,8 @@ class Studio:
         self._initial = self.script is not None
         self._error = None
         self._fresh_next = False                # the next resolve replays nothing from an earlier one
+        self._try = None                        # the try of a suggestion in flight: {"id", "rid", "event", "result", ...}
+        self._applied_text = ""                 # what the next resolve is said to follow: an applied (or undone) suggestion
         self._notes: list = []                  # this script's notes (notes.py), oldest first
         self._notes_stamp = None                # (mtime_ns, size) of the notes file when it was last read
         self.cmds: dict = {}                    # the commands of the project that report over the channel, by connection id
@@ -556,6 +568,7 @@ class Studio:
     def _on_change(self, now: float, changed: set) -> None:
         names = sorted(self.name_of(p) for p in changed)
         with self.lock:
+            self._cancel_try("a file changed")
             self.hub.emit("changed", {"files": names, "at": time.time()})
             if self.debounce.changed(now, changed):
                 self._dirty = True
@@ -581,7 +594,8 @@ class Studio:
                     changed.append({"file": name, "status": "added" if old is None else "removed" if new is None else "modified",
                                     "unified": unified_diff(old or "", new or "", name), "added": ld["added"], "removed": ld["removed"]})
             self._cur = {"id": rid, "texts": texts, "changed": changed, "t0": time.monotonic(), "at": time.time(),
-                         "total": None, "now": None, "replayed": 0}
+                         "total": None, "now": None, "replayed": 0, "applied": self._applied_text}
+            self._applied_text = ""
             self._dirty, self._cancel_at = False, None
             self.debounce.started()
             self.hub.log.clear()
@@ -599,6 +613,7 @@ class Studio:
             if self.script is None:
                 raise ValueError("choose a layout script first")
             now = time.monotonic()
+            self._cancel_try("a resolve was asked for")
             self._fresh_next = bool(fresh)
             self.debounce.changed(now, {self.script})
             self.debounce.expedite()
@@ -631,8 +646,13 @@ class Studio:
             kind = ev.get("ev")
             cur = self._cur
             if kind == "exited":
+                if self._try is not None:
+                    self._end_try({"state": "error", "message": "the resolve worker stopped during the try"})
                 if cur is not None and not self._stopping.is_set():
                     self._fail(cur["id"], **self.worker_death(ev.get("code")))
+                return
+            if kind in ("try_done", "try_cancelled", "try_error"):
+                self._on_try(ev)
                 return
             if cur is None or ev.get("id") != cur["id"]:
                 return
@@ -730,7 +750,8 @@ class Studio:
         for item in doc["items"]:
             item["file"] = self.name_of(item["file"]) if item.get("file") else ""
         doc = with_spans(doc, cur["texts"])
-        rec = Record(rid, time.time(), cur["texts"], doc, cur["changed"], ev["timing"], ev.get("reused", ""), ev.get("notes", []))
+        rec = Record(rid, time.time(), cur["texts"], doc, cur["changed"], ev["timing"], ev.get("reused", ""), ev.get("notes", []),
+                     cur.get("applied", ""))
         previous = self.history[-1] if self.history else None
         self.history.append(rec)
         self._cur, self._cancel_at, self._error = None, None, None
@@ -748,6 +769,211 @@ class Studio:
         if previous is not None:
             emit("compare", self.compare(previous, rec), keep=True)
         self.hub.log.clear()                    # a page that connects now is given the whole of it by hello()
+
+    # ------------------------------------------------------------ suggestions
+    # The finding's suggestions are in the plan the page was sent; these take {resolve, id}, look the suggestion up in that
+    # resolve's findings and call suggestions.apply_suggestion. The page never sends source text.
+    def _suggestion(self, rid, sid):
+        from . import suggestions as sg
+        rec = self.record(_int(str(rid)))
+        if rec is None:
+            raise SuggestRefused(404, "no such resolve (the last %d are kept)" % self.keep)
+        findings = rec.doc.get("findings", [])
+        finding = next((f for f in findings if any(s.get("id") == sid for s in f.get("suggestions", ()))), None)
+        if finding is None:
+            raise SuggestRefused(404, "resolve #%d has no suggestion %r" % (rec.id, sid))
+        pool = sg.from_json([s for f in findings for s in f.get("suggestions", ())])
+        return rec, pool, finding
+
+    def _sg_refusal(self, e) -> SuggestRefused:
+        from . import suggestions as sg
+        status = 404 if isinstance(e, sg.UnknownSuggestion) else 422 if isinstance(e, sg.EditRefused) else 409
+        files = [self.name_of(f) for f in getattr(e, "files", ()) or ()]
+        return SuggestRefused(status, str(e.args[0]) if isinstance(e, KeyError) and e.args else str(e), files=files)
+
+    def _applied_json(self, done) -> dict:
+        files = []
+        for path, ch in done.files.items():
+            files.append({"file": self.name_of(path), "path": str(path), "diff": ch.diff, "old_lines": list(ch.old_lines),
+                          "new_lines": list(ch.new_lines), "hunks": line_diff(ch.before, ch.after)["hunks"],
+                          "added": len(ch.new_lines), "removed": len(ch.old_lines)})
+        return {"id": done.id, "text": done.text, "dry_run": done.dry_run, "files": files, "diff": done.diff()}
+
+    def applied_list(self, limit: int = 12) -> list:
+        """The suggestions applied here (oldest first), as the page lists them: its Undo and its history rows."""
+        if self.src is None:
+            return []
+        from . import suggestions as sg
+        try:
+            entries = sg.applied_entries(sg.log_path(self.src.board_dir))
+        except (OSError, ValueError):
+            return []
+        return [{"seq": e["seq"], "id": e.get("id"), "text": e.get("text", ""), "at": e.get("at"), "undone": bool(e.get("undone")),
+                 "op": e.get("op"), "files": [self.name_of(f["file"]) for f in e.get("files", ())]} for e in entries[-limit:]]
+
+    def redo_text(self) -> str:
+        """What a redo would make again (the apply the last undo took back), or "" when there is nothing to redo."""
+        if self.src is None or not self.cfg.studio_apply:
+            return ""
+        from . import suggestions as sg
+        try:
+            return sg.redo_last(sg.log_path(self.src.board_dir), dry_run=True).text
+        except sg.NothingToRedo:
+            return ""
+        except (sg.SuggestionError, OSError, ValueError):
+            return ""
+
+    def suggest_show(self, rid, sid) -> dict:
+        """The dry run: the unified diff and the lines it changes; nothing is written."""
+        from . import suggestions as sg
+        rec, pool, finding = self._suggestion(rid, sid)
+        try:
+            done = sg.apply_suggestion(pool, sid, dry_run=True)
+        except sg.SuggestionError as e:
+            raise self._sg_refusal(e)
+        out = self._applied_json(done)
+        s = next(x for x in pool if x.id == sid)
+        targets = []
+        for e in s.edits:                                              # a suggestion may make several edits; each names its declaration
+            if e.target is not None:
+                targets.append(("target", e.target))
+            targets += [("refers to", r) for r in (e.refs or {}).values()]
+        out["targets"] = [{"role": role, "key": tg.key, "file": self.name_of(tg.file), "line": tg.line} for role, tg in targets if tg.file]
+        out["resolve"] = rec.id
+        return out
+
+    def suggest_apply(self, rid, sid) -> dict:
+        from . import suggestions as sg
+        if not self.cfg.studio_apply:
+            raise SuggestRefused(403, "this studio shows suggestions but does not write them ([studio] apply is false)")
+        rec, pool, finding = self._suggestion(rid, sid)
+        root = sg.project_root(self.src.board_dir)
+        try:
+            dry = sg.apply_suggestion(pool, sid, dry_run=True)
+            watched = {Path(f).resolve() for f in self.watched()}
+            outside = [self.name_of(p) for p in dry.files if Path(p).resolve() not in watched]
+            if outside:
+                raise SuggestRefused(422, "the edit would write %s, which this studio does not watch" % ", ".join(outside))
+            done = sg.apply_suggestion(pool, sid, root=root, log=sg.log_path(self.src.board_dir))
+        except sg.SuggestionError as e:
+            raise self._sg_refusal(e)
+        with self.lock:
+            self._applied_text = "applied from a suggestion: " + done.text
+        out = self._applied_json(done)
+        out["undo"] = True
+        self.hub.emit("applied", {"applied": self.applied_list(), "text": done.text, "id": sid, "redo": ""})
+        return out
+
+    def suggest_undo(self) -> dict:
+        from . import suggestions as sg
+        if not self.cfg.studio_apply:
+            raise SuggestRefused(403, "this studio does not write ([studio] apply is false)")
+        try:
+            done = sg.undo_last(sg.log_path(self.src.board_dir), root=sg.project_root(self.src.board_dir))
+        except sg.SuggestionError as e:
+            raise self._sg_refusal(e)
+        with self.lock:
+            self._applied_text = "undid: " + done.text
+        out = self._applied_json(done)
+        self.hub.emit("applied", {"applied": self.applied_list(), "text": done.text, "undone": True, "redo": self.redo_text()})
+        return out
+
+    def suggest_redo(self) -> dict:
+        """Make again the apply the last undo took back (refused when a file has moved on since)."""
+        from . import suggestions as sg
+        if not self.cfg.studio_apply:
+            raise SuggestRefused(403, "this studio does not write ([studio] apply is false)")
+        try:
+            done = sg.redo_last(sg.log_path(self.src.board_dir), root=sg.project_root(self.src.board_dir))
+        except sg.SuggestionError as e:
+            raise self._sg_refusal(e)
+        with self.lock:
+            self._applied_text = "redid: " + done.text
+        out = self._applied_json(done)
+        out["undo"] = True
+        self.hub.emit("applied", {"applied": self.applied_list(), "text": done.text, "redone": True, "redo": self.redo_text()})
+        return out
+
+    def _cancel_try(self, why: str) -> None:
+        """Stop the try in flight (a watched file changed, or a resolve was asked for): the worker honours it at its next step."""
+        tr = self._try
+        if tr is not None and not tr.get("cancel"):
+            tr["cancel"] = why
+            self.worker.send({"cmd": "cancel", "id": tr["id"]})
+
+    def _end_try(self, result: dict) -> None:
+        tr, self._try = self._try, None
+        if tr is not None:
+            tr["result"] = result
+            tr["event"].set()
+
+    def suggest_try(self, rid, sid) -> dict:
+        """Resolve the dry-run text in the warm worker, with the edited files read from an overlay and nothing written; the answer
+        is compared with the resolve the suggestion was made on. Runs only when asked, only when no resolve is running or pending,
+        one at a time; a change to a watched file cancels it."""
+        from . import suggestions as sg
+        rec, pool, finding = self._suggestion(rid, sid)
+        try:
+            done = sg.apply_suggestion(pool, sid, dry_run=True)
+        except sg.SuggestionError as e:
+            raise self._sg_refusal(e)
+        overlay = {str(p): ch.after for p, ch in done.files.items()}
+        with self.lock:
+            if self.script is None:
+                raise SuggestRefused(409, "choose a layout script first")
+            if self._cur is not None or self._dirty or self._initial:
+                raise SuggestRefused(409, "a resolve is running or pending: try again when it has finished")
+            if self._try is not None:
+                raise SuggestRefused(409, "another try is running")
+            self._next_id += 1
+            tr = self._try = {"id": self._next_id, "rid": rec.id, "event": threading.Event(), "result": None, "overlay": overlay,
+                              "finding": finding, "text": done.text, "sid": sid, "applied": self._applied_json(done)}
+            if not self.worker.send({"cmd": "try", "id": tr["id"], "script": str(self.script), "overlay": overlay}):
+                self._try = None
+                raise SuggestRefused(409, "the resolve worker could not be started")
+        limit = float(self.cfg.studio_try_timeout_s)
+        if not tr["event"].wait(limit):
+            with self.lock:
+                self._cancel_try("the try took longer than [studio] try_timeout_s (%g s)" % limit)
+            if not tr["event"].wait(max(self.grace_s, 1.0)):                 # it did not reach a step to stop at
+                with self.lock:
+                    self.worker.kill()
+                    self._end_try({"state": "timeout", "message": "the try took longer than [studio] try_timeout_s (%g s) and was stopped" % limit})
+        return tr["result"]
+
+    def _on_try(self, ev: dict) -> None:
+        tr = self._try
+        if tr is None or ev.get("id") != tr["id"]:
+            return
+        kind = ev["ev"]
+        if kind == "try_cancelled":
+            self._end_try({"state": "cancelled", "message": "the try was stopped: %s" % (tr.get("cancel") or "cancelled")})
+        elif kind == "try_error":
+            self._end_try({"state": "error", "message": "the edited script does not run: %s" % ev.get("message", ""),
+                           "file": self.name_of(ev["file"]) if ev.get("file") else "", "line": ev.get("line")})
+        else:
+            from . import suggestions as sg
+            rec = self.record(tr["rid"])
+            if rec is None:
+                self._end_try({"state": "error", "message": "the resolve this suggestion was made on is no longer kept"})
+                return
+            texts = dict(rec.texts)
+            for path, after in tr["overlay"].items():
+                texts[self.name_of(path)] = after
+            doc = ev["doc"]
+            for item in doc["items"]:
+                item["file"] = self.name_of(item["file"]) if item.get("file") else ""
+            for f in doc.get("findings", ()):
+                f["suggestions"] = []                      # their digests are of the overlay: a try's suggestions are never applied
+            doc = with_spans(doc, texts)
+            trec = Record(tr["id"], time.time(), texts, doc, [], ev.get("timing", {}))
+            cmp = self.compare(rec, trec)
+            d = cmp["diff"]
+            self._end_try({"state": "done", "id": tr["id"], "base": rec.id, "suggestion": {"id": tr["sid"], "text": tr["text"]},
+                           "finding": {"text": tr["finding"].get("text", ""), "kind": tr["finding"].get("kind", ""), "item": tr["finding"].get("item", "")},
+                           "cleared": sg.cleared(tr["finding"], doc["findings"]), "gained": d["findings"]["gained"], "lost": d["findings"]["lost"],
+                           "moved": len(d["moved"]), "score": d.get("score"), "compare": cmp, "doc": doc, "texts": texts,
+                           "timing": trec.timing, "applied": tr["applied"]})
 
     # ------------------------------------------------------------ the live channel
     MAX_EVENTS = 6000                           # kept for a command: what a page opening it late is given
@@ -1094,6 +1320,7 @@ class Studio:
     def _hello_data(self) -> dict:
         common = {"now": time.time(), "origin": self.origin(), "port": self.port, "commands": [self._cmd_summary(c) for c in self.cmds.values()],
                   "explores": self.explores(), "explore_fps": self.cfg.studio_explore_fps,
+                  "applied": self.applied_list(), "can_apply": bool(self.cfg.studio_apply), "redo": self.redo_text(),
                   "notes": self.notes_list(), "note_age_s": self.cfg.studio_note_age_s}
         if self.script is None:
             return {**common, "script": "", "picker": True, "root": str(self.root), "keep": self.keep, "title": "", "subtitle": "",
@@ -1195,10 +1422,24 @@ def _handler(studio: Studio):
         def do_POST(self):
             """/switch, with the token: it changes which layout script is watched; and /run, a checked run of it."""
             url = urlparse(self.path)
-            if url.path not in ("/switch", "/run", "/resolve"):
+            if url.path not in ("/switch", "/run", "/resolve", "/suggest/show", "/suggest/try", "/suggest/apply", "/suggest/undo", "/suggest/redo"):
                 return self._no()
             if not self._allowed(parse_qs(url.query)):
                 return self._refuse(403, "forbidden: open the address `placemat studio` printed")
+            if url.path.startswith("/suggest/"):
+                try:
+                    n = min(int(self.headers.get("Content-Length") or 0), 4096)
+                    body = json.loads(self.rfile.read(n) or b"{}")
+                    call = {"/suggest/show": studio.suggest_show, "/suggest/try": studio.suggest_try, "/suggest/apply": studio.suggest_apply}
+                    if url.path == "/suggest/undo":
+                        return self._json(studio.suggest_undo())
+                    if url.path == "/suggest/redo":
+                        return self._json(studio.suggest_redo())
+                    return self._json(call[url.path](body.get("resolve"), str(body.get("id", ""))))
+                except SuggestRefused as e:
+                    return self._send(e.status, "application/json", json.dumps({"error": str(e), **e.extra}).encode())
+                except (ValueError, TypeError, AttributeError) as e:
+                    return self._send(400, "application/json", json.dumps({"error": str(e)}).encode())
             if url.path == "/run":
                 try:
                     return self._json(studio.start_run())

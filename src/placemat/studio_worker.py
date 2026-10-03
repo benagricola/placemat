@@ -103,6 +103,39 @@ class Session:
             send(error_event(id, e, script))
 
 
+    def try_(self, id, script, overlay) -> None:
+        """Resolve `script` with `overlay` ({path: text}) in place of those files on disk, as a try of a suggestion: the last
+        record is replayed from and none is written, no step is sent, and the answer is one `try_done` with the plan (or
+        `try_cancelled`, `try_error`). A cancel is honoured at the next step, as a resolve's is."""
+        from .previewer import resolved
+        from .preview_json import declared_sites, plan_json
+        from .project import find_board
+        from .runner import RunFailure
+        send, t0, state = self.send, time.monotonic(), {"sites": {}}
+
+        def on_board(board):
+            state["sites"] = declared_sites(board)
+
+        def check(*_):
+            self._check(id)
+
+        try:
+            out = _views(find_board(Path(script).resolve()))
+            with resolved(script, out, quiet=True, progress=check, on_step=check, on_begin=check, cache=self.cache,
+                          on_board=on_board, overlay=overlay) as r:
+                self._check(id)
+                doc = plan_json(r.plan, state["sites"], _score(r))
+                send({"ev": "try_done", "id": id, "doc": doc, "timing": {"total_s": round(time.monotonic() - t0, 3)}})
+        except Cancelled:
+            send({"ev": "try_cancelled", "id": id})
+        except RunFailure as e:
+            d = e.details
+            send({"ev": "try_error", "id": id, "message": "%s: %s" % (e, d.get("error", "")), "file": d.get("script", ""), "line": d.get("line")})
+        except Exception as e:
+            ev = error_event(id, e, script)
+            send({"ev": "try_error", "id": id, "message": ev["message"], "file": ev["file"], "line": ev["line"]})
+
+
 def error_event(id, e, script) -> dict:
     """An `error` event for an exception: its type and message, and the innermost frame that is in the script or a
     module it imports (file, line, source line), the whole traceback as the detail."""
@@ -134,7 +167,7 @@ def _score(r):
 
 
 def main() -> int:
-    """JSON lines in: {"cmd": "resolve", "id", "script"}, {"cmd": "cancel", "id"}, {"cmd": "quit"}.
+    """JSON lines in: {"cmd": "resolve", "id", "script"}, {"cmd": "try", "id", "script", "overlay"}, {"cmd": "cancel", "id"}, {"cmd": "quit"}.
     JSON lines out: the Session's events, and {"ev": "ready"} once placemat is loaded."""
     from . import channel
     channel.disable()                           # the studio's own resolve is not a command to report to the studios
@@ -175,6 +208,8 @@ def main() -> int:
             return 0
         if cmd.get("cmd") == "resolve":
             session.resolve(cmd["id"], cmd["script"], bool(cmd.get("fresh")))
+        elif cmd.get("cmd") == "try":
+            session.try_(cmd["id"], cmd["script"], cmd.get("overlay") or {})
 
 
 if __name__ == "__main__":

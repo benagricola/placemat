@@ -41,6 +41,15 @@ def is_no_connect(net: str) -> bool:
     return bool(_NO_CONNECT.search(net))
 
 
+from .refusals import Owner  # noqa: E402
+
+
+def _by(occ, sh):
+    """Who a blocking shape is, as a finding names it: its owner as it is, else what blame_owner says (an Owner)."""
+    from .refusals import Owner
+    return Owner("who", sh.owner) if sh.owner else occ.blame_owner(sh)
+
+
 @dataclass(frozen=True)
 class Corridor:
     ref: str
@@ -363,10 +372,10 @@ class Escapes:
                     continue
                 pad = Box.union([c.box for c in group])
                 near = list(self._bgrid.near(pad.inflate(self.depth + 1.0)))
-                by = sorted({sh.owner or occ.blame_owner(sh) for c in group for sh in self._bgrid.near(c.box)
-                             if self._closes_any(sh, c)})
+                by = sorted({_by(occ, sh) for c in group for sh in self._bgrid.near(c.box)
+                             if self._closes_any(sh, c)}, key=str)
                 if not open_ and not self._gets_out(ref, c0.number, near):
-                    by = sorted(set(by) | self._holes_and_bans(pad.inflate(self.depth), c0.net, c0.layers))
+                    by = sorted(set(by) | self._holes_and_bans(pad.inflate(self.depth), c0.net, c0.layers), key=str)
                     walled.append((ref, c0.number, c0.net, by, []))
                     continue
                 if targets and not any(self._gets_out(ref, c0.number, near, toward=t) for t in targets):
@@ -411,10 +420,11 @@ class Escapes:
                             via_exit=occ.settings.place_escape_lane_via_exit):
                     continue
                 window = reach.inflate(self.depth)
-                by = sorted({sh.owner or occ.blame_owner(sh) for sh in near
+                by = sorted({_by(occ, sh) for sh in near
                              if (sh.net != net or not net) and not (sh.owner == ref and sh.label == number)
-                             and sh.layers & layers and sh.box.overlaps(window)} | self._holes_and_bans(window, net, layers))
-                out.append((ref, number, net, [b for b in by if b != ref] or by))
+                             and sh.layers & layers and sh.box.overlaps(window)} | self._holes_and_bans(window, net, layers),
+                            key=str)
+                out.append((ref, number, net, [b for b in by if str(b) != ref] or by))
         return out
 
     def lanes_walled(self) -> list:
@@ -446,10 +456,11 @@ class Escapes:
                             via_exit=occ.settings.place_escape_lane_via_exit):
                     continue
                 window = reach.inflate(self.depth)
-                by = sorted({sh.owner or occ.blame_owner(sh) for sh in near
+                by = sorted({_by(occ, sh) for sh in near
                              if sh.net != net and not (sh.owner == ref and sh.label == number)
-                             and sh.layers & layers and sh.box.overlaps(window)} | self._holes_and_bans(window, net, layers))
-                out.append((ref, number, net, [b for b in by if b != ref] or by, []))
+                             and sh.layers & layers and sh.box.overlaps(window)} | self._holes_and_bans(window, net, layers),
+                            key=str)
+                out.append((ref, number, net, [b for b in by if str(b) != ref] or by, []))
         return out
 
     def _runs_on(self, own, ref: str, number: str, net: str) -> bool:
@@ -465,7 +476,7 @@ class Escapes:
     def _holes_and_bans(self, window: Box, net: str, layers) -> set:
         """The names of the unplated holes and via bans in `window` a path out of a pad on `net` and `layers` meets."""
         holes, bans = extra_walls(self.occ, window, net)
-        return {h.owner for h in holes} | {b.owner for b in bans}
+        return {Owner("who", h.owner) for h in holes} | {Owner("who", b.owner) for b in bans}
 
     def _own_copper(self, ref: str, number: str, net: str) -> list:
         """The copper of the pad's own net that stands on it, and on that copper in turn: a chain of tracks (and vias) as

@@ -418,6 +418,12 @@ class Settings:
         "notes kept in a board's notes file")
     studio_cancel_grace_ms: int = S(2000, "ms",
         "a resolve asked to stop that has not stopped by then has its worker restarted")
+    studio_suggestions_per_lever: int = S(3, "count",
+        "a finding's suggestions for one lever (which side to place beside): the best this many")
+    studio_try_timeout_s: int = S(60, "seconds",
+        "a try of a suggestion (a resolve of the edited script) is stopped after this long")
+    studio_apply: bool = S(True, "bool",
+        "false: the studio shows suggestions and diffs but refuses to write them")
 
     facts_confirmed: str = S("", "text",
         "the old single digest, read for any script with no entry in `facts.boards`; replaced by that table on the next `--confirm`")
@@ -580,7 +586,7 @@ _ABOVE_ZERO = frozenset((
     "copper_plane_min_width", "copper_pour_outline_width", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_text_height",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_neck_resistivity", "check_neck_conductivity",
-    "studio_keep", "studio_notes_keep", "studio_poll_ms", "studio_explore_fps", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
+    "studio_keep", "studio_notes_keep", "studio_poll_ms", "studio_explore_fps", "studio_suggestions_per_lever", "studio_try_timeout_s", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_search_radius", "cleanup_search_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line_width", "write_keepout_text_height"))
 _AT_LEAST_ZERO = frozenset((
@@ -686,9 +692,9 @@ def body_names(section: str, body: dict) -> set:
     return {join_key(section, k) for k in body}
 
 
-def _renamed_notice(path, section, key, new) -> str:
-    return "%s: %s.%s is now %s (the old name still works for one release)" % (
-        path, section, key, "%s.%s" % split_key(new))
+def _renamed_notice(path, section, key, new) -> tuple:
+    """(file, the old name, the new name) of a renamed setting a file used by its old name."""
+    return (str(path), "%s.%s" % (section, key), "%s.%s" % split_key(new))
 
 
 def _flatten(data: dict, path, notices=None) -> dict:
@@ -777,7 +783,9 @@ def load(start, overrides=None, script=None) -> Settings:
     values, sources, per_script, notices = {}, {}, [], []
     for path in _files(start):
         try:
-            data = tomllib.loads(path.read_text())
+            from . import context
+            held = context.overlay_text(path)          # a try of a suggestion reads the edited text, nothing on disk
+            data = tomllib.loads(held if held is not None else path.read_text())
         except tomllib.TOMLDecodeError as e:
             raise SettingsError("%s is not valid TOML: %s" % (path, e))
         notes = {}

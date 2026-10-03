@@ -57,7 +57,7 @@ def test_the_digest_changes_when_a_copper_weight_changes():
 
 def test_a_board_never_confirmed_is_unconfirmed():
     doc = facts_of(_geometry(), FabProfile(via_tiers=_ALL_NAMED, min={"track_mm": 0.09}), rise_c=10.0)
-    assert unconfirmed_reasons(doc, "") == ["no confirmation record yet"]
+    assert unconfirmed_reasons(doc, "") == [{"reason": "no_record"}]
 
 
 def test_a_matching_digest_with_via_and_min_set_is_confirmed():
@@ -75,24 +75,24 @@ def test_a_via_section_deciding_no_for_every_type_is_confirmed():
 
 def test_a_via_type_the_section_does_not_name_is_unconfirmed():
     doc = facts_of(_geometry(), FabProfile(via_tiers={"blind": "yes"}, min={"track_mm": 0.09}), rise_c=10.0)
-    assert unconfirmed_reasons(doc, doc.digest()) == ["fab-profile.json's via names no tier for micro, buried"]
+    assert unconfirmed_reasons(doc, doc.digest()) == [{"reason": "no_via_tier", "kinds": ["micro", "buried"]}]
 
 
 def test_a_changed_digest_is_unconfirmed():
     doc = facts_of(_geometry(), FabProfile(via_tiers=_ALL_NAMED, min={"track_mm": 0.09}), rise_c=10.0)
-    assert unconfirmed_reasons(doc, "not" + doc.digest()) == ["the facts have changed since they were last confirmed"]
+    assert unconfirmed_reasons(doc, "not" + doc.digest()) == [{"reason": "changed"}]
 
 
 def test_no_via_tiers_at_all_is_unconfirmed_even_with_a_matching_digest():
     doc = facts_of(_geometry(), FabProfile(min={"track_mm": 0.09}), rise_c=10.0)
     reasons = unconfirmed_reasons(doc, doc.digest())
-    assert "fab-profile.json has no via section" in reasons
+    assert {"reason": "no_via_section"} in reasons
 
 
 def test_no_min_at_all_is_unconfirmed_even_with_a_matching_digest():
     doc = facts_of(_geometry(), FabProfile(via_tiers={"blind": "yes"}), rise_c=10.0)
     reasons = unconfirmed_reasons(doc, doc.digest())
-    assert "fab-profile.json has no min section" in reasons
+    assert {"reason": "no_min_section"} in reasons
 
 
 def test_a_signal_layer_carrying_a_plane_is_flagged():
@@ -121,7 +121,7 @@ def test_render_says_confirmed_when_the_digest_matches():
 
 
 def test_the_unconfirmed_line_names_the_command():
-    assert unconfirmed_line(["no confirmation record yet"]) == "facts: unconfirmed - placemat facts"
+    assert unconfirmed_line([{"reason": "no_record"}]) == "facts: unconfirmed - placemat facts"
 
 
 def test_write_confirmed_adds_a_facts_section(tmp_path):

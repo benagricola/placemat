@@ -74,7 +74,7 @@ def test_an_adopted_track_whose_part_moved_is_dropped(breakout_pcb, tmp_path):
     pads = {n: [x + 1.0, y] for n, (x, y) in kept["pads"].items()}             # as if it stood 1 mm away then
     moved = dataclasses.replace(e, parts={**e.parts, ref: {**kept, "pads": pads}})
     plan = _board(read_board(placed)).resolve(routes=[moved])
-    assert ref in plan.adopted[NET]
+    assert plan.adopted[NET]["dropped"]["code"] == "route_moved"
     assert not [c for c in plan.copper if getattr(c, "net", None) == NET]
     assert any("adopted route %s dropped" % NET in f and ref in f for f in plan.findings)
 

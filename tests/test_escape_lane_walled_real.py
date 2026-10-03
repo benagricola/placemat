@@ -27,7 +27,7 @@ def walled():
 def test_the_stubs_of_the_fan_that_end_at_the_through_hole_pad_are_walled_off_by_the_part_that_has_it(walled):
     for number in ("9", "10", "11", "12", "13"):
         (found,) = [w for w in walled if (w[0], w[1]) == ("U21", number)]
-        assert "U19" in found[3], found
+        assert "U19" in {o.name for o in found[3]}, found
 
 
 def test_the_last_stub_has_a_clear_run_south_past_the_pad_and_is_not_walled(walled):

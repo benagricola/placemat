@@ -16,6 +16,7 @@ cell explicitly."""
 import dataclasses
 
 from placemat import splits
+from placemat.finding_text import split_note
 from tests.fixtures import board_geometry, footprint, pad
 
 
@@ -43,7 +44,7 @@ def test_two_independent_pairs_joined_only_by_a_plane_and_a_board_level_net_is_a
     j1 = footprint("J1", 60, 10, nets=("BUS", "X"), cell=None)    # outside the cell
     named = [dataclasses.replace(fp, cell="m") for fp in (u1, r1, u2, r2)] + [j1]
     g = board_geometry(named, cells=["m"], width=90.0, height=90.0)
-    text = splits.cell_text(g, g.cells["m"], plane_nets={"GND"}, min_group=2)
+    text = split_note(splits.cell_facts(g, g.cells["m"], plane_nets={"GND"}, min_group=2))
     assert text == (
         "its parts form 2 groups joined only by board-level nets: U1, R1; U2, R2. "
         "Parts with no close placement requirement in common may be split into cells of their own.")
@@ -57,7 +58,7 @@ def test_one_group_and_two_unjoined_parts_is_not_reported():
     c1 = footprint("C1", 30, 10, nets=("GND", "GND"))
     c2 = footprint("C2", 30, 20, nets=("GND", "GND"))
     g, cell = _cell(u1, r1, c1, c2)
-    assert splits.cell_text(g, cell, plane_nets={"GND"}, min_group=2) is None
+    assert splits.cell_facts(g, cell, plane_nets={"GND"}, min_group=2) is None
 
 
 def test_a_plane_net_shared_by_every_member_joins_nothing():
@@ -66,7 +67,7 @@ def test_a_plane_net_shared_by_every_member_joins_nothing():
     u1 = footprint("U1", 10, 10, nets=("GND", "GND"))
     r1 = footprint("R1", 30, 10, nets=("GND", "GND"))
     g, cell = _cell(u1, r1)
-    assert splits.cell_text(g, cell, plane_nets={"GND"}, min_group=2) is None
+    assert splits.cell_facts(g, cell, plane_nets={"GND"}, min_group=2) is None
 
 
 def test_a_net_with_a_pad_outside_the_cell_joins_nothing():
@@ -77,7 +78,7 @@ def test_a_net_with_a_pad_outside_the_cell_joins_nothing():
     outside = footprint("J1", 60, 60, nets=("L1", "Z"), cell=None)
     named = [dataclasses.replace(u1, cell="m"), dataclasses.replace(r1, cell="m"), outside]
     g = board_geometry(named, cells=["m"], width=80.0, height=80.0)
-    assert splits.cell_text(g, g.cells["m"], plane_nets=set(), min_group=2) is None
+    assert splits.cell_facts(g, g.cells["m"], plane_nets=set(), min_group=2) is None
 
 
 def test_split_min_group_three_drops_a_finding_whose_groups_are_pairs():
@@ -86,7 +87,7 @@ def test_split_min_group_three_drops_a_finding_whose_groups_are_pairs():
     u2 = footprint("U2", 30, 10, nets=("L2", "GND"))
     r2 = footprint("R2", 30, 20, nets=("L2", "GND"))
     g, cell = _cell(u1, r1, u2, r2)
-    assert splits.cell_text(g, cell, plane_nets={"GND"}, min_group=3) is None
+    assert splits.cell_facts(g, cell, plane_nets={"GND"}, min_group=3) is None
 
 
 def test_a_group_below_the_threshold_is_left_out_of_the_message_entirely():
@@ -104,7 +105,7 @@ def test_a_group_below_the_threshold_is_left_out_of_the_message_entirely():
     q1 = footprint("Q1", 50, 10, nets=("L3", "GND"))
     r3 = footprint("R3", 50, 20, nets=("L3", "GND"))
     g, cell = _cell(u1, r1, c1, u2, r2, c2, q1, r3, width=100.0, height=100.0)
-    text = splits.cell_text(g, cell, plane_nets={"GND"}, min_group=3)
+    text = split_note(splits.cell_facts(g, cell, plane_nets={"GND"}, min_group=3))
     assert text == (
         "its parts form 2 groups joined only by board-level nets: U1, R1, C1; U2, R2, C2. "
         "Parts with no close placement requirement in common may be split into cells of their own.")
@@ -127,7 +128,7 @@ def test_the_message_names_groups_in_cell_order_and_the_unjoined_parts():
     c3 = footprint("C3", 70, 30, nets=("GND", "GND"))
     r1 = footprint("R1", 70, 40, nets=("GND", "GND"))
     g, cell = _cell(u3, c7, r2, u5, r4, q2, r9, c1, c2, c3, r1, width=100.0, height=100.0)
-    text = splits.cell_text(g, cell, plane_nets={"GND"}, min_group=2)
+    text = split_note(splits.cell_facts(g, cell, plane_nets={"GND"}, min_group=2))
     assert text == (
         "its parts form 3 groups joined only by board-level nets: U3, C7, R2; U5, R4; Q2, R9 "
         "(and 4 parts no net inside the cell joins to the others: C1, C2, C3, R1; "
@@ -146,7 +147,7 @@ def test_an_unconnected_pad_does_not_join_two_real_groups_via_an_empty_net():
     u2 = _with_pad(footprint("U2", 30, 10, nets=("L2", "GND")), 3, "", 0.0, -0.5)
     r2 = footprint("R2", 30, 20, nets=("L2", "GND"))
     g, cell = _cell(u1, r1, u2, r2)
-    text = splits.cell_text(g, cell, plane_nets={"GND"}, min_group=2)
+    text = split_note(splits.cell_facts(g, cell, plane_nets={"GND"}, min_group=2))
     assert text == (
         "its parts form 2 groups joined only by board-level nets: U1, R1; U2, R2. "
         "Parts with no close placement requirement in common may be split into cells of their own.")
@@ -165,7 +166,7 @@ def test_a_member_whose_only_local_net_touches_nobody_else_is_listed_with_the_un
     r2 = footprint("R2", 30, 20, nets=("L2", "GND"))
     q1 = footprint("Q1", 50, 10, nets=("Q_ONLY", "GND"))
     g, cell = _cell(u1, r1, u2, r2, q1)
-    text = splits.cell_text(g, cell, plane_nets={"GND"}, min_group=2)
+    text = split_note(splits.cell_facts(g, cell, plane_nets={"GND"}, min_group=2))
     assert text == (
         "its parts form 2 groups joined only by board-level nets: U1, R1; U2, R2 "
         "(and 1 part no net inside the cell joins to the others: Q1; "

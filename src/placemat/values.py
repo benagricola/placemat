@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 import math
 
-from .cutouts import Cutouts
+from .cutouts import Cutouts, EdgeWhy
 
 
 class _CopperLayerNames(str, Enum):
@@ -209,10 +209,26 @@ class Centre:
     (X()/Y() of a pad, or a Mid inside X()/Y()), or None to leave that axis
     free: Centre(30, None) pins x and lets the item slide in y. `toward=`
     an Edge at one end of the free axis takes the legal spot farthest that
-    way, instead of the one nearest what the item connects to."""
+    way, instead of the one nearest what the item connects to.
+
+    A number on an axis is a coordinate, and a script says so: `coordinates=True`. Without it each axis is a reference
+    or None (`Centre(X(pad), Y(pad))`, `Centre(X(pad), None)`), and a number is still accepted in this release with a
+    `setup` warning that names the flag; the next release refuses it. `coordinates=False` is the default: leave it out
+    (writing it is a `setup` notice)."""
     x: object
     y: object
     toward: object = field(default=None, metadata={"omit_default": True})
+    coordinates: bool | None = field(default=None, kw_only=True, metadata={"omit_default": True})
+
+    @property
+    def by_coordinates(self) -> bool:
+        """Whether the script marked this Centre as coordinates (`coordinates=True`)."""
+        return bool(self.coordinates)
+
+    @property
+    def numeric_axes(self) -> tuple:
+        """The axes that are a plain number: ("x", "y"), ("x",), ("y",) or ()."""
+        return tuple(a for a, v in (("x", self.x), ("y", self.y)) if isinstance(v, (int, float)) and not isinstance(v, bool))
 
     def __post_init__(self):
         if self.x is None and self.y is None:
@@ -1025,18 +1041,18 @@ class Disc:
         """The point `radius` from the centre on that bearing."""
         return polar_point(self.centre, angle, radius)
 
-    def why_not(self, box: Box, margin: float) -> str | None:
+    def why_not(self, box: Box, margin: float):
         """None when `box` sits inside the board with `margin` to spare
         everywhere, else which side of the board it crosses."""
         far = max(math.hypot(x - self.centre.x, y - self.centre.y)
                   for x in (box.left, box.right) for y in (box.top, box.bottom))
         if far > self.radius - margin + _NM:
-            return "past the rim's keep-in (%.2f mm)" % margin
+            return EdgeWhy.PAST_RIM
         if self.bore:
             dx = max(box.left - self.centre.x, 0.0, self.centre.x - box.right)
             dy = max(box.top - self.centre.y, 0.0, self.centre.y - box.bottom)
             if math.hypot(dx, dy) < self.bore + margin - _NM:
-                return "into the bore's keep-in (%.2f mm)" % margin
+                return EdgeWhy.INTO_BORE
         return self.cutouts.why_not(box, margin)
 
     def polygon(self, inset: float = 0.0, segments: int = 72) -> tuple:

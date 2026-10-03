@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
-from .cutouts import NM as _NM, Arc, Where, flatten_path, segment_box as _segment_box, signed_area as _area
+from .cutouts import EdgeWhy, NM as _NM, Arc, Where, flatten_path, segment_box as _segment_box, signed_area as _area
 from .values import Box, Location, bearing, bearing_of, bearing_vector
 
 
@@ -173,22 +173,22 @@ class Outline:
             object.__setattr__(self, "_where", got)
         return got
 
-    def why_not(self, box: Box, margin: float) -> str | None:
+    def why_not(self, box: Box, margin: float) -> EdgeWhy | None:
         """None when `box` sits inside the board with `margin` to spare
         everywhere, else what it crosses."""
         ix = self._index()
         odd = ix.loops_around((box.left + box.right) / 2.0, (box.top + box.bottom) / 2.0)
         if 0 not in odd:
-            return "outside the board"
+            return EdgeWhy.OUTSIDE
         if odd - {0}:
-            return "inside a cutout"
+            return EdgeWhy.IN_CUTOUT
         left, top = box.left - margin, box.top - margin
         right, bottom = box.right + margin, box.bottom + margin
         for x1, y1, x2, y2, n, lo_x, lo_y, hi_x, hi_y in ix.near(left, top, right, bottom):
             if hi_x < left or lo_x > right or hi_y < top or lo_y > bottom:
                 continue                    # too far to matter
             if _segment_box(x1, y1, x2, y2, box) < margin - _NM:
-                return "past the %s keep-in (%.2f mm)" % ("board's" if n == 0 else "cutout's", margin)
+                return EdgeWhy.PAST_BOARD if n == 0 else EdgeWhy.PAST_CUTOUT
         return None
 
     def polygon(self, inset: float = 0.0) -> tuple:

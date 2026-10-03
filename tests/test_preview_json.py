@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 from placemat.cutouts import Circle
 from placemat.layout import Board
 from placemat.preview import draw
-from placemat.preview_json import declared_sites, finding_targets, item_json, plan_json
+from placemat.preview_json import declared_sites, item_json, plan_json
 from placemat.values import Centre, CopperLayer, Cutout, Face, LinkWeight, Location, Net, PadRef, Part
 from tests.fixtures import board_geometry, footprint
 
@@ -139,12 +139,18 @@ def test_silk_text_carries_its_justification_rotation_and_mirroring():
     assert (t["rotation"], t["hjust"], t["vjust"], t["mirrored"], t["thickness"], t["face"]) == (90.0, "left", "bottom", True, 0.12, "back")
 
 
-def test_a_finding_names_the_parts_and_pads_its_sentence_mentions():
+def test_a_finding_names_the_parts_and_pads_its_facts_mention():
+    from placemat.finding_text import locate
+    from placemat.findings import FindingCause as C
     refs = {"U1", "U10", "R1", "J1"}
-    assert finding_targets("link R1.1 to U10.14 is 5.75 mm, over its 2.00 mm limit", refs) == (["R1", "U10"], [["R1", "1"], ["U10", "14"]])
-    assert finding_targets("U1 pins 4/5: J1 SCL crosses U10 ALS_INT", refs) == (["U1", "J1", "U10"], [["U1", "4"], ["U1", "5"]])
-    assert finding_targets("U1 pin 15 (RAIL): closed toward J1 by R1, U1", refs) == (["U1", "J1", "R1"], [["U1", "15"]])
-    assert finding_targets("a cell XU1 and U11 and SU1", refs) == ([], [])             # only whole refs
+    link = {"link": "R1.1>U10.14", "a": {"key": "r1", "ref": "R1", "pad": "1"}, "b": {"key": "u10", "ref": "U10", "pad": "14"},
+            "achieved_mm": 5.75, "limit_mm": 2.0, "why": ""}
+    got = locate(C.LINK_OVER, link, refs)
+    assert got["refs"] == ["R1", "U10"] and got["pads"] == [["R1", "1"], ["U10", "14"]] and got["at"] is None
+    cross = {"ref": "U1", "pins": ["4", "5"], "targets": [["J1", "SCL"], ["U10", "ALS_INT"]]}
+    got = locate(C.ESCAPE_CROSSED, cross, refs)
+    assert got["refs"] == ["U1", "J1", "U10"] and got["pads"] == [["U1", "4"], ["U1", "5"]]
+    assert locate(C.SETUP_UNDECLARED, {"item": "XU1", "ref": "U11"}, refs)["refs"] == []       # only whole refs
 
 
 def test_the_plan_gives_each_finding_its_refs_and_pads():
@@ -239,3 +245,27 @@ def test_a_variants_shapes_are_the_plain_ones_turned_about_the_item_and_carried_
         mine = [[a1[0] + (x - a0[0]) * c + (y - a0[1]) * s, a1[1] - (x - a0[0]) * s + (y - a0[1]) * c] for x, y in p0]
         norm = lambda ps: sorted([round(v, 2) + 0.0 for v in p] for p in ps)
         assert norm(mine) == norm(p1), turn
+
+
+def test_a_findings_facts_carry_the_engines_words_for_each_refusal_owner_slide_and_turn():
+    """The page reads a finding's facts and shows the engine's own words as written (`text`); it parses no sentence."""
+    from placemat.preview_json import _with_texts
+    from placemat.refusals import Code, Owner, Refusal
+    refusal = Refusal(Code.VIA_BAN, ban="the ring keepout", net="GND", at=[1.0, 2.0]).to_json()
+    facts = {"item": "u1", "where": {"form": "edge", "edge": "north"}, "turns": [[0, refusal], [90, refusal]],
+             "blame": [{"form": "kind", "label": "courtyard", "count": 2, "owners": [{"owner": Owner("who", "K1").to_json(), "faces": "front", "count": 2}]},
+                       {"form": "rider", "count": 1, "reason": refusal}],
+             "room_lost": {"gone": ["j1"], "kept": []}}
+    out = _with_texts(facts)
+    assert out["where"]["text"] == "along the north edge" and out["turns_text"].startswith("0: ") and "90: " in out["turns_text"]
+    assert out["blame"][0]["owners"][0]["owner"]["text"] == "K1" and out["blame"][1]["reason"]["text"]
+    assert out["room_lost"]["text"] == "see: no room was left for it when j1 was placed"
+    assert facts["where"] == {"form": "edge", "edge": "north"}                                   # the facts themselves are not changed
+
+
+def test_the_plan_gives_a_step_its_rank_and_pocket_as_data():
+    b, plan = _plan()
+    doc = plan_json(plan, declared_sites(b))
+    assert all({"rank", "rank_of", "pocket", "lock"} <= set(s) for s in doc["steps"])
+    f = doc["findings"][0]
+    assert f["cause"] == "unplaced.pocket" and f["facts"]["item"] == "big" and f["facts"]["w_mm"] > 0

@@ -11,6 +11,13 @@ def test_defaults():
     s = Settings()
     assert (s.studio_port, s.studio_debounce_ms, s.studio_open, s.studio_keep) == (0, 300, True, 10)
     assert s.studio_poll_ms > 0 and s.studio_cancel_grace_ms > 0
+    assert (s.studio_suggestions_per_lever, s.studio_try_timeout_s, s.studio_apply) == (3, 60, True)
+
+
+def test_the_suggestion_settings_come_from_a_placemat_toml(tmp_path):
+    (tmp_path / "placemat.toml").write_text("[studio]\nsuggestions_per_lever = 2\ntry_timeout_s = 5\napply = false\n")
+    s = load(tmp_path)
+    assert (s.studio_suggestions_per_lever, s.studio_try_timeout_s, s.studio_apply) == (2, 5, False)
 
 
 def test_a_placemat_toml_sets_them(tmp_path):
@@ -19,7 +26,8 @@ def test_a_placemat_toml_sets_them(tmp_path):
     assert (s.studio_port, s.studio_debounce_ms, s.studio_open, s.studio_keep) == (8123, 50, False, 3)
 
 
-@pytest.mark.parametrize("line", ["keep = 0", "poll_ms = 0", "port = -1", "debounce_ms = -5", "open = 1"])
+@pytest.mark.parametrize("line", ["keep = 0", "poll_ms = 0", "port = -1", "debounce_ms = -5", "open = 1",
+                                  "suggestions_per_lever = 0", "try_timeout_s = 0", "apply = 1"])
 def test_values_that_cannot_work_are_refused(tmp_path, line):
     (tmp_path / "placemat.toml").write_text("[studio]\n%s\n" % line)
     with pytest.raises(SettingsError):

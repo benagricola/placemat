@@ -76,6 +76,20 @@ header:has(#runhead:not([hidden])) #board-sub { contain: inline-size; }     /* w
 .sharebtns { display: flex; gap: 6px; margin-top: 6px; } .sharebtns button { flex: 1; border: 1px solid var(--line); background: var(--surface2); border-radius: 6px; padding: 4px 8px; }
 #cmdbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 5px 14px; background: var(--accent-soft); color: var(--accent); border-bottom: 1px solid var(--line); font-weight: 600; }
 #cmdbar[hidden] { display: none; }
+/* the suggestions: the line of a finding that offers one, the bar that says what a try or an apply did, the diff dialog's bar */
+#sgbar, #sgdlg { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 5px 14px; background: var(--surface); color: var(--ink); border-bottom: 1px solid var(--line); font-size: 12.5px; }
+#sgbar[hidden], #sgdlg[hidden] { display: none; }
+#sgbar b, #sgdlg b { overflow-wrap: anywhere; }
+#sgbar .sgx { margin-left: auto; }
+#sgbar button, #sgdlg button, .sgbtns button { border: 1px solid var(--line); background: var(--surface2); color: var(--ink); border-radius: 6px; padding: 0 9px; font-size: 12px; line-height: 20px; }
+#sgbar button:disabled, .sgbtns button:disabled { opacity: 0.5; }
+.sg { margin-top: 3px; font-weight: 400; }
+.difffile { position: sticky; top: 0; z-index: 1; padding: 4px 10px; background: var(--surface2); border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.sgrow { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+.sgrow + .sgrow { margin-top: 2px; }
+.sgtext { flex: 1 1 12em; min-width: 0; overflow-wrap: anywhere; color: var(--ink); }
+.sgbtns { display: inline-flex; gap: 4px; flex: none; }
+.sgmore { cursor: pointer; color: var(--accent); font-size: 12px; }
 #cmdbar button { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 6px; padding: 1px 10px; }
 #toast { position: fixed; z-index: 70; left: 50%; transform: translateX(-50%); top: 64px; max-width: calc(100vw - 24px); background: var(--surface); color: var(--ink); border: 1px solid var(--accent); border-radius: 999px; box-shadow: var(--shadow); padding: 6px 16px; cursor: pointer; font-weight: 600; }
 #toast[hidden] { display: none; }
@@ -516,6 +530,7 @@ svg text { user-select: none; font-family: var(--sans); }
 <div id="menu" role="menu" hidden></div>
 <nav id="ntabs"><button data-nv="board" class="on">Board</button><button data-nv="steps">Steps<em data-count="steps"></em></button><button data-nv="findings">Findings<em data-count="findings"></em></button><button data-nv="compare">Compare<em data-count="compare"></em></button><button data-nv="runs">Runs<em data-count="runs"></em></button><button data-nv="notes" hidden>Notes<em data-count="notes"></em></button></nav>
 <div id="cmdbar" hidden></div>
+<div id="sgbar" hidden></div>
 <div id="toast" hidden></div>
 <div id="notice"></div>
 <main>
@@ -547,6 +562,7 @@ svg text { user-select: none; font-family: var(--sans); }
   <div id="picker" hidden></div>
   <div id="script" role="dialog" aria-label="the layout script">
     <div id="scripthead"><select id="file"></select><span class="dim" id="scriptinfo"></span><span style="flex:1"></span><button id="prevchg" title="previous changed line">&uarr;</button><button id="nextchg" title="next changed line">&darr;</button><button id="scriptfull" title="over the legend and the board">Full screen</button><button id="scriptclose" aria-label="close">&times;</button></div>
+    <div id="sgdlg" hidden></div>
     <div id="linechips"></div>
     <div id="scriptbody"></div>
   </div>
@@ -585,6 +601,10 @@ const S = {
   cmdView: null,               // a command's streamed plan shown in place of the studio's own: {id, plan, next}
   xv: null,                    // the explore being looked at: {source, id|file, start, variants, done, sel, mode, auto, drawn, thumbs, density, lastDraw}
   exploreFps: 2,
+  sg: {more: new Set(), busy: null, show: null, note: null, src: false},   // suggestions: the finding slots opened, a try in flight, the diff shown, what the last apply said
+  try: null,                   // a try shown, not written: {id, base, suggestion, cleared, gained, lost, moved, score, applied}
+  applied: [], canApply: true, // the suggestions applied here (for Undo and the history rows); false: this studio does not write
+  redo: "",                    // the text of the apply a Redo would make again ("" when there is none)
   notes: [], noteAge: 0, noteFocus: null,    // notes left in the studio (notes.py records), their age limit in seconds, the one looked at
   work: null,                  // the resolve in progress: {t0, total, cur, replayed}, from the engine's begin notices
   scriptOpen: false, scriptFull: false, scriptWhole: false,     // the script dialog
@@ -649,6 +669,7 @@ function render(parts) {
   if (has("compare")) renderCompare();
   if (has("runs") || all) renderRuns();
   if (has("script")) renderScript();
+  if (has("sgbar") || has("status") || all) renderSgBar();
   if (has("notes") || all) renderNotes();
   if (has("live")) flushLive();
   if (has("legend") || has("board") || all) renderLegend();
@@ -667,6 +688,7 @@ es.onopen = () => { S.status = S.status === "connecting" ? "waiting" : S.status;
 es.onerror = () => { S.status = "disconnected"; schedule("status"); };
 
 function applyHello(d) {
+  S.applied = d.applied || []; S.canApply = d.can_apply !== false; S.redo = d.redo || "";
   S.notes = d.notes || []; S.noteAge = d.note_age_s || 0;
   S.hello = d; S.history = d.history; S.error = d.error; S.resolving = d.resolving; S.scripts = d.scripts || [];
   if (d.now) S.skew = d.now * 1000 - Date.now();                 // the server's clock less this page's: times are the server's
@@ -767,6 +789,7 @@ on("finished", d => {
   trimDocs();
   if (S.follow) showResolve(d.id, null, true); else schedule("status", "compare");
 });
+on("applied", d => { S.applied = d.applied || []; S.redo = d.redo || ""; schedule("compare", "sgbar"); });
 on("compare", d => {
   if (S.follow && S.shownId === d.b) { setCompare(d); }
 });
@@ -782,6 +805,7 @@ on("error", d => {
 
 function trimDocs() {
   const keep = new Set(S.history.map(h => h.id));
+  if (S.try) keep.add(S.try.id);
   for (const id of [...S.docs.keys()]) if (!keep.has(id)) S.docs.delete(id);
 }
 
@@ -789,6 +813,7 @@ function showResolve(id, cmp, keepReplay) {            // keepReplay: the slider
   const rec = S.docs.get(id);
   if (!rec) return;
   const was = keepReplay ? S.replay : null;
+  if (S.try) { S.docs.delete(S.try.id); S.try = null; }
   stopPlay();
   S.shownId = id; S.live = null; S.resolving = S.resolving === id ? null : S.resolving; S.liveQ = [];
   S.texts = rec.texts; S.changed = rec.changed;
@@ -830,11 +855,11 @@ function statNumbers(p, rec) {
 }
 function renderStatus() {
   const b = $("#status");
-  const label = S.hello && S.hello.picker ? "choose a script" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
+  const label = S.hello && S.hello.picker ? "choose a script" : {live: "live", resolving: "resolving #" + S.resolving, stale: "stale", error: "error", try: "try, not written", history: "earlier resolve", waiting: "waiting", connecting: "connecting", disconnected: "disconnected"}[S.status] || S.status;
   $("#statustext").textContent = typeof label === "string" ? label : label;
   const rb = $("#runbtn"); rb.textContent = S.run ? "Running..." : "Run"; rb.disabled = !!S.run || !!(S.hello && S.hello.picker); rb.classList.toggle("busy", !!S.run);
   rb.hidden = $("#srcbtn").hidden = $("#resolvebtn").hidden = $("#sharebtn").hidden = !!(S.hello && S.hello.picker);
-  b.className = "pill " + ({live: "live", resolving: "busy", stale: "stale", error: "error", disconnected: "error"}[S.status] || "");
+  b.className = "pill " + ({live: "live", resolving: "busy", stale: "stale", error: "error", try: "stale", disconnected: "error"}[S.status] || "");
   const rec = S.docs.get(S.shownId), p = plan();
   $("#stats").innerHTML = statNumbers(p, rec).map(([k, v, c]) => '<span class="stat ' + c + '"><b>' + v + "</b>" + (k === "s" ? "s" : k) + "</span>").join("");
   const n = $("#notice");
@@ -901,6 +926,7 @@ function resolveDone() {
   setTimeout(() => { S.done = null; schedule("status"); }, 4000);
 }
 // The engine's phase notes, shortened to a pill's width.
+// TEMPORARY: the phase text is the engine's progress note (a `begin` event's text), not a finding or a step's data; it is shortened by its words until the engine sends the phase as data.
 function phaseShort(text, what) {
   const s = String(text || "");
   if (what === "copper") return "copper batch";
@@ -1830,6 +1856,18 @@ function splitTop(s, sep) {
   out.push(s.slice(from));
   return out.map(x => x.trim()).filter(Boolean);
 }
+// TEMPORARY, for what a step's note alone says (the engine's Step.note is a log line, not converted to facts): the seeds, why a part slid, stopped short or moved off its hint,
+// its vias and pushes, the line it sits on, the rank's measures, a pocket taken with nothing seeded. A step's rank (k of n) and a seeded item's pocket are data now: withFacts.
+// What a step records as data (its rank and the length of the queue, the pocket a seeded item took) takes the place of what noteParts read of
+// the same things from its note; what the note alone says (seeds, slides, vias, pushes, the rank's measures) is still read from it.
+function withFacts(np, ...from) {
+  for (const s of from) {
+    if (!s) continue;
+    if (s.rank != null && s.rank_of != null) np.rank = Object.assign(np.rank || {facts: [], tail: []}, {n: String(s.rank), of: String(s.rank_of)});
+    if (s.pocket) { np.pocketFacts = s.pocket; np.other = np.other.filter(x => !/^took the pocket /.test(x)); }      // TEMPORARY filter: its sentence is the pocket facts' own
+  }
+  return np;
+}
 function noteParts(note) {
   const o = {rank: null, seeded: [], moved: null, vias: [], push: [], pocket: null, slid: null, stopped: null, line: null, other: [], unplaced: null};
   for (const part of splitTop(note || "", "; ")) {
@@ -1855,47 +1893,41 @@ function noteParts(note) {
   }
   return o;
 }
-// An unplaced item's reasons, from its note (the placer's example refusal for each kind, "; "-separated) and the finding that says
-// the counts: why it was left out, where it was looked for, what refused it (a count for each kind of refusal and the parts that did
-// most of it) and whatever else is said, as written.
-//   no legal location within R mm of (x, y) (courtyard x41: U1 front face x30, J1 front face x11; edge x3)    [; no pocket took it (N tried)]
-//   no pocket fits its W x H envelope on the F face at any rotation asked for | (N pocket(s) tried)
-//   no room anywhere WHAT (kind xN, kind xM)       no bearing of N tried leaves it legal on its point (kind xN)
-//   cannot be laid out on its own at any rotation it may take, whatever room the board has (WHY)       rides X, which found no place
-//   see: no room was left for it when X was placed | the look-ahead left it room ...
-function parseBlame(text, sep) {
-  return splitTop(text, sep || "; ").map(part => {
-    let m;
-    if ((m = /^vias that could not give way x(\d+)$/.exec(part))) return {kind: "vias that could not give way", n: +m[1], blockers: []};
-    if ((m = /^(.+?) x(\d+)(?:: (.*))?$/.exec(part))) {
-      const blockers = [];
-      for (const b of (m[3] || "").split(/,\s*/).filter(Boolean)) {
-        const q = /^(\S+?)(?: (front|back) face)? x(\d+)$/.exec(b);
-        if (q) blockers.push({owner: q[1], face: q[2] || "", n: +q[3]}); else blockers.push({text: b});
-      }
-      return {kind: m[1], n: +m[2], blockers};
-    }
-    return {kind: part, n: null, blockers: []};
-  });
+// An unplaced item's reasons: why it was left out, where it was looked for, what refused it (a count for each kind of refusal and the
+// parts that did most of it) and whatever else there is. They are the finding's facts (finding.cause, finding.facts: radius_mm, at,
+// blame, counts, where, turns, ...); the engine's own words for a refusal or an owner come with them as `text`, shown as written. The
+// placer's example refusals for each kind (the step's `unplaced` text) are listed as written: no sentence is parsed.
+const UNPLACED_WHY = {"unplaced.search": "no legal location", "unplaced.pocket": "no pocket fits", "unplaced.slide": "no room", "unplaced.block": "no legal location",
+  "unplaced.bearing": "no bearing fits", "unplaced.rides": "rides"};
+const refuseOf = (label, n, blockers) => ({kind: label, n, blockers: blockers || []});
+function blameEntries(blame) {
+  return (blame || []).map(e => e.form === "vias" ? refuseOf("vias that could not give way", e.count)
+    : e.form === "rider" ? refuseOf((e.reason && e.reason.text) || "a rider", e.count)
+    : refuseOf(e.label, e.count, (e.owners || []).map(o => o.owner && o.owner.form === "who" ? {owner: o.owner.name, face: o.faces || "", n: o.count} : {text: ((o.owner && o.owner.text) || "") + (o.faces ? " " + o.faces + " face" : "") + " x" + o.count})));
 }
 function unplacedParts(texts, fnd) {
   const o = {why: "", radius: null, at: null, what: "", pocket: null, tried: null, bearings: null, refused: [], rides: "", alone: "", late: [], examples: [], other: [], fnd: fnd || null};
-  const feed = (part, fromFinding) => {
-    let m;
-    if ((m = /^no legal (?:location|spot) within ([\d.]+) mm(?: of \((-?[\d.]+), (-?[\d.]+)\))? \((.*)\)$/.exec(part))) { o.why = "no legal location"; o.radius = m[1]; if (m[2] != null) o.at = [m[2], m[3]]; o.refused.push(...parseBlame(m[4])); }
-    else if ((m = /^no pocket took it \((\d+) tried\)$/.exec(part))) o.tried = +m[1];
-    else if ((m = /^no pocket fits its ([\d.]+) x ([\d.]+) envelope on the (\w+) face(?: at any rotation asked for| \((\d+) pocket\(s\) tried\))$/.exec(part))) { o.why = "no pocket fits"; o.pocket = {w: m[1], h: m[2], face: m[3]}; if (m[4]) o.tried = +m[4]; }
-    else if ((m = /^no room anywhere (.+?) \((.*)\)$/.exec(part))) { o.why = "no room"; o.what = m[1]; o.refused.push(...parseBlame(m[2], ", ")); }
-    else if ((m = /^no bearing of (\d+) tried leaves it legal on its point \((.*)\)$/.exec(part))) { o.why = "no bearing fits"; o.bearings = +m[1]; o.refused.push(...parseBlame(m[2], ", ")); }
-    else if ((m = /^cannot be laid out on its own at any rotation it may take, whatever room the board has \((.*)\)$/.exec(part))) { o.why = "cannot be laid out"; o.alone = m[1]; }
-    else if ((m = /^rides (.+?), which found no place$/.exec(part))) { o.why = "rides"; o.rides = m[1]; }
-    else if ((m = /^see: (.*)$/.exec(part))) o.late.push(m[1]);
-    else if (/^no pocket fits\b/.test(part)) { if (!o.why) o.why = "no pocket fits"; }
-    else if (fromFinding) o.other.push(part);
-    else o.examples.push(part);                                              // the placer's example refusals, as it wrote them
-  };
-  if (fnd && fnd.text) { const s = String(fnd.text), pre = fnd.item ? fnd.item + ": " : ""; for (const part of splitTop(pre && s.startsWith(pre) ? s.slice(pre.length) : s.replace(/^[^:\s]+: /, ""), "; ")) feed(part, true); }
-  for (const part of texts || []) feed(part, false);
+  const f = fnd && fnd.facts, c = fnd && fnd.cause;
+  if (f && c && UNPLACED_WHY[c]) {
+    o.why = UNPLACED_WHY[c];
+    if (c === "unplaced.search") {
+      o.radius = f.radius_mm; o.at = f.at; o.refused = blameEntries(f.blame); if (f.pocket_tried != null) o.tried = f.pocket_tried;
+      if (f.room_lost && f.room_lost.text) o.late.push(f.room_lost.text);
+    } else if (c === "unplaced.pocket") {
+      o.pocket = {w: f.w_mm, h: f.h_mm, face: f.face}; if (f.variant !== "any_rotation") o.tried = f.tried;
+      for (const r of f.riders || []) o.other.push(r.text);
+    } else if (c === "unplaced.slide") {
+      o.what = f.where && f.where.text; o.refused = (f.counts || []).map(([k, n]) => refuseOf(k, n));
+      for (const r of f.riders || []) o.other.push(r.text);
+    } else if (c === "unplaced.block") {
+      if (f.variant === "alone") { o.why = "cannot be laid out"; o.alone = f.turns_text; } else { o.radius = f.radius_mm; o.at = f.at; o.refused = (f.counts || []).map(([k, n]) => refuseOf(k, n)); }
+    } else if (c === "unplaced.bearing") {
+      o.bearings = f.turns; o.refused = (f.counts || []).map(([k, n]) => refuseOf(k, n));
+    } else if (c === "unplaced.rides") {
+      if (f.variant === "alone") { o.why = "cannot be laid out with its riders"; o.alone = f.turns_text; } else o.rides = f.rider_of;
+    }
+  } else if (fnd && fnd.text) o.other.push(fnd.text);                      // a finding with no facts (an older record): its sentence, as written
+  if (c !== "unplaced.pocket" && c !== "unplaced.rides") for (const part of texts || []) o.examples.push(part);      // for those two the step's text is the cause itself
   if (!o.why) o.why = "not placed";
   return o;
 }
@@ -1909,7 +1941,7 @@ function ownerPill(name) {
 function unplacedRows(u) {
   const rows = [["why", pill(u.why + (u.rides ? " " + u.rides : ""), SEV_CHIP[u.fnd ? sevOf(u.fnd) : "warning"] || "")]];
   if (u.radius != null) rows.push(["radius", val(u.radius + " mm")]);
-  if (u.at) rows.push(["around", esc("(" + u.at[0] + ", " + u.at[1] + ") mm")]);
+  if (u.at) rows.push(["around", esc("(" + (+(+u.at[0]).toFixed(2)) + ", " + (+(+u.at[1]).toFixed(2)) + ") mm")]);
   if (u.what) rows.push(["looked", esc(u.what)]);
   if (u.pocket) rows.push(["envelope", esc(u.pocket.w + " x " + u.pocket.h + " mm") + " on the " + pill(u.pocket.face, "face-" + u.pocket.face) + " face"]);
   if (u.bearings != null) rows.push(["bearings", esc(u.bearings + " tried")]);
@@ -1919,11 +1951,11 @@ function unplacedRows(u) {
 }
 const refusedList = u => u.refused.map(r => '<span class="refrow">' + pill(r.kind + (r.n != null ? " x" + r.n : ""), "refusal") +
   r.blockers.map(b => b.text ? '<span class="dim">' + esc(b.text) + "</span>" : '<span class="blk">' + ownerPill(b.owner) + '<span class="dim">' + esc((b.face ? b.face + " " : "") + "x" + b.n) + "</span></span>").join(" ") + "</span>");
-const unplacedInline = f => '<b>' + esc(f.item || String(f.text).split(":")[0]) + "</b>" + kvl(unplacedRows(unplacedParts([], f))) + sect("Refused by", listOf(refusedList(unplacedParts([], f)))) + sect("Notes", listOf(unplacedParts([], f).other.map(esc)));
-const unplacedBlock = u => kvl(unplacedRows(u)) + sect("Refused by", listOf(refusedList(u))) + sect("Notes", listOf(u.late.concat(u.other, u.examples).map(esc)));
+const unplacedInline = f => '<b>' + esc((f.facts && f.facts.item) || f.item || "") + "</b>" + kvl(unplacedRows(unplacedParts([], f))) + sect("Refused by", listOf(refusedList(unplacedParts([], f)))) + sect("Notes", listOf(unplacedParts([], f).other.map(esc)));
+const unplacedBlock = u => kvl(unplacedRows(u)) + (u.fnd ? sgHTML(u.fnd) : "") + sect("Refused by", listOf(refusedList(u))) + sect("Notes", listOf(u.late.concat(u.other, u.examples).map(esc)));
 // The unplaced item's findings, the sentence of which the section above replaces, and every other one as it was.
 const isUnplacedFinding = f => f && f.kind === "unplaced";
-const unplacedFindingOf = (p, key) => ((p && p.findings) || []).find(f => isUnplacedFinding(f) && (f.item === key || String(f.text).startsWith(key + ": "))) || null;
+const unplacedFindingOf = (p, key) => ((p && p.findings) || []).find(f => isUnplacedFinding(f) && ((f.facts && f.facts.item) === key || f.item === key)) || null;
 const rankRows = r => {
   const rows = [["rank", esc(r.n + " of " + r.of)]];
   for (const f of r.facts) {
@@ -1941,13 +1973,15 @@ const rankRows = r => {
   return rows;
 };
 // "N what ..." starts a via line; a fragment without a count continues the line before it (a list of owners).
+// TEMPORARY, same reason as noteParts: a via note's entries and a push note are read from the note's words.
 const joinVias = vs => vs.reduce((o, v) => { if (/^\d+ /.test(v) || !o.length) o.push(v); else o[o.length - 1] += ", " + v; return o; }, []);
 const viaLine = v => { const m = /^(\d+) (.*)$/.exec(v); return m ? val(m[1], /drop|cannot|refus/.test(m[2]) ? "warn" : "") + " " + esc(m[2]) : esc(v); };
+// TEMPORARY, same reason as noteParts: a push note's entries are read from the note's words.
 const pushLine = s => {
   const m = /^push from (.+?): ([\d.e+-]+) at ([\d.]+) mm \(limit ([\d.e+-]+)\)$/.exec(s);
   return m ? "<b>" + esc(m[1]) + "</b> " + esc(m[2] + " at " + m[3] + " mm, limit " + m[4]) : esc(s);
 };
-const sevPills = fs => listOf(fs.map(f => { const i = ((plan() || {}).findings || []).indexOf(f); return '<span class="fndrow' + (i >= 0 ? " go" : "") + '"' + (i >= 0 ? ' data-act="finding" data-fi="' + i + '"' : "") + '><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + (f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + esc(f.text) + "</span>"; }));
+const sevPills = fs => listOf(fs.map(f => { const i = ((plan() || {}).findings || []).indexOf(f); return '<span class="fndrow' + (i >= 0 ? " go" : "") + '"' + (i >= 0 ? ' data-act="finding" data-fi="' + i + '"' : "") + '><span class="sev ' + sevOf(f) + '">' + sevOf(f) + "</span> " + (f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + esc(f.text) + "</span>" + sgHTML(f); }));
 function linkRows(p, refs, all) {
   const ls = (p.links || []).map((l, i) => [l, i]).filter(([l]) => refs.has(l.a[0]) || refs.has(l.b[0])).sort((a, b) => (b[0].state === "over") - (a[0].state === "over"));
   if (!ls.length) return "";
@@ -1979,14 +2013,16 @@ function noteExtra(np, movedMm, why, key) {
   if (np.unplaced) return unplacedBlock(unplacedParts(np.unplaced, unplacedFindingOf(plan(), key)));
   const mr = movedRows(np, movedMm);
   return sect("Why it moved", mr.length ? kvl(mr) : "") +
-    sect("Pocket", np.pocket ? kvl([["size", esc(np.pocket.w + " x " + np.pocket.h + " mm")], ["at", esc("(" + np.pocket.x + ", " + np.pocket.y + ") mm")], ["because", esc(np.pocket.why)]]) : "") +
+    sect("Pocket", np.pocketFacts ? kvl([["size", esc(np.pocketFacts.w_mm + " x " + np.pocketFacts.h_mm + " mm")], ["at", esc("(" + np.pocketFacts.at[0] + ", " + np.pocketFacts.at[1] + ") mm")],
+        ["from the seed", np.pocketFacts.seed_mm != null ? val(np.pocketFacts.seed_mm + " mm", "warn") : ""]]) :
+      np.pocket ? kvl([["size", esc(np.pocket.w + " x " + np.pocket.h + " mm")], ["at", esc("(" + np.pocket.x + ", " + np.pocket.y + ") mm")], ["because", esc(np.pocket.why)]]) : "") +
     sect("Pushes", listOf(np.push.map(pushLine))) + sect("Vias", listOf(joinVias(np.vias).map(viaLine))) +
     sect("Notes", listOf(np.other.map(esc).concat(why ? ['<span class="dim">' + esc(why) + "</span>"] : [])));
 }
 function partCard(p, it) {
   const m = it.members.find(x => x.ref === S.selRef) || (it.members.length === 1 ? it.members[0] : null);
   const title = m ? m.ref : it.key, mod = moduleOf(it, m && m.ref), step = (S.stepNo && S.stepNo.get(it.key)), refs = new Set(m ? [m.ref] : it.members.map(x => x.ref));
-  const fs = findingsOf(p, it.key, it), s = (p.steps || []).find(x => x.item === it.key), np = noteParts(it.note);
+  const fs = findingsOf(p, it.key, it), s = (p.steps || []).find(x => x.item === it.key), np = withFacts(noteParts(it.note), it, s);
   const modPill = mod && S.module !== mod ? '<a class="chip act" data-act="module" data-id="' + esc(mod) + '">select cell</a>' : "";
   const place = kvl([["cell", mod && mod !== title ? esc(mod) : ""], ["face", pill(it.face, "face-" + it.face)], ["rotation", esc(deg(it.rotation))], ["placed", pill(howWord(s, it), howClass(s, it))], ["step", step != null ? esc((step + 1) + " of " + replaySteps(p).length) : ""], ...noteRows(np)]);
   return cardHead(title, it.kind, "", modPill) +
@@ -2086,7 +2122,7 @@ function renderStepNow() {
   const settled = S.replay != null && order[k - 1];
   sn.style.display = settled ? "block" : "none";
   if (!settled) return;
-  const it = S.itemAt && S.itemAt.get(settled.item), kind = stepKind(settled, it), np = noteParts(settled.note || (it && it.note) || "");
+  const it = S.itemAt && S.itemAt.get(settled.item), kind = stepKind(settled, it), np = withFacts(noteParts(settled.note || (it && it.note) || ""), it, settled);
   sn.innerHTML = '<div class="flds"><span class="f-n">' + esc("Step " + k) + "</span>" + pill(kind.word, kind.cls) + itemField(kind.name) + rankField(np.rank && np.rank.n, np.rank && np.rank.of) + "</div>";
 }
 const R = {rows: [], k: -1, n: 0};
@@ -2153,7 +2189,7 @@ function stepDetail(s, it, np, fs) {
     noteExtra(np, placed ? it.moved_mm : 0, s.why || (it && it.why), s.item) + sect("Findings", sevPills(np.unplaced ? fs.filter(f => !isUnplacedFinding(f)) : fs)) + (it && it.file ? '<div class="src"><a data-act="src" data-file="' + esc(it.file) + '" data-line="' + it.line + '">' + esc(it.file + ":" + it.line) + "</a></div>" : "");
 }
 function stepRow(s, p) {
-  const it = S.itemAt && S.itemAt.get(s.item), kind = stepKind(s, it), np = noteParts(s.note || (it && it.note) || "");
+  const it = S.itemAt && S.itemAt.get(s.item), kind = stepKind(s, it), np = withFacts(noteParts(s.note || (it && it.note) || ""), it, s);
   const fs = findingsOf(p, s.item, it), worst = fs.some(f => sevOf(f) === "critical") ? "critical" : fs.some(f => sevOf(f) === "warning") ? "warning" : fs.length ? "notice" : "";
   return '<div class="row step k-' + kind.cls + (S.sel === s.item ? " sel" : "") + (S.openRows.has(s.at) ? " open" : "") + '" data-n="' + s.n + '" data-at="' + s.at + '" data-item="' + esc(s.item) + '">' +
     '<span class="i">' + (s.n + 1) + '</span><div class="sb"><div class="l1"><b>' + esc(kind.name) + '</b><span class="chip ' + esc(kind.cls) + '">' + esc(kind.word) + "</span>" +
@@ -2212,7 +2248,7 @@ function renderFindings() {
   el.innerHTML = filters + order.map(kind => {
     const list = groups.get(kind), closed = S.closedKinds.has(kind), worst = hasSev ? kind : list.some(([f]) => sevOf(f) === "critical") ? "critical" : list.some(([f]) => sevOf(f) === "notice") && !list.some(([f]) => sevOf(f) === "warning") ? "notice" : "warning";
     return '<div class="gh" data-kind="' + esc(kind) + '"><span class="dim">' + (closed ? "&#9656;" : "&#9662;") + "</span>" + esc(kind) + '<span class="ct">' + list.length + "</span></div>" +
-      (closed ? "" : list.map(([f, i]) => '<div class="row" data-i="' + i + '"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + '</span><span class="n wrap" style="color:var(--ink)">' + (hasSev && f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + (isUnplacedFinding(f) ? unplacedInline(f) : esc(f.text)) + srcLink(f, p) + '</span><span class="fixslot" data-fix="' + i + '"></span></div>').join(""));
+      (closed ? "" : list.map(([f, i]) => '<div class="row" data-i="' + i + '"><span class="sev ' + sevOf(f) + '">' + sevOf(f) + '</span><span class="n wrap" style="color:var(--ink)">' + (hasSev && f.kind ? pill(f.kind.replace(/_/g, " ")) + " " : "") + (isUnplacedFinding(f) ? unplacedInline(f) : esc(f.text)) + srcLink(f, p) + sgHTML(f) + '</span><span class="fixslot" data-fix="' + i + '"></span></div>').join(""));
   }).join("");
   el.onclick = e => {
     const sv = e.target.closest("[data-sev]"); if (sv) { S.sevFilter = sv.dataset.sev; renderFindings(); return; }
@@ -2278,8 +2314,21 @@ function renderScript() {
   dlg.classList.toggle("open", !!S.scriptOpen);
   dlg.classList.toggle("full", !!S.scriptOpen && !!S.scriptFull);
   $("#scriptfull").textContent = S.scriptFull ? "Restore" : "Full screen";
-  if (!S.scriptOpen) return;
+  if (!S.scriptOpen) { renderSgDialog(); return; }
   layoutScript();
+  const diffMode = renderSgDialog();
+  if (diffMode) {
+    const files = S.sg.show.files, sel = $("#file");
+    if (!files.some(f => f.file === S.file)) S.file = files[0] && files[0].file;
+    sel.innerHTML = files.map(f => '<option value="' + esc(f.file) + '">' + esc(f.file) + "</option>").join(""); sel.dataset.names = ""; sel.value = S.file || "";
+    // a suggestion may edit several files (a constant in a shared module, the toml, a created file): all of them are shown, each under its name
+    $("#scriptbody").innerHTML = files.map((fd, n) => '<div class="difffile" id="df-' + n + '" data-f="' + esc(fd.file) + '"><b>' + esc(fd.file) + '</b> <span class="add">+' + fd.added + '</span> <span class="del">-' + fd.removed + "</span></div>" +
+      diffTable({files: {[fd.file]: fd}, trace: {lines: {}}}, fd.file)).join("");
+    $("#scriptinfo").textContent = files.length > 1 ? files.length + " files" : "+" + (files[0] ? files[0].added : 0) + " -" + (files[0] ? files[0].removed : 0);
+    $("#linechips").innerHTML = ""; $("#linechips").style.display = "none";
+    return;
+  }
+  $("#linechips").style.display = "";
   const names = scriptFiles(S.texts), own = S.hello && S.hello.script;
   const sel = $("#file");
   if (!names.includes(S.file)) S.file = (own && names.includes(own)) ? own : names[0];
@@ -2343,12 +2392,15 @@ function openScript(file, n) {
   schedule("script");
   setTimeout(() => { const l = $('#scriptbody .ln[data-n="' + n + '"]'); if (l && l.scrollIntoView) l.scrollIntoView({block: "center"}); }, 30);
 }
-function closeScript() { S.scriptOpen = false; S.scriptFull = false; schedule("script"); }
+function closeScript() { S.scriptOpen = false; S.scriptFull = false; S.sg.show = null; S.sg.src = false; schedule("script"); }
 $("#scriptclose").onclick = closeScript;
 $("#scriptfull").onclick = () => { S.scriptFull = !S.scriptFull; schedule("script"); };
 $("#srcbtn").onclick = () => { const it = S.sel ? itemMap(plan()).get(S.sel) : null; openScript(it && it.file ? it.file : (S.hello && S.hello.script), it && it.line); };
 const currentScriptId = () => ((S.scripts || []).find(s => s.current) || {id: S.hello && S.hello.script}).id;
-$("#file").addEventListener("change", e => { S.file = e.target.value; S.scriptWhole = false; schedule("script"); });
+$("#file").addEventListener("change", e => {
+  S.file = e.target.value; S.scriptWhole = false; schedule("script");
+  if (S.sg.show && !S.sg.src) setTimeout(() => { const el = [...document.querySelectorAll("#scriptbody .difffile")].find(x => x.dataset.f === S.file); if (el && el.scrollIntoView) el.scrollIntoView({block: "start"}); }, 30);     // a suggestion's diff shows every file: the select goes to one
+});
 // Switching to another layout script: the same request from the header menu and from the picker.
 function switchTo(id) {
   closeMenu();
@@ -2372,16 +2424,19 @@ $("#prevchg").onclick = () => stepChange(-1);
 function renderCompare() {
   const el = $("#tab-compare");
   const hist = S.history.slice().sort((a, b) => a.id - b.id);
-  const opt = (sel, none) => (none ? '<option value="">none</option>' : "") + hist.map(h => '<option value="' + h.id + '"' + (h.id === sel ? " selected" : "") + ">#" + h.id + " " + new Date(h.at * 1000).toLocaleTimeString() + (h.changed.length ? " (" + h.changed.length + " file" + (h.changed.length > 1 ? "s" : "") + " changed)" : "") + "</option>").join("");
+  const opt = (sel, none) => (none ? '<option value="">none</option>' : "") + hist.map(h => '<option value="' + h.id + '"' + (h.id === sel ? " selected" : "") + ">#" + h.id + " " + new Date(h.at * 1000).toLocaleTimeString() + (h.changed.length ? " (" + h.changed.length + " file" + (h.changed.length > 1 ? "s" : "") + " changed)" : "") + (h.applied ? " - " + h.applied : "") + "</option>").join("");
   const head = '<div class="cmpbar"><span class="dim">compare</span><select id="cmpA">' + opt(S.baseId, true) + '</select><span class="dim">with</span><select id="cmpB">' + opt(S.shownId, false) + "</select></div>";
-  let out = runsHTML() + head;
+  let out = runsHTML() + (S.try ? '<div class="cmpbar"><span class="dim">the resolve this was made on (#' + S.try.base + ') and the try, not written</span></div>' : head);
+  const la = lastApplied();
+  if (la && S.canApply) out += '<div class="cmpbar"><span class="dim">applied from a suggestion:</span><span>' + esc(la.text) + '</span><button data-sg="undo">Undo</button></div>';
+  if (S.redo && S.canApply) out += '<div class="cmpbar"><span class="dim">undone:</span><span>' + esc(S.redo) + '</span><button data-sg="redo">Redo</button></div>';
   if (S.changed && S.changed.length) {
     out += "<h3>Changed since the resolve before</h3>" + S.changed.map(c => '<div class="row" data-file="' + esc(c.file) + '"><span class="k">' + esc(c.file) + '</span><span class="n"><span class="add">+' + c.added + '</span> <span class="del">-' + c.removed + "</span> " + esc(c.status) + "</span></div>").join("");
   }
   const c = S.cmp;
   if (!c) { el.innerHTML = out + '<div class="empty">' + (hist.length < 2 ? "One resolve so far: nothing to compare yet" : "Pick two resolves") + "</div>"; wireCompare(el); return; }
   const d = c.diff;
-  out += '<div class="sum"><b>' + (typeof c.a === "number" ? "#" + c.a : esc(c.a)) + " to #" + c.b + "</b>" + (d.empty ? '<span class="dim">no change in the plan</span>' : "") +
+  out += '<div class="sum"><b>' + (typeof c.a === "number" ? "#" + c.a : esc(c.a)) + (S.try && c.b === S.try.id ? " to the try, not written" : " to #" + c.b) + "</b>" + (d.empty ? '<span class="dim">no change in the plan</span>' : "") +
     (d.moved.length ? "<span>" + d.moved.length + " moved</span>" : "") + (d.added.length ? '<span class="add">' + d.added.length + " added</span>" : "") + (d.removed.length ? '<span class="del">' + d.removed.length + " removed</span>" : "") +
     (d.copper.added.length || d.copper.removed.length ? '<span>copper <span class="add">+' + d.copper.added.length + '</span> <span class="del">-' + d.copper.removed.length + "</span></span>" : "") +
     (d.findings.gained.length || d.findings.lost.length ? '<span>findings <span class="del">+' + d.findings.gained.length + '</span> <span class="add">-' + d.findings.lost.length + "</span></span>" : "") +
@@ -2528,6 +2583,142 @@ function renderCmdBar() {
   el.innerHTML = '<span>' + esc(V ? "Viewing " + c.command + " of " + (baseName(c.script) || "a board") + ", pid " + c.pid : "Viewing a recorded explore") + '</span><button id="cmdclose">Back to the studio\'s own view</button>';
   $("#cmdclose").onclick = closeCmd;
 }
+
+// ---------------------------------------------------------------- suggestions
+// A finding's suggestions are in the plan (finding.suggestions, best first). Each has Show (the diff it would make, in the script
+// dialog), Try (the edited script resolved, shown as a compare "try, not written"), and Apply (written to the file; the watcher
+// resolves again). Undo puts the last apply back. The page sends {resolve, id}; the studio finds the suggestion and its edit.
+const sgList = f => (S.try || !f || !f.suggestions) ? [] : f.suggestions;
+const sgKey = f => ((plan() || {}).findings || []).indexOf(f);
+// A suggestion is one of two kinds, and the slot draws each by its kind: an instant one has an edit now (Show, Try, Apply); a searched one
+// (kind "search") is a question the studio answers with a small bounded probe, whose best value comes back as an instant suggestion.
+// The buttons of a kind are its entry in SG_KINDS; the search's own action and its live progress are not built yet.
+const SG_KINDS = {
+  instant: (b) => b("show", "Show", "the change it would make, as a diff; nothing is written") + b("try", "Try", "resolve the edited script and compare it; nothing is written") +
+    (S.canApply ? b("apply", "Apply", "write the change to the script; the studio resolves again") : ""),
+  search: (b) => b("search", "Search options", "run a small search for the best value and offer it as a suggestion; nothing is written"),
+};
+function sgRow(s, withLever) {
+  const b = (a, label, title) => '<button data-sg="' + a + '" data-sid="' + esc(s.id) + '" title="' + esc(title) + '"' + (S.sg.busy ? " disabled" : "") + ">" + label + "</button>";
+  return '<div class="sgrow">' + (withLever && s.lever ? pill(s.lever.replace(/_/g, " ")) : "") + '<span class="sgtext">' + esc(s.text) + '</span><span class="sgbtns">' +
+    (SG_KINDS[s.how === "searched" ? "search" : "instant"])(b) + "</span></div>";
+}
+function sgHTML(f) {
+  const ss = sgList(f), k = sgKey(f);
+  if (!ss.length || k < 0) return "";
+  const more = ss.slice(1), open = S.sg.more.has(k);
+  return '<div class="sg">' + sgRow(ss[0], false) + (more.length ? '<a class="sgmore" data-sgmore="' + k + '">' + (open ? "fewer" : "more (" + more.length + ")") + "</a>" : "") +
+    (open ? more.map(s => sgRow(s, true)).join("") : "") + "</div>";
+}
+async function sgPost(path, body) {
+  const r = await fetch(path + "?t=" + encodeURIComponent(T), {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body || {})});
+  let data; try { data = await r.json(); } catch (e) { data = {error: "the studio answered " + r.status}; }
+  return {ok: r.ok, status: r.status, data};
+}
+const sgFind = sid => { for (const f of (plan() || {}).findings || []) for (const s of f.suggestions || []) if (s.id === sid) return s; return null; };
+function sgNote(kind, text, extra) { S.sg.note = Object.assign({kind, text}, extra); schedule("sgbar"); }
+async function sgAct(kind, sid) {
+  const s = sgFind(sid), rid = S.shownId, g = S.sg;
+  if (g.busy) return;
+  g.note = null;
+  if (kind === "show") {
+    const r = await sgPost("/suggest/show", {resolve: rid, id: sid});
+    if (!r.ok) return sgNote("err", r.data.error);
+    sgShowDiff(r.data);
+  } else if (kind === "try") {
+    g.busy = {text: s ? s.text : sid}; renderSgBar(); schedule("findings", "card", "steps", "compare");
+    const r = await sgPost("/suggest/try", {resolve: rid, id: sid});
+    g.busy = null;
+    if (!r.ok) sgNote("err", r.data.error);
+    else if (r.data.state !== "done") sgNote("err", r.data.message);
+    else showTry(r.data);
+    schedule("findings", "card", "steps", "sgbar");
+  } else if (kind === "apply") {
+    const r = await sgPost("/suggest/apply", {resolve: S.try ? S.try.base : rid, id: sid || (S.try && S.try.suggestion.id)});
+    if (!r.ok) return sgNote("err", r.data.error);
+    g.show = null; g.src = false; S.scriptOpen = false;
+    if (S.try) leaveTry();
+    sgNote("applied", r.data.text);
+  } else if (kind === "search") {
+    sgNote("err", "searching for options is not available in this studio yet");
+  } else if (kind === "undo") {
+    const r = await sgPost("/suggest/undo", {});
+    if (!r.ok) return sgNote("err", r.data.error);
+    sgNote("undone", r.data.text);
+  } else if (kind === "redo") {
+    const r = await sgPost("/suggest/redo", {});
+    if (!r.ok) return sgNote("err", r.data.error);
+    sgNote("applied", r.data.text);
+  }
+}
+function sgShowDiff(d) {
+  S.sg.show = d; S.sg.src = false; S.scriptOpen = true; S.scriptWhole = false;
+  const first = (d.targets && d.targets[0] && d.targets[0].file) || (d.files[0] && d.files[0].file);
+  if (first) S.file = first;
+  schedule("script");
+}
+// The try's plan shown in place of the resolve it was made on, compared with it, marked "try, not written".
+function showTry(res) {
+  S.docs.set(res.id, {id: res.id, doc: res.doc, texts: res.texts, changed: [], timing: res.timing, reused: "", notes: []});
+  S.try = {id: res.id, base: res.base, suggestion: res.suggestion, cleared: res.cleared, gained: res.gained, lost: res.lost, moved: res.moved, score: res.score, applied: res.applied};
+  S.follow = false; stopPlay();
+  S.shownId = res.id; S.live = null; S.liveQ = []; S.texts = res.texts; S.changed = []; S.stale = false; S.error = null; S.status = "try";
+  S.replay = null; S.sel = null; S.marked = new Set();
+  setCompare(res.compare);
+  if (!narrow()) goTab("compare");
+  schedule("all");
+}
+function leaveTry() {
+  const id = S.try && S.try.id; S.try = null; S.follow = true;
+  if (id != null) S.docs.delete(id);
+  if (S.latestId != null && S.docs.has(S.latestId)) showResolve(S.latestId, null);
+  else schedule("all");
+}
+const lastApplied = () => { for (let i = S.applied.length - 1; i >= 0; i--) if (!S.applied[i].undone) return S.applied[i]; return null; };
+function renderSgBar() {
+  const el = $("#sgbar"), g = S.sg, r = S.try, n = g.note;
+  let h = "";
+  if (g.busy) h = '<i class="spin"></i><span>Trying: <b>' + esc(g.busy.text) + "</b> (the edited script is resolved; nothing is written)</span>";
+  else if (r) {
+    const sc = r.score;
+    h = pill("try, not written", "warn") + "<b>" + esc(r.suggestion.text) + "</b>" + pill(r.cleared ? "finding cleared" : "finding not cleared", r.cleared ? "good" : "bad") +
+      "<span>" + val(r.gained.length + " gained", r.gained.length ? "bad" : "") + ", " + val(r.lost.length + " lost", r.lost.length ? "good" : "") + " findings</span>" +
+      "<span>" + r.moved + (r.moved === 1 ? " item" : " items") + " moved</span>" + (sc ? "<span>score " + sc.a + " to " + sc.b + " (" + val((sc.delta > 0 ? "+" : "") + sc.delta, sc.delta < 0 ? "good" : sc.delta > 0 ? "bad" : "") + ", lower is better)</span>" : "") +
+      '<button data-sg="viewdiff">Show diff</button>' + (S.canApply ? '<button data-sg="apply" data-sid="' + esc(r.suggestion.id) + '">Apply</button>' : "") + '<button data-sg="back">Back to the plan</button>';
+  } else if (n) {
+    h = n.kind === "err" ? pill("not done", "bad") + "<span>" + esc(n.text) + "</span>" : pill(n.kind, "good") + "<b>" + esc(n.text) + "</b>" + (n.kind === "applied" && S.canApply ? '<button data-sg="undo">Undo</button>' : "") + (n.kind === "undone" && S.canApply && S.redo ? '<button data-sg="redo">Redo</button>' : "");
+    h += '<button class="sgx" data-sg="dismiss" aria-label="dismiss">&times;</button>';
+  }
+  el.hidden = !h; el.innerHTML = h;
+}
+// The dialog's bar and body while a suggestion's diff is shown: what it changes, Apply and Cancel, the declarations it names.
+function renderSgDialog() {
+  const bar = $("#sgdlg"), sh = S.sg.show;
+  bar.hidden = !(S.scriptOpen && sh);
+  if (bar.hidden) return false;
+  const sid = sh.id;
+  bar.innerHTML = pill("dry run", "warn") + "<b>" + esc(sh.text) + '</b><span class="dim">nothing is written</span>' +
+    (S.canApply && !S.try ? '<button data-sg="apply" data-sid="' + esc(sid) + '">Apply</button>' : "") + (S.sg.src ? '<button data-sg="diffview">Diff</button>' : "") + '<button data-sg="cancel">Cancel</button>' +
+    (sh.targets || []).map(tg => '<button data-sgline="' + esc(tg.file + ":" + tg.line) + '" title="' + esc(tg.role) + '">' + esc(tg.key) + " " + esc(tg.file) + ":" + tg.line + "</button>").join("");
+  return !S.sg.src;
+}
+function sgClick(e) {
+  const m = e.target.closest && e.target.closest("[data-sgmore]");
+  if (m) { e.stopPropagation(); const k = +m.dataset.sgmore; if (S.sg.more.has(k)) S.sg.more.delete(k); else S.sg.more.add(k); schedule("findings", "card", "steps"); return; }
+  const l = e.target.closest && e.target.closest("[data-sgline]");
+  if (l) { e.stopPropagation(); const [file, n] = [l.dataset.sgline.replace(/:\d+$/, ""), +l.dataset.sgline.replace(/^.*:/, "")]; S.sg.src = true; openScript(file, n); return; }
+  const b = e.target.closest && e.target.closest("[data-sg]");
+  if (!b) return;
+  e.stopPropagation(); e.preventDefault();
+  const a = b.dataset.sg;
+  if (a === "dismiss") { S.sg.note = null; schedule("sgbar"); }
+  else if (a === "back") { leaveTry(); schedule("sgbar"); }
+  else if (a === "cancel") { S.sg.show = null; S.sg.src = false; closeScript(); }
+  else if (a === "diffview") { S.sg.src = false; schedule("script"); }
+  else if (a === "viewdiff") { if (S.try) sgShowDiff(S.try.applied); }
+  else sgAct(a, b.dataset.sid);
+}
+document.addEventListener("click", sgClick, true);
 
 // ---------------------------------------------------------------- notes
 // A note (notes.py) is a record the studio sends: {id, at, from, script, description, target: null | {kind: "point", x, y} |

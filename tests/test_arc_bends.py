@@ -90,14 +90,14 @@ def test_a_leg_too_short_for_the_two_arcs_at_its_ends_is_a_misfit_though_each_fi
     pieces, misfits = round_corners(pts, R)
     assert len(misfits) == 1
     m = misfits[0]
-    assert "(10.00, 0.00)" in m and "(10.00, 1.50)" in m and "1.50 mm" in m
+    assert "(10.00, 0.00)" in str(m) and "(10.00, 1.50)" in str(m) and "1.50 mm" in str(m)
     # each corner alone fits
     assert round_corners(pts[:3], R)[1] == [] and round_corners(pts[1:], R)[1] == []
 
 
 def test_a_first_leg_shorter_than_the_arc_takes_is_a_misfit():
     _, misfits = round_corners([L(0, 0), L(0.5, 0), L(0.5, 10)], R)
-    assert len(misfits) == 1 and "0.50 mm" in misfits[0]
+    assert len(misfits) == 1 and "0.50 mm" in str(misfits[0])
 
 
 def test_a_leg_exactly_the_two_tangent_lengths_fits_with_no_straight_between():

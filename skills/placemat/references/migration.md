@@ -5,7 +5,60 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## Unreleased
+## To 0.92.0
+
+### New
+
+- **Suggestions can edit inside a call and in several places at once.** An edit may go into an argument that is a call (a
+  `Beside`'s `gap=` or side, a `Past`'s `across=`, a `Cutout`'s `at=`, one axis of an intent `Centre`) and a suggestion
+  carries `edits`, a list made together or not at all, with one applied-log entry and one undo; its `how` says how it was
+  found. `run.json`'s and `preview --json`'s suggestions have `edits` and `how` where they had `edit`; a record that has
+  `edit` still reads. The outline (`rect`, `disc`, `outline`), a `row` and a `block` are declarations a suggestion can edit.
+- **The editing engine has the operations a board builder needs.** `apply_edits` (the body of `apply_suggestion`, for
+  edits that come from a person), `redo_last`, and the ops `create_file`, `ensure_import`, `remove_constant`,
+  `move_statement`, `confirm_facts` and region inserts; `script_edit.read_intent` and `script_edit.skeleton`;
+  `facts.confirmed_text`. An applied-log entry may have `before: null` (a created file) and a `source`.
+- **`Centre(..., coordinates=True)` marks a coordinate.** `coordinates=False` is the default and is never written. A number on
+  a `Centre` axis without the flag is still accepted in this release and gives a `setup` warning
+  (`setup.centre_coordinates`); the next release refuses it. Writing `coordinates=False` is a `setup` notice.
+- **The studio page reads findings' facts, not their sentences.** An unplaced item's card, row and finding show why, the radius searched,
+  what refused it (a count per kind and the parts that did most of it) from the finding's `cause` and `facts`; a step's rank and the pocket
+  it took come as data (`rank`, `rank_of`, `pocket`, `lock` on steps and items); the engine's own words for a refusal, an owner, a slide or
+  a turn come with the facts as `text`. What a step's note alone says (seeds, slides, vias, pushes, the rank's measures) is still read from
+  the note until the engine records it as data.
+- **Findings carry suggestions: changes to the layout script that may clear them.** `run` and `preview` print the
+  best one under each critical or warning finding (`try s3a: Place c4 beside c1, on its north side`) and the ids of
+  the others; `run.json`'s `finding_details[i]` and `preview --json` give each finding its `cause`, its `facts` and its `suggestions`
+  (`id`, `text`, `rank`, `lever`, the `edit` as data, and the `digests` of the files it writes). Every suggestion is a
+  relation, a keyword or a setting, never a coordinate; a number it writes is a named constant with a comment. A
+  record without the fields reads as none. `api.md`, "Findings and severities", has the shape and the causes.
+- **A finding is data and its sentence is rendered from it.** A finding has a `kind`, a `cause`, the `facts` its site
+  measured and `facts_v`, the version of that cause's facts; `run.json`'s `finding_details[i]` and `preview --json` carry
+  all of them beside the `text`, which reads the same as before. The reuse record stores findings as facts and is under
+  a digest of every cause's facts version, so a release that changes a cause's facts replays nothing. A refusal (why a
+  spot was refused) is data too: `refusals.Refusal`, with a code and facts. Suggestions that multiplied a limit by a
+  factor (a wider search radius, `place.via_move`, a finer step) are gone with `[studio] suggest_factor`: a number a
+  suggestion writes is a figure the finding measured.
+- **`placemat apply <id> [--script PATH] [--dry-run] [--undo]`** makes a suggestion's edit: `--dry-run` prints the
+  diff and writes nothing; otherwise the file is written atomically and logged in `.placemat/applied.jsonl`, and
+  `--undo` puts back the last apply that has not been undone, if the files are still as it left them. It refuses,
+  and writes nothing, when the script changed since the run or preview that made the suggestion. `run` and `preview`
+  keep the plan's suggestions in `.placemat/suggestions.json` for it.
+- Settings `[studio] suggestions_per_lever` (3), `try_timeout_s` (60), and `apply` (true),
+  none part of a run's id. Scripts change nothing.
+- **The studio redoes an undone apply, and Show lists every file a suggestion edits.** `POST /suggest/redo` (token-guarded, allowed over
+  `--host`, refused with `[studio] apply = false`) makes again the apply the last undo took back; the page offers Redo beside Undo. A
+  suggestion with several edits shows its diff across all its files, each under its name. The page reads a suggestion's `edits` and `how`
+  (instant, or searched: its "Search options" button is not built yet).
+- **The studio shows, tries, applies and undoes a finding's suggestions.** Each finding row, the card and the step rows show
+  the best suggestion with "more (n)"; Show opens its diff in the script dialog, Try resolves the edited script in the
+  worker (read from an overlay, nothing written) and shows it as a compare marked "try, not written" - whether the
+  finding cleared, findings gained and lost, items moved, the score change - Apply writes the file and the watcher
+  resolves again, and Undo puts the last apply back, refusing when the file moved on. `POST /suggest/show|try|apply|undo`
+  take `{resolve, id}`; apply and undo are allowed over `--host` and `[studio] apply = false` refuses writing. A
+  history row of a resolve that followed an apply reads "applied from a suggestion: ...".
+- **`libcst` is a runtime dependency** (`libcst>=1.0`), for the script edits. A board project's environment installs
+  it with placemat.
 
 ### Changed
 

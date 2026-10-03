@@ -42,8 +42,11 @@ class Console:
         print("%s  %s %s" % (stamp, label, body), file=self.stream, flush=True)
 
     def finding(self, f, stage: str = "finding"):
-        """One finding as `[severity] sentence`, coloured by its severity."""
+        """One finding as `[severity] sentence`, coloured by its severity, and under a critical or warning one the
+        suggestion that may clear it (`try s3a: ...`) and the ids of the others."""
         self.say(stage, f.line(), level=f.severity)
+        for line in getattr(f, "try_lines", lambda: [])():
+            self.say(stage, line, level=f.severity)
 
     def lines(self, stage: str, text: str, *, level: str | None = None):
         """A multi-line message, every line stamped and labelled."""

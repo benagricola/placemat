@@ -35,6 +35,10 @@ another part - and placemat works out the coordinate. A script that
 computes its own positions is a coordinate file that placemat happens to
 read.
 
+A number on a `Centre` axis is a coordinate: write `Centre(30, 12, coordinates=True)` for a deliberate one, or place by a
+relation (`Beside`, `OnEdge`, `Centre(X(pad), Y(pad))`). `coordinates=False` is the default: never write it. A suggestion
+never writes a number into a `Centre` or a `Location` and never sets `coordinates=True`.
+
 A script must not:
 - do arithmetic on a coordinate to decide where a part, a via or a track
   goes: `X(ref, computed_offset)`, `Y(ref, computed_offset)`, a `Location`
@@ -261,6 +265,16 @@ model into declarations.
    the `best` line and the finding name the term. The best arrangement is
    in `.placemat/runs/best.json`; the edit just made is the one that lost
    ground.
+   Under a critical or warning finding a `try <id>: ...` line is a suggested
+   change to the script (`run.json`'s `finding_details[i].suggestions` has
+   them all, with the edit as data). `placemat apply <id> --dry-run` prints
+   its diff, `placemat apply <id>` writes it, `placemat apply --undo` puts
+   the last one back. A number a suggestion writes is a named constant with
+   a comment saying where it came from: keep the comment. The run after it
+   says whether the finding cleared (`api.md`, "Findings and severities"). In the studio each finding row
+   shows its best suggestion with Show (the diff), Try (the edited script resolved and compared, nothing written:
+   did the finding clear, what else moved) and Apply; to check a suggestion without writing it, ask the user to Try
+   it there, or `POST /suggest/try` (`api.md`, "Studio").
 3. **Between runs, look with `placemat preview`**: the same placement in
    seconds, drawn, without the write, DRC and render. A whole board
    answers layout questions (free space, a cluster, a red over-limit link,
@@ -544,6 +558,11 @@ shapes and files: `references/api.md`, "Live progress".
 
 ## When a track or a placement fails
 
+- A finding may carry suggestions: `finding_details[i].suggestions` in `run.json` (and the `try s3a: ...` line under
+  a critical or warning finding). Read the finding as a claim about the script first, then the suggestions as
+  candidates: `placemat apply s3a --dry-run` shows the diff, `placemat apply s3a` writes it (`--undo` puts back the
+  last one), and the next run decides whether the finding cleared. A suggestion that writes a number names it as a
+  constant with a comment; keep the comment. `api.md`, "Findings and severities", has the cases.
 - Read the finding as a claim about the script first. A track that hits a
   pad may have a waypoint steering it there (the run says so when pad to
   pad would clear), or its ends may be placed so no clean route exists, or

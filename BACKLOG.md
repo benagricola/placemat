@@ -6,6 +6,49 @@ file. An item cites its source as "a board's session, <date>".
 
 ## In progress
 
+- **Beside stops at the first legal contact** (a board's session, 2026-10-03):
+  Beside fits against the neighbour's envelope shapes (a pin-1 dot no longer
+  holds a part off a whole side) and stops at the first contact with anything
+  already placed in its path, so nothing nearby is met.
+
+## Next, in order
+
+Specced work first, then the loose ends.
+
+1. **Suggestions phase 6: searched suggestions** (spec above): the probe,
+   `placemat apply --search`, the studio's "Search options".
+2. **Studio round 10: routing progress and a whole-build replay** (studio
+   spec, "Live channel"): per-net events from the router through hooks, the
+   route record in laid order, the timeline running from first placement to
+   last routed net.
+3. **Board builder** (spec `2026-10-03-studio-board-builder-design.md`).
+4. **Studio 3D with live models** (spec `2026-10-03-studio-3d-design.md`).
+5. **Suggestions phase 7: the improve loop** (recommended in the suggestions
+   work; needs a short design): instant suggestions tried on an overlay,
+   kept when the score improves, before explore runs.
+6. **Step notes as data**: `Step.note` is still a log line; make it records
+   (why a part slid, stopped short or moved off its hint, vias taken, pushes,
+   pockets), give cleanup moves and swaps a cause and `moved_mm`, record a
+   cause for block slides and searched moves that have none, then remove the
+   studio's TEMPORARY parsers (noteParts, movedRows, joinVias, pushLine).
+7. **Studio: through-hole pads switch with the layer rows** of the legend.
+8. **`row(of=)` fits against envelope shapes** as Beside does.
+9. **The pure-Python refusal cost** (+20% measured once): build refusal facts
+   lazily on the pure-Python path.
+10. **A possibly flaky native parity test**
+    (`test_native_legal` SlotControl-physical failed once): find the cause or
+    show it cannot recur.
+11. **Refresh `tests/slow_tests.txt`** from a full single-process run on a
+    quiet machine.
+12. **Refuse numeric `Centre` axes** without `coordinates=True`, one release
+    after the warning ships.
+13. **Remove `Facts.role`** (unused).
+14. **The router's DRC misses a track wholly inside a filled footprint
+    polygon** (the router checkout, local only).
+15. **U21 pin 14 (SCL)**: the walled check finds a channel south of its stub;
+    the user is checking it by eye. If the channel is not usable, find what
+    the check does not model.
+
 ## Open
 
 - **Arc corners on a pair** (the arc-bends work, 2026-10-02): `board.pair`
@@ -245,6 +288,11 @@ file. An item cites its source as "a board's session, <date>".
   `placemat-greenfield` worktrees are stale.
 
 ## Done
+
+- **Finding suggestions, phases 1-5** (0.92.0; spec `2026-10-02-finding-suggestions-design.md`):
+  structured findings, the splicing edit engine, `placemat apply`, the studio's
+  Show/Try/Apply/Undo/Redo, the Centre coordinates flag; the escape-lane
+  own-layer rule.
 
 - **Walled lanes and pockets over vias** (0.91.1; a board's session,
   2026-10-03): a pin whose own copper ends against another part is reported

@@ -52,6 +52,7 @@ import math
 
 from .copper import Track
 from .geometry import point_in_polygon, point_segment_distance
+from .refusals import Code, Refusal
 from .values import Box, CopperLayer, Face, Location
 
 _COPPER_AND_HOLES = frozenset(("pad", "through", "copper", "hole", "npth"))
@@ -171,12 +172,12 @@ class Resolution:
     actions, their cost, or why one cannot give way."""
     actions: list = field(default_factory=list)
     cost: float = 0.0
-    why: str | None = None
+    why: "Refusal | None" = None
     blocker: object = None
-    # A sentence naming the if-needed fab option that would have cleared this
-    # spot, judged but never applied - set only when that is why the give
-    # way that refused this candidate could not go through for real.
-    needs: str | None = None
+    # The if-needed fab option that would have cleared this spot (a Refusal of
+    # code option_via), judged but never applied - set only when that is why the
+    # give way that refused this candidate could not go through for real.
+    needs: "Refusal | None" = None
 
 
 def _shift(s, dx: float, dy: float):
@@ -436,9 +437,10 @@ def _is_tail(s) -> bool:
     return s.kind == "copper" and s.wire and bool(s.carried or s.given)
 
 
-def _where(s) -> str:
+def _where(s) -> list:
+    """The two ends of a carried track, as [[x, y], [x, y]]."""
     (ax, ay), (bx, by) = s.points if len(s.points) == 2 else ((s.box.left, s.box.top), (s.box.right, s.box.bottom))
-    return "%s track from (%.2f, %.2f) to (%.2f, %.2f)" % (s.net or "-", ax, ay, bx, by)
+    return [[ax, ay], [bx, by]]
 
 
 class _Judge:
@@ -459,9 +461,9 @@ class _Judge:
         return out + [o for o in self.extra if o.box.overlaps(box, gap=gap)]
 
     def hit(self, shapes, pool, own=(), say: bool = True):
-        """(sentence, what it met) for the first of `shapes` that meets
+        """(refusal, what it met) for the first of `shapes` that meets
         anything in `pool` (from `near`) or `own`, or None. A via's ring is
-        judged against the board's edge too. `say=False`: the sentence is
+        judged against the board's edge too. `say=False`: the refusal is
         only the kind of conflict."""
         occ = self.occ
         for s in shapes:
@@ -480,11 +482,11 @@ class _Judge:
                 why = occ._edge_why(s.box)
                 if why:
                     c = _centre(s)
-                    return "via %s at (%.2f, %.2f): its ring %s" % (s.net or "-", c[0], c[1], why), None
+                    return Refusal(Code.VIA_RING_EDGE, net=s.net, at=[c[0], c[1]], edge=why), None
             if _is_tail(s) and occ.edge_margin is not None:
                 why = occ._edge_why(s.box)
                 if why:
-                    return "%s: its track %s" % (_where(s), why), None
+                    return Refusal(Code.TRACK_EDGE, net=s.net, ends=_where(s), edge=why), None
         return None
 
     def vias(self, net: str, centre: tuple, reach: float, home: str) -> list:
@@ -604,8 +606,8 @@ def _shorten(occ, g: Group, judge: "_Judge", own, layer, met: str):
     """(Action, note, hint) for a drop reshaped to its own face and the nearest
     layer of its own plane, when the fab profile allows drawing it for
     real; (None, note, hint) when it is only judged (if-needed) or not
-    possible at all - `note` names the span an if-needed tier would have
-    used, else None; `hint` says a shorter via would clear it but the tier
+    possible at all - `note` (a Refusal) names the span an if-needed tier would
+    have used, else None; `hint` says a shorter via would clear it but the tier
     is "no", else None."""
     from .board_geometry import stackup_order
     s, geo = occ.settings, occ.geometry
@@ -631,10 +633,9 @@ def _shorten(occ, g: Group, judge: "_Judge", own, layer, met: str):
     pool = judge.near(Box.union([x.box for x in shapes]), occ._gap)
     would_clear = judge.hit(shapes, pool, own, say=False) is None
     if tier == "no":
-        return None, None, ("a %s via from %s to %s would clear this; the fab profile does not allow %s vias" % (
-            kind, span[0].value, span[-1].value, kind)) if would_clear else None
-    note = "a %s via shortened to %s-%s (via.%s is if-needed in fab-profile.json)" % (
-        kind, span[0].value[:-3], span[-1].value[:-3], kind) if would_clear else None
+        return None, None, Refusal(Code.SHORTER_VIA_REFUSED, via=kind, from_layer=span[0].value,
+                                   to_layer=span[-1].value) if would_clear else None
+    note = Refusal(Code.OPTION_VIA, via=kind, from_layer=span[0].value, to_layer=span[-1].value) if would_clear else None
     if tier == "yes" and would_clear:
         return Action("shorten", g.id, g.owner, g.home, g.net, g.centre, g.centre, None, None, None, met,
                       s.score_via_shorten, shapes), None, None
@@ -759,7 +760,7 @@ def _widest(judge: "_Judge", g: Group, mine: list, at: tuple, tail, pool=None):
 
 def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: dict, first=None, field=None):
     """(Action, why not, needs) for the first way `g` can give way, else
-    (None, why not, an if-needed note or None), judged against `judge` and
+    (None, why not - a list of Refusals, an if-needed note (a Refusal) or None), judged against `judge` and
     the item's own copper `own`. `first`: the copper it met, which a move is
     judged against before the rest. `field`: what a relay of the via's field reads
     (giveway_field.Ctx), or None."""
@@ -791,9 +792,8 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
                 continue
             return Action("share", g.id, g.owner, g.home, g.net, g.centre, c, track, old, pad_key, met,
                           s.score_via_share, (shape,), target), None, None
-        said.append("no %s via within %.2f mm to share" % (g.net, s.place_via_share_distance) if not targets else
-                    "no tail to the %s via%s within %.2f mm is clear" % (g.net, "s" if len(targets) > 1 else "",
-                                                                         s.place_via_share_distance))
+        said.append(Refusal(Code.NO_VIA_TO_SHARE, net=g.net, reach_mm=s.place_via_share_distance) if not targets else
+                    Refusal(Code.NO_CLEAR_TAIL, net=g.net, n=len(targets), reach_mm=s.place_via_share_distance))
     if s.place_via_move_distance > 0:
         tail = None if g.tail is None else (g.far, next(iter(g.tail.layers)), (_width(g.tail),))
         found = _find_move(occ, g, judge, own, first, s.place_via_move_distance, pad if inside else None, tail)
@@ -802,7 +802,7 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
             to, moved, track = _moved(g, dx, dy, tail, width)
             return Action("move", g.id, g.owner, g.home, g.net, g.centre, to, track, old, pad_key, met,
                           s.score_via_move, tuple(moved)), None, None
-        said.append("no spot within %.2f mm%s is clear" % (s.place_via_move_distance, " inside its pad" if inside else ""))
+        said.append(Refusal(Code.NO_SPOT, reach_mm=s.place_via_move_distance, inside=bool(inside)))
     if inside:
         relaid = giveway_field.relay(occ, g, judge, own, who, pad_key, pad, met, field)
         if relaid is not None:
@@ -817,7 +817,7 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
             to, moved, track = _moved(g, dx, dy, tail, width)
             return Action("leave", g.id, g.owner, g.home, g.net, g.centre, to, track, None, pad_key, met,
                           s.score_via_leave, tuple(moved)), None, None
-        said.append("no spot within %.2f mm is clear to leave its pad by a tail" % s.place_via_leave_distance)
+        said.append(Refusal(Code.NO_SPOT_LEAVE, reach_mm=s.place_via_leave_distance))
     needs = None
     if g.net in occ.plane_nets:
         action, note, hint = _shorten(occ, g, judge, own, layer, met)
@@ -827,11 +827,11 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
             said.append(hint)
         if note is not None:
             needs = note
-            said.append("no spot; it places with %s" % note)
+            said.append(Refusal(Code.PLACES_WITH, note=note))
     if g.net not in occ.plane_nets:
-        said.append("%s is not a plane net, so it is no drop" % g.net)
+        said.append(Refusal(Code.NOT_A_PLANE_NET, net=g.net))
     elif pad_key is None:
-        said.append("it serves no pad of its own")
+        said.append(Refusal(Code.SERVES_NO_PAD))
     else:
         n, keep = who.keeps(pad_key)
         gone = who.dropped.get(pad_key, 0) + drops_now.get(pad_key, 0) + giveway_field.relay_loss(field, who, g, pad_key)
@@ -839,9 +839,8 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
             drops_now[pad_key] = drops_now.get(pad_key, 0) + 1
             return Action("drop", g.id, g.owner, g.home, g.net, g.centre, None, None, old, pad_key, met,
                           s.score_via_drop, ()), None, None
-        said.append("%s pad %s keeps %d of its %d drops, and must keep %d" % (pad_key[0], pad_key[1], n - gone,
-                                                                              n, keep))
-    return None, ", ".join(said), needs
+        said.append(Refusal(Code.KEEPS_DROPS, pad=list(pad_key), keeps=n - gone, of=n, must=keep))
+    return None, said, needs
 
 
 def _pads(occ, shapes) -> list:
@@ -928,12 +927,10 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
                 continue
             sharer = next((a for a in occ.given_way.values() if a.kind == "share" and a.target == g.id), None)
             if sharer is not None:
-                return _refused(occ, res, "%s; the via %s at (%.2f, %.2f) (%s) cannot give way: the via at "
-                                "(%.2f, %.2f) of %s shares it" % (hit[0], g.net, g.centre[0], g.centre[1],
-                                                                 _owner_name(occ, g), sharer.at[0], sharer.at[1],
-                                                                 _owner_name(occ, Group(sharer.via, sharer.owner,
-                                                                                        sharer.home, sharer.net))),
-                                g.ring)
+                shares = Refusal(Code.SHARED_BY, at=[sharer.at[0], sharer.at[1]],
+                                 by=_owner_name(occ, Group(sharer.via, sharer.owner, sharer.home, sharer.net)))
+                return _refused(occ, res, Refusal(Code.CANNOT_GIVE_WAY, base=hit[0], via=_via_facts(occ, g),
+                                                  why_not=[shares]), g.ring)
             who = owners.get(g.home) or owners.setdefault(g.home, _home_owner(occ, g.home))
             action, why_not, needs = _give(occ, g, judge, [x for x in mine if x.kind in kinds],
                                            who, occ.who(hit[1].owner), drops_placed.setdefault(g.home, {}), hit[1], fctx)
@@ -941,8 +938,8 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
                 res.needs = needs
                 if needs:
                     occ.needs[geom.owners] = needs
-                return _refused(occ, res, "%s; the via %s at (%.2f, %.2f) (%s) cannot give way: %s" % (
-                    hit[0], g.net, g.centre[0], g.centre[1], _owner_name(occ, g), why_not), g.ring)
+                return _refused(occ, res, Refusal(Code.CANNOT_GIVE_WAY, base=hit[0], via=_via_facts(occ, g),
+                                                  why_not=why_not), g.ring)
             if isinstance(action, giveway_field.Relaid):
                 giveway_field.take(res, judge, action)
                 continue
@@ -974,7 +971,7 @@ def resolve(occ, item, placement, clearance=None, others=None) -> Resolution:
                     res.needs = needs
                     if needs:
                         occ.needs[geom.owners] = needs
-                    return _refused(occ, res, "%s; it cannot give way: %s" % (why, why_not), o)
+                    return _refused(occ, res, Refusal(Code.CANNOT_GIVE_WAY, base=why, via=None, why_not=why_not), o)
                 if isinstance(action, giveway_field.Relaid):
                     giveway_field.take(res, judge, action, keep)
                     continue
@@ -1021,13 +1018,18 @@ def for_scan(occ, item, face, rots, region: Box, clearance, native: bool):
     return ScanGiveWay(occ, item, face, rots, region, clearance, native)
 
 
-def _owner_name(occ, g: Group) -> str:
+def _owner_name(occ, g: Group) -> list:
+    """Whose a via is, as a refusal names it: ["via", "(x, y)"] for a script's, ["cell", NAME] or ["part", REF]."""
     if g.owner.startswith("via at "):
-        return g.owner[len("via at "):]
-    return "cell %s" % g.owner if g.owner in occ.geometry.cells else g.owner
+        return ["via", g.owner[len("via at "):]]
+    return ["cell" if g.owner in occ.geometry.cells else "part", g.owner]
 
 
-def _refused(occ, res: Resolution, why: str, o) -> Resolution:
+def _via_facts(occ, g: Group) -> dict:
+    return {"net": g.net, "at": [g.centre[0], g.centre[1]], "of": _owner_name(occ, g)}
+
+
+def _refused(occ, res: Resolution, why: Refusal, o) -> Resolution:
     from .occupancy import Blocker, _blocker_kind
     res.why = why
     res.blocker = Blocker("edge", "", frozenset()) if o is None else \
@@ -1089,10 +1091,11 @@ def undo(occ, via: str) -> None:
 
 
 def report(occ) -> list:
-    """(home, sentence, severity) per item whose carried vias gave way, a clause per
-    net: "6 GND vias shared, 2 moved up to 0.25 mm, 1 dropped under U3". The
-    severity is a notice (placemat did it by design) unless a via was dropped,
-    which leaves fewer vias than were declared: a warning."""
+    """(home, facts, severity) per item whose carried vias gave way: `nets`, an entry per net with its `parts` (how many of
+    each kind of giving way, and how far the moves went), the items it went `under` and the pads that `held` fewer vias
+    (finding_text.vias_note says "6 GND vias shared, 2 moved up to 0.25 mm, 1 dropped under U3"), and the `fields` a
+    relay re-laid. The severity is a notice (placemat did it by design) unless a via was dropped, which leaves fewer vias
+    than were declared: a warning."""
     from . import giveway_field
     by: dict = {}
     for a in occ.given_way.values():
@@ -1101,25 +1104,22 @@ def report(occ) -> list:
         by.setdefault(a.home, {}).setdefault(a.net, []).append(a)
     out = []
     for home in sorted(by):
-        said = []
+        nets = []
         severity = "warning" if any(a.kind == "drop" for acts in by[home].values() for a in acts) else "notice"
         for net in sorted(by[home]):
             acts = by[home][net]
             parts = []
-            for kind, verb in (("share", "shared"), ("move", "moved"), ("route", "re-routed"), ("leave", "left its pad"), ("shorten", "shortened"), ("drop", "dropped")):
+            for kind in ("share", "move", "route", "leave", "shorten", "drop"):
                 done = [a for a in acts if a.kind == kind]
                 if not done:
                     continue
+                part = {"kind": kind, "n": len(done)}
                 if kind in ("move", "route"):
-                    far = max(a.moved_mm for a in done)
-                    verb += (" %.2f mm" if len(done) == 1 else " up to %.2f mm") % far
-                n = len(done)
-                parts.append(("%d %s via%s %s" % (n, net, "" if n == 1 else "s", verb)) if not parts else
-                             "%d %s" % (n, verb))
-            under = sorted({a.under for a in acts if a.under})
-            said.append(", ".join(parts) + (" under %s" % ", ".join(under) if under else "")
-                        + giveway_field.held_note(occ, home, acts))
-        out.append((home, "; ".join(said), severity))
+                    part["moved_mm"] = max(a.moved_mm for a in done)
+                parts.append(part)
+            nets.append({"net": net, "parts": parts, "under": sorted({a.under for a in acts if a.under}),
+                         "held": giveway_field.held_pads(occ, home, acts)})
+        out.append((home, {"nets": nets, "fields": []}, severity))
     return giveway_field.merged(out, occ)
 
 
@@ -1216,5 +1216,4 @@ def _give_routed(occ, g: Group, judge: "_Judge", own, who: _Owner, met: str):
         old = tuple((tuple(x.points[0]), tuple(x.points[1])) for x in g.legs)
         return Action("route", g.id, g.owner, g.home, g.net, g.centre, to, None, None, pad_key, met,
                       s.score_via_route, tuple(moved), tracks=tuple(tracks), old_tracks=old), None, None
-    return None, "no spot within %.2f mm%s is clear with its %d tracks rebuilt" % (
-        limit, " inside its pad" if inside else "", len(chains)), None
+    return None, [Refusal(Code.NO_SPOT_ROUTED, reach_mm=limit, inside=bool(inside), tracks=len(chains))], None

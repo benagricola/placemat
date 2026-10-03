@@ -183,7 +183,18 @@ class Resolved:
 
 @contextmanager
 def resolved(script, out=None, explore=None, quiet: bool = False, progress=None, on_step=None, on_begin=None, cache=None,
-             on_board=None, fresh: bool = False):
+             on_board=None, fresh: bool = False, overlay=None):
+    """`_resolved` with `overlay` ({path: text}), when given, read in place of those files on disk and nothing written: the
+    studio's try of a suggestion. The last record is replayed from as ever; the try writes none of its own."""
+    from . import context
+    with context.overlay(overlay):
+        with _resolved(script, out, explore, quiet, progress, on_step, on_begin, cache, on_board, fresh, keep_record=not overlay) as r:
+            yield r
+
+
+@contextmanager
+def _resolved(script, out=None, explore=None, quiet: bool = False, progress=None, on_step=None, on_begin=None, cache=None,
+              on_board=None, fresh: bool = False, keep_record: bool = True):
     """Place the board as a run does - the cached generation, the settings,
     the fab profile, the script, the newest of the last view's record and the
     last run's replayed - and write nothing but this view's own record. The
@@ -252,7 +263,8 @@ def resolved(script, out=None, explore=None, quiet: bool = False, progress=None,
         if kept and not quiet:
             console.say("adopted", kept)
         plan.reuse["parts"] = parts
-        reuse_mod.write(out / "reuse.json", plan.reuse)
+        if keep_record:
+            reuse_mod.write(out / "reuse.json", plan.reuse)
         yield Resolved(src, cfg, board, plan, previous, source, parts, out, stale)
 
 

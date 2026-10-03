@@ -17,7 +17,7 @@ from .board_geometry import CellGeom, Footprint, members_of
 from .placement import Placement
 from .values import Face, Freedom, Location, Priority
 
-VERSION = 2                 # of the record's format: 2 records the items a step names (a block's members)
+VERSION = 3                 # of the record's format: 2 records the items a step names (a block's members); 3 stores findings as facts
 
 
 def omitted(obj, f) -> bool:
@@ -102,7 +102,8 @@ def context_key(board, extra: str = "") -> str:
     board file digest, settings and fab profile), the generated board, and
     every declaration that is not a placement - or, with the solve on, every
     placement and link too, because the solve reads them all."""
-    parts = [extra, _geometry_digest(board.geometry), placement_settings(board.settings),
+    from .finding_text import schemas_digest
+    parts = [extra, schemas_digest(), _geometry_digest(board.geometry), placement_settings(board.settings),
              canonical([board.courtyard_excess, board.component_spacing, board.edge_margin, board.clearance,
                         board.via_drill, board.via_size, board.keep_going]),
              canonical([board._copper, board._labels, board._rules, sorted(board._free_nets), board._outline,
@@ -153,7 +154,8 @@ def step_to_json(s) -> dict:
     return {"item": s.item, "kind": s.kind, "priority": s.priority.value if s.priority is not None else None,
             "placement": placement_to_json(s.placement), "moved_mm": s.moved_mm, "note": s.note, "why": s.why,
             "ops": s.ops, "freedom": s.freedom.value if s.freedom is not None else None,
-            "rank": s.rank, "rank_of": s.rank_of, "back_face": s.back_face, "laid": list(s.laid)}
+            "rank": s.rank, "rank_of": s.rank_of, "back_face": s.back_face, "laid": list(s.laid),
+            "unplaced": s.unplaced, "lock": s.lock, "pocket": s.pocket}
 
 
 def step_from_json(d):
@@ -161,7 +163,8 @@ def step_from_json(d):
     return Step(d["item"], d["kind"], Priority(d["priority"]) if d["priority"] is not None else None,
                 placement_from_json(d["placement"]), d["moved_mm"], d["note"], d["why"], d["ops"],
                 Freedom(d["freedom"]) if d["freedom"] is not None else None, d["rank"], d["rank_of"],
-                back_face=d.get("back_face", False), laid=tuple(d.get("laid", ())))
+                back_face=d.get("back_face", False), laid=tuple(d.get("laid", ())), unplaced=d.get("unplaced"),
+                lock=d.get("lock", ""), pocket=d.get("pocket"))
 
 
 # ------------------------------------------------------------ the run
@@ -201,18 +204,22 @@ def read(path):
 
 
 def finding_to_json(f) -> list:
-    return [f.kind, str(f), f.severity]
+    """[kind, cause, severity, facts_v, facts], the kind and the cause in their string forms. The suggestions are not kept:
+    they are a function of the facts and the script, and are built again at the end of every resolve (suggestions.bind)."""
+    return [f.kind.value, f.cause.value, f.severity, f.facts_v, f.facts]
 
 
 def finding_from_json(v):
-    """A stored finding: [kind, text, severity]; without the severity, as a
-    cache from before findings had one kept it, it is the kind's own; a bare
-    sentence, as a cache from before findings had kinds kept it, reads as a
-    setup finding."""
-    from .findings import Finding
-    if isinstance(v, str):
-        return Finding("setup", v)
-    return Finding(v[0], v[1], v[2] if len(v) > 2 else None)
+    """A stored finding: [kind, cause, severity, facts_v, facts]. A cause or a schema version this release does not
+    have cannot be rendered, and reads as no finding: the record is under a context that holds the schema digest, so
+    it is not loaded at all by a release whose schemas differ."""
+    from . import finding_text
+    from .findings import Finding, FindingCause
+    kind, cause_text, severity, facts_v, facts = v
+    cause = FindingCause.parse(cause_text)
+    if cause is None or facts_v != finding_text.facts_version(cause):
+        raise ValueError("a finding of %r under schema %r cannot be rendered by this release" % (cause_text, facts_v))
+    return Finding(cause, facts, severity)
 
 
 # ------------------------------------------------------------ the partial log

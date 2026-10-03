@@ -27,7 +27,7 @@ def test_a_gap_under_the_limit_never_reads_as_the_limit(gap, need, want):
 def test_the_copper_finding_for_a_leg_just_inside_the_clearance_shows_the_shortfall():
     plan = _board(20.0 + 0.225 + 0.127 + 0.1986)
     assert plan.occupancy.copper_conflicts(_leg(plan))
-    words = " ".join(plan.occupancy.copper_conflicts(_leg(plan)))
+    words = " ".join(str(w) for w in plan.occupancy.copper_conflicts(_leg(plan)))
     m = re.search(r"is ([0-9.]+) mm from .*\(needs ([0-9.]+)", words)
     assert m and float(m.group(1)) < float(m.group(2)), words
 
