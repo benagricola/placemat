@@ -671,7 +671,7 @@ def cmd_route(args) -> int:
                                  quick=not args.full, iterations=args.iterations, islands=islands,
                                  resume=not args.no_resume, board_info={"script": str(p)} if src is not None else {})
         except Exception as e:
-            channel.error("%s: %s" % (type(e).__name__, e))
+            channel.exception(e)
             raise
         channel.finish(getattr(report, "record", None) or None)
     if args.json:
@@ -1230,12 +1230,12 @@ def _search(args, board_dir, script, entry) -> int:
         result, found = probe.search(s, board_dir, script, cfg, emit=emit, say=lambda t: console.say("probe", t))
     except probe.ProbeRefused as e:
         console.say("probe", str(e), level="fail")
-        channel.error(str(e))
+        channel.error("probe_refused", **e.record)
         channel.finish()
         return 1
     except sg.SuggestionError as e:
         console.say("probe", str(e), level="fail")
-        channel.error(str(e))
+        channel.exception(e)
         channel.finish()
         return 1
     except stop.Stopped as stopped:

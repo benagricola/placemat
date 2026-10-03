@@ -8,6 +8,10 @@ agent - look in that folder and connect to whichever they want. One that connect
 `board`, `item`, `begin`, `plan`, for an explore `explore`, `variant` and `explore_done`, for a probe of a searched suggestion `probe`, `candidate` and `probe_done`, and at the end `done` (the
 record's path) or `error`.
 
+What is sent is records, never sentences: an event is numbers, names, enums and the facts of what happened (a step's `notes`, an
+`error`'s `kind` and fields), and `describe` and the studio (present.py) are the places that turn them into words. `FORMAT` is the
+version of that: `hello` carries it, and a reader that finds none reads format 1, which had sentences in `item`, `error` and `route_off`.
+
 The command never waits on a reader: each has a bounded queue that drops what does not fit, and a reader that goes
 away is dropped. Its events are also mirrored, in short form, into an append-only progress file flushed as it goes, so a
 command that dies leaves its last state; it is read only for a command that ended or died, never as the live feed. A
@@ -28,6 +32,7 @@ import threading
 import time
 
 SOCKETS = (".placemat", "sockets")
+FORMAT = 2                          # of the events: 2 has records where 1 had sentences (item `note`, error `message`, route_off `why`, probe `text`)
 QUEUE_SIZE = 256                    # a reader's events beyond its catch-up
 MAX_LOG = 6000                      # events kept for a catch-up
 MAX_ROUTE_LOG = 60000               # a route's events (its copper, net by net) kept for a catch-up: far more of them, each small
@@ -214,7 +219,8 @@ def compact(ev: dict):
         return {k: ev[k] for k in ("ev", "kind", "item", "what", "rank", "of", "replaying", "n", "items", "searched", "copper", "at") if k in ev}
     if kind == "item":
         it = ev.get("item") or {}
-        return {"ev": "item", "key": it.get("key"), "kind": it.get("kind"), "placed": it.get("placed"), "note": str(it.get("note", ""))[:160]}
+        return {"ev": "item", "key": it.get("key"), "kind": it.get("kind"), "placed": it.get("placed"), "notes": it.get("notes") or [],
+                **({"unplaced": it["unplaced"]} if it.get("unplaced") is not None else {})}
     if kind == "plan":
         doc = ev.get("doc") or {}
         return {"ev": "plan", "items": len(doc.get("items", ())), "findings": len(doc.get("findings", ())), "copper": len(doc.get("copper", ()))}
@@ -271,7 +277,7 @@ class Beacon:
     def __init__(self, root, board_dir, hello: dict, progress=None):
         self.root, self.board_dir = Path(root), Path(board_dir)
         self.directory = sockets_dir(self.root)
-        self.hello = dict(hello, ev="hello")
+        self.hello = dict(hello, ev="hello", format=FORMAT)
         self.pid = os.getpid()
         self.lock = threading.Lock()
         self.log: list = []
@@ -384,9 +390,10 @@ class Beacon:
         except (OSError, ValueError):
             self._progress = None
 
-    def error(self, message: str, file: str = "", line=None) -> None:
+    def error(self, kind: str, file: str = "", line=None, **fields) -> None:
+        """The command failed: an `error` event of this `kind` (`failure_text` says what each is) and its fields."""
         self.error_sent = True
-        self.send({"ev": "error", "message": message, "file": file, "line": line})
+        self.send({"ev": "error", "kind": kind, "file": file, "line": line, **fields})
 
     def stopped(self, record: dict) -> None:
         """The command was stopped (stop.record): an error event carrying the record, not a sentence; `describe` renders it."""
@@ -518,10 +525,15 @@ def current():
     return _state["reporter"]
 
 
-def error(message: str, file: str = "", line=None) -> None:
+def error(kind: str, file: str = "", line=None, **fields) -> None:
     rep = _state["reporter"]
     if rep is not None:
-        rep.error(message, file, line)
+        rep.error(kind, file, line, **fields)
+
+
+def exception(e: BaseException, file: str = "", line=None) -> None:
+    """The command failed with `e`: its type and its own text, beside the file and line it names."""
+    error("exception", file, line, type=type(e).__name__, detail=str(e))
 
 
 def stopped(record: dict) -> None:
@@ -558,7 +570,9 @@ def describe(ev: dict) -> str:
         return "begin %s" % " ".join(str(ev[k]) for k in ("kind", "item", "what") if ev.get(k))
     if kind == "item":
         it = ev.get("item") or ev
-        return "%s %s%s" % (it.get("key", "?"), it.get("kind", ""), (": %s" % it["note"]) if it.get("note") else "")
+        from . import step_text
+        note = step_text.render_all(it.get("notes") or (), it.get("unplaced"))
+        return "%s %s%s" % (it.get("key", "?"), it.get("kind", ""), (": %s" % note) if note else "")
     if kind == "plan":
         doc = ev.get("doc") or {}
         n = len(doc["items"]) if "items" in doc else ev.get("items", 0)
@@ -581,7 +595,8 @@ def describe(ev: dict) -> str:
     if kind == "route_queue_end":
         return "route: %s routed, %s failed" % (ev.get("routed"), ev.get("failed"))
     if kind == "route_off":
-        return "no progress for this route: %s" % ev.get("why", "")
+        from .kicad import route_events
+        return "no progress for this route: %s" % route_events.reason_text(ev.get("reason") or {})
     if kind == "route_truncated":
         return "route: more events than are kept for a late reader"
     if kind in ("probe", "candidate", "probe_done"):
@@ -593,8 +608,44 @@ def describe(ev: dict) -> str:
         from . import stop
         return stop.line(ev)
     if kind == "error":
-        return "error: %s%s" % (ev.get("message", ""), (" (%s:%s)" % (ev.get("file"), ev.get("line"))) if ev.get("file") else "")
+        return "error: %s%s" % (failure_text(ev), (" (%s:%s)" % (ev.get("file"), ev.get("line"))) if ev.get("file") else "")
     return str(kind)
+
+
+FAILURES = {"generation": "Schematic generation failed", "script": "Layout script failed",
+            "placement": "Firm placements collide; fix the script (or --keep-going to see the rest)"}
+
+
+def failure_text(ev: dict) -> str:
+    """What an `error` event says, as a person reads it. Its `kind`: `run_failure` (`failure` is the stage, `detail` the free text of
+    what raised it, `item` the item a placement failure names), `exception` (`type`, `detail`), `probe_refused` (probe.refusal_text),
+    `lost` (the connection ended with no `done`; `last` is the last event seen), `died` (the same, from the trail), `cannot_follow`
+    (`detail`)."""
+    kind = ev.get("kind")
+    if kind == "stopped":
+        from . import stop
+        return stop.line(ev)
+    if kind == "run_failure":
+        failure, detail = ev.get("failure", ""), ev.get("detail", "")
+        base = None if ev.get("item") else FAILURES.get(failure)
+        if base is None:
+            return detail or failure
+        return base + ((": " + detail) if detail else "")
+    if kind == "exception":
+        return "%s: %s" % (ev.get("type", ""), ev["detail"]) if ev.get("detail") else ev.get("type", "")
+    if kind == "probe_refused":
+        from . import probe
+        return probe.refusal_text(ev)
+    if kind == "lost":
+        last = ev.get("last")
+        return "the command stopped without saying it was done" + ((" (last: %s)" % describe(last)) if last else "")
+    if kind == "died":
+        return "the command died without saying it was done"
+    if kind == "cannot_follow":
+        return "cannot follow: %s" % ev.get("detail", "")
+    if kind == "no_answer":
+        return "the board reader ended without an answer"
+    return kind or "failed"
 
 
 def watch(root, selector=None, as_json: bool = False, out=None) -> int:
@@ -629,11 +680,10 @@ def watch(root, selector=None, as_json: bool = False, out=None) -> int:
                 elif ev.get("ev") == "error":
                     code = 1
         except OSError as err:
-            emit(e, {"ev": "error", "message": "cannot follow: %s" % err})
+            emit(e, {"ev": "error", "kind": "cannot_follow", "detail": str(err)})
         if code == 2:
             ended = last_state(e["progress"]) if e.get("progress") else []
-            emit(e, {"ev": "error", "message": "the command stopped without saying it was done" +
-                     ((" (last: %s)" % describe(ended[-1])) if ended else "")})
+            emit(e, {"ev": "error", "kind": "lost", **({"last": ended[-1]} if ended else {})})
         codes.append(code)
 
     if not live and selector is not None and dead:
@@ -644,7 +694,7 @@ def watch(root, selector=None, as_json: bool = False, out=None) -> int:
         final = next((x for x in reversed(events) if x.get("ev") in ("done", "error")), None)
         clean(e)
         if final is None:
-            emit(e, {"ev": "error", "message": "the command died without saying it was done"})
+            emit(e, {"ev": "error", "kind": "died"})
             return 2
         return 0 if final["ev"] == "done" else 1
     if not live:

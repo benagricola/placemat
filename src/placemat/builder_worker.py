@@ -3,9 +3,11 @@ reads the generated board and answers with what the builder shows - its parts an
 the facts `placemat facts` would print. pcbnew stays out of the studio server: the server starts this module with a request on
 stdin and relays the lines it writes on stdout.
 
-Request: `{"zen": path, "name": board name, "script": path or null, "fresh": bool}`. Lines out: `{"ev": "progress", "text"}` while it
-works, then `{"ev": "board", ...}` (see `board_record`) or `{"ev": "error", "message", "tail"}`. Nothing is written but what `pcb
-layout` and the generation cache already write."""
+Request: `{"zen": path, "name": board name, "script": path or null, "fresh": bool}`. Lines out: `{"ev": "progress", "stage", ...}` while it
+works (`stage`: `generating` with `zen`, `generated` or `cached` with `name`, `reading`; `progress_text` says them), then
+`{"ev": "board", ...}` (see `board_record`) or `{"ev": "error", "kind", ..., "tail", "log"}`, an error as channel.failure_text reads it
+(`run_failure` with `failure` and `detail`, or `exception` with `type` and `detail`). Nothing is written but what `pcb layout` and the
+generation cache already write."""
 from __future__ import annotations
 
 import json
@@ -65,8 +67,21 @@ def _outline_box(geometry):
     return (b.left, b.top, b.right, b.bottom) if b is not None else ()
 
 
-def read(zen, name, script=None, fresh=False, say=lambda text: None) -> dict:
-    """Generate (or restore the cached generation of) the board and read it: the record `board_record` makes."""
+def progress_text(p: dict) -> str:
+    """A progress record in words, for the studio's page."""
+    stage = p.get("stage")
+    if stage == "generating":
+        return "generating %s with pcb layout (a cached generation is used where its inputs are unchanged) ..." % p["zen"]
+    if stage == "generated":
+        return "generated %s" % p["name"]
+    if stage == "cached":
+        return "used the cached generation of %s" % p["name"]
+    return "reading the generated board ..." if stage == "reading" else str(stage)
+
+
+def read(zen, name, script=None, fresh=False, say=lambda progress: None) -> dict:
+    """Generate (or restore the cached generation of) the board and read it: the record `board_record` makes. `say` is given each
+    progress record (`progress_text`)."""
     from . import facts as facts_mod, settings as settings_mod
     from .kicad.read import read_board
     from .pins import board_pin_names
@@ -78,11 +93,11 @@ def read(zen, name, script=None, fresh=False, say=lambda text: None) -> dict:
     cfg = settings_mod.load(src.board_dir, script=script if script is not None and script.is_file() else None)
     fab = fab_profile(src.board_dir)
     run_dir = views_dir(src.board_dir, "builder")
-    say("generating %s with pcb layout (a cached generation is used where its inputs are unchanged) ..." % src.zen.name)
+    say({"stage": "generating", "zen": src.zen.name})
     ran = generate(src, run_dir, fresh, quiet=True)
-    say("generated %s" % src.name if ran else "used the cached generation of %s" % src.name)
+    say({"stage": "generated" if ran else "cached", "name": src.name})
     generated = cached_generation(src) / src.pcb.name
-    say("reading the generated board ...")
+    say({"stage": "reading"})
     geometry = read_board(generated, courtyard_excess_mm=fab.courtyard_excess)
     geometry = dataclasses.replace(geometry, pin_names=board_pin_names(src, generated.parent))
     plane_layers = frozenset()
@@ -107,13 +122,13 @@ def main() -> int:
         out.flush()
     try:
         req = json.loads(sys.stdin.read() or "{}")
-        record = read(req["zen"], req["name"], req.get("script"), bool(req.get("fresh")), lambda t: send({"ev": "progress", "text": t}))
+        record = read(req["zen"], req["name"], req.get("script"), bool(req.get("fresh")), lambda p: send({"ev": "progress", **p}))
         send({"ev": "board", **record})
         return 0
     except RunFailure as e:
-        send({"ev": "error", "message": str(e), "tail": e.details.get("tail", ""), "log": e.details.get("log", "")})
+        send({"ev": "error", "kind": "run_failure", **e.record(), "tail": e.details.get("tail", ""), "log": e.details.get("log", "")})
     except Exception as e:
-        send({"ev": "error", "message": "%s: %s" % (type(e).__name__, e), "tail": ""})
+        send({"ev": "error", "kind": "exception", "type": type(e).__name__, "detail": str(e), "tail": ""})
     return 1
 
 

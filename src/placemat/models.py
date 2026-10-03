@@ -91,7 +91,8 @@ _STD_MODEL_DIRS = ("/usr/share/kicad/3dmodels", "/usr/local/share/kicad/3dmodels
 @dataclass(frozen=True)
 class ModelRef:
     """What a model entry resolves to. `state`: ok (a file or an embedded file), none (the footprint declares no model), missing (not
-    found: `text` keeps the path as written and `why` says so), hidden (the entry's hide flag), vrml (a VRML file with no STEP beside it)."""
+    found: `text` keeps the path as written), hidden (the entry's hide flag), vrml (a VRML file with no STEP beside it). `why` is the
+    reason for a state that has one, as a word: "not_found" or "vrml_only"; present.model_why says it in words."""
     state: str
     text: str = ""
     name: str = ""
@@ -163,8 +164,8 @@ def resolve_model(text: str, project_dir, *, stop=None, env=None, extra_dirs=(),
         found = _file_or_step(c)
         if found is not None:
             kind = "vrml" if found.suffix.lower() in VRML_SUFFIXES else "ok"
-            return ModelRef(kind, text, name, path=str(found), why="a VRML model with no STEP beside it" if kind == "vrml" else "")
-    return ModelRef("missing", text, name, why="model not found: %s" % text)
+            return ModelRef(kind, text, name, path=str(found), why="vrml_only" if kind == "vrml" else "")
+    return ModelRef("missing", text, name, why="not_found")
 
 
 def _file_or_step(p: Path) -> Path | None:

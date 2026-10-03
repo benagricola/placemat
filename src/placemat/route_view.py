@@ -46,7 +46,7 @@ def board_doc(geometry) -> dict:
                 shapes.append({"kind": "hole", "faces": ["back", "front"], "poly": _circle(c.x, c.y, p.drill_mm / 2.0), "number": p.number})
         items.append({"key": fp.inst, "kind": "part", "placed": True, "members": [{"ref": fp.ref, "inst": fp.inst, "value": fp.value, "cell": fp.cell or "", "shapes": shapes}],
                       "at": [round(fp.location.x, 3), round(fp.location.y, 3)], "rotation": round(fp.rotation, 3), "face": face, "freedom": "fixed", "priority": None,
-                      "how": "decided", "note": "", "why": "", "rank": None, "rank_of": None, "pocket": None, "lock": "", "findings": [], "file": "", "line": 0, "moved_mm": 0.0})
+                      "how": "decided", "note": "", "notes": [], "unplaced": None, "why": "", "rank": None, "rank_of": None, "pocket": None, "lock": "", "findings": [], "file": "", "line": 0, "moved_mm": 0.0})
     drawn = bool(loops)
     if not drawn:                                    # a board with no outline yet: the extent is where its parts are
         loops = [[p for it in items for m in it["members"] for s in m["shapes"] for p in s["poly"]]]
@@ -127,7 +127,7 @@ def route_doc(record: dict, board: dict) -> dict:
            "links": [], "congestion": None, "findings": [], "unplaced": [], "pocketed": []}
     doc.update(base)
     steps = [dict(s) for s in base["steps"]] if base.get("steps") else [
-        {"i": n, "item": it["key"], "kind": "part", "placed": True, "note": "", "why": "", "freedom": "fixed", "rank": None, "rank_of": None, "pocket": None,
+        {"i": n, "item": it["key"], "kind": "part", "placed": True, "note": "", "notes": [], "unplaced": None, "why": "", "freedom": "fixed", "rank": None, "rank_of": None, "pocket": None,
          "lock": "", "copper": [], "loop": None} for n, it in enumerate(doc["items"])]
     copper = list(base.get("copper") or [])
     for net in laid["order"]:

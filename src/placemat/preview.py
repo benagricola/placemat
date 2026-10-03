@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import math
 from types import SimpleNamespace
 
-from . import finding_text
+from . import finding_text, step_text
 from .board_geometry import members_of
 from .copper import Pour, Text, Track, Via, Zone, arc_circle
 from .geometry import circle_polygon
@@ -388,7 +388,7 @@ def _side(plan, x: float, top: float) -> tuple:
         y[0] += 0.6
         line("not placed (%d)" % len(unplaced), cls="unplaced", size=1.2, colour="#c92a2a")
         for s in unplaced:
-            why = s.unplaced if s.unplaced is not None else s.note
+            why = step_text.unplaced_text(s.unplaced) if s.unplaced is not None else s.note
             line("%s: %s" % (s.item, why[:70]), cls="unplaced", size=0.85, colour="#c92a2a", step=1.3)
     y[0] += 1.0
     for name, label in (("pad", "copper pad"), ("through", "through pad"), ("courtyard", "courtyard"),

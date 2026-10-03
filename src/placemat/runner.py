@@ -26,6 +26,14 @@ class RunFailure(Exception):
         super().__init__(message)
         self.kind, self.details = kind, details or {}
 
+    def record(self) -> dict:
+        """The failure as data, for the live channel and the studio's worker: `failure` (the stage: generation, script, placement,
+        explore, escape), the `item` a placement failure names, and `detail`, the free text of what raised it (the script's own
+        error, or an exception's message). The sentence is channel.failure_text's."""
+        constant = ("generation", "script", "placement")
+        detail = self.details.get("error") or ("" if self.kind in constant and "item" not in self.details else str(self))
+        return {"failure": self.kind, **({"item": self.details["item"]} if self.details.get("item") else {}), "detail": detail}
+
 
 def _merged_by_cell(merged) -> list:
     """(cell, "GND on In1.Cu, In4.Cu; V3V3 on In3.Cu (its pads were ...)")
@@ -216,19 +224,32 @@ def _inputs_record(src: BoardSource) -> Path:
     return cache.with_name(cache.name + ".inputs.json")
 
 
-def stale_inputs(src: BoardSource, inputs: dict | None = None) -> str:
-    """Why the cached generation no longer matches what the generator would
-    read, or "" when it does: the inputs that changed, appeared or went."""
+def stale_record(src: BoardSource, inputs: dict | None = None) -> dict | None:
+    """Why the cached generation no longer matches what the generator would read, as data, or None when it does: `{"form":
+    "no_record"}`, or `{"form": "changed", "files": [the inputs that changed, appeared or went]}`."""
     try:
         was = json.loads(_inputs_record(src).read_text())
     except (OSError, ValueError):
-        return "no record of the files it was generated from"
+        return {"form": "no_record"}
     now = generator_inputs(src) if inputs is None else inputs
     changed = sorted(k for k in set(was) | set(now) if was.get(k) != now.get(k))
-    if not changed:
+    return {"form": "changed", "files": changed} if changed else None
+
+
+def stale_text(rec: dict | None) -> str:
+    """A `stale_record` in words, "" for none."""
+    if rec is None:
         return ""
-    shown = ", ".join(changed[:4]) + (" and %d more" % (len(changed) - 4) if len(changed) > 4 else "")
+    if rec["form"] == "no_record":
+        return "no record of the files it was generated from"
+    files = rec["files"]
+    shown = ", ".join(files[:4]) + (" and %d more" % (len(files) - 4) if len(files) > 4 else "")
     return "%s changed since it was generated" % shown
+
+
+def stale_inputs(src: BoardSource, inputs: dict | None = None) -> str:
+    """`stale_record` in words: why the cached generation no longer matches what the generator would read, or "" when it does."""
+    return stale_text(stale_record(src, inputs))
 
 
 def keep_route(final_dir: Path, staging: Path) -> None:
@@ -650,7 +671,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         rec.steps = [{"item": s.item, "kind": s.kind,
                       "freedom": s.freedom.value if s.freedom else None,
                       "priority": s.priority.value if s.priority else None,
-                      "rank": s.rank, "rank_of": s.rank_of, "note": s.note,
+                      "rank": s.rank, "rank_of": s.rank_of, "note": s.note, "notes": list(s.notes),
                       "why": s.why, "moved_mm": round(s.moved_mm, 3), "ops": s.ops,
                       "seconds": round(s.seconds, 3), "first_seconds": None if s.first_seconds is None else round(s.first_seconds, 3)}
                      for s in plan.steps]
@@ -661,7 +682,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         rec.status = "failed"
         rec.failure = {"kind": e.kind, "message": str(e), **e.details}
         from . import channel
-        channel.error("%s%s" % (e, (": " + str(e.details["error"])) if e.details.get("error") else ""), str(e.details.get("script") or ""), e.details.get("line"))
+        channel.error("run_failure", str(e.details.get("script") or ""), e.details.get("line"), **e.record())
         say("fail", str(e), level="fail")
         kept = run_dir / "before"
         if kept.exists() and "item" not in e.details:     # a critical item's failure writes the board as it stood

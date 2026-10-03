@@ -39,19 +39,19 @@ class ModelContext:
         """One model entry of footprint `fp` as the plan carries it (without the matrix)."""
         text, shown, opacity = e[0], (e[4] if len(e) > 4 else True), (e[5] if len(e) > 5 else 1.0)
         ref = resolve_model(text, self.project_dir, stop=self.stop, extra_dirs=self.model_dirs, kicad_cli=self.kicad_cli, hidden=not shown)
-        out = {"id": "", "state": ref.state, "name": ref.name, "opacity": opacity, "why": ref.why}
+        out = {"id": "", "state": ref.state, "name": ref.name, "opacity": opacity, "why": ref.why, "text": ref.text}
         if ref.state in ("ok", "vrml"):
             if ref.embedded:
                 sums = self._checksums().get(fp.ref, {})
                 if ref.embedded not in sums:
-                    out.update(state="missing", why="the embedded model %s has no checksum on the board file" % ref.embedded)
+                    out.update(state="missing", why="no_checksum")
                     return out
                 mid, kind, job = model_id("", (ref.embedded, sums[ref.embedded])), "embedded", {"kind": "embedded", "board": self.pcb, "ref": fp.ref, "name": ref.embedded}
             else:
                 try:
                     mid = model_id(ref.path)
                 except OSError as e:
-                    out.update(state="missing", why="model cannot be read: %s" % e)
+                    out.update(state="missing", why="unreadable", detail=str(e))
                     return out
                 kind = "vrml" if ref.state == "vrml" else "file"
                 job = {"kind": kind, "path": ref.path, "name": Path(ref.path).name}
@@ -64,7 +64,7 @@ class ModelContext:
     def members(self, plan, fp) -> list:
         """`fp`'s models for the plan document: each entry resolved, with its matrix to where the plan has put the part."""
         if not getattr(fp, "models", ()):
-            return [{"id": "", "state": "none", "name": "", "opacity": 1.0, "why": "the footprint declares no 3D model", "matrix": None}]
+            return [{"id": "", "state": "none", "name": "", "opacity": 1.0, "why": "no_model", "text": "", "matrix": None}]
         occ = plan.occupancy
         geom = occ.items[fp.ref]
         t = occ._transform(SimpleNamespace(reference=Placement(fp.location, fp.rotation, fp.face)), geom.reference)

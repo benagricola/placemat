@@ -31,7 +31,7 @@ def test_an_absolute_path_is_taken_as_it_is_and_a_missing_one_keeps_its_text(tmp
     f = _touch(tmp_path / "lib" / "a.step")
     assert resolve_model(str(f), tmp_path / "elsewhere").path == str(f)
     r = resolve_model(str(tmp_path / "lib" / "gone.step"), tmp_path)
-    assert r.state == "missing" and r.text == str(tmp_path / "lib" / "gone.step") and "not found" in r.why
+    assert r.state == "missing" and r.text == str(tmp_path / "lib" / "gone.step") and r.why == "not_found"
 
 
 def test_kiprjmod_is_the_projects_folder_and_is_reanchored_as_the_write_step_does(tmp_path):
