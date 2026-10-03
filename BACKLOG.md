@@ -335,6 +335,12 @@ Specced work first, then the loose ends.
 
 ## Done
 
+- **Push on a cell member; builder fixes; dead code** (0.96.1): a push fences
+  only the member it measures and its source looks ahead for that member alone;
+  the builder's part click after a tick and Unplace; unused code and
+  `check.neck_band` removed; progress files keep step seconds; the skill's
+  shaping modules for the board; test files run one per worker.
+
 - **Step durations, one status bar, folding panels; the studio's 3D view
   (phase 1); a faster big-cell search** (0.96.0): each step's time in the
   studio and run.json; a 2D | 3D switch drawing the parts' models; the core
