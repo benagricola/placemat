@@ -5,6 +5,15 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **The studio's "Search options" runs a searched suggestion.** The button under a searched suggestion (finding rows, the card and the step
+  rows) starts the probe, asks first where every candidate resolves the whole board, draws each candidate on the figure's range as it
+  arrives, can Stop it and Continue it, and shows the outcome and what it found (`<id>.1`) with Show, Try and Apply. `GET /suggest/found?id=`
+  returns a found suggestion; `/suggest/show`, `/try` and `/apply` accept its id.
+
 ## To 0.94.0
 
 ### New
@@ -21,11 +30,6 @@ section for each hand-written pattern a newer form replaces.
 - **The studio replays a route and a whole build.** The Runs view draws a route net by net while it runs and lists the recorded
   routes of the board; one opens as a replay, and a run that placed and then routed replays from the first placement to the last
   routed net. `GET /routes`, `/route?f=` and `/build?run=` serve them.
-
-- **The studio's "Search options" runs a searched suggestion.** The button under a searched suggestion (finding rows, the card and the step
-  rows) starts the probe, asks first where every candidate resolves the whole board, draws each candidate on the figure's range as it
-  arrives, can Stop it and Continue it, and shows the outcome and what it found (`<id>.1`) with Show, Try and Apply. `GET /suggest/found?id=`
-  returns a found suggestion; `/suggest/show`, `/try` and `/apply` accept its id.
 
 ## To 0.93.0
 
