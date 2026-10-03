@@ -25,6 +25,11 @@ section for each hand-written pattern a newer form replaces.
   is critical by default that a plan's measures count (`fixed`, `copper`, `escape_walled`; `score.hard_clear`).
   The three settings are not part of a checkpoint's digest.
 
+- **`placemat studio note "<text>" [--at X,Y | --item NAME | --pad REF.N]`** leaves a note where the user is looking at the studio:
+  a record appended to `.placemat/views/studio/notes.jsonl`, shown on the page as a pin that follows its item or pad, a line in a
+  Notes list (dismissable per browser), and a toast. Settings `[studio] note_age_s` (3600; 0 keeps notes) and `notes_keep` (100),
+  neither part of a run's id. A point is a place to look at, never a placement. Scripts change nothing.
+
 ### Changed
 
 - **`board.size(...)` is refused.** It was renamed `board.rect(...)` in 0.85.0 and has given a `setup` notice since;
@@ -39,13 +44,6 @@ section for each hand-written pattern a newer form replaces.
 - **An arc corner's default radius is 3 track widths** (`copper.arc_radius_widths`, was 4): a `bend=Bend.ARC` corner
   with no `radius=` and no stackup bend rule is tighter than before. A script that relied on the old default sets
   `[copper] arc_radius_widths = 4.0` in `placemat.toml`, or `radius=` on the call.
-
-### New
-
-- **`placemat studio note "<text>" [--at X,Y | --item NAME | --pad REF.N]`** leaves a note where the user is looking at the studio:
-  a record appended to `.placemat/views/studio/notes.jsonl`, shown on the page as a pin that follows its item or pad, a line in a
-  Notes list (dismissable per browser), and a toast. Settings `[studio] note_age_s` (3600; 0 keeps notes) and `notes_keep` (100),
-  neither part of a run's id. A point is a place to look at, never a placement. Scripts change nothing.
 
 ## To 0.88.0
 
