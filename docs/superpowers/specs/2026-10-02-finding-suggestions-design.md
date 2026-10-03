@@ -84,7 +84,8 @@ keyword or a setting, never a coordinate or an offset:
 | "Let a via give way further: place.via_move 1.0" | a setting in that script's settings table |
 
 A value taken from a measurement (the limit a link achieved, the clearance
-that fits) is quoted in the wording and written as the measured figure.
+that fits) is quoted in the wording and written as a named constant with a
+comment (see "Numbers are named constants").
 
 **An edit** is data, not text:
 
@@ -109,6 +110,7 @@ Operations, each a function of the file's text:
 | `edit_list(arg, add / remove / move, element, before / after)` | changes a list or tuple literal argument: add a net to `allow=`, reorder the members of a `board.row`, drop a waypoint from a track's points |
 | `insert_statement(after, value)` | adds a declaration after the target's statement (a `board.place` for an undeclared part, a `board.fanout`, a `board.rule`); the value is any call written as an intent expression, so the same op inserts `board.rect`, `board.disc`, `board.outline`, a `board.place` with an intent, or a search over the remaining parts |
 | `remove_statement` | removes a call that stands alone (an `accept` that matched nothing) |
+| `set_constant(file, name, value, comment, scope)` | adds or changes a named constant, with a comment, in the shared module, the board's script, or the cell's constants block |
 | `toml_set(table, key, value)` | sets a key in the script's own settings table of the nearest `placemat.toml`, by a line-level edit that keeps the rest of the file byte for byte |
 
 Rendering a value to source reuses the script's own spelling. `{"item":
@@ -164,27 +166,106 @@ exactly once the edit is refused.
 
 ### The shared edit function
 
-`script_edit.py`, pure, standard library only (the studio takes no new
-dependency): `apply(edit, text) -> new_text`.
+`script_edit.py`, pure: `apply(edit, text) -> new_text`, with LibCST
+(`libcst`) for Python and `tomllib` for the TOML check.
 
-- It parses with `ast`, finds the target call, and splices source text at the
-  node positions the AST gives (`lineno`, `col_offset`, `end_lineno`,
-  `end_col_offset`, converted from UTF-8 offsets). Everything outside the
-  spliced range, comments and layout included, is byte for byte what it was.
-  Python's `ast` keeps no comments or layout, so a CST library is not needed
-  to keep them: the edit never reprints a node it did not change.
-- A keyword is added after the last argument. If the call spans lines and the
-  last argument stands on its own line, the new keyword goes on its own line
-  at the same indent, with the trailing comma the call already uses;
-  otherwise it follows `, ` on the same line.
-- After the splice the result is checked: it parses, and the AST with the
-  target node replaced equals the original AST, so nothing but the intended
-  call changed. A failed check refuses the edit.
-- `toml_set` edits the one `key = value` line in the named table, or appends
-  the key to it, or the table, at its end. The TOML is parsed with `tomllib`
-  before and after to check the value landed and nothing else moved.
-- The function also gives the inverse: `apply` returns the edit's before and
-  after text, and `undo` is the reverse splice (below).
+**The dependency.** `libcst` is a new dependency, the first the package
+takes at runtime beyond the standard library. It goes in
+`pyproject.toml` as an optional group, `[project.optional-dependencies]
+studio = ["libcst>=1.0"]`, installed with `placemat[studio]`, and
+`script_edit.py` imports it lazily. `placemat studio` and `placemat apply`
+say so, and refuse, when it is missing; every other command is unaffected.
+This is an exception to the studio design's "no new Python dependency", made
+for this engine. The user's decision (2026-10-03): keep LibCST for the
+moment and see how it behaves.
+
+**Finding the target.** The module is parsed with `libcst` and wrapped with
+`PositionProvider`. The target call is the `Call` that `libcst.matchers`
+finds by function name (`board.place`, `board.keepout`), whose first argument
+matches the declaration, and whose start line is the declared line from
+`declared_sites`. A constant to change is found the same way, by a matcher on
+the assignment of its name. A target not found exactly once refuses the edit.
+
+**Changing it.** A `Transformer` replaces only the target node (a call, a
+keyword, a list literal, an assignment). The result is the module's `code`.
+LibCST keeps comments and layout as part of the tree, so unchanged nodes print
+as they were; what needs care is the edited node's neighbourhood. A prototype
+(2026-10-03) showed two things the engine must handle, not leave to chance:
+
+- Removing a keyword dropped the comment that sat after that argument's
+  comma (`face=Face.FRONT,  # keep it on top` lost its comment) and changed
+  the closing parenthesis's indentation. `remove_kwarg` and any removal from
+  an argument or list therefore moves the comment: it goes onto the previous
+  argument's line when there is one, else stays on the line the removed item
+  stood on, and the closing parenthesis keeps the indent and line it had.
+- A new keyword in a multi-line call has no layout of its own. It is written
+  explicitly: on its own line, at the indent of the call's other arguments,
+  after the last argument, in the call's trailing-comma style (a trailing
+  comma after it where the call had one, none where it had none); in a call on
+  one line it follows `, `.
+
+**The check.** After the edit the text must parse, and the `ast` of everything
+outside the target must equal the original's: the original and the edited
+module with the target node replaced by a placeholder have equal `ast.dump`.
+Either failing refuses the edit and writes nothing. The tests below pin
+layout and comments byte for byte as well, which `ast` cannot see.
+
+**The other editor.** `freeze.py` already edits scripts by splicing source
+text and keeps doing so. There are then two script editors. If LibCST holds up,
+`freeze.py` may move onto `script_edit.py` in a later change; this design does
+not touch it.
+
+`toml_set` edits the one `key = value` line in the named table, or appends the
+key to it, or the table, at its end, as lines, with the rest of the file left
+byte for byte. The TOML is parsed with `tomllib` before and after to check the
+value landed and nothing else moved.
+
+`apply` returns the edit's before and after text, and `undo` restores the
+before text (see Undo).
+
+### Numbers are named constants
+
+A number an edit writes is documented where it is written. The edit does not
+put a bare figure in a call (`limit_mm=5.1`); it writes a named constant with
+a comment saying where the value came from, and the call uses the name:
+
+```python
+# Measured by a run's finding: C1 pad 1 to U1 pad 3 was 5.10 mm.
+C4_LINK_LIMIT_MM = 5.1
+board.link(c1_pad, u1_pad3, limit_mm=C4_LINK_LIMIT_MM)
+```
+
+- **Op.** `set_constant(file, name, value, comment, scope)`. It adds the
+  assignment, or changes the value and comment of an existing one. The
+  `value` in an edit's intent expression may be `{"const": {...}}`, which the
+  engine renders as the name and pairs with a `set_constant` for it.
+- **Where it goes (`scope`).** A value that applies board-wide goes in the
+  shared module the board's cells include: the module every layout script
+  imports for the board's constants or geometry, found from the imports of the
+  script (the module imported by the most scripts of the project, or by the
+  script and its siblings); if none exists, the board's own layout script. A
+  value for one cell goes in a constants block at the top of that cell's
+  layout script, after its imports; the block is created if the script has
+  none, and the constant is added at the end of an existing one. The edit's
+  `file` names it, so the diff shows both the constant and the call.
+- **Names** are made from the item and the keyword, upper case, with the unit
+  where the keyword has one: `C4_LINK_LIMIT_MM`, `U1_ESCAPE_DEPTH_MM`,
+  `SIG_CHAMFER_MM`. A name already bound in the file, or in a module it
+  imports, is never reused or overwritten: a counter is added
+  (`C4_LINK_LIMIT_MM_2`). The comment names the finding case and the measured
+  figure, in placemat's words, never a project's.
+- **Derivations.** A value derived from existing names by geometry (a
+  diameter halved for a radius) is written inline as an expression of those
+  names (`radius=PAD_DIAMETER_MM / 2`), with no new constant.
+- **A value already from a constant.** If the call already takes its value
+  from a name (`gap=GAP`), the suggestion comes in two variants: change the
+  constant (the diff shows every use of it, so the reader sees what else
+  moves), or add a new constant for this one use and point the call at it.
+  The try tells them apart.
+- Settings (`toml_set`) are numbers too; the TOML key is itself the name, and
+  the line gets a comment in the same way where the file has comments.
+- Intent forms with no number (`Beside(c1, Edge.NORTH)`, `Face.EITHER`,
+  `Priority.HIGH`) need no constant.
 
 ### The studio
 
@@ -355,7 +436,7 @@ declaration, where X is a blocker or neighbour the finding names.
 | `escape_crossed`: escapes of U1 pins 3 and 4 cross | "Turn U1 so the pins' targets match their order", "Place R2 on the side of U1's pin 4" | `set_kwarg rotation=`, `at=` |
 | `escape_lane`: a declared lane blocked by C1 | "Move C1 off the lane", "Stand the lane's via further along" (`depth=`, `vias=`), "Allow the lane's via further: place.escape_via_reach" | `set_kwarg`, `toml_set` |
 | `pair_crossed`: DP and DN cross between U1, U2 | "Swap R7 and R8 in the row" (the pair's parts), "Turn U2 by 180 degrees" (`rotation=Turned(u2, 180)`) | `edit_list` move, `set_kwarg` |
-| `link_over`: C1 pad 1 to U1 pad 3 is 5.1 mm, over its 4.0 mm limit | 1. "Place C1 beside U1". 2. "Pull C1 to U1 pad 3 harder" (`weight=`). 3. "Place C1 before the parts that crowd it". 4. "Raise the limit to 5.1 mm" (the measured figure) | `set_kwarg` on the place or the link |
+| `link_over`: C1 pad 1 to U1 pad 3 is 5.1 mm, over its 4.0 mm limit | 1. "Place C1 beside U1". 2. "Pull C1 to U1 pad 3 harder" (`weight=`). 3. "Place C1 before the parts that crowd it". 4. "Raise the limit to 5.1 mm" (a named constant holding the measured figure) | `set_constant`, `set_kwarg` on the link |
 
 ### label
 
@@ -385,7 +466,8 @@ dropped) have no script edit, so they have no suggestion.
   `Past`, `Between`), keywords (`face=`, `priority=`, `bridge=`, `allow=`,
   `weight=`) and settings, never a `Location`, an offset or a `reach=`
   distance. A number in an edit is a measured fact from the finding (the limit
-  a link achieved, the clearance that fits), and the diff shows it before it
+  a link achieved, the clearance that fits), written as a named constant
+  with a comment saying where it came from, and the diff shows it before it
   is written.
 - *Judged as KiCad judges*: lowering a clearance or a limit is a suggestion
   the user sees as a diff and chooses; nothing is applied without the click or
@@ -434,18 +516,40 @@ net `SIG`); no project or board name appears in a test, a table row or a
 fixture.
 
 - `tests/test_script_edit.py`, pure text in and out:
-  - each op on a one-line call, a multi-line call with a trailing comma, a
-    call with a comment after an argument, a call with `*args` or `**kw`, and
-    a keyword that is already present; comments and layout outside the edited
-    range are byte for byte unchanged; the result parses; the AST outside the
-    target is equal;
+  - each op on a one-line call, a multi-line call with a trailing comma, one
+    without, a call with a comment after an argument, a call with `*args` or
+    `**kw`, and a keyword already present. Comments and layout outside the
+    edited node are pinned byte for byte (the text before and after the node
+    is compared as strings, not through `ast`); the result parses; the `ast`
+    of everything outside the target is equal; an edit that would change
+    anything else is refused;
+  - removing a keyword whose line ends in a comment (`face=Face.FRONT,  #
+    keep it on top`): the comment survives, on the previous argument's line or
+    where the removed line stood, and the closing parenthesis keeps its indent
+    and line;
+  - a keyword added to a multi-line call goes on its own line at the call's
+    argument indent, in the call's trailing-comma style, for a call with a
+    trailing comma and one without, and the closing parenthesis is unmoved;
   - a script that spells an item as a variable, as `Part("c1")` and through
     an alias gets the script's own spelling in the value;
   - a target call that declares several items (a loop) is refused; a call not
     found exactly once is refused; a changed digest is refused;
-  - `edit_list` add, remove and move; `toml_set` into an existing table, a new
-    key, a new table, and a table for another script left alone; `undo` is
-    the exact inverse, and refuses when the text is not the one the edit made.
+  - `edit_list` add, remove and move (a comment on a removed element survives
+    as for a keyword); `toml_set` into an existing table, a new key, a new
+    table, and a table for another script left alone, with the rest of the
+    file byte for byte; `undo` is the exact inverse, and refuses when the text
+    is not the one the edit made;
+  - `set_constant`: a script with no constants block gets one after its
+    imports; one with a block gets the constant at its end; the comment is
+    present; a name already bound in the file or an imported module gets a
+    counter and nothing is overwritten; a board-wide value goes to the shared
+    module when the script imports one and to the board's script when none is
+    imported; a cell's value goes to the cell's script; a value from a
+    constant gives both variants, and changing the constant changes every use
+    in the diff; a geometric derivation is inline and adds no constant; no
+    edit writes a bare figure into a call;
+  - without `libcst` installed, `apply` and the studio's suggest endpoints
+    refuse with a message naming `placemat[studio]`, and nothing else changes.
 - `tests/test_finding_suggestions.py`:
   - every `case=` raised in `src/placemat` has a builder in `suggestions.py`
     and every builder is raised somewhere (by scanning the source);
