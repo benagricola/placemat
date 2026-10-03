@@ -5,7 +5,7 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
-## To 0.96.1
+## Unreleased
 
 ### Changed
 
@@ -32,6 +32,14 @@ section for each hand-written pattern a newer form replaces.
   - The reuse record is version 4: the first resolve after the upgrade replays nothing. `run.json`'s steps keep `note` and gain
     `notes`.
   A script is not affected.
+
+### Fixed
+
+- **Generation ignores an inherited `KIPRJMOD`.** A process that had saved a board with pcbnew (or a placemat started from
+  KiCad) passed `KIPRJMOD` on to `pcb layout`, which then resolved the stdlib footprint libraries against the wrong folder and
+  failed with "Failed to load footprint". Generation now runs without it.
+
+## To 0.96.1
 
 ### Removed
 

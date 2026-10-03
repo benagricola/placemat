@@ -62,13 +62,7 @@ Specced work first, then the loose ends.
     two-process release suite twice (SlotControl-physical; MCU_RP2350B-union),
     passing on rerun each time. It seeds its sampler with `hash()` and fails on
     about 7% of hash seeds with a native/Python blame difference (a pour
-    blocker), also on 0.93.0: a parity bug, with the native sweep. Likewise
-    `test_studio_builder_real` (0.95.0 release suite, while a second suite
-    ran; again in 0.96.0's): pcb failed to load a stdlib footprint; passes
-    alone. Probably another pcb process sharing pcb's package cache: isolate
-    the test's pcb cache or find what the other process changes.
-    Lead: tests/test_studio_builder.py has order-dependent tests that fail
-    under -n 2 beside the studio server, worker and hooks tests.
+    blocker), also on 0.93.0: a parity bug, with the native sweep.
 11. **Refresh `tests/slow_tests.txt`** from a full single-process run on a
     quiet machine.
 12. **Refuse numeric `Centre` axes** without `coordinates=True`, one release
