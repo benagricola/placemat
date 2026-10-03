@@ -876,7 +876,7 @@ def test_every_finding_that_names_a_pad_a_part_or_an_item_is_marked_and_counted(
 const fnd = (text, extra) => Object.assign({text, kind: "k", at: null, item: "", refs: [], pads: [], severity: "warning"}, extra);
 const it = item("a", 1); it.members[0].shapes.push({kind: "pad", faces: ["front"], number: "7", poly: [[1, 1], [1.4, 1], [1.4, 1.4]]});
 full([it, item("b", 5)], [st("a"), st("b")], {findings: [fnd("with a place", {at: [20, 20]}), fnd("at a pad", {refs: ["Ra"], pads: [["Ra", "7"]]}), fnd("at a part", {refs: ["Rb"]}), fnd("an item", {item: "a"}), fnd("nothing")]});
-out.places = ev("findingPlaces(plan())"); out.board = (board().innerHTML.match(/class="fmark /g) || []).length;
+out.places = ev("findingPlaces(plan())"); out.board = (board().innerHTML.match(/class="fnd /g) || []).length;
 out.legend = els["#legend"].innerHTML;
 """)
     assert out["places"][0] == [20, 20] and out["places"][4] is None
@@ -1322,3 +1322,72 @@ out.pins = ev("notePins(plan())");
     assert out["after"] == [0, '["n1"]']
     assert out["live"] == ["n2", "n3"] and out["expired"] == []
     assert out["pins"] == ""
+
+
+@needs_node
+def test_why_it_moved_puts_the_cause_beside_the_distance_and_says_when_none_was_recorded(tmp_path):
+    out = run_more(tmp_path, r"""
+const rows = (note, mm) => ev("(r => sect('Why it moved', r.length ? kvl(r) : ''))(movedRows(noteParts(" + JSON.stringify(note) + "), " + mm + "))");
+out.stopped = rows("on the line x = 26.50; stopped 19.40 mm short of the south end by: its member U8 sits in the reservation for keepout 'under_ring_1' (no copper)", 19.4);
+out.slid = rows("slid 0.50 mm from its slot: R3 courtyard overlaps R4 courtyard", 0.5);
+out.hint = rows("moved 3.20 mm off the hint: C1 courtyard overlaps U1 courtyard", 3.2);
+out.score = rows("moved 1.10 mm off the hint for a better link score", 1.1);
+out.bare = rows("rank 1/3", 19.4);
+out.slidbare = rows("block of 3 laid out from the anchor's pads; slid 2.00 mm from its slot", 2);
+out.still = rows("rank 1/3", 0);
+out.place = ev("kvl(noteRows(noteParts('on the line x = 26.50; stopped 19.40 mm short of the south end by: why')))");
+""")
+    s = out["stopped"]
+    assert "Why it moved" in s and "19.40 mm</span> before the south end" in s and "reservation for keepout 'under_ring_1'" in s
+    assert '<span class="kk">because</span>' in s and "no cause recorded" not in s
+    assert "0.50 mm</span> from its slot" in out["slid"] and "R3 courtyard overlaps R4 courtyard" in out["slid"]
+    assert "3.20 mm</span> off the hint" in out["hint"] and "C1 courtyard overlaps U1 courtyard" in out["hint"]
+    assert "for a better link score" in out["score"] and "no cause recorded" not in out["score"]
+    assert "19.4 mm</span> off the hint" in out["bare"] and "no cause recorded" in out["bare"]               # a distance with no cause says so
+    assert "2.00 mm</span> from its slot" in out["slidbare"] and "no cause recorded" in out["slidbare"]
+    assert out["still"] == ""                                                                                 # nothing moved: no section
+    assert "x = 26.50 mm" in out["place"] and "stopped short" not in out["place"] and "because" not in out["place"]    # the cause is not repeated under Placement
+
+
+@needs_node
+def test_vias_are_drawn_above_the_pads_and_pads_take_their_layers_colour_with_through_pads_drilled(tmp_path):
+    out = run_more(tmp_path, r"""
+const padB = {kind: "pad", poly: [[3, 1], [4, 1], [4, 2]], faces: ["back"], layers: ["B.Cu"], number: "2"};
+const thru = {kind: "through", poly: [[6, 1], [7, 1], [7, 2]], faces: ["back", "front"], layers: ["F.Cu", "B.Cu"], number: "3"};
+const hole = {kind: "hole", poly: [[6.2, 1.2], [6.6, 1.2], [6.6, 1.6]], faces: ["back", "front"], number: "3"};
+const it = item("a", 1); it.members[0].shapes[1].layers = ["F.Cu"]; it.members[0].shapes.push(padB, thru, hole);
+full([it], [st("a")]);
+ev("plan().copper = [{t: 'via', at: [1.2, 1.2], size: 0.6, drill: 0.3, net: 'N', layers: []}, {t: 'track', layer: 'F.Cu', face: 'front', width: 0.2, a: [0, 0], b: [1, 1], net: 'N'}]");
+ev("schedule('board')"); flush();
+const h = board().innerHTML;
+out.order = [h.indexOf('class="items"'), h.indexOf('class="viag"'), h.indexOf('class="trk')];
+out.front = h.slice(h.indexOf('data-key="a"'), h.indexOf('class="links"'));
+ev("setFace('back')"); flush(); out.back = board().innerHTML;
+""")
+    items, via, trk = out["order"]
+    assert trk != -1 and trk < items < via                                                    # tracks under the parts, vias over them
+    f = out["front"]
+    assert '<polygon class="pad l-F" data-l="F.Cu"' in f and '<polygon class="thru"' in f and '<polygon class="hole"' in f
+    assert f.index('class="thru"') < f.index('class="hole"')                                  # the drill is cut through the copper
+    assert '<polygon class="pad l-B" data-l="B.Cu"' not in f                                  # a back pad is not on the front panel
+    assert '<polygon class="pad l-B" data-l="B.Cu"' in out["back"]
+
+
+@needs_node
+def test_a_finding_marker_is_a_fixed_size_badge_with_a_halo_per_severity_and_the_focused_one_is_larger(tmp_path):
+    out = run_more(tmp_path, r"""
+const mkF = (sev, at) => ({text: "a " + sev + " finding", kind: "link_over", severity: sev, item: "", at, refs: [], pads: []});
+full([item("a", 1)], [st("a")], {findings: [mkF("critical", [3, 3]), mkF("warning", [5, 5]), mkF("notice", [7, 7])]});
+const h = board().innerHTML;
+out.marks = (h.match(/<g class="fnd [^"]*"/g) || []);
+out.styles = (h.match(/style="transform: translate\([^"]*"/g) || []).slice(0, 3);
+out.glyph = [h.indexOf('class="halo"') > 0, h.indexOf('class="badge"') > 0, h.indexOf('class="pulse"') > 0];
+ev("S.focusIdx = 1; schedule('board')"); flush(); out.focus = (board().innerHTML.match(/<g class="fnd [^"]*"/g) || []);
+ev("setFace('back')"); flush(); out.mirrored = (board().innerHTML.match(/scale\(calc\(var\(--u\) \* -1\), var\(--u\)\)/g) || []).length;
+out.legend = els["#legend"].innerHTML.indexOf('class="fnd warning"') > 0;
+""")
+    assert out["marks"][:3] == ['<g class="fnd critical"', '<g class="fnd warning"', '<g class="fnd notice"'] and "translate(3px, 3px) scale(var(--u), var(--u))" in out["styles"][0]
+    assert out["glyph"] == [True, True, True]
+    assert '<g class="fnd warning on"' in out["focus"]
+    assert out["mirrored"] >= 3                                                                # on the mirrored back panel the badge is turned back
+    assert out["legend"]

@@ -165,7 +165,7 @@ class Bend(str, Enum):
     shortest, then its own tie-break (the 45 at the pad end).
 
     ARC and ARC_FREE are not about a 45: every corner of the track is a
-    circular arc tangent to both legs, of `radius=` or `copper.arc_radius_widths`
+    circular arc tangent to both legs, of `radius=` or `copper.arc_radius_track_widths`
     times the track's width. ARC plans the legs as an unset `bend` does
     (octilinear); ARC_FREE draws the straight line between each pair of points,
     at any angle."""
@@ -188,7 +188,7 @@ class Drops(str, Enum):
     drops (vias of a net the board declares a `plane()` for) inside one of
     its members' pads. ALL keeps them as stamped; HALF every other via of
     each field, a checkerboard over its grid; MIN each field at the
-    `place.drops_keep` share, rounded up and never fewer than one."""
+    `place.drops_keep_share` share, rounded up and never fewer than one."""
     ALL = "all"
     HALF = "half"
     MIN = "min"

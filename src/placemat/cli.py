@@ -296,6 +296,10 @@ def parser() -> argparse.ArgumentParser:
     st = sub.add_parser("settings", help="every resolved setting, its value and the file it came from")
     st.add_argument("where", nargs="?", default=".", help="a layout script or a board directory (default: here)")
     st.add_argument("--json", action="store_true")
+    st.add_argument("--example", action="store_true",
+                    help="write a complete, commented placemat.toml (every setting, its unit, meaning and default) "
+                         "instead of the resolved values; with --output FILE, into FILE")
+    st.add_argument("--markdown", action="store_true", help="the settings table api.md carries, from the settings' own data")
 
     ck = sub.add_parser("check", help="design checks from the parts' Pm.* facts: hot loops, switch nodes, keep-out, "
                                       "crossings under sense tracks, current path widths, junction temperature")
@@ -369,6 +373,10 @@ def _script_of(p):
 
 def cmd_settings(args) -> int:
     from .settings import load, Settings, split_key
+    if getattr(args, "example", False) or getattr(args, "markdown", False):
+        from .settings import docs_table, example_toml
+        console.data((example_toml() if args.example else docs_table() + "\n").rstrip("\n"))
+        return 0
     from .project import find_board
     p = Path(args.where)
     start = p if p.is_dir() else find_board(p).board_dir
@@ -377,6 +385,8 @@ def cmd_settings(args) -> int:
         console.data(json.dumps({k: {"value": _plain(getattr(s, k)), "source": s.source_of(k)}
                                  for k in Settings.keys()}, indent=2, sort_keys=True))
         return 0
+    for note in s.notices:
+        console.say("settings", note, level="notice")
     for name in Settings.keys():
         section, key = split_key(name)
         console.say("settings", "%-28s %-24s %s" % (

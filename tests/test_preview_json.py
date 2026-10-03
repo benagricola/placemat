@@ -58,6 +58,9 @@ def test_the_shapes_are_those_the_drawing_has():
         assert len([s for s in shapes if s["kind"] == "courtyard"]) == len(_cls(g, "courtyard"))
         assert len([s for s in shapes if s["kind"] == "body"]) == len(_cls(g, "body"))
         assert len([s for s in shapes if s["kind"] == "silk"]) == len(_cls(g, "silk"))
+    every = [s for item in doc["items"] for m in item["members"] for s in m["shapes"]]
+    assert all(s["layers"] for s in every if s["kind"] in ("pad", "through"))                  # a pad names its copper layers: the page colours it by them
+    assert all(s["poly"] and s["faces"] for s in every if s["kind"] in ("hole", "npth"))       # a drill is a shape the page cuts through the pad
     drawn = [[c for c in e.get("class").split() if c in ("ok", "over", "free")][0] for e in _cls(_cls(root, "front")[0], "link") if e.tag.endswith("line")]
     assert [l["state"] for l in doc["links"]] == drawn
     assert [k["name"] for k in doc["keepouts"]] == ["clear"]

@@ -325,7 +325,7 @@ def _cell_vias(geometry, routed: bool = False) -> dict:
     the cell's, on the via's net, that ends at the via's centre. A via whose
     one track runs on to another of the cell's vias is part of a route and
     stays as drawn; so does one that two of the cell's tracks meet, unless
-    `routed` (`place.via_route` is above 0): then it is carried with each of
+    `routed` (`place.via_route_distance` is above 0): then it is carried with each of
     those tracks as its legs, which move with it (giveway._route), and stays
     as drawn only where one of them runs on to another of the cell's vias."""
     tracks: dict = {}
@@ -385,7 +385,7 @@ class Occupancy:
                  vias_block_courtyards: bool = False, board_shape=None, board_cutouts=None,
                  settings: Settings | None = None, component_spacing: float = 0.2, rules=()):
         self.settings = settings if settings is not None else Settings()
-        self._gap = self.settings.place_conflict_gap
+        self._gap = self.settings.place_conflict_reach
         self._touch = self.settings.place_courtyard_touch
         self.geometry = geometry
         self.envelope = self.settings.place_envelope
@@ -466,7 +466,7 @@ class Occupancy:
         self.field_decls: dict = {}         # a part's via grid (giveway.field_via_id's K) -> the inset it was declared with
         for fp in geometry.footprints:
             self._register(fp)
-        carried = _cell_vias(geometry, self.settings.place_via_route > 0)
+        carried = _cell_vias(geometry, self.settings.place_via_route_distance > 0)
         for c in geometry.copper:
             if c.kind == "pad":
                 continue          # pads travel with their footprint

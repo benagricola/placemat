@@ -435,10 +435,10 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
 
     cfg = occ.settings
     phase = getattr(occ, "on_phase", None)             # a viewer's note of which pass a long scan is in
-    if score is None or radius / step < cfg.place_coarse_from:
+    if score is None or radius / step < cfg.place_coarse_min_radius_steps:
         legal = sweep(((x, y) for _, x, y in grid(hint.location, radius, step)), stop_at_first=score is None)
     else:
-        coarse = step * cfg.place_coarse_steps
+        coarse = step * cfg.place_coarse_stride
         if phase:
             phase("coarse pass over the radius")
         legal = sweep(((x, y) for _, x, y in grid(hint.location, radius, coarse)), False)
@@ -454,9 +454,9 @@ def scan(occ: Occupancy, item, hint: Placement, radius: float, step: float,
             # The best coarse spots by score seed the refinement, and so do the best `accept` takes: a coarse spot
             # that `accept` (the riders) refuses can have a neighbour a fine step away that it takes, and a score
             # better than any spot near the ones it does take.
-            seeds = [cand for _, _, _, cand in legal[:cfg.place_refine_around]]
+            seeds = [cand for _, _, _, cand in legal[:cfg.place_refine_spots]]
             if accept is not None:
-                seeds += [cand for _, _, _, cand in counted(legal, cfg.place_refine_around)
+                seeds += [cand for _, _, _, cand in counted(legal, cfg.place_refine_spots)
                           if not any(cand is seed for seed in seeds)]
             for k, cand in enumerate(seeds):
                 if phase:
@@ -1352,10 +1352,10 @@ def scan_block(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float, 
         return fits
 
     cfg = occ.settings
-    if score is None or radius / step < cfg.place_coarse_from:
+    if score is None or radius / step < cfg.place_coarse_min_radius_steps:
         fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), score is None)
     else:
-        coarse = step * cfg.place_coarse_steps
+        coarse = step * cfg.place_coarse_stride
         fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse)), False)
         if not fits:
             fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, coarse / 2)), False)
@@ -1363,7 +1363,7 @@ def scan_block(occ: Occupancy, spec: BlockSpec, hint: Placement, radius: float, 
             fits = sweep(((x, y) for _, x, y in _grid(hint.location, radius, step)), False)
         if fits:
             fits.sort(key=lambda f: f[0])
-            for _, cand, _ in fits[:cfg.place_refine_around]:
+            for _, cand, _ in fits[:cfg.place_refine_spots]:
                 # The fine grid is centred on a coarse candidate, which can sit
                 # at the edge of the radius: keep only what is still inside it.
                 fits += sweep(((x, y) for _, x, y in _grid(cand.location, coarse, step)

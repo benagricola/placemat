@@ -611,3 +611,8 @@ def facts_reason_text(r: dict) -> str:
 @renders(C.FACTS_UNCONFIRMED, "reasons")
 def _facts_unconfirmed(f):
     return "; ".join(facts_reason_text(r) for r in f["reasons"])
+
+
+@renders(C.SETUP_SETTING_RENAMED, "path", "old", "new")
+def _setup_setting_renamed(f):
+    return "%s: %s is now %s (the old name still works for one release)" % (f["path"], f["old"], f["new"])

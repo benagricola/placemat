@@ -1318,7 +1318,7 @@ class Board:
         for the writer, and notes each cell's step."""
         from .lock import _turn
         planes = {c.net for c in self._copper if c.key.split(" ")[0] == "plane"}
-        keep_share = self.settings.place_drops_keep
+        keep_share = self.settings.place_drops_keep_share
         out, self._drops_notes = {}, {}
         for i in self._placements():
             if getattr(i, "drops", Drops.ALL) is Drops.ALL or i.kind != "cell":
@@ -3942,7 +3942,7 @@ class Board:
         areas = {i.key: occ._geometry(i.item).body.area for i in movable}
         result = solve.global_solve([i.key for i in movable], nets, weight_of, areas, region, {},
                                     self.settings.solve_rounds, self.settings.solve_iterations,
-                                    self.settings.solve_tolerance, self.settings.solve_pull,
+                                    self.settings.solve_tolerance, self.settings.solve_centre_pull,
                                     self.settings.solve_spread_pull, self.settings.solve_spread_growth)
         self._solve_hints = {k: Location(x, y) for k, (x, y) in result.hints.items() if k in pulled}
         plan.solve = {"seeded": len(self._solve_hints), "rounds": result.rounds,
@@ -4545,7 +4545,7 @@ class Board:
         landed on gives way (a line of labels as one), staying beside its
         item."""
         gap = self.settings.label_gap if gap is None else gap
-        size = self.settings.label_size if size is None else size
+        size = self.settings.label_text_height if size is None else size
         thickness = self.settings.label_thickness if thickness is None else thickness
         align = _align_word(_as_align(align, "a label's align"))
         if rotation not in (0, 90):
@@ -4592,7 +4592,7 @@ class Board:
         shorter cut; `chamfer=0` keeps sharp corners). `bend=Bend.ARC` (the legs
         as above) or `Bend.ARC_FREE` (the straight lines between the points, at any
         angle) make every corner a circular arc tangent to both legs instead, of
-        `radius=` mm or else `copper.arc_radius_widths` times the width; a corner
+        `radius=` mm or else `copper.arc_radius_track_widths` times the width; a corner
         the arc does not fit is a finding and the track is not drawn. `bridge=True`
         lets it pass under a same-layer track of another net it crosses (a
         via, a track on the opposite face, a via back) when it is the one
@@ -4640,10 +4640,10 @@ class Board:
         w = self._width(name, width)
         arc_r = None
         if arc:
-            arc_r = float(radius) if radius is not None else self.settings.copper_arc_radius_widths * w
+            arc_r = float(radius) if radius is not None else self.settings.copper_arc_radius_track_widths * w
             if not arc_r > w / 2.0:
                 raise ValueError("%s: an arc's radius (%.3f mm) must be above half the track's width (%.3f mm); give "
-                                 "radius= or set copper.arc_radius_widths" % (name, arc_r, w / 2.0))
+                                 "radius= or set copper.arc_radius_track_widths" % (name, arc_r, w / 2.0))
 
         def plan(ctx):
             lost = [p for p in points if isinstance(p, CopperIntent) and p.index not in ctx.via_at]
@@ -4791,7 +4791,7 @@ class Board:
         are chamfered at 45, each track leaves its pad at 45, and a lead that
         would touch the partner goes over the other face from a via."""
         chamfer = self.settings.copper_pair_chamfer if chamfer is None else chamfer
-        via_step = self.settings.copper_pair_via_step if via_step is None else via_step
+        via_step = self.settings.copper_pair_via_offset if via_step is None else via_step
         layer = CopperLayer.of(layer)
         p_name, n_name = self.geometry.require_net(net_p), self.geometry.require_net(net_n)
         nc = self.geometry.netclass(p_name)
@@ -5642,7 +5642,7 @@ class Board:
         across it, unless `width=` says otherwise.
 
         `grow=` and `within=` are refused: a pour is fitted, never a zone grown from its pads."""
-        stroke = self.settings.copper_pour_stroke if stroke is None else stroke
+        stroke = self.settings.copper_pour_outline_width if stroke is None else stroke
         layer = CopperLayer.of(layer)
         name = self.geometry.require_net(net)
         if reach is not None and reach is not Reach.CURRENT:
@@ -5941,7 +5941,7 @@ class Board:
         over items waits for them to be placed."""
         inset = self.settings.copper_plane_inset if inset is None else inset
         clearance = self.settings.copper_plane_clearance if clearance is None else clearance
-        min_thickness = self.settings.copper_plane_min_thickness if min_thickness is None else min_thickness
+        min_thickness = self.settings.copper_plane_min_width if min_thickness is None else min_thickness
         name = self.geometry.require_net(net)
         layers = tuple(dict.fromkeys(CopperLayer.of(l) for l in layers))
         self._planes_declared.append((name, layers))    # a flip is judged against the layers' planes
@@ -6012,7 +6012,7 @@ class Board:
                 w = 2.0 * _pad_half_across(self, ctx.occ, width_pad, ctx.locate(width_pad), dx / n, dy / n)
             segs = [chord for t in ctx.tracks_on(layer) if t.net != name for chord in t.chords()]
             return finger_ops(name, layer, a, b, w, segs, self.via_drill, self.via_size, bridge_width,
-                              self.settings.copper_bridge_half, self.settings.copper_finger_min_piece)
+                              self.settings.copper_bridge_half_gap, self.settings.copper_finger_min_piece)
         return self._copper_intent("finger %s" % name, net, priority, plan, refs, why)
 
     # ------------------------------------------------------------ resolution
@@ -6133,6 +6133,7 @@ class Board:
         self._solve_hints = None            # the global solve runs once per resolve, when first asked
         self._report_lost_layers(plan)
         plan.findings.extend(self._finding(C.SETUP_RULE_NOTE, facts, "notice") for facts in self._stamped_rule_notes)
+        plan.findings.extend(self._finding(C.SETUP_SETTING_RENAMED, facts, "notice") for facts in ({"path": p, "old": o, "new": n} for p, o, n in self.settings.notices))    # a renamed setting named by its old name
         self._rank(occ)
         if occ.envelope == "courtyard":
             from .envelope import understatement
@@ -6410,7 +6411,7 @@ class Board:
                     if ready and ready[0][2] is not obj:
                         obj, why_now = ready[0][2], "locked order"
                 ex = self._explore
-                if ex is not None and obj.key in ex.focus and len(pending) > 1 and self._order_rng.random() < self.settings.explore_swap:
+                if ex is not None and obj.key in ex.focus and len(pending) > 1 and self._order_rng.random() < self.settings.explore_swap_chance:
                     other, other_why = self._next_to_place([o for o in pending if o is not obj], occ, placed)
                     if other.key in ex.focus:           # two focused neighbours trade turns
                         obj, why_now = other, (other_why + "; " if other_why else "") + "explore: before " + obj.key
@@ -6824,7 +6825,7 @@ class Board:
         limits = {k: lim for k, (_, lim) in self._cleanup_limits(plan).items() if k in movable}
         every = (0.0, 90.0, 180.0, 270.0)
         r = cleanup(occ, movable, pins, list(self._links), self.clearance, s.cleanup_passes,
-                    s.cleanup_radius, s.cleanup_step,
+                    s.cleanup_search_radius, s.cleanup_search_step,
                     turns={k: self._turns(intents[k]) if k in intents else every for k in movable},
                     limits=limits, settings=s)
         swapped = {}
@@ -7409,7 +7410,7 @@ class Board:
             entries = [(op, c.priority.rank, c.bridge) for c, op in live]
             refused = []
             ops, notes, findings = resolve_bridges(entries, ctx.fixed_tracks, self.via_drill, self.via_size,
-                                                   self.settings.copper_bridge_half, drop=refused,
+                                                   self.settings.copper_bridge_half_gap, drop=refused,
                                                    labels=[c.key for c, _ in live], ids=[copper_id(c) for c, _ in live])
             fresh = {live[i][0].index for i in refused} - dropped
             if not fresh:
@@ -7550,7 +7551,7 @@ class Board:
             return area, sum(pin_count(fp) for fp in parts)
 
         m = {i.key: measure(i) for i in searched}
-        scores = rank_scores(m, self.settings.rank_area, self.settings.rank_pins)
+        scores = rank_scores(m, self.settings.rank_area_weight, self.settings.rank_pins_weight)
         order = sorted(scores, key=lambda k: (-scores[k], k))
         n = len(order)
         by_area = sorted(m, key=lambda k: -m[k][0])
@@ -7971,7 +7972,7 @@ class Board:
         from .explore import draw
         rng = _random.Random("%d:%s" % (ex.seed, i.key))
         s = self.settings
-        return lambda cands: draw(cands, rng, s.explore_slack, s.explore_rank_power)
+        return lambda cands: draw(cands, rng, s.explore_spot_slack, s.explore_rank_power)
 
     def _turns(self, i: PlaceIntent) -> tuple:
         """The rotations a search may take an item at: the list the script

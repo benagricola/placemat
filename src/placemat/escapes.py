@@ -90,7 +90,7 @@ def pad_corridors(occ, ref: str, pads: dict, rotation: float, depth: float) -> l
     """Corridors for one part's pads: `pads` maps a pad number to (net,
     layers, box) as the part stands (or would stand)."""
     from .placer import _pin_normal
-    if len(pads) < occ.settings.place_escape_pads:
+    if len(pads) < occ.settings.place_escape_min_pads:
         return []
     centres = {(ref, n): b.center for n, (_, _, b) in pads.items()}
     body = Box.union([b for _, _, b in pads.values()]).center
@@ -397,7 +397,7 @@ class Escapes:
             if ref in occ.pending or not occ.geometry.has_footprint(ref):
                 continue
             pads = _pads_of(g.shapes, ref)
-            if len(pads) < occ.settings.place_escape_pads:
+            if len(pads) < occ.settings.place_escape_min_pads:
                 continue
             for number, (net, layers, box) in sorted(pads.items()):
                 if not net or _net_sizes(occ).get(net, 0) >= 2 or is_no_connect(net):

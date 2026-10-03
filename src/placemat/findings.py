@@ -92,6 +92,7 @@ class FindingCause(str, Enum):
     SETUP_ACCEPT = (FindingKind.SETUP, "setup.accept")
     SETUP_LAYER_LOST = (FindingKind.SETUP, "setup.layer_lost")
     SETUP_RULE_NOTE = (FindingKind.SETUP, "setup.rule_note")
+    SETUP_SETTING_RENAMED = (FindingKind.SETUP, "setup.setting_renamed")
     SETUP_LOOKAHEAD = (FindingKind.SETUP, "setup.lookahead")
     SETUP_PCBNEW = (FindingKind.SETUP, "setup.pcbnew")
     ROUTE_DROPPED = (FindingKind.ROUTE, "route.dropped")

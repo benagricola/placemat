@@ -246,6 +246,12 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Settings documented as data, renamed where unclear** (0.90.0): every
+  setting's unit and meaning in settings.py, the api.md table generated from
+  it, `placemat settings --example`, 31 renames (old names accepted for one
+  release); studio finding badges, vias above pads, pads in layer colours,
+  why it moved.
+
 - **Explore curve, stopping rules, studio notes** (0.89.0): an explore keeps
   its score curve and says when the best was found, with stall and hard-clear
   stopping rules (off by default); `placemat studio note`; board.size refused;

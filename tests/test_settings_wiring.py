@@ -58,15 +58,15 @@ def test_the_scan_step_is_the_declared_one():
 
 
 def test_the_coarse_pass_is_skipped_below_the_declared_ratio():
-    """`place.coarse_from` is the radius-to-step ratio at which a scored scan
+    """`place.coarse_min_radius_steps` is the radius-to-step ratio at which a scored scan
     goes coarse first. Below it the fine grid is walked once."""
     from placemat.placer import scan
     g = _geom()
     u1 = g.footprint("U1")
     hint = Placement(Location(20, 20), 0, Face.FRONT)
     nowhere = lambda p: 0.0
-    never = Occupancy(g, edge_margin=0.0, settings=Settings(place_coarse_from=1e9))
-    always = Occupancy(g, edge_margin=0.0, settings=Settings(place_coarse_from=1.0))
+    never = Occupancy(g, edge_margin=0.0, settings=Settings(place_coarse_min_radius_steps=1e9))
+    always = Occupancy(g, edge_margin=0.0, settings=Settings(place_coarse_min_radius_steps=1.0))
     direct = scan(never, u1, hint, radius=4.0, step=0.25, score=nowhere)
     staged = scan(always, u1, hint, radius=4.0, step=0.25, score=nowhere)
     assert staged.tried < direct.tried
@@ -102,7 +102,7 @@ def test_an_explicit_argument_still_beats_the_setting():
 def test_the_pour_stroke_comes_from_the_settings():
     from placemat.copper import Pour
     from placemat.values import CopperLayer, Net
-    b = _copper_board(copper_pour_stroke=0.9)
+    b = _copper_board(copper_pour_outline_width=0.9)
     b.pour(Net("GND"), [Location(5, 5), Location(15, 5), Location(15, 15), Location(5, 15)],
            layer=CopperLayer.F)
     (p,) = [op for op in b.resolve().copper if isinstance(op, Pour)]
@@ -126,7 +126,7 @@ def test_the_track_chamfer_comes_from_the_settings():
 
 def test_the_label_size_and_thickness_come_from_the_settings():
     from placemat.copper import Text
-    b = _copper_board(label_size=2.5, label_thickness=0.4)
+    b = _copper_board(label_text_height=2.5, label_thickness=0.4)
     b.place(Part("u1"), at=Location(20, 20))
     b.label(Part("u1"), "MCU")
     (t,) = [op for op in b.resolve().copper if isinstance(op, Text)]
