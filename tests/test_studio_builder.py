@@ -12,6 +12,9 @@ from placemat import builder_worker, facts as facts_mod, runner
 from placemat.studio import Studio
 from tests.builder_support import stage_project, coordinates_in
 
+# One worker runs the builder tests in order (pytest -n 2 --dist loadgroup): test_studio_builder's module fixture is a sequential flow.
+pytestmark = pytest.mark.xdist_group("studio_builder")
+
 
 def _restore(src, run_dir, fresh, quiet, timeout=900, keep_renders=False):
     import shutil

@@ -7,6 +7,9 @@ import pytest
 from placemat.studio import Studio
 from tests.test_studio_builder import Api
 
+# One worker runs the builder tests in order (pytest -n 2 --dist loadgroup): test_studio_builder's module fixture is a sequential flow.
+pytestmark = pytest.mark.xdist_group("studio_builder")
+
 
 def project(tmp_path):
     (tmp_path / "placemat.toml").write_text("")

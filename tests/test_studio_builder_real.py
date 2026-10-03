@@ -10,6 +10,9 @@ from placemat.studio import Studio
 from tests.test_studio_builder import Api
 from tests.test_studio_builder import wait_phase as _wait
 
+# One worker runs the builder tests in order (pytest -n 2 --dist loadgroup): test_studio_builder's module fixture is a sequential flow.
+pytestmark = pytest.mark.xdist_group("studio_builder")
+
 pytestmark = pytest.mark.skipif(shutil.which("pcb") is None, reason="the pcb tool is not installed")
 
 ZEN = '''R = Module("@stdlib/generics/Resistor.zen")
