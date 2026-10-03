@@ -6,12 +6,12 @@ board, cost most of a full run and rarely change the result, so the quick
 route skips them. The router is executed from its own source with one
 keyword added to its top-level call; nothing in the router checkout is
 modified. Run by placemat's routing with `quick=True`, under the router's
-own interpreter; $KRT_DIR is the checkout (default ~/work/KiCadRoutingTools).
+own interpreter; $KRT_DIR is the checkout (default ~/work/KRT-upstream).
 """
 import os
 import sys
 
-router_dir = os.environ.get("KRT_DIR", os.path.expanduser("~/work/KiCadRoutingTools"))
+router_dir = os.environ.get("KRT_DIR", os.path.expanduser("~/work/KRT-upstream"))
 py_router = os.path.join(router_dir, "py_router")
 route_py = os.path.join(py_router, "route.py")
 if not os.path.exists(route_py):

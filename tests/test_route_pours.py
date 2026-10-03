@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("pcbnew")
 
-from placemat.kicad.route import POUR_GUARD, guard_partial_pours, restore_footprint_graphics  # noqa: E402
+from placemat.kicad.route import POUR_GUARD, guard_partial_pours, remove_guards  # noqa: E402
 from tests.conftest import needs_breakout, needs_kicad  # noqa: E402
 
 pytestmark = [needs_kicad, needs_breakout]
@@ -94,7 +94,7 @@ def test_the_routed_copy_has_the_guard_removed_and_the_pour_kept(breakout_pcb, t
     guard_partial_pours(str(pcb), {"GND"}, LAYERS, 0.9)
     out = tmp_path / "routed.kicad_pcb"
     shutil.copy(pcb, out)
-    restore_footprint_graphics(str(pcb), str(out))
+    remove_guards(str(out))
     guards, brd = _guards(out)
     assert guards == []
     assert [z.GetNetname() for z in brd.Zones()
