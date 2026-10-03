@@ -23,6 +23,11 @@ file. An item cites its source as "a board's session, <date>".
 
 Specced work first, then the loose ends.
 
+0. **A hard limit on a link** (a board's session, 2026-10-03): `board.link(...,
+   limit_mm=6, hard=True)` refuses a candidate where the link would exceed its
+   limit (as a push's hard limit reserves a disc), so the search finds the best
+   spot that meets it, or leaves the item unplaced with a finding naming the
+   link. After the preview slowdown fix, which touches the same search code.
 1. **Searched suggestions in the studio** (phase 6's engine is built): the
    "Search options" button starts a probe, shows its candidates live and the
    found suggestion; after studio round 10.
