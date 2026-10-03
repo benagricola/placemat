@@ -222,6 +222,9 @@ class Settings:
     studio_keep: int = 10               # resolves kept for comparing any two
     studio_poll_ms: int = 200           # how often the watched files' modification times are read
     studio_cancel_grace_ms: int = 2000  # a resolve asked to stop that has not by then has its worker restarted
+    studio_suggestions_per_lever: int = 3   # a finding's suggestions for one lever (which side to place beside): the best this many
+    studio_try_timeout_s: int = 60      # a try of a suggestion (a resolve of the edited script) is stopped after this long
+    studio_apply: bool = True           # false: the studio shows suggestions and diffs but refuses to write them
 
     # [facts] - placemat's own record, not a board fact: never part of a run's id
     facts_confirmed: str = ""           # the old single digest, read for any script with no entry of its own in facts_boards
@@ -345,7 +348,7 @@ _ABOVE_ZERO = frozenset((
     "copper_plane_min_thickness", "copper_pour_stroke", "copper_pour_reach_step", "copper_pour_reach_max", "copper_microvia_drill", "label_size",
     "label_thickness", "label_slide_step", "geometry_arc_sag", "geometry_index_cells",
     "geometry_arc_error_nm", "check_rise_c", "check_zone_step", "check_neck_resistivity", "check_neck_conductivity",
-    "studio_keep", "studio_poll_ms", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
+    "studio_keep", "studio_poll_ms", "studio_suggestions_per_lever", "studio_try_timeout_s", "timeout_generate", "timeout_drc", "timeout_route", "timeout_render",
     "solve_iterations", "solve_tolerance", "solve_rounds", "cleanup_radius", "cleanup_step", "cleanup_swap_radius", "preview_px_per_mm",
     "route_plane_share", "route_adopt_tolerance", "place_courtyard_polygon_share", "write_keepout_line", "write_keepout_text"))
 _AT_LEAST_ZERO = frozenset((
