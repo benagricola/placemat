@@ -85,6 +85,8 @@ FACTS = {
     C.FIXED_CUTOUT: {"name": "slot", "outline_kind": "rect", "why": {"code": "cutout_web", "gap_mm": 0.9, "web_mm": 1.0}},
     C.SETUP_FRAME_REACH: {"item": "c1", "from_mm": 1.0, "to_mm": 42.1, "axis": "width", "frame_from_mm": 0.0, "frame_to_mm": 30.0},
     C.SETUP_WEB: {"cutout": "slot", "gap_mm": 0.9, "web_mm": 1.0, "outline_kind": "rect"}, C.FIXED_KEEPOUT: {},
+    C.FIXED_ROOM: {"item": "c1", "copper": "track SIG", "net": "SIG", "side": "north", "reach_mm": 2.0},
+    C.FIXED_ROOM_UNSETTLED: {"copper": "track SIG", "moved_mm": 0.2, "passes": 4},
     C.LINK_OVER: LINK, C.LABEL_SITS_ON: LABEL, C.LABEL_NO_SPOT: LABEL, C.LABEL_NOT_DRAWN: LABEL,
     C.COPPER_KEEPOUT: {"net": "SIG", "keepout": "ant", "word": "track", "layer": "F", "layer_word": "front",
                        "excluded": "tracks", "excludes": ["parts", "tracks"], "keepout_layers": ["F", "B"]},

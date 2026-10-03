@@ -957,6 +957,16 @@ def fixed_keepout(f, settings):
     return []
 
 
+@case(C.FIXED_ROOM)
+def fixed_room(f, settings):
+    return []
+
+
+@case(C.FIXED_ROOM_UNSETTLED)
+def fixed_room_unsettled(f, settings):
+    return []
+
+
 # ------------------------------------------------------------------ builders: copper that does not draw as asked
 def _fitting_radius(f, text):
     """The radius an arc that did not fit would fit at: a leg of L mm that its arcs take T mm of is fitted by an arc radius

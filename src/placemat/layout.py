@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import collections
 import contextlib
+import copy
 import dataclasses
 import functools
 
@@ -2551,14 +2552,117 @@ class Board:
             placement = self._beside_clear_of_others(occ, i, placement)
         return placement
 
+    # ------------------------------------------------------------ room for declared copper
+    _ROOM_KINDS = ("track", "pair", "via")
+
+    def _snapshot(self) -> tuple:
+        """What a pass over the firm items changes on the board, to put back: its attributes (a container copied), and the
+        fields of every declaration (a turn, a run, an alignment, copper's freedom)."""
+        attrs = {k: (copy.copy(v) if isinstance(v, (dict, list, set)) else v) for k, v in self.__dict__.items()}
+        things = [(o, copy.copy(o.__dict__)) for o in list(self._intents) + list(self._copper) + list(self._links)
+                  if hasattr(o, "__dict__")]
+        return attrs, things
+
+    def _restore(self, saved: tuple) -> None:
+        attrs, things = saved
+        self.__dict__.clear()
+        self.__dict__.update({k: (copy.copy(v) if isinstance(v, (dict, list, set)) else v) for k, v in attrs.items()})
+        for o, d in things:
+            o.__dict__.clear()
+            o.__dict__.update(d)
+
+    def _settle_rooms(self, explore, lock) -> None:
+        """Passes over the firm items, each placed against the declared copper the last pass planned, and with the
+        order of two Beside parts turned where one was refused by the other: until nothing moves, or
+        `place.firm_passes` is used up (the last of them is the run itself, so one less here)."""
+        saved = self._snapshot()
+        tol = self.settings.place_copper_room_tolerance
+        seed, swaps, notes, unsettled = {}, [], {}, []
+        for n in range(self.settings.place_firm_passes - 1):
+            self._room_seed, self._swaps, self._swap_notes = seed, swaps, notes
+            try:
+                got = self._resolve_once(None, None, explore, lock, None, None, None, None, firm_only=True)
+            finally:
+                self._restore(saved)
+            unsettled = _rooms_moved(seed, got.rooms, tol)
+            fresh = []
+            for p, q in got.blocked:
+                if not any(x in swaps + fresh for x in ((p, q), (q, p))):
+                    fresh.append((p, q))
+                    notes = dict(notes, **{p: "placed before %s: %s stood in its way, and now stands off it" % (q, q)})
+            seed, swaps = got.rooms, swaps + fresh
+            if not unsettled and not fresh:
+                unsettled = []
+                break
+        self._room_seed, self._swaps, self._swap_notes, self._room_unsettled = seed, swaps, notes, unsettled
+
+    def _room_context(self, occ: Occupancy, plan: Plan, ctx) -> "_CopperContext":
+        """A copper context to plan declared copper in without drawing it: what the real one knows, copied."""
+        room = _CopperContext(self, occ)
+        room.plan = plan
+        room.ops_at, room.via_at, room.pour_at = dict(ctx.ops_at), dict(ctx.via_at), dict(ctx.pour_at)
+        room.planned_tracks, room.planned_vias = list(ctx.planned_tracks), list(ctx.planned_vias)
+        room.fixed_tracks = list(ctx.fixed_tracks)
+        self._roomed = set()
+        return room
+
+    def _dry_rooms(self, occ: Occupancy, plan: Plan, intents, ctx=None, done=None) -> dict:
+        """{copper index: [Shape]}: where each track and via of `intents` would be drawn, planned as the real plan plans
+        it but committed nowhere. A declaration the plan cannot read yet (an end not placed) has none."""
+        if ctx is None:
+            ctx = _CopperContext(self, occ)
+            ctx.plan = plan
+        out = {}
+        for c in sorted(intents, key=lambda c: c.index):
+            if c.key.split(" ")[0] not in self._ROOM_KINDS:
+                continue
+            try:
+                ops = c.plan(ctx)
+            except Exception:           # an end that is not placed, a form that needs what is not there yet
+                continue
+            ctx.ops_at[c.index] = ops
+            shapes = []
+            for op in ops:
+                if isinstance(op, (Track, Via)):
+                    sh = _shape_of(op)
+                    if sh is not None:
+                        shapes.append(dataclasses.replace(sh, owner="room " + c.key))
+            out[c.index] = shapes
+        ctx.notes = Findings()
+        return out
+
+    def _rooms_after(self, occ: Occupancy, plan: Plan, room_ctx, placed: set, other_copper, step) -> None:
+        """After a searched item lands: the declared copper whose ends are all placed now is planned provisionally, and kept
+        clear of by what is placed next."""
+        todo = [c for c in other_copper if c.index not in self._roomed and c.owners and c.owners <= placed]
+        if not todo:
+            return
+        self._roomed |= {c.index for c in todo}
+        got = self._dry_rooms(occ, plan, todo, room_ctx)
+        shapes = [sh for v in got.values() for sh in v]
+        if shapes:
+            occ.set_rooms(occ.rooms + shapes)
+            step.note = (step.note + "; " if step.note else "") + "room kept for %s" % ", ".join(
+                c.key for c in todo if got.get(c.index))
+
+    def _rooms_digest(self) -> str:
+        """What the passes decided, for the reuse record: the planned copper and the orders turned."""
+        if not self._room_seed and not self._swaps:
+            return ""
+        import hashlib
+        text = repr(sorted((k, [(sh.owner, [tuple(round(c, 4) for c in p) for p in sh.poly]) for sh in v])
+                           for k, v in self._room_seed.items())) + repr(self._swaps)
+        return "|rooms:" + hashlib.sha256(text.encode()).hexdigest()[:16]
+
     def _beside_clear_of_others(self, occ: Occupancy, i: PlaceIntent, placement: Placement) -> Placement:
         """`_beside_clear` with a user's labels left out: they give way to a firm part, the part does not."""
         real = getattr(occ, "_occ", occ)
         was, real.labels_yield = real.labels_yield, True
+        rooms, real.rooms_apply = real.rooms_apply, True        # and what declared copper is planned to be
         try:
             return self._beside_clear(occ, i, placement)
         finally:
-            real.labels_yield = was
+            real.labels_yield, real.rooms_apply = was, rooms
 
     def _beside_clear(self, occ: Occupancy, i: PlaceIntent, placement: Placement) -> Placement:
         """Beside's standoff from `item`, moved on out along its side's axis to the first place the collision
@@ -2594,6 +2698,7 @@ class Board:
                 break
             lo = k * step
         if hi is None:
+            self._beside_refused(real, i, placement, others, group, clr)
             return placement
         while hi - lo > 1e-4:
             mid = (lo + hi) / 2.0
@@ -2602,6 +2707,28 @@ class Board:
         while not stands(hi):
             hi = round(hi + 1e-6, 6)
         return at(hi)
+
+    def _beside_refused(self, real, i: PlaceIntent, placement: Placement, others, group, clr) -> None:
+        """A Beside part that no step within reach lets stand: said, by what stood in its way. Provisional copper is
+        `fixed.room`; a firm Beside part placed before it is noted, for the next pass to place the two the other way round."""
+        blame: list = []
+        if not (group and real.legal(i.item, placement, clr, others=ShapeIndex(group), board=False, blame=blame) is not None):
+            real.legal(i.item, placement, clr, others=others, past_edge=self._firm_past_edge(i), blame=blame, by_corners=True)
+        if not blame:
+            return
+        owner = blame[0].owner
+        name = getattr(owner, "name", str(owner))
+        if name.startswith("room "):
+            plan = self._begin_plan
+            if plan is not None:
+                plan.findings.append(self._finding(C.FIXED_ROOM, {
+                    "item": i.key, "copper": name[len("room "):], "net": getattr(owner, "net", ""),
+                    "side": i.beside.side.name.lower(), "reach_mm": self.settings.place_beside_reach}))
+            return
+        q = next((it for it in self._intents if getattr(it, "beside", None) is not None and it.key != i.key
+                  and it.kind in ("part", "cell") and name in {fp.ref for fp in members_of(it.item)}), None)
+        if q is not None and q.key in self._settled and not ({fp.ref for fp in members_of(q.item)} & set(i.needs)):
+            self._beside_blocked.append((i.key, q.key))
 
     def _row_of_placement(self, occ: Occupancy, i: PlaceIntent, along: float) -> Placement:
         """Where one item of a `row(..., of=)` lands: its own drawn envelope
@@ -6249,6 +6376,14 @@ class Board:
         return plan
 
     def _resolve(self, progress, reuse, explore, lock, routes, on_step, on_begin, partial=None) -> Plan:
+        self._room_seed, self._swaps, self._room_unsettled, self._swap_notes = {}, [], [], {}
+        if self.settings.place_copper_room and self.settings.place_firm_passes > 1 and \
+                (self._copper or any(getattr(i, "beside", None) is not None for i in self._intents)):
+            self._settle_rooms(explore, lock)
+        return self._resolve_once(progress, reuse, explore, lock, routes, on_step, on_begin, partial)
+
+    def _resolve_once(self, progress, reuse, explore, lock, routes, on_step, on_begin, partial=None,
+                      firm_only: bool = False):
         self._check_groups()                # what a declared group may hold, before the search
         self._annotations = exposure.read(self.geometry)    # sources and sensitive parts (Pm.Emits, Pm.Limit); refuses a unit mismatch
         self._part_keep_outs()              # the clearances the parts' Pm.KeepOut ask of other nets' copper; refuses one with no citation
@@ -6269,6 +6404,8 @@ class Board:
         occ = Occupancy(self.geometry, self.edge_margin, board_box=self._outline, board_shape=self._shape,
                         board_cutouts=self._cutouts, settings=self.settings,
                         component_spacing=self.component_spacing, rules=self._rules)
+        occ.set_rooms([sh for shapes in self._room_seed.values() for sh in shapes])     # the copper the passes planned
+        self._beside_blocked = []
         self._check_stamped_via_types()     # a fragment's vias the fab profile does not allow fail the run
         self._flip_said = self._flip_notes(occ)     # a flipped cell's via whose inner end changes role
         self._carry_pad_vias(occ)          # before any cell's geometry is built from its members'
@@ -6297,7 +6434,7 @@ class Board:
         ctx.plan = plan
         self._escape_ctx = ctx              # what a lane's via is judged by (_LaneEnv)
         from . import reuse as _reuse
-        context = _reuse.context_key(self, self.reuse_extra)
+        context = _reuse.context_key(self, self.reuse_extra + self._rooms_digest())
         record = {"version": _reuse.VERSION, "context": context, "steps": [], "reused": 0, "first_change": None}
         plan.reuse = record
         if partial is not None:             # each step's record, as it is made: a resolve that dies leaves them (reuse.PartialLog)
@@ -6552,6 +6689,8 @@ class Board:
             self._place_fanouts(occ, plan, placed, progress)
             self._place_escapes(occ, plan, placed, progress)
             self._place_labels(occ, plan, placed, progress)
+            if occ.rooms_apply and step.placement is not None:      # declared copper whose ends are all placed now
+                self._rooms_after(occ, plan, room_ctx, placed, other_copper, step)
 
         def place_ranked(lo, hi):
             """FIXED and EDGE go down in declaration order: nothing yields to
@@ -6561,21 +6700,25 @@ class Board:
                     and getattr(obj, "key", None) not in self._rider_of]      # a rider goes with its item
             while firm:                     # declaration order, except that a position said in terms of a pad waits for it
                 ready = [obj for obj in firm if obj.needs <= placed and self._lanes_ready(obj)]
+                held = {q for p, q in self._swaps if any(o.key == p for o in firm)}      # placed after the part it was in the way of
+                ready = [obj for obj in ready if obj.key not in held] or ready
                 if not ready and any(d.index not in self._escape_laid and d.ref in placed for d in self._escapes):
                     self._place_escapes(occ, plan, placed, progress, force=True)    # waits that wait on each other: as before
                     continue
                 if not ready:
                     raise ValueError("%s is placed relative to %s, which is not placed by then (only FIXED and EDGE "
                                      "items may be referred to)" % (firm[0].key, ", ".join(sorted(firm[0].needs - placed))))
-                place_one(ready[0])
+                place_one(ready[0], self._swap_notes.get(ready[0].key, ""))
                 firm.remove(ready[0])
             collisions = [f for f in plan.findings
                           if f.cause in (C.FIXED_CUTOUT, C.FIXED_KEEPOUT)
                           or (f.cause is C.FIXED_PART and f.facts["freedom"] in ("fixed", "edge"))]
             required_keys = {o.key for o in placements if getattr(o, "required", False)}
             demanded = [c for c in collisions if finding_text.subject(c.cause, c.facts) in required_keys]
-            if demanded or (collisions and not self.keep_going):
+            if (demanded or (collisions and not self.keep_going)) and not firm_only:
                 raise PlacementCollision(demanded or collisions)
+            if firm_only and hi == RANK_EDGE:
+                return
             pending = [obj for obj in placements if lo <= obj.rank[0] <= hi and not obj.freedom.decided]
             for hole in [o for o in pending if isinstance(o, (CutoutIntent, KeepoutIntent))]:
                 pending.remove(hole)        # holes first: every part after one sees the board it left
@@ -6598,9 +6741,18 @@ class Board:
 
         place_ranked(RANK_FIXED, RANK_EDGE)
         self._place_escapes(occ, plan, placed, progress, force=True)     # whatever the firm items did not release
+        if firm_only:           # a pass that only places the firm items: where the declared copper goes, and who was refused
+            return _FirmPass(self._dry_rooms(occ, plan, fixed_copper), list(self._beside_blocked))
         self._check_web(plan)
         self._check_pitch(plan)
+        occ.set_rooms([])       # the real copper replaces what the passes planned
         self._plan_copper(occ, ctx, fixed_copper, plan, progress)
+        for key, moved in self._room_unsettled:
+            plan.findings.append(self._finding(C.FIXED_ROOM_UNSETTLED, {
+                "copper": key, "moved_mm": moved, "passes": self.settings.place_firm_passes}))
+        if self.settings.place_copper_room:
+            occ.rooms_apply = True          # the search keeps clear of what declared copper will be
+            room_ctx = self._room_context(occ, plan, ctx)
         if self._fit:
             # the search's room: round what is decided, or round the origin when nothing is
             decided = self._placed_box(occ, plan)
@@ -6621,6 +6773,8 @@ class Board:
                 record["cleanup"] = self._recorded_cleanup(occ, plan)
                 record["cleanup"]["key"] = chain["key"]
         self._give_way_copper(occ, plan)
+        occ.set_rooms([])
+        occ.rooms_apply = False
         self._plan_copper(occ, ctx, other_copper, plan, progress)
         if routes:
             self._draw_adopted(occ, ctx, plan, routes, progress)
@@ -9504,6 +9658,29 @@ def _coord(board: "Board", occ: Occupancy, v, axis: str, placed: tuple | None = 
 _RIDE_PROBE = (1.37, -0.73)
 """How far _ride_turn moves an item to see whether its riders move with it:
 off any grid a search walks, on both axes."""
+
+
+class _FirmPass:
+    """What a pass over the firm items gives the next: where declared copper goes, and the Beside parts that were refused."""
+
+    def __init__(self, rooms: dict, blocked: list):
+        self.rooms, self.blocked = rooms, blocked
+
+
+def _rooms_moved(old: dict, new: dict, tol: float) -> list:
+    """[(copper key, mm)] for each declaration whose planned shapes differ from the last pass's by more than `tol`; a
+    different count of shapes counts as moved by the most any of them could."""
+    out = []
+    for k in sorted(set(old) | set(new)):
+        a, b = old.get(k, []), new.get(k, [])
+        if len(a) != len(b) or any(len(x.poly) != len(y.poly) for x, y in zip(a, b)):
+            gap = float("inf")
+        else:
+            gap = max([abs(p - q) for x, y in zip(a, b) for u, v in zip(x.poly, y.poly) for p, q in zip(u, v)] or [0.0])
+        if gap > tol:
+            key = (a or b)[0].owner[len("room "):] if (a or b) else str(k)
+            out.append((key, round(gap, 3) if gap != float("inf") else -1.0))
+    return out
 
 
 class _Riding:

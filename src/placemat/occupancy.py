@@ -440,6 +440,9 @@ class Occupancy:
         # While a searched item is placed, a user label's reserved box and silk are not obstacles: the
         # label gives way once the item is down (layout._labels_give_way), the item never does.
         self.labels_yield = False
+        self._rooms_serial = 0
+        self.rooms: list = []              # provisional copper: declared copper dry-planned ahead of its real plan (layout.py)
+        self.rooms_apply = False           # whether `obstacles` hands them out: the search and Beside's move out, not a firm item's check
         # A native obstacle index (Rust), one per distinct skip-set (an
         # item's own owners, plus self.pending, at the time it was asked
         # for): scan(), cleanup's per-key hints, and a freedom's several
@@ -809,6 +812,13 @@ class Occupancy:
         self._invalidate_native()
         if self.__dict__.get("_escapes") is not None:
             self._escapes.add_copper(shapes)
+
+    def set_rooms(self, shapes) -> None:
+        """Provisional copper: what declared copper is planned to be, kept as obstacles for what is placed before the real
+        plan. Replaces what was set; the shapes are never in `copper`, so nothing that plans or checks copper sees them."""
+        self.rooms = list(shapes)
+        self._rooms_serial += 1
+        self._invalidate_native()
 
     def remove_copper(self, shapes) -> None:
         """Planned copper that stood as an obstacle is taken back (a reservation the copper
@@ -1257,6 +1267,8 @@ class Occupancy:
     def _obstacle_shapes(self, skip, carried: bool = True) -> list:
         out = [s for owner, g in self.items.items() if owner not in skip for s in g.shapes]
         out += [c for c in self.copper if c.owner not in skip]
+        if self.rooms_apply:
+            out += self.rooms
         if self.labels_yield:
             out = [s for s in out if not is_label_silk(s)]
         if not carried:
@@ -1275,6 +1287,8 @@ class Occupancy:
         key = skip if carried else (skip, "without carried vias")
         if self.labels_yield:
             key = (key, "labels yield")
+        if self.rooms_apply:
+            key = (key, "rooms", len(self.rooms), self._rooms_serial)
         hit = self._native_obstacle_cache.get(key)
         if hit is not None:
             return hit
