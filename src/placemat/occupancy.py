@@ -620,7 +620,7 @@ class Occupancy:
 
     def _flip_layers(self, layers: frozenset[CopperLayer]) -> frozenset[CopperLayer]:
         """The layers a cell's own copper stands on once the cell is flipped:
-        F and B swap, and inner copper keeps its layer, so a module keeps the
+        F and B swap, and inner copper keeps its layer, so a cell keeps the
         layer roles it was laid out for. This diverges from KiCad's own flip,
         which mirrors inner layers through the stack; the writer puts them
         back."""

@@ -46,7 +46,7 @@ def test_two_independent_pairs_joined_only_by_a_plane_and_a_board_level_net_is_a
     text = splits.cell_text(g, g.cells["m"], plane_nets={"GND"}, min_group=2)
     assert text == (
         "its parts form 2 groups joined only by board-level nets: U1, R1; U2, R2. "
-        "Parts with no close placement requirement in common may be split into modules of their own.")
+        "Parts with no close placement requirement in common may be split into cells of their own.")
 
 
 def test_one_group_and_two_unjoined_parts_is_not_reported():
@@ -107,7 +107,7 @@ def test_a_group_below_the_threshold_is_left_out_of_the_message_entirely():
     text = splits.cell_text(g, cell, plane_nets={"GND"}, min_group=3)
     assert text == (
         "its parts form 2 groups joined only by board-level nets: U1, R1, C1; U2, R2, C2. "
-        "Parts with no close placement requirement in common may be split into modules of their own.")
+        "Parts with no close placement requirement in common may be split into cells of their own.")
 
 
 def test_the_message_names_groups_in_cell_order_and_the_unjoined_parts():
@@ -132,7 +132,7 @@ def test_the_message_names_groups_in_cell_order_and_the_unjoined_parts():
         "its parts form 3 groups joined only by board-level nets: U3, C7, R2; U5, R4; Q2, R9 "
         "(and 4 parts no net inside the cell joins to the others: C1, C2, C3, R1; "
         "judge each by what places it: a bypass capacitor stays with the IC it serves, a sensing part at what it senses). "
-        "Parts with no close placement requirement in common may be split into modules of their own.")
+        "Parts with no close placement requirement in common may be split into cells of their own.")
 
 
 def test_an_unconnected_pad_does_not_join_two_real_groups_via_an_empty_net():
@@ -149,7 +149,7 @@ def test_an_unconnected_pad_does_not_join_two_real_groups_via_an_empty_net():
     text = splits.cell_text(g, cell, plane_nets={"GND"}, min_group=2)
     assert text == (
         "its parts form 2 groups joined only by board-level nets: U1, R1; U2, R2. "
-        "Parts with no close placement requirement in common may be split into modules of their own.")
+        "Parts with no close placement requirement in common may be split into cells of their own.")
 
 
 def test_a_member_whose_only_local_net_touches_nobody_else_is_listed_with_the_unjoined_parts():
@@ -170,7 +170,7 @@ def test_a_member_whose_only_local_net_touches_nobody_else_is_listed_with_the_un
         "its parts form 2 groups joined only by board-level nets: U1, R1; U2, R2 "
         "(and 1 part no net inside the cell joins to the others: Q1; "
         "judge each by what places it: a bypass capacitor stays with the IC it serves, a sensing part at what it senses). "
-        "Parts with no close placement requirement in common may be split into modules of their own.")
+        "Parts with no close placement requirement in common may be split into cells of their own.")
 
 
 def test_report_lists_only_the_cells_that_are_findings():
@@ -207,7 +207,7 @@ def test_board_resolve_reports_a_split_finding_and_notes_the_cells_step():
     found = [f for f in plan.findings if f.kind == "split"]
     assert len(found) == 1
     assert found[0] == ("m: its parts form 2 groups joined only by board-level nets: U1, R1; U2, R2. "
-                        "Parts with no close placement requirement in common may be split into modules "
+                        "Parts with no close placement requirement in common may be split into cells "
                         "of their own.")
     step = next(s for s in plan.steps if s.item == "m")
     assert "split: its parts form 2 groups" in step.note

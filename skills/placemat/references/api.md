@@ -90,14 +90,14 @@ request (SKILL.md, "When no form says it").
 | a part held back from a source by physics, not a hand-picked point (a field sensor from a magnet, a heat-sensitive part from a heat source) | `board.push(item, from_=, falloff=, reference=(r_ref, v_ref), limit=)` | Push |
 | a part held back from another part by what the capture says they emit and tolerate | `Pm.Emits` on the source, `Pm.Limit` on the sensitive part (no script line) | Push, annotated |
 | a net whose off-board run dwarfs the board | `board.free_net(net)` | Links |
-| a module's outward, quiet and handoff sides | `board.faces(outward=, quiet=, handoff=)` | Faces |
+| a cell's outward, quiet and handoff sides | `board.faces(outward=, quiet=, handoff=)` | Faces |
 | **the board and its regions** | | |
 | a board of any shape | `board.outline(path, holes=)` | Boards of any shape |
 | a stretch of edge chosen by which way it faces | `board.edge(facing=Edge.NORTH)` | Boards of any shape |
 | a rectangular board | `board.rect(width, height, chamfer=, radius=, holes=)` | Setup |
 | a round board | `board.disc(diameter, hole=)` | Round boards |
-| a module frame sized to its own content | `board.rect(fit=True)` | Setup |
-| a module frame fitted in one axis, the other a declared number | `board.rect(fit=Axis.X, height=)` | Setup |
+| a fragment frame sized to its own content | `board.rect(fit=True)` | Setup |
+| a fragment frame fitted in one axis, the other a declared number | `board.rect(fit=Axis.X, height=)` | Setup |
 | a hole in the board | `Cutout(shape, name, at=)` in `holes=` | Cutouts |
 | a hole placed from the connector it serves | `at=Centre(X(Part(j)), Y(Part(j), d))` | Cutouts |
 | a region that forbids parts, fill, tracks, vias or pads | `board.keepout(shape, name, at=)` | Keepouts |
@@ -244,7 +244,7 @@ board.place(cell, at=Pin(Part("c.member"), Location(x, y)), rotations=Turns.ANY)
 board.place(cell, at=Polar((r_min, r_max), None, about=centre), rotations=Turns.TANGENT)  # searched in a band, turned to the tangent at each spot
 board.place(item, face=Face.EITHER)                                     # searched on both faces; the front unless the back is better
 ```
-`item` is a `Part` (schematic instance), a `Cell` (module group) or a block
+`item` is a `Part` (schematic instance), a `Cell` (a stamped group) or a block
 (below). One declaration per item. `why=` is recorded in the run. A FIXED
 or EDGE item that lands on another is a script error: the run stops
 there with the collisions, before anything is searched (`placemat run
@@ -264,7 +264,7 @@ by board-level nets: U3, C7, R2; U5, R4; Q2, R9 (and 4 parts no net
 inside the cell joins to the others: C1, C2, C3, R1; judge each by what
 places it: a bypass capacitor stays with the IC it serves, a sensing part
 at what it senses). Parts with
-no close placement requirement in common may be split into modules of
+no close placement requirement in common may be split into cells of
 their own." It carries no run-score weight (score.py), and the same text
 is a note on the cell's step.
 
@@ -455,7 +455,7 @@ board.keepout(Circle(4.0), "arms", at=Location(ax, ay), why="where the arms join
 A bearing to avoid is said by what stands there: a keepout over the region
 refuses every turn that puts a member in it, and an emitter or limit pair or a
 `board.push` costs the turns that stand near the aggressor. A rule area on the
-cell's own module follows the turn taken. With every turn refused the item is
+cell's own rule area follows the turn taken. With every turn refused the item is
 unplaced and the finding names the refusals. An item placed beside the cell
 rides it (below). A keepout shaped by one of its members (`board.keepout(Part,
 ...)`) is refused as for any searched item, since regions are settled with the
@@ -542,7 +542,7 @@ through-hole lead is refused by either face's keepout. `rotations=Tangent(...)` 
 **A cell's flip keeps its inner layers, which KiCad's does not.** A cell
 flipped to the back swaps its own F and B copper and keeps its inner copper
 (tracks, pours, zones, rule areas, buried vias) on the layer it was drawn
-on, so the module keeps the layer roles it was laid out for: a pour on the
+on, so the cell keeps the layer roles it was laid out for: a pour on the
 In2 power layer stays on In2. KiCad's own flip mirrors inner layers through
 the stack (on six layers In1 and In4 swap, and In2 and In3); placemat judges
 the cell with its inner copper where it was drawn, and the writer puts it
@@ -1379,20 +1379,20 @@ regions are read from the generated board, so a keepout whose name would
 collide with one is refused.
 
 A stamped keepout's `allow=` nets arrive with it, named as the parent names
-them (`SIG` in a module is `<cell>.SIG` in the cell, a net from
+them (`SIG` in a fragment is `<cell>.SIG` in the cell, a net from
 the sheet above is that sheet's), so the parent's own vias, tracks and routes
 of those nets stand in the region, and the parent's `layout.kicad_dru` carries
 the rule that lets KiCad's DRC agree. A fragment written by a release before
-this one carries no allowed nets: run the module again. Parts named in a
+this one carries no allowed nets: run its module again. Parts named in a
 keepout's `allow=` are not carried.
 
-A stamped cell brings its module's clearance rules (`board.rule`) the same
+A stamped cell brings its clearance rules (`board.rule`) the same
 way: the fragment carries each as a note (a User.Comments text
 `placemat rule clearance=0.1 between=A,B why=...`, written when a fragment is
 run), and the parent judges and writes them held to the cell
 (`A.memberOf(<cell>) && B.memberOf(<cell>)`) over the nets as pcb named them
 in the cell. They stand before the parent's own `board.rule`s, so where both
-match a pair the parent's decides; a module's `within=` a cell of its own
+match a pair the parent's decides; a cell's `within=` a cell of its own
 takes that cell's stamped group. A rule whose net or cell the parent lacks is
 not carried, and the run says so. A part's `Pm.KeepOut` is not a note: the
 parent reads it off the part. See Rules.
@@ -1420,10 +1420,10 @@ counted a zone in a cell's size, so placements are unchanged. Set
 `copper.cell_zones_under_planes = "keep"` to keep them all.
 
 **Groups on the written board.** The generator writes one KiCad group per
-module sheet, a stamped cell's group nested inside its module's, so
-selecting any part of the module drags its sub-modules with it. Groups on
+module sheet, a stamped cell's group nested inside its module sheet's, so
+selecting any part of the cell drags its sub-cells with it. Groups on
 the written board are one level: each nested group is lifted to the top
-level, whole, and a module keeps its own parts as a group of their own; the run says `groups  power: cell(s)
+level, whole, and a module sheet's group keeps its own parts as a group of their own; the run says `groups  power: cell(s)
 power.buck, power.ldo lifted to the top level`. A
 group left empty (a module sheet's that held only its cells) is removed.
 `write.split_groups = "split"` also takes out of a group the parts the
@@ -1443,18 +1443,18 @@ refused where it is declared; a part of a cell the script places whole is
 refused before the search (group the cell). The run says `groups  <name>
 written: N part(s) (<why>)`.
 
-**Layers a module's board does not have.** A module fragment is a two-layer
+**Layers a fragment's board does not have.** A module fragment is a two-layer
 board, and KiCad saves a zone on the layers its board has: a keepout declared
 on every layer, or on In1 and In2, would save as F and B and arrive in a
 four-layer parent unable to keep the inner pours out. So the declaration
 travels in the zone name, the one thing that survives the save and the stamp.
 A keepout on every copper layer is written `keepout <name> [*.Cu]`; one on
 layers its board lacks lists them, `keepout shield [In1.Cu,In2.Cu]`; one on
-layers its board has needs no marker. The board that stamps the module reads
+layers its board has needs no marker. The board that stamps the cell reads
 the declaration, honours it on every layer it has, and widens the zone to match
 so KiCad's filler and DRC honour it too. A layer that cannot be honoured is a
-finding: on the module, where it is recorded but holds nothing, and on a
-parent that lacks it as well. A parent need not restate a module's clearance.
+finding: on the fragment, where it is recorded but holds nothing, and on a
+parent that lacks it as well. A parent need not restate a cell's clearance.
 
 **What may enter.** `allow=` takes parts and nets, and they mean different
 things: a `Part` or `Cell` may SIT inside, a `Net` may RUN through. Naming a
@@ -1843,12 +1843,12 @@ source: `magnetic at U2: 0.21 mT of 0.3 mT limit, nearest source M1 at 15.9
 mm`. `placemat check` reports each sensitive part's `exposure`, per kind,
 at its final place (below).
 
-## Faces (a module's sides, declared once)
+## Faces (a cell's sides, declared once)
 
 ```python
 board.faces(outward=Edge.NORTH, quiet=Edge.SOUTH, handoff=Edge.EAST, why="the plungers are pressed from the north")
 ```
-In a module's own script: `outward` is the side that faces the board
+In a fragment's own script: `outward` is the side that faces the board
 edge (a connector mouth, the plungers of a switch row), `quiet` the side
 to keep from aggressors, `handoff` the side its signals leave from, all
 named at the cell's rotation 0. The fact is written into the fragment
@@ -1905,8 +1905,8 @@ rule's why)`. A conflict reaches as far as the largest rule clearance, or
 needs no matching number in it. The CLI's queries on a read board have no
 script and judge by net classes.
 
-A module's rules travel with its cell (see "A stamped cell brings its own"):
-the parent's `layout.kicad_dru` holds the module's rules scoped to the cell,
+A cell's rules travel with it (see "A stamped cell brings its own"):
+the parent's `layout.kicad_dru` holds the cell's rules scoped to it,
 and the parent need not repeat them with `within=Cell(...)`.
 
 ## Accepting a check verdict
@@ -1936,7 +1936,7 @@ what it matched. `board.accept` is for a one-off verdict where the layout cannot
 do better, with its reason. A datasheet fact about a part - how near its feedback
 pin may stand to its switch node - is not a verdict to accept per net in each
 script: it is `Pm.KeepOut` on the part (`references/capture.md`), cited, and holds
-in every board and every module stamped into one. `run.json` carries them under `acceptances` (`check`,
+in every board and every cell stamped into one. `run.json` carries them under `acceptances` (`check`,
 `subject`, `side`, `bound`, `why`, the verdict's `value`, and an `outcome` of
 `accepted`, `past`, `unmatched` or `not needed`). An acceptance that matches
 no verdict, or whose verdict passes or is not judged without it, is a `setup`
@@ -1952,7 +1952,7 @@ A datasheet's keep-out distance for a part's pins is a field on the part (the
 capture writes it; `references/capture.md` has the form), not a rule in a
 script. The part's pads on the nets named by `pads=` keep that distance from
 the copper on the nets named by `away=` - both nets of the part's own pads,
-named as the capture names them (a stamped module's nets carry its path, and
+named as the capture names them (a stamped cell's nets carry its path, and
 the last part of the name matches: `BUCK1.SW` is `SW`). The default for `pads=`
 is the part's `Pm.Sensitive` net; for `away=` the switch nodes the part is on. The
 citation after `;` is required.
@@ -2791,7 +2791,7 @@ placemat occupancy <layout.kicad_pcb | script> (--at X,Y | --box X0,Y0,X1,Y1 | -
                    [--width W] [--margin MM] [--ignore-kept]
 placemat show <layout.kicad_pcb | script> <cell | part> [--out DIR]
 placemat layer <layout.kicad_pcb | script> <LAYER> [--out FILE] [--json]
-placemat faces <module layout.kicad_pcb> outward=N [quiet=S] [handoff=E]
+placemat faces <fragment layout.kicad_pcb> outward=N [quiet=S] [handoff=E]
 placemat check <layout.kicad_pcb | script> [--ambient C] [--keep-out MM] [--rise C] [--limit CHECK=VALUE ...] [--json]
 placemat facts <script> [--confirm] [--json]
 placemat settings [<script-or-board-dir>] [--json]
@@ -3645,7 +3645,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `copper.pour_reach_step` | 0.05 | mm: the step `reach=Reach.CURRENT` grows a fitted pour by, so the reach is a multiple of it |
 | `copper.pour_reach_max` | 5.0 | mm: the furthest `reach=Reach.CURRENT` grows a fitted pour; where the need is not met by then a finding says so |
 | `copper.straight_tolerance` | 0.002 | a track leg whose ends differ by less than this on one axis is drawn straight between them; `measure --copper` judges 0/45/90 by it too |
-| `write.split_groups` | "lift" | the generator's nested groups: `lift` each cell's group out of its module's to the top level (the module keeps its own parts), `split` also takes out of a group the parts the script places by steps of their own, `keep` writes them as generated; a group left empty is removed |
+| `write.split_groups` | "lift" | the generator's nested groups: `lift` each cell's group out of its module sheet's to the top level (the sheet keeps its own parts), `split` also takes out of a group the parts the script places by steps of their own, `keep` writes them as generated; a group left empty is removed |
 | `write.keepout_drawings` | "admitting" | draw a keepout's outline and name (and its height limit) on its Fab layer, or `User.Comments` for one on both faces or on inner layers only: `admitting` (default) those that admit something, `all` every keepout, `none` |
 | `write.keepout_line` | 0.1 | a drawn keepout's outline stroke |
 | `write.keepout_text` | 0.8 | a drawn keepout's label height |

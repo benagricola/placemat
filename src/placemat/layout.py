@@ -4431,7 +4431,7 @@ class Board:
         return ci
 
     def faces(self, *, outward: Edge | None = None, quiet: Edge | None = None, handoff: Edge | None = None, why: str = ""):
-        """A module's sides, said once in its own script: `outward` is the
+        """A cell's sides, said once in its own script: `outward` is the
         side that faces the board edge (the connector mouth, the plungers),
         `quiet` the side to keep away from aggressors, `handoff` the side
         its signals leave from. Written into the fragment as a fact that
