@@ -107,9 +107,9 @@ Operations, each a function of the file's text:
 | `remove_kwarg(name)` | removes one |
 | `set_arg(index, value)` | replaces a positional argument |
 | `edit_list(arg, add / remove / move, element, before / after)` | changes a list or tuple literal argument: add a net to `allow=`, reorder the members of a `board.row`, drop a waypoint from a track's points |
-| `insert_statement(after, value)` | adds a declaration after the target's statement (a `board.place` for an undeclared part, a `board.fanout`, a `board.rule`) |
+| `insert_statement(after, value)` | adds a declaration after the target's statement (a `board.place` for an undeclared part, a `board.fanout`, a `board.rule`); the value is any call written as an intent expression, so the same op inserts `board.rect`, `board.disc`, `board.outline`, a `board.place` with an intent, or a search over the remaining parts |
 | `remove_statement` | removes a call that stands alone (an `accept` that matched nothing) |
-| `toml_set(table, key, value)` | sets a key in the script's own settings table of the nearest `placemat.toml` |
+| `toml_set(table, key, value)` | sets a key in the script's own settings table of the nearest `placemat.toml`, by a line-level edit that keeps the rest of the file byte for byte |
 
 Rendering a value to source reuses the script's own spelling. `{"item":
 "C1"}` is written as the expression the script used where it declared C1
@@ -119,7 +119,12 @@ a name made up. A form or enum the file does not import is not suggested.
 An edit is offered only where it changes what it says it does. If the target
 call also declares other items (a call in a loop or a helper that runs for
 several parts), the suggestion is not offered, since the edit would move the
-others too. The plan's sites tell how many items share a `(file, line)`.
+others too. The plan's sites tell how many items share a `(file, line)`. A
+later phase may add edits that write into the loop or helper.
+
+**Variants.** Where one lever has several variants (which side of C1 to place
+C4 on), the finding gets up to 3 suggestions for that lever, best first. The
+try tells them apart.
 
 ### Where they are produced
 
@@ -227,7 +232,7 @@ marked suggestions `checked` where the raising code had measured that they
 clear. A try measures the same thing for every suggestion, on the real
 resolve, including what else the edit changes, and it needs no per-site
 proof. The page offers the try on click, not automatically, because each is
-a resolve (open question 2).
+a resolve. A try never runs on its own.
 
 **Apply: written to the file.** `POST /suggest/apply` is
 `apply_suggestion(..., dry_run=False)`, which:
@@ -248,13 +253,17 @@ compare with the previous resolve shows what the edit did, and the history
 lists it as "applied from a suggestion: <text>".
 
 Only files the studio already watches are written (the script, its modules,
-`placemat.toml`), and only under the project root.
+`placemat.toml`), and only under the project root. Apply is allowed when the
+studio listens on another address (`--host`); the token every request needs
+guards it. `[studio] apply = false` still turns writing off.
 
 **Undo.** The page shows "Undo" beside the applied edit and in the history
 row. `POST /suggest/undo` calls the same undo function as `placemat apply --undo`: it restores the logged `before` text if the file's
 current text equals the logged `after` (nothing else has touched it since);
-otherwise it refuses and says so. Undo of the last applied edit is a stack:
-each undo takes the one before. Undone edits are logged as such. The same
+otherwise it refuses and says so, and does not try to reverse its own lines.
+Undo is a stack: each undo reverts the last apply that has not been undone,
+only if the file still matches what that apply wrote. Undone edits are logged
+as such. The same
 log serves the command line's undo.
 
 ### The command line
@@ -308,7 +317,7 @@ declaration, where X is a blocker or neighbour the finding names.
 
 | Case | Suggestions | Edit |
 |---|---|---|
-| `unplaced.search`: no legal spot within R of the hint | 1. "Place C4 beside C1, on its <free side> side": one per free side the site measured, up to `[studio] suggestions_max`. 2. "Place C4 before the parts that crowd it". 3. "Let C4 take the back face too". 4. "Let C4 turn to any bearing" for an item on a point; "Let C4 take all four turns" where it is restricted. 5. "Move R2 above C1" / "Place R2 beside U1 with a wider gap": `on` the blocker named by the dominant refusal. 6. "Search C4 within a larger radius". 7. when the dominant refusal is a drawn envelope: "Judge parts by their courtyards" | `set_kwarg at=Beside(...)`, `priority=Priority.HIGH`, `face=Face.EITHER`, `rotations=`, `set_kwarg` on the blocker, `radius=`, `toml_set place.envelope` |
+| `unplaced.search`: no legal spot within R of the hint | 1. "Place C4 beside C1, on its <free side> side": one per free side the site measured, up to 3 per lever. 2. "Place C4 before the parts that crowd it". 3. "Let C4 take the back face too". 4. "Let C4 turn to any bearing" for an item on a point; "Let C4 take all four turns" where it is restricted. 5. "Move R2 above C1" / "Place R2 beside U1 with a wider gap": `on` the blocker named by the dominant refusal. 6. "Search C4 within a larger radius". 7. when the dominant refusal is a drawn envelope: "Judge parts by their courtyards" | `set_kwarg at=Beside(...)`, `priority=Priority.HIGH`, `face=Face.EITHER`, `rotations=`, `set_kwarg` on the blocker, `radius=`, `toml_set place.envelope` |
 | `unplaced.search`, dominant refusal a reservation | by the reservation's source: "Let C4 into keepout `ant`" (`Part` added to `allow=`); "Stop the label of J1 reserving room" (`reserve=False`); "Shorten the fanout of U1" (smaller `depth=` on `board.fanout`) | `edit_list allow`, `set_kwarg` |
 | `unplaced.search`, dominant refusal copper | "Let the SIG track avoid C4's spot": a `Past` waypoint on the track, and the items above | `edit_list` on the track's points |
 | `unplaced.search`, a via could not give way | "Thin the drops of cell X" (`drops=Drops.HALF`); "Let a via move further: place.via_move"; "Let a via leave its pad further: place.via_leave" | `set_kwarg`, `toml_set` |
@@ -385,8 +394,8 @@ dropped) have no script edit, so they have no suggestion.
   project, board, part or net.
 - *Tunables are settings*: no weight, threshold or share in `suggestions.py`.
   The dominant refusal is the one with most refusals, ties broken by the
-  order `_blame_text` lists them; the count of suggestions per finding is
-  `[studio] suggestions_max`.
+  order `_blame_text` lists them; the limit of 3 suggestions per lever is a
+  setting, `[studio] suggestions_per_lever`.
 - *Fitted, never zones*: no suggestion turns a pour into a zone or a plane.
 - *Decide alone / ask first*: placemat's agent builds this; applying a
   suggestion to a project's script is the user's act in the studio or the
@@ -480,11 +489,29 @@ fixture.
   pass. `fixtures/bench.py --jobs 2`: no score moves (no placement or finding
   sentence changes).
 
+## Decided with the user (2026-10-03)
+
+- Up to 3 suggestions per lever, best first; Try tells them apart.
+- Try runs only on a click, never on its own.
+- Edits whose target call places several items (a loop or helper) are not
+  offered yet; a later phase may add them.
+- Setting suggestions may edit the script's settings table in `placemat.toml`
+  with a line-level edit that keeps the rest of the file byte for byte.
+- Apply is allowed when the studio listens on a LAN address (`--host`); the
+  token every request needs guards it.
+- Undo is a stack: each undo reverts the last apply only if the file still
+  matches what that apply wrote, otherwise it refuses and says so.
+
+## Later work that builds on this
+
+A later spec, a board builder in the studio (an outline from simple shapes,
+parts placed by intent, the script written as it goes; first for new boards,
+later for existing scripts), will use this engine's edit ops and its one
+application path. The ops therefore cover inserting statements (`board.rect`,
+`board.disc`, `board.outline`, `board.place` with an intent, a search over the
+rest) as well as changing keywords. `board.rect` (renamed from `board.size` in
+0.85.0) is the form the spec uses for a rectangular outline.
+
 ## Open questions
 
-1. Where one lever has several variants (which side of C1 to place C4 on), should the studio offer one suggestion per variant up to a limit, or one best guess with the others found by Try?
-2. Should Try run only on a click, or also on its own for the rank 1 suggestion of each critical finding when the studio is idle? Each try is a resolve, so on its own it costs CPU.
-3. Should an edit be offered when its target call declares several items (a loop or a helper that places many parts), written into the loop for all of them, or not offered, as the design has it?
-4. Is writing the script's settings table in `placemat.toml` (for a setting suggestion) in scope, by a line-level edit that keeps the rest of the file as it is, or should suggestions touch the layout script only?
-5. May the studio write files when it was started with `--host` for another address than 127.0.0.1, or should apply be refused there unless `[studio] apply` is set explicitly?
-6. Is undo as a stack (each undo takes the one before, refused if the file moved on) enough, or should an undo that finds the file changed try to reverse its own lines?
+None.
