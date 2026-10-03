@@ -5,6 +5,25 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### Changed
+
+- **A part stands tighter beside a part that draws a mark outside its body.** `Beside(item, side)` took the distance from
+  the box round everything `item`'s envelope is made of, so a pin 1 dot or any silk mark outside the body held the part off
+  the whole side by the mark's reach. It now measures against the envelope's own shapes (pads, mask, silk and body under a
+  physical envelope, the courtyard under a courtyard one): the part stands the gap off the nearest shape it faces, and a mark
+  holds it off only where it stands over the mark. A script placing a part `Beside` one with a corner mark gets that part
+  nearer (by the mark's reach beyond the silk line, for a pin 1 dot); a part over the mark, or
+  beside one whose envelope is its box, stays where it was. Where the nearer standoff would put the part within reach of
+  something else already placed (another part's silk, a reservation, the edge), the part is moved on out along its side to the
+  first place the collision rule allows (`place.beside_step`, up to `place.beside_reach`), so a part is as near its item as is
+  legal; with none within reach it stays at the standoff and the collision is reported as before. A later part aligned on
+  the cross axis with a part that now stands nearer can still end in a collision a script had room for, and a track a script
+  draws past a part that now stands nearer has less room. `Beside` of a keepout or an escape, a `Past` that turns a corner,
+  `copper=True` and `row(of=)` still measure the box (`copper=True`, its pads' copper).
+
+
 ## To 0.92.0
 
 ### New
@@ -61,20 +80,6 @@ section for each hand-written pattern a newer form replaces.
   it with placemat.
 
 ### Changed
-
-- **A part stands tighter beside a part that draws a mark outside its body.** `Beside(item, side)` took the distance from
-  the box round everything `item`'s envelope is made of, so a pin 1 dot or any silk mark outside the body held the part off
-  the whole side by the mark's reach. It now measures against the envelope's own shapes (pads, mask, silk and body under a
-  physical envelope, the courtyard under a courtyard one): the part stands the gap off the nearest shape it faces, and a mark
-  holds it off only where it stands over the mark. A script placing a part `Beside` one with a corner mark gets that part
-  nearer (by the mark's reach beyond the silk line, for a pin 1 dot); a part over the mark, or
-  beside one whose envelope is its box, stays where it was. Where the nearer standoff would put the part within reach of
-  something else already placed (another part's silk, a reservation, the edge), the part is moved on out along its side to the
-  first place the collision rule allows (`place.beside_step`, up to `place.beside_reach`), so a part is as near its item as is
-  legal; with none within reach it stays at the standoff and the collision is reported as before. A later part aligned on
-  the cross axis with a part that now stands nearer can still end in a collision a script had room for, and a track a script
-  draws past a part that now stands nearer has less room. `Beside` of a keepout or an escape, a `Past` that turns a corner,
-  `copper=True` and `row(of=)` still measure the box (`copper=True`, its pads' copper).
 
 - **A pad on an escape lane needs a track's way out, not a via's.** The way on from the end of a pad's own copper (an
   escape lane, or a stub drawn from it) is looked for on the layer the copper is on; a spot a via fits at no longer counts, so
