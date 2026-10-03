@@ -40,11 +40,11 @@ _FINDING_WEIGHTS = {"fixed": "score_fixed", "copper": "score_copper", "label": "
 
 def terms(m: dict, cfg) -> dict:
     """{term: mm} for measures `m` under the settings `cfg`."""
-    prio = {"high": cfg.score_priority_high, "default": cfg.score_priority_default, "low": cfg.score_priority_low}
+    prio = {"high": cfg.score_unplaced_high, "default": cfg.score_unplaced_default, "low": cfg.score_unplaced_low}
     found = m.get("findings") or {}
     cross = m.get("crossings") or {}
     out = {
-        "unplaced": cfg.score_unplaced * sum(prio.get(p, cfg.score_priority_default) * n
+        "unplaced": cfg.score_unplaced * sum(prio.get(p, cfg.score_unplaced_default) * n
                                              for p, n in (m.get("unplaced") or {}).items()),
         "drc": cfg.score_drc * (m.get("drc") or 0),
         "link_over": cfg.score_link_over * (m.get("link_excess") or 0.0),

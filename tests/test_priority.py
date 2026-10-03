@@ -86,7 +86,7 @@ def test_the_rank_weights_come_from_the_settings():
            footprint("MANY", 40, 10, w=2, h=2, inst="many", nets=("N0", "N1")),
            footprint("J1", 60, 60, inst="j1", nets=("A", "N0"))]
     b = Board(board_geometry(fps, width=80, height=80), edge_margin=1.0,
-              settings=Settings(rank_area=1.0, rank_pins=0.0))
+              settings=Settings(rank_area_weight=1.0, rank_pins_weight=0.0))
     b.place(Part("j1"), at=Location(40, 5))
     b.place(Part("big"))
     b.place(Part("many"))

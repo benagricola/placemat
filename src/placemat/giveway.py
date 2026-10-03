@@ -8,10 +8,10 @@ carried-via-grids-design.md), or one of a stamped fragment's own. Its tail is th
 its net, that ends at its centre. Where a carried via meets another net's
 copper, on either face, at a candidate, it tries in turn to
 
-1. share a same-net via of another item within `place.via_share`: the via is
+1. share a same-net via of another item within `place.via_share_distance`: the via is
    removed and a straight tail at the net's width joins its pad (its old
    tail's far end, or where it stood) to that via, on its own face;
-2. move up to `place.via_move`, searched on a `place.via_move_step` grid,
+2. move up to `place.via_move_distance`, searched on a `place.via_move_step` grid,
    nearest first, to a spot clear of every other net's copper and every
    hole, its tail redrawn from its pad; a via inside its pad stays inside it;
 3. have its field re-laid, a via of a field (a stamped cell's vias of one net
@@ -20,7 +20,7 @@ copper, on either face, at a candidate, it tries in turn to
    `score.via_relay` (giveway_field.py, docs/superpowers/specs/2026-10-01-via-
    field-relay-design.md);
 4. leave its pad, a via inside its pad with no tail and no spot inside it
-   clear: it moves up to `place.via_leave` to the nearest spot that is, and
+   clear: it moves up to `place.via_leave_distance` to the nearest spot that is, and
    a new tail on its own face joins it to the pad, at the net's track width
    or narrower down to the board's minimum;
 5. shorten to a via from its own face to the nearest layer of its own
@@ -30,10 +30,10 @@ copper, on either face, at a candidate, it tries in turn to
    named, would it clear) but never applied, and "no" is not applied, though
    the refusal says when it would have cleared;
 6. be dropped, a plane net's drop only, while its pad keeps
-   `place.drops_keep` of its drops (rounded up, at least one).
+   `place.drops_keep_share` of its drops (rounded up, at least one).
 
 A routed via, one that two or more of its cell's tracks end on, has one step in
-place of these: it moves up to `place.via_route` with every one of its tracks
+place of these: it moves up to `place.via_route_distance` with every one of its tracks
 rebuilt from its far end (`_give_routed`), priced at `score.via_route`.
 
 A via already placed does the same for a later item whose own copper meets
@@ -93,13 +93,13 @@ def field_key(g) -> str:
 
 def enabled(settings) -> bool:
     """Whether a carried via may give way at all under these settings."""
-    return settings.place_via_share > 0 or settings.place_via_move > 0 or settings.place_via_leave > 0 \
-        or settings.place_via_route > 0 or settings.place_drops_keep < 1.0
+    return settings.place_via_share_distance > 0 or settings.place_via_move_distance > 0 or settings.place_via_leave_distance > 0 \
+        or settings.place_via_route_distance > 0 or settings.place_drops_keep_share < 1.0
 
 
 def reach(settings) -> float:
     """How far past an item's copper what its vias do can reach."""
-    return settings.place_via_share + max(settings.place_via_move, settings.place_via_leave, settings.place_via_route)
+    return settings.place_via_share_distance + max(settings.place_via_move_distance, settings.place_via_leave_distance, settings.place_via_route_distance)
 
 
 def least_cost(settings, tiers=None) -> float:
@@ -107,13 +107,13 @@ def least_cost(settings, tiers=None) -> float:
     the cheapest way these settings allow, and shorten when a via type it
     could use is "yes" in `tiers` (the fab profile's)."""
     shorten = any(t == "yes" for t in (tiers or {}).values())
-    ways = [cost for on, cost in ((settings.place_via_share > 0, settings.score_via_share),
-                                  (settings.place_via_move > 0, settings.score_via_move),
+    ways = [cost for on, cost in ((settings.place_via_share_distance > 0, settings.score_via_share),
+                                  (settings.place_via_move_distance > 0, settings.score_via_move),
                                   (settings.place_via_relay, settings.score_via_relay),
-                                  (settings.place_via_leave > 0, settings.score_via_leave),
-                                  (settings.place_via_route > 0, settings.score_via_route),
+                                  (settings.place_via_leave_distance > 0, settings.score_via_leave),
+                                  (settings.place_via_route_distance > 0, settings.score_via_route),
                                   (shorten, settings.score_via_shorten),
-                                  (settings.place_drops_keep < 1.0, settings.score_via_drop)) if on]
+                                  (settings.place_drops_keep_share < 1.0, settings.score_via_drop)) if on]
     return min(ways) if ways else 0.0
 
 
@@ -545,7 +545,7 @@ class _Owner:
     def keeps(self, key) -> tuple:
         """(drops the pad has, how many it must keep)."""
         n = self.counts.get(key, 0)
-        return n, max(1, int(math.ceil(self.occ.settings.place_drops_keep * n - 1e-9)))
+        return n, max(1, int(math.ceil(self.occ.settings.place_drops_keep_share * n - 1e-9)))
 
 
 def _first_met(occ, g: Group, first, clearance):
@@ -772,8 +772,8 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
     layer = who.layer(g, pad)
     old = (g.centre, g.far) if g.tail is not None else None
     said = []
-    if s.place_via_share > 0:
-        targets = judge.vias(g.net, g.centre, s.place_via_share, g.home)
+    if s.place_via_share_distance > 0:
+        targets = judge.vias(g.net, g.centre, s.place_via_share_distance, g.home)
         width = geo.netclass(g.net).track_width if g.net in geo.nets else 0.2
         start = g.far if g.far is not None else g.centre
         for d, c, r, target in targets:
@@ -791,33 +791,33 @@ def _give(occ, g: Group, judge: _Judge, own, who: _Owner, met: str, drops_now: d
                 continue
             return Action("share", g.id, g.owner, g.home, g.net, g.centre, c, track, old, pad_key, met,
                           s.score_via_share, (shape,), target), None, None
-        said.append("no %s via within %.2f mm to share" % (g.net, s.place_via_share) if not targets else
+        said.append("no %s via within %.2f mm to share" % (g.net, s.place_via_share_distance) if not targets else
                     "no tail to the %s via%s within %.2f mm is clear" % (g.net, "s" if len(targets) > 1 else "",
-                                                                         s.place_via_share))
-    if s.place_via_move > 0:
+                                                                         s.place_via_share_distance))
+    if s.place_via_move_distance > 0:
         tail = None if g.tail is None else (g.far, next(iter(g.tail.layers)), (_width(g.tail),))
-        found = _find_move(occ, g, judge, own, first, s.place_via_move, pad if inside else None, tail)
+        found = _find_move(occ, g, judge, own, first, s.place_via_move_distance, pad if inside else None, tail)
         if found is not None:
             dx, dy, width = found
             to, moved, track = _moved(g, dx, dy, tail, width)
             return Action("move", g.id, g.owner, g.home, g.net, g.centre, to, track, old, pad_key, met,
                           s.score_via_move, tuple(moved)), None, None
-        said.append("no spot within %.2f mm%s is clear" % (s.place_via_move, " inside its pad" if inside else ""))
+        said.append("no spot within %.2f mm%s is clear" % (s.place_via_move_distance, " inside its pad" if inside else ""))
     if inside:
         relaid = giveway_field.relay(occ, g, judge, own, who, pad_key, pad, met, field)
         if relaid is not None:
             return relaid, None, None
-    if inside and g.tail is None and s.place_via_leave > 0 and pad is not None and layer in pad.layers:
+    if inside and g.tail is None and s.place_via_leave_distance > 0 and pad is not None and layer in pad.layers:
         # no spot inside the pad is clear: leave it, joined by a new tail from where it stood
         widths = _tail_widths(occ, g.net)
         tail = (g.centre, layer, widths)
-        found = _find_move(occ, g, judge, own, first, s.place_via_leave, None, tail)
+        found = _find_move(occ, g, judge, own, first, s.place_via_leave_distance, None, tail)
         if found is not None:
             dx, dy, width = found
             to, moved, track = _moved(g, dx, dy, tail, width)
             return Action("leave", g.id, g.owner, g.home, g.net, g.centre, to, track, None, pad_key, met,
                           s.score_via_leave, tuple(moved)), None, None
-        said.append("no spot within %.2f mm is clear to leave its pad by a tail" % s.place_via_leave)
+        said.append("no spot within %.2f mm is clear to leave its pad by a tail" % s.place_via_leave_distance)
     needs = None
     if g.net in occ.plane_nets:
         action, note, hint = _shorten(occ, g, judge, own, layer, met)
@@ -1183,12 +1183,12 @@ def _rebuilt(occ, g: Group, judge: "_Judge", mine: list, chains: list, to: tuple
 
 def _give_routed(occ, g: Group, judge: "_Judge", own, who: _Owner, met: str):
     """(Action, why not, None) for a via that two or more of its item's tracks end on, moved up to
-    `place.via_route`, nearest spot first, with each track rebuilt from its far end; the spot is used only
+    `place.via_route_distance`, nearest spot first, with each track rebuilt from its far end; the spot is used only
     when its ring, its hole and every track are clear, so one that fails leaves them all as drawn."""
     s = occ.settings
     pad_key, pad, inside = who.pad_of(g)
     chains = _chains(g)
-    limit = s.place_via_route
+    limit = s.place_via_route_distance
     r = _radius(g)
     span = Box.union([g.ring.box.inflate(limit)] + [x.box.inflate(limit) for x in g.legs])
     mine = [o for o in own if o.box.overlaps(span, gap=occ._gap)]

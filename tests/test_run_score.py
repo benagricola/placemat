@@ -38,7 +38,7 @@ def test_each_term_is_its_measure_times_its_weight():
 
 def test_the_defaults_rank_an_unplaced_part_above_a_walled_pad_above_a_closed_escape_above_a_crossed_one():
     assert CFG.score_unplaced > CFG.score_escape_walled > CFG.score_escape_closed > CFG.score_escape_crossed > 0
-    assert CFG.score_priority_high == 2.0 and CFG.score_priority_default == 1.0 and CFG.score_priority_low == 0.5
+    assert CFG.score_unplaced_high == 2.0 and CFG.score_unplaced_default == 1.0 and CFG.score_unplaced_low == 0.5
 
 
 def test_runs_within_the_noise_band_tie_and_the_deciding_term_is_named():
@@ -83,7 +83,7 @@ def test_a_plan_is_measured_an_unplaced_part_once_by_its_priority_and_a_link_by_
     link = next(l for l in plan.links if l.limit_mm)
     assert m["link_excess"] == pytest.approx((link.achieved_mm - 2.0) * int(LinkWeight.SHORT))
     t = score.terms(m, CFG)
-    assert t["unplaced"] == pytest.approx(CFG.score_unplaced * CFG.score_priority_high)
+    assert t["unplaced"] == pytest.approx(CFG.score_unplaced * CFG.score_unplaced_high)
 
 
 def test_a_plan_measures_its_own_crossings_with_plane_nets_apart():

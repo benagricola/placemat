@@ -11,7 +11,7 @@ from placemat.settings import Settings
 from placemat.values import Box, CopperLayer, Face, Location, Near, Net, PadRef, Part
 from tests.fixtures import board_geometry, pad
 
-NO_LEAVE = Settings(place_via_leave=0.0)
+NO_LEAVE = Settings(place_via_leave_distance=0.0)
 SIZE, DRILL = 0.45, 0.2
 
 
@@ -142,7 +142,7 @@ def test_a_grid_of_a_net_that_is_no_plane_is_never_dropped_and_refuses_the_spot(
 
 
 def test_with_the_relay_off_the_row_is_dropped_as_before():
-    plan = _board([TOP_ROW], settings=Settings(place_via_leave=0.0, place_via_relay=False)).resolve()
+    plan = _board([TOP_ROW], settings=Settings(place_via_leave_distance=0.0, place_via_relay=False)).resolve()
     assert {a.kind for a in _gave(plan)} == {"drop"}
     assert len(_drawn(plan)) == 6
 

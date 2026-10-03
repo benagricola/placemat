@@ -493,7 +493,7 @@ of its members' pads: vias of a net the board declares a `board.plane()`
 for, on that pad's net. `Drops.ALL`, the default, keeps them as stamped;
 `Drops.HALF` keeps every other via of each field, a checkerboard over its
 grid in its part's frame (5 of a 3x3 field); `Drops.MIN` keeps
-`place.drops_keep` of each field (0.5), rounded up and never fewer than
+`place.drops_keep_share` of each field (0.5), rounded up and never fewer than
 one, spread from the via nearest the field's centre. Other vias of the
 cell, and the fragment itself, are untouched. The cell's step says what
 each field kept: "drops half: 5 of 9 in U3.17". `drops=` takes the word
@@ -989,8 +989,8 @@ reach takes the free rectangle nearest where it was centred, and its step
 says "took the pocket" and how far off that is; one with an explicit `Near`
 is left unplaced instead. An unplaced item pulls nothing and blocks
 nothing, and the finding says what stopped it. A scored scan over a wide
-radius is coarse first (`place.coarse_steps` apart) and fine only round its
-best spots (the best `place.refine_around` by score, and, where riders
+radius is coarse first (`place.coarse_stride` apart) and fine only round its
+best spots (the best `place.refine_spots` by score, and, where riders
 constrain the spot, the best that they take), so a wide `radius=` costs little. A part the script places
 later is not an obstacle where the generator left it, only once it is
 placed. The step note says which of these happened.
@@ -2091,7 +2091,7 @@ chamfer, so `chamfer=` is refused with either, as is `bridge=True` (a bridge
 cuts a straight leg) and a `Lane` as first point.
 
 The arcs' radius is `radius=` mm on the call, a stated design fact such as a
-stackup's bend rule, or else `copper.arc_radius_widths` (default 3) times the
+stackup's bend rule, or else `copper.arc_radius_track_widths` (default 3) times the
 track's width, so it scales with the trace. A radius not above half the
 width is refused. An arc at a corner of turn `d` takes `radius * tan(d / 2)`
 of each leg. A leg shorter than what the arcs at its two ends take is a corner
@@ -2224,7 +2224,7 @@ board.via(net, at=Past([PadRef(...), ...], Edge.SOUTH, across=None)) # its radiu
 board.vias(net, pad=PadRef(...), pitch=None, size=None, drill=None, inset=0, layers=None)  # a pad filled with a grid of vias, turned with its part
 board.vias(net, along=PadRef(...), count=N, pitch=None, size=None, drill=None, layers=None)  # a row out from a pad, along its escape axis
 board.stitch(net, region, pitch=None, size=None, drill=None, edge=False, outside=False, hole_to_edge=None, sides=None, layers=None)  # vias in a grid over a cell, a pour or a keepout
-board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False, stroke=None)  # filled polygon; stroke= its outline's width (copper.pour_stroke)
+board.pour(net, [p1, p2, p3, ...], layer=..., swallow_pads=False, stroke=None)  # filled polygon; stroke= its outline's width (copper.pour_outline_width)
 board.pour(net, [PadRef(a), PadRef(b), PadRef(c)], layer=..., swallow_pads=True)  # fitted round other nets' copper, holding the pads
 board.pour(net, [via_a, vias_b, PadRef(c)], layer=..., swallow_pads=True)  # members may be vias as well as pads
 board.pour(net, [PadRef(a), PadRef(b), PadRef(c)], layer=..., cover=Cover.HULL)  # declared: the hull of the pads' copper
@@ -2273,19 +2273,19 @@ copper does, and is written into the cell's group, so a clearance rule that
 holds within the cell holds for it in KiCad too. The via tries, in turn:
 
 - to share a via of its net from any other item, on either face, within
-  `place.via_share` (1.0 mm): the via is taken out and a straight tail at
+  `place.via_share_distance` (1.0 mm): the via is taken out and a straight tail at
   the net's width joins its pad (its old tail's far end, or where it stood)
   to that via on the via's own face. The tail must clear every other net's
   copper. A via of the net already on its spot needs no tail. The via
   shared then stays: where a later item meets it, it does not give way,
   and the refusal says which via shares it. When its own item is placed
   again, the vias that shared it go back as drawn;
-- to move up to `place.via_move` (0.5 mm), searched on a
+- to move up to `place.via_move_distance` (0.5 mm), searched on a
   `place.via_move_step` (0.05 mm) grid nearest first, to a spot clear of
   every other net's copper on every layer and of every hole, its tail
   redrawn from its pad. A via inside its pad moves only within that pad;
 - a routed via (two or more of the cell's tracks end on it) has this one
-  step and no other: to move up to `place.via_route` (0.5 mm), on the
+  step and no other: to move up to `place.via_route_distance` (0.5 mm), on the
   same grid, nearest first, with every track that ends on it rebuilt from
   its far end, which stays, to the new centre. Each is drawn as a declared
   track is: octilinear legs (0, 45 and 90 degrees, right angles chamfered
@@ -2295,7 +2295,7 @@ holds within the cell holds for it in KiCad too. The via tries, in turn:
   hole and the item's own copper; a spot where one fails leaves the via and
   all its tracks as drawn, and the next is tried. The track that continues
   from a far end is not touched. A moved routed via is a routed via still,
-  and gives way again from the same far ends. `place.via_route` 0 leaves it
+  and gives way again from the same far ends. `place.via_route_distance` 0 leaves it
   as drawn. The refusal says "no spot within 0.50 mm is clear with its 2
   tracks rebuilt";
 - a via of a field (the carried vias of one net inside one pad of that
@@ -2318,7 +2318,7 @@ holds within the cell holds for it in KiCad too. The via tries, in turn:
   grid beyond the drawn field's and `score.via_relay_pitch` per mm the
   line spacings depart from the drawn pitch; the cheapest legal one is
   taken. A plane net's field may end with fewer vias than drawn down to
-  `place.drops_keep`'s floor; any other net's field keeps its count or is
+  `place.drops_keep_share`'s floor; any other net's field keeps its count or is
   not re-laid. A field already short may be brought back up to the count
   it was drawn with. The finding says which way and the count: "m: GND
   field in U1 pad 1 re-laid by shift vias, 9 vias before, 9 after under
@@ -2330,7 +2330,7 @@ holds within the cell holds for it in KiCad too. The via tries, in turn:
   hole-to-hole)`, so a grid declared at a wider pitch can be closed down to
   that floor and one declared at the floor cannot be closed;
 - a via inside a pad of its own net with no tail, when no spot inside the
-  pad is clear: to leave its pad, up to `place.via_leave` (1.0 mm) from
+  pad is clear: to leave its pad, up to `place.via_leave_distance` (1.0 mm) from
   where it stood, to the nearest spot clear of every other net's copper
   and every hole. A new tail on the via's own face joins it to the pad,
   from where it stood, in the pad's copper: at the net's track width, or
@@ -2352,7 +2352,7 @@ holds within the cell holds for it in KiCad too. The via tries, in turn:
   spot the refusal says so: "a blind via from B.Cu to In3.Cu would clear
   this; the fab profile does not allow blind vias";
 - a drop only (a via of a net the board declares a `plane()` for): to be
-  dropped, while each of the item's pads keeps at least `place.drops_keep`
+  dropped, while each of the item's pads keeps at least `place.drops_keep_share`
   (0.5) of its drops, rounded up and never fewer than one. A shared drop
   counts as kept.
 
@@ -2453,7 +2453,7 @@ the part, and what other items do is judged when each is placed, not when
 the grid is drawn. Where another item's copper meets some of them they give
 way as a stamped cell's field does (above): a via moves, the field is
 re-laid, a via leaves its pad, and a plane net's vias are dropped down to
-`place.drops_keep`; a net that is no plane keeps its count or refuses the
+`place.drops_keep_share`; a net that is no plane keeps its count or refuses the
 spot, and a firm item with no spot is a collision. The grid is drawn after
 the search, as a via declared at a pad is, and each via is judged once more
 against the copper planned before it, which is why a pour that names a grid
@@ -3712,6 +3712,12 @@ rather than replacing the last one.
 
 `placemat settings [<script-or-dir>] [--json]` prints every resolved value and
 the file it came from; given a script, it shows that script's overrides too.
+`placemat settings --example [--output FILE]` writes a complete `placemat.toml`:
+every section and setting with its default, unit and meaning, as valid TOML
+that loads to the defaults (keep only the lines you change). The table below
+is generated from the settings' own data (`placemat settings --markdown`
+prints it; a test checks it). A setting renamed to say what it is still loads
+under its old name for one release, with a `setup` notice naming the new one.
 
 ### Per-script settings
 
@@ -3744,174 +3750,176 @@ step = 0.1              # this board is laid out on a 0.1 grid
 real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 ```
 
-| key | default | what it governs |
-|---|---|---|
-| `rank.area` | 0.7 | weight on courtyard area when ordering searched items |
-| `rank.pins` | 0.3 | weight on pin count when ordering searched items |
-| `place.radius` | 3.0 | a search's default radius |
-| `place.step` | 0.2 | a search's default step |
-| `place.rotations` | "all" | a searched part with no `rotation=` or `rotations=`: `all` four rotations, or only its `declared` one |
-| `place.bearing_step` | 5.0 | degrees between the turns of `rotations=Turns.ANY` |
-| `place.tangent_bin` | 10.0 | degrees of bearing a `Turns.TANGENT` search turns as one: a spot takes its bin's turn |
-| `place.lookahead` | true | a `Pm.Emits` / `Pm.Limit` part is placed where its still-unplaced partner keeps a legal spot at the limit distance |
-| `place.lookahead_step` | 1.0 | mm: the grid the partner's legal spots are found on for that (its own step if coarser) |
-| `place.envelope` | "courtyard" | what a part claims against another: `courtyard` (its courtyard and pads), `physical` (its pads, mask openings, silk and body, each at the board's own gap), or `union` (both) |
-| `place.coarse_steps` | 4 | how many steps apart a scored scan's first pass walks |
-| `place.coarse_from` | 12 | radius-to-step ratio from which a scan goes coarse first |
-| `place.refine_around` | 3 | how many of the best coarse spots get a fine pass: this many by score, and, where the part's riders refuse some spots, this many of those they take |
-| `place.block_gap_step` | 0.05 | how finely a block's tightest gap is searched |
-| `place.block_gap_reach` | 2.0 | how far a satellite may stand off its pin |
-| `place.escape_depth` | 1.0 | how far each corridor out of a pad runs in the search: it weighs a candidate that crosses, closes or walls off a pad's corridors (`score.escape_*`); the run score measures them at `score.escape_depth` |
-| `place.escape_pads` | 1 | a part's pads keep escapes when it has at least this many (3 leaves two-pad parts out) |
-| `place.escape_via_step` | 0.05 | mm: the step a `board.escape` lane's via is searched along its lane at, from the row's end, before it is bisected back to the nearest nanometre |
-| `place.escape_via_reach` | 5.0 | mm: how far along its lane, or its axis, a `board.escape` via is searched before it has no legal spot |
-| `place.edge_step` | 0.05 | mm: the step a part on a curved board edge is stepped in from the edge at until the keep-in holds it, before it is bisected back |
-| `place.pocket_step` | 0.5 | mm: the least raster a free-rectangle search blocks the board at; an item's own step is used when coarser |
-| `place.freedom_min_step` | 0.2 | mm: the least step a part's one-freedom search (along an edge, round a ring) walks at; an item's own step is used when coarser |
-| `place.cutout_step` | 0.2 | mm: the step a cutout is slid along a free axis at |
-| `place.cutout_angle_step` | 0.5 | degrees: the step a cutout is turned round its centre at |
-| `place.escape_cell` | 0.05 | mm: the grid a pad's path out is searched on |
-| `place.courtyard_touch` | 0.0 | how far two courtyards may overlap at least; each pair may also overlap by the two parts' margins (how far KiCad's courtyard polygon lies inside the drawn box) less 0.001 mm, which keeps KiCad's courtyards apart - it counts touching as overlapping |
-| `place.courtyard_polygon_share` | 0.98 | a courtyard whose polygon covers less of the box round it than this (a slice of a disc, an L, a rectangle turned off the axes) is claimed as KiCad draws it, with no margin; one that covers more is claimed as its box |
-| `place.conflict_gap` | 1.0 | how far outside a box a conflict can still reach; a floor under the largest clearance a rule asks |
-| `place.fit_room` | 10.0 | on a fit frame, how far round the decided content a searched item may go |
-| `place.via_share` | 1.0 | how near a via of its net a carried via that meets another net's copper may be to share it instead; 0 never shares |
-| `place.via_move` | 0.5 | how far such a via may move to clear it; 0 never moves |
-| `place.via_move_step` | 0.05 | the grid a via's move, or its leaving its pad, is searched on |
-| `place.via_route` | 0.5 | how far a via that two or more of a cell's tracks end on may move, its tracks rebuilt from their far ends; 0 leaves it as drawn |
-| `place.via_relay` | true | whether a via field a conflict meets is re-laid in its pad, as a whole, before its vias leave the pad or are dropped; false leaves each via to its own steps |
-| `place.via_leave` | 1.0 | how far a via inside its pad, with no spot clear inside it, may leave it, joined by a new tail; 0 never leaves |
-| `place.via_clear_cache` | 4096 | how many placed vias' clear moves a scan keeps, each searched once for every candidate that meets it; a speed setting, results are the same |
-| `place.drops_keep` | 0.5 | the share of a pad's drops (vias of a `plane()` net in it) the pad keeps, rounded up and never fewer than one: what `drops=Drops.MIN` keeps of each field, and what a pad keeps when a carried drop is dropped to clear another net's copper (1 drops none there) |
-| `place.split_min_group` | 2 | the least members a group needs to count as one, in a cell's `split` finding |
-| `copper.chamfer` | 1.0 | how far a right angle is cut back into two 45s |
-| `copper.arc_radius_widths` | 3.0 | the radius of a track's arc corners (`bend=Bend.ARC`), as a multiple of the track's width; `radius=` on the call is in mm and takes precedence |
-| `copper.pair_chamfer` | 0.5 | the same, for a differential pair |
-| `copper.pair_via_step` | 0.4 | how far clear of its partner a pair's lead vias |
-| `copper.bridge_half` | 1.1 | half the gap a bridge leaves round a crossed track |
-| `copper.finger_bridge_width` | 1.0 | the width of a finger's bridge under a track |
-| `copper.finger_min_piece` | 0.05 | mm: a finger's piece between two bridges no longer than this is not drawn |
-| `copper.tap_overlap` | 0.005 | mm: how far a tap's copper reaches over its pad's edge; copper that only meets the pad along a line may not read as joined |
-| `copper.plane_inset` | 0.4 | how far a plane is inset from the board edge |
-| `copper.plane_clearance` | 0.2 | a zone's pullback from foreign copper |
-| `copper.plane_min_thickness` | 0.2 | a zone's minimum filled width |
-| `copper.pour_stroke` | 0.2 | a pour's outline stroke |
-| `copper.pour_reach_step` | 0.05 | mm: the step `reach=Reach.CURRENT` grows a fitted pour by, so the reach is a multiple of it |
-| `copper.pour_reach_max` | 5.0 | mm: the furthest `reach=Reach.CURRENT` grows a fitted pour; where the need is not met by then a finding says so |
-| `copper.straight_tolerance` | 0.002 | a track leg whose ends differ by less than this on one axis is drawn straight between them; `measure --copper` judges 0/45/90 by it too |
-| `write.split_groups` | "lift" | the generator's nested groups: `lift` each cell's group out of its module sheet's to the top level (the sheet keeps its own parts), `split` also takes out of a group the parts the script places by steps of their own, `keep` writes them as generated; a group left empty is removed |
-| `write.keepout_drawings` | "admitting" | draw a keepout's outline and name (and its height limit) on its Fab layer, or `User.Comments` for one on both faces or on inner layers only: `admitting` (default) those that admit something, `all` every keepout, `none` |
-| `write.keepout_line` | 0.1 | a drawn keepout's outline stroke |
-| `write.keepout_text` | 0.8 | a drawn keepout's label height |
-| `copper.microvia_drill` | 0.1 | a micro via's drill (`layers=` one layer from an outer face) when the script gives none |
-| `copper.cell_zones_under_planes` | "drop" | a stamped cell's zone the board's own plane covers on its net and layer: `drop` merges it into the plane, `keep` keeps it |
-| `label.size` | 1.0 | silkscreen text height |
-| `label.thickness` | 0.15 | silkscreen stroke width |
-| `label.gap` | 0.0 | a label's gap from what it names; never less than the board's silk clearance |
-| `label.slide_step` | 0.25 | the step a label slides by along its item's side when a firm part is placed beside it |
-| `geometry.arc_sag` | 0.02 | how far a flattened arc may cut the corner off the real one |
-| `geometry.index_cells` | 16 | buckets across the longer side of the spatial index |
-| `geometry.arc_error_nm` | 5000 | arc approximation error when reading pad outlines |
-| `geometry.cap_steps` | 8 | segments round each half-circle end of a track's polygon, in Python and in native |
-| `check.ambient_c` | 100.0 | board temperature the junction estimate starts from (`--ambient`) |
-| `check.keep_out_mm` | 2.0 | how far sense copper stays from a switch node (`--keep-out`) |
-| `check.rise_c` | 10.0 | the rise a current path is sized for (`--rise`) |
-| `check.neck_band` | 0.1 | no longer read: a neck is the stretch narrower than the width its current needs; a config naming it still loads |
-| `check.neck_end_share` | 0.6 | the share of `check.rise_c` the copper at a short neck's two ends is taken to have used (Brooks and Adam's simulated trace ends sit at 57.9 C of a 94.7 C peak); the neck is credited as short when its own conduction rise stays inside the rest. 1 turns the credit off |
-| `check.neck_resistivity` | 2.2e-8 | copper's resistivity at the working temperature, ohm m (1.68e-8 at 20 C, 4.04e-3 per K, at 100 C) |
-| `check.neck_conductivity` | 384 | copper's thermal conductivity, W/(m K) |
-| `check.zone_step` | 0.05 | the cell a zone fill is rasterised at to measure its width along a load's route; the width reads within one step |
-| `check.limits` | none | a bound per check, e.g. `"hot-loop" = 20.0` (`--limit`) |
-| `parts.order_fields` | `["Lcsc", "LCSC", "Mpn", "MPN"]` | a footprint field naming an order code (an LCSC number, an MPN); `parts` warns when a placed part (not `dnp`) has none of them present and non-empty |
-| `explore.slack` | 0.25 | an explored item draws among spots scoring within this fraction of its best |
-| `explore.swap` | 0.2 | the chance two focused items next in the placement order trade turns |
-| `explore.rank_power` | 1.0 | an explored item's spot at rank r among its candidates is drawn with weight 1 / r to this power: higher keeps it nearer its best |
-| `explore.congestion_step` | 0.05 | variants are ranked by the run score, with the worst congestion cell counted in steps of this at `score.congestion` each (0 leaves it out) |
-| `explore.jobs` | 0 | worker processes for `--explore`; 0 is the CPU count less one |
-| `explore.stall_variants` | 0 | end an explore after this many finished variants without an improvement; 0 is off |
-| `explore.stall_seconds` | 0 | end an explore this many seconds after its last improvement; 0 is off |
-| `explore.stop_hard_clear` | false | end an explore when a variant has none of the hard terms (unplaced parts, critical findings) the plain placement had |
-| `explore.checkpoint_max_variants` | 100000 | finished variants an explore's checkpoint records; past it a resume tries those again |
-| `drc.severities` | none | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
-| `drc.real_kinds` | `clearance`, `shorting_items`, `track_width`, `annular_width`, `hole_clearance`, `hole_to_hole`, `courtyards_overlap`, `copper_edge_clearance` | which violations mean the board is not done: the `real` buckets |
-| `drc.outstanding_kinds` | `via_dangling`, `track_dangling`, `isolated_copper` | which violations are copper not yet joined: `outstanding` |
-| `drc.footprint_kinds` | `lib_footprint_issues`, `lib_footprint_mismatch`, `malformed_courtyard`, `padstack` | which violations are defects in the footprints themselves: `footprint issues` |
-| `drc.refill_zones` | true | refill zones for the check |
-| `route.router_dir` | `$KRT_DIR`, else `~/work/KiCadRoutingTools` | the KiCadRoutingTools checkout |
-| `route.quick` | true | one routing round rather than the router's full run |
-| `route.iterations` | the router's own | cap on the router's search per net |
-| `route.plane_share` | 0.9 | how much of the board's own outline a pour must cover to be guarded whole from other nets' tracks while routing (the router's default layers come from each layer's declared role, not this) |
-| `route.turn_cost` | 20000 | what the router charges a turn, per 90 degrees (a 45 half of it), against 1000 a straight grid step: the router's own default of 1000 makes a kink nearly free and its routes stair-step; 20000 measured best on a dense four-layer board (fewer than half the turns, 10% less copper, closure no worse); 1000 gives the router's own behaviour |
-| `route.smoothing` | true | the router's own octolinear smoothing, as it defaults; false skips it |
-| `route.router_args` | `[]` | more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`) is refused |
-| `route.pair_router_args` | `[]` | the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's |
-| `route.islands` | `[]` | nets with pours whose pads the pours do not reach (a pour net's small taps), `"NET"` or `"NET=WIDTH"` (mm): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH; `placemat route --islands` adds to them |
-| `route.diff_pair_gap` | 0 | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
-| `route.diff_pair_width` | 0 | mm, a pair's track width; 0 is the net class's diff pair width |
-| `route.adopt_tolerance` | 0.001 | mm any kept pad may lie from where the parts' common motion puts it before the kept routes joining them are dropped |
-| `timeout.generate` | 900 | seconds for `pcb layout` |
-| `timeout.drc` | 600 | seconds for kicad-cli DRC |
-| `timeout.route` | 3600 | seconds for the router |
-| `timeout.render` | 300 | seconds for a render |
-| `noise.patterns` | none | extra KiCad stderr patterns to suppress, ADDED to the built-ins |
-| `best.airwire_noise` | 0.01 | how far airwire may move, as a fraction, before a run counts as better or worse than its family's best: kicad-cli picks different ratsnest edges each run for a byte-identical board |
-| `best.crossing_noise` | 0.02 | how far the crossings' term may move, as a fraction, before a score counts as better or worse: kicad-cli's ratsnest varies run to run |
-| `score.unplaced` | 2000 | mm a part left unplaced costs the run score, times its priority's multiplier |
-| `score.priority_high` | 2.0 | the unplaced multiplier for a part declared `priority=HIGH` |
-| `score.priority_default` | 1.0 | the unplaced multiplier for a part with no declared priority |
-| `score.priority_low` | 0.5 | the unplaced multiplier for a part declared `priority=LOW` |
-| `score.drc` | 200 | mm a real DRC violation costs |
-| `score.link_over` | 20 | mm per millimetre a link is past its limit, times the link's weight |
-| `score.fixed` | 200 | mm a decided item (fixed, a cutout, a keepout) not legal where it was put costs |
-| `score.copper` | 200 | mm planned copper that meets another net, crosses a keepout or cannot bridge costs |
-| `score.label` | 50 | mm a label with a part on it costs |
-| `score.setup` | 0 | mm a setup finding costs: the same every run of a script (an undeclared part, a layer the board lacks) |
-| `score.crossing` | 4.0 | mm a ratsnest crossing costs, in the run score and in the search |
-| `score.crossing_plane` | 0 | a crossing with a plane's or free net's airwire, as a share of `score.crossing`: each of its pads drops to the plane by a via |
-| `score.pair_crossing` | 100 | mm a differential pair (a net class's own, board_pairs) crossing itself costs, in place of `score.crossing`: such a pair has to exchange sides to route coupled, so a swap of two identical parts or a turned part is worth wire |
-| `score.escape_crossed` | 20 | mm two escapes from one part's pins crossing near its pin row cost |
-| `score.escape_closed` | 50 | mm a pad whose last route toward what it connects to is closed costs |
-| `score.escape_walled` | 400 | mm a pad with no route out at all costs. A pad that copper of its own net already leaves (a track from it, a via in it, a pour over it) is not counted, closed or walled; what walls one is named by owner, "track NET", "via NET", "pour NET" or "the escape lane of U1 pin 53". A pad whose net has no other pad on the board (a pin the cell hands off to the board above it; not a no-connect net: `NC_...`, `unconnected-(...)`, or a net named under an instance, with a dot) is reported at the end of the run when no track or via gets out of it, from the end of its own net's copper on it (a stub, an escape's lane) where it has any: "no other pad is on the net, so it leaves the board here, and it is walled off by ...". Such a pin keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept |
-| `score.escape_lane` | 400 | mm a declared `board.escape` lane costs that another net's pad, hole or copper already placed blocks, or whose via has no legal spot: in the search at each candidate, and in the run score as the `escape_lane` finding |
-| `score.escape_depth` | 1.5 | mm: the corridor length the escape findings, and so the run score, are measured at, whatever `place.escape_depth` the search used, so runs at different search depths compare |
-| `score.congestion` | 10 | explore: mm per `explore.congestion_step` of the worst RUDY cell |
-| `score.via_share` | 1 | mm the search adds to a spot for each carried via that shares a via of its net there |
-| `score.via_move` | 2 | mm for each carried via that moves there |
-| `score.via_route` | 3 | mm for each routed via that moves with its tracks rebuilt there, between move and leave |
-| `score.via_relay` | 3 | mm for each via field re-laid there, once, between move and leave |
-| `score.via_relay_moved` | 0.5 | mm for each via a relay moves or adds |
-| `score.via_relay_gap` | 1 | mm for each empty site a relay leaves in the field's grid, beyond the drawn field's |
-| `score.via_relay_pitch` | 4 | mm for each mm the field's line spacings, summed, depart from the pitch it was drawn at |
-| `score.via_leave` | 4 | mm for each carried via that leaves its pad there, between move and shorten |
-| `score.via_drop` | 10 | mm for each plane drop dropped there |
-| `score.push` | 10 | mm-equivalent: `score.push` times a push's modelled value over its limit, at the search |
-| `score.back_face` | 2.0 | mm the search adds to a spot on the back face of an item placed with `face=Face.EITHER`, so an equal spot is the front's; no item with a fixed face pays it |
-| `score.via_shorten` | 5 | mm for each carried plane drop shortened to the plane's nearest layer instead of dropped, between move and drop |
-| `solve.enabled` | false | give the searched tier its hints from a global solve of the whole netlist, before any item is scanned |
-| `solve.iterations` | 200 | the solve's conjugate-gradient cap per axis per round |
-| `solve.tolerance` | 1e-06 | the residual the solve stops at |
-| `solve.rounds` | 8 | solve-then-spread rounds, the pull toward the spread rising by `solve.spread_growth` each round |
-| `solve.pull` | 0.01 | the weak pull of every part toward the middle of the board, per unit spring |
-| `solve.spread_pull` | 0.01 | the first round's pull of each part toward its spread cell |
-| `solve.spread_growth` | 2.0 | the pull's growth each round after: round n pulls with `spread_pull * growth ** n` |
-| `preview.converter` | "rsvg-convert --width {width} -o {png} {svg}" | the command `placemat preview` runs to turn its SVG into a PNG; `{svg}`, `{png}` and `{width}` are filled in |
-| `preview.px_per_mm` | 40.0 | the preview PNG's resolution, pixels per millimetre of the drawing |
-| `preview.model_edge` | 1568 | the long edge, in pixels, an image is scaled to before the model reading it sees it - an assumption about that model, which placemat cannot know; the preview reports the resolution the model would then see. 0 reports nothing |
-| `studio.port` | 0 | the port `placemat studio` listens on, on 127.0.0.1 only; 0 is any free one. Not part of a run's id |
-| `studio.debounce_ms` | 300 | a change to a watched file starts a resolve after this long without another |
-| `studio.open` | true | open the browser on the page; `--no-open` overrides |
-| `studio.keep` | 10 | resolves kept, so the page can compare any two |
-| `studio.poll_ms` | 200 | how often the watched files' modification times are read |
-| `studio.cancel_grace_ms` | 2000 | a resolve asked to stop that has not stopped by then has its worker restarted |
-| `studio.explore_fps` | 2.0 | how many times a second the Runs view redraws the latest variant of a live explore (above 0) |
-| `cleanup.enabled` | true | after the searched tier, move and swap plain searched parts where that shortens their wire and declared links |
-| `cleanup.passes` | 2 | passes over the movable parts; one that changes nothing ends it |
-| `cleanup.radius` | 3.0 | how far round its optimal region, and round where it stands, a part is searched |
-| `cleanup.step` | 0.5 | that search's step |
-| `cleanup.swap_neighbours` | 4 | each part is offered a swap with this many of its nearest movable neighbours: both lifted, each searched round the other's old spot |
-| `cleanup.swap_radius` | 1.0 | how far round the other's old spot each part of a swap is searched |
-| `facts.boards` | none | `[facts.boards]`: a script's path relative to this placemat.toml -> the digest of its last `placemat facts --confirm`; placemat's own record, not part of a run's id |
-| `facts.confirmed` | none | the old single digest, read for any script with no entry in `facts.boards`; replaced by that table on the next `--confirm` |
+<!-- settings-table:begin -->
+| key | default | unit | what it governs |
+|---|---|---|---|
+| `rank.area_weight` | `0.7` | weight | weight on courtyard area when ordering searched items |
+| `rank.pins_weight` | `0.3` | weight | weight on pin count when ordering searched items |
+| `place.radius` | `3.0` | mm | a search's default radius |
+| `place.step` | `0.2` | mm | a search's default step |
+| `place.envelope` | `"courtyard"` | choice | what a part claims against another: `courtyard` (its courtyard and pads), `physical` (its pads, mask openings, silk and body, each at the board's own gap), or `union` (both) One of: courtyard, physical, union. |
+| `place.rotations` | `"all"` | choice | a searched part with no `rotation=` or `rotations=`: `all` four rotations, or only its `declared` one. One of: all, declared. |
+| `place.bearing_step` | `5.0` | degrees | degrees between the turns of `rotations=Turns.ANY` |
+| `place.tangent_bin` | `10.0` | degrees | degrees of bearing a `Turns.TANGENT` search turns as one: a spot takes its bin's turn |
+| `place.lookahead` | `true` | bool | a `Pm.Emits` / `Pm.Limit` part is placed where its still-unplaced partner keeps a legal spot at the limit distance |
+| `place.lookahead_step` | `1.0` | mm | the grid the partner's legal spots are found on for that (its own step if coarser) |
+| `place.coarse_stride` | `4` | count | how many steps apart a scored scan's first pass walks |
+| `place.coarse_radius_ratio` | `12.0` | ratio | radius-to-step ratio from which a scan goes coarse first |
+| `place.refine_spots` | `3` | count | how many of the best coarse spots get a fine pass: this many by score, and, where the part's riders refuse some spots, this many of those they take |
+| `place.block_gap_step` | `0.05` | mm | how finely a block's tightest gap is searched |
+| `place.block_gap_reach` | `2.0` | mm | how far a satellite may stand off its pin |
+| `place.escape_depth` | `1.0` | mm | how far each corridor out of a pad runs in the search: it weighs a candidate that crosses, closes or walls off a pad's corridors (`score.escape_*`); the run score measures them at `score.escape_depth` |
+| `place.escape_min_pads` | `1` | count | a part's pads keep escapes when it has at least this many (3 leaves two-pad parts out) |
+| `place.escape_via_step` | `0.05` | mm | the step a `board.escape` lane's via is searched along its lane at, from the row's end, before it is bisected back to the nearest nanometre |
+| `place.escape_via_reach` | `5.0` | mm | how far along its lane, or its axis, a `board.escape` via is searched before it has no legal spot |
+| `place.courtyard_touch` | `0.0` | mm | how far two courtyards may overlap at least; each pair may also overlap by the two parts' margins (how far KiCad's courtyard polygon lies inside the drawn box) less 0.001 mm, which keeps KiCad's courtyards apart - it counts touching as overlapping |
+| `place.courtyard_polygon_share` | `0.98` | share | a courtyard whose polygon covers less of the box round it than this (a slice of a disc, an L, a rectangle turned off the axes) is claimed as KiCad draws it, with no margin; one that covers more is claimed as its box |
+| `place.conflict_reach` | `1.0` | mm | how far outside a box a conflict can still reach; a floor under the largest clearance a rule asks |
+| `place.fit_room` | `10.0` | mm | on a fit frame, how far round the decided content a searched item may go |
+| `place.via_share_distance` | `1.0` | mm | how near a via of its net a carried via that meets another net's copper may be to share it instead; 0 never shares |
+| `place.via_move_distance` | `0.5` | mm | how far such a via may move to clear it; 0 never moves |
+| `place.via_move_step` | `0.05` | mm | the grid a via's move, or its leaving its pad, is searched on |
+| `place.via_leave_distance` | `1.0` | mm | how far a via inside its pad, with no spot clear inside it, may leave it, joined by a new tail; 0 never leaves |
+| `place.via_relay` | `true` | bool | whether a via field a conflict meets is re-laid in its pad, as a whole, before its vias leave the pad or are dropped; false leaves each via to its own steps |
+| `place.via_route_distance` | `0.5` | mm | how far a via that two or more of a cell's tracks end on may move, its tracks rebuilt from their far ends; 0 leaves it as drawn |
+| `place.via_clear_cache` | `4096` | count | how many placed vias' clear moves a scan keeps, each searched once for every candidate that meets it; a speed setting, results are the same |
+| `place.drops_keep_share` | `0.5` | share | the share of a pad's drops (vias of a `plane()` net in it) the pad keeps, rounded up and never fewer than one: what `drops=Drops.MIN` keeps of each field, and what a pad keeps when a carried drop is dropped to clear another net's copper (1 drops none there) |
+| `place.edge_step` | `0.05` | mm | the step a part on a curved board edge is stepped in from the edge at until the keep-in holds it, before it is bisected back |
+| `place.pocket_step` | `0.5` | mm | the least raster a free-rectangle search blocks the board at; an item's own step is used when coarser |
+| `place.freedom_min_step` | `0.2` | mm | the least step a part's one-freedom search (along an edge, round a ring) walks at; an item's own step is used when coarser |
+| `place.cutout_step` | `0.2` | mm | the step a cutout is slid along a free axis at |
+| `place.cutout_angle_step` | `0.5` | degrees | the step a cutout is turned round its centre at |
+| `place.escape_cell` | `0.05` | mm | the grid a pad's path out is searched on |
+| `place.split_min_group` | `2` | count | the least members a group needs to count as one, in a cell's `split` finding |
+| `copper.chamfer` | `1.0` | mm | how far a right angle is cut back into two 45s |
+| `copper.arc_radius_track_widths` | `3.0` | track widths | the radius of a track's arc corners (`bend=Bend.ARC`), as a multiple of the track's width; `radius=` on the call is in mm and takes precedence |
+| `copper.pair_chamfer` | `0.5` | mm | the same, for a differential pair |
+| `copper.pair_via_offset` | `0.4` | mm | how far clear of its partner a pair's lead vias |
+| `copper.bridge_half_gap` | `1.1` | mm | half the gap a bridge leaves round a crossed track |
+| `copper.finger_bridge_width` | `1.0` | mm | the width of a finger's bridge under a track |
+| `copper.finger_min_piece` | `0.05` | mm | a finger's piece between two bridges no longer than this is not drawn |
+| `copper.plane_inset` | `0.4` | mm | how far a plane is inset from the board edge |
+| `copper.plane_clearance` | `0.2` | mm | a zone's pullback from foreign copper |
+| `copper.plane_min_width` | `0.2` | mm | a zone's minimum filled width |
+| `copper.pour_outline_width` | `0.2` | mm | a pour's outline stroke |
+| `copper.pour_reach_step` | `0.05` | mm | the step `reach=Reach.CURRENT` grows a fitted pour by, so the reach is a multiple of it |
+| `copper.pour_reach_max` | `5.0` | mm | the furthest `reach=Reach.CURRENT` grows a fitted pour; where the need is not met by then a finding says so |
+| `copper.cell_zones_under_planes` | `"drop"` | choice | a stamped cell's zone the board's own plane covers on its net and layer: `drop` merges it into the plane, `keep` keeps it. One of: drop, keep. |
+| `copper.tap_overlap` | `0.005` | mm | how far a tap's copper reaches over its pad's edge; copper that only meets the pad along a line may not read as joined |
+| `copper.microvia_drill` | `0.1` | mm | a micro via's drill (`layers=` one layer from an outer face) when the script gives none |
+| `copper.straight_tolerance` | `0.002` | mm | a track leg whose ends differ by less than this on one axis is drawn straight between them; `measure --copper` judges 0/45/90 by it too |
+| `write.split_groups` | `"lift"` | choice | the generator's nested groups: `lift` each cell's group out of its module sheet's to the top level (the sheet keeps its own parts), `split` also takes out of a group the parts the script places by steps of their own, `keep` writes them as generated; a group left empty is removed. One of: lift, split, keep. |
+| `write.keepout_drawings` | `"admitting"` | choice | draw a keepout's outline and name (and its height limit) on its Fab layer, or `User.Comments` for one on both faces or on inner layers only: `admitting` (default) those that admit something, `all` every keepout, `none`. One of: admitting, all, none. |
+| `write.keepout_line_width` | `0.1` | mm | a drawn keepout's outline stroke |
+| `write.keepout_text_height` | `0.8` | mm | a drawn keepout's label height |
+| `label.text_height` | `1.0` | mm | silkscreen text height |
+| `label.thickness` | `0.15` | mm | silkscreen stroke width |
+| `label.gap` | `0.0` | mm | a label's gap from what it names; never less than the board's silk clearance |
+| `label.slide_step` | `0.25` | mm | the step a label slides by along its item's side when a firm part is placed beside it |
+| `geometry.arc_sag` | `0.02` | mm | how far a flattened arc may cut the corner off the real one |
+| `geometry.index_cells` | `16` | count | buckets across the longer side of the spatial index |
+| `geometry.arc_error_nm` | `5000` | nm | arc approximation error when reading pad outlines |
+| `geometry.cap_steps` | `8` | count | segments round each half-circle end of a track's polygon, in Python and in native |
+| `check.ambient_c` | `100.0` | deg C | board temperature the junction estimate starts from (`--ambient`) |
+| `check.keep_out_mm` | `2.0` | mm | how far sense copper stays from a switch node (`--keep-out`) |
+| `check.rise_c` | `10.0` | deg C | the rise a current path is sized for (`--rise`) |
+| `check.neck_band` | `0.1` | mm | no longer read: a neck is the stretch narrower than the width its current needs; a config naming it still loads |
+| `check.neck_end_share` | `0.6` | share | the share of `check.rise_c` the copper at a short neck's two ends is taken to have used (Brooks and Adam's simulated trace ends sit at 57.9 C of a 94.7 C peak); the neck is credited as short when its own conduction rise stays inside the rest. 1 turns the credit off |
+| `check.neck_resistivity` | `2.2e-08` | ohm m | copper's resistivity at the working temperature, ohm m (1.68e-8 at 20 C, 4.04e-3 per K, at 100 C) |
+| `check.neck_conductivity` | `384.0` | W/(m K) | copper's thermal conductivity, W/(m K) |
+| `check.zone_step` | `0.05` | mm | the cell a zone fill is rasterised at to measure its width along a load's route; the width reads within one step |
+| `check.limits` | `{}` | table | a bound per check, e.g. `"hot-loop" = 20.0` (`--limit`) |
+| `parts.order_fields` | `["Lcsc", "LCSC", "Mpn", "MPN"]` | list | a footprint field naming an order code (an LCSC number, an MPN); `parts` warns when a placed part (not `dnp`) has none of them present and non-empty |
+| `drc.real_kinds` | `["clearance", "shorting_items", "track_width", "annular_width", "hole_clearance", "hole_to_hole", "courtyards_overlap", "copper_edge_clearance"]` | list | which violations mean the board is not done: the `real` buckets |
+| `drc.outstanding_kinds` | `["via_dangling", "track_dangling", "isolated_copper"]` | list | which violations are copper not yet joined: `outstanding` |
+| `drc.footprint_kinds` | `["lib_footprint_issues", "lib_footprint_mismatch", "malformed_courtyard", "padstack"]` | list | which violations are defects in the footprints themselves: `footprint issues` |
+| `drc.refill_zones` | `true` | bool | refill zones for the check |
+| `explore.spot_slack` | `0.25` | fraction | an explored item draws among spots scoring within this fraction of its best |
+| `explore.swap_chance` | `0.2` | probability | the chance two focused items next in the placement order trade turns |
+| `explore.rank_power` | `1.0` | exponent | an explored item's spot at rank r among its candidates is drawn with weight 1 / r to this power: higher keeps it nearer its best |
+| `explore.congestion_step` | `0.05` | fraction | variants are ranked by the run score, with the worst congestion cell counted in steps of this at `score.congestion` each (0 leaves it out) |
+| `explore.jobs` | `0` | count | worker processes for `--explore`; 0 is the CPU count less one |
+| `explore.stall_variants` | `0` | count | end an explore after this many finished variants without an improvement; 0 is off |
+| `explore.stall_seconds` | `0.0` | seconds | end an explore this many seconds after its last improvement; 0 is off |
+| `explore.stop_hard_clear` | `false` | bool | end an explore when a variant has none of the hard terms (unplaced parts, critical findings) the plain placement had |
+| `explore.checkpoint_max_variants` | `100000` | count | finished variants an explore's checkpoint records; past it a resume tries those again |
+| `drc.severities` | `{}` | table | a table of KiCad rule names to `error`, `warning` or `ignore`, written into the board's .kicad_pro before DRC |
+| `route.router_dir` | `""` | path | the KiCadRoutingTools checkout; empty: `$KRT_DIR`, else `~/work/KiCadRoutingTools` |
+| `route.quick` | `true` | bool | one routing round rather than the router's full run |
+| `route.max_iterations` | `unset` | count | cap on the router's search per net; unset: the router's own default |
+| `route.plane_share` | `0.9` | share | how much of the board's own outline a pour must cover to be guarded whole from other nets' tracks while routing (the router's default layers come from each layer's declared role, not this) |
+| `route.turn_cost` | `20000` | cost | what the router charges a turn, per 90 degrees (a 45 half of it), against 1000 a straight grid step: the router's own default of 1000 makes a kink nearly free and its routes stair-step; 20000 measured best on a dense four-layer board (fewer than half the turns, 10% less copper, closure no worse); 1000 gives the router's own behaviour |
+| `route.smoothing` | `true` | bool | the router's own octolinear smoothing, as it defaults; false skips it |
+| `route.router_args` | `[]` | list | more of the router's own flags (`--direction-preference-cost`, `--heuristic-weight`, `--bus`, `--via-cost`, ...), each a string, appended to its route.py passes (the island nets, the main pass); one placemat sets itself (`--nets`, `--layers`, `--escalation`, `--keep-input-copper`, `--turn-cost`, `--smoothing`, `--no-smoothing`, `--power-nets`, `--power-nets-widths`, `--max-iterations`, `--max-probe-iterations`, `--json-out`) is refused |
+| `route.pair_router_args` | `[]` | list | the same for the pair router (route_diff.py), which takes flags of its own (`--max-turn-angle`, `--min-turning-radius`, ...) and not all of route.py's |
+| `route.islands` | `[]` | list | nets with pours whose pads the pours do not reach (a pour net's small taps), `"NET"` or `"NET=WIDTH"` (mm): routed first and alone, joining only the pads and pieces the pours leave apart, at the netclass width or WIDTH; `placemat route --islands` adds to them |
+| `route.diff_pair_gap` | `0.0` | mm | mm between a pair's tracks; 0 is the net class's diff pair gap (the router never goes below the class clearance) |
+| `route.diff_pair_width` | `0.0` | mm | mm, a pair's track width; 0 is the net class's diff pair width |
+| `route.adopt_tolerance` | `0.001` | mm | mm any kept pad may lie from where the parts' common motion puts it before the kept routes joining them are dropped |
+| `timeout.generate` | `900` | seconds | seconds for `pcb layout` |
+| `timeout.drc` | `600` | seconds | seconds for kicad-cli DRC |
+| `timeout.route` | `3600` | seconds | seconds for the router |
+| `timeout.render` | `300` | seconds | seconds for a render |
+| `noise.patterns` | `[]` | list | extra KiCad stderr patterns to suppress, ADDED to the built-ins |
+| `best.airwire_noise` | `0.01` | fraction | how far airwire may move, as a fraction, before a run counts as better or worse than its family's best: kicad-cli picks different ratsnest edges each run for a byte-identical board |
+| `best.crossing_noise` | `0.02` | fraction | how far the crossings' term may move, as a fraction, before a score counts as better or worse: kicad-cli's ratsnest varies run to run |
+| `score.unplaced` | `2000.0` | mm | mm a part left unplaced costs the run score, times its priority's multiplier |
+| `score.unplaced_high` | `2.0` | multiplier | the unplaced multiplier for a part declared `priority=HIGH` |
+| `score.unplaced_default` | `1.0` | multiplier | the unplaced multiplier for a part with no declared priority |
+| `score.unplaced_low` | `0.5` | multiplier | the unplaced multiplier for a part declared `priority=LOW` |
+| `score.drc` | `200.0` | mm | mm a real DRC violation costs |
+| `score.link_over` | `20.0` | mm | mm per millimetre a link is past its limit, times the link's weight |
+| `score.fixed` | `200.0` | mm | mm a decided item (fixed, a cutout, a keepout) not legal where it was put costs |
+| `score.copper` | `200.0` | mm | mm planned copper that meets another net, crosses a keepout or cannot bridge costs |
+| `score.label` | `50.0` | mm | mm a label with a part on it costs |
+| `score.setup` | `0.0` | mm | mm a setup finding costs: the same every run of a script (an undeclared part, a layer the board lacks) |
+| `score.crossing` | `4.0` | mm | mm a ratsnest crossing costs, in the run score and in the search |
+| `score.crossing_plane` | `0.0` | share | a crossing with a plane's or free net's airwire, as a share of `score.crossing`: each of its pads drops to the plane by a via |
+| `score.pair_crossing` | `100.0` | mm | mm a differential pair (a net class's own, board_pairs) crossing itself costs, in place of `score.crossing`: such a pair has to exchange sides to route coupled, so a swap of two identical parts or a turned part is worth wire |
+| `score.escape_crossed` | `20.0` | mm | mm two escapes from one part's pins crossing near its pin row cost |
+| `score.escape_depth` | `1.5` | mm | the corridor length the escape findings, and so the run score, are measured at, whatever `place.escape_depth` the search used, so runs at different search depths compare |
+| `score.escape_closed` | `50.0` | mm | mm a pad whose last route toward what it connects to is closed costs |
+| `score.escape_walled` | `400.0` | mm | mm a pad with no route out at all costs. A pad that copper of its own net already leaves (a track from it, a via in it, a pour over it) is not counted, closed or walled; what walls one is named by owner, "track NET", "via NET", "pour NET" or "the escape lane of U1 pin 53". A pad whose net has no other pad on the board (a pin the cell hands off to the board above it; not a no-connect net: `NC_...`, `unconnected-(...)`, or a net named under an instance, with a dot) is reported at the end of the run when no track or via gets out of it, from the end of its own net's copper on it (a stub, an escape's lane) where it has any: "no other pad is on the net, so it leaves the board here, and it is walled off by ...". Such a pin keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept |
+| `score.escape_lane` | `400.0` | mm | mm a declared `board.escape` lane costs that another net's pad, hole or copper already placed blocks, or whose via has no legal spot: in the search at each candidate, and in the run score as the `escape_lane` finding |
+| `score.congestion` | `10.0` | mm | explore: mm per `explore.congestion_step` of the worst RUDY cell |
+| `score.via_share` | `1.0` | mm | mm the search adds to a spot for each carried via that shares a via of its net there |
+| `score.via_move` | `2.0` | mm | mm for each carried via that moves there |
+| `score.via_drop` | `10.0` | mm | mm for each plane drop dropped there |
+| `score.back_face` | `2.0` | mm | mm the search adds to a spot on the back face of an item placed with `face=Face.EITHER`, so an equal spot is the front's; no item with a fixed face pays it |
+| `score.push` | `10.0` | mm | mm-equivalent: `score.push` times a push's modelled value over its limit, at the search |
+| `score.via_leave` | `4.0` | mm | mm for each carried via that leaves its pad there, between move and shorten |
+| `score.via_relay` | `3.0` | mm | mm for each via field re-laid there, once, between move and leave |
+| `score.via_relay_moved` | `0.5` | mm | mm for each via a relay moves or adds |
+| `score.via_relay_gap` | `1.0` | mm | mm for each empty site a relay leaves in the field's grid, beyond the drawn field's |
+| `score.via_relay_pitch` | `4.0` | mm | mm for each mm the field's line spacings, summed, depart from the pitch it was drawn at |
+| `score.via_route` | `3.0` | mm | mm for each routed via that moves with its tracks rebuilt there, between move and leave |
+| `score.via_shorten` | `5.0` | mm | mm for each carried plane drop shortened to the plane's nearest layer instead of dropped, between move and drop |
+| `solve.enabled` | `false` | bool | give the searched tier its hints from a global solve of the whole netlist, before any item is scanned |
+| `solve.iterations` | `200` | count | the solve's conjugate-gradient cap per axis per round |
+| `solve.tolerance` | `1e-06` | residual | the residual the solve stops at |
+| `solve.rounds` | `8` | count | solve-then-spread rounds, the pull toward the spread rising by `solve.spread_growth` each round |
+| `solve.centre_pull` | `0.01` | weight | the weak pull of every part toward the middle of the board, per unit spring |
+| `solve.spread_pull` | `0.01` | weight | the first round's pull of each part toward its spread cell |
+| `solve.spread_growth` | `2.0` | factor | the pull's growth each round after: round n pulls with `spread_pull * growth ** n` |
+| `preview.converter` | `"rsvg-convert --width {width} -o {png} {svg}"` | command | the command `placemat preview` runs to turn its SVG into a PNG; `{svg}`, `{png}` and `{width}` are filled in |
+| `preview.px_per_mm` | `40.0` | px/mm | the preview PNG's resolution, pixels per millimetre of the drawing |
+| `preview.model_edge_px` | `1568` | pixels | the long edge, in pixels, an image is scaled to before the model reading it sees it - an assumption about that model, which placemat cannot know; the preview reports the resolution the model would then see. 0 reports nothing |
+| `cleanup.enabled` | `true` | bool | after the searched tier, move and swap plain searched parts where that shortens their wire and declared links |
+| `cleanup.passes` | `2` | count | passes over the movable parts; one that changes nothing ends it |
+| `cleanup.search_radius` | `3.0` | mm | how far round its optimal region, and round where it stands, a part is searched |
+| `cleanup.search_step` | `0.5` | mm | that search's step |
+| `cleanup.swap_neighbours` | `4` | count | each part is offered a swap with this many of its nearest movable neighbours: both lifted, each searched round the other's old spot |
+| `cleanup.swap_radius` | `1.0` | mm | how far round the other's old spot each part of a swap is searched |
+| `studio.port` | `0` | port | the port `placemat studio` listens on, on 127.0.0.1 only; 0 is any free one. Not part of a run's id |
+| `studio.debounce_ms` | `300` | ms | a change to a watched file starts a resolve after this long without another |
+| `studio.open` | `true` | bool | open the browser on the page; `--no-open` overrides |
+| `studio.keep` | `10` | count | resolves kept, so the page can compare any two |
+| `studio.poll_ms` | `200` | ms | how often the watched files' modification times are read |
+| `studio.explore_fps` | `2.0` | per second | how many times a second the Runs view redraws the latest variant of a live explore (above 0) |
+| `studio.cancel_grace_ms` | `2000` | ms | a resolve asked to stop that has not stopped by then has its worker restarted |
+| `facts.confirmed` | `""` | text | the old single digest, read for any script with no entry in `facts.boards`; replaced by that table on the next `--confirm` |
+| `facts.boards` | `{}` | table | `[facts.boards]`: a script's path relative to this placemat.toml -> the digest of its last `placemat facts --confirm`; placemat's own record, not part of a run's id |
+<!-- settings-table:end -->
 
 A run also records `metrics.seeded_by_net`: how many searched items each net
 seeded. One net seeding most of the board is a missing `board.plane()`. And

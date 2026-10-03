@@ -749,7 +749,7 @@ def route_board(pcb, work, exclude_nets=(), layers=None, router_dir_override: st
     islands, islands_missing = islands_on_board(pcb, islands) if islands else ({}, [])
     router_dir_path = router_dir_override or router_dir(cfg)
     timeout = cfg.timeout_route if timeout is None else timeout
-    iterations = cfg.route_iterations if iterations is None else iterations
+    iterations = cfg.route_max_iterations if iterations is None else iterations
     pcb, work = Path(pcb), Path(work)
     rpy = Path(router_dir_path) / ".venv/bin/python"
     route_py = Path(router_dir_path) / "py_router/route.py"

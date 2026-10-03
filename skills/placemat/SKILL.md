@@ -275,6 +275,9 @@ model into declarations.
 4. **Before reading a board's numbers, run `placemat settings`**: a
    `placemat.toml` anywhere from the board's directory up can change any
    value, and the command says which file each came from.
+   `placemat settings --example` writes a complete commented `placemat.toml`
+   (every setting, its unit, meaning and default) to start one from; an old
+   setting name still loads for one release, with a notice naming the new one.
 5. **Read the numbers before the picture.** `real` DRC buckets and
    `unconnected` are the gate; `outstanding` is copper not yet drawn;
    `footprint issues` are defects in the fetched footprints (they do not
@@ -561,10 +564,10 @@ shapes and files: `references/api.md`, "Live progress".
   its pad, joined by a new tail), shorten (a plane drop) and drop. A via that two or more of a
   cell's tracks end on has one step: it moves with its tracks rebuilt
   from their far ends ("no spot within 0.50 mm is clear with its 2 tracks
-  rebuilt"; `place.via_route` sets the reach, 0 leaves it as drawn). The
-  sentence names each step and why it failed. `place.via_move` and
-  `place.via_share` set the reaches,
-  `place.via_leave` how far a via may leave its pad, `place.drops_keep` what
+  rebuilt"; `place.via_route_distance` sets the reach, 0 leaves it as drawn). The
+  sentence names each step and why it failed. `place.via_move_distance` and
+  `place.via_share_distance` set the reaches,
+  `place.via_leave_distance` how far a via may leave its pad, `place.drops_keep_share` what
   share of a pad's drops must stay, `place.via_relay` turns the re-lay off, and `drops=` on a cell thins its drops
   before the search. Shorten runs only when the fab profile's micro, blind
   or buried tier for the shorter via is "yes"; the refusal says when one

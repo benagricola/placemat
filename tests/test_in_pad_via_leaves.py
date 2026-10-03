@@ -102,7 +102,7 @@ def test_a_pad_with_room_inside_still_moves_inside():
 
 
 def test_via_leave_zero_leaves_nothing():
-    plan = _board(settings=Settings(place_via_leave=0.0)).resolve()
+    plan = _board(settings=Settings(place_via_leave_distance=0.0)).resolve()
     step = plan.step("q")
     assert step.placement is None
     assert "no spot within 0.50 mm inside its pad is clear" in step.note, step.note
@@ -110,7 +110,7 @@ def test_via_leave_zero_leaves_nothing():
 
 
 def test_a_via_that_cannot_reach_a_clear_spot_is_refused_and_says_so():
-    plan = _board(settings=Settings(place_via_leave=0.6)).resolve()
+    plan = _board(settings=Settings(place_via_leave_distance=0.6)).resolve()
     step = plan.step("q")
     assert step.placement is None
     assert "no spot within 0.60 mm is clear to leave its pad by a tail" in step.note, step.note
@@ -168,7 +168,7 @@ def test_a_cells_via_in_its_pad_leaves_it_and_the_plan_draws_the_tail():
 def test_a_via_outside_its_pad_does_not_leave_it():
     """Its tail ends in the pad and the via is outside it: a move handles that."""
     from tests.test_vias_give_way import _moving_board
-    plan = _moving_board((39.1, 42.2), True, (19.5, 23.0), settings=Settings(place_via_move=0.1)).resolve()
+    plan = _moving_board((39.1, 42.2), True, (19.5, 23.0), settings=Settings(place_via_move_distance=0.1)).resolve()
     step = plan.step("m")
     assert step.placement is None and "leave its pad" not in step.note, step.note
 

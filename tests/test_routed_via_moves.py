@@ -111,7 +111,7 @@ def test_a_leg_that_would_meet_another_net_refuses_the_spot_and_the_next_is_trie
 
 
 def test_nothing_within_reach_is_refused_with_the_reason():
-    plan = _board(settings=Settings(place_via_route=0.1)).resolve()
+    plan = _board(settings=Settings(place_via_route_distance=0.1)).resolve()
     step = plan.step("m")
     assert step.placement is None
     assert "via SIG at (19.10, 22.20)" in step.note and "cannot give way" in step.note, step.note
@@ -128,7 +128,7 @@ def test_a_leg_across_another_net_in_every_spot_is_refused():
 
 
 def test_via_route_zero_leaves_a_routed_via_as_drawn():
-    plan = _board(settings=Settings(place_via_route=0.0)).resolve()
+    plan = _board(settings=Settings(place_via_route_distance=0.0)).resolve()
     step = plan.step("m")
     assert step.placement is None
     assert "cannot give way" not in step.note, step.note

@@ -9,6 +9,12 @@ section for each hand-written pattern a newer form replaces.
 
 ### New
 
+- **Every setting is documented as data, and `placemat settings --example` writes a complete `placemat.toml`.** Each
+  setting carries its unit and its meaning in `settings.py` (`Settings` field metadata, `settings.meta`,
+  `settings.SECTIONS`); the api.md table is generated from them (`placemat settings --markdown`) and a test checks it.
+  `placemat settings --example [--output FILE]` writes every section and setting with its default, unit and meaning,
+  grouped by section, as valid TOML that loads to the defaults.
+
 - **An explore keeps its curve and says when the best was found.** Every finished variant is on the curve: its index
   (the order it finished in, the plain placement 0), its seed, the seconds since the explore began (over every
   session of a resumed one) and its score, with `best` set when it beat every variant before it. `metrics.explore`
@@ -26,6 +32,43 @@ section for each hand-written pattern a newer form replaces.
   The three settings are not part of a checkpoint's digest.
 
 ### Changed
+
+- **Settings renamed to say what they are.** The old name still loads for one release, as the new setting, with a
+  `setup` notice on the plan (and in `placemat settings`) naming the new one. Using both names for one setting in a
+  table is an error. A run's id includes the settings by name, so the first run after upgrading is a new run.
+
+  | old | new |
+  |---|---|
+| `rank.area` | `rank.area_weight` |
+| `rank.pins` | `rank.pins_weight` |
+| `place.coarse_steps` | `place.coarse_stride` |
+| `place.coarse_from` | `place.coarse_radius_ratio` |
+| `place.refine_around` | `place.refine_spots` |
+| `place.conflict_gap` | `place.conflict_reach` |
+| `place.via_share` | `place.via_share_distance` |
+| `place.via_move` | `place.via_move_distance` |
+| `place.via_leave` | `place.via_leave_distance` |
+| `place.via_route` | `place.via_route_distance` |
+| `place.drops_keep` | `place.drops_keep_share` |
+| `place.escape_pads` | `place.escape_min_pads` |
+| `copper.arc_radius_widths` | `copper.arc_radius_track_widths` |
+| `copper.bridge_half` | `copper.bridge_half_gap` |
+| `copper.pair_via_step` | `copper.pair_via_offset` |
+| `copper.pour_stroke` | `copper.pour_outline_width` |
+| `copper.plane_min_thickness` | `copper.plane_min_width` |
+| `write.keepout_line` | `write.keepout_line_width` |
+| `write.keepout_text` | `write.keepout_text_height` |
+| `label.size` | `label.text_height` |
+| `explore.slack` | `explore.spot_slack` |
+| `explore.swap` | `explore.swap_chance` |
+| `route.iterations` | `route.max_iterations` |
+| `solve.pull` | `solve.centre_pull` |
+| `cleanup.radius` | `cleanup.search_radius` |
+| `cleanup.step` | `cleanup.search_step` |
+| `preview.model_edge` | `preview.model_edge_px` |
+| `score.priority_high` | `score.unplaced_high` |
+| `score.priority_default` | `score.unplaced_default` |
+| `score.priority_low` | `score.unplaced_low` |
 
 - **`board.size(...)` is refused.** It was renamed `board.rect(...)` in 0.85.0 and has given a `setup` notice since;
   now it raises `AttributeError: board.size(...) is board.rect(...) since 0.85.0`. Rename the call, arguments

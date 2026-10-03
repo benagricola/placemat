@@ -309,7 +309,7 @@ def test_a_tangent_scan_judges_half_the_candidates_of_a_four_turn_scan(monkeypat
     b = _scan_board()
     plan = b.resolve()
     occ = plan.occupancy
-    monkeypatch.setattr(occ, "settings", dataclasses.replace(occ.settings, place_coarse_from=1e9))   # one pass over the grid
+    monkeypatch.setattr(occ, "settings", dataclasses.replace(occ.settings, place_coarse_radius_ratio=1e9))   # one pass over the grid
     item = b._intents[-1].item
     from placemat.placer import BearingTurns
     bt = BearingTurns(CENTRE, lambda bearing: (180.0 - bearing) % 360.0, 10.0)

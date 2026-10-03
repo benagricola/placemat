@@ -207,7 +207,7 @@ def test_a_conflict_gap_is_a_floor_under_the_largest_clearance_a_rule_asks():
     itself, so the setting never has to copy a rule's number."""
     from placemat.rules import Rule
     g = board_geometry([footprint("U1", 10, 10)], width=40, height=40)
-    settings = dataclasses.replace(Settings(), place_conflict_gap=0.5)
+    settings = dataclasses.replace(Settings(), place_conflict_reach=0.5)
     assert Occupancy(g, 0.5, settings=settings, rules=[Rule("clearance", 0.8, "wide", on="A")])._gap == 0.8
     assert Occupancy(g, 0.5, settings=settings, rules=[Rule("clearance", 0.3, "narrow", on="A")])._gap == 0.5
     assert Occupancy(g, 0.5, settings=settings)._gap == 0.5

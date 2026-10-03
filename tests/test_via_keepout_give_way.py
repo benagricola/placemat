@@ -165,8 +165,8 @@ def test_the_native_and_python_searches_move_the_via_to_the_same_spot(monkeypatc
 
 def test_with_every_way_to_give_way_off_a_via_in_the_keepout_still_refuses_the_spot():
     from placemat.settings import Settings
-    off = Settings(place_via_share=0.0, place_via_move=0.0, place_via_leave=0.0, place_via_route=0.0,
-                   place_drops_keep=1.0)
+    off = Settings(place_via_share_distance=0.0, place_via_move_distance=0.0, place_via_leave_distance=0.0, place_via_route_distance=0.0,
+                   place_drops_keep_share=1.0)
     step = _board(settings=off).resolve().step("m")
     assert step.placement is None and "keepout 'nov' forbids vias" in step.note, step.note
 

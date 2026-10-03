@@ -202,7 +202,7 @@ def test_two_corners_are_two_arcs():
 
 
 def test_the_radius_is_the_setting_times_the_width_and_radius_overrides_it():
-    for kw, settings, want in (({}, {}, 3 * W), ({}, {"copper_arc_radius_widths": 6.0}, 6 * W),
+    for kw, settings, want in (({}, {}, 3 * W), ({}, {"copper_arc_radius_track_widths": 6.0}, 6 * W),
                                ({"radius": 2.0}, {}, 2.0)):
         b = _scene(**settings)
         _corner_track(b, **kw)

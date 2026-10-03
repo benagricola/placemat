@@ -9,15 +9,15 @@ from placemat import settings as S
 
 def test_defaults_are_todays_values():
     s = S.Settings()
-    assert s.rank_area == 0.7 and s.rank_pins == 0.3
+    assert s.rank_area_weight == 0.7 and s.rank_pins_weight == 0.3
     assert s.place_step == 0.2 and s.place_radius == 3.0
-    assert s.place_coarse_steps == 4 and s.place_coarse_from == 12.0
-    assert s.place_refine_around == 3
+    assert s.place_coarse_stride == 4 and s.place_coarse_radius_ratio == 12.0
+    assert s.place_refine_spots == 3
     assert s.place_block_gap_step == 0.05 and s.place_block_gap_reach == 2.0
-    assert s.place_courtyard_touch == 0.0 and s.place_conflict_gap == 1.0
-    assert s.copper_chamfer == 1.0 and s.copper_bridge_half == 1.1
-    assert s.copper_plane_inset == 0.4 and s.copper_pour_stroke == 0.2
-    assert s.label_size == 1.0 and s.label_thickness == 0.15
+    assert s.place_courtyard_touch == 0.0 and s.place_conflict_reach == 1.0
+    assert s.copper_chamfer == 1.0 and s.copper_bridge_half_gap == 1.1
+    assert s.copper_plane_inset == 0.4 and s.copper_pour_outline_width == 0.2
+    assert s.label_text_height == 1.0 and s.label_thickness == 0.15
     assert s.geometry_arc_sag == 0.02 and s.geometry_index_cells == 16
     assert s.geometry_arc_error_nm == 5000
     assert s.check_ambient_c == 100.0 and s.check_keep_out_mm == 2.0
@@ -164,7 +164,7 @@ def test_a_zero_weight_is_allowed(tmp_path):
     """Weighting pins at nothing is a legitimate choice; weighting a step at
     nothing is a scan that never moves."""
     _toml(tmp_path / "placemat.toml", "[rank]\npins = 0.0\n")
-    assert S.load(tmp_path).rank_pins == 0.0
+    assert S.load(tmp_path).rank_pins_weight == 0.0
 
 
 def test_an_error_in_an_outer_file_still_names_that_file(tmp_path):
@@ -211,14 +211,14 @@ def test_the_settings_command_prints_every_key_and_its_source(tmp_path, capsys):
     assert cli.cmd_settings(args) == 0
     out = capsys.readouterr().out
     assert "place.step" in out and "0.05" in out and "placemat.toml" in out
-    assert "rank.area" in out and "default" in out
+    assert "rank.area_weight" in out and "default" in out
 
 
 def test_keepout_drawing_and_push_defaults():
     s = S.Settings()
     assert s.write_keepout_drawings == "admitting"
-    assert s.write_keepout_line == 0.1
-    assert s.write_keepout_text == 0.8
+    assert s.write_keepout_line_width == 0.1
+    assert s.write_keepout_text_height == 0.8
     assert s.score_push == 10.0
 
 
@@ -230,10 +230,10 @@ def test_keepout_drawings_is_a_validated_choice(tmp_path):
 
 
 def test_keepout_line_and_text_have_a_floor(tmp_path):
-    _toml(tmp_path / "placemat.toml", "[write]\nkeepout_line = 0.0\n")
+    _toml(tmp_path / "placemat.toml", "[write]\nkeepout_line_width = 0.0\n")
     with pytest.raises(S.SettingsError) as e:
         S.load(tmp_path)
-    assert "write.keepout_line" in str(e.value) and "greater than 0" in str(e.value)
+    assert "write.keepout_line_width" in str(e.value) and "greater than 0" in str(e.value)
 
 
 def test_score_push_may_be_zero_but_not_negative(tmp_path):
@@ -272,21 +272,21 @@ def test_score_via_shorten_has_a_default_and_is_settable(tmp_path):
 
 
 def test_the_leave_settings_have_defaults_and_are_settable(tmp_path):
-    assert (S.Settings().place_via_leave, S.Settings().score_via_leave) == (1.0, 4.0)
-    _toml(tmp_path / "placemat.toml", "[place]\nvia_leave = 0.8\n[score]\nvia_leave = 3.0\n")
+    assert (S.Settings().place_via_leave_distance, S.Settings().score_via_leave) == (1.0, 4.0)
+    _toml(tmp_path / "placemat.toml", "[place]\nvia_leave_distance = 0.8\n[score]\nvia_leave = 3.0\n")
     got = S.load(tmp_path)
-    assert (got.place_via_leave, got.score_via_leave) == (0.8, 3.0)
-    _toml(tmp_path / "placemat.toml", "[place]\nvia_leave = -1\n")
+    assert (got.place_via_leave_distance, got.score_via_leave) == (0.8, 3.0)
+    _toml(tmp_path / "placemat.toml", "[place]\nvia_leave_distance = -1\n")
     with pytest.raises(S.SettingsError):
         S.load(tmp_path)
 
 
 def test_the_route_settings_have_defaults_and_are_settable(tmp_path):
-    assert (S.Settings().place_via_route, S.Settings().score_via_route) == (0.5, 3.0)
-    _toml(tmp_path / "placemat.toml", "[place]\nvia_route = 0.3\n[score]\nvia_route = 2.5\n")
+    assert (S.Settings().place_via_route_distance, S.Settings().score_via_route) == (0.5, 3.0)
+    _toml(tmp_path / "placemat.toml", "[place]\nvia_route_distance = 0.3\n[score]\nvia_route = 2.5\n")
     got = S.load(tmp_path)
-    assert (got.place_via_route, got.score_via_route) == (0.3, 2.5)
-    _toml(tmp_path / "placemat.toml", "[place]\nvia_route = -1\n")
+    assert (got.place_via_route_distance, got.score_via_route) == (0.3, 2.5)
+    _toml(tmp_path / "placemat.toml", "[place]\nvia_route_distance = -1\n")
     with pytest.raises(S.SettingsError):
         S.load(tmp_path)
 

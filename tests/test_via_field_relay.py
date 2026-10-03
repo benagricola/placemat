@@ -86,7 +86,7 @@ def test_the_field_is_laid_as_drawn_where_nothing_meets_it():
 
 
 TOP_ROW = (18.1, 19.1, 2.4, 0.3)        # R9's pad on the back, along the field's north row once placed
-NO_LEAVE = Settings(place_via_leave=0.0)
+NO_LEAVE = Settings(place_via_leave_distance=0.0)
 
 
 def _moves(plan):
@@ -144,7 +144,7 @@ def test_a_field_with_no_room_falls_back_to_drop_and_reports_what_it_holds():
 
 
 def test_with_relay_off_the_row_is_dropped_as_before():
-    plan = _board(FIELD, [TOP_ROW], settings=Settings(place_via_leave=0.0, place_via_relay=False)).resolve()
+    plan = _board(FIELD, [TOP_ROW], settings=Settings(place_via_leave_distance=0.0, place_via_relay=False)).resolve()
     assert [a.kind for a in plan.occupancy.given_way.values()] == ["drop"] * 3
     assert len(_placed(plan)) == 6
 
@@ -193,7 +193,7 @@ def test_taking_out_vias_that_meet_it_is_left_to_drop():
 
 
 def test_a_whole_row_is_taken_out_where_an_irregular_grid_costs_more_than_the_vias():
-    plan = _board(NOROOM, TWO_CORNERS, pad_h=2.0, settings=Settings(place_via_leave=0.0, score_via_relay_gap=100.0)).resolve()
+    plan = _board(NOROOM, TWO_CORNERS, pad_h=2.0, settings=Settings(place_via_leave_distance=0.0, score_via_relay_gap=100.0)).resolve()
     steps = list(plan.occupancy.given_way.values())
     assert [a.kind for a in steps] == ["relay-drop"] * 3 and {a.way for a in steps} == {"remove a row"}
     assert len(_placed(plan)) == 6
@@ -202,8 +202,8 @@ def test_a_whole_row_is_taken_out_where_an_irregular_grid_costs_more_than_the_vi
 
 
 def test_a_relay_never_takes_a_pad_below_the_keep_share():
-    plan = _board(NOROOM, TWO_CORNERS, pad_h=2.0, settings=Settings(place_via_leave=0.0, score_via_relay_gap=100.0,
-                                                                     place_drops_keep=0.8)).resolve()
+    plan = _board(NOROOM, TWO_CORNERS, pad_h=2.0, settings=Settings(place_via_leave_distance=0.0, score_via_relay_gap=100.0,
+                                                                     place_drops_keep_share=0.8)).resolve()
     step = plan.step("m")                   # ceil(0.8 * 9) = 8 stay: neither the row nor the two vias may go
     assert step.placement is None and "U1 pad 1 keeps 8 of its 9 drops, and must keep 8" in step.note, step.note
     assert not plan.occupancy.given_way
@@ -214,7 +214,7 @@ def test_a_later_drop_counts_the_vias_a_relay_took():
     (6 of 9 stay, the pad keeps 5), the second takes one more by drop, and the third is refused."""
     backs = [(17.5, 19.3, 0.3, 0.3), (18.1, 19.9, 0.3, 0.3), (17.5, 20.5, 0.3, 0.3)]
     plan = _board(NOROOM, backs, pad_h=2.0, cell_first=True,
-                  settings=Settings(place_via_leave=0.0, score_via_relay_gap=100.0)).resolve()
+                  settings=Settings(place_via_leave_distance=0.0, score_via_relay_gap=100.0)).resolve()
     steps = [plan.step(r) for r in ("r9", "r10", "r11")]
     assert sorted(s.placement is None for s in steps) == [False, False, True]
     refused = next(s for s in steps if s.placement is None)
@@ -306,7 +306,7 @@ def test_the_relay_settings_have_defaults_and_are_settable(tmp_path):
 
 def test_the_least_give_way_cost_counts_a_relay():
     from placemat.giveway import least_cost
-    off = dict(place_via_share=0.0, place_via_move=0.0, place_via_leave=0.0, place_via_route=0.0)
+    off = dict(place_via_share_distance=0.0, place_via_move_distance=0.0, place_via_leave_distance=0.0, place_via_route_distance=0.0)
     assert least_cost(Settings(**off)) == Settings().score_via_relay
     assert least_cost(Settings(place_via_relay=False, **off)) == Settings().score_via_drop
 

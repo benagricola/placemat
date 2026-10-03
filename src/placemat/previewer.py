@@ -284,10 +284,10 @@ def preview(script, faces=("front", "back"), svg_only: bool = False, out=None, h
             if png.exists():
                 png.unlink()
             width = int(math.ceil(svg_width_mm(text) * cfg.preview_px_per_mm))
-            if cfg.preview_model_edge > 0:
+            if cfg.preview_model_edge_px > 0:
                 result.seen_px_per_mm = seen_px_per_mm(*svg_size_mm(text), cfg.preview_px_per_mm,
-                                                       cfg.preview_model_edge)
-                result.model_edge = cfg.preview_model_edge
+                                                       cfg.preview_model_edge_px)
+                result.model_edge = cfg.preview_model_edge_px
             result.png_problem = convert(cfg.preview_converter, svg, png, width)
             result.png = None if result.png_problem else png
     return result
