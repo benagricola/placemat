@@ -12,7 +12,6 @@ constant with a comment (`set_constant`)."""
 from __future__ import annotations
 
 import ast
-import difflib
 import functools
 import hashlib
 import re
@@ -1218,10 +1217,6 @@ def _read_default(path):
     return Path(path).read_text()
 
 
-def _const_of(value):
-    return value.get("const") if isinstance(value, dict) and isinstance(value.get("const"), dict) else None
-
-
 def _find_consts(value, out):
     if isinstance(value, dict):
         if isinstance(value.get("const"), dict):
@@ -1309,11 +1304,6 @@ def apply(edit, text: str) -> str:
     files = apply_all(edit, lambda path: text)
     first = edit.file or (edit.target.file if edit.target else "")
     return files[first][1]
-
-
-def diff(before: str, after: str, name: str = "") -> str:
-    return "".join(difflib.unified_diff(before.splitlines(keepends=True), after.splitlines(keepends=True),
-                                        "a/" + name, "b/" + name))
 
 
 def keyword_constant(text: str, target, name: str):

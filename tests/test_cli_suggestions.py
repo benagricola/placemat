@@ -149,3 +149,21 @@ def test_a_suggestion_read_back_from_the_kept_plan_equals_the_one_in_the_record(
     (f,) = [f for f in plan.findings if f.kind == "link_over"]
     assert kept == list(f.suggestions)
     assert sg.from_json(f.detail()["suggestions"]) == list(f.suggestions)
+
+
+def test_the_studios_plan_json_carries_the_same_suggestions_as_the_run_record(tmp_path, planned):
+    from placemat.preview_json import plan_json
+    plan, path = planned
+    doc = plan_json(plan)
+    (row,) = [r for r in doc["findings"] if r["case"] == "link_over"]
+    (f,) = [f for f in plan.findings if f.kind == "link_over"]
+    assert row["suggestions"] == f.detail()["suggestions"]
+    assert sg.from_json(row["suggestions"]) == list(f.suggestions)
+    assert [r["suggestions"] for r in doc["findings"] if r["case"] is None] == [[] for _ in doc["findings"] if _["case"] is None]
+
+
+def test_a_finding_the_cli_prints_and_the_json_gives_agree(tmp_path, planned, capsys):
+    plan, path = planned
+    (f,) = [f for f in plan.findings if f.kind == "link_over"]
+    printed = f.try_lines()[0]
+    assert printed == "    try %s: %s" % (f.detail()["suggestions"][0]["id"], f.detail()["suggestions"][0]["text"])

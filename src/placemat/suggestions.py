@@ -602,10 +602,6 @@ def _beside(neighbour, side):
     return _form("Beside", _item(neighbour), _enum("Edge.%s" % side))
 
 
-def _said(measure: str, what: str) -> str:
-    return "Measured by a run's finding: %s" % what if measure else what
-
-
 def _mm(x) -> str:
     return "%.2f" % x
 

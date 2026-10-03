@@ -90,10 +90,6 @@ class Finding(str):
     def __reduce__(self):
         return Finding, (self.kind, str(self), self.severity, self.case, self.facts, self.suggestions)
 
-    def with_suggestions(self, suggestions) -> "Finding":
-        """The same finding with these suggestions."""
-        return Finding(self.kind, str(self), self.severity, self.case, self.facts, suggestions)
-
     def line(self) -> str:
         """The sentence as a run prints it: `[critical] ...`."""
         return "[%s] %s" % (self.severity, self)

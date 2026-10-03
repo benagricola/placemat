@@ -8,10 +8,7 @@ import re
 from collections import Counter
 
 from .board_geometry import members_of
-from .placement import Placement
 from .values import Beside, Edge, Face, Part
-
-_BUCKET_OWNER = re.compile(r"^(?:.* in )?(keepout|fanout of|label) ")
 
 
 def inst_of(board, ref: str) -> str:
