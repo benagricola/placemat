@@ -7,6 +7,17 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **Suggestions can edit inside a call and in several places at once.** An edit may go into an argument that is a call (a
+  `Beside`'s `gap=` or side, a `Past`'s `across=`, a `Cutout`'s `at=`, one axis of an intent `Centre`) and a suggestion
+  carries `edits`, a list made together or not at all, with one applied-log entry and one undo; its `how` says how it was
+  found. `run.json`'s and `preview --json`'s suggestions have `edits` and `how` where they had `edit`; a record that has
+  `edit` still reads. The outline (`rect`, `disc`, `outline`), a `row` and a `block` are declarations a suggestion can edit.
+- **`Centre(..., coordinates=True)` marks a coordinate.** `coordinates=False` is the default and is never written. A number on
+  a `Centre` axis without the flag is still accepted in this release and gives a `setup` warning
+  (`setup.centre_coordinates`); the next release refuses it. Writing `coordinates=False` is a `setup` notice.
+
 ### Fixed
 
 - **A pin whose copper ends against another part is reported walled off.** A pad that copper of its own net left counted as
@@ -3260,6 +3271,7 @@ that says what replaces it.
 | a sense track's first point placed from `placed_size()` half a track off a pad's edge | To 0.64.0 |
 | a pad placed at `X(PadRef(...), PITCH)` to stand a mechanical pitch from another pad | To 0.67.0 |
 | a `Beside` `gap=` worked out to put a pad a clearance off another part's pad | To 0.67.0 |
+| a `Centre` with a number on an axis | Unreleased: write `coordinates=True`, or a relation |
 | ground vias outside a region typed as computed `Location` vias | To 0.68.0 |
 | points of a datasheet figure typed as coordinates beside a `Path(anchor=)` keepout | To 0.68.0 |
 | `board.plane(net, layers=(In2,), over=[parts])` standing in for an inner-layer area over vias | To 0.69.0 |

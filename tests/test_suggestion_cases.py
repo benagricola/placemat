@@ -87,6 +87,7 @@ FACTS = {
     C.COPPER_STITCH: {}, C.COPPER_CROSS: {"yielder": "track SIG", "yielder_net": "SIG", "other_net": "GND", "other_bridge": True},
     C.COPPER_MEETS: TRACK, C.COPPER_NOT_DRAWN: TRACK, C.COPPER_CORNER: TRACK, C.COPPER_NOTE: dict(TRACK, variant="waypoint"),
     C.ESCAPE_WALLED: ESCAPE, C.ESCAPE_CLOSED: ESCAPE, C.ESCAPE_CROSSED: ESCAPE, C.ESCAPE_LANE: ESCAPE, C.PAIR_CROSSED: {},
+    C.SETUP_CENTRE_COORDINATES: {"item": "c9", "relation": {"item": "c1", "side": "NORTH"}}, C.SETUP_CENTRE_FLAG_DEFAULT: {"item": "c9"},
     C.SETUP_UNDECLARED: {"item": "c9", "anchor": "c1"}, C.SETUP_LANE_UNUSED: ESCAPE, C.SETUP_ACCEPT: {"key": "keep-out SIG"},
     C.VIAS_DROPPED: {"item": "c4"},
 }
@@ -102,7 +103,10 @@ def test_every_keyword_a_builder_sets_is_a_parameter_of_the_board_method_it_edit
     for case, builder in sg.CASES.items():
         for pick in builder(FACTS[case], settings) or ():
             e = pick.edits[0]
-            if e.op in ("set_kwarg", "edit_list", "remove_kwarg") and e.target is not None:
+            if e.op in ("set_kwarg", "edit_list", "remove_kwarg") and e.target is not None and e.args.get("into"):
+                assert e.args["name"] in {"coordinates", "gap", "across", "at"}, (case, e.args)       # a keyword of an inner call
+                seen += 1
+            elif e.op in ("set_kwarg", "edit_list", "remove_kwarg") and e.target is not None:
                 method = getattr(Board, e.target.kind)
                 params = inspect.signature(method).parameters
                 name = e.args.get("name") or e.args.get("arg")

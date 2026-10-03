@@ -270,6 +270,15 @@ no close placement requirement in common may be split into cells of
 their own." It carries no run-score weight (score.py), and the same text
 is a note on the cell's step.
 
+**A number on a `Centre` is a coordinate, and a script says so.** `Centre(30, 12, coordinates=True)` places by coordinates;
+without the flag each axis is a reference (`X(pad)`, `Y(pad)`, a `Mid`) or `None`. `coordinates=False` is the default and
+is never written: a script that writes it gets a `setup` notice (`setup.centre_flag_default`) and a suggestion that removes
+it. In this release a number without the flag is still accepted and gives a `setup` warning (`setup.centre_coordinates`: "u1:
+Centre(30, 12) places by coordinates: write coordinates=True, or place by a relation"); the next release refuses it.
+`Location` is coordinates by its name and takes no flag. A suggestion never writes a number into a `Centre` or a `Location`,
+never sets `coordinates=True`, and never edits a `Location` or a `Centre` with the flag; it may turn a coordinate placement
+into a relation (`Beside`), and it may free one axis of an intent `Centre` (`Centre(X(pad), None)`).
+
 **Degrees of freedom.** Each kind of place takes some away. `Location(x, y)`,
 `Centre(x, y)` and `Pin(key, x, y)` fix both coordinates (the origin, the
 body centre, or the item's own pad `key` (a number or a net), each axis a
@@ -3724,6 +3733,8 @@ cleared.
 | `label.not_drawn` | none |
 | `escape_walled`, `escape_closed` | a `board.fanout(part, sides=[...])` on the side the pad's way out points at; a `board.escape(...)` keeping the pin's lane clear |
 | `escape_lane`, `escape_crossed`, `pair_crossed` | none |
+| `setup.centre_coordinates` | place it beside the neighbour it stands next to, on the side it is on, where that is legal; never `coordinates=True` |
+| `setup.centre_flag_default` | the keyword removed |
 | `setup.undeclared` | a `board.place(Part(...))` for the part, after the script's last placement |
 | `setup.lane_unused` | the pin taken out of the `board.escape(...)` |
 | `setup.accept` | the `board.accept(...)` removed |
