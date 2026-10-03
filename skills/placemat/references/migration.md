@@ -5,6 +5,22 @@ script was written against and the version in use; `SKILL.md`'s check line says
 whether any of it applies. "Patterns in older scripts", at the end, names the
 section for each hand-written pattern a newer form replaces.
 
+## Unreleased
+
+### New
+
+- **Open a studio view on another device.** The page keeps its view in the address's hash (script, face, visible box,
+  selection, finding, tab), so an address copied or scanned opens the same view. A "Share" button shows a QR code of the
+  current view's address on the studio's LAN address, with the address to copy and the system share sheet where the
+  browser has one; a studio listening on 127.0.0.1 says to start it with `--host 0.0.0.0` instead. With `--host`, the
+  terminal prints the same QR code under the address. The code is drawn by a small encoder inside placemat
+  (`placemat/qr.py`, checked against an independent encoder in the tests), so nothing is fetched and no dependency is
+  added; the server draws it at `GET /qr?u=ADDRESS` for the studio's own addresses only.
+- **The studio's times are the server's.** The time since a resolve began, and on the step in hand, come from the
+  server's clock, so they are right after a reload, a reconnect or in a second window (`hello` has `now` and the
+  resolve under way as `work`; `begin` events carry `at`). A port already in use ends `placemat studio` with a plain
+  message, naming another studio when it is one.
+
 ## To 0.86.2
 
 ### New
