@@ -71,9 +71,32 @@ class Stream:
         self.conn.close()
 
 
+def _settled(s, seconds=300):
+    """Wait until the studio's first resolve has finished: the warm-up (a starved machine takes long over it) is not the test's wait."""
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        with s.lock:
+            if s.history and s._cur is None:
+                return
+        time.sleep(0.1)
+    raise AssertionError("the first resolve did not finish in %d s" % seconds)
+
+
 @pytest.fixture(scope="module")
 def studio(tmp_path_factory):
     script = real_modules.stage(tmp_path_factory.mktemp("studio"), "mcu")
+    s = Studio(script, port=0, open_browser=False, debounce_ms=100, poll_ms=50)
+    s.start()
+    _settled(s)
+    yield s
+    s.stop()
+
+
+@pytest.fixture
+def own_studio(tmp_path):
+    """A studio of this test's own, for one that must be connected while its first resolve runs (a shared one may have
+    finished it already, whichever test this worker reaches first)."""
+    script = real_modules.stage(tmp_path, "mcu")
     s = Studio(script, port=0, open_browser=False, debounce_ms=100, poll_ms=50)
     s.start()
     yield s
@@ -119,8 +142,8 @@ def _edit(studio, align):
 
 
 @needs_kicad
-def test_the_stream_shows_a_resolve_then_an_edit_with_what_it_moved(studio):
-    s = Stream(studio)
+def test_the_stream_shows_a_resolve_then_an_edit_with_what_it_moved(own_studio):
+    s = Stream(own_studio)
     try:
         hello = s.until("hello")
         assert hello["script"] == "Mcu_layout.py"
@@ -139,7 +162,7 @@ def test_the_stream_shows_a_resolve_then_an_edit_with_what_it_moved(studio):
         assert {"key", "kind", "face", "rotation", "note", "findings", "line", "file", "members"} <= set(steps[0])
         assert any(i["key"] == "r_led_status" and i["line"] > 0 and i["file"] == "Mcu_layout.py" for i in steps)
 
-        _edit(studio, "START")
+        _edit(own_studio, "START")
         changed = s.until("changed")
         assert changed["files"] == ["Mcu_layout.py"]
         started2 = s.until("started")
@@ -165,7 +188,7 @@ def test_a_page_that_connects_later_is_given_the_latest_resolve_whole(studio):
         s.until("hello")
         state = s.until("state")
         assert state["doc"]["counts"]["placed"] > 10 and "Mcu_layout.py" in state["texts"]
-        assert state["compare"]["diff"]["moved"] or state["compare"] is None
+        assert state["compare"] is None or "moved" in state["compare"]["diff"]       # a compare only where an earlier resolve exists: not every worker has had an edit first
     finally:
         s.close()
 
