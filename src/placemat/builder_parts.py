@@ -99,7 +99,8 @@ def read_outline(text: str) -> dict:
         if "fit" in kw and not (isinstance(kw["fit"], ast.Constant) and kw["fit"].value in (False, None)):
             out.update(kind="fit", shape="other", editable=False, why="a fit frame is derived from its content")
             return out
-        w, h = put("width", kw.get("width", pos[0] if pos else None)), put("height", kw.get("height", pos[1] if len(pos) > 1 else None))
+        put("width", kw.get("width", pos[0] if pos else None))
+        put("height", kw.get("height", pos[1] if len(pos) > 1 else None))
         ch, ra = put("chamfer", kw.get("chamfer")), put("radius", kw.get("radius"))
         out["shape"] = "rect_chamfer" if ch else "rect_round" if ra else "rect"
         if ch and ra:

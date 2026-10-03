@@ -11,15 +11,12 @@ The module is in sections: the outline and the size suggestion, the script's fir
 searching the rest, editing a placed item, and the turn suggestion."""
 from __future__ import annotations
 
-import ast
 import math
 import re
 import textwrap
-from pathlib import Path
 
 from . import script_edit
-from .script_edit import EditRefused
-from .suggestions import Edit, Target
+from .suggestions import Edit
 
 BUILDER = "the studio's board builder"
 WRAP = 110                      # a comment's text wraps here, so a line with its "# " is under 115 columns

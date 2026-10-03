@@ -61,8 +61,6 @@ class Session:
             raise Cancelled()
 
     def resolve(self, id, script, fresh=False) -> None:
-        from .layout import CriticalUnplaced, PlacementCollision
-        from .lanes import EscapeError
         from .previewer import resolved
         from .preview_json import board_json, declared_sites, item_json, plan_json, step_extras
         from .project import find_board

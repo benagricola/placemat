@@ -15,7 +15,6 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
-import time
 
 from . import builder, builder_facts as bf, builder_intents as bi, builder_parts as bp, script_edit, suggestions as sg, zen_edit
 from .suggestions import Edit
@@ -178,7 +177,6 @@ class BuilderService:
         return out
 
     def hello(self) -> dict:
-        s = self.session
         return {"unbuilt": self.unbuilt(), "phase": self.phase, "text": self.text, "tail": self.tail,
                 "session": self.session_json(), "ready": self.record is not None,
                 "settings": {"grid_mm": self.studio.cfg.studio_builder_grid_mm, "max_fill": self.studio.cfg.studio_builder_max_fill,
@@ -313,7 +311,6 @@ class BuilderService:
         s = self.session
         zen = self._zen_state()
         fab_file = rec.get("fab_file") or ""
-        root = self.studio.root
         fab_scope = "none" if not fab_file else ("board" if Path(fab_file).parent.resolve() == s["board_dir"].resolve() else "root")
         confirmed = rec.get("confirmed", "")
         model = bf.facts_model(rec["facts"], zen=zen, fab={"file": self._rel(fab_file) if fab_file else ""},
@@ -326,7 +323,6 @@ class BuilderService:
                 profile = json.loads(Path(fab_file).read_text())
             except (OSError, ValueError):
                 profile = {}
-        plan = bf.fab_plan(s["board_dir"], self.studio.root, [])
         return {"model": model, "zen": zen, "fab": {"file": self._rel(fab_file) if fab_file else "", "scope": fab_scope, "profile": profile,
                                                     "says": ("a profile at %s is the default: a change for this board writes %s beside the board"
                                                              % (self._rel(fab_file), bf.FAB_PROFILE)) if fab_scope == "root" else
@@ -349,7 +345,7 @@ class BuilderService:
     def facts_apply(self, request: dict) -> dict:
         """Write a batch of facts to their homes (one apply, one log entry), regenerate the board, and read the facts back: what
         the generator did not take is in `readback`, with an undo offered by the page."""
-        rec = self.need_ready()
+        self.need_ready()
         s = self.session
         try:
             plan = bf.facts_edits(request, zen_file=str(s["zen"]), board_name=s["name"], board_dir=s["board_dir"], root=self.studio.root)
@@ -494,7 +490,7 @@ class BuilderService:
 
     def gate(self) -> dict:
         """Whether placement is open: the facts are confirmed and match the board as generated now."""
-        rec = self.need_ready()
+        self.need_ready()
         facts = self.facts()
         return facts["model"]["gate"] | {"holds": facts["model"]["gate"]["holds"], "reasons": facts["model"]["reasons"]}
 

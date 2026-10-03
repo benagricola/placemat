@@ -17,7 +17,7 @@ from __future__ import annotations
 import ast
 import re
 
-from .script_edit import (EditRefused, Src, _call_seq, _list_seq, _nl_of, _parse, _splice, _value_node, _func_name)
+from .script_edit import (EditRefused, Src, _call_seq, _list_seq, _nl_of, _parse, _splice, _func_name)
 
 STDLIB_CONFIG = "@stdlib/board_config.zen"
 BUILDER_NOTE = "chosen in the studio's board builder"

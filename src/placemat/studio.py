@@ -1478,7 +1478,6 @@ class Studio:
         """The newest resolve against a recorded run: what moved, was added or removed among the items the run placed,
         the findings gained and lost and the score. A run records no copper or links, so those are not compared."""
         from .studio_diff import _findings, _texts
-        from collections import Counter
         with self.lock:
             b = self.history[-1] if self.history else None
         a = self.run_doc(run_id)
