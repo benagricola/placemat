@@ -6,9 +6,10 @@ cite the router's issues), so placemat and the router never disagree about
 which nets form a pair. Two nets pair when their keys share a base and a
 style and differ in polarity.
 
-A `route.diff_pairs` entry "NET_A/NET_B" names a pair outright, whatever the
-two are called (`explicit_pairs`). The router takes no such pair, so the
-route step routes it under a suffix name (`pair_aliases`).
+A board's own net classes name pairs too (`board_pairs`): a class other than
+"Default" with diff_pair_width and diff_pair_gap pairs its two nets whatever
+they are called. The router takes no such pair, so the route step routes it
+under a suffix name (`pair_aliases`).
 """
 from __future__ import annotations
 
