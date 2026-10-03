@@ -223,6 +223,7 @@ class Settings:
     studio_poll_ms: int = 200           # how often the watched files' modification times are read
     studio_cancel_grace_ms: int = 2000  # a resolve asked to stop that has not by then has its worker restarted
     studio_suggestions_per_lever: int = 3   # a finding's suggestions for one lever (which side to place beside): the best this many
+    studio_suggest_factor: float = 2.0  # a suggestion that widens a limit or reach (a search radius, via_move) multiplies it by this
     studio_try_timeout_s: int = 60      # a try of a suggestion (a resolve of the edited script) is stopped after this long
     studio_apply: bool = True           # false: the studio shows suggestions and diffs but refuses to write them
 
@@ -430,6 +431,8 @@ def _validate(name: str, value, path: str):
     if name in _CHOICES and value not in _CHOICES[name]:
         raise SettingsError("%s: %s must be %s, not %r" % (
             path, dotted, ", ".join(_CHOICES[name][:-1]) + " or " + _CHOICES[name][-1], value))
+    if name == "studio_suggest_factor" and not value > 1:
+        raise SettingsError("%s: %s must be greater than 1, not %r" % (path, dotted, value))
     if name in _ABOVE_ZERO and not value > 0:
         raise SettingsError("%s: %s must be greater than 0, not %r" % (path, dotted, value))
     if name in _AT_LEAST_ZERO and value < 0:

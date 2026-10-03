@@ -14,6 +14,7 @@ from __future__ import annotations
 import collections
 import contextlib
 import dataclasses
+import functools
 
 from collections import Counter
 from dataclasses import dataclass, field
@@ -959,6 +960,43 @@ class Board:
         self._radius = 0.0
         self.width = self._outline.width if self._outline else None
         self.height = self._outline.height if self._outline else None
+        self._late_suggestions: list = []   # (finding, measure) pairs: facts measured once the board is finished
+        self._sites: list = []              # the Site of each declaration: where the script made it (suggestions.bind)
+        self._file_digests: dict = {}       # file -> digest of its text when the first declaration in it was made
+        self.script_file = ""               # the layout script this board runs, set by the runner
+        self.source_reader = None           # callable(path) -> text where the script ran from other than the file on disk
+
+    # ------------------------------------------------------------ where declarations were made
+    def _source_text(self, path: str) -> str:
+        if self.source_reader is not None:
+            return self.source_reader(path)
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+
+    def file_digest(self, path: str) -> str:
+        """The digest of a script file's text as this resolve first saw it, so a file edited while the resolve runs
+        is not taken for the text its lines came from."""
+        if path not in self._file_digests:
+            from .script_edit import digest
+            try:
+                self._file_digests[path] = digest(self._source_text(path))
+            except (OSError, UnicodeDecodeError, KeyError):
+                self._file_digests[path] = ""
+        return self._file_digests[path]
+
+    def _record_site(self, kind: str, key: str, site: tuple) -> None:
+        file, line = site
+        if file and line:
+            self.file_digest(file)
+            self._sites.append(Site(kind, key, file, line))
+
+    def sites_of(self, kind: str, key: str) -> list:
+        return [s for s in self._sites if s.kind == kind and s.key == key]
+
+    def shared_by(self, site: "Site") -> int:
+        """How many declarations of this kind the script made on that file and line: more than one is a loop or a
+        helper, and an edit there would change them all."""
+        return sum(1 for s in self._sites if (s.kind, s.file, s.line) == (site.kind, site.file, site.line))
 
     # ------------------------------------------------------------ questions
     def part(self, key) -> Footprint:
@@ -4412,9 +4450,38 @@ class Board:
             if l.a[0] in placed and l.b[0] in placed:
                 l.achieved_mm = round(occ.pad_location(*l.a).distance(occ.pad_location(*l.b)), 3)
                 if not l.within_limit:
-                    plan.findings.append(Finding("link_over", "link %s.%s to %s.%s is %.2f mm, over its %.2f mm limit%s" % (
-                        l.a[0], l.a[1], l.b[0], l.b[1], l.achieved_mm, l.limit_mm, (": " + l.why) if l.why else "")))
+                    found = Finding("link_over", "link %s.%s to %s.%s is %.2f mm, over its %.2f mm limit%s" % (
+                        l.a[0], l.a[1], l.b[0], l.b[1], l.achieved_mm, l.limit_mm, (": " + l.why) if l.why else ""),
+                        case="link_over", facts=self._link_over_facts(l))
+                    plan.findings.append(found)
+                    self._late_suggestions.append((found, lambda f, l=l: self._measure_link_over(occ, plan, l, f)))
             plan.links.append(l)
+
+    def _link_over_facts(self, l) -> dict:
+        from .suggest_facts import inst_of
+        a, b = inst_of(self, l.a[0]), inst_of(self, l.b[0])
+        facts = {"link": _link_key(l), "a": {"key": a, "ref": l.a[0], "pad": l.a[1]},
+                 "b": {"key": b, "ref": l.b[0], "pad": l.b[1]}, "achieved": l.achieved_mm, "limit": l.limit_mm,
+                 "weight": int(l.weight)}
+        from .suggest_facts import intent_of
+        intent = intent_of(self, a)
+        if intent is not None and intent.kind != "block":
+            facts["a_searched"] = not intent.freedom.decided
+            facts["a_priority"] = intent.priority.value if intent.priority_source == "script" else ""
+        return facts
+
+    def _measure_link_over(self, occ: Occupancy, plan: Plan, l, finding) -> None:
+        """The sides of the link's far part its near end may stand beside, measured on the finished board."""
+        from .suggest_facts import free_sides, intent_of
+        facts = finding.facts
+        intent = intent_of(self, facts["a"]["key"])
+        if intent is None or intent.kind == "block":
+            return
+        step = next((s for s in plan.steps if s.item == intent.key and s.placement is not None), None)
+        if step is None:
+            return
+        facts["free_sides"] = free_sides(self, occ, plan, intent, facts["b"]["key"], step.placement.location,
+                                         step.placement.rotation, step.placement.face)
 
     # ------------------------------------------------------------ copper
     def _copper_intent(self, key, net, priority, plan, refs, why, bridge=False, extra_owners=frozenset()):
@@ -6411,6 +6478,11 @@ class Board:
                                     layer="User.Comments"))
             plan.steps.append(Step("faces", "copper", Priority.DEFAULT, None, 0.0, text[len("placemat faces "):], why, 1,
                                    laid=(len(plan.copper) - 1,)))
+        from . import suggestions
+        for found, measure in self._late_suggestions:     # what needs the finished board's occupancy
+            measure(found)
+        self._late_suggestions = []
+        suggestions.bind(plan.findings, self)       # each suggestion to the lines of the script it edits
         return plan
 
     def _give_way_copper(self, occ: Occupancy, plan: Plan) -> None:
@@ -8903,6 +8975,63 @@ def _label_op(text, box: Box, face: Face, side: Edge, gap: float, align: str, si
     vj, x = across[align]; return T(text, Location(x, off.bottom + gap), face, size, thick, 90.0, "right", vj, knockout, mirrored)
 
 
+@dataclass(frozen=True)
+class Site:
+    """Where a script declared something: the kind of call (`place`, `link`, `keepout`, ...), its key, and the
+    file and line the call was made on."""
+    kind: str
+    key: str
+    file: str
+    line: int
+
+
+def _link_key(l) -> str:
+    return "%s.%s>%s.%s" % (l.a[0], l.a[1], l.b[0], l.b[1])
+
+
+def _keyed(out) -> list:
+    key = getattr(out, "key", None)
+    return [key] if key else []
+
+
+def _first(args, kwargs, name):
+    return args[0] if args else kwargs.get(name)
+
+
+# (method -> a function from the board, the result and the arguments to the keys of the declarations it made):
+# every declaration a suggestion may edit records where it was made
+_SITED = {
+    "place": lambda b, out, a, k: _keyed(out),
+    "link": lambda b, out, a, k: [_link_key(out)],
+    "keepout": lambda b, out, a, k: [out.keepout.name],
+    "label": lambda b, out, a, k: [out] if isinstance(out, str) else list(out),
+    "track": lambda b, out, a, k: _keyed(out),
+    "pair": lambda b, out, a, k: _keyed(out),
+    "vias": lambda b, out, a, k: _keyed(out),
+    "via": lambda b, out, a, k: _keyed(out),
+    "stitch": lambda b, out, a, k: _keyed(out),
+    "pour": lambda b, out, a, k: _keyed(out),
+    "plane": lambda b, out, a, k: _keyed(out),
+    "fanout": lambda b, out, a, k: [b._item(_first(a, k, "item"))[1]],
+    "escape": lambda b, out, a, k: [b._item(_first(a, k, "part"))[1]],
+    "rule": lambda b, out, a, k: [out.why],
+    "accept": lambda b, out, a, k: ["%s %s" % (out.check, out.subject)],
+}
+
+
+def _sited(method: str, keys):
+    def wrap(fn):
+        @functools.wraps(fn)
+        def declared(self, *args, **kwargs):
+            site = _script_site()
+            out = fn(self, *args, **kwargs)
+            for key in keys(self, out, args, kwargs):
+                self._record_site(method, key, site)
+            return out
+        return declared
+    return wrap
+
+
 def _script_site() -> tuple:
     """(file, line) of the script (or test) that made the declaration being
     built: the first frame outside the placemat package."""
@@ -9921,3 +10050,7 @@ def _escape_lane(fp, pad, pads, width: float, reach: float):
     def lane(q):
         return poly_distance(ahead, q.outlines[0]) if near.overlaps(q.box) else None
     return lane
+
+
+for _method, _keys in _SITED.items():
+    setattr(Board, _method, _sited(_method, _keys)(getattr(Board, _method)))

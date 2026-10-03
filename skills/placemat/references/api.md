@@ -3747,6 +3747,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `studio.poll_ms` | 200 | how often the watched files' modification times are read |
 | `studio.cancel_grace_ms` | 2000 | a resolve asked to stop that has not stopped by then has its worker restarted |
 | `studio.suggestions_per_lever` | 3 | a finding's suggestions for one lever (which side of a part to place beside): the best this many, ranked |
+| `studio.suggest_factor` | 2.0 | a suggestion that widens a limit or a reach (a search radius, `place.via_move`) multiplies it by this, and one that narrows a step divides by it; above 1 |
 | `studio.try_timeout_s` | 60 | a try of a suggestion (a resolve of the edited script) is stopped after this long |
 | `studio.apply` | true | false: the studio shows suggestions and their diffs but refuses to write one |
 | `cleanup.enabled` | true | after the searched tier, move and swap plain searched parts where that shortens their wire and declared links |

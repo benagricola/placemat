@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import ast
 import difflib
+import functools
 import hashlib
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import libcst as cst
@@ -486,14 +487,30 @@ def _name_literal(call, index, keyword):
     return None
 
 
+_FINDERS: dict = {}
+
+
+def _finder_for(module, method):
+    """The module's calls of `board.<method>` with their positions, worked out once per module."""
+    key = (id(module), method)
+    hit = _FINDERS.get(key)
+    if hit is not None and hit[0] is module:
+        return hit[1], hit[2]
+    wrapper = MetadataWrapper(module, unsafe_skip_copy=True)
+    finder = _Finder(method)
+    wrapper.visit(finder)
+    if len(_FINDERS) > 96:
+        _FINDERS.clear()
+    _FINDERS[key] = (module, wrapper, finder)
+    return wrapper, finder
+
+
 def _locate(module, target, want_stmt=False):
     """The one call of this target in `module`: its method, its declared line, and (for a keepout, whose key is
     its name) the name it gives. Refused when there is none, or more than one, or it runs for several items."""
     if not target.line:
         raise EditRefused("the declaration of %s has no line: the script did not say where it was declared" % target.key)
-    wrapper = MetadataWrapper(module, unsafe_skip_copy=True)
-    finder = _Finder(target.kind)
-    wrapper.visit(finder)
+    wrapper, finder = _finder_for(module, target.kind)
     hits = [f for f in finder.found if f.line == target.line]
     if not hits:
         hits = [f for f in finder.found if f.line <= target.line <= f.end]
@@ -548,9 +565,16 @@ def _replace(wrapper, old, new):
     return out
 
 
+@functools.lru_cache(maxsize=32)
+def _parse_cached(text):
+    return cst.parse_module(text)
+
+
 def _parse(text):
+    """The text as a LibCST module. Modules are immutable, so a text parsed once (every suggestion of a plan reads
+    the same script) is not parsed again."""
     try:
-        return cst.parse_module(text)
+        return _parse_cached(text)
     except cst.ParserSyntaxError as e:
         raise EditRefused("the file does not parse: %s" % e)
 
@@ -668,6 +692,39 @@ def _keywords(call):
     return {a.keyword.value: a for a in call.args if a.keyword is not None}
 
 
+@functools.lru_cache(maxsize=None)
+def _positional_index(kind, name):
+    """Where the board method `kind` takes its parameter `name` by position (0 for the first after self), or None
+    where it is by keyword alone."""
+    import inspect
+    from .layout import Board
+    fn = getattr(Board, kind, None)
+    if fn is None:
+        return None
+    index = 0
+    for p in list(inspect.signature(fn).parameters.values())[1:]:
+        if p.kind not in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD):
+            return None
+        if p.name == name:
+            return index
+        index += 1
+    return None
+
+
+def _given(call, kind, name):
+    """The argument that gives parameter `name` of the call: `name=...`, or the argument in its position."""
+    kw = _keywords(call).get(name)
+    if kw is not None:
+        return kw
+    index = _positional_index(kind, name)
+    if index is None:
+        return None
+    if any(a.star == "*" for a in call.args):
+        raise EditRefused("the call spreads *args, so %s may be given there" % name)
+    positional = [a for a in call.args if a.keyword is None and not a.star]
+    return positional[index] if index < len(positional) else None
+
+
 def _has_star_kwargs(call):
     return any(a.star == "**" for a in call.args)
 
@@ -685,10 +742,9 @@ def _set_kwarg(text, edit, ctx_for):
     ctx = ctx_for(module, hit)
     src = _render(edit.value, ctx)
     call = hit.call
-    kw = _keywords(call)
-    if name in kw:
-        arg = kw[name]
-        if ast.dump(ast.parse(src, mode="eval")) == ast.dump(ast.parse(module.code_for_node(arg.value), mode="eval")):
+    arg = _given(call, edit.target.kind, name)
+    if arg is not None:
+        if _same(src, module.code_for_node(arg.value)):
             raise EditRefused("%s= is already %s" % (name, src))
         new_args = [a.with_changes(value=_expr(src)) if a is arg else a for a in call.args]
         return _finish_call(text, wrapper, hit, call.with_changes(args=new_args))
@@ -704,10 +760,13 @@ def _remove_kwarg(text, edit, ctx_for):
     module, wrapper, hit = _call_of(text, edit.target)
     name = edit.args["name"]
     seq = _Seq(hit.call)
-    idx = [i for i, a in enumerate(seq.items) if a.keyword is not None and a.keyword.value == name]
-    if not idx:
+    arg = _given(hit.call, edit.target.kind, name)
+    if arg is None:
         raise EditRefused("the call has no %s=" % name)
-    slots, lead, _ = _remove(seq.slots, seq.lead, idx[0])
+    k = next(i for i, a in enumerate(seq.items) if a is arg)
+    if arg.keyword is None and any(a.keyword is None and not a.star for a in seq.items[k + 1:]):
+        raise EditRefused("%s is given by position, and the arguments after it would move up" % name)
+    slots, lead, _ = _remove(seq.slots, seq.lead, k)
     return _finish_call(text, wrapper, hit, seq.build(slots, lead))
 
 
@@ -723,15 +782,11 @@ def _set_arg(text, edit, ctx_for):
     return _finish_call(text, wrapper, hit, hit.call.with_changes(args=new_args))
 
 
-def _list_arg(call, which):
-    for a in call.args:
-        if a.keyword is not None and a.keyword.value == which:
-            return a
+def _list_arg(call, which, kind):
     if isinstance(which, int):
         pos = [a for a in call.args if a.keyword is None and not a.star]
-        if which < len(pos):
-            return pos[which]
-    return None
+        return pos[which] if which < len(pos) else None
+    return _given(call, kind, which)
 
 
 def _same(src_a, src_b):
@@ -744,8 +799,11 @@ def _same(src_a, src_b):
 def _edit_list(text, edit, ctx_for):
     module, wrapper, hit = _call_of(text, edit.target)
     ctx = ctx_for(module, hit)
-    arg = _list_arg(hit.call, edit.args["arg"])
+    arg = _list_arg(hit.call, edit.args["arg"], edit.target.kind)
     if arg is None:
+        if edit.args.get("create") and edit.args.get("action") == "add" and isinstance(edit.args["arg"], str):
+            return _set_kwarg(text, replace(edit, op="set_kwarg", args={"name": edit.args["arg"]},
+                                            value={"list": [edit.value]}), ctx_for)
         raise EditRefused("the call has no %s" % (edit.args["arg"],))
     seq = _Seq(arg.value)
     sources = [module.code_for_node(it.value) for it in seq.items]
@@ -1250,3 +1308,87 @@ def apply(edit, text: str) -> str:
 def diff(before: str, after: str, name: str = "") -> str:
     return "".join(difflib.unified_diff(before.splitlines(keepends=True), after.splitlines(keepends=True),
                                         "a/" + name, "b/" + name))
+
+
+def keyword_constant(text: str, target, name: str):
+    """The name of the module-level constant that the target call's keyword `name` reads (`gap=GAP`), or None where it
+    is not given, is not a bare name, or the name is not assigned exactly once in the file."""
+    module, wrapper, hit = _call_of(text, target)
+    kw = _keywords(hit.call).get(name)
+    if kw is None or not isinstance(kw.value, cst.Name):
+        return None
+    ident = kw.value.value
+    return ident if sum(1 for s in module.body if _assigns(s, ident)) == 1 else None
+
+
+def _local_imports(script: Path) -> dict:
+    """{module stem: its file} for the modules the script imports that sit among its own files."""
+    from .settings import _files
+    tops = [script.parent]
+    found = _files(script.parent)
+    if found:
+        d = script.parent
+        while d != found[0].parent and d.parent != d:
+            d = d.parent
+            tops.append(d)
+    out = {}
+    try:
+        tree = ast.parse(script.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return out
+    for node in ast.walk(tree):
+        names = [node.module] if isinstance(node, ast.ImportFrom) and node.module and not node.level else (
+            [a.name for a in node.names] if isinstance(node, ast.Import) else [])
+        for full in names:
+            stem = full.split(".")[0]
+            for d in tops:
+                cand = d / (stem + ".py")
+                if cand.is_file() and cand != script:
+                    out.setdefault(stem, str(cand))
+                    break
+    return out
+
+
+_SKIP_DIRS = {".git", ".placemat", "__pycache__", "node_modules", ".venv", "venv", "generated"}
+
+
+def shared_module(script) -> str | None:
+    """The module the board's layout scripts share: of the local modules the script imports, the one most layout
+    scripts of the project import (at least one other besides this script), or None. A layout script is a file of
+    the project that imports placemat."""
+    script = Path(script).resolve()
+    mine = _local_imports(script)
+    if not mine:
+        return None
+    from .settings import _files
+    found = _files(script.parent)
+    root = found[0].parent if found else script.parent
+    counts = {stem: 1 for stem in mine}
+    scanned = 0
+    for p in sorted(root.rglob("*.py")):
+        if p == script or any(part in _SKIP_DIRS or part.startswith(".") for part in p.relative_to(root).parts[:-1]):
+            continue
+        scanned += 1
+        if scanned > 400:
+            break
+        try:
+            text = p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "placemat" not in text:
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                imported.add(node.module.split(".")[0])
+            elif isinstance(node, ast.Import):
+                imported |= {a.name.split(".")[0] for a in node.names}
+        for stem in counts:
+            if stem in imported and Path(mine[stem]) != p:
+                counts[stem] += 1
+    best = max(counts, key=lambda s: counts[s])
+    return mine[best] if counts[best] >= 2 else None
