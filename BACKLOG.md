@@ -246,6 +246,11 @@ file. An item cites its source as "a board's session, <date>".
 
 ## Done
 
+- **Stopping and resuming long commands** (0.88.0): a stop by signal writes
+  the best so far and run.json "stopped" and tells live readers; explore
+  checkpoints and resumes untried seeds; a resolve replays the steps a dead
+  run finished; a route keeps finished stages; `placemat lock --accept-seed`.
+
 - **Live progress for long commands** (0.87.0): each command that resolves a
   board owns a socket under .placemat/sockets with a catch-up for late
   readers, a progress trail for a command that dies, `placemat watch`, and the

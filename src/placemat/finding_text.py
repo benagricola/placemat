@@ -173,11 +173,6 @@ def _setup_accept(f):
         f["check"], f["subject"], {"passes": "passes", "not_judged": "is not judged"}[f["why_not"]])
 
 
-@renders(C.SETUP_SIZE_ALIAS)
-def _setup_size_alias(f):
-    return "board.size(...) is board.rect(...) now; the old name will be removed"
-
-
 # ------------------------------------------------------------------ fab
 @renders(C.FAB_MINIMUM, "net_class", "what", "value_mm", "minimum_mm", "key")
 def _fab_minimum(f):

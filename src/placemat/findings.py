@@ -91,7 +91,6 @@ class FindingCause(str, Enum):
     SETUP_FRAME_REACH = (FindingKind.SETUP, "setup.frame_reach")
     SETUP_ACCEPT = (FindingKind.SETUP, "setup.accept")
     SETUP_LAYER_LOST = (FindingKind.SETUP, "setup.layer_lost")
-    SETUP_SIZE_ALIAS = (FindingKind.SETUP, "setup.size_alias")
     SETUP_RULE_NOTE = (FindingKind.SETUP, "setup.rule_note")
     SETUP_LOOKAHEAD = (FindingKind.SETUP, "setup.lookahead")
     SETUP_PCBNEW = (FindingKind.SETUP, "setup.pcbnew")

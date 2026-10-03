@@ -936,7 +936,6 @@ class Board:
         # them, and where both match a pair the later decides
         from .rules import stamped_rules
         stamped, self._stamped_rule_notes = stamped_rules(geometry)
-        self._size_alias_used = False       # board.size(...), the old name of board.rect(...), was called
         self._rules: list = list(stamped)
         self._acceptances: list = []        # checks.Acceptance of each board.accept: read by the checks step alone, in no digest
         self._free_nets: set = set()
@@ -2015,9 +2014,9 @@ class Board:
         self._draw_outline = draw          # a fragment's frame is for placement only, never written
 
     def size(self, *args, **kwargs):
-        """The old name of `rect`: does what it does, and a `setup` notice says so."""
-        self._size_alias_used = True
-        return self.rect(*args, **kwargs)
+        """The old name of `rect`, removed: says what to write instead."""
+        raise AttributeError("board.size(...) is board.rect(...) since 0.85.0: rename the call (migration.md, "
+                             "\"To 0.85.0\")")
 
     def disc(self, diameter: float, hole: float = 0.0, holes=(), web: float = 0.0, draw: bool = True):
         """The board outline: a round board at the origin, `hole` wide through
@@ -6163,8 +6162,6 @@ class Board:
         self._solve_hints = None            # the global solve runs once per resolve, when first asked
         self._report_lost_layers(plan)
         plan.findings.extend(Finding.plain("setup", note, "notice") for note in self._stamped_rule_notes)
-        if self._size_alias_used:
-            plan.findings.append(Finding(C.SETUP_SIZE_ALIAS, {}, "notice"))
         self._rank(occ)
         if occ.envelope == "courtyard":
             from .envelope import understatement

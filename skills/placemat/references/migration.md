@@ -7,6 +7,23 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### Changed
+
+- **`board.size(...)` is refused.** It was renamed `board.rect(...)` in 0.85.0 and has given a `setup` notice since;
+  now it raises `AttributeError: board.size(...) is board.rect(...) since 0.85.0`. Rename the call, arguments
+  unchanged:
+
+  ```python
+  board.size(width=60, height=40, chamfer=2.0)    # before: refused
+  board.rect(width=60, height=40, chamfer=2.0)    # now
+  ```
+
+- **An arc corner's default radius is 3 track widths** (`copper.arc_radius_widths`, was 4): a `bend=Bend.ARC` corner
+  with no `radius=` and no stackup bend rule is tighter than before. A script that relied on the old default sets
+  `[copper] arc_radius_widths = 4.0` in `placemat.toml`, or `radius=` on the call.
+
+## To 0.88.0
+
 ### New
 
 - **Findings carry suggestions: changes to the layout script that may clear them.** `run` and `preview` print the

@@ -158,8 +158,8 @@ Check it against the current API before touching it:
 Any hit, or `AttributeError: type object 'Priority' has no attribute
 'FIXED'` at import, means it was written for an earlier placemat: fix those
 lines first. A monkeypatch of `Occupancy._transform` comes out, and
-`board.size(` becomes `board.rect(` (same arguments; the old name still works
-and raises a `setup` notice). Read
+`board.size(` becomes `board.rect(` (same arguments; the old name is refused
+with an error naming `board.rect`). Read
 `references/migration.md` from the script's version up; its last section,
 "Patterns in older scripts", names the section for each hand-written pattern
 a newer form replaces. A script with no hits still re-places on a newer
