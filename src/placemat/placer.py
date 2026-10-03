@@ -977,11 +977,13 @@ def _convex(poly) -> bool:
 
 
 def pockets(occ: Occupancy, width: float, height: float, face: Face = Face.FRONT, step: float = 0.5,
-            limit: int = 8, covered: bool = False) -> list:
+            limit: int = 8, covered: bool = False, item=None, vias: bool = True) -> list:
     """The free rectangles on `face` at least `width` x `height`, biggest
     first: the board rastered at `step`, what parts claim on that face
     blocked (courtyards and holes; bodies, pads and silk too in a drawn
-    envelope) and every through-via, the edge margin excluded, the largest
+    envelope) and every through-via that can refuse `item` (any, with no
+    item named: `Occupancy.vias_matter`; none with `vias` False, which
+    leaves to a scan what lies between vias), the edge margin excluded, the largest
     free rectangle the size fits taken and masked out until none is left or
     `limit` pockets are found.
 
@@ -1006,7 +1008,8 @@ def pockets(occ: Occupancy, width: float, height: float, face: Face = Face.FRONT
     # generator left it, which is nowhere, and blocks nothing.
     blocks = [s.poly for owner, g in occ.items.items() if owner not in occ.pending for s in g.shapes
               if s.kind in kinds and face in s.faces]
-    blocks += [c.poly for c in occ.copper if c.kind == "through"]      # vias come through: no face is free under them
+    if vias and (item is None or occ.vias_matter(item)):    # a via comes through, so it blocks both faces, to what it can refuse
+        blocks += [c.poly for c in occ.copper if c.kind == "through"]
     for poly in blocks:
         box = Box.of_points(poly)
         span = _cells(box, inner, step, rows, cols, covered)
