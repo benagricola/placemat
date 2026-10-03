@@ -2784,8 +2784,8 @@ allows; a board uses as many as its stackup has), `Face.FRONT / BACK`,
 ## Commands
 
 ```
-placemat run <script> [--label L] [--fresh] [--no-reuse] [--no-render] [--no-drc] [-v | -q] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]]
-placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--islands NET[=WIDTH] ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--json]
+placemat run <script> [--label L] [--fresh] [--no-reuse] [--no-resume] [--no-render] [--no-drc] [-v | -q] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]]
+placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--islands NET[=WIDTH] ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--no-resume] [--json]
                [--adopt NET ... | --adopt-all] [--partial] [--no-lock]
 placemat routes <script> [--release NET ... | --release-all]
 placemat impact <run-dir-or-json> <run-dir-or-json> [--board DIR]
@@ -3239,6 +3239,24 @@ each, on its own layer, forbidding tracks and vias (a route through one is
 a keepout breach naming its footprint), and the routed copy gets every
 footprint's graphics back as they were before its DRC is run; the report's
 `restored_graphics` counts them.
+
+**Stages and resume.** A route works in three stages - the differential
+pairs, the islands, the main pass - and keeps each in its work folder
+(`<run dir>/route/`, or `.placemat/route/`, or `--out`) as it finishes:
+`state.json` has the stage, the digest of its inputs (the board and its
+project files, the nets left out, the islands, the layers, `quick`, the
+iteration caps, the router and its version, the `[route]` settings), chained
+from the stage before, and the stage's result (its board, the pair outcome,
+the breaches, the time). A rerun whose digests match takes those stages
+(`took islands, main from an earlier route of the same inputs`;
+`metrics.route.resumed`) and routes the rest; the first stage that does not
+match is dropped with its files and every later stage, and routed. A stop
+(`SIGTERM`, Ctrl-C) or a router failure leaves the finished stages and the
+partial stage's log. `--no-resume` routes every stage again. The main pass is
+one stage: nothing inside it is kept (the router's own `KICAD_STOP_AFTER` /
+`KICAD_STOP_FILE` checkpoint stop, which writes the partial board, could be
+used for that later). The router's raw output is `router_out.kicad_pcb`;
+`routed.kicad_pcb` is made from it, then post-processed, every time.
 
 **Keeping routed copper.** `placemat route <script> --adopt NET ...` routes
 as above, then keeps the router's new copper on the named nets in

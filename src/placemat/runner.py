@@ -250,7 +250,8 @@ def keep_route(final_dir: Path, staging: Path) -> None:
 
 def run(script, label: str | None = None, fresh: bool = False, render: bool = True, drc: bool = True,
         quiet: bool = False, verbose: bool = False, route: bool = False, route_quick: bool = True,
-        route_exclude=(), keep_going: bool = False, overrides=None, reuse: bool = True, explore=None) -> RunResult:
+        route_exclude=(), keep_going: bool = False, overrides=None, reuse: bool = True, explore=None,
+        resume: bool = True) -> RunResult:
     """One layout attempt, with this board's settings resolved and bound for
     the whole of it: the deep geometry helpers read the binding, and the run
     id carries the settings so a changed one cannot collide with a previous
@@ -261,7 +262,7 @@ def run(script, label: str | None = None, fresh: bool = False, render: bool = Tr
     with settings.bind(cfg):
         return _run(script, src, cfg, label=label, fresh=fresh, render=render, drc=drc,
                     quiet=quiet, verbose=verbose, route=route, route_quick=route_quick,
-                    route_exclude=route_exclude, keep_going=keep_going, reuse=reuse, explore=explore)
+                    route_exclude=route_exclude, keep_going=keep_going, reuse=reuse, explore=explore, resume=resume)
 
 
 def drc_metrics(report, aw: dict, free: float) -> dict:
@@ -335,7 +336,8 @@ def reuse_parts(src, cfg, fab, pcb=None, board_digest: str | None = None) -> dic
 
 def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render: bool = True,
          drc: bool = True, quiet: bool = False, verbose: bool = False, route: bool = False,
-         route_quick: bool = True, route_exclude=(), keep_going: bool = False, reuse: bool = True, explore=None) -> RunResult:
+         route_quick: bool = True, route_exclude=(), keep_going: bool = False, reuse: bool = True, explore=None,
+         resume: bool = True) -> RunResult:
     configure(quiet=quiet)
     say = console.say
     runs = src.board_dir / ".placemat" / "runs"
@@ -598,7 +600,10 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             stage = "route"
             say("route", "%s routing on a copy of the board ..." % ("quick" if route_quick else "full"))
             report = route_board(src.pcb, run_dir / "route", exclude_nets=set(plan.plane_nets) | set(route_exclude),
-                                 quick=route_quick)
+                                 quick=route_quick, resume=resume)
+            if report.resumed:
+                say("route", "took %s from an earlier route of the same inputs (--no-resume routes again)" %
+                    ", ".join(report.resumed))
             metrics["route"] = report.as_dict()
             metrics["closure_clean"] = report.closure_clean
             rec.timing_s["route"] = round(time.time() - t0, 1)

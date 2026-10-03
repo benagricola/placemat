@@ -51,7 +51,8 @@ def parser() -> argparse.ArgumentParser:
                      help="with --explore: continue the saved explore of this script (its untried seeds, the rest of "
                           "its time) or refuse, saying what changed; without it a saved explore that is this one is "
                           "continued anyway")
-    run.add_argument("--no-resume", action="store_true", help="with --explore: start over, dropping a saved explore")
+    run.add_argument("--no-resume", action="store_true",
+                     help="start over: drop a saved explore (with --explore) and route every stage again (with --route)")
 
     rt = sub.add_parser("route", help="route a copy of a placed board with KiCadRoutingTools and score closure")
     rt.add_argument("pcb", help="a layout.kicad_pcb, or a layout script (its board)")
@@ -63,6 +64,9 @@ def parser() -> argparse.ArgumentParser:
     rt.add_argument("--full", action="store_true", help="the router's full run, not one round")
     rt.add_argument("--iterations", type=int, help="cap the router's search per net (default: the router's own)")
     rt.add_argument("--out", help="work directory (default: <board dir>/.placemat/route)")
+    rt.add_argument("--no-resume", action="store_true",
+                    help="route every stage again; by default the stages (pairs, islands, main) an earlier route of "
+                         "the same inputs finished in the work directory are taken, not routed again")
     rt.add_argument("--json", action="store_true")
     keep = rt.add_mutually_exclusive_group()
     keep.add_argument("--adopt", nargs="+", metavar="NET",
@@ -363,9 +367,8 @@ def cmd_settings(args) -> int:
 def _explore_options(args):
     """The ExploreOptions --explore and its flags ask for, or None."""
     if getattr(args, "explore", None) is None:
-        if any(getattr(args, k, None) for k in ("focus", "focus_after", "focus_box", "accept", "resume", "no_resume")):
-            raise SystemExit("--focus, --focus-after, --focus-box, --accept, --resume and --no-resume go with "
-                             "--explore SECONDS")
+        if any(getattr(args, k, None) for k in ("focus", "focus_after", "focus_box", "accept", "resume")):
+            raise SystemExit("--focus, --focus-after, --focus-box, --accept and --resume go with --explore SECONDS")
         return None
     from .explore import ExploreOptions
     from .values import Box
@@ -504,7 +507,7 @@ def cmd_run(args) -> int:
                  drc=not args.no_drc, quiet=args.quiet or args.json, verbose=args.verbose,
                  route=args.route, route_quick=not args.route_full, route_exclude=args.route_exclude,
                  keep_going=args.keep_going, overrides=overrides_from(args), reuse=not args.no_reuse,
-                 explore=_explore_options(args))
+                 explore=_explore_options(args), resume=not args.no_resume)
     if args.json:
         console.data(json.dumps(json.loads((result.run_dir / "run.json").read_text()), indent=2))
     # a run that placed but came out worse than the best of its parts is a
@@ -627,11 +630,15 @@ def cmd_route(args) -> int:
         islands = parse_islands(active().route_islands)
         islands.update({n: w for n, w in flag.items() if w is not None or n not in islands})   # a bare NET keeps its width
         report = route_board(pcb, work, exclude_nets=set(args.exclude) | planes, layers=args.layers,
-                             quick=not args.full, iterations=args.iterations, islands=islands)
+                             quick=not args.full, iterations=args.iterations, islands=islands,
+                             resume=not args.no_resume)
     if args.json:
         console.data(json.dumps(report.as_dict(), indent=2))
     else:
         console.say("route", report.summary())
+        if report.resumed:
+            console.say("route", "took %s from an earlier route of the same inputs (--no-resume routes again)" %
+                        ", ".join(report.resumed))
         for breach in report.keepout_breaches:
             console.say("route", breach)
         for net, n in sorted(report.open_nets.items(), key=lambda kv: -kv[1])[:15]:

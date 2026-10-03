@@ -35,6 +35,16 @@ section for each hand-written pattern a newer form replaces.
   `<run dir>/reuse.partial.jsonl` as the resolve goes, and removed once `reuse.json` is written. A rerun of the same
   inputs replays those steps by their chained keys (a step that changed since is not replayed, nor any after it) and
   says `reused N of M steps from run <id> (interrupted)`.
+- **A route keeps the stages it finished.** `run --route` and `placemat route` no longer empty the route work
+  folder: `state.json` there names each finished stage (pairs, islands, main) with a digest of its inputs (the board
+  and its project files, the nets left out, the islands, the layers, the router and its version, the `[route]`
+  settings, chained from the stage before). A route that is stopped or fails leaves them; a rerun of the same inputs
+  takes them (`took islands, main from an earlier route of the same inputs`, `report.resumed`) and only routes what is
+  left. A stage that does not match is routed again with every one after it. `--no-resume` routes every stage again.
+  A rerun of a run with the same id (same inputs) therefore no longer routes again unless `--no-resume` is given. The
+  router's own pass is not resumable inside (its `KICAD_STOP_AFTER` / `KICAD_STOP_FILE` checkpoint stop could be
+  used for that later). The raw router output is kept as `router_out.kicad_pcb`; `routed.kicad_pcb` is made from it
+  each time.
 - **An explore's workers are watched.** A worker that is killed from outside (the out-of-memory killer) or raises is
   reported with its exit signal or traceback, and the explore carries on with the others instead of waiting for it. A
   worker ends when its parent does.
