@@ -137,6 +137,9 @@ class Settings:
     explore_rank_power: float = 1.0    # a drawn spot at rank r is weighted 1 / r ** this: higher keeps nearer the best
     explore_congestion_step: float = 0.05   # the worst RUDY cell ranks variants in steps of this; 0 leaves it out
     explore_jobs: int = 0              # worker processes; 0: the CPU count less one
+    explore_stall_variants: int = 0    # stop an explore after this many variants without an improvement (0: not)
+    explore_stall_seconds: float = 0.0  # ... or after this many seconds without one (0: not)
+    explore_stop_hard_clear: bool = False   # ... or when a variant clears the hard terms the plain placement had (score.hard_clear)
     explore_checkpoint_max_variants: int = 100000   # finished variants a checkpoint records; past it a resume tries those again
     drc_severities: dict = field(default_factory=dict)   # KiCad rule -> error|warning|ignore, written into the board's project
     # [route]

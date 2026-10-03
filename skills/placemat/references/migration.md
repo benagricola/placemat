@@ -7,6 +7,24 @@ section for each hand-written pattern a newer form replaces.
 
 ## Unreleased
 
+### New
+
+- **An explore keeps its curve and says when the best was found.** Every finished variant is on the curve: its index
+  (the order it finished in, the plain placement 0), its seed, the seconds since the explore began (over every
+  session of a resumed one) and its score, with `best` set when it beat every variant before it. `metrics.explore`
+  in `run.json` and the explore record in `.placemat/views/explore/` have `curve`, `found` (`{i, seed, t, score,
+  of_variants, of_seconds}`: the last improvement) and `ended`; the channel's `variant` events carry `i`, `t`, `score`
+  and `best`, and `explore_done` carries `found` and `ended`. The checkpoint is deleted on completion, the record is
+  not. The console line says `best found at variant 7 of 34, 5 min 12 s in (of 43 min)`. A curve past 2000 variants is
+  kept as every improvement and an even sample.
+- **`[explore]` stopping rules**, all off by default: `stall_variants` (stop after that many variants without an
+  improvement), `stall_seconds` (or that many seconds since the last one), `stop_hard_clear` (or when a variant has
+  none of the hard terms the plain placement had). `ended.rule` says which ended it: `budget`, `stall_count`,
+  `stall_time`, `hard_clear` or `signal`. An explore ended by a rule is complete, not stopped: `--accept` applies and
+  its checkpoint is cleared as for a finished one. The hard terms are parts left unplaced and the findings whose kind
+  is critical by default that a plan's measures count (`fixed`, `copper`, `escape_walled`; `score.hard_clear`).
+  The three settings are not part of a checkpoint's digest.
+
 ### Changed
 
 - **`board.size(...)` is refused.** It was renamed `board.rect(...)` in 0.85.0 and has given a `setup` notice since;

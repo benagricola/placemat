@@ -62,6 +62,20 @@ def terms(m: dict, cfg) -> dict:
     return out
 
 
+# The terms that say a layout is unusable, not merely worse: parts left unplaced, and the findings whose kind is
+# critical by default (findings.SEVERITY: the board cannot be built or fully routed as it is) that a plan's measures
+# count - a decided item illegal where it stands (fixed), planned copper that meets another net (copper), a pad with
+# no route out (escape_walled). DRC has no part in a plan's measures, and `fab` is the same for every variant.
+from .findings import SEVERITY as _SEVERITY
+HARD_FINDINGS = tuple(k for k in _FINDING_WEIGHTS if _SEVERITY.get(k) == "critical")
+
+
+def hard_clear(m: dict) -> bool:
+    """Whether measures `m` have none of the hard terms: nothing unplaced and no critical finding."""
+    found = m.get("findings") or {}
+    return not (m.get("unplaced") or {}) and not any(found.get(k, 0) for k in HARD_FINDINGS)
+
+
 def total(m: dict, cfg) -> float:
     return sum(terms(m, cfg).values())
 

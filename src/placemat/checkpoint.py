@@ -104,6 +104,7 @@ class Prior(NamedTuple):
     spent: float          # seconds, over every session
     finished: bool
     best_seed: int
+    curve: list = []       # [(seed, score, t)] of the variants, in the order they finished
 
 
 class Checkpoint:
@@ -180,7 +181,8 @@ class Checkpoint:
         saved = read_best(self.dir)
         if saved is not None:
             self._best_written = (saved["score"], saved["seed"])
-        self.resumed = Prior(base["score"], base["measures"], done, spent, finished, best[1])
+        curve = [(d["v"], d["s"], d.get("t", 0.0)) for d in lines[1:] if "v" in d and d["v"]]
+        self.resumed = Prior(base["score"], base["measures"], done, spent, finished, best[1], curve)
         return self.resumed
 
     def best_measures(self, prior: Prior):
@@ -242,8 +244,8 @@ class Checkpoint:
         self._open("a").write({"stop": name, "t": round(elapsed, 2)})
         self.close()
 
-    def done(self, elapsed: float, best_seed: int) -> None:
-        self._open("a").write({"done": True, "best": best_seed, "t": round(elapsed, 2)})
+    def done(self, elapsed: float, best_seed: int, ended: dict | None = None) -> None:
+        self._open("a").write({"done": True, "best": best_seed, "t": round(elapsed, 2), "ended": ended})
         self.close()
 
     def close(self) -> None:
