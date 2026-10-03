@@ -286,3 +286,37 @@ def test_an_explore_tells_a_reader_the_plain_placement_each_variant_and_the_end(
     assert sorted(v["seed"] for v in variants) == [1, 2, 3, 4, 5, 6] and all(set(v["placements"]) == set(ex.FOCUS) and v["order"] for v in variants)
     assert min(v["score"] for v in variants + [{"score": start["baseline"]}]) == r.best
     assert [v["seed"] for v in r.variants][0] == 0 and len(r.variants) == r.tried
+
+
+def test_a_command_in_a_board_folder_and_watch_from_the_workspace_root_use_one_sockets_folder(tmp_path):
+    from placemat.studio import project_root
+    (tmp_path / "pcb.toml").write_text('[workspace]\nname = "w"\n')
+    board = tmp_path / "boards" / "core"
+    board.mkdir(parents=True)
+    (board / "placemat.toml").write_text("")
+    script = board / "Core_layout.py"
+    script.write_text("")
+    rep = channel.reporter(script)
+    assert rep is not None
+    assert project_root(board) == project_root(tmp_path) == project_root(tmp_path / "boards") == tmp_path.resolve()
+    live, _ = channel.scan(channel.sockets_dir(project_root(tmp_path)))
+    assert [e["pid"] for e in live] == [os.getpid()]
+    assert not (board / ".placemat" / "sockets").exists()
+    out = io.StringIO()
+    t = threading.Thread(target=lambda: channel.watch(project_root(tmp_path), None, True, out), daemon=True)
+    t.start()
+    time.sleep(0.5)
+    channel.finish()
+    t.join(10)
+    assert "hello" in out.getvalue()
+
+
+def test_the_project_root_is_the_outermost_placemat_toml_or_workspace_above_the_board(tmp_path):
+    from placemat.studio import project_root
+    lone = tmp_path / "a" / "b"
+    lone.mkdir(parents=True)
+    assert project_root(lone) == lone.resolve()
+    (tmp_path / "a" / "placemat.toml").write_text("")
+    assert project_root(lone) == (tmp_path / "a").resolve()
+    (tmp_path / "pcb.toml").write_text("[workspace]\n")
+    assert project_root(lone) == tmp_path.resolve()
