@@ -557,7 +557,7 @@ const S = {
   replay: null,                // null: every placement step shown; k: the first k placement steps
   play: null,                  // the running replay: {t0, k0, rate, n}
   liveQ: [],                   // streamed items waiting to be added to the drawing
-  face: "both", off: new Set(["labels"]), exp: new Set(["ko", "res"]), seenRegions: new Set(),   // off: what the legend has switched off; exp: its expanded rows
+  face: "both", off: new Set(["labels"]), seenRegions: new Set(),   // off: what the legend has switched off
   selRef: null, selRegion: null, module: null, sevFilter: "",
   view: null, tab: "steps", file: null, cmpFile: null, sbs: false, openRows: new Set(), showOther: false, closedKinds: new Set(), cardOff: null, cardLinks: false, sliding: false,
 };
@@ -1324,6 +1324,12 @@ function toggleOff(id) {
   applyVisibility(); renderLegend();
 }
 
+// A legend group (keepouts, reserved areas, the zones of a copper layer) with more entries than this starts collapsed; with
+// this many or fewer it starts expanded. A viewer's own choice replaces the rule and is kept in this browser.
+const LEGEND_FOLD_OVER = 3;
+const legendPref = (() => { try { return JSON.parse(localStorage.getItem("placemat.legend") || "{}") || {}; } catch (e) { return {}; } })();
+const isExp = (key, n) => key in legendPref ? !!legendPref[key] : n <= LEGEND_FOLD_OVER;
+function setExp(key, on) { legendPref[key] = on; try { localStorage.setItem("placemat.legend", JSON.stringify(legendPref)); } catch (e) {} }
 const SW = {   // the legend's swatches draw with the board's own classes, so the key is the colours the board uses
   cy: '<rect x="3" y="2" width="20" height="10" class="cy" style="stroke-width:1.4;stroke-dasharray:3 2;fill-opacity:0.18"/>',
   bd: '<rect x="3" y="2" width="20" height="10" class="bd" style="stroke-width:1.4"/>',
@@ -1351,7 +1357,7 @@ function legendHTML(p) {
   const copper = (p && p.copper) || [], links = (p && p.links) || [], kos = (p && p.keepouts) || [], res = (p && p.reservations) || [];
   const resNames = REGION_GROUPS.res(p);
   const row = (id, sw, name, n, o = {}) => '<div class="lg' + (S.off.has(id) ? " off" : "") + (o.sub ? " sub" : "") + (n === 0 ? " zero" : "") + '" data-id="' + escRaw(id) + '"' + (o.title ? ' title="' + esc(o.title) + '"' : "") + ">" +
-    (o.exp ? '<span class="car" data-exp="' + esc(o.exp) + '">' + (S.exp.has(o.exp) ? "&#9662;" : "&#9656;") + "</span>" : "") +
+    (o.exp ? '<span class="car" data-exp="' + esc(o.exp) + '" data-n="' + o.n + '">' + (isExp(o.exp, o.n) ? "&#9662;" : "&#9656;") + "</span>" : "") +
     (sw ? '<svg class="sw" viewBox="0 0 26 14">' + sw + "</svg>" : "") + '<span class="nm">' + esc(name) + "</span>" +
     (o.only ? '<button class="only" data-only="' + esc(id) + '">only</button>' : "") + (n != null ? "<em>" + n + "</em>" : "") + "</div>";
   const o = ['<div class="lgh">Legend<button data-close="1" aria-label="close">&times;</button></div>'];
@@ -1359,21 +1365,22 @@ function legendHTML(p) {
   o.push("<h4>Copper</h4>");
   for (const l of copperLayers(p)) {
     const face = LAYER_FACE(l), n = copper.filter(c => c.layer === l && c.t !== "via" && c.t !== "text").length + shapes(["copper"], l), other = face !== "inner" && S.face !== "both" && S.face !== face;
-    o.push(row("cu:" + l, SW.track(layerClass(l)), l + (other ? " (other face)" : ""), n, {only: true, title: other ? "drawn on the " + face + " face" : ""}));
-    for (const z of zonesOf(p, l)) o.push(row("z:" + z.i, SW.zone(layerClass(l)), z.name, null, {sub: true, title: z.t === "pour" ? "a fitted pour" : "a plane"}));
+    const zs = zonesOf(p, l);
+    o.push(row("cu:" + l, SW.track(layerClass(l)), l + (other ? " (other face)" : ""), n, Object.assign({only: true, title: other ? "drawn on the " + face + " face" : ""}, zs.length > LEGEND_FOLD_OVER ? {exp: "zl:" + l, n: zs.length} : {})));
+    if (zs.length <= LEGEND_FOLD_OVER || isExp("zl:" + l, zs.length)) for (const z of zs) o.push(row("z:" + z.i, SW.zone(layerClass(l)), z.name, null, {sub: true, title: z.t === "pour" ? "a fitted pour" : "a plane"}));
   }
   o.push(row("via", SW.via, "vias (ring, drill hole)", copper.filter(c => c.t === "via").length));
   o.push("<h4>Links" + infoBtn("links") + "</h4>");
   for (const [st, name] of [["ok", "within its limit"], ["over", "over its limit"], ["free", "no limit"]]) o.push(row("link:" + st, SW.link(st), name, links.filter(l => l.state === st).length));
   const head = (g, sw, name, n) => {
     const st = groupState(g, p), shown = n - REGION_GROUPS[g](p).filter(x => S.off.has(g + ":" + x)).length;
-    return '<div class="lg grp ' + st + (n === 0 ? " zero" : "") + '" data-grp="' + g + '" title="' + (st === "all" ? "hide all" : "show all") + '"><span class="car" data-exp="' + g + '">' + (S.exp.has(g) ? "&#9662;" : "&#9656;") + "</span>" +
+    return '<div class="lg grp ' + st + (n === 0 ? " zero" : "") + '" data-grp="' + g + '" title="' + (st === "all" ? "hide all" : "show all") + '"><span class="car" data-exp="' + g + '" data-n="' + n + '">' + (isExp(g, n) ? "&#9662;" : "&#9656;") + "</span>" +
       '<svg class="sw" viewBox="0 0 26 14">' + sw + '</svg><span class="nm">' + name + "</span><em>" + (st === "some" ? shown + " of " + n : n) + "</em></div>";
   };
   o.push("<h4>Regions</h4>", head("ko", SW.ko, "keepouts", kos.length));
-  if (S.exp.has("ko")) for (const k of kos) o.push(row("ko:" + k.name, SW.ko, k.name, null, {sub: true, title: k.why}));
+  if (isExp("ko", kos.length)) for (const k of kos) o.push(row("ko:" + k.name, SW.ko, k.name, null, {sub: true, title: k.why}));
   o.push(head("res", SW.res, "reserved areas", resNames.length));
-  if (S.exp.has("res")) for (const w of resNames) o.push(row("res:" + w, SW.res, w, null, {sub: true}));
+  if (isExp("res", resNames.length)) for (const w of resNames) o.push(row("res:" + w, SW.res, w, null, {sub: true}));
   o.push("<h4>Marks" + infoBtn("marks") + "</h4>", row("findings", SW.findings, "findings", findingPlaces(p).filter(Boolean).length, {title: findingPlaces(p).filter(Boolean).length + " of " + ((p && p.findings) || []).length + " findings are placed on the board: where they say, else at the pad or part they name. The rest name no place."}), row("heat", SW.heat, "congestion", p && p.congestion ? p.congestion.cells.length : 0), p && p.congestion && !S.off.has("heat") ? heatScale() : "", row("changes", SW.changes, "changes since the last resolve", null));
   return o.join("");
 }
@@ -1388,7 +1395,7 @@ function soloLayer(id) {
 $("#legend").onclick = e => {
   if (e.target.closest("[data-close]")) { $("#legend").classList.remove("open"); return; }
   const only = e.target.closest("[data-only]"); if (only) { soloLayer(only.dataset.only); return; }
-  const car = e.target.closest("[data-exp]"); if (car) { const k = car.dataset.exp; if (S.exp.has(k)) S.exp.delete(k); else S.exp.add(k); renderLegend(); return; }
+  const car = e.target.closest("[data-exp]"); if (car) { const k = car.dataset.exp; setExp(k, !isExp(k, +car.dataset.n)); renderLegend(); return; }
   const g = e.target.closest("[data-grp]"); if (g) { toggleGroup(g.dataset.grp); return; }
   const r = e.target.closest("[data-id]"); if (r) toggleOff(r.dataset.id);
 };

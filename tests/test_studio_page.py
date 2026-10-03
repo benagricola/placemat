@@ -383,7 +383,7 @@ out.legend = els["#legend"].innerHTML;
 const click = id => els["#legend"].onclick({target: {closest: s => s === "[data-id]" ? {dataset: {id}} : null}});
 click("via"); click("labels"); click("link:over"); click("cu:In1.Cu");
 out.rules = els["#visrules"].textContent;
-els["#legend"].onclick({target: {closest: s => s === "[data-exp]" ? {dataset: {exp: "ko"}} : null}});
+els["#legend"].onclick({target: {closest: s => s === "[data-exp]" ? {dataset: {exp: "ko", n: "1"}} : null}});
 out.expanded = els["#legend"].innerHTML;
 click("ko:antenna_clear");
 out.ko = els["#visrules"].textContent;
@@ -1230,3 +1230,27 @@ ev("selectItem('u1')"); ev("renderCard()"); out.card = els["#card"].innerHTML;
     f = out["findings"]
     assert '<span class="chip refusal">courtyard x1116</span>' in f and '<span class="sev critical">critical</span>' in f and "no legal location within" not in f
     assert out["card"].count("chip refusal") == out["steps"].count("chip refusal")           # the finding is not said twice on the card
+
+
+@needs_node
+def test_a_legend_group_with_more_than_three_entries_starts_collapsed_and_a_viewers_choice_is_kept(tmp_path):
+    out = run_more(tmp_path, r"""
+const many = n => Array.from({length: n}, (_, i) => Object.assign({}, KO, {name: "ko" + i}));
+hello(); started(1);
+send("board", Object.assign({}, BOARD, {keepouts: many(5), reservations: [RES]}));
+out.five = els["#legend"].innerHTML;
+send("board", Object.assign({}, BOARD, {keepouts: many(3), reservations: [RES]}));
+out.three = els["#legend"].innerHTML;
+send("board", Object.assign({}, BOARD, {keepouts: many(5), reservations: [RES]}));
+out.shown = ev("groupState('ko', plan())");
+// the header still switches every child, and the viewer's choice replaces the rule
+const hdr = els["#legend"].onclick({target: {closest: s => s === "[data-grp]" ? {dataset: {grp: "ko"}} : null}});
+out.after_toggle = [ev("S.off.size"), ev("REGION_GROUPS.ko(plan()).every(n => S.off.has('ko:' + n))"), ev("groupState('ko', plan())")];
+els["#legend"].onclick({target: {closest: s => s === "[data-exp]" ? {dataset: {exp: "ko", n: "5"}} : null}});
+out.opened = els["#legend"].innerHTML;
+out.pref = ev("JSON.stringify(legendPref)");
+""")
+    assert 'data-id="ko:ko0"' not in out["five"] and 'data-exp="ko" data-n="5">&#9656;' in out["five"]                    # five keepouts: collapsed
+    assert 'data-id="ko:ko0"' in out["three"] and 'data-exp="ko" data-n="3">&#9662;' in out["three"]                     # three: expanded
+    assert out["shown"] == "none" and out["after_toggle"][1] is False and out["after_toggle"][2] == "all"       # all five start hidden; the header, though collapsed, shows them all
+    assert 'data-id="ko:ko0"' in out["opened"] and out["pref"] == '{"ko":true}'
