@@ -98,6 +98,27 @@ class Finding(str):
         """The sentence as a run prints it: `[critical] ...`."""
         return "[%s] %s" % (self.severity, self)
 
+    def detail(self) -> dict:
+        """The finding as a run record and the JSON outputs carry it: its kind, severity and sentence, and, where it
+        has them, its case and its bound suggestions (a record from before suggestions has neither)."""
+        out = {"kind": self.kind, "severity": self.severity, "text": str(self)}
+        if self.case:
+            out["case"] = self.case
+        bound = [s.to_json() for s in self.suggestions if s.id]
+        if bound:
+            out["suggestions"] = bound
+        return out
+
+    def try_lines(self) -> list:
+        """What a console prints under a critical or warning finding: the best suggestion and the ids of the rest."""
+        bound = [s for s in self.suggestions if s.id]
+        if not bound or self.severity == "notice":
+            return []
+        out = ["    try %s: %s" % (bound[0].id, bound[0].text)]
+        if len(bound) > 1:
+            out.append("    or %s" % ", ".join(s.id for s in bound[1:]))
+        return out
+
 
 class Findings(list):
     """A plan's findings: a list that takes only Findings, so every sentence

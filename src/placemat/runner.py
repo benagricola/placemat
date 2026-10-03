@@ -573,6 +573,8 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
             say("checks", line)
         stale = checks.findings_of(outcomes)            # after the finding lines printed above: said here, kept in run.json
         plan.findings.extend(stale)
+        from . import suggestions as suggestions_mod
+        suggestions_mod.bind(plan.findings, board)
         for f in stale:
             console.finding(f)
         rec.timing_s["checks"] = round(time.time() - t0, 1)
@@ -615,7 +617,7 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
                       "rank": s.rank, "rank_of": s.rank_of, "note": s.note,
                       "why": s.why, "moved_mm": round(s.moved_mm, 3), "ops": s.ops} for s in plan.steps]
         rec.findings = list(plan.findings)
-        rec.finding_details = [{"kind": f.kind, "severity": f.severity, "text": str(f)} for f in plan.findings]
+        rec.finding_details = [f.detail() for f in plan.findings]
         rec.status = "ok"
     except RunFailure as e:
         rec.status = "failed"
@@ -664,6 +666,11 @@ def _run(script, src, cfg, label: str | None = None, fresh: bool = False, render
         except (json.JSONDecodeError, TypeError):
             pass
         record_latest(run_dir.parent, run_dir / "run.json", rec.board)
+        try:                                        # `placemat apply <id>` finds this plan's suggestions here
+            from . import suggestions as suggestions_mod
+            suggestions_mod.remember(src.board_dir, script, "run %s" % rec.run_id, plan.findings)
+        except OSError:
+            pass
     say("record", str(run_dir / "run.json"))
     return RunResult(rec, run_dir, generated, text, plan, regressed)
 

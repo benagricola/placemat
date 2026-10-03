@@ -1000,3 +1000,49 @@ def vias_dropped(f, settings):
             out.append(_setting("place", key, wide, text % wide,
                                 "A run's finding (vias.dropped): %s; place.%s was %g mm." % (f["item"], key, cur), key))
     return out
+
+
+# ------------------------------------------------------------------ the plan's suggestions, kept for `placemat apply`
+STORE = "suggestions.json"
+LOG = "applied.jsonl"
+
+
+def store_path(board_dir) -> Path:
+    return Path(board_dir) / ".placemat" / STORE
+
+
+def log_path(board_dir) -> Path:
+    """The applied log, shared by the command line and the studio: `<board>/.placemat/applied.jsonl`."""
+    return Path(board_dir) / ".placemat" / LOG
+
+
+def remember(board_dir, script, source: str, findings, now=None) -> None:
+    """Keep the suggestions of the plan a `run` or a `preview` just made, per script, for `placemat apply` to find by
+    id. `source` says which: "run 1a2b3c4d" or "preview"."""
+    path = store_path(board_dir)
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        doc = {}
+    scripts = doc.get("scripts", {})
+    scripts[str(Path(script).resolve())] = {"source": source, "at": _stamp(now),
+                                            "suggestions": to_json(flatten(findings))}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"version": 1, "scripts": scripts}, indent=1), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def recall(board_dir, script=None) -> dict:
+    """{script: {"source", "at", "suggestions": [Suggestion]}} for the scripts whose plans were kept, or just `script`."""
+    try:
+        doc = json.loads(store_path(board_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for name, entry in doc.get("scripts", {}).items():
+        if script is not None and Path(name) != Path(script).resolve():
+            continue
+        out[name] = {"source": entry.get("source", ""), "at": entry.get("at", ""),
+                     "suggestions": from_json(entry.get("suggestions", ()))}
+    return out
