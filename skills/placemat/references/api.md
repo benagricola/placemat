@@ -2,8 +2,9 @@
 
 ```python
 from placemat import (board, Along, Axis, Bearing, Bend, Beside, Between, Box, Cell, CellPadRef, Centre, Corner, Cover, Pin, Polar, OnRim, OnBore,
-                       Cutout, Disc, Drops, Arc, Circle, Path, Slot, CopperLayer, Edge, Face, Facing, Forbid, Fraction, FreeSpot, Inside, Land, Line, SideOf,
-                       LinkWeight, Location, Mid, Near, Net, OnEdge, Origin, Parallel, PadRef, Part, Past, Priority, Tangent, Turned, Turns, X, Y)
+                       Cutout, Disc, Drops, Arc, Circle, Path, Slot, CopperLayer, Edge, Face, Facing, Figure, FigurePoint, Forbid, Fraction, FreeSpot, Inside,
+                       Land, Line, SideOf, LinkWeight, Location, Mid, Near, Net, OnEdge, Origin, Parallel, PadRef, Part, Past, Priority, Reach, Tangent,
+                       Turned, Turns, X, Y)
 ```
 
 `board` is the board being laid out. Questions answer from the generated
@@ -1231,6 +1232,10 @@ board.keepout(shape, name, *, at=None, rotation=None, frame=None, margin=None, e
               allow=(), layers=None, max_height=None, bars=(), why="")
 ```
 
+`name` and `why=` are required (an empty `why` raises), and so is `at=` unless the
+shape is a `Part`, a `Cell`, an `Inside` or goes by `frame=`. `board.rule(...)`
+likewise raises without a `why`.
+
 ```python
 CLEARANCE = Path(DATASHEET_FIGURE, anchor=(0.0, 0.0))  # the datasheet's own coordinates
 
@@ -1686,8 +1691,9 @@ kept, and a spot is judged and scored as above, the back costing
 
 ```python
 board.place(Cell("c"), face=Face.EITHER, at=Polar((0.0, 19.0), None, about=CENTRE), rotations=Tangent(about=CENTRE, quarters=True))
-``` The global solve, the cleanup pass and explore leave such an item
-where its scan puts it.
+```
+
+The global solve, the cleanup pass and explore leave such an item where its scan puts it.
 
 **A disc with cutouts is still a disc.** A slot in a round board does not make
 it a shaped board: `OnRim`, `OnBore`, `ring()`, `board.radius` and
@@ -2690,8 +2696,7 @@ A fitted pour is given by its pads and vias alone: `cover=` with `swallow_pads=T
 is refused, and so is any point that is not a pad or a via; a via is a member only
 of a fitted pour. The pull-back this
 replaces (`swallow_pads` over a hull, a box or points, cut back from other
-copper when the board was written) is gone; see `migration.md`,
-"Unreleased".
+copper when the board was written) is gone; see `migration.md`, "To 0.67.0".
 
 **A finger as wide as a pad.** `board.finger(net, from_=, to=, width=PadRef(...))`
 runs the finger as wide as that pad measured across the run, instead of a
@@ -2784,16 +2789,16 @@ allows; a board uses as many as its stackup has), `Face.FRONT / BACK`,
 ## Commands
 
 ```
-placemat run <script> [--label L] [--fresh] [--no-reuse] [--no-resume] [--no-render] [--no-drc] [-v | -q] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]]
+placemat run <script | its directory> [--label L] [--fresh] [--no-reuse] [--no-resume] [--no-render] [--no-drc] [-v | -q] [--json] [--keep-going] [--route [--route-full] [--route-exclude NET ...]]
 placemat route <layout.kicad_pcb | script> [--exclude NET ...] [--islands NET[=WIDTH] ...] [--layers L ...] [--full] [--iterations N] [--out DIR] [--no-resume] [--json]
                [--adopt NET ... | --adopt-all] [--partial] [--no-lock]
 placemat routes <script> [--release NET ... | --release-all]
-placemat impact <run-dir-or-json> <run-dir-or-json> [--board DIR]
+placemat impact <run> <run> [--board DIR]      # each a run id, a unique id prefix, a --label, or a run directory or run.json path
 placemat drc <layout.kicad_pcb> [--json]
 placemat measure <layout.kicad_pcb | script | footprint.kicad_mod> [cell-or-part ...] [--pads] [--envelope] [--models] [--copper [NET ...]] [--keepouts [NAME ...] [--near MM]] [--labels] [--outline] [--json]
 placemat parts <layout.kicad_pcb | script> [--field NAME ...] [--fragments] [--json]
 placemat nets <layout.kicad_pcb | script> [--sort COLUMN] [--net NET ...] [--inst] [--json]
-placemat datasheet <pdf> [--show PAGE|TOPIC [--png | --out FILE.png]] [--read] [--no-ocr] [--dpi N] [--json]
+placemat datasheet <pdf> [--show PAGE|TOPIC [--png | --out FILE.png|DIR]] [--read] [--no-ocr] [--dpi N] [--json]
 placemat datasheet check <pdf> <footprint.kicad_mod> [--pitch F] [--pad WxH] [--pads N] [--span F] [--tol F] [--json]
 placemat occupancy <layout.kicad_pcb | script> (--at X,Y | --box X0,Y0,X1,Y1 | --via-near PART.PAD | --corridor A B)
                    [--net N] [--size D] [--drill H] [--layer L] [--radius R] [--step S] [--in-pad] [--json]
@@ -2886,7 +2891,8 @@ reports an attribute rather than layers, because a footprint has no stackup.
 text and a stamped cell's - with face, cell, the box KiCad draws, position,
 height, stroke, angle and mirroring, so a panel can be sized round them and
 another board's marks matched; then its silk graphics (an arrow, a mark),
-each with its kind, face, cell, box and stroke.
+each with its kind, face, cell, box and stroke. `--outline` lists the board's
+edge instead: each Edge.Cuts item, the box round them and the board's thickness.
 
 `layer` draws one copper layer of a board file as SVG - zone fills
 (translucent) and outlines (dashed), pads, tracks and vias, each net in its
@@ -2916,7 +2922,8 @@ courtyard, fab body, silk and reference, planned copper, declared links
 (green within their limit, red over it, with their lengths), parts that took
 a pocket, the congestion heat map with its worst cell, and a column with the
 parts not placed and why. `--zoom` and `--around` draw one region of each
-face; `--no-tags` leaves the annotation tags off the picture, which at a
+face (`--margin MM` is the room round `--around`, 5 by default);
+`--face front|back|both` picks the faces drawn; `--no-tags` leaves the annotation tags off the picture, which at a
 close look cover small parts, and still prints their text. A preview writes
 no run record; `placemat run` is still what checks the
 board. It also prints the resolution a model reading the PNG sees: an
@@ -2961,8 +2968,8 @@ loading pcbnew in a scratch script.
 `datasheet` ranks a PDF's pages against four topics - land pattern, package
 dimensions, layout rules and pin map - and prints the evidence behind each
 ranking, so the ranking can be judged rather than trusted. `--show p7` prints
-that page's text with positions; `--show land` resolves the topic through the
-index first. It writes no file unless asked: `--png` also renders the page to
+that page's text with positions; `--show land` (or `package`, `rules`, `pins`) resolves the topic
+through the index first. It writes no file unless asked: `--png` also renders the page to
 `<project>/.placemat/views/datasheet/<pdf>-p<N>.png` (the project is the
 nearest directory up from the PDF holding `.placemat/` or `placemat.toml`, else
 the PDF's own), and `--out FILE.png` renders it there; the path is printed, and
@@ -2999,7 +3006,9 @@ check     1 of 3 checks disagree
 it stands - routed or not. `--at` names the copper under a point on each layer
 and the nearest copper of another net, then whether a via fits there and why
 not. `--box` counts the copper in a box by net and kind on each layer.
-`--via-near` searches outward from a pad, in a fixed order so the same board
+`--net`, `--size`, `--drill` and `--layer` override the pad's net, the net class's via size and drill
+and the tail's layer; `--radius` and `--step` set how far from the pad it looks and on what grid; `--in-pad`
+lets the via stand in its own pad. `--via-near` searches outward from a pad, in a fixed order so the same board
 gives the same answer, for the nearest spot a via of the pad's net clears
 every other net's pads, tracks, vias and graphic copper, every hole, every
 keepout forbidding vias and the edge, and can be reached by a straight tail;
@@ -3174,7 +3183,7 @@ matches, better than, worse than, or not judged. **A run that comes out
 worse is a finding naming the score and the term that moved it most, and
 `placemat run` exits 1**, so a regression cannot pass unnoticed in a loop. Adding or removing a
 part starts a new family. Routing needs
-KiCadRoutingTools at `$KRT_DIR` (default `~/work/KiCadRoutingTools`) with
+KiCadRoutingTools at `[route] router_dir`, else `$KRT_DIR` (default `~/work/KiCadRoutingTools`) with
 its own venv; quick mode is one routing round with the router's post-route
 smoothing off (a measurement: a small two-layer board routes in about 10 s), `--full`
 is the router's whole run. The search budget per net is the router's own
@@ -3305,14 +3314,24 @@ agent.
 placemat studio [<script>] [--port N] [--no-open] [--host ADDR]
 ```
 
-With `--host` the studio prints a QR code of its address in the terminal, for a phone to scan; the page's "Share"
-button shows the same for the current view (the view is kept in the address's hash).
-
 It prints an address (`http://127.0.0.1:PORT/?t=TOKEN`) and opens it unless
-`--no-open`. The server listens on 127.0.0.1 only, answers only GET, and
-refuses any request without the token in the address; stop it with Ctrl-C.
+`--no-open`. By default the server listens on 127.0.0.1 only. Every request
+needs the token in the address (and a `Host` header the studio listens on);
+GET serves the page and its data, and POST only `/switch`, `/run` and
+`/resolve`. Stop it with Ctrl-C.
 One studio serves one script at a time. It needs the board's cached generation, as
 `preview` does: `placemat run` the script once first.
+
+`--host ADDR` listens on another address (`0.0.0.0` for every one), so a phone
+or another machine on the network can open the page; the token is still
+required. With it the terminal prints a QR code of the address under it, and
+the page's "Share" button shows a QR code of the current view's address on the
+studio's LAN address, with the address to copy (the view is kept in the
+address's hash: script, face, visible box, selection, finding, tab). A studio
+on 127.0.0.1 says to start it with `--host 0.0.0.0` instead. The QR code is
+drawn by the studio itself at `GET /qr?u=ADDRESS`, for its own addresses only. A
+port already in use ends the command with a message, naming another studio
+when it is one; `--port 0` (the `[studio] port` default) takes any free port.
 
 With no `<script>` the studio finds the layout scripts under the current
 directory's project (the folder of the outermost `placemat.toml` above it, else
@@ -3361,6 +3380,11 @@ shown as an error with its line, over the last good plan, marked stale.
   item marks the changed lines of its declaration. A moved item whose own
   declaration did not change was moved by something else the edit did; the
   page says so.
+
+**Buttons.** The header has Run, Resolve, Share and Source (one menu button on a
+phone); the board's name is a menu of the project's layout scripts. Resolve
+cancels what is running and resolves again now, and its menu offers a full
+resolve from scratch, as the strip shown during a resolve has "Again".
 
 **Run.** The Run button runs `placemat run <script> --no-render` (the design
 checks, KiCad's DRC and the score, a run record in `.placemat/runs`) and shows
@@ -3783,7 +3807,7 @@ real_kinds = ["clearance", "shorting_items", "hole_clearance"]
 | `score.pair_crossing` | 100 | mm a differential pair (a net class's own, board_pairs) crossing itself costs, in place of `score.crossing`: such a pair has to exchange sides to route coupled, so a swap of two identical parts or a turned part is worth wire |
 | `score.escape_crossed` | 20 | mm two escapes from one part's pins crossing near its pin row cost |
 | `score.escape_closed` | 50 | mm a pad whose last route toward what it connects to is closed costs |
-| `score.escape_walled` | 400 | mm a pad with no route out at all costs. A pad that copper of its own net already leaves (a track from it, a via in it, a pour over it) is not counted, closed or walled; what walls one is named by owner, "track NET", "via NET", "pour NET" or "the escape lane of U1 pin 53". A pad whose net has no other pad on the board (a pin the module hands off to the parent board; not a no-connect net: `NC_...`, `unconnected-(...)`, or a net named under an instance, with a dot) is reported at the end of the run when no track or via gets out of it, from the end of its own net's copper on it (a stub, an escape's lane) where it has any: "no other pad is on the net, so it leaves the board here, and it is walled off by ...". Such a pin keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept |
+| `score.escape_walled` | 400 | mm a pad with no route out at all costs. A pad that copper of its own net already leaves (a track from it, a via in it, a pour over it) is not counted, closed or walled; what walls one is named by owner, "track NET", "via NET", "pour NET" or "the escape lane of U1 pin 53". A pad whose net has no other pad on the board (a pin the cell hands off to the board above it; not a no-connect net: `NC_...`, `unconnected-(...)`, or a net named under an instance, with a dot) is reported at the end of the run when no track or via gets out of it, from the end of its own net's copper on it (a stub, an escape's lane) where it has any: "no other pad is on the net, so it leaves the board here, and it is walled off by ...". Such a pin keeps no corridor in the placement search; `board.escape` names the pins whose routes out are to be kept |
 | `score.escape_lane` | 400 | mm a declared `board.escape` lane costs that another net's pad, hole or copper already placed blocks, or whose via has no legal spot: in the search at each candidate, and in the run score as the `escape_lane` finding |
 | `score.escape_depth` | 1.5 | mm: the corridor length the escape findings, and so the run score, are measured at, whatever `place.escape_depth` the search used, so runs at different search depths compare |
 | `score.congestion` | 10 | explore: mm per `explore.congestion_step` of the worst RUDY cell |
